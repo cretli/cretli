@@ -1,0 +1,9 @@
+# Default owner for everything in this repository.
+* @ar2oor
+
+# Security-sensitive surfaces: auth, network binding and the shell/agent bridge.
+/lib/auth.js @ar2oor
+/lib/ws/ @ar2oor
+/server.js @ar2oor
+/SECURITY.md @ar2oor
+/.github/workflows/ @ar2oor

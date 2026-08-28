@@ -1,0 +1,562 @@
+{
+  "version": 1,
+  "defaults": {
+    "mode": "append",
+    "connection": "connected",
+    "agent": "active",
+    "recentOutput": false
+  },
+  "scenarios": [
+    {
+      "group": "Generating after refresh",
+      "id": "refresh-inline-running",
+      "name": "Inline running po refreshu",
+      "assumptions": {
+        "mode": "append"
+      },
+      "steps": [
+        {
+          "name": "follow-up visible",
+          "input": "→ Add a follow-up\n",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.generating", "equals": false }
+          ]
+        },
+        {
+          "name": "inline running chunk",
+          "input": "\u001b[2K\u001b[G◇ Running... 848 tokens  → Add a follow-up  ctrl+c to stop",
+          "recentOutput": true,
+          "ensures": [
+            { "path": "state.tone", "equals": "running" },
+            { "path": "parsed.generating", "equals": false }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Generating after reconnect",
+      "id": "reconnect-then-generating",
+      "name": "Reconnect i nowy output",
+      "steps": [
+        {
+          "name": "reconnecting with empty buffer",
+          "mode": "replace",
+          "input": "",
+          "connection": "reconnecting",
+          "agent": "disconnected",
+          "recentOutput": false,
+          "ensures": [
+            { "path": "state.tone", "equals": "connecting" },
+            { "path": "parsed.generating", "equals": false }
+          ]
+        },
+        {
+          "name": "output arrives after reconnect",
+          "mode": "replace",
+          "input": "\u001b[32m⬢\u001b[39m \u001b[1mGenerating...\u001b[22m\n│ \u001b[2m→ \u001b[22m\u001b[7mA\u001b[27mdd a follow-up \u001b[90mctrl+c to stop\u001b[39m",
+          "connection": "connected",
+          "agent": "active",
+          "recentOutput": true,
+          "ensures": [
+            { "path": "state.tone", "equals": "generating" },
+            { "path": "parsed.generating", "equals": true }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "State transitions",
+      "id": "reading-to-generating-to-awaiting",
+      "name": "Reading -> Generating -> Follow-up",
+      "steps": [
+        {
+          "name": "reading stage",
+          "mode": "replace",
+          "input": "• Reading file app_front/chat.js...\n",
+          "ensures": [
+            { "path": "state.tone", "equals": "reading" },
+            { "path": "parsed.generating", "equals": false }
+          ]
+        },
+        {
+          "name": "then generating",
+          "mode": "replace",
+          "input": "• Generating...\n",
+          "ensures": [
+            { "path": "state.tone", "equals": "generating" },
+            { "path": "parsed.generating", "equals": true }
+          ]
+        },
+        {
+          "name": "after done awaiting follow-up",
+          "mode": "replace",
+          "input": "Done.\n→ Add a follow-up\n",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.generating", "equals": false }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Safety priorities",
+      "id": "approval-overrides-generating",
+      "name": "Approval ma priorytet nad generating",
+      "steps": [
+        {
+          "name": "generating stage",
+          "mode": "replace",
+          "input": "• Generating...\n",
+          "ensures": [
+            { "path": "state.tone", "equals": "generating" },
+            { "path": "parsed.generating", "equals": true }
+          ]
+        },
+        {
+          "name": "approval prompt appears",
+          "mode": "replace",
+          "input": "Run this command? (y/n)\n",
+          "ensures": [
+            { "path": "state.tone", "equals": "approval" },
+            { "path": "parsed.generating", "equals": false }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions after F5",
+      "id": "stale-generating-should-await-input",
+      "name": "Stale Generating must not win over the input prompt",
+      "steps": [
+        {
+          "name": "stary status generating + aktywny prompt",
+          "mode": "replace",
+          "agent": "idle",
+          "input": "◇ Generating... 848 tokens\n→ Add a follow-up\n> ",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.awaiting", "equals": true }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions after F5",
+      "id": "stale-running-cr-should-await-input",
+      "name": "Stale Running with CR must not win over the prompt",
+      "steps": [
+        {
+          "name": "running z carriage return + aktywny prompt",
+          "mode": "replace",
+          "agent": "idle",
+          "input": "• Running...\r→ Add a follow-up\r> ",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.awaiting", "equals": true }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions after F5",
+      "id": "stale-generating-ansi-should-await-input",
+      "name": "Stale Generating ANSI must not win over the prompt",
+      "steps": [
+        {
+          "name": "ansi generating + prompt input",
+          "mode": "replace",
+          "agent": "idle",
+          "input": "\u001b[32m⬢\u001b[39m \u001b[1mGenerating...\u001b[22m 445 tokens\n→ Add a follow-up\n> ",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.awaiting", "equals": true }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions after F5",
+      "id": "stale-running-box-should-await-input",
+      "name": "Stale Running inside a box must not win over the prompt",
+      "steps": [
+        {
+          "name": "running + box + prompt",
+          "mode": "replace",
+          "agent": "idle",
+          "input": "◇ Running.\n┌───────────────────────────────┐\n│ → Add a follow-up            │\n└───────────────────────────────┘\n> ",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.awaiting", "equals": true }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions",
+      "id": "reading-single-dot-should-win-over-textarea",
+      "name": "Reading. (1 kropka) ma priorytet nad textarea",
+      "steps": [
+        {
+          "name": "reading with a single dot + follow-up",
+          "mode": "replace",
+          "input": "• Reading. 1.35k tokens\n→ Add a follow-up\nctrl+c to stop",
+          "ensures": [
+            { "path": "state.tone", "equals": "reading" },
+            { "path": "parsed.generating", "equals": false }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions after F5",
+      "id": "running-tokens-with-followup-should-await-input",
+      "name": "Running + tokens + follow-up (no >) after reload waits for input",
+      "steps": [
+        {
+          "name": "stale running line + follow-up box",
+          "mode": "replace",
+          "agent": "idle",
+          "input": "● Running 425 tokens\n┌────────────────────────────────────────────────┐\n│ → Add a follow-up                    ctrl+c to stop │\n└────────────────────────────────────────────────┘",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.awaiting", "equals": true }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions after F5",
+      "id": "running-tokens-wrapped-lines-should-await-input",
+      "name": "Running + tokens with a line break after reload waits for input",
+      "steps": [
+        {
+          "name": "running 425/tokens oraz Add a/follow-up w osobnych liniach",
+          "mode": "replace",
+          "agent": "idle",
+          "input": "● Running 425\ntokens\n┌────────────────────────────────────────────────┐\n│ → Add a\nfollow-up                    ctrl+c to stop │\n└────────────────────────────────────────────────┘",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.awaiting", "equals": true }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions after F5",
+      "id": "running-single-dot-tokens-should-await-input",
+      "name": "Running. + tokens + follow-up after reload waits for input",
+      "steps": [
+        {
+          "name": "running single-dot z tokenami i follow-up bez migania",
+          "mode": "replace",
+          "agent": "idle",
+          "input": "◦ Running. 550 tokens\n→ Add a follow-up\nctrl+c to stop",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions after F5",
+      "id": "generating-followup-refresh-without-recent-output-should-await-input",
+      "name": "Generating + Add a follow-up after reload (no recent output) waits for input",
+      "steps": [
+        {
+          "name": "stale generating after a reload + follow-up",
+          "mode": "replace",
+          "agent": "idle",
+          "recentOutput": false,
+          "input": "◇ Generating... 445 tokens\n→ Add a follow-up\nctrl+c to stop",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.awaiting", "equals": true }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions after F5",
+      "id": "generating-followup-without-tokens-refresh-should-await-input",
+      "name": "Generating + Add a follow-up without tokens after reload waits for input",
+      "steps": [
+        {
+          "name": "stale generating without tokens after a reload",
+          "mode": "replace",
+          "agent": "idle",
+          "recentOutput": false,
+          "input": "◇ Generating...\n→ Add a follow-up\nctrl+c to stop",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.awaiting", "equals": true }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: Running",
+      "id": "running-followup-with-agent-active-should-stay-generating",
+      "name": "Running + follow-up with an active agent must not flicker to the textarea",
+      "steps": [
+        {
+          "name": "running status bez recent output, ale agent active",
+          "mode": "replace",
+          "agent": "active",
+          "recentOutput": true,
+          "input": "◦ Running. 550 tokens\n→ Add a follow-up\nctrl+c to stop",
+          "ensures": [
+            { "path": "state.tone", "equals": "running" }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: Running",
+      "id": "running-k-tokens-with-agent-active-should-stay-generating",
+      "name": "Running 2.45k tokens + follow-up with an active agent stays Running",
+      "steps": [
+        {
+          "name": "running z tokenami w formacie k",
+          "mode": "replace",
+          "agent": "active",
+          "recentOutput": true,
+          "input": "• Running 2.45k tokens\n→ Add a follow-up\nctrl+c to stop",
+          "ensures": [
+            { "path": "state.tone", "equals": "running" }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: Running",
+      "id": "running-dot-k-tokens-with-agent-active-should-stay-generating",
+      "name": "Running. 1.62k tokens + follow-up with an active agent stays Running",
+      "steps": [
+        {
+          "name": "running single-dot z tokenami 1.62k",
+          "mode": "replace",
+          "agent": "active",
+          "recentOutput": true,
+          "input": "◦ Running. 1.62k tokens\n→ Add a follow-up\nctrl+c to stop",
+          "ensures": [
+            { "path": "state.tone", "equals": "running" }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions after F5",
+      "id": "stale-running-ansi-cursor-on-a-should-await-input",
+      "name": "After reload: Running + highlighted A in Add a follow-up waits for input",
+      "steps": [
+        {
+          "name": "running + ANSI cursor na A + brak recent output",
+          "mode": "replace",
+          "agent": "idle",
+          "recentOutput": false,
+          "input": "⬡ Running. 110 tokens\n┌──────────────────────────────────────────────────────────────────────────────────┐\n│ → \u001b[7mA\u001b[27mdd a follow-up                                                 ctrl+c to stop │\n└──────────────────────────────────────────────────────────────────────────────────┘",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.awaiting", "equals": true }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: Editing",
+      "id": "editing-double-dot-with-followup-should-stay-editing",
+      "name": "Editing.. + follow-up with an active agent stays Editing",
+      "steps": [
+        {
+          "name": "editing z dwoma kropkami i tokenami",
+          "mode": "replace",
+          "agent": "active",
+          "recentOutput": false,
+          "input": "◦ Editing.. 886 tokens\n→ Add a follow-up\nctrl+c to stop",
+          "ensures": [
+            { "path": "state.tone", "equals": "editing" }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: Editing",
+      "id": "editing-dot-k-tokens-with-agent-active-should-stay-editing",
+      "name": "Editing. 8.21k tokens + follow-up with an active agent stays Editing",
+      "steps": [
+        {
+          "name": "editing single-dot z tokenami 8.21k",
+          "mode": "replace",
+          "agent": "active",
+          "recentOutput": false,
+          "input": "◦ Editing. 8.21k tokens\n→ Add a follow-up\nctrl+c to stop",
+          "ensures": [
+            { "path": "state.tone", "equals": "editing" }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: Reading",
+      "id": "reading-dot-k-tokens-with-agent-active-should-stay-reading",
+      "name": "Reading. 8.21k tokens + follow-up with an active agent stays Reading",
+      "steps": [
+        {
+          "name": "reading single-dot z tokenami 8.21k",
+          "mode": "replace",
+          "agent": "active",
+          "recentOutput": false,
+          "input": "◦ Reading. 8.21k tokens\n→ Add a follow-up\nctrl+c to stop",
+          "ensures": [
+            { "path": "state.tone", "equals": "reading" }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: Thinking",
+      "id": "thinking-with-followup-and-footer-should-stay-thinking",
+      "name": "Thinking + follow-up + footer with an active agent stays Thinking",
+      "steps": [
+        {
+          "name": "thinking line above, footer at the bottom",
+          "mode": "replace",
+          "agent": "active",
+          "recentOutput": true,
+          "input": "◦ Thinking. 1.12k tokens\n┌──────────────────────────────────────────────────────────────────────────────────┐\n│ → Add a follow-up                                                 ctrl+c to stop │\n└──────────────────────────────────────────────────────────────────────────────────┘\nGPT-5.3 Codex Fast · 64.8% · 3 files edited\n/ commands · @ files · ! shell · ctrl+r to review edits",
+          "ensures": [
+            { "path": "state.tone", "equals": "thinking" }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions after F5",
+      "id": "stale-running-with-plan-search-prompt-should-await-input",
+      "name": "Stale Running + the \"Plan, search, build anything\" prompt waits for input",
+      "steps": [
+        {
+          "name": "running history + loading conversation + prompt input",
+          "mode": "replace",
+          "agent": "active",
+          "recentOutput": true,
+          "input": "● Running...\nCursor Agent v2026.03.11-6dfa30c\n◌ Loading conversation\n→ Plan, search, build anything",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.awaiting", "equals": true }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions after F5",
+      "id": "stale-running-after-loading-conversation-should-await-input",
+      "name": "Stale Running after \"Loading conversation\" with a follow-up waits for input",
+      "steps": [
+        {
+          "name": "catch-up po F5: running + loading conversation + follow-up",
+          "mode": "replace",
+          "agent": "idle",
+          "recentOutput": false,
+          "input": "⬡ Running. 4.61k tokens\n◌ Loading conversation\n→ Add a follow-up\nctrl+r to review edits",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.awaiting", "equals": true }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions after F5",
+      "id": "stale-running-after-loading-conversation-agent-active-should-await-input",
+      "name": "After reload: Running + Loading conversation + follow-up must not win even when agent=active",
+      "steps": [
+        {
+          "name": "catch-up po F5 z aktywnym agent state",
+          "mode": "replace",
+          "agent": "active",
+          "recentOutput": false,
+          "input": "⬡ Running. 4.61k tokens\n◌ Loading conversation\n→ Add a follow-up\nctrl+r to review edits",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.awaiting", "equals": true }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions after F5",
+      "id": "stale-running-with-followup-and-review-footer-should-await-input",
+      "name": "After reload: Running + Add a follow-up + ctrl+r footer waits for input",
+      "steps": [
+        {
+          "name": "running snapshot z footerem review edits",
+          "mode": "replace",
+          "agent": "idle",
+          "recentOutput": false,
+          "input": "⬡ Running. 110 tokens\n→ Add a follow-up\nctrl+c to stop\n/ commands · @ files · ! shell · ctrl+r to review edits",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.awaiting", "equals": true }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions after F5",
+      "id": "stale-running-with-followup-cursor-corrupted-should-await-input",
+      "name": "After reload: Running + a damaged \"dd a follow-up\" (cursor on A) waits for input",
+      "steps": [
+        {
+          "name": "running + follow-up bez litery A",
+          "mode": "replace",
+          "agent": "idle",
+          "recentOutput": false,
+          "input": "⬡ Running. 110 tokens\n→ dd a follow-up\nctrl+c to stop\n/ commands · @ files · ! shell · ctrl+r to review edits",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.awaiting", "equals": true }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions after F5",
+      "id": "stale-generating-earlier-in-buffer-but-not-in-last-lines-should-await-input",
+      "name": "Stale Generating earlier in the buffer must not win when the tail is a follow-up",
+      "steps": [
+        {
+          "name": "older generating + tail without generating",
+          "mode": "replace",
+          "agent": "idle",
+          "recentOutput": false,
+          "input": "⬢ Generating... 5.69k tokens\n→ Add a follow-up\nctrl+c to stop\n...\nI also refreshed the API table for GET /api/settings so it is no longer out of date.\n┌──────────────────────────────────────────────────────────────────────────────────┐\n│ → Add a follow-up                                                                │\n└──────────────────────────────────────────────────────────────────────────────────┘\nGPT-5.3 Codex · 59.3% · 7 files edited\n/ commands · @ files · ! shell · ctrl+r to review edits",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.awaiting", "equals": true }
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Status detection: regressions",
+      "id": "stale-generating-without-stop-hint-should-not-stay-generating",
+      "name": "Bez aktualnego ctrl+c to stop nie trzymaj Generating mimo starego wpisu w tail",
+      "steps": [
+        {
+          "name": "stare generating, follow-up bez stop hint",
+          "mode": "replace",
+          "agent": "active",
+          "recentOutput": true,
+          "input": "⬢ Generating... 5.69k tokens\n→ Add a follow-up\nctrl+c to stop\n...\nI also refreshed the API table for GET /api/settings.\n┌──────────────────────────────────────────────────────────────────────────────────┐\n│ → Add a follow-up                                                                │\n└──────────────────────────────────────────────────────────────────────────────────┘\nGPT-5.3 Codex · 58.8% · 7 files edited\n/ commands · @ files · ! shell · ctrl+r to review edits\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nGPT-5.3 Codex · 59.3% · 7 files edited\n/ commands · @ files · ! shell · ctrl+r to review edits",
+          "ensures": [
+            { "path": "state.tone", "equals": "textarea" },
+            { "path": "parsed.generating", "equals": false },
+            { "path": "parsed.awaiting", "equals": true }
+          ]
+        }
+      ]
+    }
+  ]
+}

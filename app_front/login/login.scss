@@ -1,0 +1,125 @@
+@use '../css/tokens';
+
+// Login/setup page — global styles (LoginApp uses light DOM,
+// so the global .mdi and --cr-* tokens from tokens.scss work).
+
+cr-login-app {
+  display: block;
+  min-height: 100dvh;
+  background: var(--cr-bg);
+  color: var(--cr-text);
+  font-family: var(--cr-font-ui);
+  padding: max(var(--cr-space-4), env(safe-area-inset-top)) var(--cr-space-3)
+    max(var(--cr-space-4), env(safe-area-inset-bottom));
+  // Taller controls on the login form than the toolbar 1.75rem
+  // (inherited by cr-bar-input and cr-bar-button via the CSS custom property).
+  --cr-toolbar-control-height: 3rem;
+}
+
+cr-login-app .login-icon {
+  display: inline-flex;
+  color: var(--cr-accent);
+}
+
+cr-login-app .field {
+  margin-bottom: var(--cr-space-3);
+}
+
+cr-login-app .field-label {
+  display: block;
+  margin-bottom: var(--cr-space-1);
+  color: var(--cr-text-muted);
+  font-size: 0.8rem;
+}
+
+cr-login-app .actions {
+  display: flex;
+  gap: var(--cr-space-2);
+  margin-top: var(--cr-space-1);
+}
+
+cr-login-app .actions cr-bar-button {
+  flex: 1 1 auto;
+}
+
+cr-login-app .subheading {
+  margin: 0 0 var(--cr-space-3);
+  color: var(--cr-text-muted);
+  font-size: 0.85rem;
+}
+
+cr-login-app .hint {
+  margin: var(--cr-space-3) 0 0;
+  color: var(--cr-text-muted);
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+cr-login-app .meta {
+  margin: var(--cr-space-4) 0 0;
+  color: var(--cr-text-muted);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+cr-login-app .message {
+  box-sizing: border-box;
+  margin: 0 0 var(--cr-space-3);
+  padding: var(--cr-space-2) var(--cr-space-3);
+  border-radius: var(--cr-radius-sm);
+  font-size: 0.85rem;
+  border: 1px solid transparent;
+}
+
+cr-login-app .message[data-tone='error'] {
+  background: rgba(244, 135, 113, 0.12);
+  color: var(--cr-error);
+  border-color: rgba(244, 135, 113, 0.35);
+}
+
+cr-login-app .message[data-tone='success'] {
+  background: rgba(78, 201, 176, 0.12);
+  color: var(--cr-success);
+  border-color: rgba(78, 201, 176, 0.35);
+}
+
+// Taller fields on the login form than the toolbar 1.75rem.
+cr-login-app cr-bar-input {
+  font-size: 0.95rem;
+}
+cr-login-app cr-bar-input::part(control) {
+  font-size: 1rem;
+  padding: 0 0.75rem;
+}
+
+// Submit button: full width, larger font and vertical padding.
+cr-login-app .actions cr-bar-button {
+  flex: 1 1 auto;
+  width: 100%;
+}
+cr-login-app .actions cr-bar-button::part(control) {
+  padding: 0.6rem 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+cr-login-app .lang-switch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--cr-space-2);
+  margin-top: var(--cr-space-3);
+  font-size: 0.8rem;
+  color: var(--cr-text-muted);
+}
+
+cr-login-app .lang-select {
+  height: 2rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--cr-border, #555);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+  color: var(--cr-text);
+  font: inherit;
+  font-size: 0.85rem;
+}
