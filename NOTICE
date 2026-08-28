@@ -1,0 +1,23 @@
+Cretli
+Copyright (c) 2026 cretli
+
+This project is licensed under the MIT License. See LICENSE.
+
+Third-party notices
+===================
+
+@cursor/sdk (optional dependency)
+  Copyright Anysphere, Inc.
+  Proprietary — subject to Cursor Terms of Service.
+  https://cursor.com
+  Cretli is not affiliated with, endorsed by, or sponsored by Anysphere or Cursor.
+  Installing and using @cursor/sdk (and the Cursor CLI) is optional; OpenCode and
+  OpenRouter harnesses do not require it.
+
+web-push
+  Mozilla Public License 2.0
+  Keep MPL notices when redistributing unmodified files from that package.
+
+Other runtime dependencies (Express, ws, node-pty, Lit, xterm.js, OpenCode SDK, …)
+  typically MIT, BSD-3-Clause, or Apache-2.0. See each package's LICENSE file
+  under node_modules after install.

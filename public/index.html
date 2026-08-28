@@ -1,0 +1,1748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#1e1e1e">
+  <script>
+    (function () {
+      var preference = 'dark';
+      try {
+        var savedPreference =
+          localStorage.getItem('cretli-theme') || localStorage.getItem('cursor-remote-theme');
+        if (savedPreference === 'light' || savedPreference === 'system') {
+          preference = savedPreference;
+        }
+      } catch (error) {}
+
+      var useLight = preference === 'light';
+      if (preference === 'system') {
+        try {
+          useLight =
+            typeof window.matchMedia === 'function' &&
+            window.matchMedia('(prefers-color-scheme: light)').matches;
+        } catch (error) {}
+      }
+
+      var theme = useLight ? 'light' : 'dark';
+      var root = document.documentElement;
+      root.dataset.theme = theme;
+      root.style.colorScheme = theme;
+
+      var themeColor = document.querySelector('meta[name="theme-color"]');
+      if (themeColor) themeColor.content = useLight ? '#f3f3f3' : '#1e1e1e';
+
+      function applyBodyTheme() {
+        if (!document.body) return false;
+        document.body.classList.toggle('theme-light', useLight);
+        return true;
+      }
+
+      if (!applyBodyTheme()) {
+        document.addEventListener('DOMContentLoaded', applyBodyTheme, { once: true });
+      }
+    })();
+  </script>
+  <meta name="description" content="Cretli — terminal and Cursor SDK chat from a browser (phone).">
+  <meta name="application-name" content="Cretli">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" sizes="any">
+  <link rel="icon" href="/icons/icon-192.png" type="image/png" sizes="192x192">
+  <link rel="icon" href="/icons/icon-512.png" type="image/png" sizes="512x512">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Cretli">
+  <title>Cretli – Terminal & Chat</title>
+  <link rel="stylesheet" href="/dist/app/index.css?v=__CR_ASSET_VERSION__">
+  <!--
+    Boot guard: inline so it also works when index.css or the app bundle never
+    arrives (server down, stale PWA cache). Colours mirror tokens.scss but cannot
+    reference --cr-* here, because that file ships inside index.css.
+  -->
+  <style>
+    /* Custom elements that were never upgraded would otherwise leak their light
+       DOM as loose text at the bottom of the page. */
+    :not(:defined) {
+      display: none;
+    }
+
+    .boot-failure {
+      position: fixed;
+      inset: 0;
+      z-index: 100000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      padding: 24px;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      font: 16px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    .boot-failure[hidden] {
+      display: none;
+    }
+
+    .boot-failure-card {
+      max-width: 30rem;
+      text-align: center;
+    }
+
+    .boot-failure-icon {
+      color: #007acc;
+      margin-bottom: 12px;
+    }
+
+    .boot-failure-title {
+      margin: 0 0 8px;
+      font-size: 20px;
+      color: #f2f2f2;
+    }
+
+    .boot-failure-text {
+      margin: 0 0 12px;
+      color: #a8a8a8;
+      font-size: 0.95rem;
+    }
+
+    .boot-failure-status {
+      margin: 0 0 20px;
+      font-size: 0.85rem;
+      color: #858585;
+      min-height: 1.4em;
+    }
+
+    .boot-failure-status[data-tone='ok'] {
+      color: #4ec9b0;
+    }
+
+    .boot-failure-status[data-tone='err'] {
+      color: #f48771;
+    }
+
+    .boot-failure-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+    }
+
+    .boot-failure-actions button {
+      background: #094771;
+      color: #fff;
+      border: 1px solid #094771;
+      border-radius: 4px;
+      padding: 8px 16px;
+      font: inherit;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+
+    .boot-failure-actions button:hover {
+      background: #0d5a8f;
+      border-color: #0d5a8f;
+    }
+
+    .boot-failure-actions button[data-variant='secondary'] {
+      background: transparent;
+      color: #d4d4d4;
+      border-color: #444;
+    }
+
+    .boot-failure-actions button[data-variant='secondary']:hover {
+      background: #2a2d2e;
+      border-color: #555;
+    }
+
+    html[data-theme='light'] .boot-failure {
+      background: #f3f3f3;
+      color: #242424;
+    }
+
+    html[data-theme='light'] .boot-failure-title {
+      color: #1f1f1f;
+    }
+
+    html[data-theme='light'] .boot-failure-text,
+    html[data-theme='light'] .boot-failure-status {
+      color: #5f5f5f;
+    }
+
+    html[data-theme='light'] .boot-failure-icon {
+      color: #006ab1;
+    }
+
+    html[data-theme='light'] .boot-failure-actions button {
+      background: #006ab1;
+      border-color: #006ab1;
+    }
+
+    html[data-theme='light'] .boot-failure-actions button[data-variant='secondary'] {
+      background: transparent;
+      color: #242424;
+      border-color: #c8c8c8;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <button type="button" id="header-menu-btn" class="header-menu-btn" title="Menu" aria-label="Menu" aria-expanded="false" aria-controls="app-sidebar">
+      <span class="mdi mdi-menu" aria-hidden="true"></span>
+    </button>
+    <span id="header-context-title" class="header-context-title" aria-live="polite" data-i18n-title="header.contextTitle" title="Active workspace and chat"></span>
+    <button type="button" id="embed-chat-switcher" class="embed-chat-switcher" hidden aria-haspopup="listbox" aria-expanded="false" aria-label="Select chat" data-i18n-aria="chat.selectChat" title="Select chat" data-i18n-title="chat.selectChat">
+      <span class="embed-chat-switcher-label" id="embed-chat-switcher-label">—</span>
+      <span class="mdi mdi-chevron-down embed-chat-switcher-arrow" aria-hidden="true"></span>
+    </button>
+    <!-- Hidden workspace data source + dropdown (fallback). The sidebar is the primary UI. -->
+    <div class="header-workspace-wrap" hidden aria-hidden="true">
+      <button type="button" id="header-workspace-trigger" class="header-workspace-trigger" title="Switch workspace" data-i18n-title="header.workspaceTitle" aria-haspopup="listbox" aria-expanded="false" data-workspace-file="" data-workspace-folder="">
+        <span id="header-workspace-label" class="header-workspace-label-text">—</span>
+        <span class="header-workspace-arrow mdi mdi-chevron-down" aria-hidden="true"></span>
+      </button>
+      <div id="header-workspace-popover" class="chat-list-modal header-workspace-popover" role="dialog" aria-label="Switch workspace" data-i18n-aria="workspace.quickSwitchAria" hidden>
+        <div class="chat-list-panel">
+          <ul id="header-workspace-items" class="chat-list-items" role="listbox"></ul>
+        </div>
+      </div>
+    </div>
+    <div class="header-right">
+      <span id="connection-status-indicator" class="connection-status connection-status-disconnected" role="button" tabindex="0" title="Connection" data-i18n-title="connection.label" aria-label="Connection status" data-i18n-aria="connection.label"></span>
+      <button type="button" id="header-voice-mode-btn" class="header-settings-btn header-voice-mode-btn" title="Talk to the agent" aria-label="Voice mode"><span class="mdi mdi-account-voice" aria-hidden="true"></span></button>
+      <button type="button" id="header-pwa-install-btn" class="header-settings-btn header-pwa-install-btn" hidden title="Install app" data-i18n-title="pwa.install" aria-label="Install app" data-i18n-aria="pwa.install"><span class="mdi mdi-download" aria-hidden="true"></span></button>
+      <button type="button" id="header-app-fullscreen-btn" class="header-settings-btn" title="App fullscreen" data-i18n-title="header.fullscreenTitle" aria-label="App fullscreen" data-i18n-aria="header.fullscreenAria" data-fullscreen="off"><span class="mdi mdi-fullscreen" aria-hidden="true"></span></button>
+      <button type="button" id="header-settings-btn" class="header-settings-btn" title="Settings" data-i18n-title="header.settingsTitle" aria-label="Settings" data-i18n-aria="header.settingsAria"><span class="mdi mdi-cog" aria-hidden="true"></span></button>
+    </div>
+  </div>
+
+  <div id="app-sidebar-backdrop" class="app-sidebar-backdrop" hidden></div>
+  <aside id="app-sidebar" class="app-sidebar" aria-label="Workspaces and chats" data-i18n-aria="sidebar.ariaLabel" hidden>
+    <div class="sidebar-head">
+      <cr-bar-input
+        id="sidebar-search"
+        type="search"
+        autocomplete="off"
+        data-i18n-placeholder="sidebar.searchPlaceholder"
+        data-i18n-aria="sidebar.searchAria"
+      ></cr-bar-input>
+      <button type="button" id="sidebar-close-btn" class="sidebar-close-btn" title="Close" data-i18n-title="common.close" aria-label="Close" data-i18n-aria="common.close">
+        <span class="mdi mdi-close" aria-hidden="true"></span>
+      </button>
+    </div>
+    <div class="sidebar-body"></div>
+  </aside>
+
+  <div class="tabs">
+    <button type="button" class="tab active" data-panel="chat" data-i18n="tabs.chat">Chat</button>
+    <button type="button" class="tab" data-panel="terminal">Terminal</button>
+    <button type="button" class="tab" data-panel="tasks" data-i18n="tabs.tasks">Tasks</button>
+    <button type="button" class="tab" data-panel="agents" data-i18n="tabs.agents">Agents</button>
+    <button type="button" class="tab" data-panel="todo">Todo</button>
+    <button type="button" class="tab" data-panel="files">Files</button>
+    <button type="button" class="tab" data-panel="git">Git</button>
+    <button type="button" class="tab" data-panel="github" hidden data-i18n="tabs.github">GitHub</button>
+    <button type="button" class="tab" data-panel="logs" data-i18n="tabs.logs">Logs</button>
+    <button type="button" class="tab" data-panel="instances" data-i18n="tabs.instances">Instances</button>
+    <button type="button" class="tab" data-panel="tests" hidden data-i18n="tabs.statusParser">Status parser</button>
+  </div>
+
+  <div id="send-bar-extra-container" class="send-bar-extra-container">
+    <div id="send-bar-textarea-wrap" class="send-bar-textarea-wrap" aria-hidden="true"></div>
+    <div id="chat-extra-bar-wrap" class="chat-extra-bar-wrap" aria-hidden="true">
+      <div id="extra-bar-context-picker" class="extra-bar-context-picker"></div>
+      <div id="special-chars-bar" class="special-chars-bar"></div>
+    </div>
+    <div id="chat-context-meter" class="chat-context-meter" role="meter" aria-label="Chat context fill" data-i18n-aria="chat.contextMeterAria" aria-valuemin="0" aria-valuemax="100" aria-hidden="true">
+      <div class="chat-context-meter-fill"></div>
+    </div>
+  </div>
+
+  <div id="terminal-panel" class="panel">
+    <div id="terminal-join-banner" class="terminal-join-banner" style="display:none;">
+      <span class="terminal-join-text" id="terminal-join-text" data-i18n="terminal.sessionAvailable">A terminal session is available.</span>
+      <button type="button" id="terminal-join-btn" class="terminal-join-btn" data-i18n="terminal.join">Join</button>
+      <button type="button" id="terminal-new-btn" class="terminal-new-btn" style="display:none;" data-i18n="terminal.openNew">Open a new terminal</button>
+    </div>
+    <div class="terminal-main" id="terminal-main" style="display:none;">
+      <div class="terminal-fullscreen-bar panel-toolbar">
+        <span class="chat-bar-group">
+          <div id="terminal-bar-trigger" class="chat-bar-trigger" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose terminal" data-i18n-aria="terminal.selectTerminalAria" title="Choose terminal" data-i18n-title="terminal.selectTerminalAria">
+            <span class="chat-bar-trigger-label" id="terminal-bar-trigger-label">—</span>
+            <span class="chat-bar-trigger-arrow mdi mdi-chevron-down" aria-hidden="true"></span>
+          </div>
+          <div id="terminal-list-modal" class="chat-list-modal" role="dialog" aria-label="Terminals list" data-i18n-aria="terminal.listAria" hidden>
+            <div class="chat-list-panel">
+              <ul id="terminal-list-items" class="chat-list-items" role="listbox"></ul>
+            </div>
+          </div>
+        </span>
+        <cr-icon-button id="terminal-new-tab-btn" title="New terminal" data-i18n-title="terminal.newTitle" aria-label="New terminal" data-i18n-aria="terminal.newAria"><span class="mdi mdi-plus" aria-hidden="true"></span></cr-icon-button>
+        <cr-bar-button id="terminal-copy-btn" class="panel-copy-btn" title="Copy content (selection or the whole buffer)" data-i18n-title="terminal.copyTitle" aria-label="Copy" data-i18n-aria="terminal.copyAria" data-i18n="terminal.copy">Copy</cr-bar-button>
+      </div>
+      <div class="terminal-tabs" id="terminal-tabs"></div>
+      <div id="terminal-send-bar-wrap" class="terminal-send-bar-wrap"></div>
+    </div>
+  </div>
+
+  <div id="settings-panel" class="panel cr-page">
+    <div class="settings-tabs cr-tabs" id="settings-tabs" role="tablist">
+      <button type="button" id="settings-back-btn" class="settings-back-btn" data-i18n-title="settings.back" data-i18n-aria="settings.back" title="Back" aria-label="Back">
+        <span class="mdi mdi-arrow-left" aria-hidden="true"></span>
+      </button>
+      <span class="settings-page-title" data-i18n="header.settingsTitle">Settings</span>
+      <button type="button" class="settings-tab cr-tab active" data-settings-tab="workspace" role="tab" aria-selected="true" data-i18n="settings.tabsWorkspace">Workspace</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="connection" role="tab" aria-selected="false" data-i18n="settings.tabsConnection">Connection</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness" role="tab" aria-selected="false" data-i18n="settings.tabsHarness">Harness</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="interface" role="tab" aria-selected="false" data-i18n="settings.tabsInterface">Interface</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="browser" role="tab" aria-selected="false" data-i18n="settings.tabsBrowser">Browser</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="chat" role="tab" aria-selected="false" data-i18n="settings.tabsChat">Chat &amp; agents</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="widgets" role="tab" aria-selected="false" data-i18n="settings.widgetsTitle">Page widgets</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="usage" role="tab" aria-selected="false" data-i18n="settings.tabsUsage">Usage</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="account" role="tab" aria-selected="false" data-i18n="settings.tabsAccount">Account</button>
+    </div>
+    <div class="settings-sections cr-page-body">
+      <section class="settings-section" data-settings-tab="workspace">
+        <h3 class="settings-section-title" data-i18n="settings.workspaceTitle">Workspace</h3>
+        <p class="settings-hint" data-i18n="settings.workspaceSidebarHint">Folder enable, name, and default folder save immediately. Use Save to remove a workspace or write folders into the .code-workspace file.</p>
+        <div class="settings-workspace-box">
+          <div class="settings-workspace-toolbar">
+            <div class="settings-workspace-add-row cr-row">
+              <cr-bar-input id="settings-workspace-add-folder-input" data-i18n-placeholder="settings.addFolderPlaceholder" data-i18n-aria="settings.addFolder" placeholder="/home/you/project"></cr-bar-input>
+              <cr-bar-button variant="primary" id="settings-workspace-add-folder" data-i18n="settings.addFolder">Add folder</cr-bar-button>
+            </div>
+            <div class="settings-workspace-add-row cr-row">
+              <cr-bar-input id="settings-workspace-add-file-input" data-i18n-placeholder="settings.addFilePlaceholder" data-i18n-aria="settings.addWorkspaceFile" placeholder="/home/you/project/app.code-workspace"></cr-bar-input>
+              <cr-bar-button variant="primary" id="settings-workspace-add-file" data-i18n="settings.addWorkspaceFile">Add workspace file</cr-bar-button>
+            </div>
+            <div class="settings-workspace-sync-row cr-row">
+              <cr-bar-button id="settings-workspace-sync" data-i18n="settings.syncWorkspaces">Sync from Cursor files</cr-bar-button>
+              <cr-checkbox id="settings-workspace-scan" class="settings-workspace-scan-toggle cr-check">
+                <span data-i18n="settings.scanNewWorkspaces">Also search disk for new .code-workspace files</span>
+              </cr-checkbox>
+            </div>
+          </div>
+          <div id="settings-workspace-cards" class="settings-workspace-cards"></div>
+        </div>
+        <h3 class="settings-section-title settings-workspace-extra-title" data-i18n="settings.sharedCursorContextTitle">Additional Cursor sources (rules / skills / agents)</h3>
+        <p class="settings-hint" data-i18n="settings.sharedCursorContextHint">
+          Paths to directories with their own .cursor/ (like a private multi-root workspace in Cursor IDE). One path per line. Applied to all projects and widgets.
+        </p>
+        <div class="cr-field">
+          <cr-bar-textarea
+            id="additional-cursor-context-dirs-input"
+            rows="4"
+            placeholder="/home/you/cursor-shared&#10;/home/you/private-workspace"
+            data-i18n-placeholder="settings.sharedCursorContextPlaceholder"
+          ></cr-bar-textarea>
+        </div>
+        <div class="cr-row">
+          <cr-bar-button variant="primary" id="additional-cursor-context-dirs-save" data-i18n="settings.saveList">Save list</cr-bar-button>
+          <span id="additional-cursor-context-dirs-status" class="cr-status"></span>
+        </div>
+        <div class="workspace-dir" id="workspace-dir" data-i18n="common.loading">Loading…</div>
+        <div class="folders" id="folders"></div>
+      </section>
+      <section class="settings-section" data-settings-tab="connection">
+        <h3 class="settings-section-title">LAN (link & QR)</h3>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.lanAddress">LAN address:</label>
+          <div class="cr-row">
+            <cr-bar-input id="lan-host-input" placeholder="e.g. 192.168.1.10" data-i18n-placeholder="settings.lanPlaceholder"></cr-bar-input>
+            <cr-bar-button variant="primary" id="lan-save-btn" data-i18n="settings.save">Save</cr-bar-button>
+            <span id="lan-save-status" class="cr-status"></span>
+          </div>
+        </div>
+        <div id="terminal-sync-box" class="terminal-sync-box" style="display:none;">
+          <span class="terminal-sync-label" data-i18n="settings.liveOnPhone">Live on your phone:</span>
+          <a id="terminal-sync-link" href="#" target="_blank" rel="noopener"></a>
+          <img id="terminal-sync-qr" alt="QR" class="terminal-sync-qr" />
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="harness" id="harness-setup-wizard">
+        <h3 class="settings-section-title" data-i18n="settings.harnessSetupTitle">Choose a chat backend</h3>
+        <p class="settings-hint" data-i18n="settings.harnessSetupHint">Terminal, files, and git work without an API key. Chat needs one of these backends.</p>
+        <ul id="harness-setup-status" class="harness-setup-status"></ul>
+      </section>
+      <section class="settings-section" data-settings-tab="harness">
+        <h3 class="settings-section-title" data-i18n="settings.harnessDefaultsTitle">New chat defaults</h3>
+        <p class="settings-hint" data-i18n="settings.harnessDefaultsHint">Default agent harness when opening the new chat dialog.</p>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.harnessDefaultSelect">Default harness</label>
+          <div class="cr-row">
+            <cr-bar-select id="default-new-chat-harness-select"></cr-bar-select>
+            <cr-bar-button variant="primary" id="default-new-chat-harness-save-btn" data-i18n="settings.save">Save</cr-bar-button>
+            <span id="default-new-chat-harness-save-status" class="cr-status"></span>
+          </div>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="harness" id="opencode-api-settings">
+        <h3 class="settings-section-title" data-i18n="settings.harnessOpenCodeApiTitle">OpenCode API (Zen)</h3>
+        <p class="settings-hint">
+          <span data-i18n="settings.harnessOpenCodeHintPrefix">Key from</span>
+          <a href="https://opencode.ai/zen" target="_blank" rel="noopener noreferrer">OpenCode Zen</a>.
+          <span data-i18n="settings.harnessOpenCodeHintSuffix">Required for OpenCode harness chats. The OPENCODE_API_KEY env variable takes precedence.</span>
+        </p>
+        <p id="opencode-api-key-source-hint" class="settings-hint" aria-live="polite"></p>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.harnessOpenCodeApiKeyLabel">New API key</label>
+          <cr-bar-input
+            id="opencode-api-key-input"
+            type="password"
+            autocomplete="new-password"
+            placeholder="Paste your OpenCode Zen key and click Save"
+            data-i18n-placeholder="settings.harnessOpenCodeApiKeyPlaceholder"
+          ></cr-bar-input>
+          <div class="cr-row">
+            <cr-bar-button variant="primary" id="opencode-api-key-save-btn" data-i18n="settings.harnessOpenCodeApiKeySave">Save key</cr-bar-button>
+            <cr-bar-button id="opencode-api-key-clear-btn" data-i18n="settings.harnessOpenCodeApiKeyClear">Remove from settings</cr-bar-button>
+            <span id="opencode-api-key-save-status" class="cr-status"></span>
+          </div>
+        </div>
+        <p id="opencode-harness-status" class="settings-hint" aria-live="polite"></p>
+      </section>
+      <section class="settings-section" data-settings-tab="harness">
+        <h3 class="settings-section-title" data-i18n="settings.harnessSdkTitle">Cursor API (SDK)</h3>
+        <p class="settings-hint">
+          Key from
+          <a href="https://cursor.com/dashboard/integrations" target="_blank" rel="noopener noreferrer">Integrations</a>.
+          <span data-i18n="settings.apiKeyHint">Stored in data/config.json on the server. The CURSOR_API_KEY env variable takes precedence.</span>
+        </p>
+        <p id="cursor-api-key-source-hint" class="settings-hint" aria-live="polite"></p>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.newApiKey">New API key</label>
+          <cr-bar-input
+            id="cursor-api-key-input"
+            type="password"
+            autocomplete="new-password"
+            placeholder="Paste the key and click Save"
+            data-i18n-placeholder="settings.apiKeyPlaceholder"
+          ></cr-bar-input>
+          <div class="cr-row">
+            <cr-bar-button variant="primary" id="cursor-api-key-save-btn" data-i18n="settings.saveKey">Save key</cr-bar-button>
+            <cr-bar-button id="cursor-api-key-clear-btn" data-i18n="settings.removeFromSettings">Remove from settings</cr-bar-button>
+            <span id="cursor-api-key-save-status" class="cr-status"></span>
+          </div>
+        </div>
+        <p class="settings-hint" data-i18n="settings.sdkIdleTimeoutHint">
+          After this many seconds without SDK events, the UI shows a warning but keeps waiting. Changes apply from the next run.
+        </p>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.sdkIdleTimeout">SDK idle timeout (seconds)</label>
+          <div class="cr-row">
+            <cr-bar-input id="sdk-idle-timeout-seconds-input" type="number" min="15" max="86400" step="1"></cr-bar-input>
+            <cr-bar-button variant="primary" id="sdk-idle-timeout-save-btn" data-i18n="settings.save">Save</cr-bar-button>
+            <span id="sdk-idle-timeout-save-status" class="cr-status"></span>
+          </div>
+        </div>
+        <p class="settings-hint" data-i18n="settings.sdkAutoRecoveryHint">
+          When enabled, the server cancels stuck SDK runs after the idle budget plus grace period and retries once.
+        </p>
+        <div class="cr-field">
+          <cr-checkbox id="sdk-auto-recovery-checkbox" checked>
+            <span data-i18n="settings.sdkAutoRecovery">Auto-recover stuck SDK runs</span>
+          </cr-checkbox>
+          <span id="sdk-auto-recovery-save-status" class="cr-status"></span>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="harness">
+        <h3 class="settings-section-title" data-i18n="settings.harnessOpenRouterTitle">OpenRouter API</h3>
+        <p class="settings-hint">
+          <span data-i18n="settings.harnessOpenRouterHintPrefix">Key from</span>
+          <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer">OpenRouter</a>.
+          <span data-i18n="settings.harnessOpenRouterHintSuffix">Required for OpenRouter harness chats. The OPENROUTER_API_KEY env variable takes precedence.</span>
+        </p>
+        <p id="openrouter-api-key-source-hint" class="settings-hint" aria-live="polite"></p>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.newApiKey">New API key</label>
+          <cr-bar-input
+            id="openrouter-api-key-input"
+            type="password"
+            autocomplete="new-password"
+            placeholder="Paste the key and click Save"
+            data-i18n-placeholder="settings.apiKeyPlaceholder"
+          ></cr-bar-input>
+          <div class="cr-row">
+            <cr-bar-button variant="primary" id="openrouter-api-key-save-btn" data-i18n="settings.saveKey">Save key</cr-bar-button>
+            <cr-bar-button id="openrouter-api-key-clear-btn" data-i18n="settings.removeFromSettings">Remove from settings</cr-bar-button>
+            <span id="openrouter-api-key-save-status" class="cr-status"></span>
+          </div>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="connection">
+        <h3 class="settings-section-title">Frontend (HMR)</h3>
+        <p class="settings-hint" data-i18n="settings.hmrHint">Disabling HMR can help with frontend refresh issues. Changing it requires a server restart.</p>
+        <div class="cr-field">
+          <cr-checkbox id="front-hmr-enabled-checkbox" checked>
+            <span data-i18n="settings.enableFrontHmr">Enable frontend HMR</span>
+          </cr-checkbox>
+          <div class="cr-row">
+            <cr-bar-button variant="primary" id="front-hmr-save-btn" data-i18n="settings.saveAndRestart">Save and restart</cr-bar-button>
+            <span id="front-hmr-save-status" class="cr-status"></span>
+          </div>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="interface">
+        <h3 class="settings-section-title">Kib gesture (phone)</h3>
+        <p class="settings-hint" data-i18n="settings.kibHint">Hold ~0.5s on the terminal (canvas without the system "Paste" menu) — 4 directions and option rings after a distance. Bottom: first ring = arrow, second ring = refresh. The active ring has a green outline.</p>
+        <cr-checkbox id="kib-radial-checkbox">
+          <span data-i18n="settings.enableKib">Enable Kib gesture (default on touch screens)</span>
+        </cr-checkbox>
+      </section>
+      <section class="settings-section" data-settings-tab="interface">
+        <h3 class="settings-section-title" data-i18n="settings.appearance">Appearance</h3>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.theme">Theme</label>
+          <cr-bar-select id="theme-select"></cr-bar-select>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="interface">
+        <h3 class="settings-section-title" data-i18n="settings.language">Language</h3>
+        <p class="settings-hint" data-i18n="settings.languageHint">Interface language. English by default.</p>
+        <div class="cr-field">
+          <cr-bar-select id="lang-select"></cr-bar-select>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="interface">
+        <h3 class="settings-section-title" data-i18n="settings.voiceTitle">Voice (OpenAI)</h3>
+        <p class="settings-hint" data-i18n="settings.voiceHint">
+          Optional. Only needed for the OpenAI speech engine — the built-in browser voice works without a key.
+          The OPENAI_API_KEY env variable takes precedence.
+        </p>
+        <p id="openai-api-key-source-hint" class="settings-hint" aria-live="polite"></p>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.newApiKey">New API key</label>
+          <cr-bar-input id="openai-api-key-input" type="password" autocomplete="new-password" placeholder="sk-..."></cr-bar-input>
+          <div class="cr-row">
+            <cr-bar-button variant="primary" id="openai-api-key-save-btn" data-i18n="settings.saveKey">Save key</cr-bar-button>
+            <cr-bar-button id="openai-api-key-clear-btn" data-i18n="settings.removeFromSettings">Remove from settings</cr-bar-button>
+            <span id="openai-api-key-save-status" class="cr-status"></span>
+          </div>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="interface">
+        <h3 class="settings-section-title" data-i18n="settings.azureSpeechTitle">Voice (Azure Speech)</h3>
+        <p class="settings-hint" data-i18n="settings.azureSpeechHint">
+          Optional. Native Polish narrators (Agnieszka, Marek, Zofia) — the OpenAI voices read Polish with
+          an English accent. Needs the key and the region of a Speech resource. The AZURE_SPEECH_KEY and
+          AZURE_SPEECH_REGION env variables take precedence.
+        </p>
+        <p id="azure-speech-source-hint" class="settings-hint" aria-live="polite"></p>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.newApiKey">New API key</label>
+          <cr-bar-input id="azure-speech-key-input" type="password" autocomplete="new-password"></cr-bar-input>
+          <label class="cr-field-label" data-i18n="settings.azureSpeechRegion">Region</label>
+          <cr-bar-input id="azure-speech-region-input" autocomplete="off" placeholder="westeurope"></cr-bar-input>
+          <div class="cr-row">
+            <cr-bar-button variant="primary" id="azure-speech-save-btn" data-i18n="settings.saveKey">Save key</cr-bar-button>
+            <cr-bar-button id="azure-speech-clear-btn" data-i18n="settings.removeFromSettings">Remove from settings</cr-bar-button>
+            <span id="azure-speech-save-status" class="cr-status"></span>
+          </div>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="interface">
+        <h3 class="settings-section-title" data-i18n="settings.geminiTitle">Voice (Gemini Live)</h3>
+        <p class="settings-hint" data-i18n="settings.geminiHint">
+          Optional. Cheaper continuous conversation than OpenAI Realtime. Key from Google AI Studio.
+          The GEMINI_API_KEY env variable takes precedence.
+        </p>
+        <p id="gemini-api-key-source-hint" class="settings-hint" aria-live="polite"></p>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.newApiKey">New API key</label>
+          <cr-bar-input id="gemini-api-key-input" type="password" autocomplete="new-password" placeholder="AIza… or AQ.…"></cr-bar-input>
+          <div class="cr-row">
+            <cr-bar-button variant="primary" id="gemini-api-key-save-btn" data-i18n="settings.saveKey">Save key</cr-bar-button>
+            <cr-bar-button id="gemini-api-key-test-btn" data-i18n="settings.testKey">Test key</cr-bar-button>
+            <cr-bar-button id="gemini-api-key-clear-btn" data-i18n="settings.removeFromSettings">Remove from settings</cr-bar-button>
+            <span id="gemini-api-key-save-status" class="cr-status"></span>
+          </div>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="interface">
+        <h3 class="settings-section-title">Terminal</h3>
+        <p class="settings-hint" data-i18n="settings.fontSizeHint">Terminal font size. Auto — fits the screen on mobile, default on desktop.</p>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.fontSize">Font size</label>
+          <cr-bar-select id="terminal-font-size-select"></cr-bar-select>
+        </div>
+        <cr-checkbox id="terminal-readonly-checkbox">
+          <span data-i18n="settings.readOnly">Read-only mode (block typing in terminal)</span>
+        </cr-checkbox>
+      </section>
+      <section class="settings-section" data-settings-tab="chat">
+        <h3 class="settings-section-title" data-i18n="settings.quickCommands">Quick commands</h3>
+        <p class="settings-hint" data-i18n="settings.quickCommandsHint">One command per line. Tap the bar above a panel to send the command to the terminal or to the chat Send field.</p>
+        <textarea id="quick-commands-input" class="quick-commands-textarea" rows="5" placeholder="e.g.&#10;git status&#10;npm run dev&#10;git pull" data-i18n-placeholder="settings.quickCommandsPlaceholder"></textarea>
+        <div class="quick-commands-save-row">
+          <button type="button" id="quick-commands-save" class="lan-save-btn-inline" data-i18n="settings.saveList">Save list</button>
+          <span id="quick-commands-save-status" class="quick-commands-save-status"></span>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="chat">
+        <h3 class="settings-section-title">Chat</h3>
+        <div class="auto-name-chat-row">
+          <input type="checkbox" id="auto-name-chat-checkbox" class="auto-name-chat-checkbox" />
+          <label for="auto-name-chat-checkbox" data-i18n="settings.autoNameHint">Automatic name for a new chat (the agent replies with a single JSON line: {"title": "..."})</label>
+        </div>
+        <div class="auto-name-chat-row">
+          <input type="checkbox" id="auto-update-chat-title-checkbox" class="auto-name-chat-checkbox" />
+          <label for="auto-update-chat-title-checkbox" data-i18n="settings.autoNameUpdateHint">Automatically update the chat name from the agent reply (off by default).</label>
+        </div>
+        <div class="auto-name-chat-row">
+          <input type="checkbox" id="skip-catchup-on-resume-checkbox" class="auto-name-chat-checkbox" />
+          <label for="skip-catchup-on-resume-checkbox" data-i18n="settings.noHistoryReplayHint">Do not replay history when resuming a chat (avoid re-showing the plan at the bottom)</label>
+        </div>
+        <div class="auto-name-chat-row">
+          <input type="checkbox" id="maintain-sessions-checkbox" class="auto-name-chat-checkbox" checked disabled />
+          <label for="maintain-sessions-checkbox" data-i18n="settings.maintainSessionsHint">Session maintenance is always on (activity monitor + ping + background reconnect).</label>
+        </div>
+        <div class="auto-name-chat-row">
+          <input type="checkbox" id="connect-all-chats-on-start-checkbox" class="auto-name-chat-checkbox" checked disabled />
+          <label for="connect-all-chats-on-start-checkbox" data-i18n="settings.backgroundCheckHint">In the background it checks and maintains only the active chat and chats active in the last 10 minutes (stored locally).</label>
+        </div>
+        <div class="auto-name-chat-row">
+          <input type="checkbox" id="chat-canvas-addon-checkbox" class="auto-name-chat-checkbox" />
+          <label for="chat-canvas-addon-checkbox" data-i18n="settings.canvasChatHint">Canvas in chat (optional; off by default — plain xterm renderer).</label>
+        </div>
+        <div class="auto-name-chat-row">
+          <input type="checkbox" id="chat-read-buffer-from-localstorage-checkbox" class="auto-name-chat-checkbox" />
+          <label for="chat-read-buffer-from-localstorage-checkbox" data-i18n="settings.historyFallbackHint">Load chat history from localStorage as a fallback (off by default).</label>
+        </div>
+        <div class="auto-name-chat-row">
+          <input type="checkbox" id="agent-title-print-checkbox" class="auto-name-chat-checkbox" />
+          <label for="agent-title-print-checkbox"><strong>Name from content — print mode (JSON)</strong> – Cursor CLI <code>--print --output-format json</code> instead of an interactive agent + curl. Faster and more stable; requires the <code>agent</code> logged in on the server. <a href="https://cursor.com/docs/cli/reference/output-format" target="_blank" rel="noopener">Docs</a>. <span data-i18n="settings.titlePrintHint">You can also set env CURSOR_AGENT_TITLE_PRINT=1.</span></label>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="harness">
+        <h3 class="settings-section-title" data-i18n="settings.harnessSdkModelsTitle">Cursor SDK — chat models</h3>
+        <p class="settings-hint" data-i18n="settings.chatModelsHint">
+          Full list of models available for your API key (including modes such as High/Low). Check the entries that should appear in the chat model picker. When none are selected, all models remain available.
+        </p>
+        <p id="chat-model-settings-summary" class="settings-hint" aria-live="polite"></p>
+        <p id="chat-model-settings-cost-hint" class="settings-hint chat-model-settings-cost-hint" data-i18n="settings.chatModelsCostHint"></p>
+        <div class="chat-model-settings-toolbar">
+          <cr-bar-input
+            type="search"
+            id="chat-model-settings-search"
+            class="chat-model-settings-search"
+            placeholder="Search models…"
+            data-i18n-placeholder="settings.chatModelsSearchPlaceholder"
+            autocomplete="off"
+          ></cr-bar-input>
+          <label class="chat-model-settings-sort-wrap">
+            <span class="chat-model-settings-sort-label" data-i18n="settings.chatModelsSortLabel">Sort</span>
+            <cr-bar-select id="chat-model-settings-sort" class="chat-model-settings-sort" aria-label="Sort models"></cr-bar-select>
+          </label>
+          <cr-bar-button id="chat-model-settings-toggle-all-btn" data-i18n="settings.chatModelsToggleAll">Select / deselect all</cr-bar-button>
+          <cr-bar-button id="chat-model-settings-clear-btn" data-i18n="settings.chatModelsClear">Show all in chat</cr-bar-button>
+          <cr-bar-button id="chat-model-settings-defaults-btn" data-i18n="settings.chatModelsDefaults">Defaults</cr-bar-button>
+        </div>
+        <div id="chat-model-settings-list" class="chat-model-settings-list" role="group" aria-labelledby="chat-model-settings-summary"></div>
+        <div class="cr-row">
+          <cr-bar-button variant="primary" id="chat-model-settings-save-btn" data-i18n="settings.chatModelsSave">Save model list</cr-bar-button>
+          <span id="chat-model-settings-status" class="cr-status" aria-live="polite"></span>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="harness">
+        <h3 class="settings-section-title" data-i18n="settings.harnessOpenRouterModelsTitle">OpenRouter — chat models</h3>
+        <p class="settings-hint" data-i18n="settings.harnessOpenRouterModelsHint">
+          Models from your OpenRouter API key. Check entries that should appear in the chat model picker for OpenRouter harness chats.
+        </p>
+        <p id="openrouter-model-settings-summary" class="settings-hint" aria-live="polite"></p>
+        <div class="chat-model-settings-toolbar">
+          <cr-bar-input
+            type="search"
+            id="openrouter-model-settings-search"
+            class="chat-model-settings-search"
+            placeholder="Search models…"
+            data-i18n-placeholder="settings.chatModelsSearchPlaceholder"
+            autocomplete="off"
+          ></cr-bar-input>
+          <label class="chat-model-settings-sort-wrap">
+            <span class="chat-model-settings-sort-label" data-i18n="settings.chatModelsSortLabel">Sort</span>
+            <cr-bar-select id="openrouter-model-settings-sort" class="chat-model-settings-sort" aria-label="Sort models"></cr-bar-select>
+          </label>
+          <cr-bar-button id="openrouter-model-settings-toggle-all-btn" data-i18n="settings.chatModelsToggleAll">Select / deselect all</cr-bar-button>
+          <cr-bar-button id="openrouter-model-settings-clear-btn" data-i18n="settings.chatModelsClear">Show all in chat</cr-bar-button>
+        </div>
+        <div id="openrouter-model-settings-list" class="chat-model-settings-list" role="group" aria-labelledby="openrouter-model-settings-summary"></div>
+        <div class="cr-row">
+          <cr-bar-button variant="primary" id="openrouter-model-settings-save-btn" data-i18n="settings.chatModelsSave">Save model list</cr-bar-button>
+          <span id="openrouter-model-settings-status" class="cr-status" aria-live="polite"></span>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="harness">
+        <h3 class="settings-section-title" data-i18n="settings.harnessOpenCodeModelsTitle">OpenCode — chat models</h3>
+        <p class="settings-hint" data-i18n="settings.harnessOpenCodeModelsHint">
+          Models from OpenCode providers on the server. Check entries for the chat model picker when harness is OpenCode.
+        </p>
+        <p id="opencode-model-settings-summary" class="settings-hint" aria-live="polite"></p>
+        <div class="chat-model-settings-toolbar">
+          <cr-bar-input
+            type="search"
+            id="opencode-model-settings-search"
+            class="chat-model-settings-search"
+            placeholder="Search models…"
+            data-i18n-placeholder="settings.chatModelsSearchPlaceholder"
+            autocomplete="off"
+          ></cr-bar-input>
+          <label class="chat-model-settings-sort-wrap">
+            <span class="chat-model-settings-sort-label" data-i18n="settings.chatModelsSortLabel">Sort</span>
+            <cr-bar-select id="opencode-model-settings-sort" class="chat-model-settings-sort" aria-label="Sort models"></cr-bar-select>
+          </label>
+          <cr-bar-button id="opencode-model-settings-toggle-all-btn" data-i18n="settings.chatModelsToggleAll">Select / deselect all</cr-bar-button>
+          <cr-bar-button id="opencode-model-settings-clear-btn" data-i18n="settings.chatModelsClear">Show all in chat</cr-bar-button>
+        </div>
+        <div id="opencode-model-settings-list" class="chat-model-settings-list" role="group" aria-labelledby="opencode-model-settings-summary"></div>
+        <div class="cr-row">
+          <cr-bar-button variant="primary" id="opencode-model-settings-save-btn" data-i18n="settings.chatModelsSave">Save model list</cr-bar-button>
+          <span id="opencode-model-settings-status" class="cr-status" aria-live="polite"></span>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="chat">
+        <h3 class="settings-section-title" data-i18n="settings.rulesAndAgents">Rules and agents</h3>
+        <div class="agents-toggle" id="agents-toggle"><span class="mdi mdi-chevron-down" aria-hidden="true"></span> <span data-i18n="settings.rulesAndAgentsTitle"> Rules and agents (project + skills)</span></div>
+        <div class="agents-panel" id="agents-rules-panel" style="display:none;">
+          <h4 data-i18n="settings.projectRules">Project rules (.cursor/rules)</h4>
+          <ul id="agents-rules"></ul>
+          <h4 data-i18n="settings.sharedRules">Shared rules (additional Cursor roots)</h4>
+          <ul id="agents-shared-rules"></ul>
+          <h4>Commands (.cursor/commands)</h4>
+          <ul id="agents-commands"></ul>
+          <h4 data-i18n="settings.sharedSkills">Shared skills</h4>
+          <ul id="agents-shared-skills"></ul>
+          <h4 data-i18n="settings.userSkills">User skills (~/.cursor/skills-cursor)</h4>
+          <ul id="agents-skills"></ul>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="widgets" hidden>
+        <h3 class="settings-section-title" data-i18n="settings.widgetsTitle">Page widgets</h3>
+        <p class="settings-hint" data-i18n="settings.widgetsHint">Each installation is bound to one workspace and to the allowed page origins.</p>
+        <div class="widget-panel-layout">
+          <section class="widget-panel-section widget-panel-intro">
+            <p class="settings-hint" data-i18n="widget.panelIntro">Embed Cretli on a project page. The widget ties agent chat to the current page (DOM, console, network, screenshot). Each installation is bound to one workspace.</p>
+            <ol class="widget-panel-steps">
+              <li data-i18n="widget.step1">Pick a workspace and create an installation below (name, allowed origins, permissions).</li>
+              <li data-i18n="widget.step2">Copy the generated script tag and paste it before &lt;/body&gt; on the project page.</li>
+              <li data-i18n="widget.step3">Open the page from an allowed origin (e.g. a local dev server). Sign in in the Cretli authorization window on first use.</li>
+              <li data-i18n="widget.step4">The widget shows a chat button. The chat session is bound to the page URL and context.</li>
+            </ol>
+            <div class="widget-panel-notes">
+              <p class="settings-hint" data-i18n="widget.securityHint">Security: HTTP is allowed only for localhost and private LAN addresses (e.g. http://192.168.1.10:8080). The origin must match exactly.</p>
+              <p class="settings-hint" data-i18n="widget.controlHint">Page control: enable interact and navigate only when the agent should click, type, or reload the page.</p>
+              <p class="settings-hint" data-i18n="widget.buildHint">Build: the widget bundle is served from /dist/app/embed-widget.bundle.js — keep the Cretli server running with a current production build.</p>
+            </div>
+          </section>
+
+          <section class="widget-panel-section widget-panel-form-section">
+            <h3 class="widget-panel-subtitle" data-i18n="widget.newInstallation">New installation</h3>
+            <p class="settings-hint" data-i18n="widget.newInstallationHint">Select a workspace from the sidebar. The installation is bound to its .code-workspace file and working folder.</p>
+            <div class="widget-installation-form">
+              <label for="widget-panel-workspace-select" data-i18n="workspace.workspace">Workspace</label>
+              <select id="widget-panel-workspace-select" class="widget-panel-select"></select>
+              <label for="widget-panel-name" data-i18n="widget.installationName">Installation name</label>
+              <input type="text" id="widget-panel-name" class="settings-cursor-api-input" placeholder="e.g. Frontend dev" data-i18n-placeholder="widget.installationNamePlaceholder" />
+              <label for="widget-panel-workspace-file" data-i18n="widget.workspaceFile">Workspace file</label>
+              <input type="text" id="widget-panel-workspace-file" class="settings-cursor-api-input" readonly />
+              <label for="widget-panel-workspace-folder" data-i18n="widget.workspaceFolder">Workspace folder</label>
+              <input type="text" id="widget-panel-workspace-folder" class="settings-cursor-api-input" readonly />
+              <label for="widget-panel-model" data-i18n="widget.modelOptional">Model (optional)</label>
+              <input type="text" id="widget-panel-model" class="settings-cursor-api-input" placeholder="auto" />
+              <label for="widget-panel-origins" data-i18n="widget.allowedOrigins">Allowed origins, one per line</label>
+              <textarea id="widget-panel-origins" class="quick-commands-textarea" rows="3" placeholder="http://localhost:5173&#10;https://staging.example.com"></textarea>
+              <fieldset class="widget-installation-permissions widget-panel-permissions">
+                <legend data-i18n="widget.features">Features</legend>
+                <label><input type="checkbox" value="context" checked /> <span data-i18n="widget.permContext">Page context</span></label>
+                <label><input type="checkbox" value="dom" checked /> <span data-i18n="widget.permDom">DOM and styles</span></label>
+                <label><input type="checkbox" value="console" checked /> <span data-i18n="widget.permConsole">Console</span></label>
+                <label><input type="checkbox" value="network" checked /> <span data-i18n="widget.permNetwork">Network</span></label>
+                <label><input type="checkbox" value="screenshot" /> <span data-i18n="widget.permScreenshot">Screenshot</span></label>
+                <label><input type="checkbox" value="interact" /> <span data-i18n="widget.permInteract">Page control</span></label>
+                <label><input type="checkbox" value="navigate" /> <span data-i18n="widget.permNavigate">Navigation and reload</span></label>
+                <label><input type="checkbox" value="storage" /> <span data-i18n="widget.permStorage">Storage (local/session, read-only)</span></label>
+              </fieldset>
+              <div class="quick-commands-save-row">
+                <button type="button" id="widget-panel-create" class="chat-settings-btn-primary" data-i18n="widget.createInstallation">Create installation</button>
+                <span id="widget-panel-status" class="quick-commands-save-status" aria-live="polite"></span>
+              </div>
+            </div>
+          </section>
+
+          <section class="widget-panel-section widget-panel-list-section">
+            <h3 class="widget-panel-subtitle" data-i18n="widget.installationsPerWorkspace">Installations per workspace</h3>
+            <div id="widget-panel-installations-list" class="widget-installations-list"></div>
+          </section>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="usage" hidden>
+        <h3 class="settings-section-title" data-i18n="usage.title">Usage and cost</h3>
+        <p class="settings-hint" data-i18n="usage.hint">Approximate totals for this Cretli instance. Not a provider invoice.</p>
+        <p id="usage-summary-period" class="settings-hint"></p>
+        <p id="usage-summary-today" class="settings-hint"></p>
+        <p id="usage-summary-month" class="settings-hint"></p>
+        <p id="usage-summary-empty" class="settings-hint" data-i18n="usage.empty" hidden>No billed usage yet this month.</p>
+        <h4 class="settings-usage-subtitle" data-i18n="usage.byProvider">By provider</h4>
+        <table id="usage-by-provider" class="settings-usage-table">
+          <thead>
+            <tr>
+              <th data-i18n="usage.colProvider">Provider</th>
+              <th data-i18n="usage.colUsd">USD</th>
+              <th data-i18n="usage.colTokens">Tokens</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <h4 class="settings-usage-subtitle" data-i18n="usage.byFeature">By feature</h4>
+        <table id="usage-by-feature" class="settings-usage-table">
+          <thead>
+            <tr>
+              <th data-i18n="usage.colFeature">Feature</th>
+              <th data-i18n="usage.colUsd">USD</th>
+              <th data-i18n="usage.colTokens">Tokens</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+      <section class="settings-section" id="settings-account-section" data-settings-tab="account" hidden>
+        <h3 class="settings-section-title" data-i18n="settings.account">Account</h3>
+        <p class="settings-hint" data-i18n="settings.accountInfo">You are logged in. Logging out will invalidate the current session on this device.</p>
+        <div class="quick-commands-save-row">
+          <button type="button" id="account-logout-btn" class="chat-settings-btn-danger" data-i18n="settings.logout">Log out</button>
+          <span id="account-logout-status" class="quick-commands-save-status"></span>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="interface">
+        <h3 class="settings-section-title" data-i18n="settings.notifications">Notifications</h3>
+        <p class="settings-hint" data-i18n="settings.notificationsHint">Notify on this device when an agent run finishes. Requires installable PWA + granted permission. The server keeps your push subscription in data/push-subscriptions.json.</p>
+        <div class="auto-name-chat-row">
+          <input type="checkbox" id="pwa-push-checkbox" class="auto-name-chat-checkbox" />
+          <label for="pwa-push-checkbox" data-i18n="settings.enablePush">Enable agent-finished push notifications</label>
+        </div>
+        <p id="pwa-push-status" class="settings-hint" aria-live="polite"></p>
+      </section>
+      <section class="settings-section" data-settings-tab="browser">
+        <h3 class="settings-section-title" data-i18n="settings.browserStorageTitle">Browser report &amp; storage</h3>
+        <p class="settings-hint" data-i18n="settings.browserStorageHint">Local diagnostics for origin storage (quota, usage, localStorage keys, IndexedDB databases). Clearing removes only Cretli browser data.</p>
+        <div class="quick-commands-save-row browser-storage-actions-row">
+          <button type="button" id="browser-storage-refresh-btn" class="lan-save-btn-inline" data-i18n="settings.browserStorageRefresh">Refresh</button>
+          <button type="button" id="browser-storage-clear-local-btn" class="chat-settings-btn-danger" data-i18n="settings.browserStorageClearLocal">Clear app local/session storage</button>
+          <button type="button" id="browser-storage-clear-idb-btn" class="chat-settings-btn-danger" data-i18n="settings.browserStorageClearIdb">Clear app IndexedDB</button>
+          <button type="button" id="browser-storage-clear-cache-btn" class="chat-settings-btn-danger" data-i18n="settings.browserStorageClearCache">Clear app cache storage</button>
+          <button type="button" id="browser-storage-clear-all-btn" class="chat-settings-btn-danger" data-i18n="settings.browserStorageClearAll">Clear all app browser data</button>
+          <span id="browser-storage-status" class="quick-commands-save-status" aria-live="polite"></span>
+        </div>
+        <div id="browser-storage-charts" class="browser-storage-charts"></div>
+        <div id="browser-storage-summary" class="browser-storage-summary"></div>
+        <div id="browser-storage-details" class="browser-storage-details"></div>
+        <div id="browser-storage-environment" class="browser-storage-details"></div>
+      </section>
+    </div>
+    <div class="settings-workspace-save-row cr-page-footer" id="settings-workspace-save-row">
+      <cr-bar-button variant="primary" id="settings-workspace-apply" data-i18n="settings.saveSidebarConfig">Save sidebar configuration</cr-bar-button>
+      <span id="settings-workspace-status" class="quick-commands-save-status"></span>
+    </div>
+  </div>
+
+  <div id="tasks-panel" class="panel">
+    <div class="tasks-layout">
+      <div class="tasks-fullscreen-bar panel-toolbar">
+        <span class="chat-bar-group">
+          <div id="tasks-bar-trigger" class="chat-bar-trigger" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose task" data-i18n-aria="tasks.runTitle" title="Choose task" data-i18n-title="tasks.runTitle">
+            <span class="chat-bar-trigger-label" id="tasks-bar-trigger-label">—</span>
+            <span class="chat-bar-trigger-arrow mdi mdi-chevron-down" aria-hidden="true"></span>
+          </div>
+          <div id="tasks-list-modal" class="chat-list-modal" role="dialog" aria-label="Tasks list" hidden>
+            <div class="chat-list-panel">
+              <ul id="tasks-list-items" class="chat-list-items" role="listbox"></ul>
+            </div>
+          </div>
+        </span>
+        <cr-bar-button id="tasks-start-btn" title="Run task" data-i18n-title="tasks.runTitle" aria-label="Start">Start</cr-bar-button>
+        <cr-bar-button id="tasks-restart-btn" title="Restart task" data-i18n-title="tasks.restartTitle" aria-label="Restart">Restart</cr-bar-button>
+        <div id="tasks-start-dropdown" class="tasks-start-dropdown" hidden role="listbox">
+          <ul id="tasks-start-list" class="tasks-start-list"></ul>
+        </div>
+        <cr-bar-button id="tasks-clear-btn" title="Clear output" data-i18n-title="tasks.clearTitle" data-i18n="tasks.clear">Clear</cr-bar-button>
+        <cr-bar-button id="tasks-copy-btn" class="panel-copy-btn" title="Copy content (selection or the whole buffer)" data-i18n-title="terminal.copyTitle" aria-label="Copy" data-i18n-aria="terminal.copyAria" data-i18n="terminal.copy">Copy</cr-bar-button>
+      </div>
+      <div class="tasks-tabs" id="tasks-tabs"></div>
+    </div>
+  </div>
+
+  <div id="agents-panel" class="panel">
+    <div class="agents-layout">
+      <div class="agents-fullscreen-bar panel-toolbar">
+        <span class="chat-bar-group">
+          <div id="agents-bar-trigger" class="chat-bar-trigger" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" title="Choose a running agent or an agent to run">
+            <span class="chat-bar-trigger-label" id="agents-bar-trigger-label">—</span>
+            <span class="chat-bar-trigger-arrow mdi mdi-chevron-down" aria-hidden="true"></span>
+          </div>
+          <div id="agents-list-modal" class="chat-list-modal" role="dialog" aria-label="Agents list" hidden>
+            <div class="chat-list-panel">
+              <ul id="agents-list-items" class="chat-list-items" role="listbox"></ul>
+            </div>
+          </div>
+        </span>
+        <cr-bar-button id="agents-start-btn" title="Run agent" data-i18n-title="agents.runTitle" aria-label="Start">Start</cr-bar-button>
+        <div id="agents-start-dropdown" class="agents-start-dropdown" hidden role="listbox">
+          <ul id="agents-start-list" class="agents-start-list"></ul>
+        </div>
+        <cr-bar-button id="agents-clear-btn" title="Clear output" data-i18n-title="agents.clearTitle" data-i18n="agents.clear">Clear</cr-bar-button>
+        <cr-bar-button id="agents-copy-btn" class="panel-copy-btn" title="Copy content (selection or the whole buffer)" data-i18n-title="terminal.copyTitle" aria-label="Copy" data-i18n-aria="terminal.copyAria" data-i18n="terminal.copy">Copy</cr-bar-button>
+      </div>
+      <div class="agents-schedule-wrap" id="agents-schedule-wrap" style="display:none;">
+        <h4 class="agents-schedule-heading" data-i18n="agents.schedule">Schedule</h4>
+        <div id="agents-schedule-list" class="agents-schedule-list"></div>
+        <cr-bar-button variant="primary" id="agents-schedule-save-btn" data-i18n="agents.saveSchedule">Save schedule</cr-bar-button>
+      </div>
+      <div class="agents-tabs" id="agents-tabs"></div>
+    </div>
+  </div>
+
+  <div id="todo-panel" class="panel">
+    <div class="todo-layout">
+      <div class="todo-toolbar panel-toolbar">
+        <cr-icon-button id="todo-refresh-btn" title="Refresh list" data-i18n-title="git.refreshTitle" aria-label="Refresh list" data-i18n-aria="git.refreshTitle">
+          <span class="mdi mdi-refresh" aria-hidden="true"></span>
+        </cr-icon-button>
+        <cr-icon-button id="todo-new-open-btn" title="New task" data-i18n-title="todo.newTitle" aria-label="New task" data-i18n-aria="todo.newTitle">
+          <span class="mdi mdi-plus" aria-hidden="true"></span>
+        </cr-icon-button>
+        <span id="todo-cwd-hint" class="todo-cwd-hint" hidden></span>
+        <span id="todo-status" class="todo-status" aria-live="polite"></span>
+      </div>
+      <div class="todo-scroll">
+        <div id="todo-list" class="todo-list" role="region" aria-label="Todo list"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="todo-new-modal" class="chat-settings-modal" role="dialog" aria-labelledby="todo-new-heading" aria-modal="true" hidden>
+    <div class="chat-settings-backdrop"></div>
+    <div class="chat-settings-dialog">
+      <h2 id="todo-new-heading" class="chat-settings-title" data-i18n="todo.newTitle">New task</h2>
+      <div class="chat-settings-form">
+        <label for="todo-new-title" data-i18n="todo.title">Title</label>
+        <cr-bar-input id="todo-new-title" class="todo-field-input todo-new-title" placeholder="Idea / task title" data-i18n-placeholder="todo.titlePlaceholder" maxlength="500" aria-label="New item title"></cr-bar-input>
+        <label for="todo-new-body" data-i18n="todo.notes">Notes</label>
+        <cr-bar-textarea id="todo-new-body" class="todo-field-input todo-new-body" rows="3" placeholder="Notes (optional)" data-i18n-placeholder="todo.notesPlaceholder" aria-label="Notes for the new item"></cr-bar-textarea>
+      </div>
+      <div class="chat-settings-actions">
+        <cr-bar-button id="todo-new-cancel-btn" data-i18n="todo.cancel">Cancel</cr-bar-button>
+        <cr-bar-button variant="primary" id="todo-add-btn" data-i18n="todo.add">Add</cr-bar-button>
+      </div>
+    </div>
+  </div>
+
+  <div id="files-panel" class="panel">
+    <div class="files-layout">
+      <div class="files-toolbar panel-toolbar">
+        <span class="chat-bar-group files-toolbar-root-wrap">
+          <div id="files-root-label" class="chat-bar-trigger" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Workspace folder" data-i18n-aria="files.treeAria">
+            <span class="chat-bar-trigger-label" id="files-root-label-text">Loading…</span>
+            <span class="chat-bar-trigger-arrow mdi mdi-chevron-down" aria-hidden="true"></span>
+          </div>
+          <div id="files-root-dropdown" class="files-root-dropdown" role="listbox" hidden></div>
+        </span>
+        <cr-icon-button id="files-settings-btn" class="files-settings-btn" title="Files section settings" data-i18n-title="files.sectionSettings" aria-label="Files section settings" data-i18n-aria="files.sectionSettings"><span class="mdi mdi-cog" aria-hidden="true"></span></cr-icon-button>
+      </div>
+      <div class="files-tree-wrap">
+        <div id="files-tree" class="files-tree" role="tree" aria-label="File tree" data-i18n-aria="files.treeAria"></div>
+      </div>
+      <div class="files-preview-wrap" id="files-preview-wrap" hidden>
+        <div class="files-preview-toolbar files-preview-drag-handle" id="files-preview-toolbar" title="Drag up/down — preview height" data-i18n-title="files.previewResizeTitle">
+          <span class="files-preview-grip" aria-hidden="true"></span>
+          <span id="files-preview-path" class="files-preview-path"></span>
+          <label id="files-preview-markdown-toggle-wrap" class="files-preview-markdown-toggle-wrap" hidden title="Toggle rendered markdown preview" data-i18n-title="files.toggleMarkdownTitle">
+            <input id="files-preview-markdown-toggle" class="files-preview-markdown-toggle-input" type="checkbox" />
+            <span class="files-preview-markdown-toggle-ui" aria-hidden="true"></span>
+            <span class="files-preview-markdown-toggle-text" data-i18n="files.toggleMarkdown">Preview</span>
+          </label>
+          <label id="files-preview-diff-toggle-wrap" class="files-preview-markdown-toggle-wrap files-preview-diff-toggle-wrap" hidden title="Show diff of changes (git vs HEAD)" data-i18n-title="files.toggleDiffTitle">
+            <input id="files-preview-diff-toggle" class="files-preview-markdown-toggle-input" type="checkbox" />
+            <span class="files-preview-markdown-toggle-ui" aria-hidden="true"></span>
+            <span class="files-preview-markdown-toggle-text" data-i18n="files.toggleDiff">Diff</span>
+          </label>
+          <button type="button" id="files-preview-close" class="files-preview-close" title="Close preview" data-i18n-title="files.closePreviewTitle" aria-label="Close" data-i18n-aria="files.close">×</button>
+        </div>
+        <pre id="files-preview-content" class="files-preview-content"></pre>
+      </div>
+    </div>
+  </div>
+
+  <div id="files-settings-modal" class="chat-settings-modal" role="dialog" aria-labelledby="files-settings-heading" aria-modal="true" hidden>
+    <div class="chat-settings-backdrop"></div>
+    <div class="chat-settings-dialog">
+      <h2 id="files-settings-heading" class="chat-settings-title" data-i18n="files.sectionSettings">Files section settings</h2>
+      <div class="chat-settings-form">
+        <label class="chat-settings-checkbox-label">
+          <input type="checkbox" id="files-show-hidden-checkbox" class="chat-settings-checkbox" />
+          <span data-i18n="files.showHidden">Show hidden files and folders (dotfiles)</span>
+        </label>
+      </div>
+      <div class="chat-settings-actions">
+        <cr-bar-button id="files-settings-cancel" data-i18n="files.cancel">Cancel</cr-bar-button>
+        <cr-bar-button variant="primary" id="files-settings-save" data-i18n="files.save">Save</cr-bar-button>
+      </div>
+    </div>
+  </div>
+
+  <div id="git-panel" class="panel">
+    <div class="git-layout">
+      <div class="git-toolbar panel-toolbar">
+        <div class="git-toolbar-actions">
+          <cr-bar-button id="git-refresh-btn" title="Refresh info" data-i18n-title="git.refreshTitle" data-i18n="git.refresh">Refresh</cr-bar-button>
+          <span id="git-status-badge" class="git-status-badge">—</span>
+        </div>
+      </div>
+      <div class="git-content">
+        <div class="git-info">
+          <div class="git-info-row">
+            <span class="git-info-label" data-i18n="git.dir">Folder:</span>
+            <span id="git-info-cwd" class="git-info-value">—</span>
+          </div>
+          <div class="git-info-row">
+            <span class="git-info-label">Repo:</span>
+            <span id="git-info-repo" class="git-info-value">—</span>
+          </div>
+          <div class="git-info-row">
+            <span class="git-info-label" data-i18n="git.branch">Branch:</span>
+            <span id="git-info-branch" class="git-info-value">—</span>
+          </div>
+          <div class="git-info-row">
+            <span class="git-info-label">Upstream:</span>
+            <span id="git-info-upstream" class="git-info-value">—</span>
+          </div>
+          <div class="git-info-row">
+            <span class="git-info-label">Commit:</span>
+            <span id="git-info-head" class="git-info-value">—</span>
+          </div>
+        </div>
+        <div class="git-actions">
+          <div class="git-actions-row">
+            <cr-bar-button class="git-action-btn" data-action="status">Status</cr-bar-button>
+            <cr-bar-button class="git-action-btn" data-action="fetch">Fetch</cr-bar-button>
+            <cr-bar-button class="git-action-btn" data-action="pull">Pull</cr-bar-button>
+            <cr-bar-button class="git-action-btn" data-action="push">Push</cr-bar-button>
+            <cr-bar-button class="git-action-btn" data-action="log">Log</cr-bar-button>
+          </div>
+          <div class="git-actions-row">
+            <cr-bar-button class="git-action-btn" data-action="diff">Diff</cr-bar-button>
+            <cr-bar-button class="git-action-btn" data-action="diff-staged">Diff staged</cr-bar-button>
+            <cr-bar-button class="git-action-btn" data-action="branch">Branch</cr-bar-button>
+            <cr-bar-button class="git-action-btn" data-action="stash">Stash</cr-bar-button>
+            <cr-bar-button class="git-action-btn" data-action="stash-pop">Stash pop</cr-bar-button>
+          </div>
+          <div class="git-actions-row git-actions-form cr-row">
+            <cr-bar-select id="git-action-select" aria-label="Git action" data-i18n-aria="git.actionAria" data-i18n-placeholder="git.chooseAction" placeholder="Choose an action…"></cr-bar-select>
+            <cr-bar-input id="git-action-arg" placeholder="branch name / target" data-i18n-placeholder="git.actionPlaceholder"></cr-bar-input>
+            <cr-bar-button variant="primary" id="git-action-run" data-i18n="git.run">Run</cr-bar-button>
+          </div>
+        </div>
+        <pre id="git-output" class="git-output" aria-live="polite"></pre>
+      </div>
+    </div>
+  </div>
+
+  <div id="github-panel" class="panel">
+    <div class="github-layout">
+      <div class="github-toolbar git-toolbar panel-toolbar">
+        <div class="github-toolbar-actions git-toolbar-actions">
+          <cr-bar-button id="github-refresh-btn" title="Refresh GitHub Actions" data-i18n-title="github.refreshTitle" data-i18n="github.refresh">Refresh</cr-bar-button>
+          <span id="github-status-badge" class="git-status-badge">—</span>
+        </div>
+      </div>
+      <div class="github-content git-content">
+        <div class="github-info git-info">
+          <div class="github-info-row git-info-row">
+            <span class="github-info-label git-info-label" data-i18n="github.repo">Repository:</span>
+            <span id="github-info-repo" class="github-info-value git-info-value">—</span>
+          </div>
+          <div class="github-info-row git-info-row">
+            <span class="github-info-label git-info-label" data-i18n="github.remote">Remote:</span>
+            <span id="github-info-remote" class="github-info-value git-info-value">—</span>
+          </div>
+          <div class="github-info-row git-info-row">
+            <span class="github-info-label git-info-label" data-i18n="github.token">Token:</span>
+            <span id="github-info-token" class="github-info-value git-info-value">—</span>
+          </div>
+        </div>
+        <section class="github-actions-section">
+          <h3 class="github-section-title" data-i18n="github.actionsTitle">GitHub Actions</h3>
+          <div id="github-runs-list" class="github-runs-list"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="instances-panel" class="panel">
+    <div class="instances-layout">
+      <div class="instances-toolbar panel-toolbar">
+        <span class="instances-toolbar-label" data-i18n="instances.title">Client instances</span>
+        <div class="instances-toolbar-actions">
+          <cr-bar-button id="instances-refresh-btn" title="Refresh" data-i18n-title="instances.refreshTitle" data-i18n="instances.refresh">Refresh</cr-bar-button>
+        </div>
+      </div>
+      <div class="instances-body">
+        <div class="instances-list-wrap">
+          <div id="instances-list" class="instances-list" role="listbox" aria-label="Client instances" data-i18n-aria="instances.listAria"></div>
+        </div>
+        <div class="instances-detail">
+          <div class="instances-detail-header">
+            <div id="instances-detail-title" class="instances-detail-title">—</div>
+            <div id="instances-command-actions" class="instances-command-actions" hidden>
+              <cr-bar-button class="instances-command-btn" data-command="ping" data-i18n="instances.cmdPing">Ping</cr-bar-button>
+              <cr-bar-button class="instances-command-btn" data-command="flushLogs" data-i18n="instances.cmdFlushLogs">Flush logs</cr-bar-button>
+              <cr-bar-button class="instances-command-btn" data-command="consoleReport" data-i18n="instances.cmdConsoleReport">Console report</cr-bar-button>
+              <cr-bar-button class="instances-command-btn" data-command="uiSnapshot" data-i18n="instances.cmdUiSnapshot">UI snapshot</cr-bar-button>
+            </div>
+            <div class="instances-detail-actions">
+              <cr-bar-button id="instances-copy-logs-btn" disabled title="Copy logs" data-i18n-title="instances.copyLogsTitle" data-i18n="instances.copyLogs">Copy logs</cr-bar-button>
+              <cr-bar-button id="instances-clear-logs-btn" disabled title="Clear logs" data-i18n-title="instances.clearLogsTitle" data-i18n="instances.clearLogs">Clear logs</cr-bar-button>
+            </div>
+          </div>
+          <div id="instances-detail-meta" class="instances-detail-meta"></div>
+          <div id="instances-command-status" class="instances-command-status" hidden></div>
+          <div id="instances-logs-content" class="instances-logs-content" role="log" aria-live="polite"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="logs-panel" class="panel">
+    <div class="logs-layout">
+      <div class="logs-toolbar panel-toolbar">
+        <div class="logs-toolbar-actions">
+          <cr-bar-select id="logs-filter-select" class="logs-filter-select" title="Filter logs" data-i18n-title="logs.filterTitle" aria-label="Filter logs" data-i18n-aria="logs.filterAria"></cr-bar-select>
+          <cr-bar-button id="logs-copy-btn" title="Copy to clipboard" data-i18n-title="logs.copyToClipboardTitle" data-i18n="logs.copyToClipboard">Copy to clipboard</cr-bar-button>
+          <cr-bar-button id="logs-clear-btn" title="Clear" data-i18n-title="logs.clearTitle" data-i18n="logs.clear">Clear</cr-bar-button>
+          <cr-icon-button id="logs-debug-settings-btn" title="Debug settings" data-i18n-title="logs.debugSettingsTitle" aria-label="Debug settings" data-i18n-aria="logs.debugSettingsAria"><span class="mdi mdi-cog" aria-hidden="true"></span></cr-icon-button>
+        </div>
+      </div>
+      <div id="logs-content" class="logs-content" role="log" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <div id="logs-debug-modal" class="chat-settings-modal" role="dialog" aria-labelledby="logs-debug-heading" aria-modal="true" hidden>
+    <div class="chat-settings-backdrop"></div>
+    <div class="chat-settings-dialog">
+      <h2 id="logs-debug-heading" class="chat-settings-title" data-i18n="logs.debugApp">App debug</h2>
+      <div class="chat-settings-form">
+        <label class="chat-settings-checkbox-label">
+          <input type="checkbox" id="logs-debug-startup-checkbox" class="chat-settings-checkbox" />
+          <span data-i18n="logs.startupDebug">Startup debug (requires page reload)</span>
+        </label>
+        <label class="chat-settings-checkbox-label">
+          <input type="checkbox" id="logs-debug-api-checkbox" class="chat-settings-checkbox" />
+          <span data-i18n="logs.apiDebug">API debug (START/END/REUSE of requests)</span>
+        </label>
+        <label class="chat-settings-checkbox-label">
+          <input type="checkbox" id="logs-debug-http-checkbox" class="chat-settings-checkbox" />
+          <span data-i18n="logs.httpTiming">Server HTTP timing (API timing logs on the backend)</span>
+        </label>
+        <label class="chat-settings-checkbox-label">
+          <input type="checkbox" id="logs-debug-tasks-checkbox" class="chat-settings-checkbox" />
+          <span data-i18n="logs.tasksDebug">Tasks debug/perf (freeze diagnosis; [tasks-perf] and [tasks-debug] logs)</span>
+        </label>
+        <label class="chat-settings-checkbox-label">
+          <input type="checkbox" id="logs-debug-freeze-checkbox" class="chat-settings-checkbox" />
+          <span data-i18n="logs.freezeDebug">UI freeze diag (resume snapshots, long tasks; requires reload — or URL ?uiFreezeDiag=1)</span>
+        </label>
+        <label class="chat-settings-checkbox-label">
+          <input type="checkbox" id="logs-debug-overlay-checkbox" class="chat-settings-checkbox" />
+          <span data-i18n="logs.overlayDebug">Debug overlay on phone (no console; requires reload — or URL ?debugOverlay=1)</span>
+        </label>
+        <label class="chat-settings-checkbox-label">
+          <input type="checkbox" id="logs-debug-remote-checkbox" class="chat-settings-checkbox" />
+          <span data-i18n="logs.remoteDebug">Debug to server (Node logs via RDP — or URL ?debugRemote=1)</span>
+        </label>
+      </div>
+      <div class="chat-settings-actions">
+        <button type="button" id="logs-debug-cancel" class="chat-settings-btn-secondary" data-i18n="logs.cancel">Cancel</button>
+        <button type="button" id="logs-debug-save" class="chat-settings-btn-primary" data-i18n="logs.save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="tests-panel" class="panel">
+    <div class="status-tests-layout">
+      <div class="status-tests-toolbar">
+        <button type="button" id="status-tests-run-all-groups-btn" class="chat-settings-btn" data-i18n="statusTests.runAllGroups">Run all groups</button>
+        <button type="button" id="status-tests-load-active-btn" class="logs-clear-btn" data-i18n="statusTests.loadActiveTail">Load active chat tail</button>
+        <span id="status-tests-summary" class="status-tests-summary" data-i18n="statusTests.ready">Ready</span>
+      </div>
+      <div id="status-tests-groups" class="status-tests-groups"></div>
+      <div class="status-tests-toolbar">
+        <button type="button" id="status-flow-tests-run-all-groups-btn" class="chat-settings-btn" data-i18n="statusTests.runAllFlows">Run all flows</button>
+        <span id="status-flow-tests-summary" class="status-tests-summary" data-i18n="statusTests.flowReady">Flow: ready</span>
+      </div>
+      <div id="status-flow-tests-groups" class="status-tests-groups"></div>
+      <div class="status-tests-toolbar">
+        <strong data-i18n="statusTests.playground">Parser playground</strong>
+        <label><span data-i18n="statusTests.connection">Connection</span>
+          <select id="status-tests-connection-select" class="status-tests-select">
+            <option value="connected">connected</option>
+            <option value="connecting">connecting</option>
+            <option value="reconnecting">reconnecting</option>
+            <option value="disconnected">disconnected</option>
+          </select>
+        </label>
+        <label><span data-i18n="statusTests.agent">Agent</span>
+          <select id="status-tests-agent-select" class="status-tests-select">
+            <option value="active">active</option>
+            <option value="idle">idle</option>
+            <option value="disconnected">disconnected</option>
+          </select>
+        </label>
+        <button type="button" id="status-tests-run-btn" class="chat-settings-btn" data-i18n="statusTests.runParser">Run parser</button>
+      </div>
+      <textarea id="status-tests-input" class="status-tests-input" data-i18n-placeholder="statusTests.inputPlaceholder" placeholder="Paste the terminal buffer tail..."></textarea>
+      <pre id="status-tests-output" class="status-tests-output"></pre>
+    </div>
+  </div>
+
+  <div id="chat-panel" class="panel active">
+    <div class="chat-layout">
+      <div class="chat-main">
+        <div class="chat-fullscreen-bar panel-toolbar">
+          <!-- Chat selection moved to the sidebar. chat-bar-group is hidden; chat-list-modal stays as a JS fallback. -->
+          <span class="chat-bar-group" hidden aria-hidden="true">
+            <div id="chat-bar-trigger" class="chat-bar-trigger" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose chat" data-i18n-aria="chat.new" title="Choose chat" data-i18n-title="chat.new" hidden>
+              <span class="chat-bar-trigger-label" id="chat-bar-trigger-label">—</span>
+              <span class="chat-bar-trigger-arrow mdi mdi-chevron-down" aria-hidden="true"></span>
+            </div>
+          </span>
+          <div id="chat-list-modal" class="chat-list-modal" role="dialog" aria-label="Chats list" hidden>
+            <div class="chat-list-panel">
+              <ul id="chat-list-items" class="chat-list-items" role="listbox"></ul>
+            </div>
+          </div>
+          <button type="button" id="chat-fullscreen-menu-btn" class="header-menu-btn chat-fullscreen-menu-btn" title="Show menu" data-i18n-title="chat.showMenu" aria-label="Show menu" data-i18n-aria="chat.showMenu">
+            <span class="mdi mdi-menu" aria-hidden="true"></span>
+          </button>
+          <span id="chat-toolbar-status-hint" class="chat-toolbar-status-hint" role="status" aria-live="polite"></span>
+          <cr-icon-button id="chat-toolbar-more-btn" class="chat-toolbar-more-btn" title="More actions" data-i18n-title="logs.moreActionsTitle" aria-label="More actions" data-i18n-aria="logs.moreActionsAria" aria-haspopup="menu" aria-expanded="false">
+            <span class="mdi mdi-chevron-down" aria-hidden="true"></span>
+          </cr-icon-button>
+          <div id="chat-toolbar-actions-modal" class="chat-list-modal chat-toolbar-actions-modal" role="dialog" aria-label="Chat actions" hidden>
+            <div class="chat-list-panel chat-toolbar-actions-panel">
+              <ul class="chat-list-items chat-toolbar-actions-list" role="menu" aria-label="Chat actions">
+                <li id="chat-new-agent-btn" class="chat-list-item chat-toolbar-actions-item chat-toolbar-actions-item--primary" role="menuitem" tabindex="0" title="Start a new agent" data-i18n-title="chat.newAgent" aria-label="Start a new agent" data-i18n-aria="chat.newAgent"><span class="mdi mdi-robot-outline" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.newAgent">Nowy agent</span></li>
+                <li id="chat-settings-btn" class="chat-list-item chat-toolbar-actions-item" role="menuitem" tabindex="0" title="Chat settings" data-i18n-title="chat.settings" aria-label="Chat settings" data-i18n-aria="chat.settings"><span class="mdi mdi-cog" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.settings">Ustawienia czatu</span></li>
+                <li id="chat-fullscreen-btn" class="chat-list-item chat-toolbar-actions-item" role="menuitem" tabindex="0" title="Fullscreen" aria-label="Fullscreen" data-fullscreen="off"><span class="mdi mdi-fullscreen" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.fullscreenLabel">Fullscreen</span></li>
+                <li id="chat-intent-summary-btn" class="chat-list-item chat-toolbar-actions-item" role="menuitem" tabindex="0" title="Intentional summary" data-i18n-title="chat.intentSummary" aria-label="Intentional summary" data-i18n-aria="chat.intentSummary"><span class="mdi mdi-text-box-check-outline" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.intentSummary">Intencjonalne podsumowanie</span></li>
+                <li id="chat-monitor-agent-btn" class="chat-list-item chat-toolbar-actions-item" role="menuitem" tabindex="0" title="Analyze current agent in separate chat" data-i18n-title="chat.monitorAgent" aria-label="Analyze current agent in separate chat" data-i18n-aria="chat.monitorAgent"><span class="mdi mdi-robot-outline" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.monitorAgent">Analyze current agent (separate chat)</span></li>
+                <li id="chat-reset-context-btn" class="chat-list-item chat-toolbar-actions-item" role="menuitem" tabindex="0" title="Reset agent context" data-i18n-title="chat.resetContext" aria-label="Reset agent context" data-i18n-aria="chat.resetContext"><span class="mdi mdi-restore" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.resetContext">Zresetuj kontekst agenta</span></li>
+                <li id="chat-pin-url-menu-btn" class="chat-list-item chat-toolbar-actions-item chat-pin-url-menu-btn" role="menuitem" tabindex="0" title="Pin the chat to the current URL" data-i18n-title="chat.pinToUrlTitle" aria-label="Pin the chat to the current URL" data-i18n-aria="chat.pinToUrlTitle" aria-pressed="false" hidden><span class="mdi mdi-link-variant" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.pinToUrl">Pin to URL</span></li>
+                <li id="chat-copy-btn" class="chat-list-item chat-toolbar-actions-item" role="menuitem" tabindex="0" title="Copy content (selection or the whole buffer)" data-i18n-title="terminal.copyTitle" aria-label="Copy" data-i18n-aria="terminal.copyAria"><span class="mdi mdi-content-copy" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="terminal.copy">Kopiuj</span></li>
+                <li id="chat-delete-menu-btn" class="chat-list-item chat-toolbar-actions-item chat-toolbar-actions-item--danger" role="menuitem" tabindex="0" title="Delete the chat from the list and close the connection" data-i18n-title="chat.delete" aria-label="Delete chat" data-i18n-aria="chat.delete"><span class="mdi mdi-delete-outline" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.delete">Delete chat</span></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="chat-tabs" id="chat-tabs"></div>
+      </div>
+      <div id="chat-settings-modal" class="chat-settings-modal" role="dialog" aria-labelledby="chat-settings-heading" aria-modal="true" hidden>
+        <div class="chat-settings-backdrop"></div>
+        <div class="chat-settings-dialog">
+          <h2 id="chat-settings-heading" class="chat-settings-title" data-i18n="chat.settings">Chat settings</h2>
+          <div id="chat-settings-tabs" class="cr-tabs chat-settings-tabs" role="tablist" data-i18n-aria="chat.settings" aria-label="Chat settings">
+            <button type="button" class="cr-tab active" role="tab" id="chat-settings-tab-btn-chat" data-chat-settings-tab="chat" aria-controls="chat-settings-tab-chat" aria-selected="true" data-i18n="chat.settingsTabChat">Chat</button>
+            <button type="button" class="cr-tab" role="tab" id="chat-settings-tab-btn-voice" data-chat-settings-tab="voice" aria-controls="chat-settings-tab-voice" aria-selected="false" data-i18n="chat.settingsTabVoice">Voice</button>
+            <button type="button" class="cr-tab" role="tab" id="chat-settings-tab-btn-context" data-chat-settings-tab="context" aria-controls="chat-settings-tab-context" aria-selected="false" data-i18n="chat.settingsTabContext">Context</button>
+            <button type="button" class="cr-tab" role="tab" id="chat-settings-tab-btn-diagnosis" data-chat-settings-tab="diagnosis" aria-controls="chat-settings-tab-diagnosis" aria-selected="false" data-i18n="chat.settingsTabDiagnosis">Diagnosis</button>
+          </div>
+          <div class="chat-settings-form">
+            <div id="chat-settings-tab-chat" class="chat-settings-tab-panel" data-chat-settings-tab="chat" role="tabpanel" aria-labelledby="chat-settings-tab-btn-chat">
+            <label for="chat-settings-title-input" data-i18n="chat.name">Name</label>
+            <input type="text" id="chat-settings-title-input" class="chat-settings-input" placeholder="Chat name" data-i18n-placeholder="chat.namePlaceholder" />
+            <p id="chat-settings-session-meta" class="chat-settings-hint-inline" hidden></p>
+            <label class="chat-settings-checkbox-label">
+              <input type="checkbox" id="chat-settings-show-send-field" class="chat-settings-checkbox" />
+              <span data-i18n="chat.showSendField">Show send field</span>
+            </label>
+            <label class="chat-settings-checkbox-label">
+              <input type="checkbox" id="chat-settings-auto-update-title" class="chat-settings-checkbox" />
+              <span data-i18n="chat.autoUpdateName">Automatically update chat name</span>
+            </label>
+            <label for="chat-settings-sdk-ui-mode" data-i18n="chat.sdkUiMode">SDK activity display</label>
+            <select id="chat-settings-sdk-ui-mode" class="chat-settings-input">
+              <option value="full" data-i18n="chat.sdkUiModeFull">Full</option>
+              <option value="compact" data-i18n="chat.sdkUiModeCompact">Kompaktowe kafelki</option>
+            </select>
+            <div class="chat-settings-update-title-row">
+              <button type="button" id="chat-settings-update-title-btn" class="chat-settings-btn-secondary" data-i18n="chat.updateName">Update chat name</button>
+              <button type="button" id="chat-settings-title-from-fork-btn" class="chat-settings-btn-secondary" title="A temporary agent will read the buffer and return a JSON with the title" data-i18n-title="chat.generateNameTitle" data-i18n="chat.generateName">Generate name from content</button>
+              <button type="button" id="chat-settings-summary-fork-btn" class="chat-settings-btn-secondary" title="A temporary agent will summarize the conversation batch and save the summary + update the name (to shorten context)" data-i18n-title="chat.summarizeTitle" data-i18n="chat.summarizeAndRename">Summarize batches and update name</button>
+              <button type="button" id="chat-settings-intent-summary-btn" class="chat-settings-btn-secondary" data-i18n="chat.intentSummaryAndReset">Intentional summary + reset context</button>
+              <span id="chat-settings-update-title-hint" class="chat-settings-hint-inline" aria-live="polite"></span>
+            </div>
+            </div>
+            <div id="chat-settings-tab-voice" class="chat-settings-tab-panel" data-chat-settings-tab="voice" role="tabpanel" aria-labelledby="chat-settings-tab-btn-voice" hidden>
+            <div id="chat-settings-voice-read"></div>
+            </div>
+            <div id="chat-settings-tab-context" class="chat-settings-tab-panel" data-chat-settings-tab="context" role="tabpanel" aria-labelledby="chat-settings-tab-btn-context" hidden>
+            <label class="chat-settings-checkbox-label">
+              <input type="checkbox" id="chat-settings-context-advisory-enabled" class="chat-settings-checkbox" checked />
+              <span data-i18n="chat.contextAdvisoryEnabled">Show context fullness advisory in chat stream</span>
+            </label>
+            <label for="chat-settings-context-advisory-warn-percent" data-i18n="chat.contextAdvisoryWarnPercent">Advisory threshold (% of model context window)</label>
+            <input
+              type="number"
+              id="chat-settings-context-advisory-warn-percent"
+              class="chat-settings-input"
+              min="50"
+              max="95"
+              step="1"
+              value="75"
+            />
+            <label class="chat-settings-checkbox-label">
+              <input type="checkbox" id="chat-settings-context-summary-reset" class="chat-settings-checkbox" checked />
+              <span data-i18n="chat.contextSummaryReset">After summary reset SDK agent and seed next message</span>
+            </label>
+            <details class="chat-settings-legacy-compression">
+              <summary data-i18n="chat.legacyAutoCompression">Legacy: automatic compression</summary>
+              <label class="chat-settings-checkbox-label">
+                <input type="checkbox" id="chat-settings-auto-context-compression-enabled" class="chat-settings-checkbox" />
+                <span data-i18n="chat.autoContextCompressionEnabled">Enable automatic context compression</span>
+              </label>
+              <label for="chat-settings-auto-context-compression-threshold" data-i18n="chat.autoContextCompressionThreshold">Auto-compression threshold (user messages)</label>
+              <input
+                type="number"
+                id="chat-settings-auto-context-compression-threshold"
+                class="chat-settings-input"
+                min="50"
+                max="95"
+                step="1"
+              />
+            </details>
+            </div>
+            <div id="chat-settings-tab-diagnosis" class="chat-settings-tab-panel" data-chat-settings-tab="diagnosis" role="tabpanel" aria-labelledby="chat-settings-tab-btn-diagnosis" hidden>
+            <label class="chat-settings-checkbox-label">
+              <input type="checkbox" id="chat-settings-show-diag" class="chat-settings-checkbox" />
+              <span data-i18n="chat.showDiag">Show chat diagnostics</span>
+            </label>
+            <label class="chat-settings-checkbox-label">
+              <input type="checkbox" id="chat-settings-sdk-verbose-logs" class="chat-settings-checkbox" />
+              <span data-i18n="chat.sdkVerboseLogs">Verbose SDK logs (Logs panel)</span>
+            </label>
+            <div class="chat-settings-diag">
+              <div class="chat-settings-diag-grid">
+                <div class="chat-settings-diag-row"><span data-i18n="chat.diagConn">Connection</span><span id="chat-diag-conn" class="chat-diag-value">—</span></div>
+                <div class="chat-settings-diag-row"><span data-i18n="chat.diagWsState">WebSocket</span><span id="chat-diag-ws" class="chat-diag-value">—</span></div>
+                <div class="chat-settings-diag-row"><span data-i18n="chat.diagAgent">Agent state</span><span id="chat-diag-agent" class="chat-diag-value">—</span></div>
+                <div class="chat-settings-diag-row"><span data-i18n="chat.diagLastEvent">Last live event</span><span id="chat-diag-last-event" class="chat-diag-value">—</span></div>
+                <div class="chat-settings-diag-row"><span data-i18n="chat.diagReconnects">Reconnects</span><span id="chat-diag-reconnects" class="chat-diag-value">—</span></div>
+                <div class="chat-settings-diag-row"><span data-i18n="chat.diagPong">Last pong</span><span id="chat-diag-pong" class="chat-diag-value">—</span></div>
+                <div class="chat-settings-diag-row"><span data-i18n="chat.diagQueue">Queue (client)</span><span id="chat-diag-queue" class="chat-diag-value">—</span></div>
+              </div>
+              <div class="chat-settings-diag-section-title">
+                <span data-i18n="chat.diagServer">Server room</span>
+                <span id="chat-diag-server-status" class="chat-diag-badge">—</span>
+              </div>
+              <div class="chat-settings-diag-grid">
+                <div class="chat-settings-diag-row"><span data-i18n="chat.diagRoomBusy">Room busy</span><span id="chat-diag-busy" class="chat-diag-value">—</span></div>
+                <div class="chat-settings-diag-row"><span data-i18n="chat.diagCurrentRun">Current run</span><span id="chat-diag-run" class="chat-diag-value">—</span></div>
+                <div class="chat-settings-diag-row"><span data-i18n="chat.diagServerQueue">Server queue</span><span id="chat-diag-server-queue" class="chat-diag-value">—</span></div>
+                <div class="chat-settings-diag-row"><span data-i18n="chat.diagClients">Clients</span><span id="chat-diag-clients" class="chat-diag-value">—</span></div>
+                <div class="chat-settings-diag-row"><span data-i18n="chat.diagLastServerEvent">Last server event</span><span id="chat-diag-server-last" class="chat-diag-value">—</span></div>
+                <div class="chat-settings-diag-row"><span data-i18n="chat.diagEventLog">Event log</span><span id="chat-diag-eventlog" class="chat-diag-value">—</span></div>
+                <div class="chat-settings-diag-row"><span data-i18n="chat.diagClientSeq">Client seq</span><span id="chat-diag-client-seq" class="chat-diag-value">—</span></div>
+                <div class="chat-settings-diag-row"><span data-i18n="chat.diagServerSeq">Server seq</span><span id="chat-diag-server-seq" class="chat-diag-value">—</span></div>
+                <div class="chat-settings-diag-row"><span data-i18n="chat.diagSeqGap">Seq gap</span><span id="chat-diag-seq-gap" class="chat-diag-value">—</span></div>
+              </div>
+              <div id="chat-diag-server-extra" class="chat-diag-server-extra" hidden></div>
+              <div class="chat-settings-diag-actions">
+                <button type="button" id="chat-diag-refresh" class="chat-settings-btn-secondary" data-i18n="chat.diagRefresh">Refresh</button>
+                <button type="button" id="chat-diag-fetch-server" class="chat-settings-btn-secondary" data-i18n="chat.diagFetchServer">Fetch server state</button>
+                <button type="button" id="chat-diag-reconnect" class="chat-settings-btn-secondary" data-i18n="chat.diagReconnect">Force reconnect</button>
+                <button type="button" id="chat-diag-reset-room" class="chat-settings-btn-secondary" data-i18n="chat.diagResetRoom">Reset SDK room</button>
+                <button type="button" id="chat-diag-reset-context" class="chat-settings-btn-secondary" data-i18n="chat.diagResetContext">Reset agent context</button>
+                <button type="button" id="chat-diag-probe-sdk" class="chat-settings-btn-secondary" data-i18n="chat.diagProbeSdk">Test SDK agent</button>
+                <button type="button" id="chat-diag-cancel" class="chat-settings-btn-danger" data-i18n="chat.diagCancelRun">Cancel run</button>
+                <span id="chat-diag-hint" class="chat-settings-hint-inline" aria-live="polite"></span>
+              </div>
+            </div>
+            </div>
+          </div>
+          <div class="chat-settings-actions chat-settings-actions-with-delete">
+            <button type="button" id="chat-delete-btn" class="chat-settings-btn-danger" title="Delete the chat from the list and close the connection" data-i18n-title="chat.delete" data-i18n="chat.delete">Delete chat</button>
+            <div class="chat-settings-actions-right">
+              <button type="button" id="chat-settings-cancel" class="chat-settings-btn-secondary" data-i18n="chat.cancel">Cancel</button>
+              <button type="button" id="chat-settings-save" class="chat-settings-btn-primary" data-i18n="chat.save">Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="chat-context-details-modal" class="chat-settings-modal" role="dialog" aria-labelledby="chat-context-details-heading" aria-modal="true" hidden>
+        <div class="chat-settings-backdrop"></div>
+        <div class="chat-settings-dialog chat-context-details-dialog">
+          <h2 id="chat-context-details-heading" class="chat-settings-title" data-i18n="chat.contextDetailsTitle">Context usage details</h2>
+          <div class="chat-settings-form chat-context-details-form">
+            <div class="chat-context-details-header">
+              <span id="chat-context-details-quality" class="chat-diag-badge">—</span>
+              <span id="chat-context-details-summary" class="chat-settings-hint-inline">—</span>
+            </div>
+            <div class="chat-settings-diag-grid chat-context-details-grid">
+              <div class="chat-settings-diag-row"><span data-i18n="chat.contextDetailsTransport">Transport</span><span id="chat-context-details-transport" class="chat-diag-value">—</span></div>
+              <div class="chat-settings-diag-row"><span data-i18n="chat.contextDetailsModel">Model</span><span id="chat-context-details-model" class="chat-diag-value">—</span></div>
+              <div class="chat-settings-diag-row"><span data-i18n="chat.contextDetailsSource">Source</span><span id="chat-context-details-source" class="chat-diag-value">—</span></div>
+              <div class="chat-settings-diag-row"><span data-i18n="chat.contextDetailsUpdated">Last update</span><span id="chat-context-details-updated" class="chat-diag-value">—</span></div>
+              <div class="chat-settings-diag-row"><span data-i18n="chat.contextDetailsFill">Context fill</span><span id="chat-context-details-fill" class="chat-diag-value">—</span></div>
+              <div class="chat-settings-diag-row"><span data-i18n="chat.contextDetailsPeak">Peak fill</span><span id="chat-context-details-peak" class="chat-diag-value">—</span></div>
+              <div class="chat-settings-diag-row"><span data-i18n="chat.contextDetailsWindow">Model window</span><span id="chat-context-details-window" class="chat-diag-value">—</span></div>
+              <div class="chat-settings-diag-row"><span data-i18n="chat.contextDetailsInput">Input tokens</span><span id="chat-context-details-input" class="chat-diag-value">—</span></div>
+              <div class="chat-settings-diag-row"><span data-i18n="chat.contextDetailsOutput">Output tokens</span><span id="chat-context-details-output" class="chat-diag-value">—</span></div>
+              <div class="chat-settings-diag-row"><span data-i18n="chat.contextDetailsTotal">Total tokens</span><span id="chat-context-details-total" class="chat-diag-value">—</span></div>
+            </div>
+            <div class="chat-context-details-warnings">
+              <span data-i18n="chat.contextDetailsWarnings">Warnings</span>
+              <span id="chat-context-details-warnings" class="chat-diag-value">—</span>
+            </div>
+          </div>
+          <div class="chat-settings-actions">
+            <button type="button" id="chat-context-details-close" class="chat-settings-btn-secondary" data-i18n="chat.closeDetails">Close</button>
+          </div>
+        </div>
+      </div>
+      <div id="chat-new-modal" class="chat-settings-modal" role="dialog" aria-labelledby="chat-new-heading" aria-modal="true" hidden>
+        <div class="chat-settings-backdrop"></div>
+        <div class="chat-settings-dialog">
+          <h2 id="chat-new-heading" class="chat-settings-title" data-i18n="chat.new">New chat</h2>
+          <div class="chat-settings-form">
+            <label for="chat-new-title-input" data-i18n="chat.name">Name</label>
+            <input type="text" id="chat-new-title-input" class="chat-settings-input" placeholder="Optional chat name" data-i18n-placeholder="chat.optionalNamePlaceholder" />
+            <label for="chat-new-folder-select" data-i18n="workspace.folder">Folder (terminal, agent)</label>
+            <select id="chat-new-folder-select" class="chat-settings-select"></select>
+            <label for="chat-new-harness-select">Harness</label>
+            <select id="chat-new-harness-select" class="chat-settings-select">
+              <option value="sdk">Cursor SDK</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="opencode">OpenCode</option>
+            </select>
+            <label for="chat-new-model-select">Model</label>
+            <select id="chat-new-model-select" class="chat-settings-select"></select>
+            <p id="chat-new-sdk-hint" class="chat-settings-hint-inline chat-new-sdk-hint" hidden></p>
+          </div>
+          <div class="chat-settings-actions">
+            <button type="button" id="chat-new-cancel" class="chat-settings-btn-secondary" data-i18n="chat.cancel">Cancel</button>
+            <button type="button" id="chat-new-create" class="chat-settings-btn-primary" data-i18n="chat.create">Create chat</button>
+          </div>
+        </div>
+      </div>
+      <div id="chat-delete-confirm-modal" class="chat-settings-modal" role="dialog" aria-labelledby="chat-delete-confirm-heading" aria-modal="true" hidden>
+        <div class="chat-settings-backdrop"></div>
+        <div class="chat-settings-dialog">
+          <h2 id="chat-delete-confirm-heading" class="chat-settings-title" data-i18n="chat.deleteConfirmTitle">Delete chat?</h2>
+          <p class="chat-settings-hint-inline">
+            <span data-i18n="chat.deleteConfirmPrefix">Chat </span><strong id="chat-delete-confirm-chat-title">—</strong><span data-i18n="chat.deleteConfirmSuffix"> will be removed from the list and the connection will be closed.</span>
+          </p>
+          <div class="chat-settings-actions">
+            <button type="button" id="chat-delete-confirm-cancel" class="chat-settings-btn-secondary" data-i18n="chat.cancel">Cancel</button>
+            <button type="button" id="chat-delete-confirm-delete" class="chat-settings-btn-danger" data-i18n="chat.deleteConfirm">Delete</button>
+            <button type="button" id="chat-delete-confirm-delete-skip" class="chat-settings-btn-danger" data-i18n="chat.deleteAndDontAsk">Delete and don't ask again</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="restart-server-loading-modal" class="chat-settings-modal restart-server-loading-modal" role="dialog" aria-live="polite" aria-modal="true" hidden>
+    <div class="chat-settings-backdrop"></div>
+    <div class="chat-settings-dialog restart-server-loading-dialog">
+      <div class="restart-server-loading-spinner" aria-hidden="true"></div>
+      <p id="restart-server-loading-text" class="restart-server-loading-text" data-i18n="serverRestart.restarting">Restarting the server…</p>
+      <p id="restart-server-loading-hint" class="restart-server-loading-hint" data-i18n="serverRestart.waitingHint">Waiting for the new instance. Connections will resume automatically.</p>
+      <button type="button" id="restart-server-loading-close" class="chat-settings-btn-secondary restart-server-loading-close-btn" style="display: none;" data-i18n="devActions.close">Close</button>
+    </div>
+  </div>
+
+  <div id="tasks-reconnect-modal" class="chat-settings-modal tasks-reconnect-modal" role="dialog" aria-live="polite" aria-modal="true" hidden>
+    <div class="chat-settings-backdrop"></div>
+    <div class="chat-settings-dialog tasks-reconnect-dialog">
+      <h2 class="chat-settings-title">Connection lost</h2>
+      <p id="tasks-reconnect-text" class="tasks-reconnect-text" data-i18n="tasks.serverDisconnected">Server connection lost. Waiting to restore…</p>
+      <p class="tasks-reconnect-hint">After the connection is restored, the app will automatically resume and rebuild autostart tasks.</p>
+      <div class="chat-settings-actions">
+        <button type="button" id="tasks-reconnect-retry-btn" class="chat-settings-btn-primary">Try again now</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="chat-reconnect-modal" class="chat-settings-modal tasks-reconnect-modal" role="dialog" aria-live="polite" aria-modal="true" hidden>
+    <div class="chat-settings-backdrop"></div>
+    <div class="chat-settings-dialog tasks-reconnect-dialog">
+      <h2 class="chat-settings-title" data-i18n="chat.recoveryTitle">Chat connection lost</h2>
+      <p id="chat-reconnect-text" class="tasks-reconnect-text" data-i18n="chat.serverDisconnected">Server connection lost. Waiting to restore…</p>
+      <p class="tasks-reconnect-hint" data-i18n="chat.recoveryHint">When the server is back, the chat will reconnect and replay history automatically.</p>
+      <div class="chat-settings-actions">
+        <button type="button" id="chat-reconnect-retry-btn" class="chat-settings-btn-primary" data-i18n="chat.recoveryTryNow">Try again now</button>
+      </div>
+    </div>
+  </div>
+
+  <cr-dialog id="connection-status-dialog" class="connection-status-dialog" heading="Connection">
+    <span slot="icon" class="mdi mdi-lan-connect" aria-hidden="true"></span>
+    <p slot="subheading" class="connection-status-subheading" data-i18n="connectionStatus.subtitle">Live session and server status.</p>
+    <dl class="connection-status-rows">
+      <div>
+        <dt data-i18n="connectionStatus.terminal">Terminal</dt>
+        <dd id="connection-status-terminal">—</dd>
+      </div>
+      <div>
+        <dt data-i18n="connectionStatus.chat">Chat</dt>
+        <dd id="connection-status-chat">—</dd>
+      </div>
+      <div>
+        <dt data-i18n="connectionStatus.origin">Address</dt>
+        <dd id="connection-status-origin">—</dd>
+      </div>
+      <div id="connection-status-lan-row" hidden>
+        <dt data-i18n="connectionStatus.lan">LAN</dt>
+        <dd id="connection-status-lan">—</dd>
+      </div>
+      <div>
+        <dt data-i18n="connectionStatus.server">Server</dt>
+        <dd id="connection-status-health">—</dd>
+      </div>
+      <div>
+        <dt data-i18n="connectionStatus.uptime">Uptime</dt>
+        <dd id="connection-status-uptime">—</dd>
+      </div>
+    </dl>
+    <p id="connection-status-hint" class="connection-status-hint" hidden></p>
+    <p id="connection-status-restart-hint" class="connection-status-hint" hidden></p>
+    <details class="connection-status-logs">
+      <summary data-i18n="connectionStatus.logs">Server logs</summary>
+      <pre id="connection-status-log-output" class="connection-status-log-output"></pre>
+    </details>
+    <div slot="actions" class="connection-status-actions">
+      <cr-bar-button id="connection-status-restart" data-i18n="connectionStatus.restart">Restart server</cr-bar-button>
+      <cr-bar-button id="connection-status-close" variant="primary" data-i18n="connectionStatus.close">Close</cr-bar-button>
+    </div>
+  </cr-dialog>
+
+  <!--
+    Shown when the app bundle never runs (server down + stale PWA cache) or when
+    the boot sequence stalls. Static English text on purpose: i18n lives in the
+    bundle that failed to load.
+  -->
+  <div id="boot-failure" class="boot-failure" role="alertdialog" aria-modal="true" aria-labelledby="boot-failure-title" hidden>
+    <div class="boot-failure-card">
+      <svg class="boot-failure-icon" width="56" height="56" viewBox="0 0 512 512" fill="none" stroke="currentColor" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M120 176 L192 256 L120 336" />
+        <path d="M232 360 L392 360" />
+      </svg>
+      <h1 id="boot-failure-title" class="boot-failure-title">Cretli could not start</h1>
+      <p id="boot-failure-text" class="boot-failure-text">
+        The page was restored from the offline cache, but the app could not be loaded.
+        The server is probably stopped or restarting.
+      </p>
+      <p id="boot-failure-status" class="boot-failure-status">Checking the server…</p>
+      <div class="boot-failure-actions">
+        <button type="button" id="boot-failure-reload">Reload</button>
+        <button type="button" id="boot-failure-reset" data-variant="secondary">Clear cache and reload</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/dist/app/vendor.bundle.js?v=__CR_ASSET_VERSION__"></script>
+  <script src="/dist/app/index.bundle.js?v=__CR_ASSET_VERSION__"></script>
+  <script>
+    // Runs right after the (blocking) bundles, so a failed download is already
+    // visible here: App.js sets window.__crAppBootStartedAtMs at module scope and
+    // window.__crAppBooted once the first panel is rendered.
+    (function () {
+      var BOOT_STALL_MS = 15000;
+      var HEALTH_POLL_MS = 3000;
+      // A broken bundle plus a healthy server used to reload the page as fast as
+      // it could load, which flooded the browser. Cap the retries and always
+      // wait, so a failing build degrades into a static failure screen.
+      var RELOAD_MAX_ATTEMPTS = 2;
+      var RELOAD_DELAY_MS = 3000;
+      var RELOAD_ATTEMPTS_KEY = 'cretli-boot-reload-attempts';
+
+      var overlay = document.getElementById('boot-failure');
+      if (!overlay) return;
+
+      var statusEl = document.getElementById('boot-failure-status');
+      var textEl = document.getElementById('boot-failure-text');
+      var reloadBtn = document.getElementById('boot-failure-reload');
+      var resetBtn = document.getElementById('boot-failure-reset');
+      var pollTimer = null;
+      var reloadScheduled = false;
+
+      function setStatus(message, tone) {
+        if (!statusEl) return;
+        statusEl.textContent = message;
+        if (tone) statusEl.setAttribute('data-tone', tone);
+        else statusEl.removeAttribute('data-tone');
+      }
+
+      function readReloadAttempts() {
+        try {
+          return parseInt(window.sessionStorage.getItem(RELOAD_ATTEMPTS_KEY) || '0', 10) || 0;
+        } catch (_) {
+          return 0;
+        }
+      }
+
+      function writeReloadAttempts(count) {
+        try {
+          window.sessionStorage.setItem(RELOAD_ATTEMPTS_KEY, String(count));
+        } catch (_) {}
+      }
+
+      function clearReloadAttempts() {
+        try {
+          window.sessionStorage.removeItem(RELOAD_ATTEMPTS_KEY);
+        } catch (_) {}
+      }
+
+      function stopPolling() {
+        if (!pollTimer) return;
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+
+      function scheduleAutoReload() {
+        if (reloadScheduled) return;
+        var attempts = readReloadAttempts();
+        if (attempts >= RELOAD_MAX_ATTEMPTS) {
+          stopPolling();
+          setStatus(
+            'The server is reachable, but the app failed to start ' +
+              attempts +
+              ' times in a row. Automatic reloading stopped — use the buttons below.',
+            'err'
+          );
+          return;
+        }
+        reloadScheduled = true;
+        writeReloadAttempts(attempts + 1);
+        stopPolling();
+        setStatus('The server is reachable — reloading in 3 s…', 'ok');
+        setTimeout(function () {
+          window.location.reload();
+        }, RELOAD_DELAY_MS);
+      }
+
+      function pollHealth(autoReload) {
+        fetch('/api/health', { cache: 'no-store', credentials: 'include' })
+          .then(function (res) {
+            if (!res.ok) throw new Error('health ' + res.status);
+            if (!autoReload) {
+              setStatus('The server is reachable, but the app did not finish loading.', 'ok');
+              return;
+            }
+            scheduleAutoReload();
+          })
+          .catch(function () {
+            setStatus('The server is unreachable — retrying every 3 s…', 'err');
+          });
+      }
+
+      function showOverlay(reason) {
+        if (!overlay.hidden) return;
+        var autoReload = reason === 'bundle';
+        if (!autoReload && textEl) {
+          textEl.textContent =
+            'The app loaded but never finished starting up. This usually means the server ' +
+            'stopped responding mid-boot.';
+        }
+        overlay.hidden = false;
+        document.documentElement.style.overflow = 'hidden';
+        pollHealth(autoReload);
+        pollTimer = setInterval(function () {
+          if (window.__crAppBooted === true) {
+            stopPolling();
+            clearReloadAttempts();
+            overlay.hidden = true;
+            document.documentElement.style.overflow = '';
+            return;
+          }
+          pollHealth(autoReload);
+        }, HEALTH_POLL_MS);
+      }
+
+      function resetCachesAndReload() {
+        setStatus('Clearing the cache…');
+        var tasks = [];
+        if (window.caches) {
+          tasks.push(
+            caches.keys().then(function (keys) {
+              return Promise.all(
+                keys.map(function (key) {
+                  return caches.delete(key);
+                })
+              );
+            })
+          );
+        }
+        if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+          tasks.push(
+            navigator.serviceWorker.getRegistrations().then(function (registrations) {
+              return Promise.all(
+                registrations.map(function (registration) {
+                  return registration.unregister();
+                })
+              );
+            })
+          );
+        }
+        Promise.all(tasks)
+          .catch(function () {})
+          .then(function () {
+            window.location.reload();
+          });
+      }
+
+      if (reloadBtn) {
+        reloadBtn.addEventListener('click', function () {
+          clearReloadAttempts();
+          window.location.reload();
+        });
+      }
+      if (resetBtn) {
+        resetBtn.addEventListener('click', function () {
+          clearReloadAttempts();
+          resetCachesAndReload();
+        });
+      }
+
+      if (typeof window.__crAppBootStartedAtMs !== 'number') {
+        showOverlay('bundle');
+        return;
+      }
+      clearReloadAttempts();
+
+      // In embed/widget mode the boot legitimately waits for the host page to
+      // connect, so a stall timer there would only produce false alarms.
+      // Same detection as parseEmbedModeQuery(): ?embed=1 or /embed/<id>.
+      var isEmbedShell =
+        /^\/embed\/[^/]+$/.test(window.location.pathname || '') ||
+        /[?&]embed=(1|true|yes)(&|$)/i.test(window.location.search || '');
+      if (isEmbedShell) return;
+
+      setTimeout(function () {
+        if (window.__crAppBooted !== true) showOverlay('stalled');
+      }, BOOT_STALL_MS);
+    })();
+  </script>
+  <script>
+    (function () {
+      var isEmbedShell = /^\/embed\/[^/]+$/.test(window.location.pathname || '');
+      var isWidgetFrame = window.parent !== window;
+      if ('serviceWorker' in navigator && !isEmbedShell && !isWidgetFrame) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js').catch(function () {});
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,69 @@
+name: SDK Live Gate
+
+on:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: sdk-live-gate
+  cancel-in-progress: false
+
+jobs:
+  sdk-live-nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+      CHAT_E2E_WORKSPACE_FOLDER: ${{ github.workspace }}
+      CRETLI_FRONT_HMR: '0'
+      NPM_CONFIG_CACHE: ./data/npm-cache
+    steps:
+      # The secrets context is not available in a job-level `if`, so forks and
+      # clones without a Cursor key short-circuit here instead of failing.
+      - name: Check for Cursor API key
+        id: key
+        run: |
+          if [ -n "$CURSOR_API_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "SDK live gate skipped: CURSOR_API_KEY secret is not configured."
+          fi
+
+      - name: Checkout repository
+        if: steps.key.outputs.available == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        if: steps.key.outputs.available == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        if: steps.key.outputs.available == 'true'
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        if: steps.key.outputs.available == 'true'
+        run: npm run test:e2e:browsers
+
+      - name: Run SDK composer fast live suite
+        if: steps.key.outputs.available == 'true'
+        run: npm run test:e2e:live:sdk:composer-25-fast
+
+      - name: Run SDK recovery live suite
+        if: steps.key.outputs.available == 'true'
+        run: npm run test:e2e:live:sdk:recovery
+
+      - name: Upload Playwright artifacts
+        if: always() && steps.key.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-live-gate-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore

@@ -1,0 +1,34 @@
+---
+description: Cretli — all code comments, JSDoc and inline documentation must be in English (open-source project). No Polish in comments.
+alwaysApply: true
+---
+# Cretli — comments in English
+
+This is an open-source project. **All comments must be in English**: JSDoc block
+comments, inline `//` comments, SCSS/CSS comments, and HTML comments.
+
+## Rule
+
+- Write every comment in English. Do not leave Polish comments in the code.
+- When editing a file that still contains Polish comments, translate them to
+  English as part of the change (best-effort within the touched file).
+- This applies to `app_front/`, `lib/`, `server.js`, `public/`, `scripts/`,
+  `tests/`, `docs/` and any new files.
+- Keep comments meaningful: explain intent, trade-offs or non-obvious
+  constraints — do not narrate what the code already says.
+
+## Exceptions (NOT comments — do not touch here)
+
+- **User-facing strings** are handled by the i18n system
+  (`app_front/i18n/`, `lib/messages.js`). Polish UI text belongs in
+  `app_front/i18n/pl.js`, English in `app_front/i18n/en.js`. Do not put Polish
+  literals directly in components — use `t('key')`.
+- **Agent prompts** (e.g. `config.js`, `fork-title.js`, `todo-agent.js`) are
+  separate; default them to English for the models.
+- Example values and identifiers (URLs, env names, option codes) stay as-is.
+
+## Why
+
+A consistent English codebase is required for external contributors and for
+publishing on GitHub. Mixed-language comments are a maintenance smell and a
+review blocker.

@@ -1,0 +1,32 @@
+title = "Cretli gitleaks config"
+
+[extend]
+useDefault = true
+
+# Tests and docs contain deliberately fake credentials so the key-handling code
+# can be exercised without a real account. Without this allowlist every pull
+# request would fail the secret scan on known-good fixtures.
+# Split allowlists: a combined paths+regexes entry is AND and missed tests/*.
+[[allowlists]]
+description = "Ignore fixtures under tests/"
+paths = [
+  '''tests/.*''',
+]
+
+[[allowlists]]
+description = "Example env files with empty or documented placeholders"
+paths = [
+  '''(^|/)scripts/README\.md$''',
+  '''(^|/)\.env\.example$''',
+  '''(^|/)\.cretli-sdk\.env\.example$''',
+]
+
+[[allowlists]]
+description = "Known-good fake credential strings"
+regexes = [
+  '''sk-or-v1-abc123456789''',
+  '''sk-zoyvdtest1234567890''',
+  '''ghp_test_token''',
+  '''crsr_(env_fixture|explicit)''',
+  '''chat-e2e-pass-123''',
+]

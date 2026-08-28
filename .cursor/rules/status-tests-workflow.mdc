@@ -1,0 +1,99 @@
+---
+description: Status-parser bugs and changes must start with a failing flow test, then a fix, then the full status-parser suite.
+globs:
+  - lib/status-parser.js
+  - tests/status-parser*.js
+  - public/fixtures/status-flow-scenarios.json
+  - tests/fixtures/status-flow-schema.json
+alwaysApply: false
+---
+# Cretli — status parser test workflow
+
+This rule is the standard for bugs and logic changes in the terminal/chat
+status parser.
+
+## 1) Work order (required)
+
+1. **Reproduce with a test first** (no fix yet).
+2. Run the test and show that it **fails**.
+3. Only then apply the fix.
+4. Re-run:
+   - the scenario test,
+   - the full status-parser suite.
+5. If the parser UI is involved, build the frontend (or rely on the watch
+   task).
+
+Do not skip steps 1–2.
+
+## 2) Where to add tests
+
+- **Flow / regressions**: `public/fixtures/status-flow-scenarios.json`
+- **Flow JSON schema**: `tests/fixtures/status-flow-schema.json`
+- **Flow runner (CLI + validation)**: `tests/status-parser-flow.test.js`
+- **Parser unit fixtures**: `lib/status-parser.js` (`STATUS_TEST_FIXTURES`)
+- **Parser unit test**: `tests/status-parser.test.js`
+
+## 3) Flow scenario standard
+
+Every new status bug should get a JSON scenario with:
+
+- `group`, `id`, `name`
+- `steps[]`
+- each step has:
+  - `name`
+  - `input`
+  - optionally `mode`, `connection`, `agent`, `recentOutput`
+  - `ensures[]` (required)
+
+Minimum `ensures` for a status regression:
+
+- `state.tone`
+- if relevant: `parsed.generating`
+- if relevant to input: `parsed.awaiting`
+
+## 4) Test CLI (always use these)
+
+- List flow scenarios:
+  - `npm run test:status-parser:flow:list`
+- Single scenario:
+  - `npm run test:status-parser:flow -- --scenario=<id>`
+- Full suite:
+  - `npm run test:status-parser:all`
+
+On a reported bug, run the single scenario first.
+
+The browser **Status parser** panel runs the same fixtures and scenarios plus a live
+playground (`app_front/statusTests.js`). It is hidden unless `?debug-status` is in the URL
+or `localStorage['cretli-debug-status'] = '1'`. It is a diagnostic aid — the CLI suite
+above stays the source of truth.
+
+## 5) Quality rules
+
+- Add a regression for the failing case and, when it makes sense, the opposite
+  variant.
+- Do not strip ANSI from fixtures if the bug involves a real stream.
+- For F5/reconnect edge cases, prefer flow tests over unit snapshots alone.
+- Keep it KISS: small, readable scenarios and short steps.
+
+## 6) Workflow for bugs with real chunks (required when UI disagrees)
+
+If the user reports a status mismatch (e.g. “Generating” instead of “Waiting
+for a command”), base the test on a **real tail** from the chat session:
+
+1. Capture the real tail:
+   - API: `GET /api/chats/:id/status-tail?limit=4000`
+   - or CLI: `npm run capture:status-flow -- --chat-id <id>`
+2. Create a flow scenario from the captured `tail` (do not “pretty-print” the
+   input).
+3. Run that scenario and confirm it **fails before the fix**.
+4. Make a minimal parser fix.
+5. Run:
+   - the bug scenario,
+   - `npm run test:status-parser:all`.
+
+Rules:
+
+- Do not invent chunk contents when they can be pulled from the session.
+- Do not strip `\r`, ANSI, spinners, or boxes from the reproduction (they are
+  often the cause).
+- Treat a new status bug without a flow test as unfinished.

@@ -1,0 +1,13 @@
+services:
+  cretli:
+    build: .
+    ports:
+      - "127.0.0.1:3011:3011"
+    environment:
+      CRETLI_BIND: "0.0.0.0"
+      CRETLI_SETUP_TOKEN: "${CRETLI_SETUP_TOKEN:-}"
+      USE_HTTPS: "1"
+      CRETLI_FRONT_HMR: "0"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
