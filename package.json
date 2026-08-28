@@ -128,7 +128,7 @@
   },
   "optionalDependencies": {
     "@cursor/sdk": "^1.0.30",
-    "opencode-ai": "^1.18.21",
+    "opencode-ai": "^1.18.23",
     "redis": "^4.7.1"
   },
   "devDependencies": {
