@@ -100,7 +100,7 @@ const priorReadTool = normalizeQwenMessage({
         type: 'tool_result',
         tool_use_id: 'call-write',
         name: 'write_file',
-        content: 'File `/tmp/example-site/index.php` has not been read in this session. Use the `read_file` tool first.',
+        content: 'File `/home/user/www/example.com/index.php` has not been read in this session. Use the `read_file` tool first.',
       },
     ],
   },
