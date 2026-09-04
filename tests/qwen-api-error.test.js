@@ -11,7 +11,7 @@ import {
   sanitizeQwenProjectId,
 } from '../lib/qwen/qwen-api-error.js';
 
-assert.equal(sanitizeQwenProjectId('/home/ar2oor/www/cretli.com'), '-home-ar2oor-www-cretli-com');
+assert.equal(sanitizeQwenProjectId('/home/user/www/example.com'), '-home-user-www-example-com');
 
 const quotaMessage =
   '429 Your token-plan 1-week quota has been exhausted. The quota will reset at 09-10 09:31:00 UTC.';
