@@ -1,0 +1,187 @@
+// Layout recipes for Settings and later screens.
+// Controls stay in Lit (cr-bar-*, cr-checkbox, cr-icon-button).
+// Do not set --cr-control-height on a scrolling container.
+
+.cr-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.cr-page-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  width: 100%;
+}
+
+.cr-page-footer,
+.settings-workspace-save-row {
+  flex: 0 0 auto;
+  display: none;
+  align-items: center;
+  gap: var(--cr-space-2);
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.35rem var(--cr-space-3);
+  background: var(--cr-surface);
+  border-top: 1px solid var(--cr-border);
+  position: relative;
+  z-index: 3;
+
+  @media (min-width: 720px) {
+    padding-inline: max(var(--cr-space-4), calc((100% - 52rem) / 2 + var(--cr-space-4)));
+  }
+
+  cr-bar-button {
+    width: auto;
+  }
+}
+
+.cr-field,
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+
+  cr-bar-input,
+  cr-bar-select,
+  cr-bar-textarea,
+  cr-bar-button {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+.cr-field-label,
+.settings-field-label {
+  font-size: 0.8rem;
+  color: var(--cr-text-subtle);
+}
+
+.cr-hint,
+.settings-hint {
+  margin: 0 0 var(--cr-space-2) 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--cr-text-muted);
+
+  &:empty {
+    display: none;
+    margin: 0;
+  }
+}
+
+.cr-field + .cr-hint,
+.cr-field + .settings-hint,
+.cr-row + .cr-hint,
+.cr-row + .settings-hint {
+  margin-top: var(--cr-space-3);
+}
+
+.cr-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+  border: 1px solid var(--cr-border);
+  border-radius: 2px;
+  padding: var(--cr-space-2);
+  background: var(--cr-surface);
+}
+
+cr-checkbox + .cr-row,
+cr-bar-input + .cr-row,
+cr-bar-select + .cr-row,
+cr-bar-textarea + .cr-row {
+  margin-top: var(--cr-space-3);
+}
+
+.cr-row,
+.settings-workspace-add-row,
+.settings-workspace-add-folder-row,
+.settings-workspace-sync-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--cr-space-2);
+
+  cr-bar-input,
+  cr-bar-select,
+  cr-bar-textarea {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  cr-bar-button,
+  cr-icon-button {
+    width: auto;
+    flex: 0 0 auto;
+  }
+}
+
+.cr-check,
+.settings-checkbox {
+  display: inline-flex;
+  align-items: center;
+  min-height: 0;
+  gap: var(--cr-space-2);
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--cr-text);
+
+  input[type='checkbox'] {
+    width: 16px;
+    height: 16px;
+    min-width: 16px;
+    min-height: 16px;
+    margin: 0;
+    accent-color: var(--cr-accent);
+  }
+}
+
+.cr-status,
+.lan-save-status,
+.quick-commands-save-status {
+  font-size: 0.75rem;
+  color: var(--cr-success);
+}
+
+.cr-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 0.5rem;
+  background: var(--cr-surface);
+  border-bottom: 1px solid var(--cr-border);
+  position: relative;
+  z-index: 2;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  flex-wrap: nowrap;
+
+  .cr-tab {
+    flex: 0 0 auto;
+    background: none;
+    border: none;
+    color: var(--cr-text-muted);
+    padding: 0.55rem 0.85rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+
+    &:hover {
+      color: var(--cr-text);
+    }
+
+    &.active,
+    &[aria-selected='true'] {
+      color: var(--cr-text);
+      border-bottom-color: var(--cr-accent);
+    }
+  }
+}

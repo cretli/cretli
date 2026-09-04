@@ -1,0 +1,152 @@
+---
+description: Cretli — design system UI/UX. Tokens, Lit components (cr-*), modal/form/icon patterns, theme, pre-auth entry. Source of truth for new UI.
+alwaysApply: true
+---
+# Cretli — design system UI/UX
+
+One design system based on **Lit** and shared **tokens**. This rule applies when
+creating or changing UI in `app_front/` and `public/`.
+
+## 1. Tokens (`app_front/css/tokens.scss`)
+
+Single source of truth: VS Code Dark+ palette, radius, spacing, typography,
+motion as `--cr-*` on `:root` plus `body.theme-light` overrides.
+
+- Dark palette: `--cr-bg #1e1e1e`, `--cr-surface #252526`, `--cr-border-strong
+  #444`, `--cr-text #d4d4d4`, `--cr-text-muted #858585`, `--cr-accent #007acc`,
+  `--cr-primary #094771` / `--cr-primary-hover #0d5a8f`, `--cr-error #f48771`,
+  `--cr-success #4ec9b0`.
+- Light (`body.theme-light`): `--cr-bg #f3f3f3`, `--cr-surface #e8e8e8`,
+  `--cr-accent #006ab1`, `--cr-primary #006ab1`.
+- Radius: `--cr-radius-sm 4px` (controls, dropdowns, dialogs), `--cr-radius-md
+  6px`, `--cr-radius-lg 8px` (cards). Overlay panels (`cr-dialog`,
+  `.chat-settings-dialog`, `.chat-list-panel`) use `--cr-overlay-panel-*`
+  (pane `--cr-surface` / `#252526`, so idle controls `#222222` stay distinct).
+- Spacing: `--cr-space-1…6` (0.25/0.5/0.75/1/1.5/2rem).
+- Typography: `--cr-font-ui`, `--cr-font-mono`.
+- Motion: `--cr-transition 120ms ease`.
+- Control density: `--cr-control-height` (default `1.75rem`).
+  `--cr-toolbar-control-height` is an alias of it. Override only on a local
+  host (login may use `3rem`). **Do not** set `--cr-control-height` or
+  `--cr-toolbar-control-height` on a scrolling page container.
+
+**Rule:** Lit components use `var(--cr-*)` in `static styles`, not hardcoded
+hex. Light theme via `:host-context(body.theme-light)`. Tokens are imported in
+`app.scss` (`@use './tokens'`); pre-auth pages (login) import them from a
+dedicated SCSS entry (e.g. `app_front/login/login.scss`).
+
+## 2. Lit components (`app_front/components/ui/`)
+
+`cr-*` registry of self-registering web components.
+
+Conventions:
+- Each file: `import { LitElement, css, html } from 'lit'`, class `CrXxx`, then
+  `if (!customElements.get('cr-xxx')) customElements.define('cr-xxx', CrXxx)` +
+  `export { CrXxx }`.
+- **Shadow DOM** by default; styles in `static styles` with `var(--cr-*)` and
+  `:host-context(body.theme-light)`.
+- Reflect props when the attribute matters for CSS (`variant`, `disabled`,
+  `open`).
+- Inner controls expose `part="control"` (`cr-bar-button`, `cr-bar-input`) so
+  padding/font can be styled from outside via `::part(control)` without breaking
+  encapsulation.
+- Custom events: `cr-<what>-change` / `cr-dialog-close`, with `bubbles: true,
+  composed: true`.
+- **Primitives with no app-level deps** (api, chat, logger) — reusable
+  pre-auth.
+- Barrel: `app_front/components/ui/index.js` (side-effect import of all
+  `cr-*`). New screens import the barrel.
+- MDI icons: `<span class="mdi mdi-<name>">` — **light DOM** (global `.mdi`
+  from `@mdi/font` does not pierce Shadow DOM). Components take the icon via
+  `<slot>` and style `::slotted(.mdi)`.
+
+Available primitives: `cr-bar-button`, `cr-bar-input`, `cr-bar-textarea`,
+`cr-bar-select`, `cr-searchable-select`, `cr-icon-button`, `cr-checkbox`,
+`cr-dialog` (modal). `cr-todo-card`, `cr-sdk-block`, `cr-sdk-mode-bar` —
+chat/TODO domain (state-dependent). Do not put domain components in the UI
+barrel.
+
+## 3. Modal — `<cr-dialog>`
+
+Standard for new UI modals/dialogs. Shadow DOM, tokens, close via backdrop +
+Escape, `cr-dialog-close` event.
+
+API: props `open` (reflected), `heading`, `variant`, `persistent` (reflected —
+blocks backdrop and Escape; use when the modal is the whole screen, e.g.
+login); slots `icon`, `subheading`, default (body), `actions`; methods
+`show()` / `hide()`.
+
+The old utility `app_front/lib/modal.js` plus `.chat-settings-*` classes stay
+for existing modals (`chat.js`, `App.js`, `filesPanel.js`, …). **New modals =
+`cr-dialog`.** Incremental migration, not a big bang.
+
+## 3b. Layout recipes (`app_front/css/cr-recipes.scss`)
+
+Layout is CSS, not Shadow Lit wrappers. New screens compose:
+
+- `.cr-page` — flex column that fills the panel (min-height 0, overflow hidden)
+- `.cr-page-body` — `flex: 1; min-height: 0; overflow: auto`
+- `.cr-page-footer` — sibling of the body, never inside the scroll box
+- `.cr-field` / `.cr-field-label` / `.cr-hint` — label + control
+- `.cr-card` — compact card (2px radius)
+- `.cr-row` — input + button on one line
+- `.cr-check` — native 16px checkbox + label (or use `cr-checkbox`)
+- `.cr-tabs` / `.cr-tab` — underline tabs (`0.55rem 0.85rem`), not 44px chips
+- `.cr-status` — save/status text
+
+Reference: Settings Workspace. Footer visibility stays in page CSS (`:has()`).
+
+## 4. Forms
+
+- Fields: `<cr-bar-input type="password|text" .value=? @input=>` (read
+  `e.target.value` / `el.value`; native `input` is composed — it crosses
+  shadow).
+- Submit: `<cr-bar-button variant="primary" @click=>` + `fetch` (the button is
+  `type="button"`; do not use native form submit).
+- Validation: guard clauses; state on the component property (Lit reactive);
+  error message in `.message[data-tone="error"]`.
+- Messages: `data-tone="error" | "success"`.
+
+## 5. Theme
+
+- `app_front/theme.js`: `localStorage('cretli-theme')` =
+  `dark|light|system`; `theme-light` class on `<body>`. Legacy key
+  `cursor-remote-theme` is still read via `storageKeyAlias.js`.
+- Standalone pages (pre-auth, no SPA): inline **anti-FOUC** script that reads
+  `localStorage` and sets `body.theme-light` before render.
+- `<meta name="theme-color">`: `#1e1e1e` (dark) / `#f3f3f3` (light) — match
+  `--cr-bg`, not GitHub `#0d1117`.
+
+## 6. Pre-auth entry pattern (e.g. login)
+
+Pages required before auth do **not** load the full SPA (`App.js`, xterm,
+chat). Pattern:
+
+- Separate **webpack entry** (e.g. `login: './login/LoginApp.js'`) in
+ `webpack.dev.js` + `webpack.prod.js`. `splitChunks` gives it its **own**
+ `vendor-login.bundle.js` (Lit + UI primitives only) — it must not share
+ `vendor.bundle.js` with the SPA, which carries xterm, markdown-it and the
+ icon font. Pre-auth pages also skip `vendor.css`; inline an SVG instead of
+ pulling in `@mdi/font` for a couple of icons.
+- Entry imports: `components/ui/index.js` (barrel), `theme.js`, its own SCSS
+  with `@use '../css/tokens'` (tokens on the page).
+- The page component uses **light DOM** (`createRenderRoot() { return this }`)
+  so global `.mdi` and tokens from the entry CSS work.
+- Server: `/login` and `/dist/app/*` assets are public pre-auth (`lib/auth.js`
+  `requireAuth`); login API is on the whitelist (`/api/auth-status`,
+  `/api/setup`, `/api/login`).
+- `public/sw.js`: add the page bundle and CSS to `SHELL_ASSETS` (offline PWA).
+
+## 7. Migration rule
+
+- **New UI = recipes + `cr-bar-*` / `cr-checkbox` / `cr-icon-button` / tokens.**
+  Do not invent new standalone designs (like the old `login.html` with a GitHub
+  palette) and do not wrap a whole page in one Lit app.
+- Existing plain HTML + global SCSS (`header`, main `.tabs`, chat send-bar,
+  `.chat-settings-*`) stays; migrate incrementally, file by file — not a big
+  bang. Next Settings tabs after Connection / Harness / App: Widgets,
+  then Chat & agents / Usage.
+- Do not put a save footer inside a scrolling box. Do not override control
+  height on `.settings-sections` or any other scroll container.
+- Do not duplicate tokens as hardcoded hex in new components — use
+  `var(--cr-*)`.

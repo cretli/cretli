@@ -1,0 +1,87 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Cretli: build front (watch)",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": { "cwd": "${workspaceFolder}/app_front" },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "^.*$", "file": 1, "location": 2, "message": 3 },
+        "background": { "activeOnStart": true, "beginsPattern": ".", "endsPattern": "webpack compiled" }
+      },
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Cretli: build widget (watch)",
+      "type": "shell",
+      "command": "npm run dev:widget",
+      "options": { "cwd": "${workspaceFolder}/app_front" },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "^.*$", "file": 1, "location": 2, "message": 3 },
+        "background": { "activeOnStart": true, "beginsPattern": ".", "endsPattern": "webpack compiled" }
+      },
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Cretli: build widget (once)",
+      "type": "shell",
+      "command": "npm run build:widget",
+      "options": { "cwd": "${workspaceFolder}/app_front" },
+      "presentation": { "reveal": "always", "panel": "shared", "focus": false }
+    },
+    {
+      "label": "Cretli: start server",
+      "type": "shell",
+      "command": "bash -c 'echo \"Starting server...\"; export USE_HTTPS=1; export CURSOR_REMOTE_BIND=0.0.0.0; exec npm start'",
+      "options": { "cwd": "${workspaceFolder}", "env": { "USE_HTTPS": "1", "CURSOR_REMOTE_BIND": "0.0.0.0" } },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "^.*$", "file": 1, "location": 2, "message": 3 },
+        "background": { "activeOnStart": true, "beginsPattern": ".", "endsPattern": "Cretli: https?://localhost:\\d+" }
+      },
+      "presentation": { "reveal": "always", "panel": "dedicated", "focus": false }
+    },
+    {
+      "label": "Cretli: start server (Cursor SDK)",
+      "type": "shell",
+      "command": "bash \"${workspaceFolder}/scripts/start-server-sdk.sh\"",
+      "options": { "cwd": "${workspaceFolder}", "env": { "USE_HTTPS": "1", "CURSOR_REMOTE_BIND": "0.0.0.0" } },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "^.*$", "file": 1, "location": 2, "message": 3 },
+        "background": { "activeOnStart": true, "beginsPattern": ".", "endsPattern": "Cretli: https?://localhost:\\d+" }
+      },
+      "presentation": { "reveal": "always", "panel": "dedicated", "focus": false }
+    },
+    {
+      "label": "Cretli: stop server",
+      "type": "shell",
+      "command": "bash -c 'P=$(lsof -ti:3011 2>/dev/null); if [ -z \"$P\" ]; then echo \"No process on port 3011\"; exit 0; fi; echo \"Stopping process(es): $P\"; kill $P 2>/dev/null || true; for i in 1 2 3 4 5; do sleep 1; lsof -ti:3011 >/dev/null 2>&1 || { echo \"Port 3011 is free\"; exit 0; }; done; echo \"Forcing stop (SIGKILL)\"; kill -9 $(lsof -ti:3011 2>/dev/null) 2>/dev/null || true; sleep 1; lsof -ti:3011 >/dev/null 2>&1 && { echo \"WARNING: port 3011 still in use\"; exit 1; }; echo \"Port 3011 is free\"'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "dedicated", "focus": false }
+    },
+    {
+      "label": "Cretli: restart server",
+      "type": "shell",
+      "command": "bash \"${workspaceFolder}/scripts/task-restart-server.sh\"",
+      "options": { "cwd": "${workspaceFolder}", "env": { "USE_HTTPS": "1", "CURSOR_REMOTE_BIND": "0.0.0.0" } },
+      "isBackground": false,
+      "presentation": { "reveal": "always", "panel": "dedicated", "focus": false }
+    },
+    {
+      "label": "Cretli: dev",
+      "dependsOn": ["Cretli: build front (watch)", "Cretli: start server"],
+      "dependsOrder": "parallel",
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "Cretli: dev (Cursor SDK)",
+      "dependsOn": ["Cretli: build front (watch)", "Cretli: start server (Cursor SDK)"],
+      "dependsOrder": "parallel",
+      "group": "build"
+    }
+  ]
+}
