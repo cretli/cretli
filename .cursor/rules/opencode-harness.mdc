@@ -1,0 +1,42 @@
+---
+description: OpenCode harness integration in Cretli — vendor layout, normalizer conventions, supported events.
+globs:
+  - lib/opencode/**
+  - lib/agent-harness/opencode*.js
+  - docs/opencode/**
+alwaysApply: false
+---
+
+# OpenCode harness
+
+## Vendor reference (local, gitignored)
+
+- Path: `.vendor/opencode/` — not committed.
+- Setup: `bash scripts/setup-opencode-reference.sh`
+- Index: `docs/opencode/README.md`, user setup: `docs/opencode/SETUP.md`
+
+Optional IDE context: add `.vendor/opencode/src` via Settings → Workspace → `additionalCursorContextDirs`.
+
+## Integration rules
+
+1. **Normalize in one place** — map OpenCode SSE payloads to SDK-shaped events in `lib/agent-harness/opencode-event-normalizer.js`. Do not duplicate mapping in WS or frontend.
+2. **Interactive skills** — question → `lib/opencode/opencode-question.js` (`opencode_question`); permission → `lib/opencode/opencode-permission.js` (`opencode_permission`). WS handlers live in `lib/opencode/opencode-agent-ws.js`.
+3. **Plan mode** — use `lib/sdk/sdk-plan-guard.js` for mutating tool detection; emit `sdkPlanGuard` and abort the session when blocked.
+4. **Room state** — reuse `buildSdkRoomStatePayload` from `lib/sdk/sdk-room-state.js`; extend room diag via `getOpenCodeRoomDiag`.
+
+## Supported OpenCode SSE events (handled)
+
+| Event | Output |
+|-------|--------|
+| `message.*`, `message.part.*` | assistant / thinking / tool_call SDK events |
+| `question.asked`, `question.v2.asked` | `opencode_question` |
+| `question.replied/rejected`, `question.v2.*` | `opencodeQuestionResolved` |
+| `permission.asked`, `permission.v2.asked` | `opencode_permission` |
+| `permission.replied`, `permission.v2.replied` | `opencodePermissionResolved` |
+| `session.idle`, `session.status`, `session.error` | busy/idle, errors |
+| `permission.updated` | informational text only (legacy TUI) |
+
+## Planned / out of scope
+
+- Redis multi-instance room bus (SDK-only)
+- Push notifications on run finish (optional, not wired for OpenCode v1)

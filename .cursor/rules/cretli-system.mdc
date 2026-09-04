@@ -1,0 +1,73 @@
+---
+description: Cretli — agent operational rules. Full architecture is in docs/ARCHITECTURE.md.
+alwaysApply: true
+---
+# Cretli — agent operational rules
+
+Cretli is a Node.js (Express + WebSocket) server that exposes a **terminal** and
+**agent chat** (OpenCode, OpenRouter, or optional Cursor SDK) in the browser.
+Multiple devices can share the same session live.
+
+**Canonical architecture, HTTP/WS API, harness routing, and config:**
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). OpenCode setup:
+[docs/opencode/SETUP.md](docs/opencode/SETUP.md). Do not duplicate those tables
+in this rule.
+
+Default bind is **127.0.0.1**. LAN is opt-in (`npm run start:lan` /
+`CRETLI_BIND=0.0.0.0`). Runtime data lives in gitignored `data/` — never commit
+it. On WSL, LAN needs Windows portproxy (`scripts/wsl-port-forward.ps1`) and
+`CRETLI_LAN_HOST` / `LAN_HOST` set to the Windows LAN IP.
+
+## Starting the server from a Cursor agent
+
+When asked to start Cretli:
+
+- Always start **outside the sandbox** (`required_permissions: ["all"]`). In the
+  sandbox the process may start but the bind on port 3011 is invisible on
+  localhost/LAN.
+- Long-running process: `block_until_ms: 0` so the server keeps running after
+  the agent step ends.
+- Example: `npm start` in the project root with those options (HTTPS on
+  `https://localhost:3011` by default).
+
+If LAN dies after a WSL crash: refresh WSL IP (`wsl.exe hostname -I`), fix
+Windows `netsh interface portproxy` for 3011, then restart the server **inside
+WSL**.
+
+## Frontend build
+
+The front is usually built in the background by the VS Code/Cursor task
+`Cretli: build front (watch)`.
+
+- Do **not** ask the user to run a build.
+- Do **not** run `npm run build:front` / `npm run build:front:prod` after every
+  `app_front/` change — assume the watcher updates `public/dist/`.
+- Manual build only if the user asks or the watcher is clearly down.
+
+Default dev mode is **HMR on the same Express server**
+(`webpack-dev-middleware` + `webpack-hot-middleware`, `__webpack_hmr`).
+`CRETLI_FRONT_HMR=0` disables it. `CURSOR_REMOTE_FRONT_HOT_FALLBACK=1`
+enables the old watch + `/ws-front-build` path. Leave HMR as the default.
+
+## Server restart vs brief disconnect
+
+`GET /api/settings` returns `serverInstanceToken` (UUID per process). The
+frontend stores it in `localStorage` and compares on reconnect: token changed →
+server restart; same token or no response → brief disconnect. Chat recovery:
+`app_front/features/chat/chatServerRecovery.js`. Task-run recovery:
+`app_front/tasks.js`.
+
+SDK auto-recovery: `CURSOR_REMOTE_SDK_RUN_AUTO_RECOVERY=0` disables killing
+stuck runs; `CURSOR_REMOTE_SDK_RUN_AUTO_RECOVERY_GRACE_MS` (default 60000) is
+the idle grace.
+
+## Known issue: `generating` appends new lines
+
+If the chat `generating` animation appends lines instead of overwriting:
+
+- PTY size must match xterm (`cols`/`rows` from the client, no fake min 80).
+- On `resize` in `server.js`, do **not** clamp the new size to the previous
+  `session.ptyCols/ptyRows` with `max(old, new)` — the PTY then cannot shrink.
+- Recompute PTY size from current `clientSizes` after a client disconnect.
+- Keep `safeFit(...)` on container resize in `app_front/chat.js` so xterm and
+  PTY stay aligned.

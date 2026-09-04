@@ -1,0 +1,262 @@
+// Cretli — design tokens (single source of truth for UI/UX).
+// VS Code Dark+ palette, radius, spacing, typography, motion.
+// Lit components inherit var(--cr-*) through Shadow DOM.
+// Imported in app.scss (@use './tokens').
+
+:root,
+:root[data-theme='dark'] {
+  // --- Surfaces ---
+  --cr-bg: #1e1e1e;
+  --cr-surface: #252526;
+  --cr-surface-2: #2d2d2d;
+  --cr-surface-raised: #333;
+  --cr-surface-inset: #181818;
+  --cr-surface-code: #1a1a1a;
+  --cr-surface-hover: #2a2d2e;
+  --cr-surface-active: #37373d;
+  --cr-surface-selected: #094771;
+  --cr-surface-translucent: rgba(255, 255, 255, 0.03);
+  --cr-surface-translucent-hover: rgba(255, 255, 255, 0.08);
+
+  // --- Text and borders ---
+  --cr-border: #333;
+  --cr-border-strong: #444;
+  --cr-border-control: #555;
+  --cr-border-subtle: rgba(255, 255, 255, 0.08);
+  --cr-text: #d4d4d4;
+  --cr-text-strong: #f0f0f0;
+  --cr-text-muted: #858585;
+  --cr-text-subtle: #a7a7a7;
+  --cr-text-inverse: #fff;
+  --cr-link: #6cb6ff;
+
+  // --- Controls ---
+  --cr-accent: #007acc;
+  --cr-primary: #094771;
+  --cr-primary-hover: #0d5a8f;
+  --cr-input-bg: #333;
+  --cr-control-idle-bg: #222222;
+  --cr-control-bg: #333;
+  --cr-control-hover: #444;
+  --cr-control-disabled: #2a2a2a;
+  --cr-control-track: #3a3a3a;
+  --cr-control-knob: #cfcfcf;
+  --cr-input-focus-border: #094771;
+  --cr-focus-ring: rgba(0, 122, 204, 0.35);
+  --cr-selection-bg: rgba(0, 122, 204, 0.22);
+  --cr-hover: var(--cr-surface-hover);
+  --cr-active: var(--cr-surface-active);
+
+  // --- Overlays and elevation ---
+  --cr-overlay: rgba(0, 0, 0, 0.5);
+  --cr-overlay-strong: rgba(0, 0, 0, 0.82);
+  --cr-overlay-surface: rgba(18, 18, 20, 0.97);
+  --cr-shadow: rgba(0, 0, 0, 0.45);
+  --cr-shadow-soft: rgba(0, 0, 0, 0.25);
+  --cr-shadow-elevated: 0 6px 24px rgba(0, 0, 0, 0.32);
+
+  // --- Scrollbars ---
+  --cr-scrollbar-track: #1f1f1f;
+  --cr-scrollbar-thumb: #4a4a4a;
+  --cr-scrollbar-thumb-hover: #5a5a5a;
+
+  // --- Syntax ---
+  --cr-code-bg: #1a1a1a;
+  --cr-code-text: #d4d4d4;
+  --cr-code-keyword: #c586c0;
+  --cr-code-string: #ce9178;
+  --cr-code-number: #b5cea8;
+  --cr-code-title: #dcdcaa;
+  --cr-code-comment: #6a9955;
+  --cr-code-variable: #9cdcfe;
+  --cr-code-attribute: #9cdcfe;
+  --cr-code-built-in: #4ec9b0;
+  --cr-code-meta: #d7ba7d;
+  --cr-code-tag: #569cd6;
+  --cr-code-deletion: #f48771;
+  --cr-code-addition: #73c991;
+
+  // --- Semantic states ---
+  --cr-success: #4ec9b0;
+  --cr-success-bg: #1e3a1e;
+  --cr-success-border: #315b43;
+  --cr-error: #f48771;
+  --cr-error-bg: #3a1e1e;
+  --cr-error-border: #6b2b2b;
+  --cr-warn: #dcdcaa;
+  --cr-warn-bg: #3a3218;
+  --cr-warn-border: #6b5e2b;
+  --cr-info: #6cb6ff;
+  --cr-info-bg: #1d2d3f;
+  --cr-info-border: #315b72;
+  --cr-plan: #dcc8ff;
+  --cr-plan-bg: rgba(180, 130, 255, 0.18);
+  --cr-plan-border: rgba(180, 130, 255, 0.42);
+  --cr-status: #c586f0;
+  --cr-status-bg: #301836;
+  --cr-status-border: #63306f;
+  --cr-neutral: #9d9d9d;
+  --cr-neutral-bg: #2a2a2a;
+  --cr-neutral-border: #444;
+  --cr-ready: #3794ff;
+  --cr-recording: #c00;
+  --cr-favorite: #e7c24c;
+  --cr-git-modified: #e2c08d;
+  --cr-git-added: #73c991;
+  --cr-git-deleted: #f48771;
+  --cr-git-renamed: #4ec9b0;
+  --cr-diff-add-bg: rgba(115, 201, 145, 0.16);
+  --cr-diff-del-bg: rgba(244, 135, 113, 0.16);
+  --cr-diff-hunk-bg: rgba(78, 201, 176, 0.08);
+  --cr-danger-bg: #5c1a1a;
+  --cr-danger-hover: #7a2222;
+  --cr-danger-text: #f4c7c7;
+  --cr-danger-border: #8b3a3a;
+
+  // --- Radius ---
+  // Buttons, inputs, selects, dropdowns and dialogs use --cr-radius-sm.
+  --cr-radius-sm: 4px; // controls / overlay panels
+  --cr-radius-md: 6px;
+  --cr-radius-lg: 8px; // cards
+
+  // Overlay chrome for dialogs and dropdown panels.
+  // Pane uses --cr-surface so idle controls (--cr-control-idle-bg) keep contrast.
+  --cr-overlay-panel-bg: var(--cr-surface);
+  --cr-overlay-panel-border: var(--cr-border-subtle);
+  --cr-overlay-panel-radius: var(--cr-radius-sm);
+  --cr-overlay-panel-shadow: 0 4px 16px var(--cr-shadow-soft);
+  --cr-overlay-panel-padding: var(--cr-space-3);
+
+  // --- Spacing ---
+  --cr-space-1: 0.25rem;
+  --cr-space-2: 0.5rem;
+  --cr-space-3: 0.75rem;
+  --cr-space-4: 1rem;
+  --cr-space-5: 1.5rem;
+  --cr-space-6: 2rem;
+
+  // Horizontal padding inside an SDK block body. The compact activity tray's
+  // top divider bleeds to the block edges using the same value.
+  --cr-sdk-body-pad-x: 0.55rem;
+
+  // --- Typography ---
+  --cr-font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --cr-font-mono: ui-monospace, 'Cascadia Code', 'Consolas', 'Monaco', monospace;
+
+  // --- Motion ---
+  --cr-transition: 120ms ease;
+
+  // --- Control density (compact toolbar / Settings default) ---
+  --cr-control-height: 1.75rem;
+  --cr-toolbar-control-height: var(--cr-control-height);
+}
+
+:root[data-theme='light'] {
+  // --- Surfaces ---
+  --cr-bg: #f3f3f3;
+  --cr-surface: #e8e8e8;
+  --cr-surface-2: #f0f0f0;
+  --cr-surface-raised: #fff;
+  --cr-surface-inset: #f8f8f8;
+  --cr-surface-code: #fff;
+  --cr-surface-hover: #ddd;
+  --cr-surface-active: #cfe3f7;
+  --cr-surface-selected: #cfe3f7;
+  --cr-surface-translucent: rgba(0, 0, 0, 0.025);
+  --cr-surface-translucent-hover: rgba(0, 0, 0, 0.07);
+
+  // --- Text and borders ---
+  --cr-border: #ccc;
+  --cr-border-strong: #bbb;
+  --cr-border-control: #bbb;
+  --cr-border-subtle: rgba(0, 0, 0, 0.1);
+  --cr-text: #333;
+  --cr-text-strong: #111;
+  --cr-text-muted: #555;
+  --cr-text-subtle: #666;
+  --cr-text-inverse: #fff;
+  --cr-link: #006ab1;
+
+  // --- Controls ---
+  --cr-accent: #006ab1;
+  --cr-primary: #006ab1;
+  --cr-primary-hover: #005a9e;
+  --cr-input-bg: #fff;
+  --cr-control-idle-bg: #dedede;
+  --cr-control-bg: #ddd;
+  --cr-control-hover: #ccc;
+  --cr-control-disabled: #eee;
+  --cr-control-track: #ccc;
+  --cr-control-knob: #fff;
+  --cr-input-focus-border: #006ab1;
+  --cr-focus-ring: rgba(0, 106, 177, 0.25);
+  --cr-selection-bg: rgba(0, 106, 177, 0.16);
+  --cr-hover: var(--cr-surface-hover);
+  --cr-active: var(--cr-surface-active);
+
+  // --- Overlays and elevation ---
+  --cr-overlay: rgba(0, 0, 0, 0.35);
+  --cr-overlay-strong: rgba(0, 0, 0, 0.72);
+  --cr-overlay-surface: rgba(255, 255, 255, 0.98);
+  --cr-shadow: rgba(0, 0, 0, 0.22);
+  --cr-shadow-soft: rgba(0, 0, 0, 0.12);
+  --cr-shadow-elevated: 0 6px 24px rgba(0, 0, 0, 0.18);
+
+  // --- Scrollbars ---
+  --cr-scrollbar-track: #e6e6e6;
+  --cr-scrollbar-thumb: #b6b6b6;
+  --cr-scrollbar-thumb-hover: #969696;
+
+  // --- Syntax ---
+  --cr-code-bg: #fff;
+  --cr-code-text: #24292f;
+  --cr-code-keyword: #cf222e;
+  --cr-code-string: #0a3069;
+  --cr-code-number: #0550ae;
+  --cr-code-title: #8250df;
+  --cr-code-comment: #6e7781;
+  --cr-code-variable: #953800;
+  --cr-code-attribute: #0550ae;
+  --cr-code-built-in: #116329;
+  --cr-code-meta: #8250df;
+  --cr-code-tag: #116329;
+  --cr-code-deletion: #a40e26;
+  --cr-code-addition: #116329;
+
+  // --- Semantic states ---
+  --cr-success: #2e7d32;
+  --cr-success-bg: #dff3ea;
+  --cr-success-border: #72b78a;
+  --cr-error: #b42318;
+  --cr-error-bg: #fbe5e2;
+  --cr-error-border: #d8847b;
+  --cr-warn: #765b12;
+  --cr-warn-bg: #fff3cd;
+  --cr-warn-border: #d6b85a;
+  --cr-info: #0969da;
+  --cr-info-bg: #ddf4ff;
+  --cr-info-border: #80b6e8;
+  --cr-plan: #6639ba;
+  --cr-plan-bg: #f1e8ff;
+  --cr-plan-border: #b99adf;
+  --cr-status: #8250df;
+  --cr-status-bg: #f1e8ff;
+  --cr-status-border: #b99adf;
+  --cr-neutral: #57606a;
+  --cr-neutral-bg: #f0f0f0;
+  --cr-neutral-border: #afb8c1;
+  --cr-ready: #0969da;
+  --cr-recording: #b42318;
+  --cr-favorite: #8a6500;
+  --cr-git-modified: #8a6500;
+  --cr-git-added: #247a52;
+  --cr-git-deleted: #b42318;
+  --cr-git-renamed: #176f63;
+  --cr-diff-add-bg: rgba(46, 125, 50, 0.13);
+  --cr-diff-del-bg: rgba(180, 35, 24, 0.12);
+  --cr-diff-hunk-bg: rgba(23, 111, 99, 0.09);
+  --cr-danger-bg: #fbe5e2;
+  --cr-danger-hover: #f6d2cd;
+  --cr-danger-text: #8f1d14;
+  --cr-danger-border: #d8847b;
+}
