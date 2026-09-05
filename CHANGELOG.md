@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-05
+
 ### Fixed
 - Switching harness from a nested sidebar chat now creates the new chat under
   the same parent instead of making a new folder and moving the current chat
@@ -333,7 +335,8 @@ All notable changes to this project are documented here. The format is based on
   plans, and one-shot migration scripts.
 - Build artifacts (`public/dist/`) from git tracking (now gitignored).
 
-[Unreleased]: https://github.com/cretli/cretli/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/cretli/cretli/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/cretli/cretli/releases/tag/v0.4.0
 [0.3.0]: https://github.com/cretli/cretli/releases/tag/v0.3.0
 [0.2.0]: https://github.com/cretli/cretli/releases/tag/v0.2.0
 [0.1.0]: https://github.com/cretli/cretli/releases/tag/v0.1.0

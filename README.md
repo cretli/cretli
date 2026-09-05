@@ -13,7 +13,7 @@ widgets — talking to your own PC over HTTPS.
 Backends: **OpenCode**, **OpenRouter**, **Cursor SDK**, **CodeBuddy**, **DeepSeek**,
 **Qwen Code**, and **Codex**. Multiple devices can share the same session live.
 
-> **Status:** early/experimental (`v0.3.0`). The server exposes a full shell — read
+> **Status:** early/experimental (`v0.4.0`). The server exposes a full shell — read
 > [SECURITY.md](SECURITY.md) before putting it on a network.
 >
 > Cretli is **not affiliated with** Anysphere or Cursor. “Cursor” is a trademark of
