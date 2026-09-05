@@ -39,7 +39,6 @@ export function isPendingSummaryForkChat(chat) {
  */
 export function isLiveAgentChat(chat) {
   if (!chat?.id || !chat?.cursorSessionId) return false;
-  if (chat._agentState === 'active') return true;
   return hasLiveHarnessWork(chat);
 }
 
@@ -118,6 +117,9 @@ export function selectMonitoredChatIds(chats, getActiveChatId, getChatActivityAt
       chat.id === activeChatId
       || isRecentlyActiveChat(chat, getChatActivityAt, now)
       || isLiveAgentChat(chat)
+      || chat._serverRunState?.state === 'busy'
+      || chat._serverRunState?.state === 'waiting'
+      || chat._serverRunState?.state === 'attention'
     ) {
       monitoredChatIds.add(chat.id);
     }

@@ -84,6 +84,8 @@ import { loadPanelModule, getLoadedPanelModule } from './app/appShell/lazyPanelM
 import { createWorkspaceContext } from './app/appShell/workspaceContext.js';
 import { createHeaderContextTitle } from './app/appShell/headerContextTitle.js';
 import { createSidebarView } from './features/sidebar/sidebarView.js';
+import { shouldCloseSidebarOnResume } from './features/sidebar/sidebarDock.js';
+import { wouldCreateChatParentCycle } from '../lib/chat-tree.js';
 import {
   EMBED_ALLOWED_PANELS,
   EMBED_DEFAULT_PANEL,
@@ -356,6 +358,39 @@ function getActiveWorkspaceFolderFromHeader() {
   return trigger?.dataset?.workspaceFolder || '';
 }
 
+async function setChatForkParent(chatId, parentChatId) {
+  const id = String(chatId || '').trim();
+  if (!id) return;
+  const chats = getChatsList();
+  const chat = chats.find((entry) => entry.id === id);
+  if (!chat) return;
+  const nextParent = String(parentChatId || '').trim();
+  if (nextParent && wouldCreateChatParentCycle(chats, id, nextParent)) return;
+  const previousParent = typeof chat.forkParentChatId === 'string' ? chat.forkParentChatId.trim() : '';
+  if (nextParent) chat.forkParentChatId = nextParent;
+  else delete chat.forkParentChatId;
+  sidebarView.forceRerender();
+  try {
+    const data = await api.patchChat(id, { forkParentChatId: nextParent || null });
+    if (!data?.ok || !data.chat) {
+      if (previousParent) chat.forkParentChatId = previousParent;
+      else delete chat.forkParentChatId;
+      sidebarView.forceRerender();
+      return;
+    }
+    if (typeof data.chat.forkParentChatId === 'string' && data.chat.forkParentChatId.trim()) {
+      chat.forkParentChatId = data.chat.forkParentChatId.trim();
+    } else {
+      delete chat.forkParentChatId;
+    }
+    sidebarView.forceRerender();
+  } catch (_) {
+    if (previousParent) chat.forkParentChatId = previousParent;
+    else delete chat.forkParentChatId;
+    sidebarView.forceRerender();
+  }
+}
+
 const sidebarView = createSidebarView({
   getWorkspaces: getWorkspacesListFromCtx,
   getChats: getChatsList,
@@ -379,6 +414,7 @@ const sidebarView = createSidebarView({
     applySettingsTab('workspace');
   },
   refreshStates: refreshSidebarChatStates,
+  setChatForkParent,
 });
 
 function isEmbedModeEnabled() {
@@ -439,7 +475,7 @@ async function resolveWidgetCreatePageUrl(requestedPageUrl) {
 }
 
 /**
- * @param {{ pageSessionId: string, pageUrl: string, pageTitle: string, harness?: string }} params
+ * @param {{ pageSessionId: string, pageUrl: string, pageTitle: string, harness?: string, forceNew?: boolean }} params
  * @returns {Promise<{ ok: boolean, chat?: object, reused?: boolean, error?: string }>}
  */
 function createWidgetPageChatWithDedupe(params) {
@@ -447,10 +483,16 @@ function createWidgetPageChatWithDedupe(params) {
   const pageUrl = String(params.pageUrl || '').trim();
   const pageTitle = String(params.pageTitle || '').trim();
   const harness = String(params.harness || '').trim().toLowerCase();
-  const dedupeKey = `${pageSessionId}|${pageUrl}|${pageTitle}|${harness}`;
+  const forceNew = params.forceNew !== false;
+  const dedupeKey = `${pageSessionId}|${pageUrl}|${pageTitle}|${harness}|${forceNew ? 'new' : 'reuse'}`;
   const pending = widgetCreatePageChatInFlight.get(dedupeKey);
   if (pending) return pending;
-  const promise = createPageLinkedChat({ pageUrl, pageTitle, harness }).finally(() => {
+  const promise = createPageLinkedChat({
+    pageUrl,
+    pageTitle,
+    harness,
+    forceNew,
+  }).finally(() => {
     widgetCreatePageChatInFlight.delete(dedupeKey);
   });
   widgetCreatePageChatInFlight.set(dedupeKey, promise);
@@ -550,6 +592,7 @@ function initEmbedWidgetHostBridge() {
       const requestedPageUrl = typeof data.pageUrl === 'string' ? data.pageUrl.trim() : '';
       const pageTitle = typeof data.pageTitle === 'string' ? data.pageTitle.trim() : '';
       const harness = typeof data.harness === 'string' ? data.harness.trim() : '';
+      const forceNew = data.forceNew !== false;
       appLogger.log('widget-plus', 'create-page-chat from host', { requestId, requestedPageUrl, pageTitle });
       void resolveWidgetCreatePageUrl(requestedPageUrl)
         .then((resolvedPageUrl) => {
@@ -564,6 +607,7 @@ function initEmbedWidgetHostBridge() {
             pageUrl: resolvedPageUrl,
             pageTitle,
             harness,
+            forceNew,
           });
         })
         .then((result) => {
@@ -1543,8 +1587,7 @@ function ensureAuthenticatedThenBoot() {
     window.addEventListener('cr-widget-connected', () => bootApp(), { once: true });
     return;
   }
-  fetch('/api/auth-status', { credentials: 'include' })
-    .then((r) => r.json())
+  api.getAuthStatus()
     .then((data) => {
       if (data && data.ok && data.configured && data.authRequired) {
         const next = encodeURIComponent(window.location.pathname + window.location.search);
@@ -1710,7 +1753,15 @@ function bootApp() {
       setWorkspaceSwitchHook((workspaceFile, folder) => switchWorkspace(workspaceFile, folder));
       sidebarView.init();
       registerPageResumeCleanupHook(() => {
-        if (!sidebarView.isOpen()) return undefined;
+        const shouldClose = shouldCloseSidebarOnResume({
+          isOpen: sidebarView.isOpen(),
+          isPinned: sidebarView.isPinned(),
+          isMobile:
+            typeof window !== 'undefined' && window.matchMedia
+              ? window.matchMedia('(max-width: 768px)').matches
+              : false,
+        });
+        if (!shouldClose) return undefined;
         sidebarView.close();
         return 'sidebar';
       });

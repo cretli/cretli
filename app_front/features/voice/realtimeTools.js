@@ -15,6 +15,7 @@ import { getChatSpeaker } from './chatSpeaker.js';
 import { toSpeakableText } from './speakableText.js';
 import { matchChatBySpokenTitle } from './voiceChatMatch.js';
 import { resolveVoiceHarness } from './voiceHarnessMatch.js';
+import { compactVoiceModelList } from './voiceModelListCompact.js';
 import { matchModelBySpokenName } from './voiceModelMatch.js';
 import { resolveVoiceNavKey } from './voiceNavMatch.js';
 import { resolveVoiceReadMode } from './voiceReadMatch.js';
@@ -23,6 +24,7 @@ import { matchTaskBySpokenLabel } from './voiceTaskMatch.js';
 import { setReadMode } from './voicePrefs.js';
 import { getVoiceSessionUsd } from './voiceSessionState.js';
 import { formatUsd } from './voiceCost.js';
+import { appendVoiceSessionEvent } from './voiceSessionLog.js';
 
 const DEFAULT_ANSWER_CHARS = 1200;
 
@@ -157,6 +159,7 @@ const handlers = {
       chatId: chat.id,
       title: String(chat.title || '').trim() || 'untitled',
       harness: String(chat.agentTransport || 'sdk'),
+      model: String(chat.model || 'auto').trim() || 'auto',
       workspace: workspace
         ? String(workspace.name || '').trim()
         : String(chat.workspaceFile || '').replace(/.*\//, '').replace(/\.code-workspace$/i, '') || null,
@@ -366,12 +369,26 @@ const handlers = {
     return { ok: true, key };
   },
 
-  async list_models() {
+  async list_models(args) {
     const chatModule = await loadChatModule();
     if (typeof chatModule.listVoiceModels !== 'function') {
       return { ok: false, error: 'Model list is not available' };
     }
-    return chatModule.listVoiceModels();
+    const listed = await chatModule.listVoiceModels();
+    if (!listed.ok) return listed;
+    const compact = compactVoiceModelList(listed.models, {
+      query: args?.query,
+      current: listed.current,
+    });
+    return {
+      ok: true,
+      harness: listed.harness,
+      current: listed.current,
+      total: compact.total,
+      truncated: compact.truncated,
+      models: compact.models,
+      hint: 'If the user named a model, call set_model with that spoken name. Do not list the full catalog.',
+    };
   },
 
   async set_model(args) {
@@ -381,7 +398,7 @@ const handlers = {
     if (typeof chatModule.listVoiceModels !== 'function' || typeof chatModule.setVoiceChatModel !== 'function') {
       return { ok: false, error: 'Model switch is not available' };
     }
-    const listed = chatModule.listVoiceModels();
+    const listed = await chatModule.listVoiceModels();
     if (!listed.ok) return listed;
     const result = matchModelBySpokenName(listed.models, spoken);
     if (result.ambiguous) {
@@ -394,7 +411,21 @@ const handlers = {
       const names = (listed.models || []).map((model) => model.id).slice(0, 12);
       return { ok: false, error: `Unknown model. Available: ${names.join(', ')}` };
     }
-    return chatModule.setVoiceChatModel({ model: result.match.id });
+    const outcome = await chatModule.setVoiceChatModel({ model: result.match.id });
+    appendVoiceSessionEvent('tool.set_model', {
+      requested: spoken,
+      model: outcome?.model || result.match.id,
+      ok: outcome?.ok === true,
+      error: outcome?.error || '',
+    });
+    if (outcome?.ok === true && typeof chatModule.getChatListAgentStatePublic === 'function') {
+      const chat = chatModule.getChatsList().find((item) => item.id === chatModule.getActiveChatIdValue());
+      if (chat) {
+        const status = await handlers.get_chat_status();
+        if (status?.ok) outcome.verifiedModel = status.model || outcome.model;
+      }
+    }
+    return outcome;
   },
 
   async switch_harness(args) {
@@ -470,10 +501,29 @@ export const REALTIME_TOOL_NAMES = Object.keys(handlers);
 export async function executeRealtimeTool(name, args) {
   const handler = handlers[name];
   if (!handler) return { ok: false, error: `Unknown tool: ${name}` };
+  const startedAt = Date.now();
+  const safeArgs = args && typeof args === 'object' ? args : {};
+  appendVoiceSessionEvent('tool.start', { name, args: safeArgs });
   try {
-    return await handler(args || {});
+    const result = await handler(safeArgs);
+    const serialized = JSON.stringify(result ?? null);
+    appendVoiceSessionEvent('tool.call', {
+      name,
+      ok: result?.ok === true,
+      error: result?.error || '',
+      durationMs: Date.now() - startedAt,
+      resultBytes: serialized.length,
+      modelCount: Array.isArray(result?.models) ? result.models.length : undefined,
+    });
+    return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    appendVoiceSessionEvent('tool.call', {
+      name,
+      ok: false,
+      error: message,
+      durationMs: Date.now() - startedAt,
+    });
     return { ok: false, error: message };
   }
 }

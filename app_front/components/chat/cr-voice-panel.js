@@ -10,17 +10,25 @@ import {
   REALTIME_PROVIDER_MODELS,
   REALTIME_VOICE_OPTIONS,
   getGeminiLiveVoice,
+  getReadMode,
   getRealtimeProvider,
   getRealtimeVoice,
   setGeminiLiveVoice,
+  setReadMode,
   setRealtimeProvider,
   setRealtimeVoice,
 } from '../../features/voice/voicePrefs.js';
 import { getChatSpeaker } from '../../features/voice/chatSpeaker.js';
 import { setVoiceSessionStatus, setVoiceSessionUsd } from '../../features/voice/voiceSessionState.js';
-import { classifyMicKind, createMicLevelMonitor } from '../../features/voice/liveAudioRoute.js';
+import { classifyMicKind, createMicLevelMonitor, playLiveOutputTest } from '../../features/voice/liveAudioRoute.js';
 import { watchVoiceAgentRun } from '../../features/voice/voiceAgentRunWatch.js';
 import { listVoiceCommandGroups } from '../../features/voice/voiceCommandCatalog.js';
+import {
+  appendVoiceSessionEvent,
+  copyVoiceSessionIdToClipboard,
+  finishVoiceSessionLog,
+  startVoiceSessionLog,
+} from '../../features/voice/voiceSessionLog.js';
 import '../ui/cr-dialog.js';
 import '../ui/cr-bar-button.js';
 import '../ui/cr-bar-select.js';
@@ -52,6 +60,9 @@ class CrVoicePanel extends LitElement {
     speakerOutputs: { type: Array },
     agentRunStatus: { type: String },
     commandsOpen: { type: Boolean },
+    testingOutput: { type: Boolean },
+    sessionId: { type: String },
+    sessionCopied: { type: Boolean },
   };
 
   static styles = css`
@@ -298,6 +309,16 @@ class CrVoicePanel extends LitElement {
     .agent-run[data-phase='finished'] {
       color: var(--cr-text-muted);
     }
+    .session-id {
+      margin: 0 0 var(--cr-space-3);
+      font-size: 0.78rem;
+      color: var(--cr-text-muted);
+      word-break: break-all;
+    }
+    .session-id code {
+      font-family: var(--cr-font-mono);
+      color: var(--cr-text);
+    }
   `;
 
   constructor() {
@@ -322,7 +343,11 @@ class CrVoicePanel extends LitElement {
     this.speakerOutputs = [];
     this.agentRunStatus = '';
     this.commandsOpen = false;
+    this.testingOutput = false;
+    this.sessionId = '';
+    this.sessionCopied = false;
     this._closeAfterVoiceEnd = false;
+    this._savedReadMode = '';
     /** @type {ReturnType<typeof createRealtimeSession>|null} */
     this._session = null;
     this._sessionProvider = '';
@@ -348,7 +373,9 @@ class CrVoicePanel extends LitElement {
     this._stopMicMonitor();
     this._stopAgentWatch();
     this._session?.stop();
+    this._restoreReadMode();
     getChatSpeaker().setAnswerTracking(false);
+    void finishVoiceSessionLog();
     super.disconnectedCallback();
   }
 
@@ -490,6 +517,38 @@ class CrVoicePanel extends LitElement {
    */
   _pushLog(entry) {
     this.log = appendVoiceLog(this.log, entry, MAX_LOG_ENTRIES);
+    if (entry.kind === 'speech') {
+      appendVoiceSessionEvent('transcript', { role: entry.role, text: entry.text });
+    }
+  }
+
+  _restoreReadMode() {
+    if (!this._savedReadMode) return;
+    if (this._savedReadMode !== 'off') setReadMode(this._savedReadMode);
+    this._savedReadMode = '';
+  }
+
+  async _beginVoiceSessionLog(provider, model) {
+    let chatId = '';
+    try {
+      const chatModule = await import('../../chat.js');
+      chatId = chatModule.getActiveChatIdValue?.() || '';
+    } catch {
+      chatId = '';
+    }
+    this.sessionId = startVoiceSessionLog(chatId, { provider, model });
+    this.sessionCopied = false;
+  }
+
+  async _copySessionId() {
+    const copied = await copyVoiceSessionIdToClipboard();
+    this.sessionCopied = copied;
+    if (copied) {
+      this.noticeText = t('voice.sessionIdCopied');
+      window.setTimeout(() => {
+        if (this.sessionCopied) this.sessionCopied = false;
+      }, 1800);
+    }
   }
 
   _sessionCallbacks() {
@@ -497,11 +556,16 @@ class CrVoicePanel extends LitElement {
       onStatusChange: (status, detail) => {
         this.status = status;
         setVoiceSessionStatus(status);
+        appendVoiceSessionEvent('status', { status, detail: detail || '' });
         if (status === 'error') {
           this.errorText = detail ? this._translateNotice(detail) : t('voice.realtimeFailed');
         }
         if (status === 'live' || status === 'idle') this.micMuted = false;
         if (status !== 'live') this.micLabel = '';
+        if (status === 'idle') {
+          void finishVoiceSessionLog({ status, totalUsd: this.totalUsd });
+          this._restoreReadMode();
+        }
         if (status === 'idle' && this._closeAfterVoiceEnd) {
           this._closeAfterVoiceEnd = false;
           this._stopAgentWatch();
@@ -564,6 +628,7 @@ class CrVoicePanel extends LitElement {
       session.stop();
       this._stopAgentWatch();
       this.agentRunStatus = '';
+      this._restoreReadMode();
       getChatSpeaker().setAnswerTracking(false);
       return;
     }
@@ -572,14 +637,21 @@ class CrVoicePanel extends LitElement {
     this.totalUsd = 0;
     setVoiceSessionUsd(0);
     this._closeAfterVoiceEnd = false;
-    // read_last_answer needs the answer text even with read-aloud off.
+    this._savedReadMode = getReadMode();
+    setReadMode('off');
+    getChatSpeaker().stop();
     getChatSpeaker().setAnswerTracking(true);
     const provider = getRealtimeProvider();
+    await this._beginVoiceSessionLog(provider, REALTIME_PROVIDER_MODELS[provider]);
     const started = await session.start({
       voice: provider === 'gemini' ? getGeminiLiveVoice() : getRealtimeVoice(),
       model: REALTIME_PROVIDER_MODELS[provider],
     });
-    if (!started) getChatSpeaker().setAnswerTracking(false);
+    if (!started) {
+      getChatSpeaker().setAnswerTracking(false);
+      this._restoreReadMode();
+      void finishVoiceSessionLog({ status: 'error' });
+    }
   }
 
   _toggleMic() {
@@ -610,7 +682,9 @@ class CrVoicePanel extends LitElement {
     this._stopAgentWatch();
     this.agentRunStatus = '';
     this.commandsOpen = false;
+    this._restoreReadMode();
     getChatSpeaker().setAnswerTracking(false);
+    void finishVoiceSessionLog({ status: this.status, totalUsd: this.totalUsd });
     this.open = false;
     this.dispatchEvent(new CustomEvent('cr-voice-panel-close', { bubbles: true, composed: true }));
   }
@@ -667,6 +741,23 @@ class CrVoicePanel extends LitElement {
     this.commandsOpen = !this.commandsOpen;
   }
 
+  async _playOutputTest() {
+    if (this.testingOutput) return;
+    this.testingOutput = true;
+    this.errorText = '';
+    try {
+      const play = this._session?.playTestTone;
+      const ok = play
+        ? await play(this.speakerDeviceId)
+        : await playLiveOutputTest({ sinkId: this.speakerDeviceId });
+      this.noticeText = ok ? t('voice.testOutputHint') : t('voice.testOutputFailed');
+    } catch (error) {
+      this.noticeText = error instanceof Error ? error.message : t('voice.testOutputFailed');
+    } finally {
+      this.testingOutput = false;
+    }
+  }
+
   _renderCommands() {
     return html`
       <div class="commands" role="region" aria-label=${t('voice.commandsTitle')}>
@@ -698,8 +789,8 @@ class CrVoicePanel extends LitElement {
         ?data-live=${live}
       >
         <div class="mic-meter-head">
-          <span class="mic-meter-kind">${t(`voice.micKind.${kind}`)}</span>
-          <span class="mic-meter-device">${device}</span>
+          <span class="mic-meter-kind">${t('voice.micLevel')}</span>
+          <span class="mic-meter-device">${t(`voice.micKind.${kind}`)}: ${device}</span>
         </div>
         <div
           class="mic-meter-bar"
@@ -808,6 +899,11 @@ class CrVoicePanel extends LitElement {
 
         ${this.errorText ? html`<p class="message" data-tone="error">${this.errorText}</p>` : ''}
         ${this.noticeText ? html`<p class="message" data-tone="warn">${this.noticeText}</p>` : ''}
+        ${this.sessionId
+          ? html`<p class="session-id">
+              ${t('voice.sessionId')}: <code>${this.sessionId}</code>
+            </p>`
+          : ''}
 
         <div class="row">
           <span class="row-label">${t('voice.model')}</span>
@@ -845,6 +941,19 @@ class CrVoicePanel extends LitElement {
           <cr-bar-button ?disabled=${!live} @click=${() => this._session?.interrupt()}
             >${t('voice.interrupt')}</cr-bar-button
           >
+          <cr-bar-button
+            ?disabled=${this.testingOutput}
+            title=${t('voice.testOutputTitle')}
+            @click=${() => this._playOutputTest()}
+            >${t('voice.testOutput')}</cr-bar-button
+          >
+          ${this.sessionId
+            ? html`<cr-bar-button
+                title=${t('voice.copySessionIdTitle')}
+                @click=${() => this._copySessionId()}
+                >${this.sessionCopied ? t('voice.sessionIdCopiedShort') : t('voice.copySessionId')}</cr-bar-button
+              >`
+            : ''}
           ${live || busy
             ? html`<cr-bar-button title=${t('voice.hidePanelTitle')} @click=${() => this.hide()}
                 >${t('voice.hidePanel')}</cr-bar-button

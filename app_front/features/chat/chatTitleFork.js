@@ -1,7 +1,9 @@
 import { AUTO_TITLE_PROMPT, TITLE_FORK_PROMPT_MAX_CHARS, SUMMARY_FORK_TIMEOUT_MS } from '../../config.js';
 import { stripAnsi } from './chatTitleParsing.js';
 import { t } from '../../i18n/index.js';
+import { SUMMARY_FORK_META_LINE_PATTERNS } from '../../../lib/notices.js';
 
+export { SUMMARY_FORK_META_LINE_PATTERNS };
 export const AUTO_TITLE_TIMEOUT_MS = 60000;
 export const AUTO_TITLE_RESPONSE_AFTER_MS = 800;
 export const PASSIVE_TITLE_DEDUP_MS = 15000;
@@ -11,17 +13,6 @@ export const TITLE_CALLBACK_POLL_INTERVAL_MS = 3000;
 export const TITLE_CALLBACK_POLL_TIMEOUT_MS = 60000;
 export const SUMMARY_CALLBACK_POLL_INTERVAL_MS = 3000;
 export const SUMMARY_CALLBACK_POLL_TIMEOUT_MS = SUMMARY_FORK_TIMEOUT_MS;
-
-// These lines are localised, so each entry needs both language variants. Polish
-// forms also cover chat history recorded before the UI was translated.
-export const SUMMARY_FORK_META_LINE_PATTERNS = [
-  /^\[SDK\]\s+(?:No new events|Brak nowych zdarzeń)/i,
-  /^(?:Creating context summary|Tworzę podsumowanie kontekstu)/i,
-  /^Auto-(?:compression|kompresja)/i,
-  /^(?:Chat unblocked after|Odblokowano czat po problemie)/i,
-  /^(?:Context summary error|Błąd podsumowania kontekstu)/i,
-  /^Run (?:ended with error|was cancelled|exceeded the idle budget)/i,
-];
 
 /**
  * @typedef {Object} ChatTitleForkDeps

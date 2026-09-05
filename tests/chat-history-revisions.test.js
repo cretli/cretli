@@ -4,6 +4,8 @@ import {
   clearChatHistoryRevision,
   getChatHistoryRevision,
   getChatHistoryRevisions,
+  markChatHasPendingDelegation,
+  clearChatHasPendingDelegation,
   seedChatHistoryRevision,
   seedChatHistoryRevisionsFromIndex,
 } from '../lib/persist/chat-history-revisions.js';
@@ -37,8 +39,14 @@ assert.equal(second.headSeq, 7);
 assert.equal(second.revision, 2);
 
 const filtered = getChatHistoryRevisions(['chat-rev-test-3', 'missing-chat']);
-assert.deepEqual(filtered['chat-rev-test-3'], second);
+assert.equal(filtered['chat-rev-test-3'].headSeq, second.headSeq);
+assert.equal(filtered['chat-rev-test-3'].revision, second.revision);
+assert.equal(filtered['chat-rev-test-3'].hasPendingDelegation, false);
 assert.equal(filtered['missing-chat'], undefined);
+
+markChatHasPendingDelegation('chat-rev-test-3');
+assert.equal(getChatHistoryRevisions(['chat-rev-test-3'])['chat-rev-test-3'].hasPendingDelegation, true);
+clearChatHasPendingDelegation('chat-rev-test-3');
 
 clearChatHistoryRevision(chatId);
 clearChatHistoryRevision('chat-rev-test-2');

@@ -37,6 +37,46 @@ assert.equal(toolStart[0].status, 'running');
 assert.equal(toolStart[0].call_id, 'cmd-1');
 assert.equal(toolStart[0].args.command, 'ls');
 
+const toolStartArgv = normalizeCodexThreadEvent({
+  type: 'item.started',
+  item: {
+    id: 'cmd-2',
+    type: 'CommandExecution',
+    command: ['/bin/bash', '-lc', 'pwd && rg --files | head -200'],
+    parsed_cmd: [{ type: 'unknown', cmd: 'pwd && rg --files | head -200' }],
+  },
+});
+assert.equal(toolStartArgv[0].name, 'shell');
+assert.equal(toolStartArgv[0].args.command, 'pwd && rg --files | head -200');
+
+const toolStartBash = normalizeCodexThreadEvent({
+  type: 'item.started',
+  item: {
+    id: 'cmd-3',
+    type: 'command_execution',
+    command: ['/bin/bash', '-lc', 'ls'],
+  },
+});
+assert.equal(toolStartBash[0].args.command, 'ls');
+
+const prefersArgv = normalizeCodexThreadEvent({
+  type: 'item.started',
+  item: {
+    id: 'cmd-4',
+    type: 'CommandExecution',
+    command: [
+      '/bin/bash',
+      '-lc',
+      "rg -n '^(export |const )' app_front/Modules/Module.js",
+    ],
+    parsed_cmd: [{
+      type: 'search',
+      cmd: "rg -n '^(export '\"\\\\(|const )\" app_front/Modules/Module.js",
+    }],
+  },
+});
+assert.equal(prefersArgv[0].args.command, "rg -n '^(export |const )' app_front/Modules/Module.js");
+
 const toolDone = normalizeCodexThreadEvent({
   type: 'item.completed',
   item: {
@@ -56,6 +96,18 @@ const search = normalizeCodexThreadEvent({
 assert.equal(search[0].name, 'web_search');
 assert.equal(search[0].args.query, 'codex sdk');
 
+const extensionSearch = normalizeCodexThreadEvent({
+  type: 'item.started',
+  item: {
+    id: 'ws-2',
+    type: 'Extension',
+    kind: 'web.search',
+    query: 'https://assistant.pl',
+  },
+});
+assert.equal(extensionSearch[0].name, 'web_search');
+assert.equal(extensionSearch[0].args.query, 'https://assistant.pl');
+
 const failed = normalizeCodexThreadEvent({
   type: 'turn.failed',
   thread_id: 'thread-1',
@@ -65,8 +117,11 @@ assert.equal(failed[0].kind, 'turn');
 assert.equal(failed[0].status, 'failed');
 assert.equal(failed[0].message, 'quota');
 
-const err = normalizeCodexThreadEvent({ type: 'error', message: 'boom' });
-assert.equal(err[0].kind, 'error');
-assert.equal(err[0].message, 'boom');
+const errItem = normalizeCodexThreadEvent({
+  type: 'item.completed',
+  item: { id: 'err-1', type: 'error', message: 'Model metadata missing' },
+});
+assert.equal(errItem[0].kind, 'error');
+assert.equal(errItem[0].message, 'Model metadata missing');
 
 console.log('codex-event-normalizer.test.js OK');

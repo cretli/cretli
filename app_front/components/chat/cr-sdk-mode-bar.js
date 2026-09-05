@@ -1,5 +1,6 @@
 import { LitElement, css, html } from 'lit';
 import '../ui/cr-searchable-select.js';
+import { initDropdown } from '../../lib/dropdown.js';
 import { t } from '../../i18n/index.js';
 
 class CrSdkModeBar extends LitElement {
@@ -18,6 +19,7 @@ class CrSdkModeBar extends LitElement {
     contextVisible: { type: Boolean, attribute: 'context-visible' },
     pickerStep: { type: String, attribute: false },
     pendingHarness: { type: String, attribute: false },
+    enabledHarnesses: { attribute: false },
   };
 
   static styles = css`
@@ -93,6 +95,9 @@ class CrSdkModeBar extends LitElement {
     }
 
     .build {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2rem;
       border: 1px solid var(--cr-plan-border);
       background: var(--cr-plan-bg);
       color: var(--cr-plan);
@@ -100,10 +105,17 @@ class CrSdkModeBar extends LitElement {
       font-size: var(--cr-mode-bar-font-size);
       font-weight: 600;
       height: var(--cr-mode-bar-control-height);
-      padding: 0 0.55rem;
+      padding: 0 0.45rem 0 0.55rem;
       cursor: pointer;
       box-sizing: border-box;
       flex-shrink: 0;
+    }
+
+    .build-arrow {
+      flex-shrink: 0;
+      font-size: 0.65rem;
+      line-height: 1;
+      opacity: 0.85;
     }
 
     .combined-picker {
@@ -358,6 +370,10 @@ class CrSdkModeBar extends LitElement {
     this.contextVisible = false;
     this.pickerStep = 'harness';
     this.pendingHarness = '';
+    this._buildMenuReady = false;
+    this._buildDropdownApi = null;
+    this._buildMenuEl = null;
+    this._buildTriggerEl = null;
   }
 
   connectedCallback() {
@@ -368,7 +384,16 @@ class CrSdkModeBar extends LitElement {
 
   disconnectedCallback() {
     window.removeEventListener('cr-lang-changed', this._onLangChanged);
+    this.destroyBuildMenu();
     super.disconnectedCallback();
+  }
+
+  updated() {
+    if (!this.showBuild) {
+      if (this._buildMenuReady) this.destroyBuildMenu();
+      return;
+    }
+    this.ensureBuildMenu();
   }
 
   normalizeBarHarness(value, fallback = '') {
@@ -526,13 +551,115 @@ class CrSdkModeBar extends LitElement {
     }
   }
 
+  handleBuildMenuToggle(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!this.showBuild) return;
+    this.ensureBuildMenu();
+    this._buildDropdownApi?.toggle();
+  }
+
   handleBuildClick() {
+    this._buildDropdownApi?.close();
     this.dispatchEvent(
       new CustomEvent('cr-sdk-build-plan', {
         bubbles: true,
         composed: true,
       })
     );
+  }
+
+  handleBuildNewAgentClick() {
+    this._buildDropdownApi?.close();
+    this.dispatchEvent(
+      new CustomEvent('cr-sdk-build-plan-new-agent', {
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  destroyBuildMenu() {
+    this._buildDropdownApi?.close();
+    if (this._buildDropdownApi) {
+      this._buildDropdownApi.destroy();
+      this._buildDropdownApi = null;
+    }
+    if (this._buildMenuEl) {
+      this._buildMenuEl.remove();
+      this._buildMenuEl = null;
+    }
+    this._buildTriggerEl = null;
+    this._buildMenuReady = false;
+  }
+
+  renderBuildMenuItems() {
+    const listEl = this._buildMenuEl?.querySelector('[data-build-menu-items]');
+    if (!(listEl instanceof HTMLElement)) return;
+    const items = [
+      {
+        id: 'this-chat',
+        label: t('sdkBlock.buildPlanThisChat'),
+        title: t('sdkBlock.buildPlanThisChatTitle'),
+      },
+      {
+        id: 'new-agent',
+        label: t('sdkBlock.buildPlanNewAgent'),
+        title: t('sdkBlock.buildPlanNewAgentTitle'),
+      },
+    ];
+    listEl.replaceChildren();
+    items.forEach((item) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'chat-list-item send-keys-send-menu-item';
+      button.setAttribute('role', 'menuitem');
+      button.dataset.action = item.id;
+      button.title = item.title;
+      const label = document.createElement('span');
+      label.className = 'chat-list-item-title';
+      label.textContent = item.label;
+      button.appendChild(label);
+      button.addEventListener('click', () => {
+        if (item.id === 'new-agent') {
+          this.handleBuildNewAgentClick();
+          return;
+        }
+        this.handleBuildClick();
+      });
+      listEl.appendChild(button);
+    });
+  }
+
+  ensureBuildMenu() {
+    const triggerEl = this.shadowRoot?.querySelector('.build');
+    if (!(triggerEl instanceof HTMLButtonElement)) return;
+    if (this._buildMenuReady && this._buildTriggerEl === triggerEl) return;
+    this.destroyBuildMenu();
+    this._buildTriggerEl = triggerEl;
+    const menu = document.createElement('div');
+    menu.className = 'chat-list-modal send-keys-send-menu';
+    menu.hidden = true;
+    menu.innerHTML =
+      '<div class="chat-list-panel send-keys-send-menu-panel dropdown-panel--compact">' +
+      '<div class="chat-list-items send-keys-send-menu-items" data-build-menu-items role="menu"></div>' +
+      '</div>';
+    document.body.appendChild(menu);
+    this._buildMenuEl = menu;
+    this._buildDropdownApi = initDropdown({
+      triggerEl,
+      floatingEl: menu,
+      compact: true,
+      placement: 'bottom-start',
+      matchTriggerWidth: false,
+      offsetPx: 6,
+      viewportPadding: 8,
+      minWidthPx: 180,
+      maxHeightPx: 180,
+      onOpen: () => this.renderBuildMenuItems(),
+    });
+    this._buildMenuReady = true;
+    this.renderBuildMenuItems();
   }
 
   handleContextDetailsClick() {
@@ -557,7 +684,7 @@ class CrSdkModeBar extends LitElement {
     const harnessValue = this.normalizeBarHarness(this.harness, 'sdk');
     const pendingHarness = this.normalizeBarHarness(this.pendingHarness, '');
     const displayHarnessValue = pendingHarness || harnessValue;
-    const harnessOptions = [
+    const allHarnessOptions = [
       { value: 'sdk', label: 'Cursor SDK' },
       { value: 'openrouter', label: 'OpenRouter' },
       { value: 'opencode', label: 'OpenCode' },
@@ -566,6 +693,15 @@ class CrSdkModeBar extends LitElement {
       { value: 'qwen', label: 'Qwen' },
       { value: 'codex', label: 'Codex' },
     ];
+    const enabledIds = Array.isArray(this.enabledHarnesses) ? this.enabledHarnesses : null;
+    const harnessById = new Map(allHarnessOptions.map((entry) => [entry.value, entry]));
+    const orderedIds = enabledIds && enabledIds.length > 0
+      ? enabledIds.slice()
+      : allHarnessOptions.map((entry) => entry.value);
+    if (harnessValue && !orderedIds.includes(harnessValue)) orderedIds.push(harnessValue);
+    const harnessOptions = orderedIds
+      .map((id) => harnessById.get(id))
+      .filter(Boolean);
     const models = this._getNormalizedModels();
     const rawModelValue = String(this.model || '').trim();
     const modelValue = rawModelValue || 'auto';
@@ -639,9 +775,20 @@ class CrSdkModeBar extends LitElement {
             </button>
           </div>
           ${this.showBuild
-            ? html`<button type="button" class="build" @click=${this.handleBuildClick}>
-                ${t('sdkBlock.buildPlan')}
-              </button>`
+            ? html`
+                <button
+                  type="button"
+                  class="build"
+                  aria-haspopup="menu"
+                  aria-expanded="false"
+                  aria-label=${t('sdkBlock.buildPlanMenuAria')}
+                  title=${t('sdkBlock.buildPlanMenuAria')}
+                  @click=${this.handleBuildMenuToggle}
+                >
+                  ${t('sdkBlock.buildPlan')}
+                  <span class="build-arrow" aria-hidden="true">▾</span>
+                </button>
+              `
             : null}
         </div>
         <div class="cluster cluster--end">

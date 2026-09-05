@@ -19,7 +19,7 @@ export default {
     filename: '[name].bundle.js',
     clean: true,
   },
-  devtool: 'source-map',
+  devtool: 'hidden-source-map',
   resolve: {
     extensions: ['.js'],
   },

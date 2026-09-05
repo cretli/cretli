@@ -6,14 +6,35 @@
  * Then: USE_HTTPS=1 npm start
  */
 
-import { mkdirSync, existsSync } from 'fs';
-import path from 'path';
-import { spawnSync } from 'child_process';
-import { resolveDataPath } from '../lib/runtime-paths.js';
+import { applyCretliBootEnv } from '../lib/boot-env.js';
+
+applyCretliBootEnv();
+
+const { mkdirSync, existsSync } = await import('fs');
+const path = (await import('path')).default;
+const { spawnSync } = await import('child_process');
+const { resolveDataPath } = await import('../lib/runtime-paths.js');
+const { shouldGenerateDefaultTlsCerts } = await import('../lib/server-tls.js');
 
 const dataDir = resolveDataPath();
-const keyPath = path.join(dataDir, 'key.pem');
-const certPath = path.join(dataDir, 'cert.pem');
+const defaultKeyPath = path.join(dataDir, 'key.pem');
+const defaultCertPath = path.join(dataDir, 'cert.pem');
+const keyPath = process.env.SSL_KEY_PATH || defaultKeyPath;
+const certPath = process.env.SSL_CERT_PATH || defaultCertPath;
+
+if (process.argv.includes('--if-needed')) {
+  const shouldGenerate = shouldGenerateDefaultTlsCerts({
+    useHttpsEnv: process.env.USE_HTTPS ?? '',
+    keyPath,
+    certPath,
+    defaultKeyPath,
+    defaultCertPath,
+  });
+  if (!shouldGenerate) {
+    console.log('[cretli] Skipping default TLS certificate generation.');
+    process.exit(0);
+  }
+}
 
 if (!existsSync(dataDir)) {
   mkdirSync(dataDir, { recursive: true });

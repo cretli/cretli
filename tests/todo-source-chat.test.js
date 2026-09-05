@@ -107,7 +107,7 @@ runCase('hydrateTodoPlanMarkdown: prefers workspace file over stored excerpt', (
       cwd: inputCwd,
       chatId: 'chat-hydrate',
       title: 'Plan mode',
-      markdown: 'agent attribution plus concrete fixes.',
+      markdown: '- agent attribution plus concrete fixes.\n- ship the remaining plan items.',
     });
     const actualItem = hydrateTodoPlanMarkdown(
       {

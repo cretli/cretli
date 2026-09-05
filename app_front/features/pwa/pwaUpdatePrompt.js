@@ -1,4 +1,5 @@
 import { t } from '../../i18n/index.js';
+import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 
 /** @type {ServiceWorker | null} */
 let waitingWorker = null;
@@ -10,6 +11,7 @@ let hasBaselineFrontAssetVersion = false;
 let frontAssetVersionSource = '';
 let pollTimerId = 0;
 let checkDebounceTimerId = 0;
+let isUpdateBannerDismissed = false;
 
 const ACTIVATION_TIMEOUT_MS = 2000;
 const UPDATE_POLL_INTERVAL_MS = 20000;
@@ -117,21 +119,46 @@ function applyPwaUpdate() {
 }
 
 /**
+ * @param {{ isDismissed?: boolean, bannerExists?: boolean }} params
+ * @returns {boolean}
+ */
+export function canShowPwaUpdateBanner({ isDismissed = false, bannerExists = false } = {}) {
+  if (isDismissed) return false;
+  if (bannerExists) return false;
+  return true;
+}
+
+function removePwaUpdateBanner() {
+  if (typeof document === 'undefined') return;
+  document.getElementById('cr-pwa-update-banner')?.remove();
+}
+
+function dismissPwaUpdateBanner() {
+  isUpdateBannerDismissed = true;
+  removePwaUpdateBanner();
+}
+
+/**
  * Show a lightweight banner when a new service worker is waiting to activate
  * or when webpack has written a newer SPA bundle.
  */
 function showPwaUpdateBanner() {
   if (typeof document === 'undefined') return;
-  if (document.getElementById('cr-pwa-update-banner')) return;
+  const bannerExists = !!document.getElementById('cr-pwa-update-banner');
+  if (!canShowPwaUpdateBanner({ isDismissed: isUpdateBannerDismissed, bannerExists })) return;
   const banner = document.createElement('div');
   banner.id = 'cr-pwa-update-banner';
   banner.className = 'cr-pwa-update-banner';
+  banner.setAttribute('role', 'status');
   banner.innerHTML = `
     <span class="cr-pwa-update-banner__text">${t('pwa.updateAvailable')}</span>
     <button type="button" class="cr-pwa-update-banner__action">${t('pwa.reloadApp')}</button>
+    <button type="button" class="cr-pwa-update-banner__dismiss" aria-label="${t('pwa.dismissUpdate')}">×</button>
   `;
   const action = banner.querySelector('.cr-pwa-update-banner__action');
+  const dismiss = banner.querySelector('.cr-pwa-update-banner__dismiss');
   action?.addEventListener('click', applyPwaUpdate);
+  dismiss?.addEventListener('click', dismissPwaUpdateBanner);
   document.body.appendChild(banner);
 }
 
@@ -150,7 +177,7 @@ function rememberFrontAssetVersion(version, source = '') {
 }
 
 async function fetchHealthFrontAssetVersion() {
-  const res = await fetch('/api/health', { cache: 'no-store' });
+  const res = await cretliApiFetch('/api/health', { cache: 'no-store' });
   if (!res.ok) return '';
   return extractFrontAssetVersion(await res.json());
 }

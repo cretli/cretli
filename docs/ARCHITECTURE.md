@@ -9,12 +9,13 @@ built to `public/dist/`.
 
 | Path | Role |
 |------|------|
-| `server.js` | HTTP + WebSocket server, PTY sessions, REST API, auth, startup |
+| `server.js` | Composition root: bind, HTTPS, middleware, listen. Workspace/widget/HMR live in `lib/` |
 | `lib/` | Domain modules: top-level app services plus `sdk/`, `opencode/`, `openrouter/`, `codebuddy/`, `deepseek/`, `qwen/`, `codex/`, `persist/`, `widget/`, `routes/`, `ws/`, `agent-harness/` |
 | `app_front/` | SPA source (webpack → `public/dist/`) |
 | `public/` | Static assets served by Express, including `login.html` |
 | `data/` | Runtime data (gitignored): `auth.json`, `config.json`, `chats.json`, `todos/`, `uploads/`, `dsh-home/`, `qwen-home/`, `codex-home/`, TLS certs |
 | `scripts/` | SSL cert generation, WSL port-forward, manual test/capture helpers |
+| `docs/` | Architecture, setup, and the [modernization backlog](MODERNIZATION_PLAN.md) |
 | `tests/` | Unit/integration tests + Playwright E2E (`tests/e2e/`) |
 
 ## Key `lib/` modules
@@ -31,6 +32,10 @@ built to `public/dist/`.
 | `spa-routes.js` | Allowlisted History API view paths (`/chat`, `/settings/workspace`, …) |
 | `persist/chats-persist.js` | CRUD for `data/chats.json`; SDK chat metadata (`cursorSessionId`, `sdkAgentId`, `codexThreadId`, `qwenSessionId`, …) |
 | `persist/todos-persist.js` | CRUD for `data/todos/` (per-workspace) |
+| `todo-plan-sync.js` | After Plan-mode runs, write versioned `.cursor/plans/cretli-{chatId}.md` and the linked Todo (Cursor SDK + other harnesses) |
+| `delegation-service.js` | Create/start/cancel/retry/ack plan-execution jobs; one active job per planner chat |
+| `agent-run-state.js` | Cheap per-chat busy/waiting/attention summary for the chat list |
+| `delegation-executor.js` | Rejects executor models that are not in the enabled catalog |
 | `sdk/cursor-agent-sdk-ws.js` | `/ws-agent-sdk` rooms: `Agent.create`/`resume`, `run.stream()`, server-side history tap, plan guard, grace shutdown |
 | `sdk/sdk-room-bus.js` | Optional Redis pub-sub + room owner registry for multi-instance SDK (`CRETLI_REDIS_URL`) |
 | `sdk/sdk-room-registry.js` | Redis `sessionKey → instanceId` lease for SDK room ownership |
@@ -53,7 +58,7 @@ built to `public/dist/`.
 | `deepseek/deepseek-agent-ws.js` | `/ws-agent-sdk` rooms for `agentTransport: deepseek` — `@deepseek-ai/dsh-sdk-client` + `dsh --profile sdk` |
 | `qwen/qwen-agent-ws.js` | `/ws-agent-sdk` rooms for `agentTransport: qwen` — `@qwen-code/sdk` `query()` + bundled Qwen CLI |
 | `codex/codex-agent-ws.js` | `/ws-agent-sdk` rooms for `agentTransport: codex` — `@openai/codex-sdk` + bundled Codex CLI |
-| `agent-harness/` | OpenRouter client, OpenCode / CodeBuddy / DeepSeek / Qwen event normalizers, tool executor, harness registry |
+| `agent-harness/` | OpenRouter client, shared `room-kernel.js`, OpenCode / CodeBuddy / DeepSeek / Qwen event normalizers, tool executor, harness registry |
 | `voice/openai-api-key.js` | OpenAI API key resolution for the voice layer (env/config) |
 | `voice/openai-rate-limit.js` | Opt-in per-IP throttle for the OpenAI voice endpoints |
 | `voice/realtime-session-config.js` | Instructions, tool schemas and audio config pinned to every minted Realtime token |
@@ -86,16 +91,19 @@ as "agent chat protocol". Only `cursor-agent-sdk-ws.js` actually talks to `@curs
 The same applies on the frontend: `sdkEvent`, `sdkRunFinished`, `sdkRoomState` and the
 rich view are the common wire format, not a Cursor-only path.
 
-### Each harness owns its own room lifecycle
+### Shared room kernel (harness chats)
 
-There is no shared room abstraction. `cursor-agent-sdk-ws.js`,
+OpenRouter, DeepSeek, Qwen, CodeBuddy, Codex, and OpenCode rooms use
+`lib/agent-harness/room-kernel.js` for broadcast, event log, persist buffer,
+replay cancel, heartbeat, and empty-room grace shutdown. Each harness still
+owns transport-specific abort (Codex abort signal, OpenCode instance lease,
+Qwen questions, CodeBuddy live session). `cursor-agent-sdk-ws.js` keeps its
+own room map.
+
 `lib/opencode/opencode-agent-ws.js`, `lib/openrouter/openrouter-agent-ws.js`,
-`lib/codebuddy/codebuddy-agent-ws.js`, `lib/deepseek/deepseek-agent-ws.js`, `lib/qwen/qwen-agent-ws.js`, and `lib/codex/codex-agent-ws.js` each keep their own room map, event log, queue,
-grace shutdown, and reconnect handling, and each one wires up the shared protocol
-modules by hand. This is the largest piece of technical debt in the backend: a fix to
-one room (for example a replay or cancel bug) does not propagate to the others.
-Behaviour parity between harnesses is maintained by the E2E suite, not by shared code
-— check `tests/e2e/chat-live-harnesses.spec.js` when you change one of them.
+`lib/codebuddy/codebuddy-agent-ws.js`, `lib/deepseek/deepseek-agent-ws.js`, `lib/qwen/qwen-agent-ws.js`, and `lib/codex/codex-agent-ws.js` still own prompt
+runs and vendor clients. Behaviour parity between harnesses is maintained by
+the E2E suite — check `tests/e2e/chat-live-harnesses.spec.js` when you change one of them.
 
 SDK-specific diagnostics include strict model audit for fast variants (`::fast=true`): requested model, effective model, and explicit fallback metadata in `/api/chats/:id/diag`.
 
@@ -103,11 +111,13 @@ OpenCode chats persist optional `opencodeSessionId` in `data/chats.json` for ses
 
 **OpenCode-specific features** (parity with SDK where applicable):
 
-- **Question skill** — `opencode_question` events; reply via `POST /api/session/{id}/question/{requestID}/reply` (`lib/opencode/opencode-question.js`).
+- **Question skill** — `opencode_question` events; reply via `POST /api/session/{id}/question/{requestID}/reply` (`lib/opencode/opencode-question.js`). A Plan-mode question that asks to implement/approve the plan switches the chat to Agent before the reply is sent (`lib/sdk/plan-approval-reply.js`).
 - **Permission skill** — `opencode_permission` events; reply Once / Always / Reject in UI (`lib/opencode/opencode-permission.js`).
-- **Plan guard** — mutating `tool_call` events blocked in Plan mode; read-only
-  shell (`ls`, `rg`, `cat`, `git status`, …) stays allowed so Codex can explore.
-  Emits `sdkPlanGuard` and aborts (`lib/sdk/sdk-plan-guard.js`).
+- **Plan guard** — mutating `tool_call` events can be blocked in Plan mode for
+  harnesses that deny tools (`canUseTool` / permission / catalog) or abort the run.
+  Codex Plan is prompt-only (no turn abort); read-only sandbox is not used because
+  Linux bwrap fails on non-git workspace roots. Emits `sdkPlanGuard` when a mutating
+  tool is denied (`lib/sdk/sdk-plan-guard.js`).
 - **Room state** — `sdkRoomState` heartbeat (~15 s) with queue depth, pending questions/permissions, `lastEventAt` (`lib/sdk/sdk-room-state.js`, `getOpenCodeRoomDiag`).
 - **Run lifecycle parity** — OpenCode emits `runId` on `sdkPromptStarted` / `sdkRunFinished`; room outcome (`lastRunId`, `lastRunStatus`, errors) is tracked like SDK for reconnect consistency.
 - **Progress + resilience** — OpenCode emits `sdkRunProgress` with transport marker and auto-recovers once after timeout/stream disruption by recycling subscription/session.
@@ -176,6 +186,9 @@ Front hot fallback   → /ws-front-build → watch events (CRETLI_FRONT_HOT_FALL
 - Cross-device sync is **pull-based**: clients poll `GET /api/chats/history-revisions` every
   ~15 s (visible tab) and run HTTP history delta pull when `headSeq` advances. Optional
   web push nudges (`CRETLI_PUSH_HISTORY=1`) reuse existing VAPID subscriptions.
+  The same poll loads `GET /api/chats/agent-states` so executor chats without a client
+  still show working / needs-action. `hasPendingDelegation` on a revision forces the
+  open parent chat to pull a new delegation card even when the WebSocket is up.
 - Multi-instance deployments: set `CRETLI_REDIS_URL` (+ optional `redis` package).
   See **`docs/MULTI-INSTANCE.md`** for sticky routing, registry lease, and failover.
 - Optional per-process id: `CRETLI_INSTANCE_ID` (also exposed in `/api/health`).
@@ -239,7 +252,16 @@ Model windows come from a static prefix table in `lib/sdk/sdk-context-advisory.j
 | GET | `/api/codex/login/status` | Device-login phase, URL, and one-time code (no tokens) |
 | POST | `/api/codex/login/cancel` | Abort in-flight device login |
 | POST | `/api/codex/logout` | Sign out ChatGPT plan (`codex logout` + remove `auth.json`) |
-| GET | `/api/codex/models` | Codex SDK model catalog (GPT-5.6 Sol / Terra / Luna + effort variants) |
+| GET | `/api/codex/models` | Codex model catalog (ChatGPT: `models_cache.json`; API key: documented fallback including GPT-6 Astra) |
+| POST | `/api/chats/:id/delegations` | Start a plan-execution job (executor + plan revision + idempotency key) |
+| GET | `/api/chats/:id/delegations` | List jobs for the planner chat |
+| GET | `/api/chats/:id/plan` | Latest persisted plan document (revision, hash, markdown) |
+| GET | `/api/delegations/executors` | Harnesses that can start/cancel without an open browser |
+| GET | `/api/delegations/:id` | Job status and report |
+| POST | `/api/delegations/:id/cancel` | Request stop; stays `cancelling` (HTTP 202) until the executor run ends |
+| POST | `/api/delegations/:id/retry` | Start a new attempt on the same executor chat |
+| POST | `/api/delegations/:id/ack` | Clear waiting attention (open child) or mark a finished job reviewed |
+| GET | `/api/chats/agent-states` | Lightweight busy/waiting/attention map for listed chats |
 | GET | `/api/chats` / POST `/api/chats` | Chat list / create |
 | GET | `/api/chats/history-revisions` | Lightweight `headSeq` revision index for cross-device pull sync |
 | GET | `/api/chats/:id/history` | Pull SDK history log (`?since=&limit=`) |
@@ -369,6 +391,19 @@ answered with `function_call_output` plus an explicit `response.create` — with
 model waits silently. `realtimeTools.js` imports `chat.js` lazily, because the tools drive
 the running app that `chat.js` itself owns.
 
+`enabledHarnesses` in `data/config.json` (Settings → Harness checkboxes) hides
+a backend from new chat, the mode bar, and voice tools. Omitting the key keeps
+every harness on. `harnessOrder` is the display order of those backends (drag
+on the overview list). Chat/voice model pickers still use the per-harness checked
+model lists (`chatEnabledModels` and `*ChatEnabledModels`).
+
+Session debug logs live in `data/voice-sessions/{sessionId}.json` (copy the id
+from the voice panel). `GET /api/voice/sessions/:id?diagnose=1` summarises gaps
+between user speech and `tool.start` versus local `durationMs`. Token mint
+timings are appended to `data/voice-sessions/http-requests.ndjson` and listed
+at `GET /api/voice/requests`. `list_models` returns a capped page (optional
+`query`); a named model should go straight to `set_model`.
+
 `voiceCost.js` accumulates usage into a running estimate (OpenAI `response.done` or Gemini
 `usageMetadata`), warns once ($2 by default) and hard-caps the session ($5). Rates are
 keyed by the longest matching model prefix so mini is not billed as the flagship.
@@ -471,5 +506,7 @@ Implementation: `lib/sdk/sdk-run-auto-recovery.js`, integrated in `lib/sdk/curso
   Agent runs require sticky routing to the owner (or claim after lease TTL). See
   `docs/MULTI-INSTANCE.md`.
 - No rate limiting on streams; no CSP header (SPA uses inline scripts/styles).
-- `server.js` (~1050 lines) and `app_front/chat.js` (~5600 lines) are larger than ideal —
-  splitting them into modules is tracked as future work.
+- `server.js` is the composition root (workspace, widget auth, HMR, and HTTP
+  routes live in `lib/`). `app_front/chat.js` / `app.scss` are still larger than
+  ideal.
+  Splitting them is tracked in `docs/MODERNIZATION_PLAN.md` (phases 1–2).

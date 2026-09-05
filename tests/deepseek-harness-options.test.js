@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
 import {
   DEEPSEEK_INITIALIZE_TIMEOUT_MS,
   DEEPSEEK_MAX_TOKENS,
   DEEPSEEK_PROFILE,
+  DEEPSEEK_RUNTIME_PATCH_PATH,
+  DEEPSEEK_RUNTIME_PLUGIN_PATH,
   buildDeepSeekHarnessOptions,
 } from '../lib/deepseek/deepseek-harness-options.js';
 import { isDeepSeekSdkAvailable, loadDeepSeekSdk } from '../lib/deepseek/deepseek-sdk.js';
@@ -29,6 +32,11 @@ try {
   assert.equal(typeof actualOptions.dshHome, 'string');
   assert.ok(String(actualOptions.dshHome).includes('dsh-home'));
   assert.equal(typeof actualOptions.env, 'object');
+  assert.deepEqual(actualOptions.patches, [DEEPSEEK_RUNTIME_PATCH_PATH]);
+  assert.equal(
+    actualOptions.env.CRETLI_DSH_RUNTIME_PLUGIN,
+    pathToFileURL(DEEPSEEK_RUNTIME_PLUGIN_PATH).href,
+  );
 
   const sdkAvailable = await isDeepSeekSdkAvailable();
   if (sdkAvailable) {

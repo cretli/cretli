@@ -1,7 +1,24 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { parseCodexDeviceAuthOutput } from '../lib/codex/codex-device-auth.js';
-import { isCodexChatGptAuthPayload } from '../lib/codex/codex-chatgpt-auth.js';
+import {
+  getCodexChatGptAuthMetaForClient,
+  isCodexChatGptAuthPayload,
+  readChatGptPlanTypeFromAuthPayload,
+} from '../lib/codex/codex-chatgpt-auth.js';
 import { normalizeCodexAuthMode } from '../lib/codex/codex-auth-mode.js';
+
+/**
+ * @param {Record<string, unknown>} payload
+ * @returns {string}
+ */
+function makeJwt(payload) {
+  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  return `${header}.${body}.sig`;
+}
 
 assert.equal(normalizeCodexAuthMode('chatgpt'), 'chatgpt');
 assert.equal(normalizeCodexAuthMode('api-key'), 'api-key');
@@ -53,5 +70,40 @@ assert.equal(isCodexChatGptAuthPayload({
 }), true);
 assert.equal(isCodexChatGptAuthPayload({ OPENAI_API_KEY: 'sk-test' }), false);
 assert.equal(isCodexChatGptAuthPayload({ tokens: { access_token: 'tok' } }), true);
+
+const idToken = makeJwt({
+  sub: 'user-1',
+  'https://api.openai.com/auth': { chatgpt_plan_type: 'free' },
+});
+assert.equal(readChatGptPlanTypeFromAuthPayload({
+  auth_mode: 'chatgpt',
+  tokens: {
+    id_token: idToken,
+    access_token: 'sk-secret-access',
+    refresh_token: 'sk-secret-refresh',
+  },
+}), 'free');
+assert.equal(readChatGptPlanTypeFromAuthPayload({ tokens: { access_token: 'tok' } }), '');
+
+{
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-chatgpt-plan-'));
+  fs.writeFileSync(path.join(homeDir, 'auth.json'), JSON.stringify({
+    auth_mode: 'chatgpt',
+    tokens: {
+      id_token: idToken,
+      access_token: 'sk-secret-access',
+      refresh_token: 'sk-secret-refresh',
+    },
+  }), 'utf8');
+  const meta = getCodexChatGptAuthMetaForClient(homeDir);
+  assert.equal(meta.codexChatGptAuthEffective, true);
+  assert.equal(meta.chatgptPlanType, 'free');
+  const serialized = JSON.stringify(meta);
+  assert.equal(serialized.includes('sk-secret'), false);
+  assert.equal(serialized.includes(idToken), false);
+  assert.equal(serialized.includes('access_token'), false);
+  assert.equal(serialized.includes('refresh_token'), false);
+  fs.rmSync(homeDir, { recursive: true, force: true });
+}
 
 console.log('codex-chatgpt-auth.test.js OK');

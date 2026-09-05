@@ -35,12 +35,12 @@ assert.equal(missingBin, `/home/user/bin:${linuxBin}`);
 
 const executable = new Set([
   '/opt/cretli/node_modules/.bin/opencode',
-  '/home/ar2oor/.opencode/bin/opencode',
+  '/home/user/.opencode/bin/opencode',
 ]);
 assert.equal(
   resolveOpenCodeExecutable({
-    configuredBin: '/stale/cursor-remote/node_modules/.bin/opencode',
-    homeDirs: ['/home/ar2oor', '/root'],
+    configuredBin: '/stale/other-app/node_modules/.bin/opencode',
+    homeDirs: ['/home/user', '/root'],
     projectRoot: '/opt/cretli',
     isExecutable: (filePath) => executable.has(filePath),
   }),
@@ -49,12 +49,12 @@ assert.equal(
 
 assert.equal(
   resolveOpenCodeExecutable({
-    configuredBin: '/home/ar2oor/.opencode/bin/opencode',
-    homeDirs: ['/home/ar2oor'],
+    configuredBin: '/home/user/.opencode/bin/opencode',
+    homeDirs: ['/home/user'],
     projectRoot: '/opt/cretli',
     isExecutable: (filePath) => executable.has(filePath),
   }),
-  '/home/ar2oor/.opencode/bin/opencode',
+  '/home/user/.opencode/bin/opencode',
 );
 
 assert.equal(
