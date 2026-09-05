@@ -229,6 +229,9 @@
         data-i18n-placeholder="sidebar.searchPlaceholder"
         data-i18n-aria="sidebar.searchAria"
       ></cr-bar-input>
+      <button type="button" id="sidebar-pin-btn" class="sidebar-pin-btn" title="Pin sidebar" aria-label="Pin sidebar" aria-pressed="false">
+        <span class="mdi mdi-pin-outline" aria-hidden="true"></span>
+      </button>
       <button type="button" id="sidebar-close-btn" class="sidebar-close-btn" title="Close" data-i18n-title="common.close" aria-label="Close" data-i18n-aria="common.close">
         <span class="mdi mdi-close" aria-hidden="true"></span>
       </button>
@@ -397,7 +400,9 @@
       <section class="settings-section" data-settings-tab="harness" id="harness-setup-wizard">
         <h3 class="settings-section-title" data-i18n="settings.harnessSetupTitle">Choose a chat backend</h3>
         <p class="settings-hint" data-i18n="settings.harnessSetupHint">Terminal, files, and git work without an API key. Chat needs one of these backends.</p>
+        <p class="settings-hint" data-i18n="settings.harnessEnabledHint">Uncheck a harness to hide it from new chat, the mode bar, and voice. Existing chats keep working. Only checked models of an enabled harness are offered as choices.</p>
         <ul id="harness-setup-status" class="harness-setup-status"></ul>
+        <p id="harness-enabled-save-status" class="cr-status" aria-live="polite"></p>
       </section>
       <section class="settings-section" data-settings-tab="harness">
         <h3 class="settings-section-title" data-i18n="settings.harnessDefaultsTitle">New chat defaults</h3>
@@ -695,6 +700,10 @@
           <label class="cr-field-label" data-i18n="settings.theme">Theme</label>
           <cr-bar-select id="theme-select"></cr-bar-select>
         </div>
+        <p class="settings-hint" data-i18n="settings.pinActiveWorkspaceHint">Off by default — workspace order stays alphabetical when you switch.</p>
+        <cr-checkbox id="sidebar-pin-active-workspace-checkbox">
+          <span data-i18n="settings.pinActiveWorkspace">Move the active workspace to the top of the sidebar</span>
+        </cr-checkbox>
       </section>
       <section class="settings-section" data-settings-tab="interface">
         <h3 class="settings-section-title" data-i18n="settings.language">Language</h3>
@@ -798,7 +807,7 @@
         <h3 class="settings-section-title">Chat</h3>
         <div class="auto-name-chat-row">
           <input type="checkbox" id="auto-name-chat-checkbox" class="auto-name-chat-checkbox" />
-          <label for="auto-name-chat-checkbox" data-i18n="settings.autoNameHint">Automatic name for a new chat (the agent replies with a single JSON line: {"title": "..."})</label>
+          <label for="auto-name-chat-checkbox" data-i18n="settings.autoNameHint">Automatically name a new chat from the first message (when the chat still has the default name, e.g. "Chat 1")</label>
         </div>
         <div class="auto-name-chat-row">
           <input type="checkbox" id="auto-update-chat-title-checkbox" class="auto-name-chat-checkbox" />
@@ -1018,9 +1027,11 @@
             <span class="chat-model-settings-sort-label" data-i18n="settings.chatModelsSortLabel">Sort</span>
             <cr-bar-select id="codex-model-settings-sort" class="chat-model-settings-sort" aria-label="Sort models"></cr-bar-select>
           </label>
+          <cr-bar-button id="codex-model-settings-refresh-btn" data-i18n="settings.harnessCodexModelsRefresh">Refresh</cr-bar-button>
           <cr-bar-button id="codex-model-settings-toggle-all-btn" data-i18n="settings.chatModelsToggleAll">Select / deselect all</cr-bar-button>
           <cr-bar-button id="codex-model-settings-clear-btn" data-i18n="settings.chatModelsClear">Show all in chat</cr-bar-button>
         </div>
+        <p id="codex-model-settings-relogin-hint" class="settings-hint" hidden></p>
         <div id="codex-model-settings-list" class="chat-model-settings-list" role="group" aria-labelledby="codex-model-settings-summary"></div>
         <div class="cr-row">
           <cr-bar-button variant="primary" id="codex-model-settings-save-btn" data-i18n="settings.chatModelsSave">Save model list</cr-bar-button>
@@ -1830,6 +1841,7 @@
       <p class="chat-settings-hint-inline">
         <span data-i18n="chat.deleteConfirmPrefix">Chat </span><strong id="chat-delete-confirm-chat-title">—</strong><span data-i18n="chat.deleteConfirmSuffix"> will be removed from the list and the connection will be closed.</span>
       </p>
+      <p id="chat-delete-confirm-agent-warning" class="chat-settings-hint-inline" data-i18n="chat.deleteConfirmBusyWarning" hidden>The agent is currently working. Deleting this chat will stop the run.</p>
       <div class="chat-settings-actions">
         <button type="button" id="chat-delete-confirm-cancel" class="chat-settings-btn-secondary" data-i18n="chat.cancel">Cancel</button>
         <button type="button" id="chat-delete-confirm-delete" class="chat-settings-btn-danger" data-i18n="chat.deleteConfirm">Delete</button>
@@ -1909,6 +1921,7 @@
     </details>
     <div slot="actions" class="connection-status-actions">
       <cr-bar-button id="connection-status-restart" data-i18n="connectionStatus.restart">Restart server</cr-bar-button>
+      <cr-bar-button id="connection-status-reload" data-i18n="connectionStatus.reloadPage">Reload page</cr-bar-button>
       <cr-bar-button id="connection-status-close" variant="primary" data-i18n="connectionStatus.close">Close</cr-bar-button>
     </div>
   </cr-dialog>

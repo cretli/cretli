@@ -69,6 +69,10 @@ export function reconcileSidebarBackdrop(doc = document) {
     doc.body.classList.remove('sidebar-open');
     fixed = true;
   }
+  if (doc.body?.classList.contains('sidebar-docked')) {
+    doc.body.classList.remove('sidebar-docked');
+    fixed = true;
+  }
   return fixed;
 }
 

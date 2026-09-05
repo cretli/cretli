@@ -21,7 +21,7 @@ Optional IDE context: add `.vendor/opencode/src` via Settings → Workspace → 
 
 1. **Normalize in one place** — map OpenCode SSE payloads to SDK-shaped events in `lib/agent-harness/opencode-event-normalizer.js`. Do not duplicate mapping in WS or frontend.
 2. **Interactive skills** — question → `lib/opencode/opencode-question.js` (`opencode_question`); permission → `lib/opencode/opencode-permission.js` (`opencode_permission`). WS handlers live in `lib/opencode/opencode-agent-ws.js`.
-3. **Plan mode** — use `lib/sdk/sdk-plan-guard.js` for mutating tool detection; emit `sdkPlanGuard` and abort the session when blocked.
+3. **Plan mode** — use `lib/sdk/sdk-plan-guard.js` for mutating tool detection; emit `sdkPlanGuard`. After the run, persist the plan Markdown to `.cursor/plans/cretli-{chatId}.md` and the linked Todo (`lib/sdk/harness-plan-sync.js`), same as Cursor SDK. Do not rely on the model writing a plan file (edit is denied). If the user confirms the plan through the OpenCode question UI, switch to Agent and lift write permissions **before** posting the answer (`lib/sdk/plan-approval-reply.js`).
 4. **Room state** — reuse `buildSdkRoomStatePayload` from `lib/sdk/sdk-room-state.js`; extend room diag via `getOpenCodeRoomDiag`.
 
 ## Supported OpenCode SSE events (handled)

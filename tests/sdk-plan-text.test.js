@@ -71,4 +71,46 @@ runCase('extractLatestPlanMarkdownFromEvents: prefers CreatePlan over short assi
   assert.equal(actualMarkdown.includes('the scope of OSS fixes'), false);
 });
 
+runCase('extractLatestPlanMarkdownFromEvents: later shorter complete plan replaces', () => {
+  const inputEvents = [
+    {
+      seq: 1,
+      rec: {
+        kind: 'localUser',
+        text: 'plan v1',
+      },
+    },
+    {
+      seq: 2,
+      rec: {
+        kind: 'sdk',
+        event: {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: '# Long plan\n\n## One\n\nLots of extra context that is now stale.' }] },
+        },
+      },
+    },
+    {
+      seq: 3,
+      rec: {
+        kind: 'localUser',
+        text: 'shorten it',
+      },
+    },
+    {
+      seq: 4,
+      rec: {
+        kind: 'sdk',
+        event: {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: '# Short plan\n\n- do the work' }] },
+        },
+      },
+    },
+  ];
+  const actualMarkdown = extractLatestPlanMarkdownFromEvents(inputEvents);
+  assert.match(actualMarkdown, /Short plan/);
+  assert.equal(actualMarkdown.includes('stale'), false);
+});
+
 process.exit(failed ? 1 : 0);

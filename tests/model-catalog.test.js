@@ -6,6 +6,8 @@ import {
   encodeModelValue,
   enrichCatalogEntryLabels,
   expandSdkModelRow,
+  catalogFromModelsPayload,
+  countCatalogEnabledModels,
   filterCatalogByEnabled,
   mergeModelCatalogEntries,
   normalizeChatEnabledModels,
@@ -95,8 +97,20 @@ const catalog = [
 ];
 assert.equal(filterCatalogByEnabled(catalog, []).length, 3);
 assert.equal(filterCatalogByEnabled(catalog, ['auto', 'gpt-5.2::reasoning=high']).length, 2);
-assert.equal(filterCatalogByEnabled(catalog, ['gpt-5.2']).length, 1);
-assert.equal(filterCatalogByEnabled(catalog, ['gpt-5.2'])[0].value, 'gpt-5.2::reasoning=high');
+assert.equal(filterCatalogByEnabled(catalog, ['gpt-5.2']).length, 0);
+assert.equal(filterCatalogByEnabled(catalog, ['removed-model', 'auto']).length, 1);
+assert.deepEqual(countCatalogEnabledModels(catalog, []), { enabled: 3, total: 3 });
+assert.deepEqual(countCatalogEnabledModels(catalog, ['auto', 'gpt-5.2::reasoning=high']), {
+  enabled: 2,
+  total: 3,
+});
+assert.deepEqual(countCatalogEnabledModels(catalog, ['gpt-5.2']), { enabled: 0, total: 3 });
+assert.deepEqual(
+  countCatalogEnabledModels(catalog, ['auto', 'removed-model', 'gpt-5.2']),
+  { enabled: 1, total: 3 },
+);
+assert.equal(catalogFromModelsPayload({ models: [{ id: 'openai/gpt-5' }] })[0].value, 'openai/gpt-5');
+assert.equal(catalogFromModelsPayload({ catalog: catalog }).length, 3);
 
 const fromEmptyCatalog = buildCatalogFromSdkStatusPayload({
   catalog: [],

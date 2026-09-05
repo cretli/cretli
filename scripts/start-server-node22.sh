@@ -19,16 +19,15 @@ if [[ ! -f "${ROOT_DIR}/app_front/css/generated/mdi-subset.css" ]]; then
     || echo "[cretli] Could not generate the icon subset — run: npm run build:mdi-subset"
 fi
 
-if [[ "${USE_HTTPS:-}" == "1" || "${USE_HTTPS:-}" == "true" ]]; then
-  node "${ROOT_DIR}/scripts/generate-ssl-cert.js" \
-    || echo "[cretli] Could not generate TLS cert. Install openssl (Termux: pkg install openssl). HTTPS will fall back to HTTP."
-fi
-
-# Node >= 20.6 reads .env natively, so no dotenv dependency is needed.
-NODE_ARGS=()
+# Process env wins over .env; missing USE_HTTPS becomes 1 in lib/register-boot-env.js.
+# Do not default USE_HTTPS here — that would hide USE_HTTPS=0 from .env.
+NODE_ARGS=(--import ./lib/register-boot-env.js)
 if [[ -f "${ROOT_DIR}/.env" ]]; then
   NODE_ARGS+=("--env-file=${ROOT_DIR}/.env")
 fi
+
+node "${NODE_ARGS[@]}" "${ROOT_DIR}/scripts/generate-ssl-cert.js" --if-needed \
+  || { echo "[cretli] TLS certificate generation failed. Install openssl or set USE_HTTPS=0 for HTTP."; exit 1; }
 
 if [[ "${CURRENT_NODE_MAJOR}" -ge 22 ]]; then
   exec node "${NODE_ARGS[@]}" server.js

@@ -125,7 +125,15 @@ export function getResumeHistorySyncDeferMs(reason, isMobileLike, backgroundMs =
 }
 
 /**
- * @param {{ headSeq: number, localAck: number, wsOpen: boolean, hydrating?: boolean, lastSyncAt?: number, now?: number }} input
+ * @param {{
+ *   headSeq: number,
+ *   localAck: number,
+ *   wsOpen: boolean,
+ *   hydrating?: boolean,
+ *   lastSyncAt?: number,
+ *   now?: number,
+ *   hasPendingDelegation?: boolean,
+ * }} input
  * @returns {boolean}
  */
 export function shouldSkipActiveChatHistoryPollSync(input) {
@@ -133,6 +141,7 @@ export function shouldSkipActiveChatHistoryPollSync(input) {
   const localAck = Number(input.localAck);
   const gap = headSeq - localAck;
   if (!Number.isFinite(gap) || gap <= 0) return true;
+  if (input.hasPendingDelegation === true) return false;
   if (input.wsOpen && input.hydrating !== true) return true;
   if (gap <= ACTIVE_CHAT_HISTORY_POLL_SKIP_GAP) return true;
   const lastSyncAt = Number(input.lastSyncAt);

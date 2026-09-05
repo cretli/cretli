@@ -10,7 +10,7 @@ const inputSdkPolicy = resolveHarnessPlanPolicy('sdk');
 const expectedSdkPolicy = {
   nativeMode: true,
   denyMutatingTools: true,
-  abortOnMutation: false,
+  abortOnMutation: true,
   promptHint: false,
 };
 assert.deepEqual(inputSdkPolicy, expectedSdkPolicy);
@@ -24,29 +24,30 @@ assert.equal(inputOpenCodePolicy.promptHint, true);
 const inputOpenRouterPolicy = resolveHarnessPlanPolicy('openrouter');
 assert.equal(inputOpenRouterPolicy.nativeMode, false);
 assert.equal(inputOpenRouterPolicy.denyMutatingTools, true);
+assert.equal(inputOpenRouterPolicy.abortOnMutation, false);
 assert.equal(inputOpenRouterPolicy.promptHint, false);
 
 const inputCodeBuddyPolicy = resolveHarnessPlanPolicy('codebuddy');
 assert.equal(inputCodeBuddyPolicy.nativeMode, true);
 assert.equal(inputCodeBuddyPolicy.denyMutatingTools, true);
-assert.equal(inputCodeBuddyPolicy.promptHint, false);
+assert.equal(inputCodeBuddyPolicy.abortOnMutation, true);
 
 const inputDeepSeekPolicy = resolveHarnessPlanPolicy('deepseek');
 assert.equal(inputDeepSeekPolicy.nativeMode, false);
 assert.equal(inputDeepSeekPolicy.denyMutatingTools, true);
-assert.equal(inputDeepSeekPolicy.abortOnMutation, false);
+assert.equal(inputDeepSeekPolicy.abortOnMutation, true);
 assert.equal(inputDeepSeekPolicy.promptHint, true);
 
 const inputCodexPolicy = resolveHarnessPlanPolicy('codex');
 assert.equal(inputCodexPolicy.nativeMode, false);
-assert.equal(inputCodexPolicy.denyMutatingTools, true);
+assert.equal(inputCodexPolicy.denyMutatingTools, false);
 assert.equal(inputCodexPolicy.abortOnMutation, false);
 assert.equal(inputCodexPolicy.promptHint, true);
 
 const inputQwenPolicy = resolveHarnessPlanPolicy('qwen');
 assert.equal(inputQwenPolicy.nativeMode, true);
 assert.equal(inputQwenPolicy.denyMutatingTools, true);
-assert.equal(inputQwenPolicy.abortOnMutation, false);
+assert.equal(inputQwenPolicy.abortOnMutation, true);
 assert.equal(inputQwenPolicy.promptHint, false);
 
 assert.deepEqual(resolveSdkPlanCreateOptions('plan').disallowedTools, SDK_PLAN_DISALLOWED_TOOLS);

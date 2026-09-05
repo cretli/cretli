@@ -21,6 +21,7 @@ const {
   isAuthenticated,
   clearSession,
   requireAuth,
+  verifyAgentCallback,
   __reloadSessionsFromDiskForTest,
 } = auth;
 const widgets = await import('../lib/widget/widget-installations.js');
@@ -119,6 +120,29 @@ try {
   fs.writeFileSync(path.join(TMP_DATA_DIR, 'sessions.json'), '{ not valid json', 'utf8');
   __reloadSessionsFromDiskForTest();
   ok('corrupted session file does not throw', true);
+
+  const previousCallbackToken = process.env.AGENT_CALLBACK_TOKEN;
+  process.env.AGENT_CALLBACK_TOKEN = 'callback-secret-token';
+  ok(
+    'verifyAgentCallback trusts localhost without a token',
+    verifyAgentCallback({ socket: { remoteAddress: '127.0.0.1' }, headers: {} }) === true,
+  );
+  ok(
+    'verifyAgentCallback rejects a mismatched LAN token',
+    verifyAgentCallback({
+      socket: { remoteAddress: '10.0.0.8' },
+      headers: { 'x-agent-token': 'wrong' },
+    }) === false,
+  );
+  ok(
+    'verifyAgentCallback accepts a matching LAN token',
+    verifyAgentCallback({
+      socket: { remoteAddress: '10.0.0.8' },
+      headers: { 'x-agent-token': 'callback-secret-token' },
+    }) === true,
+  );
+  if (previousCallbackToken === undefined) delete process.env.AGENT_CALLBACK_TOKEN;
+  else process.env.AGENT_CALLBACK_TOKEN = previousCallbackToken;
 } catch (err) {
   fail += 1;
   console.error('FAIL: exception in test', err);

@@ -39,7 +39,7 @@ const executable = new Set([
 ]);
 assert.equal(
   resolveOpenCodeExecutable({
-    configuredBin: '/stale/cursor-remote/node_modules/.bin/opencode',
+    configuredBin: '/stale/other-app/node_modules/.bin/opencode',
     homeDirs: ['/home/user', '/root'],
     projectRoot: '/opt/cretli',
     isExecutable: (filePath) => executable.has(filePath),

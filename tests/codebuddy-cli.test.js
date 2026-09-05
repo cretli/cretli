@@ -1,16 +1,22 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {
+import os from 'node:os';
+import path from 'node:path';
+
+const previous = process.env.CODEBUDDY_CODE_PATH;
+const previousDataDir = process.env.CRETLI_DATA_DIR;
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-codebuddy-cli-'));
+process.env.CRETLI_DATA_DIR = tempDir;
+delete process.env.CODEBUDDY_CODE_PATH;
+
+const {
   getCodeBuddyCliFromEnv,
   isCodeBuddyCliFound,
   resolveCodeBuddyCli,
   resolveCodeBuddyCliForSpawn,
   resolveCodeBuddyHomeDir,
   resolveCodeBuddyNodePath,
-} from '../lib/codebuddy/codebuddy-cli.js';
-
-const previous = process.env.CODEBUDDY_CODE_PATH;
-delete process.env.CODEBUDDY_CODE_PATH;
+} = await import('../lib/codebuddy/codebuddy-cli.js');
 
 try {
   const resolved = resolveCodeBuddyCli();
@@ -19,6 +25,7 @@ try {
   assert.equal(typeof isCodeBuddyCliFound(), 'boolean');
   const home = resolveCodeBuddyHomeDir();
   assert.ok(home.includes('codebuddy-home'));
+  assert.ok(home.startsWith(tempDir));
   const nodePath = resolveCodeBuddyNodePath();
   assert.equal(typeof nodePath, 'string');
   assert.ok(nodePath.length > 0);
@@ -38,6 +45,9 @@ try {
 } finally {
   if (typeof previous === 'string') process.env.CODEBUDDY_CODE_PATH = previous;
   else delete process.env.CODEBUDDY_CODE_PATH;
+  if (typeof previousDataDir === 'string') process.env.CRETLI_DATA_DIR = previousDataDir;
+  else delete process.env.CRETLI_DATA_DIR;
+  fs.rmSync(tempDir, { recursive: true, force: true });
 }
 
 console.log('codebuddy-cli.test.js OK');

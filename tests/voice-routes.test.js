@@ -10,7 +10,11 @@ import { registerVoiceRoutes } from '../lib/routes/voice-routes.js';
 function createFakeApp() {
   /** @type {Map<string, Function>} */
   const routes = new Map();
-  return { post: (path, handler) => routes.set(path, handler), routes };
+  return {
+    post: (path, handler) => routes.set(path, handler),
+    get: (path, handler) => routes.set(path, handler),
+    routes,
+  };
 }
 
 /**
@@ -49,13 +53,17 @@ async function callRoute(path, body) {
 
 test('registers the voice endpoints', () => {
   const app = createFakeApp();
-  registerVoiceRoutes(app, { recordUsage: () => null });
+  registerVoiceRoutes(app, { recordUsage: () => null, dataDir: '/tmp/cretli-voice-test' });
   assert.deepEqual(
     [...app.routes.keys()].sort(),
     [
       '/api/voice/gemini-live-token',
       '/api/voice/gemini-probe',
       '/api/voice/realtime-token',
+      '/api/voice/requests',
+      '/api/voice/sessions',
+      '/api/voice/sessions/:sessionId',
+      '/api/voice/sessions/:sessionId/events',
       '/api/voice/speak',
       '/api/voice/transcribe',
     ]

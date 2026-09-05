@@ -26,6 +26,12 @@ test('reports several matches instead of guessing', () => {
   assert.ok(actual.candidates.includes('composer-1.5'));
 });
 
+test('matches grok spoken with a space against a hyphenated model id', () => {
+  const models = [{ id: 'grok-4.6::effort=high,fast=true', label: 'Grok 4.6' }];
+  const actual = matchModelBySpokenName(models, 'grok 4.6');
+  assert.equal(actual.match?.id, 'grok-4.6::effort=high,fast=true');
+});
+
 test('returns no match for an unknown name', () => {
   const actual = matchModelBySpokenName(models, 'claude-opus');
   assert.equal(actual.match, null);

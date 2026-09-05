@@ -6,6 +6,7 @@
  * Toggle state is persisted in localStorage under 'cretli-push-enabled'.
  */
 import { t } from '../../i18n/index.js';
+import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 import {
   readStorageValueWithAlias,
   removeStorageValueWithAlias,
@@ -24,7 +25,7 @@ function base64UrlToUint8Array(base64Url) {
 }
 
 async function getVapidPublicKey() {
-  const res = await fetch('/api/push/vapid-public');
+  const res = await cretliApiFetch('/api/push/vapid-public');
   if (!res.ok) throw new Error(`vapid-public HTTP ${res.status}`);
   const data = await res.json();
   if (!data?.publicKey) throw new Error('vapid-public: missing publicKey');
@@ -44,7 +45,7 @@ async function subscribe() {
     userVisibleOnly: true,
     applicationServerKey: base64UrlToUint8Array(publicKey),
   });
-  const res = await fetch('/api/push/subscribe', {
+  const res = await cretliApiFetch('/api/push/subscribe', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ subscription: sub, endpoint: sub.endpoint }),
@@ -62,7 +63,7 @@ async function unsubscribe() {
     await sub.unsubscribe();
   } catch (_) {}
   try {
-    await fetch('/api/push/subscribe', {
+    await cretliApiFetch('/api/push/subscribe', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ endpoint: sub.endpoint }),

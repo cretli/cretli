@@ -97,6 +97,14 @@ export async function ensureSidebarOpen(page) {
   }
 }
 
+async function cretliCsrfHeaders(request) {
+  const statusRes = await request.get('/api/auth-status');
+  const status = await statusRes.json().catch(() => ({}));
+  const csrfToken = typeof status.csrfToken === 'string' ? status.csrfToken.trim() : '';
+  if (!csrfToken) return {};
+  return { 'X-Cretli-Csrf': csrfToken };
+}
+
 export async function createChatViaApi(request, input) {
   const title = String(input?.title || '').trim();
   const transport = String(input?.transport || 'sdk').trim();
@@ -106,6 +114,7 @@ export async function createChatViaApi(request, input) {
   const workspaceFolder = String(input?.workspaceFolder || '').trim();
   assert.ok(title, 'Chat title is required');
   const response = await request.post('/api/chats', {
+    headers: await cretliCsrfHeaders(request),
     data: {
       title,
       agentTransport: transport,
@@ -126,7 +135,9 @@ export async function createChatViaApi(request, input) {
 export async function deleteChatViaApi(request, chatId) {
   const id = String(chatId || '').trim();
   if (!id) return;
-  await request.delete(`/api/chats/${encodeURIComponent(id)}`).catch(() => {});
+  await request.delete(`/api/chats/${encodeURIComponent(id)}`, {
+    headers: await cretliCsrfHeaders(request),
+  }).catch(() => {});
 }
 
 export async function selectChatInSidebar(page, chatId) {

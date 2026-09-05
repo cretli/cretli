@@ -69,6 +69,8 @@ let reconnectRecoveryInProgress = false;
 let reconnectModalDelayTimerId = null;
 let reconnectModalApi = null;
 let tasksDebugLoopMonitorStarted = false;
+/** @type {ReturnType<typeof setInterval> | null} */
+let tasksDebugLoopTimerId = null;
 let reconnectTaskRunsPromise = null;
 let serverRestartListenerBound = false;
 const taskRunEngine = createRunPanelEngine({
@@ -195,6 +197,14 @@ function removeRunFromUi(runId) {
   const run = taskRunEngine.findRunById(runId);
   if (!run) return;
   run.preventRecoveryOnce = true;
+  if (typeof window !== 'undefined' && typeof run._onWindowResize === 'function') {
+    window.removeEventListener('resize', run._onWindowResize);
+    run._onWindowResize = null;
+  }
+  if (typeof run._disconnectContainerResize === 'function') {
+    run._disconnectContainerResize();
+    run._disconnectContainerResize = null;
+  }
   if (run.ws && (run.ws.readyState === WebSocket.OPEN || run.ws.readyState === WebSocket.CONNECTING)) {
     try {
       run.ws.close(1000, 'workspace-scope-changed');
@@ -274,7 +284,7 @@ function ensureTasksDebugLoopMonitor() {
   if (tasksDebugLoopMonitorStarted) return;
   tasksDebugLoopMonitorStarted = true;
   let expected = Date.now() + TASK_DEBUG_EVENT_LOOP_TICK_MS;
-  setInterval(() => {
+  tasksDebugLoopTimerId = setInterval(() => {
     const now = Date.now();
     const lagMs = now - expected;
     if (lagMs > TASK_DEBUG_EVENT_LOOP_LAG_WARN_MS) {
@@ -282,6 +292,14 @@ function ensureTasksDebugLoopMonitor() {
     }
     expected = now + TASK_DEBUG_EVENT_LOOP_TICK_MS;
   }, TASK_DEBUG_EVENT_LOOP_TICK_MS);
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', () => {
+      if (!tasksDebugLoopTimerId) return;
+      clearInterval(tasksDebugLoopTimerId);
+      tasksDebugLoopTimerId = null;
+      tasksDebugLoopMonitorStarted = false;
+    }, { once: true });
+  }
   tasksDebugLog('Event loop monitor started', {
     tickMs: TASK_DEBUG_EVENT_LOOP_TICK_MS,
     warnLagMs: TASK_DEBUG_EVENT_LOOP_LAG_WARN_MS,
@@ -524,12 +542,20 @@ function updateTaskRunSelect(options = {}) {
         return a.idx - b.idx;
       })
       .map((x) => x.run);
+    const folderOrder = [];
+    tasksAvailable.forEach((task) => {
+      const folderKey = task.folderPath || task.folderName || '';
+      if (!folderOrder.includes(folderKey)) folderOrder.push(folderKey);
+    });
     const orderedTasksAvailable = tasksAvailable
       .map((task, idx) => ({ task, idx }))
       .sort((a, b) => {
-        const af = taskFavorites.isFavorite(a.task.label) ? 1 : 0;
-        const bf = taskFavorites.isFavorite(b.task.label) ? 1 : 0;
-        if (af !== bf) return bf - af;
+        const fa = folderOrder.indexOf(a.task.folderPath || a.task.folderName || '');
+        const fb = folderOrder.indexOf(b.task.folderPath || b.task.folderName || '');
+        if (fa !== fb) return fa - fb;
+        const favA = taskFavorites.isFavorite(a.task.label) ? 1 : 0;
+        const favB = taskFavorites.isFavorite(b.task.label) ? 1 : 0;
+        if (favA !== favB) return favB - favA;
         return a.idx - b.idx;
       })
       .map((x) => x.task);
@@ -586,11 +612,20 @@ function updateTaskRunSelect(options = {}) {
           );
         })
         .join('');
+      const showFolderHeaders = new Set(
+        orderedTasksAvailable.map((task) => task.folderName).filter(Boolean)
+      ).size > 1;
+      let lastFolderHeader = null;
       const availableItems = orderedTasksAvailable
         .map((t) => {
           const value = TASK_VALUE_PREFIX + t.label;
           const selected = selectedTaskBarValue === value ? ' is-active' : '';
+          const folderHeader = showFolderHeaders && t.folderName && t.folderName !== lastFolderHeader
+            ? '<li class="chat-list-item chat-list-item-header">' + escapeHtml(t.folderName) + '</li>'
+            : '';
+          if (t.folderName) lastFolderHeader = t.folderName;
           return (
+            folderHeader +
             '<li class="chat-list-item' +
             selected +
             '" role="option" data-task-value="' +
@@ -716,7 +751,12 @@ function selectTaskRun(id) {
 }
 
 function getTasksApi(options = {}) {
-  return getTasks(options);
+  const scope = readCurrentWorkspaceScope();
+  return getTasks({
+    ...options,
+    fresh: true,
+    workspaceFile: scope.workspaceFile,
+  });
 }
 
 /** Task list cache, so the dropdown can render immediately when the panel is opened. */
@@ -884,11 +924,13 @@ function createTaskRunPane(taskLabel, joinRunId, options = {}) {
   if (tabsEl) tabsEl.appendChild(pane);
 
   if (typeof window !== 'undefined') {
-    window.addEventListener('resize', () => {
+    const onWindowResize = () => {
       if (run.id === activeTaskRunId) fitTasksTerminal();
-    });
+    };
+    run._onWindowResize = onWindowResize;
+    window.addEventListener('resize', onWindowResize);
     if (isMobile()) {
-      observeContainerResize(viewportWrap, () => {
+      run._disconnectContainerResize = observeContainerResize(viewportWrap, () => {
         if (run.id === activeTaskRunId) fitTasksTerminal();
       });
     }

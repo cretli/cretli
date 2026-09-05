@@ -73,6 +73,20 @@ const resolved = resolveOpenCodePromptRunFromEvent({
   properties: { sessionID: 'sess-2' },
 }, { opencodeSessionId: 'sess-2' });
 assert.deepEqual(resolved, { status: 'completed' });
+assert.equal(
+  resolveOpenCodePromptRunFromEvent({
+    type: 'session.idle',
+    properties: { sessionID: 'sess-2' },
+  }, { opencodeSessionId: 'sess-2', hasPendingUserInput: true }),
+  null,
+);
+assert.equal(
+  shouldBumpOpenCodePromptRunActivity({
+    type: 'question.v2.asked',
+    data: { sessionID: 'sess-1', id: 'que_1' },
+  }, { opencodeSessionId: 'sess-1' }),
+  true,
+);
 notifyOpenCodePromptRunEnd(room, resolved);
 const result = await waiter;
 assert.equal(result.status, 'completed');
@@ -104,6 +118,20 @@ assert.equal(
     properties: {},
   }, { opencodeSessionId: 'sess-1' }),
   false,
+);
+assert.equal(
+  shouldBumpOpenCodePromptRunActivity({
+    type: 'message.part.updated',
+    properties: { sessionID: 'sess-other' },
+  }, {}),
+  false,
+);
+assert.equal(
+  resolveOpenCodePromptRunFromEvent({
+    type: 'session.idle',
+    properties: { sessionID: 'sess-other' },
+  }, {}),
+  null,
 );
 
 const room2 = {};

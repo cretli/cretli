@@ -20,6 +20,21 @@ Only the latest release on the `master` branch is supported.
   process exits. That blocks a LAN neighbor from claiming first-run setup.
 - Authentication uses a single password (scrypt-hashed in `data/auth.json`) and a signed,
   `HttpOnly` session cookie. On first run, open `/login` to set the password.
+- With HTTPS enabled, the session cookie uses `SameSite=None; Secure` so the SPA can call
+  the API from a secure context (including some embed scenarios). With explicit HTTP
+  (`USE_HTTPS=0`), cookies use `SameSite=Lax`.
+- WebSocket upgrades check the browser `Origin` header. Same-host connections are allowed;
+  the configured `CRETLI_PUBLIC_ORIGIN` (full `http(s)://host:port`) is treated as this
+  Cretli UI behind a TLS-terminating proxy. Other origins must appear in
+  `CRETLI_EXTRA_WS_ORIGINS`. Extra origins are not treated as the Cretli iframe.
+  Widget chat (`/ws-agent-sdk` with the widget subprotocol) and page bridge
+  (`/ws-page-bridge`) require a valid widget access token — declaring the widget subprotocol
+  on terminal, task, or log paths is rejected. `X-Forwarded-Host` / `X-Forwarded-Proto`
+  are not used for origin matching.
+- Plan mode is not a sandbox. OpenCode, Cursor SDK, Qwen, CodeBuddy, OpenRouter, and
+  DeepSeek deny mutating tools (permission deny, `canUseTool` deny, catalog filter, or
+  run abort). Codex Plan is prompt-only: the model is asked not to mutate, but the turn
+  is not aborted and the sandbox stays `danger-full-access`.
 - HTTPS uses a self-signed certificate (`npm run gen-cert`). It protects against passive
   eavesdropping on the LAN but is **not** a substitute for auth.
 
@@ -49,7 +64,10 @@ free of known advisories.
 ## What is intentionally not implemented
 
 - No multi-user accounts or RBAC — single shared password.
-- No CSRF token (the UI uses `SameSite=Lax` cookies and same-origin requests).
+- Mutating `/api/*` requests authenticated with the session cookie require a per-session
+  `X-Cretli-Csrf` header (returned by `/api/auth-status` and login). Widget bearer tokens
+  and public setup/login endpoints are exempt. Logout closes active cookie-authenticated
+  WebSocket streams.
 - No rate limiting on the terminal/agent streams.
 - No Content-Security-Policy header (the SPA shell uses inline scripts/styles).
 

@@ -14,9 +14,10 @@ fi
 
 cd /app
 mkdir -p data
-if [ ! -f data/key.pem ] || [ ! -f data/cert.pem ]; then
-  echo "[cretli] Generating self-signed TLS cert in data/…"
-  node scripts/generate-ssl-cert.js || true
+if [ -f /app/.env ]; then
+  node --import ./lib/register-boot-env.js --env-file=/app/.env scripts/generate-ssl-cert.js --if-needed
+else
+  node --import ./lib/register-boot-env.js scripts/generate-ssl-cert.js --if-needed
 fi
 if [ ! -f public/dist/app/app.bundle.js ] && [ ! -f public/dist/app/index.bundle.js ]; then
   echo "[cretli] Building frontend…"

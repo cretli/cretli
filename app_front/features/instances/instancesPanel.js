@@ -5,6 +5,7 @@
 import { t } from '../../i18n/index.js';
 import { escapeHtml } from '../../features/chat/chatHtmlUtils.js';
 import { getClientInstanceId } from '../../lib/clientInstance.js';
+import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 
 const POLL_MS = 5000;
 const LOG_LIMIT = 200;
@@ -84,7 +85,7 @@ function kindIconClass(kind) {
  * @returns {Promise<Array<Record<string, unknown>>>}
  */
 async function fetchInstances() {
-  const res = await fetch(`${window.location.origin || ''}/api/client-instances`);
+  const res = await cretliApiFetch(`${window.location.origin || ''}/api/client-instances`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
   if (!data?.ok || !Array.isArray(data.instances)) throw new Error('Invalid response');
@@ -97,7 +98,7 @@ async function fetchInstances() {
  */
 async function fetchInstanceLogs(id) {
   const url = `${window.location.origin || ''}/api/client-instances/${encodeURIComponent(id)}/logs?limit=${LOG_LIMIT}`;
-  const res = await fetch(url);
+  const res = await cretliApiFetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
   if (!data?.ok || !Array.isArray(data.lines)) throw new Error('Invalid response');
@@ -220,9 +221,8 @@ function pollCommandResult(commandId) {
       return;
     }
     try {
-      const res = await fetch(
-        `${window.location.origin || ''}/api/client-instances/commands/${encodeURIComponent(commandId)}`,
-        { credentials: 'include' }
+      const res = await cretliApiFetch(
+        `${window.location.origin || ''}/api/client-instances/commands/${encodeURIComponent(commandId)}`
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -269,12 +269,11 @@ async function sendInstanceCommand(type) {
   const payload = type === 'consoleReport' ? { mode: 'console' } : null;
   setCommandStatus(t('instances.cmdQueued'));
   try {
-    const res = await fetch(
+    const res = await cretliApiFetch(
       `${window.location.origin || ''}/api/client-instances/${encodeURIComponent(selectedInstanceId)}/commands`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ type: commandType, payload, fromInstanceId: currentId }),
       }
     );
@@ -477,7 +476,7 @@ export function initInstancesPanel() {
     clearBtn.addEventListener('click', () => {
       if (!selectedInstanceId) return;
       if (!window.confirm(t('instances.clearLogsConfirm'))) return;
-      fetch(`${window.location.origin || ''}/api/client-instances/${encodeURIComponent(selectedInstanceId)}/logs`, {
+      cretliApiFetch(`${window.location.origin || ''}/api/client-instances/${encodeURIComponent(selectedInstanceId)}/logs`, {
         method: 'DELETE',
       })
         .then((res) => res.json())

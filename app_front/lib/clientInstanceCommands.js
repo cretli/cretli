@@ -5,6 +5,7 @@
 import { getClientInstanceId } from './clientInstance.js';
 import { requestClientDebugRemoteFlush, appLogger } from '../logger.js';
 import { logUiBlockerSnapshot } from './pwaFreezeDiagnostics.js';
+import { cretliApiFetch } from './cretliApiRequest.js';
 
 const COMMAND_POLL_MS = 4000;
 
@@ -95,7 +96,7 @@ export async function pullAndExecuteClientInstanceCommands() {
   const clientInstanceId = getClientInstanceId();
   try {
     const url = `${window.location.origin || ''}/api/client-instances/commands?clientInstanceId=${encodeURIComponent(clientInstanceId)}`;
-    const res = await fetch(url, { credentials: 'include' });
+    const res = await cretliApiFetch(url);
     if (!res.ok) return 0;
     const data = await res.json();
     if (!data?.ok || !Array.isArray(data.commands) || data.commands.length === 0) return 0;
