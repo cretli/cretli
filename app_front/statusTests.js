@@ -1,12 +1,14 @@
 import {
   parseTerminalInteraction,
   resolveTerminalState,
-  STATUS_TEST_FIXTURES,
 } from '../lib/status-parser.js';
+import statusParserUnitFixtures from '../public/fixtures/status-parser-unit.json';
 import { getStatusFlowScenariosFixture } from './core/api/index.js';
 import { getActiveChatBufferTail } from './chat.js';
 import { t } from './i18n/index.js';
 import { escapeHtml } from './features/chat/chatHtmlUtils.js';
+
+const STATUS_TEST_FIXTURES = statusParserUnitFixtures.fixtures;
 
 function getById(id) {
   return document.getElementById(id);

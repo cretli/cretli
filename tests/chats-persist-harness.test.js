@@ -91,6 +91,11 @@ try {
   assert.equal(typeof archived?.archivedAt, 'string');
   const restored = updateChat('2', { archived: false });
   assert.equal(Object.hasOwn(restored || {}, 'archivedAt'), false);
+  updateChat('1', { widgetPinnedUrl: 'http://host/page' });
+  updateChat('2', { widgetPinnedUrl: 'http://host/page/' });
+  const afterPin = loadChats();
+  assert.equal(afterPin.find((chat) => chat.id === '1')?.widgetPinnedUrl, undefined);
+  assert.equal(afterPin.find((chat) => chat.id === '2')?.widgetPinnedUrl, 'http://host/page/');
 } finally {
   if (backup == null) {
     if (fs.existsSync(dataFile)) fs.unlinkSync(dataFile);

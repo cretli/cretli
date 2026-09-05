@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { applyWorkspaceAddPath, applyWorkspaceRemoveId, buildWorkspacesList, maybeSeedRegistry } from '../lib/workspace-list.js';
+import { applyWorkspaceAddPath, applyWorkspaceRemoveId, buildWorkspacesList, maybeSeedRegistry, seedMissingFileWorkspaceOverlays } from '../lib/workspace-list.js';
 import { expandUserPath, inspectWorkspacePath } from '../lib/workspace.js';
 
 test('maybeSeedRegistry leaves a non-empty registry untouched', () => {
@@ -159,4 +159,38 @@ test('buildWorkspacesList uses the first overlay folder as workspaceDir', () => 
     '/proj/projects',
     '/proj/shop',
   ]);
+});
+
+test('applyWorkspaceAddPath copies .code-workspace folders into the overlay', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'cretli-ws-import-'));
+  const appDir = path.join(dir, 'app');
+  const libsDir = path.join(dir, 'libs');
+  await mkdir(appDir);
+  await mkdir(libsDir);
+  const filePath = path.join(dir, 'app.code-workspace');
+  await writeFile(filePath, JSON.stringify({
+    folders: [
+      { path: 'app', name: 'App' },
+      { path: 'libs', name: 'Libs' },
+    ],
+  }), 'utf8');
+  const settings = {};
+  const result = applyWorkspaceAddPath(settings, filePath);
+  assert.equal(result.ok, true);
+  const posixFile = filePath.replace(/\\/g, '/');
+  const overlay = settings.workspaceSidebarConfig[posixFile].folders;
+  assert.equal(overlay[appDir.replace(/\\/g, '/')].name, 'App');
+  assert.equal(overlay[libsDir.replace(/\\/g, '/')].name, 'Libs');
+});
+
+test('seedMissingFileWorkspaceOverlays fills an empty overlay from the file', () => {
+  const settings = {
+    workspaces: [{ id: '/w/app.code-workspace', kind: 'file', workspaceFile: '/w/app.code-workspace' }],
+    workspaceSidebarConfig: {},
+  };
+  const changed = seedMissingFileWorkspaceOverlays(settings, () => ({
+    folders: [{ name: 'App', resolvedPath: '/w/app' }],
+  }));
+  assert.equal(changed, true);
+  assert.equal(settings.workspaceSidebarConfig['/w/app.code-workspace'].folders['/w/app'].name, 'App');
 });

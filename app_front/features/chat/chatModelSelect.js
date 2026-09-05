@@ -477,8 +477,9 @@ export function createChatModelSelect(deps) {
   /**
    * @param {HTMLSelectElement|null|undefined} selectEl
    * @param {string} [selectedValue]
+   * @param {{ includeMissing?: boolean }} [options]
    */
-  function renderModelSelectOptions(selectEl, selectedValue) {
+  function renderModelSelectOptions(selectEl, selectedValue, options = {}) {
     if (!selectEl) return;
     const activity = getModelActivityMap();
     const desiredValue = selectedValue || selectEl.value || 'auto';
@@ -488,7 +489,11 @@ export function createChatModelSelect(deps) {
       const mapped = findCodexDefaultVariantValue(resolvedDesired);
       if (mapped) resolvedDesired = mapped;
     }
-    if (resolvedDesired && !models.some((m) => m.value === resolvedDesired)) {
+    if (
+      options.includeMissing !== false
+      && resolvedDesired
+      && !models.some((m) => m.value === resolvedDesired)
+    ) {
       models.push({ value: resolvedDesired, label: resolvedDesired });
     }
     selectEl.innerHTML = models.map((m) => {
@@ -713,7 +718,7 @@ export function createChatModelSelect(deps) {
       }
     }
     const dropdownWasOpen = !options.forceCloseDropdown && newModelSel._floatingModelControl?.isOpen?.() === true;
-    renderModelSelectOptions(newModelSel, nextValue || 'auto');
+    renderModelSelectOptions(newModelSel, nextValue || 'auto', { includeMissing: false });
     newModelSel._floatingModelControl?.refresh?.();
     if (dropdownWasOpen) {
       newModelSel._floatingModelControl?.refreshItems?.();

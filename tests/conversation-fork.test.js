@@ -9,13 +9,17 @@ import {
   buildHarnessHandoffPrompt,
   parseInheritedPrompt,
   resolveInheritedPromptEcho,
+  withInheritedFollowUp,
+  resolvePendingInheritedSend,
 } from '../lib/conversation-fork.js';
 import {
   appendChatHistoryEvents,
   copyChatHistory,
+  copyChatHistoryUntil,
   deleteChatHistory,
   loadChatHistory,
 } from '../lib/persist/chat-history-persist.js';
+import { formatChatHistoryEventsToText } from '../lib/context-compression.js';
 import {
   createConversationForkChat,
   deleteChat,
@@ -31,6 +35,26 @@ assert.match(prompt, /Continue here$/);
 assert.equal(buildConversationForkPrompt('', 'New message'), 'New message');
 assert.match(buildConversationForkPrompt('User: start\nAgent: reply', ''), /Continue the conversation from this point\.$/);
 assert.equal(buildConversationForkPrompt('', ''), '');
+assert.equal(withInheritedFollowUp('', 'Go on'), 'Go on');
+assert.equal(withInheritedFollowUp('Base prompt', ''), 'Base prompt');
+assert.match(withInheritedFollowUp('Base prompt', 'Go on'), /Base prompt\n\nNew user message:\nGo on/);
+assert.equal(resolvePendingInheritedSend('', 'Draft', 'Go on'), null);
+assert.equal(
+  resolvePendingInheritedSend('Full prompt', 'Continue from fork.', 'Continue from fork.').payloadText,
+  'Full prompt'
+);
+assert.equal(
+  resolvePendingInheritedSend('Full prompt', 'Continue from fork.', 'Continue from fork.').displayText,
+  'Continue from fork.'
+);
+assert.equal(
+  resolvePendingInheritedSend('Full prompt', 'Continue from fork.', 'My own question').payloadText,
+  withInheritedFollowUp('Full prompt', 'My own question')
+);
+assert.equal(
+  resolvePendingInheritedSend('Full prompt', 'Continue from fork.', 'My own question').displayText,
+  'My own question'
+);
 
 const sameHarnessPrompt = buildForkInitialPrompt({
   sourceText: 'User: start',
@@ -42,6 +66,28 @@ const sameHarnessPrompt = buildForkInitialPrompt({
 });
 assert.match(sameHarnessPrompt, /CONVERSATION FORK CONTEXT/);
 assert.match(sameHarnessPrompt, /Go on$/);
+
+// Partial fork: inherited transcript is cut at the fork point.
+const partialForkPrompt = buildConversationForkPrompt('User: start\nAgent: reply', '', { partial: true });
+assert.match(partialForkPrompt, /up to the fork point\.$/m);
+assert.equal(partialForkPrompt.includes('full conversation'), false);
+
+const partialHandoffPrompt = buildHarnessHandoffPrompt({
+  sourceText: 'User: start',
+  fromHarness: 'qwen',
+  toHarness: 'sdk',
+  partial: true,
+});
+assert.match(partialHandoffPrompt, /Conversation so far \(up to the fork point\):/);
+
+const partialInitialPrompt = buildForkInitialPrompt({
+  sourceText: 'User: start\nAgent: reply',
+  fromHarness: 'qwen',
+  toHarness: 'qwen',
+  partial: true,
+});
+assert.match(partialInitialPrompt, /CONVERSATION FORK CONTEXT/);
+assert.match(partialInitialPrompt, /up to the fork point\./);
 
 const crossHarnessPrompt = buildForkInitialPrompt({
   sourceText: 'User: start',
@@ -97,13 +143,15 @@ assert.equal(
 assert.equal(parseInheritedPrompt('Just a normal message').wrapped, false);
 assert.equal(resolveInheritedPromptEcho('Just a normal message'), 'Just a normal message');
 
-const analysisPrompt = buildAgentAnalysisPrompt('User: start\nAgent: stuck', 'Diagnose the agent.');
+const analysisPrompt = buildAgentAnalysisPrompt('Diagnose the agent.');
 assert.match(analysisPrompt, /AGENT ANALYSIS CONTEXT/);
+assert.match(analysisPrompt, /new sub-chat with its own empty history/);
 assert.match(analysisPrompt, /Do not continue its work/);
-assert.match(analysisPrompt, /User: start/);
 assert.match(analysisPrompt, /Diagnose the agent\.$/);
 assert.equal(analysisPrompt.includes('HARNESS HANDOFF CONTEXT'), false);
 assert.equal(analysisPrompt.includes('CONVERSATION FORK CONTEXT'), false);
+assert.equal(analysisPrompt.includes('User: start'), false);
+assert.equal(analysisPrompt.includes('Source conversation:'), false);
 
 const inheritedAnalyze = parseInheritedPrompt(analysisPrompt);
 assert.equal(inheritedAnalyze.wrapped, true);
@@ -115,7 +163,7 @@ assert.equal(
 );
 
 const crossHarnessAnalyze = buildForkInitialPrompt({
-  sourceText: 'User: start',
+  sourceText: 'User: start\nAgent: should not appear',
   message: 'Diagnose the agent.',
   fromHarness: 'qwen',
   toHarness: 'opencode',
@@ -126,6 +174,8 @@ const crossHarnessAnalyze = buildForkInitialPrompt({
 assert.match(crossHarnessAnalyze, /AGENT ANALYSIS CONTEXT/);
 assert.equal(crossHarnessAnalyze.includes('HARNESS HANDOFF CONTEXT'), false);
 assert.equal(crossHarnessAnalyze.includes('taking over this task'), false);
+assert.equal(crossHarnessAnalyze.includes('User: start'), false);
+assert.equal(crossHarnessAnalyze.includes('Agent: should not appear'), false);
 assert.match(crossHarnessAnalyze, /Diagnose the agent\.$/);
 
 const sourceChatId = randomUUID();
@@ -154,9 +204,74 @@ try {
   deleteChatHistory(targetChatId);
 }
 
+// Partial copy: everything up to (and including) the record created at the cutoff.
+const T1 = '2026-01-01T00:00:01.000Z';
+const T2 = '2026-01-01T00:00:02.000Z';
+const T3 = '2026-01-01T00:00:03.000Z';
+const partialSourceId = randomUUID();
+const partialTargetId = randomUUID();
+try {
+  appendChatHistoryEvents(partialSourceId, 'source-session', [
+    { rec: { kind: 'localUser', text: 'start', createdAt: T1 }, clientSeq: 1 },
+    // Records without createdAt count as "before the fork point".
+    { rec: { kind: 'meta', variant: 'notice', payload: 'mid-run' }, clientSeq: 2 },
+    {
+      rec: {
+        kind: 'sdk',
+        event: { type: 'assistant', message: { content: [{ type: 'text', text: 'assistant reply' }] } },
+        createdAt: T2,
+      },
+      clientSeq: 3,
+    },
+    { rec: { kind: 'localUser', text: 'go on', createdAt: T3 }, clientSeq: 4 },
+  ]);
+  const cut = copyChatHistoryUntil(partialSourceId, partialTargetId, 'target-session', T2);
+  assert.equal(cut.ok, true);
+  assert.equal(cut.headSeq, 3);
+  assert.equal(cut.events.length, 3);
+  const target = loadChatHistory(partialTargetId);
+  assert.equal(target?.headSeq, 3);
+  assert.equal(target?.events.length, 3);
+  assert.equal(target?.events[0]?.rec?.text, 'start');
+  assert.equal(target?.events[1]?.rec?.payload, 'mid-run');
+  assert.equal(target?.events[2]?.rec?.event?.type, 'assistant');
+  assert.equal(target?.events.some((e) => e.rec?.text === 'go on'), false);
+  for (const event of target?.events || []) {
+    assert.equal(event.rec?.clientSeq, undefined);
+  }
+  // The transcript built from the cut log keeps the copied turns and drops the rest.
+  const cutTranscript = formatChatHistoryEventsToText(cut.events);
+  assert.match(cutTranscript, /(^|\n)> start\n/);
+  assert.match(cutTranscript, /assistant reply$/);
+  assert.equal(cutTranscript.includes('go on'), false);
+
+  // Cutoff before the first record — empty fork with a monotonic headSeq.
+  const emptyCut = copyChatHistoryUntil(
+    partialSourceId,
+    partialTargetId,
+    'target-session',
+    '2020-01-01T00:00:00.000Z'
+  );
+  assert.equal(emptyCut.ok, true);
+  assert.equal(emptyCut.headSeq, 0);
+  assert.equal(emptyCut.events.length, 0);
+  assert.equal(loadChatHistory(partialTargetId)?.events.length, 0);
+
+  // Unparsable cutoff disables the cut (full copy fallback).
+  const fullCut = copyChatHistoryUntil(partialSourceId, partialTargetId, 'target-session', 'not-a-date');
+  assert.equal(fullCut.ok, true);
+  assert.equal(fullCut.headSeq, 4);
+  assert.equal(fullCut.events.length, 4);
+  assert.equal(loadChatHistory(partialTargetId)?.headSeq, 4);
+} finally {
+  deleteChatHistory(partialSourceId);
+  deleteChatHistory(partialTargetId);
+}
+
 const chatsFile = resolveDataPath('chats.json');
 const chatsBackup = fs.existsSync(chatsFile) ? fs.readFileSync(chatsFile, 'utf8') : null;
 let createdForkId = '';
+let createdAnalyzeId = '';
 try {
   const parentId = randomUUID();
   saveChats([
@@ -187,7 +302,18 @@ try {
   assert.ok(remainingParent);
   assert.equal(remainingParent.agentTransport, 'qwen');
   assert.equal(remainingParent.model, 'qwen3');
+  const analyzed = createConversationForkChat(parentChat, {
+    agentTransport: 'opencode',
+    model: 'opencode/glm-4.6',
+    title: 'Analyze parent',
+    forkKind: 'analyze',
+  });
+  createdAnalyzeId = analyzed.id;
+  assert.equal(analyzed.forkKind, 'analyze');
+  assert.equal(analyzed.forkParentChatId, parentId);
+  assert.equal(analyzed.summaries, undefined);
 } finally {
+  if (createdAnalyzeId) deleteChat(createdAnalyzeId);
   if (createdForkId) deleteChat(createdForkId);
   if (chatsBackup == null) {
     if (fs.existsSync(chatsFile)) fs.unlinkSync(chatsFile);

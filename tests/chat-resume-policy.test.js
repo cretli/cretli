@@ -70,6 +70,17 @@ assert.equal(
 );
 assert.equal(
   shouldSkipActiveChatHistoryPollSync({
+    headSeq: 100,
+    localAck: 100 - ACTIVE_CHAT_HISTORY_POLL_SKIP_GAP,
+    wsOpen: true,
+    now: 100000,
+    hasPendingDelegation: true,
+  }),
+  false,
+  'Pending delegation card must pull even when the socket is open'
+);
+assert.equal(
+  shouldSkipActiveChatHistoryPollSync({
     headSeq: 700,
     localAck: 100,
     wsOpen: true,

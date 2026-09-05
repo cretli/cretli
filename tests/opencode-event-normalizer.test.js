@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   formatOpenCodeSessionError,
+  isOpenCodeEventForSession,
   normalizeOpenCodeEvent,
   parseOpenCodeModel,
   processOpenCodeStreamEventForHarness,
@@ -104,6 +105,60 @@ assert.equal(
     },
   }),
   ''
+);
+
+assert.deepEqual(
+  normalizeOpenCodeEvent({
+    type: 'message.part.updated',
+    properties: {
+      sessionID: 'sess-other',
+      part: { type: 'text', text: 'leaked', messageID: 'm-leak' },
+    },
+  }, {}),
+  [],
+);
+
+assert.deepEqual(
+  normalizeOpenCodeEvent({
+    type: 'message.part.updated',
+    properties: {
+      sessionID: 'sess-other',
+      part: { type: 'text', text: 'leaked', messageID: 'm-leak' },
+    },
+  }, { opencodeSessionId: '' }),
+  [],
+);
+
+const foreignPart = processOpenCodeStreamEventForHarness({
+  type: 'message.part.updated',
+  properties: {
+    sessionID: 'sess-other',
+    part: { type: 'text', text: 'leaked', messageID: 'm-leak' },
+  },
+}, { opencodeSessionId: sessionId, messageRegistry: registry });
+assert.deepEqual(foreignPart, []);
+
+assert.equal(
+  resolveOpenCodeSessionActivity({
+    type: 'session.idle',
+    properties: { sessionID: 'sess-other' },
+  }, {}),
+  null,
+);
+
+assert.equal(
+  isOpenCodeEventForSession({
+    type: 'message.part.updated',
+    properties: { sessionID: 'sess-1' },
+  }, ''),
+  false,
+);
+assert.equal(
+  isOpenCodeEventForSession({
+    type: 'message.part.updated',
+    properties: { sessionID: 'sess-1' },
+  }, 'sess-1'),
+  true,
 );
 
 console.log('opencode-event-normalizer.test.js OK');

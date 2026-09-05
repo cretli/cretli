@@ -1,0 +1,11 @@
+# Cretli overlay for `dsh --profile sdk`.
+# Replace public-only HTTP fetch with the Cretli runtime plugin (LAN-friendly).
+# Hide read_image on text-only models from that same plugin.
+
+- id: web-fetch-http
+  disabled: true
+
+- insert:
+    - id: cretli-dsh-runtime
+      name: !!js process.env.CRETLI_DSH_RUNTIME_PLUGIN
+      inject: [web, agents]

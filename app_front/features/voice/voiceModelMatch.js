@@ -16,6 +16,20 @@ function normalizeSpoken(text) {
 }
 
 /**
+ * Collapses spoken variants ("grok 4.6", "grok-4.6") onto one comparable key.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function normalizeModelKey(text) {
+  return normalizeSpoken(text)
+    .replace(/::.*$/, '')
+    .replace(/[^a-z0-9.]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+/**
  * @param {{ id?: string, value?: string, label?: string }} model
  * @returns {string}
  */
@@ -38,14 +52,26 @@ function modelMatchLabels(model) {
  * @param {string} spoken
  * @returns {{ match?: object|null, ambiguous?: boolean, candidates?: string[] }}
  */
+/**
+ * @param {string} label
+ * @returns {string}
+ */
+function spokenModelKey(label) {
+  return normalizeModelKey(label);
+}
+
 export function matchModelBySpokenName(models, spoken) {
   const needle = normalizeSpoken(spoken);
+  const needleKey = normalizeModelKey(spoken);
   if (!needle) return { match: null };
   const items = Array.isArray(models)
     ? models.filter((model) => modelSpokenId(model))
     : [];
   const exact = items.filter((model) =>
-    modelMatchLabels(model).some((label) => normalizeSpoken(label) === needle)
+    modelMatchLabels(model).some((label) => {
+      const normalized = normalizeSpoken(label);
+      return normalized === needle || spokenModelKey(label) === needleKey;
+    })
   );
   if (exact.length === 1) return { match: exact[0] };
   if (exact.length > 1) {
@@ -54,6 +80,9 @@ export function matchModelBySpokenName(models, spoken) {
   const partial = items.filter((model) =>
     modelMatchLabels(model).some((label) => {
       const value = normalizeSpoken(label);
+      const valueKey = spokenModelKey(label);
+      if (needleKey.length >= 3 && valueKey.includes(needleKey)) return true;
+      if (valueKey.length >= 4 && needleKey.includes(valueKey)) return true;
       if (needle.length >= 2 && value.includes(needle)) return true;
       if (value.length >= 4 && needle.includes(value)) return true;
       return false;

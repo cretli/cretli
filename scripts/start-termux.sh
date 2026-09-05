@@ -17,7 +17,6 @@ else
 fi
 
 export CURSOR_RIPGREP_PATH="${CURSOR_RIPGREP_PATH:-./node_modules/.bin/rg}"
-export USE_HTTPS="${USE_HTTPS:-1}"
 # Phone-as-server uses the production SPA. HMR walks parent dirs and hits
 # EACCES on Termux (/data, /) plus a long webpack compile on every start.
 export CRETLI_FRONT_HMR="${CRETLI_FRONT_HMR:-0}"

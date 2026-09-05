@@ -170,9 +170,9 @@ export function createChatTransport(deps) {
     return Date.now() - userSetAt < 15000;
   }
 
-  function applySdkModeFromServer(chat, mode, source) {
+  function applySdkModeFromServer(chat, mode, source, options = {}) {
     const normalized = normalizeSdkMode(mode);
-    if (shouldIgnoreStaleServerSdkMode(chat, normalized)) {
+    if (options.force !== true && shouldIgnoreStaleServerSdkMode(chat, normalized)) {
       syncSdkModeToServer(chat);
       if (typeof onSdkModeChange === 'function') onSdkModeChange(chat, normalizeSdkMode(chat.sdkMode));
       return;
@@ -877,7 +877,9 @@ export function createChatTransport(deps) {
           return;
         }
         if (msg.type === 'sdkMode' && (msg.mode === 'plan' || msg.mode === 'agent')) {
-          applySdkModeFromServer(chat, msg.mode, 'sdkMode');
+          applySdkModeFromServer(chat, msg.mode, 'sdkMode', {
+            force: msg.reason === 'plan_question_approved',
+          });
           const sessionRef =
             (chat.cursorSessionId && String(chat.cursorSessionId).slice(0, 8)) || '?';
           setLaunchCommand(
@@ -891,7 +893,7 @@ export function createChatTransport(deps) {
           );
           return;
         }
-        if (msg.type === 'opencodeQuestionResolved') {
+        if (msg.type === 'opencodeQuestionResolved' || msg.type === 'questionResolved') {
           const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
           chat._sdkRichView?.resolveOpenCodeQuestion?.(requestId);
           if (chat._opencodePendingQuestion?.requestId === requestId) {

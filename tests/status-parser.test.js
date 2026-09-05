@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { parseTerminalInteraction, resolveTerminalState, STATUS_TEST_FIXTURES } from '../lib/status-parser.js';
+import { parseTerminalInteraction, resolveTerminalState } from '../lib/status-parser.js';
+import statusParserUnitFixtures from '../public/fixtures/status-parser-unit.json' with { type: 'json' };
+
+const STATUS_TEST_FIXTURES = statusParserUnitFixtures.fixtures;
 
 let failed = 0;
 

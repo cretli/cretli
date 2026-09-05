@@ -2,24 +2,34 @@
 import { appLogger } from './logger.js';
 import { getCurrentLang } from './i18n/index.js';
 import { readStorageValueWithAlias } from './lib/storageKeyAlias.js';
+import {
+  applyCsrfFromAuthPayload,
+  buildCretliApiHeaders,
+  cretliApiFetch,
+  getCsrfToken,
+  getWidgetAccessToken,
+  setCsrfToken,
+  setWidgetAccessToken,
+} from './lib/cretliApiRequest.js';
+
+export {
+  applyCsrfFromAuthPayload,
+  cretliApiFetch,
+  getCsrfToken,
+  getWidgetAccessToken,
+  setCsrfToken,
+  setWidgetAccessToken,
+};
 
 const API_DEBUG_FLAG_LS_KEY = 'cretli-debug-api';
-let widgetAccessToken = '';
-
-export function setWidgetAccessToken(token) {
-  widgetAccessToken = typeof token === 'string' ? token.trim() : '';
-}
-
-export function getWidgetAccessToken() {
-  return widgetAccessToken;
-}
 
 /** Headers sent with every API request; Accept-Language drives the language of backend messages. */
-function crHeaders(extra) {
-  const h = { 'Accept-Language': getCurrentLang() };
-  if (widgetAccessToken) h.Authorization = `Bearer ${widgetAccessToken}`;
-  if (extra && typeof extra === 'object') Object.assign(h, extra);
-  return h;
+function crHeaders(extra, url = '/api/') {
+  return buildCretliApiHeaders({
+    extra,
+    url,
+    acceptLanguage: getCurrentLang(),
+  });
 }
 
 function isApiDebugEnabled() {
@@ -78,8 +88,11 @@ function dedupeGetJson(url, label, fetchOptions = {}) {
 }
 
 async function json(r) {
-  if (r && r.status === 401 && typeof window !== 'undefined' && !widgetAccessToken) {
-    redirectLogin();
+  if (r && r.status === 401) {
+    applyCsrfFromAuthPayload(null);
+    if (typeof window !== 'undefined' && !getWidgetAccessToken()) {
+      redirectLogin();
+    }
   }
   return r.json();
 }
@@ -105,7 +118,7 @@ async function apiFetchJson(url, init, label, fetchOptions = {}) {
   if (typeof AbortController !== 'undefined') {
     controller = new AbortController();
     finalInit = { ...(init || {}), signal: controller.signal };
-    finalInit.headers = crHeaders(finalInit.headers);
+    finalInit.headers = crHeaders(finalInit.headers, url);
     finalInit.credentials = 'include';
     timeoutId = setTimeout(() => {
       try {
@@ -114,12 +127,12 @@ async function apiFetchJson(url, init, label, fetchOptions = {}) {
     }, timeoutMs);
   } else {
     finalInit = { ...(init || {}) };
-    finalInit.headers = crHeaders(finalInit.headers);
+    finalInit.headers = crHeaders(finalInit.headers, url);
     finalInit.credentials = 'include';
   }
   try {
     if (isGet && !finalInit.cache) finalInit.cache = 'no-store';
-    const response = await fetch(url, finalInit);
+    const response = await cretliApiFetch(url, finalInit);
     const finishedAtMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const elapsedMs = (finishedAtMs - startedAtMs).toFixed(1);
     debugApiLog('END', label, `${response.status} (${elapsedMs}ms)`);
@@ -162,12 +175,18 @@ export async function getLanUrl() {
 
 /** Logs out the current session and clears the server-side cookie. */
 export async function logout() {
-  return apiFetchJson('/api/logout', { method: 'POST' }, 'logout');
+  try {
+    return await apiFetchJson('/api/logout', { method: 'POST' }, 'logout');
+  } finally {
+    applyCsrfFromAuthPayload(null);
+  }
 }
 
 /** Auth status: whether a password is configured and whether login is required. */
 export async function getAuthStatus() {
-  return dedupeGetJson('/api/auth-status', 'getAuthStatus');
+  const data = await dedupeGetJson('/api/auth-status', 'getAuthStatus');
+  applyCsrfFromAuthPayload(data);
+  return data;
 }
 
 export async function getTerminalSession() {
@@ -180,7 +199,12 @@ export async function getTaskRuns() {
 }
 
 export async function getTasks(options = {}) {
-  if (options.fresh) return apiFetchJson('/api/tasks', undefined, 'getTasks');
+  const params = new URLSearchParams();
+  if (options.workspaceFile) params.set('workspaceFile', String(options.workspaceFile).trim());
+  const query = params.toString() ? `?${params.toString()}` : '';
+  if (options.fresh || query) {
+    return apiFetchJson(`/api/tasks${query}`, { cache: 'no-store' }, 'getTasks');
+  }
   return dedupeGetJson('/api/tasks', 'getTasks');
 }
 
@@ -269,6 +293,20 @@ export async function getChatHistoryRevisions(chatIds = []) {
   const qs = q.toString();
   const path = `/api/chats/history-revisions${qs ? `?${qs}` : ''}`;
   return apiFetchJson(path, undefined, 'getChatHistoryRevisions');
+}
+
+/**
+ * Lightweight per-chat agent presence (busy / waiting / attention).
+ * @param {string[]} [chatIds]
+ */
+export async function getChatAgentStates(chatIds = []) {
+  const q = new URLSearchParams();
+  if (Array.isArray(chatIds) && chatIds.length > 0) {
+    q.set('ids', chatIds.join(','));
+  }
+  const qs = q.toString();
+  const path = `/api/chats/agent-states${qs ? `?${qs}` : ''}`;
+  return apiFetchJson(path, undefined, 'getChatAgentStates');
 }
 
 /**
@@ -375,9 +413,15 @@ export async function getCodexStatus() {
   return dedupeGetJson('/api/codex/status', 'getCodexStatus');
 }
 
+const CODEX_API_TIMEOUT_MS = 45000;
+
 /** Codex SDK model catalog. */
-export async function getCodexModels() {
-  return dedupeGetJson('/api/codex/models', 'getCodexModels');
+export async function getCodexModels(params = {}) {
+  const refresh = params.refresh === true || params.refresh === '1';
+  const query = refresh ? '?refresh=1' : '';
+  return dedupeGetJson(`/api/codex/models${query}`, refresh ? 'getCodexModelsRefresh' : 'getCodexModels', {
+    timeoutMs: refresh ? CODEX_API_TIMEOUT_MS : undefined,
+  });
 }
 
 export async function startCodexLogin() {
@@ -411,6 +455,57 @@ export async function postChatFork(id, payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload || {}),
   }, 'postChatFork');
+}
+
+export async function getChatPlan(id) {
+  if (!id) return { ok: false, error: 'Missing chat id' };
+  return apiFetchJson(`/api/chats/${encodeURIComponent(id)}/plan`, undefined, `getChatPlan:${id}`);
+}
+
+export async function getDelegationExecutors() {
+  return apiFetchJson('/api/delegations/executors', undefined, 'getDelegationExecutors');
+}
+
+export async function postChatDelegation(id, payload) {
+  if (!id) return { ok: false, error: 'Missing chat id' };
+  return apiFetchJson(`/api/chats/${encodeURIComponent(id)}/delegations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  }, `postChatDelegation:${id}`);
+}
+
+export async function getChatDelegations(id) {
+  if (!id) return { ok: false, error: 'Missing chat id' };
+  return apiFetchJson(`/api/chats/${encodeURIComponent(id)}/delegations`, undefined, `getChatDelegations:${id}`);
+}
+
+export async function getDelegation(id) {
+  if (!id) return { ok: false, error: 'Missing delegation id' };
+  return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}`, undefined, `getDelegation:${id}`);
+}
+
+export async function postDelegationCancel(id) {
+  if (!id) return { ok: false, error: 'Missing delegation id' };
+  return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
+  }, `postDelegationCancel:${id}`);
+}
+
+export async function postDelegationAck(id, payload = {}) {
+  if (!id) return { ok: false, error: 'Missing delegation id' };
+  return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}/ack`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  }, `postDelegationAck:${id}`);
+}
+
+export async function postDelegationRetry(id) {
+  if (!id) return { ok: false, error: 'Missing delegation id' };
+  return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}/retry`, {
+    method: 'POST',
+  }, `postDelegationRetry:${id}`);
 }
 
 export async function patchChat(id, data) {
@@ -450,7 +545,7 @@ export async function postChatSyncTodoPlan(id, payload = {}) {
 
 /** Diagnostic chat snapshot: state of the server-side SDK room. */
 export async function getChatDiag(id) {
-  return fetch(`/api/chats/${encodeURIComponent(id)}/diag`).then(json);
+  return cretliApiFetch(`/api/chats/${encodeURIComponent(id)}/diag`, {}, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 /** SDK probe: resume vs fresh agent, context stats, recommendation. */
@@ -479,20 +574,20 @@ export async function postChatResetSdkContext(id) {
 
 /** Generates a chat title on the backend (one-shot agent + parsing). Body: { workspaceFile?, workspaceFolder?, model?, text }. */
 export async function postGenerateChatTitle(payload) {
-  return fetch('/api/generate-chat-title', {
+  return cretliApiFetch('/api/generate-chat-title', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: crHeaders({ 'Content-Type': 'application/json' }, '/api/generate-chat-title'),
     body: JSON.stringify(payload || {}),
-  }).then(json);
+  }, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 /** Generates a batch summary on the backend (background agent + callback). Body: { chatId, workspaceFile?, workspaceFolder?, model?, text }. */
 export async function postGenerateChatSummary(payload) {
-  return fetch('/api/generate-chat-summary', {
+  return cretliApiFetch('/api/generate-chat-summary', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: crHeaders({ 'Content-Type': 'application/json' }, '/api/generate-chat-summary'),
     body: JSON.stringify(payload || {}),
-  }).then(json);
+  }, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 export async function getWorkspaces(options = {}) {
@@ -565,7 +660,7 @@ export async function getFilesEntries(dir = '', includeHidden = false) {
 
 /** File contents as text; path is relative to the workspace root. */
 export async function getFileContent(filePath) {
-  return fetch(`/api/files/read?path=${encodeURIComponent(filePath)}`).then(json);
+  return cretliApiFetch(`/api/files/read?path=${encodeURIComponent(filePath)}`, {}, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 /** Todos for the current workspace, stored server-side in data/todos. */
@@ -622,24 +717,24 @@ export async function getCursorContext() {
 }
 
 export async function getGitInfo() {
-  return fetch('/api/git/info').then(json);
+  return cretliApiFetch('/api/git/info', {}, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 /** Diff of a single file against HEAD; path is relative to the workspace root. */
 export async function getGitFileDiff(filePath) {
-  return fetch(`/api/git/file-diff?path=${encodeURIComponent(filePath)}`).then(json);
+  return cretliApiFetch(`/api/git/file-diff?path=${encodeURIComponent(filePath)}`, {}, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 export async function postGitAction(payload) {
-  return fetch('/api/git/run', {
+  return cretliApiFetch('/api/git/run', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: crHeaders({ 'Content-Type': 'application/json' }, '/api/git/run'),
     body: JSON.stringify(payload || {}),
-  }).then(json);
+  }, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 export async function getGithubInfo() {
-  return fetch('/api/github/info').then(json);
+  return cretliApiFetch('/api/github/info', {}, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 export async function getGithubWorkflowRuns(options = {}) {
@@ -647,15 +742,15 @@ export async function getGithubWorkflowRuns(options = {}) {
   if (options.perPage) params.set('per_page', String(options.perPage));
   if (options.page) params.set('page', String(options.page));
   const query = params.toString();
-  return fetch(`/api/github/actions/runs${query ? `?${query}` : ''}`).then(json);
+  return cretliApiFetch(`/api/github/actions/runs${query ? `?${query}` : ''}`, {}, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 export async function getGithubWorkflowRunJobs(runId) {
-  return fetch(`/api/github/actions/runs/${encodeURIComponent(String(runId))}/jobs`).then(json);
+  return cretliApiFetch(`/api/github/actions/runs/${encodeURIComponent(String(runId))}/jobs`, {}, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 export async function getGithubWorkflowJobLogs(jobId) {
-  return fetch(`/api/github/actions/jobs/${encodeURIComponent(String(jobId))}/logs`).then(json);
+  return cretliApiFetch(`/api/github/actions/jobs/${encodeURIComponent(String(jobId))}/logs`, {}, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 /**
@@ -682,7 +777,7 @@ export async function postDevAction(action = 'restart-server') {
 }
 
 export async function getServerHealth() {
-  return fetch('/api/health', { cache: 'no-store' }).then(json);
+  return cretliApiFetch('/api/health', { cache: 'no-store' }, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 export async function listWidgetInstallations() {
@@ -725,13 +820,12 @@ export async function uploadScreenshot(base64OrFile) {
   } else {
     return { ok: false, error: 'Oczekiwano base64 lub File' };
   }
-  const res = await fetch('/api/upload-screenshot', {
+  const res = await cretliApiFetch('/api/upload-screenshot', {
     method: 'POST',
-    headers: crHeaders({ 'Content-Type': 'application/json' }),
-    credentials: 'include',
+    headers: crHeaders({ 'Content-Type': 'application/json' }, '/api/upload-screenshot'),
     body: JSON.stringify({ base64 }),
-  });
-  if (res && res.status === 401 && typeof window !== 'undefined' && !widgetAccessToken) redirectLogin();
+  }, { acceptLanguage: getCurrentLang() });
+  if (res && res.status === 401 && typeof window !== 'undefined' && !getWidgetAccessToken()) redirectLogin();
   return res.json();
 }
 
@@ -808,7 +902,7 @@ export async function getUsageSummary(query = {}) {
  * Mints an ephemeral Realtime token. Instructions and tools are pinned on the
  * server, so this call carries only preferences.
  *
- * @param {{ lang?: string, voice?: string, model?: string }} [payload]
+ * @param {{ lang?: string, voice?: string, model?: string, sessionId?: string }} [payload]
  * @returns {Promise<{ ok: boolean, clientSecret?: string, model?: string, voice?: string, expiresAt?: number, error?: string }>}
  */
 export async function requestRealtimeToken(payload = {}) {
@@ -819,6 +913,7 @@ export async function requestRealtimeToken(payload = {}) {
       lang: payload.lang ? String(payload.lang) : undefined,
       voice: payload.voice ? String(payload.voice) : undefined,
       model: payload.model ? String(payload.model) : undefined,
+      sessionId: payload.sessionId ? String(payload.sessionId) : undefined,
     }),
   }, 'requestRealtimeToken', { timeoutMs: 20000 });
 }
@@ -844,7 +939,7 @@ export async function probeGeminiApiKey(payload = {}) {
  * Mints an ephemeral Gemini Live token. Setup (instructions, tools) is pinned
  * on the server.
  *
- * @param {{ lang?: string, voice?: string, model?: string }} [payload]
+ * @param {{ lang?: string, voice?: string, model?: string, sessionId?: string }} [payload]
  * @returns {Promise<{ ok: boolean, token?: string, wsUrl?: string, model?: string, voice?: string, setup?: object, error?: string }>}
  */
 export async function requestGeminiLiveToken(payload = {}) {
@@ -855,8 +950,50 @@ export async function requestGeminiLiveToken(payload = {}) {
       lang: payload.lang ? String(payload.lang) : undefined,
       voice: payload.voice ? String(payload.voice) : undefined,
       model: payload.model ? String(payload.model) : undefined,
+      sessionId: payload.sessionId ? String(payload.sessionId) : undefined,
     }),
   }, 'requestGeminiLiveToken', { timeoutMs: 20000 });
+}
+
+/**
+ * @param {string} sessionId
+ * @param {{
+ *   startedAt?: number,
+ *   endedAt?: number|null,
+ *   provider?: string,
+ *   model?: string,
+ *   chatId?: string,
+ *   entries?: object[],
+ * }} payload
+ * @returns {Promise<{ ok: boolean, sessionId?: string, entryCount?: number, error?: string }>}
+ */
+export async function appendVoiceSessionEvents(sessionId, payload = {}) {
+  const id = String(sessionId || '').trim();
+  return apiFetchJson(`/api/voice/sessions/${encodeURIComponent(id)}/events`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, 'appendVoiceSessionEvents', { timeoutMs: 15000 });
+}
+
+/**
+ * @param {string} sessionId
+ * @returns {Promise<{ ok: boolean, session?: object, error?: string }>}
+ */
+export async function fetchVoiceSessionLog(sessionId) {
+  const id = String(sessionId || '').trim();
+  return apiFetchJson(`/api/voice/sessions/${encodeURIComponent(id)}`, {}, 'fetchVoiceSessionLog', {
+    timeoutMs: 15000,
+  });
+}
+
+/**
+ * @param {number} [limit]
+ * @returns {Promise<{ ok: boolean, sessions?: object[], error?: string }>}
+ */
+export async function listVoiceSessionLogs(limit = 20) {
+  const query = Number.isFinite(limit) && limit > 0 ? `?limit=${Math.floor(limit)}` : '';
+  return apiFetchJson(`/api/voice/sessions${query}`, {}, 'listVoiceSessionLogs', { timeoutMs: 15000 });
 }
 
 const UPLOAD_MAX_DIMENSION_PX = 1568;

@@ -3,11 +3,13 @@
  * Makes logs readable from a phone, without dev tools.
  */
 import { initModal } from './lib/modal.js';
+import { cretliApiFetch } from './lib/cretliApiRequest.js';
 import {
   UI_FREEZE_DIAG_LS_KEY,
   LOGS_FILTER_ALL,
   LOGS_FILTER_FREEZE,
   LOGS_FILTER_RESUME,
+  LOGS_FILTER_VOICE,
   matchesLogsPanelFilter,
 } from './lib/uiFreezeTrace.js';
 import {
@@ -298,7 +300,7 @@ export function installClientDebugInstrumentation() {
       lines: lines.slice(-120),
     });
     try {
-      fetch(`${window.location.origin || ''}/api/client-debug-log`, {
+      cretliApiFetch(`${window.location.origin || ''}/api/client-debug-log`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -355,15 +357,24 @@ export function installClientDebugInstrumentation() {
   }
 
   let hbN = 0;
-  window.setInterval(() => {
-    hbN += 1;
-    let extra = '';
-    if (typeof performance !== 'undefined' && performance.memory?.usedJSHeapSize) {
-      extra = ` heap≈${Math.round(performance.memory.usedJSHeapSize / 1048576)}MiB`;
-    }
-    appLogger.log('debug-heartbeat', `#${hbN}${extra}`);
-    flushRemote('heartbeat');
-  }, 8000);
+  /** @type {ReturnType<typeof setInterval> | null} */
+  let debugHeartbeatTimerId = null;
+  if (remoteEnabled) {
+    debugHeartbeatTimerId = window.setInterval(() => {
+      hbN += 1;
+      let extra = '';
+      if (typeof performance !== 'undefined' && performance.memory?.usedJSHeapSize) {
+        extra = ` heap≈${Math.round(performance.memory.usedJSHeapSize / 1048576)}MiB`;
+      }
+      appLogger.log('debug-heartbeat', `#${hbN}${extra}`);
+      flushRemote('heartbeat');
+    }, 8000);
+    window.addEventListener('pagehide', () => {
+      if (!debugHeartbeatTimerId) return;
+      window.clearInterval(debugHeartbeatTimerId);
+      debugHeartbeatTimerId = null;
+    }, { once: true });
+  }
 
   document.addEventListener(
     'visibilitychange',
@@ -671,6 +682,7 @@ export function initLogsPanel() {
         { value: LOGS_FILTER_ALL, label: t('logs.filterAll') },
         { value: LOGS_FILTER_FREEZE, label: t('logs.filterFreeze') },
         { value: LOGS_FILTER_RESUME, label: t('logs.filterResume') },
+        { value: LOGS_FILTER_VOICE, label: t('logs.filterVoice') },
       ];
     }
     applyLogsFilterOptions();

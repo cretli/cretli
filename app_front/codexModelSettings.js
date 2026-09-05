@@ -285,11 +285,75 @@ async function refreshCodexStatusPanel() {
   }
 }
 
+function showCodexReloginHint(show) {
+  const hintEl = document.getElementById('codex-model-settings-relogin-hint');
+  if (!hintEl) return;
+  if (!show) {
+    hintEl.hidden = true;
+    hintEl.textContent = '';
+    return;
+  }
+  hintEl.hidden = false;
+  hintEl.textContent = t('settings.harnessCodexModelsReloginHint');
+}
+
+/**
+ * @param {Record<string, unknown>} modelsData
+ * @returns {void}
+ */
+function applyCodexModelsPayload(modelsData) {
+  settingsModelCatalog = enrichCatalogEntryMetaList(
+    Array.isArray(modelsData.catalog) && modelsData.catalog.length > 0
+      ? modelsData.catalog
+      : buildCatalogFromCodexModels(modelsData.models),
+  );
+}
+
+async function refreshCodexModelsCatalogFromCli() {
+  const statusEl = document.getElementById('codex-model-settings-status');
+  const refreshBtn = document.getElementById('codex-model-settings-refresh-btn');
+  if (statusEl) statusEl.textContent = t('settings.harnessCodexModelsRefreshing');
+  showCodexReloginHint(false);
+  if (refreshBtn) refreshBtn.disabled = true;
+  try {
+    const modelsData = await api.getCodexModels({ refresh: true });
+    if (!modelsData?.ok) {
+      if (statusEl) statusEl.textContent = modelsData?.error || t('settings.chatModelsLoadError');
+      return;
+    }
+    settingsModelCatalog = enrichCatalogEntryMetaList(
+      Array.isArray(modelsData.catalog) && modelsData.catalog.length > 0
+        ? modelsData.catalog
+        : buildCatalogFromCodexModels(modelsData.models),
+    );
+    syncSortSelectUi();
+    renderModelSettingsList();
+    const reloginHint = modelsData.reloginHint === true;
+    showCodexReloginHint(reloginHint);
+    if (statusEl) {
+      statusEl.textContent = reloginHint ? t('settings.harnessCodexModelsReloginHint') : '';
+    }
+    window.dispatchEvent(new CustomEvent('cretli-codex-models-changed', {
+      detail: {
+        catalog: settingsModelCatalog,
+        models: modelsData.models,
+        modelsSource: modelsData.modelsSource,
+        reloginHint,
+      },
+    }));
+  } catch {
+    if (statusEl) statusEl.textContent = t('settings.chatModelsLoadError');
+  } finally {
+    if (refreshBtn) refreshBtn.disabled = false;
+  }
+}
+
 async function loadCodexModelSettingsData() {
   const statusEl = document.getElementById('codex-model-settings-status');
   const summaryEl = document.getElementById('codex-model-settings-summary');
   if (statusEl) statusEl.textContent = t('settings.chatModelsLoading');
   if (summaryEl) summaryEl.textContent = t('settings.chatModelsLoading');
+  showCodexReloginHint(false);
   void refreshCodexStatusPanel();
   try {
     const settingsData = await api.getSettings();
@@ -353,11 +417,18 @@ export function initCodexModelSettings() {
   const clearBtn = document.getElementById('codex-model-settings-clear-btn');
   const searchInput = document.getElementById('codex-model-settings-search');
   const sortSelect = document.getElementById('codex-model-settings-sort');
+  const refreshBtn = document.getElementById('codex-model-settings-refresh-btn');
   const statusEl = document.getElementById('codex-model-settings-status');
   if (!listEl || !saveBtn) return;
   settingsSortMode = readSettingsSortMode();
   syncSortSelectUi();
-  window.addEventListener('cr-lang-changed', () => syncSortSelectUi());
+  window.addEventListener('cr-lang-changed', () => {
+    syncSortSelectUi();
+    const hintEl = document.getElementById('codex-model-settings-relogin-hint');
+    if (hintEl && !hintEl.hidden) {
+      hintEl.textContent = t('settings.harnessCodexModelsReloginHint');
+    }
+  });
   window.addEventListener('cretli-codex-key-changed', () => {
     void loadCodexModelSettingsData();
   });
@@ -384,6 +455,11 @@ export function initCodexModelSettings() {
     clearBtn.addEventListener('click', () => {
       setDraftEnabledKeys([]);
       renderModelSettingsList();
+    });
+  }
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', () => {
+      void refreshCodexModelsCatalogFromCli();
     });
   }
   saveBtn.addEventListener('click', () => {

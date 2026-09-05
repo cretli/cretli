@@ -166,6 +166,11 @@ function onRestartClick() {
   void restartServer({ source: 'connection-status' });
 }
 
+function onReloadPageClick() {
+  if (typeof location === 'undefined' || typeof location.reload !== 'function') return;
+  location.reload();
+}
+
 /**
  * Opens the connection status dialog and refreshes live data.
  */
@@ -189,6 +194,8 @@ export function initConnectionStatusPanel() {
   if (closeBtn) closeBtn.addEventListener('click', () => dialogEl.hide());
   const restartBtn = document.getElementById('connection-status-restart');
   if (restartBtn) restartBtn.addEventListener('click', onRestartClick);
+  const reloadBtn = document.getElementById('connection-status-reload');
+  if (reloadBtn) reloadBtn.addEventListener('click', onReloadPageClick);
   if (typeof window === 'undefined') return;
   window.addEventListener('cretli-connection-status', refreshLiveRows);
   window.addEventListener('cr-lang-changed', () => {

@@ -14,6 +14,9 @@ const FALLBACK_LABELS = {
   'status.agentWorkingQueued': 'Agent working · queue: {count}',
   'status.needsAction': 'Needs action',
   'status.ready': 'Ready',
+  'chat.delegationStatus.completed': 'Completed',
+  'chat.delegationStatus.failed': 'Failed',
+  'chat.delegationStatus.interrupted': 'Interrupted',
 };
 
 /**
@@ -62,11 +65,25 @@ export function readHarnessPendingFlags(chat) {
  */
 export function hasLiveHarnessWork(chat) {
   if (!chat) return false;
-  if (chat._sdkServerBusy === true) return true;
-  if (readQueuedCount(chat._sdkServerQueuedCount) > 0) return true;
-  if (readQueuedCount(chat._sdkRichView?.queuedCount) > 0) return true;
+  if (hasActiveAgentRun(chat)) return true;
   const pending = readHarnessPendingFlags(chat);
-  return pending.hasPendingQuestion || pending.hasPendingPermission;
+  if (pending.hasPendingQuestion || pending.hasPendingPermission) return true;
+  return chat._serverRunState?.state === 'waiting';
+}
+
+/**
+ * True when the agent is in an active run (busy or queued), not waiting on the user.
+ *
+ * @param {object|null|undefined} chat
+ * @returns {boolean}
+ */
+export function hasActiveAgentRun(chat) {
+  if (!chat) return false;
+  if (chat._agentState === 'active') return true;
+  if (chat._sdkServerBusy === true) return true;
+  if (chat._serverRunState?.state === 'busy') return true;
+  if (readQueuedCount(chat._sdkServerQueuedCount) > 0) return true;
+  return readQueuedCount(chat._sdkRichView?.queuedCount) > 0;
 }
 
 /**
@@ -78,6 +95,7 @@ export function resolveChatListDotState(tone) {
   if (tone === 'idle') return 'idle';
   if (
     tone === 'awaiting'
+    || tone === 'attention'
     || tone === 'approval'
     || tone === 'question'
     || tone === 'textarea'
@@ -106,12 +124,36 @@ function resolveLiveHarnessStateMeta(input, translate) {
 }
 
 /**
+ * @param {object | null | undefined} serverRunState
+ * @param {(key: string, vars?: Record<string, string|number>|null) => string} translate
+ * @returns {ChatStatusMeta | null}
+ */
+function resolveServerRunStateMeta(serverRunState, translate) {
+  if (!serverRunState || typeof serverRunState !== 'object') return null;
+  const state = String(serverRunState.state || '');
+  if (state === 'waiting') {
+    return { tone: 'awaiting', label: translate('status.needsAction') };
+  }
+  if (state === 'busy') {
+    return { tone: 'active', label: translate('status.agentWorking') };
+  }
+  if (state === 'attention') {
+    const status = String(serverRunState.delegationStatus || 'completed');
+    const key = `chat.delegationStatus.${status}`;
+    const label = translate(key);
+    return { tone: 'attention', label: label === key ? status : label };
+  }
+  return null;
+}
+
+/**
  * @param {object} [input]
  * @param {string} [input.connection]
  * @param {string} [input.agent]
  * @param {boolean} [input.hasPendingQuestion]
  * @param {boolean} [input.hasPendingPermission]
  * @param {number} [input.queuedCount]
+ * @param {object | null} [input.serverRunState]
  * @param {(key: string, vars?: Record<string, string|number>|null) => string} [input.translate]
  * @returns {ChatStatusMeta}
  */
@@ -123,6 +165,8 @@ export function resolveHarnessChatStateMeta(input = {}) {
   }
   const liveMeta = resolveLiveHarnessStateMeta(input, translate);
   if (liveMeta) return liveMeta;
+  const serverMeta = resolveServerRunStateMeta(input.serverRunState, translate);
+  if (serverMeta) return serverMeta;
   if (connection === 'disconnected') {
     return { tone: 'disconnected', label: translate('status.disconnected') };
   }

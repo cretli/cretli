@@ -28,6 +28,7 @@ const dictionaryLoaders = {
 };
 
 let currentLang = DEFAULT_LANG;
+const missingI18nKeys = new Set();
 
 /** Detects the language: localStorage > navigator (if pl) > default. */
 function detectLang() {
@@ -111,7 +112,13 @@ export function t(key, vars = null) {
   const dict = dictionaries[currentLang] || dictionaries[DEFAULT_LANG];
   let str = lookup(dict, key);
   if (str === undefined) str = lookup(dictionaries[DEFAULT_LANG], key);
-  if (str === undefined) return key;
+  if (str === undefined) {
+    if (!missingI18nKeys.has(key)) {
+      missingI18nKeys.add(key);
+      console.warn(`[i18n] missing key: ${key}`);
+    }
+    return key;
+  }
   if (vars) {
     for (const [k, v] of Object.entries(vars)) {
       str = str.split(`{${k}}`).join(String(v));

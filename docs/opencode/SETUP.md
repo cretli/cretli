@@ -33,8 +33,9 @@ The chat shows **“Needs action”** while a question or permission is pending.
 
 - Toggle **Plan** in the mode bar (same as SDK).
 - OpenCode receives a plan-only system prompt.
-- Mutating tools (`edit`, `write`, `shell`, …) are blocked server-side; the UI shows **Plan mode blocked** (`sdkPlanGuard`).
-- Switch to **Agent** to apply changes.
+- Mutating tools (`edit`, `write`, `bash`/`shell`, …) are denied by the session permission ruleset and auto-rejected if a permission prompt still appears. The UI shows **Plan mode blocked** (`sdkPlanGuard`). This is tool deny, not a Linux sandbox.
+- Approving a plan in the OpenCode **question** UI (implement / yes) switches the chat to **Agent**, lifts write permissions, then sends the answer — so the same turn can implement. **Reject** or a decline option stays in Plan.
+- You can still switch to **Agent** yourself, or use **Build plan**.
 
 ## Queue and reconnect
 
@@ -52,7 +53,7 @@ The chat shows **“Needs action”** while a question or permission is pending.
 | “OpenCode client unavailable” | Check `opencode` binary path; inspect server logs for serve startup |
 | `spawn opencode EACCES` | Cretli is not root but PATH still includes `/root/...` (typical Cursor remote). Restart after this fix — unreadable PATH dirs are dropped and a found CLI (`opencodeBin`, bundled `opencode-*`, or `~/.opencode/bin`) is prepended |
 | Stale serve / wrong port | Stop orphan `opencode serve` processes; restart Cretli |
-| Permission still in terminal | Upgrade to a build with permission UI; ensure chat uses `agentTransport: opencode` |
+| `Permission still in terminal` / `Permission request not found` | Restart Cretli after this harness fix; replies now send workspace `directory` (and fall back to `/permission/{id}/reply`). Upgrade OpenCode if the prompt still never appears. |
 | Empty model list | Verify a Zen or Z.AI key and `GET /provider` on the local serve port |
 
 ## Developer reference

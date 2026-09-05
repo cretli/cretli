@@ -4,7 +4,7 @@ The Codex chat harness uses the official [Codex SDK](https://learn.chatgpt.com/d
 
 The SDK and CLI are **optional** npm dependencies. Other harnesses work without them.
 
-This path is the TypeScript exec SDK, not Codex App Server. Interactive Once/Always/Reject approvals are out of scope. `approvalPolicy` is `never`. Linux `workspace-write` / `read-only` sandboxes use bwrap and fail with `Can't mkdir <cwd>/.git` when the workspace folder is not a git repo (common for Cretli `.code-workspace` roots), so Cretli uses `sandboxMode: danger-full-access`. Plan mode still uses a prompt hint plus the existing plan-guard.
+This path is the TypeScript exec SDK, not Codex App Server. Interactive Once/Always/Reject approvals are out of scope. `approvalPolicy` is `never`. Linux `workspace-write` / `read-only` sandboxes use bwrap and fail with `Can't mkdir <cwd>/.git` when the workspace folder is not a git repo (common for Cretli `.code-workspace` roots), so Cretli uses `sandboxMode: danger-full-access`. Plan mode is prompt-only: the model is told not to mutate, but Cretli does not abort the Codex turn. Codex exec is almost all shell (`/bin/bash -lc '…'` plus `rg`/`cat`/`web_search`); a host-side mutation heuristic kept cancelling read-only exploration.
 
 ## Requirements
 
@@ -20,8 +20,8 @@ Runtime data lives in `data/codex-home/` (isolated `CODEX_HOME`, never `~/.codex
 
 1. Confirm Settings → Harness shows Codex as ready (package + CLI + ChatGPT session or API key).
 2. New chat → harness **Codex**.
-3. Default model is `gpt-5.6-sol` (override with `CODEX_DEFAULT_MODEL` or the chat picker). Also listed: `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.6`, `gpt-5.4`.
-4. Both Plan and Agent use `sandboxMode: danger-full-access` (see above). Plan still adds a prompt hint. `approvalPolicy` is `never` (headless exec).
+3. Default model is `gpt-5.6-sol` when using an API key (override with `CODEX_DEFAULT_MODEL` or the chat picker). On a **ChatGPT plan** the picker uses the account catalog Codex writes to `data/codex-home/models_cache.json` — models that are not in that list (often `gpt-6-astra` / Sol during rollout) will 400. Fallback list for API-key mode: `gpt-6-astra`, `gpt-5.6-sol` / `gpt-5.6`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.3-codex-spark`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`.
+4. Both Plan and Agent use `sandboxMode: danger-full-access` (see above). Plan adds a prompt hint only — the stream is not aborted. Do not treat Codex Plan as a hard write block. `approvalPolicy` is `never` (headless exec).
 
 Stop aborts the in-flight `codex exec` process (`AbortSignal`). The next prompt resumes `codexThreadId`.
 
@@ -29,7 +29,7 @@ Stop aborts the in-flight `codex exec` process (`AbortSignal`). The next prompt 
 
 - **Package missing** — `npm install @openai/codex-sdk`.
 - **CLI not found** — install `@openai/codex`, or set `CODEX_BIN`.
-- **Termux / Android (`findCodexExecutable`)** — Node reports `platform: android`, so npm skips the linux optional package. The JS wrapper then throws. Match the installed Codex version, e.g. `npm install @openai/codex-linux-arm64@npm:@openai/codex@0.152.1-linux-arm64 --force`, then restart the server. If the musl binary still fails to execute, Codex CLI is not usable on that device.
+- **Termux / Android (`findCodexExecutable`)** — Node reports `platform: android`, so npm skips the linux optional package. The JS wrapper then throws. Match the installed Codex version, e.g. `npm install @openai/codex-linux-arm64@npm:@openai/codex@0.153.4-linux-arm64 --force`, then restart the server. If the musl binary still fails to execute, Codex CLI is not usable on that device.
 - **Missing credentials** — Settings → Harness → Codex: sign in with ChatGPT, or set `CODEX_API_KEY`.
 - **Device-code login fails** — enable device-code authorization in ChatGPT security settings, then retry Sign in with ChatGPT.
 - **Termux `error sending request for url (…/deviceauth/usercode)`** — the musl Codex binary cannot see Android `/etc/resolv.conf` or CA certs. Install `pkg install proot ca-certificates`, restart Cretli. Cretli then wraps `codex` with proot and sets `SSL_CERT_FILE` / `CODEX_CA_CERTIFICATE` to `$PREFIX/etc/tls/cert.pem`.

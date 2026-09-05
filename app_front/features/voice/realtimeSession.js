@@ -20,10 +20,24 @@ import {
   listAudioOutputChoices,
   openLiveMicrophone,
   openMicByDeviceId,
+  playLiveOutputTest,
+  remoteStreamFromTrackEvent,
 } from './liveAudioRoute.js';
 import { executeRealtimeTool } from './realtimeTools.js';
 import { createVoiceCostTracker } from './voiceCost.js';
 import { createPendingEndSession } from './voiceEndSession.js';
+import { appendVoiceSessionEvent, getVoiceSessionLogId } from './voiceSessionLog.js';
+
+const TRACE_REALTIME_EVENTS = new Set([
+  'session.created',
+  'session.updated',
+  'response.created',
+  'response.done',
+  'response.function_call_arguments.done',
+  'error',
+  'input_audio_buffer.speech_started',
+  'input_audio_buffer.speech_stopped',
+]);
 
 const OPENAI_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 /** Older audio items are re-billed as input on every later turn. */
@@ -157,6 +171,26 @@ export function createRealtimeSession(callbacks = {}) {
     }
   }
 
+  function applyLiveTurnDetection() {
+    sendEvent({
+      type: 'session.update',
+      session: {
+        type: 'realtime',
+        audio: {
+          input: {
+            turn_detection: {
+              type: 'server_vad',
+              threshold: 0.55,
+              prefix_padding_ms: 300,
+              silence_duration_ms: 900,
+              interrupt_response: false,
+            },
+          },
+        },
+      },
+    });
+  }
+
   /**
    * @param {string} callId
    * @param {string} name
@@ -178,12 +212,18 @@ export function createRealtimeSession(callbacks = {}) {
     if (myEpoch !== epoch) return;
 
     if (typeof callbacks.onToolCall === 'function') callbacks.onToolCall({ name, args, result });
+    const output = JSON.stringify(result);
+    appendVoiceSessionEvent('rt.tool_output', {
+      name,
+      resultBytes: output.length,
+    });
     sendEvent({
       type: 'conversation.item.create',
-      item: { type: 'function_call_output', call_id: callId, output: JSON.stringify(result) },
+      item: { type: 'function_call_output', call_id: callId, output },
     });
     // Without an explicit response the model waits silently for the next turn.
     sendEvent({ type: 'response.create' });
+    appendVoiceSessionEvent('rt.out', { name: 'response.create' });
     if (result?.endSession === true) endSession.request({ skipCompletions: 1 });
   }
 
@@ -199,6 +239,15 @@ export function createRealtimeSession(callbacks = {}) {
       return;
     }
     const type = String(payload?.type || '');
+    if (TRACE_REALTIME_EVENTS.has(type)) {
+      appendVoiceSessionEvent('rt.event', {
+        name: type,
+        detail: type === 'error' ? String(payload?.error?.message || '') : '',
+        meta: type === 'response.done' && payload?.response?.usage
+          ? { usage: payload.response.usage }
+          : undefined,
+      });
+    }
 
     if (type === 'conversation.item.created' && payload?.item?.id) {
       itemIds.push(String(payload.item.id));
@@ -263,6 +312,7 @@ export function createRealtimeSession(callbacks = {}) {
         lang: getCurrentLang(),
         voice: options.voice,
         model: options.model,
+        sessionId: getVoiceSessionLogId(),
       });
       if (myEpoch !== epoch) {
         releaseResources();
@@ -319,11 +369,15 @@ export function createRealtimeSession(callbacks = {}) {
           void playback.setSink(liveMic.outputId);
         }, SCO_SETTLE_MS);
       }
+      if (playback) void playback.resume();
 
       peer = new RTCPeerConnection();
       peer.ontrack = (event) => {
-        if (!event.streams[0] || !playback) return;
-        playback.attachRemoteStream(event.streams[0]);
+        if (!playback) return;
+        const stream = remoteStreamFromTrackEvent(event);
+        if (!stream) return;
+        playback.attachRemoteStream(stream);
+        void playback.resume();
         if (liveMic.outputId) void playback.setSink(liveMic.outputId);
       };
       peer.onconnectionstatechange = () => {
@@ -368,6 +422,10 @@ export function createRealtimeSession(callbacks = {}) {
       }
 
       setStatus('live');
+      if (channel) {
+        if (channel.readyState === 'open') applyLiveTurnDetection();
+        else channel.addEventListener('open', () => applyLiveTurnDetection(), { once: true });
+      }
       touchIdle();
       return true;
     } catch (error) {
@@ -444,6 +502,11 @@ export function createRealtimeSession(callbacks = {}) {
       } catch {
         return [];
       }
+    },
+
+    playTestTone(sinkId) {
+      if (playback?.playTestTone) return playback.playTestTone(sinkId);
+      return playLiveOutputTest({ sinkId: sinkId || '' });
     },
 
     /**

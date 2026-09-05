@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  hasActiveAgentRun,
   hasLiveHarnessWork,
   readHarnessPendingFlags,
   resolveChatListDotState,
@@ -113,12 +114,44 @@ const inputTranslated = resolveHarnessChatStateMeta({
 assert.equal(inputTranslated.label, 'T:status.ready');
 
 assert.equal(hasLiveHarnessWork(null), false);
-assert.equal(hasLiveHarnessWork({ _agentState: 'active' }), false);
+assert.equal(hasLiveHarnessWork({ _agentState: 'active' }), true);
 assert.equal(hasLiveHarnessWork({ _sdkServerBusy: true }), true);
 assert.equal(hasLiveHarnessWork({ _sdkServerQueuedCount: 2 }), true);
 assert.equal(hasLiveHarnessWork({ _sdkRichView: { queuedCount: 1 } }), true);
 assert.equal(hasLiveHarnessWork({ _opencodePendingQuestion: { id: 'q1' } }), true);
 assert.equal(hasLiveHarnessWork({ _sdkServerPendingPermissionCount: 1 }), true);
 assert.equal(hasLiveHarnessWork({ _agentState: 'idle', _sdkServerBusy: false }), false);
+assert.equal(hasActiveAgentRun({ _agentState: 'active' }), true);
+assert.equal(hasActiveAgentRun({ _opencodePendingQuestion: { id: 'q1' } }), false);
+assert.equal(hasLiveHarnessWork({ _serverRunState: { state: 'busy' } }), true);
+assert.equal(hasActiveAgentRun({ _serverRunState: { state: 'busy' } }), true);
+assert.equal(hasLiveHarnessWork({ _serverRunState: { state: 'waiting' } }), true);
+assert.equal(hasLiveHarnessWork({ _serverRunState: { state: 'attention' } }), false);
+
+const inputServerBusy = {
+  connection: 'disconnected',
+  agent: 'idle',
+  serverRunState: { state: 'busy' },
+};
+const actualServerBusy = resolveHarnessChatStateMeta(inputServerBusy);
+assert.equal(actualServerBusy.tone, 'active');
+
+const inputServerWaiting = {
+  connection: 'disconnected',
+  agent: 'idle',
+  serverRunState: { state: 'waiting', attention: true },
+};
+const actualServerWaiting = resolveHarnessChatStateMeta(inputServerWaiting);
+assert.equal(actualServerWaiting.tone, 'awaiting');
+
+const inputServerDone = {
+  connection: 'disconnected',
+  agent: 'idle',
+  serverRunState: { state: 'attention', delegationStatus: 'completed', attention: true },
+};
+const actualServerDone = resolveHarnessChatStateMeta(inputServerDone);
+assert.equal(actualServerDone.tone, 'attention');
+assert.equal(actualServerDone.label, 'Completed');
+assert.equal(resolveChatListDotState('attention'), 'awaiting');
 
 console.log('All chat status meta tests passed.');

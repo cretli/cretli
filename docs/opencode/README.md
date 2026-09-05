@@ -42,8 +42,8 @@ opencode serve (per workspace)
 |------|----------|--------|
 | Session | `POST /session`, `POST /session/{id}/prompt` | `opencode-agent-ws.js` |
 | Events | SSE `event.subscribe` | `opencode-server-manager.js` |
-| Question | `POST /api/session/{id}/question/{requestID}/reply\|reject` | `opencode-question.js` |
-| Permission | `POST /api/session/{id}/permission/{requestID}/reply` | `opencode-permission.js` |
+| Question | `POST /api/session/{id}/question/{requestID}/reply\|reject` (+ `directory` query/header; fallback `/question/{id}/…`) | `opencode-question.js` |
+| Permission | `POST /api/session/{id}/permission/{requestID}/reply` (+ `directory` query/header; fallback `/permission/{id}/reply`) | `opencode-permission.js` |
 | Health | `GET /doc` (OpenAPI) | setup script |
 
 ## Harness source files

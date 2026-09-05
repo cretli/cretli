@@ -129,6 +129,24 @@ npm run gen-cert
 
 Accept the self-signed warning in the phone browser.
 
+If `USE_HTTPS=1` (default for `npm start`) and `data/key.pem` / `data/cert.pem` are missing
+or invalid, the server **exits** with an error instead of falling back to HTTP. Generate
+certs with `npm run gen-cert` or set `USE_HTTPS=0 npm start` for local HTTP only.
+Custom `SSL_KEY_PATH` / `SSL_CERT_PATH` are not replaced by generated `data/` certs.
+
+When Cretli sits behind a reverse proxy, set `CRETLI_PUBLIC_ORIGIN` to the public
+browser origin of Cretli itself (full `https://host:port`). That origin is used to
+recognize the Cretli iframe when Node still sees HTTP. Additional authenticated
+browser Origins go in `CRETLI_EXTRA_WS_ORIGINS` (full `https://host:port` values);
+those extras are **not** treated as the Cretli iframe. Forwarded host headers alone
+do not grant WebSocket access. Widget access tokens, active installations, and chat
+scope checks still apply.
+
+`npm start` loads `.env` without executing it. Explicit process environment variables
+override `.env`; remaining HTTPS defaults are `USE_HTTPS=1`. Values such as
+`USE_HTTPS=0`, `CRETLI_DATA_DIR`, and custom `SSL_KEY_PATH` / `SSL_CERT_PATH` can
+live only in `.env` and still apply to certificate generation and the server.
+
 ## Docker
 
 ```bash
