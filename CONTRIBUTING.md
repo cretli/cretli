@@ -72,11 +72,12 @@ Label suggestions for maintainers: `good first issue`, `docs`, `harness:opencode
 
 ## Before opening a PR
 
-1. `npm test` passes.
-2. `npm run build:front:prod` succeeds.
-3. No private paths, keys, or internal notes in the diff.
-4. Update [CHANGELOG.md](CHANGELOG.md) under "Unreleased" if the change is user-facing.
-5. New files: English comments, guard clauses, no `any`-style sloppiness.
+1. `npm test` passes (includes a scan of git-tracked files for live-looking tokens).
+2. `npm run lint` passes.
+3. `npm run build:front:prod` succeeds.
+4. No private paths, keys, or internal notes in the diff.
+5. Update [CHANGELOG.md](CHANGELOG.md) under "Unreleased" if the change is user-facing.
+6. New files: English comments, guard clauses, no `any`-style sloppiness.
 
 ## Releases
 
