@@ -22,6 +22,11 @@ A release **freezes** that section:
 2. Leave an empty `## [Unreleased]` heading at the top.
 3. Update the compare links at the bottom of the file.
 
+## Local gates (before tag)
+
+`npm test` (includes the tracked-file token scan) and `npm run lint` must pass
+on Node >= 22.13. Do not push a tag if either fails.
+
 ## Tag and GitHub Release
 
 1. `package.json` (and the root entries in `package-lock.json`) already show
