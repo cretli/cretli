@@ -321,11 +321,7 @@ async function refreshCodexModelsCatalogFromCli() {
       if (statusEl) statusEl.textContent = modelsData?.error || t('settings.chatModelsLoadError');
       return;
     }
-    settingsModelCatalog = enrichCatalogEntryMetaList(
-      Array.isArray(modelsData.catalog) && modelsData.catalog.length > 0
-        ? modelsData.catalog
-        : buildCatalogFromCodexModels(modelsData.models),
-    );
+    applyCodexModelsPayload(modelsData);
     syncSortSelectUi();
     renderModelSettingsList();
     const reloginHint = modelsData.reloginHint === true;
@@ -368,11 +364,7 @@ async function loadCodexModelSettingsData() {
       }
       return;
     }
-    settingsModelCatalog = enrichCatalogEntryMetaList(
-      Array.isArray(modelsData.catalog) && modelsData.catalog.length > 0
-        ? modelsData.catalog
-        : buildCatalogFromCodexModels(modelsData.models),
-    );
+    applyCodexModelsPayload(modelsData);
     const enabledFromSettings = Array.isArray(settingsData?.codexChatEnabledModels)
       ? settingsData.codexChatEnabledModels
       : (Array.isArray(modelsData?.chatEnabledModels) ? modelsData.chatEnabledModels : []);
