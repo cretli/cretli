@@ -57,6 +57,8 @@ All notable changes to this project are documented here. The format is based on
   generated only for HTTPS with the default `data/` paths.
 
 ### Added
+- `npm test` scans git-tracked files for live-looking GitHub / API tokens and
+  private-key headers (`npm run test:secrets`). CI still runs gitleaks.
 - Sidebar chats can be **reordered** with a press-and-hold drag (same gesture as
   workspace groups). Hover another chat for ~0.5s (dashed, then solid outline) to
   nest it as a sub-chat; drag among roots to lift it back out. Custom order is
