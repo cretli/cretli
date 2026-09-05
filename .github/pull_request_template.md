@@ -12,7 +12,8 @@
 
 ## Checklist
 
-- [ ] `npm test` passes
+- [ ] `npm test` passes (includes the local token scan)
+- [ ] `npm run lint` succeeds
 - [ ] `npm run build:front:prod` succeeds
 - [ ] No secrets / private paths in the diff
 - [ ] CHANGELOG.md updated (if user-facing)

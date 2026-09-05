@@ -48,6 +48,7 @@
     "build:pwa-screenshots": "node scripts/generate-pwa-screenshots.mjs",
     "gen-cert": "node scripts/generate-lan-cert.mjs",
     "test": "node scripts/run-unit-tests.mjs",
+    "test:secrets": "node tests/secret-scan.test.js",
     "test:fork-title": "node scripts/test-fork-title.js",
     "test:generate-chat-title": "node scripts/test-generate-chat-title.js",
     "capture:status-flow": "node scripts/capture-status-flow-from-chat.js",
