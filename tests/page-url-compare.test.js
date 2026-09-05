@@ -27,3 +27,22 @@ test('findChatPinnedToPageUrl returns only one chat for equivalent URLs', () => 
   const linked = findChatPinnedToPageUrl(chats, 'http://host/page#top');
   assert.equal(linked?.id, 'a');
 });
+
+test('findChatPinnedToPageUrl prefers the newest pinned chat', () => {
+  const chats = [
+    {
+      id: 'old',
+      widgetPinnedUrl: 'http://host/page',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+    {
+      id: 'new',
+      widgetPinnedUrl: 'http://host/page/',
+      createdAt: '2026-09-04T12:00:00.000Z',
+      updatedAt: '2026-09-04T12:00:00.000Z',
+    },
+  ];
+  const linked = findChatPinnedToPageUrl(chats, 'http://host/page');
+  assert.equal(linked?.id, 'new');
+});

@@ -256,7 +256,7 @@ export function createPanelRouter(deps = {}) {
       runPanelReady('tasks', () => {
         fitTasksTerminal();
         preloadTasksDropdown();
-        void ensureTaskRunsReconnected().then(() => refreshTasksList());
+        void ensureTaskRunsReconnected().then(() => refreshTasksList({ invalidateCache: true }));
       });
     }
 

@@ -2,7 +2,13 @@
  * Chat panel: chat list, openTerminal(chat), ensureChatConnection, closeChat, selectChat, newChat, model select, send-keys.
  */
 import * as api from './core/api/index.js';
-import { applyDefaultNewChatHarnessToModal } from './harnessSettings.js';
+import {
+  applyDefaultNewChatHarnessToModal,
+  applyEnabledHarnesses,
+  applyHarnessOrder,
+  getEnabledHarnessIds,
+  isHarnessEnabledInSettings,
+} from './harnessSettings.js';
 import { AGENT_TRANSPORTS, getChatAgentTransport } from '../lib/agent-transport.js';
 import { appLogger } from './logger.js';
 import {
@@ -22,7 +28,22 @@ import { setChatStatus } from './connectionStatus.js';
 import { createSendBar } from './sendBar.js';
 import { initModal } from './lib/modal.js';
 import { showChoiceDialog } from './lib/choiceDialog.js';
-import { buildHarnessHandoffPrompt, parseInheritedPrompt, resolveInheritedPromptEcho } from '../lib/conversation-fork.js';
+import {
+  buildHarnessHandoffPrompt,
+  parseInheritedPrompt,
+  resolveInheritedPromptEcho,
+  resolvePendingInheritedSend,
+} from '../lib/conversation-fork.js';
+import { resolveHarnessSwitchNest } from '../lib/chat-tree.js';
+import { buildApprovedPlanImplementPrompt } from '../lib/chat-plan-path.js';
+import {
+  parseDelegationCommand,
+  readLastDelegationExecutor,
+  startDelegationFromParent,
+  prepareBuildPlanModal,
+  clearDelegationPlanPreview,
+  getDelegationApprovedPlanRevision,
+} from './features/chat/chatDelegations.js';
 import { t } from './i18n/index.js';
 import { initDropdown } from './lib/dropdown.js';
 import { createFavoritesStore } from './lib/favorites.js';
@@ -53,11 +74,13 @@ import {
 } from './inputDispatch.js';
 import { parseTerminalInteraction, resolveTerminalState } from '../lib/status-parser.js';
 import {
+  hasActiveAgentRun,
   hasLiveHarnessWork,
   readHarnessPendingFlags,
   resolveChatListDotState,
   resolveHarnessChatStateMeta,
 } from './features/chat/chatStatusMeta.js';
+import { shouldSkipChatDeleteConfirm } from './features/chat/chatDeleteConfirm.js';
 import { normalizeSdkMode } from '../lib/sdk/sdk-mode.js';
 import { maybeRecoverMissedSdkRunOutcome } from './features/chat/sdkRunOutcomeRecovery.js';
 import { normalizeSdkUiMode } from '../lib/sdk/sdk-ui-mode.js';
@@ -161,6 +184,7 @@ import {
   getSdkVerboseLogsEnabled,
 } from './features/chat/chatSettingsPrefs.js';
 import { escapeHtml } from './features/chat/chatHtmlUtils.js';
+import { applySidebarChatStatusEl } from './features/sidebar/sidebarChatStatus.js';
 import {
   scheduleChatSendBarReserveSync,
   getChatSendBarResizeObserver,
@@ -305,8 +329,13 @@ let chatSettingsVoiceRead;
 let chatNewModalApi;
 /** @type {string|null} */
 let forkSourceChatId = null;
+/** Inclusive history cut for per-message fork; null means copy the full parent. */
+/** @type {string|null} */
+let forkUpToCreatedAt = null;
 /** @type {string|null} */
 let monitorSourceChatId = null;
+/** @type {string|null} */
+let buildPlanSourceChatId = null;
 let chatDeleteConfirmModalApi;
 let chatContextDetailsModalApi;
 let pendingDeleteChatId = null;
@@ -616,6 +645,63 @@ function filterOutputPassiveTitle(chat, data, opts = {}) {
   return false;
 }
 
+/** Matches the default title the server assigns when a chat is created without a name ("Chat 12"). */
+const DEFAULT_CHAT_TITLE_RE = /^chat \d+$/i;
+
+/** Max length of the first message sent to the backend title generator. */
+const AUTO_NAME_PROMPT_MAX_CHARS = 4000;
+
+/**
+ * @param {unknown} title
+ * @returns {boolean} true when the chat still carries the auto-assigned default name
+ */
+function isDefaultChatTitle(title) {
+  return DEFAULT_CHAT_TITLE_RE.test(String(title || '').trim());
+}
+
+/**
+ * When "Automatic name for a new chat" is enabled and the chat still has the
+ * default title, generate a title from the first message via the backend
+ * one-shot agent and patch the chat (the conversation itself is untouched).
+ * @param {object} chat
+ * @param {string} messageText
+ */
+function maybeAutoNameNewChat(chat, messageText) {
+  if (!chat?.id) return;
+  if (!getAutoNameChatEnabled()) return;
+  if (chat._autoNameRequested) return;
+  if (!isDefaultChatTitle(chat.title)) return;
+  const text = String(messageText || '').trim();
+  if (!text) return;
+  chat._autoNameRequested = true;
+  const promptText = text.slice(0, AUTO_NAME_PROMPT_MAX_CHARS);
+  const payload = {
+    text: promptText,
+    workspaceFile: chat.workspaceFile || undefined,
+    workspaceFolder: chat.workspaceFolder || undefined,
+  };
+  if (chat.model) payload.model = chat.model;
+  debugAutoTitle('auto-name', { chatId: chat.id, textLen: promptText.length });
+  appLogger.log('api-request', 'POST /api/generate-chat-title (auto-name)', { chatId: chat.id, textLen: promptText.length });
+  api.postGenerateChatTitle(payload).then((res) => {
+    appLogger.log('api-response', 'POST /api/generate-chat-title (auto-name)', res);
+    const title = res && res.ok && typeof res.title === 'string' ? res.title.trim() : '';
+    if (title) {
+      patchChatTitle(chat, title, {
+        source: 'auto-name',
+        logLabel: 'auto-name (first message):',
+      });
+      return;
+    }
+    // Generation failed — allow a retry on the next sent message.
+    chat._autoNameRequested = false;
+  }).catch((err) => {
+    appLogger.log('api-error', 'POST /api/generate-chat-title (auto-name)', String(err));
+    debugAutoTitle('auto-name error', { chatId: chat.id, err: String(err) });
+    chat._autoNameRequested = false;
+  });
+}
+
 /** Appends output to the chat buffer (max CHAT_BUFFER_MAX) and persists it to localStorage (throttled to 5s). */
 function appendToChatBuffer(chat, data) {
   if (!chat || !data) return;
@@ -915,8 +1001,12 @@ export async function createPageLinkedChat(params = {}) {
         chatId: existing.id.slice(0, 8),
         pinnedUrl: getChatWidgetPinnedUrl(existing) || pageUrl,
       });
-      await loadChatsFromServer({ pinnedTo: pageUrl, skipAutoSelect: true });
-      performSelectChat(existing.id);
+      await loadChatsFromServer({
+        pinnedTo: pageUrl,
+        skipAutoSelect: true,
+        preferChatId: existing.id,
+      });
+      adoptCreatedChat(existing);
       notifyWidgetParentPagePinChanged();
       return { ok: true, chat: existing, reused: true };
     }
@@ -947,9 +1037,13 @@ export async function createPageLinkedChat(params = {}) {
     if (!data?.ok || !data.chat?.id) {
       return { ok: false, error: data?.error || t('chat.createChatFailed') };
     }
-    await loadChatsFromServer({ pinnedTo: pageUrl, skipAutoSelect: true });
-    const createdChat = getChatsList().find((entry) => entry.id === data.chat.id) || data.chat;
-    performSelectChat(data.chat.id);
+    setForcedEmbedChatId(data.chat.id);
+    await loadChatsFromServer({
+      pinnedTo: pageUrl,
+      skipAutoSelect: true,
+      preferChatId: data.chat.id,
+    });
+    const createdChat = adoptCreatedChat(data.chat) || data.chat;
     syncWidgetPinUrlUi(createdChat);
     notifySidebar();
     renderChatList();
@@ -959,7 +1053,7 @@ export async function createPageLinkedChat(params = {}) {
       pinnedUrl: getChatWidgetPinnedUrl(createdChat) || pageUrl,
       hasPane: !!createdChat?.pane,
     });
-    return { ok: true, chat: data.chat, reused: false };
+    return { ok: true, chat: createdChat, reused: false };
   } catch (error) {
     appLogger.log('widget-plus', 'createPageLinkedChat error', String(error));
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -1172,6 +1266,26 @@ function inheritedPromptLabelForKind(kind) {
 }
 
 /**
+ * Use the stored fork/handoff prompt on the first user send instead of auto-sending it.
+ *
+ * @param {object} chat
+ * @param {string} userText
+ * @returns {{ payloadText: string, displayText: string } | null}
+ */
+function consumePendingInheritedPrompt(chat, userText) {
+  const pending = typeof chat?._pendingInheritedPrompt === 'string'
+    ? chat._pendingInheritedPrompt.trim()
+    : '';
+  if (!pending) return null;
+  const defaultDraft = typeof chat._pendingInheritedDisplayText === 'string'
+    ? chat._pendingInheritedDisplayText
+    : '';
+  delete chat._pendingInheritedPrompt;
+  delete chat._pendingInheritedDisplayText;
+  return resolvePendingInheritedSend(pending, defaultDraft, userText);
+}
+
+/**
  * @param {string[]} list
  * @param {string} userText
  * @returns {number}
@@ -1282,7 +1396,7 @@ function appendSdkQueuedPromptLine(chat, userText, position) {
   if (!raw) return;
   if (chat._sdkRichView?.hasQueuedOrSentUserText?.(raw)) return;
   const pos = Math.max(1, Number(position) || 1);
-  const line = `\n> [kolejka #${pos}] ${raw}\n`;
+  const line = `\n> ${t('chatUi.queuedPlainTag', { n: pos })} ${raw}\n`;
   processAgentOutput(chat, line);
   if (chat._sdkRichView) {
     chat._sdkRichView.appendQueuedPrompt(raw, pos);
@@ -1412,13 +1526,24 @@ function loadModelsForPendingHarness(bar, harness, resetModel = true) {
   bar.pickerStep = 'model';
   if (resetModel) bar.model = '';
   syncPendingHarnessBarModels(bar, nextHarness);
-  if (bar.models.length === 0) {
+  const catalogFetchAlreadyAttempted = bar._pendingModelCatalogFetchHarness === nextHarness;
+  if (bar.models.length === 0 && !catalogFetchAlreadyAttempted) {
+    bar._pendingModelCatalogFetchHarness = nextHarness;
     void refreshPendingHarnessModelCatalog(nextHarness);
   }
 }
 
 function refreshPendingHarnessModelCatalog(harness) {
   const nextHarness = normalizeNewChatHarness(harness);
+  const syncLoadedModelsToModeBar = async () => {
+    const bar = document.querySelector('cr-sdk-mode-bar');
+    const pendingHarness = String(bar?.pendingHarness || '').trim();
+    if (!bar || normalizeNewChatHarness(pendingHarness) !== nextHarness) return;
+    syncPendingHarnessBarModels(bar, nextHarness);
+    await refreshSdkModeBarCombinedPicker({
+      reopenDropdown: bar.pickerStep === 'model',
+    });
+  };
   if (nextHarness === 'opencode') {
     if (pendingOpenCodeCatalogFetch) return pendingOpenCodeCatalogFetch;
     const chat = activeChatId ? chats.find((c) => c.id === activeChatId) : null;
@@ -1431,33 +1556,38 @@ function refreshPendingHarnessModelCatalog(harness) {
     return api.getOpenRouterModels().then((data) => {
       if (data?.ok) chatModelSelectApi.applyAvailableModelsFromOpenRouter(data);
       chatModelSelectApi.refreshModelSelectLabels();
+      return syncLoadedModelsToModeBar();
     }).catch(() => {});
   }
   if (nextHarness === 'codebuddy') {
     return api.getCodeBuddyModels().then((data) => {
       if (data?.ok) chatModelSelectApi.applyAvailableModelsFromCodeBuddy(data);
       chatModelSelectApi.refreshModelSelectLabels();
+      return syncLoadedModelsToModeBar();
     }).catch(() => {});
   }
   if (nextHarness === 'deepseek') {
     return api.getDeepSeekModels().then((data) => {
       if (data?.ok) chatModelSelectApi.applyAvailableModelsFromDeepSeek(data);
       chatModelSelectApi.refreshModelSelectLabels();
+      return syncLoadedModelsToModeBar();
     }).catch(() => {});
   }
   if (nextHarness === 'qwen') {
     return api.getQwenModels().then((data) => {
       if (data?.ok) chatModelSelectApi.applyAvailableModelsFromQwen(data);
       chatModelSelectApi.refreshModelSelectLabels();
+      return syncLoadedModelsToModeBar();
     }).catch(() => {});
   }
   if (nextHarness === 'codex') {
     return api.getCodexModels().then((data) => {
       if (data?.ok) chatModelSelectApi.applyAvailableModelsFromCodex(data);
       chatModelSelectApi.refreshModelSelectLabels();
+      return syncLoadedModelsToModeBar();
     }).catch(() => {});
   }
-  return refreshModelCatalogFromServer();
+  return refreshModelCatalogFromServer().then(syncLoadedModelsToModeBar);
 }
 
 function rememberPendingHarnessSwitch(chat, harness) {
@@ -1479,6 +1609,7 @@ function clearPendingHarnessSwitch(chat) {
   if (bar) {
     bar.pendingHarness = '';
     bar.pickerStep = 'harness';
+    delete bar._pendingModelCatalogFetchHarness;
   }
   if (chat) syncChatSdkModeUi(chat);
 }
@@ -1528,6 +1659,7 @@ async function promptOldChatDispositionChoice() {
 
 async function applyOldChatDisposition(oldChat, newChatId, action) {
   if (!oldChat?.id) return 'keep';
+  const nest = resolveHarnessSwitchNest(oldChat, newChatId);
   if (action === 'delete') {
     let data = null;
     try {
@@ -1538,12 +1670,16 @@ async function applyOldChatDisposition(oldChat, newChatId, action) {
     if (!data?.ok) {
       window.alert(data?.error || t('chat.harnessSwitchDeleteFailed'));
       closeChat(oldChat.id, { skipApiDelete: false, switchToChatId: newChatId });
-      return 'delete';
+    } else {
+      removedChatIds.add(oldChat.id);
+      closeChat(oldChat.id, { skipApiDelete: true, switchToChatId: newChatId });
     }
-    removedChatIds.add(oldChat.id);
-    closeChat(oldChat.id, { skipApiDelete: true, switchToChatId: newChatId });
+    if (nest?.childId === newChatId) {
+      await nestChatUnderParent(nest.childId, nest.parentId);
+    }
     return 'delete';
   }
+  if (nest) await nestChatUnderParent(nest.childId, nest.parentId);
   if (action === 'archive') {
     await requestArchiveChat(oldChat.id, { switchToChatId: newChatId });
     return 'archive';
@@ -1551,11 +1687,45 @@ async function applyOldChatDisposition(oldChat, newChatId, action) {
   try {
     const data = await api.patchChat(oldChat.id, { widgetPinnedUrl: null });
     if (data?.ok && data.chat) {
-      Object.assign(oldChat, data.chat);
+      const live = chats.find((entry) => entry.id === oldChat.id);
+      if (live) Object.assign(live, data.chat);
       renderChatList();
+      notifySidebar();
     }
-  } catch {}
+  } catch (err) {
+    console.warn('[chat] unpin widget url failed:', err?.message || err);
+  }
   return 'keep';
+}
+
+/**
+ * Persist sidebar nesting after a harness switch.
+ *
+ * @param {string} childId
+ * @param {string} parentId
+ * @returns {Promise<void>}
+ */
+async function nestChatUnderParent(childId, parentId) {
+  const id = String(childId || '').trim();
+  const nextParentId = String(parentId || '').trim();
+  if (!id || !nextParentId || id === nextParentId) return;
+  const live = chats.find((entry) => entry.id === id);
+  if (live) live.forkParentChatId = nextParentId;
+  notifySidebar();
+  try {
+    const data = await api.patchChat(id, { forkParentChatId: nextParentId });
+    if (!data?.ok || !data.chat) return;
+    const next = chats.find((entry) => entry.id === id);
+    if (!next) return;
+    if (typeof data.chat.forkParentChatId === 'string' && data.chat.forkParentChatId.trim()) {
+      next.forkParentChatId = data.chat.forkParentChatId.trim();
+    } else {
+      delete next.forkParentChatId;
+    }
+    notifySidebar();
+  } catch (err) {
+    console.warn('[chat] nest harness chat failed:', err?.message || err);
+  }
 }
 
 /**
@@ -1639,6 +1809,7 @@ function sendPromptWhenChatReady(chat, initialPrompt, displayText) {
           displayText,
           sdkMode: live.sdkMode,
         });
+        maybeAutoNameNewChat(live, prompt);
       }, 400);
       return;
     }
@@ -1704,7 +1875,7 @@ async function executeHarnessSwitch(chat, nextHarness, nextModel, choice) {
   }
   selectedHarness = nextHarness;
   saveLastSelectedHarness(selectedHarness);
-  await applyOldChatDisposition({ id: oldChatId }, result.chat.id, disposition);
+  await applyOldChatDisposition(chat, result.chat.id, disposition);
   if (widgetMode && pageUrl) {
     await loadChatsFromServer({
       pinnedTo: pageUrl,
@@ -1716,8 +1887,7 @@ async function executeHarnessSwitch(chat, nextHarness, nextModel, choice) {
   if (disposition === 'delete' && chats.some((entry) => entry.id === oldChatId)) {
     closeChat(oldChatId, { skipApiDelete: false, switchToChatId: result.chat.id });
   }
-  if (!widgetMode) openTerminal(result.chat);
-  performSelectChat(result.chat.id);
+  adoptCreatedChat(result.chat);
   if (handoffPrompt) {
     const liveChat = chats.find((entry) => entry.id === result.chat.id) || result.chat;
     sendPromptWhenChatReady(liveChat, handoffPrompt, t('chat.harnessHandoffDisplayText'));
@@ -1766,6 +1936,86 @@ async function switchChatHarnessInWidget(chat, harness, model) {
   }
 }
 
+/**
+ * Persist an approved plan to the linked Todo when present.
+ * Best-effort: implementation can still proceed if sync fails.
+ *
+ * @param {object} chat
+ * @returns {Promise<void>}
+ */
+async function approveChatPlan(chat) {
+  if (!chat?.id) return;
+  try {
+    const data = await api.postChatSyncTodoPlan(chat.id, { approved: true });
+    const nextTodoId = typeof data?.chat?.todoId === 'string' ? data.chat.todoId.trim() : '';
+    if (nextTodoId) chat.todoId = nextTodoId;
+  } catch {
+    // Plan sync is best-effort; implementation can still proceed.
+  }
+}
+
+/**
+ * @param {object} chat
+ * @param {string} extraInstructions
+ */
+async function handleExecuteDelegationCommand(chat, extraInstructions) {
+  if (!chat?.id) return;
+  try {
+    const listed = await api.getChatDelegations(chat.id);
+    const active = Array.isArray(listed?.delegations)
+      ? listed.delegations.find((row) => {
+        const status = String(row?.status || '');
+        return status === 'queued' || status === 'starting' || status === 'running'
+          || status === 'waiting_for_input' || status === 'cancelling';
+      })
+      : null;
+    if (active) {
+      chat._sdkRichView?.appendMetaNotice?.(t('chat.delegationAlreadyActive'));
+      return;
+    }
+  } catch {
+    // listing is best-effort; start may still succeed
+  }
+  const saved = readLastDelegationExecutor();
+  if (!saved.harness || !saved.model) {
+    await approveChatPlan(chat);
+    openNewChatModal({
+      buildPlanFromChatId: chat.id,
+      workspaceFile: chat.workspaceFile,
+      workspaceFolder: chat.workspaceFolder,
+    });
+    return;
+  }
+  await approveChatPlan(chat);
+  const result = await startDelegationFromParent(chat, {
+    harness: saved.harness,
+    model: saved.model,
+    extraInstructions,
+  });
+  if (!result?.ok) {
+    if (result?.code === 'plan_missing') {
+      alert(result.error || t('chat.delegationNoPlan'));
+      return;
+    }
+    if (result?.code === 'plan_revision_conflict' || !saved.harness) {
+      openNewChatModal({
+        buildPlanFromChatId: chat.id,
+        workspaceFile: chat.workspaceFile,
+        workspaceFolder: chat.workspaceFolder,
+      });
+      return;
+    }
+    alert(result?.error || t('chat.delegationStartFailed'));
+    return;
+  }
+  if (result.chat?.id) {
+    result.chat.agentTransport = normalizeNewChatHarness(result.chat.agentTransport || saved.harness);
+    result.chat.sdkMode = 'agent';
+    adoptCreatedChat(result.chat);
+  }
+  notifySidebar();
+}
+
 function getSharedSdkModeBar() {
   if (sharedSdkModeBar) return sharedSdkModeBar;
   const bar = document.createElement('cr-sdk-mode-bar');
@@ -1779,21 +2029,24 @@ function getSharedSdkModeBar() {
     const chat = activeChatId ? chats.find((c) => c.id === activeChatId) : null;
     if (!chat) return;
     void (async () => {
-      if (chat.todoId) {
-        try {
-          await api.postChatSyncTodoPlan(chat.id, { approved: true });
-        } catch {
-          // Plan sync is best-effort; implementation can still proceed.
-        }
-      }
+      await approveChatPlan(chat);
       await setChatSdkMode(chat, 'agent');
-      const planFile = chat.id
-        ? `.cursor/plans/cretli-${String(chat.id).replace(/[^a-zA-Z0-9._-]/g, '')}.md`
-        : '';
-      const buildPrompt = planFile
-        ? `Zaimplementuj zatwierdzony plan z pliku ${planFile}.`
-        : 'Zaimplementuj zatwierdzony plan.';
-      sendTextToAgent(chat, buildPrompt, { sdkMode: 'agent' });
+      sendTextToAgent(chat, buildApprovedPlanImplementPrompt(chat.id), {
+        sdkMode: 'agent',
+        displayText: t('chat.buildPlanDisplayText'),
+      });
+    })();
+  });
+  bar.addEventListener('cr-sdk-build-plan-new-agent', () => {
+    const chat = activeChatId ? chats.find((c) => c.id === activeChatId) : null;
+    if (!chat?.id) return;
+    void (async () => {
+      await approveChatPlan(chat);
+      openNewChatModal({
+        buildPlanFromChatId: chat.id,
+        workspaceFile: chat.workspaceFile,
+        workspaceFolder: chat.workspaceFolder,
+      });
     })();
   });
   bar.addEventListener('cr-sdk-model-change', (event) => {
@@ -1822,6 +2075,7 @@ function getSharedSdkModeBar() {
     if (!chat) return;
     openChatContextDetailsModal(chat);
   });
+  bar.enabledHarnesses = getEnabledHarnessIds();
   sharedSdkModeBar = bar;
   return bar;
 }
@@ -2321,6 +2575,7 @@ const chatTransport = createChatTransport({
   onSdkInvalidSession: (chat) => resetChatSdkContext(chat, null),
   onChatGone: (chat) => {
     if (!chat?.id) return;
+    if (chat._sdkContextResetPending || chat._sdkContextFreshSession) return;
     removedChatIds.add(chat.id);
     closeChat(chat.id, { skipApiDelete: true });
   },
@@ -2383,6 +2638,10 @@ initChatHistorySyncPoll({
   appLogger,
   onPendingHistoryChange: () => {
     renderChatList();
+  },
+  onAgentStatesChange: () => {
+    refreshSidebarChatStates();
+    updateChatListModalStates();
   },
 });
 
@@ -2755,11 +3014,10 @@ function updateSidebarChatStates() {
     }
     const awaitingEl = li.querySelector('.sidebar-chat-item-awaiting');
     if (awaitingEl) {
-      const show = meta.tone !== 'idle';
-      awaitingEl.className = 'sidebar-chat-item-awaiting sidebar-chat-item-awaiting--' + meta.tone;
-      awaitingEl.hidden = !show;
-      awaitingEl.textContent = meta.label;
-      awaitingEl.setAttribute('title', t('chat.stateTitle', { label: meta.label }));
+      applySidebarChatStatusEl(awaitingEl, meta, {
+        escapeHtml,
+        title: t('sidebar.stateTitle', { label: meta.label }),
+      });
     }
   });
 }
@@ -2872,7 +3130,7 @@ function terminalInteractionForStateResolve(chat, interaction) {
  * @returns {{ tone: string, label: string } | null}
  */
 function resolveSdkChatStateMeta(chat) {
-  if (!chat?._sdkRichView) return null;
+  if (!chat?._sdkRichView && !chat?._serverRunState) return null;
   const pending = readHarnessPendingFlags(chat);
   const queuedCount = chat._sdkRichView?.queuedCount || Number(chat._sdkServerQueuedCount) || 0;
   return resolveHarnessChatStateMeta({
@@ -2881,6 +3139,7 @@ function resolveSdkChatStateMeta(chat) {
     hasPendingQuestion: pending.hasPendingQuestion,
     hasPendingPermission: pending.hasPendingPermission,
     queuedCount,
+    serverRunState: chat._serverRunState || null,
     translate: t,
   });
 }
@@ -3240,7 +3499,7 @@ function armOlderSdkHistory(chat) {
 }
 
 function scheduleOpenTerminalWhenReady(chat, attempt = 0) {
-  if (!chat || chat.pane) return;
+  if (!chat || isChatPaneMounted(chat)) return;
   if (isEmbedBootDomReady()) {
     openTerminal(chat);
     return;
@@ -3249,8 +3508,23 @@ function scheduleOpenTerminalWhenReady(chat, attempt = 0) {
   window.setTimeout(() => scheduleOpenTerminalWhenReady(chat, attempt + 1), OPEN_TERMINAL_RETRY_MS);
 }
 
+function isChatPaneMounted(chat) {
+  return !!(chat?.pane && chat.pane.isConnected);
+}
+
 function openTerminal(chat) {
-  if (chat.pane) return;
+  if (isChatPaneMounted(chat)) return;
+  if (chat.pane && !chat.pane.isConnected) {
+    try {
+      chat._sdkRichView?.destroy?.();
+    } catch {
+      // Detached pane — rebuild a fresh one with a send bar.
+    }
+    chat.pane = null;
+    chat._sdkRichView = null;
+    chat.term = null;
+    chat.fitAddon = null;
+  }
   if (!document.getElementById('chat-tabs')) {
     scheduleOpenTerminalWhenReady(chat);
     return;
@@ -3267,6 +3541,16 @@ function openTerminal(chat) {
   if (!chat.sdkMode) chat.sdkMode = 'agent';
   bindChatToSharedSdkModeBar(chat);
   pane.appendChild(chatDiagnosticsApi.createChatDiagPanel(chat));
+  if (chat.delegationParentChatId) {
+    const parentLink = document.createElement('button');
+    parentLink.type = 'button';
+    parentLink.className = 'chat-delegation-parent-link';
+    parentLink.textContent = t('chat.delegationOpenParent');
+    parentLink.addEventListener('click', () => {
+      selectChat(chat.delegationParentChatId);
+    });
+    pane.appendChild(parentLink);
+  }
   if (isChatDiagEnabled()) chatDiagnosticsApi.startChatDiagPolling(chat);
   const viewportWrap = document.createElement('div');
   viewportWrap.className = 'terminal-viewport-wrap';
@@ -3296,6 +3580,12 @@ function openTerminal(chat) {
       sendKeyToAgent('\r');
       return true;
     }
+    const executeCommand = parseDelegationCommand(rawText);
+    if (executeCommand) {
+      void handleExecuteDelegationCommand(chat, executeCommand.extraInstructions);
+      writeChatDraft(chat.id, '');
+      return true;
+    }
     if (!chat.ws || chat.ws.readyState !== WebSocket.OPEN) {
       ensureChatConnection(chat);
       chat._sdkRichView?.appendMetaNotice?.(t('chat.agentConnectionLostResend'));
@@ -3321,11 +3611,20 @@ function openTerminal(chat) {
       }, AUTO_TITLE_TIMEOUT_MS);
     }
     let payloadText = rawText;
+    let displayText = rawText;
     if (hasPageSelection) {
       const pageBlock = formatHostPagePickContextBlock(meta.pageSelectionContext);
       payloadText = pageBlock + (rawText.trim() ? `\n\n${rawText}` : '');
     }
-    sendTextToAgent(chat, payloadText, { displayText: rawText });
+    if (!isTitlePrompt) {
+      const inherited = consumePendingInheritedPrompt(chat, payloadText);
+      if (inherited) {
+        payloadText = inherited.payloadText;
+        displayText = inherited.displayText || rawText;
+      }
+      maybeAutoNameNewChat(chat, rawText);
+    }
+    sendTextToAgent(chat, payloadText, { displayText });
     writeChatDraft(chat.id, '');
     return true;
   }
@@ -3390,6 +3689,7 @@ function openTerminal(chat) {
     return;
   }
   chatTabs.appendChild(pane);
+  if (chat.id === activeChatId) pane.classList.add('active');
 
   function scrollChatPaneIntoView() {
     const scrollIntoView = () => {
@@ -3426,8 +3726,33 @@ function openTerminal(chat) {
     },
     onForceSendQueueItem: (text) => sendQueueControl(chat, 'queueForceSend', text),
     onRemoveQueueItem: (text) => sendQueueControl(chat, 'queueRemove', text),
+    onForkFromPoint: ({ createdAt }) => {
+      const point = typeof createdAt === 'string' ? createdAt.trim() : '';
+      if (!point || !chat?.id) return;
+      openNewChatModal({
+        forkFromChatId: chat.id,
+        upToCreatedAt: point,
+        workspaceFile: chat.workspaceFile,
+        workspaceFolder: chat.workspaceFolder,
+      });
+    },
     onOpenCodeQuestionReply: (payload) => sendOpenCodeQuestionReply(chat, payload),
     onOpenCodePermissionReply: (payload) => sendOpenCodePermissionReply(chat, payload),
+    onOpenDelegationChat: (childChatId) => {
+      if (childChatId) selectChat(childChatId);
+    },
+    onCancelDelegation: (delegationId) => {
+      if (!delegationId) return;
+      void api.postDelegationCancel(delegationId);
+    },
+    onAcknowledgeDelegation: (delegationId) => {
+      if (!delegationId) return;
+      void api.postDelegationAck(delegationId, { reason: 'reviewed' }).then((res) => {
+        if (!res?.ok) return;
+        if (chat._sdkHistoryHydrating) return;
+        void syncSdkHistoryOnResume(chat, { reason: 'delegation_ack' }).catch(() => {});
+      }).catch(() => {});
+    },
   });
   chat.term = null;
   chat.fitAddon = null;
@@ -3588,11 +3913,36 @@ function closeChatDeleteConfirmModal() {
   chatDeleteConfirmModalApi?.close();
 }
 
+function syncChatDeleteConfirmModal(isAgentWorking) {
+  const headingEl = document.getElementById('chat-delete-confirm-heading');
+  const warningEl = document.getElementById('chat-delete-confirm-agent-warning');
+  const skipBtn = document.getElementById('chat-delete-confirm-delete-skip');
+  if (headingEl) {
+    headingEl.textContent = isAgentWorking
+      ? t('chat.deleteConfirmBusyTitle')
+      : t('chat.deleteConfirmTitle');
+  }
+  if (warningEl) warningEl.hidden = !isAgentWorking;
+  if (skipBtn) skipBtn.hidden = isAgentWorking;
+}
+
+/**
+ * Ask to delete a chat. Skip-confirm is ignored while the agent is working,
+ * unless skipConfirm is passed explicitly (voice / programmatic delete).
+ *
+ * @param {string} chatId
+ * @param {{ skipConfirm?: boolean, forceConfirm?: boolean, preserveListOpen?: boolean, title?: string }} [options]
+ */
 export function requestDeleteChat(chatId, options = {}) {
   if (!chatId) return;
-  const skipConfirm =
-    options.forceConfirm !== true &&
-    (options.skipConfirm === true || getSkipChatDeleteConfirm());
+  const chat = chats.find((c) => c.id === chatId);
+  const isAgentWorking = hasActiveAgentRun(chat);
+  const skipConfirm = shouldSkipChatDeleteConfirm({
+    skipConfirm: options.skipConfirm === true,
+    forceConfirm: options.forceConfirm === true,
+    skipPreference: getSkipChatDeleteConfirm(),
+    isAgentWorking,
+  });
   const preserveListOpen = options.preserveListOpen === true;
   if (skipConfirm) {
     if (!preserveListOpen) closeChatSettingsModal();
@@ -3600,7 +3950,6 @@ export function requestDeleteChat(chatId, options = {}) {
     closeChat(chatId);
     return;
   }
-  const chat = chats.find((c) => c.id === chatId);
   const title =
     (typeof options.title === 'string' && options.title.trim()) ||
     chat?.title ||
@@ -3608,6 +3957,7 @@ export function requestDeleteChat(chatId, options = {}) {
   pendingDeleteChatId = chatId;
   const titleEl = document.getElementById('chat-delete-confirm-chat-title');
   if (titleEl) titleEl.textContent = title;
+  syncChatDeleteConfirmModal(isAgentWorking);
   if (!preserveListOpen) closeChatSettingsModal();
   if (!preserveListOpen) closeChatListModal();
   openChatDeleteConfirmModal();
@@ -3828,16 +4178,142 @@ export function getActiveChatBufferTail(limit = 4000) {
   return chat._buffer.slice(-Math.max(1, Number(limit) || 4000));
 }
 
-function openCreatedChatWithPrompt(chat, initialPrompt, displayText) {
-  if (!chat?.id) return;
+/**
+ * Selects a chat that was just created on the current host page.
+ * Skips widget URL navigation so the new pane is shown immediately.
+ * @param {string} chatId
+ */
+function selectNewlyCreatedChat(chatId) {
+  if (!chatId) return;
+  pinnedChatSelectionGuard = true;
+  try {
+    performSelectChat(chatId);
+  } finally {
+    pinnedChatSelectionGuard = false;
+  }
+}
+
+/**
+ * Merge server fields onto an existing runtime chat without dropping the pane/WS.
+ * @param {object} target
+ * @param {object} source
+ */
+function mergeCreatedChatRecord(target, source) {
+  target.agentTransport = normalizeNewChatHarness(source.agentTransport || target.agentTransport || 'sdk');
+  target.sdkMode = normalizeSdkMode(source.sdkMode || target.sdkMode);
+  target.sdkUiMode = normalizeSdkUiMode(source.sdkUiMode || target.sdkUiMode);
+  if (source.title) target.title = source.title;
+  if (source.model) target.model = source.model;
+  if (source.workspaceFile) target.workspaceFile = source.workspaceFile;
+  if (source.workspaceFolder) target.workspaceFolder = source.workspaceFolder;
+  if (typeof source.widgetPinnedUrl === 'string' && source.widgetPinnedUrl.trim()) {
+    target.widgetPinnedUrl = source.widgetPinnedUrl.trim();
+  }
+  if (typeof source.todoId === 'string' && source.todoId.trim()) {
+    target.todoId = source.todoId.trim();
+  }
+}
+
+/**
+ * Inserts a newly created chat (or reuses the existing row) and shows its pane.
+ * @param {object} chat
+ * @returns {object | null}
+ */
+function adoptCreatedChat(chat) {
+  if (!chat?.id) return null;
   chat.agentTransport = normalizeNewChatHarness(chat.agentTransport || 'sdk');
   chat.sdkMode = normalizeSdkMode(chat.sdkMode);
   chat.sdkUiMode = normalizeSdkUiMode(chat.sdkUiMode);
+  const pinnedUrl = getChatWidgetPinnedUrl(chat);
+  if (pinnedUrl) {
+    chats.forEach((item) => {
+      if (item.id === chat.id) return;
+      const otherPinned = getChatWidgetPinnedUrl(item);
+      if (otherPinned && isSamePageUrl(otherPinned, pinnedUrl)) {
+        delete item.widgetPinnedUrl;
+      }
+    });
+  }
+  const existing = chats.find((entry) => entry.id === chat.id);
+  if (existing) {
+    mergeCreatedChatRecord(existing, chat);
+    if (!existing.pane) openTerminal(existing);
+    renderChatList();
+    selectNewlyCreatedChat(existing.id);
+    return existing;
+  }
   chats.push(chat);
   renderChatList();
   openTerminal(chat);
-  selectChat(chat.id);
-  sendPromptWhenChatReady(chat, initialPrompt, displayText);
+  selectNewlyCreatedChat(chat.id);
+  return chat;
+}
+
+function openCreatedChatWithPrompt(chat, initialPrompt, displayText) {
+  const live = adoptCreatedChat(chat);
+  if (!live) return null;
+  sendPromptWhenChatReady(live, initialPrompt, displayText);
+  return live;
+}
+
+/**
+ * Open a conversation fork without sending. The continue/handoff prompt stays in
+ * the send field and is delivered on the first user send.
+ *
+ * @param {object} chat
+ * @param {string} initialPrompt
+ * @param {string} [displayText]
+ * @returns {object|null}
+ */
+function openCreatedForkChat(chat, initialPrompt, displayText) {
+  const prompt = typeof initialPrompt === 'string' ? initialPrompt.trim() : '';
+  const draft = typeof displayText === 'string' ? displayText.trim() : '';
+  if (chat?.id && draft) writeChatDraft(chat.id, draft);
+  const live = adoptCreatedChat(chat);
+  if (!live) return null;
+  if (prompt) {
+    live._pendingInheritedPrompt = prompt;
+    live._pendingInheritedDisplayText = draft;
+  }
+  return live;
+}
+
+/**
+ * Pins an explicit new chat to the current widget host page.
+ * forceNewPinnedChat avoids reusing the chat already linked to that URL.
+ * @param {Record<string, unknown>} payload
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function attachWidgetHostPinToCreatePayload(payload) {
+  if (!isEmbedWidgetMode() || !isWidgetHostNavigationAvailable()) return payload;
+  try {
+    const current = await requestWidgetHostUrl();
+    const hostPageUrl = typeof current?.url === 'string' ? current.url.trim() : '';
+    if (!hostPageUrl) return payload;
+    payload.widgetPinnedUrl = hostPageUrl;
+    payload.forceNewPinnedChat = true;
+  } catch {
+    // Pin is optional; the new chat can still start.
+  }
+  return payload;
+}
+
+/**
+ * Moves the current page pin onto a chat created by fork/analyze.
+ * @param {object} chat
+ */
+async function pinCreatedChatToHostIfWidget(chat) {
+  if (!chat?.id) return;
+  const payload = {};
+  await attachWidgetHostPinToCreatePayload(payload);
+  const hostPageUrl = typeof payload.widgetPinnedUrl === 'string' ? payload.widgetPinnedUrl.trim() : '';
+  if (!hostPageUrl) return;
+  try {
+    const data = await api.patchChat(chat.id, { widgetPinnedUrl: hostPageUrl });
+    chat.widgetPinnedUrl = data?.chat?.widgetPinnedUrl || hostPageUrl;
+  } catch {
+    chat.widgetPinnedUrl = hostPageUrl;
+  }
 }
 
 async function createChatFromSendAction(parentChat, message, forkConversation) {
@@ -3865,14 +4341,16 @@ async function createChatFromSendAction(parentChat, message, forkConversation) {
       }
       data = await api.postChatFork(parentChat.id, { message, sourceText });
     } else {
-      data = await api.postChat({
+      const payload = {
         workspaceFile: parentChat.workspaceFile,
         workspaceFolder: parentChat.workspaceFolder,
         model: parentChat.model,
         agentTransport: parentTransport,
         sdkMode: parentChat.sdkMode,
         sdkUiMode: parentChat.sdkUiMode,
-      });
+      };
+      await attachWidgetHostPinToCreatePayload(payload);
+      data = await api.postChat(payload);
     }
   } catch (_) {
     alert(t('chat.serverConnectionError'));
@@ -3885,15 +4363,21 @@ async function createChatFromSendAction(parentChat, message, forkConversation) {
   const workspaceContext = getWorkspaceContextForChat();
   data.chat.workspaceFile ||= parentChat.workspaceFile || workspaceContext?.workspaceFile;
   data.chat.workspaceFolder ||= parentChat.workspaceFolder || workspaceContext?.workspaceFolder;
+  if (forkConversation) {
+    await pinCreatedChatToHostIfWidget(data.chat);
+  }
   const initialPrompt = forkConversation ? data.initialPrompt || message : message;
-  openCreatedChatWithPrompt(data.chat, initialPrompt, message);
+  const live = openCreatedChatWithPrompt(data.chat, initialPrompt, message);
+  syncWidgetPinUrlUi(live || data.chat);
+  notifyWidgetParentPagePinChanged();
   writeChatDraft(parentChat.id, '');
   return true;
 }
 
 const AGENT_MONITOR_PROMPT = [
-  'This is a separate analytical chat about the agent running in the source chat.',
-  'Using the context below, diagnose what the agent is doing right now: is it working, stuck, or waiting for input, what are the risks and what should happen next.',
+  'This is a new sub-chat that analyzes another Cretli chat.',
+  'You do not inherit that chat history. Diagnose the parent from its id and the live status snapshot below.',
+  'Is the agent working, stuck, waiting for input, or idle? What are the risks and what should happen next.',
   'Answer briefly and concretely, in these sections:',
   '1) Current state',
   '2) What it means',
@@ -3908,6 +4392,7 @@ function buildAgentMonitorMessage(chat) {
   const connection = typeof chat._connectionStatus === 'string' ? chat._connectionStatus : 'unknown';
   const agentState = getChatAgentState(chat);
   const awaiting = chat._awaitingInput === true ? 'yes' : 'no';
+  const queuedCount = chat._sdkRichView?.queuedCount || Number(chat._sdkServerQueuedCount) || 0;
   const contextTokens =
     Number.isFinite(chat._contextUsageTotalTokens) && chat._contextUsageTotalTokens > 0
       ? String(chat._contextUsageTotalTokens)
@@ -3915,14 +4400,17 @@ function buildAgentMonitorMessage(chat) {
   return [
     AGENT_MONITOR_PROMPT,
     '',
-    '[Source chat state snapshot]',
+    '[Parent chat snapshot]',
     `chatId: ${chat.id}`,
     `title: ${chat.title || 'untitled'}`,
+    `harness: ${chat.agentTransport || 'unknown'}`,
+    `model: ${chat.model || 'unknown'}`,
     `connection: ${connection}`,
     `agentState: ${agentState}`,
     `terminalTone: ${status.tone}`,
     `terminalLabel: ${status.label}`,
     `awaitingInput: ${awaiting}`,
+    `queuedCount: ${queuedCount}`,
     `contextTokens: ${contextTokens}`,
   ].join('\n');
 }
@@ -4119,9 +4607,9 @@ export async function selectChatFromWidgetHost(chatId) {
   });
   if (!getChatsList().some((chat) => chat.id === normalizedId)) {
     await loadChatsFromServer({
-      pinnedTo: pinnedTo || undefined,
       skipAutoSelect: true,
       preferChatId: normalizedId,
+      includeArchived: true,
     });
   }
   performSelectChat(normalizedId);
@@ -4139,7 +4627,18 @@ function performSelectChat(id) {
   chatController.selectChat(id);
   scheduleChatSendBarReserveSync();
   const chat = chats.find((c) => c.id === id);
-  if (chat && !chat.pane) openTerminal(chat);
+  if (chat?._serverRunState?.state === 'waiting' && chat._serverRunState.delegationId) {
+    void api.postDelegationAck(chat._serverRunState.delegationId, { reason: 'open_child' }).then((res) => {
+      if (!res?.ok || !res.delegation) return;
+      chat._serverRunState = {
+        ...chat._serverRunState,
+        attention: false,
+        state: chat._serverRunState.state === 'waiting' ? 'idle' : chat._serverRunState.state,
+      };
+      refreshSidebarChatStates();
+    }).catch(() => {});
+  }
+  if (chat) openTerminal(chat);
   if (chat) {
     requestWidgetChatBinding(chat);
     syncWidgetPinUrlUi(chat);
@@ -4419,7 +4918,8 @@ function syncChatTitlesFromServer() {
     if (!changed) return;
     renderChatList();
     updateChatBarSelect();
-  }).catch(() => {
+  }).catch((err) => {
+    console.warn('[chat] title sync failed:', err?.message || err);
   }).finally(() => {
     chatTitlesSyncInFlight = false;
   });
@@ -5024,8 +5524,11 @@ function applyNewChatModalForkLabels() {
   if (monitorSourceChatId) {
     headingText = t('chat.monitorHeading');
     createText = t('chat.monitorCreate');
+  } else if (buildPlanSourceChatId) {
+    headingText = t('chat.buildPlanHeading');
+    createText = t('chat.buildPlanCreate');
   } else if (forkSourceChatId) {
-    headingText = t('chat.forkHeading');
+    headingText = forkUpToCreatedAt ? t('chat.forkFromMessageHeading') : t('chat.forkHeading');
     createText = t('chat.forkCreate');
   }
   if (heading) heading.textContent = headingText;
@@ -5033,11 +5536,23 @@ function applyNewChatModalForkLabels() {
 }
 
 function getNewChatModalSourceChat() {
-  const id = monitorSourceChatId || forkSourceChatId;
+  const id = monitorSourceChatId || buildPlanSourceChatId || forkSourceChatId;
   if (!id) return null;
   return chats.find((entry) => entry.id === id) || null;
 }
 
+/**
+ * Open the new-chat modal. Fork/monitor/build-plan modes reuse the harness+model form.
+ *
+ * @param {{
+ *   forkFromChatId?: string,
+ *   upToCreatedAt?: string,
+ *   monitorFromChatId?: string,
+ *   buildPlanFromChatId?: string,
+ *   workspaceFile?: string,
+ *   workspaceFolder?: string,
+ * }} [options]
+ */
 export function openNewChatModal(options = {}) {
   if (!chatNewModalApi) return;
   const requestedForkId =
@@ -5046,31 +5561,59 @@ export function openNewChatModal(options = {}) {
     options && typeof options.monitorFromChatId === 'string'
       ? options.monitorFromChatId.trim()
       : '';
+  const requestedBuildPlanId =
+    options && typeof options.buildPlanFromChatId === 'string'
+      ? options.buildPlanFromChatId.trim()
+      : '';
   const forkChat = requestedForkId ? chats.find((entry) => entry.id === requestedForkId) : null;
   const monitorChat = requestedMonitorId
     ? chats.find((entry) => entry.id === requestedMonitorId)
     : null;
-  if ((requestedForkId && !forkChat) || (requestedMonitorId && !monitorChat)) {
+  const buildPlanChat = requestedBuildPlanId
+    ? chats.find((entry) => entry.id === requestedBuildPlanId)
+    : null;
+  if (
+    (requestedForkId && !forkChat) ||
+    (requestedMonitorId && !monitorChat) ||
+    (requestedBuildPlanId && !buildPlanChat)
+  ) {
     forkSourceChatId = null;
+    forkUpToCreatedAt = null;
     monitorSourceChatId = null;
+    buildPlanSourceChatId = null;
     alert(t('chat.noActiveChat'));
     return;
   }
+  const requestedCut =
+    options && typeof options.upToCreatedAt === 'string' ? options.upToCreatedAt.trim() : '';
   if (monitorChat) {
     monitorSourceChatId = monitorChat.id;
     forkSourceChatId = null;
+    forkUpToCreatedAt = null;
+    buildPlanSourceChatId = null;
+  } else if (buildPlanChat) {
+    buildPlanSourceChatId = buildPlanChat.id;
+    forkSourceChatId = null;
+    forkUpToCreatedAt = null;
+    monitorSourceChatId = null;
   } else {
     forkSourceChatId = forkChat?.id || null;
+    forkUpToCreatedAt = forkChat && requestedCut ? requestedCut : null;
     monitorSourceChatId = null;
+    buildPlanSourceChatId = null;
   }
-  const sourceChat = monitorChat || forkChat;
+  const sourceChat = monitorChat || buildPlanChat || forkChat;
   applyDefaultNewChatHarnessToModal();
   const harnessSel = document.getElementById('chat-new-harness-select');
+  const lastExecutor = buildPlanChat ? readLastDelegationExecutor() : { harness: '', model: '' };
   if (harnessSel instanceof HTMLSelectElement && selectedHarness) {
     harnessSel.value = normalizeNewChatHarness(selectedHarness);
   }
   if (harnessSel instanceof HTMLSelectElement && sourceChat) {
     harnessSel.value = normalizeNewChatHarness(sourceChat.agentTransport || 'sdk');
+  }
+  if (harnessSel instanceof HTMLSelectElement && lastExecutor.harness) {
+    harnessSel.value = normalizeNewChatHarness(lastExecutor.harness);
   }
   const preferredWorkspaceFile =
     options && typeof options.workspaceFile === 'string' ? options.workspaceFile.trim() : '';
@@ -5089,7 +5632,7 @@ export function openNewChatModal(options = {}) {
   ensureEmbedNewChatFolderSelect();
   const model = document.getElementById('chat-new-model-select');
   if (model) {
-    model.value = (sourceChat?.model || selectedModel || 'auto');
+    model.value = lastExecutor.model || sourceChat?.model || selectedModel || 'auto';
   }
   chatModelSelectApi.refreshNewChatModelPicker(getSelectedNewChatHarness());
   if (model) {
@@ -5101,7 +5644,9 @@ export function openNewChatModal(options = {}) {
   if (titleInput) {
     titleInput.value = monitorChat
       ? t('chat.monitorDefaultTitle', { title: monitorChat.title || 'Chat' })
-      : '';
+      : buildPlanChat
+        ? t('chat.buildPlanDefaultTitle', { title: buildPlanChat.title || 'Chat' })
+        : '';
     titleInput.placeholder = t('chat.optionalNamePlaceholder');
   }
   const createBtn = document.getElementById('chat-new-create');
@@ -5156,6 +5701,20 @@ export function openNewChatModal(options = {}) {
     syncNewChatFavoritePresetUi();
   });
   void refreshNewChatHarnessStatus();
+  if (buildPlanChat) {
+    void prepareBuildPlanModal(buildPlanChat).then(() => {
+      const modelSel = document.getElementById('chat-new-model-select');
+      chatModelSelectApi.refreshNewChatModelPicker(getSelectedNewChatHarness());
+      if (modelSel instanceof HTMLSelectElement && lastExecutor.model) {
+        modelSel.value = lastExecutor.model;
+      }
+      chatNewModelDropdownApi?.refresh?.();
+      syncNewChatFavoritePresetUi();
+      void refreshNewChatHarnessStatus();
+    });
+  } else {
+    clearDelegationPlanPreview();
+  }
 }
 
 function closeNewChatModal() {
@@ -5163,7 +5722,10 @@ function closeNewChatModal() {
   chatNewModelDropdownApi?.close?.();
   chatNewFavoritePresetDropdownApi?.close?.();
   forkSourceChatId = null;
+  forkUpToCreatedAt = null;
   monitorSourceChatId = null;
+  buildPlanSourceChatId = null;
+  clearDelegationPlanPreview();
   applyNewChatModalForkLabels();
   chatNewModalApi?.close();
 }
@@ -5311,6 +5873,7 @@ export async function createVoiceChat(options = {}) {
   renderChatList();
   openTerminal(chat);
   selectChat(chat.id);
+  chatModelSelectApi?.setModelPickerHarness(harness);
   notifySidebar();
   return {
     ok: true,
@@ -5470,6 +6033,7 @@ export async function renameVoiceChat(options = {}) {
 }
 
 function isVoiceHarnessUsable(harness) {
+  if (!isHarnessEnabledInSettings(harness)) return false;
   if (harness === 'openrouter') return cachedOpenRouterReady !== false;
   if (harness === 'opencode') return cachedOpenCodeReady !== false;
   if (harness === 'codebuddy') return cachedCodeBuddyReady !== false;
@@ -5480,7 +6044,7 @@ function isVoiceHarnessUsable(harness) {
 }
 
 function listReadyVoiceHarnesses() {
-  return AGENT_TRANSPORTS.filter((id) => isVoiceHarnessUsable(id));
+  return getEnabledHarnessIds().filter((id) => isVoiceHarnessUsable(id));
 }
 
 function isVoiceToolConfirm(value) {
@@ -5488,21 +6052,86 @@ function isVoiceToolConfirm(value) {
 }
 
 /**
- * @returns {{ ok: boolean, harness?: string, current?: string, models?: Array<{ id: string, label: string, active: boolean }>, error?: string }}
+ * @param {object} chat
+ * @param {number} [timeoutMs]
+ * @returns {Promise<boolean>}
  */
-export function listVoiceModels() {
+async function waitForVoiceModelCatalog(chat, timeoutMs = 8000) {
+  if (!chat || !chatModelSelectApi) return false;
+  const harness = normalizeNewChatHarness(chat.agentTransport || 'sdk');
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    chatModelSelectApi.setModelPickerHarness(harness);
+    const models = chatModelSelectApi.getSdkModeBarModelOptions();
+    if (models.length > 0) return true;
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+  }
+  chatModelSelectApi.setModelPickerHarness(harness);
+  return chatModelSelectApi.getSdkModeBarModelOptions().length > 0;
+}
+
+/**
+ * @param {object} chat
+ * @param {{ timeoutMs?: number, waitForAgentIdle?: boolean }} [options]
+ * @returns {Promise<boolean>}
+ */
+async function waitForVoiceChatReady(chat, options = {}) {
+  if (!chat) return false;
+  const timeoutMs = Number.isFinite(options.timeoutMs) ? Number(options.timeoutMs) : 15000;
+  const waitForAgentIdle = options.waitForAgentIdle !== false;
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const connected = chat.ws?.readyState === WebSocket.OPEN;
+    const connecting = chat._connectionStatus === 'connecting' || chat._connectionStatus === 'reconnecting';
+    if (connected && !connecting) {
+      if (!waitForAgentIdle) return true;
+      if (getChatListAgentState(chat) !== 'active') return true;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+  }
+  const connected = chat.ws?.readyState === WebSocket.OPEN;
+  if (!connected) return false;
+  if (!waitForAgentIdle) return true;
+  return getChatListAgentState(chat) !== 'active';
+}
+
+/**
+ * @returns {Promise<{ ok: boolean, harness?: string, current?: string, models?: Array<{ id: string, label: string, active: boolean }>, error?: string }>}
+ */
+export async function listVoiceModels() {
   const chat = activeChatId ? chats.find((entry) => entry.id === activeChatId) : null;
   if (!chat) return { ok: false, error: 'No chat is open' };
   if (!chatModelSelectApi) return { ok: false, error: 'Model list is not available' };
   const harness = normalizeNewChatHarness(chat.agentTransport || 'sdk');
+  if (!isHarnessEnabledInSettings(harness)) {
+    return {
+      ok: true,
+      harness,
+      current: normalizeModelValue(chat.model || 'auto'),
+      models: [],
+      harnessEnabled: false,
+      hint: 'This harness is disabled in settings. Enable it to offer its models.',
+    };
+  }
   chatModelSelectApi.setModelPickerHarness(harness);
+  let models = chatModelSelectApi.getSdkModeBarModelOptions();
+  if (models.length === 0) {
+    const ready = await waitForVoiceModelCatalog(chat, 8000);
+    if (!ready) return { ok: false, error: 'Model list is still loading — try again in a moment' };
+    models = chatModelSelectApi.getSdkModeBarModelOptions();
+  }
   const current = normalizeModelValue(chat.model || 'auto');
-  const models = chatModelSelectApi.getSdkModeBarModelOptions().map((model) => ({
-    id: model.value,
-    label: String(model.label || model.value || '').trim() || model.value,
-    active: model.value === current,
-  }));
-  return { ok: true, harness, current, models };
+  return {
+    ok: true,
+    harness,
+    current,
+    models: models.map((model) => ({
+      id: model.value,
+      label: String(model.label || model.value || '').trim() || model.value,
+      active: model.value === current,
+    })),
+    harnessEnabled: true,
+  };
 }
 
 /**
@@ -5514,12 +6143,30 @@ export async function setVoiceChatModel(options = {}) {
   if (!model) return { ok: false, error: 'Missing model' };
   const chat = activeChatId ? chats.find((entry) => entry.id === activeChatId) : null;
   if (!chat) return { ok: false, error: 'No chat is open' };
+  if (!chatModelSelectApi) return { ok: false, error: 'Model switch is not available' };
+  const harness = normalizeNewChatHarness(chat.agentTransport || 'sdk');
+  chatModelSelectApi.setModelPickerHarness(harness);
+  if (chatModelSelectApi.getSdkModeBarModelOptions().length === 0) {
+    const catalogReady = await waitForVoiceModelCatalog(chat, 10000);
+    if (!catalogReady) {
+      return { ok: false, error: 'Model list is still loading — try again in a moment' };
+    }
+  }
+  const ready = await waitForVoiceChatReady(chat, { timeoutMs: 12000, waitForAgentIdle: true });
+  if (!ready) {
+    if (chat.ws?.readyState !== WebSocket.OPEN) {
+      return { ok: false, error: 'Chat is still connecting — try again in a moment' };
+    }
+    if (getChatListAgentState(chat) === 'active') {
+      return { ok: false, error: 'Agent is still working — stop the run first or wait a moment' };
+    }
+  }
   const changed = await setChatModel(chat, model);
   if (!changed) return { ok: false, error: 'Could not change the model' };
   return {
     ok: true,
     model: normalizeModelValue(chat.model || model),
-    harness: normalizeNewChatHarness(chat.agentTransport || 'sdk'),
+    harness,
   };
 }
 
@@ -5598,6 +6245,9 @@ export async function forkVoiceChat(options = {}) {
   const nextHarness = String(options.harness || '').trim()
     ? normalizeNewChatHarness(options.harness)
     : normalizeNewChatHarness(chat.agentTransport || 'sdk');
+  if (!isHarnessEnabledInSettings(nextHarness)) {
+    return { ok: false, error: `Harness ${nextHarness} is disabled in settings` };
+  }
   const title = String(options.title || '').trim();
   const payload = {
     sourceText,
@@ -5627,7 +6277,7 @@ export async function forkVoiceChat(options = {}) {
   const displayText = sameHarness
     ? t('chat.forkContinueDisplayText')
     : t('chat.harnessHandoffDisplayText');
-  openCreatedChatWithPrompt(created, data.initialPrompt || '', displayText);
+  openCreatedForkChat(created, data.initialPrompt || '', displayText);
   notifySidebar();
   return {
     ok: true,
@@ -5638,7 +6288,7 @@ export async function forkVoiceChat(options = {}) {
 }
 
 /**
- * Create a conversation fork or agent-analysis chat from the new-chat modal.
+ * Create a conversation fork or an agent-analysis sub-chat from the new-chat modal.
  *
  * @param {object} parentChat
  * @param {{
@@ -5650,31 +6300,38 @@ export async function forkVoiceChat(options = {}) {
  *   message?: string,
  *   displayText?: string,
  *   analyze?: boolean,
+ *   upToCreatedAt?: string,
  * }} values
  * @returns {Promise<void>}
  */
 async function createForkChatFromModal(parentChat, values) {
-  const historySynced = await flushPendingPush(
-    parentChat.id,
-    parentChat.cursorSessionId || ''
-  );
-  if (!historySynced) {
-    alert(t('sendBar.forkSyncFailed'));
-    return;
+  const analyze = values.analyze === true;
+  const cutPoint = typeof values.upToCreatedAt === 'string' ? values.upToCreatedAt.trim() : '';
+  if (!analyze) {
+    const historySynced = await flushPendingPush(
+      parentChat.id,
+      parentChat.cursorSessionId || ''
+    );
+    if (!historySynced) {
+      alert(t('sendBar.forkSyncFailed'));
+      return;
+    }
   }
-  const sourceText = await readChatTranscriptForHandoff(parentChat);
   const workspaceFile = values.workspaceFile || parentChat.workspaceFile;
   const workspaceFolder = values.workspaceFolder || parentChat.workspaceFolder;
   const payload = {
-    sourceText,
     agentTransport: values.harness,
     model: values.model,
     workspaceFile,
     workspaceFolder,
   };
+  if (!analyze && cutPoint) payload.upToCreatedAt = cutPoint;
+  if (!analyze && !cutPoint) {
+    payload.sourceText = await readChatTranscriptForHandoff(parentChat);
+  }
   if (values.title) payload.title = values.title;
   if (values.message) payload.message = values.message;
-  if (values.analyze === true) payload.analyze = true;
+  if (analyze) payload.analyze = true;
   let data;
   try {
     data = await api.postChatFork(parentChat.id, payload);
@@ -5692,12 +6349,58 @@ async function createForkChatFromModal(parentChat, values) {
   created.sdkUiMode = normalizeSdkUiMode(created.sdkUiMode);
   created.workspaceFile ||= workspaceFile;
   created.workspaceFolder ||= workspaceFolder;
+  await pinCreatedChatToHostIfWidget(created);
   const sameHarness =
     normalizeNewChatHarness(parentChat.agentTransport || 'sdk') === created.agentTransport;
   const displayText =
     values.displayText ||
     (sameHarness ? t('chat.forkContinueDisplayText') : t('chat.harnessHandoffDisplayText'));
-  openCreatedChatWithPrompt(created, data.initialPrompt || values.message || '', displayText);
+  const initialPrompt = data.initialPrompt || values.message || '';
+  const live = analyze
+    ? openCreatedChatWithPrompt(created, initialPrompt, displayText)
+    : openCreatedForkChat(created, initialPrompt, displayText);
+  syncWidgetPinUrlUi(live || created);
+  notifyWidgetParentPagePinChanged();
+  notifySidebar();
+  closeNewChatModal();
+}
+
+/**
+ * Create a fresh Agent chat that implements the approved plan from the source chat.
+ *
+ * @param {object} parentChat
+ * @param {{
+ *   title: string,
+ *   harness: string,
+ *   model: string,
+ *   workspaceFile: string,
+ *   workspaceFolder: string,
+ * }} values
+ * @returns {Promise<void>}
+ */
+async function createBuildPlanChatFromModal(parentChat, values) {
+  if (!parentChat?.id) return;
+  const result = await startDelegationFromParent(parentChat, {
+    title: values.title,
+    harness: values.harness,
+    model: values.model,
+    planRevision: getDelegationApprovedPlanRevision(),
+  });
+  if (!result?.ok) {
+    if (result?.code === 'plan_revision_conflict') {
+      alert(result.error || t('chat.delegationPlanConflict'));
+      return;
+    }
+    alert(result?.error || t('chat.createFailed', { detail: t('chat.unknownError') }));
+    return;
+  }
+  const created = result.chat;
+  if (created?.id) {
+    created.agentTransport = normalizeNewChatHarness(created.agentTransport || values.harness);
+    created.sdkMode = 'agent';
+    created.sdkUiMode = normalizeSdkUiMode(created.sdkUiMode || parentChat.sdkUiMode);
+    adoptCreatedChat(created);
+  }
   notifySidebar();
   closeNewChatModal();
 }
@@ -5766,6 +6469,7 @@ function createChatFromModal() {
       workspaceFile: createCtx.workspaceFile,
       workspaceFolder: createCtx.workspaceFolder,
     };
+    if (forkParent?.id && forkUpToCreatedAt) values.upToCreatedAt = forkUpToCreatedAt;
     if (monitorParent?.id) {
       values.message = buildAgentMonitorMessage(monitorParent);
       values.displayText = t('chat.monitorAgentDisplayPrompt');
@@ -5775,6 +6479,28 @@ function createChatFromModal() {
       }
     }
     void createForkChatFromModal(sourceParent, values).finally(() => {
+      chatCreateInFlight = false;
+      setNewChatCreateBusy(false);
+    });
+    return;
+  }
+  const buildPlanParent = buildPlanSourceChatId
+    ? chats.find((entry) => entry.id === buildPlanSourceChatId)
+    : null;
+  if (buildPlanParent?.id) {
+    chatCreateInFlight = true;
+    setNewChatCreateBusy(true);
+    const values = {
+      title,
+      harness,
+      model: chosenModel,
+      workspaceFile: createCtx.workspaceFile,
+      workspaceFolder: createCtx.workspaceFolder,
+    };
+    if (!values.title) {
+      values.title = t('chat.buildPlanDefaultTitle', { title: buildPlanParent.title || 'Chat' });
+    }
+    void createBuildPlanChatFromModal(buildPlanParent, values).finally(() => {
       chatCreateInFlight = false;
       setNewChatCreateBusy(false);
     });
@@ -5791,18 +6517,8 @@ function createChatFromModal() {
     sdkUiMode: 'compact',
   };
   if (title) payload.title = title;
-  const attachHostUrlPin = () => {
-    if (!isEmbedWidgetMode() || !isWidgetHostNavigationAvailable()) {
-      return Promise.resolve('');
-    }
-    return requestWidgetHostUrl()
-      .then((current) => (typeof current?.url === 'string' ? current.url.trim() : ''))
-      .catch(() => '');
-  };
-  void attachHostUrlPin().then((hostPageUrl) => {
-    if (hostPageUrl) payload.widgetPinnedUrl = hostPageUrl;
-    return api.postChat(payload);
-  })
+  void attachWidgetHostPinToCreatePayload(payload)
+    .then(() => api.postChat(payload))
     .then((data) => {
       if (!data.ok) {
         alert(t('chat.createFailed', { detail: data.error || t('chat.unknownError') }));
@@ -5815,11 +6531,8 @@ function createChatFromModal() {
       if (typeof data.chat?.widgetPinnedUrl === 'string' && data.chat.widgetPinnedUrl.trim()) {
         chat.widgetPinnedUrl = data.chat.widgetPinnedUrl.trim();
       }
-      chats.push(chat);
-      renderChatList();
-      openTerminal(chat);
-      selectChat(chat.id);
-      syncWidgetPinUrlUi(chat);
+      const live = adoptCreatedChat(chat);
+      syncWidgetPinUrlUi(live);
       notifyWidgetParentPagePinChanged();
       closeNewChatModal();
     })
@@ -6061,11 +6774,62 @@ function onChatSdkRunFinished(chat, msg) {
 }
 
 /**
+ * Create a new Agent chat on the current widget page instead of resetting in place.
+ * Resetting the SDK room can drop the pane (chat-gone while the session rotates).
+ * @param {object} chat
+ * @param {HTMLElement | null} [hintEl]
+ */
+async function startFreshWidgetAgentChat(chat, hintEl = null) {
+  if (!chat) {
+    setTransientChatActionHint(hintEl, t('chat.noActiveChat'));
+    return false;
+  }
+  if (chat._sdkContextResetPending) {
+    setTransientChatActionHint(hintEl, t('chat.newAgentStarting'));
+    return false;
+  }
+  const host = await requestWidgetHostUrl().catch(() => ({ url: '' }));
+  const hostPageUrl = typeof host?.url === 'string' ? host.url.trim() : '';
+  const pageUrl = hostPageUrl || getChatWidgetPinnedUrl(chat) || '';
+  if (!pageUrl) {
+    return resetInPlaceNewAgent(chat, hintEl);
+  }
+  setTransientChatActionHint(hintEl, t('chat.newAgentStarting'));
+  const result = await createPageLinkedChat({
+    pageUrl,
+    pageTitle: chat.title,
+    harness: normalizeNewChatHarness(chat.agentTransport || 'sdk'),
+    forceNew: true,
+    workspaceFile: chat.workspaceFile,
+    workspaceFolder: chat.workspaceFolder,
+    model: chat.model,
+    sdkMode: 'agent',
+    sdkUiMode: chat.sdkUiMode,
+  });
+  if (!result?.ok || !result.chat?.id) {
+    setTransientChatActionHint(hintEl, result?.error || t('chat.createChatFailed'));
+    return false;
+  }
+  return true;
+}
+
+/**
  * Start a fresh SDK agent session: cancel the current run, clear the view, reset context.
  * @param {object} chat
  * @param {HTMLElement | null} [hintEl]
  */
 async function startNewAgent(chat, hintEl = null) {
+  if (!chat) {
+    setTransientChatActionHint(hintEl, t('chat.noActiveChat'));
+    return false;
+  }
+  if (isEmbedWidgetMode()) {
+    return startFreshWidgetAgentChat(chat, hintEl);
+  }
+  return resetInPlaceNewAgent(chat, hintEl);
+}
+
+async function resetInPlaceNewAgent(chat, hintEl = null) {
   if (!chat || chat.agentTransport !== 'sdk') {
     setTransientChatActionHint(hintEl, t('chat.newAgentSdkOnly'));
     return false;
@@ -6540,9 +7304,9 @@ function saveChatSettings() {
     closeChatSettingsModal();
     return;
   }
-  appLogger.log('api-request', 'PATCH /api/chats/' + chat.id + ' (ustawienia)', payload);
+  appLogger.log('api-request', 'PATCH /api/chats/' + chat.id + ' (' + t('chat.settings') + ')', payload);
   api.patchChat(chat.id, payload).then((data) => {
-    appLogger.log('api-response', 'PATCH /api/chats/' + chat.id + ' (ustawienia)', data);
+    appLogger.log('api-response', 'PATCH /api/chats/' + chat.id + ' (' + t('chat.settings') + ')', data);
     if (!data.ok) return;
     if (payload.title !== undefined) {
       chat.title = newTitle;
@@ -6578,7 +7342,7 @@ function saveChatSettings() {
     );
     closeChatSettingsModal();
   }).catch((err) => {
-    appLogger.log('api-error', 'PATCH /api/chats/' + chat.id + ' (ustawienia)', String(err));
+    appLogger.log('api-error', 'PATCH /api/chats/' + chat.id + ' (' + t('chat.settings') + ')', String(err));
   });
 }
 
@@ -6762,6 +7526,9 @@ export function initChatPanel() {
   }).catch(() => {});
   api.getSettings().then((data) => {
     if (!data?.ok) return;
+    applyHarnessOrder(data.harnessOrder);
+    applyEnabledHarnesses(data.enabledHarnesses);
+    if (sharedSdkModeBar) sharedSdkModeBar.enabledHarnesses = getEnabledHarnessIds();
     applyChatEnabledModels(data.chatEnabledModels || []);
     applyOpenRouterEnabledModels(data.openrouterChatEnabledModels || []);
     applyOpenCodeEnabledModels(data.opencodeChatEnabledModels || []);
@@ -6784,6 +7551,11 @@ export function initChatPanel() {
   if (typeof window !== 'undefined') {
     window.addEventListener(CHAT_PRESETS_CHANGED_EVENT, () => {
       syncNewChatFavoritePresetUi();
+    });
+    window.addEventListener('cretli-enabled-harnesses-changed', (event) => {
+      if (event?.detail?.harnessOrder) applyHarnessOrder(event.detail.harnessOrder);
+      applyEnabledHarnesses(event?.detail?.enabledHarnesses);
+      if (sharedSdkModeBar) sharedSdkModeBar.enabledHarnesses = getEnabledHarnessIds();
     });
     window.addEventListener('cretli-chat-models-changed', (event) => {
       const detail = event?.detail;
@@ -6811,7 +7583,16 @@ export function initChatPanel() {
     });
     window.addEventListener('cretli-codex-models-changed', (event) => {
       const detail = event?.detail;
-      applyCodexEnabledModels(detail?.codexChatEnabledModels || []);
+      if (detail?.codexChatEnabledModels) {
+        applyCodexEnabledModels(detail.codexChatEnabledModels);
+      }
+      if (!detail?.catalog && !detail?.models) return;
+      chatModelSelectApi.applyAvailableModelsFromCodex({
+        ok: true,
+        catalog: detail.catalog,
+        models: detail.models,
+      });
+      chatModelSelectApi.refreshModelSelectLabels();
     });
     window.addEventListener('cretli-opencode-key-changed', () => {
       void reloadOpenCodeModelsCatalog();
@@ -7110,6 +7891,11 @@ export function initChatPanel() {
   applySendFieldPreference();
   if (!chatTitlesSyncTimer && typeof window !== 'undefined') {
     chatTitlesSyncTimer = setInterval(syncChatTitlesFromServer, CHAT_TITLES_SYNC_INTERVAL_MS);
+    window.addEventListener('pagehide', () => {
+      if (!chatTitlesSyncTimer) return;
+      clearInterval(chatTitlesSyncTimer);
+      chatTitlesSyncTimer = null;
+    }, { once: true });
   }
   scheduleChatSendBarReserveSync();
 

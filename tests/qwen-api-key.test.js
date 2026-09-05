@@ -1,5 +1,22 @@
 import assert from 'node:assert/strict';
-import {
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const previousQwen = process.env.QWEN_API_KEY;
+const previousDashscope = process.env.DASHSCOPE_API_KEY;
+const previousEndpoint = process.env.QWEN_ENDPOINT;
+const previousBase = process.env.QWEN_BASE_URL;
+const previousDataDir = process.env.CRETLI_DATA_DIR;
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-qwen-api-key-'));
+process.env.CRETLI_DATA_DIR = tempDir;
+fs.writeFileSync(path.join(tempDir, 'config.json'), '{}');
+delete process.env.QWEN_API_KEY;
+delete process.env.DASHSCOPE_API_KEY;
+delete process.env.QWEN_ENDPOINT;
+delete process.env.QWEN_BASE_URL;
+
+const {
   getEffectiveQwenApiKey,
   getQwenApiKeyFromEnv,
   getQwenApiKeyMetaForClient,
@@ -8,16 +25,7 @@ import {
   resolveQwenEndpoint,
   buildQwenProcessEnv,
   QWEN_ENDPOINT_URLS,
-} from '../lib/qwen/qwen-api-key.js';
-
-const previousQwen = process.env.QWEN_API_KEY;
-const previousDashscope = process.env.DASHSCOPE_API_KEY;
-const previousEndpoint = process.env.QWEN_ENDPOINT;
-const previousBase = process.env.QWEN_BASE_URL;
-delete process.env.QWEN_API_KEY;
-delete process.env.DASHSCOPE_API_KEY;
-delete process.env.QWEN_ENDPOINT;
-delete process.env.QWEN_BASE_URL;
+} = await import('../lib/qwen/qwen-api-key.js');
 
 try {
   process.env.QWEN_API_KEY = 'qwen-test-key';
@@ -70,6 +78,9 @@ try {
   else delete process.env.QWEN_ENDPOINT;
   if (typeof previousBase === 'string') process.env.QWEN_BASE_URL = previousBase;
   else delete process.env.QWEN_BASE_URL;
+  if (typeof previousDataDir === 'string') process.env.CRETLI_DATA_DIR = previousDataDir;
+  else delete process.env.CRETLI_DATA_DIR;
+  fs.rmSync(tempDir, { recursive: true, force: true });
 }
 
 console.log('qwen-api-key.test.js OK');

@@ -520,6 +520,7 @@ function initCretliWidget() {
     const payload = {
       pageUrl: location.href,
       pageTitle: (document.title || '').trim() || location.pathname || 'Page chat',
+      forceNew: true,
       ...(harness ? { harness } : {}),
     };
     if (!iframeRef?.contentWindow || !iframeOrigin) {
@@ -659,16 +660,12 @@ function initCretliWidget() {
     const pageTitle = (document.title || '').trim() || location.pathname || 'Page chat';
     const harness = String(runtimeConfig.harness || '').trim().toLowerCase();
     widgetDebugLog('create.host-api.start', { pageUrl, pageTitle });
-    const existing = await refreshPagePinStateFromHostApi().catch(() => null);
-    if (existing?.id) {
-      widgetDebugLog('create.host-api.reused-existing', { chatId: existing.id.slice(0, 8) });
-      return existing;
-    }
     const createData = await widgetApiFetch('/api/chats', {
       method: 'POST',
       body: JSON.stringify({
         title: pageTitle,
         widgetPinnedUrl: pageUrl,
+        forceNewPinnedChat: true,
         ...(harness ? { agentTransport: harness } : {}),
       }),
     });

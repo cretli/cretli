@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  canShowPwaUpdateBanner,
   extractAssetVersionFromHeaders,
   extractFrontAssetVersion,
   hasNewerFrontAssetVersion,
@@ -53,6 +54,13 @@ test('extractAssetVersionFromHeaders prefers last-modified over etag', () => {
     extractAssetVersionFromHeaders(inputHeaders),
     'Thu, 03 Sep 2026 21:25:58 GMT',
   );
+});
+
+test('canShowPwaUpdateBanner hides the banner for the rest of the session', () => {
+  assert.equal(canShowPwaUpdateBanner({}), true);
+  assert.equal(canShowPwaUpdateBanner({ bannerExists: true }), false);
+  assert.equal(canShowPwaUpdateBanner({ isDismissed: true }), false);
+  assert.equal(canShowPwaUpdateBanner({ isDismissed: true, bannerExists: false }), false);
 });
 
 test('resolvePolledFrontAssetVersion prefers health over bundle headers', () => {

@@ -27,6 +27,8 @@ Stop closes the `dsh` subprocess (the SDK protocol has no mid-turn cancel). The 
 - **CLI not found** — install `@deepseek-ai/dsh`, or set `DSH_BIN`.
 - **Missing key** — Settings → Harness → DeepSeek, or `DEEPSEEK_API_KEY`.
 - **Slow first prompt** — the first `dsh --profile sdk` spawn can take tens of seconds (`initializeTimeoutMs` is 30 s).
+- **`read_image` on Flash/Pro** — those routes are text-only. Cretli hides `read_image` unless the chat model id contains `vision` (official catalog: `deepseek-v4-flash-vision-exp`). Switch the chat to that model to inspect screenshots.
+- **`web_fetch` to a LAN URL** — stock DSH only allows public unicast. Cretli replaces that fetch backend so RFC1918 / loopback work; link-local (`169.254.0.0/16`, `fe80::/10`) stays blocked.
 - Session resume uses `deepseekSessionId` stored on the chat after the first run.
 
 DeepSeek Harness is in **developer preview** and can ship breaking changes. Pin the optional package versions when upgrading.

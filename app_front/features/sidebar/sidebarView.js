@@ -4,10 +4,21 @@
  * The drawer slides in from the left via the header menu icon.
  */
 
-import { getChatUpdatedAtMs, sortChatsByDate } from '../chat/chatListSort.js';
+import { applyChatOrder, flattenChatsTree } from '../../../lib/chat-tree.js';
+import { sortChatsByFavoriteThenDate } from '../chat/chatListSort.js';
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from '../../lib/storageKeyAlias.js';
 import { getCurrentLang, t } from '../../i18n/index.js';
+import { isSidebarDocked } from './sidebarDock.js';
 import { matchesSidebarSearch } from './sidebarSearch.js';
+import { initSidebarChatDrag } from './sidebarChatDrag.js';
+import { renderSidebarChatStatusHtml } from './sidebarChatStatus.js';
+import { readChatOrder, writeChatOrderForList } from './sidebarChatOrder.js';
+import { initSidebarWorkspaceDrag } from './sidebarWorkspaceDrag.js';
+import {
+  readWorkspaceOrder,
+  writeWorkspaceOrder,
+} from './sidebarWorkspaceOrder.js';
+import { sortSidebarWorkspaces } from './sidebarWorkspaceSort.js';
 import {
   SIDEBAR_MIN_WIDTH,
   SIDEBAR_RESIZE_STEP,
@@ -16,7 +27,9 @@ import {
 
 const SIDEBAR_OPEN_KEY = 'cretli-sidebar-open';
 const SIDEBAR_COLLAPSE_KEY = 'cretli-sidebar-collapsed';
+const SIDEBAR_PIN_KEY = 'cretli-sidebar-pinned';
 const SIDEBAR_WIDTH_KEY = 'cretli-sidebar-width';
+const SIDEBAR_PIN_ACTIVE_WORKSPACE_KEY = 'cretli-sidebar-pin-active-workspace';
 
 function readOpenFlag() {
   if (typeof localStorage === 'undefined') return false;
@@ -31,6 +44,38 @@ function writeOpenFlag(value) {
   if (typeof localStorage === 'undefined') return;
   try {
     writeStorageValueWithAlias(localStorage, SIDEBAR_OPEN_KEY, value ? '1' : '0');
+  } catch (_) {}
+}
+
+function readPinFlag() {
+  if (typeof localStorage === 'undefined') return false;
+  try {
+    return readStorageValueWithAlias(localStorage, SIDEBAR_PIN_KEY, '') === '1';
+  } catch (_) {
+    return false;
+  }
+}
+
+function writePinFlag(value) {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    writeStorageValueWithAlias(localStorage, SIDEBAR_PIN_KEY, value ? '1' : '0');
+  } catch (_) {}
+}
+
+function readPinActiveWorkspaceFlag() {
+  if (typeof localStorage === 'undefined') return false;
+  try {
+    return readStorageValueWithAlias(localStorage, SIDEBAR_PIN_ACTIVE_WORKSPACE_KEY, '') === '1';
+  } catch (_) {
+    return false;
+  }
+}
+
+function writePinActiveWorkspaceFlag(value) {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    writeStorageValueWithAlias(localStorage, SIDEBAR_PIN_ACTIVE_WORKSPACE_KEY, value ? '1' : '0');
   } catch (_) {}
 }
 
@@ -134,6 +179,7 @@ export function createSidebarView(deps) {
     escapeHtml,
     openWorkspaceSettings = () => {},
     refreshStates = () => {},
+    setChatForkParent = async () => {},
     isMobileViewport = () =>
       typeof window !== 'undefined' && window.matchMedia
         ? window.matchMedia('(max-width: 768px)').matches
@@ -141,10 +187,13 @@ export function createSidebarView(deps) {
   } = deps;
 
   let open = readOpenFlag();
+  let pinned = readPinFlag();
   const collapsed = readCollapsedSet();
   let lastRenderSignature = '';
   let pollTimer = null;
   let searchQuery = '';
+  let workspaceDrag = { isDragging: () => false };
+  let chatDrag = { isDragging: () => false };
 
   function getContainer() {
     return document.getElementById('app-sidebar');
@@ -152,6 +201,39 @@ export function createSidebarView(deps) {
 
   function getBackdrop() {
     return document.getElementById('app-sidebar-backdrop');
+  }
+
+  function applyPinButton() {
+    const btn = document.getElementById('sidebar-pin-btn');
+    if (!btn) return;
+    const label = pinned ? t('sidebar.unpin') : t('sidebar.pin');
+    btn.setAttribute('aria-pressed', pinned ? 'true' : 'false');
+    btn.setAttribute('title', label);
+    btn.setAttribute('aria-label', label);
+    btn.classList.toggle('is-active', pinned);
+    const icon = btn.querySelector('.mdi');
+    if (!icon) return;
+    icon.classList.toggle('mdi-pin', pinned);
+    icon.classList.toggle('mdi-pin-outline', !pinned);
+  }
+
+  function applyDockLayout() {
+    const docked = isSidebarDocked({
+      pinned,
+      open,
+      isMobile: isMobileViewport(),
+    });
+    document.body?.classList.toggle('sidebar-docked', docked);
+    const root = document.documentElement;
+    if (!root) return;
+    if (!docked) {
+      root.style.setProperty('--sidebar-dock-width', '0px');
+      return;
+    }
+    const aside = getContainer();
+    const measured = aside ? Math.round(aside.getBoundingClientRect().width) : 0;
+    const width = measured > 0 ? measured : clampToViewport(readSidebarWidth());
+    root.style.setProperty('--sidebar-dock-width', `${width}px`);
   }
 
   function applyVisibility() {
@@ -165,10 +247,22 @@ export function createSidebarView(deps) {
       menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
       menuBtn.classList.toggle('is-active', open);
     }
+    applyPinButton();
     if (open) {
       startPoll();
       applySidebarWidth();
     } else stopPoll();
+    applyDockLayout();
+  }
+
+  function togglePin() {
+    pinned = !pinned;
+    writePinFlag(pinned);
+    if (pinned && !open) {
+      open = true;
+      writeOpenFlag(true);
+    }
+    applyVisibility();
   }
 
   function startPoll() {
@@ -270,57 +364,8 @@ export function createSidebarView(deps) {
   }
 
   function orderedChats(list) {
-    return sortChatsByDate(list);
-  }
-
-  function flattenChatsTree(chats) {
-    if (!Array.isArray(chats) || !chats.length) return [];
-    const byId = new Map(chats.map((chat) => [chat.id, chat]));
-    const childrenByParent = new Map();
-    const roots = [];
-    const resolveRootParentId = (chat) => {
-      if (!chat) return '';
-      let current = chat;
-      const visited = new Set([chat.id]);
-      while (current && typeof current.forkParentChatId === 'string') {
-        const parentId = current.forkParentChatId.trim();
-        if (!parentId || parentId === chat.id || visited.has(parentId)) break;
-        const parent = byId.get(parentId);
-        if (!parent) break;
-        visited.add(parentId);
-        current = parent;
-      }
-      return current?.id || '';
-    };
-
-    chats.forEach((chat) => {
-      const parentId = typeof chat.forkParentChatId === 'string' ? chat.forkParentChatId.trim() : '';
-      if (!parentId || parentId === chat.id) {
-        roots.push(chat);
-        return;
-      }
-      const parent = byId.get(parentId);
-      if (!parent) {
-        roots.push(chat);
-        return;
-      }
-      const rootParentId = resolveRootParentId(parent) || parent.id;
-      const list = childrenByParent.get(rootParentId) || [];
-      list.push(chat);
-      childrenByParent.set(rootParentId, list);
-    });
-
-    const linear = [];
-    roots.forEach((chat) => {
-      linear.push({ chat, level: 0, isLastChild: false });
-      const children = childrenByParent.get(chat.id);
-      if (!children?.length) return;
-      children.forEach((child, idx) => {
-        linear.push({ chat: child, level: 1, isLastChild: idx === children.length - 1 });
-      });
-    });
-
-    return linear;
+    const ranked = sortChatsByFavoriteThenDate(list, (chat) => chatFavorites.isFavorite(chat.id));
+    return applyChatOrder(ranked, readChatOrder());
   }
 
   function renderChatItem(chat, activeChatId, opts = {}) {
@@ -365,10 +410,12 @@ export function createSidebarView(deps) {
       escapeHtml(meta.tone) +
       '" title="' +
       escapeHtml(t('sidebar.stateTitle', { label: meta.label })) +
+      '" data-status-tone="' +
+      escapeHtml(meta.tone) +
       '"' +
       (showMeta ? '' : ' hidden') +
       '>' +
-      escapeHtml(meta.label) +
+      renderSidebarChatStatusHtml(meta, escapeHtml) +
       '</span>' +
       '</li>'
     );
@@ -454,7 +501,6 @@ export function createSidebarView(deps) {
           c.isTemporary ? 'T' : '',
           c.todoId ? 'D' : '',
           c.forkParentChatId || '',
-          getChatUpdatedAtMs(c) || 0,
           c.widgetPinnedUrl || '',
         ].join(',')
       )
@@ -482,13 +528,22 @@ export function createSidebarView(deps) {
       '||' +
       chatsSig +
       '||' +
-      searchQuery
+      searchQuery +
+      '||' +
+      (readPinActiveWorkspaceFlag() ? '1' : '0') +
+      '||' +
+      readWorkspaceOrder().join('\n') +
+      '||' +
+      readChatOrder().join('\n')
     );
   }
 
   function render() {
     const aside = getContainer();
     if (!aside) return;
+    // Never rebuild the DOM in the middle of a workspace drag — the dragged
+    // element would be detached; the drop handler forces the re-render.
+    if (workspaceDrag.isDragging() || chatDrag.isDragging()) return;
     const sig = renderSignature();
     if (sig === lastRenderSignature) return;
     lastRenderSignature = sig;
@@ -515,23 +570,13 @@ export function createSidebarView(deps) {
       return;
     }
 
-    const ordered = wsList.slice().sort((a, b) => {
-      const aKey = a.sidebarKey || a.workspaceFile || '';
-      const bKey = b.sidebarKey || b.workspaceFile || '';
-      const aFolder = normalizePath(getPreferredWorkspaceFolder(aKey));
-      const bFolder = normalizePath(getPreferredWorkspaceFolder(bKey));
-      const aActive =
-        normalizePath(a.workspaceFile) === normalizePath(activeWorkspaceFile) &&
-        aFolder === normalizePath(activeWorkspaceFolder)
-          ? 0
-          : 1;
-      const bActive =
-        normalizePath(b.workspaceFile) === normalizePath(activeWorkspaceFile) &&
-        bFolder === normalizePath(activeWorkspaceFolder)
-          ? 0
-          : 1;
-      if (aActive !== bActive) return aActive - bActive;
-      return (a.name || '').localeCompare(b.name || '', getCurrentLang());
+    const ordered = sortSidebarWorkspaces(wsList, {
+      pinActiveOnTop: readPinActiveWorkspaceFlag(),
+      activeWorkspaceFile,
+      activeWorkspaceFolder,
+      getPreferredWorkspaceFolder,
+      locale: getCurrentLang(),
+      order: readWorkspaceOrder(),
     });
 
     const searching = isSearchActive();
@@ -660,6 +705,9 @@ export function createSidebarView(deps) {
           '<span class="mdi ' +
           (pinned ? 'mdi-link-variant-off' : 'mdi-link-variant') +
           '" aria-hidden="true"></span>';
+        pinBtn.addEventListener('pointerdown', (ev) => {
+          ev.stopPropagation();
+        });
         pinBtn.addEventListener('click', (ev) => {
           ev.preventDefault();
           ev.stopPropagation();
@@ -684,7 +732,6 @@ export function createSidebarView(deps) {
         if (typeof requestDeleteChat !== 'function') return;
         requestDeleteChat(chatId, {
           preserveListOpen: true,
-          forceConfirm: true,
           title: chat?.title || '',
         });
       });
@@ -707,6 +754,9 @@ export function createSidebarView(deps) {
           '" aria-hidden="true"></span>';
       };
       renderFavIcon(favActive);
+      favBtn.addEventListener('pointerdown', (ev) => {
+        ev.stopPropagation();
+      });
       favBtn.addEventListener('click', (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -816,6 +866,8 @@ export function createSidebarView(deps) {
         toggleSidebar();
       });
     }
+    const pinBtn = document.getElementById('sidebar-pin-btn');
+    if (pinBtn) pinBtn.addEventListener('click', togglePin);
     const closeBtn = document.getElementById('sidebar-close-btn');
     if (closeBtn) closeBtn.addEventListener('click', closeSidebar);
     const backdrop = getBackdrop();
@@ -880,6 +932,7 @@ export function createSidebarView(deps) {
       // Right-edge handle: dragging right grows the left-anchored drawer.
       const next = applyWidth(startWidth + (ev.clientX - startX));
       syncAria(next);
+      applyDockLayout();
     };
 
     const onPointerEnd = (ev) => {
@@ -894,6 +947,7 @@ export function createSidebarView(deps) {
       if (!Number.isFinite(finalWidth) || finalWidth <= 0) return;
       syncAria(finalWidth);
       writeSidebarWidth(finalWidth);
+      applyDockLayout();
     };
 
     const onKeyDown = (ev) => {
@@ -908,6 +962,7 @@ export function createSidebarView(deps) {
       const applied = applyWidth(next);
       syncAria(applied);
       writeSidebarWidth(applied);
+      applyDockLayout();
     };
 
     resizer.addEventListener('pointerdown', onPointerDown);
@@ -918,16 +973,71 @@ export function createSidebarView(deps) {
     syncAria(aside.getBoundingClientRect().width);
   }
 
+  function initPinActiveWorkspaceSetting() {
+    const checkbox = document.getElementById('sidebar-pin-active-workspace-checkbox');
+    if (!checkbox) return;
+    checkbox.checked = readPinActiveWorkspaceFlag();
+    checkbox.addEventListener('change', () => {
+      writePinActiveWorkspaceFlag(!!checkbox.checked);
+      forceRerender();
+    });
+  }
+
+  function initChatDrag() {
+    const body = getContainer()?.querySelector('.sidebar-body');
+    if (!body) return;
+    chatDrag = initSidebarChatDrag({
+      body,
+      isEnabled: () => !isSearchActive() && !workspaceDrag.isDragging(),
+      onDrop: ({ orderedIds, draggedId, parentChatId }) => {
+        writeChatOrderForList(orderedIds);
+        const chat = getChats().find((item) => item.id === draggedId);
+        const currentParent =
+          typeof chat?.forkParentChatId === 'string' ? chat.forkParentChatId.trim() : '';
+        if (draggedId && currentParent !== parentChatId) {
+          void setChatForkParent(draggedId, parentChatId);
+        }
+        forceRerender();
+      },
+    });
+  }
+
+  /**
+   * Press-and-hold drag & drop for workspace groups. Listeners are delegated
+   * on the static `.sidebar-body`, so a single init covers all re-renders.
+   */
+  function initWorkspaceDrag() {
+    const body = getContainer()?.querySelector('.sidebar-body');
+    if (!body) return;
+    workspaceDrag = initSidebarWorkspaceDrag({
+      body,
+      isEnabled: () => !isSearchActive(),
+      onOrderChange: (keys) => {
+        writeWorkspaceOrder(keys);
+        forceRerender();
+      },
+    });
+  }
+
   function init() {
     initMenuButton();
     initSearchInput();
+    initPinActiveWorkspaceSetting();
+    initWorkspaceDrag();
+    initChatDrag();
     applySidebarWidth();
     initResizer();
     applyVisibility();
     // The render signature tracks data, not language, so a language switch
     // needs an explicit rerender to pick up new labels.
-    window.addEventListener('cr-lang-changed', () => forceRerender());
-    window.addEventListener('resize', () => applySidebarWidth());
+    window.addEventListener('cr-lang-changed', () => {
+      applyPinButton();
+      forceRerender();
+    });
+    window.addEventListener('resize', () => {
+      applySidebarWidth();
+      applyVisibility();
+    });
     render();
   }
 
@@ -942,6 +1052,7 @@ export function createSidebarView(deps) {
     close: closeSidebar,
     toggle: toggleSidebar,
     isOpen: () => open,
+    isPinned: () => pinned,
     render,
     forceRerender,
   };

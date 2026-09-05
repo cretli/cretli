@@ -144,3 +144,13 @@ test('creates signed short-lived tokens and rejects tampering or expiry', () => 
 
   assert.equal(fs.readFileSync(dataFile, 'utf8').includes(token), false);
 });
+
+test('recovers from corrupt widget-installations JSON', () => {
+  fs.writeFileSync(dataFile, '{not-json', 'utf8');
+  const listed = widgets.listWidgetInstallations();
+  assert.equal(Array.isArray(listed), true);
+  const recovered = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+  assert.equal(Array.isArray(recovered.installations), true);
+  const backups = fs.readdirSync(tempDir).filter((name) => name.includes('corrupt-'));
+  assert.ok(backups.length >= 1);
+});

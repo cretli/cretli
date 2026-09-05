@@ -248,11 +248,16 @@ export function initLanSettings() {
   function applyCodexChatGptHint(data) {
     const statusEl = document.getElementById('codex-chatgpt-status');
     if (!statusEl) return;
-    if (data?.codexChatGptAuthEffective) {
+    if (!data?.codexChatGptAuthEffective) {
+      statusEl.textContent = t('lanSettings.codexChatGptSignedOut');
+      return;
+    }
+    const plan = String(data.chatgptPlanType || '').trim();
+    if (!plan) {
       statusEl.textContent = t('lanSettings.codexChatGptSignedIn');
       return;
     }
-    statusEl.textContent = t('lanSettings.codexChatGptSignedOut');
+    statusEl.textContent = `${t('lanSettings.codexChatGptSignedIn')} ${t('settings.harnessCodexChatGptPlanType', { plan })}`;
   }
 
   function applyCodexAuthModeSelect(data) {
@@ -940,6 +945,14 @@ export function initLanSettings() {
         });
     });
   }
+
+  window.addEventListener('cretli-codex-models-changed', () => {
+    api.getCodexStatus()
+      .then((status) => {
+        if (status?.ok) applyCodexChatGptHint(status);
+      })
+      .catch(() => {});
+  });
 
   api.getCodexStatus()
     .then((status) => {

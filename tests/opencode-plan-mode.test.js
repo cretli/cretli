@@ -10,9 +10,10 @@ import { resolveHarnessPlanPolicy } from '../lib/agent-harness/harness-plan-poli
 assert.equal(getSdkToolCallName({ type: 'tool_call', name: 'Edit' }), 'edit');
 assert.equal(isPlanModeMutatingSdkEvent({ type: 'tool_call', name: 'edit', status: 'running' }), true);
 assert.equal(isPlanModeMutatingSdkEvent({ type: 'tool_call', name: 'read', status: 'running' }), false);
+assert.equal(isPlanModeMutatingSdkEvent({ type: 'tool_call', name: 'web_search', status: 'running' }), false);
 assert.equal(isPlanModeMutatingSdkEvent({ type: 'tool_call', name: 'task', status: 'running' }), false);
 assert.equal(isPlanModeMutatingSdkEvent({ type: 'tool_call', name: 'subagent', status: 'started' }), false);
-assert.equal(isPlanModeMutatingSdkEvent({ type: 'tool_call', name: 'shell.exec', status: 'started' }), true);
+assert.equal(isPlanModeMutatingSdkEvent({ type: 'tool_call', name: 'shell.exec', status: 'started' }), false);
 assert.equal(
   isPlanModeMutatingSdkEvent({
     type: 'tool_call',

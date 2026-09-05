@@ -30,7 +30,7 @@ Do not skip steps 1–2.
 - **Flow / regressions**: `public/fixtures/status-flow-scenarios.json`
 - **Flow JSON schema**: `tests/fixtures/status-flow-schema.json`
 - **Flow runner (CLI + validation)**: `tests/status-parser-flow.test.js`
-- **Parser unit fixtures**: `lib/status-parser.js` (`STATUS_TEST_FIXTURES`)
+- **Parser unit fixtures**: `public/fixtures/status-parser-unit.json`
 - **Parser unit test**: `tests/status-parser.test.js`
 
 ## 3) Flow scenario standard

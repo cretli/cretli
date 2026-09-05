@@ -74,6 +74,12 @@ openSidebarDoc._sidebar = { hidden: false };
 openSidebarDoc._backdrop = { hidden: false };
 assert.equal(reconcileSidebarBackdrop(openSidebarDoc), false);
 
+const dockedSidebarDoc = createDoc();
+dockedSidebarDoc._sidebar = { hidden: true };
+dockedSidebarDoc.body.classList._classes.add('sidebar-docked');
+assert.equal(reconcileSidebarBackdrop(dockedSidebarDoc), true);
+assert.equal(dockedSidebarDoc.body.classList.contains('sidebar-docked'), false);
+
 const scrollDoc = createDoc();
 scrollDoc.documentElement.style.overflow = 'hidden';
 assert.equal(releaseStuckPageScrollLock(scrollDoc), true);

@@ -253,6 +253,16 @@ export function createChatController(deps) {
         if (saved && saved.length > 0) created._buffer = saved.slice(-CHAT_BUFFER_MAX);
         return created;
       });
+      const liveOrphans = chats.filter((chat) => {
+        if (!chat?.id) return false;
+        if (nextChats.some((entry) => entry.id === chat.id)) return false;
+        if (chat.pane) return true;
+        const readyState = chat.ws?.readyState;
+        return readyState === 0 || readyState === 1;
+      });
+      if (liveOrphans.length > 0) {
+        nextChats.push(...liveOrphans);
+      }
       chats.length = 0;
       nextChats.forEach((chat) => chats.push(chat));
       setActiveChatIdsForEviction(nextChats.map((c) => c.id));
@@ -288,7 +298,7 @@ export function createChatController(deps) {
   function selectChatController(id) {
     const chats = getChats();
     const chat = chats.find((c) => c.id === id);
-    if (chat && !chat.pane) openTerminal(chat);
+    if (chat) openTerminal(chat);
     setActiveChatId(id);
     if (chat?.cursorSessionId && chat.pane) ensureChatConnection(chat);
     if (typeof localStorage !== 'undefined') {

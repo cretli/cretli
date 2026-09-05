@@ -27,6 +27,7 @@ import {
 import { isSdkRunFailureStatus } from '../../lib/sdk/sdk-run-outcome.js';
 import { normalizeSdkUiMode } from '../../lib/sdk/sdk-ui-mode.js';
 import { splitTrailingTitleJson } from '../features/chat/chatTitleParsing.js';
+import { parseTimeoutProgressNotice } from '../../lib/notices.js';
 import {
   buildStableSdkToolCallFallback,
   hasRunningSdkTools,
@@ -66,6 +67,10 @@ import {
 } from '../../lib/agent-harness/tool-search-display.js';
 import '../components/chat/cr-sdk-block.js';
 import { escapeHtml } from '../features/chat/chatHtmlUtils.js';
+import {
+  delegationStatusLabel,
+  parseDelegationHistoryPayload,
+} from '../features/chat/chatDelegations.js';
 
 hljs.registerLanguage('javascript', javascript);
 hljs.registerLanguage('typescript', typescript);
@@ -467,39 +472,6 @@ function stripSdkTelemetryLines(text) {
 }
 
 /**
- * @param {string} text
- * @returns {{ idleSeconds: number, remainingSeconds: number, isStarted?: boolean } | null}
- */
-// Fallback for chats recorded before progress values were stored on the history
-// record. Those payloads are always Polish, so the patterns stay untranslated.
-function parseTimeoutProgressNotice(text) {
-  const raw = String(text || '').trim();
-  if (!raw) return null;
-
-  if (/^\[(?:SDK|OpenCode|OpenRouter)\]\s+Wysłano prompt\.\s+Czekam na pierwszą odpowiedź agenta/i.test(raw)) {
-    return { idleSeconds: 0, remainingSeconds: 0, isStarted: true };
-  }
-
-  const patterns = [
-    /^\[(?:SDK|OpenCode|OpenRouter)\]\s+Nadal czekam na pierwsze zdarzenie\s+\((\d+)s\)\.(?:\s+Timeout za ok\.\s+(\d+)s\.)?\s*$/i,
-    /^\[(?:SDK|OpenCode|OpenRouter)\]\s+Brak nowych zdarzeń od\s+(\d+)s\.(?:\s+Timeout za ok\.\s+(\d+)s\.)?\s*$/i,
-    /^\[(?:SDK|OpenCode|OpenRouter)\]\s+Brak nowych zdarzeń od\s+\((\d+)s\)\.(?:\s+Timeout za ok\.\s+(\d+)s\.)?\s*$/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = raw.match(pattern);
-    if (!match) continue;
-    const idleSeconds = Number(match[1]);
-    const remainingSeconds = Number(match[2] || 0);
-    if (!Number.isFinite(idleSeconds) || !Number.isFinite(remainingSeconds)) return null;
-    if (idleSeconds < 0 || remainingSeconds < 0) return null;
-    return { idleSeconds, remainingSeconds };
-  }
-
-  return null;
-}
-
-/**
  * @param {number} seconds
  * @returns {string}
  */
@@ -690,7 +662,7 @@ function sdkEventsFromAgentRow(row) {
 /**
  * @param {object} chat
  * @param {HTMLElement} mountEl
- * @param {{ appendPlain: (s: string) => void, onHistoryRecord?: (rec: unknown) => void, loadOlderHistory?: () => Promise<{ records: unknown[], hasOlder: boolean } | null>, onAssistantText?: (text: string) => void, onAnswerEnd?: () => void }} hooks
+   * @param {{ appendPlain: (s: string) => void, onHistoryRecord?: (rec: unknown) => void, loadOlderHistory?: () => Promise<{ records: unknown[], hasOlder: boolean } | null>, onAssistantText?: (text: string) => void, onAnswerEnd?: () => void, onForkFromPoint?: (point: { createdAt: string }) => void }} hooks
  * @returns {{ destroy: () => void, applyEvent: (ev: unknown) => void, onStreamReset: () => void, appendUserPrompt: (text: string, opts?: { silent?: boolean }) => void, appendBannerConnected: (opts?: { silent?: boolean }) => void, markUserPromptQueued: (text: string) => boolean, appendRunFinished: (status: string, opts?: { silent?: boolean }) => void, appendBusy: (message: string, opts?: { silent?: boolean }) => void, appendError: (message: string, opts?: { silent?: boolean }) => void, appendMetaNotice: (text: string, opts?: { silent?: boolean }) => void, appendRestoredPlainBuffer: (text: string, summaryLabel?: string) => void, applyAgentMessagesHistory: (rows: Array<{ type?: string, message?: unknown }>) => void, replayHistoryRecords: (records: unknown[]) => void, prependHistoryRecords: (records: unknown[]) => number, setOlderHistoryAvailable: (available: boolean) => void, scrollToBottom: () => void, getCopyText: () => string }}
  */
 export function createSdkRichView(chat, mountEl, hooks) {
@@ -837,6 +809,16 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const detail = event?.detail || {};
     if (typeof detail.text !== 'string' || !detail.text) return;
     getChatSpeaker().toggleSpeakMarkdown(detail.text, detail.token || '');
+  });
+
+  mountEl.addEventListener('cr-sdk-block-fork', (event) => {
+    const block = event?.target;
+    const createdAt =
+      block instanceof HTMLElement && typeof /** @type {any} */ (block).createdAt === 'string'
+        ? /** @type {any} */ (block).createdAt.trim()
+        : '';
+    if (!createdAt) return;
+    if (typeof hooks.onForkFromPoint === 'function') hooks.onForkFromPoint({ createdAt });
   });
 
   /**
@@ -1734,6 +1716,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
   function attachQueuedBlockActions(block, text) {
     block.classList.add('sdk-rich-block--queued');
     block.queued = true;
+    // Not sent yet — the history cut point would be ambiguous, so no fork action
+    // until the queued record is promoted to a sent localUser record.
+    block.forkable = false;
     block.addEventListener('cr-sdk-block-force-send', () => {
       if (typeof hooks.onForceSendQueueItem === 'function') hooks.onForceSendQueueItem(text);
     });
@@ -1771,6 +1756,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
   function createAssistantBlock() {
     const block = createSdkBlock({ variant: 'assistant', label: t('sdkView.answer'), open: true });
     block.speakable = true;
+    block.forkable = true;
     const mdEl = document.createElement('div');
     mdEl.className = 'sdk-md sdk-rich-md sdk-rich-assistant-md';
     block.appendChild(mdEl);
@@ -1788,6 +1774,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const text = String(textRaw || '').trim();
     if (!text) return null;
     const block = createSdkBlock({ variant: 'user', label: t('sdkView.you'), open: true, createdAt });
+    block.forkable = true;
     const textForDisplay = stripScreenshotMarkers(text);
     block.copyText = text;
     const body = document.createElement('div');
@@ -2048,7 +2035,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const block = createSdkBlock({
       variant: 'question',
       label: t('sdkView.openCodePermission'),
-      name: 'permission',
+      name: action === 'Permission required' ? '' : action,
       open: true,
     });
     block.dataset.requestId = requestId;
@@ -2483,6 +2470,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
           item.block.label = t('sdkView.you');
           item.block.classList.remove('sdk-rich-block--queued');
           item.block.queued = false;
+          // The sent record carries the authoritative cut point for "fork from here".
+          if (createdAt) item.block.createdAt = createdAt;
+          item.block.forkable = true;
           relabelQueuedBlocks();
           scrollToBottom();
           return;
@@ -2573,7 +2563,90 @@ export function createSdkRichView(chat, mountEl, hooks) {
     } else if (variant === 'contextSeed') {
       if (!payload.trim()) return;
       createContextSeedBlock(payload.trim(), createdAt);
+    } else if (variant === 'delegation') {
+      renderDelegationCard(payload, createdAt);
     }
+  }
+
+  /**
+   * @param {unknown} payload
+   * @param {string} createdAt
+   */
+  function renderDelegationCard(payload, createdAt) {
+    const data = parseDelegationHistoryPayload(payload);
+    const id = typeof data?.id === 'string' ? data.id : '';
+    if (!id) return;
+    const safeId = id.replace(/"/g, '');
+    const status = String(data.status || '');
+    const childChatId = String(data.childChatId || '');
+    const executor = data.executor && typeof data.executor === 'object' ? data.executor : {};
+    const executorLabel = [executor.transport, executor.model].filter(Boolean).join(' · ');
+    const report = String(data.report || '').trim();
+    const error = String(data.error || '').trim();
+    const canCancel = status === 'queued' || status === 'starting' || status === 'running'
+      || status === 'waiting_for_input' || status === 'cancelling';
+    let card = stream.querySelector(`[data-delegation-id="${safeId}"]`);
+    if (!(card instanceof HTMLElement)) {
+      lineMeta('sdk-rich-line--ok sdk-rich-delegation', '', createdAt);
+      card = stream.lastElementChild;
+      if (card instanceof HTMLElement) card.dataset.delegationId = safeId;
+    }
+    if (!(card instanceof HTMLElement)) return;
+    const content = card.querySelector('.sdk-rich-line__content');
+    if (!(content instanceof HTMLElement)) return;
+    const unverified = data.unverified !== false && status === 'completed' && !String(data.acknowledgedAt || '').trim()
+      ? `<span class="sdk-rich-badge sdk-rich-badge--warn">${escapeHtml(t('chat.delegationUnverified'))}</span>`
+      : '';
+    const waiting = status === 'waiting_for_input'
+      ? `<p>${escapeHtml(t('chat.delegationNeedsInput'))}</p>`
+      : '';
+    content.innerHTML = [
+      `<strong>${escapeHtml(t('chat.delegationCardTitle'))}</strong>`,
+      `<div>${escapeHtml(delegationStatusLabel(status))} ${unverified}</div>`,
+      executorLabel ? `<div>${escapeHtml(executorLabel)}</div>` : '',
+      waiting,
+      error ? `<pre class="sdk-rich-delegation-report">${escapeHtml(error)}</pre>` : '',
+      report ? `<pre class="sdk-rich-delegation-report">${escapeHtml(report)}</pre>` : '',
+      `<div class="sdk-rich-delegation-actions"></div>`,
+    ].filter(Boolean).join('');
+    const actions = content.querySelector('.sdk-rich-delegation-actions');
+    if (actions instanceof HTMLElement) {
+      if (childChatId) {
+        const openBtn = document.createElement('button');
+        openBtn.type = 'button';
+        openBtn.className = 'sdk-rich-delegation-btn';
+        openBtn.textContent = t('chat.delegationOpenChild');
+        openBtn.addEventListener('click', () => {
+          hooks.onOpenDelegationChat?.(childChatId);
+        });
+        actions.appendChild(openBtn);
+      }
+      if (canCancel && status !== 'cancelling') {
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'sdk-rich-delegation-btn';
+        cancelBtn.textContent = t('chat.delegationCancel');
+        cancelBtn.addEventListener('click', () => {
+          hooks.onCancelDelegation?.(id);
+        });
+        actions.appendChild(cancelBtn);
+      }
+      const acknowledged = Boolean(String(data.acknowledgedAt || '').trim());
+      const canReview = !acknowledged && (
+        status === 'completed' || status === 'failed' || status === 'interrupted'
+      );
+      if (canReview) {
+        const ackBtn = document.createElement('button');
+        ackBtn.type = 'button';
+        ackBtn.className = 'sdk-rich-delegation-btn';
+        ackBtn.textContent = t('chat.delegationAcknowledge');
+        ackBtn.addEventListener('click', () => {
+          hooks.onAcknowledgeDelegation?.(id);
+        });
+        actions.appendChild(ackBtn);
+      }
+    }
+    scrollToBottom();
   }
 
   /** @type {HTMLElement | null} */

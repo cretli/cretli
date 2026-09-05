@@ -26,6 +26,7 @@ export const UI_FREEZE_REPORT_TAGS = new Set([
 export const LOGS_FILTER_ALL = 'all';
 export const LOGS_FILTER_FREEZE = 'freeze';
 export const LOGS_FILTER_RESUME = 'resume';
+export const LOGS_FILTER_VOICE = 'voice';
 
 const RESUME_TRACE_WINDOW_MS = 30000;
 const LONG_TASK_THRESHOLD_MS = 50;
@@ -89,6 +90,9 @@ export function matchesLogsPanelFilter(tag, filter) {
       normalizedTag === 'api-debug' ||
       normalizedTag === 'system'
     );
+  }
+  if (filter === LOGS_FILTER_VOICE) {
+    return normalizedTag === 'voice-session' || normalizedTag === 'voice';
   }
   return true;
 }

@@ -5,8 +5,9 @@
  * on Android follows Meet: picking the Bluetooth mic turns on communication
  * mode and switches output A2DP → SCO, so both directions use the headset
  * (lower quality, but duplex). We open the default mic first (labels appear),
- * then reopen the BT mic with call processing. Playback stays on Web Audio,
- * not a WebRTC <audio> element — that path is what defaulted to speakerphone.
+ * then reopen the BT mic with call processing. Playback uses a hidden
+ * `<audio>` element: Chrome will not render a remote WebRTC track through
+ * Web Audio alone, and that path also lands on the Android earpiece.
  *
  * @see https://chromium.googlesource.com/chromium/src/+/78d0de138346e6edfc8c33bdd22c45b3eec4f3d0
  */
@@ -248,62 +249,166 @@ export async function applyAudioOutputSink(target, sinkId) {
 }
 
 /**
+ * Hidden autoplay element. Chrome will not render a remote WebRTC track through
+ * Web Audio alone; Android also sends that path to the earpiece, which is
+ * inaudible while looking at the screen.
+ *
+ * @param {Document} [doc]
+ * @returns {HTMLAudioElement|null}
+ */
+export function createHiddenPlaybackAudio(doc = globalThis.document) {
+  if (!doc || typeof doc.createElement !== 'function') return null;
+  const audio = doc.createElement('audio');
+  audio.autoplay = true;
+  audio.preload = 'auto';
+  audio.controls = false;
+  audio.muted = false;
+  audio.volume = 1;
+  if ('playsInline' in audio) audio.playsInline = true;
+  audio.setAttribute('playsinline', '');
+  audio.setAttribute('webkit-playsinline', '');
+  if (doc.body && typeof doc.body.appendChild === 'function') doc.body.appendChild(audio);
+  return audio;
+}
+
+/**
+ * WebRTC `ontrack` sometimes has the track but an empty `streams` array.
+ *
+ * @param {{ streams?: Array<MediaStream>, track?: MediaStreamTrack }|null|undefined} event
+ * @returns {MediaStream|null}
+ */
+export function remoteStreamFromTrackEvent(event, StreamCtor = globalThis.MediaStream) {
+  if (event?.streams?.[0]) return event.streams[0];
+  if (event?.track && typeof StreamCtor === 'function') return new StreamCtor([event.track]);
+  return null;
+}
+
+/**
+ * Short beep on the same HTMLAudioElement path as live voice, so a silent
+ * session can be told apart from a muted phone.
+ *
+ * @param {{
+ *   AudioContextCtor?: typeof AudioContext,
+ *   document?: Document,
+ *   sinkId?: string,
+ *   durationMs?: number,
+ * }} [options]
+ * @returns {Promise<boolean>}
+ */
+export async function playLiveOutputTest(options = {}) {
+  const AudioContextCtor = options.AudioContextCtor || globalThis.AudioContext;
+  const doc = options.document || globalThis.document;
+  const sinkId = String(options.sinkId || '');
+  const durationMs = Math.max(120, Number(options.durationMs) || 450);
+  if (typeof AudioContextCtor !== 'function') return false;
+  const ctx = new AudioContextCtor();
+  if (typeof ctx.resume === 'function') await ctx.resume();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = 880;
+  gain.gain.value = 0.22;
+  osc.connect(gain);
+  const dest = typeof ctx.createMediaStreamDestination === 'function' ? ctx.createMediaStreamDestination() : null;
+  const audio = dest ? createHiddenPlaybackAudio(doc) : null;
+  if (dest && audio) {
+    gain.connect(dest);
+    audio.srcObject = dest.stream;
+    await applyAudioOutputSink(audio, sinkId);
+    if (typeof audio.play === 'function') await audio.play().catch(() => {});
+  } else if (typeof ctx.destination !== 'undefined') {
+    gain.connect(ctx.destination);
+    await applyAudioOutputSink(ctx, sinkId);
+  }
+  const now = Number(ctx.currentTime) || 0;
+  osc.start(now);
+  osc.stop(now + durationMs / 1000);
+  await new Promise((resolve) => setTimeout(resolve, durationMs + 80));
+  if (audio) {
+    try {
+      audio.pause();
+    } catch {
+      // Removing next.
+    }
+    audio.srcObject = null;
+    if (typeof audio.remove === 'function') audio.remove();
+  }
+  try {
+    ctx.close();
+  } catch {
+    // Already closed.
+  }
+  return true;
+}
+
+/**
  * @typedef {Object} LivePlayback
  * @property {AudioContext} context
  * @property {(stream: MediaStream) => void} attachRemoteStream
  * @property {(sinkId: string) => Promise<boolean>} setSink
+ * @property {() => Promise<void>} resume
+ * @property {(sinkId?: string) => Promise<boolean>} playTestTone
  * @property {() => void} close
  */
 
 /**
  * Must run inside the Connect click, before any `await`, so the browser
- * unlocks a media AudioContext on the current Bluetooth A2DP route.
+ * unlocks media playback on a user gesture.
  *
  * @param {typeof AudioContext} [AudioContextCtor]
+ * @param {Document} [doc]
  * @returns {LivePlayback|null}
  */
-export function createLivePlayback(AudioContextCtor = globalThis.AudioContext) {
+export function createLivePlayback(AudioContextCtor = globalThis.AudioContext, doc = globalThis.document) {
   if (typeof AudioContextCtor !== 'function') return null;
   const ctx = new AudioContextCtor();
   if (typeof ctx.resume === 'function') void ctx.resume();
-  const output = ctx.createGain();
-  output.connect(ctx.destination);
   try {
     const buffer = ctx.createBuffer(1, 1, ctx.sampleRate || 44100);
     const tick = ctx.createBufferSource();
     tick.buffer = buffer;
-    tick.connect(output);
+    tick.connect(ctx.destination);
     tick.start();
   } catch {
-    // Priming is best effort; playback can still attach later.
+    // Priming is best effort; the <audio> element still attaches later.
   }
-  /** @type {MediaStreamAudioSourceNode|null} */
-  let input = null;
+  const audio = createHiddenPlaybackAudio(doc);
+  const playWhenReady = () => {
+    if (!audio?.srcObject || typeof audio.play !== 'function') return;
+    void audio.play().catch(() => {});
+  };
   return {
     context: ctx,
     attachRemoteStream(stream) {
-      if (!stream || typeof ctx.createMediaStreamSource !== 'function') return;
-      if (input) {
-        try {
-          input.disconnect();
-        } catch {
-          // Replacing the previous remote track.
-        }
-      }
-      input = ctx.createMediaStreamSource(stream);
-      input.connect(output);
+      if (!audio || !stream) return;
+      audio.muted = false;
+      audio.volume = 1;
+      audio.srcObject = stream;
+      playWhenReady();
     },
     setSink(sinkId) {
-      return applyAudioOutputSink(ctx, sinkId);
+      return applyAudioOutputSink(audio, sinkId);
+    },
+    async resume() {
+      if (typeof ctx.resume === 'function') await ctx.resume();
+      playWhenReady();
+    },
+    playTestTone(sinkId) {
+      return playLiveOutputTest({
+        AudioContextCtor,
+        document: doc,
+        sinkId: sinkId || (audio && audio.sinkId) || '',
+      });
     },
     close() {
-      if (input) {
+      if (audio) {
         try {
-          input.disconnect();
+          audio.pause();
         } catch {
-          // Context is going away.
+          // Removing next.
         }
-        input = null;
+        audio.srcObject = null;
+        if (typeof audio.remove === 'function') audio.remove();
       }
       try {
         ctx.close();

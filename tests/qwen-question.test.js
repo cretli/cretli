@@ -61,7 +61,7 @@ assert.equal(isDeniedQwenToolResult('User declined to answer the questions.'), t
 assert.equal(isFailedQwenToolResult('[Operation Cancelled] Reason: Denied'), true);
 assert.equal(
   isFailedQwenToolResult(
-    'File `/home/ar2oor/www/cretli.com/index.php` has not been read in this session. Use the `read_file` tool first to load the current content (read the full file – overwriting replaces every byte, so any unseen bytes would be discarded) before overwriting it.',
+    'File `/home/user/www/example.com/index.php` has not been read in this session. Use the `read_file` tool first to load the current content (read the full file – overwriting replaces every byte, so any unseen bytes would be discarded) before overwriting it.',
   ),
   true,
 );

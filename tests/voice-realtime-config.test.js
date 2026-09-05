@@ -55,8 +55,12 @@ test('pins instructions, tools and audio config to the minted session', () => {
     'the model is told when to send terminal keys'
   );
   assert.ok(
-    actual.session.instructions.includes('set_model'),
-    'the model is told when to change the chat model'
+    actual.session.instructions.includes('set_model immediately'),
+    'the model is told to call set_model immediately'
+  );
+  assert.ok(
+    actual.session.instructions.includes('Do not call list_models first'),
+    'named models skip the catalog round-trip'
   );
   assert.ok(
     actual.session.instructions.includes('switch_harness'),
@@ -67,7 +71,8 @@ test('pins instructions, tools and audio config to the minted session', () => {
     'the model is told when to end voice mode'
   );
   assert.equal(actual.session.tools, REALTIME_TOOLS);
-  assert.equal(actual.session.audio.input.turn_detection.type, 'semantic_vad');
+  assert.equal(actual.session.audio.input.turn_detection.type, 'server_vad');
+  assert.equal(actual.session.audio.input.turn_detection.interrupt_response, false);
   assert.equal(actual.session.audio.input.transcription.language, 'pl');
   assert.ok(actual.expires_after.seconds > 0, 'the secret must expire');
 });

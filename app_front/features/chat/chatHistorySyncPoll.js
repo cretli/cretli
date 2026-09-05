@@ -1,4 +1,4 @@
-import { getChatHistoryRevisions } from '../../api.js';
+import { getChatHistoryRevisions, getChatAgentStates } from '../../api.js';
 import {
   CHAT_HISTORY_BACKGROUND_PULL_LIMIT,
   CHAT_HISTORY_BACKGROUND_PULL_MAX_PAGES,
@@ -38,6 +38,7 @@ const lastActiveHistorySyncAt = new Map();
  * @property {(chat: object, context?: object) => Promise<void>} syncSdkHistoryOnResume
  * @property {{ log: (tag: string, message: string, payload?: object) => void }} appLogger
  * @property {() => void} [onPendingHistoryChange]
+ * @property {() => void} [onAgentStatesChange]
  */
 
 /**
@@ -54,14 +55,39 @@ function setChatPendingRemoteHistory(chat, pending) {
   }
 }
 
+function applyAgentStatesToChats(chats, statesById) {
+  if (!statesById || typeof statesById !== 'object') return false;
+  let changed = false;
+  for (const chat of chats) {
+    const next = statesById[chat.id] || null;
+    const prev = chat._serverRunState || null;
+    const prevKey = prev ? `${prev.state}:${prev.delegationId}:${prev.attention}` : '';
+    const nextKey = next ? `${next.state}:${next.delegationId}:${next.attention}` : '';
+    if (prevKey === nextKey) continue;
+    chat._serverRunState = next;
+    changed = true;
+  }
+  return changed;
+}
+
 async function pollChatHistoryRevisions() {
   if (!deps || typeof document === 'undefined' || document.hidden) return;
   const chats = deps.getChats().filter((chat) => chat?.id && chat?.cursorSessionId);
   if (chats.length === 0) return;
+  const now = Date.now();
+  try {
+    const stateResponse = await getChatAgentStates(chats.map((chat) => chat.id));
+    if (stateResponse?.ok && applyAgentStatesToChats(chats, stateResponse.states)) {
+      if (typeof deps.onAgentStatesChange === 'function') deps.onAgentStatesChange();
+    }
+  } catch (err) {
+    deps.appLogger.log('chat-history-poll', 'agent-state poll failed', {
+      error: String(err?.message || err),
+    });
+  }
   const monitoredChatIds = selectMonitoredChatIds(chats, deps.getActiveChatId, getChatActivityAt);
   const monitoredChats = chats.filter((chat) => monitoredChatIds.has(chat.id));
   if (monitoredChats.length === 0) return;
-  const now = Date.now();
   try {
     const response = await getChatHistoryRevisions(monitoredChats.map((chat) => chat.id));
     if (!response?.ok) return;
@@ -89,6 +115,7 @@ async function pollChatHistoryRevisions() {
             hydrating: chat._sdkHistoryHydrating === true,
             lastSyncAt: lastActiveHistorySyncAt.get(chat.id),
             now,
+            hasPendingDelegation: revision.hasPendingDelegation === true,
           })
         ) {
           setChatPendingRemoteHistory(chat, false);

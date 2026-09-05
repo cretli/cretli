@@ -6,6 +6,8 @@ import {
   classifyMicKind,
   computeTimeDomainLevel,
   createLivePlayback,
+  playLiveOutputTest,
+  remoteStreamFromTrackEvent,
   isBluetoothAudioLabel,
   listAudioInputChoices,
   listAudioOutputChoices,
@@ -199,38 +201,136 @@ test('openLiveMicrophone keeps the default mic when the headset reopen fails', a
   assert.equal(actual.outputId, 'bt-out');
 });
 
-test('createLivePlayback primes a media AudioContext and attaches the remote stream', () => {
+test('createLivePlayback primes playback and attaches the remote stream to a hidden audio element', () => {
   const started = [];
-  const connected = [];
+  const fakeAudio = {
+    autoplay: false,
+    volume: 0,
+    muted: true,
+    srcObject: null,
+    sinkId: '',
+    play: async () => {
+      started.push('play');
+    },
+    pause: () => started.push('pause'),
+    remove: () => started.push('remove'),
+    setAttribute: () => {},
+    setSinkId: async () => {},
+  };
+  const fakeDoc = {
+    createElement: () => fakeAudio,
+    body: { appendChild: (node) => started.push(node === fakeAudio ? 'append' : 'other') },
+  };
   const fakeCtx = {
     sampleRate: 48000,
     resume: async () => {},
     createBuffer: () => ({}),
     createBufferSource: () => ({
       buffer: null,
-      connect: (node) => connected.push(node),
+      connect: () => {},
       start: () => started.push('tick'),
-    }),
-    createGain: () => {
-      const gain = { gain: { value: 1 }, connect: (node) => connected.push(node) };
-      return gain;
-    },
-    createMediaStreamSource: (stream) => ({
-      stream,
-      connect: (node) => connected.push({ stream, node }),
-      disconnect: () => {},
     }),
     close: () => started.push('close'),
   };
   const playback = createLivePlayback(function AudioContext() {
     return fakeCtx;
-  });
+  }, fakeDoc);
   assert.ok(playback);
-  assert.deepEqual(started, ['tick']);
+  assert.ok(started.includes('tick'));
+  assert.ok(started.includes('append'));
   playback.attachRemoteStream({ id: 'remote' });
-  assert.equal(connected.some((item) => item?.stream?.id === 'remote'), true);
+  assert.equal(fakeAudio.srcObject.id, 'remote');
+  assert.equal(fakeAudio.muted, false);
+  assert.equal(fakeAudio.volume, 1);
   playback.close();
   assert.ok(started.includes('close'));
+  assert.ok(started.includes('remove'));
+});
+
+test('createLivePlayback resume does not wait for play() before a remote stream exists', async () => {
+  const fakeAudio = {
+    srcObject: null,
+    play: () => new Promise(() => {}),
+    pause: () => {},
+    remove: () => {},
+    setAttribute: () => {},
+  };
+  const playback = createLivePlayback(
+    function AudioContext() {
+      return {
+        resume: async () => {},
+        createBuffer: () => ({}),
+        createBufferSource: () => ({ buffer: null, connect: () => {}, start: () => {} }),
+        close: () => {},
+      };
+    },
+    { createElement: () => fakeAudio, body: { appendChild: () => {} } }
+  );
+  await Promise.race([
+    playback.resume(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('resume hung')), 80)),
+  ]);
+});
+
+test('remoteStreamFromTrackEvent falls back to the track when streams is empty', () => {
+  const track = { id: 't1', kind: 'audio' };
+  assert.equal(remoteStreamFromTrackEvent({ streams: [{ id: 's1' }] }).id, 's1');
+  function FakeStream(tracks) {
+    this.getTracks = () => tracks;
+  }
+  const fromTrack = remoteStreamFromTrackEvent({ streams: [], track }, FakeStream);
+  assert.ok(fromTrack);
+  assert.equal(fromTrack.getTracks()[0], track);
+  assert.equal(remoteStreamFromTrackEvent({}), null);
+});
+
+test('playLiveOutputTest starts an oscillator and plays it through a hidden audio element', async () => {
+  const started = [];
+  const fakeAudio = {
+    autoplay: false,
+    volume: 1,
+    srcObject: null,
+    play: async () => {
+      started.push(fakeAudio.srcObject?.id || 'play');
+    },
+    pause: () => {},
+    remove: () => started.push('remove'),
+    setAttribute: () => {},
+  };
+  const dest = { stream: { id: 'beep' } };
+  const fakeCtx = {
+    currentTime: 0,
+    resume: async () => {},
+    createOscillator: () => ({
+      type: '',
+      frequency: { value: 0 },
+      connect: () => {},
+      start: () => started.push('start'),
+      stop: () => started.push('stop'),
+    }),
+    createGain: () => ({
+      gain: { value: 0 },
+      connect: (node) => started.push(node === dest ? 'dest' : 'other'),
+    }),
+    createMediaStreamDestination: () => dest,
+    close: () => started.push('close'),
+  };
+  const actual = await playLiveOutputTest({
+    AudioContextCtor: function AudioContext() {
+      return fakeCtx;
+    },
+    document: {
+      createElement: () => fakeAudio,
+      body: { appendChild: () => {} },
+    },
+    durationMs: 120,
+  });
+  assert.equal(actual, true);
+  assert.ok(started.includes('beep'));
+  assert.ok(started.includes('start'));
+  assert.ok(started.includes('stop'));
+  assert.ok(started.includes('remove'));
+  assert.equal(fakeAudio.srcObject, null);
 });
 
 test('applyAudioOutputSink no-ops when the browser cannot pick an output', async () => {

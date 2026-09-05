@@ -12,14 +12,17 @@ import { appLogger } from '../../logger.js';
 import {
   SCO_SETTLE_MS,
   applyAudioOutputSink,
+  createHiddenPlaybackAudio,
   listAudioInputChoices,
   listAudioOutputChoices,
   openLiveMicrophone,
   openMicByDeviceId,
+  playLiveOutputTest,
 } from './liveAudioRoute.js';
 import { executeRealtimeTool } from './realtimeTools.js';
 import { createVoiceCostTracker } from './voiceCost.js';
 import { createPendingEndSession } from './voiceEndSession.js';
+import { appendVoiceSessionEvent, getVoiceSessionLogId } from './voiceSessionLog.js';
 
 const GEMINI_LIVE_WS =
   'wss://generativelanguage.googleapis.com/ws/' +
@@ -83,14 +86,22 @@ function readGeminiError(payload) {
  */
 function createPcmPlayer(sampleRate) {
   const ctx = new AudioContext({ sampleRate });
+  const dest = typeof ctx.createMediaStreamDestination === 'function' ? ctx.createMediaStreamDestination() : null;
+  const audio = dest ? createHiddenPlaybackAudio() : null;
+  if (audio && dest) {
+    audio.srcObject = dest.stream;
+    if (typeof audio.play === 'function') void audio.play().catch(() => {});
+  }
   let nextTime = 0;
+  /** @type {Set<AudioBufferSourceNode>} */
+  const activeSources = new Set();
   return {
     /**
      * @param {string} sinkId
      * @returns {Promise<boolean>}
      */
     setSink(sinkId) {
-      return applyAudioOutputSink(ctx, sinkId);
+      return applyAudioOutputSink(audio || ctx, sinkId);
     },
     /**
      * @param {Int16Array} pcm
@@ -98,22 +109,50 @@ function createPcmPlayer(sampleRate) {
      */
     async play(pcm) {
       if (ctx.state === 'suspended') await ctx.resume();
+      if (audio && typeof audio.play === 'function') await audio.play().catch(() => {});
       const floats = new Float32Array(pcm.length);
       for (let i = 0; i < pcm.length; i++) floats[i] = pcm[i] / 32768;
       const buffer = ctx.createBuffer(1, floats.length, sampleRate);
       buffer.getChannelData(0).set(floats);
       const source = ctx.createBufferSource();
       source.buffer = buffer;
-      source.connect(ctx.destination);
+      source.connect(dest || ctx.destination);
+      activeSources.add(source);
+      source.onended = () => activeSources.delete(source);
       const startAt = Math.max(ctx.currentTime, nextTime);
       source.start(startAt);
       nextTime = startAt + buffer.duration;
     },
     interrupt() {
       nextTime = 0;
+      for (const source of activeSources) {
+        try {
+          source.stop();
+        } catch {
+          // Already finished.
+        }
+      }
+      activeSources.clear();
     },
     close() {
       nextTime = 0;
+      for (const source of activeSources) {
+        try {
+          source.stop();
+        } catch {
+          // Already finished.
+        }
+      }
+      activeSources.clear();
+      if (audio) {
+        try {
+          audio.pause();
+        } catch {
+          // Removing next.
+        }
+        audio.srcObject = null;
+        if (typeof audio.remove === 'function') audio.remove();
+      }
       try {
         ctx.close();
       } catch {
@@ -245,6 +284,10 @@ export function createGeminiLiveSession(callbacks = {}) {
       if (typeof callbacks.onToolCall === 'function') {
         callbacks.onToolCall({ name, args: call.args || {}, result });
       }
+      appendVoiceSessionEvent('rt.tool_output', {
+        name,
+        resultBytes: JSON.stringify(result ?? null).length,
+      });
       responses.push({ id, name, response: result });
       if (result?.endSession === true) wantEnd = true;
     }
@@ -320,6 +363,7 @@ export function createGeminiLiveSession(callbacks = {}) {
         lang: getCurrentLang(),
         voice: options.voice,
         model: options.model,
+        sessionId: getVoiceSessionLogId(),
       });
       if (myEpoch !== epoch) {
         releaseResources();
@@ -506,6 +550,10 @@ export function createGeminiLiveSession(callbacks = {}) {
       } catch {
         return [];
       }
+    },
+
+    playTestTone(sinkId) {
+      return playLiveOutputTest({ sinkId: sinkId || '' });
     },
 
     /**
