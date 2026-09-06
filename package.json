@@ -195,9 +195,9 @@
     "eslint": "^9.0.0",
     "globals": "^17.12.0",
     "subset-font": "^2.5.0",
-    "webpack": "^5.105.4",
+    "webpack": "^5.110.3",
     "webpack-cli": "^7.0.0",
-    "webpack-dev-middleware": "^7.4.5",
+    "webpack-dev-middleware": "^8.2.0",
     "webpack-hot-middleware": "^2.26.1"
   },
   "workspaces": [
