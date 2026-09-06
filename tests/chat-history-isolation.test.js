@@ -78,11 +78,23 @@ fs.writeFileSync(extraTranscript, '{"text":"other workspace transcript"}\n', 'ut
 fs.writeFileSync(path.join(extraWorkspace, 'note.txt'), 'extra-ok\n', 'utf8');
 fs.symlinkSync(path.join(workspace, incidentRel), path.join(workspace, 'safe-link.txt'));
 
-const listedRoot = spawnSync('rg', ['--files', '--ignore-file', '.cursorignore'], {
+function resolveRipgrepBin() {
+  const envPath = String(process.env.CURSOR_RIPGREP_PATH || '').trim();
+  if (envPath) {
+    return envPath;
+  }
+  const bundled = path.join(repoRoot, 'node_modules', '.bin', 'rg');
+  if (fs.existsSync(bundled)) {
+    return bundled;
+  }
+  return 'rg';
+}
+
+const listedRoot = spawnSync(resolveRipgrepBin(), ['--files', '--ignore-file', '.cursorignore'], {
   cwd: workspace,
   encoding: 'utf8',
 });
-assert.equal(listedRoot.status, 0, listedRoot.stderr || 'rg failed');
+assert.equal(listedRoot.status, 0, listedRoot.stderr || listedRoot.error?.message || 'rg failed');
 assert.match(listedRoot.stdout || '', /hello\.txt/);
 assert.doesNotMatch(listedRoot.stdout || '', /agent-9bd3fb76/);
 assert.doesNotMatch(listedRoot.stdout || '', /agent-other/);
