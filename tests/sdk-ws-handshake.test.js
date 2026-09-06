@@ -20,6 +20,13 @@ assert.equal(hello.sdkMode, 'plan');
 assert.equal(hello.busy, true);
 assert.deepEqual(hello.queuedPrompts, ['hello']);
 
+const askHello = buildAgentHelloPayload({
+  sessionKey: 'session-ask',
+  transport: 'opencode',
+  sdkMode: 'ask',
+});
+assert.equal(askHello.sdkMode, 'ask');
+
 const openCodeHello = buildAgentHelloPayload({
   sessionKey: 'session-oc',
   transport: 'opencode',

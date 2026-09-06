@@ -1,0 +1,6 @@
+# Conversation stores. Agents must use Cretli MCP chat_show / chat_history.
+# Do not rely on .gitignore: Cursor glob honors this file for explicit target dirs.
+# Use file globs, not parent-directory entries (ignoring the runtime home dir aborts nested Glob).
+data/chat-history/**
+data/sdk-agent-store/**
+**/agent-transcripts/**

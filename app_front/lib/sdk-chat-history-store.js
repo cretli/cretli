@@ -945,9 +945,12 @@ function historyRecordsFromServerRows(rows) {
       if (!isValidSdkHistoryRecord(rec)) return null;
       if (rec && typeof rec === 'object' && 'clientSeq' in rec) {
         const { clientSeq: _drop, ...rest } = /** @type {Record<string, unknown>} */ (rec);
-        return rest;
+        return { ...rest, historySeq: Number(/** @type {{ seq?: unknown }} */ (e).seq) || 0 };
       }
-      return rec;
+      return {
+        .../** @type {Record<string, unknown>} */ (rec),
+        historySeq: Number(/** @type {{ seq?: unknown }} */ (e).seq) || 0,
+      };
     })
     .filter(Boolean);
 }
@@ -1083,9 +1086,12 @@ export async function pullChatHistoryDeltaFromServer(chatId, options = {}) {
         if (!isValidSdkHistoryRecord(rec)) continue;
         if (rec && typeof rec === 'object' && 'clientSeq' in rec) {
           const { clientSeq: _drop, ...rest } = /** @type {Record<string, unknown>} */ (rec);
-          events.push(rest);
+          events.push({ ...rest, historySeq: Number.isSafeInteger(rowSeq) ? rowSeq : 0 });
         } else {
-          events.push(rec);
+          events.push({
+            .../** @type {Record<string, unknown>} */ (rec),
+            historySeq: Number.isSafeInteger(rowSeq) ? rowSeq : 0,
+          });
         }
       }
 

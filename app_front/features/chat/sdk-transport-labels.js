@@ -51,12 +51,10 @@ export function resolveHarnessDisplayLabel(transport) {
  * @returns {string}
  */
 export function resolveHarnessModeLabel(transport, mode) {
-  const normalizedTransport = normalizeHarnessTransport(transport);
   const normalizedMode = normalizeSdkMode(mode);
-  if (normalizedTransport === 'openrouter') {
-    return normalizedMode === 'plan' ? 'Ask' : 'Agent';
-  }
-  return normalizedMode === 'plan' ? 'Plan' : 'Agent';
+  if (normalizedMode === 'plan') return 'Plan';
+  if (normalizedMode === 'ask') return 'Ask';
+  return 'Agent';
 }
 
 /**

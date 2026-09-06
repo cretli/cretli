@@ -64,7 +64,7 @@ await runCase('pullChatHistoryTailFromServer: requests a tail, not the whole log
   assert.equal(getOldestLoadedSeq('chat-1'), 421);
 });
 
-await runCase('pullChatHistoryTailFromServer: strips clientSeq from records', async () => {
+await runCase('pullChatHistoryTailFromServer: strips clientSeq, keeps historySeq', async () => {
   nextPayload = {
     ok: true,
     cursorSessionId: 'sess-1',
@@ -73,7 +73,7 @@ await runCase('pullChatHistoryTailFromServer: strips clientSeq from records', as
     events: [{ seq: 3, rec: { kind: 'localUser', text: 'a', clientSeq: 7 } }],
   };
   const actual = await pullChatHistoryTailFromServer('chat-2', { tail: 10 });
-  assert.deepEqual(actual?.events, [{ kind: 'localUser', text: 'a' }]);
+  assert.deepEqual(actual?.events, [{ kind: 'localUser', text: 'a', historySeq: 3 }]);
 });
 
 await runCase('pullChatHistoryTailFromServer: no older means a zeroed cursor', async () => {

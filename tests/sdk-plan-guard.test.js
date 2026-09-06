@@ -3,6 +3,7 @@ import {
   isMutatingPlanModeShellCommand,
   isPlanModeMutatingSdkEvent,
   isPlanModeMutatingToolName,
+  resolvePlanModeToolDecision,
 } from '../lib/sdk/sdk-plan-guard.js';
 
 assert.equal(isPlanModeMutatingToolName('shell'), true);
@@ -61,7 +62,25 @@ assert.equal(
   false,
 );
 assert.equal(isPlanModeMutatingToolName('web_search'), false);
-assert.equal(isPlanModeMutatingToolName('mcp.web_search'), false);
+assert.equal(isPlanModeMutatingToolName('mcp.web_search'), true);
+assert.equal(isPlanModeMutatingToolName('mcp__cretli_abc__chat_list'), true);
+assert.equal(isPlanModeMutatingToolName('mcp__cretli_abc__chat_delete'), true);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'qwen',
+    mode: 'plan',
+    toolName: 'mcp__cretli_abc__chat_show',
+  }).deny,
+  false,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'qwen',
+    mode: 'plan',
+    toolName: 'chat_show',
+  }).deny,
+  false,
+);
 assert.equal(
   isPlanModeMutatingSdkEvent({ type: 'tool_call', name: 'web_search', status: 'running' }),
   false,
@@ -127,6 +146,46 @@ assert.equal(
 );
 assert.equal(
   isPlanModeMutatingSdkEvent({ type: 'tool_call', name: 'edit', status: 'running' }),
+  true,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'sdk',
+    mode: 'ask',
+    toolName: 'edit',
+  }).deny,
+  true,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'sdk',
+    mode: 'ask',
+    toolName: 'read',
+  }).deny,
+  false,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'codex',
+    mode: 'ask',
+    toolName: 'edit',
+  }).deny,
+  true,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'codex',
+    mode: 'plan',
+    toolName: 'edit',
+  }).deny,
+  false,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'codex',
+    mode: 'ask',
+    toolName: 'edit',
+  }).abortRun,
   true,
 );
 

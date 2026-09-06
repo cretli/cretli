@@ -47,7 +47,7 @@ assert.equal(
 );
 assert.equal(
   shouldExitPlanModeOnQuestionReply({
-    mode: 'agent',
+    mode: 'ask',
     questionEvent: planQuestion,
     answers: [['Tak, implementuj (Recommended)']],
   }),

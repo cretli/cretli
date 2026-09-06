@@ -501,6 +501,24 @@ export async function postDelegationAck(id, payload = {}) {
   }, `postDelegationAck:${id}`);
 }
 
+export async function postChatMailboxReply(id, payload) {
+  if (!id) return { ok: false, error: 'Missing chat id' };
+  return apiFetchJson(`/api/chats/${encodeURIComponent(id)}/mailbox/reply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  }, `postChatMailboxReply:${id}`);
+}
+
+export async function postChatMailboxRetry(chatId, messageId) {
+  if (!chatId || !messageId) return { ok: false, error: 'Missing mailbox id' };
+  return apiFetchJson(
+    `/api/chats/${encodeURIComponent(chatId)}/mailbox/${encodeURIComponent(messageId)}/retry`,
+    { method: 'POST' },
+    `postChatMailboxRetry:${chatId}:${messageId}`,
+  );
+}
+
 export async function postDelegationRetry(id) {
   if (!id) return { ok: false, error: 'Missing delegation id' };
   return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}/retry`, {

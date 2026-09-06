@@ -28,10 +28,18 @@ import {
 } from '../lib/persist/chats-persist.js';
 import { resolveDataPath } from '../lib/runtime-paths.js';
 
-const prompt = buildConversationForkPrompt('User: start\nAgent: reply', 'Continue here');
+const prompt = buildConversationForkPrompt('User: start\nAgent: reply', 'Continue here', {
+  sourceChatId: 'aaaaaaaa-1111-2222-3333-444444444444',
+  sourceChatTitle: 'Ask',
+  copiedThroughSeq: 12,
+});
 assert.match(prompt, /CONVERSATION FORK CONTEXT/);
 assert.match(prompt, /User: start/);
 assert.match(prompt, /Continue here$/);
+assert.match(prompt, /Source chat: "Ask" aaaaaaaa-1111-2222-3333-444444444444/);
+assert.match(prompt, /Copied history through event seq 12/);
+assert.match(prompt, /newest transcript file/);
+assert.match(prompt, /chat_show or chat_history/);
 assert.equal(buildConversationForkPrompt('', 'New message'), 'New message');
 assert.match(buildConversationForkPrompt('User: start\nAgent: reply', ''), /Continue the conversation from this point\.$/);
 assert.equal(buildConversationForkPrompt('', ''), '');
@@ -68,8 +76,13 @@ assert.match(sameHarnessPrompt, /CONVERSATION FORK CONTEXT/);
 assert.match(sameHarnessPrompt, /Go on$/);
 
 // Partial fork: inherited transcript is cut at the fork point.
-const partialForkPrompt = buildConversationForkPrompt('User: start\nAgent: reply', '', { partial: true });
+const partialForkPrompt = buildConversationForkPrompt('User: start\nAgent: reply', '', {
+  partial: true,
+  sourceChatId: 'aaaaaaaa-1111-2222-3333-444444444444',
+  copiedThroughSeq: 4,
+});
 assert.match(partialForkPrompt, /up to the fork point\.$/m);
+assert.match(partialForkPrompt, /only through event seq 4/);
 assert.equal(partialForkPrompt.includes('full conversation'), false);
 
 const partialHandoffPrompt = buildHarnessHandoffPrompt({
@@ -112,7 +125,10 @@ assert.match(handoff, /HARNESS HANDOFF CONTEXT/);
 assert.match(handoff, /Previous harness: qwen \(qwen3\.8-flash\)/);
 assert.match(handoff, /Your harness: sdk \(auto\)/);
 assert.match(handoff, /User: start/);
-assert.match(handoff, /Continue from where the previous agent left off/);
+assert.match(handoff, /Continue the unfinished work of the source chat/);
+assert.doesNotMatch(handoff, /Continue from where the previous agent left off/);
+assert.match(handoff, /chat_history/);
+assert.match(handoff, /newest transcript file/);
 
 const emptyHandoff = buildHarnessHandoffPrompt({ fromHarness: 'sdk', toHarness: 'qwen' });
 assert.match(emptyHandoff, /No conversation transcript was available/);
@@ -223,7 +239,7 @@ try {
       },
       clientSeq: 3,
     },
-    { rec: { kind: 'localUser', text: 'go on', createdAt: T3 }, clientSeq: 4 },
+    { rec: { kind: 'localUser', text: 'go on FOREIGN_DELEGATION_MARKER', createdAt: T3 }, clientSeq: 4 },
   ]);
   const cut = copyChatHistoryUntil(partialSourceId, partialTargetId, 'target-session', T2);
   assert.equal(cut.ok, true);
@@ -235,7 +251,7 @@ try {
   assert.equal(target?.events[0]?.rec?.text, 'start');
   assert.equal(target?.events[1]?.rec?.payload, 'mid-run');
   assert.equal(target?.events[2]?.rec?.event?.type, 'assistant');
-  assert.equal(target?.events.some((e) => e.rec?.text === 'go on'), false);
+  assert.equal(target?.events.some((e) => String(e.rec?.text || '').includes('go on')), false);
   for (const event of target?.events || []) {
     assert.equal(event.rec?.clientSeq, undefined);
   }
@@ -244,6 +260,7 @@ try {
   assert.match(cutTranscript, /(^|\n)> start\n/);
   assert.match(cutTranscript, /assistant reply$/);
   assert.equal(cutTranscript.includes('go on'), false);
+  assert.equal(cutTranscript.includes('FOREIGN_DELEGATION_MARKER'), false);
 
   // Cutoff before the first record — empty fork with a monotonic headSeq.
   const emptyCut = copyChatHistoryUntil(

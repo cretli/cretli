@@ -39,4 +39,5 @@ Optional IDE context: add `.vendor/opencode/src` via Settings → Workspace → 
 ## Planned / out of scope
 
 - Redis multi-instance room bus (SDK-only)
-- Push notifications on run finish (optional, not wired for OpenCode v1)
+- Push notifications on OpenCode run finish (optional; question/permission
+  waits are wired via `lib/agent-needs-input-push.js`)

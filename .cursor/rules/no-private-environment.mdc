@@ -1,0 +1,21 @@
+---
+description: Public Cretli artifacts use generic examples only — never the maintainer’s private clients, LAN, or home paths.
+alwaysApply: true
+---
+
+# Public surface — no private maintainer environment
+
+Cretli on GitHub is **public**. README, docs, UI copy, comments, tests, fixtures, screenshots, and changelog examples must not identify the maintainer’s private clients, machines, or network.
+
+## Never put in committed or user-visible files
+
+- Real commercial site names, client brands, or sibling WWW projects from a private workspace
+- Home directories, usernames, Synology/Obsidian paths, WSL-only hostnames
+- Private LAN IPs (`192.168.*`, `10.*`) as examples in docs or UI (use `your-pc` / `127.0.0.1` / `localhost`)
+- Real widget installation IDs, API keys, or machine names
+
+## Use instead
+
+Generic fiction: `my-app`, `acme`, `example.com`, `your-pc`, `https://your-pc:3011`.
+
+This rule is for **this repository**. Do not document private client names in the rule text or in comments.

@@ -13,7 +13,7 @@ built to `public/dist/`.
 | `lib/` | Domain modules: top-level app services plus `sdk/`, `opencode/`, `openrouter/`, `codebuddy/`, `deepseek/`, `qwen/`, `codex/`, `persist/`, `widget/`, `routes/`, `ws/`, `agent-harness/` |
 | `app_front/` | SPA source (webpack → `public/dist/`) |
 | `public/` | Static assets served by Express, including `login.html` |
-| `data/` | Runtime data (gitignored): `auth.json`, `config.json`, `chats.json`, `todos/`, `uploads/`, `dsh-home/`, `qwen-home/`, `codex-home/`, TLS certs |
+| `data/` | Runtime data (gitignored): `auth.json`, `config.json`, `mcp.json`, `mcp-secrets.json`, `mcp-tx.json`, `chats.json`, `todos/`, `uploads/`, `dsh-home/`, `qwen-home/`, `codex-home/`, TLS certs |
 | `scripts/` | SSL cert generation, WSL port-forward, manual test/capture helpers |
 | `docs/` | Architecture, setup, and the [modernization backlog](MODERNIZATION_PLAN.md) |
 | `tests/` | Unit/integration tests + Playwright E2E (`tests/e2e/`) |
@@ -31,9 +31,12 @@ built to `public/dist/`.
 | `workspace-list.js` | Seed registry, add/remove paths, build `/api/workspaces` payload |
 | `spa-routes.js` | Allowlisted History API view paths (`/chat`, `/settings/workspace`, …) |
 | `persist/chats-persist.js` | CRUD for `data/chats.json`; SDK chat metadata (`cursorSessionId`, `sdkAgentId`, `codexThreadId`, `qwenSessionId`, …) |
+| `persist/mcp-persist.js` | `data/mcp.json` + `mcp-secrets.json` with a recoverable write journal (`mcp-tx.json`) |
+| `mcp/` | MCP config, secrets, runtime, Plan policy, harness adapters, Settings API |
 | `persist/todos-persist.js` | CRUD for `data/todos/` (per-workspace) |
 | `todo-plan-sync.js` | After Plan-mode runs, write versioned `.cursor/plans/cretli-{chatId}.md` and the linked Todo (Cursor SDK + other harnesses) |
-| `delegation-service.js` | Create/start/cancel/retry/ack plan-execution jobs; one active job per planner chat |
+| `delegation-service.js` | Create/start/cancel/retry/ack jobs from a saved plan or a chat message; one active job per planner chat |
+| `delegation-mailbox.js` | Durable parent↔child mailbox; idle recipients start a turn, busy/waiting chats queue until the run ends |
 | `agent-run-state.js` | Cheap per-chat busy/waiting/attention summary for the chat list |
 | `delegation-executor.js` | Rejects executor models that are not in the enabled catalog |
 | `sdk/cursor-agent-sdk-ws.js` | `/ws-agent-sdk` rooms: `Agent.create`/`resume`, `run.stream()`, server-side history tap, plan guard, grace shutdown |
@@ -113,9 +116,11 @@ OpenCode chats persist optional `opencodeSessionId` in `data/chats.json` for ses
 
 - **Question skill** — `opencode_question` events; reply via `POST /api/session/{id}/question/{requestID}/reply` (`lib/opencode/opencode-question.js`). A Plan-mode question that asks to implement/approve the plan switches the chat to Agent before the reply is sent (`lib/sdk/plan-approval-reply.js`).
 - **Permission skill** — `opencode_permission` events; reply Once / Always / Reject in UI (`lib/opencode/opencode-permission.js`).
-- **Plan guard** — mutating `tool_call` events can be blocked in Plan mode for
-  harnesses that deny tools (`canUseTool` / permission / catalog) or abort the run.
-  Codex Plan is prompt-only (no turn abort); read-only sandbox is not used because
+- **Plan / Ask guard** — mutating `tool_call` events are blocked in Plan and Ask
+  for harnesses that deny tools (`canUseTool` / permission / catalog) or abort the run.
+  Ask is a separate conversation mode (questions and analysis, no plan persistence
+  or “yes” → Agent). Codex Plan is prompt-only (no turn abort); Codex Ask still
+  denies mutations on the host. Read-only sandbox is not used because
   Linux bwrap fails on non-git workspace roots. Emits `sdkPlanGuard` when a mutating
   tool is denied (`lib/sdk/sdk-plan-guard.js`).
 - **Room state** — `sdkRoomState` heartbeat (~15 s) with queue depth, pending questions/permissions, `lastEventAt` (`lib/sdk/sdk-room-state.js`, `getOpenCodeRoomDiag`).
@@ -125,7 +130,7 @@ OpenCode chats persist optional `opencodeSessionId` in `data/chats.json` for ses
 
 User setup and troubleshooting: **`docs/opencode/SETUP.md`**. Developer index: **`docs/opencode/README.md`**.
 
-OpenRouter tools (MVP): `read_file`, `list_directory`, `grep`, `write_file`, `search_replace`, `run_terminal_command`, `git_status`, `git_diff`, `git_run`. Plan/Ask mode blocks mutating tools.
+OpenRouter tools (MVP): `read_file`, `list_directory`, `grep`, `write_file`, `search_replace`, `run_terminal_command`, `git_status`, `git_diff`, `git_run`. Plan and Ask both block mutating tools; Ask does not write a plan or TODO.
 
 ## Functional chat E2E (Playwright)
 
@@ -186,6 +191,8 @@ Front hot fallback   → /ws-front-build → watch events (CRETLI_FRONT_HOT_FALL
 - Cross-device sync is **pull-based**: clients poll `GET /api/chats/history-revisions` every
   ~15 s (visible tab) and run HTTP history delta pull when `headSeq` advances. Optional
   web push nudges (`CRETLI_PUSH_HISTORY=1`) reuse existing VAPID subscriptions.
+  The same subscriptions also receive a push when Cursor SDK finishes a run,
+  and when OpenCode or Qwen is waiting on a question or permission.
   The same poll loads `GET /api/chats/agent-states` so executor chats without a client
   still show working / needs-action. `hasPendingDelegation` on a revision forces the
   open parent chat to pull a new delegation card even when the WebSocket is up.
@@ -239,6 +246,8 @@ Model windows come from a static prefix table in `lib/sdk/sdk-context-advisory.j
 | GET | `/api/workspace` / `/api/workspaces` | Current workspace / registry (`?refresh=1` busts cache, `?scan=1` finds new files, `?sync=1` pulls folders from `.code-workspace` into the overlay) |
 | POST | `/api/workspace-file/folders` | Optional JSONC write-back of folders into a registered `.code-workspace` |
 | GET/PATCH | `/api/settings` | Runtime settings (LAN host, workspace registry, front HMR, cursorApiKey) |
+| GET | `/api/harness-catalog/harnesses` | Cached harness ready/enabled flags (password session, not widget/MCP token) |
+| GET | `/api/harness-catalog/models` | Cached/fallback models for one harness (`?harness=`). Cursor SDK also lists Settings-enabled variants when the live catalog is not fetched. Does not start vendors |
 | GET | `/api/update/status` | App version + local/remote SHA (`?check=1` fetches GitHub). Auth required. |
 | POST | `/api/update/apply` | Background `scripts/self-update.sh` (fetch + reset --hard + npm + rebuild). Auth required. |
 | GET | `/api/codebuddy/status` | CodeBuddy package + CLI + API key readiness |
@@ -253,16 +262,20 @@ Model windows come from a static prefix table in `lib/sdk/sdk-context-advisory.j
 | POST | `/api/codex/login/cancel` | Abort in-flight device login |
 | POST | `/api/codex/logout` | Sign out ChatGPT plan (`codex logout` + remove `auth.json`) |
 | GET | `/api/codex/models` | Codex model catalog (ChatGPT: `models_cache.json`; API key: documented fallback including GPT-6 Astra) |
-| POST | `/api/chats/:id/delegations` | Start a plan-execution job (executor + plan revision + idempotency key) |
-| GET | `/api/chats/:id/delegations` | List jobs for the planner chat |
+| POST | `/api/chats/:id/delegations` | Start a plan- or message-sourced job (executor + idempotency key; plan revision or history seq) |
+| GET | `/api/chats/:id/delegations` | List jobs for the chat as planner or executor |
 | GET | `/api/chats/:id/plan` | Latest persisted plan document (revision, hash, markdown) |
-| GET | `/api/delegations/executors` | Harnesses that can start/cancel without an open browser |
+| GET | `/api/delegations/executors` | Harnesses that can start/cancel without an open browser (all enabled agent transports) |
 | GET | `/api/delegations/:id` | Job status and report |
 | POST | `/api/delegations/:id/cancel` | Request stop; stays `cancelling` (HTTP 202) until the executor run ends |
 | POST | `/api/delegations/:id/retry` | Start a new attempt on the same executor chat |
 | POST | `/api/delegations/:id/ack` | Clear waiting attention (open child) or mark a finished job reviewed |
+| GET | `/api/chats/:id/mailbox` | Inter-chat mailbox (queued and delivered) |
+| POST | `/api/chats/:id/mailbox/reply` | Send a child message to the communication parent (`delegationParentChatId`), not the sidebar group |
 | GET | `/api/chats/agent-states` | Lightweight busy/waiting/attention map for listed chats |
 | GET | `/api/chats` / POST `/api/chats` | Chat list / create |
+| PATCH | `/api/chats/:id` | Update chat fields (`archived`, `title`, `model`, ...; CSRF header required) |
+| DELETE | `/api/chats/:id` | Delete chat + history (runs disposable-room cleanup first) |
 | GET | `/api/chats/history-revisions` | Lightweight `headSeq` revision index for cross-device pull sync |
 | GET | `/api/chats/:id/history` | Pull SDK history log (`?since=&limit=`) |
 | POST | `/api/chats/:id/dispose-sdk-room` | Reset in-memory SDK room (stuck chat recovery) |
@@ -279,6 +292,61 @@ Model windows come from a static prefix table in `lib/sdk/sdk-context-advisory.j
 | POST | `/api/voice/gemini-probe` | Cheap Gemini key check (`models.list`, no Live session) |
 | GET | `/api/usage/summary` | Month/day usage totals (`from` defaults to the 1st) |
 | POST | `/api/usage/events` | Client-reported raw tokens (OpenAI Realtime). Rejects `usd` |
+| GET | `/api/mcp/servers` | MCP registry (no secret values) + revision |
+| POST | `/api/mcp/servers` | Create MCP definition (`expectedRevision`) |
+| PATCH | `/api/mcp/servers/:id` | Edit definition; omit a secret to keep it |
+| DELETE | `/api/mcp/servers/:id` | Remove definition and secrets |
+| POST | `/api/mcp/servers/:id/test` | Connect, list tools, dispose (does not call tools) |
+| GET | `/api/mcp/servers/:id/tools` | Last known catalog |
+| GET | `/api/mcp/status` | Config/connection status for workspace, harness, session |
+| GET/POST | `/api/mcp/bridge/*` | Session integration-token bridge (not widget, not cookie UI) |
+
+## Chat management tooling (CLI + MCP)
+
+Out-of-process tools manage chats through the HTTP API above — never by editing
+gitignored `data/` files (the server keeps state in memory and would overwrite
+external edits). Shared client: `lib/remote-api-client.js` (login → session
+cookie + CSRF header, auto re-login once on 401, `findChatByRef` resolves an id
+prefix or unique title substring).
+
+- **CLI** — `npm run chat -- <command>` (`scripts/chat-cli.js`): `workspaces`,
+  `list [--all|--archived] [--workspace <substr>]`, `show <ref> [--tail <n>]`,
+  `archive|restore <ref...>`, `rename <ref> <title>`, `delete <ref...>
+  --confirm`.
+- **MCP** — `node scripts/cretli-mcp.js` (stdio, newline-delimited JSON-RPC):
+  shared catalog in `lib/mcp/builtin/` (chats, TODOs, saved plans, delegations
+  plus mailbox reply/inbox, task/agent catalogs, harnesses/models). Tools are scoped to the calling chat
+  workspace, not the UI global folder. `chat_list` / `chat_show` / `chat_history` / `chat_event`
+  default to that workspace; pass `scope=all` to reach another workspace by id.
+  `chat_history` pages events by seq (optional tool payloads). `chat_event` reads a UTF-16
+  slice of one event field. Standalone stdio requires
+  `CRETLI_MCP_WORKSPACE` and honors `CRETLI_MCP_MODE` (`plan` and `ask` block writes;
+  `agent` allows them). Catalog and domain reads go through the target Cretli
+  HTTP API, not the stdio process `data/` directory. Long plan/TODO/delegation
+  bodies are paged with a revision-bound `cursor`. Delete requires `confirm=true`; prefer archive.
+  Conversation files under `data/chat-history/`, `data/runtime-home/` (including
+  Cursor `agent-transcripts`), and `data/sdk-agent-store/` are ignored by Cursor
+  file tools (`.cursorignore` on every attached SDK workspace root, plus
+  `Agent.reload` after create/resume) and blocked in the OpenRouter tool
+  executor (including shell tokens). Native vendor shells on other harnesses
+  can still open those paths — do not treat ignore files as a complete
+  isolation boundary. Live Cursor SDK check: `npm run test:live-cursor-sdk`
+  (completed file-tool attempts, hello contents, a new-session fork, and
+  ignore-after-create).
+  Register it in an MCP host (e.g. `opencode.json` → `mcp.cretli`) with
+  `node scripts/cretli-mcp.js`. Harness sessions use `--bridge` plus a
+  short-lived `CRETLI_MCP_TOKEN` (not the login password, not a widget token).
+  The token does not freeze Plan/Agent: the bridge resolves mode from the live
+  Cretli session on every call. Writes go through `lib/mcp/mcp-runtime.js` after
+  an exact `serverId + toolName` policy check. OpenCode chat sessions that need
+  a distinct Plan/Agent context get their own OpenCode runtime (MCP is
+  instance-wide in the vendor SDK). User-facing setup: [docs/mcp/SETUP.md](mcp/SETUP.md).
+  Registry + secrets: `data/mcp.json` and `data/mcp-secrets.json` with journal
+  `data/mcp-tx.json` (`lib/persist/mcp-persist.js`), not `data/config.json`.
+
+Configuration for both: `CRETLI_URL` (default `https://127.0.0.1:3011`),
+`CRETLI_CLI_PASSWORD` / `CRETLI_PASSWORD`, `CRETLI_INSECURE_TLS=0` to enforce
+TLS verification (loopback is relaxed by default — self-signed cert).
 
 ## Usage ledger
 

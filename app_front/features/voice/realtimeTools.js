@@ -20,6 +20,7 @@ import { matchModelBySpokenName } from './voiceModelMatch.js';
 import { resolveVoiceNavKey } from './voiceNavMatch.js';
 import { resolveVoiceReadMode } from './voiceReadMatch.js';
 import { resolveVoiceSdkMode } from './voiceSdkMode.js';
+import { normalizeSdkMode } from '../../../lib/sdk/sdk-mode.js';
 import { matchTaskBySpokenLabel } from './voiceTaskMatch.js';
 import { setReadMode } from './voicePrefs.js';
 import { getVoiceSessionUsd } from './voiceSessionState.js';
@@ -164,7 +165,7 @@ const handlers = {
         ? String(workspace.name || '').trim()
         : String(chat.workspaceFile || '').replace(/.*\//, '').replace(/\.code-workspace$/i, '') || null,
       state: chatModule.getChatListAgentStatePublic(chat),
-      mode: chat.sdkMode === 'plan' ? 'plan' : 'agent',
+      mode: normalizeSdkMode(chat.sdkMode),
     };
   },
 
@@ -245,7 +246,7 @@ const handlers = {
 
   async set_chat_mode(args) {
     const mode = resolveVoiceSdkMode(args?.mode);
-    if (!mode) return { ok: false, error: 'Mode must be plan or agent' };
+    if (!mode) return { ok: false, error: 'Mode must be plan, agent, or ask' };
     const chatModule = await loadChatModule();
     if (typeof chatModule.setActiveChatSdkMode !== 'function') {
       return { ok: false, error: 'Mode switch is not available' };
