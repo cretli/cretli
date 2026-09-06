@@ -19,15 +19,17 @@ All notable changes to this project are documented here. The format is based on
 - MCP integrations in Settings: stdio and Streamable HTTP servers, workspace and
   harness scope, secrets stored apart from `data/mcp.json`. Agents receive tools
   through a Cretli-managed bridge. Plan blocks writes before the handler runs,
-  using the live session mode rather than the client request.
+  using the live session mode rather than the client request. Operator setup:
+  [docs/mcp/SETUP.md](docs/mcp/SETUP.md).
 - Builtin Cretli MCP tools for TODOs, saved chat plans, plan-execution
   delegations, and catalogs of tasks, agents, harnesses, and models. Reads stay
   allowed in Plan; creates/updates and delegation start/cancel/reply need Agent.
   `delegation_start` can target a saved plan or a chat-history message.
   `delegation_reply` and `delegation_inbox` share the same mailbox as the chat
-  arrows. The catalog is shared by the in-process server and `scripts/cretli-mcp.js`.
-  Standalone stdio requires `CRETLI_MCP_WORKSPACE` and `CRETLI_MCP_MODE` (Plan
-  blocks writes without a bridge token). Long plan/TODO/delegation details are
+  arrows. The catalog is shared by the in-process server and `npm run mcp`
+  (`scripts/cretli-mcp.js`). Standalone stdio requires `CRETLI_MCP_WORKSPACE`
+  and `CRETLI_MCP_MODE` (Plan blocks writes without a bridge token). Long
+  plan/TODO/delegation details are
   paged with a revision-bound cursor (`todo_show` / `chat_plan_show` use
   `updatedAt` / plan revision; `delegation_show` hashes the field content with
   the delegation id).   `chat_history` pages conversation events by seq (optional
@@ -64,8 +66,12 @@ All notable changes to this project are documented here. The format is based on
   agent-finished notifications. The existing Settings toggle covers both.
 - `npm run chat` talks to a running server over the HTTP API (list, show,
   archive, rename, delete) without editing `data/` files directly.
+- `npm test` scans git-tracked files for live-looking GitHub / API tokens and
+  private-key headers (`npm run test:secrets`). CI still runs gitleaks.
 
 ### Fixed
+- Returning to a hidden PWA or tab refreshes the chat list, so chats created on
+  another device, widget, or agent run appear without a manual reload.
 - `model_list` for Cursor SDK includes Settings-enabled variants (for example
   Grok 4.6 effort rows) when the live Cursor catalog is not fetched, and
   `delegation_start` resolves a short id such as `grok-4.6` (with optional
