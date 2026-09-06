@@ -2,6 +2,7 @@ import { LitElement, css, html } from 'lit';
 import '../ui/cr-searchable-select.js';
 import { initDropdown } from '../../lib/dropdown.js';
 import { t } from '../../i18n/index.js';
+import { normalizeSdkMode } from '../../../lib/sdk/sdk-mode.js';
 
 class CrSdkModeBar extends LitElement {
   static properties = {
@@ -62,36 +63,28 @@ class CrSdkModeBar extends LitElement {
       justify-content: flex-end;
     }
 
-    .toggle {
+    .mode {
       display: inline-flex;
-      align-items: stretch;
+      align-items: center;
+      gap: 0.2rem;
       height: var(--cr-mode-bar-control-height);
       box-sizing: border-box;
       border: 1px solid var(--cr-border-subtle);
       border-radius: var(--cr-radius-sm, 4px);
       background: var(--cr-control-idle-bg);
-      overflow: hidden;
-    }
-
-    .btn {
-      border: 0;
-      background: transparent;
-      color: var(--cr-text-muted);
+      color: var(--cr-text);
       font-size: var(--cr-mode-bar-font-size);
       font-weight: 600;
-      height: 100%;
-      padding: 0 0.65rem;
+      padding: 0 0.45rem 0 0.55rem;
       cursor: pointer;
-      box-sizing: border-box;
+      flex-shrink: 0;
     }
 
-    .btn + .btn {
-      border-left: 1px solid var(--cr-border-subtle);
-    }
-
-    .btn.active {
-      background: var(--cr-info-bg);
-      color: var(--cr-info);
+    .mode-arrow {
+      flex-shrink: 0;
+      font-size: 0.65rem;
+      line-height: 1;
+      opacity: 0.85;
     }
 
     .build {
@@ -349,7 +342,7 @@ class CrSdkModeBar extends LitElement {
       gap: var(--cr-toolbar-gap, 0.5rem);
     }
 
-    :host-context(.chat-fullscreen-bar) .toggle {
+    :host-context(.chat-fullscreen-bar) .mode {
       border-color: var(--cr-border-subtle);
     }
   `;
@@ -374,6 +367,10 @@ class CrSdkModeBar extends LitElement {
     this._buildDropdownApi = null;
     this._buildMenuEl = null;
     this._buildTriggerEl = null;
+    this._modeMenuReady = false;
+    this._modeDropdownApi = null;
+    this._modeMenuEl = null;
+    this._modeTriggerEl = null;
   }
 
   connectedCallback() {
@@ -384,11 +381,13 @@ class CrSdkModeBar extends LitElement {
 
   disconnectedCallback() {
     window.removeEventListener('cr-lang-changed', this._onLangChanged);
+    this.destroyModeMenu();
     this.destroyBuildMenu();
     super.disconnectedCallback();
   }
 
   updated() {
+    this.ensureModeMenu();
     if (!this.showBuild) {
       if (this._buildMenuReady) this.destroyBuildMenu();
       return;
@@ -464,11 +463,11 @@ class CrSdkModeBar extends LitElement {
   }
 
   handleModeClick(nextMode) {
-    const normalized = nextMode === 'plan' ? 'plan' : 'agent';
-    if (this.mode !== normalized) {
-      this.mode = normalized;
-      this.showBuild = normalized === 'plan';
-    }
+    const normalized = normalizeSdkMode(nextMode);
+    this._modeDropdownApi?.close();
+    if (this.mode === normalized) return;
+    this.mode = normalized;
+    this.showBuild = normalized === 'plan';
     this.dispatchEvent(
       new CustomEvent('cr-sdk-mode-change', {
         detail: { mode: normalized },
@@ -476,6 +475,14 @@ class CrSdkModeBar extends LitElement {
         composed: true,
       })
     );
+  }
+
+  handleModeMenuToggle(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    this._buildDropdownApi?.close();
+    this.ensureModeMenu();
+    this._modeDropdownApi?.toggle();
   }
 
   handleHarnessChange(event) {
@@ -555,6 +562,7 @@ class CrSdkModeBar extends LitElement {
     event.preventDefault();
     event.stopPropagation();
     if (!this.showBuild) return;
+    this._modeDropdownApi?.close();
     this.ensureBuildMenu();
     this._buildDropdownApi?.toggle();
   }
@@ -591,6 +599,93 @@ class CrSdkModeBar extends LitElement {
     }
     this._buildTriggerEl = null;
     this._buildMenuReady = false;
+  }
+
+  destroyModeMenu() {
+    this._modeDropdownApi?.close();
+    if (this._modeDropdownApi) {
+      this._modeDropdownApi.destroy();
+      this._modeDropdownApi = null;
+    }
+    if (this._modeMenuEl) {
+      this._modeMenuEl.remove();
+      this._modeMenuEl = null;
+    }
+    this._modeTriggerEl = null;
+    this._modeMenuReady = false;
+  }
+
+  modeLabel(mode) {
+    const normalized = normalizeSdkMode(mode);
+    if (normalized === 'plan') return t('sdkBlock.modePlan');
+    if (normalized === 'ask') return t('sdkBlock.modeAsk');
+    return t('sdkBlock.modeAgent');
+  }
+
+  renderModeMenuItems() {
+    const listEl = this._modeMenuEl?.querySelector('[data-mode-menu-items]');
+    if (!(listEl instanceof HTMLElement)) return;
+    const current = normalizeSdkMode(this.mode);
+    const items = [
+      { id: 'plan', label: t('sdkBlock.modePlan'), title: t('sdkBlock.modePlan') },
+      { id: 'agent', label: t('sdkBlock.modeAgent'), title: t('sdkBlock.modeAgent') },
+      { id: 'ask', label: t('sdkBlock.modeAsk'), title: t('sdkBlock.modeAskHint') },
+    ];
+    listEl.replaceChildren();
+    items.forEach((item) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'chat-list-item send-keys-send-menu-item';
+      button.setAttribute('role', 'menuitemradio');
+      button.setAttribute('aria-checked', item.id === current ? 'true' : 'false');
+      button.dataset.mode = item.id;
+      button.title = item.title;
+      const label = document.createElement('span');
+      label.className = 'chat-list-item-title';
+      label.textContent = item.label;
+      button.appendChild(label);
+      button.addEventListener('click', () => this.handleModeClick(item.id));
+      listEl.appendChild(button);
+    });
+  }
+
+  ensureModeMenu() {
+    const triggerEl = this.shadowRoot?.querySelector('.mode');
+    if (!(triggerEl instanceof HTMLButtonElement)) return;
+    if (this._modeMenuReady && this._modeTriggerEl === triggerEl) {
+      this.renderModeMenuItems();
+      return;
+    }
+    this.destroyModeMenu();
+    this._modeTriggerEl = triggerEl;
+    const menu = document.createElement('div');
+    menu.id = 'cr-sdk-mode-menu';
+    menu.className = 'chat-list-modal send-keys-send-menu';
+    menu.hidden = true;
+    menu.innerHTML =
+      '<div class="chat-list-panel send-keys-send-menu-panel dropdown-panel--compact">' +
+      '<div class="chat-list-items send-keys-send-menu-items" data-mode-menu-items role="menu"></div>' +
+      '</div>';
+    document.body.appendChild(menu);
+    this._modeMenuEl = menu;
+    triggerEl.setAttribute('aria-controls', menu.id);
+    this._modeDropdownApi = initDropdown({
+      triggerEl,
+      floatingEl: menu,
+      compact: true,
+      placement: 'bottom-start',
+      matchTriggerWidth: false,
+      offsetPx: 6,
+      viewportPadding: 8,
+      minWidthPx: 160,
+      maxHeightPx: 220,
+      onOpen: () => {
+        this._buildDropdownApi?.close();
+        this.renderModeMenuItems();
+      },
+    });
+    this._modeMenuReady = true;
+    this.renderModeMenuItems();
   }
 
   renderBuildMenuItems() {
@@ -656,7 +751,10 @@ class CrSdkModeBar extends LitElement {
       viewportPadding: 8,
       minWidthPx: 180,
       maxHeightPx: 180,
-      onOpen: () => this.renderBuildMenuItems(),
+      onOpen: () => {
+        this._modeDropdownApi?.close();
+        this.renderBuildMenuItems();
+      },
     });
     this._buildMenuReady = true;
     this.renderBuildMenuItems();
@@ -678,7 +776,8 @@ class CrSdkModeBar extends LitElement {
   }
 
   render() {
-    const mode = this.mode === 'plan' ? 'plan' : 'agent';
+    const mode = normalizeSdkMode(this.mode);
+    const modeLabel = this.modeLabel(mode);
     const tone = this.statusTone || 'connecting';
     const label = this.statusLabel || t('status.connecting');
     const harnessValue = this.normalizeBarHarness(this.harness, 'sdk');
@@ -756,24 +855,18 @@ class CrSdkModeBar extends LitElement {
     return html`
       <div class="bar">
         <div class="cluster cluster--start">
-          <div class="toggle" role="group" aria-label=${t('sdkBlock.modeGroupAria')}>
-            <button
-              type="button"
-              class="btn ${mode === 'plan' ? 'active' : ''}"
-              @click=${() => this.handleModeClick('plan')}
-              aria-pressed=${mode === 'plan' ? 'true' : 'false'}
-            >
-              Plan
-            </button>
-            <button
-              type="button"
-              class="btn ${mode === 'agent' ? 'active' : ''}"
-              @click=${() => this.handleModeClick('agent')}
-              aria-pressed=${mode === 'agent' ? 'true' : 'false'}
-            >
-              Agent
-            </button>
-          </div>
+          <button
+            type="button"
+            class="mode"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            aria-label=${t('sdkBlock.modeMenuAria')}
+            title=${t('sdkBlock.modeMenuAria')}
+            @click=${this.handleModeMenuToggle}
+          >
+            ${modeLabel}
+            <span class="mode-arrow" aria-hidden="true">▾</span>
+          </button>
           ${this.showBuild
             ? html`
                 <button

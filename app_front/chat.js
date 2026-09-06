@@ -41,8 +41,14 @@ import {
   readLastDelegationExecutor,
   startDelegationFromParent,
   prepareBuildPlanModal,
+  prepareMessageDelegationModal,
   clearDelegationPlanPreview,
   getDelegationApprovedPlanRevision,
+  readDelegationPreviewExtra,
+  readDelegationExecutionMode,
+  peekDelegationIdempotencyKey,
+  clearDelegationIdempotencyKey,
+  hashTextSha256,
 } from './features/chat/chatDelegations.js';
 import { t } from './i18n/index.js';
 import { initDropdown } from './lib/dropdown.js';
@@ -112,6 +118,7 @@ import {
   shouldTriggerAutoContextCompression,
 } from '../lib/context-compression.js';
 import { initChatHistorySyncPoll } from './features/chat/chatHistorySyncPoll.js';
+import { initChatListResumeSync } from './features/chat/chatListResumeSync.js';
 import { getResumeHistorySyncDeferMs } from './features/chat/chatResumePolicy.js';
 import { isMobileLikeClient } from './lib/mobileClient.js';
 import { getLastBackgroundDurationMs } from './lib/pageBackgroundGrace.js';
@@ -336,6 +343,10 @@ let forkUpToCreatedAt = null;
 let monitorSourceChatId = null;
 /** @type {string|null} */
 let buildPlanSourceChatId = null;
+/** @type {string|null} */
+let passMessageSourceChatId = null;
+/** @type {{ historySeq: number, createdAt: string, text: string }} */
+let passMessageMeta = { historySeq: 0, createdAt: '', text: '' };
 let chatDeleteConfirmModalApi;
 let chatContextDetailsModalApi;
 let pendingDeleteChatId = null;
@@ -1723,9 +1734,44 @@ async function nestChatUnderParent(childId, parentId) {
       delete next.forkParentChatId;
     }
     notifySidebar();
+    refreshRelatedChatHistoryLinks(next);
+    refreshRelatedChatHistoryLinks(chats.find((entry) => entry.id === nextParentId));
   } catch (err) {
     console.warn('[chat] nest harness chat failed:', err?.message || err);
   }
+}
+
+/**
+ * Show clickable parent/child links in the open chat stream.
+ *
+ * @param {object | null | undefined} chat
+ */
+export function refreshRelatedChatHistoryLinks(chat) {
+  const view = chat?._sdkRichView;
+  if (!chat?.id || typeof view?.ensureRelatedChatLinks !== 'function') return;
+  const parentId = String(chat.forkParentChatId || chat.delegationParentChatId || '').trim();
+  const parent = parentId ? chats.find((entry) => entry.id === parentId) : null;
+  const children = chats.filter((entry) => {
+    if (!entry?.id || entry.id === chat.id || entry.isTemporary === true) return false;
+    const kind = String(entry.forkKind || '');
+    if (kind === 'title' || kind === 'summary') return false;
+    return String(entry.forkParentChatId || '') === chat.id
+      || String(entry.delegationParentChatId || '') === chat.id;
+  });
+  view.ensureRelatedChatLinks({
+    parent: parentId
+      ? {
+        chatId: parentId,
+        title: parent?.title || parentId.slice(0, 8),
+        reason: String(chat.forkKind || ''),
+      }
+      : null,
+    children: children.map((entry) => ({
+      chatId: entry.id,
+      title: entry.title || String(entry.id).slice(0, 8),
+      reason: String(entry.forkKind || ''),
+    })),
+  });
 }
 
 /**
@@ -1842,6 +1888,8 @@ async function executeHarnessSwitch(chat, nextHarness, nextModel, choice) {
       toHarness: nextHarness,
       fromModel: chat.model,
       toModel: nextModel,
+      sourceChatId: chat.id,
+      sourceChatTitle: chat.title,
     });
   }
   const oldChatId = chat.id;
@@ -2149,8 +2197,8 @@ function sdkModeLaunchCommand(chat, mode) {
  * @returns {Promise<{ ok: boolean, mode?: string, error?: string }>}
  */
 export async function setActiveChatSdkMode(mode) {
-  const normalized = mode === 'plan' || mode === 'agent' ? mode : '';
-  if (!normalized) return { ok: false, error: 'Mode must be plan or agent' };
+  const normalized = mode === 'plan' || mode === 'agent' || mode === 'ask' ? mode : '';
+  if (!normalized) return { ok: false, error: 'Mode must be plan, agent, or ask' };
   const chat = activeChatId ? chats.find((item) => item.id === activeChatId) : null;
   if (!chat) return { ok: false, error: 'No chat is open' };
   await setChatSdkMode(chat, normalized);
@@ -2643,6 +2691,10 @@ initChatHistorySyncPoll({
     refreshSidebarChatStates();
     updateChatListModalStates();
   },
+});
+
+initChatListResumeSync({
+  refresh: (query) => loadChatsFromServer(query),
 });
 
 const chatController = createChatController({
@@ -3736,6 +3788,57 @@ function openTerminal(chat) {
         workspaceFolder: chat.workspaceFolder,
       });
     },
+    onPassMessageToChild: (point) => {
+      if (!chat?.id || !point?.text) return;
+      openNewChatModal({
+        passMessageFromChatId: chat.id,
+        historySeq: point.historySeq,
+        createdAt: point.createdAt,
+        text: point.text,
+        workspaceFile: chat.workspaceFile,
+        workspaceFolder: chat.workspaceFolder,
+      });
+    },
+    onReplyMessageToParent: (point) => {
+      if (!chat?.id || !point?.text) return;
+      if (chat._mailboxReplyBusy) return;
+      const parentId = String(chat.delegationParentChatId || '').trim();
+      const parent = parentId ? chats.find((row) => row.id === parentId) : null;
+      const key = peekDelegationIdempotencyKey(`${chat.id}:reply:${point.historySeq || point.createdAt || point.text.slice(0, 24)}`);
+      void (async () => {
+        const choice = await showChoiceDialog({
+          heading: t('chat.mailboxReplyPreviewHeading'),
+          body: t('chat.mailboxReplyPreviewBody', { parent: parent?.title || parentId || '—' }),
+          cancelLabel: t('chat.cancel'),
+          options: [{ value: 'send', label: t('chat.mailboxReplySend'), variant: 'primary' }],
+        });
+        if (choice !== 'send' && choice?.value !== 'send') return;
+        chat._mailboxReplyBusy = true;
+        try {
+          const contentHash = await hashTextSha256(point.text);
+          const res = await api.postChatMailboxReply(chat.id, {
+            historySeq: point.historySeq,
+            contentHash,
+            textSnapshot: point.text,
+            idempotencyKey: key,
+          });
+          if (res?.ok && !res.replayed) {
+            clearDelegationIdempotencyKey(`${chat.id}:reply:${point.historySeq || point.createdAt || point.text.slice(0, 24)}`);
+          }
+          if (!res?.ok) {
+            alert(res?.error || t('chat.mailboxReplyFailed'));
+            return;
+          }
+          chat._sdkRichView?.appendMetaNotice?.(t('chat.mailboxReplySent', {
+            parent: parent?.title || parentId || '—',
+          }));
+        } catch {
+          alert(t('chat.serverConnectionError'));
+        } finally {
+          chat._mailboxReplyBusy = false;
+        }
+      })();
+    },
     onOpenCodeQuestionReply: (payload) => sendOpenCodeQuestionReply(chat, payload),
     onOpenCodePermissionReply: (payload) => sendOpenCodePermissionReply(chat, payload),
     onOpenDelegationChat: (childChatId) => {
@@ -3904,6 +4007,7 @@ function openTerminal(chat) {
         updateAwaitingInput(chat);
         renderChatTerminalState(chat);
         armOlderSdkHistory(chat);
+        refreshRelatedChatHistoryLinks(chat);
       }
     })();
 }
@@ -5524,9 +5628,18 @@ function applyNewChatModalForkLabels() {
   if (monitorSourceChatId) {
     headingText = t('chat.monitorHeading');
     createText = t('chat.monitorCreate');
+  } else if (passMessageSourceChatId) {
+    headingText = t('chat.passMessageHeading');
+    const parent = getNewChatModalSourceChat();
+    createText = readDelegationExecutionMode(parent) === 'agent' && String(parent?.sdkMode || '') === 'plan'
+      ? t('chat.passMessageCreateAgent')
+      : t('chat.passMessageCreate');
   } else if (buildPlanSourceChatId) {
     headingText = t('chat.buildPlanHeading');
-    createText = t('chat.buildPlanCreate');
+    const parent = getNewChatModalSourceChat();
+    createText = readDelegationExecutionMode(parent) === 'agent' && String(parent?.sdkMode || '') === 'plan'
+      ? t('chat.buildPlanCreateAgent')
+      : t('chat.buildPlanCreate');
   } else if (forkSourceChatId) {
     headingText = forkUpToCreatedAt ? t('chat.forkFromMessageHeading') : t('chat.forkHeading');
     createText = t('chat.forkCreate');
@@ -5536,7 +5649,7 @@ function applyNewChatModalForkLabels() {
 }
 
 function getNewChatModalSourceChat() {
-  const id = monitorSourceChatId || buildPlanSourceChatId || forkSourceChatId;
+  const id = monitorSourceChatId || passMessageSourceChatId || buildPlanSourceChatId || forkSourceChatId;
   if (!id) return null;
   return chats.find((entry) => entry.id === id) || null;
 }
@@ -5549,6 +5662,10 @@ function getNewChatModalSourceChat() {
  *   upToCreatedAt?: string,
  *   monitorFromChatId?: string,
  *   buildPlanFromChatId?: string,
+ *   passMessageFromChatId?: string,
+ *   historySeq?: number,
+ *   createdAt?: string,
+ *   text?: string,
  *   workspaceFile?: string,
  *   workspaceFolder?: string,
  * }} [options]
@@ -5565,6 +5682,10 @@ export function openNewChatModal(options = {}) {
     options && typeof options.buildPlanFromChatId === 'string'
       ? options.buildPlanFromChatId.trim()
       : '';
+  const requestedPassMessageId =
+    options && typeof options.passMessageFromChatId === 'string'
+      ? options.passMessageFromChatId.trim()
+      : '';
   const forkChat = requestedForkId ? chats.find((entry) => entry.id === requestedForkId) : null;
   const monitorChat = requestedMonitorId
     ? chats.find((entry) => entry.id === requestedMonitorId)
@@ -5572,15 +5693,20 @@ export function openNewChatModal(options = {}) {
   const buildPlanChat = requestedBuildPlanId
     ? chats.find((entry) => entry.id === requestedBuildPlanId)
     : null;
+  const passMessageChat = requestedPassMessageId
+    ? chats.find((entry) => entry.id === requestedPassMessageId)
+    : null;
   if (
     (requestedForkId && !forkChat) ||
     (requestedMonitorId && !monitorChat) ||
-    (requestedBuildPlanId && !buildPlanChat)
+    (requestedBuildPlanId && !buildPlanChat) ||
+    (requestedPassMessageId && !passMessageChat)
   ) {
     forkSourceChatId = null;
     forkUpToCreatedAt = null;
     monitorSourceChatId = null;
     buildPlanSourceChatId = null;
+    passMessageSourceChatId = null;
     alert(t('chat.noActiveChat'));
     return;
   }
@@ -5591,21 +5717,37 @@ export function openNewChatModal(options = {}) {
     forkSourceChatId = null;
     forkUpToCreatedAt = null;
     buildPlanSourceChatId = null;
+    passMessageSourceChatId = null;
+  } else if (passMessageChat) {
+    passMessageSourceChatId = passMessageChat.id;
+    passMessageMeta = {
+      historySeq: Number(options.historySeq) > 0 ? Number(options.historySeq) : 0,
+      createdAt: typeof options.createdAt === 'string' ? options.createdAt.trim() : '',
+      text: typeof options.text === 'string' ? options.text : '',
+    };
+    forkSourceChatId = null;
+    forkUpToCreatedAt = null;
+    monitorSourceChatId = null;
+    buildPlanSourceChatId = null;
   } else if (buildPlanChat) {
     buildPlanSourceChatId = buildPlanChat.id;
     forkSourceChatId = null;
     forkUpToCreatedAt = null;
     monitorSourceChatId = null;
+    passMessageSourceChatId = null;
   } else {
     forkSourceChatId = forkChat?.id || null;
     forkUpToCreatedAt = forkChat && requestedCut ? requestedCut : null;
     monitorSourceChatId = null;
     buildPlanSourceChatId = null;
+    passMessageSourceChatId = null;
   }
-  const sourceChat = monitorChat || buildPlanChat || forkChat;
+  const sourceChat = monitorChat || passMessageChat || buildPlanChat || forkChat;
   applyDefaultNewChatHarnessToModal();
   const harnessSel = document.getElementById('chat-new-harness-select');
-  const lastExecutor = buildPlanChat ? readLastDelegationExecutor() : { harness: '', model: '' };
+  const lastExecutor = (buildPlanChat || passMessageChat)
+    ? readLastDelegationExecutor()
+    : { harness: '', model: '' };
   if (harnessSel instanceof HTMLSelectElement && selectedHarness) {
     harnessSel.value = normalizeNewChatHarness(selectedHarness);
   }
@@ -5644,7 +5786,9 @@ export function openNewChatModal(options = {}) {
   if (titleInput) {
     titleInput.value = monitorChat
       ? t('chat.monitorDefaultTitle', { title: monitorChat.title || 'Chat' })
-      : buildPlanChat
+      : passMessageChat
+        ? t('chat.passMessageDefaultTitle', { title: passMessageChat.title || 'Chat' })
+        : buildPlanChat
         ? t('chat.buildPlanDefaultTitle', { title: buildPlanChat.title || 'Chat' })
         : '';
     titleInput.placeholder = t('chat.optionalNamePlaceholder');
@@ -5701,7 +5845,20 @@ export function openNewChatModal(options = {}) {
     syncNewChatFavoritePresetUi();
   });
   void refreshNewChatHarnessStatus();
-  if (buildPlanChat) {
+  if (passMessageChat) {
+    void prepareMessageDelegationModal(passMessageChat, passMessageMeta).then(() => {
+      const modelSel = document.getElementById('chat-new-model-select');
+      chatModelSelectApi.refreshNewChatModelPicker(getSelectedNewChatHarness());
+      if (modelSel instanceof HTMLSelectElement && lastExecutor.model) {
+        modelSel.value = lastExecutor.model;
+      }
+      chatNewModelDropdownApi?.refresh?.();
+      syncNewChatFavoritePresetUi();
+      void refreshNewChatHarnessStatus();
+      document.getElementById('chat-new-plan-preview-child-agent')?.addEventListener('change', applyNewChatModalForkLabels);
+      applyNewChatModalForkLabels();
+    });
+  } else if (buildPlanChat) {
     void prepareBuildPlanModal(buildPlanChat).then(() => {
       const modelSel = document.getElementById('chat-new-model-select');
       chatModelSelectApi.refreshNewChatModelPicker(getSelectedNewChatHarness());
@@ -5711,6 +5868,8 @@ export function openNewChatModal(options = {}) {
       chatNewModelDropdownApi?.refresh?.();
       syncNewChatFavoritePresetUi();
       void refreshNewChatHarnessStatus();
+      document.getElementById('chat-new-plan-preview-child-agent')?.addEventListener('change', applyNewChatModalForkLabels);
+      applyNewChatModalForkLabels();
     });
   } else {
     clearDelegationPlanPreview();
@@ -5725,6 +5884,8 @@ function closeNewChatModal() {
   forkUpToCreatedAt = null;
   monitorSourceChatId = null;
   buildPlanSourceChatId = null;
+  passMessageSourceChatId = null;
+  passMessageMeta = { historySeq: 0, createdAt: '', text: '' };
   clearDelegationPlanPreview();
   applyNewChatModalForkLabels();
   chatNewModalApi?.close();
@@ -6385,6 +6546,13 @@ async function createBuildPlanChatFromModal(parentChat, values) {
     harness: values.harness,
     model: values.model,
     planRevision: getDelegationApprovedPlanRevision(),
+    extraInstructions: readDelegationPreviewExtra(),
+    sourceKind: values.sourceKind,
+    historySeq: values.historySeq,
+    createdAt: values.createdAt,
+    textSnapshot: values.textSnapshot,
+    contentHash: values.contentHash,
+    executionMode: values.executionMode || readDelegationExecutionMode(parentChat),
   });
   if (!result?.ok) {
     if (result?.code === 'plan_revision_conflict') {
@@ -6397,7 +6565,7 @@ async function createBuildPlanChatFromModal(parentChat, values) {
   const created = result.chat;
   if (created?.id) {
     created.agentTransport = normalizeNewChatHarness(created.agentTransport || values.harness);
-    created.sdkMode = 'agent';
+    created.sdkMode = created.sdkMode || values.executionMode || 'agent';
     created.sdkUiMode = normalizeSdkUiMode(created.sdkUiMode || parentChat.sdkUiMode);
     adoptCreatedChat(created);
   }
@@ -6479,6 +6647,33 @@ function createChatFromModal() {
       }
     }
     void createForkChatFromModal(sourceParent, values).finally(() => {
+      chatCreateInFlight = false;
+      setNewChatCreateBusy(false);
+    });
+    return;
+  }
+  const passMessageParent = passMessageSourceChatId
+    ? chats.find((entry) => entry.id === passMessageSourceChatId)
+    : null;
+  if (passMessageParent?.id) {
+    chatCreateInFlight = true;
+    setNewChatCreateBusy(true);
+    const values = {
+      title,
+      harness,
+      model: chosenModel,
+      workspaceFile: createCtx.workspaceFile,
+      workspaceFolder: createCtx.workspaceFolder,
+      sourceKind: 'message',
+      historySeq: passMessageMeta.historySeq,
+      createdAt: passMessageMeta.createdAt,
+      textSnapshot: passMessageMeta.text,
+      executionMode: readDelegationExecutionMode(passMessageParent),
+    };
+    if (!values.title) {
+      values.title = t('chat.passMessageDefaultTitle', { title: passMessageParent.title || 'Chat' });
+    }
+    void createBuildPlanChatFromModal(passMessageParent, values).finally(() => {
       chatCreateInFlight = false;
       setNewChatCreateBusy(false);
     });

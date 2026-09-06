@@ -29,6 +29,7 @@ import { loadChatHistory } from '../lib/persist/chat-history-persist.js';
 import { updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { noteDelegationRoomEvent } from '../lib/delegation-run-bridge.js';
 import { parseDelegationCommand } from '../lib/delegation-command.js';
+import { saveSettings } from '../lib/persist/settings.js';
 
 resetMockChatRuns();
 registerMockChatRunAdapter('opencode');
@@ -71,15 +72,28 @@ assert.equal(first.ok, true);
 assert.ok(first.delegation.childChatId);
 assert.match(first.delegation.planMarkdown, /Planner/);
 assert.equal(getMockChatRun(first.delegation.childChatId)?.hold, true);
+const relatedChild = (loadChatHistory(parent.id)?.events || []).filter((row) => row.rec?.variant === 'relatedChat');
+assert.equal(relatedChild.length >= 1, true);
+const relatedParent = (loadChatHistory(first.delegation.childChatId)?.events || []).filter((row) => row.rec?.variant === 'relatedChat');
+assert.equal(relatedParent.length >= 1, true);
 
 const replayed = await service.createAndStart({
   parentChatId: parent.id,
-  executor: { transport: 'opencode', model: 'other' },
+  executor: { transport: 'opencode', model: 'opencode/test' },
   planRevision: planDoc.revision,
   idempotencyKey: 'idem-1',
 });
 assert.equal(replayed.delegation.id, first.delegation.id);
 assert.equal(loadChats().filter((row) => row.delegationParentChatId === parent.id).length, 1);
+
+const conflictParams = await service.createAndStart({
+  parentChatId: parent.id,
+  executor: { transport: 'opencode', model: 'other' },
+  planRevision: planDoc.revision,
+  idempotencyKey: 'idem-1',
+});
+assert.equal(conflictParams.ok, false);
+assert.equal(conflictParams.code, 'idempotency_conflict');
 
 const parent2 = createParent('Planner 2');
 const stale = await service.createAndStart({
@@ -163,7 +177,7 @@ const waitingJob = await service.createAndStart({
   idempotencyKey: 'idem-wait',
 });
 patchMockChatRun(waitingJob.delegation.childChatId, { waitingForInput: true, busy: true });
-reconcileDelegationsOnBoot();
+await reconcileDelegationsOnBoot();
 assert.notEqual(listDelegationsForParent(parent5.id)[0].status, 'interrupted');
 
 const parent6 = createParent('Planner 6');
@@ -174,7 +188,7 @@ const staleJob = await service.createAndStart({
   idempotencyKey: 'idem-boot',
 });
 patchMockChatRun(staleJob.delegation.childChatId, { busy: false, waitingForInput: false });
-reconcileDelegationsOnBoot();
+await reconcileDelegationsOnBoot();
 assert.equal(listDelegationsForParent(parent6.id)[0].status, 'interrupted');
 assert.notEqual(listDelegationsForParent(parent5.id)[0].status, 'interrupted');
 
@@ -186,7 +200,7 @@ const finishedBeforeRetry = (loadChatHistory(parent3.id)?.events || []).filter((
   return data.event === 'finished';
 }).length;
 updateDelegationRecord(parent3Finished.id, { historyDeliveredAt: '' });
-reconcileDelegationsOnBoot();
+await reconcileDelegationsOnBoot();
 const parent3AfterRetry = listDelegationsForParent(parent3.id)[0];
 assert.ok(String(parent3AfterRetry.historyDeliveredAt || '').trim());
 const finishedAfterRetry = (loadChatHistory(parent3.id)?.events || []).filter((row) => {
@@ -326,6 +340,56 @@ const deleteJob = await service.createAndStart({
 const cancelledDelete = await service.cancelForDeletedChat(deleteJob.delegation.childChatId);
 assert.equal(cancelledDelete.ok, true);
 assert.equal(listDelegationsForParent(parent12.id)[0].status, 'cancelled');
+
+const askParent = addChat('sess-ask-parent', 'Ask parent', null, project, 'planner-model', {
+  agentTransport: 'opencode',
+  sdkMode: 'ask',
+});
+writeChatPlanFile({
+  cwd: project,
+  chatId: askParent.id,
+  title: 'Ask parent',
+  markdown: '# Ask parent\n\n- step',
+  sourceTurnId: 'turn-ask',
+});
+const askDenied = await service.createAndStart({
+  parentChatId: askParent.id,
+  executor: { transport: 'opencode', model: 'opencode/test' },
+  planRevision: readChatPlanDocument({ cwd: project, chatId: askParent.id }).revision,
+  idempotencyKey: 'idem-ask',
+});
+assert.equal(askDenied.ok, false);
+assert.equal(askDenied.status, 409);
+assert.equal(askDenied.code, 'ask_mode_denied');
+
+registerMockChatRunAdapter('sdk');
+saveSettings({
+  chatEnabledModels: [
+    'grok-4.6::effort=high,fast=false',
+    'grok-4.6::effort=medium,fast=false',
+  ],
+});
+const grokService = createDelegationService({
+  workspaceDirForAgent: () => project,
+});
+const grokParent = createParent('Grok short id');
+const grokStart = await grokService.createAndStart({
+  parentChatId: grokParent.id,
+  executor: { transport: 'sdk', model: 'grok-4.6' },
+  planRevision: readChatPlanDocument({ cwd: project, chatId: grokParent.id }).revision,
+  idempotencyKey: 'idem-grok-short',
+});
+assert.equal(grokStart.ok, true);
+assert.equal(grokStart.delegation.executor.model, 'grok-4.6::effort=high,fast=false');
+const grokMediumParent = createParent('Grok medium id');
+const grokMediumOk = await grokService.createAndStart({
+  parentChatId: grokMediumParent.id,
+  executor: { transport: 'sdk', model: 'grok-4.6 medium' },
+  planRevision: readChatPlanDocument({ cwd: project, chatId: grokMediumParent.id }).revision,
+  idempotencyKey: 'idem-grok-medium',
+});
+assert.equal(grokMediumOk.ok, true);
+assert.equal(grokMediumOk.delegation.executor.model, 'grok-4.6::effort=medium,fast=false');
 
 rmSync(project, { recursive: true, force: true });
 console.log('delegation-flow.test.js OK');

@@ -23,6 +23,11 @@ class CrSdkBlock extends LitElement {
     speakable: { type: Boolean, reflect: true },
     speaking: { type: Boolean, state: true },
     forkable: { type: Boolean, reflect: true },
+    passable: { type: Boolean, reflect: true },
+    replyable: { type: Boolean, reflect: true },
+    passDisabled: { type: Boolean, reflect: true, attribute: 'pass-disabled' },
+    passHint: { type: String, attribute: 'pass-hint' },
+    historySeq: { type: Number, attribute: 'history-seq' },
   };
 
   static styles = css`
@@ -71,10 +76,9 @@ class CrSdkBlock extends LitElement {
       cursor: pointer;
     }
 
-    .copy-btn:hover {
-      background: var(--cr-hover);
-      border-color: var(--cr-border-control);
-      color: var(--cr-text);
+    .action-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
     }
 
     .copy-btn:focus {
@@ -122,6 +126,11 @@ class CrSdkBlock extends LitElement {
       background: var(--cr-hover);
       border-color: var(--cr-border-control);
       color: var(--cr-text);
+    }
+
+    .action-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
     }
 
     .action-btn:focus {
@@ -268,6 +277,11 @@ class CrSdkBlock extends LitElement {
     this.speakable = false;
     this.speaking = false;
     this.forkable = false;
+    this.passable = false;
+    this.replyable = false;
+    this.passDisabled = false;
+    this.passHint = '';
+    this.historySeq = 0;
     this._copyResetTimer = 0;
     this._speakToken = '';
   }
@@ -347,6 +361,19 @@ class CrSdkBlock extends LitElement {
     event.preventDefault();
     event.stopPropagation();
     this.dispatchEvent(new CustomEvent('cr-sdk-block-fork', { bubbles: true, composed: true }));
+  }
+
+  handlePassClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.passDisabled) return;
+    this.dispatchEvent(new CustomEvent('cr-sdk-block-pass', { bubbles: true, composed: true }));
+  }
+
+  handleReplyClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    this.dispatchEvent(new CustomEvent('cr-sdk-block-reply', { bubbles: true, composed: true }));
   }
 
   /**
@@ -477,6 +504,34 @@ class CrSdkBlock extends LitElement {
                   @mousedown=${(event) => event.stopPropagation()}
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6,2A3,3 0 0,1 9,5C9,6.28 8.19,7.38 7.06,7.81C7.15,8.27 7.39,8.83 8,9.63C9,10.92 11,12.83 12,14.17C13,12.83 15,10.92 16,9.63C16.61,8.83 16.85,8.27 16.94,7.81C15.81,7.38 15,6.28 15,5A3,3 0 0,1 18,2A3,3 0 0,1 21,5C21,6.32 20.14,7.45 18.95,7.85C18.87,8.37 18.64,9 18,9.83C17,11.17 15,13.08 14,14.38C13.39,15.17 13.15,15.73 13.06,16.19C14.19,16.62 15,17.72 15,19A3,3 0 0,1 12,22A3,3 0 0,1 9,19C9,17.72 9.81,16.62 10.94,16.19C10.85,15.73 10.61,15.17 10,14.38C9,13.08 7,11.17 6,9.83C5.36,9 5.13,8.37 5.05,7.85C3.86,7.45 3,6.32 3,5A3,3 0 0,1 6,2M6,4A1,1 0 0,0 5,5A1,1 0 0,0 6,6A1,1 0 0,0 7,5A1,1 0 0,0 6,4M18,4A1,1 0 0,0 17,5A1,1 0 0,0 18,6A1,1 0 0,0 19,5A1,1 0 0,0 18,4M12,18A1,1 0 0,0 11,19A1,1 0 0,0 12,20A1,1 0 0,0 13,19A1,1 0 0,0 12,18Z"/></svg>
+                </button>`
+            : null}
+          ${this.passable || this.passDisabled
+            ? html`
+                <button
+                  type="button"
+                  class="action-btn action-btn--pass"
+                  ?disabled=${this.passDisabled}
+                  title=${this.passDisabled ? (this.passHint || t('sdkBlock.passNeedsSavedHistory')) : t('sdkBlock.passToChild')}
+                  aria-label=${this.passDisabled ? (this.passHint || t('sdkBlock.passNeedsSavedHistory')) : t('sdkBlock.passToChild')}
+                  @click=${this.handlePassClick}
+                  @mousedown=${(event) => event.stopPropagation()}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11H4z"/></svg>
+                </button>`
+            : null}
+          ${this.replyable
+            ? html`
+                <button
+                  type="button"
+                  class="action-btn action-btn--reply"
+                  ?disabled=${this.passDisabled}
+                  title=${this.passDisabled ? (this.passHint || t('sdkBlock.passNeedsSavedHistory')) : t('sdkBlock.replyToParent')}
+                  aria-label=${this.passDisabled ? (this.passHint || t('sdkBlock.passNeedsSavedHistory')) : t('sdkBlock.replyToParent')}
+                  @click=${this.handleReplyClick}
+                  @mousedown=${(event) => event.stopPropagation()}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11h12z"/></svg>
                 </button>`
             : null}
           ${this.queued

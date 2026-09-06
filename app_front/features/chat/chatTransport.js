@@ -876,7 +876,7 @@ export function createChatTransport(deps) {
           }
           return;
         }
-        if (msg.type === 'sdkMode' && (msg.mode === 'plan' || msg.mode === 'agent')) {
+        if (msg.type === 'sdkMode' && (msg.mode === 'plan' || msg.mode === 'agent' || msg.mode === 'ask')) {
           applySdkModeFromServer(chat, msg.mode, 'sdkMode', {
             force: msg.reason === 'plan_question_approved',
           });

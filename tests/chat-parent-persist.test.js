@@ -30,6 +30,24 @@ test('updateChat rejects nesting a chat under itself', () => {
   assert.throws(() => updateChat('a', { forkParentChatId: 'a' }), /nested under itself/);
 });
 
+test('updateChat grouping does not clear delegationParentChatId', () => {
+  saveChats([
+    { id: 'a', title: 'A', cursorSessionId: 's-a', createdAt: '2026-01-01T00:00:00.000Z' },
+    {
+      id: 'b',
+      title: 'B',
+      cursorSessionId: 's-b',
+      createdAt: '2026-01-02T00:00:00.000Z',
+      forkParentChatId: 'a',
+      delegationParentChatId: 'a',
+    },
+    { id: 'c', title: 'C', cursorSessionId: 's-c', createdAt: '2026-01-03T00:00:00.000Z' },
+  ]);
+  const actual = updateChat('b', { forkParentChatId: 'c' });
+  assert.equal(actual.forkParentChatId, 'c');
+  assert.equal(actual.delegationParentChatId, 'a');
+});
+
 test('updateChat rejects nesting a folder under its descendant', () => {
   seed();
   updateChat('b', { forkParentChatId: 'a' });

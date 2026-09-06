@@ -152,6 +152,7 @@ const {
   getCurrentCwd,
   buildTaskRunScopeSnapshot,
   loadCurrentTasks,
+  loadTasksForWorkspace,
   workspaceDirForAgent,
 } = workspace;
 
@@ -261,6 +262,7 @@ registerAppRoutes(app, {
   widgetChatListScope,
   getLocalCallbackBaseUrl,
   loadCurrentTasks,
+  loadTasksForWorkspace,
   taskRuns,
   agentRuns,
   devBuildRunId: DEV_BUILD_RUN_ID,
@@ -274,7 +276,7 @@ registerAppRoutes(app, {
   getLastTerminalSessionId: () => lastTerminalSessionId,
   setLastTerminalSessionId: (sessionId) => { lastTerminalSessionId = sessionId; },
 });
-reconcileDelegationsOnBoot();
+void reconcileDelegationsOnBoot();
 
 const wss = new WebSocketServer({ server });
 const wsRouterCtx = {

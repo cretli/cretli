@@ -53,4 +53,19 @@ const created = createCodeBuddyLiveSession({
 assert.equal(created.transport.options.cwd, '/tmp/workspace');
 assert.equal(created.transport.options.permissionMode, 'bypassPermissions');
 
+const planCreated = createCodeBuddyLiveSession({
+  sdk: {
+    unstable_v2_createSession: (options) => ({
+      closed: false,
+      transport: { options: { model: options.model } },
+    }),
+  },
+  model: 'default-model',
+  pathToCodebuddyCode: '/opt/codebuddy-launcher.sh',
+  env: { HOME: '/tmp' },
+  cwd: '/tmp/workspace',
+  permissionMode: 'plan',
+});
+assert.equal(planCreated.transport.options.permissionMode, 'plan');
+
 console.log('codebuddy-live-session.test.js OK');

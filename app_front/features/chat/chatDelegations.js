@@ -18,6 +18,17 @@ const idempotencyKeys = new Map();
 let approvedPlanPreview = { chatId: '', revision: 0 };
 
 /**
+ * @param {string} text
+ * @returns {Promise<string>}
+ */
+export async function hashTextSha256(text) {
+  const bytes = new TextEncoder().encode(String(text || ''));
+  if (!globalThis.crypto?.subtle) return '';
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/**
  * @returns {number}
  */
 export function getDelegationApprovedPlanRevision() {
@@ -28,6 +39,17 @@ export function clearDelegationPlanPreview() {
   approvedPlanPreview = { chatId: '', revision: 0 };
   const box = document.getElementById('chat-new-plan-preview');
   if (box) box.hidden = true;
+  const extra = document.getElementById('chat-new-plan-preview-extra');
+  if (extra instanceof HTMLTextAreaElement) extra.value = '';
+}
+
+/**
+ * @returns {string}
+ */
+export function readDelegationPreviewExtra() {
+  const extra = document.getElementById('chat-new-plan-preview-extra');
+  if (extra instanceof HTMLTextAreaElement) return extra.value.trim();
+  return '';
 }
 
 /**
@@ -48,7 +70,24 @@ function ensurePlanPreviewElements() {
   const body = document.createElement('pre');
   body.id = 'chat-new-plan-preview-body';
   body.className = 'chat-new-plan-preview-body';
-  box.append(meta, body);
+  const extraLabel = document.createElement('label');
+  extraLabel.className = 'chat-settings-hint-inline';
+  extraLabel.id = 'chat-new-plan-preview-extra-label';
+  extraLabel.textContent = t('chat.delegationExtraInstructions');
+  extraLabel.setAttribute('for', 'chat-new-plan-preview-extra');
+  const extra = document.createElement('textarea');
+  extra.id = 'chat-new-plan-preview-extra';
+  extra.className = 'chat-new-plan-preview-extra';
+  extra.rows = 3;
+  const childAgent = document.createElement('label');
+  childAgent.className = 'chat-settings-hint-inline';
+  childAgent.id = 'chat-new-plan-preview-child-agent-label';
+  childAgent.hidden = true;
+  const childAgentCheck = document.createElement('input');
+  childAgentCheck.type = 'checkbox';
+  childAgentCheck.id = 'chat-new-plan-preview-child-agent';
+  childAgent.append(childAgentCheck, document.createTextNode(` ${t('chat.delegationRunChildInAgent')}`));
+  box.append(meta, body, extraLabel, extra, childAgent);
   form.appendChild(box);
   return box;
 }
@@ -75,12 +114,38 @@ function filterHarnessSelectToExecutors(transports) {
 /**
  * @param {object} parentChat
  */
+function syncChildAgentCheckbox(parentChat) {
+  const label = document.getElementById('chat-new-plan-preview-child-agent-label');
+  const check = document.getElementById('chat-new-plan-preview-child-agent');
+  if (!(label instanceof HTMLElement) || !(check instanceof HTMLInputElement)) return;
+  const parentMode = String(parentChat?.sdkMode || '').trim();
+  const show = parentMode === 'plan';
+  label.hidden = !show;
+  if (!show) check.checked = false;
+}
+
+/**
+ * @returns {'plan' | 'agent' | ''}
+ */
+export function readDelegationExecutionMode(parentChat) {
+  const parentMode = String(parentChat?.sdkMode || '').trim();
+  const check = document.getElementById('chat-new-plan-preview-child-agent');
+  if (parentMode === 'plan' && check instanceof HTMLInputElement && check.checked) return 'agent';
+  if (parentMode === 'plan') return 'plan';
+  if (parentMode === 'agent') return 'agent';
+  return '';
+}
+
+/**
+ * @param {object} parentChat
+ */
 export async function prepareBuildPlanModal(parentChat) {
   const chatId = String(parentChat?.id || '').trim();
   const box = ensurePlanPreviewElements();
   const meta = document.getElementById('chat-new-plan-preview-meta');
   const body = document.getElementById('chat-new-plan-preview-body');
   approvedPlanPreview = { chatId, revision: 0 };
+  syncChildAgentCheckbox(parentChat);
   try {
     const executors = await api.getDelegationExecutors();
     const transports = Array.isArray(executors?.transports) ? executors.transports : [];
@@ -113,6 +178,34 @@ export async function prepareBuildPlanModal(parentChat) {
     meta.textContent = t('chat.serverConnectionError');
     body.textContent = '';
   }
+}
+
+/**
+ * @param {object} parentChat
+ * @param {{ text?: string, historySeq?: number, createdAt?: string }} source
+ */
+export async function prepareMessageDelegationModal(parentChat, source = {}) {
+  const chatId = String(parentChat?.id || '').trim();
+  const box = ensurePlanPreviewElements();
+  const meta = document.getElementById('chat-new-plan-preview-meta');
+  const body = document.getElementById('chat-new-plan-preview-body');
+  const extra = document.getElementById('chat-new-plan-preview-extra');
+  approvedPlanPreview = { chatId, revision: 0 };
+  try {
+    const executors = await api.getDelegationExecutors();
+    const transports = Array.isArray(executors?.transports) ? executors.transports : [];
+    filterHarnessSelectToExecutors(transports);
+  } catch {
+    // Keep the current harness list if the executor catalog cannot be loaded.
+  }
+  if (!chatId || !box || !(meta instanceof HTMLElement) || !(body instanceof HTMLElement)) {
+    return;
+  }
+  box.hidden = false;
+  syncChildAgentCheckbox(parentChat);
+  meta.textContent = t('chat.delegationMessagePreviewMeta');
+  body.textContent = String(source.text || '').trim();
+  if (extra instanceof HTMLTextAreaElement) extra.value = '';
 }
 
 /**
@@ -195,8 +288,10 @@ export async function startDelegationFromParent(parentChat, values) {
   if (!parentChat?.id) {
     return { ok: false, error: t('chat.unknownError') };
   }
+  const sourceKind = String(values.sourceKind || '').trim() === 'message' ? 'message' : 'plan';
+  const executionMode = String(values.executionMode || '').trim();
   let planRevision = Number(values.planRevision);
-  if (!Number.isFinite(planRevision) || planRevision <= 0) {
+  if (sourceKind !== 'message' && (!Number.isFinite(planRevision) || planRevision <= 0)) {
     try {
       const planData = await api.getChatPlan(parentChat.id);
       planRevision = Number(planData?.plan?.revision) || 0;
@@ -207,22 +302,35 @@ export async function startDelegationFromParent(parentChat, values) {
       return { ok: false, error: t('chat.serverConnectionError') };
     }
   }
-  const idempotencyKey = peekDelegationIdempotencyKey(parentChat.id);
+  const idempotencyKey = peekDelegationIdempotencyKey(
+    sourceKind === 'message'
+      ? `${parentChat.id}:msg:${values.historySeq || values.createdAt || 'snap'}`
+      : parentChat.id
+  );
   let data;
   try {
     data = await api.postChatDelegation(parentChat.id, {
       executor: { transport: values.harness, model: values.model },
-      planRevision,
+      planRevision: sourceKind === 'message' ? undefined : planRevision,
       idempotencyKey,
       extraInstructions: values.extraInstructions || '',
       title: values.title || '',
+      sourceKind,
+      historySeq: values.historySeq,
+      contentHash: values.contentHash || (values.textSnapshot
+        ? await hashTextSha256(values.textSnapshot)
+        : ''),
+      executionMode,
     });
   } catch {
     return { ok: false, error: t('chat.serverConnectionError') };
   }
   if (data?.ok && data.delegation) {
     saveLastDelegationExecutor(values.harness, values.model);
-    if (!data.replayed) clearDelegationIdempotencyKey(parentChat.id);
+    if (!data.replayed) {
+      clearDelegationIdempotencyKey(parentChat.id);
+      clearDelegationIdempotencyKey(`${parentChat.id}:msg:${values.historySeq || values.createdAt || 'snap'}`);
+    }
   }
   return data;
 }

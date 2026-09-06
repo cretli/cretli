@@ -35,6 +35,7 @@ import {
   syncEmbedChatToHostPage,
   selectChatFromWidgetHost,
   setForcedEmbedChatId,
+  refreshRelatedChatHistoryLinks,
 } from './chat.js';
 import { copyFromTerminal } from './panelCopy.js';
 import { initLanSettings } from './lanSettings.js';
@@ -214,6 +215,10 @@ function ensurePanelReady(panelKey) {
       initPanelOnce(panelKey, () => initWidgetPanelFromApp(mod));
       return;
     }
+    if (panelKey === 'mcpSettings') {
+      initPanelOnce(panelKey, () => mod.initMcpSettingsPanel());
+      return;
+    }
     if (panelKey === 'instances') {
       initPanelOnce(panelKey, () => mod.initInstancesPanel());
       return;
@@ -384,6 +389,10 @@ async function setChatForkParent(chatId, parentChatId) {
       delete chat.forkParentChatId;
     }
     sidebarView.forceRerender();
+    refreshRelatedChatHistoryLinks(chat);
+    if (chat.forkParentChatId) {
+      refreshRelatedChatHistoryLinks(chats.find((entry) => entry.id === chat.forkParentChatId));
+    }
   } catch (_) {
     if (previousParent) chat.forkParentChatId = previousParent;
     else delete chat.forkParentChatId;
@@ -908,6 +917,9 @@ function refreshSettingsTabPanels(tabId) {
   if (tabId === 'usage') void refreshUsageSettings();
   if (tabId === 'widgets') {
     void ensurePanelReady('widget').then(() => callLoadedPanel('widget', 'refreshWidgetPanel'));
+  }
+  if (tabId === 'mcp') {
+    void ensurePanelReady('mcpSettings').then(() => callLoadedPanel('mcpSettings', 'refreshMcpSettingsPanel'));
   }
 }
 

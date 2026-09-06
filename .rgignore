@@ -1,0 +1,4 @@
+# Conversation stores. Prefer Cretli MCP chat_show / chat_history over file search.
+data/chat-history/**
+data/sdk-agent-store/**
+**/agent-transcripts/**

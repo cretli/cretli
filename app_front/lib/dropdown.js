@@ -77,7 +77,7 @@ export function initDropdown(options = {}) {
   const onClose = typeof options.onClose === 'function' ? options.onClose : null;
   const optionSelector = typeof options.optionSelector === 'string' && options.optionSelector
     ? options.optionSelector
-    : '[role="option"], [role="menuitem"], button:not([disabled])';
+    : '[role="option"], [role="menuitem"], [role="menuitemradio"], button:not([disabled])';
 
   let cleanupAutoUpdate = null;
   let open = false;

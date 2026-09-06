@@ -21,9 +21,9 @@ test('parseSpaPath reads panel and settings tab', () => {
   assert.deepEqual(parseSpaPath('/chat'), { panel: 'chat', settingsTab: '' });
   assert.deepEqual(parseSpaPath('/tasks'), { panel: 'tasks', settingsTab: '' });
   assert.deepEqual(parseSpaPath('/settings'), { panel: 'settings', settingsTab: '' });
-  assert.deepEqual(parseSpaPath('/settings/workspace'), {
+  assert.deepEqual(parseSpaPath('/settings/mcp'), {
     panel: 'settings',
-    settingsTab: 'workspace',
+    settingsTab: 'mcp',
   });
   assert.deepEqual(parseSpaPath('/settings/workspace/'), {
     panel: 'settings',

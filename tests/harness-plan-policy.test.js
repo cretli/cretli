@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {
+  resolveHarnessAskPolicy,
   resolveHarnessPlanPolicy,
+  resolveHarnessReadOnlyPolicy,
   resolveSdkPlanCreateOptions,
   SDK_PLAN_DISALLOWED_TOOLS,
 } from '../lib/agent-harness/harness-plan-policy.js';
@@ -51,6 +53,7 @@ assert.equal(inputQwenPolicy.abortOnMutation, true);
 assert.equal(inputQwenPolicy.promptHint, false);
 
 assert.deepEqual(resolveSdkPlanCreateOptions('plan').disallowedTools, SDK_PLAN_DISALLOWED_TOOLS);
+assert.deepEqual(resolveSdkPlanCreateOptions('ask').disallowedTools, SDK_PLAN_DISALLOWED_TOOLS);
 assert.deepEqual(resolveSdkPlanCreateOptions('agent'), {});
 assert.deepEqual([...SDK_PLAN_DISALLOWED_TOOLS], ['edit', 'delete', 'shell']);
 assert.ok(!SDK_PLAN_DISALLOWED_TOOLS.includes('write'));
@@ -65,5 +68,15 @@ assert.ok(actualPlanTools.includes('grep'));
 assert.ok(!actualPlanTools.includes('write_file'));
 assert.ok(!actualPlanTools.includes('run_terminal_command'));
 assert.ok(getToolsForMode('agent').some((tool) => tool.function?.name === 'write_file'));
+
+const actualAskTools = getToolsForMode('ask').map((tool) => tool.function?.name);
+assert.ok(actualAskTools.includes('read_file'));
+assert.ok(!actualAskTools.includes('write_file'));
+
+const inputCodexAsk = resolveHarnessAskPolicy('codex');
+assert.equal(inputCodexAsk.denyMutatingTools, true);
+assert.equal(inputCodexAsk.abortOnMutation, true);
+assert.equal(resolveHarnessReadOnlyPolicy('codex', 'ask').denyMutatingTools, true);
+assert.equal(resolveHarnessReadOnlyPolicy('codex', 'plan').denyMutatingTools, false);
 
 console.log('All harness-plan-policy tests passed.');

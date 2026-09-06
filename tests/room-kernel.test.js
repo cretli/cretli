@@ -28,6 +28,13 @@ const inputMode = mapWsPayloadToHistoryRecord(
 );
 assert.equal(inputMode?.rec.payload, 'plan');
 
+const inputAskMode = mapWsPayloadToHistoryRecord(
+  'sdkMode',
+  { type: 'sdkMode', mode: 'ask' },
+  { harness: 'openrouter' },
+);
+assert.equal(inputAskMode?.rec.payload, 'ask');
+
 const inputIgnored = mapWsPayloadToHistoryRecord('sdkBusy', { type: 'sdkBusy' }, { harness: 'openrouter' });
 assert.equal(inputIgnored, null);
 

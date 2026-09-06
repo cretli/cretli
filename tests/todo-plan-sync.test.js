@@ -233,6 +233,27 @@ runCase('syncTodoAfterSdkRunFinished: writes workspace plan and creates todo', (
   assert.match(String(actualTodos[0].plan?.markdown || ''), /Align bar heights/);
 });
 
+runCase('syncTodoAfterSdkRunFinished: ask mode does not persist a plan', () => {
+  const dataDir = path.join(tmpRoot, 'ask-no-plan');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'ask-no-plan-proj');
+  mkdirSync(project, { recursive: true });
+  const actualSynced = syncTodoAfterSdkRunFinished({
+    dataDir,
+    chatId: 'chat-ask-no-plan',
+    status: 'completed',
+    sdkMode: 'ask',
+    room: {
+      cwd: project,
+      chatId: 'chat-ask-no-plan',
+      chatTitle: 'Ask run',
+      _currentRunAssistantText: '# Should not become a plan',
+    },
+  });
+  assert.equal(actualSynced, false);
+  assert.equal(loadTodosData(dataDir, project).items.length, 0);
+});
+
 runCase('updateTodo: plan merge keeps previous markdown', () => {
   const dataDir = path.join(tmpRoot, 'plan4');
   mkdirSync(dataDir, { recursive: true });

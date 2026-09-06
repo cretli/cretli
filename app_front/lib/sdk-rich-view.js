@@ -46,6 +46,11 @@ import {
   restoreSdkThinkingAccumulator,
 } from '../../lib/sdk/sdk-thinking-block-reuse.js';
 import {
+  listAllRunItems,
+  listRunItems,
+  registerRunItem,
+} from '../../lib/sdk/sdk-run-block-registry.js';
+import {
   findReusableSdkAssistantBlockIndex,
   restoreSdkAssistantAccumulator,
 } from '../../lib/sdk/sdk-assistant-block-reuse.js';
@@ -71,6 +76,7 @@ import {
   delegationStatusLabel,
   parseDelegationHistoryPayload,
 } from '../features/chat/chatDelegations.js';
+import { parseRelatedChatPayload } from '../../lib/chat-relation-payload.js';
 
 hljs.registerLanguage('javascript', javascript);
 hljs.registerLanguage('typescript', typescript);
@@ -701,6 +707,10 @@ export function createSdkRichView(chat, mountEl, hooks) {
   const compactStatusLines = new Set();
   const latestThinkingByRun = new Map();
   const latestTrayByRun = new Map();
+  /** @type {Map<string, Set<unknown>>} Every Thinking/Activity block a run has rendered. */
+  const thinkingBlocksByRun = new Map();
+  /** @type {Map<string, Set<unknown>>} Every Activity tray a run has rendered. */
+  const traysByRun = new Map();
   const runStatusByRun = new Map();
   const runningToolCallsByRun = new Map();
   let runScope = 1;
@@ -725,6 +735,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
 
   /** Record timestamp of the SDK event currently being rendered. */
   let renderedRecordCreatedAt = '';
+  let renderedRecordHistorySeq = 0;
 
   let mdRaf = 0;
   /** @type {{
@@ -819,6 +830,18 @@ export function createSdkRichView(chat, mountEl, hooks) {
         : '';
     if (!createdAt) return;
     if (typeof hooks.onForkFromPoint === 'function') hooks.onForkFromPoint({ createdAt });
+  });
+
+  mountEl.addEventListener('cr-sdk-block-pass', (event) => {
+    const point = readBlockMessagePoint(event?.target);
+    if (!point.text) return;
+    if (typeof hooks.onPassMessageToChild === 'function') hooks.onPassMessageToChild(point);
+  });
+
+  mountEl.addEventListener('cr-sdk-block-reply', (event) => {
+    const point = readBlockMessagePoint(event?.target);
+    if (!point.text) return;
+    if (typeof hooks.onReplyMessageToParent === 'function') hooks.onReplyMessageToParent(point);
   });
 
   /**
@@ -992,13 +1015,24 @@ export function createSdkRichView(chat, mountEl, hooks) {
   }
 
   /**
+   * @param {unknown} block
+   * @param {string} runKey
+   * @returns {void}
+   */
+  function rememberThinkingBlock(runKey, block) {
+    if (!block) return;
+    latestThinkingByRun.set(runKey, block);
+    registerRunItem(thinkingBlocksByRun, runKey, block);
+  }
+
+  /**
    * @param {HTMLElement} block
    * @param {string} runKey
    */
   function adoptThinkingBlock(block, runKey) {
     thinkingDetails = block;
     thinkingPre = block.querySelector('.sdk-rich-thinking-pre');
-    latestThinkingByRun.set(runKey, block);
+    rememberThinkingBlock(runKey, block);
     activeThinkingRunKey = runKey;
     if ('running' in block) {
       block.running = !suppressHistoryPersist;
@@ -1252,17 +1286,23 @@ export function createSdkRichView(chat, mountEl, hooks) {
   function syncThinkingBlockRunning(runKey) {
     const key = String(runKey || '').trim();
     if (!key) return;
-    const block = latestThinkingByRun.get(key);
-    if (!block || typeof block !== 'object' || !('running' in block)) return;
+    const latest = latestThinkingByRun.get(key);
+    // Blocks the run already left behind are done — their spinner is always stale.
+    for (const stale of listRunItems(thinkingBlocksByRun, key)) {
+      if (stale === latest) continue;
+      if (!stale || typeof stale !== 'object' || !('running' in stale)) continue;
+      stale.running = false;
+    }
+    if (!latest || typeof latest !== 'object' || !('running' in latest)) return;
 
     if (activeKind === 'thinking' && activeThinkingRunKey === key && !suppressHistoryPersist) {
-      block.running = true;
+      latest.running = true;
       return;
     }
 
     const running = hasRunningSdkTools(runningToolCallsByRun, key);
-    block.running = running;
-    if (running) block.open = true;
+    latest.running = running;
+    if (running) latest.open = true;
   }
 
   /**
@@ -1481,6 +1521,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
     container._sdkCompactTray = tray;
     compactTrayHosts.add(tray);
     latestTrayByRun.set(runKey, tray);
+    registerRunItem(traysByRun, runKey, tray);
+    if (compactRoot) registerRunItem(thinkingBlocksByRun, runKey, compactRoot);
     setTrayStatus(tray, runStatusByRun.get(runKey) || '');
     tray.compactRoot.hidden = uiMode !== 'compact';
     return tray;
@@ -1557,7 +1599,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
   function createCompactToolRecord(callId, fullBlock, ev, paths, runKey) {
     const name = typeof ev.name === 'string' ? ev.name : '?';
     const thinkingBlock = resolveThinkingBlockForRun(runKey);
-    if (thinkingBlock) latestThinkingByRun.set(runKey, thinkingBlock);
+    if (thinkingBlock) rememberThinkingBlock(runKey, thinkingBlock);
     const tray = ensureCompactTray(runKey, thinkingBlock);
     const tile = document.createElement('button');
     tile.type = 'button';
@@ -1611,6 +1653,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
     compactStatusLines.clear();
     latestThinkingByRun.clear();
     latestTrayByRun.clear();
+    thinkingBlocksByRun.clear();
+    traysByRun.clear();
     runStatusByRun.clear();
     runningToolCallsByRun.clear();
     runScope += 1;
@@ -1725,6 +1769,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     block.addEventListener('cr-sdk-block-remove', () => {
       if (typeof hooks.onRemoveQueueItem === 'function') hooks.onRemoveQueueItem(text);
     });
+    applyDelegationArrows(block);
   }
 
   /**
@@ -1733,6 +1778,55 @@ export function createSdkRichView(chat, mountEl, hooks) {
    * @param {{ variant?: string, label?: string, name?: string, paths?: string[], open?: boolean, createdAt?: string }} opts
    * @returns {HTMLElement} the <cr-sdk-block> element (light DOM host for the content)
    */
+  function readBlockMessagePoint(block) {
+    if (!(block instanceof HTMLElement)) {
+      return { historySeq: 0, createdAt: '', text: '' };
+    }
+    const seq = Number(/** @type {any} */ (block).historySeq);
+    const createdAt =
+      typeof /** @type {any} */ (block).createdAt === 'string'
+        ? /** @type {any} */ (block).createdAt.trim()
+        : '';
+    const text =
+      typeof /** @type {any} */ (block).getBlockCopyText === 'function'
+        ? String(/** @type {any} */ (block).getBlockCopyText() || '').trim()
+        : String(/** @type {any} */ (block).copyText || '').trim();
+    return {
+      historySeq: Number.isSafeInteger(seq) && seq > 0 ? seq : 0,
+      createdAt,
+      text,
+    };
+  }
+
+  function applyDelegationArrows(block) {
+    if (!(block instanceof HTMLElement)) return;
+    const hasParent = typeof chat?.delegationParentChatId === 'string'
+      && chat.delegationParentChatId.trim() !== '';
+    const variant = String(block.variant || '');
+    const eligibleVariant = variant === 'user' || variant === 'assistant';
+    const blocked = block.running === true || block.queued === true || !eligibleVariant;
+    const seq = Number(block.historySeq);
+    const saved = Number.isSafeInteger(seq) && seq > 0;
+    if (blocked) {
+      block.passable = false;
+      block.replyable = false;
+      block.passDisabled = false;
+      block.passHint = '';
+      return;
+    }
+    if (!saved) {
+      block.passable = false;
+      block.replyable = false;
+      block.passDisabled = true;
+      block.passHint = t('sdkBlock.passNeedsSavedHistory');
+      return;
+    }
+    block.passDisabled = false;
+    block.passHint = '';
+    block.passable = true;
+    block.replyable = hasParent;
+  }
+
   function createSdkBlock(opts = {}) {
     const block = document.createElement('cr-sdk-block');
     block.variant = opts.variant || 'muted';
@@ -1744,6 +1838,10 @@ export function createSdkRichView(chat, mountEl, hooks) {
       typeof opts.createdAt === 'string' && opts.createdAt
         ? opts.createdAt
         : renderedRecordCreatedAt || new Date().toISOString();
+    const seq = Number(opts.historySeq);
+    block.historySeq = Number.isSafeInteger(seq) && seq > 0
+      ? seq
+      : (renderedRecordHistorySeq || 0);
     appendStreamChild(block, { skipTimeoutFinalize: opts.skipTimeoutFinalize === true });
     return block;
   }
@@ -1757,6 +1855,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const block = createSdkBlock({ variant: 'assistant', label: t('sdkView.answer'), open: true });
     block.speakable = true;
     block.forkable = true;
+    applyDelegationArrows(block);
     const mdEl = document.createElement('div');
     mdEl.className = 'sdk-md sdk-rich-md sdk-rich-assistant-md';
     block.appendChild(mdEl);
@@ -1775,6 +1874,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (!text) return null;
     const block = createSdkBlock({ variant: 'user', label: t('sdkView.you'), open: true, createdAt });
     block.forkable = true;
+    applyDelegationArrows(block);
     const textForDisplay = stripScreenshotMarkers(text);
     block.copyText = text;
     const body = document.createElement('div');
@@ -2217,7 +2317,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       const delta = takeStreamDelta(chat, '_sdkThinkingAcc', truncated);
       if (delta && !suppressHooksPlain) hooks.appendPlain(delta);
 
-      latestThinkingByRun.set(runKey, thinkingDetails);
+      rememberThinkingBlock(runKey, thinkingDetails);
       if (thinkingPre) {
         const stickThinking = isScrollableNearBottom(thinkingPre);
         thinkingPre.textContent = typeof chat._sdkThinkingAcc === 'string' ? chat._sdkThinkingAcc : '';
@@ -2435,14 +2535,17 @@ export function createSdkRichView(chat, mountEl, hooks) {
     persistThisSdkEvent(ev);
   }
 
-  function applySdkEvent(event, createdAt = '') {
+  function applySdkEvent(event, createdAt = '', historySeq = 0) {
     const previousCreatedAt = renderedRecordCreatedAt;
+    const previousSeq = renderedRecordHistorySeq;
     renderedRecordCreatedAt =
       typeof createdAt === 'string' && createdAt.trim() ? createdAt : new Date().toISOString();
+    renderedRecordHistorySeq = Number(historySeq) > 0 ? Number(historySeq) : 0;
     try {
       applySdkEventCore(event);
     } finally {
       renderedRecordCreatedAt = previousCreatedAt;
+      renderedRecordHistorySeq = previousSeq;
     }
   }
 
@@ -2452,8 +2555,12 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (!record || typeof record !== 'object') return;
     const rec = /** @type {Record<string, unknown>} */ (record);
     const createdAt = typeof rec.createdAt === 'string' ? rec.createdAt : '';
+    const historySeq = Number(rec.historySeq) > 0 ? Number(rec.historySeq) : 0;
+    const previousSeq = renderedRecordHistorySeq;
+    renderedRecordHistorySeq = historySeq;
+    try {
     if (rec.kind === 'sdk' && rec.event != null && typeof rec.event === 'object') {
-      applySdkEvent(rec.event, createdAt);
+      applySdkEvent(rec.event, createdAt, historySeq);
       return;
     }
     if (rec.kind === 'localUser' && typeof rec.text === 'string') {
@@ -2472,7 +2579,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
           item.block.queued = false;
           // The sent record carries the authoritative cut point for "fork from here".
           if (createdAt) item.block.createdAt = createdAt;
+          if (historySeq) item.block.historySeq = historySeq;
           item.block.forkable = true;
+          applyDelegationArrows(item.block);
           relabelQueuedBlocks();
           scrollToBottom();
           return;
@@ -2499,13 +2608,21 @@ export function createSdkRichView(chat, mountEl, hooks) {
       );
     } else if (variant === 'runFinished') {
       setThinkingRunning(false);
+      for (const block of listAllRunItems(thinkingBlocksByRun)) {
+        if (block && typeof block === 'object' && 'running' in block) block.running = false;
+      }
       for (const block of latestThinkingByRun.values()) {
         if (block && typeof block === 'object' && 'running' in block) block.running = false;
       }
       const latestRunKey = Array.from(latestTrayByRun.keys()).pop() || '';
       finalizeOpenToolCalls(latestRunKey, payload);
-      const latestTray = latestTrayByRun.get(latestRunKey) || Array.from(latestTrayByRun.values()).pop();
-      if (latestTray) setTrayStatus(latestTray, payload || 'finished');
+      const runTrays = listRunItems(traysByRun, latestRunKey);
+      const trays = runTrays.length > 0
+        ? runTrays
+        : [latestTrayByRun.get(latestRunKey) || Array.from(latestTrayByRun.values()).pop()];
+      for (const tray of trays) {
+        if (tray) setTrayStatus(tray, payload || 'finished');
+      }
       lineMeta(
         resolveRunFinishedLineClass(payload),
         `<strong>${escapeHtml(t('sdkView.runFinished'))}</strong> · ${escapeHtml(payload)}`,
@@ -2539,7 +2656,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       }
     } else if (variant === 'mode') {
       const modeLabel =
-        payload === 'plan' ? 'Plan' : payload === 'agent' ? 'Agent' : payload;
+        payload === 'plan' ? 'Plan' : payload === 'ask' ? 'Ask' : payload === 'agent' ? 'Agent' : payload;
       if (modeLabel) {
         lineMeta(
           'sdk-rich-line--notice',
@@ -2565,6 +2682,13 @@ export function createSdkRichView(chat, mountEl, hooks) {
       createContextSeedBlock(payload.trim(), createdAt);
     } else if (variant === 'delegation') {
       renderDelegationCard(payload, createdAt);
+    } else if (variant === 'mailbox') {
+      renderMailboxCard(payload, createdAt);
+    } else if (variant === 'relatedChat') {
+      renderRelatedChatCard(payload, createdAt);
+    }
+    } finally {
+      renderedRecordHistorySeq = previousSeq;
     }
   }
 
@@ -2647,6 +2771,143 @@ export function createSdkRichView(chat, mountEl, hooks) {
       }
     }
     scrollToBottom();
+  }
+
+  /**
+   * @param {unknown} payload
+   * @param {string} createdAt
+   */
+  function renderMailboxCard(payload, createdAt) {
+    const data = parseDelegationHistoryPayload(payload);
+    const id = typeof data?.id === 'string' ? data.id : '';
+    if (!id) return;
+    const safeId = id.replace(/"/g, '');
+    const kind = String(data.kind || 'reply');
+    const status = String(data.status || '');
+    const fromChatId = String(data.fromChatId || '');
+    const body = String(data.body || '').trim();
+    const queued = status === 'queued' || status === 'dispatching'
+      ? `<span class="sdk-rich-badge sdk-rich-badge--warn">${escapeHtml(t('chat.mailboxQueued'))}</span>`
+      : status === 'delivered'
+        ? `<span class="sdk-rich-badge">${escapeHtml(t('chat.mailboxDelivered'))}</span>`
+        : status === 'uncertain'
+          ? `<span class="sdk-rich-badge sdk-rich-badge--warn">${escapeHtml(t('chat.mailboxUncertain'))}</span>`
+          : '';
+    let card = stream.querySelector(`[data-mailbox-id="${safeId}"]`);
+    if (!(card instanceof HTMLElement)) {
+      lineMeta('sdk-rich-line--ok sdk-rich-mailbox', '', createdAt);
+      card = stream.lastElementChild;
+      if (card instanceof HTMLElement) card.dataset.mailboxId = safeId;
+    }
+    if (!(card instanceof HTMLElement)) return;
+    const content = card.querySelector('.sdk-rich-line__content');
+    if (!(content instanceof HTMLElement)) return;
+    const title = kind === 'task'
+      ? t('chat.mailboxTaskFromParent')
+      : t('chat.mailboxReplyFromChild');
+    content.innerHTML = [
+      `<strong>${escapeHtml(title)}</strong> ${queued}`,
+      fromChatId ? `<div>${escapeHtml(t('chat.mailboxFromChat'))}: ${escapeHtml(fromChatId.slice(0, 8))}</div>` : '',
+      body ? `<pre class="sdk-rich-delegation-report">${escapeHtml(body)}</pre>` : '',
+      `<div class="sdk-rich-delegation-actions"></div>`,
+    ].filter(Boolean).join('');
+    const actions = content.querySelector('.sdk-rich-delegation-actions');
+    if (actions instanceof HTMLElement && fromChatId) {
+      const openBtn = document.createElement('button');
+      openBtn.type = 'button';
+      openBtn.className = 'sdk-rich-delegation-btn';
+      openBtn.textContent = kind === 'task' ? t('chat.delegationOpenParent') : t('chat.delegationOpenChild');
+      openBtn.addEventListener('click', () => {
+        hooks.onOpenDelegationChat?.(fromChatId);
+      });
+      actions.appendChild(openBtn);
+    }
+    scrollToBottom();
+  }
+
+  /**
+   * @param {string} chatId
+   * @returns {string}
+   */
+  function relatedChatDomId(chatId) {
+    return String(chatId || '').replace(/"/g, '');
+  }
+
+  /**
+   * @param {unknown} payload
+   * @param {string} createdAt
+   * @param {{ prepend?: boolean }} [opts]
+   */
+  function renderRelatedChatCard(payload, createdAt, opts = {}) {
+    const data = parseRelatedChatPayload(payload);
+    const chatId = data?.chatId || '';
+    if (!chatId) return;
+    const safeId = relatedChatDomId(chatId);
+    let card = stream.querySelector(`[data-related-chat-id="${safeId}"]`);
+    if (!(card instanceof HTMLElement)) {
+      lineMeta('sdk-rich-line--notice sdk-rich-related-chat', '', createdAt);
+      card = stream.lastElementChild;
+      if (card instanceof HTMLElement) card.dataset.relatedChatId = safeId;
+      if (opts.prepend === true && card instanceof HTMLElement && stream.firstChild !== card) {
+        stream.insertBefore(card, stream.firstChild);
+      }
+    }
+    if (!(card instanceof HTMLElement)) return;
+    const content = card.querySelector('.sdk-rich-line__content');
+    if (!(content instanceof HTMLElement)) return;
+    const title = data.title || chatId.slice(0, 8);
+    const label = data.role === 'parent'
+      ? t('chat.relatedChatParent', { title })
+      : t('chat.relatedChatChild', { title });
+    content.replaceChildren();
+    const textEl = document.createElement('strong');
+    textEl.textContent = label;
+    const actions = document.createElement('div');
+    actions.className = 'sdk-rich-delegation-actions';
+    const openBtn = document.createElement('button');
+    openBtn.type = 'button';
+    openBtn.className = 'sdk-rich-delegation-btn';
+    openBtn.textContent = t('chat.relatedChatOpen');
+    openBtn.addEventListener('click', () => {
+      hooks.onOpenDelegationChat?.(chatId);
+    });
+    actions.appendChild(openBtn);
+    content.append(textEl, actions);
+    scrollToBottom();
+  }
+
+  /**
+   * Backfill missing parent/child links from chat metadata for older chats.
+   *
+   * @param {{
+   *   parent?: { chatId: string, title?: string, reason?: string } | null,
+   *   children?: Array<{ chatId: string, title?: string, reason?: string }>,
+   * }} input
+   */
+  function ensureRelatedChatLinks(input = {}) {
+    const parent = input.parent;
+    if (parent?.chatId) {
+      const existing = stream.querySelector(`[data-related-chat-id="${relatedChatDomId(parent.chatId)}"]`);
+      if (!(existing instanceof HTMLElement)) {
+        renderRelatedChatCard({
+          role: 'parent',
+          chatId: parent.chatId,
+          title: parent.title || '',
+          reason: parent.reason || '',
+        }, '', { prepend: true });
+      }
+    }
+    for (const child of Array.isArray(input.children) ? input.children : []) {
+      if (!child?.chatId) continue;
+      const existing = stream.querySelector(`[data-related-chat-id="${relatedChatDomId(child.chatId)}"]`);
+      if (existing instanceof HTMLElement) continue;
+      renderRelatedChatCard({
+        role: 'child',
+        chatId: child.chatId,
+        title: child.title || '',
+        reason: child.reason || '',
+      }, '');
+    }
   }
 
   /** @type {HTMLElement | null} */
@@ -2733,6 +2994,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       timeoutProgressSeries,
       timeoutProgressTickTimer,
       renderedRecordCreatedAt,
+      renderedRecordHistorySeq,
     };
     // Run-scoped state only. compactTrayHosts / fullToolBlocks / compactStatusLines are left
     // alone on purpose: they register DOM nodes that get toggled when the UI mode changes, and
@@ -2746,6 +3008,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
       openCodePermissionByRequestId,
       latestThinkingByRun,
       latestTrayByRun,
+      thinkingBlocksByRun,
+      traysByRun,
       runStatusByRun,
       runningToolCallsByRun,
     ];
@@ -2788,6 +3052,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       timeoutProgressSeries = scalars.timeoutProgressSeries;
       timeoutProgressTickTimer = scalars.timeoutProgressTickTimer;
       renderedRecordCreatedAt = scalars.renderedRecordCreatedAt;
+      renderedRecordHistorySeq = scalars.renderedRecordHistorySeq;
     }
   }
 
@@ -3409,9 +3674,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
     appendModeChange(mode, opts = {}) {
       stopTimeoutProgressSeries();
       const silent = opts.silent === true;
-      const normalized = mode === 'plan' ? 'plan' : mode === 'agent' ? 'agent' : '';
+      const normalized = mode === 'plan' ? 'plan' : mode === 'agent' ? 'agent' : mode === 'ask' ? 'ask' : '';
       if (!normalized) return;
-      const modeLabel = normalized === 'plan' ? 'Plan' : 'Agent';
+      const modeLabel = normalized === 'plan' ? 'Plan' : normalized === 'ask' ? 'Ask' : 'Agent';
       if (!silent) hooks.appendPlain(`\n[Mode: ${modeLabel}]\n`);
       lineMeta(
         'sdk-rich-line--notice',
@@ -3567,6 +3832,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
     applyEvent(event) {
       applySdkEvent(event);
     },
+
+    ensureRelatedChatLinks,
   };
 }
 

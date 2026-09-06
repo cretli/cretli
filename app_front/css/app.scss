@@ -3724,6 +3724,11 @@ body.files-preview-resizing {
   border: 0;
 }
 
+.send-keys-send-menu-item[aria-checked="true"] {
+  background: var(--cr-info-bg);
+  color: var(--cr-info);
+}
+
 .send-keys-send-menu-item--danger {
   color: var(--cr-error);
 
@@ -4220,6 +4225,20 @@ body.files-preview-resizing {
   font-family: var(--cr-font-mono);
   font-size: 0.75rem;
   color: var(--cr-text);
+}
+
+.chat-new-plan-preview-extra {
+  display: block;
+  width: 100%;
+  margin-top: 0.45rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+  color: var(--cr-text);
+  font-family: var(--cr-font-ui);
+  font-size: 0.8rem;
+  resize: vertical;
 }
 
 .chat-settings-session-meta {
@@ -6035,6 +6054,13 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
   background: var(--cr-surface);
   color: var(--cr-text);
   cursor: pointer;
+}
+
+.sdk-rich-related-chat .sdk-rich-line__content {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cr-space-2);
 }
 
 .chat-delegation-parent-link {

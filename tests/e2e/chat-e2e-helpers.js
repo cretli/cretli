@@ -108,7 +108,7 @@ async function cretliCsrfHeaders(request) {
 export async function createChatViaApi(request, input) {
   const title = String(input?.title || '').trim();
   const transport = String(input?.transport || 'sdk').trim();
-  const mode = input?.mode === 'plan' ? 'plan' : 'agent';
+  const mode = input?.mode === 'plan' || input?.mode === 'ask' ? input.mode : 'agent';
   const model = String(input?.model || '').trim();
   const workspaceFile = String(input?.workspaceFile || '').trim();
   const workspaceFolder = String(input?.workspaceFolder || '').trim();
@@ -247,8 +247,12 @@ export async function stopActiveRunFromActivePane(page) {
   throw new Error('Could not find a visible Stop action in active chat pane.');
 }
 
+async function locateModeBar(page) {
+  return page.locator('.chat-fullscreen-bar cr-sdk-mode-bar, cr-sdk-mode-bar').first();
+}
+
 export async function waitForStatusInActivePane(page, pattern, timeoutMs = 30_000) {
-  const modeBar = page.locator('.chat-tab-pane.active cr-sdk-mode-bar').first();
+  const modeBar = await locateModeBar(page);
   const startedAt = Date.now();
   let useModeBar = false;
   if (await modeBar.count()) {
@@ -273,30 +277,30 @@ export async function waitForStatusInActivePane(page, pattern, timeoutMs = 30_00
 }
 
 export async function setActiveModeInPane(page, mode) {
-  const normalizedMode = mode === 'plan' ? 'plan' : 'agent';
-  const modeBar = page.locator('.chat-tab-pane.active cr-sdk-mode-bar').first();
+  const normalizedMode = mode === 'plan' || mode === 'ask' ? mode : 'agent';
+  const modeBar = await locateModeBar(page);
   if (await modeBar.count()) {
     try {
       await expect(modeBar).toBeVisible({ timeout: 4_000 });
-      await modeBar.evaluate((el, targetMode) => {
+      await modeBar.evaluate((el) => {
         const root = el?.shadowRoot;
         if (!root) throw new Error('Mode bar shadow root is not available');
-        const labels = targetMode === 'plan'
-          ? ['plan', 'ask']
-          : ['agent'];
-        const button = [...root.querySelectorAll('.btn')].find((entry) => {
-          const text = String(entry.textContent || '').trim().toLowerCase();
-          return labels.includes(text);
-        });
-        if (!button) throw new Error(`Mode button not found: ${targetMode}`);
-        button.click();
-      }, normalizedMode);
+        const trigger = root.querySelector('.mode');
+        if (trigger instanceof HTMLButtonElement) trigger.click();
+      });
+      const menuItem = page.locator(`#cr-sdk-mode-menu [data-mode="${normalizedMode}"]`).first();
+      await expect(menuItem).toBeVisible({ timeout: 4_000 });
+      await menuItem.click();
       return;
     } catch {
       // fallback to light-DOM mode buttons
     }
   }
-  const labels = normalizedMode === 'plan' ? ['Plan', 'Ask'] : ['Agent'];
+  const labels = {
+    plan: ['Plan'],
+    ask: ['Ask'],
+    agent: ['Agent'],
+  }[normalizedMode];
   for (const label of labels) {
     const button = page.getByRole('button', { name: label }).first();
     if (await button.count()) {

@@ -136,6 +136,14 @@ runCase('isValidSdkHistoryRecord: meta variants', () => {
     isValidSdkHistoryRecord({ kind: 'meta', variant: 'delegation', payload: '{}' }),
     true
   );
+  assert.equal(
+    isValidSdkHistoryRecord({ kind: 'meta', variant: 'mailbox', payload: '{}' }),
+    true
+  );
+  assert.equal(
+    isValidSdkHistoryRecord({ kind: 'meta', variant: 'relatedChat', payload: '{}' }),
+    true
+  );
   assert.equal(isValidSdkHistoryRecord({ kind: 'meta', variant: 'bad' }), false);
 });
 

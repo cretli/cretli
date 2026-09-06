@@ -315,6 +315,7 @@
       <button type="button" class="settings-tab cr-tab" data-settings-tab="interface" role="tab" aria-selected="false" data-i18n="settings.tabsInterface">App</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="chat" role="tab" aria-selected="false" data-i18n="settings.tabsChat">Chat &amp; agents</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="widgets" role="tab" aria-selected="false" data-i18n="settings.widgetsTitle">Page widgets</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="mcp" role="tab" aria-selected="false" data-i18n="settings.mcpTitle">MCP</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="usage" role="tab" aria-selected="false" data-i18n="settings.tabsUsage">Usage</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="account" role="tab" aria-selected="false" data-i18n="settings.tabsAccount">Account</button>
     </div>
@@ -1112,6 +1113,11 @@
             <div id="widget-panel-installations-list" class="widget-installations-list"></div>
           </section>
         </div>
+      </section>
+      <section class="settings-section" data-settings-tab="mcp" hidden>
+        <h3 class="settings-section-title" data-i18n="settings.mcpTitle">MCP</h3>
+        <p class="settings-hint" data-i18n="settings.mcpHint">Configure MCP servers once. Pick workspaces and harnesses; agents receive the tools without extra shell scripts. Secrets stay on the server.</p>
+        <div id="settings-mcp-root" class="mcp-settings-root"></div>
       </section>
       <section class="settings-section" data-settings-tab="usage" hidden>
         <h3 class="settings-section-title" data-i18n="usage.title">Usage and cost</h3>

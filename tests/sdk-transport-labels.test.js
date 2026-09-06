@@ -25,7 +25,9 @@ assert.equal(resolveHarnessDisplayLabel('qwen'), 'Qwen');
 
 assert.equal(resolveHarnessModeLabel('sdk', 'plan'), 'Plan');
 assert.equal(resolveHarnessModeLabel('sdk', 'agent'), 'Agent');
-assert.equal(resolveHarnessModeLabel('openrouter', 'plan'), 'Ask');
+assert.equal(resolveHarnessModeLabel('sdk', 'ask'), 'Ask');
+assert.equal(resolveHarnessModeLabel('openrouter', 'plan'), 'Plan');
+assert.equal(resolveHarnessModeLabel('openrouter', 'ask'), 'Ask');
 assert.equal(resolveHarnessModeLabel('openrouter', 'agent'), 'Agent');
 assert.equal(resolveHarnessModeLabel('opencode', 'plan'), 'Plan');
 assert.equal(resolveHarnessModeLabel('codebuddy', 'plan'), 'Plan');
@@ -45,7 +47,7 @@ assert.equal(
     mode: 'plan',
     sessionRef: '12345678',
   }),
-  'OpenRouter · Ask · session 12345678…'
+  'OpenRouter · Plan · session 12345678…'
 );
 assert.equal(
   buildHarnessLaunchLabel({

@@ -96,6 +96,8 @@ try {
   const afterPin = loadChats();
   assert.equal(afterPin.find((chat) => chat.id === '1')?.widgetPinnedUrl, undefined);
   assert.equal(afterPin.find((chat) => chat.id === '2')?.widgetPinnedUrl, 'http://host/page/');
+  updateChat('1', { sdkMode: 'ask' });
+  assert.equal(loadChats().find((chat) => chat.id === '1')?.sdkMode, 'ask');
 } finally {
   if (backup == null) {
     if (fs.existsSync(dataFile)) fs.unlinkSync(dataFile);

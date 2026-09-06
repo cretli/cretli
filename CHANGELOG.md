@@ -6,6 +6,133 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- Chat history shows a clickable parent/child link when a harness creates a
+  child chat, forks a conversation, or nests a chat in the sidebar.
+- Chat mode selector is one Plan / Agent / Ask dropdown (same pattern as
+  Build plan). Ask is a distinct read-only mode: questions and analysis
+  with allowed reads, without file edits, plan persistence, TODO sync, or
+  treating “yes” as approval. Mutating tools, MCP writes, and delegation
+  start are blocked before execution. Codex Ask also denies mutations;
+  Codex Plan stays prompt-only. Cursor SDK still receives only
+  `agent` | `plan` natively; Ask maps to agent plus disallowed tools.
+- MCP integrations in Settings: stdio and Streamable HTTP servers, workspace and
+  harness scope, secrets stored apart from `data/mcp.json`. Agents receive tools
+  through a Cretli-managed bridge. Plan blocks writes before the handler runs,
+  using the live session mode rather than the client request. Operator setup:
+  [docs/mcp/SETUP.md](docs/mcp/SETUP.md).
+- Builtin Cretli MCP tools for TODOs, saved chat plans, plan-execution
+  delegations, and catalogs of tasks, agents, harnesses, and models. Reads stay
+  allowed in Plan; creates/updates and delegation start/cancel/reply need Agent.
+  `delegation_start` can target a saved plan or a chat-history message.
+  `delegation_reply` and `delegation_inbox` share the same mailbox as the chat
+  arrows. The catalog is shared by the in-process server and `npm run mcp`
+  (`scripts/cretli-mcp.js`). Standalone stdio requires `CRETLI_MCP_WORKSPACE`
+  and `CRETLI_MCP_MODE` (Plan blocks writes without a bridge token). Long
+  plan/TODO/delegation details are
+  paged with a revision-bound cursor (`todo_show` / `chat_plan_show` use
+  `updatedAt` / plan revision; `delegation_show` hashes the field content with
+  the delegation id).   `chat_history` pages conversation events by seq (optional
+  tool args/results, `fork_parent_chat_id` on `chat_show`). `chat_event` reads a
+  UTF-16 slice of one event field. Forward pages send
+  `since`+`limit` (not `tail`). Each page has a character budget; paging
+  cursors are in the text as well as structured data. Chat list/history
+  default to the calling workspace; pass `scope=all` to read another workspace.
+  Harness/model catalogs are served from
+  `/api/harness-catalog/*` so an external stdio client uses the target instance.
+  `model_list` rejects a missing, empty, or unknown harness instead of falling
+  back to Cursor SDK.
+- Cursor SDK conversation stores: ignore patterns are synced onto every
+  attached workspace root **and inside store directories**; the agent is
+  reloaded after create/resume so a session started before those files still
+  sees them. OpenRouter also denies shell commands that name those paths.
+  Live check: `npm run test:live-cursor-sdk` (separate completed Glob/Grep/Read
+  attempts and distinct hello-file **contents**; production persist fork of
+  Ask vs a newer Delegations transcript; ignore applied after a warmup turn
+  then `reload` + resume. `@cursor/sdk` 1.0.30: Glob of a store dir completes
+  empty; native Read of ignored jsonl/symlink drops `completed` — not a pass;
+  native shell can still cat stores — not claimed as MCP-only).
+- Chat message arrows: **Pass to child** opens the harness picker and starts a
+  delegation from that history message; **Reply to parent** sends the message
+  to the communication parent. Sidebar grouping (`forkParentChatId`) does not
+  change the reply target. Busy or waiting recipients queue the mail until the
+  current run ends; Plan is not switched to Agent. Finished child work stays
+  unverified until **Mark as reviewed**. Message and text delegations report
+  only through the mailbox; plan-execution jobs still inject a parent-turn
+  report. Duplicate starts with another idempotency key while a job is active
+  return `409` instead of replaying the other job.
+- PWA push when an agent is waiting: OpenCode permission / question prompts
+  and Qwen `ask_user_question` reuse the same VAPID subscriptions as
+  agent-finished notifications. The existing Settings toggle covers both.
+- `npm run chat` talks to a running server over the HTTP API (list, show,
+  archive, rename, delete) without editing `data/` files directly.
+- `npm test` scans git-tracked files for live-looking GitHub / API tokens and
+  private-key headers (`npm run test:secrets`). CI still runs gitleaks.
+
+### Fixed
+- Returning to a hidden PWA or tab refreshes the chat list, so chats created on
+  another device, widget, or agent run appear without a manual reload.
+- `model_list` for Cursor SDK includes Settings-enabled variants (for example
+  Grok 4.6 effort rows) when the live Cursor catalog is not fetched, and
+  `delegation_start` resolves a short id such as `grok-4.6` (with optional
+  High/Medium) to an enabled variant instead of `MODEL_UNAVAILABLE`.
+- Cursor SDK history-isolation evidence no longer treats a `hello.txt`
+  filename echo, a still-running Glob/Grep, or a cancelled/timeout call as a
+  pass. `ok` needs **completed** native attempts per path (create, resume, and
+  a session started before ignore files), distinct hello-file **contents**, a
+  production persist fork of the Ask chat that keeps that task, and nested
+  **file-glob** ignore inside store directories (not `*` / `**`, which aborted
+  nested Glob). `@cursor/sdk` 1.0.30: Glob of the transcript dir completes with
+  an empty file list; native Read of ignored jsonl/symlink stays `running`
+  with no result (vendor drop, not a pass); native shell can still cat
+  stores — not claimed as MCP-only.
+- MCP runtime mode is read from the live room (`room.sdkMode` / `chat.sdkMode`),
+  not from the snapshot passed into `buildMcpRuntimeContext()`.
+- Revoked MCP integration tokens stay invalid after the same session is
+  registered again: each restore gets a new incarnation id.
+- OpenCode listen ports skip a port already owned by another session instead of
+  attaching to whoever is already listening. Concurrent instance starts pick
+  and reserve ports on one queue, so two sessions cannot claim the same port.
+- MCP tool calls are denied when the live session mode is unavailable; the
+  snapshot `mode` is not reused after a getter goes empty.
+- A corrupt `mcp-secrets.json` blocks configuration writes instead of being
+  treated as an empty secret map.
+- MCP tool policy is checked again after `connectExternal()` so a Plan switch
+  or disable during connect cannot use the earlier consent.
+- MCP Plan enforcement no longer trusts a client-supplied `mode` on the bridge:
+  the live session decides, so Plan still blocks writes after a spoofed Agent
+  call or a later switch back to Plan.
+- MCP secrets and the registry commit together; a `409` no longer leaves a
+  partial secret change. OpenCode chats in the same workspace no longer share
+  one `cretli_bridge` token. Qwen and CodeBuddy use the managed bridge so they
+  receive builtin Cretli tools and the same Plan policy as the other harnesses.
+- Build plan in a new agent lists every enabled harness that can start a run
+  on the server (OpenCode, OpenRouter, Cursor SDK, CodeBuddy, DeepSeek, Qwen,
+  Codex), not only OpenCode.
+- A finished SDK chat no longer keeps spinning: Thinking blocks and Activity
+  trays from earlier in the run (a run renders one per assistant turn) were
+  never finalized because only the last one was tracked per run. Every block of
+  a run is now registered, so `runFinished` stops all spinners and marks all
+  trays.
+- Fork continuation no longer tells the agent to pick up “the previous agent”
+  from the newest transcript file. The prompt names the source chat id, the
+  copied seq bound, and to load missing context with MCP `chat_show` /
+  `chat_history`.
+- OpenRouter file tools (`read_file` / `grep` / `list_directory`) refuse
+  conversation stores (`agent-transcripts`, `data/chat-history`,
+  `data/runtime-home`, `sdk-agent-store`). Cursor glob/grep/read follow
+  `.cursorignore` (not only `.gitignore`). Shell access to those paths is still
+  harness-specific and not fully blocked.
+- The marketing page no longer loads a private LAN widget embed script.
+- MCP `chat_history` `from_seq` no longer sends `tail`, so stdio/HTTP clients
+  read from the start of the log instead of the newest window. History text is
+  capped per event and per page; OpenRouter keeps `next_from_seq` /
+  `next_before_seq` in the tool text. `chat_show` and `chat_history` share one
+  page selection. Truncated fields continue with `chat_event`. `length` must be a
+  positive integer so a truncated read cannot stall. The 8000-character page
+  budget includes continue hints, not a fixed chrome reserve. Cursors follow
+  scanned seqs, so a page of unrendered events can still continue.
+
 ## [0.4.0] - 2026-09-05
 
 ### Fixed
@@ -57,6 +184,8 @@ All notable changes to this project are documented here. The format is based on
   generated only for HTTPS with the default `data/` paths.
 
 ### Added
+- `npm test` scans git-tracked files for live-looking GitHub / API tokens and
+  private-key headers (`npm run test:secrets`). CI still runs gitleaks.
 - Sidebar chats can be **reordered** with a press-and-hold drag (same gesture as
   workspace groups). Hover another chat for ~0.5s (dashed, then solid outline) to
   nest it as a sub-chat; drag among roots to lift it back out. Custom order is

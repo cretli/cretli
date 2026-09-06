@@ -4,7 +4,7 @@
 //   - icons, manifest, screenshots, fonts: cache-first (stable names)
 //   - navigations (document): network-first with timeout, fallback offline.html
 //   - /api/* and /ws: always bypassed (live server)
-// push + notificationclick: agent-finished notifications.
+// push + notificationclick: agent-finished and agent-needs-input notifications.
 //
 // Bundles are requested with a ?v=<asset version> query. Cache fallbacks must
 // therefore ignore the search part: after a version bump the exact URL is not in
