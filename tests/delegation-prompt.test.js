@@ -16,6 +16,8 @@ const review = buildDelegationExecutorPrompt({
 assert.equal(review.ok, true);
 assert.match(review.prompt, /You are the reviewer/);
 assert.match(review.prompt, /Do not implement\. Do not edit files/);
+assert.match(review.prompt, /scripts\/review-verify\.js/);
+assert.doesNotMatch(review.prompt, /node tests\/\*\.test\.js/);
 assert.match(review.prompt, /\[ASSIGNMENT\]/);
 assert.equal(review.displayText, 'Only inspect the implementation and report defects. Do not edit files.');
 assert.doesNotMatch(review.prompt, /Implement the attached approved plan/);
@@ -46,6 +48,9 @@ assert.match(implementation.prompt, /idempotency_key/);
 assert.match(implementation.prompt, /blockers/);
 assert.match(implementation.prompt, /artifacts/);
 assert.doesNotMatch(implementation.prompt, /wait for the user to pass it/);
+assert.match(implementation.prompt, /cretli-ref chat=<uuid> seq=<n>/);
+assert.match(implementation.prompt, /chat_event\(\{ chat: "<full-uuid>", seq: <n>, field: "text" \}\)/);
+assert.match(implementation.prompt, /field is required/);
 
 assert.match(planDefault.prompt, /The system will deliver the final report to the parent/);
 assert.doesNotMatch(planDefault.prompt, /delegation_reply/);

@@ -31,6 +31,7 @@ import { splitTrailingTitleJson } from '../features/chat/chatTitleParsing.js';
 import { parseTimeoutProgressNotice } from '../../lib/notices.js';
 import {
   buildStableSdkToolCallFallback,
+  canonicalizeSdkToolStatus,
   hasRunningSdkTools,
   isEmptyGenericSdkToolEvent,
   isOpenSdkToolStatus,
@@ -43,6 +44,7 @@ import {
   shouldKeepSdkThinkingSpinner,
   updateRunningSdkToolState,
 } from '../../lib/sdk/sdk-thinking-state.js';
+import { extractTodoSummaryFromToolEvent } from '../../lib/sdk/sdk-todo-summary.js';
 import {
   findReusableSdkThinkingBlockIndex,
   restoreSdkThinkingAccumulator,
@@ -74,6 +76,7 @@ import {
   readToolSearchQuery,
 } from '../../lib/agent-harness/tool-search-display.js';
 import '../components/chat/cr-sdk-block.js';
+import { resolveChatMessageRefAction } from '../../lib/chat-message-ref.js';
 import { escapeHtml } from '../features/chat/chatHtmlUtils.js';
 import {
   delegationStatusLabel,
@@ -81,6 +84,12 @@ import {
 } from '../features/chat/chatDelegations.js';
 import { buildDelegationCardModel } from '../../lib/delegation-card-model.js';
 import { parseRelatedChatPayload } from '../../lib/chat-relation-payload.js';
+import {
+  compareViewOrderKeys,
+  hasViewOrderKey,
+  resolveEventStreamId,
+  resolveViewOrderKey,
+} from '../features/chat/chatHistoryViewOrder.js';
 
 hljs.registerLanguage('javascript', javascript);
 hljs.registerLanguage('typescript', typescript);
@@ -495,25 +504,6 @@ function formatTimeoutProgressSeconds(seconds) {
 
 /**
  * @param {unknown} args
- * @returns {string}
- */
-function extractTodoSummary(args) {
-  if (!args || typeof args !== 'object') return '';
-  const o = /** @type {Record<string, unknown>} */ (args);
-  const todos = Array.isArray(o.todos) ? o.todos : [];
-  if (todos.length === 0) return '';
-  const lines = todos.slice(0, 12).map((item) => {
-    if (!item || typeof item !== 'object') return '';
-    const t = /** @type {Record<string, unknown>} */ (item);
-    const status = typeof t.status === 'string' ? t.status : '?';
-    const content = typeof t.content === 'string' ? t.content : '';
-    return `[${status}] ${content}`;
-  });
-  return lines.filter(Boolean).join('\n');
-}
-
-/**
- * @param {unknown} args
  * @returns {string[]}
  */
 function pathsFromToolArgs(args) {
@@ -741,6 +731,14 @@ export function createSdkRichView(chat, mountEl, hooks) {
   /** Record timestamp of the SDK event currently being rendered. */
   let renderedRecordCreatedAt = '';
   let renderedRecordHistorySeq = 0;
+  let renderedRecordRoomEventSeq = 0;
+  let renderedRecordEventStreamId = '';
+  /** Mid-stream insert of a recovered hole: keep the visible card, skip autoscroll. */
+  let preserveViewportAnchor = false;
+  /** @type {{ el: HTMLElement, top: number } | null} */
+  let pendingViewportAnchor = null;
+  /** Last node passed through appendStreamChild — cards must not assume lastElementChild. */
+  let lastStreamChild = null;
 
   let mdRaf = 0;
   /** @type {{
@@ -801,7 +799,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
    * @param {{ force?: boolean } | boolean} [opts]
    */
   function scrollToBottom(opts) {
-    if (suppressAutoScroll) return;
+    if (suppressAutoScroll || preserveViewportAnchor) return;
     const force = opts === true || (opts && typeof opts === 'object' && opts.force === true);
     if (!force && !stickToBottom) return;
     if (force) stickToBottom = true;
@@ -1012,6 +1010,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
    */
   function adoptAssistantBlock(mdEl) {
     assistantMdEl = mdEl;
+    applyMessageSourceActions(mdEl?.closest?.('cr-sdk-block'));
     const restored = restoreSdkAssistantAccumulator(
       typeof chat._sdkAssistantAcc === 'string' ? chat._sdkAssistantAcc : '',
       mdEl.dataset.rawMd || ''
@@ -1137,6 +1136,84 @@ export function createSdkRichView(chat, mountEl, hooks) {
 
   /**
    * @param {HTMLElement} el
+   * @returns {{ historySeq: number, roomEventSeq: number, eventStreamId: string }}
+   */
+  function readElementOrderKey(el) {
+    if (!(el instanceof HTMLElement)) {
+      return { historySeq: 0, roomEventSeq: 0, eventStreamId: '' };
+    }
+    const historySeq =
+      Number(/** @type {any} */ (el).historySeq)
+      || Number(el.dataset.historySeq)
+      || Number(el.getAttribute('history-seq'))
+      || Number(el.dataset.delegationHistorySeq)
+      || Number(el.dataset.mailboxHistorySeq)
+      || 0;
+    const roomEventSeq = Number(el.dataset.roomEventSeq) || 0;
+    return resolveViewOrderKey({
+      historySeq,
+      roomEventSeq,
+      eventStreamId: el.dataset.eventStreamId || '',
+    });
+  }
+
+  /**
+   * @param {HTMLElement} el
+   */
+  function stampElementOrderKey(el) {
+    if (!(el instanceof HTMLElement)) return;
+    if (renderedRecordHistorySeq > 0) {
+      el.dataset.historySeq = String(renderedRecordHistorySeq);
+      if ('historySeq' in el) {
+        /** @type {any} */ (el).historySeq = renderedRecordHistorySeq;
+      }
+    }
+    if (renderedRecordRoomEventSeq > 0) {
+      el.dataset.roomEventSeq = String(renderedRecordRoomEventSeq);
+    }
+    if (renderedRecordEventStreamId) {
+      el.dataset.eventStreamId = renderedRecordEventStreamId;
+    }
+  }
+
+  /**
+   * @param {{ historySeq?: number, roomEventSeq?: number, eventStreamId?: string }} incomingKey
+   * @returns {HTMLElement | null}
+   */
+  function findInsertBeforeChild(incomingKey) {
+    if (stream !== realStream || !hasViewOrderKey(incomingKey)) return null;
+    for (const child of stream.children) {
+      if (!(child instanceof HTMLElement)) continue;
+      if (compareViewOrderKeys(incomingKey, readElementOrderKey(child)) < 0) {
+        return child;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * @param {HTMLElement | null} later
+   */
+  function captureInsertScroll(later) {
+    if (!(later instanceof HTMLElement) || !(mountEl instanceof HTMLElement)) return;
+    pendingViewportAnchor = {
+      el: later,
+      top: later.getBoundingClientRect().top,
+    };
+    preserveViewportAnchor = true;
+  }
+
+  function restoreInsertScroll() {
+    const anchor = pendingViewportAnchor;
+    if (!anchor?.el?.isConnected || !(mountEl instanceof HTMLElement)) return;
+    const delta = anchor.el.getBoundingClientRect().top - anchor.top;
+    if (Math.abs(delta) < 0.5) return;
+    mountEl.scrollTop += delta;
+    anchor.top = anchor.el.getBoundingClientRect().top;
+  }
+
+  /**
+   * @param {HTMLElement} el
    * @param {{ skipTimeoutFinalize?: boolean }} [opts]
    */
   function appendStreamChild(el, opts = {}) {
@@ -1144,7 +1221,17 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (!opts.skipTimeoutFinalize) {
       finalizeTimeoutProgressSeries();
     }
-    stream.appendChild(el);
+    stampElementOrderKey(el);
+    lastStreamChild = el;
+    const before = stream === realStream && !suppressAutoScroll
+      ? findInsertBeforeChild(readElementOrderKey(el))
+      : null;
+    if (!before) {
+      stream.appendChild(el);
+      return;
+    }
+    preserveViewportAnchor = true;
+    stream.insertBefore(el, before);
   }
 
   /**
@@ -1439,7 +1526,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const nameLower = name.toLowerCase();
     const argsStr = stringifySnippet(ev.args, 2400);
     const resultStr = stringifySnippet(ev.result, 4800);
-    const todoSummary = nameLower === 'updatetodos' ? extractTodoSummary(ev.args) : '';
+    const todoSummary = nameLower === 'updatetodos' ? extractTodoSummaryFromToolEvent(ev) : '';
     const searchQuery = parseToolSearchQuery(readToolSearchQuery(ev.args));
     const body = document.createElement('div');
     const searchSummary = searchQuery
@@ -1514,6 +1601,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
    */
   function applyStatusToLatestOpenTool(runKey, status) {
     const key = String(runKey || '').trim();
+    const nextStatus = canonicalizeSdkToolStatus({ status });
     let match = null;
     for (const record of toolByCallId.values()) {
       if (!record) continue;
@@ -1524,17 +1612,17 @@ export function createSdkRichView(chat, mountEl, hooks) {
     }
     if (!match) return;
     const prevStatus = typeof match.event?.status === 'string' ? match.event.status : '';
-    if (!shouldAcceptSdkToolStatus(prevStatus, status)) return;
-    const ev = { ...(match.event || {}), status };
+    if (!shouldAcceptSdkToolStatus(prevStatus, nextStatus)) return;
+    const ev = { ...(match.event || {}), status: nextStatus };
     const paths = pathsFromToolArgs(ev.args);
     match.event = ev;
-    match.fullBlock.variant = resolveToolBlockVariant(status);
-    match.fullBlock.label = status;
+    match.fullBlock.variant = resolveToolBlockVariant(nextStatus);
+    match.fullBlock.label = nextStatus;
     match.fullBlock.name = typeof ev.name === 'string' ? ev.name : match.fullBlock.name;
     match.fullBlock.open = false;
     match.fullBlock.replaceChildren(createToolBody(ev));
     updateCompactToolTile(match, ev, paths);
-    updateRunningSdkToolState(runningToolCallsByRun, match.runKey || key, prevStatus, status);
+    updateRunningSdkToolState(runningToolCallsByRun, match.runKey || key, prevStatus, nextStatus);
     syncThinkingBlockRunning(match.runKey || key);
   }
 
@@ -1854,7 +1942,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     block.addEventListener('cr-sdk-block-remove', () => {
       if (typeof hooks.onRemoveQueueItem === 'function') hooks.onRemoveQueueItem(text);
     });
-    applyDelegationArrows(block);
+    applyMessageSourceActions(block);
   }
 
   /**
@@ -1912,6 +2000,44 @@ export function createSdkRichView(chat, mountEl, hooks) {
     block.replyable = hasParent;
   }
 
+  /**
+   * Copy-ref is independent of Fork/Pass. Hide thinking/tool/queued/running;
+   * disable with a hint when the block is user/assistant but not yet saved.
+   *
+   * @param {HTMLElement} block
+   */
+  function applyCopyRefAction(block) {
+    if (!(block instanceof HTMLElement)) return;
+    const chatId = String(block.chatId || chat?.id || '').trim();
+    if (chatId && 'chatId' in block) block.chatId = chatId;
+    const action = resolveChatMessageRefAction({
+      variant: block.variant,
+      historySeq: block.historySeq,
+      chatId,
+      queued: block.queued === true,
+      running: block.running === true,
+    });
+    block.refCopyable = action.visible && action.enabled;
+    block.refCopyDisabled = action.visible && !action.enabled;
+    block.refCopyHint = action.reason === 'needs_saved_history'
+      ? t('sdkBlock.copyRefNeedsSavedHistory')
+      : '';
+  }
+
+  function applyMessageSourceActions(block) {
+    if (!(block instanceof HTMLElement)) return;
+    const chatId = String(chat?.id || '').trim();
+    if (chatId && 'chatId' in block) block.chatId = chatId;
+    if (renderedRecordHistorySeq > 0) {
+      const current = Number(block.historySeq) || 0;
+      if (current <= 0 || current === renderedRecordHistorySeq) {
+        block.historySeq = renderedRecordHistorySeq;
+      }
+    }
+    applyDelegationArrows(block);
+    applyCopyRefAction(block);
+  }
+
   function createSdkBlock(opts = {}) {
     const block = document.createElement('cr-sdk-block');
     block.variant = opts.variant || 'muted';
@@ -1927,6 +2053,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
     block.historySeq = Number.isSafeInteger(seq) && seq > 0
       ? seq
       : (renderedRecordHistorySeq || 0);
+    const chatId = String(chat?.id || '').trim();
+    if (chatId) block.chatId = chatId;
     appendStreamChild(block, { skipTimeoutFinalize: opts.skipTimeoutFinalize === true });
     return block;
   }
@@ -1940,7 +2068,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const block = createSdkBlock({ variant: 'assistant', label: t('sdkView.answer'), open: true });
     block.speakable = true;
     block.forkable = true;
-    applyDelegationArrows(block);
+    applyMessageSourceActions(block);
     const mdEl = document.createElement('div');
     mdEl.className = 'sdk-md sdk-rich-md sdk-rich-assistant-md';
     block.appendChild(mdEl);
@@ -1959,7 +2087,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (!text) return null;
     const block = createSdkBlock({ variant: 'user', label: t('sdkView.you'), open: true, createdAt });
     block.forkable = true;
-    applyDelegationArrows(block);
+    applyMessageSourceActions(block);
     let shown = text;
     if (text === 'Child reply') shown = t('chat.mailboxReplyFromChild');
     else if (text === 'Task from parent') shown = t('chat.mailboxTaskFromParent');
@@ -2349,6 +2477,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
 
       if (!assistantMdEl) {
         assistantMdEl = createAssistantBlock();
+      } else {
+        applyMessageSourceActions(assistantMdEl.closest('cr-sdk-block'));
       }
       const acc = typeof chat._sdkAssistantAcc === 'string' ? chat._sdkAssistantAcc : '';
       const split = splitTrailingTitleJson(acc);
@@ -2421,7 +2551,10 @@ export function createSdkRichView(chat, mountEl, hooks) {
       stopTimeoutProgressSeries();
       if (isEmptyGenericSdkToolEvent(ev)) {
         const ghostRunKey = getEventRunKey(ev);
-        const ghostStatus = typeof ev.status === 'string' ? ev.status : '';
+        const ghostStatus = canonicalizeSdkToolStatus({
+          status: ev.status,
+          result: ev.result,
+        });
         if (isTerminalSdkToolStatus(ghostStatus)) {
           applyStatusToLatestOpenTool(ghostRunKey, ghostStatus);
         }
@@ -2432,7 +2565,10 @@ export function createSdkRichView(chat, mountEl, hooks) {
       activeKind = 'idle';
 
       const incomingName = typeof ev.name === 'string' ? ev.name.trim() : '';
-      const incomingStatus = typeof ev.status === 'string' ? ev.status : '';
+      const incomingStatus = canonicalizeSdkToolStatus({
+        status: ev.status,
+        result: ev.result,
+      });
       const runKey = getEventRunKey(ev);
       const callId = resolveSdkToolCallId(ev, buildStableSdkToolCallFallback(ev, runKey));
       let record = toolByCallId.get(callId);
@@ -2639,6 +2775,72 @@ export function createSdkRichView(chat, mountEl, hooks) {
     }
   }
 
+  /**
+   * Recovered earlier seqs must not reuse the live tail's assistant/thinking pointers.
+   * A proven new stream starts a fresh tail card so room seq 1 cannot merge into
+   * an older session. Isolation is the wrong tool here: restoring the old
+   * assistant pointer would keep later deltas on the previous stream.
+   *
+   * @param {{ historySeq?: number, roomEventSeq?: number, eventStreamId?: string }} incomingKey
+   * @returns {boolean}
+   */
+  function shouldStartFreshTailForNewEventStream(incomingKey) {
+    if (stream !== realStream) return false;
+    const incomingStream = resolveEventStreamId(incomingKey);
+    if (!incomingStream) return false;
+    const tail = lastStreamChild instanceof HTMLElement
+      ? lastStreamChild
+      : (stream.lastElementChild instanceof HTMLElement ? stream.lastElementChild : null);
+    if (!tail) return false;
+    const tailStream = resolveEventStreamId(readElementOrderKey(tail));
+    return !!tailStream && tailStream !== incomingStream;
+  }
+
+  function flushPendingAssistantMarkdown() {
+    if (assistantMdEl && mdRaf) {
+      flushMarkdown(assistantMdEl, assistantMdEl.dataset.rawMd || '');
+    }
+    if (mdRaf && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(mdRaf);
+    }
+    mdRaf = 0;
+  }
+
+  /**
+   * @param {() => void} fn
+   */
+  function startFreshTailForNewEventStream(fn) {
+    flushPendingAssistantMarkdown();
+    assistantMdEl = null;
+    thinkingDetails = null;
+    thinkingPre = null;
+    activeKind = 'idle';
+    activeThinkingRunKey = '';
+    if (chat && typeof chat === 'object') {
+      delete chat._sdkAssistantAcc;
+      delete chat._sdkThinkingAcc;
+    }
+    fn();
+  }
+
+  /**
+   * @param {{ historySeq?: number, roomEventSeq?: number, eventStreamId?: string }} incomingKey
+   * @param {() => void} fn
+   */
+  function runViewApplyWithOrder(incomingKey, fn) {
+    const later = stream === realStream ? findInsertBeforeChild(incomingKey) : null;
+    if (later) captureInsertScroll(later);
+    if (later) {
+      withIsolatedRenderState(fn);
+      return;
+    }
+    if (shouldStartFreshTailForNewEventStream(incomingKey)) {
+      startFreshTailForNewEventStream(fn);
+      return;
+    }
+    fn();
+  }
+
   let lastHistoryErrorText = '';
 
   function applyHistoryRecord(record) {
@@ -2646,9 +2848,16 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const rec = /** @type {Record<string, unknown>} */ (record);
     const createdAt = typeof rec.createdAt === 'string' ? rec.createdAt : '';
     const historySeq = Number(rec.historySeq) > 0 ? Number(rec.historySeq) : 0;
+    const roomEventSeq = Number(rec.roomEventSeq) > 0 ? Number(rec.roomEventSeq) : 0;
+    const eventStreamId = resolveEventStreamId(rec);
     const previousSeq = renderedRecordHistorySeq;
+    const previousRoom = renderedRecordRoomEventSeq;
+    const previousStream = renderedRecordEventStreamId;
     renderedRecordHistorySeq = historySeq;
+    renderedRecordRoomEventSeq = roomEventSeq;
+    renderedRecordEventStreamId = eventStreamId;
     try {
+    runViewApplyWithOrder(resolveViewOrderKey({ historySeq, roomEventSeq, eventStreamId }), () => {
     if (rec.kind === 'sdk' && rec.event != null && typeof rec.event === 'object') {
       applySdkEvent(rec.event, createdAt, historySeq);
       return;
@@ -2671,7 +2880,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
           if (createdAt) item.block.createdAt = createdAt;
           if (historySeq) item.block.historySeq = historySeq;
           item.block.forkable = true;
-          applyDelegationArrows(item.block);
+          applyMessageSourceActions(item.block);
           relabelQueuedBlocks();
           scrollToBottom();
           return;
@@ -2679,6 +2888,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       }
       const existing = findUserBlockByText(raw);
       if (existing && !existing.queued && !inherited.followUp) {
+        applyMessageSourceActions(existing);
         scrollToBottom();
         return;
       }
@@ -2767,8 +2977,11 @@ export function createSdkRichView(chat, mountEl, hooks) {
     } else if (variant === 'relatedChat') {
       renderRelatedChatCard(payload, createdAt);
     }
+    });
     } finally {
       renderedRecordHistorySeq = previousSeq;
+      renderedRecordRoomEventSeq = previousRoom;
+      renderedRecordEventStreamId = previousStream;
     }
   }
 
@@ -2832,7 +3045,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (previousHistorySeq > 0 && historySeq <= previousHistorySeq) return;
     if (!(card instanceof HTMLElement)) {
       lineMeta('sdk-rich-delegation', '', createdAt);
-      card = stream.lastElementChild;
+      card = lastStreamChild;
       if (card instanceof HTMLElement) card.dataset.delegationId = safeId;
     }
     if (!(card instanceof HTMLElement)) return;
@@ -2953,7 +3166,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (previousHistorySeq > 0 && historySeq > 0 && historySeq <= previousHistorySeq) return;
     if (!(card instanceof HTMLElement)) {
       lineMeta('sdk-rich-mailbox', '', createdAt);
-      card = stream.lastElementChild;
+      card = lastStreamChild;
       if (card instanceof HTMLElement) card.dataset.mailboxId = safeId;
     }
     if (!(card instanceof HTMLElement)) return;
@@ -3022,7 +3235,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     }
     if (!(card instanceof HTMLElement)) {
       lineMeta('sdk-rich-line--notice sdk-rich-related-chat', '', createdAt);
-      card = stream.lastElementChild;
+      card = lastStreamChild;
       if (card instanceof HTMLElement) card.dataset.relatedChatId = safeId;
       if (opts.prepend === true && card instanceof HTMLElement && stream.firstChild !== card) {
         stream.insertBefore(card, stream.firstChild);
@@ -3177,6 +3390,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
       timeoutProgressTickTimer,
       renderedRecordCreatedAt,
       renderedRecordHistorySeq,
+      renderedRecordRoomEventSeq,
+      renderedRecordEventStreamId,
     };
     // Run-scoped state only. compactTrayHosts / fullToolBlocks / compactStatusLines are left
     // alone on purpose: they register DOM nodes that get toggled when the UI mode changes, and
@@ -3235,6 +3450,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
       timeoutProgressTickTimer = scalars.timeoutProgressTickTimer;
       renderedRecordCreatedAt = scalars.renderedRecordCreatedAt;
       renderedRecordHistorySeq = scalars.renderedRecordHistorySeq;
+      renderedRecordRoomEventSeq = scalars.renderedRecordRoomEventSeq;
+      renderedRecordEventStreamId = scalars.renderedRecordEventStreamId;
     }
   }
 
@@ -3686,6 +3903,13 @@ export function createSdkRichView(chat, mountEl, hooks) {
     },
 
     appendRunFinished(status, opts = {}) {
+      const previousSeq = renderedRecordHistorySeq;
+      const previousRoom = renderedRecordRoomEventSeq;
+      const previousStream = renderedRecordEventStreamId;
+      renderedRecordHistorySeq = Number(opts.historySeq) > 0 ? Number(opts.historySeq) : 0;
+      renderedRecordRoomEventSeq = Number(opts.roomEventSeq) > 0 ? Number(opts.roomEventSeq) : 0;
+      renderedRecordEventStreamId = resolveEventStreamId(opts);
+      try {
       stopTimeoutProgressSeries();
       const silent = opts.silent === true;
       const st = status == null ? '' : String(status);
@@ -3710,6 +3934,11 @@ export function createSdkRichView(chat, mountEl, hooks) {
       }
       if (!silent && !suppressHistoryPersist && typeof hooks.onAnswerEnd === 'function') {
         hooks.onAnswerEnd();
+      }
+      } finally {
+        renderedRecordHistorySeq = previousSeq;
+        renderedRecordRoomEventSeq = previousRoom;
+        renderedRecordEventStreamId = previousStream;
       }
     },
 
@@ -3989,6 +4218,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       suppressHistoryPersist = true;
       mdRenderImmediate = true;
       const instant = opts.instant === true;
+      const forceScroll = opts.forceScroll !== false;
       try {
         for (let index = 0; index < records.length; index += 1) {
           applyHistoryRecord(records[index]);
@@ -4008,12 +4238,47 @@ export function createSdkRichView(chat, mountEl, hooks) {
         suppressHistoryPersist = false;
         mdRenderImmediate = false;
         finalizeAllTerminalRunPresentations();
-        scrollToBottom({ force: true });
       }
+      if (preserveViewportAnchor) {
+        preserveViewportAnchor = false;
+        if (forceScroll) {
+          pendingViewportAnchor = null;
+          scrollToBottom({ force: true });
+          return;
+        }
+        void mountEl.offsetHeight;
+        restoreInsertScroll();
+        if (typeof requestAnimationFrame === 'function') {
+          await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+          restoreInsertScroll();
+        }
+        pendingViewportAnchor = null;
+        return;
+      }
+      pendingViewportAnchor = null;
+      scrollToBottom({ force: forceScroll });
     },
 
-    applyEvent(event) {
-      applySdkEvent(event);
+    applyEvent(event, meta = {}) {
+      const historySeq = Number(meta?.historySeq) > 0 ? Number(meta.historySeq) : 0;
+      const roomEventSeq = Number(meta?.roomEventSeq) > 0 ? Number(meta.roomEventSeq) : 0;
+      const eventStreamId = resolveEventStreamId(meta);
+      const previousRoom = renderedRecordRoomEventSeq;
+      const previousStream = renderedRecordEventStreamId;
+      renderedRecordRoomEventSeq = roomEventSeq;
+      renderedRecordEventStreamId = eventStreamId;
+      try {
+        runViewApplyWithOrder(resolveViewOrderKey({ historySeq, roomEventSeq, eventStreamId }), () => {
+          applySdkEvent(event, '', historySeq);
+        });
+      } finally {
+        void mountEl.offsetHeight;
+        restoreInsertScroll();
+        pendingViewportAnchor = null;
+        preserveViewportAnchor = false;
+        renderedRecordRoomEventSeq = previousRoom;
+        renderedRecordEventStreamId = previousStream;
+      }
     },
 
     ensureRelatedChatLinks,

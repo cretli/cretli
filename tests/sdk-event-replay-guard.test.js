@@ -7,8 +7,15 @@ import {
   finishSdkHistoryHydration,
   shouldApplySdkRoomEvent,
   syncSdkEventStream,
+  selectMissingSdkHistoryRecords,
+  selectRoomCoveredSdkHistoryRecords,
   takeMissingSdkHistoryRecords,
   hasSdkHistoryRoomWatermarks,
+  ownsSdkHistoryHydration,
+  hasUnrenderedSdkRoomEventSeq,
+  rememberUnrenderedSdkRoomEvent,
+  noteRenderedSdkRoomEvent,
+  clearUnrenderedSdkRoomEvents,
 } from '../app_front/features/chat/sdkEventReplayGuard.js';
 
 const chat = {};
@@ -37,7 +44,7 @@ const relatedChat = {
 };
 assert.deepEqual(takeMissingSdkHistoryRecords({}, [
   { kind: 'localUser', text: 'already visible' }, delegationStarted, delegationFinished,
-]), [delegationStarted, delegationFinished]);
+]), [{ kind: 'localUser', text: 'already visible' }, delegationStarted, delegationFinished]);
 assert.deepEqual(takeMissingSdkHistoryRecords({}, [mailboxStarted, mailboxDelivered, relatedChat]), [
   mailboxStarted, mailboxDelivered, relatedChat,
 ]);
@@ -135,15 +142,28 @@ const missingResumeRecords = takeMissingSdkHistoryRecords(resumeChat, [
   { kind: 'sdk', eventStreamId: 'room-f', roomEventSeq: 1, event: { type: 'assistant' } },
   { kind: 'localUser', text: 'bez bezpiecznego watermarka' },
 ]);
-assert.equal(missingResumeRecords.length, 2);
+assert.equal(missingResumeRecords.length, 3);
 assert.equal(missingResumeRecords[0].roomEventSeq, 4);
 assert.equal(missingResumeRecords[1].eventStreamId, 'room-f');
+assert.equal(missingResumeRecords[2].kind, 'localUser');
 assert.equal(resumeChat._sdkLastRoomEventSeq, 4);
 assert.equal(resumeChat._sdkHydratedRoomEventSeqByStream['room-f'], 1);
 assert.equal(
-  takeMissingSdkHistoryRecords(resumeChat, missingResumeRecords).length,
+  takeMissingSdkHistoryRecords(resumeChat, missingResumeRecords).filter((row) => row.kind !== 'localUser').length,
   0
 );
+
+const probeChat = {
+  _sdkEventStreamId: 'room-select',
+  _sdkLastRoomEventSeq: 3,
+  _sdkHydratedRoomEventSeqByStream: { 'room-select': 3 },
+};
+const selected = selectMissingSdkHistoryRecords(probeChat, [
+  { kind: 'sdk', eventStreamId: 'room-select', roomEventSeq: 4, event: { type: 'assistant' } },
+]);
+assert.equal(selected.length, 1);
+assert.equal(probeChat._sdkLastRoomEventSeq, 3);
+assert.equal(probeChat._sdkHydratedRoomEventSeqByStream['room-select'], 3);
 
 const preserveChat = {
   _sdkEventStreamId: 'room-p',
@@ -170,5 +190,127 @@ assert.equal(
   hasSdkHistoryRoomWatermarks({ _sdkHydratedRoomEventSeqByStream: { 'stream-a': 4 } }),
   true,
 );
+
+const coveredChat = {
+  _sdkEventStreamId: 'room-cover',
+  _sdkLastRoomEventSeq: 4,
+  _sdkHydratedRoomEventSeqByStream: { 'room-cover': 4 },
+};
+const alreadyLive = {
+  kind: 'sdk',
+  historySeq: 102,
+  eventStreamId: 'room-cover',
+  roomEventSeq: 4,
+  event: { type: 'assistant' },
+};
+assert.deepEqual(selectRoomCoveredSdkHistoryRecords(coveredChat, [alreadyLive]), [alreadyLive]);
+assert.equal(selectMissingSdkHistoryRecords(coveredChat, [alreadyLive]).length, 0);
+assert.equal(coveredChat._sdkLastRoomEventSeq, 4);
+
+const ownedChat = { _sdkViewApplyGeneration: 4 };
+beginSdkHistoryHydration(ownedChat);
+assert.equal(ownedChat._sdkHistoryHydrationGeneration, 4);
+assert.equal(ownsSdkHistoryHydration(ownedChat, 4), true);
+assert.equal(ownsSdkHistoryHydration(ownedChat, 5), false);
+ownedChat._sdkViewApplyGeneration = 5;
+beginSdkHistoryHydration(ownedChat);
+bufferSdkRoomEventDuringHydration(ownedChat, { type: 'sdkEvent', replay: true, roomEventSeq: 1 });
+assert.equal(ownsSdkHistoryHydration(ownedChat, 4), false);
+assert.equal(ownsSdkHistoryHydration(ownedChat, 5), true);
+assert.equal(ownedChat._sdkPendingRoomEvents.length, 1);
+finishSdkHistoryHydration(ownedChat, []);
+assert.equal(ownsSdkHistoryHydration(ownedChat, 5), false);
+assert.equal(ownedChat._sdkHistoryHydrationGeneration, undefined);
+
+const holeChat = {
+  _sdkEventStreamId: 'room-hole',
+  _sdkLastRoomEventSeq: 100,
+  _sdkHydratedRoomEventSeqByStream: { 'room-hole': 100 },
+};
+assert.equal(shouldApplySdkRoomEvent(holeChat, {
+  eventStreamId: 'room-hole',
+  roomEventSeq: 101,
+}), true);
+rememberUnrenderedSdkRoomEvent(holeChat, {
+  eventStreamId: 'room-hole',
+  roomEventSeq: 101,
+});
+assert.equal(hasUnrenderedSdkRoomEventSeq(holeChat, 'room-hole', 101), true);
+assert.equal(shouldApplySdkRoomEvent(holeChat, {
+  eventStreamId: 'room-hole',
+  roomEventSeq: 102,
+}), true);
+assert.equal(holeChat._sdkLastRoomEventSeq, 102);
+const holeRecord101 = {
+  kind: 'sdk',
+  historySeq: 101,
+  eventStreamId: 'room-hole',
+  roomEventSeq: 101,
+  event: { type: 'assistant' },
+};
+const holeRecord102 = {
+  kind: 'sdk',
+  historySeq: 102,
+  eventStreamId: 'room-hole',
+  roomEventSeq: 102,
+  event: { type: 'assistant' },
+};
+assert.deepEqual(selectRoomCoveredSdkHistoryRecords(holeChat, [holeRecord101, holeRecord102]), [
+  holeRecord102,
+]);
+assert.deepEqual(selectMissingSdkHistoryRecords(holeChat, [holeRecord101, holeRecord102]), [
+  holeRecord101,
+]);
+assert.equal(shouldApplySdkRoomEvent(holeChat, {
+  eventStreamId: 'room-hole',
+  roomEventSeq: 101,
+}), true, 'A hole at 101 must remain retryable after 102 advanced the watermark');
+noteRenderedSdkRoomEvent(holeChat, {
+  eventStreamId: 'room-hole',
+  roomEventSeq: 101,
+});
+assert.equal(hasUnrenderedSdkRoomEventSeq(holeChat, 'room-hole', 101), false);
+assert.equal(shouldApplySdkRoomEvent(holeChat, {
+  eventStreamId: 'room-hole',
+  roomEventSeq: 101,
+}), false);
+assert.deepEqual(selectRoomCoveredSdkHistoryRecords(holeChat, [holeRecord101]), [holeRecord101]);
+
+const takeHoleChat = {
+  _sdkEventStreamId: 'room-take',
+  _sdkLastRoomEventSeq: 102,
+  _sdkHydratedRoomEventSeqByStream: { 'room-take': 102 },
+};
+rememberUnrenderedSdkRoomEvent(takeHoleChat, {
+  eventStreamId: 'room-take',
+  roomEventSeq: 101,
+});
+const takenHole = takeMissingSdkHistoryRecords(takeHoleChat, [
+  {
+    kind: 'sdk',
+    historySeq: 101,
+    eventStreamId: 'room-take',
+    roomEventSeq: 101,
+    event: { type: 'assistant' },
+  },
+  {
+    kind: 'sdk',
+    historySeq: 102,
+    eventStreamId: 'room-take',
+    roomEventSeq: 102,
+    event: { type: 'assistant' },
+  },
+]);
+assert.equal(takenHole.length, 1);
+assert.equal(takenHole[0].roomEventSeq, 101);
+assert.equal(takeHoleChat._sdkLastRoomEventSeq, 102);
+assert.equal(hasUnrenderedSdkRoomEventSeq(takeHoleChat, 'room-take', 101), false);
+
+rememberUnrenderedSdkRoomEvent(takeHoleChat, {
+  eventStreamId: 'room-take',
+  roomEventSeq: 103,
+});
+clearUnrenderedSdkRoomEvents(takeHoleChat);
+assert.equal(hasUnrenderedSdkRoomEventSeq(takeHoleChat, 'room-take', 103), false);
 
 console.log('All sdk-event-replay-guard tests passed.');

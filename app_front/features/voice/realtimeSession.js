@@ -243,8 +243,15 @@ export function createRealtimeSession(callbacks = {}) {
       appendVoiceSessionEvent('rt.event', {
         name: type,
         detail: type === 'error' ? String(payload?.error?.message || '') : '',
-        meta: type === 'response.done' && payload?.response?.usage
-          ? { usage: payload.response.usage }
+        meta: type === 'response.done'
+          ? {
+              usage: payload?.response?.usage,
+              status: payload?.response?.status || '',
+              incomplete:
+                payload?.response?.status_details?.reason
+                || payload?.response?.incomplete_details?.reason
+                || '',
+            }
           : undefined,
       });
     }

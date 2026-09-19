@@ -1058,7 +1058,7 @@ export async function pullChatHistoryFromServer(chatId, options = {}) {
  *
  * @param {string} chatId
  * @param {{ pageLimit?: number, maxPages?: number }} [options]
- * @returns {Promise<{ cursorSessionId: string, events: unknown[], headSeq: number, ackSeq: number } | null>}
+ * @returns {Promise<{ cursorSessionId: string, events: unknown[], headSeq: number, ackSeq: number, incomplete: boolean } | null>}
  */
 export async function pullChatHistoryDeltaFromServer(chatId, options = {}) {
   if (!chatId) return null;
@@ -1098,7 +1098,13 @@ export async function pullChatHistoryDeltaFromServer(chatId, options = {}) {
       if (!r.hasMore || rows.length === 0) break;
     }
 
-    return { cursorSessionId, events, headSeq, ackSeq: since };
+    return {
+      cursorSessionId,
+      events,
+      headSeq,
+      ackSeq: since,
+      incomplete: headSeq > since,
+    };
   } catch (err) {
     appLogger.log('chat-history-pull', 'delta history pull failed', {
       chatId,
@@ -1123,7 +1129,7 @@ export function acknowledgeChatHistorySeq(chatId, seq) {
  * @param {string} chatId
  * @param {string} [cursorSessionId]
  * @param {{ pageLimit?: number, maxPages?: number }} [options]
- * @returns {Promise<{ cursorSessionId: string, events: unknown[], headSeq: number, ackSeq: number, applied: number } | null>}
+ * @returns {Promise<{ cursorSessionId: string, events: unknown[], headSeq: number, ackSeq: number, applied: number, incomplete: boolean, status: 'success' | 'partial' } | null>}
  */
 export async function syncChatHistoryDeltaFromServer(chatId, cursorSessionId = '', options = {}) {
   const sinceBeforePull = getLastAckedSeq(chatId);
@@ -1147,12 +1153,15 @@ export async function syncChatHistoryDeltaFromServer(chatId, cursorSessionId = '
     }
   }
   acknowledgeChatHistorySeq(chatId, serverState.ackSeq);
+  const incomplete = serverState.incomplete === true;
   return {
     cursorSessionId: sessionKey,
     events: records,
     headSeq: serverState.headSeq,
     ackSeq: serverState.ackSeq,
     applied: records.length,
+    incomplete,
+    status: incomplete ? 'partial' : 'success',
   };
 }
 

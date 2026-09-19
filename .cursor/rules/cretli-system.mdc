@@ -13,6 +13,25 @@ Multiple devices can share the same session live.
 [docs/opencode/SETUP.md](docs/opencode/SETUP.md). Do not duplicate those tables
 in this rule.
 
+## Sub-chats on other models
+
+Cursor's built-in `Task` tool only lists Cursor-local models (`inherit`,
+`composer-2.5-fast`, and similar). That list is **not** the Cretli model catalog.
+
+When the user asks for a sub-chat, review, or verification on another harness or
+model (DeepSeek, OpenCode, Qwen, Codex, OpenRouter, CodeBuddy, or a Cursor model
+that is not on the `Task` list):
+
+1. Do **not** refuse or say the model is unavailable.
+2. Call `harness_list` if needed, then `model_list` with `enabled_only=true` for
+   that harness.
+3. Start the child with `delegation_start` (`task_text` for an ad-hoc prompt, or
+   a saved plan / history message). Use a Settings-enabled model id.
+4. Read the report with `delegation_show` / `delegation_inbox` and summarize it.
+
+Use Cursor `Task` only when the user wants a Cursor SDK subagent on a model that
+tool actually lists.
+
 Default bind is **127.0.0.1**. LAN is opt-in (`npm run start:lan` /
 `CRETLI_BIND=0.0.0.0`). Runtime data lives in gitignored `data/` — never commit
 it. On WSL, LAN needs Windows portproxy (`scripts/wsl-port-forward.ps1`) and

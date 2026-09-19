@@ -1634,6 +1634,7 @@ export const en = {
     removeFavorite: 'Remove from favorites',
     addFavorite: 'Add to favorites',
     resizeSidebar: 'Drag to resize the sidebar',
+    edgeOpen: 'Swipe from the left edge to open the chat list',
     pin: 'Pin sidebar',
     unpin: 'Unpin sidebar',
   },
@@ -1723,6 +1724,10 @@ export const en = {
   sdkBlock: {
     copied: 'Copied',
     copyContent: 'Copy block content',
+    copyRef: 'Copy message ref',
+    copyRefCopied: 'Ref copied',
+    copyRefFailed: 'Could not copy ref',
+    copyRefNeedsSavedHistory: 'Save this message first (no history seq yet).',
     forceSendTitle: 'Send now (cancel the current run)',
     forceSend: 'Send now',
     removeFromQueue: 'Remove from queue',

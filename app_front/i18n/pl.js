@@ -1634,6 +1634,7 @@ export const pl = {
     removeFavorite: 'Usuń z ulubionych',
     addFavorite: 'Dodaj do ulubionych',
     resizeSidebar: 'Przeciągnij, aby zmienić szerokość panelu',
+    edgeOpen: 'Przeciągnij od lewej krawędzi, aby otworzyć listę czatów',
     pin: 'Przypnij panel',
     unpin: 'Odepnij panel',
   },
@@ -1723,6 +1724,10 @@ export const pl = {
   sdkBlock: {
     copied: 'Skopiowano',
     copyContent: 'Kopiuj treść bloku',
+    copyRef: 'Kopiuj ref wiadomości',
+    copyRefCopied: 'Skopiowano ref',
+    copyRefFailed: 'Nie udało się skopiować refa',
+    copyRefNeedsSavedHistory: 'Najpierw zapisz wiadomość (brak seq w historii).',
     forceSendTitle: 'Wyślij teraz (anuluj bieżący run)',
     forceSend: 'Wyślij teraz',
     removeFromQueue: 'Usuń z kolejki',

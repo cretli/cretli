@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import {
+  applyFinalReportQuietStopToPayload,
   buildSdkRunFailureDetail,
+  DELEGATION_FINAL_REPORT_ERROR_CODE,
   extractSdkStreamStatusError,
   isSdkRunFailureStatus,
   normalizeSdkRunStatus,
   readSdkRoomRunOutcome,
   resolveSdkRunFailureDetail,
+  shouldQuietCompleteAfterFinalReport,
   trackSdkRoomRunOutcome,
 } from '../lib/sdk/sdk-run-outcome.js';
 
@@ -24,6 +27,73 @@ assert.equal(
 assert.equal(buildSdkRunFailureDetail('plan_guard_cancelled', ''), '');
 assert.equal(
   resolveSdkRunFailureDetail({ status: 'plan_guard_cancelled', result: '' }),
+  ''
+);
+assert.equal(
+  shouldQuietCompleteAfterFinalReport({
+    status: 'cancelled',
+    runId: 'run-accepted',
+    jobStatus: 'completed',
+    finalReportAcceptedAt: '2026-09-19T13:16:00.000Z',
+    finalReportRunId: 'run-accepted',
+  }),
+  true
+);
+assert.equal(
+  shouldQuietCompleteAfterFinalReport({
+    status: 'cancelled',
+    jobStatus: 'completed',
+    finalReportAcceptedAt: '2026-09-19T13:16:00.000Z',
+  }),
+  false
+);
+assert.equal(
+  shouldQuietCompleteAfterFinalReport({
+    status: 'cancelled',
+    runId: 'run-later',
+    jobStatus: 'completed',
+    finalReportAcceptedAt: '2026-09-19T13:16:00.000Z',
+    finalReportRunId: 'run-accepted',
+  }),
+  false
+);
+assert.equal(
+  shouldQuietCompleteAfterFinalReport({
+    status: 'cancelled',
+    runId: 'run-accepted',
+    jobStatus: 'running',
+    finalReportAcceptedAt: '2026-09-19T13:16:00.000Z',
+    finalReportRunId: 'run-accepted',
+  }),
+  false
+);
+const quietPayload = {
+  type: 'sdkRunFinished',
+  runId: 'run-accepted',
+  status: 'cancelled',
+  result: 'Run was cancelled before completion.',
+};
+applyFinalReportQuietStopToPayload(quietPayload, {
+  jobStatus: 'completed',
+  finalReportAcceptedAt: '2026-09-19T13:16:00.000Z',
+  finalReportRunId: 'run-accepted',
+});
+assert.equal(quietPayload.status, 'completed');
+assert.equal(quietPayload.lastErrorCode, DELEGATION_FINAL_REPORT_ERROR_CODE);
+assert.equal(quietPayload.result, '');
+const laterPayload = {
+  type: 'sdkRunFinished',
+  runId: 'run-later',
+  status: 'cancelled',
+};
+applyFinalReportQuietStopToPayload(laterPayload, {
+  jobStatus: 'completed',
+  finalReportAcceptedAt: '2026-09-19T13:16:00.000Z',
+  finalReportRunId: 'run-accepted',
+});
+assert.equal(laterPayload.status, 'cancelled');
+assert.equal(
+  buildSdkRunFailureDetail('cancelled', '', { lastErrorCode: DELEGATION_FINAL_REPORT_ERROR_CODE }),
   ''
 );
 assert.match(buildSdkRunFailureDetail('cancelled', ''), /cancelled before completion/i);

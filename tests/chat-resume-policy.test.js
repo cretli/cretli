@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import {
-  ACTIVE_CHAT_HISTORY_POLL_SKIP_GAP,
+  ACTIVE_CHAT_HISTORY_POLL_WS_GRACE_MS,
   RESUME_FORCE_WS_RECONNECT_MS,
   RESUME_HISTORY_SYNC_MIN_MS,
   getResumeHistorySyncDeferMs,
+  shouldApplyReplayEventsToRenderedView,
   shouldDeferResumeHistorySyncReason,
+  shouldHttpCatchUpAfterWsReplay,
   shouldRecycleActiveChatSocketOnResume,
   shouldRunResumeChatHistorySync,
   shouldSkipActiveChatHistoryPollSync,
@@ -24,17 +26,22 @@ assert.equal(
 );
 assert.equal(shouldRecycleActiveChatSocketOnResume(120000, false, WebSocket.CONNECTING), false);
 
-assert.equal(shouldSyncActiveChatHistoryOnResume(2000, false, WebSocket.OPEN), false);
-assert.equal(shouldSyncActiveChatHistoryOnResume(2000, false, WebSocket.CLOSED), true);
 assert.equal(
-  shouldSyncActiveChatHistoryOnResume(RESUME_HISTORY_SYNC_MIN_MS, false, WebSocket.OPEN),
-  true
+  shouldSyncActiveChatHistoryOnResume(2000, false, WebSocket.OPEN),
+  true,
+  'A short real background interval must still check history'
 );
+assert.equal(shouldSyncActiveChatHistoryOnResume(10000, false, WebSocket.OPEN), true);
+assert.equal(shouldSyncActiveChatHistoryOnResume(61000, false, WebSocket.OPEN), true);
+assert.equal(shouldSyncActiveChatHistoryOnResume(2000, false, WebSocket.CLOSED), true);
+assert.equal(shouldSyncActiveChatHistoryOnResume(0, false, WebSocket.OPEN), false);
 assert.equal(shouldSyncActiveChatHistoryOnResume(2000, true, WebSocket.OPEN), true);
+assert.equal(RESUME_HISTORY_SYNC_MIN_MS, 0);
 
 assert.equal(shouldDeferResumeHistorySyncReason('cross_device_poll'), true);
 assert.equal(shouldDeferResumeHistorySyncReason('room_state_gap'), true);
 assert.equal(shouldDeferResumeHistorySyncReason('selectChat'), false);
+assert.equal(shouldDeferResumeHistorySyncReason('replay_complete'), false);
 
 assert.equal(
   shouldRunResumeChatHistorySync('pageshow', 0, false, false),
@@ -51,6 +58,8 @@ assert.equal(shouldSkipHttpHistorySyncForMobileWsReplay(true, true), true);
 assert.equal(shouldSkipHttpHistorySyncForMobileWsReplay(true, false), false);
 assert.equal(shouldSkipHttpHistorySyncForMobileWsReplay(false, true), false);
 assert.equal(shouldDeferResumeHistorySyncReason('replay_fallback'), true);
+assert.equal(shouldHttpCatchUpAfterWsReplay(), true);
+assert.equal(shouldApplyReplayEventsToRenderedView(), true);
 
 assert.equal(getResumeHistorySyncDeferMs('visibility', true, 0) > 0, true);
 assert.equal(
@@ -61,55 +70,110 @@ assert.equal(
 
 assert.equal(
   shouldSkipActiveChatHistoryPollSync({
-    headSeq: 100,
-    localAck: 100 - ACTIVE_CHAT_HISTORY_POLL_SKIP_GAP,
+    headSeq: 101,
+    localAck: 100,
+    viewAppliedSeq: 100,
     wsOpen: true,
     now: 100000,
+    gapObservedAt: 100000,
   }),
-  true
+  true,
+  'Open WS may wait a short grace for live events'
 );
 assert.equal(
   shouldSkipActiveChatHistoryPollSync({
-    headSeq: 100,
-    localAck: 100 - ACTIVE_CHAT_HISTORY_POLL_SKIP_GAP,
+    headSeq: 101,
+    localAck: 100,
+    viewAppliedSeq: 100,
     wsOpen: true,
-    now: 100000,
-    hasPendingDelegation: true,
+    now: 100000 + ACTIVE_CHAT_HISTORY_POLL_WS_GRACE_MS,
+    gapObservedAt: 100000,
   }),
   false,
-  'Pending delegation card must pull even when the socket is open'
+  'A one-record gap must HTTP-fetch after the WS grace'
+);
+assert.equal(
+  shouldSkipActiveChatHistoryPollSync({
+    headSeq: 110,
+    localAck: 100,
+    viewAppliedSeq: 100,
+    wsOpen: true,
+    now: 100000 + ACTIVE_CHAT_HISTORY_POLL_WS_GRACE_MS,
+    gapObservedAt: 100000,
+  }),
+  false
+);
+assert.equal(
+  shouldSkipActiveChatHistoryPollSync({
+    headSeq: 612,
+    localAck: 100,
+    viewAppliedSeq: 100,
+    wsOpen: true,
+    now: 100000 + ACTIVE_CHAT_HISTORY_POLL_WS_GRACE_MS,
+    gapObservedAt: 100000,
+  }),
+  false,
+  'A 512-record gap must not be skipped indefinitely'
 );
 assert.equal(
   shouldSkipActiveChatHistoryPollSync({
     headSeq: 700,
     localAck: 100,
+    viewAppliedSeq: 100,
     wsOpen: true,
     hydrating: true,
     now: 100000,
+    gapObservedAt: 100000,
   }),
   false,
-  'Hydrating active chat with large gap should not skip poll sync'
+  'Hydrating active chat with a remaining view gap should not skip poll sync'
 );
 assert.equal(
   shouldSkipActiveChatHistoryPollSync({
     headSeq: 700,
     localAck: 100,
+    viewAppliedSeq: 100,
     wsOpen: false,
     now: 100000,
   }),
   false,
-  'Large gap without WS should not skip'
+  'Closed WS with a view gap should not skip'
 );
 assert.equal(
   shouldSkipActiveChatHistoryPollSync({
     headSeq: 700,
     localAck: 100,
+    viewAppliedSeq: 100,
+    wsOpen: false,
+    lastSyncAt: 95000,
+    now: 100000,
+  }),
+  false,
+  'Cooldown must not hide a view that is still behind the server'
+);
+assert.equal(
+  shouldSkipActiveChatHistoryPollSync({
+    headSeq: 700,
+    localAck: 700,
+    viewAppliedSeq: 700,
     wsOpen: false,
     lastSyncAt: 95000,
     now: 100000,
   }),
   true,
-  'Recent sync within cooldown should skip even with large gap'
+  'Caught-up view may use the cooldown'
+);
+assert.equal(
+  shouldSkipActiveChatHistoryPollSync({
+    headSeq: 105,
+    localAck: 105,
+    viewAppliedSeq: 100,
+    wsOpen: true,
+    now: 100000 + ACTIVE_CHAT_HISTORY_POLL_WS_GRACE_MS,
+    gapObservedAt: 100000,
+  }),
+  false,
+  'Store ACK ahead of the view still requires applying local records'
 );
 
 resetLastAckedSeqMemoryForTests();

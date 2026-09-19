@@ -121,6 +121,14 @@ import { initChatHistorySyncPoll } from './features/chat/chatHistorySyncPoll.js'
 import { initChatListResumeSync } from './features/chat/chatListResumeSync.js';
 import { createChatListLiveSync } from './features/chat/chatListLiveSync.js';
 import { getResumeHistorySyncDeferMs } from './features/chat/chatResumePolicy.js';
+import {
+  createInFlightHistorySyncTracker,
+  replaceViewAppliedRecords,
+  resetViewAppliedState,
+  syncViewAppliedSessionKey,
+} from './features/chat/chatHistoryConvergence.js';
+import { applyCatchUpSdkHistoryRecords } from './features/chat/chatHistoryViewApply.js';
+import { runSdkHistoryConvergence as executeSdkHistoryConvergence } from './features/chat/chatHistoryConvergenceRun.js';
 import { isMobileLikeClient } from './lib/mobileClient.js';
 import { getLastBackgroundDurationMs } from './lib/pageBackgroundGrace.js';
 import {
@@ -128,11 +136,9 @@ import {
   beginSdkOpenTerminalHydration,
   clearSdkOpenTerminalHydrating,
   isSdkOpenTerminalHydrating,
-  takeMissingSdkHistoryRecords,
   hasSdkHistoryRoomWatermarks,
 } from './features/chat/sdkEventReplayGuard.js';
 import {
-  partitionRecordsByWindowStart,
   rememberHistoryWindowStart,
   sortRecordsByCreatedAt,
 } from './features/chat/chatHistoryWindowOrder.js';
@@ -156,6 +162,7 @@ import {
   readSdkChatHistoryStateAsync,
   replaceSdkChatHistoryRecords,
   sdkHistoryRecordsFromAgentMessageRows,
+  getLastAckedSeq,
 } from './lib/sdk-chat-history-store.js';
 import { createChatView } from './features/chat/chatView.js';
 import { createChatController } from './features/chat/chatController.js';
@@ -2481,108 +2488,67 @@ function yieldToMainThread() {
   });
 }
 
-async function syncSdkHistoryOnResume(chat, context = {}) {
-  if (!chat?.id) return;
-  const reason = String(context.reason || 'unknown');
-  if (isSdkOpenTerminalHydrating(chat) && reason !== 'selectChat') return;
-  if (chat._sdkResumeSyncPromise) return chat._sdkResumeSyncPromise;
-  const syncStartedAt = Date.now();
-  appLogger.log('chat-sync', 'resume sync start', {
-    chatId: chat.id,
-    reason: context.reason || 'unknown',
-  });
-  traceUiFreeze('chat-sync', 'start', {
-    chatId: chat.id,
-    reason: context.reason || 'unknown',
-    hydrating: chat._sdkHistoryHydrating === true,
-  });
+const historyResumeSyncTracker = createInFlightHistorySyncTracker();
 
-  const syncPromise = (async () => {
-    if (typeof document !== 'undefined' && document.hidden) return;
-    const resumeDeferMs = getResumeHistorySyncDeferMs(
-      String(context.reason || ''),
+function isDocumentHidden() {
+  return typeof document !== 'undefined' && document.hidden === true;
+}
+
+function resolveChatDraftAndScroll(chat) {
+  const sendInput = typeof document !== 'undefined'
+    ? document.getElementById('chat-send-input')
+    : null;
+  const draftText = sendInput && typeof sendInput.value === 'string' ? sendInput.value : '';
+  const stream = chat?._sdkRichView?.streamEl || chat?._sdkRichView?.el || null;
+  const scrollTop = Number.isFinite(Number(stream?.scrollTop)) ? Number(stream.scrollTop) : 0;
+  return { draftText, scrollTop };
+}
+
+async function syncSdkHistoryOnResume(chat, context = {}) {
+  if (!chat?.id) return { status: 'unchanged' };
+  const reason = String(context.reason || 'unknown');
+  if (isSdkOpenTerminalHydrating(chat) && reason !== 'selectChat') {
+    return { status: 'deferred', deferReason: 'open_terminal_hydrating' };
+  }
+  return historyResumeSyncTracker.run(chat.id, () => runSdkHistoryConvergence(chat, context));
+}
+
+async function runSdkHistoryConvergence(chat, context = {}) {
+  return executeSdkHistoryConvergence(chat, context, {
+    isDocumentHidden,
+    getResumeDeferMs: (reason) => getResumeHistorySyncDeferMs(
+      reason,
       isMobileLikeClient(),
       getLastBackgroundDurationMs()
-    );
-    if (resumeDeferMs > 0) {
-      appLogger.log('chat-sync', 'resume sync deferred', {
-        chatId: chat.id,
-        reason: context.reason || 'unknown',
-        deferMs: resumeDeferMs,
-      });
-      await new Promise((resolve) => setTimeout(resolve, resumeDeferMs));
-    }
-    if (typeof document !== 'undefined' && document.hidden) return;
-    const fetchStartedAt = Date.now();
-    const serverState = await syncChatHistoryDeltaFromServer(chat.id, chat.cursorSessionId || '');
-    const fetchMs = Date.now() - fetchStartedAt;
-    if (typeof document !== 'undefined' && document.hidden) return;
-    if (!serverState) {
-      if (chat._sdkHistoryHydrating === true && !isSdkOpenTerminalHydrating(chat)) {
-        chatTransport.completeSdkHistoryHydration(chat, []);
+    ),
+    yieldToMain: yieldToMainThread,
+    fetchDelta: (target) => syncChatHistoryDeltaFromServer(
+      target.id,
+      target.cursorSessionId || ''
+    ),
+    readLocal: (target) => readSdkChatHistoryStateAsync(target.id),
+    applyCatchUp: applyCatchUpSdkHistoryRecords,
+    completeHydration: (target, records) => {
+      if (isSdkOpenTerminalHydrating(target) && (!Array.isArray(records) || records.length === 0)) {
+        return;
       }
-      appLogger.log('chat-sync', 'resume sync empty', {
-        chatId: chat.id,
-        fetchMs,
-        reason: context.reason || 'unknown',
-      });
-      return;
-    }
-
-    const records = Array.isArray(serverState.events) ? serverState.events : [];
-    let applied = 0;
-    let applyMs = 0;
-    if (chat._sdkRichView) {
-      await yieldToMainThread();
-      const applyStartedAt = Date.now();
-      applied = await applyCatchUpSdkHistoryRecords(chat, records);
-      applyMs = Date.now() - applyStartedAt;
-      if (applied > 0) syncRichViewPlainBuffer(chat);
-      updateAwaitingInput(chat);
-      renderChatTerminalState(chat);
-    }
-    chatTransport.completeSdkHistoryHydration(chat, records);
-
-    traceUiFreeze('chat-sync', 'complete', {
-      chatId: chat.id,
-      reason: context.reason || 'unknown',
-      received: records.length,
-      applied,
-      fetchMs,
-      applyMs,
-      totalMs: Date.now() - syncStartedAt,
-    });
-
-    appLogger.log('chat-sync', 'resume catch-up complete', {
-      chatId: chat.id,
-      reason: context.reason || 'unknown',
-      received: records.length,
-      applied,
-      fetchMs,
-      applyMs,
-      totalMs: Date.now() - syncStartedAt,
-      headSeq: serverState.headSeq,
-      ackSeq: serverState.ackSeq,
-      hasRichView: !!chat._sdkRichView,
-    });
-    chat._pendingRemoteHistory = false;
-    notifyChatBackendReachable(chat);
-  })();
-
-  chat._sdkResumeSyncPromise = syncPromise;
-  try {
-    await syncPromise;
-  } catch (err) {
-    appLogger.log('chat-sync', 'resume catch-up failed', {
-      chatId: chat.id,
-      reason: context.reason || 'unknown',
-      error: String(err?.message || err),
-    });
-  } finally {
-    if (chat._sdkResumeSyncPromise === syncPromise) {
-      delete chat._sdkResumeSyncPromise;
-    }
-  }
+      chatTransport.completeSdkHistoryHydration(target, records);
+    },
+    onApplied: (target) => {
+      syncRichViewPlainBuffer(target);
+      updateAwaitingInput(target);
+      renderChatTerminalState(target);
+    },
+    notifyReachable: notifyChatBackendReachable,
+    getDraftAndScroll: resolveChatDraftAndScroll,
+    getBackgroundMs: getLastBackgroundDurationMs,
+    getUnackedPingAgeMs: (target) => (
+      Number.isFinite(target._unackedPingAt) ? Date.now() - target._unackedPingAt : 0
+    ),
+    getStoreAckSeq: (target) => getLastAckedSeq(target.id),
+    log: (tag, message, payload) => appLogger.log(tag, message, payload),
+    trace: traceUiFreeze,
+  });
 }
 
 let chatListLiveSyncApi = null;
@@ -3427,6 +3393,8 @@ async function hydrateSdkRichViewFromLocalCache(chat, localState, sessionKey) {
   const windowed = takeSdkHistoryWindow(chat, chronological);
   rememberHistoryWindowStart(chat, windowed, { reset: true });
   chat._sdkRichView.replayHistoryRecords(windowed, { instant: true });
+  syncViewAppliedSessionKey(chat.id, chat, sessionKey);
+  replaceViewAppliedRecords(chat.id, chat, windowed);
   syncRichViewPlainBuffer(chat);
   return { hydratedRecords: chronological, structuredReplayDone: true };
 }
@@ -3438,38 +3406,6 @@ async function hydrateSdkRichViewFromLocalCache(chat, localState, sessionKey) {
  * @param {boolean} structuredReplayDone
  * @returns {Promise<{ hydratedRecords: unknown[], structuredReplayDone: boolean }>}
  */
-/**
- * Applies a server catch-up batch without putting older streams under the
- * already-rendered window. localUser rows have no stream id, so takeMissing
- * skips them — prepend the whole older slice of the incoming batch instead.
- *
- * @param {object} chat
- * @param {unknown[]} incomingRecords
- * @returns {Promise<number>} number of records applied to the view
- */
-async function applyCatchUpSdkHistoryRecords(chat, incomingRecords) {
-  if (!chat?._sdkRichView || !Array.isArray(incomingRecords) || incomingRecords.length === 0) {
-    return 0;
-  }
-  const missing = takeMissingSdkHistoryRecords(chat, incomingRecords);
-  const windowOldestAt =
-    typeof chat._historyWindowOldestAt === 'string' ? chat._historyWindowOldestAt : '';
-  const missingParts = partitionRecordsByWindowStart(missing, windowOldestAt);
-  let applied = 0;
-  if (missingParts.older.length > 0) {
-    const older = partitionRecordsByWindowStart(incomingRecords, windowOldestAt).older;
-    const toPrepend = older.length > 0 ? older : missingParts.older;
-    chat._sdkRichView.prependHistoryRecords(toPrepend);
-    rememberHistoryWindowStart(chat, toPrepend);
-    applied += toPrepend.length;
-  }
-  if (missingParts.newer.length > 0) {
-    await chat._sdkRichView.appendHistoryRecords(missingParts.newer, { instant: true });
-    applied += missingParts.newer.length;
-  }
-  return applied;
-}
-
 async function mergeServerSdkHistoryIntoRichView(chat, serverEvents, sessionKey, structuredReplayDone) {
   if (!chat?._sdkRichView || !Array.isArray(serverEvents) || serverEvents.length === 0) {
     return { hydratedRecords: serverEvents || [], structuredReplayDone };
@@ -3488,6 +3424,8 @@ async function mergeServerSdkHistoryIntoRichView(chat, serverEvents, sessionKey,
   }
   rememberHistoryWindowStart(chat, serverEvents, { reset: true });
   chat._sdkRichView.replayHistoryRecords(serverEvents, { instant: true });
+  syncViewAppliedSessionKey(chat.id, chat, resolvedSessionKey);
+  replaceViewAppliedRecords(chat.id, chat, serverEvents);
   syncRichViewPlainBuffer(chat);
   return { hydratedRecords: serverEvents, structuredReplayDone: true };
 }
@@ -3581,6 +3519,7 @@ function openTerminal(chat) {
     } catch {
       // Detached pane — rebuild a fresh one with a send bar.
     }
+    resetViewAppliedState(chat.id, chat);
     chat.pane = null;
     chat._sdkRichView = null;
     chat.term = null;
@@ -3981,9 +3920,11 @@ function openTerminal(chat) {
                 const windowed = takeSdkHistoryWindow(chat, sortRecordsByCreatedAt(merged));
                 rememberHistoryWindowStart(chat, windowed, { reset: true });
                 chat._sdkRichView.replayHistoryRecords(windowed, { instant: true });
+                replaceViewAppliedRecords(chat.id, chat, windowed);
               } else {
                 rememberHistoryWindowStart(chat, records, { reset: true });
                 chat._sdkRichView.applyAgentMessagesHistory(sdkHistoryRows);
+                replaceViewAppliedRecords(chat.id, chat, records);
               }
               structuredReplayDone = true;
               syncRichViewPlainBuffer(chat);
@@ -4009,6 +3950,7 @@ function openTerminal(chat) {
             const windowed = takeSdkHistoryWindow(chat, chronological);
             rememberHistoryWindowStart(chat, windowed, { reset: true });
             chat._sdkRichView.replayHistoryRecords(windowed, { instant: true });
+            replaceViewAppliedRecords(chat.id, chat, windowed);
             structuredReplayDone = true;
             syncRichViewPlainBuffer(chat);
           } else {
@@ -4271,6 +4213,7 @@ export function closeChat(id, options = {}) {
     chat._sdkRichView.destroy();
     chat._sdkRichView = null;
   }
+  resetViewAppliedState(id, chat);
   chatDiagnosticsApi.stopChatDiagPolling(chat);
   if (chat.term && typeof chat.term.dispose === 'function') chat.term.dispose();
   chat._termContainer = null;

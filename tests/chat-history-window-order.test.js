@@ -69,16 +69,41 @@ const inputHydratedChat = {
 };
 const actualMissing = takeMissingSdkHistoryRecords(inputHydratedChat, inputServerBatch);
 assert.deepEqual(
-  actualMissing.map((record) => record.eventStreamId),
-  ['stream-last-night']
+  actualMissing.map((record) => ({
+    kind: record.kind,
+    eventStreamId: record.eventStreamId || null,
+    createdAt: record.createdAt,
+  })),
+  [
+    { kind: 'localUser', eventStreamId: null, createdAt: lastNightUser.createdAt },
+    { kind: 'sdk', eventStreamId: 'stream-last-night', createdAt: lastNightAssistant.createdAt },
+    { kind: 'localUser', eventStreamId: null, createdAt: tonightUser.createdAt },
+  ],
+  'takeMissing keeps localUser prompts plus the older stream; hydrated tonight SDK stays out'
+);
+assert.equal(
+  actualMissing.some((record) => record.eventStreamId === 'stream-tonight'),
+  false,
+  'already-hydrated tonight assistant must stay deduped'
+);
+assert.equal(
+  actualMissing.filter((record) => record.kind === 'localUser' && record.text === 'hej').length,
+  2,
+  'same prompt text on two nights must stay two localUser rows'
 );
 const actualMissingParts = partitionRecordsByWindowStart(
   actualMissing,
   inputChat._historyWindowOldestAt
 );
-assert.equal(actualMissingParts.newer.length, 0);
-assert.equal(actualMissingParts.older.length, 1);
-assert.equal(actualMissingParts.older[0].eventStreamId, 'stream-last-night');
+assert.deepEqual(
+  actualMissingParts.older.map((record) => record.createdAt),
+  [lastNightUser.createdAt, lastNightAssistant.createdAt],
+  'older window keeps last-night prompt then assistant'
+);
+assert.deepEqual(
+  actualMissingParts.newer.map((record) => ({ kind: record.kind, text: record.text })),
+  [{ kind: 'localUser', text: 'hej' }]
+);
 
 const actualOlderSlice = partitionRecordsByWindowStart(
   inputServerBatch,
@@ -87,7 +112,7 @@ const actualOlderSlice = partitionRecordsByWindowStart(
 assert.equal(
   actualOlderSlice.some((record) => record.kind === 'localUser'),
   true,
-  'older slice must keep localUser rows that takeMissing skips'
+  'older slice must keep last-night localUser prompts'
 );
 
 rememberHistoryWindowStart(inputChat, actualOlderSlice);

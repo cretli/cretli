@@ -82,6 +82,8 @@ Each chat stores `agentTransport`: `sdk` (default), `openrouter`, `opencode`, `c
 | `qwen` | `@qwen-code/sdk` via `qwen-agent-ws.js` + bundled Qwen CLI | `QWEN_API_KEY` / Settings (Qwen Cloud); endpoint preset `payg` / `token-plan` / `coding-plan` / `custom`; optional `QWEN_BIN` |
 | `codex` | `@openai/codex-sdk` via `codex-agent-ws.js` + bundled `codex` CLI | ChatGPT plan (device login) **or** `CODEX_API_KEY` / Settings; optional `CODEX_BIN` |
 
+A parent agent that needs a **sub-chat on another harness** (for example Cursor SDK asking DeepSeek to review a plan) uses builtin MCP `delegation_start` with a Settings-enabled model from `model_list(harness, enabled_only=true)`. Cursor's built-in `Task` tool only lists Cursor-local models and is not the Cretli catalog.
+
 All seven harnesses share the same WebSocket path (`/ws-agent-sdk`), protocol (`sdkEvent`, replay batches), rich view, and history persist format. OpenRouter, OpenCode, CodeBuddy, DeepSeek, Qwen, and Codex events are normalized to SDK-shaped payloads before broadcast. Archive, restore, delete, and sidebar nesting persist a `chatsChanged` frame to every attached agent socket so the live sidebar reloads without waiting for a page resume. If the chat row is gone (deleted on another device), the server sends `sdkError` with code `chat_not_found` and the client stops reconnecting instead of treating it as a recoverable `invalid_session`.
 
 ### The `sdk-*` prefix is protocol, not Cursor SDK
@@ -123,9 +125,15 @@ OpenCode chats persist optional `opencodeSessionId` in `data/chats.json` for ses
 - **Plan / Ask guard** — mutating `tool_call` events are blocked in Plan and Ask
   for harnesses that deny tools (`canUseTool` / permission / catalog) or abort the run.
   Ask is a separate conversation mode (questions and analysis, no plan persistence
-  or “yes” → Agent). Codex Plan is prompt-only (no turn abort); Codex Ask still
-  denies mutations on the host. Read-only sandbox is not used because
-  Linux bwrap fails on non-git workspace roots. Emits `sdkPlanGuard` when a mutating
+  or “yes” → Agent). Review assignments keep native Cursor edit/delete/shell blocked
+  (no pre-exec hook for shell). Harnesses that can deny before exec may run
+  `node scripts/review-verify.js` with a frozen catalog of audited tests inside an
+  isolated data dir; arbitrary `tests/**/*.test.js`, reporters, and mutations stay
+  denied. A pre-exec deny does not abort the review job. Codex has no pre-exec
+  hook: the trusted runner is allowed, other mutations abort the turn. Codex Plan
+  is prompt-only (no turn abort); Codex Ask still denies mutations on the host.
+  Read-only sandbox is not used because Linux bwrap fails on non-git workspace
+  roots. Emits `sdkPlanGuard` when a mutating
   tool is denied (`lib/sdk/sdk-plan-guard.js`).
 - **Room state** — `sdkRoomState` heartbeat (~15 s) with queue depth, pending questions/permissions, `lastEventAt` (`lib/sdk/sdk-room-state.js`, `getOpenCodeRoomDiag`).
 - **Run lifecycle parity** — OpenCode emits `runId` on `sdkPromptStarted` / `sdkRunFinished`; room outcome (`lastRunId`, `lastRunStatus`, errors) is tracked like SDK for reconnect consistency.
@@ -326,7 +334,8 @@ prefix or unique title substring).
   workspace, not the UI global folder. `chat_list` / `chat_show` / `chat_history` / `chat_event`
   default to that workspace; pass `scope=all` to reach another workspace by id.
   `chat_history` pages events by seq (optional tool payloads). `chat_event` reads a UTF-16
-  slice of one event field. Standalone stdio requires
+  slice of one event field. A UI copy-ref line `cretli-ref chat=<uuid> seq=<n>` is that
+  event with `field="text"` (full UUID, exact seq, no neighbor). Standalone stdio requires
   `CRETLI_MCP_WORKSPACE` and honors `CRETLI_MCP_MODE` (`plan` and `ask` block writes;
   `agent` allows them). Catalog and domain reads go through the target Cretli
   HTTP API, not the stdio process `data/` directory. Long plan/TODO/delegation
@@ -436,9 +445,10 @@ per million tokens) and needs its own key (`GEMINI_API_KEY` / `geminiApiKey`).
 
 `/api/voice/realtime-token` mints a `client_secret` with the session pinned server-side
 (`lib/voice/realtime-session-config.js`): model (allow-listed mini or flagship),
-instructions, tool schemas, semantic VAD, noise reduction, voice, and `max_output_tokens`
-so the model cannot ramble. The client cannot widen its own permissions — it only picks a
-model and a voice from an allow-list.
+instructions, tool schemas, server VAD, noise reduction, voice, and `max_output_tokens`
+so the model cannot ramble. That cap is shared by text and audio tokens; it must be high
+enough to finish a spoken sentence. The client cannot widen its own permissions — it only
+picks a model and a voice from an allow-list.
 
 `realtimeSession.js` then talks to OpenAI directly: `getUserMedia` → `RTCPeerConnection` →
 SDP offer to `/v1/realtime/calls` with the ephemeral token, events on the `oai-events` data

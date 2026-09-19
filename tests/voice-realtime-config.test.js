@@ -74,6 +74,11 @@ test('pins instructions, tools and audio config to the minted session', () => {
   assert.equal(actual.session.audio.input.turn_detection.type, 'server_vad');
   assert.equal(actual.session.audio.input.turn_detection.interrupt_response, false);
   assert.equal(actual.session.audio.input.transcription.language, 'pl');
+  assert.ok(
+    actual.session.instructions.includes('Always finish the last sentence'),
+    'the model is told not to stop mid-word'
+  );
+  assert.ok(actual.session.max_output_tokens > 220, 'the cap must leave room for audio tokens');
   assert.ok(actual.expires_after.seconds > 0, 'the secret must expire');
 });
 

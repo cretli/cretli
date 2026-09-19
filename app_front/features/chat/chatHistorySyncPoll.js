@@ -8,10 +8,15 @@ import { isMobileLikeClient } from '../../lib/mobileClient.js';
 import { getChatActivityAt } from './chatStore.js';
 import { selectMonitoredChatIds } from './chatBackgroundPolicy.js';
 import {
+  ACTIVE_CHAT_HISTORY_POLL_WS_GRACE_MS,
   RESUME_POLL_DEFER_MOBILE_MS,
   shouldSkipActiveChatHistoryPollSync,
 } from './chatResumePolicy.js';
 import { notifyChatBackendReachable, notifyChatConnectionRestored } from './chatServerRecovery.js';
+import {
+  getViewAppliedSeq,
+  resolveHistorySyncPollFollowUp,
+} from './chatHistoryConvergence.js';
 
 const POLL_INTERVAL_MS = 15000;
 const RESUME_POLL_DEFER_MS = 5000;
@@ -30,12 +35,18 @@ let pollTimerId = null;
 let resumePollTimerId = null;
 /** @type {Map<string, number>} */
 const lastActiveHistorySyncAt = new Map();
+/** @type {Map<string, number>} */
+const gapFirstSeenAt = new Map();
+/** @type {Map<string, ReturnType<typeof setTimeout>>} */
+const gapRecheckTimers = new Map();
+/** @type {Map<string, number>} */
+const historySyncRetryAttempt = new Map();
 
 /**
  * @typedef {object} ChatHistorySyncPollDeps
  * @property {() => object[]} getChats
  * @property {() => string | null} getActiveChatId
- * @property {(chat: object, context?: object) => Promise<void>} syncSdkHistoryOnResume
+ * @property {(chat: object, context?: object) => Promise<{ status?: string } | void>} syncSdkHistoryOnResume
  * @property {{ log: (tag: string, message: string, payload?: object) => void }} appLogger
  * @property {() => void} [onPendingHistoryChange]
  * @property {() => void} [onAgentStatesChange]
@@ -53,6 +64,30 @@ function setChatPendingRemoteHistory(chat, pending) {
   if (typeof deps?.onPendingHistoryChange === 'function') {
     deps.onPendingHistoryChange(chat);
   }
+}
+
+function clearGapRecheck(chatId) {
+  const timer = gapRecheckTimers.get(chatId);
+  if (timer != null) {
+    clearTimeout(timer);
+    gapRecheckTimers.delete(chatId);
+  }
+  gapFirstSeenAt.delete(chatId);
+}
+
+function scheduleGapRecheck(chatId, delayMs, options = {}) {
+  if (gapRecheckTimers.has(chatId)) {
+    if (options.replace !== true) return;
+    clearTimeout(gapRecheckTimers.get(chatId));
+    gapRecheckTimers.delete(chatId);
+  }
+  gapRecheckTimers.set(
+    chatId,
+    setTimeout(() => {
+      gapRecheckTimers.delete(chatId);
+      void pollChatHistoryRevisions();
+    }, Math.max(0, delayMs))
+  );
 }
 
 function applyAgentStatesToChats(chats, statesById) {
@@ -96,37 +131,73 @@ async function pollChatHistoryRevisions() {
       const revision = revisions[chat.id];
       if (!revision || typeof revision.headSeq !== 'number') {
         setChatPendingRemoteHistory(chat, false);
+        clearGapRecheck(chat.id);
         continue;
       }
       const localAck = getLastAckedSeq(chat.id);
-      if (revision.headSeq <= localAck) {
+      const viewAppliedSeq = getViewAppliedSeq(chat.id, chat);
+      const storeLag = revision.headSeq > localAck;
+      const viewLag = revision.headSeq > viewAppliedSeq;
+      if (!storeLag && !viewLag) {
         setChatPendingRemoteHistory(chat, false);
+        clearGapRecheck(chat.id);
         continue;
       }
       setChatPendingRemoteHistory(chat, true);
+      if (!gapFirstSeenAt.has(chat.id)) gapFirstSeenAt.set(chat.id, now);
       const isActive = chat.id === deps.getActiveChatId();
       if (isActive) {
         const wsOpen = chat.ws?.readyState === WebSocket.OPEN;
+        const gapObservedAt = gapFirstSeenAt.get(chat.id) || now;
         if (
           shouldSkipActiveChatHistoryPollSync({
             headSeq: revision.headSeq,
             localAck,
+            viewAppliedSeq,
             wsOpen,
             hydrating: chat._sdkHistoryHydrating === true,
             lastSyncAt: lastActiveHistorySyncAt.get(chat.id),
             now,
-            hasPendingDelegation: revision.hasPendingDelegation === true,
+            gapObservedAt,
           })
         ) {
-          setChatPendingRemoteHistory(chat, false);
+          if (!viewLag) {
+            setChatPendingRemoteHistory(chat, false);
+            clearGapRecheck(chat.id);
+          } else {
+            const graceLeft = ACTIVE_CHAT_HISTORY_POLL_WS_GRACE_MS - (now - gapObservedAt);
+            if (wsOpen && graceLeft > 0) {
+              scheduleGapRecheck(chat.id, graceLeft);
+            }
+          }
           continue;
         }
-        await deps.syncSdkHistoryOnResume(chat, { reason: 'cross_device_poll' });
-        lastActiveHistorySyncAt.set(chat.id, now);
-        setChatPendingRemoteHistory(chat, false);
-        if (chat.ws?.readyState === WebSocket.OPEN) {
-          notifyChatConnectionRestored(chat);
+        const result = await deps.syncSdkHistoryOnResume(chat, { reason: 'cross_device_poll' });
+        const viewSeqAfter = getViewAppliedSeq(chat.id, chat);
+        const followUp = resolveHistorySyncPollFollowUp({
+          status: result?.status,
+          headSeq: revision.headSeq,
+          viewAppliedSeq: viewSeqAfter,
+          wsOpen: chat.ws?.readyState === WebSocket.OPEN,
+          retryAttempt: historySyncRetryAttempt.get(chat.id) || 0,
+        });
+        if (followUp.canClearPending) {
+          lastActiveHistorySyncAt.set(chat.id, Date.now());
+          setChatPendingRemoteHistory(chat, false);
+          clearGapRecheck(chat.id);
+          historySyncRetryAttempt.delete(chat.id);
+        } else if (followUp.retryDelayMs > 0) {
+          historySyncRetryAttempt.set(
+            chat.id,
+            (historySyncRetryAttempt.get(chat.id) || 0) + 1
+          );
+          scheduleGapRecheck(chat.id, followUp.retryDelayMs, { replace: true });
         } else {
+          historySyncRetryAttempt.delete(chat.id);
+        }
+        if (followUp.notifyRestored) {
+          notifyChatConnectionRestored(chat);
+        } else if (followUp.notifyReachable) {
           notifyChatBackendReachable(chat);
         }
         continue;
@@ -137,7 +208,17 @@ async function pollChatHistoryRevisions() {
         backgroundHistoryPullOptions
       );
       if (!synced) continue;
+      if (synced.incomplete === true) {
+        deps.appLogger.log('chat-history-poll', 'background history partial', {
+          chatId: chat.id,
+          applied: synced.applied,
+          headSeq: synced.headSeq,
+          ackSeq: synced.ackSeq,
+        });
+        continue;
+      }
       setChatPendingRemoteHistory(chat, false);
+      clearGapRecheck(chat.id);
       deps.appLogger.log('chat-history-poll', 'background history synced', {
         chatId: chat.id,
         applied: synced.applied,
@@ -202,4 +283,8 @@ export function stopChatHistorySyncPoll() {
   stopPolling();
   deps = null;
   lastActiveHistorySyncAt.clear();
+  historySyncRetryAttempt.clear();
+  for (const timer of gapRecheckTimers.values()) clearTimeout(timer);
+  gapRecheckTimers.clear();
+  gapFirstSeenAt.clear();
 }

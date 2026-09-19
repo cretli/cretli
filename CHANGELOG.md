@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Copy-ref on saved user and assistant chat blocks: one clipboard line
+  `cretli-ref chat=<full-uuid> seq=<n>`. The receiving agent loads the current
+  saved text with builtin MCP `chat_event({ chat, seq, field: "text" })` (page
+  with `offset`/`length` until `next_offset` is none). Thinking, tool, queued,
+  and in-flight blocks stay hidden. Copy content, Fork, and Pass are unchanged.
+  No new HTTP endpoint, composer auto-expand, `content_hash`, or seq ranges.
+
+- Mobile overlay: swipe the chat sidebar left to dismiss it, or swipe in from
+  the left screen edge to open it. Desktop, pin, and Safari back-swipe are
+  unchanged.
 - Delegation Phase IIIb: retry-delivery always requires `mailboxId` (including
   0 or 1 retryable messages), coalesces parallel/replayed delivery and task
   retries, recovers a `final_report` crash after the durable attempt result,
@@ -38,7 +48,66 @@ All notable changes to this project are documented here. The format is based on
   retry-task vs retry-delivery, keyboard, PL/EN, mobile, workspace scope,
   browser reconnect to that instance's WebSocket).
 
+### Changed
+
+- Cursor SDK agents treat other harness models as available for a sub-chat
+  through `harness_list` / `model_list` / `delegation_start`. Cursor `Task`
+  still only lists Cursor-local models; that list is not the Cretli catalog.
+
 ### Fixed
+
+- Review verification is a host-owned runner (`node scripts/review-verify.js`)
+  with a frozen catalog, isolated data dir, and temp cwd. Cursor SDK review
+  keeps native `shell` disallowed (no pre-exec hook). Arbitrary
+  `tests/**/*.test.js`, `--test-reporter`, and mutations stay denied. Harnesses
+  that can reject before exec do not abort the review job after a deny.
+  DeepSeek review no longer dies on DSH `todo_write` (same list as Cursor
+  `todo`); file `write`/`edit` still abort that job.
+
+- OpenAI voice Live no longer cuts the assistant off mid-word: `max_output_tokens`
+  is 600 (was 220, shared with audio tokens). Session logs record `response.done`
+  status when a turn is still incomplete.
+
+- Returning to the PWA no longer leaves an active chat missing replies that
+  already exist on the server: HTTP catch-up runs after short background
+  intervals, open sockets, and WS replay, store ACK is not treated as proof
+  the view is current, and a missed `sdkHistoryChanged` or another client's
+  history read no longer disables recovery. A later live mailbox/delegation
+  card does not hide an earlier hole, catch-up is chronological, render
+  failures do not advance watermarks, and polling does not mark an open
+  WebSocket healthy after error or deferred sync. Stale pong detection now
+  uses the first unacked ping. Catch-up now keeps a view-instance guard through
+  fetch/apply, applies `localUser` prompts from other clients without duplicating
+  optimistic echoes, notes historySeq for already-rendered live/replay events
+  without jumping past holes, and starts contiguous coverage from the hydrated
+  window rather than a lone live card. A failed HTTP catch-up during reconnect
+  no longer advances room watermarks for unrendered WS replay, so a later
+  retry still shows the missing reply exactly once. A live `applyEvent` throw
+  keeps that room seq as a hole: a later seq 102 or `sdkRunFinished` does not
+  mark seq 101 covered, and catch-up or WS retry still renders response 101
+  exactly once, inserted before the later card (assistant, run-finished, or
+  delegation) without a destructive full replay. Room event seq is compared
+  only inside a proven `eventStreamId`; a new stream's seq 1 is not placed
+  before an older session's seq 102, and a missing stream id does not invent
+  a global room order. Isolated Chromium coverage exists for the
+  transport→store→DOM path and a production resume path with mocked HTTP plus
+  IndexedDB; a real Android/iOS PWA session was not run.
+
+- Child `delegation_reply` with `final_report` no longer awaits cancel of its
+  own SDK run. That deadlock left the MCP bridge spinning until the agent was
+  cancelled. The report is persisted and returned first; leftover-run stop waits
+  a short grace so the MCP tool result can land, skips cancel when the run is
+  already idle, and rewrites that leftover `sdkRunFinished` to completed on
+  every harness. Only the accepted `finalReportRunId` is rewritten, so a later
+  user cancel in the same child stays a real cancel. The frontend also ignores
+  `lastErrorCode=delegation_final_report`.
+
+- Swiping the sidebar closed no longer snaps it back open when pointer capture
+  is lost as the drawer slides under the finger.
+- Starting a sidebar swipe no longer flashes the page under the drawer (CSS
+  closed transform `translateX(-100%)` for a frame when transition was cut).
+- Mobile overlay keeps the sidebar resize handle; swipe-to-close ignores
+  `#sidebar-resizer` instead of disabling pointer events on it.
 
 - MCP/CLI archive, restore, and delete now push `chatsChanged` on agent
   WebSockets so the sidebar reloads without a page refresh. Bulk archives

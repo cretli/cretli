@@ -25,6 +25,7 @@ import {
   SIDEBAR_RESIZE_STEP,
   clampSidebarWidth,
 } from './sidebarWidth.js';
+import { initSidebarSwipe } from './sidebarSwipe.js';
 
 const SIDEBAR_OPEN_KEY = 'cretli-sidebar-open';
 const SIDEBAR_COLLAPSE_KEY = 'cretli-sidebar-collapsed';
@@ -217,6 +218,7 @@ export function createSidebarView(deps) {
   let searchQuery = '';
   let workspaceDrag = { isDragging: () => false };
   let chatDrag = { isDragging: () => false };
+  let swipe = { isSwiping: () => false, abort() {} };
 
   function getContainer() {
     return document.getElementById('app-sidebar');
@@ -260,6 +262,7 @@ export function createSidebarView(deps) {
   }
 
   function applyVisibility() {
+    if (swipe.isSwiping()) return;
     const aside = getContainer();
     const backdrop = getBackdrop();
     if (aside) aside.hidden = !open;
@@ -271,11 +274,31 @@ export function createSidebarView(deps) {
       menuBtn.classList.toggle('is-active', open);
     }
     applyPinButton();
+    applyEdgeOpenHandle();
     if (open) {
       startPoll();
       applySidebarWidth();
     } else stopPoll();
     applyDockLayout();
+  }
+
+  function applyEdgeOpenHandle() {
+    const edge = document.getElementById('sidebar-edge-open');
+    if (!edge) return;
+    edge.hidden = open || !isMobileViewport();
+  }
+
+  function revealDrawerPreview() {
+    const aside = getContainer();
+    const backdrop = getBackdrop();
+    if (aside) aside.hidden = false;
+    if (backdrop) backdrop.hidden = false;
+    applySidebarWidth();
+  }
+
+  function hideDrawerPreview() {
+    if (open) return;
+    applyVisibility();
   }
 
   function togglePin() {
@@ -314,6 +337,7 @@ export function createSidebarView(deps) {
   }
 
   function closeSidebar() {
+    swipe.abort();
     open = false;
     writeOpenFlag(false);
     applyVisibility();
@@ -637,9 +661,9 @@ export function createSidebarView(deps) {
   function render() {
     const aside = getContainer();
     if (!aside) return;
-    // Never rebuild the DOM in the middle of a workspace drag — the dragged
-    // element would be detached; the drop handler forces the re-render.
-    if (workspaceDrag.isDragging() || chatDrag.isDragging()) return;
+    // Never rebuild the DOM mid-gesture — a live drag node would detach, and
+    // a swipe follows an inline transform on this aside.
+    if (workspaceDrag.isDragging() || chatDrag.isDragging() || swipe.isSwiping()) return;
     const sig = renderSignature();
     if (sig === lastRenderSignature) return;
     lastRenderSignature = sig;
@@ -1133,6 +1157,23 @@ export function createSidebarView(deps) {
     });
   }
 
+  function initSwipe() {
+    swipe = initSidebarSwipe({
+      getSidebar: getContainer,
+      getBackdrop,
+      getEdgeOpen: () => document.getElementById('sidebar-edge-open'),
+      isOpen: () => open,
+      isMobile: isMobileViewport,
+      isResizing: () => document.body?.classList.contains('sidebar-resizing') === true,
+      isChatDragging: () => chatDrag.isDragging(),
+      isWorkspaceDragging: () => workspaceDrag.isDragging(),
+      onClose: closeSidebar,
+      onOpen: openSidebar,
+      onPreviewReveal: revealDrawerPreview,
+      onPreviewHide: hideDrawerPreview,
+    });
+  }
+
   function init() {
     initMenuButton();
     initSearchInput();
@@ -1141,6 +1182,7 @@ export function createSidebarView(deps) {
     initChatDrag();
     applySidebarWidth();
     initResizer();
+    initSwipe();
     applyVisibility();
     // The render signature tracks data, not language, so a language switch
     // needs an explicit rerender to pick up new labels.
@@ -1150,6 +1192,7 @@ export function createSidebarView(deps) {
     });
     window.addEventListener('resize', () => {
       applySidebarWidth();
+      if (swipe.isSwiping()) return;
       applyVisibility();
     });
     render();

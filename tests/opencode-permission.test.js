@@ -76,6 +76,35 @@ assert.equal(shouldRejectOpenCodePlanPermission('plan', askedV2), true);
 assert.equal(shouldRejectOpenCodePlanPermission('plan', askedV1), true);
 assert.equal(shouldRejectOpenCodePlanPermission('agent', askedV2), false);
 assert.equal(shouldRejectOpenCodePlanPermission('plan', { action: 'Read file' }), false);
+assert.equal(shouldRejectOpenCodePlanPermission('agent', askedV2, 'review'), true);
+assert.equal(
+  shouldRejectOpenCodePlanPermission('agent', {
+    action: 'bash',
+    metadata: { command: 'node tests/conversation-fork.test.js' },
+  }, 'review'),
+  true,
+);
+assert.equal(
+  shouldRejectOpenCodePlanPermission('agent', {
+    action: 'bash',
+    metadata: { command: 'node scripts/review-verify.js mcp-chat-history-format' },
+  }, 'review'),
+  false,
+);
+assert.equal(
+  shouldRejectOpenCodePlanPermission('agent', {
+    action: 'bash',
+    metadata: { command: 'rm -rf tmp' },
+  }, 'review'),
+  true,
+);
+assert.equal(
+  shouldRejectOpenCodePlanPermission('plan', {
+    action: 'bash',
+    metadata: { command: 'node tests/conversation-fork.test.js' },
+  }),
+  true,
+);
 
 const askedFromData = buildOpenCodePermissionSdkEvent({
   type: 'permission.v2.asked',

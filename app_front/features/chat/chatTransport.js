@@ -1,12 +1,13 @@
 import { getSdkEventTerminalChunk, resetSdkStreamState } from '../../lib/sdk-chat-format.js';
 import { normalizeSdkMode, parseExplicitSdkMode } from '../../../lib/sdk/sdk-mode.js';
 import {
-  advanceSdkRoomEventWatermarksFromMessages,
   bufferSdkRoomEventDuringHydration,
   beginSdkHistoryHydration,
   finishSdkHistoryHydration,
   isSdkOpenTerminalHydrating,
   isServerAuthoredHistoryMeta,
+  noteRenderedSdkRoomEvent,
+  rememberUnrenderedSdkRoomEvent,
   shouldApplySdkRoomEvent,
   syncSdkEventStream,
 } from './sdkEventReplayGuard.js';
@@ -43,19 +44,31 @@ import {
   shouldKeepChatSocket,
 } from './chatBackgroundPolicy.js';
 import {
+  MOBILE_WS_REPLAY_DEADLINE_MS,
   MOBILE_WS_REPLAY_FALLBACK_MS,
   RESUME_BACKGROUND_WS_QUIET_MOBILE_MS,
   ROOM_STATE_GAP_SYNC_COOLDOWN_MS,
+  shouldHttpCatchUpAfterWsReplay,
   shouldRecycleActiveChatSocketOnResume,
   shouldRunResumeChatHistorySync,
   shouldSkipHttpHistorySyncForMobileWsReplay,
   shouldSyncActiveChatHistoryOnResume,
 } from './chatResumePolicy.js';
 import {
+  CHAT_RESUME_PROBE_PONG_MS,
+  CHAT_STALE_PONG_MS,
+  recordPingSent,
+  recordPongReceived,
+  shouldCloseSocketForResumeProbeTimeout,
+  shouldCloseSocketForStalePong,
+  shouldMarkResumeSocketHealthy,
+} from './chatPingPolicy.js';
+import {
   canOpenChatWebSocketNow,
   resolveBackgroundReconnectBatchDelayMs,
   resolveBackgroundReconnectBatchSize,
 } from './chatWsReconnectPolicy.js';
+import { applyLiveServerHistoryCards } from './chatHistoryViewApply.js';
 import {
   buildHarnessLaunchLabel,
   isHarnessHelloTransport,
@@ -101,6 +114,9 @@ function resolveSdkRunFailureNotice(msg) {
   if (status === 'cancelled') {
     if (code === 'run_stuck_auto_recovery') {
       return t('chat.runStuckAutoRecovery');
+    }
+    if (code === 'delegation_final_report') {
+      return '';
     }
     return t('chat.runCancelled', { detail: failureDetail || '' });
   }
@@ -192,6 +208,19 @@ export function createChatTransport(deps) {
     processAgentOutput(chat, chunk);
     chat.term.write(chunk);
     scrollChatTerminalToBottom(chat.term);
+  }
+
+  /**
+   * @param {Record<string, unknown> | null | undefined} msg
+   * @returns {{ historySeq: number, roomEventSeq: number, eventStreamId: string }}
+   */
+  function readSdkViewOrderMeta(msg) {
+    const eventStreamId = typeof msg?.eventStreamId === 'string' ? msg.eventStreamId.trim() : '';
+    return {
+      historySeq: Number(msg?.historySeq) || 0,
+      roomEventSeq: Number(msg?.roomEventSeq) || 0,
+      eventStreamId,
+    };
   }
 
   function markChatConnectionHealthy(chat) {
@@ -306,7 +335,6 @@ export function createChatTransport(deps) {
   let chatBackgroundMonitorIntervalId = null;
   let visibilityBound = false;
   const CHAT_PING_BACKGROUND_INTERVAL_MS = 60000;
-  const CHAT_STALE_PONG_MS = 150000;
   const CHAT_BACKGROUND_MONITOR_INTERVAL_MS = 12000;
   const CHAT_CATCHUP_DEDUP_MS = 15000;
   const RESUME_BACKGROUND_SYNC_DEFER_MS = 4500;
@@ -333,26 +361,124 @@ export function createChatTransport(deps) {
   function clearSdkWsReplayWaitState(chat) {
     if (!chat || typeof chat !== 'object') return;
     delete chat._sdkAwaitingWsReplay;
+    delete chat._sdkReplayWaitStartedAt;
     if (chat._sdkReplayFallbackTimer != null) {
       clearTimeout(chat._sdkReplayFallbackTimer);
       delete chat._sdkReplayFallbackTimer;
     }
   }
 
-  function scheduleSdkWsReplayFallback(chat) {
-    if (!chat || chat._sdkHistoryHydrating !== true || chat._sdkAwaitingWsReplay !== true) return;
-    if (chat._sdkReplayFallbackTimer != null) return;
-    chat._sdkReplayFallbackTimer = setTimeout(() => {
-      delete chat._sdkReplayFallbackTimer;
-      if (chat._sdkReplayBatchActive === true) return;
-      delete chat._sdkAwaitingWsReplay;
-      if (chat._sdkHistoryHydrating !== true) return;
-      if (typeof onSdkResume === 'function') {
-        Promise.resolve(onSdkResume(chat, { reason: 'replay_fallback' })).catch(() => {});
-        return;
+  function requestHttpCatchUpAfterReplay(chat, reason) {
+    if (typeof onSdkResume !== 'function') {
+      if (chat._sdkHistoryHydrating === true && !isSdkOpenTerminalHydrating(chat)) {
+        completeSdkHistoryHydration(chat, []);
       }
-      completeSdkHistoryHydration(chat, []);
+      return;
+    }
+    Promise.resolve(onSdkResume(chat, { reason })).catch(() => {});
+  }
+
+  function fireSdkWsReplayFallback(chat) {
+    if (!chat) return;
+    delete chat._sdkReplayFallbackTimer;
+    const startedAt = Number(chat._sdkReplayWaitStartedAt) || 0;
+    const now = Date.now();
+    const withinDeadline =
+      startedAt > 0 && now - startedAt < MOBILE_WS_REPLAY_DEADLINE_MS;
+    if (chat._sdkReplayBatchActive === true && withinDeadline) {
+      scheduleSdkWsReplayFallback(chat, true);
+      return;
+    }
+    delete chat._sdkAwaitingWsReplay;
+    requestHttpCatchUpAfterReplay(chat, 'replay_fallback');
+  }
+
+  function scheduleSdkWsReplayFallback(chat, force = false) {
+    if (!chat || chat._sdkAwaitingWsReplay !== true) return;
+    if (chat._sdkReplayFallbackTimer != null && force !== true) return;
+    if (chat._sdkReplayFallbackTimer != null) {
+      clearTimeout(chat._sdkReplayFallbackTimer);
+    }
+    if (!Number.isFinite(chat._sdkReplayWaitStartedAt)) {
+      chat._sdkReplayWaitStartedAt = Date.now();
+    }
+    chat._sdkReplayFallbackTimer = setTimeout(() => {
+      fireSdkWsReplayFallback(chat);
     }, MOBILE_WS_REPLAY_FALLBACK_MS);
+  }
+
+  function detachChatSocket(socket) {
+    if (!socket) return;
+    socket.onmessage = null;
+    socket.onopen = null;
+    socket.onclose = null;
+    socket.onerror = null;
+  }
+
+  function bumpChatSocketGeneration(chat) {
+    chat._wsGeneration = (Number(chat._wsGeneration) || 0) + 1;
+    return chat._wsGeneration;
+  }
+
+  function applyPingState(chat, next) {
+    chat._lastPingAt = next.lastPingAt;
+    chat._unackedPingAt = next.unackedPingAt;
+  }
+
+  function applyPongState(chat, next) {
+    chat._lastPongAt = next.lastPongAt;
+    chat._unackedPingAt = next.unackedPingAt;
+    chat._awaitingResumeProbePong = next.awaitingResumeProbePong;
+    if (chat._resumeProbeTimer != null) {
+      clearTimeout(chat._resumeProbeTimer);
+      delete chat._resumeProbeTimer;
+    }
+    delete chat._resumeProbeAt;
+    delete chat._resumeProbeGeneration;
+  }
+
+  function sendChatPing(chat) {
+    if (!chat?.ws || chat.ws.readyState !== WebSocket.OPEN) return false;
+    try {
+      chat.ws.send(JSON.stringify({ type: 'ping' }));
+    } catch (_) {
+      return false;
+    }
+    const next = recordPingSent({
+      unackedPingAt: chat._unackedPingAt,
+      lastPingAt: chat._lastPingAt,
+      lastPongAt: chat._lastPongAt,
+      sentAt: Date.now(),
+    });
+    applyPingState(chat, next);
+    return true;
+  }
+
+  function startResumeSocketProbe(chat) {
+    if (!chat?.ws || chat.ws.readyState !== WebSocket.OPEN) return;
+    chat._awaitingResumeProbePong = true;
+    chat._resumeProbeAt = Date.now();
+    chat._resumeProbeGeneration = chat._wsGeneration || 0;
+    sendChatPing(chat);
+    if (chat._resumeProbeTimer != null) clearTimeout(chat._resumeProbeTimer);
+    const generation = chat._resumeProbeGeneration;
+    chat._resumeProbeTimer = setTimeout(() => {
+      delete chat._resumeProbeTimer;
+      if (
+        shouldCloseSocketForResumeProbeTimeout({
+          awaitingResumeProbePong: chat._awaitingResumeProbePong === true,
+          resumeProbeAt: chat._resumeProbeAt,
+          now: Date.now(),
+          probeTimeoutMs: CHAT_RESUME_PROBE_PONG_MS,
+          socketGeneration: chat._wsGeneration,
+          probeGeneration: generation,
+        })
+      ) {
+        try {
+          chat.ws?.close();
+        } catch (_) {}
+      }
+    }, CHAT_RESUME_PROBE_PONG_MS);
   }
 
   async function flushPendingSdkRoomEvents(chat, pending) {
@@ -485,12 +611,15 @@ export function createChatTransport(deps) {
     const now = Date.now();
     const lastPingAt = Number.isFinite(chat?._lastPingAt) ? chat._lastPingAt : null;
     const lastPongAt = Number.isFinite(chat?._lastPongAt) ? chat._lastPongAt : null;
+    const unackedPingAt = Number.isFinite(chat?._unackedPingAt) ? chat._unackedPingAt : null;
     return {
       visibility: getPageVisibilityState(),
       online: typeof navigator !== 'undefined' ? navigator.onLine : null,
       reconnectAttempts: chat?._reconnectAttempts || 0,
+      socketGeneration: Number(chat?._wsGeneration) || 0,
       lastPingAgoMs: lastPingAt ? now - lastPingAt : null,
       lastPongAgoMs: lastPongAt ? now - lastPongAt : null,
+      unackedPingAgeMs: unackedPingAt ? now - unackedPingAt : null,
     };
   }
 
@@ -631,7 +760,7 @@ export function createChatTransport(deps) {
     }
     if (chat.ws) {
       try {
-        chat.ws.onclose = null;
+        detachChatSocket(chat.ws);
         chat.ws.close();
       } catch (_) {}
       chat.ws = null;
@@ -666,8 +795,10 @@ export function createChatTransport(deps) {
       : new WebSocket(agentWsUrl(chat));
     socket.onmessage = (ev) => {
       let messageType = 'unknown';
+      /** @type {Record<string, unknown> | undefined} */
+      let msg;
       try {
-        const msg = JSON.parse(ev.data);
+        msg = JSON.parse(ev.data);
         if (typeof msg?.type === 'string' && msg.type.trim()) {
           messageType = msg.type;
         }
@@ -683,7 +814,12 @@ export function createChatTransport(deps) {
           msg.clientReceivedAt = Date.now();
         }
         if (msg.type === 'pong') {
-          chat._lastPongAt = Date.now();
+          applyPongState(chat, recordPongReceived(Date.now()));
+          if (shouldMarkResumeSocketHealthy({
+            awaitingResumeProbePong: chat._awaitingResumeProbePong === true,
+          })) {
+            markChatConnectionHealthy(chat);
+          }
           return;
         }
         if (msg.type === 'chatsChanged') {
@@ -701,9 +837,9 @@ export function createChatTransport(deps) {
           const records = (Array.isArray(msg.records) ? msg.records : [])
             .filter((record) => isServerAuthoredHistoryMeta(record));
           if (records.length > 0 && chat._sdkRichView) {
-            // These rows are already persisted. Do not advance the history
-            // cursor: there may be intervening model events still to pull.
-            void chat._sdkRichView.appendHistoryRecords(records, { instant: true }).catch((error) => {
+            // These rows are already persisted. Do not advance the store ACK:
+            // there may be intervening model events still to pull.
+            void applyLiveServerHistoryCards(chat, records).catch((error) => {
               appLogger.log('history', 'live card failed', { error: String(error) });
             });
           }
@@ -712,7 +848,7 @@ export function createChatTransport(deps) {
         if (msg.type === 'replayBatchStart') {
           chat._sdkReplayBatchActive = true;
           chat._sdkReplayBatchExpected = Number(msg.totalEvents) || 0;
-          clearSdkWsReplayWaitState(chat);
+          scheduleSdkWsReplayFallback(chat);
           traceUiFreeze('sdk-replay', 'batch-start', {
             chatId: chat.id,
             totalEvents: chat._sdkReplayBatchExpected,
@@ -721,21 +857,11 @@ export function createChatTransport(deps) {
           return;
         }
         if (msg.type === 'replayBatch' && Array.isArray(msg.events)) {
-          const replayEvents = msg.events.filter((event) => event && typeof event === 'object');
-          if (chat._sdkRichView?.hasRenderedHistory?.() === true) {
-            advanceSdkRoomEventWatermarksFromMessages(
-              chat,
-              replayEvents.map((event) => ({ ...event, replay: true }))
-            );
-            return;
-          }
-          for (const event of replayEvents) {
-            const replayMsg = { ...event, replay: true };
-            if (bufferSdkRoomEventDuringHydration(chat, replayMsg)) continue;
-            if (!shouldApplySdkRoomEvent(chat, replayMsg)) continue;
-            if (typeof chat._processSdkSocketMessage === 'function') {
-              chat._processSdkSocketMessage(replayMsg);
-            }
+          // Re-enter the socket handler so hydration can buffer, and so room
+          // watermarks move only on the same path that actually renders.
+          for (const event of msg.events) {
+            if (!event || typeof event !== 'object') continue;
+            chat._processSdkSocketMessage?.({ ...event, replay: true });
           }
           return;
         }
@@ -748,6 +874,10 @@ export function createChatTransport(deps) {
           delete chat._sdkReplayBatchActive;
           delete chat._sdkReplayBatchExpected;
           clearSdkWsReplayWaitState(chat);
+          if (shouldHttpCatchUpAfterWsReplay()) {
+            requestHttpCatchUpAfterReplay(chat, 'replay_complete');
+            return;
+          }
           if (chat._sdkHistoryHydrating === true && !isSdkOpenTerminalHydrating(chat)) {
             completeSdkHistoryHydration(chat, []);
           }
@@ -992,12 +1122,14 @@ export function createChatTransport(deps) {
           }
           setAgentState(chat, 'active');
           if (chat._sdkRichView) {
-            chat._sdkRichView.applyEvent(msg.event);
+            chat._sdkRichView.applyEvent(msg.event, readSdkViewOrderMeta(msg));
+            noteRenderedSdkRoomEvent(chat, msg);
             return;
           }
           const chunk = getSdkEventTerminalChunk(chat, msg.event);
           if (!chunk) return;
           appendSdkTermChunk(chat, chunk);
+          noteRenderedSdkRoomEvent(chat, msg);
           return;
         }
         if (msg.type === 'sdkRunFinished') {
@@ -1027,7 +1159,7 @@ export function createChatTransport(deps) {
             hasFailureDetail: !!failureDetail,
           });
           if (chat._sdkRichView) {
-            chat._sdkRichView.appendRunFinished(runStatus);
+            chat._sdkRichView.appendRunFinished(runStatus, readSdkViewOrderMeta(msg));
             const errorCode = typeof msg.lastErrorCode === 'string' ? msg.lastErrorCode.trim() : '';
             if (errorCode === 'cursor_rate_limit') {
               chat._sdkRichView.appendError(
@@ -1320,6 +1452,7 @@ export function createChatTransport(deps) {
           handleBackgroundAgentWsOutput(chat, msg);
         }
       } catch (err) {
+        rememberUnrenderedSdkRoomEvent(chat, msg);
         appLogger.log('chat-ws', 'socket message handler failed', {
           chatId: chat.id,
           messageType,
@@ -1370,6 +1503,8 @@ export function createChatTransport(deps) {
       chat._reconnectAttempts = 0;
       chat._lastPongAt = Date.now();
       chat._lastPingAt = 0;
+      chat._unackedPingAt = 0;
+      chat._awaitingResumeProbePong = false;
       chat._connectionStatus = 'connected';
       appLogger.log('chat-ws', 'socket opened', {
         chatId: chat.id,
@@ -1388,22 +1523,13 @@ export function createChatTransport(deps) {
       markChatConnectionHealthy(chat);
     };
     chat._wsConnectingSince = Date.now();
+    bumpChatSocketGeneration(chat);
     chat.ws = socket;
   }
 
   function completeSdkHistoryHydration(chat, records) {
     if (!chat || typeof chat !== 'object') return;
     const pending = finishSdkHistoryHydration(chat, records);
-    const hasRenderedHistory = chat._sdkRichView?.hasRenderedHistory?.() === true;
-    if (
-      hasRenderedHistory &&
-      pending.length > 0 &&
-      pending.every((message) => message && typeof message === 'object' && message.replay === true)
-    ) {
-      advanceSdkRoomEventWatermarksFromMessages(chat, pending);
-      applyQueuedHelloPrompts(chat);
-      return;
-    }
     if (pending.length <= 8) {
       for (const message of pending) {
         chat._processSdkSocketMessage?.(message);
@@ -1545,20 +1671,22 @@ export function createChatTransport(deps) {
       const now = Date.now();
       for (const chat of getChats()) {
         if (!chat.ws || chat.ws.readyState !== WebSocket.OPEN) continue;
-        if (now - (chat._lastPingAt || 0) < minPingInterval) continue;
-        const lastPingAt = chat._lastPingAt || 0;
-        const lastPongAt = chat._lastPongAt || 0;
-        const awaitingPong = lastPingAt > lastPongAt;
-        if (awaitingPong && now - lastPingAt > CHAT_STALE_PONG_MS) {
+        if (
+          shouldCloseSocketForStalePong({
+            unackedPingAt: chat._unackedPingAt,
+            lastPingAt: chat._lastPingAt,
+            lastPongAt: chat._lastPongAt,
+            now,
+            staleMs: CHAT_STALE_PONG_MS,
+          })
+        ) {
           try {
             chat.ws.close();
           } catch (_) {}
           continue;
         }
-        try {
-          chat.ws.send(JSON.stringify({ type: 'ping' }));
-          chat._lastPingAt = now;
-        } catch (_) {}
+        if (now - (chat._lastPingAt || 0) < minPingInterval) continue;
+        sendChatPing(chat);
       }
     }, 1000);
   }
@@ -1600,7 +1728,7 @@ export function createChatTransport(deps) {
         }
         if (active.ws) {
           const staleSocket = active.ws;
-          staleSocket.onclose = null;
+          detachChatSocket(staleSocket);
           active.ws = null;
           delete active._wsConnectingSince;
           try {
@@ -1632,10 +1760,7 @@ export function createChatTransport(deps) {
           ensureChatConnection(active);
           return;
         }
-        markChatConnectionHealthy(active);
-        try {
-          active.ws.send(JSON.stringify({ type: 'ping' }));
-        } catch (_) {}
+        startResumeSocketProbe(active);
       };
       if (isMobileLikeClient() && needsReconnect && typeof window !== 'undefined') {
         window.setTimeout(connectActiveChat, MOBILE_RESUME_CONNECT_DEFER_MS);
@@ -1649,6 +1774,10 @@ export function createChatTransport(deps) {
       );
       if (skipHttpSyncForWsReplay) {
         active._sdkAwaitingWsReplay = true;
+        if (!Number.isFinite(active._sdkReplayWaitStartedAt)) {
+          active._sdkReplayWaitStartedAt = Date.now();
+        }
+        scheduleSdkWsReplayFallback(active);
       }
       const shouldSyncHistory =
         shouldResumeHistorySync &&

@@ -1,8 +1,8 @@
 /** Recycle an open active-chat socket only after long background (avoids SDK replay storms). */
 export const RESUME_FORCE_WS_RECONNECT_MS = 60000;
 
-/** HTTP history catch-up after resume when background was at least this long. */
-export const RESUME_HISTORY_SYNC_MIN_MS = 8000;
+/** HTTP history catch-up after any real background interval (0 = even a short absence). */
+export const RESUME_HISTORY_SYNC_MIN_MS = 0;
 
 /** Defer cross-device history poll after mobile/PWA resume. */
 export const RESUME_POLL_DEFER_MOBILE_MS = 12000;
@@ -10,8 +10,11 @@ export const RESUME_POLL_DEFER_MOBILE_MS = 12000;
 /** Keep only the active chat WS open briefly after mobile resume. */
 export const RESUME_BACKGROUND_WS_QUIET_MOBILE_MS = 30000;
 
-/** Skip active-chat HTTP catch-up when WS is open and server gap is tiny. */
-export const ACTIVE_CHAT_HISTORY_POLL_SKIP_GAP = 512;
+/** Wait this long for live WS events before HTTP-fetching an active-chat gap. */
+export const ACTIVE_CHAT_HISTORY_POLL_WS_GRACE_MS = 4000;
+
+/** @deprecated Gaps are no longer skipped by size; kept for callers that still import the name. */
+export const ACTIVE_CHAT_HISTORY_POLL_SKIP_GAP = 0;
 
 /** Ignore duplicate active-chat history sync within this window. */
 export const RESUME_SYNC_COOLDOWN_MS = 45000;
@@ -25,8 +28,11 @@ export const RESUME_HISTORY_SYNC_DEFER_DESKTOP_MS = 1200;
 /** Extra defer for poll/room-state driven sync on mobile. */
 export const RESUME_POLL_REASON_EXTRA_DEFER_MOBILE_MS = 2000;
 
-/** Wait for WS replay to finish before HTTP catch-up on mobile reconnect. */
+/** Wait for WS replay to start/finish before HTTP catch-up on mobile reconnect. */
 export const MOBILE_WS_REPLAY_FALLBACK_MS = 1500;
+
+/** Absolute deadline covering missing replay start or end. */
+export const MOBILE_WS_REPLAY_DEADLINE_MS = 8000;
 
 /** Cooldown between room-state gap HTTP syncs for the active chat. */
 export const ROOM_STATE_GAP_SYNC_COOLDOWN_MS = 45000;
@@ -64,6 +70,25 @@ export function shouldSyncActiveChatHistoryOnResume(backgroundMs, forceReconnect
   if (readyState !== WebSocket.OPEN) return true;
   if (!Number.isFinite(backgroundMs) || backgroundMs <= 0) return false;
   return backgroundMs >= RESUME_HISTORY_SYNC_MIN_MS;
+}
+
+/**
+ * Replay can speed up reconnect, but it does not prove the view has new
+ * persistent history rows. HTTP catch-up still runs after replay ends.
+ *
+ * @returns {boolean}
+ */
+export function shouldHttpCatchUpAfterWsReplay() {
+  return true;
+}
+
+/**
+ * Existing rendered history is not proof it contains newly arrived messages.
+ *
+ * @returns {boolean}
+ */
+export function shouldApplyReplayEventsToRenderedView() {
+  return true;
 }
 
 /**
@@ -128,10 +153,13 @@ export function getResumeHistorySyncDeferMs(reason, isMobileLike, backgroundMs =
  * @param {{
  *   headSeq: number,
  *   localAck: number,
+ *   viewAppliedSeq?: number,
  *   wsOpen: boolean,
  *   hydrating?: boolean,
  *   lastSyncAt?: number,
  *   now?: number,
+ *   gapObservedAt?: number,
+ *   wsGraceMs?: number,
  *   hasPendingDelegation?: boolean,
  * }} input
  * @returns {boolean}
@@ -139,15 +167,31 @@ export function getResumeHistorySyncDeferMs(reason, isMobileLike, backgroundMs =
 export function shouldSkipActiveChatHistoryPollSync(input) {
   const headSeq = Number(input.headSeq);
   const localAck = Number(input.localAck);
-  const gap = headSeq - localAck;
-  if (!Number.isFinite(gap) || gap <= 0) return true;
-  if (input.hasPendingDelegation === true) return false;
-  if (input.wsOpen && input.hydrating !== true) return true;
-  if (gap <= ACTIVE_CHAT_HISTORY_POLL_SKIP_GAP) return true;
-  const lastSyncAt = Number(input.lastSyncAt);
+  const viewAppliedSeq = Number.isFinite(Number(input.viewAppliedSeq))
+    ? Number(input.viewAppliedSeq)
+    : localAck;
+  const storeGap = headSeq - localAck;
+  const viewGap = headSeq - viewAppliedSeq;
+  if (!Number.isFinite(storeGap) || !Number.isFinite(viewGap)) return true;
+  if (storeGap <= 0 && viewGap <= 0) return true;
   const now = Number.isFinite(Number(input.now)) ? Number(input.now) : Date.now();
-  if (Number.isFinite(lastSyncAt) && lastSyncAt > 0 && now - lastSyncAt < RESUME_SYNC_COOLDOWN_MS) {
+  const lastSyncAt = Number(input.lastSyncAt);
+  const viewCaughtUp = viewGap <= 0;
+  if (
+    viewCaughtUp &&
+    Number.isFinite(lastSyncAt) &&
+    lastSyncAt > 0 &&
+    now - lastSyncAt < RESUME_SYNC_COOLDOWN_MS
+  ) {
     return true;
   }
-  return false;
+  if (viewCaughtUp) return true;
+  if (input.hydrating === true) return false;
+  if (input.wsOpen !== true) return false;
+  const graceMs = Number.isFinite(Number(input.wsGraceMs))
+    ? Number(input.wsGraceMs)
+    : ACTIVE_CHAT_HISTORY_POLL_WS_GRACE_MS;
+  const gapObservedAt = Number(input.gapObservedAt);
+  if (!Number.isFinite(gapObservedAt) || gapObservedAt <= 0) return true;
+  return now - gapObservedAt < graceMs;
 }

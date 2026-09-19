@@ -8469,6 +8469,23 @@ body.theme-light {
   }
 }
 
+.sidebar-edge-open {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .sidebar-edge-open:not([hidden]) {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 20px;
+    z-index: 1180;
+    touch-action: none;
+  }
+}
+
 .app-sidebar {
   --sidebar-width: min(90vw, 360px);
   position: fixed;
@@ -8558,6 +8575,31 @@ body.sidebar-resizing {
   }
 }
 
+/* Follow-finger dismiss: keep translateX(0) in CSS so disabling transition
+   cannot snap back to the closed translateX(-100%) for a frame. */
+body.sidebar-swiping {
+  .app-sidebar {
+    transform: translateX(0);
+    transition: none;
+    touch-action: none;
+    will-change: transform;
+  }
+
+  .app-sidebar-backdrop {
+    transition: none;
+  }
+}
+
+body.sidebar-swipe-settling {
+  .app-sidebar {
+    transition: transform 0.2s ease;
+  }
+
+  .app-sidebar-backdrop {
+    transition: opacity 0.2s ease;
+  }
+}
+
 .sidebar-head {
   position: relative;
   z-index: 3;
@@ -8610,6 +8652,7 @@ body.sidebar-resizing {
   overflow-y: auto;
   padding: 0.35rem 0.5rem 1rem;
   min-height: 0;
+  touch-action: pan-y;
 }
 
 .app-sidebar {

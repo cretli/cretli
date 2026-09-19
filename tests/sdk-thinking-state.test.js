@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   buildStableSdkToolCallFallback,
+  canonicalizeSdkToolStatus,
   getRunningSdkToolCallCount,
   hasRunningSdkTools,
   isEmptyGenericSdkToolEvent,
@@ -15,6 +16,7 @@ import {
   shouldAcceptSdkToolStatus,
   updateRunningSdkToolState,
 } from '../lib/sdk/sdk-thinking-state.js';
+import { extractTodoSummaryFromToolEvent } from '../lib/sdk/sdk-todo-summary.js';
 
 const runningByRun = new Map();
 
@@ -142,5 +144,68 @@ setRunningSdkToolCallCount(runningByRun, 'run-2', 3);
 assert.equal(getRunningSdkToolCallCount(runningByRun, 'run-2'), 3);
 setRunningSdkToolCallCount(runningByRun, 'run-2', -10);
 assert.equal(getRunningSdkToolCallCount(runningByRun, 'run-2'), 0);
+
+assert.equal(canonicalizeSdkToolStatus({ status: 'success' }), 'completed');
+assert.equal(canonicalizeSdkToolStatus({ status: 'ok' }), 'completed');
+assert.equal(canonicalizeSdkToolStatus({ status: 'done' }), 'completed');
+assert.equal(canonicalizeSdkToolStatus({ status: 'finished' }), 'completed');
+assert.equal(canonicalizeSdkToolStatus({
+  status: 'running',
+  result: { value: { todos: [{ id: '1', content: 'x', status: 'pending' }] } },
+}), 'completed');
+assert.equal(canonicalizeSdkToolStatus({ status: 'running' }), 'running');
+assert.equal(canonicalizeSdkToolStatus({
+  status: 'error',
+  result: { status: 'success' },
+}), 'error');
+assert.equal(canonicalizeSdkToolStatus({
+  status: 'cancelled',
+  result: { status: 'success' },
+}), 'cancelled');
+assert.equal(canonicalizeSdkToolStatus({
+  status: 'canceled',
+  result: { status: 'success' },
+}), 'cancelled');
+assert.equal(canonicalizeSdkToolStatus({
+  status: 'running',
+  result: { error: 'denied' },
+}), 'error');
+assert.equal(canonicalizeSdkToolStatus({
+  status: 'running',
+  result: { status: 'error' },
+}), 'error');
+assert.equal(canonicalizeSdkToolStatus({ result: { success: false } }), 'completed');
+assert.equal(shouldAcceptSdkToolStatus('running', 'success'), true);
+assert.equal(shouldAcceptSdkToolStatus(
+  'running',
+  canonicalizeSdkToolStatus({ status: 'success' })
+), true);
+assert.equal(shouldAcceptSdkToolStatus('cancelled', 'success'), false);
+assert.equal(shouldAcceptSdkToolStatus(
+  'cancelled',
+  canonicalizeSdkToolStatus({ status: 'success' })
+), true);
+
+const inputArgsTodos = [{ content: 'from-args', status: 'in_progress' }];
+assert.equal(extractTodoSummaryFromToolEvent({
+  args: { todos: inputArgsTodos },
+  result: { todos: [] },
+}), '');
+assert.equal(extractTodoSummaryFromToolEvent({
+  args: { todos: inputArgsTodos },
+  result: { value: { todos: [] } },
+}), '');
+assert.equal(extractTodoSummaryFromToolEvent({
+  args: { todos: inputArgsTodos },
+  result: { value: { files: [] } },
+}), '[in_progress] from-args');
+assert.equal(extractTodoSummaryFromToolEvent({
+  args: { todos: [{ content: 'old', status: 'pending' }] },
+  result: { value: { todos: [{ content: 'from-result', status: 'completed' }] } },
+}), '[completed] from-result');
+assert.equal(extractTodoSummaryFromToolEvent({
+  args: { todos: [{ content: 'old', status: 'pending' }] },
+  result: { todos: [{ content: 'from-result-todos', status: 'completed' }] },
+}), '[completed] from-result-todos');
 
 console.log('All sdk-thinking-state tests passed.');

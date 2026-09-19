@@ -4,6 +4,7 @@ import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 import { addChat } from '../lib/persist/chats-persist.js';
 import {
   createDelegationService,
+  DELEGATION_CHILD_STOP_GRACE_MS,
   finishDelegation,
   flushDelegationOutbox,
   setDelegationCrashHook,
@@ -15,9 +16,12 @@ import {
   retryMailboxMessage,
   sendDelegationReply,
 } from '../lib/delegation-mailbox.js';
+import { applyDelegationFinalReportRunFinished } from '../lib/delegation-run-bridge.js';
 import { createMailboxMessage, loadMailboxMessages } from '../lib/persist/delegation-mailbox-persist.js';
 import {
   getMockChatRunStartCount,
+  hangNextMockChatRunCancel,
+  getMockChatRun,
   patchMockChatRun,
   registerMockChatRunAdapter,
   resetMockChatRuns,
@@ -199,6 +203,55 @@ function invokeRoute(routes, url, req) {
   assert.equal(late.ok === false || late.replayed === true || getDelegationById(job.id).report === 'durable final before outbox', true);
   assert.equal(getDelegationById(job.id).attemptId, attemptId);
   assert.equal(countDelegationAttempts(getDelegationById(job.id)), 1);
+}
+
+{
+  const p = parent('final_report must not await self-cancel');
+  const job = (await start(p)).delegation;
+  const releaseCancel = hangNextMockChatRunCancel();
+  const replyPromise = sendDelegationReply({
+    fromChatId: job.childChatId,
+    body: 'final without mcp deadlock',
+    replyKind: 'final_report',
+    idempotencyKey: 'no-self-cancel-deadlock',
+    attemptId: job.attemptId,
+    runId: job.runId,
+  });
+  const timeout = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('delegation_reply awaited child cancel')), 200);
+  });
+  const replied = await Promise.race([replyPromise, timeout]);
+  assert.equal(replied.ok, true);
+  assert.equal(getDelegationById(job.id).status, 'completed');
+  assert.equal(getMockChatRun(job.childChatId)?.cancelled === true, false);
+  releaseCancel();
+}
+
+{
+  const p = parent('final_report leftover cancel is quiet and run-fenced');
+  const started = await start(p);
+  const job = started.delegation;
+  const replied = await sendDelegationReply({
+    fromChatId: job.childChatId,
+    body: 'final quiet stop fence',
+    replyKind: 'final_report',
+    idempotencyKey: 'quiet-stop-runid-fence',
+    attemptId: job.attemptId,
+    runId: job.runId,
+  });
+  assert.equal(replied.ok, true);
+  const row = getDelegationById(job.id);
+  const acceptedRunId = String(row.finalReportRunId || job.runId || '').trim();
+  const room = { delegationId: job.id, chatId: job.childChatId };
+  const accepted = { type: 'sdkRunFinished', runId: acceptedRunId, status: 'cancelled' };
+  applyDelegationFinalReportRunFinished(room, accepted);
+  assert.equal(accepted.status, 'completed');
+  const later = { type: 'sdkRunFinished', runId: 'follow-up-run', status: 'cancelled' };
+  applyDelegationFinalReportRunFinished(room, later);
+  assert.equal(later.status, 'cancelled');
+  await new Promise((resolve) => setTimeout(resolve, DELEGATION_CHILD_STOP_GRACE_MS + 80));
+  assert.equal(getMockChatRun(job.childChatId)?.cancelled, true);
+  assert.equal(String(getDelegationById(job.id).runStoppingAt || ''), '');
 }
 
 {
