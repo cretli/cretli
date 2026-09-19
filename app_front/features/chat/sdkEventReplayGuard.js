@@ -1,3 +1,16 @@
+const SERVER_AUTHORED_HISTORY_META = new Set(['delegation', 'mailbox', 'relatedChat']);
+
+/**
+ * History cards written outside the agent event stream have no roomEventSeq.
+ *
+ * @param {Record<string, unknown> | null | undefined} rec
+ * @returns {boolean}
+ */
+export function isServerAuthoredHistoryMeta(rec) {
+  if (!rec || rec.kind !== 'meta') return false;
+  return SERVER_AUTHORED_HISTORY_META.has(String(rec.variant || ''));
+}
+
 /**
  * Resets the event watermark after a new SDK room is created on the server.
  *
@@ -185,8 +198,9 @@ export function hasSdkHistoryRoomWatermarks(chat) {
  * applied yet. Watermarks are advanced so a concurrent WS replay cannot render
  * the same events a second time.
  *
- * Records without a stream id are skipped during incremental catch-up: there is
- * no safe way to tell them apart from entries that are already visible.
+ * Server-authored history cards (delegation, mailbox, relatedChat) have no
+ * room stream ids. Their renderers upsert by id, so they can safely be
+ * reapplied on catch-up. Other records without a stream id are skipped.
  *
  * @param {object} chat
  * @param {unknown[]} records
@@ -214,6 +228,10 @@ export function takeMissingSdkHistoryRecords(chat, records) {
   for (const record of records) {
     if (!record || typeof record !== 'object') continue;
     const rec = /** @type {Record<string, unknown>} */ (record);
+    if (isServerAuthoredHistoryMeta(rec)) {
+      missing.push(record);
+      continue;
+    }
     const streamId = typeof rec.eventStreamId === 'string' ? rec.eventStreamId.trim() : '';
     const seq = Number(rec.roomEventSeq);
     if (!streamId || !Number.isSafeInteger(seq) || seq < 1) continue;

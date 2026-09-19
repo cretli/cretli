@@ -47,7 +47,7 @@ import { createClientDebugLog } from './lib/client-debug-log.js';
 import { installFrontHmrMiddleware } from './lib/front-hmr.js';
 import { buildInteractivePtyEnv as buildPtyEnv } from './lib/pty-env.js';
 import { registerAppRoutes, registerDevAndUpdateRoutes } from './lib/register-app-routes.js';
-import { reconcileDelegationsOnBoot } from './lib/delegation-service.js';
+import { bootDelegationRuntime, shutdownDelegationRuntime, installDelegationTestAdapters } from './lib/delegation-runtime-boot.js';
 import { logServerReady } from './lib/boot-log.js';
 import { isHttpTimingEnabled } from './lib/routes/settings-routes.js';
 import {
@@ -129,8 +129,9 @@ const FRONT_HOT_FALLBACK_ENABLED =
   FRONT_HOT_FALLBACK_ENV === '1' || FRONT_HOT_FALLBACK_ENV === 'true';
 
 const app = express();
-const INDEX_HTML_PATH = path.join(__dirname, 'public', 'index.html');
-const LOGIN_HTML_PATH = path.join(__dirname, 'public', 'login.html');
+const PUBLIC_DIR = String(process.env.CRETLI_PUBLIC_DIR || '').trim() || path.join(__dirname, 'public');
+const INDEX_HTML_PATH = path.join(PUBLIC_DIR, 'index.html');
+const LOGIN_HTML_PATH = path.join(PUBLIC_DIR, 'login.html');
 const dataDir = resolveDataPath();
 const keyPath = process.env.SSL_KEY_PATH || path.join(dataDir, 'key.pem');
 const certPath = process.env.SSL_CERT_PATH || path.join(dataDir, 'cert.pem');
@@ -276,7 +277,6 @@ registerAppRoutes(app, {
   getLastTerminalSessionId: () => lastTerminalSessionId,
   setLastTerminalSessionId: (sessionId) => { lastTerminalSessionId = sessionId; },
 });
-void reconcileDelegationsOnBoot();
 
 const wss = new WebSocketServer({ server });
 const wsRouterCtx = {
@@ -353,7 +353,7 @@ app.use('/dist/app', (req, res, next) => {
   if (/\.(?:css|js)$/.test(String(req.path || ''))) res.setHeader('Cache-Control', 'no-store');
   next();
 });
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(PUBLIC_DIR));
 const sdkRoomTransport = await initSdkRoomTransport();
 const seededRevisionCount = seedChatHistoryRevisionsFromIndex(listChatHistoryHeadSeqs());
 const lanSetupGuard = assertLanSetupGuard({
@@ -365,6 +365,23 @@ if (!lanSetupGuard.ok) {
   console.error(`Cretli: ${lanSetupGuard.message}`);
   process.exit(1);
 }
+await installDelegationTestAdapters();
+void bootDelegationRuntime();
+let delegationShutdownStarted = false;
+async function shutdownDelegationAndExit(signal) {
+  if (delegationShutdownStarted) return;
+  delegationShutdownStarted = true;
+  const result = await shutdownDelegationRuntime({ timeoutMs: 8000 });
+  const code = result.ok ? 0 : 1;
+  console.error(`[cretli] ${signal}: delegation shutdown ${result.ok ? 'complete' : 'timed out'}`);
+  process.exit(code);
+}
+process.on('SIGTERM', () => {
+  void shutdownDelegationAndExit('SIGTERM');
+});
+process.on('SIGINT', () => {
+  void shutdownDelegationAndExit('SIGINT');
+});
 server.listen(PORT, BIND_HOST, () => {
   installServerLogCapture();
   if (FRONT_HOT_FALLBACK_ENABLED) installFrontBuildWatcher(__dirname, SERVER_INSTANCE_TOKEN);

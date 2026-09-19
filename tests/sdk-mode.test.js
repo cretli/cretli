@@ -7,6 +7,7 @@ import {
   isReadOnlySdkMode,
   normalizeSdkMode,
   parseExplicitSdkMode,
+  shouldRenderModeChange,
   readEnforcedSdkMode,
   SDK_MODE_DEFAULT,
   toNativeAgentMode,
@@ -25,6 +26,11 @@ assert.equal(normalizeSdkMode('other'), 'agent');
 assert.equal(parseExplicitSdkMode('ask'), 'ask');
 assert.equal(parseExplicitSdkMode('agent'), 'agent');
 assert.equal(parseExplicitSdkMode('nope'), '');
+
+assert.equal(shouldRenderModeChange('', 'agent'), true);
+assert.equal(shouldRenderModeChange('agent', 'agent'), false);
+assert.equal(shouldRenderModeChange('agent', 'plan'), true);
+assert.equal(shouldRenderModeChange('plan', 'invalid'), false);
 
 assert.equal(isReadOnlySdkMode('plan'), true);
 assert.equal(isReadOnlySdkMode('ask'), true);

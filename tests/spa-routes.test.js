@@ -99,6 +99,13 @@ test('isHarnessSettingsTab covers overview and backend tabs', () => {
   assert.equal(isHarnessSettingsTab(''), false);
 });
 
+test('parseSpaPath accepts the delegations settings tab', () => {
+  assert.deepEqual(parseSpaPath('/settings/delegations'), {
+    panel: 'settings',
+    settingsTab: 'delegations',
+  });
+});
+
 test('parseSpaPath accepts interface sub-tabs', () => {
   assert.deepEqual(parseSpaPath('/settings/interface'), {
     panel: 'settings',

@@ -4,7 +4,8 @@
  * The drawer slides in from the left via the header menu icon.
  */
 
-import { applyChatOrder, flattenChatsTree } from '../../../lib/chat-tree.js';
+import { applyChatOrder, flattenChatsTree, partitionChatsByArchive } from '../../../lib/chat-tree.js';
+import { MAX_SIDEBAR_NEST_INDENT } from './sidebarChatDragBlock.js';
 import { sortChatsByFavoriteThenDate } from '../chat/chatListSort.js';
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from '../../lib/storageKeyAlias.js';
 import { getCurrentLang, t } from '../../i18n/index.js';
@@ -27,6 +28,7 @@ import {
 
 const SIDEBAR_OPEN_KEY = 'cretli-sidebar-open';
 const SIDEBAR_COLLAPSE_KEY = 'cretli-sidebar-collapsed';
+const SIDEBAR_ARCHIVE_OPEN_KEY = 'cretli-sidebar-archive-open';
 const SIDEBAR_PIN_KEY = 'cretli-sidebar-pinned';
 const SIDEBAR_WIDTH_KEY = 'cretli-sidebar-width';
 const SIDEBAR_PIN_ACTIVE_WORKSPACE_KEY = 'cretli-sidebar-pin-active-workspace';
@@ -103,6 +105,26 @@ function writeCollapsedSet(set) {
       .map((item) => normalizePath(item))
       .filter((item) => item);
     writeStorageValueWithAlias(localStorage, SIDEBAR_COLLAPSE_KEY, JSON.stringify(normalized));
+  } catch (_) {}
+}
+
+function readArchiveOpenSet() {
+  if (typeof localStorage === 'undefined') return new Set();
+  try {
+    const raw = readStorageValueWithAlias(localStorage, SIDEBAR_ARCHIVE_OPEN_KEY, '');
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.map((item) => String(item || '').trim()).filter(Boolean));
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function writeArchiveOpenSet(set) {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    writeStorageValueWithAlias(localStorage, SIDEBAR_ARCHIVE_OPEN_KEY, JSON.stringify([...set]));
   } catch (_) {}
 }
 
@@ -189,6 +211,7 @@ export function createSidebarView(deps) {
   let open = readOpenFlag();
   let pinned = readPinFlag();
   const collapsed = readCollapsedSet();
+  const archiveOpen = readArchiveOpenSet();
   let lastRenderSignature = '';
   let pollTimer = null;
   let searchQuery = '';
@@ -318,6 +341,18 @@ export function createSidebarView(deps) {
     render();
   }
 
+  function isArchiveSectionOpen(sidebarKey) {
+    return archiveOpen.has(String(sidebarKey || '').trim());
+  }
+
+  function setArchiveSectionOpen(sidebarKey, value) {
+    const key = String(sidebarKey || '').trim();
+    if (!key) return;
+    if (value) archiveOpen.add(key);
+    else archiveOpen.delete(key);
+    writeArchiveOpenSet(archiveOpen);
+  }
+
   function getSearchInput() {
     return document.getElementById('sidebar-search');
   }
@@ -369,23 +404,34 @@ export function createSidebarView(deps) {
   }
 
   function renderChatItem(chat, activeChatId, opts = {}) {
-    const level = opts.level === 1 ? 1 : 0;
-    const isLastChild = level === 1 && opts.isLastChild === true;
-    const state = resolveChatState(chat);
-    const meta = getTerminalStateMeta(chat);
+    const level = Math.max(0, Number(opts.level) || 0);
+    const indentLevel = Math.min(MAX_SIDEBAR_NEST_INDENT, level);
+    const isLastChild = level > 0 && opts.isLastChild === true;
+    const parentId = typeof opts.parentId === 'string' ? opts.parentId : '';
+    const archived = opts.archived === true;
+    const state = archived ? 'disconnected' : resolveChatState(chat);
+    const meta = archived
+      ? { tone: 'disconnected', label: t('chatUi.archivedState') }
+      : getTerminalStateMeta(chat);
     const showMeta = meta.tone !== 'idle';
     return (
       '<li class="sidebar-chat-item' +
       (chat.id === activeChatId ? ' is-active' : '') +
-      (level === 1 ? ' is-child' : '') +
+      (level > 0 ? ' is-child' : '') +
       (isLastChild ? ' is-last-child' : '') +
+      (archived ? ' is-archived' : '') +
       '" role="option" aria-selected="' +
       (chat.id === activeChatId ? 'true' : 'false') +
       '" data-chat-id="' +
       escapeHtml(chat.id) +
-      // Roving tabindex: only the active chat is reachable with Tab, arrows
-      // move between the rest (see initChatListKeyboard).
-      '" tabindex="' +
+      '" data-nest-level="' +
+      String(archived ? 0 : level) +
+      '" data-parent-id="' +
+      escapeHtml(archived ? '' : parentId) +
+      '"' +
+      (archived ? ' data-archived="1"' : '') +
+      (indentLevel > 0 && !archived ? ' style="--sidebar-nest-level:' + String(indentLevel) + '"' : '') +
+      ' tabindex="' +
       (chat.id === activeChatId ? '0' : '-1') +
       '">' +
       '<span class="sidebar-chat-item-state sidebar-chat-item-state--' +
@@ -395,6 +441,13 @@ export function createSidebarView(deps) {
       '" aria-hidden="true"></span>' +
       '<span class="sidebar-chat-item-title">' +
       escapeHtml(chat.title) +
+      (archived
+        ? '<span class="sidebar-chat-item-temp-badge" title="' +
+          escapeHtml(t('chatUi.archivedChat')) +
+          '">' +
+          escapeHtml(t('chatUi.archivedBadge')) +
+          '</span>'
+        : '') +
       (chat.isTemporary
         ? '<span class="sidebar-chat-item-temp-badge" title="' + escapeHtml(t('sidebar.tempAgentTitle')) + '">'
           + escapeHtml(t('sidebar.tempBadge')) + '</span>'
@@ -421,6 +474,39 @@ export function createSidebarView(deps) {
     );
   }
 
+  function renderArchiveSection(sidebarKey, archivedChats, activeChatId, searching) {
+    if (!archivedChats.length) return '';
+    const openSection = searching || isArchiveSectionOpen(sidebarKey)
+      || archivedChats.some((chat) => chat.id === activeChatId);
+    return (
+      '<li class="sidebar-archive-group" data-sidebar-key="' +
+      escapeHtml(sidebarKey) +
+      '">' +
+      '<div class="sidebar-archive-header" role="button" tabindex="0" aria-expanded="' +
+      (openSection ? 'true' : 'false') +
+      '">' +
+      '<span class="sidebar-workspace-chevron mdi mdi-chevron-' +
+      (openSection ? 'down' : 'right') +
+      '" aria-hidden="true"></span>' +
+      '<span class="mdi mdi-archive-outline" aria-hidden="true"></span>' +
+      '<span class="sidebar-archive-title">' +
+      escapeHtml(t('sidebar.archiveSection')) +
+      '</span>' +
+      '<span class="sidebar-workspace-count">' +
+      String(archivedChats.length) +
+      '</span>' +
+      '</div>' +
+      '<ul class="sidebar-archive-list" role="listbox"' +
+      (openSection ? '' : ' hidden') +
+      '>' +
+      archivedChats
+        .map((chat) => renderChatItem(chat, activeChatId, { archived: true }))
+        .join('') +
+      '</ul>' +
+      '</li>'
+    );
+  }
+
   function renderWorkspaceGroup(workspace, activeWorkspaceFile, activeWorkspaceFolder, activeChatId, chats) {
     const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
     const preferredFolder = getPreferredWorkspaceFolder(sidebarKey);
@@ -428,8 +514,23 @@ export function createSidebarView(deps) {
       normalizePath(workspace.workspaceFile) === normalizePath(activeWorkspaceFile) &&
       normalizePath(preferredFolder) === normalizePath(activeWorkspaceFolder);
     const isCollapsed = !isSearchActive() && isWorkspaceCollapsed(sidebarKey);
-    const treeChats = flattenChatsTree(chats);
-    const count = chats.length;
+    const { live, archived } = partitionChatsByArchive(chats);
+    const treeChats = flattenChatsTree(live);
+    const count = live.length;
+    const liveHtml = count
+      ? treeChats
+          .map((item) =>
+            renderChatItem(item.chat, activeChatId, {
+              level: item.level,
+              isLastChild: item.isLastChild,
+              parentId: item.parentId,
+            })
+          )
+          .join('')
+      : archived.length
+        ? ''
+        : '<li class="sidebar-chat-empty">' + escapeHtml(t('sidebar.noChats')) + '</li>';
+    const archiveHtml = renderArchiveSection(sidebarKey, archived, activeChatId, isSearchActive());
 
     return (
       '<li class="sidebar-workspace' +
@@ -468,16 +569,8 @@ export function createSidebarView(deps) {
       '<ul class="sidebar-chat-list" role="listbox"' +
       (isCollapsed ? ' hidden' : '') +
       '>' +
-      (count
-        ? treeChats
-            .map((item) =>
-              renderChatItem(item.chat, activeChatId, {
-                level: item.level,
-                isLastChild: item.isLastChild,
-              })
-            )
-            .join('')
-        : '<li class="sidebar-chat-empty">' + escapeHtml(t('sidebar.noChats')) + '</li>') +
+      liveHtml +
+      archiveHtml +
       '</ul>' +
       '</li>'
     );
@@ -502,6 +595,7 @@ export function createSidebarView(deps) {
           c.todoId ? 'D' : '',
           c.forkParentChatId || '',
           c.widgetPinnedUrl || '',
+          c.archivedAt ? 'X' : '',
         ].join(',')
       )
       .join('|');
@@ -531,6 +625,8 @@ export function createSidebarView(deps) {
       searchQuery +
       '||' +
       (readPinActiveWorkspaceFlag() ? '1' : '0') +
+      '||' +
+      [...archiveOpen].sort().join('|') +
       '||' +
       readWorkspaceOrder().join('\n') +
       '||' +
@@ -674,6 +770,23 @@ export function createSidebarView(deps) {
             render();
           }
         });
+      });
+      header.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        header.click();
+      });
+    });
+
+    body.querySelectorAll('.sidebar-archive-header').forEach((header) => {
+      header.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const group = header.closest('.sidebar-archive-group');
+        const key = group?.getAttribute('data-sidebar-key') || '';
+        if (!key) return;
+        setArchiveSectionOpen(key, !isArchiveSectionOpen(key));
+        forceRerender();
       });
       header.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -827,7 +940,8 @@ export function createSidebarView(deps) {
    */
   function initChatListKeyboard(root) {
     root.querySelectorAll('.sidebar-chat-list').forEach((list) => {
-      const readItems = () => Array.from(list.querySelectorAll('.sidebar-chat-item'));
+      const readItems = () =>
+        Array.from(list.querySelectorAll('.sidebar-chat-item')).filter((el) => !el.closest('[hidden]'));
       const initial = readItems();
       // Without an active chat nothing would be reachable with Tab.
       if (initial.length && !initial.some((el) => el.getAttribute('tabindex') === '0')) {

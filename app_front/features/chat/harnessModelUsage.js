@@ -3,6 +3,7 @@ import {
   catalogFromModelsPayload,
   countCatalogEnabledModels,
 } from '../../../lib/model-catalog.js';
+import { normalizeDeepSeekChatEnabledModels } from '../../../lib/deepseek/deepseek-model-ids.js';
 
 /**
  * @typedef {{ enabled: number, total: number }} HarnessModelUsage
@@ -72,7 +73,7 @@ export async function loadHarnessModelUsage(settings) {
     ),
     deepseek: countCatalogEnabledModels(
       catalogFromModelsPayload(deepseek),
-      settings?.deepseekChatEnabledModels,
+      normalizeDeepSeekChatEnabledModels(settings?.deepseekChatEnabledModels),
     ),
     qwen: countCatalogEnabledModels(catalogFromModelsPayload(qwen), settings?.qwenChatEnabledModels),
     codex: countCatalogEnabledModels(catalogFromModelsPayload(codex), settings?.codexChatEnabledModels),

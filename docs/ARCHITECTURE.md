@@ -35,10 +35,12 @@ built to `public/dist/`.
 | `mcp/` | MCP config, secrets, runtime, Plan policy, harness adapters, Settings API |
 | `persist/todos-persist.js` | CRUD for `data/todos/` (per-workspace) |
 | `todo-plan-sync.js` | After Plan-mode runs, write versioned `.cursor/plans/cretli-{chatId}.md` and the linked Todo (Cursor SDK + other harnesses) |
-| `delegation-service.js` | Create/start/cancel/retry/ack jobs from a saved plan or a chat message; one active job per planner chat |
-| `delegation-mailbox.js` | Durable parent↔child mailbox; idle recipients start a turn, busy/waiting chats queue until the run ends |
+| `delegation-service.js` | Create/start/cancel/retry/ack jobs from a saved plan or a chat message; one active job per planner chat; versioned attempts and an outbox for history/mailbox delivery |
+| `delegation-runtime-worker.js` | Periodic outbox flush, starting/cancelling/dispatching timeouts, and mailbox drain. Timer errors stay in the worker (degraded + backoff) and do not exit the process. Ticks do not overlap; flush from boot/bridge/runtime is serialized. Does not reuse boot interrupt semantics on a live start |
+| `delegation-mailbox.js` | Durable parent↔child mailbox; progress and final reports are distinct; idle recipients start a turn, busy/waiting chats queue until the run ends |
+| `persist/delegations-persist.js` | `data/delegations.json` with corrupt/I/O errors that do not look like an empty store. Atomic rename is last-writer-wins across processes; no inter-process merge |
 | `agent-run-state.js` | Cheap per-chat busy/waiting/attention summary for the chat list |
-| `delegation-executor.js` | Rejects executor models that are not in the enabled catalog |
+| `delegation-executor.js` | Resolves executor models onto Settings-enabled (favorite) variants; rejects ids outside that list |
 | `sdk/cursor-agent-sdk-ws.js` | `/ws-agent-sdk` rooms: `Agent.create`/`resume`, `run.stream()`, server-side history tap, plan guard, grace shutdown |
 | `sdk/sdk-room-bus.js` | Optional Redis pub-sub + room owner registry for multi-instance SDK (`CRETLI_REDIS_URL`) |
 | `sdk/sdk-room-registry.js` | Redis `sessionKey → instanceId` lease for SDK room ownership |
@@ -80,7 +82,7 @@ Each chat stores `agentTransport`: `sdk` (default), `openrouter`, `opencode`, `c
 | `qwen` | `@qwen-code/sdk` via `qwen-agent-ws.js` + bundled Qwen CLI | `QWEN_API_KEY` / Settings (Qwen Cloud); endpoint preset `payg` / `token-plan` / `coding-plan` / `custom`; optional `QWEN_BIN` |
 | `codex` | `@openai/codex-sdk` via `codex-agent-ws.js` + bundled `codex` CLI | ChatGPT plan (device login) **or** `CODEX_API_KEY` / Settings; optional `CODEX_BIN` |
 
-All seven harnesses share the same WebSocket path (`/ws-agent-sdk`), protocol (`sdkEvent`, replay batches), rich view, and history persist format. OpenRouter, OpenCode, CodeBuddy, DeepSeek, Qwen, and Codex events are normalized to SDK-shaped payloads before broadcast. If the chat row is gone (deleted on another device), the server sends `sdkError` with code `chat_not_found` and the client stops reconnecting instead of treating it as a recoverable `invalid_session`.
+All seven harnesses share the same WebSocket path (`/ws-agent-sdk`), protocol (`sdkEvent`, replay batches), rich view, and history persist format. OpenRouter, OpenCode, CodeBuddy, DeepSeek, Qwen, and Codex events are normalized to SDK-shaped payloads before broadcast. Archive, restore, delete, and sidebar nesting persist a `chatsChanged` frame to every attached agent socket so the live sidebar reloads without waiting for a page resume. If the chat row is gone (deleted on another device), the server sends `sdkError` with code `chat_not_found` and the client stops reconnecting instead of treating it as a recoverable `invalid_session`.
 
 ### The `sdk-*` prefix is protocol, not Cursor SDK
 
@@ -92,7 +94,9 @@ all harnesses**: `sdk-mode.js`, `sdk-ui-mode.js`, `sdk-ws-handshake.js`,
 as "agent chat protocol". Only `cursor-agent-sdk-ws.js` actually talks to `@cursor/sdk`.
 
 The same applies on the frontend: `sdkEvent`, `sdkRunFinished`, `sdkRoomState` and the
-rich view are the common wire format, not a Cursor-only path.
+rich view are the common wire format, not a Cursor-only path. `chatsChanged` is also
+common: the SPA reloads the chat list (`skipAutoSelect`) so MCP `chat_archive` updates
+the sidebar immediately.
 
 ### Shared room kernel (harness chats)
 
@@ -110,7 +114,7 @@ the E2E suite — check `tests/e2e/chat-live-harnesses.spec.js` when you change 
 
 SDK-specific diagnostics include strict model audit for fast variants (`::fast=true`): requested model, effective model, and explicit fallback metadata in `/api/chats/:id/diag`.
 
-OpenCode chats persist optional `opencodeSessionId` in `data/chats.json` for session reuse after reconnect. CodeBuddy chats persist `codebuddySessionId` and pass it as `query()` `options.resume`. DeepSeek chats persist `deepseekSessionId` and pass it to `DeepSeekHarness.run({ sessionId })`. Isolated DSH home is `data/dsh-home/`. Setup: **`docs/deepseek/SETUP.md`**. Qwen chats persist `qwenSessionId` and pass it as `query()` `options.resume`. Isolated Qwen home is `data/qwen-home/`. Setup: **`docs/qwen/SETUP.md`**. Qwen `ask_user_question` is surfaced through the same chat question UI as OpenCode (`opencode_question` / `opencodeQuestionReply`) via `lib/qwen/qwen-question.js`. Codex chats persist `codexThreadId` and pass it to `codex.resumeThread()`. Isolated Codex home is `data/codex-home/`. Setup: **`docs/codex/SETUP.md`**.
+OpenCode chats persist optional `opencodeSessionId` in `data/chats.json` for session reuse after reconnect. CodeBuddy chats persist `codebuddySessionId` and pass it as `query()` `options.resume`. DeepSeek chats persist `deepseekSessionId` and pass it to `DeepSeekHarness.run({ sessionId })` only while the same `dsh` process is alive; a rebuilt runtime drops that id so DSH does not collide with the persisted session log and silently complete empty turns. Child DSH workflow sessions stay off that field and off the parent run outcome — their text lands in a `subagent` tool block. Isolated DSH home is `data/dsh-home/`. Setup: **`docs/deepseek/SETUP.md`**. Qwen chats persist `qwenSessionId` and pass it as `query()` `options.resume`. Isolated Qwen home is `data/qwen-home/`. Setup: **`docs/qwen/SETUP.md`**. Qwen `ask_user_question` is surfaced through the same chat question UI as OpenCode (`opencode_question` / `opencodeQuestionReply`) via `lib/qwen/qwen-question.js`. Codex chats persist `codexThreadId` and pass it to `codex.resumeThread()`. Isolated Codex home is `data/codex-home/`. Setup: **`docs/codex/SETUP.md`**.
 
 **OpenCode-specific features** (parity with SDK where applicable):
 
@@ -253,9 +257,9 @@ Model windows come from a static prefix table in `lib/sdk/sdk-context-advisory.j
 | GET | `/api/codebuddy/status` | CodeBuddy package + CLI + API key readiness |
 | GET | `/api/codebuddy/models` | CodeBuddy model catalog (live account probe, then international-site catalog) |
 | GET | `/api/deepseek/status` | DeepSeek Harness package + CLI + API key readiness |
-| GET | `/api/deepseek/models` | DeepSeek Harness model catalog (V4 Flash / V4 Pro / V4 Flash Vision Exp) |
+| GET | `/api/deepseek/models` | DeepSeek Harness model catalog (live `GET /models` when a key is set; fallback `deepseek-flash` / `deepseek-v4-pro`) |
 | GET | `/api/qwen/status` | Qwen Code SDK + Qwen Cloud API key readiness (CLI optional) |
-| GET | `/api/qwen/models` | Qwen Cloud model catalog (3.8 Max / Plus / Coder) |
+| GET | `/api/qwen/models` | Qwen Cloud model catalog (live `{baseUrl}/models` when a key is set; otherwise plan fallback) |
 | GET | `/api/codex/status` | Codex SDK package + CLI + ChatGPT session or API key readiness |
 | POST | `/api/codex/login/start` | Start ChatGPT device-code login (`codex login --device-auth`) |
 | GET | `/api/codex/login/status` | Device-login phase, URL, and one-time code (no tokens) |
@@ -265,8 +269,11 @@ Model windows come from a static prefix table in `lib/sdk/sdk-context-advisory.j
 | POST | `/api/chats/:id/delegations` | Start a plan- or message-sourced job (executor + idempotency key; plan revision or history seq) |
 | GET | `/api/chats/:id/delegations` | List jobs for the chat as planner or executor |
 | GET | `/api/chats/:id/plan` | Latest persisted plan document (revision, hash, markdown) |
+| GET | `/api/delegations/runtime` | Delegation worker/lifecycle health (auth; no prompt text; workspace/widget scoped counts) |
+| GET | `/api/delegations` | Workspace job summaries (`attention`, `cursor`, `limit`) |
 | GET | `/api/delegations/executors` | Harnesses that can start/cancel without an open browser (all enabled agent transports) |
-| GET | `/api/delegations/:id` | Job status and report |
+| GET | `/api/delegations/:id` | Job status and report (`field=summary\|report\|plan\|attempts\|outbox` for paging) |
+| POST | `/api/delegations/:id/retry-delivery` | Retry one failed/uncertain mailbox message. `mailboxId` (or `messageId`) is always required, including when 0 or 1 messages exist. Optional `attemptId`. Does not start a new attempt |
 | POST | `/api/delegations/:id/cancel` | Request stop; stays `cancelling` (HTTP 202) until the executor run ends |
 | POST | `/api/delegations/:id/retry` | Start a new attempt on the same executor chat |
 | POST | `/api/delegations/:id/ack` | Clear waiting attention (open child) or mark a finished job reviewed |

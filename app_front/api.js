@@ -485,6 +485,35 @@ export async function getDelegation(id) {
   return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}`, undefined, `getDelegation:${id}`);
 }
 
+export async function getDelegationRuntime(query = {}) {
+  const params = new URLSearchParams();
+  if (query.workspaceFolder) params.set('workspaceFolder', String(query.workspaceFolder));
+  if (query.workspaceFile) params.set('workspaceFile', String(query.workspaceFile));
+  const suffix = params.toString() ? `?${params}` : '';
+  return apiFetchJson(`/api/delegations/runtime${suffix}`, undefined, 'getDelegationRuntime');
+}
+
+export async function getWorkspaceDelegations(query = {}) {
+  const params = new URLSearchParams();
+  if (query.attention) params.set('attention', String(query.attention));
+  if (query.status) params.set('status', String(query.status));
+  if (query.cursor) params.set('cursor', String(query.cursor));
+  if (query.limit) params.set('limit', String(query.limit));
+  if (query.workspaceFolder) params.set('workspaceFolder', String(query.workspaceFolder));
+  if (query.workspaceFile) params.set('workspaceFile', String(query.workspaceFile));
+  const suffix = params.toString() ? `?${params}` : '';
+  return apiFetchJson(`/api/delegations${suffix}`, undefined, 'getWorkspaceDelegations');
+}
+
+export async function postDelegationRetryDelivery(id, payload = {}) {
+  if (!id) return { ok: false, error: 'Missing delegation id' };
+  return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}/retry-delivery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  }, `postDelegationRetryDelivery:${id}`);
+}
+
 export async function postDelegationCancel(id) {
   if (!id) return { ok: false, error: 'Missing delegation id' };
   return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}/cancel`, {

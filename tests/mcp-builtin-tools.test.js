@@ -320,6 +320,8 @@ assert.match(stdioAskDenied.content[0].text, /Ask mode blocked/);
 
 const models = await handlersA.model_list({ harness: 'sdk' });
 assert.ok(models.structuredContent.items.length > 0);
+const favoriteModels = await handlersA.model_list({ harness: 'sdk', enabled_only: true });
+assert.ok(models.structuredContent.items.length >= favoriteModels.structuredContent.items.length);
 const harnesses = await handlersA.harness_list({});
 assert.ok(harnesses.structuredContent.items.some((row) => row.id === 'sdk'));
 const missingHarness = await handlersA.model_list({});

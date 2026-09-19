@@ -50,6 +50,12 @@ assert.equal(
   grokList.items.some((row) => row.id === 'composer-2'),
   false,
 );
+const allSdk = listHarnessModels({ harness: 'sdk' });
+const favSdk = listHarnessModels({ harness: 'sdk', enabledOnly: true });
+assert.equal(listHarnessModels({ harness: 'sdk' }).items.length, allSdk.items.length);
+assert.ok(allSdk.items.length > favSdk.items.length);
+assert.ok(favSdk.items.every((row) => row.enabled !== false));
+assert.ok(favSdk.items.some((row) => row.id === 'grok-4.6::effort=high,fast=false'));
 
 const app = express();
 registerHarnessCatalogRoutes(app);

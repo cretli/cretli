@@ -314,6 +314,7 @@
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness" role="tab" aria-selected="false" data-i18n="settings.tabsHarness">Harness</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="interface" role="tab" aria-selected="false" data-i18n="settings.tabsInterface">App</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="chat" role="tab" aria-selected="false" data-i18n="settings.tabsChat">Chat &amp; agents</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="delegations" role="tab" aria-selected="false" data-i18n="settings.tabsDelegations">Delegations</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="widgets" role="tab" aria-selected="false" data-i18n="settings.widgetsTitle">Page widgets</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="mcp" role="tab" aria-selected="false" data-i18n="settings.mcpTitle">MCP</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="usage" role="tab" aria-selected="false" data-i18n="settings.tabsUsage">Usage</button>
@@ -1055,6 +1056,23 @@
           <ul id="agents-skills"></ul>
         </div>
       </section>
+      <section class="settings-section" data-settings-tab="delegations">
+        <h3 class="settings-section-title" data-i18n="settings.delegationsCenterTitle">Delegation center</h3>
+        <p class="settings-hint" data-i18n="settings.delegationsCenterHint">Runtime health, stuck jobs, and repair actions for this workspace. Prompt text is never shown here.</p>
+        <div id="delegation-runtime-health" class="delegation-center-health" aria-live="polite"></div>
+        <div class="cr-row delegation-center-filters">
+          <label class="cr-field">
+            <span class="cr-field-label" data-i18n="settings.delegationsFilter">Show</span>
+            <cr-bar-select id="delegation-center-filter" aria-label="Delegation filter"></cr-bar-select>
+          </label>
+          <cr-bar-button id="delegation-center-refresh" data-i18n="settings.delegationsRefresh">Refresh</cr-bar-button>
+        </div>
+        <div id="delegation-center-list" class="delegation-center-list" role="list"></div>
+        <div class="cr-row delegation-center-more-row">
+          <cr-bar-button id="delegation-center-more" hidden data-i18n="settings.delegationsLoadMore">Load more</cr-bar-button>
+        </div>
+        <p id="delegation-center-status" class="cr-hint" aria-live="polite"></p>
+      </section>
       <section class="settings-section" data-settings-tab="widgets" hidden>
         <h3 class="settings-section-title" data-i18n="settings.widgetsTitle">Page widgets</h3>
         <p class="settings-hint" data-i18n="settings.widgetsHint">Each installation is bound to one workspace and to the allowed page origins.</p>
@@ -1598,7 +1616,8 @@
                 <li id="chat-pin-url-menu-btn" class="chat-list-item chat-toolbar-actions-item chat-pin-url-menu-btn" role="menuitem" tabindex="0" title="Pin the chat to the current URL" data-i18n-title="chat.pinToUrlTitle" aria-label="Pin the chat to the current URL" data-i18n-aria="chat.pinToUrlTitle" aria-pressed="false" hidden><span class="mdi mdi-link-variant" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.pinToUrl">Pin to URL</span></li>
                 <li id="chat-fullscreen-btn" class="chat-list-item chat-toolbar-actions-item" role="menuitem" tabindex="0" title="Fullscreen" aria-label="Fullscreen" data-fullscreen="off"><span class="mdi mdi-fullscreen" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.fullscreenLabel">Fullscreen</span></li>
                 <li id="chat-settings-btn" class="chat-list-item chat-toolbar-actions-item" role="menuitem" tabindex="0" title="Chat settings" data-i18n-title="chat.settings" aria-label="Chat settings" data-i18n-aria="chat.settings"><span class="mdi mdi-cog" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.settings">Ustawienia czatu</span></li>
-                <li id="chat-stop-menu-btn" class="chat-list-item chat-toolbar-actions-item chat-toolbar-actions-item--danger chat-toolbar-actions-item--group-start" role="menuitem" tabindex="0" title="Stop (Ctrl+C)" data-i18n-title="sendBar.stopTitle" aria-label="Stop" data-i18n-aria="sendBar.stop"><span class="mdi mdi-stop" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="sendBar.stop">Stop</span></li>
+                <li id="chat-archive-menu-btn" class="chat-list-item chat-toolbar-actions-item chat-toolbar-actions-item--group-start" role="menuitem" tabindex="0" title="Archive chat" data-i18n-title="chat.archive" aria-label="Archive chat" data-i18n-aria="chat.archive"><span class="mdi mdi-archive-arrow-down-outline" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.archive">Archive chat</span></li>
+                <li id="chat-stop-menu-btn" class="chat-list-item chat-toolbar-actions-item chat-toolbar-actions-item--danger" role="menuitem" tabindex="0" title="Stop (Ctrl+C)" data-i18n-title="sendBar.stopTitle" aria-label="Stop" data-i18n-aria="sendBar.stop"><span class="mdi mdi-stop" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="sendBar.stop">Stop</span></li>
                 <li id="chat-delete-menu-btn" class="chat-list-item chat-toolbar-actions-item chat-toolbar-actions-item--danger" role="menuitem" tabindex="0" title="Delete the chat from the list and close the connection" data-i18n-title="chat.delete" aria-label="Delete chat" data-i18n-aria="chat.delete"><span class="mdi mdi-delete-outline" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.delete">Delete chat</span></li>
               </ul>
             </div>

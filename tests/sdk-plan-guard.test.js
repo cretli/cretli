@@ -4,6 +4,9 @@ import {
   isPlanModeMutatingSdkEvent,
   isPlanModeMutatingToolName,
   resolvePlanModeToolDecision,
+  resolveReadOnlyGuardUserMessage,
+  PLAN_GUARD_USER_MESSAGE,
+  REVIEW_GUARD_USER_MESSAGE,
 } from '../lib/sdk/sdk-plan-guard.js';
 
 assert.equal(isPlanModeMutatingToolName('shell'), true);
@@ -188,5 +191,26 @@ assert.equal(
   }).abortRun,
   true,
 );
+
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'sdk',
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'edit',
+  }).deny,
+  true,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'sdk',
+    mode: 'agent',
+    toolName: 'edit',
+  }).deny,
+  false,
+);
+assert.equal(resolveReadOnlyGuardUserMessage('agent', 'review'), REVIEW_GUARD_USER_MESSAGE);
+assert.equal(resolveReadOnlyGuardUserMessage('agent'), PLAN_GUARD_USER_MESSAGE);
+assert.ok(REVIEW_GUARD_USER_MESSAGE.includes('Review assignment'));
 
 console.log('sdk-plan-guard.test.js OK');

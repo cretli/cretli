@@ -1,11 +1,12 @@
 import { getSdkEventTerminalChunk, resetSdkStreamState } from '../../lib/sdk-chat-format.js';
-import { normalizeSdkMode } from '../../../lib/sdk/sdk-mode.js';
+import { normalizeSdkMode, parseExplicitSdkMode } from '../../../lib/sdk/sdk-mode.js';
 import {
   advanceSdkRoomEventWatermarksFromMessages,
   bufferSdkRoomEventDuringHydration,
   beginSdkHistoryHydration,
   finishSdkHistoryHydration,
   isSdkOpenTerminalHydrating,
+  isServerAuthoredHistoryMeta,
   shouldApplySdkRoomEvent,
   syncSdkEventStream,
 } from './sdkEventReplayGuard.js';
@@ -141,6 +142,7 @@ export function createChatTransport(deps) {
     onSdkInvalidSession = null,
     onChatGone = null,
     onConnectionLost = null,
+    onChatsChanged = null,
   } = deps;
 
   const onSdkModeChange = deps.onSdkModeChange;
@@ -684,6 +686,29 @@ export function createChatTransport(deps) {
           chat._lastPongAt = Date.now();
           return;
         }
+        if (msg.type === 'chatsChanged') {
+          if (typeof onChatsChanged === 'function') onChatsChanged(msg);
+          return;
+        }
+        if (msg.type === 'sdkHistoryChanged') {
+          // Keep metadata through initial history hydration, even when live
+          // model frames are allowed through. The view may still be replaced.
+          if (chat._sdkHistoryHydrating === true) {
+            if (!Array.isArray(chat._sdkPendingRoomEvents)) chat._sdkPendingRoomEvents = [];
+            chat._sdkPendingRoomEvents.push(msg);
+            return;
+          }
+          const records = (Array.isArray(msg.records) ? msg.records : [])
+            .filter((record) => isServerAuthoredHistoryMeta(record));
+          if (records.length > 0 && chat._sdkRichView) {
+            // These rows are already persisted. Do not advance the history
+            // cursor: there may be intervening model events still to pull.
+            void chat._sdkRichView.appendHistoryRecords(records, { instant: true }).catch((error) => {
+              appLogger.log('history', 'live card failed', { error: String(error) });
+            });
+          }
+          return;
+        }
         if (msg.type === 'replayBatchStart') {
           chat._sdkReplayBatchActive = true;
           chat._sdkReplayBatchExpected = Number(msg.totalEvents) || 0;
@@ -782,8 +807,7 @@ export function createChatTransport(deps) {
           if (helloState) setAgentState(chat, helloState);
           const helloModel = typeof msg.modelId === 'string' ? msg.modelId.trim() : '';
           if (helloModel) confirmPendingModelChange(chat, helloModel, 'hello');
-          const helloMode =
-            msg.sdkMode === 'plan' || msg.sdkMode === 'agent' ? normalizeSdkMode(msg.sdkMode) : null;
+          const helloMode = parseExplicitSdkMode(msg.sdkMode) || null;
           const localMode = normalizeSdkMode(chat.sdkMode || helloMode || 'agent');
           chat.sdkMode = localMode;
           if (typeof onSdkModeChange === 'function') onSdkModeChange(chat, localMode);
@@ -847,8 +871,7 @@ export function createChatTransport(deps) {
         if (msg.type === 'sdkAgent') {
           const confirmedModel = typeof msg.modelId === 'string' ? msg.modelId.trim() : '';
           if (confirmedModel) confirmPendingModelChange(chat, confirmedModel, 'sdkAgent');
-          const runMode =
-            msg.sdkMode === 'plan' || msg.sdkMode === 'agent' ? normalizeSdkMode(msg.sdkMode) : null;
+          const runMode = parseExplicitSdkMode(msg.sdkMode) || null;
           if (runMode && !shouldIgnoreStaleServerSdkMode(chat, runMode)) {
             chat.sdkMode = runMode;
             if (typeof onSdkModeChange === 'function') onSdkModeChange(chat, runMode);
@@ -1361,7 +1384,6 @@ export function createChatTransport(deps) {
             });
         }
       }
-      syncSdkModeToServer(chat);
       startGlobalChatPingLoop();
       markChatConnectionHealthy(chat);
     };
@@ -1715,4 +1737,3 @@ export function createChatTransport(deps) {
     completeSdkHistoryHydration,
   };
 }
-

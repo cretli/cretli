@@ -68,6 +68,10 @@ assert.ok(actualPlanTools.includes('grep'));
 assert.ok(!actualPlanTools.includes('write_file'));
 assert.ok(!actualPlanTools.includes('run_terminal_command'));
 assert.ok(getToolsForMode('agent').some((tool) => tool.function?.name === 'write_file'));
+const actualReviewTools = getToolsForMode('agent', 'review').map((tool) => tool.function?.name);
+assert.ok(actualReviewTools.includes('read_file'));
+assert.ok(!actualReviewTools.includes('write_file'));
+assert.equal(resolveHarnessReadOnlyPolicy('deepseek', 'agent', 'review').denyMutatingTools, true);
 
 const actualAskTools = getToolsForMode('ask').map((tool) => tool.function?.name);
 assert.ok(actualAskTools.includes('read_file'));

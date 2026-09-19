@@ -25,6 +25,7 @@ import {
   splitSdkFormattedConversation,
 } from '../../lib/sdk/sdk-chat-history.js';
 import { isSdkRunFailureStatus } from '../../lib/sdk/sdk-run-outcome.js';
+import { parseExplicitSdkMode, shouldRenderModeChange } from '../../lib/sdk/sdk-mode.js';
 import { normalizeSdkUiMode } from '../../lib/sdk/sdk-ui-mode.js';
 import { splitTrailingTitleJson } from '../features/chat/chatTitleParsing.js';
 import { parseTimeoutProgressNotice } from '../../lib/notices.js';
@@ -39,6 +40,7 @@ import {
   resolveSdkToolCallId,
   setRunningSdkToolCallCount,
   shouldAcceptSdkToolStatus,
+  shouldKeepSdkThinkingSpinner,
   updateRunningSdkToolState,
 } from '../../lib/sdk/sdk-thinking-state.js';
 import {
@@ -49,6 +51,7 @@ import {
   listAllRunItems,
   listRunItems,
   registerRunItem,
+  stopSdkBlockSpinners,
 } from '../../lib/sdk/sdk-run-block-registry.js';
 import {
   findReusableSdkAssistantBlockIndex,
@@ -76,6 +79,7 @@ import {
   delegationStatusLabel,
   parseDelegationHistoryPayload,
 } from '../features/chat/chatDelegations.js';
+import { buildDelegationCardModel } from '../../lib/delegation-card-model.js';
 import { parseRelatedChatPayload } from '../../lib/chat-relation-payload.js';
 
 hljs.registerLanguage('javascript', javascript);
@@ -714,6 +718,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
   const runStatusByRun = new Map();
   const runningToolCallsByRun = new Map();
   let runScope = 1;
+  let lastRenderedMode = '';
   let uiMode = normalizeSdkUiMode(chat.sdkUiMode);
   /** After WS hello/reconnect, keep using the live Thinking block (same run, new local-run key). */
   let resumeThinkingAfterStreamReset = false;
@@ -1280,6 +1285,82 @@ export function createSdkRichView(chat, mountEl, hooks) {
     }
   }
 
+  function stopAllThinkingSpinners() {
+    setThinkingRunning(false);
+    stopSdkBlockSpinners(listAllRunItems(thinkingBlocksByRun));
+    stopSdkBlockSpinners(latestThinkingByRun.values());
+  }
+
+  /**
+   * @param {string} runKey
+   */
+  function stopThinkingSpinnersForRun(runKey) {
+    const key = String(runKey || '').trim();
+    if (!key) {
+      stopAllThinkingSpinners();
+      return;
+    }
+    stopSdkBlockSpinners(listRunItems(thinkingBlocksByRun, key));
+    const latest = latestThinkingByRun.get(key);
+    if (latest) stopSdkBlockSpinners([latest]);
+    if (thinkingDetails && (activeThinkingRunKey === key || !activeThinkingRunKey)) {
+      setThinkingRunning(false);
+    }
+  }
+
+  function markAllTraysFinished(status) {
+    markTraysFinishedForRun('', status);
+  }
+
+  /**
+   * @param {string} runKey
+   * @param {string} status
+   */
+  function markTraysFinishedForRun(runKey, status) {
+    const st = String(status || 'finished');
+    const key = String(runKey || '').trim();
+    const trays = key ? listRunItems(traysByRun, key) : listAllRunItems(traysByRun);
+    for (const tray of trays) {
+      if (tray) setTrayStatus(tray, st);
+    }
+    if (!key) {
+      for (const tray of latestTrayByRun.values()) {
+        if (tray) setTrayStatus(tray, st);
+      }
+      return;
+    }
+    const latest = latestTrayByRun.get(key);
+    if (latest) setTrayStatus(latest, st);
+  }
+
+  /**
+   * SDK `status` FINISHED is not the same as `runFinished`. A turn can leave
+   * several Activity trays; updating only the latest one leaves earlier
+   * RUNNING labels and Thinking spinners on screen after the chat is idle.
+   *
+   * @param {string} runKey
+   * @param {string} status
+   */
+  function finalizeRunPresentation(runKey, status) {
+    if (!isTerminalSdkRunStatus(status)) return;
+    const key = String(runKey || '').trim();
+    finalizeOpenToolCalls(key, status);
+    stopThinkingSpinnersForRun(key);
+    markTraysFinishedForRun(key, status);
+    if (key && activeThinkingRunKey && activeThinkingRunKey !== key) return;
+    if (activeKind !== 'thinking') return;
+    thinkingDetails = null;
+    thinkingPre = null;
+    activeKind = 'idle';
+    activeThinkingRunKey = '';
+  }
+
+  function finalizeAllTerminalRunPresentations() {
+    for (const [key, st] of runStatusByRun.entries()) {
+      finalizeRunPresentation(key, st);
+    }
+  }
+
   /**
    * @param {string} runKey
    */
@@ -1287,22 +1368,22 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const key = String(runKey || '').trim();
     if (!key) return;
     const latest = latestThinkingByRun.get(key);
-    // Blocks the run already left behind are done — their spinner is always stale.
+    const keepLatest = shouldKeepSdkThinkingSpinner({
+      runKey: key,
+      activeKind,
+      activeThinkingRunKey,
+      suppressHistoryPersist,
+      runStatus: runStatusByRun.get(key),
+      hasRunningTools: hasRunningSdkTools(runningToolCallsByRun, key),
+    });
     for (const stale of listRunItems(thinkingBlocksByRun, key)) {
-      if (stale === latest) continue;
+      if (stale === latest && keepLatest) continue;
       if (!stale || typeof stale !== 'object' || !('running' in stale)) continue;
       stale.running = false;
     }
     if (!latest || typeof latest !== 'object' || !('running' in latest)) return;
-
-    if (activeKind === 'thinking' && activeThinkingRunKey === key && !suppressHistoryPersist) {
-      latest.running = true;
-      return;
-    }
-
-    const running = hasRunningSdkTools(runningToolCallsByRun, key);
-    latest.running = running;
-    if (running) latest.open = true;
+    latest.running = keepLatest;
+    if (keepLatest) latest.open = true;
   }
 
   /**
@@ -1341,7 +1422,10 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const searchQuery = parseToolSearchQuery(readToolSearchQuery(args));
     if (searchQuery) return searchQuery;
     const firstPath = Array.isArray(paths) ? String(paths[0] || '') : '';
-    if (!firstPath) return name || 'tool';
+    if (!firstPath) {
+      if (String(name || '').toLowerCase() === 'subagent') return t('sdkBlock.toolSubagent');
+      return name || 'tool';
+    }
     const normalized = firstPath.replace(/\\/g, '/').replace(/\/$/, '');
     return normalized.split('/').pop() || name || 'tool';
   }
@@ -1660,6 +1744,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     runScope += 1;
     resumeThinkingAfterStreamReset = false;
     resumeAssistantAfterStreamReset = false;
+    lastRenderedMode = '';
   }
 
   /**
@@ -1700,7 +1785,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const div = document.createElement('div');
     div.className = `sdk-rich-line ${htmlClass}`;
 
-    const content = document.createElement('span');
+    const content = document.createElement('div');
     content.className = 'sdk-rich-line__content';
     content.innerHTML = htmlInner;
     div.appendChild(content);
@@ -1875,7 +1960,10 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const block = createSdkBlock({ variant: 'user', label: t('sdkView.you'), open: true, createdAt });
     block.forkable = true;
     applyDelegationArrows(block);
-    const textForDisplay = stripScreenshotMarkers(text);
+    let shown = text;
+    if (text === 'Child reply') shown = t('chat.mailboxReplyFromChild');
+    else if (text === 'Task from parent') shown = t('chat.mailboxTaskFromParent');
+    const textForDisplay = stripScreenshotMarkers(shown);
     block.copyText = text;
     const body = document.createElement('div');
     body.className = 'sdk-rich-user-body';
@@ -2318,6 +2406,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       if (delta && !suppressHooksPlain) hooks.appendPlain(delta);
 
       rememberThinkingBlock(runKey, thinkingDetails);
+      syncThinkingBlockRunning(runKey);
       if (thinkingPre) {
         const stickThinking = isScrollableNearBottom(thinkingPre);
         thinkingPre.textContent = typeof chat._sdkThinkingAcc === 'string' ? chat._sdkThinkingAcc : '';
@@ -2447,10 +2536,11 @@ export function createSdkRichView(chat, mountEl, hooks) {
       const msg = typeof ev.message === 'string' ? ev.message : '';
       const runKey = getEventRunKey(ev);
       runStatusByRun.set(runKey, st);
-      const tray = latestTrayByRun.get(runKey);
-      if (tray) setTrayStatus(tray, st);
       if (isTerminalSdkRunStatus(st)) {
-        finalizeOpenToolCalls(runKey, st);
+        finalizeRunPresentation(runKey, st);
+      } else {
+        const tray = latestTrayByRun.get(runKey);
+        if (tray) setTrayStatus(tray, st);
       }
       lineMeta(
         'sdk-rich-line--status',
@@ -2607,22 +2697,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
         createdAt
       );
     } else if (variant === 'runFinished') {
-      setThinkingRunning(false);
-      for (const block of listAllRunItems(thinkingBlocksByRun)) {
-        if (block && typeof block === 'object' && 'running' in block) block.running = false;
-      }
-      for (const block of latestThinkingByRun.values()) {
-        if (block && typeof block === 'object' && 'running' in block) block.running = false;
-      }
-      const latestRunKey = Array.from(latestTrayByRun.keys()).pop() || '';
-      finalizeOpenToolCalls(latestRunKey, payload);
-      const runTrays = listRunItems(traysByRun, latestRunKey);
-      const trays = runTrays.length > 0
-        ? runTrays
-        : [latestTrayByRun.get(latestRunKey) || Array.from(latestTrayByRun.values()).pop()];
-      for (const tray of trays) {
-        if (tray) setTrayStatus(tray, payload || 'finished');
-      }
+      stopAllThinkingSpinners();
+      finalizeOpenToolCalls('', payload);
+      markAllTraysFinished(payload);
       lineMeta(
         resolveRunFinishedLineClass(payload),
         `<strong>${escapeHtml(t('sdkView.runFinished'))}</strong> · ${escapeHtml(payload)}`,
@@ -2655,9 +2732,12 @@ export function createSdkRichView(chat, mountEl, hooks) {
         relabelQueuedBlocks();
       }
     } else if (variant === 'mode') {
+      if (!shouldRenderModeChange(lastRenderedMode, payload)) return;
+      const renderedMode = parseExplicitSdkMode(payload);
       const modeLabel =
-        payload === 'plan' ? 'Plan' : payload === 'ask' ? 'Ask' : payload === 'agent' ? 'Agent' : payload;
+        renderedMode === 'plan' ? 'Plan' : renderedMode === 'ask' ? 'Ask' : renderedMode === 'agent' ? 'Agent' : '';
       if (modeLabel) {
+        lastRenderedMode = renderedMode;
         lineMeta(
           'sdk-rich-line--notice',
           `<span class="sdk-rich-badge sdk-rich-badge--status">${escapeHtml(t('sdkView.modeBadge'))}</span> ${escapeHtml(modeLabel)}`,
@@ -2693,6 +2773,44 @@ export function createSdkRichView(chat, mountEl, hooks) {
   }
 
   /**
+   * History cards (delegation / mailbox) are not one-line status chips.
+   *
+   * @param {HTMLElement} card
+   * @param {string} extraClass
+   */
+  function frameHistoryCard(card, extraClass) {
+    card.classList.remove(
+      'sdk-rich-line--ok',
+      'sdk-rich-line--warn',
+      'sdk-rich-line--err',
+      'sdk-rich-line--muted',
+      'sdk-rich-line--status',
+      'sdk-rich-line--task',
+      'sdk-rich-line--notice'
+    );
+    card.classList.add(extraClass);
+  }
+
+  /**
+   * @param {string} text
+   * @returns {string}
+   */
+  function renderHistoryCardProse(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return '';
+    return `<div class="sdk-md sdk-rich-md sdk-rich-delegation-report">${md.render(raw)}</div>`;
+  }
+
+  /**
+   * @param {HTMLElement} content
+   */
+  function decorateHistoryCardReports(content) {
+    content.querySelectorAll('.sdk-rich-delegation-report').forEach((el) => {
+      if (el instanceof HTMLElement) decorateCodeForCopy(el);
+    });
+  }
+
+  /**
    * @param {unknown} payload
    * @param {string} createdAt
    */
@@ -2707,32 +2825,59 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const executorLabel = [executor.transport, executor.model].filter(Boolean).join(' · ');
     const report = String(data.report || '').trim();
     const error = String(data.error || '').trim();
-    const canCancel = status === 'queued' || status === 'starting' || status === 'running'
-      || status === 'waiting_for_input' || status === 'cancelling';
     let card = stream.querySelector(`[data-delegation-id="${safeId}"]`);
+    const historySeq = Number(renderedRecordHistorySeq) || 0;
+    const previousHistorySeq = Number(card?.dataset.delegationHistorySeq) || 0;
+    // A buffered live start may arrive after HTTP restored the finished card.
+    if (previousHistorySeq > 0 && historySeq <= previousHistorySeq) return;
     if (!(card instanceof HTMLElement)) {
-      lineMeta('sdk-rich-line--ok sdk-rich-delegation', '', createdAt);
+      lineMeta('sdk-rich-delegation', '', createdAt);
       card = stream.lastElementChild;
       if (card instanceof HTMLElement) card.dataset.delegationId = safeId;
     }
     if (!(card instanceof HTMLElement)) return;
+    frameHistoryCard(card, 'sdk-rich-delegation');
+    card.dataset.delegationStatus = status;
+    if (historySeq > 0) card.dataset.delegationHistorySeq = String(historySeq);
     const content = card.querySelector('.sdk-rich-line__content');
     if (!(content instanceof HTMLElement)) return;
-    const unverified = data.unverified !== false && status === 'completed' && !String(data.acknowledgedAt || '').trim()
+    const model = buildDelegationCardModel(data);
+    const unverified = model.showUnverified
       ? `<span class="sdk-rich-badge sdk-rich-badge--warn">${escapeHtml(t('chat.delegationUnverified'))}</span>`
+      : '';
+    const uncertain = model.showUncertain
+      ? `<span class="sdk-rich-badge sdk-rich-badge--warn">${escapeHtml(t('chat.delegationUncertain'))}</span>`
       : '';
     const waiting = status === 'waiting_for_input'
       ? `<p>${escapeHtml(t('chat.delegationNeedsInput'))}</p>`
       : '';
+    const durationSec = Math.round(model.durationMs / 1000);
+    const duration = durationSec > 0
+      ? `<div class="sdk-rich-delegation-meta">${escapeHtml(t('chat.delegationDuration', { seconds: String(durationSec) }))}</div>`
+      : '';
+    const sourceLabel = model.sourceKind
+      ? `<div class="sdk-rich-delegation-meta">${escapeHtml(t('chat.delegationSource'))}: ${escapeHtml(model.sourceKind)}</div>`
+      : '';
+    const attemptLabel = `<div class="sdk-rich-delegation-meta">${escapeHtml(t('chat.delegationAttempt', { n: String(model.attemptNumber) }))}</div>`;
+    const deliveryLabel = `<div class="sdk-rich-delegation-meta">${escapeHtml(t('chat.delegationDelivery', { state: t(`chat.delegationDeliveryState.${model.deliveryState}`) }))}</div>`;
+    const attemptsLabel = model.attemptHistory.length > 1
+      ? `<div class="sdk-rich-delegation-meta">${escapeHtml(t('chat.delegationAttemptsStored', { n: String(model.attemptHistory.length) }))}</div>`
+      : '';
     content.innerHTML = [
-      `<strong>${escapeHtml(t('chat.delegationCardTitle'))}</strong>`,
-      `<div>${escapeHtml(delegationStatusLabel(status))} ${unverified}</div>`,
-      executorLabel ? `<div>${escapeHtml(executorLabel)}</div>` : '',
+      `<strong class="sdk-rich-delegation-title">${escapeHtml(t('chat.delegationCardTitle'))}</strong>`,
+      `<div class="sdk-rich-delegation-meta">${escapeHtml(delegationStatusLabel(status))} ${unverified} ${uncertain}</div>`,
+      attemptLabel,
+      deliveryLabel,
+      attemptsLabel,
+      executorLabel ? `<div class="sdk-rich-delegation-meta">${escapeHtml(executorLabel)}</div>` : '',
+      sourceLabel,
+      duration,
       waiting,
-      error ? `<pre class="sdk-rich-delegation-report">${escapeHtml(error)}</pre>` : '',
-      report ? `<pre class="sdk-rich-delegation-report">${escapeHtml(report)}</pre>` : '',
+      renderHistoryCardProse(error),
+      renderHistoryCardProse(report),
       `<div class="sdk-rich-delegation-actions"></div>`,
     ].filter(Boolean).join('');
+    decorateHistoryCardReports(content);
     const actions = content.querySelector('.sdk-rich-delegation-actions');
     if (actions instanceof HTMLElement) {
       if (childChatId) {
@@ -2745,7 +2890,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
         });
         actions.appendChild(openBtn);
       }
-      if (canCancel && status !== 'cancelling') {
+      if (model.canCancel) {
         const cancelBtn = document.createElement('button');
         cancelBtn.type = 'button';
         cancelBtn.className = 'sdk-rich-delegation-btn';
@@ -2755,11 +2900,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
         });
         actions.appendChild(cancelBtn);
       }
-      const acknowledged = Boolean(String(data.acknowledgedAt || '').trim());
-      const canReview = !acknowledged && (
-        status === 'completed' || status === 'failed' || status === 'interrupted'
-      );
-      if (canReview) {
+      if (model.canAck) {
         const ackBtn = document.createElement('button');
         ackBtn.type = 'button';
         ackBtn.className = 'sdk-rich-delegation-btn';
@@ -2768,6 +2909,16 @@ export function createSdkRichView(chat, mountEl, hooks) {
           hooks.onAcknowledgeDelegation?.(id);
         });
         actions.appendChild(ackBtn);
+      }
+      if (model.canRetry) {
+        const retryBtn = document.createElement('button');
+        retryBtn.type = 'button';
+        retryBtn.className = 'sdk-rich-delegation-btn';
+        retryBtn.textContent = t('chat.delegationRetry');
+        retryBtn.addEventListener('click', () => {
+          hooks.onRetryDelegation?.(id);
+        });
+        actions.appendChild(retryBtn);
       }
     }
     scrollToBottom();
@@ -2785,32 +2936,42 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const kind = String(data.kind || 'reply');
     const status = String(data.status || '');
     const fromChatId = String(data.fromChatId || '');
+    const fromTitle = String(data.fromTitle || '').trim() || fromChatId.slice(0, 8);
     const body = String(data.body || '').trim();
     const queued = status === 'queued' || status === 'dispatching'
       ? `<span class="sdk-rich-badge sdk-rich-badge--warn">${escapeHtml(t('chat.mailboxQueued'))}</span>`
       : status === 'delivered'
         ? `<span class="sdk-rich-badge">${escapeHtml(t('chat.mailboxDelivered'))}</span>`
-        : status === 'uncertain'
-          ? `<span class="sdk-rich-badge sdk-rich-badge--warn">${escapeHtml(t('chat.mailboxUncertain'))}</span>`
-          : '';
+        : status === 'failed'
+          ? `<span class="sdk-rich-badge sdk-rich-badge--warn">${escapeHtml(t('chat.mailboxFailed'))}</span>`
+          : status === 'uncertain'
+            ? `<span class="sdk-rich-badge sdk-rich-badge--warn">${escapeHtml(t('chat.mailboxUncertain'))}</span>`
+            : '';
     let card = stream.querySelector(`[data-mailbox-id="${safeId}"]`);
+    const historySeq = Number(renderedRecordHistorySeq) || 0;
+    const previousHistorySeq = Number(card?.dataset.mailboxHistorySeq) || 0;
+    if (previousHistorySeq > 0 && historySeq > 0 && historySeq <= previousHistorySeq) return;
     if (!(card instanceof HTMLElement)) {
-      lineMeta('sdk-rich-line--ok sdk-rich-mailbox', '', createdAt);
+      lineMeta('sdk-rich-mailbox', '', createdAt);
       card = stream.lastElementChild;
       if (card instanceof HTMLElement) card.dataset.mailboxId = safeId;
     }
     if (!(card instanceof HTMLElement)) return;
+    frameHistoryCard(card, 'sdk-rich-mailbox');
+    card.dataset.mailboxStatus = status;
+    if (historySeq > 0) card.dataset.mailboxHistorySeq = String(historySeq);
     const content = card.querySelector('.sdk-rich-line__content');
     if (!(content instanceof HTMLElement)) return;
     const title = kind === 'task'
       ? t('chat.mailboxTaskFromParent')
       : t('chat.mailboxReplyFromChild');
     content.innerHTML = [
-      `<strong>${escapeHtml(title)}</strong> ${queued}`,
-      fromChatId ? `<div>${escapeHtml(t('chat.mailboxFromChat'))}: ${escapeHtml(fromChatId.slice(0, 8))}</div>` : '',
-      body ? `<pre class="sdk-rich-delegation-report">${escapeHtml(body)}</pre>` : '',
+      `<strong class="sdk-rich-delegation-title">${escapeHtml(title)}</strong> ${queued}`,
+      fromChatId ? `<div class="sdk-rich-delegation-meta">${escapeHtml(t('chat.mailboxFromChat'))}: ${escapeHtml(fromTitle)}</div>` : '',
+      renderHistoryCardProse(body),
       `<div class="sdk-rich-delegation-actions"></div>`,
     ].filter(Boolean).join('');
+    decorateHistoryCardReports(content);
     const actions = content.querySelector('.sdk-rich-delegation-actions');
     if (actions instanceof HTMLElement && fromChatId) {
       const openBtn = document.createElement('button');
@@ -2821,6 +2982,16 @@ export function createSdkRichView(chat, mountEl, hooks) {
         hooks.onOpenDelegationChat?.(fromChatId);
       });
       actions.appendChild(openBtn);
+    }
+    if (actions instanceof HTMLElement && (status === 'failed' || status === 'uncertain')) {
+      const retryBtn = document.createElement('button');
+      retryBtn.type = 'button';
+      retryBtn.className = 'sdk-rich-delegation-btn';
+      retryBtn.textContent = t('chat.mailboxRetry');
+      retryBtn.addEventListener('click', () => {
+        hooks.onRetryMailbox?.(id);
+      });
+      actions.appendChild(retryBtn);
     }
     scrollToBottom();
   }
@@ -2843,7 +3014,12 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const chatId = data?.chatId || '';
     if (!chatId) return;
     const safeId = relatedChatDomId(chatId);
+    const visible = typeof hooks.isRelatedChatVisible !== 'function' || hooks.isRelatedChatVisible(chatId);
     let card = stream.querySelector(`[data-related-chat-id="${safeId}"]`);
+    if (!visible) {
+      if (card instanceof HTMLElement) card.remove();
+      return;
+    }
     if (!(card instanceof HTMLElement)) {
       lineMeta('sdk-rich-line--notice sdk-rich-related-chat', '', createdAt);
       card = stream.lastElementChild;
@@ -2885,6 +3061,12 @@ export function createSdkRichView(chat, mountEl, hooks) {
    * }} input
    */
   function ensureRelatedChatLinks(input = {}) {
+    if (typeof hooks.isRelatedChatVisible === 'function') {
+      stream.querySelectorAll('[data-related-chat-id]').forEach((el) => {
+        const id = el instanceof HTMLElement ? el.dataset.relatedChatId : '';
+        if (id && !hooks.isRelatedChatVisible(id)) el.remove();
+      });
+    }
     const parent = input.parent;
     if (parent?.chatId) {
       const existing = stream.querySelector(`[data-related-chat-id="${relatedChatDomId(parent.chatId)}"]`);
@@ -3138,6 +3320,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       suppressHooksPlain = false;
       suppressHistoryPersist = false;
       mdRenderImmediate = false;
+      finalizeAllTerminalRunPresentations();
       scrollToBottom({ force: true });
     }
   }
@@ -3507,15 +3690,10 @@ export function createSdkRichView(chat, mountEl, hooks) {
       const silent = opts.silent === true;
       const st = status == null ? '' : String(status);
       if (!silent) hooks.appendPlain(`\n[run finished: ${st}]\n`);
-      setThinkingRunning(false);
-      for (const block of latestThinkingByRun.values()) {
-        if (block && typeof block === 'object' && 'running' in block) block.running = false;
-      }
-      const latestRunKey = Array.from(latestTrayByRun.keys()).pop() || '';
-      finalizeOpenToolCalls(latestRunKey, st);
+      stopAllThinkingSpinners();
+      finalizeOpenToolCalls('', st);
       runningToolCallsByRun.clear();
-      const latestTray = latestTrayByRun.get(latestRunKey) || Array.from(latestTrayByRun.values()).pop();
-      if (latestTray) setTrayStatus(latestTray, st || 'finished');
+      markAllTraysFinished(st);
       const createdAt = lineMeta(
         resolveRunFinishedLineClass(st),
         `<strong>${escapeHtml(t('sdkView.runFinished'))}</strong> · ${escapeHtml(st)}`,
@@ -3674,8 +3852,10 @@ export function createSdkRichView(chat, mountEl, hooks) {
     appendModeChange(mode, opts = {}) {
       stopTimeoutProgressSeries();
       const silent = opts.silent === true;
-      const normalized = mode === 'plan' ? 'plan' : mode === 'agent' ? 'agent' : mode === 'ask' ? 'ask' : '';
+      const normalized = parseExplicitSdkMode(mode);
       if (!normalized) return;
+      if (!shouldRenderModeChange(lastRenderedMode, normalized)) return;
+      lastRenderedMode = normalized;
       const modeLabel = normalized === 'plan' ? 'Plan' : normalized === 'ask' ? 'Ask' : 'Agent';
       if (!silent) hooks.appendPlain(`\n[Mode: ${modeLabel}]\n`);
       lineMeta(
@@ -3756,6 +3936,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
         suppressHooksPlain = false;
         suppressHistoryPersist = false;
         mdRenderImmediate = false;
+        finalizeAllTerminalRunPresentations();
         scrollToBottom({ force: true });
       }
     },
@@ -3795,6 +3976,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
         suppressHooksPlain = false;
         suppressHistoryPersist = false;
         mdRenderImmediate = false;
+        finalizeAllTerminalRunPresentations();
         scrollToBottom({ force: true });
       }
       if (instant || records.length <= 40) return;
@@ -3825,6 +4007,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
         suppressHooksPlain = false;
         suppressHistoryPersist = false;
         mdRenderImmediate = false;
+        finalizeAllTerminalRunPresentations();
         scrollToBottom({ force: true });
       }
     },

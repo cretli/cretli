@@ -9,7 +9,7 @@ import {
 
 assert.equal(resolveModelProviderId('claude-opus-4-8', 'Opus 4.8'), 'anthropic');
 assert.equal(resolveModelProviderId('gpt-5.2', 'GPT-5.2'), 'openai');
-assert.equal(resolveModelProviderId('composer-2.5', 'Composer 2.5'), 'cursor');
+assert.equal(resolveModelProviderId('deepseek-flash', 'DeepSeek V4.1 Flash'), 'deepseek');
 assert.equal(formatCostTierDots(3), '$$$');
 assert.equal(formatCostTierDots(0), '—');
 

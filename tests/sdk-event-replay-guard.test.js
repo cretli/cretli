@@ -13,6 +13,35 @@ import {
 
 const chat = {};
 
+// Server-authored delegation cards have no room stream watermark. Catch-up
+// must deliver both the initial child link and subsequent status updates.
+const delegationStarted = {
+  kind: 'meta', variant: 'delegation', historySeq: 10,
+  payload: JSON.stringify({ id: 'job-1', childChatId: 'child-1', status: 'running' }),
+};
+const delegationFinished = {
+  ...delegationStarted, historySeq: 11,
+  payload: JSON.stringify({ id: 'job-1', childChatId: 'child-1', status: 'completed' }),
+};
+const mailboxStarted = {
+  kind: 'meta', variant: 'mailbox', historySeq: 20,
+  payload: JSON.stringify({ id: 'mail-1', status: 'queued' }),
+};
+const mailboxDelivered = {
+  ...mailboxStarted, historySeq: 21,
+  payload: JSON.stringify({ id: 'mail-1', status: 'delivered' }),
+};
+const relatedChat = {
+  kind: 'meta', variant: 'relatedChat', historySeq: 22,
+  payload: JSON.stringify({ role: 'child', chatId: 'child-1' }),
+};
+assert.deepEqual(takeMissingSdkHistoryRecords({}, [
+  { kind: 'localUser', text: 'already visible' }, delegationStarted, delegationFinished,
+]), [delegationStarted, delegationFinished]);
+assert.deepEqual(takeMissingSdkHistoryRecords({}, [mailboxStarted, mailboxDelivered, relatedChat]), [
+  mailboxStarted, mailboxDelivered, relatedChat,
+]);
+
 syncSdkEventStream(chat, 'room-a');
 assert.equal(shouldApplySdkRoomEvent(chat, { roomEventSeq: 1 }), true);
 assert.equal(shouldApplySdkRoomEvent(chat, { roomEventSeq: 2 }), true);

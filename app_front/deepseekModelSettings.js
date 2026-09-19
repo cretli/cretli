@@ -8,6 +8,7 @@ import {
   groupModelCatalogForSettings,
   normalizeModelCatalogSortMode,
 } from '../lib/model-catalog-meta.js';
+import { normalizeDeepSeekChatEnabledModels } from '../lib/deepseek/deepseek-model-ids.js';
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from './lib/storageKeyAlias.js';
 import { escapeHtml } from './features/chat/chatHtmlUtils.js';
 
@@ -289,8 +290,9 @@ async function loadDeepSeekModelSettingsData() {
     const enabledFromSettings = Array.isArray(settingsData?.deepseekChatEnabledModels)
       ? settingsData.deepseekChatEnabledModels
       : (Array.isArray(modelsData?.chatEnabledModels) ? modelsData.chatEnabledModels : []);
-    if (enabledFromSettings.length > 0) {
-      setDraftEnabledKeys(enabledFromSettings);
+    const remappedEnabled = normalizeDeepSeekChatEnabledModels(enabledFromSettings);
+    if (remappedEnabled.length > 0) {
+      setDraftEnabledKeys(remappedEnabled);
     } else if (!settingsLoaded) {
       setDraftEnabledKeys(settingsModelCatalog.map((row) => row.value));
     }
@@ -361,7 +363,7 @@ export function initDeepSeekModelSettings() {
   }
   saveBtn.addEventListener('click', () => {
     readDraftEnabledKeysFromUi();
-    const payload = Array.from(draftEnabledKeys);
+    const payload = normalizeDeepSeekChatEnabledModels(Array.from(draftEnabledKeys));
     if (statusEl) statusEl.textContent = t('settings.chatModelsSaving');
     api.patchSettings({ deepseekChatEnabledModels: payload }).then((data) => {
       if (!data?.ok) {

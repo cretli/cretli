@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import {
   applyChatOrder,
   flattenChatsTree,
+  isChatArchived,
+  isRelatedChatLinkVisible,
   mergeChatOrder,
+  partitionChatsByArchive,
   resolveHarnessSwitchNest,
   wouldCreateChatParentCycle,
 } from '../lib/chat-tree.js';
@@ -25,13 +28,52 @@ test('flattenChatsTree nests forks one level under the folder root', () => {
   ]);
 });
 
-test('flattenChatsTree shows grandchildren under the same folder root', () => {
-  const chats = [chat('a'), chat('b', 'a'), chat('c', 'b')];
-  const actual = flattenChatsTree(chats).map((row) => [row.chat.id, row.level]);
+test('flattenChatsTree nests grandchildren under their parent', () => {
+  const chats = [chat('a'), chat('b', 'a'), chat('c', 'b'), chat('d', 'a')];
+  const actual = flattenChatsTree(chats).map((row) => [row.chat.id, row.level, row.parentId, row.isLastChild]);
   assert.deepEqual(actual, [
-    ['a', 0],
-    ['b', 1],
-    ['c', 1],
+    ['a', 0, '', false],
+    ['b', 1, 'a', false],
+    ['c', 2, 'b', true],
+    ['d', 1, 'a', true],
+  ]);
+});
+
+test('flattenChatsTree keeps chats deeper than eight levels', () => {
+  const chats = [];
+  let parent = '';
+  for (let i = 0; i < 12; i += 1) {
+    const id = `n${i}`;
+    chats.push(parent ? chat(id, parent) : chat(id));
+    parent = id;
+  }
+  const actual = flattenChatsTree(chats);
+  assert.equal(actual.length, 12);
+  assert.equal(actual[11].chat.id, 'n11');
+  assert.equal(actual[11].level, 11);
+  assert.equal(actual[11].parentId, 'n10');
+});
+test('isRelatedChatLinkVisible hides archived and missing chats', () => {
+  const live = chat('live');
+  const archived = { ...chat('old'), archivedAt: '2026-09-19T08:00:00.000Z' };
+  assert.equal(isRelatedChatLinkVisible([live, archived], 'live'), true);
+  assert.equal(isRelatedChatLinkVisible([live, archived], 'old'), false);
+  assert.equal(isRelatedChatLinkVisible([live], 'old'), false);
+  assert.equal(isRelatedChatLinkVisible([], 'live'), false);
+});
+
+test('partitionChatsByArchive drops archived forks from the live nest tree', () => {
+  const root = chat('root');
+  const liveChild = chat('live', 'root');
+  const archivedChild = { ...chat('old', 'root'), archivedAt: '2026-09-19T08:00:00.000Z' };
+  const { live, archived } = partitionChatsByArchive([root, liveChild, archivedChild]);
+  assert.equal(isChatArchived(archivedChild), true);
+  assert.deepEqual(live.map((row) => row.id), ['root', 'live']);
+  assert.deepEqual(archived.map((row) => row.id), ['old']);
+  const tree = flattenChatsTree(live).map((row) => [row.chat.id, row.level]);
+  assert.deepEqual(tree, [
+    ['root', 0],
+    ['live', 1],
   ]);
 });
 
@@ -163,5 +205,18 @@ test('resolveChatDrop inserts a child among siblings in the same folder', () => 
   const actual = resolveChatDrop({ items, y: 90, draggedIds: ['b'] });
   assert.equal(actual.mode, 'insert');
   assert.equal(actual.parentChatId, 'a');
+  assert.equal(actual.beforeId, 'c2');
+});
+
+test('resolveChatDrop inserts a grandchild among siblings of the same parent', () => {
+  const items = [
+    { id: 'a', top: 0, bottom: 40, isChild: false, level: 0, parentId: '' },
+    { id: 'b', top: 40, bottom: 80, isChild: true, level: 1, parentId: 'a' },
+    { id: 'c1', top: 80, bottom: 120, isChild: true, level: 2, parentId: 'b' },
+    { id: 'c2', top: 120, bottom: 160, isChild: true, level: 2, parentId: 'b' },
+  ];
+  const actual = resolveChatDrop({ items, y: 130, draggedIds: ['x'] });
+  assert.equal(actual.mode, 'insert');
+  assert.equal(actual.parentChatId, 'b');
   assert.equal(actual.beforeId, 'c2');
 });

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import {
   broadcastToRoomClients,
   createAgentRoomKernel,
@@ -47,13 +48,13 @@ assert.equal(inputRoom.eventLog.length, 2);
 assert.equal(inputRoom.eventLog[0].seq, 2);
 
 const sent = [];
-const readyClient = {
+const readyClient = Object.assign(new EventEmitter(), {
   readyState: 1,
   bufferedAmount: 0,
   send(msg) {
     sent.push(JSON.parse(msg));
   },
-};
+});
 const slowClient = {
   readyState: 1,
   bufferedAmount: WS_BACKPRESSURE_THRESHOLD_BYTES + 1,
@@ -80,6 +81,20 @@ const kernel = createAgentRoomKernel({
 const room = kernel.createRoomState({ sessionKey: 'sess-1', chatId: 'chat-1' });
 kernel.rooms.set('sess-1', room);
 kernel.attachClient(room, readyClient);
+const modePersisted = [];
+const modeKernel = createAgentRoomKernel({
+  transport: 'codex',
+  persistHistory: (_room, recs) => modePersisted.push(...recs),
+});
+const modeRoom = modeKernel.createRoomState({ sessionKey: 'mode-sess', chatId: 'mode-chat', sdkMode: 'agent' });
+modeKernel.applySdkModeIfChanged(modeRoom, 'agent', {
+  updateChat: () => assert.fail('no-op mode change must not update chat'),
+});
+assert.equal(modePersisted.length, 0);
+assert.equal(modeKernel.applySdkModeIfChanged(modeRoom, 'plan'), true);
+assert.equal(modePersisted.length, 1);
+assert.equal(modePersisted[0].rec.payload, 'plan');
+assert.equal(modePersisted[0].rec.roomEventSeq, 1);
 kernel.broadcastRoom(room, { type: 'sdkEvent', event: { type: 'assistant' } });
 kernel.broadcastRoom(room, { type: 'sdkError', message: 'failed' });
 kernel.flushPersistBuffer(room);

@@ -1099,6 +1099,60 @@ body.theme-light .widget-panel-select {
   margin-top: 0.5rem;
 }
 
+.delegation-center-health-list {
+  margin: 0 0 var(--cr-space-3);
+  padding-left: 1.2rem;
+  color: var(--cr-text);
+}
+
+.delegation-center-filters {
+  margin-bottom: var(--cr-space-3);
+  gap: var(--cr-space-2);
+  flex-wrap: wrap;
+}
+
+.delegation-center-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+}
+
+.delegation-center-card {
+  padding: var(--cr-space-3);
+}
+
+.delegation-center-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--cr-space-2);
+  margin-bottom: var(--cr-space-2);
+}
+
+.delegation-center-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cr-space-2);
+}
+
+@media (max-width: 640px) {
+  .delegation-center-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .delegation-center-card-head {
+    flex-direction: column;
+  }
+
+  .delegation-center-actions {
+    flex-direction: column;
+  }
+
+  .delegation-center-actions cr-bar-button {
+    width: 100%;
+  }
+}
+
 .panel {
   display: none;
   height: calc(100vh - 140px - var(--cr-debug-overlay-height));
@@ -5716,6 +5770,7 @@ body.files-preview-resizing {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
+  min-width: 0;
 }
 
 /* Scroll-up sentinel: keeps a box even when idle so IntersectionObserver can see it. */
@@ -6001,6 +6056,9 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
   font-size: 12px;
   padding: 0.28rem 0.4rem;
   border-radius: 4px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .sdk-rich-line__content {
@@ -6023,19 +6081,95 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
   color: var(--cr-success);
 }
 
-.sdk-rich-delegation {
+/*
+ * Delegation / mailbox cards reuse .sdk-rich-line, but they are multi-line
+ * cards, not one-line status chips. Column + align-items:center sizes the
+ * report to max-content and centers it, so long lines clip on both sides
+ * under the stream's overflow-x: hidden. Stretch the card and keep prose
+ * on the surface color instead of the success wash.
+ */
+.sdk-rich-delegation,
+.sdk-rich-mailbox {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.45rem 0.4rem;
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  background: var(--cr-surface);
+  color: var(--cr-text);
+  border: 1px solid var(--cr-border);
+  border-left-width: 3px;
+  border-left-color: var(--cr-accent);
+}
+
+.sdk-rich-delegation[data-delegation-status='completed'] {
+  border-left-color: var(--cr-success);
+}
+
+.sdk-rich-delegation[data-delegation-status='failed'],
+.sdk-rich-delegation[data-delegation-status='interrupted'],
+.sdk-rich-mailbox[data-mailbox-status='failed'] {
+  border-left-color: var(--cr-error);
+}
+
+.sdk-rich-delegation[data-delegation-status='queued'],
+.sdk-rich-delegation[data-delegation-status='starting'],
+.sdk-rich-delegation[data-delegation-status='running'],
+.sdk-rich-delegation[data-delegation-status='waiting_for_input'],
+.sdk-rich-delegation[data-delegation-status='cancelling'],
+.sdk-rich-mailbox[data-mailbox-status='queued'],
+.sdk-rich-mailbox[data-mailbox-status='dispatching'],
+.sdk-rich-mailbox[data-mailbox-status='uncertain'] {
+  border-left-color: var(--cr-warn);
+}
+
+.sdk-rich-mailbox {
+  border-left-color: var(--cr-info);
+}
+
+.sdk-rich-delegation .sdk-rich-line__content,
+.sdk-rich-mailbox .sdk-rich-line__content {
   display: flex;
   flex-direction: column;
   gap: var(--cr-space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sdk-rich-delegation-title {
+  font-size: 0.85rem;
+  color: var(--cr-text);
+}
+
+.sdk-rich-delegation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--cr-text-muted);
 }
 
 .sdk-rich-delegation-report {
   margin: var(--cr-space-1) 0 0;
-  max-height: 12rem;
+  max-height: min(28rem, 60vh);
   overflow: auto;
-  white-space: pre-wrap;
-  font-family: var(--cr-font-mono);
-  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--cr-space-2);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-bg);
+  color: var(--cr-text);
+  font-family: var(--cr-font-ui);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sdk-rich-delegation-report.sdk-md {
+  white-space: normal;
 }
 
 .sdk-rich-delegation-actions {
@@ -6051,7 +6185,7 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
   padding: 0 var(--cr-space-2);
   border: 1px solid var(--cr-border-strong);
   border-radius: var(--cr-radius-sm);
-  background: var(--cr-surface);
+  background: var(--cr-control-bg);
   color: var(--cr-text);
   cursor: pointer;
 }
@@ -8631,6 +8765,48 @@ body.sidebar-workspace-drag-active {
   }
 }
 
+.sidebar-archive-group {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+}
+
+.sidebar-archive-header {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: var(--sidebar-row-height);
+  padding: 0 0.4rem;
+  border-radius: var(--cr-radius-sm);
+  color: var(--cr-text-muted);
+  cursor: pointer;
+}
+
+.sidebar-archive-header:hover {
+  background: var(--cr-surface);
+  color: var(--cr-text);
+}
+
+.sidebar-archive-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.78rem;
+}
+
+.sidebar-archive-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 0.4rem;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.sidebar-chat-item.is-archived {
+  opacity: 0.72;
+}
+
 .sidebar-chat-empty {
   padding: 0.3rem 0.5rem;
   color: var(--cr-text-muted);
@@ -8672,14 +8848,14 @@ body.sidebar-workspace-drag-active {
   }
 
   &.is-child {
-    padding-left: 1.55rem;
+    padding-left: calc(0.5rem + var(--sidebar-nest-level, 1) * 1.05rem);
   }
 
   &.is-child::before,
   &.is-child::after {
     content: '';
     position: absolute;
-    left: 0.72rem;
+    left: calc(0.72rem + (var(--sidebar-nest-level, 1) - 1) * 1.05rem);
     pointer-events: none;
   }
 

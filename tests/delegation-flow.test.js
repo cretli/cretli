@@ -1,5 +1,7 @@
 import './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import { subscribeChatHistoryUpdates } from '../lib/sdk/sdk-history-updates.js';
 import { mkdtempSync, rmSync } from 'fs';
 import os from 'os';
 import path from 'path';
@@ -61,6 +63,12 @@ function createParent(title) {
 }
 
 const parent = createParent('Planner');
+const parentNotifications = [];
+const parentSocket = Object.assign(new EventEmitter(), {
+  readyState: 1,
+  send: (payload) => parentNotifications.push(JSON.parse(payload)),
+});
+subscribeChatHistoryUpdates(parent.id, parentSocket);
 const planDoc = readChatPlanDocument({ cwd: project, chatId: parent.id });
 const first = await service.createAndStart({
   parentChatId: parent.id,
@@ -70,6 +78,14 @@ const first = await service.createAndStart({
 });
 assert.equal(first.ok, true);
 assert.ok(first.delegation.childChatId);
+assert.ok(parentNotifications.length >= 1);
+assert.ok(parentNotifications.every((row) => row.type === 'sdkHistoryChanged'));
+const startedCard = loadChatHistory(parent.id).events.find((row) => row.rec.variant === 'delegation');
+assert.equal(JSON.parse(startedCard.rec.payload).childChatId, first.delegation.childChatId);
+assert.ok(parentNotifications.some((row) => (
+  Array.isArray(row.records)
+  && row.records.some((rec) => rec.variant === 'delegation' && rec.historySeq === startedCard.seq)
+)));
 assert.match(first.delegation.planMarkdown, /Planner/);
 assert.equal(getMockChatRun(first.delegation.childChatId)?.hold, true);
 const relatedChild = (loadChatHistory(parent.id)?.events || []).filter((row) => row.rec?.variant === 'relatedChat');
@@ -77,6 +93,7 @@ assert.equal(relatedChild.length >= 1, true);
 const relatedParent = (loadChatHistory(first.delegation.childChatId)?.events || []).filter((row) => row.rec?.variant === 'relatedChat');
 assert.equal(relatedParent.length >= 1, true);
 
+const publishedAfterStart = parentNotifications.length;
 const replayed = await service.createAndStart({
   parentChatId: parent.id,
   executor: { transport: 'opencode', model: 'opencode/test' },
@@ -84,6 +101,8 @@ const replayed = await service.createAndStart({
   idempotencyKey: 'idem-1',
 });
 assert.equal(replayed.delegation.id, first.delegation.id);
+assert.equal(parentNotifications.length, publishedAfterStart, 'idempotent replay must not publish a duplicate card');
+parentSocket.emit('close');
 assert.equal(loadChats().filter((row) => row.delegationParentChatId === parent.id).length, 1);
 
 const conflictParams = await service.createAndStart({

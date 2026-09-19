@@ -10,6 +10,7 @@ import {
   normalizeChatEnabledModels,
   toLegacyModelOptions,
 } from '../../../lib/model-catalog.js';
+import { normalizeDeepSeekChatEnabledModels } from '../../../lib/deepseek/deepseek-model-ids.js';
 import { setDynamicModelContextWindows } from '../../../lib/sdk/sdk-context-advisory.js';
 import { escapeHtml } from './chatHtmlUtils.js';
 
@@ -182,7 +183,7 @@ export function createChatModelSelect(deps) {
    * @param {unknown} enabledKeys
    */
   function applyDeepSeekEnabledModels(enabledKeys) {
-    deepseekEnabledModelKeys = normalizeChatEnabledModels(enabledKeys);
+    deepseekEnabledModelKeys = normalizeDeepSeekChatEnabledModels(enabledKeys);
     if (pickerHarness === 'deepseek') rebuildAvailableAgentModels('deepseek');
     refreshModelSelectLabels();
   }
@@ -301,7 +302,7 @@ export function createChatModelSelect(deps) {
     }));
     if (nextCatalog.length === 0) return false;
     if (Array.isArray(payload?.chatEnabledModels)) {
-      deepseekEnabledModelKeys = normalizeChatEnabledModels(payload.chatEnabledModels);
+      deepseekEnabledModelKeys = normalizeDeepSeekChatEnabledModels(payload.chatEnabledModels);
     }
     const prevSig = JSON.stringify(deepseekModelCatalog);
     const nextSig = JSON.stringify(nextCatalog);

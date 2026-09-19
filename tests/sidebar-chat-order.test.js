@@ -35,6 +35,16 @@ test('writeChatOrderForList merges the visible list into the saved order', () =>
   assert.deepEqual(readChatOrder(), ['x', 'b', 'a', 'y']);
 });
 
+test('collectChatIdsFromList skips archived rows', () => {
+  const list = {
+    querySelectorAll: (selector) => {
+      assert.match(String(selector), /not\(\[data-archived="1"\]\)/);
+      return [{ dataset: { chatId: 'live' } }];
+    },
+  };
+  assert.deepEqual(collectChatIdsFromList(list), ['live']);
+});
+
 test('collectChatIdsFromList reads data-chat-id', () => {
   const list = {
     querySelectorAll: () => [

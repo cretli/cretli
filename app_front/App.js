@@ -99,6 +99,7 @@ import { initI18n, t, getCurrentLang, setLang } from './i18n/index.js';
 import { applyStaticTranslations, wireStaticTranslations } from './i18n/applyStatic.js';
 import { initVoiceModeButton } from './features/voice/voiceModeButton.js';
 import { initUsageSettings, refreshUsageSettings } from './features/usage/usageSettings.js';
+import { initDelegationCenter, refreshDelegationCenter } from './features/delegations/delegationCenter.js';
 import { initInstallPrompt } from './features/pwa/installPrompt.js';
 import { initPwaUpdatePrompt } from './features/pwa/pwaUpdatePrompt.js';
 import { initPageBackgroundGrace } from './lib/pageBackgroundGrace.js';
@@ -915,6 +916,7 @@ function refreshSettingsTabPanels(tabId) {
   if (tabId === 'harness-codex') refreshCodexModelSettingsPanel();
   if (tabId === 'chat') refreshModelSettingsPanel();
   if (tabId === 'usage') void refreshUsageSettings();
+  if (tabId === 'delegations') void refreshDelegationCenter();
   if (tabId === 'widgets') {
     void ensurePanelReady('widget').then(() => callLoadedPanel('widget', 'refreshWidgetPanel'));
   }
@@ -1783,6 +1785,7 @@ function bootApp() {
     });
     measureStartupStep('initSettingsTabs', () => initSettingsTabs());
     measureStartupStep('initUsageSettings', () => initUsageSettings());
+    measureStartupStep('initDelegationCenter', () => initDelegationCenter());
     // Terminal, Tasks, Agents, Files, Git, Instances and Status tests are
     // loaded and initialized on the first visit to their tab (see ensurePanelReady).
     // GitHub is the exception: it decides whether its own tab is visible at all.

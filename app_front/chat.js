@@ -34,7 +34,7 @@ import {
   resolveInheritedPromptEcho,
   resolvePendingInheritedSend,
 } from '../lib/conversation-fork.js';
-import { resolveHarnessSwitchNest } from '../lib/chat-tree.js';
+import { resolveHarnessSwitchNest, isChatArchived, isRelatedChatLinkVisible } from '../lib/chat-tree.js';
 import { buildApprovedPlanImplementPrompt } from '../lib/chat-plan-path.js';
 import {
   parseDelegationCommand,
@@ -119,6 +119,7 @@ import {
 } from '../lib/context-compression.js';
 import { initChatHistorySyncPoll } from './features/chat/chatHistorySyncPoll.js';
 import { initChatListResumeSync } from './features/chat/chatListResumeSync.js';
+import { createChatListLiveSync } from './features/chat/chatListLiveSync.js';
 import { getResumeHistorySyncDeferMs } from './features/chat/chatResumePolicy.js';
 import { isMobileLikeClient } from './lib/mobileClient.js';
 import { getLastBackgroundDurationMs } from './lib/pageBackgroundGrace.js';
@@ -1753,16 +1754,17 @@ export function refreshRelatedChatHistoryLinks(chat) {
   const parent = parentId ? chats.find((entry) => entry.id === parentId) : null;
   const children = chats.filter((entry) => {
     if (!entry?.id || entry.id === chat.id || entry.isTemporary === true) return false;
+    if (isChatArchived(entry)) return false;
     const kind = String(entry.forkKind || '');
     if (kind === 'title' || kind === 'summary') return false;
     return String(entry.forkParentChatId || '') === chat.id
       || String(entry.delegationParentChatId || '') === chat.id;
   });
   view.ensureRelatedChatLinks({
-    parent: parentId
+    parent: parent && !isChatArchived(parent)
       ? {
         chatId: parentId,
-        title: parent?.title || parentId.slice(0, 8),
+        title: parent.title || parentId.slice(0, 8),
         reason: String(chat.forkKind || ''),
       }
       : null,
@@ -2583,6 +2585,7 @@ async function syncSdkHistoryOnResume(chat, context = {}) {
   }
 }
 
+let chatListLiveSyncApi = null;
 const chatTransport = createChatTransport({
   WS_PATH_AGENT_SDK,
   CHAT_RECONNECT_MAX,
@@ -2628,6 +2631,9 @@ const chatTransport = createChatTransport({
     closeChat(chat.id, { skipApiDelete: true });
   },
   onConnectionLost: handleChatConnectionLost,
+  onChatsChanged: () => {
+    chatListLiveSyncApi?.onChatsChanged();
+  },
 });
 
 function appendChatRecoveryNotice(chat, text, _tone = 'warn') {
@@ -2694,6 +2700,9 @@ initChatHistorySyncPoll({
 });
 
 initChatListResumeSync({
+  refresh: (query) => loadChatsFromServer(query),
+});
+chatListLiveSyncApi = createChatListLiveSync({
   refresh: (query) => loadChatsFromServer(query),
 });
 
@@ -3842,8 +3851,17 @@ function openTerminal(chat) {
     onOpenCodeQuestionReply: (payload) => sendOpenCodeQuestionReply(chat, payload),
     onOpenCodePermissionReply: (payload) => sendOpenCodePermissionReply(chat, payload),
     onOpenDelegationChat: (childChatId) => {
-      if (childChatId) selectChat(childChatId);
+      if (!childChatId) return;
+      void (async () => {
+        if (!chats.some((entry) => entry.id === childChatId)) {
+          await loadChatsFromServer({ skipAutoSelect: true, preferChatId: childChatId });
+        }
+        selectChat(childChatId);
+      })().catch((error) => {
+        appLogger.log('delegation', 'open executor failed', { error: String(error) });
+      });
     },
+    isRelatedChatVisible: (relatedChatId) => isRelatedChatLinkVisible(chats, relatedChatId),
     onCancelDelegation: (delegationId) => {
       if (!delegationId) return;
       void api.postDelegationCancel(delegationId);
@@ -3855,6 +3873,28 @@ function openTerminal(chat) {
         if (chat._sdkHistoryHydrating) return;
         void syncSdkHistoryOnResume(chat, { reason: 'delegation_ack' }).catch(() => {});
       }).catch(() => {});
+    },
+    onRetryDelegation: (delegationId) => {
+      if (!delegationId) return;
+      void api.postDelegationRetry(delegationId).then((res) => {
+        if (res?.ok) {
+          if (chat._sdkHistoryHydrating) return;
+          void syncSdkHistoryOnResume(chat, { reason: 'delegation_retry' }).catch(() => {});
+          return;
+        }
+        alert(res?.error || t('chat.delegationRetryFailed'));
+      }).catch(() => {
+        alert(t('chat.serverConnectionError'));
+      });
+    },
+    onRetryMailbox: (messageId) => {
+      if (!chat?.id || !messageId) return;
+      void api.postChatMailboxRetry(chat.id, messageId).then((res) => {
+        if (res?.ok) return;
+        alert(res?.error || t('chat.mailboxRetryFailed'));
+      }).catch(() => {
+        alert(t('chat.serverConnectionError'));
+      });
     },
   });
   chat.term = null;
@@ -4104,6 +4144,11 @@ function findLastVisibleChatId(excludeChatId = '') {
 
 async function requestArchiveChat(chatId, options = {}) {
   if (!chatId) return false;
+  const archivedRow = chats.find((entry) => entry.id === chatId);
+  const relatedParentIds = [
+    String(archivedRow?.forkParentChatId || '').trim(),
+    String(archivedRow?.delegationParentChatId || '').trim(),
+  ].filter(Boolean);
   const switchToChatId =
     typeof options.switchToChatId === 'string' && options.switchToChatId.trim()
       ? options.switchToChatId.trim()
@@ -4130,7 +4175,31 @@ async function requestArchiveChat(chatId, options = {}) {
   if (switchToChatId && chats.some((entry) => entry.id === switchToChatId)) {
     selectChat(switchToChatId);
   }
+  relatedParentIds.forEach((id) => {
+    refreshRelatedChatHistoryLinks(chats.find((entry) => entry.id === id));
+  });
   return true;
+}
+
+function syncArchiveMenuUi(chat = null) {
+  const btn = document.getElementById('chat-archive-menu-btn');
+  if (!btn) return;
+  const archived = Boolean(String(chat?.archivedAt || '').trim());
+  const key = archived ? 'chat.restore' : 'chat.archive';
+  const label = t(key);
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+  btn.setAttribute('data-i18n-title', key);
+  btn.setAttribute('data-i18n-aria', key);
+  const labelEl = btn.querySelector('.chat-toolbar-action-label');
+  if (labelEl) {
+    labelEl.setAttribute('data-i18n', key);
+    labelEl.textContent = label;
+  }
+  const icon = btn.querySelector('.mdi');
+  if (!icon) return;
+  icon.classList.toggle('mdi-archive-arrow-down-outline', !archived);
+  icon.classList.toggle('mdi-archive-arrow-up-outline', archived);
 }
 
 async function requestRestoreChat(chatId) {
@@ -4746,6 +4815,7 @@ function performSelectChat(id) {
   if (chat) {
     requestWidgetChatBinding(chat);
     syncWidgetPinUrlUi(chat);
+    syncArchiveMenuUi(chat);
     syncChatSdkModeUi(chat);
     renderChatTerminalState(chat);
     chatDiagnosticsApi.startChatContextUsageSync(chat);
@@ -7941,6 +8011,22 @@ export function initChatPanel() {
       if (!id) return;
       sendKeySequenceToActiveChat('\x03');
     });
+  }
+
+  const archiveMenuBtn = document.getElementById('chat-archive-menu-btn');
+  if (archiveMenuBtn) {
+    bindChatToolbarActionItem(archiveMenuBtn, () => {
+      closeChatActionsModal();
+      const id = activeChatId;
+      if (!id) return;
+      const chat = chats.find((entry) => entry.id === id);
+      if (chat?.archivedAt) {
+        void requestRestoreChat(id);
+        return;
+      }
+      void requestArchiveChat(id);
+    });
+    syncArchiveMenuUi(activeChatId ? chats.find((c) => c.id === activeChatId) : null);
   }
 
   const deleteMenuBtn = document.getElementById('chat-delete-menu-btn');

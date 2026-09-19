@@ -8,6 +8,7 @@ import {
   isRunningSdkToolStatus,
   isTerminalSdkRunStatus,
   isTerminalSdkToolStatus,
+  shouldKeepSdkThinkingSpinner,
   resolveAbandonedToolStatus,
   resolveSdkToolCallId,
   setRunningSdkToolCallCount,
@@ -30,6 +31,36 @@ assert.equal(isTerminalSdkToolStatus('running'), false);
 assert.equal(isTerminalSdkRunStatus('FINISHED'), true);
 assert.equal(isTerminalSdkRunStatus('error'), true);
 assert.equal(isTerminalSdkRunStatus('RUNNING'), false);
+assert.equal(shouldKeepSdkThinkingSpinner({
+  runKey: 'run-1',
+  activeKind: 'thinking',
+  activeThinkingRunKey: 'run-1',
+  runStatus: 'FINISHED',
+  hasRunningTools: true,
+}), false);
+assert.equal(shouldKeepSdkThinkingSpinner({
+  runKey: 'run-1',
+  activeKind: 'thinking',
+  activeThinkingRunKey: 'run-1',
+  suppressHistoryPersist: false,
+  runStatus: 'RUNNING',
+  hasRunningTools: false,
+}), true);
+assert.equal(shouldKeepSdkThinkingSpinner({
+  runKey: 'run-1',
+  activeKind: 'assistant',
+  activeThinkingRunKey: '',
+  runStatus: 'RUNNING',
+  hasRunningTools: true,
+}), true);
+assert.equal(shouldKeepSdkThinkingSpinner({
+  runKey: 'run-1',
+  activeKind: 'thinking',
+  activeThinkingRunKey: 'run-1',
+  suppressHistoryPersist: true,
+  runStatus: 'RUNNING',
+  hasRunningTools: false,
+}), false);
 assert.equal(resolveAbandonedToolStatus('finished'), 'cancelled');
 assert.equal(resolveAbandonedToolStatus('COMPLETED'), 'cancelled');
 assert.equal(resolveAbandonedToolStatus('error'), 'error');
