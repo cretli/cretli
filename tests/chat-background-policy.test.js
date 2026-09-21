@@ -7,8 +7,16 @@ import {
   resolveBackgroundMonitorMode,
   selectBackgroundWsChatIds,
   selectMonitoredChatIds,
+  selectHistoryHttpChatIds,
   shouldKeepChatSocket,
+  shouldSkipBackgroundHistoryHttp,
+  capHistoryHttpJobs,
 } from '../app_front/features/chat/chatBackgroundPolicy.js';
+import {
+  resolveBackgroundHttpBatchDelayMs,
+  resolveBackgroundHttpBatchSize,
+  resolveBackgroundHttpMaxConcurrent,
+} from '../app_front/features/chat/chatWsReconnectPolicy.js';
 import { CHAT_BACKGROUND_MONITOR_WINDOW_MS } from '../app_front/config.js';
 
 const now = 1_000_000;
@@ -173,5 +181,60 @@ assert.equal(
   false,
   'Active id that is no longer in the list must not keep a WS slot'
 );
+
+assert.ok(
+  resolveBackgroundHttpMaxConcurrent(true) >= 1,
+  'Mobile HTTP queue must stay above 0 (backgroundWsMax is 0)'
+);
+assert.ok(resolveBackgroundHttpMaxConcurrent(false) >= 1);
+assert.ok(resolveBackgroundHttpBatchSize(true) >= 1);
+assert.ok(resolveBackgroundHttpBatchDelayMs(true) >= 0);
+assert.equal(
+  shouldSkipBackgroundHistoryHttp({ monitorMode: 'ws-active', hasPendingDelegation: false }),
+  true
+);
+assert.equal(
+  shouldSkipBackgroundHistoryHttp({ monitorMode: 'ws-active', hasPendingDelegation: true }),
+  false
+);
+
+const httpIds = selectHistoryHttpChatIds(monitoredChatIds, chats, {
+  activeChatId: 'active',
+  visibleChatIds: new Set(['bg-1']),
+});
+assert.equal(httpIds.has('active'), true);
+assert.equal(httpIds.has('bg-1'), true);
+assert.equal(httpIds.has('bg-5'), false);
+
+const emptyVisibleIds = selectHistoryHttpChatIds(monitoredChatIds, chats, {
+  activeChatId: 'active',
+  visibleChatIds: new Set(),
+});
+assert.equal(emptyVisibleIds.has('active'), true);
+assert.equal(emptyVisibleIds.has('bg-1'), false, 'empty sidebar snapshot must not dump the full monitor set');
+assert.equal(emptyVisibleIds.has('bg-5'), false);
+
+const busyChats = [
+  ...chats,
+  {
+    id: 'busy',
+    cursorSessionId: 'bz',
+    activityAt: now,
+    _serverRunState: { state: 'busy' },
+  },
+];
+const busyMonitored = selectMonitoredChatIds(busyChats, () => 'active', getChatActivityAt, now);
+const emptyVisibleBusy = selectHistoryHttpChatIds(busyMonitored, busyChats, {
+  activeChatId: 'active',
+  visibleChatIds: new Set(),
+});
+assert.equal(emptyVisibleBusy.has('busy'), true);
+
+const capped = capHistoryHttpJobs(Array.from({ length: 40 }, (_, i) => i), {
+  chunkSize: 16,
+  maxPosts: 2,
+});
+assert.equal(capped.length, 32);
+assert.equal(capHistoryHttpJobs(null).length, 0);
 
 console.log('chat-background-policy.test.js: ok');

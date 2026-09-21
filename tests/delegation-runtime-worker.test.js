@@ -7,7 +7,10 @@ import {
   createDelegationService,
   finishDelegation,
   hasInFlightDelegationStart,
+  inspectDelegationSlot,
+  releaseDelegationRunSlot,
   setDelegationCrashHook,
+  delegationService,
 } from '../lib/delegation-service.js';
 import {
   tickDelegationRuntime,
@@ -18,14 +21,22 @@ import {
   isDelegationRuntimeWorkerRunning,
   isDelegationRuntimeTickInFlight,
 } from '../lib/delegation-runtime-worker.js';
-import { getDelegationById, updateDelegationRecord, getDelegationsDataPath } from '../lib/persist/delegations-persist.js';
+import { getDelegationById, updateDelegationRecord, createDelegationRecord, getDelegationsDataPath } from '../lib/persist/delegations-persist.js';
 import { createMailboxMessage, updateMailboxMessage, getMailboxMessageById } from '../lib/persist/delegation-mailbox-persist.js';
-import { registerChatRunAdapter } from '../lib/chat-run-service.js';
-import { registerMockChatRunAdapter, patchMockChatRun } from '../lib/chat-run/mock-adapter.js';
+import { registerChatRunAdapter, probeChatRunLiveness } from '../lib/chat-run-service.js';
+import { registerMockChatRunAdapter, patchMockChatRun, hangNextMockChatRunCancel } from '../lib/chat-run/mock-adapter.js';
 import {
+  DELEGATION_CANCELLING_TIMEOUT_MS,
+  DELEGATION_RUNNING_ORPHAN_GRACE_MS,
   DELEGATION_STARTING_TIMEOUT_MS,
   MAILBOX_DISPATCHING_TIMEOUT_MS,
 } from '../lib/delegation-status.js';
+import {
+  applyDelegationWorkflowPatch,
+  inspectDelegationWorkflowStart,
+  isDelegationWorkflowDeadlinePassed,
+  listDelegationWorkflowsPastDeadline,
+} from '../lib/delegation-workflow.js';
 
 stopDelegationRuntimeWorker();
 registerMockChatRunAdapter('opencode');
@@ -138,6 +149,47 @@ registerMockChatRunAdapter('opencode');
 }
 
 {
+  const job = (await start(parent('orphan running'))).delegation;
+  const idleAt = new Date(Date.now() - DELEGATION_RUNNING_ORPHAN_GRACE_MS - 1000).toISOString();
+  updateDelegationRecord(job.id, {
+    status: 'running',
+    lastTransitionAt: idleAt,
+    idleObservedAt: idleAt,
+  });
+  patchMockChatRun(job.childChatId, { busy: false, waitingForInput: false });
+  await tickDelegationRuntime({ now: Date.now(), drainMailbox: false });
+  const actual = getDelegationById(job.id);
+  assert.equal(actual.status, 'interrupted');
+  assert.equal(String(actual.runStoppingAt || '').trim(), '');
+}
+
+{
+  registerChatRunAdapter({
+    transport: 'opencode',
+    getState: () => {
+      throw new Error('adapter down');
+    },
+    cancel: async () => {},
+    start: async () => ({ accepted: true, runId: 'down' }),
+  });
+  const child = parent('adapter unknown child');
+  const job = createDelegationRecord({
+    parentChatId: parent('adapter unknown parent').id,
+    childChatId: child.id,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    assignment: 'implement',
+  });
+  updateDelegationRecord(job.id, {
+    status: 'running',
+    lastTransitionAt: new Date(Date.now() - DELEGATION_RUNNING_ORPHAN_GRACE_MS - 1000).toISOString(),
+  });
+  await tickDelegationRuntime({ now: Date.now(), drainMailbox: false });
+  assert.equal(getDelegationById(job.id).status, 'running');
+  registerMockChatRunAdapter('opencode');
+}
+
+{
   startDelegationRuntimeWorker({ intervalMs: 20 });
   startDelegationRuntimeWorker({ intervalMs: 20 });
   assert.equal(isDelegationRuntimeWorkerRunning(), true);
@@ -204,6 +256,263 @@ registerMockChatRunAdapter('opencode');
   }
   stopDelegationRuntimeWorker();
   setDelegationCrashHook(null);
+}
+
+{
+  const child = parent('probe existing chat');
+  registerMockChatRunAdapter('opencode');
+  const missingAdapterChat = addChat(crypto.randomUUID(), 'no adapter', null, ISOLATED_DATA_DIR, 'opencode/test', {
+    agentTransport: 'missing-transport',
+    sdkMode: 'agent',
+  });
+  const missingAdapter = probeChatRunLiveness({ chatId: missingAdapterChat.id, runId: 'r1' });
+  assert.equal(missingAdapter.known, false);
+  assert.equal(missingAdapter.busy, false);
+  assert.equal(missingAdapter.reason, 'adapter_missing');
+
+  registerChatRunAdapter({
+    transport: 'opencode',
+    getState: () => null,
+    cancel: async () => {},
+    start: async () => ({ accepted: true, runId: 'null-state' }),
+  });
+  const nullState = probeChatRunLiveness({ chatId: child.id, runId: 'wanted' });
+  assert.equal(nullState.known, false);
+  assert.equal(nullState.busy, false);
+  assert.equal(nullState.reason, 'state_missing');
+
+  registerChatRunAdapter({
+    transport: 'opencode',
+    getState: () => ({ runId: 'other', busy: false, waitingForInput: false }),
+    cancel: async () => {},
+    start: async () => ({ accepted: true, runId: 'other' }),
+  });
+  const mismatch = probeChatRunLiveness({ chatId: child.id, runId: 'wanted' });
+  assert.equal(mismatch.known, false);
+  assert.equal(mismatch.reason, 'run_mismatch');
+  registerMockChatRunAdapter('opencode');
+}
+
+{
+  const job = (await start(parent('long run then idle'))).delegation;
+  updateDelegationRecord(job.id, {
+    status: 'running',
+    lastTransitionAt: new Date(Date.now() - DELEGATION_RUNNING_ORPHAN_GRACE_MS - 1000).toISOString(),
+    idleObservedAt: '',
+  });
+  patchMockChatRun(job.childChatId, { busy: false, waitingForInput: false });
+  await tickDelegationRuntime({ now: Date.now(), drainMailbox: false });
+  const afterFirst = getDelegationById(job.id);
+  assert.equal(afterFirst.status, 'running');
+  assert.ok(String(afterFirst.idleObservedAt || '').trim());
+}
+
+{
+  registerChatRunAdapter({
+    transport: 'opencode',
+    getState: () => null,
+    cancel: async () => {},
+    start: async () => ({ accepted: true, runId: 'null-orphan' }),
+  });
+  const child = parent('null state orphan child');
+  const job = createDelegationRecord({
+    parentChatId: parent('null state orphan parent').id,
+    childChatId: child.id,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    assignment: 'implement',
+  });
+  const old = new Date(Date.now() - DELEGATION_RUNNING_ORPHAN_GRACE_MS - 1000).toISOString();
+  updateDelegationRecord(job.id, {
+    status: 'running',
+    lastTransitionAt: old,
+    idleObservedAt: old,
+    runId: 'wanted',
+  });
+  await tickDelegationRuntime({ now: Date.now(), drainMailbox: false });
+  assert.equal(getDelegationById(job.id).status, 'running');
+  registerMockChatRunAdapter('opencode');
+}
+
+{
+  const p = parent('runStopping unknown');
+  const job = (await start(p)).delegation;
+  finishDelegation(job, { status: 'completed', report: 'done' });
+  updateDelegationRecord(job.id, { runStoppingAt: new Date().toISOString() });
+  registerChatRunAdapter({
+    transport: 'opencode',
+    getState: () => null,
+    cancel: async () => {},
+    start: async () => ({ accepted: true, runId: 'gone' }),
+  });
+  const kept = releaseDelegationRunSlot(getDelegationById(job.id));
+  assert.ok(String(kept.runStoppingAt || '').trim());
+  assert.equal(inspectDelegationSlot(kept).occupied, true);
+  registerChatRunAdapter({
+    transport: 'opencode',
+    getState: () => ({ runId: job.runId, busy: false, waitingForInput: false }),
+    cancel: async () => {},
+    start: async () => ({ accepted: true, runId: job.runId }),
+  });
+  const released = releaseDelegationRunSlot(getDelegationById(job.id));
+  assert.equal(String(released.runStoppingAt || '').trim(), '');
+  registerMockChatRunAdapter('opencode');
+}
+
+{
+  const folder = `${ISOLATED_DATA_DIR}/deadline-${crypto.randomUUID()}`;
+  fs.mkdirSync(folder, { recursive: true });
+  const p = addChat(crypto.randomUUID(), 'deadline cancel idle', null, folder, 'opencode/test', {
+    agentTransport: 'opencode',
+    sdkMode: 'agent',
+  });
+  const started = await service.createAndStart({
+    parentChatId: p.id,
+    sourceKind: 'text',
+    taskText: 'deadline job',
+    assignment: 'implement',
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    idempotencyKey: crypto.randomUUID(),
+  });
+  assert.equal(started.ok, true, started.code || started.error || 'start failed');
+  const job = started.delegation;
+  const t0 = Date.now();
+  applyDelegationWorkflowPatch({
+    parentChatId: p.id,
+    deadlineAt: new Date(t0 - 1000).toISOString(),
+    clearStop: true,
+  });
+  assert.equal(isDelegationWorkflowDeadlinePassed(listDelegationWorkflowsPastDeadline(t0)[0], t0), true);
+  resetDelegationRuntimeHealth();
+  await tickDelegationRuntime({ now: t0, drainMailbox: false });
+  let latest = getDelegationById(job.id);
+  assert.ok(latest.status === 'cancelling' || latest.status === 'cancelled', latest.status);
+  patchMockChatRun(job.childChatId, { busy: false, waitingForInput: false });
+  if (latest.status === 'cancelling') {
+    await tickDelegationRuntime({ now: t0 + DELEGATION_CANCELLING_TIMEOUT_MS + 1000, drainMailbox: false });
+    latest = getDelegationById(job.id);
+  }
+  const released = releaseDelegationRunSlot(latest);
+  assert.equal(released.status, 'cancelled');
+  assert.equal(inspectDelegationSlot(getDelegationById(job.id)).occupied, false);
+}
+
+{
+  const originalCancel = delegationService.cancel;
+  const rejections = [];
+  const onReject = (reason) => {
+    rejections.push(reason);
+  };
+  process.on('unhandledRejection', onReject);
+  delegationService.cancel = async () => {
+    throw new Error('cancel boom');
+  };
+  try {
+    const p = parent('cancel reject');
+    await start(p);
+    applyDelegationWorkflowPatch({
+      parentChatId: p.id,
+      deadlineAt: new Date(Date.now() - 1000).toISOString(),
+      clearStop: true,
+    });
+    await tickDelegationRuntime({ now: Date.now(), drainMailbox: false });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(rejections.length, 0);
+  } finally {
+    process.off('unhandledRejection', onReject);
+    delegationService.cancel = originalCancel;
+  }
+}
+
+{
+  let cancelCalls = 0;
+  const originalCancel = delegationService.cancel;
+  const releaseCancel = hangNextMockChatRunCancel();
+  delegationService.cancel = async (id) => {
+    cancelCalls += 1;
+    return originalCancel.call(delegationService, id);
+  };
+  try {
+    const hungParent = parent('never-resolving cancel');
+    const otherParent = parent('other outbox during hung cancel');
+    const other = (await start(otherParent)).delegation;
+    finishDelegation(other, { status: 'completed', report: 'done', enqueueParentReply: true });
+    const pending = getDelegationById(other.id);
+    const mailbox = pending.outbox.find((row) => row.type === 'mailbox');
+    assert.ok(mailbox);
+    updateDelegationRecord(other.id, {
+      outbox: pending.outbox.map((row) => (
+        row.id === mailbox.id ? { ...row, deliveredAt: '', nextAttemptAt: '' } : row
+      )),
+    });
+    const hung = (await start(hungParent)).delegation;
+    applyDelegationWorkflowPatch({
+      parentChatId: hungParent.id,
+      deadlineAt: new Date(Date.now() - 1000).toISOString(),
+      clearStop: true,
+    });
+    resetDelegationRuntimeHealth();
+    const t0 = Date.now();
+    await tickDelegationRuntime({ now: Date.now(), drainMailbox: false });
+    const elapsed = Date.now() - t0;
+    assert.ok(elapsed < 1000, `tick blocked on cancel: ${elapsed}ms`);
+    assert.equal(isDelegationRuntimeTickInFlight(), false);
+    assert.equal(getDelegationById(hung.id).status, 'cancelling');
+    assert.equal(cancelCalls, 1);
+    const flushed = getDelegationById(other.id).outbox.find((row) => row.id === mailbox.id);
+    assert.ok(String(flushed.deliveredAt || '').trim());
+    await tickDelegationRuntime({ now: Date.now(), drainMailbox: false });
+    assert.equal(cancelCalls, 1);
+    assert.equal(isDelegationRuntimeTickInFlight(), false);
+  } finally {
+    releaseCancel();
+    delegationService.cancel = originalCancel;
+  }
+}
+
+{
+  let resolveCancel = () => {};
+  let enteredCancel = () => {};
+  const cancelGate = new Promise((resolve) => { resolveCancel = resolve; });
+  const enteredGate = new Promise((resolve) => { enteredCancel = resolve; });
+  let state = { runId: 'r1', busy: true, waitingForInput: false };
+  registerChatRunAdapter({
+    transport: 'opencode',
+    getState: () => state,
+    cancel: async () => {
+      enteredCancel();
+      await cancelGate;
+    },
+    start: async () => ({ accepted: true, runId: state.runId }),
+  });
+  const p = parent('worker stale deadline cancel');
+  const child = parent('worker stale deadline child');
+  const job = createDelegationRecord({
+    parentChatId: p.id,
+    childChatId: child.id,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    assignment: 'implement',
+    status: 'running',
+    attemptId: 'a1',
+    runId: 'r1',
+  });
+  applyDelegationWorkflowPatch({
+    parentChatId: p.id,
+    deadlineAt: new Date(Date.now() - 1000).toISOString(),
+    clearStop: true,
+  });
+  resetDelegationRuntimeHealth();
+  await tickDelegationRuntime({ now: Date.now(), drainMailbox: false });
+  await enteredGate;
+  updateDelegationRecord(job.id, { attemptId: 'a2', runId: 'r2', status: 'running' });
+  state = { runId: 'r2', busy: false, waitingForInput: false };
+  resolveCancel();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  const latest = getDelegationById(job.id);
+  assert.equal(latest.attemptId, 'a2');
+  assert.equal(latest.status, 'running');
+  registerMockChatRunAdapter('opencode');
 }
 
 console.log('delegation-runtime-worker.test.js OK');

@@ -5,15 +5,17 @@ import {
   subscribeChatListUpdates,
   unsubscribeChatListUpdates,
   broadcastChatListChanged,
+  sendChatListClientMessage,
   __clearChatListUpdateClientsForTest,
 } from '../lib/chat-list-updates.js';
-import { deleteChat, saveChats, updateChat } from '../lib/persist/chats-persist.js';
+import { addChat, deleteChat, saveChats, updateChat } from '../lib/persist/chats-persist.js';
 import { resolveDataPath } from '../lib/runtime-paths.js';
 
 function socket() {
   const messages = [];
   return Object.assign(new EventEmitter(), {
     readyState: 1,
+    bufferedAmount: 0,
     messages,
     send: (payload) => messages.push(JSON.parse(payload)),
   });
@@ -38,6 +40,17 @@ unsubscribeChatListUpdates(closed);
 broadcastChatListChanged();
 assert.equal(closed.messages.length, 2);
 
+const widget = socket();
+const session = socket();
+subscribeChatListUpdates(widget, { kind: 'widget', chatIds: ['own'] });
+subscribeChatListUpdates(session, { kind: 'session' });
+broadcastChatListChanged({ reason: 'title', chatId: 'foreign' });
+assert.equal(widget.messages.at(-1).type, 'chatsChanged');
+assert.equal(session.messages.at(-1).type, 'chatsChanged');
+widget.bufferedAmount = 3_000_000;
+assert.equal(sendChatListClientMessage(widget, '{"type":"agentPresence"}'), false);
+assert.equal(sendChatListClientMessage(session, '{"type":"agentPresence"}'), true);
+
 const dataFile = resolveDataPath('chats.json');
 const backup = fs.existsSync(dataFile) ? fs.readFileSync(dataFile, 'utf8') : null;
 try {
@@ -52,6 +65,17 @@ try {
       createdAt: '2026-09-19T00:00:00.000Z',
     },
   ]);
+  const created = addChat('sess-live-2', 'Created child', '', process.cwd(), 'auto', {
+    delegationParentChatId: 'list-live-1',
+    delegationId: 'delegation-live-1',
+    delegationAssignment: 'review',
+  });
+  assert.deepEqual(live.messages.at(-1), {
+    type: 'chatsChanged',
+    reason: 'create',
+    chatId: created.id,
+  });
+  live.messages.length = 0;
   updateChat('list-live-1', { model: 'auto' });
   assert.equal(live.messages.length, 0, 'model patch must not refresh the sidebar');
   updateChat('list-live-1', { archived: true });

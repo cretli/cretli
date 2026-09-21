@@ -147,6 +147,10 @@ cr-bar-textarea + .cr-row {
 .quick-commands-save-status {
   font-size: 0.75rem;
   color: var(--cr-success);
+
+  &.is-error {
+    color: var(--cr-danger-text);
+  }
 }
 
 .cr-tabs {

@@ -26,6 +26,7 @@ assert.equal(isReviewVerifyInvocation('node ./scripts/review-verify.js mcp-chat-
 assert.equal(isReviewVerifyInvocation('node tests/mcp-chat-history-format.test.js'), false);
 assert.equal(isReviewVerifyInvocation('node --test-reporter=spec scripts/review-verify.js'), false);
 assert.equal(isReviewVerifyInvocation('node scripts/review-verify.js unknown-id'), false);
+assert.equal(isReviewVerifyInvocation('node scripts/review-verify.js timeout-progress-series notices'), true);
 assert.equal(parseReviewVerifyNodeArgs(['scripts/review-verify.js', '--test-reporter=spec']).ok, false);
 assert.equal(isOpaqueExecPayload({ code: 'await exec("ls")' }), true);
 assert.equal(isOpaqueExecPayload({ command: 'ls' }), false);

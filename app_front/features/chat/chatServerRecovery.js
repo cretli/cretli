@@ -40,6 +40,7 @@ let serverRestartDetected = false;
  * @property {() => void} [syncBackgroundChatConnections]
  * @property {(chat: object, context?: object) => Promise<void>} syncSdkHistoryOnResume
  * @property {(chat: object, text: string, tone?: string) => void} appendRecoveryNotice
+ * @property {() => void} [onServerRestart]
  * @property {{ log: (tag: string, message: string, payload?: object) => void }} appLogger
  */
 
@@ -346,6 +347,7 @@ function pollReconnectRecovery() {
       const serverRestarted = didServerRestart(data);
       if (serverRestarted) {
         serverRestartDetected = true;
+        if (typeof deps.onServerRestart === 'function') deps.onServerRestart();
         deps.appLogger.log('chat-recovery', 'server restart detected', {});
       }
       recoverChatConnections({ serverRestarted });

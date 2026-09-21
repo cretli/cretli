@@ -2,10 +2,14 @@ import assert from 'node:assert/strict';
 import {
   buildOpenCodePermissionSdkEvent,
   buildOpenCodePlanPermissionRuleset,
+  classifyOpenCodePermissionRisk,
   isOpenCodePlanMutatingPermission,
   listOpenCodePermissionIdsForFailedTool,
   postOpenCodePermissionResponse,
+  resolveOpenCodeApprovalAction,
   resolveOpenCodePermissionResolvedRequestId,
+  shouldAutoAllowOpenCodeDelegationPermission,
+  shouldAutoAllowOpenCodeReviewPermission,
   shouldRejectOpenCodePlanPermission,
 } from '../lib/opencode/opencode-permission.js';
 import { isOpenCodeStaleSkillError } from '../lib/opencode/opencode-instance-http.js';
@@ -104,6 +108,33 @@ assert.equal(
     metadata: { command: 'node tests/conversation-fork.test.js' },
   }),
   true,
+);
+
+assert.equal(shouldAutoAllowOpenCodeReviewPermission('agent', { action: 'Read file' }, 'review'), true);
+assert.equal(shouldAutoAllowOpenCodeReviewPermission('agent', askedV2, 'review'), false);
+assert.equal(shouldAutoAllowOpenCodeReviewPermission('agent', askedV1, 'review'), false);
+assert.equal(
+  shouldAutoAllowOpenCodeReviewPermission('agent', {
+    action: 'bash',
+    metadata: { command: 'ls node_modules/@mdi/' },
+  }, 'review'),
+  true,
+);
+assert.equal(shouldAutoAllowOpenCodeReviewPermission('agent', { action: 'Read file' }, 'implement'), false);
+assert.equal(shouldAutoAllowOpenCodeDelegationPermission('agent', { action: 'Read file' }, 'implement'), true);
+assert.equal(
+  shouldAutoAllowOpenCodeDelegationPermission('agent', {
+    action: 'bash',
+    metadata: { command: 'rg -n "todo" .' },
+  }, 'implement'),
+  true,
+);
+assert.equal(
+  shouldAutoAllowOpenCodeDelegationPermission('agent', {
+    action: 'bash',
+    metadata: { command: 'rm -rf data' },
+  }, 'implement'),
+  false,
 );
 
 const askedFromData = buildOpenCodePermissionSdkEvent({
@@ -227,5 +258,148 @@ try {
   globalThis.fetch = originalFetch;
 }
 assert.equal(fetchCalls.length, 2);
+
+// --- approval broker local policy (MVP) -----------------------------------
+
+const brokerRead = { action: 'read', resources: ['src/app.js'] };
+const brokerRm = { action: 'bash', metadata: { command: 'rm -rf data' } };
+const brokerEdit = { action: 'edit', resources: ['src/app.js'] };
+const brokerCurl = { action: 'bash', metadata: { command: 'curl https://example.com' } };
+const brokerSecret = { action: 'bash', metadata: { command: 'cat .env' } };
+const brokerWorkspace = process.cwd();
+
+assert.equal(classifyOpenCodePermissionRisk(brokerCurl).categories.includes('network'), true);
+assert.equal(classifyOpenCodePermissionRisk(brokerSecret).categories.includes('secrets'), true);
+assert.equal(classifyOpenCodePermissionRisk(brokerRead).risk, 'low');
+
+// default mode is off: interactive permissions stay on the manual card.
+const defaultOff = resolveOpenCodeApprovalAction({
+  sdkMode: 'agent',
+  permissionEvent: brokerRead,
+  assignment: '',
+});
+assert.equal(defaultOff.mode, 'off');
+assert.equal(defaultOff.decision, 'ask_user');
+assert.equal(defaultOff.reply, null);
+
+// shadow computes a recommendation but never replies.
+const shadow = resolveOpenCodeApprovalAction({
+  mode: 'shadow',
+  sdkMode: 'agent',
+  permissionEvent: brokerRead,
+  assignment: '',
+  workspaceFolder: brokerWorkspace,
+});
+assert.equal(shadow.decision, 'allow');
+assert.equal(shadow.reply, null);
+assert.equal(shadow.shadow, true);
+
+// local_reads allows only safe local reads, once, and never `always`.
+const localRead = resolveOpenCodeApprovalAction({
+  mode: 'local_reads',
+  sdkMode: 'agent',
+  permissionEvent: brokerRead,
+  assignment: '',
+  workspaceFolder: brokerWorkspace,
+});
+assert.equal(localRead.decision, 'allow');
+assert.equal(localRead.reply, 'once');
+assert.notEqual(localRead.reply, 'always');
+const localLs = resolveOpenCodeApprovalAction({
+  mode: 'local_reads',
+  sdkMode: 'agent',
+  permissionEvent: { action: 'bash', metadata: { command: 'rg -n "todo" .' } },
+  assignment: '',
+  workspaceFolder: brokerWorkspace,
+});
+assert.equal(localLs.reply, 'once');
+
+// mutating / network / secret / edit paths never auto-reply.
+for (const event of [brokerRm, brokerCurl, brokerSecret, brokerEdit]) {
+  const action = resolveOpenCodeApprovalAction({
+    mode: 'local_reads',
+    sdkMode: 'agent',
+    permissionEvent: event,
+    assignment: '',
+    workspaceFolder: brokerWorkspace,
+  });
+  assert.equal(action.reply, null);
+  assert.notEqual(action.reply, 'always');
+  assert.equal(action.notifyUser, true);
+}
+assert.equal(
+  resolveOpenCodeApprovalAction({ mode: 'local_reads', sdkMode: 'plan', permissionEvent: brokerRm, workspaceFolder: brokerWorkspace }).decision,
+  'deny',
+);
+assert.equal(
+  resolveOpenCodeApprovalAction({ mode: 'off', sdkMode: 'agent', permissionEvent: brokerRm, assignment: 'review' }).decision,
+  'deny',
+);
+// Delegated implement children keep their one-shot read auto-allow.
+assert.equal(
+  resolveOpenCodeApprovalAction({
+    mode: 'local_reads',
+    sdkMode: 'agent',
+    permissionEvent: { action: 'bash', metadata: { command: 'ls -la' } },
+    assignment: 'implement',
+    workspaceFolder: brokerWorkspace,
+  }).reply,
+  'once',
+);
+// But a secret read for a delegated child stays on the card.
+assert.equal(
+  resolveOpenCodeApprovalAction({
+    mode: 'local_reads',
+    sdkMode: 'agent',
+    permissionEvent: brokerSecret,
+    assignment: 'implement',
+    workspaceFolder: brokerWorkspace,
+  }).reply,
+  null,
+);
+// Review keeps the host-owned verify runner allowed, arbitrary tests denied.
+assert.equal(
+  resolveOpenCodeApprovalAction({
+    mode: 'local_reads',
+    sdkMode: 'agent',
+    permissionEvent: { action: 'bash', metadata: { command: 'node scripts/review-verify.js delegation-contract' } },
+    assignment: 'review',
+    workspaceFolder: brokerWorkspace,
+  }).reply,
+  'once',
+);
+assert.equal(
+  resolveOpenCodeApprovalAction({
+    mode: 'local_reads',
+    sdkMode: 'agent',
+    permissionEvent: { action: 'bash', metadata: { command: 'node tests/conversation-fork.test.js' } },
+    assignment: 'review',
+    workspaceFolder: brokerWorkspace,
+  }).decision,
+  'deny',
+);
+
+assert.equal(
+  resolveOpenCodeApprovalAction({
+    mode: 'local_reads',
+    sdkMode: 'agent',
+    permissionEvent: { action: 'read', resources: ['/etc/passwd'] },
+    assignment: '',
+    workspaceFolder: brokerWorkspace,
+  }).reply,
+  null,
+  'local_reads must not auto-approve reads outside the workspace',
+);
+assert.equal(
+  resolveOpenCodeApprovalAction({
+    mode: 'local_reads',
+    sdkMode: 'agent',
+    permissionEvent: { action: 'read', resources: ['src/app.js'] },
+    assignment: '',
+    workspaceFolder: '/tmp/approval-workspace',
+  }).reply,
+  'once',
+  'relative workspace resources resolve against the assigned workspace',
+);
 
 console.log('opencode-permission.test.js OK');

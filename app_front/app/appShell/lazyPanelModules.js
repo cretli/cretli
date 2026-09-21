@@ -19,6 +19,8 @@ const importers = {
   instances: () =>
     import(/* webpackChunkName: "panel-misc" */ '../../features/instances/instancesPanel.js'),
   statusTests: () => import(/* webpackChunkName: "panel-misc" */ '../../statusTests.js'),
+  browser: () =>
+    import(/* webpackChunkName: "panel-browser" */ '../../features/browser/browserPanel.js'),
 };
 
 /** @type {Map<string, Promise<object>>} */

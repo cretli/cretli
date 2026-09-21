@@ -6,6 +6,8 @@ import { migrateChatStorageOutOfLocalStorage } from '../../lib/chatStorageMigrat
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from '../../lib/storageKeyAlias.js';
 import { t } from '../../i18n/index.js';
 import { escapeHtml } from './chatHtmlUtils.js';
+import { pickNewChatWorkspaceFile, workspaceListEntryKey } from './newChatWorkspacePick.js';
+import { buildChatsListApiQuery, mergeChatListLoadQuery } from '../../../lib/chat-list-payload.js';
 
 function normalizePath(pathValue) {
   if (!pathValue || typeof pathValue !== 'string') return '';
@@ -44,6 +46,10 @@ export function createChatController(deps) {
     setChatStatus,
   } = deps;
   let chatsLoadPromise = null;
+  /** @type {object | null} */
+  let pendingLoadQuery = null;
+  /** @type {Record<string, number>} */
+  let archivedCounts = Object.create(null);
 
   function renderWorkspacesSelects() {
     const workspaces = getWorkspaces();
@@ -51,8 +57,6 @@ export function createChatController(deps) {
     const folderSel = document.getElementById('chat-new-folder-select');
     const modelSel = document.getElementById('chat-new-model-select');
     if (workspaces.length === 0) {
-      setSelectedWorkspaceFile(null);
-      setSelectedWorkspaceFolder(null);
       if (workspaceSel) workspaceSel.innerHTML = '';
       if (folderSel) folderSel.innerHTML = '';
       if (modelSel) {
@@ -61,35 +65,28 @@ export function createChatController(deps) {
       return;
     }
     const trigger = document.getElementById('header-workspace-trigger');
-    const headerWorkspaceFile = trigger?.dataset?.workspaceFile || '';
-    const selectedWorkspaceFile = getSelectedWorkspaceFile() || '';
-    const hasSelectedWorkspace = workspaces.some(
-      (item) => normalizePath(item.workspaceFile) === normalizePath(selectedWorkspaceFile)
-    );
-    const hasHeaderWorkspace = workspaces.some(
-      (item) => normalizePath(item.workspaceFile) === normalizePath(headerWorkspaceFile)
-    );
-    const nextWorkspaceFile = hasSelectedWorkspace
-      ? selectedWorkspaceFile
-      : hasHeaderWorkspace
-        ? headerWorkspaceFile
-        : workspaces[0].workspaceFile;
-
-    setSelectedWorkspaceFile(nextWorkspaceFile);
+    const nextWorkspaceFile = pickNewChatWorkspaceFile({
+      workspaces,
+      selectedWorkspaceFile: getSelectedWorkspaceFile() || '',
+      headerWorkspaceFile: trigger?.dataset?.workspaceFile || '',
+    });
+    if (nextWorkspaceFile) setSelectedWorkspaceFile(nextWorkspaceFile);
     if (workspaceSel) {
       workspaceSel.innerHTML = workspaces
-        .map(
-          (w) =>
+        .map((w) => {
+          const key = workspaceListEntryKey(w);
+          return (
             '<option value="' +
-            escapeHtml(w.workspaceFile) +
+            escapeHtml(key) +
             '">' +
             escapeHtml(w.name) +
             ' (' +
             (w.folders || []).map((f) => f.name).join(', ') +
             ')</option>'
-        )
+          );
+        })
         .join('');
-      workspaceSel.value = getSelectedWorkspaceFile();
+      workspaceSel.value = getSelectedWorkspaceFile() || '';
     }
     updateFolderSelect(getSelectedWorkspaceFile());
     if (folderSel) {
@@ -99,8 +96,10 @@ export function createChatController(deps) {
       );
       if (preferredOption) {
         folderSel.value = preferredOption.value;
+        setSelectedWorkspaceFolder(preferredOption.value);
+      } else if (folderSel.value) {
+        setSelectedWorkspaceFolder(folderSel.value);
       }
-      setSelectedWorkspaceFolder(folderSel.value || null);
     }
     if (modelSel) modelSel.value = getSelectedModel() || 'auto';
     if (modelSel && typeof renderModelSelectOptions === 'function') {
@@ -117,25 +116,34 @@ export function createChatController(deps) {
   }
 
   function loadChatsFromServer(query = {}) {
+    if (query.skipIfInFlight === true && chatsLoadPromise) {
+      return chatsLoadPromise;
+    }
     const skipAutoSelect = query.skipAutoSelect === true
       || (typeof document !== 'undefined' && document.body?.classList.contains('embed-mode'));
-    const includeArchived = query.includeArchived !== false;
-    const apiQuery = {};
-    if (typeof query.pinnedTo === 'string' && query.pinnedTo.trim()) {
-      apiQuery.pinnedTo = query.pinnedTo.trim();
-    }
-    if (includeArchived) {
-      apiQuery.includeArchived = true;
-    }
+    const includeArchived = query.includeArchived === true;
+    const apiQuery = buildChatsListApiQuery({
+      includeArchived,
+      pinnedTo: query.pinnedTo,
+    });
     const preferChatId = typeof query.preferChatId === 'string' ? query.preferChatId.trim() : '';
-
-    // Do not coalesce different loads — a stale in-flight GET must not win over a fresh pinnedTo/select.
     if (chatsLoadPromise) {
-      return chatsLoadPromise.then(() => loadChatsFromServer(query));
+      pendingLoadQuery = mergeChatListLoadQuery(pendingLoadQuery || {}, query);
+      const inFlight = chatsLoadPromise;
+      return inFlight.then(() => {
+        if (chatsLoadPromise) return chatsLoadPromise;
+        const next = pendingLoadQuery;
+        pendingLoadQuery = null;
+        if (!next) return;
+        return loadChatsFromServer(next);
+      });
     }
-
     chatsLoadPromise = api.getChats(apiQuery).then((data) => {
       if (!data.ok || !Array.isArray(data.chats)) return;
+      archivedCounts =
+        data.archivedCounts && typeof data.archivedCounts === 'object'
+          ? data.archivedCounts
+          : Object.create(null);
       const chats = getChats();
       const runtimeById = new Map(chats.map((chat) => [chat.id, chat]));
       let serverChats = data.chats;
@@ -155,7 +163,9 @@ export function createChatController(deps) {
           existing.workspaceFolder = serverChat.workspaceFolder;
           existing.createdAt = serverChat.createdAt;
           existing.updatedAt = serverChat.updatedAt;
-          existing.summaries = Array.isArray(serverChat.summaries) ? serverChat.summaries : [];
+          existing.summaries = Array.isArray(serverChat.summaries)
+            ? serverChat.summaries
+            : (Array.isArray(existing.summaries) ? existing.summaries : []);
           existing.agentTransport = getChatAgentTransport(serverChat);
           existing.sdkMode = normalizeSdkMode(serverChat.sdkMode);
           existing.sdkUiMode = normalizeSdkUiMode(serverChat.sdkUiMode);
@@ -288,11 +298,16 @@ export function createChatController(deps) {
       bindChatVisibilityAndReconnect();
       startChatBackgroundMonitor();
       startGlobalChatPingLoop();
+    }).catch((err) => {
+      console.warn('[chat] list load failed:', err?.message || err);
     }).finally(() => {
       chatsLoadPromise = null;
     });
-
     return chatsLoadPromise;
+  }
+
+  function isChatsListLoadInFlight() {
+    return chatsLoadPromise != null;
   }
 
   function selectChatController(id) {
@@ -357,6 +372,8 @@ export function createChatController(deps) {
     loadWorkspaces,
     renderWorkspacesSelects,
     loadChatsFromServer,
+    isChatsListLoadInFlight,
+    getArchivedCounts: () => archivedCounts,
     selectChat: selectChatController,
     refreshChatListForWorkspace,
     initChatPanelBridge,

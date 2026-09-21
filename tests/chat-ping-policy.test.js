@@ -8,6 +8,8 @@ import {
   shouldCloseSocketForResumeProbeTimeout,
   shouldCloseSocketForStalePong,
   shouldMarkResumeSocketHealthy,
+  listChatsNeedingPing,
+  CHAT_PING_LOOP_INTERVAL_MS,
 } from '../app_front/features/chat/chatPingPolicy.js';
 
 const firstPing = recordPingSent({ sentAt: 1000, lastPingAt: 0, lastPongAt: 0 });
@@ -74,6 +76,18 @@ assert.equal(
     probeGeneration: 3,
   }),
   true
+);
+
+assert.equal(CHAT_PING_LOOP_INTERVAL_MS, 5000);
+const dueChat = { id: 'a', ws: { readyState: 1 }, _lastPingAt: 0 };
+assert.deepEqual(listChatsNeedingPing([dueChat], 26000, 25000), [dueChat]);
+assert.deepEqual(
+  listChatsNeedingPing([{ id: 'a', ws: { readyState: 0 }, _lastPingAt: 0 }], 26000, 25000),
+  []
+);
+assert.deepEqual(
+  listChatsNeedingPing([{ id: 'a', ws: { readyState: 1 }, _lastPingAt: 2000 }], 26000, 25000),
+  []
 );
 
 console.log('All chat-ping-policy tests passed.');

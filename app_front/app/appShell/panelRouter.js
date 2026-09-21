@@ -118,6 +118,7 @@ export function createPanelRouter(deps = {}) {
     refreshGithubPanel = () => {},
     refreshTodoList = () => {},
     refreshInstancesPanel = () => {},
+    refreshBrowserPanel = () => {},
     onShowSettings = () => {},
   } = deps;
 
@@ -235,7 +236,7 @@ export function createPanelRouter(deps = {}) {
     if (tabBtn) tabBtn.classList.add('active');
 
     if (panelId === 'chat') {
-      loadChatsFromServer();
+      loadChatsFromServer({ skipIfInFlight: true });
       requestAnimationFrame(() => {
         setTimeout(() => fitAllChats(), 100);
       });
@@ -274,6 +275,10 @@ export function createPanelRouter(deps = {}) {
 
     if (panelId === 'instances') {
       runPanelReady('instances', () => refreshInstancesPanel());
+    }
+
+    if (panelId === 'browser') {
+      runPanelReady('browser', () => refreshBrowserPanel());
     }
 
     if (panelId === 'files') {

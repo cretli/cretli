@@ -47,10 +47,10 @@ assert.equal(parseDelegationCommand('/execute now').extraInstructions, 'now');
 assert.equal(parseDelegationCommand('please /wykonaj'), null);
 assert.equal(parseDelegationCommand('```\n/wykonaj\n```'), null);
 
-function createParent(title) {
+function createParent(title, sdkMode = 'plan') {
   const chat = addChat(`sess-${title}`, title, null, project, 'planner-model', {
     agentTransport: 'opencode',
-    sdkMode: 'plan',
+    sdkMode,
   });
   writeChatPlanFile({
     cwd: project,
@@ -229,7 +229,7 @@ const finishedAfterRetry = (loadChatHistory(parent3.id)?.events || []).filter((r
 }).length;
 assert.equal(finishedAfterRetry, finishedBeforeRetry);
 
-const parent7 = createParent('Planner 7');
+const parent7 = createParent('Planner 7', 'agent');
 const firstDone = await service.createAndStart({
   parentChatId: parent7.id,
   executor: { transport: 'opencode', model: 'opencode/test' },
@@ -237,6 +237,8 @@ const firstDone = await service.createAndStart({
   idempotencyKey: 'idem-retry-a',
 });
 finishDelegation(firstDone.delegation, { status: 'completed', report: 'first report' });
+// Agent-mode children implement, and an active implement sibling is exclusive:
+// the retry of the finished job must be refused with parent_busy.
 const secondActive = await service.createAndStart({
   parentChatId: parent7.id,
   executor: { transport: 'opencode', model: 'opencode/test' },

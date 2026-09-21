@@ -24,6 +24,7 @@ built to `public/dist/`.
 |--------|----------------|
 | `auth.js` | Password (scrypt) + signed session cookie; Express + WS auth; agent-callback token |
 | `persist/settings.js` | `data/config.json` (lanHost, workspace registry, additionalCursorContextDirs, cursorApiKey, ...) |
+| `sdk/cursor-share.js` | Runtime mirror of bundled `.cursor/skills` + `.cursor/agents` into `data/cursor-share` |
 | `sdk/shared-cursor-context.js` | Extra `.cursor/` roots for SDK multi-cwd + alwaysApply prompt inject |
 | `workspace.js` | Parse `.code-workspace`, inspect folder/file paths |
 | `persist/workspace-registry.js` | Workspace registry (`file` or folder-only `cretli:ws:`) |
@@ -35,9 +36,9 @@ built to `public/dist/`.
 | `mcp/` | MCP config, secrets, runtime, Plan policy, harness adapters, Settings API |
 | `persist/todos-persist.js` | CRUD for `data/todos/` (per-workspace) |
 | `todo-plan-sync.js` | After Plan-mode runs, write versioned `.cursor/plans/cretli-{chatId}.md` and the linked Todo (Cursor SDK + other harnesses) |
-| `delegation-service.js` | Create/start/cancel/retry/ack jobs from a saved plan or a chat message; one active job per planner chat; versioned attempts and an outbox for history/mailbox delivery |
+| `delegation-service.js` | Create/start/cancel/retry/ack jobs from a saved plan or a chat message; one active implement/fix per planner chat, two concurrent reviews by default (`CRETLI_DELEGATION_REVIEW_FANOUT=1` opts out); versioned attempts and an outbox for history/mailbox delivery |
 | `delegation-runtime-worker.js` | Periodic outbox flush, starting/cancelling/dispatching timeouts, and mailbox drain. Timer errors stay in the worker (degraded + backoff) and do not exit the process. Ticks do not overlap; flush from boot/bridge/runtime is serialized. Does not reuse boot interrupt semantics on a live start |
-| `delegation-mailbox.js` | Durable parent↔child mailbox; progress and final reports are distinct; idle recipients start a turn, busy/waiting chats queue until the run ends |
+| `delegation-mailbox.js` | Durable parent↔child mailbox; progress and final reports are distinct; idle recipients start a turn, busy/waiting chats queue until the run ends. Parent inbound prompts must not call `delegation_reply`; MCP `chat_id` is the calling chat; a second unscoped `final_report` is rejected |
 | `persist/delegations-persist.js` | `data/delegations.json` with corrupt/I/O errors that do not look like an empty store. Atomic rename is last-writer-wins across processes; no inter-process merge |
 | `agent-run-state.js` | Cheap per-chat busy/waiting/attention summary for the chat list |
 | `delegation-executor.js` | Resolves executor models onto Settings-enabled (favorite) variants; rejects ids outside that list |
@@ -82,9 +83,17 @@ Each chat stores `agentTransport`: `sdk` (default), `openrouter`, `opencode`, `c
 | `qwen` | `@qwen-code/sdk` via `qwen-agent-ws.js` + bundled Qwen CLI | `QWEN_API_KEY` / Settings (Qwen Cloud); endpoint preset `payg` / `token-plan` / `coding-plan` / `custom`; optional `QWEN_BIN` |
 | `codex` | `@openai/codex-sdk` via `codex-agent-ws.js` + bundled `codex` CLI | ChatGPT plan (device login) **or** `CODEX_API_KEY` / Settings; optional `CODEX_BIN` |
 
-A parent agent that needs a **sub-chat on another harness** (for example Cursor SDK asking DeepSeek to review a plan) uses builtin MCP `delegation_start` with a Settings-enabled model from `model_list(harness, enabled_only=true)`. Cursor's built-in `Task` tool only lists Cursor-local models and is not the Cretli catalog.
+A parent agent that needs a **sub-chat on another harness** (for example Cursor SDK asking DeepSeek to review a plan) uses builtin MCP `delegation_start` with a Settings-enabled model from `model_list(harness, enabled_only=true)`. Cursor's built-in `Task` tool only lists Cursor-local models and is not the Cretli catalog. `model_list` rows include heuristic `cost_tier`, `quality_tier`, and `speed_tier` plus profile `roles`. `model_pick({ role, exclude_model?, exclude_harness? })` chooses one favorite on a harness that is **enabled**, **ready**, and **can_delegate**, ranking role axes (implement: cheaper first) after eligibility matchers. Review never picks `*flash*` model ids. After a usage-limit or dead-harness fail, exclude that model/harness and pick the next candidate. Empty Settings favorites for a harness are unset: no pick, and by default no `delegation_start` (`model_list(..., enabled_only=true)` is empty; catalog rows without that flag are not start-eligible). `CRETLI_DELEGATION_EMPTY_FAVORITES=all` restores the previous start-with-any-id behavior. Default `CRETLI_DELEGATION_REVIEW_FANOUT` is two concurrent **review** jobs on one parent (`=1` opts out); implement/fix stay exclusive — this is not the D10/M12 executor pool. Review requires a hard pre-exec or sandbox read-only guarantee; Codex is excluded unless `CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED=1`. DeepSeek review is certified via a generated DSH cordis patch (`sandbox-policy: read-only`, `approval: never`) applied when `assignment=review`. Mutating jobs from two parents in the same workspace return `workspace_busy`. Optional `CRETLI_DELEGATION_GLOBAL_LIMIT` caps occupied slots process-wide. The plan/implement/review/fix loop is the parent skill (`.cursor/skills/cretli-multi-harness`) plus durable `delegation_workflow_*` state, not a server sequencer. Terminal statuses are `completed` / `failed` / `cancelled` / `interrupted`. Builtin MCP `delegation_wait` long-polls those jobs for the calling parent (`timeout_ms` default 20s, max 25s, below the 30s bridge HTTP timeout; `until` all|any; retry on `pending`). Wait until `slot_occupied` is false before the next start. A review run that ends without a `VERDICT` report (one-liner or compacted thinking dump) is `failed` with `adapter_incomplete`, not a successful `completed`, unless the child is still in `waiting_for_input` (OpenCode question/permission or SDK Ask on implement/fix). OpenCode **review** jobs auto-allow non-mutating permissions server-side (mutating stays rejected). Parent MCP `delegation_wait` treats `waiting_for_input` as an occupied slot, not an infra retry. OpenCode first-event timeout defaults to 180s (`OPENCODE_FIRST_EVENT_TIMEOUT_MS`). Idle auto-recovery does not cancel while native tools are in flight.
 
 All seven harnesses share the same WebSocket path (`/ws-agent-sdk`), protocol (`sdkEvent`, replay batches), rich view, and history persist format. OpenRouter, OpenCode, CodeBuddy, DeepSeek, Qwen, and Codex events are normalized to SDK-shaped payloads before broadcast. Archive, restore, delete, and sidebar nesting persist a `chatsChanged` frame to every attached agent socket so the live sidebar reloads without waiting for a page resume. If the chat row is gone (deleted on another device), the server sends `sdkError` with code `chat_not_found` and the client stops reconnecting instead of treating it as a recoverable `invalid_session`.
+
+Cursor SDK roots include a skills-only mirror at `data/cursor-share` (under the
+configured data directory). Canonical `.cursor/skills` trees and `.cursor/agents`
+files remain in the Cretli repo and refresh automatically; `.cursor/rules` is never
+mirrored. Bundled skills such as `cretli-multi-harness` also appear in shared picker
+context. Additional Cursor directories are for user-owned trees; their alwaysApply
+rules apply to every SDK chat. Context queries may pass `workspaceFolder` or `cwd`;
+the widget workspace takes precedence, with the current cwd as fallback.
 
 ### The `sdk-*` prefix is protocol, not Cursor SDK
 
@@ -201,12 +210,26 @@ Front hot fallback   → /ws-front-build → watch events (CRETLI_FRONT_HOT_FALL
   runs (debounced flush every ~2 s while busy) and after each run, so offline/reconnected
   clients can replay events generated during disconnect.
 - Cross-device sync is **pull-based**: clients poll `GET /api/chats/history-revisions` every
-  ~15 s (visible tab) and run HTTP history delta pull when `headSeq` advances. Optional
+  ~15 s (visible tab) and run HTTP history delta pull when `headSeq` advances. Background
+  chats that already have a covering WebSocket skip HTTP unless `hasPendingDelegation`.
+  Store ACK is not the view (`viewAppliedSeq`). Background pulls use
+  `POST /api/chats/history-batch` with an explicit id list (never omit-ids = all chats)
+  and the same batch/concurrency budget as WS reconnects (floor 1 on mobile). Optional
   web push nudges (`CRETLI_PUSH_HISTORY=1`) reuse existing VAPID subscriptions.
   The same subscriptions also receive a push when Cursor SDK finishes a run,
   and when OpenCode or Qwen is waiting on a question or permission.
-  The same poll loads `GET /api/chats/agent-states` so executor chats without a client
-  still show working / needs-action. `hasPendingDelegation` on a revision forces the
+  The same poll loads `GET /api/chats/agent-states` (no `ids` query — a full UUID
+  list plus cookies can exceed Node's 16 KiB header limit and return 431). The
+  response is a compact map of busy / waiting / attention only; a missing chat id
+  is idle. When at least one `/ws-agent-sdk` socket is OPEN, the same map is
+  pushed as coalesced `agentPresence` frames on the chat-list subscriber set
+  (`lib/agent-presence-bus.js`, scoped per session vs widget chat id). The
+  client skips the HTTP `agent-states` GET while that feed is fresh (~10 s) and
+  `sdkRoomBus` is not `redis`. Codex / Qwen / DeepSeek / CodeBuddy / PTY still
+  rely on delegations + HTTP; live tool names are SDK/OpenCode/OpenRouter only.
+  `GET /api/chats/history-revisions` still sends `ids` when the list is
+  short; if `ids` is omitted (overflow), the server returns the widget/main
+  allowlist, not the unscoped in-memory index. `hasPendingDelegation` on a revision forces the
   open parent chat to pull a new delegation card even when the WebSocket is up.
 - Multi-instance deployments: set `CRETLI_REDIS_URL` (+ optional `redis` package).
   See **`docs/MULTI-INSTANCE.md`** for sticky routing, registry lease, and failover.
@@ -287,11 +310,14 @@ Model windows come from a static prefix table in `lib/sdk/sdk-context-advisory.j
 | POST | `/api/delegations/:id/ack` | Clear waiting attention (open child) or mark a finished job reviewed |
 | GET | `/api/chats/:id/mailbox` | Inter-chat mailbox (queued and delivered) |
 | POST | `/api/chats/:id/mailbox/reply` | Send a child message to the communication parent (`delegationParentChatId`), not the sidebar group |
-| GET | `/api/chats/agent-states` | Lightweight busy/waiting/attention map for listed chats |
+| GET | `/api/chats/:id/delegation-workflow` | Durable parent-loop state for the chat (role, round, verdict, stop reason, deadline, `materialRevision`) |
+| POST | `/api/chats/:id/delegation-workflow` | Update parent-loop state (`idempotencyKey` replay of any applied key / conflict; `materialRevision`). Child chats are refused (`workflow_parent_required`) |
+| GET | `/api/chats/agent-states` | Compact busy/waiting/attention map (`?ids=` optional; omit for all allowed chats; idle omitted) |
 | GET | `/api/chats` / POST `/api/chats` | Chat list / create |
 | PATCH | `/api/chats/:id` | Update chat fields (`archived`, `title`, `model`, ...; CSRF header required) |
 | DELETE | `/api/chats/:id` | Delete chat + history (runs disposable-room cleanup first) |
-| GET | `/api/chats/history-revisions` | Lightweight `headSeq` revision index for cross-device pull sync |
+| GET | `/api/chats/history-revisions` | Lightweight `headSeq` revision index (`?ids=` optional; omit = all allowed chats, widget scoped; never the unscoped index) |
+| POST | `/api/chats/history-batch` | Explicit multi-chat history delta (`{ chats: [{ id, since, limit? }] }`). Empty `chats` is 400 — never “every chat”. Widget scoped. |
 | GET | `/api/chats/:id/history` | Pull SDK history log (`?since=&limit=`) |
 | POST | `/api/chats/:id/dispose-sdk-room` | Reset in-memory SDK room (stuck chat recovery) |
 | GET | `/api/chats/:id/sdk-messages` | SDK message history (`Agent.messages.list`) |

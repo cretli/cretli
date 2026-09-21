@@ -141,7 +141,7 @@ Kod migrate/rollback/P2-R1–R6 zostaje. Odbiór: izolowany dataset, polecenia, 
 
 ### D10 / P3 — Pula wykonawców
 
-Osobna decyzja produktowa. Nie w scope implementacji III. Worktree nie rozwiązuje limitów ani konfliktów plików. Nie blokuje A/B.
+Osobna decyzja produktowa. Nie w scope implementacji III. Worktree nie rozwiązuje limitów ani konfliktów plików. Nie blokuje A/B. Domyślne `CRETLI_DELEGATION_REVIEW_FANOUT=2` (dwa równoległe review) **nie** jest tą pulą.
 
 ## Kolejność
 

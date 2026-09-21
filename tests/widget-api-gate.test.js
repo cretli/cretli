@@ -2,6 +2,7 @@ import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import { installWidgetApiGate } from '../lib/widget/widget-http.js';
 import { saveChats } from '../lib/persist/chats-persist.js';
+import { filterPresenceForScope } from '../lib/agent-presence-activity.js';
 
 const ownChat = {
   id: 'chat-own',
@@ -90,6 +91,21 @@ const widgetAgentStates = await runGate({
   widgetAccess: access,
 });
 assert.equal(widgetAgentStates.next, true);
+
+const widgetHistoryBatch = await runGate({
+  method: 'POST',
+  path: '/api/chats/history-batch',
+  widgetAccess: access,
+});
+assert.equal(widgetHistoryBatch.next, true);
+
+const widgetPresence = filterPresenceForScope(
+  { 'chat-own': { state: 'busy' }, 'chat-foreign': { state: 'waiting' } },
+  ['chat-own', 'chat-foreign'],
+  { kind: 'widget', chatIds: [ownChat.id] }
+);
+assert.equal(widgetPresence.states['chat-foreign'], undefined);
+assert.deepEqual(widgetPresence.cleared, [ownChat.id]);
 
 removeIsolatedDataDir();
 console.log('All widget-api-gate tests passed.');

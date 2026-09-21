@@ -7,7 +7,8 @@ const LIVE_SYNC_DEBOUNCE_MS = 150;
 
 /**
  * @param {{
- *   refresh: (query: { skipAutoSelect: boolean, includeArchived: boolean }) => unknown,
+ *   refresh: (query: { skipAutoSelect: boolean, includeArchived?: boolean }) => unknown,
+ *   shouldIncludeArchived?: () => boolean,
  *   setTimeoutFn?: typeof setTimeout,
  *   clearTimeoutFn?: typeof clearTimeout,
  *   debounceMs?: number,
@@ -15,6 +16,7 @@ const LIVE_SYNC_DEBOUNCE_MS = 150;
  */
 export function createChatListLiveSync({
   refresh,
+  shouldIncludeArchived = () => false,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
   debounceMs = LIVE_SYNC_DEBOUNCE_MS,
@@ -25,8 +27,9 @@ export function createChatListLiveSync({
     if (timerId != null) clearTimeoutFn(timerId);
     timerId = setTimeoutFn(() => {
       timerId = null;
+      const includeArchived = shouldIncludeArchived() === true;
       Promise.resolve()
-        .then(() => refresh({ skipAutoSelect: true, includeArchived: true }))
+        .then(() => refresh({ skipAutoSelect: true, includeArchived }))
         .catch(() => {});
     }, debounceMs);
   }

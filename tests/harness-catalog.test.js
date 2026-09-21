@@ -56,6 +56,25 @@ assert.equal(listHarnessModels({ harness: 'sdk' }).items.length, allSdk.items.le
 assert.ok(allSdk.items.length > favSdk.items.length);
 assert.ok(favSdk.items.every((row) => row.enabled !== false));
 assert.ok(favSdk.items.some((row) => row.id === 'grok-4.6::effort=high,fast=false'));
+assert.equal(favSdk.favorites_configured, true);
+assert.equal(typeof favSdk.items[0].cost_tier, 'number');
+assert.equal(typeof favSdk.items[0].quality_tier, 'number');
+assert.equal(typeof favSdk.items[0].speed_tier, 'number');
+assert.ok(Array.isArray(favSdk.items[0].roles));
+assert.ok(favSdk.items.some((row) => row.roles.includes('plan')));
+
+const previousEmptyPolicy = process.env.CRETLI_DELEGATION_EMPTY_FAVORITES;
+process.env.CRETLI_DELEGATION_EMPTY_FAVORITES = 'deny';
+saveSettings({ deepseekChatEnabledModels: [] });
+const emptyDeepSeekFavorites = listHarnessModels({ harness: 'deepseek', enabledOnly: true });
+assert.equal(emptyDeepSeekFavorites.items.length, 0);
+assert.equal(emptyDeepSeekFavorites.favorites_configured, false);
+assert.match(emptyDeepSeekFavorites.warning, /not start-eligible/);
+const deepSeekCatalog = listHarnessModels({ harness: 'deepseek' });
+assert.ok(deepSeekCatalog.items.some((row) => /flash/i.test(row.id)));
+assert.ok(deepSeekCatalog.items.every((row) => row.enabled === false));
+if (previousEmptyPolicy == null) delete process.env.CRETLI_DELEGATION_EMPTY_FAVORITES;
+else process.env.CRETLI_DELEGATION_EMPTY_FAVORITES = previousEmptyPolicy;
 
 const app = express();
 registerHarnessCatalogRoutes(app);

@@ -112,7 +112,8 @@ const activeConflict = await service.createAndStart({
   sourceKind: 'message',
   historySeq: seeded.seq,
   contentHash: taskHash,
-  executionMode: 'plan',
+  assignment: 'implement',
+  executionMode: 'agent',
   idempotencyKey: 'msg-other-key',
 });
 assert.equal(activeConflict.ok, false);

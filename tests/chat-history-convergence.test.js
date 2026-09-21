@@ -14,7 +14,11 @@ import {
   resolveChatHistoryConvergence,
   resolveHistorySyncPollFollowUp,
   selectRecordsNewerThan,
+  setChatHistorySyncInFlight,
   shouldClearPendingRemoteHistory,
+  shouldKeepHistorySyncInFlight,
+  markHistorySyncInFlightForWsReplay,
+  clearHistorySyncInFlightAfterWsReplay,
   shouldMarkConnectionHealthyAfterHistorySync,
   syncViewAppliedSessionKey,
 } from '../app_front/features/chat/chatHistoryConvergence.js';
@@ -141,6 +145,23 @@ assert.equal(firstResult, 2, 'A signal during an in-flight sync must recheck onc
 assert.equal(secondResult, 2);
 assert.equal(runs, 2);
 
+const staleTracker = createInFlightHistorySyncTracker({ staleMs: 25 });
+let releaseHung = () => {};
+const hungTask = new Promise((resolve) => {
+  releaseHung = resolve;
+});
+const hungResult = await staleTracker.run('chat-stale', () => hungTask);
+assert.equal(hungResult.deferReason, 'timeout');
+assert.equal(staleTracker.isRunning('chat-stale'), false);
+releaseHung({ status: HISTORY_SYNC_STATUS.SUCCESS });
+let recoveredRuns = 0;
+const recoveredResult = await staleTracker.run('chat-stale', async () => {
+  recoveredRuns += 1;
+  return { status: HISTORY_SYNC_STATUS.SUCCESS };
+});
+assert.equal(recoveredRuns, 1);
+assert.equal(recoveredResult.status, HISTORY_SYNC_STATUS.SUCCESS);
+
 assert.ok(ACTIVE_CHAT_HISTORY_POLL_WS_GRACE_MS > 0);
 
 resetViewAppliedSeqMemoryForTests();
@@ -255,6 +276,56 @@ const exhausted = resolveHistorySyncPollFollowUp({
 });
 assert.equal(exhausted.retryDelayMs, 0);
 assert.equal(exhausted.notifyRestored, false);
+
+const inflightChat = {};
+let inflightRenders = 0;
+setChatHistorySyncInFlight(inflightChat, true, () => {
+  inflightRenders += 1;
+});
+assert.equal(inflightChat._historySyncInFlight, true);
+assert.equal(inflightRenders, 1);
+setChatHistorySyncInFlight(inflightChat, true, () => {
+  inflightRenders += 1;
+});
+assert.equal(inflightRenders, 1, 'Setter must no-op when the flag is unchanged');
+assert.equal(shouldKeepHistorySyncInFlight({ status: HISTORY_SYNC_STATUS.PARTIAL }), false);
+assert.equal(
+  shouldKeepHistorySyncInFlight({ status: HISTORY_SYNC_STATUS.DEFERRED, deferReason: 'document_hidden' }),
+  false
+);
+assert.equal(
+  shouldKeepHistorySyncInFlight({ status: HISTORY_SYNC_STATUS.DEFERRED, deferReason: 'view_replaced' }),
+  false
+);
+assert.equal(
+  shouldKeepHistorySyncInFlight({ status: HISTORY_SYNC_STATUS.DEFERRED, deferReason: 'open_terminal_hydrating' }),
+  false
+);
+assert.equal(shouldKeepHistorySyncInFlight({ status: HISTORY_SYNC_STATUS.SUCCESS }), false);
+assert.equal(shouldKeepHistorySyncInFlight({ status: HISTORY_SYNC_STATUS.ERROR }), false);
+assert.equal(shouldKeepHistorySyncInFlight({ status: HISTORY_SYNC_STATUS.UNCHANGED }), false);
+
+const replayChat = {};
+assert.equal(markHistorySyncInFlightForWsReplay(replayChat, false), false);
+assert.equal(replayChat._historySyncInFlight, undefined);
+assert.equal(markHistorySyncInFlightForWsReplay(replayChat, true), true);
+assert.equal(replayChat._historySyncInFlight, true);
+assert.equal(clearHistorySyncInFlightAfterWsReplay(replayChat, true), false);
+assert.equal(replayChat._historySyncInFlight, true);
+assert.equal(clearHistorySyncInFlightAfterWsReplay(replayChat, false), true);
+assert.equal(replayChat._historySyncInFlight, false);
+
+const timedChat = {};
+let timedRenders = 0;
+setChatHistorySyncInFlight(timedChat, true, () => {
+  timedRenders += 1;
+}, 25);
+assert.equal(timedChat._historySyncInFlight, true);
+await new Promise((resolve) => setTimeout(resolve, 40));
+assert.equal(timedChat._historySyncInFlight, false);
+assert.equal(timedRenders, 2);
+
+setChatHistorySyncInFlight(inflightChat, false);
 
 resetViewAppliedSeqMemoryForTests();
 console.log('All chat-history-convergence tests passed.');

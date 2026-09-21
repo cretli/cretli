@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict';
 import {
   applyFinalReportQuietStopToPayload,
+  applyFinalReportQuietStopToSdkEvent,
   buildSdkRunFailureDetail,
   DELEGATION_FINAL_REPORT_ERROR_CODE,
   extractSdkStreamStatusError,
   isSdkRunFailureStatus,
   normalizeSdkRunStatus,
+  persistSdkRunFinishedHistoryStatus,
+  presentSdkActivityTrayStatus,
   readSdkRoomRunOutcome,
   resolveSdkRunFailureDetail,
+  shouldKeepSdkActivityTrayStatus,
   shouldQuietCompleteAfterFinalReport,
   trackSdkRoomRunOutcome,
 } from '../lib/sdk/sdk-run-outcome.js';
@@ -78,9 +82,30 @@ applyFinalReportQuietStopToPayload(quietPayload, {
   finalReportAcceptedAt: '2026-09-19T13:16:00.000Z',
   finalReportRunId: 'run-accepted',
 });
-assert.equal(quietPayload.status, 'completed');
-assert.equal(quietPayload.lastErrorCode, DELEGATION_FINAL_REPORT_ERROR_CODE);
-assert.equal(quietPayload.result, '');
+assert.equal(
+  persistSdkRunFinishedHistoryStatus({
+    status: 'completed',
+    lastErrorCode: DELEGATION_FINAL_REPORT_ERROR_CODE,
+  }),
+  'reported'
+);
+assert.deepEqual(
+  presentSdkActivityTrayStatus({
+    status: 'cancelled',
+    lastErrorCode: DELEGATION_FINAL_REPORT_ERROR_CODE,
+  }),
+  { datasetStatus: 'reported', terminalStatus: 'completed' }
+);
+assert.equal(shouldKeepSdkActivityTrayStatus('reported', 'cancelled'), true);
+assert.equal(shouldKeepSdkActivityTrayStatus('running', 'cancelled'), false);
+const quietStatus = { type: 'status', status: 'cancelled', run_id: 'run-accepted' };
+applyFinalReportQuietStopToSdkEvent(quietStatus, {
+  jobStatus: 'completed',
+  finalReportAcceptedAt: '2026-09-19T13:16:00.000Z',
+  finalReportRunId: 'run-accepted',
+});
+assert.equal(quietStatus.status, 'completed');
+assert.equal(quietStatus.lastErrorCode, DELEGATION_FINAL_REPORT_ERROR_CODE);
 const laterPayload = {
   type: 'sdkRunFinished',
   runId: 'run-later',

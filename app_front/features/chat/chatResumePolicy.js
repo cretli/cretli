@@ -174,6 +174,7 @@ export function shouldSkipActiveChatHistoryPollSync(input) {
   const viewGap = headSeq - viewAppliedSeq;
   if (!Number.isFinite(storeGap) || !Number.isFinite(viewGap)) return true;
   if (storeGap <= 0 && viewGap <= 0) return true;
+  if (input.hasPendingDelegation === true) return false;
   const now = Number.isFinite(Number(input.now)) ? Number(input.now) : Date.now();
   const lastSyncAt = Number(input.lastSyncAt);
   const viewCaughtUp = viewGap <= 0;

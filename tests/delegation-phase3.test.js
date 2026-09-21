@@ -52,6 +52,16 @@ function start(p, text = 'Phase 3 task') {
   });
 }
 
+function releaseJob(resultOrRow) {
+  const job = resultOrRow?.delegation || resultOrRow;
+  if (!job?.id) return;
+  finishDelegation(job, { status: 'completed', report: 'released' });
+  if (job.childChatId) {
+    patchMockChatRun(job.childChatId, { busy: false, waitingForInput: false });
+  }
+  releaseDelegationRunSlot(getDelegationById(job.id) || job);
+}
+
 {
   const p = parent('Final report slot');
   const started = await start(p);
@@ -87,6 +97,7 @@ function start(p, text = 'Phase 3 task') {
   assert.equal(second.ok, true, JSON.stringify(second));
   assert.notEqual(second.delegation.id, job.id);
   assert.equal(getMockChatRunStartCount() > startCountBefore, true);
+  releaseJob(second);
 }
 
 {
@@ -96,9 +107,13 @@ function start(p, text = 'Phase 3 task') {
   const blocked = await start(p, 'Should not start');
   assert.equal(blocked.ok, false);
   assert.equal(blocked.code, 'active_delegation_exists');
-  assert.equal(blocked.reason === 'job_in_progress' || blocked.reason === 'unknown', true);
+  assert.ok(
+    ['job_in_progress', 'unknown', 'run_stopping', 'stale_running'].includes(blocked.reason),
+    blocked.reason,
+  );
   assert.equal(blocked.delegationId, first.delegation.id);
   assert.equal(blocked.attemptId, first.delegation.attemptId);
+  releaseJob(first);
 }
 
 {
@@ -123,6 +138,7 @@ function start(p, text = 'Phase 3 task') {
   assert.equal(late.ok === false || getDelegationById(first.delegation.id).attemptId === newAttempt, true);
   assert.equal(getDelegationById(first.delegation.id).attemptId, newAttempt);
   assert.notEqual(getDelegationById(first.delegation.id).report, 'stale final');
+  releaseJob(retried);
 }
 
 {
@@ -175,6 +191,7 @@ function start(p, text = 'Phase 3 task') {
   });
   assert.equal(otherFinal.ok, false);
   assert.equal(otherFinal.code, 'idempotency_conflict');
+  releaseJob(job);
 }
 
 {
@@ -197,6 +214,8 @@ function start(p, text = 'Phase 3 task') {
   if (afterCancel.status === 'cancelled') {
     assert.equal(latest.status, 'cancelled');
   }
+  patchMockChatRun(job.childChatId, { busy: false, waitingForInput: false });
+  releaseDelegationRunSlot(getDelegationById(job.id));
 }
 
 {
@@ -277,6 +296,7 @@ function start(p, text = 'Phase 3 task') {
     query: { workspaceFolder: ISOLATED_DATA_DIR },
   }, res);
   assert.equal(status, 404);
+  releaseJob(job);
 }
 
 {
@@ -301,6 +321,7 @@ function start(p, text = 'Phase 3 task') {
   assert.equal(status, 400);
   assert.equal(body.code, 'mailbox_id_required');
   assert.equal(body.retryableMailboxCount, 0);
+  releaseJob(job);
 }
 
 {
@@ -344,6 +365,7 @@ function start(p, text = 'Phase 3 task') {
   }, res);
   assert.equal(status, 200);
   assert.equal(body.retried, 1);
+  releaseJob(job);
 }
 
 {
@@ -369,6 +391,7 @@ function start(p, text = 'Phase 3 task') {
   assert.equal(retried.ok, true);
   assert.equal(countDelegationAttempts(retried.delegation), beforeAttempts + 1);
   assert.equal(getMockChatRunStartCount(), startCount + 1);
+  releaseJob(retried);
 }
 
 {
@@ -394,6 +417,8 @@ function start(p, text = 'Phase 3 task') {
   assert.equal(getMockChatRun(job.childChatId)?.busy, false);
   const latest = getDelegationById(job.id);
   assert.equal(latest.status === 'cancelled' || latest.status === 'cancelling', true);
+  patchMockChatRun(job.childChatId, { busy: false, waitingForInput: false });
+  releaseDelegationRunSlot(getDelegationById(job.id));
 }
 
 {

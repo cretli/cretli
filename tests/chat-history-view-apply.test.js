@@ -248,6 +248,37 @@ assert.deepEqual(
 assert.equal(coveredChat._sdkLastRoomEventSeq, 2, 'Room watermarks must not roll back or jump');
 
 resetViewAppliedSeqMemoryForTests();
+const racedChat = {
+  id: 'apply-race',
+  _sdkEventStreamId: 'room-b',
+  _sdkLastRoomEventSeq: 76,
+  _sdkHydratedRoomEventSeqByStream: { 'room-b': 76 },
+};
+replaceViewAppliedRecords('apply-race', racedChat, [{ historySeq: 303 }]);
+racedChat._sdkRichView = createFakeView();
+racedChat._sdkRichView.nodes.push(
+  { kind: 'sdk', eventStreamId: 'room-b', roomEventSeq: 77, event: { type: 'assistant' }, text: 'plan' },
+  { kind: 'sdk', historySeq: 305, eventStreamId: 'room-b', roomEventSeq: 259, event: { type: 'usage' } }
+);
+const racedApplied = await applyCatchUpSdkHistoryRecords(racedChat, [
+  {
+    kind: 'sdk',
+    historySeq: 304,
+    eventStreamId: 'room-b',
+    roomEventSeq: 77,
+    event: { type: 'assistant' },
+    text: 'plan',
+  },
+]);
+assert.equal(racedApplied, 1);
+assert.equal(
+  racedChat._sdkRichView.nodes.filter((row) => Number(row.roomEventSeq) === 77).length,
+  1,
+  'Live answer plus catch-up of the same room seq must not render two Answer cards'
+);
+assert.equal(getViewAppliedSeq('apply-race', racedChat), 304);
+
+resetViewAppliedSeqMemoryForTests();
 const runChat = { id: 'apply-i', cursorSessionId: 'sess-1' };
 replaceViewAppliedRecords('apply-i', runChat, [{ historySeq: 100 }]);
 let resolveFetch = () => {};

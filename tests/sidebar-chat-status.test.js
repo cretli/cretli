@@ -39,7 +39,12 @@ test('applySidebarChatStatusEl does not rewrite markup when the tone is unchange
     hidden: false,
     className: 'sidebar-chat-item-awaiting sidebar-chat-item-awaiting--connecting',
     innerHTML: '<span class="mdi mdi-loading mdi-spin" aria-hidden="true"></span>',
-    attrs: { 'data-status-tone': 'connecting', title: 'old' },
+    attrs: {
+      'data-status-tone': 'connecting',
+      'data-activity-key': '',
+      'data-status-label': 'Connecting…',
+      title: 'old',
+    },
     getAttribute(name) {
       return this.attrs[name] || '';
     },
@@ -93,6 +98,36 @@ test('renderSidebarChatStatusHtml uses an alert icon when action is needed', () 
   );
   assert.match(actual, /mdi-alert-circle-outline/);
   assert.equal(actual.includes('Needs action'), false);
+});
+
+test('renderSidebarChatStatusHtml shows activity text when the agent has a tool', () => {
+  const actual = renderSidebarChatStatusHtml(
+    { tone: 'active', label: 'Read a.js', activityKey: 'read' },
+    (value) => `esc:${value}`
+  );
+  assert.equal(actual, 'esc:Read a.js');
+});
+
+test('applySidebarChatStatusEl rewrites when activity changes and tone stays active', () => {
+  const el = {
+    hidden: false,
+    className: 'sidebar-chat-item-awaiting sidebar-chat-item-awaiting--active',
+    innerHTML: '<span class="mdi mdi-cog-outline mdi-spin" aria-hidden="true"></span>',
+    attrs: { 'data-status-tone': 'active', 'data-activity-key': '', 'data-status-label': 'Agent working' },
+    getAttribute(name) {
+      return this.attrs[name] || '';
+    },
+    setAttribute(name, value) {
+      this.attrs[name] = String(value);
+    },
+  };
+  const rewritten = applySidebarChatStatusEl(
+    el,
+    { tone: 'active', label: 'Read a.js', activityKey: 'read' },
+    { escapeHtml: (value) => value }
+  );
+  assert.equal(rewritten, true);
+  assert.equal(el.innerHTML, 'Read a.js');
 });
 
 test('renderSidebarChatStatusHtml keeps the attention label', () => {

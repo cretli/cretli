@@ -59,8 +59,14 @@ registerMockChatRunAdapter('opencode');
 {
   const caps = resolveDelegationAdapterCapabilities('opencode', { review: true });
   assert.equal(caps.deniesMutation, true);
+  assert.equal(caps.preExecDeny, true);
+  assert.equal(caps.hardReviewGuarantee, true);
   assert.equal(caps.canReadFiles, true);
   assert.equal(caps.coverage, 'unit');
+  const codex = resolveDelegationAdapterCapabilities('codex', { review: true });
+  assert.equal(codex.preExecDeny, false);
+  assert.equal(codex.abortOnMutation, true);
+  assert.equal(codex.deniesMutation, false);
   assert.ok(listDelegationAdapterCapabilities().some((row) => row.transport === 'deepseek'));
 }
 

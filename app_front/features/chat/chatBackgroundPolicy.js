@@ -100,6 +100,38 @@ export function selectBackgroundWsChatIds(chats, getActiveChatId, getChatActivit
 }
 
 /**
+ * Background history-batch: keep live/active chats even when their workspace
+ * is collapsed; skip idle rows that are not in the sidebar DOM.
+ *
+ * @param {Set<string>} monitoredChatIds
+ * @param {object[]} chats
+ * @param {{
+ *   activeChatId?: string | null,
+ *   visibleChatIds?: Set<string> | null,
+ * }} [options]
+ * @returns {Set<string>}
+ */
+export function selectHistoryHttpChatIds(monitoredChatIds, chats, options = {}) {
+  const monitored = monitoredChatIds instanceof Set ? monitoredChatIds : new Set();
+  const visible = options.visibleChatIds instanceof Set ? options.visibleChatIds : new Set();
+  const activeChatId = typeof options.activeChatId === 'string' ? options.activeChatId : '';
+  const out = new Set();
+  for (const chat of Array.isArray(chats) ? chats : []) {
+    if (!chat?.id || !monitored.has(chat.id)) continue;
+    const isPriority =
+      chat.id === activeChatId
+      || isLiveAgentChat(chat)
+      || chat._serverRunState?.state === 'busy'
+      || chat._serverRunState?.state === 'waiting'
+      || chat._serverRunState?.state === 'attention';
+    if (isPriority || (visible.size > 0 && visible.has(chat.id))) {
+      out.add(chat.id);
+    }
+  }
+  return out;
+}
+
+/**
  * Chat ids monitored via HTTP history revisions (active + recently active window).
  *
  * @param {object[]} chats
@@ -141,4 +173,33 @@ export function resolveBackgroundMonitorMode(chat, wsChatIds, monitoredChatIds, 
   }
   if (monitoredChatIds.has(chat.id)) return 'poll';
   return 'none';
+}
+
+/**
+ * Skip HTTP history pull when a live WS already covers this background chat.
+ * Pending delegation still forces HTTP even with an open socket.
+ *
+ * @param {{ monitorMode?: string, hasPendingDelegation?: boolean }} [input]
+ * @returns {boolean}
+ */
+export function shouldSkipBackgroundHistoryHttp(input = {}) {
+  if (input.hasPendingDelegation === true) return false;
+  const mode = String(input.monitorMode || '');
+  return mode === 'ws' || mode === 'ws-active';
+}
+
+export const HISTORY_HTTP_MAX_POSTS_PER_POLL = 2;
+
+/**
+ * Cap background history-batch posts per poll cycle (chunkSize × maxPosts).
+ *
+ * @param {unknown[]} jobs
+ * @param {{ chunkSize?: number, maxPosts?: number }} [options]
+ * @returns {unknown[]}
+ */
+export function capHistoryHttpJobs(jobs, options = {}) {
+  if (!Array.isArray(jobs) || jobs.length === 0) return [];
+  const chunkSize = Math.max(1, Number(options.chunkSize) || 16);
+  const maxPosts = Math.max(1, Number(options.maxPosts) || HISTORY_HTTP_MAX_POSTS_PER_POLL);
+  return jobs.slice(0, chunkSize * maxPosts);
 }

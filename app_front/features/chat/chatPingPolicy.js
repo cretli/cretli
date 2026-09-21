@@ -104,3 +104,27 @@ export function recordPongReceived(receivedAt) {
     awaitingResumeProbePong: false,
   };
 }
+
+/** How often the global ping loop scans open sockets (min ping is still 25s). */
+export const CHAT_PING_LOOP_INTERVAL_MS = 5000;
+
+const OPEN_SOCKET = 1;
+
+/**
+ * @param {Iterable<object> | null | undefined} openChats
+ * @param {number} now
+ * @param {number} minPingInterval
+ * @returns {object[]}
+ */
+export function listChatsNeedingPing(openChats, now, minPingInterval) {
+  const due = [];
+  const interval = Number(minPingInterval) || 0;
+  const at = Number(now) || 0;
+  if (!openChats) return due;
+  for (const chat of openChats) {
+    if (!chat?.ws || chat.ws.readyState !== OPEN_SOCKET) continue;
+    if (at - (Number(chat._lastPingAt) || 0) < interval) continue;
+    due.push(chat);
+  }
+  return due;
+}

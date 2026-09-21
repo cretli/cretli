@@ -45,7 +45,8 @@ export function initAgentsPanel() {
       panel.style.display = 'block';
       toggle.innerHTML =
         '<span class="mdi mdi-chevron-up" aria-hidden="true"></span> ' + escapeHtml(t('agents.rulesAndAgentsTitle'));
-      api.getCursorContext().then((data) => {
+      const workspaceFolder = document.getElementById('header-workspace-trigger')?.dataset?.workspaceFolder || '';
+      api.getCursorContext(workspaceFolder).then((data) => {
         if (!data.ok) return;
         renderNamedList(document.getElementById('agents-rules'), data.projectRules);
         renderNamedList(document.getElementById('agents-shared-rules'), data.sharedRules);
@@ -53,6 +54,7 @@ export function initAgentsPanel() {
           ...(data.projectCommands || []),
           ...(data.sharedCommands || []),
         ], { showPath: false });
+        renderNamedList(document.getElementById('agents-project-skills'), data.projectSkills);
         renderNamedList(document.getElementById('agents-shared-skills'), data.sharedSkills);
         renderNamedList(document.getElementById('agents-skills'), data.userSkills, {
           showPath: false,

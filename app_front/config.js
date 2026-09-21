@@ -100,6 +100,10 @@ export const CHAT_BACKGROUND_RECONNECT_BATCH_SIZE_MOBILE = 1;
 export const CHAT_BACKGROUND_RECONNECT_BATCH_DELAY_MS = 400;
 /** Delay between background reconnect batches on mobile (ms). */
 export const CHAT_BACKGROUND_RECONNECT_BATCH_DELAY_MS_MOBILE = 900;
+/** Chat ids per POST /api/chats/history-batch (desktop). Independent of WS handshake batch size. */
+export const CHAT_HISTORY_BACKGROUND_HTTP_BATCH_SIZE = 16;
+/** Chat ids per history-batch POST on mobile. */
+export const CHAT_HISTORY_BACKGROUND_HTTP_BATCH_SIZE_MOBILE = 8;
 /** History pull page size for background revision poll (non-active chats). */
 export const CHAT_HISTORY_BACKGROUND_PULL_LIMIT = 200;
 /** Max history pull pages for background revision poll. */

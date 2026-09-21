@@ -144,4 +144,46 @@ assert.equal(
   grokSettings.chatEnabledModels[0],
 );
 
+const inputEmptyFavorites = { opencodeChatEnabledModels: [] };
+assert.equal(
+  resolveDelegationModel({
+    transport: 'opencode',
+    model: 'opencode/test',
+    settings: inputEmptyFavorites,
+  }),
+  'opencode/test',
+);
+const actualEmptyUnavailable = describeUnavailableDelegationModel({
+  transport: 'opencode',
+  settings: inputEmptyFavorites,
+});
+assert.match(actualEmptyUnavailable, /favorites/);
+assert.doesNotMatch(actualEmptyUnavailable, /Enabled:/);
+assert.match(actualEmptyUnavailable, /enabled_only=true/);
+
+const previousEmptyPolicy = process.env.CRETLI_DELEGATION_EMPTY_FAVORITES;
+process.env.CRETLI_DELEGATION_EMPTY_FAVORITES = 'deny';
+assert.equal(
+  resolveDelegationModel({
+    transport: 'opencode',
+    model: 'opencode/test',
+    settings: inputEmptyFavorites,
+  }),
+  '',
+);
+assert.match(
+  describeUnavailableDelegationModel({ transport: 'opencode', settings: inputEmptyFavorites }),
+  /No Settings favorites/,
+);
+assert.match(
+  describeUnavailableDelegationModel({ transport: 'opencode', settings: inputEmptyFavorites }),
+  /not start-eligible/,
+);
+assert.match(
+  describeUnavailableDelegationModel({ transport: 'opencode', settings: inputEmptyFavorites }),
+  /settings files/,
+);
+if (previousEmptyPolicy == null) delete process.env.CRETLI_DELEGATION_EMPTY_FAVORITES;
+else process.env.CRETLI_DELEGATION_EMPTY_FAVORITES = previousEmptyPolicy;
+
 console.log('delegation-executor.test.js OK');

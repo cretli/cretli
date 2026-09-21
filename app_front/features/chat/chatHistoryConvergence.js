@@ -19,6 +19,12 @@ export const HISTORY_SYNC_RETRY_MAX = 4;
 
 export const HISTORY_SYNC_RETRY_DELAYS_MS = Object.freeze([400, 1200, 3000, 8000]);
 
+/** Mode-bar catch-up label must not outlive a hung fetch/IDB after PWA resume. */
+export const HISTORY_SYNC_IN_FLIGHT_MAX_MS = 8000;
+
+/** Drop a stuck tracker entry so a later resume can fetch again. */
+export const HISTORY_SYNC_TRACKER_STALE_MS = 20000;
+
 /** @type {Map<string, number>} */
 const viewAppliedSeqByChatId = new Map();
 
@@ -506,6 +512,105 @@ export function resolveHistorySyncPollFollowUp(input) {
 }
 
 /**
+ * Visible catch-up indicator. Tracker `isRunning` does not cover WS replay wait.
+ *
+ * @param {object | null | undefined} chat
+ * @param {boolean} next
+ * @param {(chat: object) => void} [onChange]
+ * @param {number} [maxMs]
+ */
+export function setChatHistorySyncInFlight(chat, next, onChange, maxMs = HISTORY_SYNC_IN_FLIGHT_MAX_MS) {
+  if (!chat || typeof chat !== 'object') return;
+  const value = next === true;
+  const timeoutMs = Number.isFinite(maxMs) && maxMs > 0 ? maxMs : HISTORY_SYNC_IN_FLIGHT_MAX_MS;
+  if (value !== true) {
+    clearHistorySyncInFlightTimer(chat);
+    delete chat._historySyncInFlightStartedAt;
+  }
+  if (chat._historySyncInFlight === value) {
+    if (value === true) armHistorySyncInFlightTimer(chat, onChange, timeoutMs);
+    return;
+  }
+  chat._historySyncInFlight = value;
+  if (value === true) armHistorySyncInFlightTimer(chat, onChange, timeoutMs);
+  onChange?.(chat);
+}
+
+/**
+ * @param {object} chat
+ */
+function clearHistorySyncInFlightTimer(chat) {
+  if (chat._historySyncInFlightTimer == null) return;
+  clearTimeout(chat._historySyncInFlightTimer);
+  delete chat._historySyncInFlightTimer;
+}
+
+/**
+ * @param {object} chat
+ * @param {(chat: object) => void} [onChange]
+ * @param {number} maxMs
+ */
+function armHistorySyncInFlightTimer(chat, onChange, maxMs) {
+  if (chat._historySyncInFlightTimer != null) return;
+  const startedAt = Number(chat._historySyncInFlightStartedAt) || Date.now();
+  chat._historySyncInFlightStartedAt = startedAt;
+  const remainingMs = Math.max(0, maxMs - (Date.now() - startedAt));
+  chat._historySyncInFlightTimer = setTimeout(() => {
+    delete chat._historySyncInFlightTimer;
+    setChatHistorySyncInFlight(chat, false, onChange, maxMs);
+  }, remainingMs);
+}
+
+/**
+ * Tracker `isRunning` does not cover mobile WS replay wait. Turn the
+ * mode-bar indicator on when HTTP is skipped for replay.
+ *
+ * @param {object | null | undefined} chat
+ * @param {boolean} skipHttpForReplay
+ * @param {(chat: object) => void} [onChange]
+ * @returns {boolean}
+ */
+export function markHistorySyncInFlightForWsReplay(chat, skipHttpForReplay, onChange) {
+  if (skipHttpForReplay !== true) return false;
+  setChatHistorySyncInFlight(chat, true, onChange);
+  return true;
+}
+
+/**
+ * Keep the indicator when replay is followed by HTTP catch-up; clear when not.
+ *
+ * @param {object | null | undefined} chat
+ * @param {boolean} willHttpCatchUp
+ * @param {(chat: object) => void} [onChange]
+ * @returns {boolean} true when the flag was cleared
+ */
+export function clearHistorySyncInFlightAfterWsReplay(chat, willHttpCatchUp, onChange) {
+  if (willHttpCatchUp === true) return false;
+  setChatHistorySyncInFlight(chat, false, onChange);
+  return true;
+}
+
+/**
+ * Keep the mode-bar syncing label after a convergence result.
+ * A finished attempt (including partial/deferred) must not leave the bar stuck.
+ *
+ * @param {{ status?: string, deferReason?: string } | null | undefined} result
+ * @returns {boolean}
+ */
+export function shouldKeepHistorySyncInFlight(result) {
+  void result;
+  return false;
+}
+
+/**
+ * @param {object | null | undefined} chat
+ * @returns {boolean}
+ */
+export function isChatHistorySyncInFlight(chat) {
+  return chat?._historySyncInFlight === true;
+}
+
+/**
  * @param {{
  *   status?: string,
  *   headSeq?: number,
@@ -529,17 +634,22 @@ export function shouldClearPendingRemoteHistory(input) {
 }
 
 /**
- * One in-flight convergence per chat. Signals during the run recheck once it finishes.
+ * One in-flight convergence per chat. Signals during the run recheck once it
+ * finishes. A stale run is dropped so a later resume is not stuck on hung I/O.
  *
+ * @param {{ staleMs?: number }} [options]
  * @returns {{
  *   run: (chatId: string, task: () => Promise<unknown>) => Promise<unknown>,
  *   isRunning: (chatId: string) => boolean,
  *   resetForTests: () => void,
  * }}
  */
-export function createInFlightHistorySyncTracker() {
+export function createInFlightHistorySyncTracker(options = {}) {
   /** @type {Map<string, { dirty: boolean, promise: Promise<unknown> }>} */
   const inflight = new Map();
+  const staleMs = Number.isFinite(options.staleMs) && options.staleMs > 0
+    ? options.staleMs
+    : HISTORY_SYNC_TRACKER_STALE_MS;
   return {
     isRunning(chatId) {
       return inflight.has(String(chatId || ''));
@@ -557,7 +667,8 @@ export function createInFlightHistorySyncTracker() {
         let result;
         do {
           entry.dirty = false;
-          result = await task();
+          result = await raceHistorySyncTask(task, staleMs);
+          if (isHistorySyncTrackerTimeout(result)) break;
         } while (entry.dirty);
         return result;
       })().finally(() => {
@@ -570,6 +681,32 @@ export function createInFlightHistorySyncTracker() {
       inflight.clear();
     },
   };
+}
+
+/**
+ * @param {unknown} result
+ * @returns {boolean}
+ */
+function isHistorySyncTrackerTimeout(result) {
+  if (!result || typeof result !== 'object') return false;
+  return /** @type {{ deferReason?: unknown }} */ (result).deferReason === 'timeout';
+}
+
+/**
+ * @param {() => Promise<unknown>} task
+ * @param {number} staleMs
+ * @returns {Promise<unknown>}
+ */
+function raceHistorySyncTask(task, staleMs) {
+  let timeoutId = null;
+  const timeoutPromise = new Promise((resolve) => {
+    timeoutId = setTimeout(() => {
+      resolve({ status: HISTORY_SYNC_STATUS.ERROR, deferReason: 'timeout' });
+    }, staleMs);
+  });
+  return Promise.race([task(), timeoutPromise]).finally(() => {
+    if (timeoutId != null) clearTimeout(timeoutId);
+  });
 }
 
 /**

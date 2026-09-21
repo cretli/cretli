@@ -1,4 +1,5 @@
 import { LitElement, css, html } from 'lit';
+import { readBarInputLiveValue } from './read-bar-input-live-value.js';
 
 class CrBarInput extends LitElement {
   static properties = {
@@ -73,6 +74,14 @@ class CrBarInput extends LitElement {
     this.max = '';
     this.step = '';
     this.autocomplete = '';
+  }
+
+  /**
+   * Value currently shown in the inner control (autofill-safe).
+   * @returns {string}
+   */
+  getLiveValue() {
+    return readBarInputLiveValue(this);
   }
 
   focus() {

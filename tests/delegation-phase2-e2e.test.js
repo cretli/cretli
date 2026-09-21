@@ -102,6 +102,7 @@ function spawnServer({ port, dataDir }) {
       CRETLI_FRONT_HMR: '0',
       CRETLI_TEST_CHAT_RUN_ADAPTER: '1',
       CURSOR_REMOTE_FRONT_HOT_FALLBACK: '0',
+      CRETLI_DELEGATION_EMPTY_FAVORITES: process.env.CRETLI_DELEGATION_EMPTY_FAVORITES || 'all',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

@@ -175,7 +175,7 @@ export function createChatTitleFork(deps) {
         finish(null);
         return;
       }
-      deps.api.getChats().then((data) => {
+      deps.api.getChats({ includeSummaries: true }).then((data) => {
         const list = data && data.chats ? data.chats : [];
         const entry = list.find((item) => item.id === chat.id);
         if (!entry) {

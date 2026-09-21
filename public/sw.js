@@ -153,6 +153,7 @@ const SPA_VIEW_PANELS = new Set([
   'tasks',
   'agents',
   'todo',
+  'browser',
   'files',
   'git',
   'github',

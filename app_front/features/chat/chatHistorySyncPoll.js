@@ -1,12 +1,26 @@
-import { getChatHistoryRevisions, getChatAgentStates } from '../../api.js';
+import { getChatHistoryRevisions, getChatAgentStates, postChatHistoryBatch } from '../../api.js';
 import {
   CHAT_HISTORY_BACKGROUND_PULL_LIMIT,
   CHAT_HISTORY_BACKGROUND_PULL_MAX_PAGES,
 } from '../../config.js';
-import { getLastAckedSeq, syncChatHistoryDeltaFromServer } from '../../lib/sdk-chat-history-store.js';
+import { buildChatHistoryBatchBody } from '../../lib/chatIdsQuery.js';
+import { getLastAckedSeq, ingestChatHistoryDeltaResponse } from '../../lib/sdk-chat-history-store.js';
 import { isMobileLikeClient } from '../../lib/mobileClient.js';
 import { getChatActivityAt } from './chatStore.js';
-import { selectMonitoredChatIds } from './chatBackgroundPolicy.js';
+import { getRenderedSidebarChatIds } from '../sidebar/sidebarVisibleChats.js';
+import {
+  resolveBackgroundMonitorMode,
+  selectBackgroundWsChatIds,
+  selectMonitoredChatIds,
+  selectHistoryHttpChatIds,
+  shouldSkipBackgroundHistoryHttp,
+  capHistoryHttpJobs,
+  HISTORY_HTTP_MAX_POSTS_PER_POLL,
+} from './chatBackgroundPolicy.js';
+import {
+  resolveBackgroundHttpBatchDelayMs,
+  resolveBackgroundHttpBatchSize,
+} from './chatWsReconnectPolicy.js';
 import {
   ACTIVE_CHAT_HISTORY_POLL_WS_GRACE_MS,
   RESUME_POLL_DEFER_MOBILE_MS,
@@ -14,13 +28,22 @@ import {
 } from './chatResumePolicy.js';
 import { notifyChatBackendReachable, notifyChatConnectionRestored } from './chatServerRecovery.js';
 import {
+  hasAgentPresenceSeqGap,
+  shouldSkipHttpAgentStates,
+} from '../../../lib/agent-presence-policy.js';
+import {
   getViewAppliedSeq,
   resolveHistorySyncPollFollowUp,
+  shouldClearPendingRemoteHistory,
 } from './chatHistoryConvergence.js';
 
 const POLL_INTERVAL_MS = 15000;
+const HISTORY_POLL_START_DELAY_MS = 1500;
 const RESUME_POLL_DEFER_MS = 5000;
 const BACKGROUND_HISTORY_SYNC_GAP_MS = 250;
+const EMPTY_HISTORY_PULL_BACKOFF_MS = 60000;
+/** @type {Map<string, number>} */
+const emptyPullBackoffUntil = new Map();
 
 const backgroundHistoryPullOptions = {
   pageLimit: CHAT_HISTORY_BACKGROUND_PULL_LIMIT,
@@ -32,6 +55,8 @@ let deps = null;
 /** @type {ReturnType<typeof setInterval> | null} */
 let pollTimerId = null;
 /** @type {ReturnType<typeof setTimeout> | null} */
+let firstPollTimerId = null;
+/** @type {ReturnType<typeof setTimeout> | null} */
 let resumePollTimerId = null;
 /** @type {Map<string, number>} */
 const lastActiveHistorySyncAt = new Map();
@@ -41,6 +66,10 @@ const gapFirstSeenAt = new Map();
 const gapRecheckTimers = new Map();
 /** @type {Map<string, number>} */
 const historySyncRetryAttempt = new Map();
+let pollInFlight = false;
+let pollQueued = false;
+let lastPresenceAt = 0;
+let lastPresenceSeq = 0;
 
 /**
  * @typedef {object} ChatHistorySyncPollDeps
@@ -50,7 +79,41 @@ const historySyncRetryAttempt = new Map();
  * @property {{ log: (tag: string, message: string, payload?: object) => void }} appLogger
  * @property {() => void} [onPendingHistoryChange]
  * @property {() => void} [onAgentStatesChange]
+ * @property {(ids?: string[]) => void} [onAgentPresenceChange]
+ * @property {() => 'local' | 'redis' | string} [getSdkRoomBusMode]
+ * @property {() => boolean} [hasOpenHarnessWs]
  */
+
+/**
+ * @returns {boolean}
+ */
+export function isChatHistoryRevisionPollInFlight() {
+  return pollInFlight;
+}
+
+/**
+ * Interval + gap-recheck share one cycle. A signal during the run queues one more pass.
+ *
+ * @returns {boolean} true when this caller owns the cycle
+ */
+export function tryEnterChatHistoryRevisionPoll() {
+  if (pollInFlight) {
+    pollQueued = true;
+    return false;
+  }
+  pollInFlight = true;
+  return true;
+}
+
+/**
+ * @returns {boolean} true when another pass was requested while in flight
+ */
+export function leaveChatHistoryRevisionPoll() {
+  const again = pollQueued;
+  pollQueued = false;
+  pollInFlight = false;
+  return again;
+}
 
 /**
  * @param {object} chat
@@ -90,43 +153,252 @@ function scheduleGapRecheck(chatId, delayMs, options = {}) {
   );
 }
 
-function applyAgentStatesToChats(chats, statesById) {
+/**
+ * Store ACK is not the view. Keep the badge until viewAppliedSeq catches headSeq.
+ *
+ * @param {{ headSeq?: number, viewAppliedSeq?: number, incomplete?: boolean }} input
+ * @returns {boolean}
+ */
+export function canClearPendingRemoteHistoryAfterStoreAck(input) {
+  if (input?.incomplete === true) return false;
+  return shouldClearPendingRemoteHistory({
+    status: 'success',
+    headSeq: input?.headSeq,
+    viewAppliedSeq: input?.viewAppliedSeq,
+  });
+}
+
+/**
+ * Apply a compact agent-states map. Missing keys are idle (clears a previous busy row).
+ *
+ * @param {object[]} chats
+ * @param {Record<string, object> | null | undefined} statesById
+ * @returns {boolean}
+ */
+export function applyAgentStatesToChats(chats, statesById) {
   if (!statesById || typeof statesById !== 'object') return false;
   let changed = false;
   for (const chat of chats) {
     const next = statesById[chat.id] || null;
     const prev = chat._serverRunState || null;
-    const prevKey = prev ? `${prev.state}:${prev.delegationId}:${prev.attention}` : '';
-    const nextKey = next ? `${next.state}:${next.delegationId}:${next.attention}` : '';
-    if (prevKey === nextKey) continue;
+    if (agentRunStateDedupeKey(prev) === agentRunStateDedupeKey(next)) continue;
     chat._serverRunState = next;
     changed = true;
   }
   return changed;
 }
 
-async function pollChatHistoryRevisions() {
+/**
+ * @param {object | null | undefined} row
+ * @returns {string}
+ */
+export function agentRunStateDedupeKey(row) {
+  if (!row) return '';
+  return [
+    row.state || '',
+    row.delegationId || '',
+    row.attention === true ? '1' : '0',
+    String(row.waitingAgentCount || 0),
+    row.activityKey || '',
+    row.activityArg || '',
+  ].join(':');
+}
+
+/**
+ * Patch presence from a WS frame. Snapshot treats missing ids as idle.
+ *
+ * @param {object[]} chats
+ * @param {{ states?: Record<string, object>, cleared?: string[], snapshot?: boolean } | null | undefined} message
+ * @returns {{ changed: boolean, dirtyIds: string[] }}
+ */
+export function applyAgentPresenceToChats(chats, message) {
+  if (!message || typeof message !== 'object') return { changed: false, dirtyIds: [] };
+  const list = Array.isArray(chats) ? chats : [];
+  if (message.snapshot === true) {
+    const states = message.states && typeof message.states === 'object' ? message.states : {};
+    const dirtyIds = [];
+    for (const chat of list) {
+      const next = states[chat.id] || null;
+      if (agentRunStateDedupeKey(chat._serverRunState) === agentRunStateDedupeKey(next)) continue;
+      chat._serverRunState = next;
+      dirtyIds.push(chat.id);
+    }
+    return { changed: dirtyIds.length > 0, dirtyIds };
+  }
+  const states = message.states && typeof message.states === 'object' ? message.states : {};
+  const byId = new Map(list.map((chat) => [chat.id, chat]));
+  const dirtyIds = [];
+  for (const [id, next] of Object.entries(states)) {
+    const chat = byId.get(id);
+    if (!chat) continue;
+    if (agentRunStateDedupeKey(chat._serverRunState) === agentRunStateDedupeKey(next)) continue;
+    chat._serverRunState = next;
+    dirtyIds.push(id);
+  }
+  for (const rawId of Array.isArray(message.cleared) ? message.cleared : []) {
+    const id = String(rawId || '').trim();
+    const chat = byId.get(id);
+    if (!chat || !chat._serverRunState) continue;
+    chat._serverRunState = null;
+    dirtyIds.push(id);
+  }
+  return { changed: dirtyIds.length > 0, dirtyIds };
+}
+
+/**
+ * @param {number} [ms]
+ * @returns {Promise<void>}
+ */
+function waitMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
+/**
+ * @param {Array<{ chat: object, revision: object }>} jobs
+ */
+async function pullBackgroundHistoryQueue(jobs) {
+  if (!deps || jobs.length === 0) return;
+  const chunkSize = Math.max(1, resolveBackgroundHttpBatchSize());
+  const delayMs = resolveBackgroundHttpBatchDelayMs();
+  const cappedJobs = capHistoryHttpJobs(jobs, {
+    chunkSize,
+    maxPosts: HISTORY_HTTP_MAX_POSTS_PER_POLL,
+  });
+  for (let offset = 0; offset < cappedJobs.length; offset += chunkSize) {
+    if (offset > 0) await waitMs(delayMs);
+    const slice = cappedJobs.slice(offset, offset + chunkSize);
+    const body = buildChatHistoryBatchBody(
+      slice.map(({ chat }) => ({
+        id: chat.id,
+        since: getLastAckedSeq(chat.id),
+        limit: CHAT_HISTORY_BACKGROUND_PULL_LIMIT,
+      }))
+    );
+    if (!body) continue;
+    let response = null;
+    try {
+      response = await postChatHistoryBatch(body.chats);
+    } catch (err) {
+      deps.appLogger.log('chat-history-poll', 'background history batch failed', {
+        error: String(err?.message || err),
+        chatIds: slice.map(({ chat }) => chat.id),
+      });
+      continue;
+    }
+    if (!response?.ok || !response.histories || typeof response.histories !== 'object') continue;
+    for (const { chat, revision } of slice) {
+      const page = response.histories[chat.id];
+      if (!page) continue;
+      const sinceBeforePull = getLastAckedSeq(chat.id);
+      const synced = await ingestChatHistoryDeltaResponse(
+        chat.id,
+        chat.cursorSessionId || '',
+        page,
+        sinceBeforePull
+      );
+      if (!synced) {
+        emptyPullBackoffUntil.set(chat.id, Date.now() + EMPTY_HISTORY_PULL_BACKOFF_MS);
+        continue;
+      }
+      if (!synced.applied) {
+        emptyPullBackoffUntil.set(chat.id, Date.now() + EMPTY_HISTORY_PULL_BACKOFF_MS);
+      } else {
+        emptyPullBackoffUntil.delete(chat.id);
+      }
+      if (synced.incomplete === true) {
+        deps.appLogger.log('chat-history-poll', 'background history partial', {
+          chatId: chat.id,
+          applied: synced.applied,
+          headSeq: synced.headSeq,
+          ackSeq: synced.ackSeq,
+        });
+        continue;
+      }
+      if (
+        !canClearPendingRemoteHistoryAfterStoreAck({
+          headSeq: revision.headSeq,
+          viewAppliedSeq: getViewAppliedSeq(chat.id, chat),
+          incomplete: synced.incomplete,
+        })
+      ) {
+        continue;
+      }
+      setChatPendingRemoteHistory(chat, false);
+      clearGapRecheck(chat.id);
+      deps.appLogger.log('chat-history-poll', 'background history synced', {
+        chatId: chat.id,
+        applied: synced.applied,
+        headSeq: synced.headSeq,
+        ackSeq: synced.ackSeq,
+        pageLimit: CHAT_HISTORY_BACKGROUND_PULL_LIMIT,
+      });
+    }
+    if (isMobileLikeClient()) await waitMs(BACKGROUND_HISTORY_SYNC_GAP_MS);
+  }
+}
+
+export function ingestAgentPresenceMessage(chats, message) {
+  const seq = Number(message?.seq);
+  const snapshot = message?.snapshot === true;
+  if (hasAgentPresenceSeqGap(lastPresenceSeq, seq, snapshot)) {
+    lastPresenceAt = 0;
+    if (Number.isSafeInteger(seq) && seq > 0) lastPresenceSeq = seq;
+    return { changed: false, dirtyIds: [], seqGap: true };
+  }
+  if (Number.isSafeInteger(seq) && seq > 0) lastPresenceSeq = seq;
+  lastPresenceAt = Date.now();
+  const applied = applyAgentPresenceToChats(chats, message);
+  return { ...applied, seqGap: false };
+}
+
+export function invalidateAgentPresenceTrust() {
+  lastPresenceAt = 0;
+}
+
+function shouldSkipAgentStatesHttp() {
+  return shouldSkipHttpAgentStates({
+    redisBus: deps?.getSdkRoomBusMode?.() === 'redis',
+    hasOpenHarnessWs: deps?.hasOpenHarnessWs?.() === true,
+    lastPresenceAt,
+    hidden: typeof document !== 'undefined' && document.hidden === true,
+  });
+}
+
+async function runChatHistoryRevisionPoll() {
   if (!deps || typeof document === 'undefined' || document.hidden) return;
   const chats = deps.getChats().filter((chat) => chat?.id && chat?.cursorSessionId);
   if (chats.length === 0) return;
   const now = Date.now();
-  try {
-    const stateResponse = await getChatAgentStates(chats.map((chat) => chat.id));
-    if (stateResponse?.ok && applyAgentStatesToChats(chats, stateResponse.states)) {
-      if (typeof deps.onAgentStatesChange === 'function') deps.onAgentStatesChange();
+  if (!shouldSkipAgentStatesHttp()) {
+    try {
+      const stateResponse = await getChatAgentStates();
+      if (stateResponse?.ok && applyAgentStatesToChats(chats, stateResponse.states)) {
+        if (typeof deps.onAgentStatesChange === 'function') deps.onAgentStatesChange();
+      }
+    } catch (err) {
+      deps.appLogger.log('chat-history-poll', 'agent-state poll failed', {
+        error: String(err?.message || err),
+      });
     }
-  } catch (err) {
-    deps.appLogger.log('chat-history-poll', 'agent-state poll failed', {
-      error: String(err?.message || err),
-    });
   }
-  const monitoredChatIds = selectMonitoredChatIds(chats, deps.getActiveChatId, getChatActivityAt);
+  const activeChatId = deps.getActiveChatId();
+  const monitoredChatIds = selectHistoryHttpChatIds(
+    selectMonitoredChatIds(chats, deps.getActiveChatId, getChatActivityAt),
+    chats,
+    {
+      activeChatId,
+      visibleChatIds: getRenderedSidebarChatIds(),
+    },
+  );
+  const wsChatIds = selectBackgroundWsChatIds(chats, deps.getActiveChatId, getChatActivityAt, now);
   const monitoredChats = chats.filter((chat) => monitoredChatIds.has(chat.id));
   if (monitoredChats.length === 0) return;
   try {
     const response = await getChatHistoryRevisions(monitoredChats.map((chat) => chat.id));
     if (!response?.ok) return;
     const revisions = response.revisions && typeof response.revisions === 'object' ? response.revisions : {};
+    /** @type {Array<{ chat: object, revision: object }>} */
+    const backgroundHttpJobs = [];
     for (const chat of monitoredChats) {
       const revision = revisions[chat.id];
       if (!revision || typeof revision.headSeq !== 'number') {
@@ -145,7 +417,27 @@ async function pollChatHistoryRevisions() {
       }
       setChatPendingRemoteHistory(chat, true);
       if (!gapFirstSeenAt.has(chat.id)) gapFirstSeenAt.set(chat.id, now);
-      const isActive = chat.id === deps.getActiveChatId();
+      const isActive = chat.id === activeChatId;
+      const monitorMode = resolveBackgroundMonitorMode(
+        chat,
+        wsChatIds,
+        monitoredChatIds,
+        activeChatId
+      );
+      const hasPendingDelegation = revision.hasPendingDelegation === true;
+      if (
+        !isActive &&
+        shouldSkipBackgroundHistoryHttp({
+          monitorMode,
+          hasPendingDelegation,
+        })
+      ) {
+        if (!viewLag) {
+          setChatPendingRemoteHistory(chat, false);
+          clearGapRecheck(chat.id);
+        }
+        continue;
+      }
       if (isActive) {
         const wsOpen = chat.ws?.readyState === WebSocket.OPEN;
         const gapObservedAt = gapFirstSeenAt.get(chat.id) || now;
@@ -159,6 +451,7 @@ async function pollChatHistoryRevisions() {
             lastSyncAt: lastActiveHistorySyncAt.get(chat.id),
             now,
             gapObservedAt,
+            hasPendingDelegation,
           })
         ) {
           if (!viewLag) {
@@ -202,38 +495,27 @@ async function pollChatHistoryRevisions() {
         }
         continue;
       }
-      const synced = await syncChatHistoryDeltaFromServer(
-        chat.id,
-        chat.cursorSessionId || '',
-        backgroundHistoryPullOptions
-      );
-      if (!synced) continue;
-      if (synced.incomplete === true) {
-        deps.appLogger.log('chat-history-poll', 'background history partial', {
-          chatId: chat.id,
-          applied: synced.applied,
-          headSeq: synced.headSeq,
-          ackSeq: synced.ackSeq,
-        });
-        continue;
-      }
-      setChatPendingRemoteHistory(chat, false);
-      clearGapRecheck(chat.id);
-      deps.appLogger.log('chat-history-poll', 'background history synced', {
-        chatId: chat.id,
-        applied: synced.applied,
-        headSeq: synced.headSeq,
-        ackSeq: synced.ackSeq,
-        pageLimit: CHAT_HISTORY_BACKGROUND_PULL_LIMIT,
-      });
-      if (isMobileLikeClient()) {
-        await new Promise((resolve) => setTimeout(resolve, BACKGROUND_HISTORY_SYNC_GAP_MS));
-      }
+      const backoffUntil = emptyPullBackoffUntil.get(chat.id) || 0;
+      if (backoffUntil > now) continue;
+      backgroundHttpJobs.push({ chat, revision });
     }
+    await pullBackgroundHistoryQueue(backgroundHttpJobs);
   } catch (err) {
     deps.appLogger.log('chat-history-poll', 'revision poll failed', {
       error: String(err?.message || err),
     });
+  }
+}
+
+async function pollChatHistoryRevisions() {
+  if (!tryEnterChatHistoryRevisionPoll()) return;
+  try {
+    do {
+      pollQueued = false;
+      await runChatHistoryRevisionPoll();
+    } while (pollQueued);
+  } finally {
+    leaveChatHistoryRevisionPoll();
   }
 }
 
@@ -242,10 +524,18 @@ function startPolling() {
   pollTimerId = setInterval(() => {
     void pollChatHistoryRevisions();
   }, POLL_INTERVAL_MS);
-  void pollChatHistoryRevisions();
+  if (firstPollTimerId != null) clearTimeout(firstPollTimerId);
+  firstPollTimerId = setTimeout(() => {
+    firstPollTimerId = null;
+    void pollChatHistoryRevisions();
+  }, HISTORY_POLL_START_DELAY_MS);
 }
 
 function stopPolling() {
+  if (firstPollTimerId != null) {
+    clearTimeout(firstPollTimerId);
+    firstPollTimerId = null;
+  }
   if (pollTimerId == null) return;
   clearInterval(pollTimerId);
   pollTimerId = null;
@@ -255,6 +545,7 @@ function bindVisibilitySync() {
   if (typeof document === 'undefined') return;
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
+      invalidateAgentPresenceTrust();
       if (resumePollTimerId != null) {
         clearTimeout(resumePollTimerId);
         resumePollTimerId = null;
@@ -282,8 +573,12 @@ export function initChatHistorySyncPoll(dependencies) {
 export function stopChatHistorySyncPoll() {
   stopPolling();
   deps = null;
+  pollInFlight = false;
+  pollQueued = false;
   lastActiveHistorySyncAt.clear();
   historySyncRetryAttempt.clear();
+  lastPresenceAt = 0;
+  lastPresenceSeq = 0;
   for (const timer of gapRecheckTimers.values()) clearTimeout(timer);
   gapRecheckTimers.clear();
   gapFirstSeenAt.clear();

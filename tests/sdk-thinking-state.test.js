@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   buildStableSdkToolCallFallback,
   canonicalizeSdkToolStatus,
+  findOpenSdkToolRecord,
   getRunningSdkToolCallCount,
   hasRunningSdkTools,
   isEmptyGenericSdkToolEvent,
@@ -10,6 +11,8 @@ import {
   isTerminalSdkRunStatus,
   isTerminalSdkToolStatus,
   shouldKeepSdkThinkingSpinner,
+  normalizeSdkCallId,
+  normalizeSdkToolStreamEvent,
   resolveAbandonedToolStatus,
   resolveSdkToolCallId,
   setRunningSdkToolCallCount,
@@ -25,8 +28,13 @@ assert.equal(isRunningSdkToolStatus(' RUNNING '), true);
 assert.equal(isRunningSdkToolStatus('completed'), false);
 assert.equal(isOpenSdkToolStatus('running'), true);
 assert.equal(isOpenSdkToolStatus('pending'), true);
+assert.equal(isOpenSdkToolStatus('started'), true);
+assert.equal(isOpenSdkToolStatus('in_progress'), true);
 assert.equal(isOpenSdkToolStatus(''), true);
 assert.equal(isOpenSdkToolStatus('completed'), false);
+assert.equal(isRunningSdkToolStatus('started'), true);
+assert.equal(isRunningSdkToolStatus('in_progress'), true);
+assert.equal(isRunningSdkToolStatus('pending'), false);
 assert.equal(isTerminalSdkToolStatus('completed'), true);
 assert.equal(isTerminalSdkToolStatus('cancelled'), true);
 assert.equal(isTerminalSdkToolStatus('running'), false);
@@ -63,6 +71,23 @@ assert.equal(shouldKeepSdkThinkingSpinner({
   runStatus: 'RUNNING',
   hasRunningTools: false,
 }), false);
+assert.equal(shouldKeepSdkThinkingSpinner({
+  runKey: 'local-run-9',
+  activeKind: 'thinking',
+  activeThinkingRunKey: 'local-run-9',
+  suppressHistoryPersist: false,
+  hasRunningTools: false,
+  isLiveTurn: false,
+}), false);
+assert.equal(shouldKeepSdkThinkingSpinner({
+  runKey: 'run-1',
+  activeKind: 'thinking',
+  activeThinkingRunKey: 'run-1',
+  suppressHistoryPersist: false,
+  runStatus: 'RUNNING',
+  hasRunningTools: false,
+  isLiveTurn: true,
+}), true);
 assert.equal(resolveAbandonedToolStatus('finished'), 'cancelled');
 assert.equal(resolveAbandonedToolStatus('COMPLETED'), 'cancelled');
 assert.equal(resolveAbandonedToolStatus('error'), 'error');
@@ -75,8 +100,77 @@ assert.equal(shouldAcceptSdkToolStatus('error', 'completed'), false);
 assert.equal(shouldAcceptSdkToolStatus('completed', 'error'), true);
 assert.equal(resolveSdkToolCallId({ call_id: 'call-1' }), 'call-1');
 assert.equal(resolveSdkToolCallId({ toolCallId: 'tc-2' }), 'tc-2');
+assert.equal(resolveSdkToolCallId({ callId: 'camel-3' }), 'camel-3');
 assert.equal(resolveSdkToolCallId({ call_id: '  call-1  ', toolCallId: 'tc-2' }), 'call-1');
+assert.equal(resolveSdkToolCallId({ call_id: 'call-aaa-0\nfc_bbb_0' }), 'call-aaa-0');
+assert.equal(normalizeSdkCallId('call-aaa-0\nfc_bbb_0'), 'call-aaa-0');
 assert.equal(resolveSdkToolCallId({}, 'fallback-id'), 'fallback-id');
+assert.equal(normalizeSdkToolStreamEvent({
+  type: 'sdk_message',
+  message: { type: 'tool_call', name: 'read', call_id: 'inner-1' },
+})?.call_id, 'inner-1');
+assert.equal(normalizeSdkToolStreamEvent({
+  type: 'tool_use',
+  id: 'use-1',
+  name: 'read',
+  input: { path: '/tmp/a.js' },
+})?.type, 'tool_call');
+assert.equal(normalizeSdkToolStreamEvent({
+  type: 'tool_result',
+  tool_use_id: 'use-1',
+  content: 'ok',
+})?.call_id, 'use-1');
+
+const openReadA = {
+  callId: 'call-a',
+  runKey: 'run-1',
+  event: { name: 'read', status: 'running', args: { path: '/tmp/sdk-rich-view.js' } },
+};
+const openReadB = {
+  callId: 'call-b',
+  runKey: 'run-1',
+  event: { name: 'read', status: 'running', args: { path: '/tmp/other.js' } },
+};
+assert.equal(findOpenSdkToolRecord([openReadA, openReadB], {
+  callId: 'call-a',
+  name: 'read',
+  args: { path: '/tmp/sdk-rich-view.js' },
+  runKey: 'run-1',
+  status: 'running',
+}), openReadA);
+assert.equal(findOpenSdkToolRecord([openReadA, openReadB], {
+  callId: 'call-c',
+  name: 'read',
+  args: { path: '/tmp/sdk-rich-view.js' },
+  runKey: 'run-1',
+  status: 'running',
+}), null);
+assert.equal(findOpenSdkToolRecord([openReadA, openReadB], {
+  callId: 'call-c',
+  name: 'read',
+  args: { path: '/tmp/sdk-rich-view.js' },
+  runKey: 'run-1',
+  status: 'completed',
+  result: { content: 'ok' },
+}), openReadA);
+assert.equal(findOpenSdkToolRecord([openReadA, openReadB], {
+  callId: 'call-aaa-0',
+  name: 'read',
+  args: { path: '/tmp/sdk-rich-view.js' },
+  runKey: 'run-1',
+  status: 'completed',
+}), openReadA);
+assert.equal(findOpenSdkToolRecord([{
+  callId: 'call-aaa-0',
+  runKey: 'run-1',
+  event: { name: 'glob', status: 'running', args: { globPattern: '**/*' } },
+}], {
+  callId: 'call-aaa-0',
+  name: 'glob',
+  args: { globPattern: '**/*' },
+  runKey: 'run-1',
+  status: 'completed',
+})?.callId, 'call-aaa-0');
 assert.equal(isEmptyGenericSdkToolEvent({
   type: 'tool_call',
   name: 'tool',
@@ -101,7 +195,7 @@ const inputFallbackEvent = {
   name: 'glob',
   args: { globPattern: '*.txt', targetDirectory: '/tmp/terminals' },
 };
-const expectedFallbackId = 'run-1:glob:globPattern:*.txt';
+const expectedFallbackId = 'run-1:glob:globPattern:*.txt|targetDirectory:/tmp/terminals';
 const actualFallbackId = buildStableSdkToolCallFallback(inputFallbackEvent, 'run-1');
 assert.equal(actualFallbackId, expectedFallbackId);
 const actualPairedFallbackId = buildStableSdkToolCallFallback(

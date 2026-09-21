@@ -68,9 +68,9 @@ const names = CRETILI_MCP_TOOL_DEFS.map((tool) => tool.name);
 for (const name of [
   'chat_list', 'chat_show', 'chat_history', 'chat_event',
   'todo_list', 'todo_show', 'todo_create', 'todo_update',
-  'chat_plan_show', 'delegation_list', 'delegation_show', 'delegation_start', 'delegation_cancel',
-  'delegation_reply', 'delegation_inbox',
-  'task_list', 'task_run_list', 'agent_list', 'agent_run_list', 'harness_list', 'model_list',
+  'chat_plan_show', 'delegation_list', 'delegation_show', 'delegation_wait', 'delegation_start', 'delegation_cancel',
+  'delegation_reply', 'delegation_inbox', 'delegation_workflow_show', 'delegation_workflow_update',
+  'task_list', 'task_run_list', 'agent_list', 'agent_run_list', 'harness_list', 'model_list', 'model_pick',
 ]) {
   assert.ok(names.includes(name), name);
 }
@@ -82,6 +82,10 @@ assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('todo_create'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_start'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_reply'));
 assert.ok(BUILTIN_MCP_READ_TOOLS.includes('delegation_inbox'));
+assert.ok(BUILTIN_MCP_READ_TOOLS.includes('delegation_wait'));
+assert.ok(BUILTIN_MCP_READ_TOOLS.includes('delegation_workflow_show'));
+assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_workflow_update'));
+assert.ok(BUILTIN_MCP_READ_TOOLS.includes('model_pick'));
 assert.equal(CRETILI_MCP_TOOL_DEFS.find((tool) => tool.name === 'todo_list')?.annotations.readOnlyHint, true);
 
 const builtin = createBuiltinCretliServer();
@@ -204,6 +208,127 @@ const started = await handlersA.delegation_start({
 assert.equal(started.isError, false);
 const delegationId = started.structuredContent.id;
 assert.ok(started.structuredContent.child_chat_id);
+const listedA = await handlersA.delegation_list({});
+assert.match(listedA.content[0].text, new RegExp(delegationId.replace(/-/g, '\\-')));
+const foreignList = await handlersA.delegation_list({ chat_id: chatB.id });
+assert.equal(foreignList.isError, true);
+assert.match(foreignList.content[0].text, /OUT_OF_SCOPE/);
+const foreignListOk = await handlersA.delegation_list({ chat_id: chatB.id, scope: 'all' });
+assert.equal(foreignListOk.isError, false);
+
+const childClient = createInProcessMcpClient({
+  harness: 'opencode',
+  chatId: started.structuredContent.child_chat_id,
+  workspaceFolder: workspaceA,
+});
+const handlersChild = createCretliMcpToolHandlers(childClient, {
+  chatId: started.structuredContent.child_chat_id,
+  workspaceFolder: workspaceA,
+  harness: 'opencode',
+  mode: 'agent',
+  builtinClient: childClient,
+});
+const nestedStart = await handlersChild.delegation_start({
+  task_text: 'grandchild',
+  harness: 'opencode',
+  model: 'opencode/test',
+  idempotency_key: 'nested-denied',
+});
+assert.equal(nestedStart.isError, true);
+assert.match(nestedStart.content[0].text, /CONFLICT/);
+assert.match(nestedStart.content[0].text, /Child chats cannot start another delegation/);
+
+const parentWorkflow = await handlersA.delegation_workflow_update({
+  round: 1,
+  last_verdict: 'FAIL',
+  findings_text: 'same finding',
+  idempotency_key: 'wf-review-1',
+});
+assert.equal(parentWorkflow.isError, false);
+assert.equal(parentWorkflow.structuredContent.workflow.consecutiveSameFail, 1);
+const parentReplay = await handlersA.delegation_workflow_update({
+  round: 1,
+  last_verdict: 'FAIL',
+  findings_text: 'same finding',
+  idempotency_key: 'wf-review-1',
+});
+assert.equal(parentReplay.structuredContent.replayed, true);
+assert.equal(parentReplay.structuredContent.workflow.consecutiveSameFail, 1);
+const parentMaterial = await handlersA.delegation_workflow_update({
+  material_revision: 'src-2',
+  idempotency_key: 'wf-material-bump',
+});
+assert.equal(parentMaterial.isError, false);
+assert.equal(parentMaterial.structuredContent.workflow.consecutiveSameFail, 1);
+assert.equal(parentMaterial.structuredContent.workflow.reviewEventCount, 1);
+const parentAfterBump = await handlersA.delegation_workflow_update({
+  last_verdict: 'FAIL',
+  findings_text: 'same finding',
+  idempotency_key: 'wf-review-after-material',
+});
+assert.equal(parentAfterBump.isError, false);
+assert.equal(parentAfterBump.structuredContent.workflow.consecutiveSameFail, 1);
+assert.equal(parentAfterBump.structuredContent.workflow.stopReason, '');
+const childSpoof = await handlersChild.delegation_workflow_update({
+  chat_id: chatA.id,
+  round: 9,
+  last_verdict: 'FAIL',
+  findings_text: 'hijack',
+});
+assert.equal(childSpoof.isError, true);
+assert.match(childSpoof.content[0].text, /CONFLICT/);
+const afterSpoof = await handlersA.delegation_workflow_show({});
+assert.equal(afterSpoof.structuredContent.workflow.round, 1);
+
+const childBridge = await callTool(
+  {
+    chatId: started.structuredContent.child_chat_id,
+    workspaceFolder: workspaceA,
+    harness: 'opencode',
+    mode: 'agent',
+    builtinClient: childClient,
+  },
+  builtin,
+  'delegation_workflow_update',
+  {
+    chat_id: chatA.id,
+    round: 9,
+    last_verdict: 'FAIL',
+    findings_text: 'bridge hijack',
+    idempotency_key: 'child-bridge',
+  },
+);
+assert.equal(childBridge.ok, false);
+assert.match(String(childBridge.output || childBridge.error || ''), /CONFLICT|parent chat/i);
+
+let childDirectCode = '';
+try {
+  await childClient.updateDelegationWorkflow({
+    chatId: chatA.id,
+    workspaceFolder: workspaceA,
+    round: 9,
+    lastVerdict: 'FAIL',
+    findingsText: 'direct hijack',
+    idempotencyKey: 'child-direct',
+  });
+} catch (err) {
+  childDirectCode = err?.code || '';
+}
+assert.equal(childDirectCode, 'CONFLICT');
+let childOwnCode = '';
+try {
+  await childClient.updateDelegationWorkflow({
+    workspaceFolder: workspaceA,
+    round: 9,
+    lastVerdict: 'FAIL',
+    idempotencyKey: 'child-own',
+  });
+} catch (err) {
+  childOwnCode = err?.code || '';
+}
+assert.equal(childOwnCode, 'CONFLICT');
+const afterChildDirect = await handlersA.delegation_workflow_show({});
+assert.equal(afterChildDirect.structuredContent.workflow.round, 1);
 
 const replayDel = await handlersA.delegation_start({
   plan_revision: planDoc.revision,
@@ -320,8 +445,15 @@ assert.match(stdioAskDenied.content[0].text, /Ask mode blocked/);
 
 const models = await handlersA.model_list({ harness: 'sdk' });
 assert.ok(models.structuredContent.items.length > 0);
+assert.equal(typeof models.structuredContent.items[0].cost_tier, 'number');
+assert.equal(typeof models.structuredContent.items[0].quality_tier, 'number');
+assert.equal(typeof models.structuredContent.items[0].speed_tier, 'number');
+assert.ok(Array.isArray(models.structuredContent.items[0].roles));
 const favoriteModels = await handlersA.model_list({ harness: 'sdk', enabled_only: true });
 assert.ok(models.structuredContent.items.length >= favoriteModels.structuredContent.items.length);
+const unknownRole = await handlersA.model_pick({ role: 'orchestrate' });
+assert.equal(unknownRole.isError, true);
+assert.match(unknownRole.content[0].text, /VALIDATION_ERROR/);
 const harnesses = await handlersA.harness_list({});
 assert.ok(harnesses.structuredContent.items.some((row) => row.id === 'sdk'));
 const missingHarness = await handlersA.model_list({});
@@ -366,12 +498,13 @@ const reportRow = createDelegationRecord({
   workspaceFolder: workspaceA,
   planRevision: 1,
   planMarkdown: 'plan',
-  status: 'finished',
+  status: 'completed',
   executor: { transport: 'opencode', model: 'opencode/test' },
 });
 updateDelegationRecord(reportRow.id, {
   report: 'A'.repeat(4500),
-  status: 'finished',
+  status: 'completed',
+  runStoppingAt: '',
 });
 const reportPage1 = await handlersA.delegation_show({
   delegation_id: reportRow.id,
@@ -382,7 +515,8 @@ assert.equal(reportPage1.structuredContent.truncated, true);
 assert.ok(reportPage1.structuredContent.next_cursor);
 updateDelegationRecord(reportRow.id, {
   report: 'B'.repeat(4500),
-  status: 'finished',
+  status: 'completed',
+  runStoppingAt: '',
 });
 const reportStale = await handlersA.delegation_show({
   delegation_id: reportRow.id,

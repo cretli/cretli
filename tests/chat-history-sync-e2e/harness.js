@@ -13,6 +13,10 @@ import {
   replaceViewAppliedRecords,
   resetViewAppliedState,
   resolveChatHistoryConvergence,
+  setChatHistorySyncInFlight,
+  shouldKeepHistorySyncInFlight,
+  markHistorySyncInFlightForWsReplay,
+  clearHistorySyncInFlightAfterWsReplay,
 } from '../../app_front/features/chat/chatHistoryConvergence.js';
 import {
   applyCatchUpSdkHistoryRecords,
@@ -67,8 +71,11 @@ let lastStatus = '';
 let serverHeadSeq = 0;
 let fetchGate = Promise.resolve();
 let releaseFetchGate = () => {};
+let historyFetchCount = 0;
 let lastHydrationRecords = null;
 let lastNotified = false;
+let resumeDeferMs = 0;
+let hideDuringResumeSleep = false;
 
 const noop = () => {};
 const chatTransport = createChatTransport({
@@ -99,6 +106,8 @@ window.__chatSync = {
   viewAppliedSeq: () => getViewAppliedSeq(chat.id, chat),
   texts: () => String(mount?.innerText || ''),
   html: () => String(mount?.innerHTML || ''),
+  historySyncing: () => chat._historySyncInFlight === true,
+  fetchCount: () => historyFetchCount,
 };
 
 function wrapView(view) {
@@ -213,24 +222,45 @@ async function publishServerHistory(records, headSeq) {
   return resolvedHead;
 }
 
+function sleepResumeDefer(ms) {
+  const shouldHide = hideDuringResumeSleep === true;
+  hideDuringResumeSleep = false;
+  if (shouldHide) hidden = true;
+  const waitMs = Number(ms) || 0;
+  if (waitMs <= 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    setTimeout(resolve, waitMs);
+  });
+}
+
 async function runProductionResume(reason = 'visibility') {
   lastHydrationRecords = null;
   lastNotified = false;
-  const result = await runSdkHistoryConvergence(chat, { reason }, {
-    isDocumentHidden: () => hidden,
-    yieldToMain: () => Promise.resolve(),
-    fetchDelta: () => syncChatHistoryDeltaFromServer(chat.id, chat.cursorSessionId || ''),
-    readLocal: () => readSdkChatHistoryStateAsync(chat.id),
-    applyCatchUp: applyCatchUpSdkHistoryRecords,
-    completeHydration: (target, records) => {
-      lastHydrationRecords = records;
-      chatTransport.completeSdkHistoryHydration(target, records);
-    },
-    notifyReachable: () => {
-      lastNotified = true;
-    },
-    getStoreAckSeq: () => getLastAckedSeq(chat.id),
-  });
+  setChatHistorySyncInFlight(chat, true);
+  let result;
+  try {
+    result = await runSdkHistoryConvergence(chat, { reason }, {
+      isDocumentHidden: () => hidden,
+      getResumeDeferMs: () => resumeDeferMs,
+      sleep: sleepResumeDefer,
+      yieldToMain: () => Promise.resolve(),
+      fetchDelta: () => syncChatHistoryDeltaFromServer(chat.id, chat.cursorSessionId || ''),
+      readLocal: () => readSdkChatHistoryStateAsync(chat.id),
+      applyCatchUp: applyCatchUpSdkHistoryRecords,
+      completeHydration: (target, records) => {
+        lastHydrationRecords = records;
+        chatTransport.completeSdkHistoryHydration(target, records);
+      },
+      notifyReachable: () => {
+        lastNotified = true;
+      },
+      getStoreAckSeq: () => getLastAckedSeq(chat.id),
+    });
+  } catch (err) {
+    setChatHistorySyncInFlight(chat, false);
+    throw err;
+  }
+  setChatHistorySyncInFlight(chat, shouldKeepHistorySyncInFlight(result));
   lastStatus = result.status;
   return {
     status: result.status,
@@ -239,6 +269,7 @@ async function runProductionResume(reason = 'visibility') {
     hydrationCount: Array.isArray(lastHydrationRecords) ? lastHydrationRecords.length : -1,
     notified: lastNotified,
     storeAckSeq: getLastAckedSeq(chat.id),
+    historySyncing: chat._historySyncInFlight === true,
   };
 }
 
@@ -247,6 +278,7 @@ function installFetchGate() {
   window.fetch = async (input, init) => {
     const url = String(typeof input === 'string' ? input : input?.url || '');
     if (url.includes('/api/chats/') && url.includes('/history')) {
+      historyFetchCount += 1;
       await fetchGate;
     }
     return originalFetch(input, init);
@@ -329,6 +361,17 @@ async function boot() {
   };
   window.__chatSync.productionPublish = (records, headSeq) => publishServerHistory(records, headSeq);
   window.__chatSync.productionResume = (reason) => runProductionResume(reason);
+  window.__chatSync.setResumeDeferMs = (ms) => {
+    resumeDeferMs = Math.max(0, Number(ms) || 0);
+    return resumeDeferMs;
+  };
+  window.__chatSync.hideDuringNextResumeSleep = () => {
+    hideDuringResumeSleep = true;
+  };
+  window.__chatSync.markReplayWait = () => markHistorySyncInFlightForWsReplay(chat, true);
+  window.__chatSync.finishReplayWait = (willHttpCatchUp) => (
+    clearHistorySyncInFlightAfterWsReplay(chat, willHttpCatchUp === true)
+  );
   window.__chatSync.holdFetch = () => {
     fetchGate = new Promise((resolve) => {
       releaseFetchGate = resolve;
@@ -337,6 +380,9 @@ async function boot() {
   window.__chatSync.releaseFetch = () => {
     releaseFetchGate();
     fetchGate = Promise.resolve();
+  };
+  window.__chatSync.resetFetchCount = () => {
+    historyFetchCount = 0;
   };
   window.__chatSync.liveSdkEvent = (event, roomEventSeq, eventStreamId = 'room-sync') => {
     const streamId = typeof eventStreamId === 'string' && eventStreamId.trim()

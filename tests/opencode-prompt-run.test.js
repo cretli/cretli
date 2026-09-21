@@ -14,7 +14,7 @@ import {
 } from '../lib/opencode/opencode-prompt-run.js';
 
 assert.ok(resolveOpenCodePromptTimeoutMs() >= 60000);
-assert.ok(resolveOpenCodeFirstEventTimeoutMs() >= 60000);
+assert.ok(resolveOpenCodeFirstEventTimeoutMs() >= 180000);
 const previousFirstEventTimeoutEnv = process.env.OPENCODE_FIRST_EVENT_TIMEOUT_MS;
 process.env.OPENCODE_FIRST_EVENT_TIMEOUT_MS = '45000';
 assert.equal(resolveOpenCodeFirstEventTimeoutMs(), 60000);
@@ -82,10 +82,17 @@ assert.equal(
 );
 assert.equal(
   shouldBumpOpenCodePromptRunActivity({
-    type: 'question.v2.asked',
-    data: { sessionID: 'sess-1', id: 'que_1' },
+    type: 'session.status',
+    properties: { status: { type: 'busy' } },
   }, { opencodeSessionId: 'sess-1' }),
   true,
+);
+assert.equal(
+  resolveOpenCodePromptRunFromEvent({
+    type: 'session.idle',
+    properties: { sessionID: 'sess-2' },
+  }, { opencodeSessionId: 'sess-2', hasOpenTools: true }),
+  null,
 );
 notifyOpenCodePromptRunEnd(room, resolved);
 const result = await waiter;
@@ -151,6 +158,10 @@ const firstEventTimeoutMessage = await firstEventWaiter
   .then(() => '')
   .catch((err) => (err instanceof Error ? err.message : String(err)));
 assert.match(firstEventTimeoutMessage, /first event timed out/i);
+const firstEventCode = await createOpenCodePromptRunWaiter({}, 5000, 35)
+  .then(() => '')
+  .catch((err) => err?.code || '');
+assert.equal(firstEventCode, 'adapter_timeout');
 
 const room4 = {};
 const firstEventBumpedWaiter = createOpenCodePromptRunWaiter(room4, 180, 35);

@@ -6,10 +6,14 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { executeTool } from '../lib/agent-harness/tool-executor.js';
 import { resolvePlanModeSdkEventDecision, resolvePlanModeToolDecision } from '../lib/sdk/sdk-plan-guard.js';
-import { listDelegationAdapterCapabilities } from '../lib/delegation-adapter-capabilities.js';
+import { listDelegationAdapterCapabilities, resolveDelegationAdapterCapabilities, assertReviewAdapterAllowed } from '../lib/delegation-adapter-capabilities.js';
 import { addChat } from '../lib/persist/chats-persist.js';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 import { getChatRunAdapter } from '../lib/chat-run-service.js';
+
+// This suite documents the default review policy. Ignore an operator escape
+// hatch set in the parent process so the assertions stay deterministic.
+delete process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED;
 
 const TRANSPORTS = ['opencode', 'openrouter', 'codebuddy', 'deepseek', 'qwen', 'codex'];
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -66,6 +70,22 @@ async function assertReviewWriteDenied(transport) {
   });
   assert.equal(write.ok, false, `${transport} write_file must fail in review`);
   assert.equal(fs.readFileSync(fixturePath, 'utf8'), before);
+  const mcpDenied = resolvePlanModeToolDecision({
+    transport,
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'mcp__other__write_file',
+    input: { path: 'fixture.txt', content: 'mutated' },
+  });
+  assert.equal(mcpDenied.deny, true, `${transport} unknown MCP must deny in review`);
+  assert.equal(fs.readFileSync(fixturePath, 'utf8'), before);
+  const mcpRead = resolvePlanModeToolDecision({
+    transport,
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'mcp__cretli_builtincretl__delegation_show',
+  });
+  assert.equal(mcpRead.deny, false, `${transport} builtin read MCP stays allowed`);
   const read = await executeTool('read_file', { path: 'fixture.txt' }, {
     cwd: tmpRoot,
     mode: 'agent',
@@ -119,6 +139,29 @@ for (const transport of TRANSPORTS) {
   const source = fs.readFileSync(abs, 'utf8');
   assert.match(source, /register(?:Kernel)?ChatRunAdapter|registerChatRunAdapter/);
   assert.equal(/registerMockChatRunAdapter/.test(source), false, transport);
+  const capsRow = resolveDelegationAdapterCapabilities(transport, { review: true });
+  assert.equal(capsRow.coverage, 'unit');
+  if (transport === 'codex') {
+    assert.equal(capsRow.preExecDeny, false, transport);
+    assert.equal(capsRow.abortOnMutation, true, transport);
+    assert.equal(capsRow.hardReviewGuarantee, false, transport);
+    assert.equal(capsRow.deniesMutation, false, transport);
+    const refused = assertReviewAdapterAllowed(transport);
+    assert.equal(refused.ok, false);
+    assert.equal(refused.code, 'review_uncertified');
+    assert.match(refused.error, /Do not retry as assignment=implement/);
+  } else if (transport === 'deepseek') {
+    assert.equal(capsRow.preExecDeny, false, transport);
+    assert.equal(capsRow.sandboxReadOnly, true, transport);
+    assert.equal(capsRow.hardReviewGuarantee, true, transport);
+    assert.equal(capsRow.deniesMutation, true, transport);
+    const allowed = assertReviewAdapterAllowed(transport);
+    assert.equal(allowed.ok, true);
+  } else {
+    assert.equal(capsRow.preExecDeny, true, transport);
+    assert.equal(capsRow.hardReviewGuarantee, true, transport);
+    assert.equal(capsRow.deniesMutation, true, transport);
+  }
   await assertReviewWriteDenied(transport);
   await import(pathToFileURL(abs).href);
   const adapter = getChatRunAdapter(transport);
@@ -183,6 +226,11 @@ for (const transport of TRANSPORTS) {
     transport,
     path: modulePath,
     unit: 'pass',
+    helper: 'pass',
+    preExecDeny: capsRow.preExecDeny === true,
+    abortOnMutation: capsRow.abortOnMutation === true,
+    sandboxReadOnly: capsRow.sandboxReadOnly === true,
+    hardReviewGuarantee: capsRow.hardReviewGuarantee === true,
     integration,
     integrationReason,
     live: 'deferred-no-paid-models',
@@ -191,6 +239,9 @@ for (const transport of TRANSPORTS) {
 
 assert.equal(matrix.length, TRANSPORTS.length);
 assert.equal(matrix.every((row) => row.unit === 'pass'), true);
+assert.equal(matrix.every((row) => row.helper === 'pass'), true);
+assert.equal(matrix.find((row) => row.transport === 'codex')?.hardReviewGuarantee, false);
+assert.equal(matrix.find((row) => row.transport === 'opencode')?.hardReviewGuarantee, true);
 assert.equal(matrix.every((row) => row.live === 'deferred-no-paid-models'), true);
 assert.equal(matrix.some((row) => row.integration === 'pass-mock-adapter'), false);
 assert.equal(matrix.some((row) => row.integration === 'pass' && row.transport === 'openrouter'), true);

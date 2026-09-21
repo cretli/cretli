@@ -14,9 +14,18 @@ const FALLBACK_LABELS = {
   'status.agentWorkingQueued': 'Agent working · queue: {count}',
   'status.needsAction': 'Needs action',
   'status.ready': 'Ready',
+  'chat.historySyncing': 'Syncing messages…',
   'chat.delegationStatus.completed': 'Completed',
   'chat.delegationStatus.failed': 'Failed',
   'chat.delegationStatus.interrupted': 'Interrupted',
+  'chat.delegationWaitingForAgents': 'Waiting for {n} agents',
+  'chat.presenceActivity.read': 'Read {arg}',
+  'chat.presenceActivity.grep': 'Grep {arg}',
+  'chat.presenceActivity.search': 'Search {arg}',
+  'chat.presenceActivity.bash': 'Bash',
+  'chat.presenceActivity.write': 'Write {arg}',
+  'chat.presenceActivity.edit': 'Edit {arg}',
+  'chat.presenceActivity.thinking': 'Thinking',
 };
 
 /**
@@ -63,6 +72,42 @@ export function readHarnessPendingFlags(chat) {
  * @param {object|null|undefined} chat
  * @returns {boolean}
  */
+/**
+ * Protocol busy/queued signals — excludes local `_agentState`, which is itself
+ * driven by the idle timer.
+ *
+ * @param {object|null|undefined} chat
+ * @returns {boolean}
+ */
+export function hasProtocolAgentRun(chat) {
+  if (!chat) return false;
+  if (chat._sdkServerBusy === true) return true;
+  if (chat._serverRunState?.state === 'busy') return true;
+  if (readQueuedCount(chat._sdkServerQueuedCount) > 0) return true;
+  return readQueuedCount(chat._sdkRichView?.queuedCount) > 0;
+}
+
+/**
+ * Keep the idle timer from flipping to idle while the harness still has work.
+ * Must not use `_agentState === 'active'` or the timer never settles.
+ *
+ * @param {object|null|undefined} chat
+ * @returns {boolean}
+ */
+export function hasKeepAliveHarnessWork(chat) {
+  if (!chat) return false;
+  if (hasProtocolAgentRun(chat)) return true;
+  const pending = readHarnessPendingFlags(chat);
+  if (pending.hasPendingQuestion || pending.hasPendingPermission) return true;
+  return chat._serverRunState?.state === 'waiting';
+}
+
+/**
+ * True when the harness still has live work, even if the local socket is down.
+ *
+ * @param {object|null|undefined} chat
+ * @returns {boolean}
+ */
 export function hasLiveHarnessWork(chat) {
   if (!chat) return false;
   if (hasActiveAgentRun(chat)) return true;
@@ -80,10 +125,49 @@ export function hasLiveHarnessWork(chat) {
 export function hasActiveAgentRun(chat) {
   if (!chat) return false;
   if (chat._agentState === 'active') return true;
-  if (chat._sdkServerBusy === true) return true;
-  if (chat._serverRunState?.state === 'busy') return true;
-  if (readQueuedCount(chat._sdkServerQueuedCount) > 0) return true;
-  return readQueuedCount(chat._sdkRichView?.queuedCount) > 0;
+  return hasProtocolAgentRun(chat);
+}
+
+/**
+ * History replay may omit FINISHED. Close leftover running tiles unless the
+ * protocol still reports a live run.
+ *
+ * @param {object|null|undefined} chat
+ * @returns {boolean}
+ */
+export function shouldCloseLiveTurnAfterHistoryReplay(chat) {
+  return !hasProtocolAgentRun(chat);
+}
+
+/**
+ * History catch-up on the mode bar. Overrides stale generating/connecting.
+ *
+ * @param {boolean} isInFlight
+ * @param {(key: string, vars?: Record<string, string|number>|null) => string} [translate]
+ * @returns {ChatStatusMeta | null}
+ */
+export function overlayHistorySyncingMeta(isInFlight, translate) {
+  if (isInFlight !== true) return null;
+  const tFn = typeof translate === 'function' ? translate : translateFallback;
+  return {
+    tone: 'syncing',
+    labelKey: 'chat.historySyncing',
+    label: tFn('chat.historySyncing'),
+  };
+}
+
+/**
+ * Mode-bar label: history catch-up wins over generating/connecting.
+ *
+ * @param {boolean} isInFlight
+ * @param {ChatStatusMeta | null | undefined} fallbackMeta
+ * @param {(key: string, vars?: Record<string, string|number>|null) => string} [translate]
+ * @returns {ChatStatusMeta | null}
+ */
+export function resolveChatStatusWithHistorySync(isInFlight, fallbackMeta, translate) {
+  const overlay = overlayHistorySyncingMeta(isInFlight, translate);
+  if (overlay) return overlay;
+  return fallbackMeta || null;
 }
 
 /**
@@ -132,9 +216,27 @@ function resolveServerRunStateMeta(serverRunState, translate) {
   if (!serverRunState || typeof serverRunState !== 'object') return null;
   const state = String(serverRunState.state || '');
   if (state === 'waiting') {
+    const waitingCount = Number(serverRunState.waitingAgentCount) || 0;
+    if (waitingCount > 0) {
+      return { tone: 'awaiting', label: translate('chat.delegationWaitingForAgents', { n: String(waitingCount) }) };
+    }
     return { tone: 'awaiting', label: translate('status.needsAction') };
   }
   if (state === 'busy') {
+    const activityKey = typeof serverRunState.activityKey === 'string'
+      ? serverRunState.activityKey.trim()
+      : '';
+    if (activityKey) {
+      const arg = typeof serverRunState.activityArg === 'string' ? serverRunState.activityArg : '';
+      const key = `chat.presenceActivity.${activityKey}`;
+      let label = translate(key, { arg });
+      if (!arg) label = label.replace(/\s*\{arg\}\s*/g, '').trim();
+      return {
+        tone: 'active',
+        label: label === key ? activityKey : label,
+        activityKey,
+      };
+    }
     return { tone: 'active', label: translate('status.agentWorking') };
   }
   if (state === 'attention') {
@@ -163,9 +265,17 @@ export function resolveHarnessChatStateMeta(input = {}) {
   if (connection === 'connecting' || connection === 'reconnecting') {
     return { tone: 'connecting', label: translate('status.connecting') };
   }
+  const pending = input.hasPendingQuestion === true || input.hasPendingPermission === true;
+  if (pending) {
+    return { tone: 'awaiting', label: translate('status.needsAction') };
+  }
+  const serverMeta = resolveServerRunStateMeta(input.serverRunState, translate);
+  const serverState = String(input.serverRunState?.state || '');
+  if (serverMeta && (serverState === 'waiting' || serverState === 'attention')) {
+    return serverMeta;
+  }
   const liveMeta = resolveLiveHarnessStateMeta(input, translate);
   if (liveMeta) return liveMeta;
-  const serverMeta = resolveServerRunStateMeta(input.serverRunState, translate);
   if (serverMeta) return serverMeta;
   if (connection === 'disconnected') {
     return { tone: 'disconnected', label: translate('status.disconnected') };

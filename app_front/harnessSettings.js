@@ -14,6 +14,7 @@ import {
   loadHarnessModelUsage,
   readHarnessModelUsage,
 } from './features/chat/harnessModelUsage.js';
+import { shouldLoadHarnessModelCatalogs } from './features/chat/harnessSettingsLoad.js';
 
 /** @typedef {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen'} NewChatHarness */
 
@@ -27,6 +28,7 @@ let cachedEnabledHarnesses = listEnabledHarnesses(undefined, cachedHarnessOrder)
 let cachedHarnessStatus = null;
 /** @type {Record<string, { enabled: number, total: number }>} */
 let cachedHarnessModelUsage = Object.create(null);
+let cachedHarnessUsageLimits = new Map();
 let harnessSettingsLoadSeq = 0;
 
 /**
@@ -123,7 +125,26 @@ function harnessRows() {
 function enabledHarnessOptions() {
   return harnessRows()
     .filter((row) => isHarnessEnabled(row.id, cachedEnabledHarnesses))
-    .map((row) => ({ value: row.id, label: row.label }));
+    .map((row) => ({
+      value: row.id,
+      label: cachedHarnessUsageLimits.has(row.id)
+        ? `${row.label} — ${t('chat.harnessUsageLimit')}`
+        : row.label,
+    }));
+}
+
+export async function refreshHarnessUsageLimits() {
+  try {
+    const data = await api.getHarnessCatalog();
+    cachedHarnessUsageLimits = new Map(
+      (Array.isArray(data?.items) ? data.items : [])
+        .filter((row) => row?.usage_limit)
+        .map((row) => [String(row.id || ''), row.usage_limit]),
+    );
+    fillHarnessChoiceSelects();
+  } catch {
+    // Advisory metadata; readiness and model selection still work.
+  }
 }
 
 /**
@@ -316,7 +337,11 @@ async function refreshHarnessModelUsage(settings) {
   }
 }
 
-async function loadDefaultHarnessFromServer() {
+/**
+ * @param {{ includeModelUsage?: boolean }} [options]
+ */
+async function loadDefaultHarnessFromServer(options = {}) {
+  const includeModelUsage = options.includeModelUsage === true;
   const seq = ++harnessSettingsLoadSeq;
   try {
     const data = await api.getSettings();
@@ -326,12 +351,32 @@ async function loadDefaultHarnessFromServer() {
     applyEnabledHarnesses(data.enabledHarnesses);
     cachedDefaultHarness = normalizeDefaultHarness(data.defaultNewChatHarness);
     fillHarnessChoiceSelects();
-    await refreshHarnessModelUsage(data);
-    if (seq !== harnessSettingsLoadSeq) return;
     renderHarnessSetupStatus(data);
+    if (!includeModelUsage) return;
+    void refreshHarnessModelUsage(data).then(() => {
+      if (seq !== harnessSettingsLoadSeq) return;
+      renderHarnessSetupStatus(data);
+    });
   } catch {
     /* ignore */
   }
+}
+
+function isHarnessSettingsPanelActive() {
+  const panel = document.getElementById('settings-panel');
+  if (!panel?.classList.contains('active')) return false;
+  const tab = panel.dataset?.activeSettingsTab
+    || document.querySelector('#settings-tabs .settings-tab.active')?.dataset?.settingsTab;
+  return tab === 'harness';
+}
+
+/**
+ * Settings defaults for New chat (GET /api/settings only — no model catalogs).
+ *
+ * @returns {Promise<void>}
+ */
+export function ensureHarnessDefaultsLoaded() {
+  return loadDefaultHarnessFromServer({ includeModelUsage: false });
 }
 
 /**
@@ -343,7 +388,7 @@ export function initHarnessSettings() {
   const statusEl = document.getElementById('default-new-chat-harness-save-status');
   window.addEventListener('cr-lang-changed', () => {
     fillHarnessChoiceSelects();
-    void loadDefaultHarnessFromServer();
+    void loadDefaultHarnessFromServer({ includeModelUsage: false });
   });
   for (const eventName of [
     'cretli-chat-models-changed',
@@ -355,7 +400,9 @@ export function initHarnessSettings() {
     'cretli-codex-models-changed',
   ]) {
     window.addEventListener(eventName, () => {
-      void loadDefaultHarnessFromServer();
+      if (!isHarnessSettingsPanelActive()) return;
+      if (!shouldLoadHarnessModelCatalogs('models-changed')) return;
+      void loadDefaultHarnessFromServer({ includeModelUsage: true });
     });
   }
   const listEl = document.getElementById('harness-setup-status');
@@ -367,7 +414,6 @@ export function initHarnessSettings() {
       },
     });
   }
-  void loadDefaultHarnessFromServer();
   if (!selectEl || !saveBtn) return;
   saveBtn.addEventListener('click', () => {
     const value = normalizeDefaultHarness(selectEl.value);
@@ -391,5 +437,5 @@ export function initHarnessSettings() {
 }
 
 export function refreshHarnessSettingsPanel() {
-  void loadDefaultHarnessFromServer();
+  void loadDefaultHarnessFromServer({ includeModelUsage: shouldLoadHarnessModelCatalogs('settings') });
 }

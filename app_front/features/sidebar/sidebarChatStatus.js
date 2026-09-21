@@ -20,7 +20,8 @@ const NEEDS_ACTION_TONES = new Set([
  * @param {string} tone
  * @returns {boolean}
  */
-export function isIconOnlySidebarStatus(tone) {
+export function isIconOnlySidebarStatus(tone, meta = null) {
+  if (tone === 'active' && meta?.activityKey) return false;
   return tone === 'disconnected'
     || tone === 'connecting'
     || tone === 'active'
@@ -37,7 +38,7 @@ export function renderSidebarChatStatusHtml(meta, escapeHtml) {
   const label = typeof meta?.label === 'string' ? meta.label : '';
   if (tone === 'disconnected') return DISCONNECTED_ICON_HTML;
   if (tone === 'connecting') return CONNECTING_ICON_HTML;
-  if (tone === 'active') return WORKING_ICON_HTML;
+  if (tone === 'active' && !meta?.activityKey) return WORKING_ICON_HTML;
   if (NEEDS_ACTION_TONES.has(tone)) return NEEDS_ACTION_ICON_HTML;
   const escape = typeof escapeHtml === 'function' ? escapeHtml : (value) => String(value || '');
   return escape(label);
@@ -61,9 +62,17 @@ export function applySidebarChatStatusEl(el, meta, options = {}) {
   el.hidden = !show;
   if (el.className !== nextClass) el.className = nextClass;
   if (title && el.getAttribute('title') !== title) el.setAttribute('title', title);
+  const activityKey = typeof meta?.activityKey === 'string' ? meta.activityKey : '';
+  const label = typeof meta?.label === 'string' ? meta.label : '';
   const currentTone = el.getAttribute('data-status-tone') || '';
-  if (currentTone === tone) return false;
+  const currentActivity = el.getAttribute('data-activity-key') || '';
+  const currentLabel = el.getAttribute('data-status-label') || '';
+  if (currentTone === tone && currentActivity === activityKey && currentLabel === label) {
+    return false;
+  }
   el.setAttribute('data-status-tone', tone);
+  el.setAttribute('data-activity-key', activityKey);
+  el.setAttribute('data-status-label', label);
   el.innerHTML = renderSidebarChatStatusHtml(meta, options.escapeHtml);
   return true;
 }

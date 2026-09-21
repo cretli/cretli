@@ -7,6 +7,7 @@ import {
   DELEGATION_CHILD_STOP_GRACE_MS,
   finishDelegation,
   flushDelegationOutbox,
+  releaseDelegationRunSlot,
   setDelegationCrashHook,
 } from '../lib/delegation-service.js';
 import { countDelegationAttempts } from '../lib/delegation-attempt.js';
@@ -57,6 +58,16 @@ function start(p, text = 'Phase 3b task') {
   });
 }
 
+function releaseJob(resultOrRow) {
+  const job = resultOrRow?.delegation || resultOrRow;
+  if (!job?.id) return;
+  finishDelegation(job, { status: 'completed', report: 'released' });
+  if (job.childChatId) {
+    patchMockChatRun(job.childChatId, { busy: false, waitingForInput: false });
+  }
+  releaseDelegationRunSlot(getDelegationById(job.id) || job);
+}
+
 function invokeRoute(routes, url, req) {
   let status = 200;
   let body;
@@ -99,6 +110,7 @@ function invokeRoute(routes, url, req) {
   assert.equal(afterReplay.attemptId, afterParallel.attemptId);
   assert.notEqual(afterParallel.attemptId, beforeAttempt);
   assert.equal(Number(afterReplay.revision || 0) > beforeRevision, true);
+  releaseJob(job);
 }
 
 {
@@ -135,6 +147,7 @@ function invokeRoute(routes, url, req) {
   assert.equal(rows.length, 1);
   const mutated = rows.filter((row) => row.status !== 'failed');
   assert.equal(mutated.length, 1);
+  releaseJob(job);
 }
 
 {
@@ -154,6 +167,7 @@ function invokeRoute(routes, url, req) {
   const latest = getDelegationById(job.id);
   assert.equal(countDelegationAttempts(latest), beforeAttempts + 1);
   assert.equal(getMockChatRunStartCount(), startCount + 1);
+  releaseJob(latest);
 }
 
 {
@@ -203,6 +217,7 @@ function invokeRoute(routes, url, req) {
   assert.equal(late.ok === false || late.replayed === true || getDelegationById(job.id).report === 'durable final before outbox', true);
   assert.equal(getDelegationById(job.id).attemptId, attemptId);
   assert.equal(countDelegationAttempts(getDelegationById(job.id)), 1);
+  releaseJob(job);
 }
 
 {
@@ -225,6 +240,8 @@ function invokeRoute(routes, url, req) {
   assert.equal(getDelegationById(job.id).status, 'completed');
   assert.equal(getMockChatRun(job.childChatId)?.cancelled === true, false);
   releaseCancel();
+  patchMockChatRun(job.childChatId, { busy: false, waitingForInput: false });
+  releaseDelegationRunSlot(getDelegationById(job.id));
 }
 
 {
@@ -252,6 +269,7 @@ function invokeRoute(routes, url, req) {
   await new Promise((resolve) => setTimeout(resolve, DELEGATION_CHILD_STOP_GRACE_MS + 80));
   assert.equal(getMockChatRun(job.childChatId)?.cancelled, true);
   assert.equal(String(getDelegationById(job.id).runStoppingAt || ''), '');
+  releaseJob(job);
 }
 
 {

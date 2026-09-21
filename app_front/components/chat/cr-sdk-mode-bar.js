@@ -273,9 +273,11 @@ class CrSdkModeBar extends LitElement {
       color: var(--cr-text-muted);
     }
 
-    .status--connecting {
+    .status--connecting,
+    .status--syncing {
       color: var(--cr-info);
       border-color: var(--cr-info-border);
+      pointer-events: none;
     }
 
     .status--active {

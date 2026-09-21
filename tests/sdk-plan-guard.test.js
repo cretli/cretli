@@ -281,18 +281,76 @@ assert.equal(
   }).deny,
   false,
 );
-assert.equal(
+// The dsh read-only sandbox refuses the write, so the run keeps going and the
+// reviewer can still finish the report.
+assert.deepEqual(
   resolvePlanModeToolDecision({
     transport: 'deepseek',
     mode: 'agent',
     assignment: 'review',
     toolName: 'write',
-  }).abortRun,
-  true,
+  }),
+  { deny: true, abortRun: false, notify: true },
 );
 assert.equal(resolveReadOnlyGuardUserMessage('agent', 'review'), REVIEW_GUARD_USER_MESSAGE);
 assert.equal(resolveReadOnlyGuardUserMessage('agent'), PLAN_GUARD_USER_MESSAGE);
 assert.ok(REVIEW_GUARD_USER_MESSAGE.includes('Review assignment'));
+
+const grokReviewMcpRead = resolvePlanModeToolDecision({
+  transport: 'sdk',
+  mode: 'agent',
+  assignment: 'review',
+  toolName: 'mcp',
+  input: {
+    providerIdentifier: 'cretli_bridge',
+    toolName: 'mcp__cretli_builtincretl__delegation_show',
+    args: { delegation_id: 'e0d7e1f3-63a5-461d-84ad-044c06c27342' },
+  },
+});
+assert.equal(grokReviewMcpRead.deny, false);
+assert.equal(grokReviewMcpRead.abortRun, false);
+const grokReviewMcpWait = resolvePlanModeToolDecision({
+  transport: 'sdk',
+  mode: 'agent',
+  assignment: 'review',
+  toolName: 'mcp',
+  input: {
+    providerIdentifier: 'cretli_bridge',
+    toolName: 'mcp__cretli_builtincretl__delegation_wait',
+    args: { ids: ['e0d7e1f3-63a5-461d-84ad-044c06c27342'] },
+  },
+});
+assert.equal(grokReviewMcpWait.deny, false);
+const grokReviewMcpOpaque = resolvePlanModeToolDecision({
+  transport: 'sdk',
+  mode: 'agent',
+  assignment: 'review',
+  toolName: 'mcp',
+  input: { providerIdentifier: 'cretli_bridge' },
+});
+assert.equal(grokReviewMcpOpaque.deny, true);
+assert.equal(grokReviewMcpOpaque.abortRun, false);
+const grokReviewMcpWrite = resolvePlanModeToolDecision({
+  transport: 'sdk',
+  mode: 'agent',
+  assignment: 'review',
+  toolName: 'mcp',
+  input: { toolName: 'mcp__other__write_file' },
+});
+assert.equal(grokReviewMcpWrite.deny, true);
+assert.equal(grokReviewMcpWrite.abortRun, false);
+const grokReviewDelegationReply = resolvePlanModeToolDecision({
+  transport: 'sdk',
+  mode: 'agent',
+  assignment: 'review',
+  toolName: 'mcp',
+  input: {
+    providerIdentifier: 'cretli_bridge',
+    toolName: 'mcp__cretli_builtincretl__delegation_reply',
+  },
+});
+assert.equal(grokReviewDelegationReply.deny, false);
+assert.equal(grokReviewDelegationReply.abortRun, false);
 
 const reviewVerifyAllowed = [
   'node scripts/review-verify.js',
@@ -312,6 +370,16 @@ for (const command of reviewVerifyAllowed) {
 assert.equal(
   resolvePlanModeToolDecision({
     transport: 'codex',
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'shell',
+    input: { command: 'node scripts/review-verify.js mcp-chat-history-format' },
+  }).deny,
+  false,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'sdk',
     mode: 'agent',
     assignment: 'review',
     toolName: 'shell',

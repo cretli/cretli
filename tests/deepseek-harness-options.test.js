@@ -60,6 +60,16 @@ try {
   assert.equal(actualWithBridge.patches[0], inputPatchPath);
   assert.match(String(actualWithBridge.patches[1]), /dsh-mcp-bridge\.yml$/);
 
+  const actualReview = buildDeepSeekHarnessOptions({
+    cwd: inputCwd,
+    model: 'deepseek-v4-pro',
+    dshBin: inputBin,
+    reviewReadOnly: true,
+  });
+  assert.equal(actualReview.patches.length, 2);
+  assert.equal(actualReview.patches[0], inputPatchPath);
+  assert.match(String(actualReview.patches[1]), /dsh-review-readonly\.yml$/);
+
   const sdkAvailable = await isDeepSeekSdkAvailable();
   if (sdkAvailable) {
     const sdk = await loadDeepSeekSdk();

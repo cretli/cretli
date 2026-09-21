@@ -46,6 +46,42 @@ export function hasViewOrderKey(key) {
 }
 
 /**
+ * True when both keys name the same already-rendered card.
+ * compareViewOrderKeys returns 0 for incomparable keys as well, so equality
+ * must not use that helper.
+ *
+ * @param {{ historySeq?: number, roomEventSeq?: number, eventStreamId?: string }} left
+ * @param {{ historySeq?: number, roomEventSeq?: number, eventStreamId?: string }} right
+ * @returns {boolean}
+ */
+export function isSameViewOrderKey(left, right) {
+  const leftHistory = Number(left?.historySeq) || 0;
+  const rightHistory = Number(right?.historySeq) || 0;
+  if (leftHistory > 0 && rightHistory > 0) return leftHistory === rightHistory;
+  const leftStream = resolveEventStreamId(left);
+  const rightStream = resolveEventStreamId(right);
+  if (!leftStream || !rightStream || leftStream !== rightStream) return false;
+  const leftRoom = Number(left?.roomEventSeq) || 0;
+  const rightRoom = Number(right?.roomEventSeq) || 0;
+  if (leftRoom <= 0 || rightRoom <= 0) return false;
+  return leftRoom === rightRoom;
+}
+
+/**
+ * @param {Array<{ historySeq?: number, roomEventSeq?: number, eventStreamId?: string }>} existingKeys
+ * @param {{ historySeq?: number, roomEventSeq?: number, eventStreamId?: string }} incomingKey
+ * @returns {number}
+ */
+export function findExistingViewOrderIndex(existingKeys, incomingKey) {
+  if (!hasViewOrderKey(incomingKey)) return -1;
+  const keys = Array.isArray(existingKeys) ? existingKeys : [];
+  for (let i = 0; i < keys.length; i += 1) {
+    if (isSameViewOrderKey(incomingKey, keys[i])) return i;
+  }
+  return -1;
+}
+
+/**
  * Negative when `left` belongs before `right`. Zero means equal or incomparable
  * — incomparable keys must not jump in front of a later card.
  *
@@ -91,10 +127,52 @@ export function findViewInsertIndex(existingKeys, incomingKey) {
  */
 export function insertRecordByViewOrder(nodes, record) {
   if (!Array.isArray(nodes)) return -1;
-  const index = findViewInsertIndex(
-    nodes.map((row) => resolveViewOrderKey(row)),
-    resolveViewOrderKey(record)
-  );
+  const incomingKey = resolveViewOrderKey(record);
+  const existingKeys = nodes.map((row) => resolveViewOrderKey(row));
+  const existingIndex = findExistingViewOrderIndex(existingKeys, incomingKey);
+  if (existingIndex >= 0) return existingIndex;
+  const index = findViewInsertIndex(existingKeys, incomingKey);
   nodes.splice(index, 0, record);
   return index;
+}
+
+/**
+ * Stable identity for already-rendered cards. historySeq wins; otherwise
+ * stream + room seq. Empty when the card cannot be matched.
+ *
+ * @param {unknown} source
+ * @returns {string}
+ */
+export function viewOrderIdentity(source) {
+  const key = resolveViewOrderKey(source);
+  if (key.historySeq > 0) return `h:${key.historySeq}`;
+  if (key.eventStreamId && key.roomEventSeq > 0) {
+    return `r:${key.eventStreamId}:${key.roomEventSeq}`;
+  }
+  return '';
+}
+
+/**
+ * Drops later copies of the same card. Live + catch-up can leave two
+ * Answer nodes with the same seq already in the stream.
+ *
+ * @param {unknown[]} nodes
+ * @returns {unknown[]}
+ */
+export function foldDuplicateViewOrderNodes(nodes) {
+  if (!Array.isArray(nodes) || nodes.length < 2) return nodes;
+  const seen = new Set();
+  let write = 0;
+  for (let read = 0; read < nodes.length; read += 1) {
+    const node = nodes[read];
+    const id = viewOrderIdentity(node);
+    if (id) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+    }
+    nodes[write] = node;
+    write += 1;
+  }
+  nodes.length = write;
+  return nodes;
 }

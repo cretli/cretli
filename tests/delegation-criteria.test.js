@@ -10,6 +10,7 @@ import {
   createDelegationService,
   finishDelegation,
   flushDelegationOutbox,
+  releaseDelegationRunSlot,
   setDelegationCrashHook,
 } from '../lib/delegation-service.js';
 import { getDelegationById, loadDelegations } from '../lib/persist/delegations-persist.js';
@@ -37,6 +38,15 @@ const startText = (p, text = 'Audit task') => service.createAndStart({
   executor: { transport: 'opencode', model: 'opencode/test' },
   idempotencyKey: crypto.randomUUID(),
 });
+function releaseJob(result) {
+  const job = result?.delegation || result;
+  if (!job?.id) return;
+  finishDelegation(job, { status: 'completed', report: 'released' });
+  if (job.childChatId) {
+    patchMockChatRun(job.childChatId, { busy: false, waitingForInput: false });
+  }
+  releaseDelegationRunSlot(getDelegationById(job.id) || job);
+}
 function writeRawPlan(chatId, body) {
   const rel = buildChatPlanRelativePath(chatId);
   const abs = path.join(ISOLATED_DATA_DIR, rel);
@@ -50,6 +60,7 @@ function writeRawPlan(chatId, body) {
   const over = await startText(parent('text over'), 'x'.repeat(DELEGATION_PLAN_CONTEXT_LIMIT + 1));
   assert.equal(over.ok, false);
   assert.equal(over.code, 'plan_too_large');
+  releaseJob(atLimit);
 }
 
 {
@@ -72,6 +83,7 @@ function writeRawPlan(chatId, body) {
   });
   assert.equal(over.ok, false);
   assert.equal(over.code, 'plan_too_large');
+  releaseJob(atLimit);
 }
 
 {
@@ -102,6 +114,7 @@ function writeRawPlan(chatId, body) {
   });
   assert.equal(over.ok, false);
   assert.equal(over.code, 'plan_too_large');
+  releaseJob(atLimit);
 }
 
 {
@@ -113,6 +126,7 @@ function writeRawPlan(chatId, body) {
   const denied = await service.retry(job.id);
   assert.equal(denied.ok, false);
   assert.equal(denied.code, 'ask_mode_denied');
+  releaseJob(job);
 }
 
 {
@@ -125,6 +139,7 @@ function writeRawPlan(chatId, body) {
   assert.equal(denied.ok, false);
   assert.equal(denied.code, 'model_unavailable');
   available = true;
+  releaseJob(job);
 }
 
 {
@@ -140,6 +155,7 @@ function writeRawPlan(chatId, body) {
   assert.equal(String(after.reportDeliveredAt || '').trim(), '');
   const replies = loadMailboxMessages().filter((row) => row.delegationId === first.id);
   assert.equal(replies.some((row) => row.delegationAttemptId === first.attemptId), true);
+  releaseJob(retried);
 }
 
 {
@@ -150,6 +166,7 @@ function writeRawPlan(chatId, body) {
   assert.equal(crashed.ok, false);
   assert.equal(crashed.delegation.status, 'failed');
   setDelegationCrashHook(null);
+  releaseJob(crashed);
 }
 
 {
@@ -173,6 +190,7 @@ function writeRawPlan(chatId, body) {
   await flushDelegationOutbox(getDelegationById(job.id));
   const delivered = getDelegationById(job.id).outbox.find((item) => item.type === 'mailbox');
   assert.ok(String(delivered.deliveredAt || '').trim());
+  releaseJob({ delegation: job });
 }
 
 {
@@ -197,6 +215,7 @@ function writeRawPlan(chatId, body) {
   const cards = loadChatHistory(job.parentChatId).events.filter((x) => x.rec?.variant === 'delegation');
   assert.equal(cards.length >= 1, true);
   assert.ok(historyItem);
+  releaseJob({ delegation: job });
 }
 
 const routes = new Map();
@@ -252,6 +271,7 @@ async function invoke(method, route, id, extras = {}) {
   assert.equal(mailboxOwn.status, 200);
   const mailboxForeign = await invoke('GET', '/api/chats/:id/mailbox', own.id, { workspaceFolder: '/another-workspace' });
   assert.equal(mailboxForeign.status, 403);
+  releaseJob({ delegation: job });
 }
 
 assert.equal(loadDelegations().length > 0, true);

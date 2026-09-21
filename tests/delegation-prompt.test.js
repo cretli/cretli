@@ -17,6 +17,8 @@ assert.equal(review.ok, true);
 assert.match(review.prompt, /You are the reviewer/);
 assert.match(review.prompt, /Do not implement\. Do not edit files/);
 assert.match(review.prompt, /scripts\/review-verify\.js/);
+assert.doesNotMatch(review.prompt, /native shell disabled/);
+assert.doesNotMatch(review.prompt, /parent must run review-verify/);
 assert.doesNotMatch(review.prompt, /node tests\/\*\.test\.js/);
 assert.match(review.prompt, /\[ASSIGNMENT\]/);
 assert.equal(review.displayText, 'Only inspect the implementation and report defects. Do not edit files.');

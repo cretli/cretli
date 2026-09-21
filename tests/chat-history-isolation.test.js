@@ -83,7 +83,8 @@ function resolveRipgrepBin() {
   if (envPath) {
     // npm start sets this relative to the repo root, but this test spawns with
     // cwd set to a temp workspace, so a relative value must be anchored here.
-    return path.isAbsolute(envPath) ? envPath : path.resolve(repoRoot, envPath);
+    const resolved = path.isAbsolute(envPath) ? envPath : path.resolve(repoRoot, envPath);
+    if (fs.existsSync(resolved)) return resolved;
   }
   const bundled = path.join(repoRoot, 'node_modules', '.bin', 'rg');
   if (fs.existsSync(bundled)) {

@@ -525,4 +525,98 @@ test.describe('chat history transport store DOM', () => {
     expect(indexOfCard(order, 'new B1')).toBeGreaterThan(indexOfCard(order, 'old A102'));
     expect(indexOfCard(order, 'new B2')).toBeGreaterThan(indexOfCard(order, 'new B1'));
   });
+
+  test('hidden production resume defers without fetch; show catch-up exposes historySyncing', async ({ page }) => {
+    await waitReady(page);
+
+    await page.evaluate((record) => window.__chatSync.productionSeed([record]), userRecord(100, 'seeded question', '2026-09-19T10:00:00.000Z'));
+    await expect(page.getByText('seeded question')).toBeVisible();
+    await page.evaluate((records) => window.__chatSync.productionPublish(records, 101), [
+      userRecord(100, 'seeded question', '2026-09-19T10:00:00.000Z'),
+      assistantRecord(101, 'catch-up after unlock', 1, '2026-09-19T10:00:01.000Z'),
+    ]);
+    await page.evaluate(() => window.__chatSync.resetFetchCount());
+    await page.evaluate(() => window.__chatSync.hide());
+    const hiddenResume = await page.evaluate(() => window.__chatSync.productionResume('visibility'));
+    expect(hiddenResume.status).toBe('deferred');
+    expect(hiddenResume.deferReason).toBe('document_hidden');
+    expect(await page.evaluate(() => window.__chatSync.fetchCount())).toBe(0);
+    await expect(page.getByText('catch-up after unlock')).toHaveCount(0);
+    expect(await page.evaluate(() => window.__chatSync.historySyncing())).toBe(false);
+
+    await page.evaluate(() => window.__chatSync.show());
+    await page.evaluate(() => window.__chatSync.holdFetch());
+    const pending = page.evaluate(() => window.__chatSync.productionResume('visibility'));
+    await page.waitForFunction(() => window.__chatSync?.historySyncing?.() === true);
+    expect(await page.evaluate(() => window.__chatSync.historySyncing())).toBe(true);
+    await page.evaluate(() => window.__chatSync.releaseFetch());
+    const shown = await pending;
+    expect(['success', 'unchanged', 'partial']).toContain(shown.status);
+    await expect(page.getByText('catch-up after unlock')).toBeVisible();
+    expect(await page.evaluate(() => window.__chatSync.historySyncing())).toBe(false);
+  });
+
+  test('resume defer keeps historySyncing before fetch; hidden flip during sleep skips fetch', async ({ page }) => {
+    await waitReady(page);
+
+    await page.evaluate((record) => window.__chatSync.productionSeed([record]), userRecord(100, 'seeded question', '2026-09-19T10:00:00.000Z'));
+    await expect(page.getByText('seeded question')).toBeVisible();
+    await page.evaluate((records) => window.__chatSync.productionPublish(records, 101), [
+      userRecord(100, 'seeded question', '2026-09-19T10:00:00.000Z'),
+      assistantRecord(101, 'after defer', 1, '2026-09-19T10:00:01.000Z'),
+    ]);
+    await page.evaluate(() => window.__chatSync.resetFetchCount());
+    await page.evaluate(() => window.__chatSync.setResumeDeferMs(80));
+    await page.evaluate(() => window.__chatSync.holdFetch());
+    const deferred = page.evaluate(() => window.__chatSync.productionResume('visibility'));
+    await page.waitForFunction(() => window.__chatSync?.historySyncing?.() === true);
+    expect(await page.evaluate(() => window.__chatSync.fetchCount())).toBe(0);
+    await page.waitForFunction(() => window.__chatSync?.fetchCount?.() === 1);
+    expect(await page.evaluate(() => window.__chatSync.historySyncing())).toBe(true);
+    await page.evaluate(() => window.__chatSync.releaseFetch());
+    const afterDefer = await deferred;
+    expect(['success', 'unchanged', 'partial']).toContain(afterDefer.status);
+    await expect(page.getByText('after defer')).toBeVisible();
+    expect(await page.evaluate(() => window.__chatSync.historySyncing())).toBe(false);
+
+    await page.evaluate(() => window.__chatSync.resetFetchCount());
+    await page.evaluate(() => window.__chatSync.setResumeDeferMs(40));
+    await page.evaluate(() => window.__chatSync.hideDuringNextResumeSleep());
+    const hiddenDuringSleep = await page.evaluate(() => window.__chatSync.productionResume('visibility'));
+    expect(hiddenDuringSleep.status).toBe('deferred');
+    expect(hiddenDuringSleep.deferReason).toBe('document_hidden');
+    expect(await page.evaluate(() => window.__chatSync.fetchCount())).toBe(0);
+    expect(await page.evaluate(() => window.__chatSync.historySyncing())).toBe(false);
+  });
+
+  test('ws replay wait keeps historySyncing until HTTP catch-up ends', async ({ page }) => {
+    await waitReady(page);
+
+    await page.evaluate((record) => window.__chatSync.productionSeed([record]), userRecord(100, 'seeded question', '2026-09-19T10:00:00.000Z'));
+    await expect(page.getByText('seeded question')).toBeVisible();
+    await page.evaluate((records) => window.__chatSync.productionPublish(records, 101), [
+      userRecord(100, 'seeded question', '2026-09-19T10:00:00.000Z'),
+      assistantRecord(101, 'after replay wait', 1, '2026-09-19T10:00:01.000Z'),
+    ]);
+    await page.evaluate(() => window.__chatSync.resetFetchCount());
+    expect(await page.evaluate(() => window.__chatSync.markReplayWait())).toBe(true);
+    expect(await page.evaluate(() => window.__chatSync.historySyncing())).toBe(true);
+    expect(await page.evaluate(() => window.__chatSync.fetchCount())).toBe(0);
+
+    await page.evaluate(() => window.__chatSync.holdFetch());
+    const pending = page.evaluate(() => window.__chatSync.productionResume('replay_complete'));
+    await page.waitForFunction(() => window.__chatSync?.fetchCount?.() === 1);
+    expect(await page.evaluate(() => window.__chatSync.historySyncing())).toBe(true);
+    await page.evaluate(() => window.__chatSync.releaseFetch());
+    const caughtUp = await pending;
+    expect(['success', 'unchanged', 'partial']).toContain(caughtUp.status);
+    await expect(page.getByText('after replay wait')).toBeVisible();
+    expect(await page.evaluate(() => window.__chatSync.historySyncing())).toBe(false);
+
+    expect(await page.evaluate(() => window.__chatSync.markReplayWait())).toBe(true);
+    expect(await page.evaluate(() => window.__chatSync.finishReplayWait(true))).toBe(false);
+    expect(await page.evaluate(() => window.__chatSync.historySyncing())).toBe(true);
+    expect(await page.evaluate(() => window.__chatSync.finishReplayWait(false))).toBe(true);
+    expect(await page.evaluate(() => window.__chatSync.historySyncing())).toBe(false);
+  });
 });

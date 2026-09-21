@@ -131,6 +131,8 @@
     "test:opencode-question": "node tests/opencode-question.test.js",
     "test:plan-approval-reply": "node tests/plan-approval-reply.test.js",
     "test:opencode-permission": "node tests/opencode-permission.test.js",
+    "test:approval-broker": "node tests/approval-broker.test.js",
+    "test:approval-advisor": "node tests/approval-advisor.test.js",
     "test:opencode-plan-mode": "node tests/opencode-plan-mode.test.js",
     "test:opencode-ws-protocol": "node tests/opencode-ws-protocol.test.js",
     "test:opencode-reconnect": "node tests/opencode-reconnect.test.js",
@@ -177,6 +179,7 @@
     "express": "^4.21.0",
     "jsonc-parser": "^3.3.1",
     "node-pty": "^1.0.0",
+    "playwright-core": "^1.63.0",
     "sharp": "^0.35.4",
     "web-push": "^3.6.7",
     "ws": "^8.21.3"

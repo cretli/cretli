@@ -1,5 +1,6 @@
 import { LitElement, html, svg } from 'lit';
 import '../components/ui/index.js';
+import { readBarInputLiveValue } from '../components/ui/read-bar-input-live-value.js';
 import { initTheme } from '../theme.js';
 import { t, getCurrentLang, initI18n, setLang, AVAILABLE_LANGS } from '../i18n/index.js';
 import './login.scss';
@@ -161,18 +162,26 @@ class CrLoginApp extends LitElement {
     }
   }
 
-  _onPasswordInput(e) {
-    this._password = e.target.value ?? '';
+  _readFieldValue(selector) {
+    return readBarInputLiveValue(this.querySelector(selector));
+  }
+
+  _syncPasswordFromEvent(e) {
+    this._password = readBarInputLiveValue(e.currentTarget);
     this.error = '';
   }
 
+  _onPasswordInput(e) {
+    this._syncPasswordFromEvent(e);
+  }
+
   _onConfirmInput(e) {
-    this._confirm = e.target.value ?? '';
+    this._confirm = readBarInputLiveValue(e.currentTarget);
     this.error = '';
   }
 
   _onSetupTokenInput(e) {
-    this._setupToken = e.target.value ?? '';
+    this._setupToken = readBarInputLiveValue(e.currentTarget);
     this.error = '';
   }
 
@@ -198,18 +207,32 @@ class CrLoginApp extends LitElement {
 
   _canSubmit() {
     if (this.submitting || this.mode === 'loading') return false;
-    if (!this._password || this._password.length < 8) return false;
-    if (this.mode === 'setup' && this._password !== this._confirm) return false;
-    if (this.mode === 'setup' && this._setupTokenRequired && !this._setupToken) return false;
     return true;
   }
 
   async _submit() {
-    if (!this._canSubmit()) return;
+    if (this.submitting || this.mode === 'loading') return;
+    const password = this._readFieldValue('#cr-login-password');
+    const confirm = this._readFieldValue('#cr-login-confirm');
+    const setupToken = this._readFieldValue('#cr-login-setup-token');
+    this._password = password;
+    this._confirm = confirm;
+    this._setupToken = setupToken;
+    if (!password || password.length < 8) {
+      this.error = t('login.passwordTooShort');
+      return;
+    }
+    if (this.mode === 'setup' && password !== confirm) {
+      this.error = t('login.passwordMismatch');
+      return;
+    }
+    if (this.mode === 'setup' && this._setupTokenRequired && !setupToken) {
+      this.error = t('login.setupTokenHint');
+      return;
+    }
     this.submitting = true;
     this.error = '';
     this.info = '';
-    const password = this._password;
     const endpoint = this.mode === 'setup' ? '/api/setup' : '/api/login';
     const widgetParams = this._isWidgetAuth() ? this._parseWidgetAuthParams() : null;
     const requestUrl = widgetParams ? `${endpoint}?widgetAuth=1` : endpoint;
@@ -222,13 +245,13 @@ class CrLoginApp extends LitElement {
           pageSessionId: widgetParams.pageSessionId,
         }
       : { password };
-    if (this.mode === 'setup' && this._setupToken) {
-      requestBody.setupToken = this._setupToken;
+    if (this.mode === 'setup' && setupToken) {
+      requestBody.setupToken = setupToken;
     }
     try {
       const headers = { 'Content-Type': 'application/json', 'Accept-Language': getCurrentLang() };
-      if (this.mode === 'setup' && this._setupToken) {
-        headers['X-Setup-Token'] = this._setupToken;
+      if (this.mode === 'setup' && setupToken) {
+        headers['X-Setup-Token'] = setupToken;
       }
       const r = await fetch(requestUrl, {
         method: 'POST',
@@ -296,11 +319,12 @@ class CrLoginApp extends LitElement {
           <cr-bar-input
             id="cr-login-password"
             type="password"
-            placeholder="••••••••"
+            placeholder=""
             aria-label=${this._passwordLabel()}
             autocomplete=${this.mode === 'setup' ? 'new-password' : 'current-password'}
             .value=${this._password}
             @input=${this._onPasswordInput}
+            @change=${this._onPasswordInput}
             @keydown=${this._onFieldKeyDown}
           ></cr-bar-input>
         </div>
@@ -311,11 +335,12 @@ class CrLoginApp extends LitElement {
                 <cr-bar-input
                   id="cr-login-confirm"
                   type="password"
-                  placeholder="••••••••"
+                  placeholder=""
                   aria-label=${t('login.confirmAria')}
                   autocomplete="new-password"
                   .value=${this._confirm}
                   @input=${this._onConfirmInput}
+                  @change=${this._onConfirmInput}
                   @keydown=${this._onFieldKeyDown}
                 ></cr-bar-input>
               </div>

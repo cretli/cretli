@@ -33,4 +33,8 @@ JSON until they migrate an isolated copy and switch the env flag.
 ## M12
 
 A parallel executor pool stays an optional product decision. It is not
-implemented here.
+implemented here. Default `CRETLI_DELEGATION_REVIEW_FANOUT` is two concurrent
+reviews (`=1` opts out). That is not the executor pool. Mutating jobs from two parents in the same
+workspace are refused (`workspace_busy`). Optional
+`CRETLI_DELEGATION_GLOBAL_LIMIT` caps occupied slots. Parent-loop rounds live
+in `delegation-workflows.json` and are not a sequencer.

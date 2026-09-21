@@ -118,6 +118,9 @@ export async function runSdkHistoryConvergence(chat, context = {}, deps) {
     await (deps.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms))))(resumeDeferMs);
     const abortedAfterDefer = abortIfViewReplaced(chat, token, deps);
     if (abortedAfterDefer) return abortedAfterDefer;
+    if (deps.isDocumentHidden?.() === true) {
+      return { status: HISTORY_SYNC_STATUS.DEFERRED, deferReason: 'document_hidden' };
+    }
   }
   const { draftText, scrollTop } = deps.getDraftAndScroll?.(chat) || { draftText: '', scrollTop: 0 };
   const viewAppliedBefore = getViewAppliedSeq(chat.id, chat);

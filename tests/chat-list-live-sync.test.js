@@ -40,8 +40,32 @@ function createHarness() {
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(refreshCalls.length, 1);
-  assert.deepEqual(refreshCalls[0], { skipAutoSelect: true, includeArchived: true });
+  assert.deepEqual(refreshCalls[0], { skipAutoSelect: true, includeArchived: false });
   sync.cancel();
+}
+
+{
+  const { sync, timers, refreshCalls } = createHarness();
+  const archiveOpen = { value: true };
+  const syncArchived = createChatListLiveSync({
+    refresh: async (query) => {
+      refreshCalls.push(query);
+    },
+    shouldIncludeArchived: () => archiveOpen.value,
+    setTimeoutFn: (fn, ms) => {
+      const id = 99;
+      timers.push({ id, fn, ms });
+      return id;
+    },
+    clearTimeoutFn: () => {},
+    debounceMs: 150,
+  });
+  syncArchived.onChatsChanged();
+  timers[timers.length - 1].fn();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(refreshCalls[refreshCalls.length - 1].includeArchived, true);
+  syncArchived.cancel();
 }
 
 {

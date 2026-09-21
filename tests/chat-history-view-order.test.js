@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import {
   compareViewOrderKeys,
+  findExistingViewOrderIndex,
   findViewInsertIndex,
+  foldDuplicateViewOrderNodes,
   insertRecordByViewOrder,
+  isSameViewOrderKey,
   resolveViewOrderKey,
+  viewOrderIdentity,
 } from '../app_front/features/chat/chatHistoryViewOrder.js';
 
 const STREAM_A = 'stream-a';
@@ -153,6 +157,81 @@ assert.equal(
     resolveViewOrderKey({ roomEventSeq: 102 })
   ),
   0
+);
+
+assert.equal(
+  isSameViewOrderKey(
+    resolveViewOrderKey({ historySeq: 304, eventStreamId: STREAM_B, roomEventSeq: 77 }),
+    resolveViewOrderKey({ historySeq: 304, eventStreamId: STREAM_B, roomEventSeq: 77 })
+  ),
+  true,
+  'Identical historySeq is the same card'
+);
+assert.equal(
+  isSameViewOrderKey(
+    resolveViewOrderKey({ historySeq: 304, eventStreamId: STREAM_B, roomEventSeq: 77 }),
+    resolveViewOrderKey({ eventStreamId: STREAM_B, roomEventSeq: 77 })
+  ),
+  true,
+  'Live room stamp without historySeq matches the persisted card'
+);
+assert.equal(
+  isSameViewOrderKey(
+    resolveViewOrderKey({ historySeq: 304, eventStreamId: STREAM_B, roomEventSeq: 77 }),
+    resolveViewOrderKey({ historySeq: 305, eventStreamId: STREAM_B, roomEventSeq: 259 })
+  ),
+  false
+);
+assert.equal(
+  isSameViewOrderKey(
+    resolveViewOrderKey({ eventStreamId: STREAM_A, roomEventSeq: 77 }),
+    resolveViewOrderKey({ eventStreamId: STREAM_B, roomEventSeq: 77 })
+  ),
+  false,
+  'Room seq is per stream'
+);
+assert.equal(
+  findExistingViewOrderIndex(
+    [
+      resolveViewOrderKey({ historySeq: 295, eventStreamId: STREAM_B, roomEventSeq: 25 }),
+      resolveViewOrderKey({ historySeq: 304, eventStreamId: STREAM_B, roomEventSeq: 77 }),
+      resolveViewOrderKey({ historySeq: 305, eventStreamId: STREAM_B, roomEventSeq: 259 }),
+    ],
+    resolveViewOrderKey({ historySeq: 304, eventStreamId: STREAM_B, roomEventSeq: 77 })
+  ),
+  1
+);
+
+const liveAnswerThenCatchUp = [
+  { eventStreamId: STREAM_B, roomEventSeq: 77, text: 'plan once' },
+  { historySeq: 305, eventStreamId: STREAM_B, roomEventSeq: 259, text: 'usage' },
+];
+insertRecordByViewOrder(liveAnswerThenCatchUp, {
+  historySeq: 304,
+  eventStreamId: STREAM_B,
+  roomEventSeq: 77,
+  text: 'plan once again',
+});
+assert.deepEqual(
+  liveAnswerThenCatchUp.map((row) => row.text),
+  ['plan once', 'usage'],
+  'Catch-up of an already-rendered answer must not insert a second card before later usage'
+);
+
+assert.equal(
+  viewOrderIdentity({ historySeq: 304, eventStreamId: STREAM_B, roomEventSeq: 77 }),
+  'h:304'
+);
+const stackedAnswers = [
+  { historySeq: 304, eventStreamId: STREAM_B, roomEventSeq: 77, text: 'plan a' },
+  { historySeq: 304, eventStreamId: STREAM_B, roomEventSeq: 77, text: 'plan b' },
+  { historySeq: 305, eventStreamId: STREAM_B, roomEventSeq: 259, text: 'usage' },
+];
+foldDuplicateViewOrderNodes(stackedAnswers);
+assert.deepEqual(
+  stackedAnswers.map((row) => row.text),
+  ['plan a', 'usage'],
+  'Already stacked duplicate Answer cards collapse to the first copy'
 );
 
 console.log('All chat-history-view-order tests passed.');

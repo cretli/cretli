@@ -62,6 +62,8 @@ import {
   shouldCloseSocketForResumeProbeTimeout,
   shouldCloseSocketForStalePong,
   shouldMarkResumeSocketHealthy,
+  listChatsNeedingPing,
+  CHAT_PING_LOOP_INTERVAL_MS,
 } from './chatPingPolicy.js';
 import {
   canOpenChatWebSocketNow,
@@ -69,6 +71,7 @@ import {
   resolveBackgroundReconnectBatchSize,
 } from './chatWsReconnectPolicy.js';
 import { applyLiveServerHistoryCards } from './chatHistoryViewApply.js';
+import { setChatHistorySyncInFlight, markHistorySyncInFlightForWsReplay, clearHistorySyncInFlightAfterWsReplay } from './chatHistoryConvergence.js';
 import {
   buildHarnessLaunchLabel,
   isHarnessHelloTransport,
@@ -159,6 +162,8 @@ export function createChatTransport(deps) {
     onChatGone = null,
     onConnectionLost = null,
     onChatsChanged = null,
+    onAgentPresence = null,
+    onBackgroundSyncComplete = null,
   } = deps;
 
   const onSdkModeChange = deps.onSdkModeChange;
@@ -332,6 +337,8 @@ export function createChatTransport(deps) {
   }
 
   let chatPingIntervalId = null;
+  /** @type {Set<object>} */
+  const openPingChats = new Set();
   let chatBackgroundMonitorIntervalId = null;
   let visibilityBound = false;
   const CHAT_PING_BACKGROUND_INTERVAL_MS = 60000;
@@ -826,6 +833,10 @@ export function createChatTransport(deps) {
           if (typeof onChatsChanged === 'function') onChatsChanged(msg);
           return;
         }
+        if (msg.type === 'agentPresence') {
+          if (typeof onAgentPresence === 'function') onAgentPresence(msg);
+          return;
+        }
         if (msg.type === 'sdkHistoryChanged') {
           // Keep metadata through initial history hydration, even when live
           // model frames are allowed through. The view may still be replaced.
@@ -878,6 +889,7 @@ export function createChatTransport(deps) {
             requestHttpCatchUpAfterReplay(chat, 'replay_complete');
             return;
           }
+          clearHistorySyncInFlightAfterWsReplay(chat, false, renderChatTerminalState);
           if (chat._sdkHistoryHydrating === true && !isSdkOpenTerminalHydrating(chat)) {
             completeSdkHistoryHydration(chat, []);
           }
@@ -889,6 +901,8 @@ export function createChatTransport(deps) {
           }
           chat._sdkServerBusy = msg.busy === true;
           chat._sdkServerQueuedCount = Math.max(0, Number(msg.queuedCount) || 0);
+          if (chat._sdkServerBusy) chat._sdkRichView?.onHarnessBusy?.();
+          else chat._sdkRichView?.onHarnessIdle?.();
           const pendingQuestionCount = Math.max(0, Number(msg.pendingQuestionCount) || 0);
           const pendingPermissionCount = Math.max(0, Number(msg.pendingPermissionCount) || 0);
           chat._sdkServerPendingQuestionCount = pendingQuestionCount;
@@ -933,6 +947,8 @@ export function createChatTransport(deps) {
           chat._sdkOptimisticSentNow = [];
           chat._sdkOptimisticSentQueued = [];
           sdkStreamReset(chat);
+          if (chat._sdkServerBusy) chat._sdkRichView?.onHarnessBusy?.();
+          else chat._sdkRichView?.onHarnessIdle?.();
           const helloState = resolveAgentStateFromMessage(chat._agentState || 'idle', msg);
           if (helloState) setAgentState(chat, helloState);
           const helloModel = typeof msg.modelId === 'string' ? msg.modelId.trim() : '';
@@ -1159,7 +1175,10 @@ export function createChatTransport(deps) {
             hasFailureDetail: !!failureDetail,
           });
           if (chat._sdkRichView) {
-            chat._sdkRichView.appendRunFinished(runStatus, readSdkViewOrderMeta(msg));
+            chat._sdkRichView.appendRunFinished(runStatus, {
+              ...readSdkViewOrderMeta(msg),
+              lastErrorCode: typeof msg.lastErrorCode === 'string' ? msg.lastErrorCode.trim() : '',
+            });
             const errorCode = typeof msg.lastErrorCode === 'string' ? msg.lastErrorCode.trim() : '';
             if (errorCode === 'cursor_rate_limit') {
               chat._sdkRichView.appendError(
@@ -1201,9 +1220,11 @@ export function createChatTransport(deps) {
           const busyState = resolveAgentStateFromMessage(chat._agentState || 'idle', msg);
           if (busyState) setAgentState(chat, busyState);
           if (msg.busy === false) {
+            chat._sdkRichView?.onHarnessIdle?.();
             renderChatTerminalState(chat);
             return;
           }
+          chat._sdkRichView?.onHarnessBusy?.();
           if (chat._sdkRichView) {
             chat._sdkRichView.appendBusy(typeof msg.message === 'string' ? msg.message : '');
           } else {
@@ -1466,6 +1487,7 @@ export function createChatTransport(deps) {
     };
     socket.onclose = (event) => {
       delete chat._wsConnectingSince;
+      openPingChats.delete(chat);
       appLogger.log('chat-ws', 'socket closed', {
         chatId: chat.id,
         code: event?.code,
@@ -1521,6 +1543,7 @@ export function createChatTransport(deps) {
       }
       startGlobalChatPingLoop();
       markChatConnectionHealthy(chat);
+      openPingChats.add(chat);
     };
     chat._wsConnectingSince = Date.now();
     bumpChatSocketGeneration(chat);
@@ -1557,13 +1580,15 @@ export function createChatTransport(deps) {
 
   function disconnectBackgroundChat(chat) {
     pendingConnectQueue.delete(chat.id);
+    openPingChats.delete(chat);
     if (chat._reconnectTimer) {
       clearTimeout(chat._reconnectTimer);
       chat._reconnectTimer = null;
     }
     if (!chat.ws) {
-      chat._connectionStatus = 'disconnected';
-      renderChatTerminalState(chat);
+      if (chat._connectionStatus !== 'disconnected') {
+        chat._connectionStatus = 'disconnected';
+      }
       return;
     }
     try {
@@ -1604,6 +1629,7 @@ export function createChatTransport(deps) {
       if (monitoredChatIds.has(chat.id)) pollCount += 1;
       disconnectBackgroundChat(chat);
     }
+    if (typeof onBackgroundSyncComplete === 'function') onBackgroundSyncComplete();
     appLogger?.log?.('chat-background', 'sync policy applied', {
       wsCount,
       pollCount,
@@ -1651,6 +1677,7 @@ export function createChatTransport(deps) {
     stopChatBackgroundMonitor();
     for (const chat of getChats()) {
       clearSdkWsReplayWaitState(chat);
+      setChatHistorySyncInFlight(chat, false, renderChatTerminalState);
     }
     disconnectNonActiveChatsForMobileBackground();
   }
@@ -1666,11 +1693,12 @@ export function createChatTransport(deps) {
     if (isPageCurrentlyHidden()) return;
     chatPingIntervalId = setInterval(() => {
       if (isPageCurrentlyHidden()) return;
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (openPingChats.size === 0) return;
       const hidden = typeof document !== 'undefined' && document.hidden;
       const minPingInterval = hidden ? CHAT_PING_BACKGROUND_INTERVAL_MS : CHAT_PING_INTERVAL_MS;
       const now = Date.now();
-      for (const chat of getChats()) {
-        if (!chat.ws || chat.ws.readyState !== WebSocket.OPEN) continue;
+      for (const chat of listChatsNeedingPing(openPingChats, now, minPingInterval)) {
         if (
           shouldCloseSocketForStalePong({
             unackedPingAt: chat._unackedPingAt,
@@ -1685,10 +1713,9 @@ export function createChatTransport(deps) {
           } catch (_) {}
           continue;
         }
-        if (now - (chat._lastPingAt || 0) < minPingInterval) continue;
         sendChatPing(chat);
       }
-    }, 1000);
+    }, CHAT_PING_LOOP_INTERVAL_MS);
   }
 
   function startChatBackgroundMonitor(deferInitialSyncMs = 0) {
@@ -1777,6 +1804,7 @@ export function createChatTransport(deps) {
         if (!Number.isFinite(active._sdkReplayWaitStartedAt)) {
           active._sdkReplayWaitStartedAt = Date.now();
         }
+        markHistorySyncInFlightForWsReplay(active, true, renderChatTerminalState);
         scheduleSdkWsReplayFallback(active);
       }
       const shouldSyncHistory =

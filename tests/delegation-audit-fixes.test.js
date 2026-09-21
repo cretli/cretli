@@ -9,6 +9,7 @@ import {
   finishDelegation,
   flushDelegationOutbox,
   publishDelegationStatus,
+  releaseDelegationRunSlot,
   setDelegationCrashHook,
 } from '../lib/delegation-service.js';
 import {
@@ -85,6 +86,9 @@ assert.equal(long.code, 'plan_too_large');
 assert.equal(loadDelegations().some((x) => x.parentChatId === longParent.id), false);
 const afterLong = await start(longParent);
 assert.equal(afterLong.ok, true);
+finishDelegation(afterLong.delegation, { status: 'completed', report: 'ok' });
+patchMockChatRun(afterLong.delegation.childChatId, { busy: false, waitingForInput: false });
+releaseDelegationRunSlot(getDelegationById(afterLong.delegation.id));
 
 const waitingParent = parent('Waiting');
 const waitingJob = (await start(waitingParent)).delegation;
@@ -202,5 +206,166 @@ setDelegationCrashHook(null);
 await flushDelegationOutbox(crashedRow);
 const crashReplies = loadMailboxMessages().filter((row) => row.delegationId === crashJob.id);
 assert.equal(crashReplies.some((row) => row.replyKind === 'final_report'), true);
+
+{
+  let resolveCancel = () => {};
+  let enteredCancel = () => {};
+  const cancelGate = new Promise((resolve) => { resolveCancel = resolve; });
+  const enteredGate = new Promise((resolve) => { enteredCancel = resolve; });
+  let state = { runId: 'r1', busy: true, waitingForInput: false };
+  registerChatRunAdapter({
+    transport: 'opencode',
+    getState: () => state,
+    cancel: async () => {
+      enteredCancel();
+      await cancelGate;
+    },
+    start: async () => ({ accepted: true, runId: state.runId }),
+  });
+  const child = parent('stale-cancel-child');
+  const job = createDelegationRecord({
+    parentChatId: parent('stale-cancel-parent').id,
+    childChatId: child.id,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    assignment: 'implement',
+    status: 'running',
+    attemptId: 'a1',
+    runId: 'r1',
+  });
+  const pending = service.cancel(job.id);
+  await enteredGate;
+  updateDelegationRecord(job.id, { attemptId: 'a2', runId: 'r2', status: 'running' });
+  state = { runId: 'r2', busy: false, waitingForInput: false };
+  resolveCancel();
+  const result = await pending;
+  const latest = getDelegationById(job.id);
+  assert.equal(latest.attemptId, 'a2');
+  assert.equal(latest.runId, 'r2');
+  assert.equal(latest.status, 'running');
+  assert.equal(result.stale, true);
+  assert.equal(result.skipped, true);
+  registerMockChatRunAdapter('opencode');
+}
+
+{
+  let resolveCancel = () => {};
+  let enteredCancel = () => {};
+  const cancelGate = new Promise((resolve) => { resolveCancel = resolve; });
+  const enteredGate = new Promise((resolve) => { enteredCancel = resolve; });
+  let state = { runId: 'r1', busy: true, waitingForInput: false };
+  registerChatRunAdapter({
+    transport: 'opencode',
+    getState: () => state,
+    cancel: async () => {
+      enteredCancel();
+      await cancelGate;
+    },
+    start: async () => ({ accepted: true, runId: state.runId }),
+  });
+  const child = parent('stale-cancel-busy-child');
+  const job = createDelegationRecord({
+    parentChatId: parent('stale-cancel-busy-parent').id,
+    childChatId: child.id,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    assignment: 'implement',
+    status: 'running',
+    attemptId: 'a1',
+    runId: 'r1',
+  });
+  const pending = service.cancel(job.id);
+  await enteredGate;
+  updateDelegationRecord(job.id, { attemptId: 'a2', runId: 'r2', status: 'running' });
+  state = { runId: 'r2', busy: true, waitingForInput: false };
+  resolveCancel();
+  await pending;
+  assert.equal(getDelegationById(job.id).status, 'running');
+  registerMockChatRunAdapter('opencode');
+}
+
+{
+  let resolveCancel = () => {};
+  let enteredCancel = () => {};
+  const cancelGate = new Promise((resolve) => { resolveCancel = resolve; });
+  const enteredGate = new Promise((resolve) => { enteredCancel = resolve; });
+  let state = { runId: 'r1', busy: true, waitingForInput: false };
+  registerChatRunAdapter({
+    transport: 'opencode',
+    getState: () => state,
+    cancel: async () => {
+      enteredCancel();
+      await cancelGate;
+      throw new Error('cancel failed');
+    },
+    start: async () => ({ accepted: true, runId: state.runId }),
+  });
+  const child = parent('stale-cancel-reject-child');
+  const job = createDelegationRecord({
+    parentChatId: parent('stale-cancel-reject-parent').id,
+    childChatId: child.id,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    assignment: 'implement',
+    status: 'running',
+    attemptId: 'a1',
+    runId: 'r1',
+  });
+  const pending = service.cancel(job.id);
+  await enteredGate;
+  updateDelegationRecord(job.id, { attemptId: 'a2', runId: 'r2', status: 'running' });
+  state = { runId: 'r2', busy: false, waitingForInput: false };
+  resolveCancel();
+  const result = await pending;
+  assert.equal(result.ok, true);
+  assert.equal(getDelegationById(job.id).status, 'running');
+  registerMockChatRunAdapter('opencode');
+}
+
+{
+  let resolveCancel = () => {};
+  let enteredCancel = () => {};
+  const cancelGate = new Promise((resolve) => { resolveCancel = resolve; });
+  const enteredGate = new Promise((resolve) => { enteredCancel = resolve; });
+  let state = { runId: 'r1', busy: false, waitingForInput: false };
+  registerChatRunAdapter({
+    transport: 'opencode',
+    getState: () => state,
+    cancel: async () => {
+      enteredCancel();
+      await cancelGate;
+    },
+    start: async () => ({ accepted: true, runId: state.runId }),
+  });
+  const child = parent('stale-cancel-terminal-child');
+  const job = createDelegationRecord({
+    parentChatId: parent('stale-cancel-terminal-parent').id,
+    childChatId: child.id,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    assignment: 'implement',
+    status: 'completed',
+    attemptId: 'a1',
+    runId: 'r1',
+  });
+  updateDelegationRecord(job.id, { runStoppingAt: new Date().toISOString(), status: 'completed' });
+  const pending = service.cancel(job.id);
+  await enteredGate;
+  updateDelegationRecord(job.id, {
+    attemptId: 'a2',
+    runId: 'r2',
+    status: 'running',
+    runStoppingAt: new Date().toISOString(),
+  });
+  state = { runId: 'r2', busy: false, waitingForInput: false };
+  resolveCancel();
+  const result = await pending;
+  const latest = getDelegationById(job.id);
+  assert.equal(latest.attemptId, 'a2');
+  assert.equal(latest.status, 'running');
+  assert.ok(String(latest.runStoppingAt || '').trim());
+  assert.equal(result.stale, true);
+  registerMockChatRunAdapter('opencode');
+}
 
 console.log('delegation-audit-fixes.test.js OK');

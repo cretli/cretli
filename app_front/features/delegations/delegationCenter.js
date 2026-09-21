@@ -84,13 +84,15 @@ function renderHealth(runtime) {
   const processOn = runtime?.processAlive === true;
   const workerOn = runtime?.workerRunning === true || runtime?.worker?.running === true;
   const stale = runtime?.worker?.staleTick === true;
+  const hung = runtime?.worker?.hungTick === true;
+  const ready = runtime?.readiness === true || (runtime?.ok === true && !stale && !hung && String(runtime?.lifecycle?.state || '') === 'ready');
   const state = String(runtime?.lifecycle?.state || '');
   const counts = runtime?.counts || {};
   const lines = [
     processOn ? t('settings.delegationsServerUp') : t('settings.delegationsServerDown'),
     workerOn ? t('settings.delegationsWorkerOn') : t('settings.delegationsWorkerOff'),
-    stale ? t('settings.delegationsTickStale') : t('settings.delegationsTickOk'),
-    state === 'ready' ? t('settings.delegationsReady') : '',
+    hung ? t('settings.delegationsTickHung') : (stale ? t('settings.delegationsTickStale') : t('settings.delegationsTickOk')),
+    ready ? t('settings.delegationsReady') : t('settings.delegationsNotReady'),
     state === 'degraded' ? t('settings.delegationsDegraded') : '',
     state === 'initializing' ? t('settings.delegationsInitializing') : '',
     runtime?.code ? String(runtime.code) : '',
@@ -117,6 +119,7 @@ function renderRow(row) {
   const status = String(row.status || '');
   const slotHeld = row.slotOccupied === true || row.runStopping === true;
   const canRetry = !slotHeld && ['completed', 'failed', 'interrupted', 'cancelled'].includes(status);
+  // Stop is per job (slotHeld). Two active reviews each keep their own Stop; no bulk cancel.
   const canCancel = (row.active === true || slotHeld) && status !== 'cancelling';
   const canRetryDelivery = row.retryableDelivery === true
     || row.pendingOutbox === true

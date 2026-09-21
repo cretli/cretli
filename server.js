@@ -65,6 +65,14 @@ import { readEnvAlias } from './lib/env-alias.js';
 import { assertLanSetupGuard, readSetupToken, resolveBindHost } from './lib/bind-host.js';
 import { resolveDataPath, resolveProjectPath } from './lib/runtime-paths.js';
 import { resolveFrontAssetVersion } from './lib/front-asset-version.js';
+import { setModelScoreRows } from './lib/model-catalog-meta.js';
+import { loadModelScoreRows } from './lib/model-score-heuristics-fs.js';
+import { detectBrowserRuntime } from './lib/browser/runtime-detect.js';
+import { BrowserSessionManager } from './lib/browser/session-manager.js';
+import { getWorkspacePolicy } from './lib/browser/policy-store.js';
+import { configureBrowserAgentRuntime } from './lib/browser/agent-tools.js';
+
+setModelScoreRows(loadModelScoreRows());
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOCAL_RUNTIME_HOME = resolveDataPath('runtime-home');
@@ -234,9 +242,58 @@ let lastTerminalSessionId = null;
 function getLocalCallbackBaseUrl() {
   return `${useHttps ? 'https' : 'http'}://127.0.0.1:${PORT}`;
 }
+
+/**
+ * Ports Browser must never reach without an explicit workspace opt-in:
+ * Cretli itself plus every running OpenCode instance.
+ * @returns {number[]}
+ */
+function readInternalBrowserPorts() {
+  const ports = new Set([PORT]);
+  try {
+    const raw = JSON.parse(readFileSync(path.join(dataDir, 'opencode-ports.json'), 'utf8'));
+    for (const key of Object.keys(raw || {})) {
+      const port = Number.parseInt(key, 10);
+      if (Number.isInteger(port) && port > 0 && port <= 65535) ports.add(port);
+    }
+  } catch {
+    // no OpenCode ports file -> Cretli's own port is enough
+  }
+  return [...ports];
+}
+
+const browserRuntime = await detectBrowserRuntime({ env: process.env });
+if (!browserRuntime.available) {
+  console.error(`[cretli] Browser module ${browserRuntime.status}: ${browserRuntime.reason}`);
+} else if (browserRuntime.sandboxWarning) {
+  console.error(`[cretli] Browser module warning: ${browserRuntime.sandboxWarning}`);
+}
+// Browser must never be able to reach Cretli itself, including through a
+// TLS-terminating reverse proxy whose public origin is configured explicitly.
+const cretliPublicOrigin = readCretliPublicOrigin();
+const browserSelfOrigins = [
+  cretliPublicOrigin,
+  `${useHttps ? 'https' : 'http'}://127.0.0.1:${PORT}`,
+  `http://localhost:${PORT}`,
+  `https://localhost:${PORT}`,
+].filter(Boolean);
+const browserManager = new BrowserSessionManager({
+  driver: browserRuntime.driver,
+  driverStatus: browserRuntime,
+  dataDir,
+  resolvePolicy: (workspaceKey) => getWorkspacePolicy(dataDir, workspaceKey),
+  blockedPorts: readInternalBrowserPorts(),
+  selfOrigins: browserSelfOrigins,
+});
+browserManager.startSweep();
+// Make the browser_* agent tools available to SDK runs for this process. Without
+// this the SDK room builder sees no runtime and (fail-closed) exposes no tools.
+configureBrowserAgentRuntime({ manager: browserManager });
+
 registerAppRoutes(app, {
   dataDir,
   uploadsDir,
+  browserManager,
   appendClientDebugLogFile: clientDebugLog.appendClientDebugLogFile,
   serverInstanceToken: SERVER_INSTANCE_TOKEN,
   serverStartedAt: SERVER_STARTED_AT,
@@ -305,7 +362,8 @@ const wsRouterCtx = {
   loadAgentsSchedule,
   dataDir,
   useHttps,
-  publicOrigin: readCretliPublicOrigin(),
+  publicOrigin: cretliPublicOrigin,
+  browserManager,
 };
 attachWebSocketHandlers(wss, wsRouterCtx);
 
@@ -371,6 +429,13 @@ let delegationShutdownStarted = false;
 async function shutdownDelegationAndExit(signal) {
   if (delegationShutdownStarted) return;
   delegationShutdownStarted = true;
+  // Browser sessions are ephemeral: close Chromium before exiting.
+  try {
+    browserManager.stopSweep();
+    await browserManager.closeAll(`shutdown:${signal}`);
+  } catch (err) {
+    console.error(`[cretli] ${signal}: browser shutdown error: ${err?.message || err}`);
+  }
   const result = await shutdownDelegationRuntime({ timeoutMs: 8000 });
   const code = result.ok ? 0 : 1;
   console.error(`[cretli] ${signal}: delegation shutdown ${result.ok ? 'complete' : 'timed out'}`);

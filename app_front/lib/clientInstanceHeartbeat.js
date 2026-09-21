@@ -10,11 +10,11 @@ import {
 } from './clientInstance.js';
 import { readStorageValueWithAlias } from './storageKeyAlias.js';
 import { UI_FREEZE_DIAG_LS_KEY } from './uiFreezeTrace.js';
-import { consumeClientInstanceCommandResults, pullAndExecuteClientInstanceCommands } from './clientInstanceCommands.js';
+import { consumeClientInstanceCommandResults } from './clientInstanceCommands.js';
 import { cretliApiFetch } from './cretliApiRequest.js';
 
 const REMOTE_DEBUG_FLAG_LS_KEY = 'cretli-debug-remote';
-const HEARTBEAT_INTERVAL_MS = 8000;
+const HEARTBEAT_INTERVAL_MS = 30000;
 
 /** @type {ReturnType<typeof setInterval> | null} */
 let heartbeatTimerId = null;
@@ -81,7 +81,6 @@ function buildHeartbeatPayload() {
 export async function sendClientInstanceHeartbeat() {
   if (typeof fetch === 'undefined') return false;
   try {
-    await pullAndExecuteClientInstanceCommands();
     const res = await cretliApiFetch(`${window.location.origin || ''}/api/client-instances/heartbeat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

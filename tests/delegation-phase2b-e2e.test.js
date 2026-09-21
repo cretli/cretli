@@ -119,9 +119,10 @@ function assertNoPromptLeak(payload, secret) {
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-e2e-del-2b-'));
 const wsA = path.join(dataDir, 'ws-a');
 const wsB = path.join(dataDir, 'ws-b');
+const wsC = path.join(dataDir, 'ws-c');
 const chatA = makeChat('E2E parent A', wsA);
 const chatB = makeChat('E2E parent B', wsB);
-const chatC = makeChat('E2E parent C', wsA);
+const chatC = makeChat('E2E parent C', wsC);
 writeSeed(dataDir, [chatA, chatB, chatC]);
 
 const children = [];
@@ -189,6 +190,19 @@ try {
     return data.event === 'waiting_for_input' && data.id === jobId;
   });
   assert.equal(waitingEvents.length >= 2, true, JSON.stringify(waitingEvents.map((row) => row.rec?.payload)));
+
+  // A run that is still waiting_for_input keeps the job open on sdkRunFinished
+  // (see delegation-adapter-incomplete). Resume it before the executor finishes
+  // so the final report is actually delivered to a busy parent.
+  const resumedForFinish = await requestJson({
+    port,
+    method: 'POST',
+    url: `/api/test/delegations/${jobId}/event`,
+    cookie: session.cookie,
+    csrf: session.csrf,
+    body: { kind: 'running' },
+  });
+  assert.equal(resumedForFinish.json.delegation.status, 'running');
 
   const busyParent = await requestJson({
     port,
