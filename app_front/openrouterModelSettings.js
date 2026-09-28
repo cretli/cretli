@@ -10,8 +10,10 @@ import {
 } from '../lib/model-catalog-meta.js';
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from './lib/storageKeyAlias.js';
 import { escapeHtml } from './features/chat/chatHtmlUtils.js';
+import { bindFavoriteModelList, favoriteModelButtonHtml, isFavoriteModel, subscribeToFavoriteModelChanges } from './features/chat/modelFavoriteMarker.js';
 
 const OPENROUTER_MODEL_SETTINGS_SORT_LS_KEY = 'cretli-openrouter-models-sort';
+const OPENROUTER_MODEL_SETTINGS_HARNESS = 'openrouter';
 
 /**
  * @param {string} value
@@ -118,6 +120,8 @@ function filterCatalogForSearch(query) {
 function renderModelRowHtml(entry, groupName) {
   const checked = draftEnabledKeys.has(entry.value);
   const rowLabel = entry.label !== groupName ? entry.label : (entry.modelId || entry.value);
+  const costLabel = entry.costLabel || '—';
+  const favorite = isFavoriteModel(OPENROUTER_MODEL_SETTINGS_HARNESS, entry.value);
   return (
     '<label class="chat-model-settings-row">'
     + '<input type="checkbox" class="openrouter-model-settings-checkbox" data-model-value="'
@@ -127,7 +131,15 @@ function renderModelRowHtml(entry, groupName) {
     + ' />'
     + '<span class="chat-model-settings-row-body">'
     + '<span class="chat-model-settings-label">'
+    + favoriteModelButtonHtml(OPENROUTER_MODEL_SETTINGS_HARNESS, entry.value, favorite)
     + escapeHtml(rowLabel)
+    + '</span>'
+    + '<span class="chat-model-settings-cost" title="'
+    + escapeHtml(t('settings.chatModelsCostTooltip'))
+    + '" aria-label="'
+    + escapeHtml(t('settings.chatModelsCostTooltip'))
+    + '">'
+    + escapeHtml(costLabel)
     + '</span>'
     + '</span>'
     + '</label>'
@@ -315,6 +327,8 @@ export function initOpenRouterModelSettings() {
   const sortSelect = document.getElementById('openrouter-model-settings-sort');
   const statusEl = document.getElementById('openrouter-model-settings-status');
   if (!listEl || !saveBtn) return;
+  bindFavoriteModelList(listEl, () => renderModelSettingsList());
+  subscribeToFavoriteModelChanges(() => renderModelSettingsList());
 
   settingsSortMode = readSettingsSortMode();
   syncSortSelectUi();

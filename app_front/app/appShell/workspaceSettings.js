@@ -731,7 +731,10 @@ export function createWorkspaceSettings(deps = {}) {
             return;
           }
           if (inputEl) inputEl.value = '';
-          return reloadAndRender().then(() => setStatus(statusEl, t('workspace.saved'), false));
+          return reloadAndRender().then(() => {
+            window.dispatchEvent(new CustomEvent('cretli-workspace-updated'));
+            setStatus(statusEl, t('workspace.saved'), false);
+          });
         })
         .catch(() => setStatus(statusEl, t('workspace.saveError'), true));
     }

@@ -24,6 +24,7 @@ built to `public/dist/`.
 |--------|----------------|
 | `auth.js` | Password (scrypt) + signed session cookie; Express + WS auth; agent-callback token |
 | `persist/settings.js` | `data/config.json` (lanHost, workspace registry, additionalCursorContextDirs, cursorApiKey, ...) |
+| `sdk/cursor-share.js` | Runtime mirror of bundled `.cursor/skills` + `.cursor/agents` into `data/cursor-share` |
 | `sdk/shared-cursor-context.js` | Extra `.cursor/` roots for SDK multi-cwd + alwaysApply prompt inject |
 | `workspace.js` | Parse `.code-workspace`, inspect folder/file paths |
 | `persist/workspace-registry.js` | Workspace registry (`file` or folder-only `cretli:ws:`) |
@@ -35,10 +36,12 @@ built to `public/dist/`.
 | `mcp/` | MCP config, secrets, runtime, Plan policy, harness adapters, Settings API |
 | `persist/todos-persist.js` | CRUD for `data/todos/` (per-workspace) |
 | `todo-plan-sync.js` | After Plan-mode runs, write versioned `.cursor/plans/cretli-{chatId}.md` and the linked Todo (Cursor SDK + other harnesses) |
-| `delegation-service.js` | Create/start/cancel/retry/ack jobs from a saved plan or a chat message; one active job per planner chat |
-| `delegation-mailbox.js` | Durable parent↔child mailbox; idle recipients start a turn, busy/waiting chats queue until the run ends |
+| `delegation-service.js` | Create/start/cancel/retry/ack jobs from a saved plan or a chat message; one active implement/fix per planner chat, two concurrent reviews by default (`CRETLI_DELEGATION_REVIEW_FANOUT=1` opts out); versioned attempts and an outbox for history/mailbox delivery |
+| `delegation-runtime-worker.js` | Periodic outbox flush, starting/cancelling/dispatching timeouts, and mailbox drain. Timer errors stay in the worker (degraded + backoff) and do not exit the process. Ticks do not overlap; flush from boot/bridge/runtime is serialized. Does not reuse boot interrupt semantics on a live start |
+| `delegation-mailbox.js` | Durable parent↔child mailbox; progress and final reports are distinct; idle recipients start a turn, busy/waiting chats queue until the run ends. Parent inbound prompts must not call `delegation_reply`; MCP `chat_id` is the calling chat; a second unscoped `final_report` is rejected |
+| `persist/delegations-persist.js` | `data/delegations.json` with corrupt/I/O errors that do not look like an empty store. Atomic rename is last-writer-wins across processes; no inter-process merge |
 | `agent-run-state.js` | Cheap per-chat busy/waiting/attention summary for the chat list |
-| `delegation-executor.js` | Rejects executor models that are not in the enabled catalog |
+| `delegation-executor.js` | Resolves executor models onto Settings-enabled (favorite) variants; rejects ids outside that list |
 | `sdk/cursor-agent-sdk-ws.js` | `/ws-agent-sdk` rooms: `Agent.create`/`resume`, `run.stream()`, server-side history tap, plan guard, grace shutdown |
 | `sdk/sdk-room-bus.js` | Optional Redis pub-sub + room owner registry for multi-instance SDK (`CRETLI_REDIS_URL`) |
 | `sdk/sdk-room-registry.js` | Redis `sessionKey → instanceId` lease for SDK room ownership |
@@ -80,7 +83,20 @@ Each chat stores `agentTransport`: `sdk` (default), `openrouter`, `opencode`, `c
 | `qwen` | `@qwen-code/sdk` via `qwen-agent-ws.js` + bundled Qwen CLI | `QWEN_API_KEY` / Settings (Qwen Cloud); endpoint preset `payg` / `token-plan` / `coding-plan` / `custom`; optional `QWEN_BIN` |
 | `codex` | `@openai/codex-sdk` via `codex-agent-ws.js` + bundled `codex` CLI | ChatGPT plan (device login) **or** `CODEX_API_KEY` / Settings; optional `CODEX_BIN` |
 
-All seven harnesses share the same WebSocket path (`/ws-agent-sdk`), protocol (`sdkEvent`, replay batches), rich view, and history persist format. OpenRouter, OpenCode, CodeBuddy, DeepSeek, Qwen, and Codex events are normalized to SDK-shaped payloads before broadcast. If the chat row is gone (deleted on another device), the server sends `sdkError` with code `chat_not_found` and the client stops reconnecting instead of treating it as a recoverable `invalid_session`.
+A parent agent that needs a **sub-chat on another harness** (for example Cursor SDK asking DeepSeek to review a plan) uses builtin MCP `delegation_start` with a Settings-enabled model from `model_list(harness, enabled_only=true)`. Cursor's built-in `Task` tool only lists Cursor-local models and is not the Cretli catalog. `model_list` rows include heuristic `cost_tier`, `quality_tier`, and `speed_tier` plus profile `roles`. `model_pick({ role, exclude_model?, exclude_harness? })` chooses one favorite on a harness that is **enabled**, **ready**, and **can_delegate**, ranking role axes (implement: cheaper first) after eligibility matchers. Review never picks `*flash*` model ids. After a usage-limit or dead-harness fail, exclude that model/harness and pick the next candidate. Empty Settings favorites for a harness are unset: no pick, and by default no `delegation_start` (`model_list(..., enabled_only=true)` is empty; catalog rows without that flag are not start-eligible). `CRETLI_DELEGATION_EMPTY_FAVORITES=all` restores the previous start-with-any-id behavior. Default `CRETLI_DELEGATION_REVIEW_FANOUT` is two concurrent **review** jobs on one parent (`=1` opts out); implement/fix stay exclusive — this is not the D10/M12 executor pool. Review requires a hard pre-exec or sandbox read-only guarantee; Codex is excluded unless `CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED=1`. DeepSeek review is certified via a generated DSH cordis patch (`sandbox-policy: read-only`, `approval: never`) applied when `assignment=review`. Mutating jobs from two parents in the same workspace return `workspace_busy`. Optional `CRETLI_DELEGATION_GLOBAL_LIMIT` caps occupied slots process-wide. The plan/implement/review/fix loop is the parent skill (`.cursor/skills/cretli-multi-harness`) plus durable `delegation_workflow_*` state, not a server sequencer. Terminal statuses are `completed` / `failed` / `cancelled` / `interrupted`. Builtin MCP `delegation_wait` long-polls those jobs for the calling parent (`timeout_ms` default 20s, max 25s, below the 30s bridge HTTP timeout; `until` all|any; retry on `pending`). Wait until `slot_occupied` is false before the next start. A review run that ends without a `VERDICT` report (one-liner or compacted thinking dump) is `failed` with `adapter_incomplete`, not a successful `completed`, unless the child is still in `waiting_for_input` (OpenCode question/permission or SDK Ask on implement/fix). OpenCode **review** jobs auto-allow non-mutating permissions server-side (mutating stays rejected). Parent MCP `delegation_wait` treats `waiting_for_input` as an occupied slot, not an infra retry. OpenCode first-event timeout defaults to 180s (`OPENCODE_FIRST_EVENT_TIMEOUT_MS`). Idle auto-recovery does not cancel while native tools are in flight.
+
+All seven harnesses share the same WebSocket path (`/ws-agent-sdk`), protocol (`sdkEvent`, replay batches), rich view, and history persist format. OpenRouter, OpenCode, CodeBuddy, DeepSeek, Qwen, and Codex events are normalized to SDK-shaped payloads before broadcast. Archive, restore, delete, and sidebar nesting persist a `chatsChanged` frame to every attached agent socket so the live sidebar reloads without waiting for a page resume. If the chat row is gone (deleted on another device), the server sends `sdkError` with code `chat_not_found` and the client stops reconnecting instead of treating it as a recoverable `invalid_session`.
+
+Skills use `.agents/skills/<name>/SKILL.md` as the cross-harness convention.
+Project, Cretli-bundled, user (`~/.agents/skills`), and configured shared roots are
+discovered at run time and listed in prompts for every harness. Existing
+`.cursor/skills` and `~/.cursor/skills-cursor` locations remain supported, so a
+skill can be added once without copying it into each workspace or harness home.
+When the Cursor SDK starts, Cretli also refreshes a skills-only mirror at
+`data/cursor-share`; `.cursor/agents` are mirrored too, while `.cursor/rules` are
+never mirrored. Shared-root `alwaysApply` rules continue to apply to Cursor SDK
+chats. Context queries may pass `workspaceFolder` or `cwd`; the widget workspace
+takes precedence, with the current cwd as fallback.
 
 ### The `sdk-*` prefix is protocol, not Cursor SDK
 
@@ -92,7 +108,9 @@ all harnesses**: `sdk-mode.js`, `sdk-ui-mode.js`, `sdk-ws-handshake.js`,
 as "agent chat protocol". Only `cursor-agent-sdk-ws.js` actually talks to `@cursor/sdk`.
 
 The same applies on the frontend: `sdkEvent`, `sdkRunFinished`, `sdkRoomState` and the
-rich view are the common wire format, not a Cursor-only path.
+rich view are the common wire format, not a Cursor-only path. `chatsChanged` is also
+common: the SPA reloads the chat list (`skipAutoSelect`) so MCP `chat_archive` updates
+the sidebar immediately.
 
 ### Shared room kernel (harness chats)
 
@@ -110,7 +128,7 @@ the E2E suite — check `tests/e2e/chat-live-harnesses.spec.js` when you change 
 
 SDK-specific diagnostics include strict model audit for fast variants (`::fast=true`): requested model, effective model, and explicit fallback metadata in `/api/chats/:id/diag`.
 
-OpenCode chats persist optional `opencodeSessionId` in `data/chats.json` for session reuse after reconnect. CodeBuddy chats persist `codebuddySessionId` and pass it as `query()` `options.resume`. DeepSeek chats persist `deepseekSessionId` and pass it to `DeepSeekHarness.run({ sessionId })`. Isolated DSH home is `data/dsh-home/`. Setup: **`docs/deepseek/SETUP.md`**. Qwen chats persist `qwenSessionId` and pass it as `query()` `options.resume`. Isolated Qwen home is `data/qwen-home/`. Setup: **`docs/qwen/SETUP.md`**. Qwen `ask_user_question` is surfaced through the same chat question UI as OpenCode (`opencode_question` / `opencodeQuestionReply`) via `lib/qwen/qwen-question.js`. Codex chats persist `codexThreadId` and pass it to `codex.resumeThread()`. Isolated Codex home is `data/codex-home/`. Setup: **`docs/codex/SETUP.md`**.
+OpenCode chats persist optional `opencodeSessionId` in `data/chats.json` for session reuse after reconnect. CodeBuddy chats persist `codebuddySessionId` and pass it as `query()` `options.resume`. DeepSeek chats persist `deepseekSessionId` and pass it to `DeepSeekHarness.run({ sessionId })` only while the same `dsh` process is alive; a rebuilt runtime drops that id so DSH does not collide with the persisted session log and silently complete empty turns. Child DSH workflow sessions stay off that field and off the parent run outcome — their text lands in a `subagent` tool block. Isolated DSH home is `data/dsh-home/`. Setup: **`docs/deepseek/SETUP.md`**. Qwen chats persist `qwenSessionId` and pass it as `query()` `options.resume`. Isolated Qwen home is `data/qwen-home/`. Setup: **`docs/qwen/SETUP.md`**. Qwen `ask_user_question` is surfaced through the same chat question UI as OpenCode (`opencode_question` / `opencodeQuestionReply`) via `lib/qwen/qwen-question.js`. Codex chats persist `codexThreadId` and pass it to `codex.resumeThread()`. Isolated Codex home is `data/codex-home/`. Setup: **`docs/codex/SETUP.md`**.
 
 **OpenCode-specific features** (parity with SDK where applicable):
 
@@ -119,9 +137,15 @@ OpenCode chats persist optional `opencodeSessionId` in `data/chats.json` for ses
 - **Plan / Ask guard** — mutating `tool_call` events are blocked in Plan and Ask
   for harnesses that deny tools (`canUseTool` / permission / catalog) or abort the run.
   Ask is a separate conversation mode (questions and analysis, no plan persistence
-  or “yes” → Agent). Codex Plan is prompt-only (no turn abort); Codex Ask still
-  denies mutations on the host. Read-only sandbox is not used because
-  Linux bwrap fails on non-git workspace roots. Emits `sdkPlanGuard` when a mutating
+  or “yes” → Agent). Review assignments keep native Cursor edit/delete/shell blocked
+  (no pre-exec hook for shell). Harnesses that can deny before exec may run
+  `node scripts/review-verify.js` with a frozen catalog of audited tests inside an
+  isolated data dir; arbitrary `tests/**/*.test.js`, reporters, and mutations stay
+  denied. A pre-exec deny does not abort the review job. Codex has no pre-exec
+  hook: the trusted runner is allowed, other mutations abort the turn. Codex Plan
+  is prompt-only (no turn abort); Codex Ask still denies mutations on the host.
+  Read-only sandbox is not used because Linux bwrap fails on non-git workspace
+  roots. Emits `sdkPlanGuard` when a mutating
   tool is denied (`lib/sdk/sdk-plan-guard.js`).
 - **Room state** — `sdkRoomState` heartbeat (~15 s) with queue depth, pending questions/permissions, `lastEventAt` (`lib/sdk/sdk-room-state.js`, `getOpenCodeRoomDiag`).
 - **Run lifecycle parity** — OpenCode emits `runId` on `sdkPromptStarted` / `sdkRunFinished`; room outcome (`lastRunId`, `lastRunStatus`, errors) is tracked like SDK for reconnect consistency.
@@ -189,12 +213,26 @@ Front hot fallback   → /ws-front-build → watch events (CRETLI_FRONT_HOT_FALL
   runs (debounced flush every ~2 s while busy) and after each run, so offline/reconnected
   clients can replay events generated during disconnect.
 - Cross-device sync is **pull-based**: clients poll `GET /api/chats/history-revisions` every
-  ~15 s (visible tab) and run HTTP history delta pull when `headSeq` advances. Optional
+  ~15 s (visible tab) and run HTTP history delta pull when `headSeq` advances. Background
+  chats that already have a covering WebSocket skip HTTP unless `hasPendingDelegation`.
+  Store ACK is not the view (`viewAppliedSeq`). Background pulls use
+  `POST /api/chats/history-batch` with an explicit id list (never omit-ids = all chats)
+  and the same batch/concurrency budget as WS reconnects (floor 1 on mobile). Optional
   web push nudges (`CRETLI_PUSH_HISTORY=1`) reuse existing VAPID subscriptions.
   The same subscriptions also receive a push when Cursor SDK finishes a run,
   and when OpenCode or Qwen is waiting on a question or permission.
-  The same poll loads `GET /api/chats/agent-states` so executor chats without a client
-  still show working / needs-action. `hasPendingDelegation` on a revision forces the
+  The same poll loads `GET /api/chats/agent-states` (no `ids` query — a full UUID
+  list plus cookies can exceed Node's 16 KiB header limit and return 431). The
+  response is a compact map of busy / waiting / attention only; a missing chat id
+  is idle. When at least one `/ws-agent-sdk` socket is OPEN, the same map is
+  pushed as coalesced `agentPresence` frames on the chat-list subscriber set
+  (`lib/agent-presence-bus.js`, scoped per session vs widget chat id). The
+  client skips the HTTP `agent-states` GET while that feed is fresh (~10 s) and
+  `sdkRoomBus` is not `redis`. Codex / Qwen / DeepSeek / CodeBuddy / PTY still
+  rely on delegations + HTTP; live tool names are SDK/OpenCode/OpenRouter only.
+  `GET /api/chats/history-revisions` still sends `ids` when the list is
+  short; if `ids` is omitted (overflow), the server returns the widget/main
+  allowlist, not the unscoped in-memory index. `hasPendingDelegation` on a revision forces the
   open parent chat to pull a new delegation card even when the WebSocket is up.
 - Multi-instance deployments: set `CRETLI_REDIS_URL` (+ optional `redis` package).
   See **`docs/MULTI-INSTANCE.md`** for sticky routing, registry lease, and failover.
@@ -253,9 +291,9 @@ Model windows come from a static prefix table in `lib/sdk/sdk-context-advisory.j
 | GET | `/api/codebuddy/status` | CodeBuddy package + CLI + API key readiness |
 | GET | `/api/codebuddy/models` | CodeBuddy model catalog (live account probe, then international-site catalog) |
 | GET | `/api/deepseek/status` | DeepSeek Harness package + CLI + API key readiness |
-| GET | `/api/deepseek/models` | DeepSeek Harness model catalog (V4 Flash / V4 Pro / V4 Flash Vision Exp) |
+| GET | `/api/deepseek/models` | DeepSeek Harness model catalog (live `GET /models` when a key is set; fallback `deepseek-flash` / `deepseek-v4-pro`) |
 | GET | `/api/qwen/status` | Qwen Code SDK + Qwen Cloud API key readiness (CLI optional) |
-| GET | `/api/qwen/models` | Qwen Cloud model catalog (3.8 Max / Plus / Coder) |
+| GET | `/api/qwen/models` | Qwen Cloud model catalog (live `{baseUrl}/models` when a key is set; otherwise plan fallback) |
 | GET | `/api/codex/status` | Codex SDK package + CLI + ChatGPT session or API key readiness |
 | POST | `/api/codex/login/start` | Start ChatGPT device-code login (`codex login --device-auth`) |
 | GET | `/api/codex/login/status` | Device-login phase, URL, and one-time code (no tokens) |
@@ -265,18 +303,24 @@ Model windows come from a static prefix table in `lib/sdk/sdk-context-advisory.j
 | POST | `/api/chats/:id/delegations` | Start a plan- or message-sourced job (executor + idempotency key; plan revision or history seq) |
 | GET | `/api/chats/:id/delegations` | List jobs for the chat as planner or executor |
 | GET | `/api/chats/:id/plan` | Latest persisted plan document (revision, hash, markdown) |
+| GET | `/api/delegations/runtime` | Delegation worker/lifecycle health (auth; no prompt text; workspace/widget scoped counts) |
+| GET | `/api/delegations` | Workspace job summaries (`attention`, `cursor`, `limit`) |
 | GET | `/api/delegations/executors` | Harnesses that can start/cancel without an open browser (all enabled agent transports) |
-| GET | `/api/delegations/:id` | Job status and report |
+| GET | `/api/delegations/:id` | Job status and report (`field=summary\|report\|plan\|attempts\|outbox` for paging) |
+| POST | `/api/delegations/:id/retry-delivery` | Retry one failed/uncertain mailbox message. `mailboxId` (or `messageId`) is always required, including when 0 or 1 messages exist. Optional `attemptId`. Does not start a new attempt |
 | POST | `/api/delegations/:id/cancel` | Request stop; stays `cancelling` (HTTP 202) until the executor run ends |
 | POST | `/api/delegations/:id/retry` | Start a new attempt on the same executor chat |
 | POST | `/api/delegations/:id/ack` | Clear waiting attention (open child) or mark a finished job reviewed |
 | GET | `/api/chats/:id/mailbox` | Inter-chat mailbox (queued and delivered) |
 | POST | `/api/chats/:id/mailbox/reply` | Send a child message to the communication parent (`delegationParentChatId`), not the sidebar group |
-| GET | `/api/chats/agent-states` | Lightweight busy/waiting/attention map for listed chats |
+| GET | `/api/chats/:id/delegation-workflow` | Durable parent-loop state for the chat (role, round, verdict, stop reason, deadline, `materialRevision`) |
+| POST | `/api/chats/:id/delegation-workflow` | Update parent-loop state (`idempotencyKey` replay of any applied key / conflict; `materialRevision`). Child chats are refused (`workflow_parent_required`) |
+| GET | `/api/chats/agent-states` | Compact busy/waiting/attention map (`?ids=` optional; omit for all allowed chats; idle omitted) |
 | GET | `/api/chats` / POST `/api/chats` | Chat list / create |
 | PATCH | `/api/chats/:id` | Update chat fields (`archived`, `title`, `model`, ...; CSRF header required) |
 | DELETE | `/api/chats/:id` | Delete chat + history (runs disposable-room cleanup first) |
-| GET | `/api/chats/history-revisions` | Lightweight `headSeq` revision index for cross-device pull sync |
+| GET | `/api/chats/history-revisions` | Lightweight `headSeq` revision index (`?ids=` optional; omit = all allowed chats, widget scoped; never the unscoped index) |
+| POST | `/api/chats/history-batch` | Explicit multi-chat history delta (`{ chats: [{ id, since, limit? }] }`). Empty `chats` is 400 — never “every chat”. Widget scoped. |
 | GET | `/api/chats/:id/history` | Pull SDK history log (`?since=&limit=`) |
 | POST | `/api/chats/:id/dispose-sdk-room` | Reset in-memory SDK room (stuck chat recovery) |
 | GET | `/api/chats/:id/sdk-messages` | SDK message history (`Agent.messages.list`) |
@@ -319,7 +363,8 @@ prefix or unique title substring).
   workspace, not the UI global folder. `chat_list` / `chat_show` / `chat_history` / `chat_event`
   default to that workspace; pass `scope=all` to reach another workspace by id.
   `chat_history` pages events by seq (optional tool payloads). `chat_event` reads a UTF-16
-  slice of one event field. Standalone stdio requires
+  slice of one event field. A UI copy-ref line `cretli-ref chat=<uuid> seq=<n>` is that
+  event with `field="text"` (full UUID, exact seq, no neighbor). Standalone stdio requires
   `CRETLI_MCP_WORKSPACE` and honors `CRETLI_MCP_MODE` (`plan` and `ask` block writes;
   `agent` allows them). Catalog and domain reads go through the target Cretli
   HTTP API, not the stdio process `data/` directory. Long plan/TODO/delegation
@@ -429,9 +474,10 @@ per million tokens) and needs its own key (`GEMINI_API_KEY` / `geminiApiKey`).
 
 `/api/voice/realtime-token` mints a `client_secret` with the session pinned server-side
 (`lib/voice/realtime-session-config.js`): model (allow-listed mini or flagship),
-instructions, tool schemas, semantic VAD, noise reduction, voice, and `max_output_tokens`
-so the model cannot ramble. The client cannot widen its own permissions — it only picks a
-model and a voice from an allow-list.
+instructions, tool schemas, server VAD, noise reduction, voice, and `max_output_tokens`
+so the model cannot ramble. That cap is shared by text and audio tokens; it must be high
+enough to finish a spoken sentence. The client cannot widen its own permissions — it only
+picks a model and a voice from an allow-list.
 
 `realtimeSession.js` then talks to OpenAI directly: `getUserMedia` → `RTCPeerConnection` →
 SDP offer to `/v1/realtime/calls` with the ephemeral token, events on the `oai-events` data

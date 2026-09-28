@@ -27,21 +27,19 @@ assert.equal(emptyBindRoom._todoSyncDataDir, undefined);
 assert.match(HARNESS_PLAN_MODE_HINT, /Cretli persists your plan/);
 assert.match(HARNESS_PLAN_MODE_HINT, /question-UI approval/);
 assert.equal(
-  applyHarnessOutboundPrompt('hello', { mode: 'plan', transport: 'opencode' }).startsWith(HARNESS_PLAN_MODE_HINT),
+  applyHarnessOutboundPrompt('hello', { mode: 'plan', transport: 'opencode' }).includes(HARNESS_PLAN_MODE_HINT),
   true
 );
-assert.equal(
-  applyHarnessOutboundPrompt('hello', {
-    mode: 'plan',
-    transport: 'opencode',
-    skipPlanHint: true,
-  }),
-  'hello'
-);
-assert.equal(
-  applyHarnessOutboundPrompt('hello', { mode: 'plan', transport: 'qwen' }),
-  'hello'
-);
+const withoutPlanHint = applyHarnessOutboundPrompt('hello', {
+  mode: 'plan',
+  transport: 'opencode',
+  skipPlanHint: true,
+});
+assert.equal(withoutPlanHint.includes(HARNESS_PLAN_MODE_HINT), false);
+assert.equal(withoutPlanHint.endsWith('hello'), true);
+const qwenPlanPrompt = applyHarnessOutboundPrompt('hello', { mode: 'plan', transport: 'qwen' });
+assert.equal(qwenPlanPrompt.includes(HARNESS_PLAN_MODE_HINT), false);
+assert.equal(qwenPlanPrompt.endsWith('hello'), true);
 
 const captureRoom = {};
 resetHarnessPlanCapture(captureRoom);
@@ -54,6 +52,18 @@ captureHarnessPlanFromSdkEvent(captureRoom, {
   message: { role: 'assistant', content: [{ type: 'text', text: '# Step 1\n# Step 2' }] },
 });
 assert.equal(captureRoom._currentRunAssistantText, '# Step 1\n# Step 2');
+
+const streamedRoom = {};
+resetHarnessPlanCapture(streamedRoom);
+captureHarnessPlanFromSdkEvent(streamedRoom, {
+  type: 'assistant',
+  message: { role: 'assistant', content: [{ type: 'text', text: 'Zaczynam od ' }] },
+});
+captureHarnessPlanFromSdkEvent(streamedRoom, {
+  type: 'assistant',
+  message: { role: 'assistant', content: [{ type: 'text', text: 'lokalnego kodu.\n\n- punkt' }] },
+});
+assert.equal(streamedRoom._currentRunAssistantText, 'Zaczynam od lokalnego kodu.\n\n- punkt');
 
 const dataDir = path.join(tmpRoot, 'data');
 const project = path.join(tmpRoot, 'proj');

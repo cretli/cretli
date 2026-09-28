@@ -11,6 +11,7 @@ import {
   setCsrfToken,
   setWidgetAccessToken,
 } from './lib/cretliApiRequest.js';
+import { buildChatIdsQuery } from './lib/chatIdsQuery.js';
 
 export {
   applyCsrfFromAuthPayload,
@@ -169,6 +170,61 @@ export async function patchSettingsLanHost(lanHost) {
   return patchSettings({ lanHost: lanHost != null ? String(lanHost).trim() : '' });
 }
 
+export async function getBrowserPolicy() {
+  return dedupeGetJson('/api/browser/policy', 'getBrowserPolicy');
+}
+
+export async function patchBrowserPolicy(policy) {
+  return apiFetchJson('/api/browser/policy?mode=agent', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ policy: policy || {} }),
+  }, 'patchBrowserPolicy');
+}
+
+const APPROVAL_SETTINGS_ALLOWED_KEYS = new Set([
+  'approvalBroker',
+  'approvalAdvisorApiKey',
+  'clearApprovalAdvisorApiKey',
+]);
+
+/**
+ * Pure whitelist/sanitizer for the Approval Broker settings PATCH body. Kept
+ * separate from the request so the payload contract can be unit-tested without
+ * touching the network; it also guarantees an empty key is never sent (which
+ * would otherwise delete the stored key without the explicit Clear action).
+ *
+ * @param {{ approvalBroker?: object, approvalAdvisorApiKey?: string, clearApprovalAdvisorApiKey?: boolean }|null|undefined} payload
+ * @returns {{ approvalBroker?: object, approvalAdvisorApiKey?: string, clearApprovalAdvisorApiKey?: boolean }}
+ */
+export function buildApprovalSettingsPatch(payload) {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const body = {};
+  for (const key of Object.keys(source)) {
+    if (!APPROVAL_SETTINGS_ALLOWED_KEYS.has(key)) continue;
+    if (key === 'approvalAdvisorApiKey') {
+      const value = typeof source[key] === 'string' ? source[key].trim() : '';
+      if (!value) continue;
+      body[key] = value;
+      continue;
+    }
+    body[key] = source[key];
+  }
+  return body;
+}
+
+/**
+ * Update the Approval Broker / external advisor settings.
+ *
+ * Delegates to `patchSettings` (whose debug log prints only the method and URL —
+ * never the body), so the write-only API key is never logged or echoed.
+ *
+ * @param {{ approvalBroker?: object, approvalAdvisorApiKey?: string, clearApprovalAdvisorApiKey?: boolean }} payload
+ */
+export async function patchApprovalBrokerSettings(payload) {
+  return patchSettings(buildApprovalSettingsPatch(payload));
+}
+
 export async function getLanUrl() {
   return dedupeGetJson('/api/lan-url', 'getLanUrl');
 }
@@ -242,6 +298,9 @@ export async function getChats(query = {}) {
   if (query.includeArchived === true) {
     params.set('includeArchived', '1');
   }
+  if (query.includeSummaries === true) {
+    params.set('includeSummaries', '1');
+  }
   const qs = params.toString();
   const path = qs ? `/api/chats?${qs}` : '/api/chats';
   return dedupeGetJson(path, qs ? `getChats:${qs}` : 'getChats');
@@ -278,33 +337,28 @@ export async function getChatHistory(id, query = {}) {
   if (query.before != null) q.set('before', String(query.before));
   const qs = q.toString();
   const path = `/api/chats/${encodeURIComponent(id)}/history${qs ? `?${qs}` : ''}`;
-  return apiFetchJson(path, undefined, 'getChatHistory');
+  return dedupeGetJson(path, 'getChatHistory');
 }
 
 /**
  * Lightweight server-side history revision index for cross-device pull sync.
+ * Omits `ids` when the list is empty or too long (server returns all allowed chats,
+ * widget scoped — not the unscoped in-memory index).
  * @param {string[]} [chatIds]
  */
 export async function getChatHistoryRevisions(chatIds = []) {
-  const q = new URLSearchParams();
-  if (Array.isArray(chatIds) && chatIds.length > 0) {
-    q.set('ids', chatIds.join(','));
-  }
-  const qs = q.toString();
+  const qs = buildChatIdsQuery(chatIds);
   const path = `/api/chats/history-revisions${qs ? `?${qs}` : ''}`;
   return apiFetchJson(path, undefined, 'getChatHistoryRevisions');
 }
 
 /**
- * Lightweight per-chat agent presence (busy / waiting / attention).
+ * Lightweight per-chat agent presence (busy / waiting / attention; idle omitted).
+ * Omits `ids` when the list is empty or too long (server returns all allowed chats).
  * @param {string[]} [chatIds]
  */
 export async function getChatAgentStates(chatIds = []) {
-  const q = new URLSearchParams();
-  if (Array.isArray(chatIds) && chatIds.length > 0) {
-    q.set('ids', chatIds.join(','));
-  }
-  const qs = q.toString();
+  const qs = buildChatIdsQuery(chatIds);
   const path = `/api/chats/agent-states${qs ? `?${qs}` : ''}`;
   return apiFetchJson(path, undefined, 'getChatAgentStates');
 }
@@ -333,6 +387,20 @@ export async function postChatHistory(id, cursorSessionId, events) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ cursorSessionId: cursorSessionId || '', events: Array.isArray(events) ? events : [] }),
   }, 'postChatHistory');
+}
+
+/**
+ * Pull history deltas for an explicit chat list. Missing/empty chats is an error
+ * (never "every chat").
+ *
+ * @param {Array<{ id: string, since?: number, limit?: number }>} chats
+ */
+export async function postChatHistoryBatch(chats) {
+  return apiFetchJson('/api/chats/history-batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chats: Array.isArray(chats) ? chats : [] }),
+  }, 'postChatHistoryBatch');
 }
 
 /** SDK chat readiness; ready means the server has a CURSOR_API_KEY configured. */
@@ -466,6 +534,10 @@ export async function getDelegationExecutors() {
   return apiFetchJson('/api/delegations/executors', undefined, 'getDelegationExecutors');
 }
 
+export async function getHarnessCatalog() {
+  return dedupeGetJson('/api/harness-catalog/harnesses', 'getHarnessCatalog');
+}
+
 export async function postChatDelegation(id, payload) {
   if (!id) return { ok: false, error: 'Missing chat id' };
   return apiFetchJson(`/api/chats/${encodeURIComponent(id)}/delegations`, {
@@ -483,6 +555,35 @@ export async function getChatDelegations(id) {
 export async function getDelegation(id) {
   if (!id) return { ok: false, error: 'Missing delegation id' };
   return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}`, undefined, `getDelegation:${id}`);
+}
+
+export async function getDelegationRuntime(query = {}) {
+  const params = new URLSearchParams();
+  if (query.workspaceFolder) params.set('workspaceFolder', String(query.workspaceFolder));
+  if (query.workspaceFile) params.set('workspaceFile', String(query.workspaceFile));
+  const suffix = params.toString() ? `?${params}` : '';
+  return apiFetchJson(`/api/delegations/runtime${suffix}`, undefined, 'getDelegationRuntime');
+}
+
+export async function getWorkspaceDelegations(query = {}) {
+  const params = new URLSearchParams();
+  if (query.attention) params.set('attention', String(query.attention));
+  if (query.status) params.set('status', String(query.status));
+  if (query.cursor) params.set('cursor', String(query.cursor));
+  if (query.limit) params.set('limit', String(query.limit));
+  if (query.workspaceFolder) params.set('workspaceFolder', String(query.workspaceFolder));
+  if (query.workspaceFile) params.set('workspaceFile', String(query.workspaceFile));
+  const suffix = params.toString() ? `?${params}` : '';
+  return apiFetchJson(`/api/delegations${suffix}`, undefined, 'getWorkspaceDelegations');
+}
+
+export async function postDelegationRetryDelivery(id, payload = {}) {
+  if (!id) return { ok: false, error: 'Missing delegation id' };
+  return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}/retry-delivery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  }, `postDelegationRetryDelivery:${id}`);
 }
 
 export async function postDelegationCancel(id) {
@@ -730,8 +831,9 @@ export async function postTodoStartAgent(id, payload = {}) {
   );
 }
 
-export async function getCursorContext() {
-  return dedupeGetJson('/api/cursor-context', 'getCursorContext');
+export async function getCursorContext(workspaceFolder = '') {
+  const query = workspaceFolder ? `?workspaceFolder=${encodeURIComponent(workspaceFolder)}` : '';
+  return dedupeGetJson(`/api/cursor-context${query}`, 'getCursorContext');
 }
 
 export async function getGitInfo() {

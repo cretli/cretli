@@ -2,8 +2,11 @@
 node_modules/
 app_front/node_modules/
 
-# Runtime data (secrets, sessions, chats, certs, uploads)
+# Runtime data (secrets, sessions, chats, certs, uploads,
+# operator model-role-profiles.json for MCP model_pick)
 data/
+# Local provider config may contain API keys; never commit it.
+/config.json
 # Accidental local fixtures under lib/ (must not be committed)
 lib/data/
 

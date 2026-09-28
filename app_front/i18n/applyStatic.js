@@ -4,6 +4,7 @@
  *   data-i18n-title="key"         -> title
  *   data-i18n-aria="key"          -> aria-label
  *   data-i18n-placeholder="key"   -> placeholder
+ *   data-i18n-alt="key"           -> alt
  * Re-applies on language change (cr-lang-changed event).
  */
 
@@ -13,6 +14,7 @@ const ATTRS = [
   { attr: 'data-i18n', set: (el, v) => { el.textContent = v; } },
   { attr: 'data-i18n-title', set: (el, v) => { el.setAttribute('title', v); } },
   { attr: 'data-i18n-aria', set: (el, v) => { el.setAttribute('aria-label', v); } },
+  { attr: 'data-i18n-alt', set: (el, v) => { el.setAttribute('alt', v); } },
   {
     attr: 'data-i18n-placeholder',
     set: (el, v) => {

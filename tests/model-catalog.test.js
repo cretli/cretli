@@ -4,7 +4,9 @@ import {
   buildVariantLabelFromParams,
   decodeModelValue,
   encodeModelValue,
+  coerceRunnableSdkModelValue,
   enrichCatalogEntryLabels,
+  expandSdkModelsToCatalog,
   expandSdkModelRow,
   catalogFromModelsPayload,
   countCatalogEnabledModels,
@@ -78,6 +80,42 @@ assert.equal(buildVariantLabelFromParams(
   [{ id: 'fast', value: 'false' }],
   [{ id: 'fast', displayName: 'Fast', values: [{ value: 'true', displayName: 'Fast' }] }],
 ), 'Standard');
+
+assert.equal(
+  coerceRunnableSdkModelValue('grok-4.7::context=500k,fast=false,reasoning_effort=high'),
+  'grok-4.7::context=256k,fast=false,reasoning_effort=high',
+);
+assert.equal(coerceRunnableSdkModelValue('grok-4.6::effort=high,fast=false'), 'grok-4.6::effort=high,fast=false');
+
+const grok47Rows = expandSdkModelsToCatalog([
+  {
+    id: 'grok-4.7',
+    displayName: 'Grok 4.7',
+    parameters: [{ id: 'context' }, { id: 'reasoning_effort' }, { id: 'fast' }],
+    variants: [
+      { params: [{ id: 'context', value: '256k' }, { id: 'reasoning_effort', value: 'high' }, { id: 'fast', value: 'false' }] },
+      { params: [{ id: 'context', value: '500k' }, { id: 'reasoning_effort', value: 'high' }, { id: 'fast', value: 'false' }] },
+    ],
+  },
+]);
+assert.equal(grok47Rows.length, 1);
+assert.match(grok47Rows[0].value, /context=256k/);
+
+const duplicateDisplayNames = expandSdkModelsToCatalog([
+  {
+    id: 'grok-4.7-standard',
+    displayName: 'Grok 4.7',
+    variants: [{ displayName: 'Extra High', params: [{ id: 'effort', value: 'xhigh' }] }],
+  },
+  {
+    id: 'grok-4.7-fast',
+    displayName: 'Grok 4.7',
+    variants: [{ displayName: 'Extra High', params: [{ id: 'effort', value: 'xhigh' }] }],
+  },
+]);
+assert.equal(duplicateDisplayNames.length, 2);
+assert.match(duplicateDisplayNames[0].label, /Extra High · grok-4\.7-standard/);
+assert.match(duplicateDisplayNames[1].label, /Extra High · grok-4\.7-fast/);
 
 const merged = mergeModelCatalogEntries(
   [{ value: 'auto', label: 'Auto', modelId: 'auto' }],

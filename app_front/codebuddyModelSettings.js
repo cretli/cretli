@@ -10,8 +10,10 @@ import {
 } from '../lib/model-catalog-meta.js';
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from './lib/storageKeyAlias.js';
 import { escapeHtml } from './features/chat/chatHtmlUtils.js';
+import { bindFavoriteModelList, favoriteModelButtonHtml, isFavoriteModel, subscribeToFavoriteModelChanges } from './features/chat/modelFavoriteMarker.js';
 
 const CODEBUDDY_MODEL_SETTINGS_SORT_LS_KEY = 'cretli-codebuddy-models-sort';
+const CODEBUDDY_MODEL_SETTINGS_HARNESS = 'codebuddy';
 
 /** @type {import('../lib/model-catalog.js').ModelCatalogEntry[]} */
 let settingsModelCatalog = [];
@@ -113,6 +115,8 @@ function filterCatalogForSearch(query) {
 function renderModelRowHtml(entry, groupName) {
   const checked = draftEnabledKeys.has(entry.value);
   const rowLabel = entry.label !== groupName ? entry.label : (entry.modelId || entry.value);
+  const costLabel = entry.costLabel || '—';
+  const favorite = isFavoriteModel(CODEBUDDY_MODEL_SETTINGS_HARNESS, entry.value);
   return (
     '<label class="chat-model-settings-row">'
     + '<input type="checkbox" class="codebuddy-model-settings-checkbox" data-model-value="'
@@ -122,7 +126,15 @@ function renderModelRowHtml(entry, groupName) {
     + ' />'
     + '<span class="chat-model-settings-row-body">'
     + '<span class="chat-model-settings-label">'
+    + favoriteModelButtonHtml(CODEBUDDY_MODEL_SETTINGS_HARNESS, entry.value, favorite)
     + escapeHtml(rowLabel)
+    + '</span>'
+    + '<span class="chat-model-settings-cost" title="'
+    + escapeHtml(t('settings.chatModelsCostTooltip'))
+    + '" aria-label="'
+    + escapeHtml(t('settings.chatModelsCostTooltip'))
+    + '">'
+    + escapeHtml(costLabel)
     + '</span>'
     + '</span>'
     + '</label>'
@@ -328,6 +340,8 @@ export function initCodeBuddyModelSettings() {
   const sortSelect = document.getElementById('codebuddy-model-settings-sort');
   const statusEl = document.getElementById('codebuddy-model-settings-status');
   if (!listEl || !saveBtn) return;
+  bindFavoriteModelList(listEl, () => renderModelSettingsList());
+  subscribeToFavoriteModelChanges(() => renderModelSettingsList());
   settingsSortMode = readSettingsSortMode();
   syncSortSelectUi();
   window.addEventListener('cr-lang-changed', () => syncSortSelectUi());

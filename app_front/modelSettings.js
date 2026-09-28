@@ -11,8 +11,20 @@ import {
 } from '../lib/model-catalog-meta.js';
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from './lib/storageKeyAlias.js';
 import { escapeHtml } from './features/chat/chatHtmlUtils.js';
+import { bindFavoriteModelList, favoriteModelButtonHtml, isFavoriteModel, subscribeToFavoriteModelChanges } from './features/chat/modelFavoriteMarker.js';
 
 const MODEL_SETTINGS_SORT_LS_KEY = 'cretli-chat-models-sort';
+const MODEL_SETTINGS_HARNESS = 'sdk';
+
+const SDK_EFFORT_ORDER = Object.freeze({
+  low: 10,
+  medium: 20,
+  high: 30,
+  xhigh: 40,
+  'extra-high': 40,
+  max: 50,
+  ultra: 60,
+});
 
 /**
  * @param {string} value
@@ -138,6 +150,38 @@ function resolveRowLabel(entry, groupName) {
   return entry.modelId || entry.value;
 }
 
+function sdkParamValue(entry, ids) {
+  if (!Array.isArray(entry?.params)) return '';
+  const match = entry.params.find((param) => ids.includes(String(param?.id || '').trim().toLowerCase()));
+  return String(match?.value || '').trim().toLowerCase();
+}
+
+function sortSdkBlock(block) {
+  if (block.type !== 'provider') return;
+  for (const model of block.models) {
+    model.entries.sort((a, b) => {
+      const contextA = sdkParamValue(a, ['context']);
+      const contextB = sdkParamValue(b, ['context']);
+      const contextRank = (value) => {
+        const match = value.match(/^(\d+(?:\.\d+)?)(k|m)$/);
+        if (!match) return 999;
+        const amount = Number(match[1]) * (match[2] === 'm' ? 1000 : 1);
+        return Number.isFinite(amount) ? amount : 999;
+      };
+      const contextDiff = contextRank(contextA) - contextRank(contextB);
+      if (contextDiff !== 0) return contextDiff;
+      const effortA = sdkParamValue(a, ['effort', 'reasoning_effort', 'reasoning']);
+      const effortB = sdkParamValue(b, ['effort', 'reasoning_effort', 'reasoning']);
+      const effortDiff = (SDK_EFFORT_ORDER[effortA] || 999) - (SDK_EFFORT_ORDER[effortB] || 999);
+      if (effortDiff !== 0) return effortDiff;
+      const fastA = sdkParamValue(a, ['fast']) === 'true' ? 1 : 0;
+      const fastB = sdkParamValue(b, ['fast']) === 'true' ? 1 : 0;
+      if (fastA !== fastB) return fastA - fastB;
+      return String(a.label || '').localeCompare(String(b.label || ''), undefined, { numeric: true });
+    });
+  }
+}
+
 /**
  * @param {import('../lib/model-catalog.js').ModelCatalogEntry} entry
  * @returns {string}
@@ -146,6 +190,7 @@ function renderModelRowHtml(entry, groupName) {
   const checked = draftEnabledKeys.has(entry.value);
   const rowLabel = resolveRowLabel(entry, groupName);
   const costLabel = entry.costLabel || '—';
+  const favorite = isFavoriteModel(MODEL_SETTINGS_HARNESS, entry.value);
   const defaultBadge = entry.isDefault
     ? '<span class="chat-model-settings-default-badge">' + escapeHtml(t('settings.chatModelsDefaultBadge')) + '</span>'
     : '';
@@ -158,6 +203,7 @@ function renderModelRowHtml(entry, groupName) {
     + ' />'
     + '<span class="chat-model-settings-row-body">'
     + '<span class="chat-model-settings-label">'
+    + favoriteModelButtonHtml(MODEL_SETTINGS_HARNESS, entry.value, favorite)
     + escapeHtml(rowLabel)
     + defaultBadge
     + '</span>'
@@ -186,6 +232,7 @@ function renderModelSettingsList() {
     return;
   }
   const grouped = groupModelCatalogForSettings(visibleRows, settingsSortMode);
+  grouped.forEach(sortSdkBlock);
   const html = [];
   for (const block of grouped) {
     if (block.type === 'flat') {
@@ -375,6 +422,8 @@ export function initModelSettings() {
   const sortSelect = document.getElementById('chat-model-settings-sort');
   const statusEl = document.getElementById('chat-model-settings-status');
   if (!listEl || !saveBtn) return;
+  bindFavoriteModelList(listEl, () => renderModelSettingsList());
+  subscribeToFavoriteModelChanges(() => renderModelSettingsList());
 
   settingsSortMode = readSettingsSortMode();
   syncSortSelectUi();

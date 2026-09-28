@@ -2,16 +2,6 @@
  * HTML view for the @cursor/sdk chat — collapsible tools, Markdown answers, file paths.
  */
 
-import MarkdownIt from 'markdown-it';
-import hljs from 'highlight.js/lib/core';
-import javascript from 'highlight.js/lib/languages/javascript';
-import typescript from 'highlight.js/lib/languages/typescript';
-import jsonLang from 'highlight.js/lib/languages/json';
-import bash from 'highlight.js/lib/languages/bash';
-import php from 'highlight.js/lib/languages/php';
-import markdown from 'highlight.js/lib/languages/markdown';
-import yaml from 'highlight.js/lib/languages/yaml';
-
 import {
   extractAssistantPlainText,
   isHarnessErrorAssistantText,
@@ -24,23 +14,35 @@ import { writeTextToClipboard } from './clipboard.js';
 import {
   splitSdkFormattedConversation,
 } from '../../lib/sdk/sdk-chat-history.js';
-import { isSdkRunFailureStatus } from '../../lib/sdk/sdk-run-outcome.js';
+import {
+  isSdkRunFailureStatus,
+  persistSdkRunFinishedHistoryStatus,
+  presentSdkActivityTrayStatus,
+  shouldKeepSdkActivityTrayStatus,
+} from '../../lib/sdk/sdk-run-outcome.js';
+import { parseExplicitSdkMode, shouldRenderModeChange } from '../../lib/sdk/sdk-mode.js';
 import { normalizeSdkUiMode } from '../../lib/sdk/sdk-ui-mode.js';
 import { splitTrailingTitleJson } from '../features/chat/chatTitleParsing.js';
 import { parseTimeoutProgressNotice } from '../../lib/notices.js';
 import {
   buildStableSdkToolCallFallback,
+  canonicalizeSdkToolStatus,
+  findOpenSdkToolRecord,
   hasRunningSdkTools,
   isEmptyGenericSdkToolEvent,
   isOpenSdkToolStatus,
   isTerminalSdkRunStatus,
   isTerminalSdkToolStatus,
+  normalizeSdkToolStreamEvent,
   resolveAbandonedToolStatus,
   resolveSdkToolCallId,
   setRunningSdkToolCallCount,
   shouldAcceptSdkToolStatus,
+  shouldKeepSdkThinkingSpinner,
   updateRunningSdkToolState,
 } from '../../lib/sdk/sdk-thinking-state.js';
+import { shouldCloseLiveTurnAfterHistoryReplay } from '../features/chat/chatStatusMeta.js';
+import { extractTodoSummaryFromToolEvent } from '../../lib/sdk/sdk-todo-summary.js';
 import {
   findReusableSdkThinkingBlockIndex,
   restoreSdkThinkingAccumulator,
@@ -49,7 +51,9 @@ import {
   listAllRunItems,
   listRunItems,
   registerRunItem,
+  stopSdkBlockSpinners,
 } from '../../lib/sdk/sdk-run-block-registry.js';
+import { splitHistoryPageAtUserTurn } from '../../lib/sdk/sdk-history-turn-window.js';
 import {
   findReusableSdkAssistantBlockIndex,
   restoreSdkAssistantAccumulator,
@@ -57,6 +61,12 @@ import {
 import { cloneSerializableSdkEvent } from './sdk-chat-history-store.js';
 import { appLogger } from '../logger.js';
 import { extractPlanTextFromSdkEvent } from '../../lib/sdk/sdk-plan-text.js';
+import {
+  isPlaceholderSdkPlanMarkdown,
+  mergeSdkPlanMarkdown,
+  pickSdkPlanKeeper,
+  shouldFoldSdkPlanCard,
+} from '../../lib/sdk/sdk-plan-block-reuse.js';
 import { parseContextSeedPayload } from './context-seed-payload.js';
 import { parseInheritedPrompt } from '../../lib/conversation-fork.js';
 import { registerPageResumeCleanupHook } from './pageResumeCleanup.js';
@@ -71,60 +81,145 @@ import {
   readToolSearchQuery,
 } from '../../lib/agent-harness/tool-search-display.js';
 import '../components/chat/cr-sdk-block.js';
+import { resolveChatMessageRefAction } from '../../lib/chat-message-ref.js';
 import { escapeHtml } from '../features/chat/chatHtmlUtils.js';
 import {
   delegationStatusLabel,
   parseDelegationHistoryPayload,
 } from '../features/chat/chatDelegations.js';
+import { buildDelegationCardModel } from '../../lib/delegation-card-model.js';
+import { isActiveDelegationStatus } from '../../lib/delegation-status.js';
 import { parseRelatedChatPayload } from '../../lib/chat-relation-payload.js';
+import {
+  compareViewOrderKeys,
+  hasViewOrderKey,
+  isSameViewOrderKey,
+  resolveEventStreamId,
+  resolveViewOrderKey,
+  viewOrderIdentity,
+} from '../features/chat/chatHistoryViewOrder.js';
+import {
+  foldTimeoutProgressSeriesAtTail,
+  isTimeoutProgressSeriesBlock,
+  isTimeoutProgressSeriesSkipNode,
+  TIMEOUT_PROGRESS_SERIES_CLASS,
+  trimTimeoutProgressUpdates,
+} from '../features/chat/timeoutProgressSeries.js';
 
-hljs.registerLanguage('javascript', javascript);
-hljs.registerLanguage('typescript', typescript);
-hljs.registerLanguage('json', jsonLang);
-hljs.registerLanguage('bash', bash);
-hljs.registerLanguage('shell', bash);
-hljs.registerLanguage('sh', bash);
-hljs.registerLanguage('php', php);
-hljs.registerLanguage('markdown', markdown);
-hljs.registerLanguage('md', markdown);
-hljs.registerLanguage('yaml', yaml);
-hljs.registerLanguage('yml', yaml);
+/** @type {import('highlight.js').HLJSApi | null} */
+let hljsEngine = null;
+/** @type {Promise<import('highlight.js').HLJSApi> | null} */
+let hljsLoadPromise = null;
+const hljsReadyListeners = new Set();
 
-const md = new MarkdownIt({
-  html: false,
-  linkify: true,
-  breaks: true,
-  highlight(code, lang) {
-    const language = String(lang || '').trim().toLowerCase();
-    const languageClass = language ? ` language-${escapeHtml(language)}` : '';
-    if (language && hljs.getLanguage(language)) {
-      try {
-        return `<pre class="sdk-rich-pre"><code class="hljs${languageClass}">${hljs.highlight(code, {
-          language,
-          ignoreIllegals: true,
-        }).value}</code></pre>`;
-      } catch (_) {
-        /* fallthrough */
+function loadHljsEngine() {
+  if (hljsEngine) return Promise.resolve(hljsEngine);
+  if (!hljsLoadPromise) {
+    hljsLoadPromise = import(/* webpackChunkName: "sdk-hljs" */ './sdk-hljs.js').then((mod) => {
+      hljsEngine = mod.hljs;
+      for (const listener of hljsReadyListeners) {
+        try {
+          listener();
+        } catch (_) {
+          /* ignore */
+        }
       }
-    }
-    return `<pre class="sdk-rich-pre"><code class="${languageClass.trim()}">${escapeHtml(code)}</code></pre>`;
-  },
-});
-
-const defaultFenceRenderer = md.renderer.rules.fence;
-md.renderer.rules.fence = (tokens, index, options, env, self) => {
-  const token = tokens[index];
-  const language = String(token.info || '').trim().split(/\s+/)[0].toLowerCase();
-  if (language !== 'mermaid') {
-    return defaultFenceRenderer(tokens, index, options, env, self);
+      hljsReadyListeners.clear();
+      return hljsEngine;
+    });
   }
+  return hljsLoadPromise;
+}
 
-  return (
-    '<div class="sdk-rich-mermaid" data-mermaid-state="pending">' +
-    `<pre class="sdk-rich-pre"><code class="language-mermaid">${escapeHtml(token.content)}</code></pre>` +
-    '</div>'
+/**
+ * @param {() => void} listener
+ */
+function whenHljsReady(listener) {
+  if (typeof listener !== 'function') return;
+  if (hljsEngine) {
+    listener();
+    return;
+  }
+  hljsReadyListeners.add(listener);
+}
+
+/** @type {import('markdown-it') | null} */
+let mdEngine = null;
+/** @type {Promise<import('markdown-it')> | null} */
+let mdLoadPromise = null;
+const mdReadyListeners = new Set();
+
+function bindMarkdownFence(instance) {
+  const defaultFenceRenderer = instance.renderer.rules.fence;
+  instance.renderer.rules.fence = (tokens, index, options, env, self) => {
+    const token = tokens[index];
+    const language = String(token.info || '').trim().split(/\s+/)[0].toLowerCase();
+    if (language !== 'mermaid') {
+      return defaultFenceRenderer(tokens, index, options, env, self);
+    }
+    return (
+      '<div class="sdk-rich-mermaid" data-mermaid-state="pending">' +
+      `<pre class="sdk-rich-pre"><code class="language-mermaid">${escapeHtml(token.content)}</code></pre>` +
+      '</div>'
+    );
+  };
+  return instance;
+}
+
+function createMarkdownIt(MarkdownIt) {
+  return bindMarkdownFence(
+    new MarkdownIt({
+      html: false,
+      linkify: true,
+      breaks: true,
+      highlight(code, lang) {
+        const language = String(lang || '').trim().toLowerCase();
+        const languageClass = language ? ` language-${escapeHtml(language)}` : '';
+        if (language && hljsEngine?.getLanguage(language)) {
+          try {
+            return `<pre class="sdk-rich-pre"><code class="hljs${languageClass}">${hljsEngine.highlight(code, {
+              language,
+              ignoreIllegals: true,
+            }).value}</code></pre>`;
+          } catch (_) {
+            /* fallthrough */
+          }
+        }
+        if (language && !hljsEngine) void loadHljsEngine();
+        return `<pre class="sdk-rich-pre"><code class="${languageClass.trim()}">${escapeHtml(code)}</code></pre>`;
+      },
+    }),
   );
-};
+}
+
+function loadMarkdownIt() {
+  if (mdEngine) return Promise.resolve(mdEngine);
+  if (!mdLoadPromise) {
+    mdLoadPromise = import(/* webpackChunkName: "sdk-markdown" */ 'markdown-it').then((mod) => {
+      mdEngine = createMarkdownIt(mod.default);
+      for (const listener of mdReadyListeners) {
+        try {
+          listener();
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      mdReadyListeners.clear();
+      return mdEngine;
+    });
+  }
+  return mdLoadPromise;
+}
+
+/**
+ * @param {string} source
+ * @returns {string}
+ */
+function renderMarkdownSource(source) {
+  if (mdEngine) return mdEngine.render(source);
+  void loadMarkdownIt();
+  return `<pre class="sdk-rich-pre"><code>${escapeHtml(source)}</code></pre>`;
+}
 
 let mermaidModulePromise = null;
 let mermaidDiagramId = 0;
@@ -491,25 +586,6 @@ function formatTimeoutProgressSeconds(seconds) {
 
 /**
  * @param {unknown} args
- * @returns {string}
- */
-function extractTodoSummary(args) {
-  if (!args || typeof args !== 'object') return '';
-  const o = /** @type {Record<string, unknown>} */ (args);
-  const todos = Array.isArray(o.todos) ? o.todos : [];
-  if (todos.length === 0) return '';
-  const lines = todos.slice(0, 12).map((item) => {
-    if (!item || typeof item !== 'object') return '';
-    const t = /** @type {Record<string, unknown>} */ (item);
-    const status = typeof t.status === 'string' ? t.status : '?';
-    const content = typeof t.content === 'string' ? t.content : '';
-    return `[${status}] ${content}`;
-  });
-  return lines.filter(Boolean).join('\n');
-}
-
-/**
- * @param {unknown} args
  * @returns {string[]}
  */
 function pathsFromToolArgs(args) {
@@ -634,6 +710,10 @@ function sdkEventsFromAgentRow(row) {
       out.push({ type: 'thinking', text: thinkingText });
     }
 
+    if (step.usage && typeof step.usage === 'object' && !Array.isArray(step.usage)) {
+      out.push({ type: 'usage', usage: step.usage });
+    }
+
     const statusText =
       step.statusMessage &&
       typeof step.statusMessage === 'object' &&
@@ -662,6 +742,10 @@ function sdkEventsFromAgentRow(row) {
     }
   }
 
+  if (turn.usage && typeof turn.usage === 'object' && !Array.isArray(turn.usage)) {
+    out.push({ type: 'usage', usage: turn.usage });
+  }
+
   return out;
 }
 
@@ -669,13 +753,12 @@ function sdkEventsFromAgentRow(row) {
  * @param {object} chat
  * @param {HTMLElement} mountEl
    * @param {{ appendPlain: (s: string) => void, onHistoryRecord?: (rec: unknown) => void, loadOlderHistory?: () => Promise<{ records: unknown[], hasOlder: boolean } | null>, onAssistantText?: (text: string) => void, onAnswerEnd?: () => void, onForkFromPoint?: (point: { createdAt: string }) => void }} hooks
- * @returns {{ destroy: () => void, applyEvent: (ev: unknown) => void, onStreamReset: () => void, appendUserPrompt: (text: string, opts?: { silent?: boolean }) => void, appendBannerConnected: (opts?: { silent?: boolean }) => void, markUserPromptQueued: (text: string) => boolean, appendRunFinished: (status: string, opts?: { silent?: boolean }) => void, appendBusy: (message: string, opts?: { silent?: boolean }) => void, appendError: (message: string, opts?: { silent?: boolean }) => void, appendMetaNotice: (text: string, opts?: { silent?: boolean }) => void, appendRestoredPlainBuffer: (text: string, summaryLabel?: string) => void, applyAgentMessagesHistory: (rows: Array<{ type?: string, message?: unknown }>) => void, replayHistoryRecords: (records: unknown[]) => void, prependHistoryRecords: (records: unknown[]) => number, setOlderHistoryAvailable: (available: boolean) => void, scrollToBottom: () => void, getCopyText: () => string }}
+ * @returns {{ destroy: () => void, applyEvent: (ev: unknown) => void, onStreamReset: () => void, onHarnessBusy: () => void, onHarnessIdle: () => void, appendUserPrompt: (text: string, opts?: { silent?: boolean }) => void, appendBannerConnected: (opts?: { silent?: boolean }) => void, markUserPromptQueued: (text: string) => boolean, appendRunFinished: (status: string, opts?: { silent?: boolean }) => void, appendBusy: (message: string, opts?: { silent?: boolean }) => void, appendError: (message: string, opts?: { silent?: boolean }) => void, appendMetaNotice: (text: string, opts?: { silent?: boolean }) => void, appendRestoredPlainBuffer: (text: string, summaryLabel?: string) => void, applyAgentMessagesHistory: (rows: Array<{ type?: string, message?: unknown }>) => void, replayHistoryRecords: (records: unknown[]) => void, prependHistoryRecords: (records: unknown[]) => number, setOlderHistoryAvailable: (available: boolean) => void, scrollToBottom: () => void, getCopyText: () => string }}
  */
 export function createSdkRichView(chat, mountEl, hooks) {
   if (!mountEl || typeof hooks?.appendPlain !== 'function') {
     throw new Error('createSdkRichView: mountEl and hooks.appendPlain are required');
   }
-
   mountEl.classList.add('sdk-rich-chat-mount');
   mountEl.innerHTML = '';
   // Sentinel lives outside the stream — replayHistoryRecords wipes the stream on every replay.
@@ -714,6 +797,13 @@ export function createSdkRichView(chat, mountEl, hooks) {
   const runStatusByRun = new Map();
   const runningToolCallsByRun = new Map();
   let runScope = 1;
+  /**
+   * User prompt / RUNNING opens this; FINISHED / harness idle closes it.
+   * Stream reset must not reopen it — late thinking after a finished run
+   * would otherwise spawn a new local-run-* spinner that never stops.
+   */
+  let isLiveTurn = false;
+  let lastRenderedMode = '';
   let uiMode = normalizeSdkUiMode(chat.sdkUiMode);
   /** After WS hello/reconnect, keep using the live Thinking block (same run, new local-run key). */
   let resumeThinkingAfterStreamReset = false;
@@ -736,8 +826,21 @@ export function createSdkRichView(chat, mountEl, hooks) {
   /** Record timestamp of the SDK event currently being rendered. */
   let renderedRecordCreatedAt = '';
   let renderedRecordHistorySeq = 0;
+  let renderedRecordRoomEventSeq = 0;
+  let renderedRecordEventStreamId = '';
+  /** Mid-stream insert of a recovered hole: keep the visible card, skip autoscroll. */
+  let preserveViewportAnchor = false;
+  /** @type {{ el: HTMLElement, top: number } | null} */
+  let pendingViewportAnchor = null;
+  /** Last node passed through appendStreamChild — cards must not assume lastElementChild. */
+  let lastStreamChild = null;
 
   let mdRaf = 0;
+  let copyTextCache = '';
+  let copyTextDirty = true;
+  function markCopyTextDirty() {
+    copyTextDirty = true;
+  }
   /** @type {{
    *   block: HTMLElement,
    *   summaryEl: HTMLElement,
@@ -796,7 +899,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
    * @param {{ force?: boolean } | boolean} [opts]
    */
   function scrollToBottom(opts) {
-    if (suppressAutoScroll) return;
+    if (suppressAutoScroll || preserveViewportAnchor) return;
     const force = opts === true || (opts && typeof opts === 'object' && opts.force === true);
     if (!force && !stickToBottom) return;
     if (force) stickToBottom = true;
@@ -891,13 +994,20 @@ export function createSdkRichView(chat, mountEl, hooks) {
    * @param {HTMLElement} mdHost
    * @param {string} raw
    */
-  function flushMarkdown(mdHost, raw) {
+  function flushMarkdown(mdHost, raw, opts = {}) {
     const r = raw == null ? '' : String(raw);
     const textForDisplay = stripScreenshotMarkers(r);
     mdHost.dataset.rawMd = r;
-    mdHost.innerHTML = md.render(textForDisplay);
+    mdHost.innerHTML = renderMarkdownSource(textForDisplay);
+    if (!mdEngine) {
+      mdReadyListeners.add(() => {
+        if (mdHost.dataset.rawMd !== r || !mdHost.isConnected) return;
+        flushMarkdown(mdHost, r, opts);
+      });
+    }
+    markCopyTextDirty();
     decorateCodeForCopy(mdHost);
-    void renderMermaidDiagrams(mdHost);
+    if (opts.diagrams !== false) void renderMermaidDiagrams(mdHost);
     const mdLinkRefs = Array.from(mdHost.querySelectorAll('a[href]'))
       .map((el) => String(el.getAttribute('href') || '').trim())
       .filter((href) => isImageLikeHref(href))
@@ -928,9 +1038,16 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (mdRaf) return;
     mdRaf = requestAnimationFrame(() => {
       mdRaf = 0;
-      flushMarkdown(mdHost, mdHost.dataset.rawMd || '');
+      flushMarkdown(mdHost, mdHost.dataset.rawMd || '', { diagrams: false });
     });
   }
+
+  whenHljsReady(() => {
+    mountEl.querySelectorAll('[data-raw-md]').forEach((el) => {
+      if (!(el instanceof HTMLElement)) return;
+      flushMarkdown(el, el.dataset.rawMd || '', { diagrams: false });
+    });
+  });
 
   function clearSegmentPointers() {
     setThinkingRunning(false);
@@ -1007,6 +1124,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
    */
   function adoptAssistantBlock(mdEl) {
     assistantMdEl = mdEl;
+    applyMessageSourceActions(mdEl?.closest?.('cr-sdk-block'));
     const restored = restoreSdkAssistantAccumulator(
       typeof chat._sdkAssistantAcc === 'string' ? chat._sdkAssistantAcc : '',
       mdEl.dataset.rawMd || ''
@@ -1035,13 +1153,14 @@ export function createSdkRichView(chat, mountEl, hooks) {
     rememberThinkingBlock(runKey, block);
     activeThinkingRunKey = runKey;
     if ('running' in block) {
-      block.running = !suppressHistoryPersist;
       block.open = true;
     }
-    const restored = restoreSdkThinkingAccumulator(
-      typeof chat._sdkThinkingAcc === 'string' ? chat._sdkThinkingAcc : '',
-      thinkingPre ? thinkingPre.textContent || '' : ''
-    );
+    const restored = block.dataset.reasoningUnavailable === 'true'
+      ? ''
+      : restoreSdkThinkingAccumulator(
+        typeof chat._sdkThinkingAcc === 'string' ? chat._sdkThinkingAcc : '',
+        thinkingPre ? thinkingPre.textContent || '' : ''
+      );
     if (restored) chat._sdkThinkingAcc = restored;
   }
 
@@ -1132,14 +1251,267 @@ export function createSdkRichView(chat, mountEl, hooks) {
 
   /**
    * @param {HTMLElement} el
+   * @returns {{ historySeq: number, roomEventSeq: number, eventStreamId: string }}
+   */
+  function readElementOrderKey(el) {
+    if (!(el instanceof HTMLElement)) {
+      return { historySeq: 0, roomEventSeq: 0, eventStreamId: '' };
+    }
+    const historySeq =
+      Number(/** @type {any} */ (el).historySeq)
+      || Number(el.dataset.historySeq)
+      || Number(el.getAttribute('history-seq'))
+      || Number(el.dataset.delegationHistorySeq)
+      || Number(el.dataset.mailboxHistorySeq)
+      || 0;
+    const roomEventSeq = Number(el.dataset.roomEventSeq) || 0;
+    return resolveViewOrderKey({
+      historySeq,
+      roomEventSeq,
+      eventStreamId: el.dataset.eventStreamId || '',
+    });
+  }
+
+  /**
+   * @param {HTMLElement} el
+   */
+  function stampElementOrderKey(el) {
+    if (!(el instanceof HTMLElement)) return;
+    if (renderedRecordHistorySeq > 0) {
+      el.dataset.historySeq = String(renderedRecordHistorySeq);
+      if ('historySeq' in el) {
+        /** @type {any} */ (el).historySeq = renderedRecordHistorySeq;
+      }
+    }
+    if (renderedRecordRoomEventSeq > 0) {
+      el.dataset.roomEventSeq = String(renderedRecordRoomEventSeq);
+    }
+    if (renderedRecordEventStreamId) {
+      el.dataset.eventStreamId = renderedRecordEventStreamId;
+    }
+  }
+
+  /**
+   * @param {{ historySeq?: number, roomEventSeq?: number, eventStreamId?: string }} incomingKey
+   * @returns {HTMLElement | null}
+   */
+  function findInsertBeforeChild(incomingKey) {
+    if (stream !== realStream || !hasViewOrderKey(incomingKey)) return null;
+    for (const child of stream.children) {
+      if (!(child instanceof HTMLElement)) continue;
+      if (compareViewOrderKeys(incomingKey, readElementOrderKey(child)) < 0) {
+        return child;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * @param {{ historySeq?: number, roomEventSeq?: number, eventStreamId?: string }} incomingKey
+   * @returns {HTMLElement | null}
+   */
+  function findStreamChildByOrderKey(incomingKey) {
+    if (stream !== realStream || !hasViewOrderKey(incomingKey)) return null;
+    for (const child of stream.children) {
+      if (!(child instanceof HTMLElement)) continue;
+      if (isSameViewOrderKey(incomingKey, readElementOrderKey(child))) return child;
+    }
+    return null;
+  }
+
+  function foldDuplicateOrderKeyCards() {
+    if (stream !== realStream) return;
+    const seen = new Set();
+    for (const child of [...stream.children]) {
+      if (!(child instanceof HTMLElement)) continue;
+      // A standalone Activity tray is created from the same history record as its first
+      // (hidden) full tool block, so it shares that order key without being a duplicate.
+      if (child.classList.contains('sdk-compact-activity-block')) continue;
+      const id = viewOrderIdentity(readElementOrderKey(child));
+      if (!id) continue;
+      if (seen.has(id)) {
+        child.remove();
+        continue;
+      }
+      seen.add(id);
+    }
+    foldDuplicatePlanCards();
+  }
+
+  /**
+   * @param {HTMLElement} block
+   * @returns {string}
+   */
+  function readPlanBlockMarkdown(block) {
+    if (!(block instanceof HTMLElement)) return '';
+    const mdEl = block.querySelector('.sdk-rich-plan-md');
+    if (mdEl instanceof HTMLElement && mdEl.dataset.rawMd) return mdEl.dataset.rawMd;
+    return mdEl ? String(mdEl.textContent || '') : '';
+  }
+
+  /**
+   * @returns {HTMLElement[]}
+   */
+  function listPlanBlocks() {
+    return [...stream.children].filter((el) => (
+      el instanceof HTMLElement && el.variant === 'plan'
+    ));
+  }
+
+  /**
+   * @param {string} callId
+   * @returns {HTMLElement | null}
+   */
+  function findReusablePlanBlock(callId) {
+    const id = String(callId || '').trim();
+    const fromMap = id ? planByCallId.get(id) : null;
+    if (fromMap instanceof HTMLElement && fromMap.isConnected) return fromMap;
+    const plans = listPlanBlocks();
+    if (id) {
+      const sameId = plans.find((el) => resolveSdkToolCallId({ call_id: el.dataset.callId }) === id);
+      if (sameId) return sameId;
+    }
+    const placeholder = plans.find((el) => {
+      const existingId = resolveSdkToolCallId({ call_id: el.dataset.callId });
+      return !existingId && isPlaceholderSdkPlanMarkdown(readPlanBlockMarkdown(el));
+    });
+    if (placeholder) return placeholder;
+    if (plans.length === 1) return plans[0];
+    return null;
+  }
+
+  /**
+   * @param {HTMLElement | null} [_preferred]
+   */
+  function foldDuplicatePlanCards(_preferred = null) {
+    const plans = listPlanBlocks();
+    if (plans.length < 2) return;
+    const cards = plans.map((el) => ({
+      el,
+      callId: resolveSdkToolCallId({ call_id: el.dataset.callId }),
+      status: String(el.label || ''),
+      text: readPlanBlockMarkdown(el),
+    }));
+    const keeper = pickSdkPlanKeeper(cards);
+    if (!keeper) return;
+    for (const card of cards) {
+      if (card.el === keeper.el) continue;
+      if (shouldFoldSdkPlanCard(card, keeper)) card.el.remove();
+    }
+    const keepId = String(keeper.callId || '').trim();
+    if (keepId && keeper.el instanceof HTMLElement) planByCallId.set(keepId, keeper.el);
+  }
+
+  /**
+   * @param {HTMLElement | null} later
+   */
+  function captureInsertScroll(later) {
+    if (!(later instanceof HTMLElement) || !(mountEl instanceof HTMLElement)) return;
+    pendingViewportAnchor = {
+      el: later,
+      top: later.getBoundingClientRect().top,
+    };
+    preserveViewportAnchor = true;
+  }
+
+  function restoreInsertScroll() {
+    const anchor = pendingViewportAnchor;
+    if (!anchor?.el?.isConnected || !(mountEl instanceof HTMLElement)) return;
+    const delta = anchor.el.getBoundingClientRect().top - anchor.top;
+    if (Math.abs(delta) < 0.5) return;
+    mountEl.scrollTop += delta;
+    anchor.top = anchor.el.getBoundingClientRect().top;
+  }
+
+  /**
+   * @param {HTMLElement} el
    * @param {{ skipTimeoutFinalize?: boolean }} [opts]
    */
   function appendStreamChild(el, opts = {}) {
     if (!(el instanceof HTMLElement)) return;
-    if (!opts.skipTimeoutFinalize) {
+    const skipTimeoutFinalize = opts.skipTimeoutFinalize === true
+      || el.hidden === true
+      || isTimeoutProgressSeriesSkipNode(el)
+      || isTimeoutProgressSeriesBlock(el);
+    if (!skipTimeoutFinalize) {
       finalizeTimeoutProgressSeries();
     }
-    stream.appendChild(el);
+    stampElementOrderKey(el);
+    lastStreamChild = el;
+    const before = stream === realStream && !suppressAutoScroll
+      ? findInsertBeforeChild(readElementOrderKey(el))
+      : null;
+    if (!before) {
+      stream.appendChild(el);
+      return;
+    }
+    preserveViewportAnchor = true;
+    stream.insertBefore(el, before);
+  }
+
+  /**
+   * @param {HTMLElement} block
+   * @returns {number}
+   */
+  function readTimeoutSeriesTotalSeconds(block) {
+    const raw = Number(block?.dataset?.timeoutTotalSeconds);
+    return Number.isFinite(raw) && raw > 0 ? raw : 0;
+  }
+
+  /**
+   * @param {HTMLElement} block
+   */
+  function hydrateTimeoutProgressSeries(block) {
+    if (!(block instanceof HTMLElement)) return null;
+    const summaryEl = block.querySelector('.sdk-timeout-progress__summary');
+    const progressEl = block.querySelector('.sdk-timeout-progress__bar');
+    const progressFillEl = block.querySelector('.sdk-timeout-progress__bar-fill');
+    const updatesEl = block.querySelector('.sdk-timeout-progress__updates');
+    if (!summaryEl || !progressEl || !progressFillEl || !updatesEl) return null;
+    return {
+      block,
+      summaryEl,
+      progressFillEl,
+      progressEl,
+      updatesEl,
+      totalSeconds: readTimeoutSeriesTotalSeconds(block),
+      updates: updatesEl.childElementCount,
+    };
+  }
+
+  function adoptTrailingTimeoutProgressSeries() {
+    if (stream !== realStream) return;
+    const { keeper } = foldTimeoutProgressSeriesAtTail({
+      streamLastChild: stream.lastElementChild,
+    });
+    if (!(keeper instanceof HTMLElement)) {
+      if (!timeoutProgressSeries?.block?.isConnected) timeoutProgressSeries = null;
+      return;
+    }
+    if (timeoutProgressSeries?.block === keeper) return;
+    const hydrated = hydrateTimeoutProgressSeries(keeper);
+    if (hydrated) timeoutProgressSeries = hydrated;
+  }
+
+  function resolveReusableTimeoutProgressSeries() {
+    const incomingKey = resolveViewOrderKey({
+      historySeq: renderedRecordHistorySeq,
+      roomEventSeq: renderedRecordRoomEventSeq,
+      eventStreamId: renderedRecordEventStreamId,
+    });
+    const insertBefore = stream === realStream && hasViewOrderKey(incomingKey)
+      ? findInsertBeforeChild(incomingKey)
+      : null;
+    const { keeper } = foldTimeoutProgressSeriesAtTail({
+      insertBefore,
+      streamLastChild: stream.lastElementChild,
+    });
+    if (keeper instanceof HTMLElement) {
+      const hydrated = hydrateTimeoutProgressSeries(keeper);
+      if (hydrated) return hydrated;
+    }
+    if (timeoutProgressSeries?.block?.isConnected) return timeoutProgressSeries;
+    return null;
   }
 
   /**
@@ -1151,6 +1523,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const idleSeconds = Math.max(0, Number(parsed.idleSeconds) || 0);
     const remainingSeconds = Math.max(0, Number(parsed.remainingSeconds) || 0);
 
+    timeoutProgressSeries = resolveReusableTimeoutProgressSeries();
     if (!timeoutProgressSeries) {
       const block = createSdkBlock({
         variant: 'warn',
@@ -1159,7 +1532,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
         open: false,
         skipTimeoutFinalize: true,
       });
-      block.classList.add('sdk-timeout-progress-series');
+      block.classList.add(TIMEOUT_PROGRESS_SERIES_CLASS);
       block.running = true;
 
       const body = document.createElement('div');
@@ -1198,12 +1571,17 @@ export function createSdkRichView(chat, mountEl, hooks) {
       inferredTotal
     );
     timeoutProgressSeries.totalSeconds = Math.max(totalSeconds, 1);
+    if (timeoutProgressSeries.block instanceof HTMLElement) {
+      timeoutProgressSeries.block.classList.add(TIMEOUT_PROGRESS_SERIES_CLASS);
+      timeoutProgressSeries.block.dataset.timeoutTotalSeconds = String(
+        timeoutProgressSeries.totalSeconds
+      );
+    }
     if (!isStarted) {
       timeoutProgressSeries.updates += 1;
     }
     timeoutProgressSeries.block.running = true;
     timeoutProgressSeries.block.label = '';
-    timeoutProgressSeries.block.createdAt = new Date().toISOString();
     timeoutProgressSeries.isStarted = isStarted;
     timeoutProgressSeries.anchorAt = Date.now();
     timeoutProgressSeries.anchorIdleSeconds = idleSeconds;
@@ -1227,9 +1605,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
           remaining: formatTimeoutProgressSeconds(remainingSeconds),
         })}`;
       timeoutProgressSeries.updatesEl.prepend(updateLine);
-      while (timeoutProgressSeries.updatesEl.childElementCount > 40) {
-        timeoutProgressSeries.updatesEl.lastElementChild?.remove();
-      }
+      trimTimeoutProgressUpdates(timeoutProgressSeries.updatesEl);
     }
     scrollToBottom();
   }
@@ -1280,6 +1656,111 @@ export function createSdkRichView(chat, mountEl, hooks) {
     }
   }
 
+  function listRenderedSdkBlocks() {
+    return stream.querySelectorAll('cr-sdk-block');
+  }
+
+  function stopAllThinkingSpinners() {
+    setThinkingRunning(false);
+    stopSdkBlockSpinners(listAllRunItems(thinkingBlocksByRun));
+    stopSdkBlockSpinners(latestThinkingByRun.values());
+    stopSdkBlockSpinners(listRenderedSdkBlocks());
+  }
+
+  function openLiveTurn() {
+    isLiveTurn = true;
+  }
+
+  function closeLiveTurn() {
+    isLiveTurn = false;
+    stopAllThinkingSpinners();
+    // History often has no FINISHED status. Idle/replay must still clear
+    // leftover running tiles or they spin under the last assistant block.
+    finalizeOpenToolCalls('', 'finished');
+    for (const tray of listAllRunItems(traysByRun)) {
+      const current = String(tray?.statusEl?.dataset?.status || '');
+      const presented = presentSdkActivityTrayStatus({ status: current });
+      if (isTerminalSdkRunStatus(current) || isTerminalSdkRunStatus(presented.terminalStatus)) continue;
+      setTrayStatus(tray, 'finished');
+    }
+  }
+
+  /**
+   * @param {string} runKey
+   */
+  function stopThinkingSpinnersForRun(runKey) {
+    const key = String(runKey || '').trim();
+    if (!key) {
+      stopAllThinkingSpinners();
+      return;
+    }
+    stopSdkBlockSpinners(listRunItems(thinkingBlocksByRun, key));
+    const latest = latestThinkingByRun.get(key);
+    if (latest) stopSdkBlockSpinners([latest]);
+    if (thinkingDetails && (activeThinkingRunKey === key || !activeThinkingRunKey)) {
+      setThinkingRunning(false);
+    }
+  }
+
+  function markAllTraysFinished(status, lastErrorCode = '') {
+    markTraysFinishedForRun('', status, lastErrorCode);
+  }
+
+  /**
+   * @param {string} runKey
+   * @param {string} status
+   * @param {string} [lastErrorCode]
+   */
+  function markTraysFinishedForRun(runKey, status, lastErrorCode = '') {
+    const st = String(status || 'finished');
+    const key = String(runKey || '').trim();
+    const trays = key ? listRunItems(traysByRun, key) : listAllRunItems(traysByRun);
+    for (const tray of trays) {
+      if (tray) setTrayStatus(tray, st, lastErrorCode);
+    }
+    if (!key) {
+      for (const tray of latestTrayByRun.values()) {
+        if (tray) setTrayStatus(tray, st, lastErrorCode);
+      }
+      return;
+    }
+    const latest = latestTrayByRun.get(key);
+    if (latest) setTrayStatus(latest, st, lastErrorCode);
+  }
+
+  /**
+   * SDK `status` FINISHED is not the same as `runFinished`. A turn can leave
+   * several Activity trays; updating only the latest one leaves earlier
+   * RUNNING labels and Thinking spinners on screen after the chat is idle.
+   *
+   * @param {string} runKey
+   * @param {string} status
+   * @param {string} [lastErrorCode]
+   */
+  function finalizeRunPresentation(runKey, status, lastErrorCode = '') {
+    const presented = presentSdkActivityTrayStatus({ status, lastErrorCode });
+    const terminalStatus = presented.terminalStatus || status;
+    if (!isTerminalSdkRunStatus(status) && !isTerminalSdkRunStatus(terminalStatus)) return;
+    const key = String(runKey || '').trim();
+    finalizeOpenToolCalls(key, terminalStatus);
+    stopThinkingSpinnersForRun(key);
+    markTraysFinishedForRun(key, status, lastErrorCode);
+    if (key && activeThinkingRunKey && activeThinkingRunKey !== key) return;
+    if (activeKind !== 'thinking') return;
+    thinkingDetails = null;
+    thinkingPre = null;
+    activeKind = 'idle';
+    activeThinkingRunKey = '';
+  }
+
+  function finalizeAllTerminalRunPresentations() {
+    for (const [key, st] of runStatusByRun.entries()) {
+      finalizeRunPresentation(key, st);
+    }
+    if (!shouldCloseLiveTurnAfterHistoryReplay(chat)) return;
+    closeLiveTurn();
+  }
+
   /**
    * @param {string} runKey
    */
@@ -1287,22 +1768,23 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const key = String(runKey || '').trim();
     if (!key) return;
     const latest = latestThinkingByRun.get(key);
-    // Blocks the run already left behind are done — their spinner is always stale.
+    const keepLatest = shouldKeepSdkThinkingSpinner({
+      runKey: key,
+      activeKind,
+      activeThinkingRunKey,
+      suppressHistoryPersist,
+      runStatus: runStatusByRun.get(key),
+      hasRunningTools: hasRunningSdkTools(runningToolCallsByRun, key),
+      isLiveTurn,
+    });
     for (const stale of listRunItems(thinkingBlocksByRun, key)) {
-      if (stale === latest) continue;
+      if (stale === latest && keepLatest) continue;
       if (!stale || typeof stale !== 'object' || !('running' in stale)) continue;
       stale.running = false;
     }
     if (!latest || typeof latest !== 'object' || !('running' in latest)) return;
-
-    if (activeKind === 'thinking' && activeThinkingRunKey === key && !suppressHistoryPersist) {
-      latest.running = true;
-      return;
-    }
-
-    const running = hasRunningSdkTools(runningToolCallsByRun, key);
-    latest.running = running;
-    if (running) latest.open = true;
+    latest.running = keepLatest;
+    if (keepLatest) latest.open = true;
   }
 
   /**
@@ -1341,7 +1823,11 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const searchQuery = parseToolSearchQuery(readToolSearchQuery(args));
     if (searchQuery) return searchQuery;
     const firstPath = Array.isArray(paths) ? String(paths[0] || '') : '';
-    if (!firstPath) return name || 'tool';
+    if (!firstPath) {
+      if (String(name || '').toLowerCase() === 'usage') return t('sdkView.activityUsage');
+      if (String(name || '').toLowerCase() === 'subagent') return t('sdkBlock.toolSubagent');
+      return name || 'tool';
+    }
     const normalized = firstPath.replace(/\\/g, '/').replace(/\/$/, '');
     return normalized.split('/').pop() || name || 'tool';
   }
@@ -1355,7 +1841,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const nameLower = name.toLowerCase();
     const argsStr = stringifySnippet(ev.args, 2400);
     const resultStr = stringifySnippet(ev.result, 4800);
-    const todoSummary = nameLower === 'updatetodos' ? extractTodoSummary(ev.args) : '';
+    const todoSummary = nameLower === 'updatetodos' ? extractTodoSummaryFromToolEvent(ev) : '';
     const searchQuery = parseToolSearchQuery(readToolSearchQuery(ev.args));
     const body = document.createElement('div');
     const searchSummary = searchQuery
@@ -1430,6 +1916,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
    */
   function applyStatusToLatestOpenTool(runKey, status) {
     const key = String(runKey || '').trim();
+    const nextStatus = canonicalizeSdkToolStatus({ status });
     let match = null;
     for (const record of toolByCallId.values()) {
       if (!record) continue;
@@ -1440,17 +1927,17 @@ export function createSdkRichView(chat, mountEl, hooks) {
     }
     if (!match) return;
     const prevStatus = typeof match.event?.status === 'string' ? match.event.status : '';
-    if (!shouldAcceptSdkToolStatus(prevStatus, status)) return;
-    const ev = { ...(match.event || {}), status };
+    if (!shouldAcceptSdkToolStatus(prevStatus, nextStatus)) return;
+    const ev = { ...(match.event || {}), status: nextStatus };
     const paths = pathsFromToolArgs(ev.args);
     match.event = ev;
-    match.fullBlock.variant = resolveToolBlockVariant(status);
-    match.fullBlock.label = status;
+    match.fullBlock.variant = resolveToolBlockVariant(nextStatus);
+    match.fullBlock.label = nextStatus;
     match.fullBlock.name = typeof ev.name === 'string' ? ev.name : match.fullBlock.name;
     match.fullBlock.open = false;
     match.fullBlock.replaceChildren(createToolBody(ev));
     updateCompactToolTile(match, ev, paths);
-    updateRunningSdkToolState(runningToolCallsByRun, match.runKey || key, prevStatus, status);
+    updateRunningSdkToolState(runningToolCallsByRun, match.runKey || key, prevStatus, nextStatus);
     syncThinkingBlockRunning(match.runKey || key);
   }
 
@@ -1458,12 +1945,33 @@ export function createSdkRichView(chat, mountEl, hooks) {
    * @param {object} tray
    * @param {string} status
    */
-  function setTrayStatus(tray, status) {
+  /**
+   * @param {string} datasetStatus
+   * @returns {string}
+   */
+  function resolveActivityTrayLabel(datasetStatus) {
+    if (datasetStatus === 'reported') return t('sdkView.activityReported');
+    if (datasetStatus === 'completed') return t('sdkView.activityCompleted');
+    if (datasetStatus === 'finished') return t('sdkView.activityFinished');
+    if (datasetStatus === 'cancelled') return t('sdkView.activityCancelled');
+    if (datasetStatus === 'error') return t('sdkView.activityError');
+    return String(datasetStatus || '').toUpperCase();
+  }
+
+  /**
+   * @param {object} tray
+   * @param {string} status
+   * @param {string} [lastErrorCode]
+   */
+  function setTrayStatus(tray, status, lastErrorCode = '') {
     if (!tray?.statusEl) return;
-    const normalized = String(status || '').trim().toUpperCase();
-    tray.statusEl.textContent = normalized;
-    tray.statusEl.hidden = !normalized;
-    tray.statusEl.dataset.status = normalized.toLowerCase();
+    const presented = presentSdkActivityTrayStatus({ status, lastErrorCode });
+    const datasetStatus = presented.datasetStatus;
+    const current = String(tray.statusEl.dataset.status || '');
+    if (shouldKeepSdkActivityTrayStatus(current, datasetStatus)) return;
+    tray.statusEl.textContent = resolveActivityTrayLabel(datasetStatus);
+    tray.statusEl.hidden = !datasetStatus;
+    tray.statusEl.dataset.status = datasetStatus;
   }
 
   /**
@@ -1573,7 +2081,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     record.iconEl.className = `mdi ${getToolIconClass(name)} sdk-tool-tile__icon`;
     record.labelEl.textContent = label;
     record.statusEl.className =
-      status === 'running'
+      isOpenSdkToolStatus(status)
         ? 'mdi mdi-loading mdi-spin sdk-tool-tile__status-icon'
         : status === 'error'
           ? 'mdi mdi-alert-circle-outline sdk-tool-tile__status-icon'
@@ -1658,17 +2166,25 @@ export function createSdkRichView(chat, mountEl, hooks) {
     runStatusByRun.clear();
     runningToolCallsByRun.clear();
     runScope += 1;
+    isLiveTurn = false;
     resumeThinkingAfterStreamReset = false;
     resumeAssistantAfterStreamReset = false;
+    lastRenderedMode = '';
   }
 
   /**
    * @param {unknown} status
    * @returns {string}
    */
-  function resolveRunFinishedLineClass(status) {
-    const normalized = String(status || '').trim().toLowerCase();
-    if (!normalized || normalized === 'finished' || normalized === 'completed') {
+  function resolveRunFinishedLineClass(status, lastErrorCode = '') {
+    const presented = presentSdkActivityTrayStatus({ status, lastErrorCode });
+    const normalized = presented.datasetStatus || String(status || '').trim().toLowerCase();
+    if (
+      !normalized
+      || normalized === 'finished'
+      || normalized === 'completed'
+      || normalized === 'reported'
+    ) {
       return 'sdk-rich-line--ok';
     }
     if (isSdkRunFailureStatus(normalized)) return 'sdk-rich-line--err';
@@ -1700,7 +2216,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const div = document.createElement('div');
     div.className = `sdk-rich-line ${htmlClass}`;
 
-    const content = document.createElement('span');
+    const content = document.createElement('div');
     content.className = 'sdk-rich-line__content';
     content.innerHTML = htmlInner;
     div.appendChild(content);
@@ -1769,7 +2285,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     block.addEventListener('cr-sdk-block-remove', () => {
       if (typeof hooks.onRemoveQueueItem === 'function') hooks.onRemoveQueueItem(text);
     });
-    applyDelegationArrows(block);
+    applyMessageSourceActions(block);
   }
 
   /**
@@ -1827,6 +2343,44 @@ export function createSdkRichView(chat, mountEl, hooks) {
     block.replyable = hasParent;
   }
 
+  /**
+   * Copy-ref is independent of Fork/Pass. Hide thinking/tool/queued/running;
+   * disable with a hint when the block is user/assistant but not yet saved.
+   *
+   * @param {HTMLElement} block
+   */
+  function applyCopyRefAction(block) {
+    if (!(block instanceof HTMLElement)) return;
+    const chatId = String(block.chatId || chat?.id || '').trim();
+    if (chatId && 'chatId' in block) block.chatId = chatId;
+    const action = resolveChatMessageRefAction({
+      variant: block.variant,
+      historySeq: block.historySeq,
+      chatId,
+      queued: block.queued === true,
+      running: block.running === true,
+    });
+    block.refCopyable = action.visible && action.enabled;
+    block.refCopyDisabled = action.visible && !action.enabled;
+    block.refCopyHint = action.reason === 'needs_saved_history'
+      ? t('sdkBlock.copyRefNeedsSavedHistory')
+      : '';
+  }
+
+  function applyMessageSourceActions(block) {
+    if (!(block instanceof HTMLElement)) return;
+    const chatId = String(chat?.id || '').trim();
+    if (chatId && 'chatId' in block) block.chatId = chatId;
+    if (renderedRecordHistorySeq > 0) {
+      const current = Number(block.historySeq) || 0;
+      if (current <= 0 || current === renderedRecordHistorySeq) {
+        block.historySeq = renderedRecordHistorySeq;
+      }
+    }
+    applyDelegationArrows(block);
+    applyCopyRefAction(block);
+  }
+
   function createSdkBlock(opts = {}) {
     const block = document.createElement('cr-sdk-block');
     block.variant = opts.variant || 'muted';
@@ -1842,6 +2396,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
     block.historySeq = Number.isSafeInteger(seq) && seq > 0
       ? seq
       : (renderedRecordHistorySeq || 0);
+    const chatId = String(chat?.id || '').trim();
+    if (chatId) block.chatId = chatId;
     appendStreamChild(block, { skipTimeoutFinalize: opts.skipTimeoutFinalize === true });
     return block;
   }
@@ -1855,7 +2411,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const block = createSdkBlock({ variant: 'assistant', label: t('sdkView.answer'), open: true });
     block.speakable = true;
     block.forkable = true;
-    applyDelegationArrows(block);
+    applyMessageSourceActions(block);
     const mdEl = document.createElement('div');
     mdEl.className = 'sdk-md sdk-rich-md sdk-rich-assistant-md';
     block.appendChild(mdEl);
@@ -1874,8 +2430,11 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (!text) return null;
     const block = createSdkBlock({ variant: 'user', label: t('sdkView.you'), open: true, createdAt });
     block.forkable = true;
-    applyDelegationArrows(block);
-    const textForDisplay = stripScreenshotMarkers(text);
+    applyMessageSourceActions(block);
+    let shown = text;
+    if (text === 'Child reply') shown = t('chat.mailboxReplyFromChild');
+    else if (text === 'Task from parent') shown = t('chat.mailboxTaskFromParent');
+    const textForDisplay = stripScreenshotMarkers(shown);
     block.copyText = text;
     const body = document.createElement('div');
     body.className = 'sdk-rich-user-body';
@@ -2192,12 +2751,13 @@ export function createSdkRichView(chat, mountEl, hooks) {
    */
   function applySdkEventCore(event) {
     if (!event || typeof event !== 'object') return;
-    const ev = /** @type {Record<string, unknown>} */ (event);
+    const ev = normalizeSdkToolStreamEvent(event) || /** @type {Record<string, unknown>} */ (event);
     const eventType = typeof ev.type === 'string' ? ev.type.toLowerCase() : '';
 
     if (eventType === 'user') {
       stopTimeoutProgressSeries();
       runScope += 1;
+      if (!suppressHistoryPersist) openLiveTurn();
       resumeThinkingAfterStreamReset = false;
       resumeAssistantAfterStreamReset = false;
       resetSdkStreamState(chat);
@@ -2222,7 +2782,11 @@ export function createSdkRichView(chat, mountEl, hooks) {
     }
 
     if (eventType === 'assistant') {
-      if (isHarnessErrorAssistantText(extractAssistantPlainText(ev))) return;
+      const full = extractAssistantPlainText(ev);
+      // Some Codex turn/item lifecycle events carry an empty assistant
+      // payload. They must not create a visible answer card with only its
+      // header, especially after the final tool/usage event.
+      if (!full.trim() || isHarnessErrorAssistantText(full)) return;
       stopTimeoutProgressSeries();
       if (activeKind === 'thinking') {
         delete chat._sdkThinkingAcc;
@@ -2241,15 +2805,26 @@ export function createSdkRichView(chat, mountEl, hooks) {
       }
       // A new answer block must start from a clean accumulator.
       if (!assistantMdEl) {
-        const reused = resolveAssistantBlockAfterReset();
-        if (reused) {
-          adoptAssistantBlock(reused);
+        const sameKeyBlock = findStreamChildByOrderKey(resolveViewOrderKey({
+          historySeq: renderedRecordHistorySeq,
+          roomEventSeq: renderedRecordRoomEventSeq,
+          eventStreamId: renderedRecordEventStreamId,
+        }));
+        const sameKeyMd = sameKeyBlock instanceof HTMLElement
+          ? sameKeyBlock.querySelector('.sdk-rich-assistant-md')
+          : null;
+        if (sameKeyMd instanceof HTMLElement) {
+          adoptAssistantBlock(sameKeyMd);
         } else {
-          delete chat._sdkAssistantAcc;
+          const reused = resolveAssistantBlockAfterReset();
+          if (reused) {
+            adoptAssistantBlock(reused);
+          } else {
+            delete chat._sdkAssistantAcc;
+          }
         }
       }
       activeKind = 'assistant';
-      const full = extractAssistantPlainText(ev);
       const assistantPrev = typeof chat._sdkAssistantAcc === 'string' ? chat._sdkAssistantAcc : '';
       const thinkingAcc = typeof chat._sdkThinkingAcc === 'string' ? chat._sdkThinkingAcc : '';
       const projectedAssistant = projectStreamAccumulator(assistantPrev, full);
@@ -2261,6 +2836,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
 
       if (!assistantMdEl) {
         assistantMdEl = createAssistantBlock();
+      } else {
+        applyMessageSourceActions(assistantMdEl.closest('cr-sdk-block'));
       }
       const acc = typeof chat._sdkAssistantAcc === 'string' ? chat._sdkAssistantAcc : '';
       const split = splitTrailingTitleJson(acc);
@@ -2275,6 +2852,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
       }
       if (split.title && typeof hooks.onFinishTitle === 'function') {
         hooks.onFinishTitle(split.title);
+      }
+      if (split.title && !suppressHistoryPersist) {
+        closeLiveTurn();
       }
       persistSdkStreamSnapshot(ev, 'assistant', acc);
       // Replayed history must stay silent — only live answers are read aloud.
@@ -2302,25 +2882,30 @@ export function createSdkRichView(chat, mountEl, hooks) {
           thinkingPre = document.createElement('pre');
           thinkingPre.className = 'sdk-rich-thinking-pre';
           thinkingDetails.appendChild(thinkingPre);
-          thinkingDetails.running = !suppressHistoryPersist;
         }
       }
       activeThinkingRunKey = runKey;
       const full = typeof ev.text === 'string' ? ev.text : '';
+      const unavailable = ev.unavailable === true && !full.trim();
+      thinkingDetails.dataset.reasoningUnavailable = unavailable ? 'true' : 'false';
       const truncated = full.length > 12000 ? `${full.slice(0, 12000)}…` : full;
       const assistantAcc = typeof chat._sdkAssistantAcc === 'string' ? chat._sdkAssistantAcc : '';
       const thinkingPrev = typeof chat._sdkThinkingAcc === 'string' ? chat._sdkThinkingAcc : '';
       const projectedThinking = projectStreamAccumulator(thinkingPrev, truncated);
+      rememberThinkingBlock(runKey, thinkingDetails);
+      syncThinkingBlockRunning(runKey);
       if (assistantAcc && textsOverlap(assistantAcc, projectedThinking)) {
         return;
       }
       const delta = takeStreamDelta(chat, '_sdkThinkingAcc', truncated);
       if (delta && !suppressHooksPlain) hooks.appendPlain(delta);
 
-      rememberThinkingBlock(runKey, thinkingDetails);
       if (thinkingPre) {
         const stickThinking = isScrollableNearBottom(thinkingPre);
-        thinkingPre.textContent = typeof chat._sdkThinkingAcc === 'string' ? chat._sdkThinkingAcc : '';
+        thinkingPre.textContent = unavailable
+          ? t('sdkView.reasoningUnavailable')
+          : (typeof chat._sdkThinkingAcc === 'string' ? chat._sdkThinkingAcc : '');
+        thinkingPre.classList.toggle('sdk-rich-thinking-pre--unavailable', unavailable);
         if (stickThinking) stickScrollToBottom(thinkingPre);
       }
       scrollToBottom();
@@ -2332,7 +2917,10 @@ export function createSdkRichView(chat, mountEl, hooks) {
       stopTimeoutProgressSeries();
       if (isEmptyGenericSdkToolEvent(ev)) {
         const ghostRunKey = getEventRunKey(ev);
-        const ghostStatus = typeof ev.status === 'string' ? ev.status : '';
+        const ghostStatus = canonicalizeSdkToolStatus({
+          status: ev.status,
+          result: ev.result,
+        });
         if (isTerminalSdkToolStatus(ghostStatus)) {
           applyStatusToLatestOpenTool(ghostRunKey, ghostStatus);
         }
@@ -2343,10 +2931,30 @@ export function createSdkRichView(chat, mountEl, hooks) {
       activeKind = 'idle';
 
       const incomingName = typeof ev.name === 'string' ? ev.name.trim() : '';
-      const incomingStatus = typeof ev.status === 'string' ? ev.status : '';
+      const incomingStatus = canonicalizeSdkToolStatus({
+        status: ev.status,
+        result: ev.result,
+      });
       const runKey = getEventRunKey(ev);
-      const callId = resolveSdkToolCallId(ev, buildStableSdkToolCallFallback(ev, runKey));
-      let record = toolByCallId.get(callId);
+      const explicitId = resolveSdkToolCallId(ev);
+      const fallbackId = buildStableSdkToolCallFallback(ev, runKey);
+      let record = findOpenSdkToolRecord(toolByCallId.values(), {
+        callId: explicitId,
+        name: incomingName,
+        args: ev.args,
+        runKey,
+        status: incomingStatus,
+        result: ev.result,
+      });
+      if (!record && fallbackId) record = toolByCallId.get(fallbackId) || null;
+      const callId = explicitId || record?.callId || fallbackId;
+      if (record && record.callId !== callId) {
+        toolByCallId.delete(record.callId);
+        record.callId = callId;
+        if (record.tile) record.tile.dataset.callId = callId;
+        if (record.fullBlock) record.fullBlock.dataset.callId = callId;
+        toolByCallId.set(callId, record);
+      }
       const prevName = record?.event && typeof record.event.name === 'string'
         ? record.event.name.trim()
         : '';
@@ -2356,24 +2964,32 @@ export function createSdkRichView(chat, mountEl, hooks) {
       const compactName = nameLower.replace(/[^a-z0-9]/g, '');
       if (compactName === 'createplan') {
         const planText = extractPlanTextFromSdkEvent(ev);
-        let block = planByCallId.get(callId);
-        if (!block) {
+        const snippet = stringifySnippet(ev.result, 8000) || stringifySnippet(ev.args, 4000);
+        const incomingMarkdown = planText
+          || (isPlaceholderSdkPlanMarkdown(snippet) ? '' : snippet);
+        let block = findReusablePlanBlock(callId);
+        if (!(block instanceof HTMLElement) || !block.isConnected) {
           block = createSdkBlock();
+        }
+        if (callId) {
           block.dataset.callId = callId;
           planByCallId.set(callId, block);
         }
         block.variant = 'plan';
-        block.label = incomingStatus || 'plan';
+        const previousStatus = String(block.label || '');
+        block.label = shouldAcceptSdkToolStatus(previousStatus, incomingStatus)
+          ? (incomingStatus || previousStatus || 'plan')
+          : (previousStatus || incomingStatus || 'plan');
         block.name = t('sdkView.implementationPlan');
         block.open = true;
-
         let mdEl = block.querySelector('.sdk-rich-plan-md');
         if (!mdEl) {
           mdEl = document.createElement('div');
           mdEl.className = 'sdk-md sdk-rich-md sdk-rich-plan-md';
           block.replaceChildren(mdEl);
         }
-        flushMarkdown(mdEl, planText || stringifySnippet(ev.result, 8000) || stringifySnippet(ev.args, 4000));
+        flushMarkdown(mdEl, mergeSdkPlanMarkdown(mdEl.dataset.rawMd || '', incomingMarkdown));
+        foldDuplicatePlanCards();
         scrollToBottom();
         persistThisSdkEvent(ev);
         return;
@@ -2425,7 +3041,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       record.fullBlock.label = status || '?';
       record.fullBlock.name = name;
       record.fullBlock.paths = paths;
-      record.fullBlock.open = status === 'running' || (isToolSearchName(name) && status === 'error');
+      record.fullBlock.open = isOpenSdkToolStatus(status) || (isToolSearchName(name) && status === 'error');
       record.fullBlock.replaceChildren(createToolBody(evForUi));
       record.fullBlock.hidden = uiMode === 'compact';
       updateCompactToolTile(record, evForUi, paths);
@@ -2439,22 +3055,28 @@ export function createSdkRichView(chat, mountEl, hooks) {
 
     if (eventType === 'status') {
       const st = typeof ev.status === 'string' ? ev.status : '';
+      const errorCode = typeof ev.lastErrorCode === 'string' ? ev.lastErrorCode.trim() : '';
       // A run announcing itself as running is not the agent's first output. Ending the waiting
       // block here stops its spinner seconds before anything actually arrives — and the status
       // line is hidden in compact mode, so the indicator would die with no visible cause.
-      const keepWaiting = !isTerminalSdkRunStatus(st);
+      const presented = presentSdkActivityTrayStatus({ status: st, lastErrorCode: errorCode });
+      const keepWaiting = !isTerminalSdkRunStatus(st) && !isTerminalSdkRunStatus(presented.terminalStatus);
       if (!keepWaiting) stopTimeoutProgressSeries();
       const msg = typeof ev.message === 'string' ? ev.message : '';
       const runKey = getEventRunKey(ev);
-      runStatusByRun.set(runKey, st);
-      const tray = latestTrayByRun.get(runKey);
-      if (tray) setTrayStatus(tray, st);
-      if (isTerminalSdkRunStatus(st)) {
-        finalizeOpenToolCalls(runKey, st);
+      runStatusByRun.set(runKey, presented.terminalStatus || st);
+      if (isTerminalSdkRunStatus(st) || isTerminalSdkRunStatus(presented.terminalStatus)) {
+        finalizeRunPresentation(runKey, st, errorCode);
+        closeLiveTurn();
+      } else {
+        openLiveTurn();
+        const tray = latestTrayByRun.get(runKey);
+        if (tray) setTrayStatus(tray, st, errorCode);
       }
+      const statusLabel = resolveActivityTrayLabel(presented.datasetStatus) || st;
       lineMeta(
         'sdk-rich-line--status',
-        `<span class="sdk-rich-badge sdk-rich-badge--status">${escapeHtml(st)}</span> ${escapeHtml(msg)}`,
+        `<span class="sdk-rich-badge sdk-rich-badge--status">${escapeHtml(statusLabel)}</span> ${escapeHtml(msg)}`,
         '',
         true,
         keepWaiting
@@ -2464,19 +3086,24 @@ export function createSdkRichView(chat, mountEl, hooks) {
     }
 
     if (eventType === 'system') {
-      stopTimeoutProgressSeries();
-      lineMeta('sdk-rich-line--muted', '<span class="sdk-rich-badge">system</span>', '', true);
+      lineMeta(
+        'sdk-rich-line--muted',
+        '<span class="sdk-rich-badge">system</span>',
+        '',
+        true,
+        true
+      );
       persistThisSdkEvent(ev);
       return;
     }
 
     if (eventType === 'task') {
-      stopTimeoutProgressSeries();
       const tx = typeof ev.text === 'string' ? ev.text : '';
       lineMeta(
         'sdk-rich-line--task',
         `<span class="sdk-rich-badge">task</span> ${escapeHtml(tx)}`,
         '',
+        true,
         true
       );
       persistThisSdkEvent(ev);
@@ -2528,8 +3155,16 @@ export function createSdkRichView(chat, mountEl, hooks) {
       block.classList.add('sdk-full-tool-block');
       fullToolBlocks.add(block);
       block.hidden = uiMode === 'compact';
-      const record = createCompactToolRecord(callId, block, compactEvent, [], runKey);
-      toolByCallId.set(callId, record);
+      const existing = toolByCallId.get(callId);
+      if (existing) {
+        block.remove();
+        existing.event = compactEvent;
+        existing.fullBlock.replaceChildren(createToolBody(compactEvent));
+        updateCompactToolTile(existing, compactEvent, []);
+      } else {
+        const record = createCompactToolRecord(callId, block, compactEvent, [], runKey);
+        toolByCallId.set(callId, record);
+      }
     }
     scrollToBottom();
     persistThisSdkEvent(ev);
@@ -2549,6 +3184,79 @@ export function createSdkRichView(chat, mountEl, hooks) {
     }
   }
 
+  /**
+   * Recovered earlier seqs must not reuse the live tail's assistant/thinking pointers.
+   * A proven new stream starts a fresh tail card so room seq 1 cannot merge into
+   * an older session. Isolation is the wrong tool here: restoring the old
+   * assistant pointer would keep later deltas on the previous stream.
+   *
+   * @param {{ historySeq?: number, roomEventSeq?: number, eventStreamId?: string }} incomingKey
+   * @returns {boolean}
+   */
+  function shouldStartFreshTailForNewEventStream(incomingKey) {
+    if (stream !== realStream) return false;
+    const incomingStream = resolveEventStreamId(incomingKey);
+    if (!incomingStream) return false;
+    const tail = lastStreamChild instanceof HTMLElement
+      ? lastStreamChild
+      : (stream.lastElementChild instanceof HTMLElement ? stream.lastElementChild : null);
+    if (!tail) return false;
+    const tailStream = resolveEventStreamId(readElementOrderKey(tail));
+    return !!tailStream && tailStream !== incomingStream;
+  }
+
+  function flushPendingAssistantMarkdown() {
+    if (assistantMdEl && mdRaf) {
+      flushMarkdown(assistantMdEl, assistantMdEl.dataset.rawMd || '');
+    }
+    if (mdRaf && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(mdRaf);
+    }
+    mdRaf = 0;
+  }
+
+  /**
+   * @param {() => void} fn
+   */
+  function startFreshTailForNewEventStream(fn) {
+    flushPendingAssistantMarkdown();
+    assistantMdEl = null;
+    thinkingDetails = null;
+    thinkingPre = null;
+    activeKind = 'idle';
+    activeThinkingRunKey = '';
+    if (chat && typeof chat === 'object') {
+      delete chat._sdkAssistantAcc;
+      delete chat._sdkThinkingAcc;
+    }
+    fn();
+  }
+
+  /**
+   * @param {{ historySeq?: number, roomEventSeq?: number, eventStreamId?: string }} incomingKey
+   * @param {() => void} fn
+   */
+  function runViewApplyWithOrder(incomingKey, fn) {
+    const existing = findStreamChildByOrderKey(incomingKey);
+    if (existing) {
+      stampElementOrderKey(existing);
+      foldDuplicateOrderKeyCards();
+      fn();
+      return;
+    }
+    const later = stream === realStream ? findInsertBeforeChild(incomingKey) : null;
+    if (later) captureInsertScroll(later);
+    if (later) {
+      withIsolatedRenderState(fn);
+      return;
+    }
+    if (shouldStartFreshTailForNewEventStream(incomingKey)) {
+      startFreshTailForNewEventStream(fn);
+      return;
+    }
+    fn();
+  }
+
   let lastHistoryErrorText = '';
 
   function applyHistoryRecord(record) {
@@ -2556,9 +3264,16 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const rec = /** @type {Record<string, unknown>} */ (record);
     const createdAt = typeof rec.createdAt === 'string' ? rec.createdAt : '';
     const historySeq = Number(rec.historySeq) > 0 ? Number(rec.historySeq) : 0;
+    const roomEventSeq = Number(rec.roomEventSeq) > 0 ? Number(rec.roomEventSeq) : 0;
+    const eventStreamId = resolveEventStreamId(rec);
     const previousSeq = renderedRecordHistorySeq;
+    const previousRoom = renderedRecordRoomEventSeq;
+    const previousStream = renderedRecordEventStreamId;
     renderedRecordHistorySeq = historySeq;
+    renderedRecordRoomEventSeq = roomEventSeq;
+    renderedRecordEventStreamId = eventStreamId;
     try {
+    runViewApplyWithOrder(resolveViewOrderKey({ historySeq, roomEventSeq, eventStreamId }), () => {
     if (rec.kind === 'sdk' && rec.event != null && typeof rec.event === 'object') {
       applySdkEvent(rec.event, createdAt, historySeq);
       return;
@@ -2581,7 +3296,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
           if (createdAt) item.block.createdAt = createdAt;
           if (historySeq) item.block.historySeq = historySeq;
           item.block.forkable = true;
-          applyDelegationArrows(item.block);
+          applyMessageSourceActions(item.block);
           relabelQueuedBlocks();
           scrollToBottom();
           return;
@@ -2589,6 +3304,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       }
       const existing = findUserBlockByText(raw);
       if (existing && !existing.queued && !inherited.followUp) {
+        applyMessageSourceActions(existing);
         scrollToBottom();
         return;
       }
@@ -2607,25 +3323,13 @@ export function createSdkRichView(chat, mountEl, hooks) {
         createdAt
       );
     } else if (variant === 'runFinished') {
-      setThinkingRunning(false);
-      for (const block of listAllRunItems(thinkingBlocksByRun)) {
-        if (block && typeof block === 'object' && 'running' in block) block.running = false;
-      }
-      for (const block of latestThinkingByRun.values()) {
-        if (block && typeof block === 'object' && 'running' in block) block.running = false;
-      }
-      const latestRunKey = Array.from(latestTrayByRun.keys()).pop() || '';
-      finalizeOpenToolCalls(latestRunKey, payload);
-      const runTrays = listRunItems(traysByRun, latestRunKey);
-      const trays = runTrays.length > 0
-        ? runTrays
-        : [latestTrayByRun.get(latestRunKey) || Array.from(latestTrayByRun.values()).pop()];
-      for (const tray of trays) {
-        if (tray) setTrayStatus(tray, payload || 'finished');
-      }
+      const presented = presentSdkActivityTrayStatus({ status: payload });
+      closeLiveTurn();
+      finalizeOpenToolCalls('', presented.terminalStatus || payload);
+      markAllTraysFinished(payload);
       lineMeta(
         resolveRunFinishedLineClass(payload),
-        `<strong>${escapeHtml(t('sdkView.runFinished'))}</strong> · ${escapeHtml(payload)}`,
+        `<strong>${escapeHtml(t('sdkView.runFinished'))}</strong> · ${escapeHtml(resolveActivityTrayLabel(presented.datasetStatus) || payload)}`,
         createdAt,
         true
       );
@@ -2655,9 +3359,12 @@ export function createSdkRichView(chat, mountEl, hooks) {
         relabelQueuedBlocks();
       }
     } else if (variant === 'mode') {
+      if (!shouldRenderModeChange(lastRenderedMode, payload)) return;
+      const renderedMode = parseExplicitSdkMode(payload);
       const modeLabel =
-        payload === 'plan' ? 'Plan' : payload === 'ask' ? 'Ask' : payload === 'agent' ? 'Agent' : payload;
+        renderedMode === 'plan' ? 'Plan' : renderedMode === 'ask' ? 'Ask' : renderedMode === 'agent' ? 'Agent' : '';
       if (modeLabel) {
+        lastRenderedMode = renderedMode;
         lineMeta(
           'sdk-rich-line--notice',
           `<span class="sdk-rich-badge sdk-rich-badge--status">${escapeHtml(t('sdkView.modeBadge'))}</span> ${escapeHtml(modeLabel)}`,
@@ -2687,9 +3394,72 @@ export function createSdkRichView(chat, mountEl, hooks) {
     } else if (variant === 'relatedChat') {
       renderRelatedChatCard(payload, createdAt);
     }
+    });
     } finally {
       renderedRecordHistorySeq = previousSeq;
+      renderedRecordRoomEventSeq = previousRoom;
+      renderedRecordEventStreamId = previousStream;
     }
+  }
+
+  /**
+   * Aggregate wait label above existing delegation cards (not a second card system).
+   */
+  function refreshDelegationWaitBanner() {
+    const cards = [...stream.querySelectorAll('.sdk-rich-delegation[data-delegation-id]')];
+    const waitingCount = cards.filter((card) => isActiveDelegationStatus(card.dataset.delegationStatus)).length;
+    let banner = stream.querySelector('.sdk-rich-delegation-wait');
+    if (waitingCount < 1) {
+      banner?.remove();
+      return;
+    }
+    const first = cards[0];
+    if (!(banner instanceof HTMLElement)) {
+      banner = document.createElement('div');
+      banner.className = 'sdk-rich-line sdk-rich-delegation-wait';
+    }
+    banner.textContent = t('chat.delegationWaitingForAgents', { n: String(waitingCount) });
+    if (first instanceof HTMLElement && banner.nextElementSibling !== first) {
+      first.parentNode?.insertBefore(banner, first);
+    }
+  }
+
+  /**
+   * History cards (delegation / mailbox) are not one-line status chips.
+   *
+   * @param {HTMLElement} card
+   * @param {string} extraClass
+   */
+  function frameHistoryCard(card, extraClass) {
+    card.classList.remove(
+      'sdk-rich-line--ok',
+      'sdk-rich-line--warn',
+      'sdk-rich-line--err',
+      'sdk-rich-line--muted',
+      'sdk-rich-line--status',
+      'sdk-rich-line--task',
+      'sdk-rich-line--notice'
+    );
+    card.classList.add(extraClass);
+  }
+
+  /**
+   * @param {string} text
+   * @returns {string}
+   */
+  function renderHistoryCardProse(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return '';
+    return `<div class="sdk-md sdk-rich-md sdk-rich-delegation-report">${renderMarkdownSource(raw)}</div>`;
+  }
+
+  /**
+   * @param {HTMLElement} content
+   */
+  function decorateHistoryCardReports(content) {
+    content.querySelectorAll('.sdk-rich-delegation-report').forEach((el) => {
+      if (el instanceof HTMLElement) decorateCodeForCopy(el);
+    });
   }
 
   /**
@@ -2707,32 +3477,61 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const executorLabel = [executor.transport, executor.model].filter(Boolean).join(' · ');
     const report = String(data.report || '').trim();
     const error = String(data.error || '').trim();
-    const canCancel = status === 'queued' || status === 'starting' || status === 'running'
-      || status === 'waiting_for_input' || status === 'cancelling';
     let card = stream.querySelector(`[data-delegation-id="${safeId}"]`);
+    const historySeq = Number(renderedRecordHistorySeq) || 0;
+    const previousHistorySeq = Number(card?.dataset.delegationHistorySeq) || 0;
+    // A buffered live start may arrive after HTTP restored the finished card.
+    if (previousHistorySeq > 0 && historySeq <= previousHistorySeq) return;
     if (!(card instanceof HTMLElement)) {
-      lineMeta('sdk-rich-line--ok sdk-rich-delegation', '', createdAt);
-      card = stream.lastElementChild;
+      lineMeta('sdk-rich-delegation', '', createdAt);
+      card = lastStreamChild;
       if (card instanceof HTMLElement) card.dataset.delegationId = safeId;
     }
     if (!(card instanceof HTMLElement)) return;
+    frameHistoryCard(card, 'sdk-rich-delegation');
+    card.dataset.delegationStatus = status;
+    if (historySeq > 0) card.dataset.delegationHistorySeq = String(historySeq);
     const content = card.querySelector('.sdk-rich-line__content');
     if (!(content instanceof HTMLElement)) return;
-    const unverified = data.unverified !== false && status === 'completed' && !String(data.acknowledgedAt || '').trim()
+    const model = buildDelegationCardModel(data);
+    const unverified = model.showUnverified
       ? `<span class="sdk-rich-badge sdk-rich-badge--warn">${escapeHtml(t('chat.delegationUnverified'))}</span>`
       : '';
+    const uncertain = model.showUncertain
+      ? `<span class="sdk-rich-badge sdk-rich-badge--warn">${escapeHtml(t('chat.delegationUncertain'))}</span>`
+      : '';
     const waiting = status === 'waiting_for_input'
-      ? `<p>${escapeHtml(t('chat.delegationNeedsInput'))}</p>`
+      ? `<p class="sdk-rich-delegation-waiting">${escapeHtml(t('chat.delegationNeedsInput'))}</p>`
+      : '';
+    const errorProse = status === 'waiting_for_input' ? '' : renderHistoryCardProse(error);
+    const durationSec = Math.round(model.durationMs / 1000);
+    const duration = durationSec > 0
+      ? `<div class="sdk-rich-delegation-meta">${escapeHtml(t('chat.delegationDuration', { seconds: String(durationSec) }))}</div>`
+      : '';
+    const sourceLabel = model.sourceKind
+      ? `<div class="sdk-rich-delegation-meta">${escapeHtml(t('chat.delegationSource'))}: ${escapeHtml(model.sourceKind)}</div>`
+      : '';
+    const attemptLabel = `<div class="sdk-rich-delegation-meta">${escapeHtml(t('chat.delegationAttempt', { n: String(model.attemptNumber) }))}</div>`;
+    const deliveryLabel = `<div class="sdk-rich-delegation-meta">${escapeHtml(t('chat.delegationDelivery', { state: t(`chat.delegationDeliveryState.${model.deliveryState}`) }))}</div>`;
+    const attemptsLabel = model.attemptHistory.length > 1
+      ? `<div class="sdk-rich-delegation-meta">${escapeHtml(t('chat.delegationAttemptsStored', { n: String(model.attemptHistory.length) }))}</div>`
       : '';
     content.innerHTML = [
-      `<strong>${escapeHtml(t('chat.delegationCardTitle'))}</strong>`,
-      `<div>${escapeHtml(delegationStatusLabel(status))} ${unverified}</div>`,
-      executorLabel ? `<div>${escapeHtml(executorLabel)}</div>` : '',
+      `<strong class="sdk-rich-delegation-title">${escapeHtml(t('chat.delegationCardTitle'))}</strong>`,
+      `<div class="sdk-rich-delegation-meta">${escapeHtml(delegationStatusLabel(status))} ${unverified} ${uncertain}</div>`,
+      attemptLabel,
+      deliveryLabel,
+      attemptsLabel,
+      executorLabel ? `<div class="sdk-rich-delegation-meta">${escapeHtml(executorLabel)}</div>` : '',
+      sourceLabel,
+      duration,
       waiting,
-      error ? `<pre class="sdk-rich-delegation-report">${escapeHtml(error)}</pre>` : '',
-      report ? `<pre class="sdk-rich-delegation-report">${escapeHtml(report)}</pre>` : '',
+      errorProse,
+      renderHistoryCardProse(report),
       `<div class="sdk-rich-delegation-actions"></div>`,
     ].filter(Boolean).join('');
+    decorateHistoryCardReports(content);
+    refreshDelegationWaitBanner();
     const actions = content.querySelector('.sdk-rich-delegation-actions');
     if (actions instanceof HTMLElement) {
       if (childChatId) {
@@ -2745,7 +3544,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
         });
         actions.appendChild(openBtn);
       }
-      if (canCancel && status !== 'cancelling') {
+      if (model.canCancel) {
         const cancelBtn = document.createElement('button');
         cancelBtn.type = 'button';
         cancelBtn.className = 'sdk-rich-delegation-btn';
@@ -2755,11 +3554,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
         });
         actions.appendChild(cancelBtn);
       }
-      const acknowledged = Boolean(String(data.acknowledgedAt || '').trim());
-      const canReview = !acknowledged && (
-        status === 'completed' || status === 'failed' || status === 'interrupted'
-      );
-      if (canReview) {
+      if (model.canAck) {
         const ackBtn = document.createElement('button');
         ackBtn.type = 'button';
         ackBtn.className = 'sdk-rich-delegation-btn';
@@ -2768,6 +3563,16 @@ export function createSdkRichView(chat, mountEl, hooks) {
           hooks.onAcknowledgeDelegation?.(id);
         });
         actions.appendChild(ackBtn);
+      }
+      if (model.canRetry) {
+        const retryBtn = document.createElement('button');
+        retryBtn.type = 'button';
+        retryBtn.className = 'sdk-rich-delegation-btn';
+        retryBtn.textContent = t('chat.delegationRetry');
+        retryBtn.addEventListener('click', () => {
+          hooks.onRetryDelegation?.(id);
+        });
+        actions.appendChild(retryBtn);
       }
     }
     scrollToBottom();
@@ -2785,32 +3590,42 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const kind = String(data.kind || 'reply');
     const status = String(data.status || '');
     const fromChatId = String(data.fromChatId || '');
+    const fromTitle = String(data.fromTitle || '').trim() || fromChatId.slice(0, 8);
     const body = String(data.body || '').trim();
     const queued = status === 'queued' || status === 'dispatching'
       ? `<span class="sdk-rich-badge sdk-rich-badge--warn">${escapeHtml(t('chat.mailboxQueued'))}</span>`
       : status === 'delivered'
         ? `<span class="sdk-rich-badge">${escapeHtml(t('chat.mailboxDelivered'))}</span>`
-        : status === 'uncertain'
-          ? `<span class="sdk-rich-badge sdk-rich-badge--warn">${escapeHtml(t('chat.mailboxUncertain'))}</span>`
-          : '';
+        : status === 'failed'
+          ? `<span class="sdk-rich-badge sdk-rich-badge--warn">${escapeHtml(t('chat.mailboxFailed'))}</span>`
+          : status === 'uncertain'
+            ? `<span class="sdk-rich-badge sdk-rich-badge--warn">${escapeHtml(t('chat.mailboxUncertain'))}</span>`
+            : '';
     let card = stream.querySelector(`[data-mailbox-id="${safeId}"]`);
+    const historySeq = Number(renderedRecordHistorySeq) || 0;
+    const previousHistorySeq = Number(card?.dataset.mailboxHistorySeq) || 0;
+    if (previousHistorySeq > 0 && historySeq > 0 && historySeq <= previousHistorySeq) return;
     if (!(card instanceof HTMLElement)) {
-      lineMeta('sdk-rich-line--ok sdk-rich-mailbox', '', createdAt);
-      card = stream.lastElementChild;
+      lineMeta('sdk-rich-mailbox', '', createdAt);
+      card = lastStreamChild;
       if (card instanceof HTMLElement) card.dataset.mailboxId = safeId;
     }
     if (!(card instanceof HTMLElement)) return;
+    frameHistoryCard(card, 'sdk-rich-mailbox');
+    card.dataset.mailboxStatus = status;
+    if (historySeq > 0) card.dataset.mailboxHistorySeq = String(historySeq);
     const content = card.querySelector('.sdk-rich-line__content');
     if (!(content instanceof HTMLElement)) return;
     const title = kind === 'task'
       ? t('chat.mailboxTaskFromParent')
       : t('chat.mailboxReplyFromChild');
     content.innerHTML = [
-      `<strong>${escapeHtml(title)}</strong> ${queued}`,
-      fromChatId ? `<div>${escapeHtml(t('chat.mailboxFromChat'))}: ${escapeHtml(fromChatId.slice(0, 8))}</div>` : '',
-      body ? `<pre class="sdk-rich-delegation-report">${escapeHtml(body)}</pre>` : '',
+      `<strong class="sdk-rich-delegation-title">${escapeHtml(title)}</strong> ${queued}`,
+      fromChatId ? `<div class="sdk-rich-delegation-meta">${escapeHtml(t('chat.mailboxFromChat'))}: ${escapeHtml(fromTitle)}</div>` : '',
+      renderHistoryCardProse(body),
       `<div class="sdk-rich-delegation-actions"></div>`,
     ].filter(Boolean).join('');
+    decorateHistoryCardReports(content);
     const actions = content.querySelector('.sdk-rich-delegation-actions');
     if (actions instanceof HTMLElement && fromChatId) {
       const openBtn = document.createElement('button');
@@ -2821,6 +3636,16 @@ export function createSdkRichView(chat, mountEl, hooks) {
         hooks.onOpenDelegationChat?.(fromChatId);
       });
       actions.appendChild(openBtn);
+    }
+    if (actions instanceof HTMLElement && (status === 'failed' || status === 'uncertain')) {
+      const retryBtn = document.createElement('button');
+      retryBtn.type = 'button';
+      retryBtn.className = 'sdk-rich-delegation-btn';
+      retryBtn.textContent = t('chat.mailboxRetry');
+      retryBtn.addEventListener('click', () => {
+        hooks.onRetryMailbox?.(id);
+      });
+      actions.appendChild(retryBtn);
     }
     scrollToBottom();
   }
@@ -2843,10 +3668,15 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const chatId = data?.chatId || '';
     if (!chatId) return;
     const safeId = relatedChatDomId(chatId);
+    const visible = typeof hooks.isRelatedChatVisible !== 'function' || hooks.isRelatedChatVisible(chatId);
     let card = stream.querySelector(`[data-related-chat-id="${safeId}"]`);
+    if (!visible) {
+      if (card instanceof HTMLElement) card.remove();
+      return;
+    }
     if (!(card instanceof HTMLElement)) {
       lineMeta('sdk-rich-line--notice sdk-rich-related-chat', '', createdAt);
-      card = stream.lastElementChild;
+      card = lastStreamChild;
       if (card instanceof HTMLElement) card.dataset.relatedChatId = safeId;
       if (opts.prepend === true && card instanceof HTMLElement && stream.firstChild !== card) {
         stream.insertBefore(card, stream.firstChild);
@@ -2885,6 +3715,12 @@ export function createSdkRichView(chat, mountEl, hooks) {
    * }} input
    */
   function ensureRelatedChatLinks(input = {}) {
+    if (typeof hooks.isRelatedChatVisible === 'function') {
+      stream.querySelectorAll('[data-related-chat-id]').forEach((el) => {
+        const id = el instanceof HTMLElement ? el.dataset.relatedChatId : '';
+        if (id && !hooks.isRelatedChatVisible(id)) el.remove();
+      });
+    }
     const parent = input.parent;
     if (parent?.chatId) {
       const existing = stream.querySelector(`[data-related-chat-id="${relatedChatDomId(parent.chatId)}"]`);
@@ -2991,10 +3827,13 @@ export function createSdkRichView(chat, mountEl, hooks) {
       activeKind,
       activeThinkingRunKey,
       runScope,
+      isLiveTurn,
       timeoutProgressSeries,
       timeoutProgressTickTimer,
       renderedRecordCreatedAt,
       renderedRecordHistorySeq,
+      renderedRecordRoomEventSeq,
+      renderedRecordEventStreamId,
     };
     // Run-scoped state only. compactTrayHosts / fullToolBlocks / compactStatusLines are left
     // alone on purpose: they register DOM nodes that get toggled when the UI mode changes, and
@@ -3049,27 +3888,15 @@ export function createSdkRichView(chat, mountEl, hooks) {
       activeKind = scalars.activeKind;
       activeThinkingRunKey = scalars.activeThinkingRunKey;
       runScope = scalars.runScope;
+      isLiveTurn = scalars.isLiveTurn;
       timeoutProgressSeries = scalars.timeoutProgressSeries;
       timeoutProgressTickTimer = scalars.timeoutProgressTickTimer;
       renderedRecordCreatedAt = scalars.renderedRecordCreatedAt;
       renderedRecordHistorySeq = scalars.renderedRecordHistorySeq;
+      renderedRecordRoomEventSeq = scalars.renderedRecordRoomEventSeq;
+      renderedRecordEventStreamId = scalars.renderedRecordEventStreamId;
+      if (stream === realStream) adoptTrailingTimeoutProgressSeries();
     }
-  }
-
-  /**
-   * True for records that open a user turn — a safe cut point between history pages,
-   * so a tool call and its result never land on opposite sides of the boundary.
-   *
-   * @param {unknown} record
-   * @returns {boolean}
-   */
-  function isUserTurnBoundary(record) {
-    if (!record || typeof record !== 'object') return false;
-    const rec = /** @type {Record<string, unknown>} */ (record);
-    if (rec.kind === 'localUser') return true;
-    if (rec.kind !== 'sdk') return false;
-    const event = /** @type {Record<string, unknown> | null} */ (rec.event);
-    return !!event && String(event.type || '').toLowerCase() === 'user';
   }
 
   /**
@@ -3111,6 +3938,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     try {
       realStream.prepend(...Array.from(offscreen.childNodes));
       mountEl.scrollTop = scrollBefore + (mountEl.scrollHeight - heightBefore);
+      adoptTrailingTimeoutProgressSeries();
     } finally {
       requestAnimationFrame(() => {
         suppressScrollStickUpdate = false;
@@ -3138,6 +3966,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
       suppressHooksPlain = false;
       suppressHistoryPersist = false;
       mdRenderImmediate = false;
+      finalizeAllTerminalRunPresentations();
+      foldDuplicateOrderKeyCards();
+      adoptTrailingTimeoutProgressSeries();
       scrollToBottom({ force: true });
     }
   }
@@ -3218,15 +4049,15 @@ export function createSdkRichView(chat, mountEl, hooks) {
 
   /**
    * Splits a page so the rendered part starts on a user turn; the older remainder waits
-   * for the next page instead of showing a run without its opening prompt.
+   * for the next page instead of showing a run without its opening prompt. A page with no
+   * user turn is buffered whole — rendering it would split its Activity tray from the
+   * earlier page that holds the run opening.
    *
    * @param {unknown[]} records
    * @returns {{ buffered: unknown[], renderable: unknown[] }}
    */
   function splitPageAtUserTurn(records) {
-    const boundary = records.findIndex((record) => isUserTurnBoundary(record));
-    if (boundary <= 0) return { buffered: [], renderable: records };
-    return { buffered: records.slice(0, boundary), renderable: records.slice(boundary) };
+    return splitHistoryPageAtUserTurn(records);
   }
 
   function finishOlderHistory() {
@@ -3263,6 +4094,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     renderHistoryTopState('loading');
     const restoreBuffer = bufferedOlderRecords;
     const restoreHasOlder = hasOlderHistory;
+    let retryRecords = restoreBuffer;
     try {
       let fetched = [];
       if (hasOlderHistory) {
@@ -3277,6 +4109,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       }
 
       const batch = fetched.concat(bufferedOlderRecords);
+      retryRecords = batch;
       bufferedOlderRecords = [];
       if (hasOlderHistory) {
         const split = splitPageAtUserTurn(batch);
@@ -3299,8 +4132,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
         stack: String(err?.stack || '').slice(0, 900),
       });
       if (armToken !== historyArmToken) return;
-      // Put the page back so a retry re-renders it instead of skipping over it.
-      bufferedOlderRecords = restoreBuffer;
+      // Keep the fetched page too: its cursor may already have moved past it, and
+      // dropping freshly buffered records here would make the retry skip that page.
+      bufferedOlderRecords = retryRecords;
       hasOlderHistory = restoreHasOlder;
       renderHistoryTopState('error');
     } finally {
@@ -3361,6 +4195,14 @@ export function createSdkRichView(chat, mountEl, hooks) {
       stopTimeoutProgressSeries();
     },
 
+    onHarnessBusy() {
+      openLiveTurn();
+    },
+
+    onHarnessIdle() {
+      closeLiveTurn();
+    },
+
     setUiMode(mode) {
       uiMode = normalizeSdkUiMode(mode);
       chat.sdkUiMode = uiMode;
@@ -3375,7 +4217,10 @@ export function createSdkRichView(chat, mountEl, hooks) {
     },
 
     getCopyText() {
-      return (stream.innerText || '').trimEnd();
+      if (!copyTextDirty) return copyTextCache;
+      copyTextCache = (realStream.textContent || '').trimEnd();
+      copyTextDirty = false;
+      return copyTextCache;
     },
 
     get queuedCount() {
@@ -3423,6 +4268,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       const raw = text == null ? '' : String(text);
       const echoKey = renderUserTurn(raw) || String(raw).trim();
       if (!echoKey) return;
+      openLiveTurn();
       if (!silent) hooks.appendPlain(`\n> ${echoKey}\n`);
       scrollToBottom({ force: true });
       if (!silent && typeof hooks.onHistoryRecord === 'function' && !suppressHistoryPersist) {
@@ -3503,22 +4349,27 @@ export function createSdkRichView(chat, mountEl, hooks) {
     },
 
     appendRunFinished(status, opts = {}) {
+      const previousSeq = renderedRecordHistorySeq;
+      const previousRoom = renderedRecordRoomEventSeq;
+      const previousStream = renderedRecordEventStreamId;
+      renderedRecordHistorySeq = Number(opts.historySeq) > 0 ? Number(opts.historySeq) : 0;
+      renderedRecordRoomEventSeq = Number(opts.roomEventSeq) > 0 ? Number(opts.roomEventSeq) : 0;
+      renderedRecordEventStreamId = resolveEventStreamId(opts);
+      try {
       stopTimeoutProgressSeries();
       const silent = opts.silent === true;
       const st = status == null ? '' : String(status);
-      if (!silent) hooks.appendPlain(`\n[run finished: ${st}]\n`);
-      setThinkingRunning(false);
-      for (const block of latestThinkingByRun.values()) {
-        if (block && typeof block === 'object' && 'running' in block) block.running = false;
-      }
-      const latestRunKey = Array.from(latestTrayByRun.keys()).pop() || '';
-      finalizeOpenToolCalls(latestRunKey, st);
+      const errorCode = typeof opts.lastErrorCode === 'string' ? opts.lastErrorCode.trim() : '';
+      const presented = presentSdkActivityTrayStatus({ status: st, lastErrorCode: errorCode });
+      const display = resolveActivityTrayLabel(presented.datasetStatus) || st;
+      if (!silent) hooks.appendPlain(`\n[run finished: ${display}]\n`);
+      closeLiveTurn();
+      finalizeOpenToolCalls('', presented.terminalStatus || st);
       runningToolCallsByRun.clear();
-      const latestTray = latestTrayByRun.get(latestRunKey) || Array.from(latestTrayByRun.values()).pop();
-      if (latestTray) setTrayStatus(latestTray, st || 'finished');
+      markAllTraysFinished(st, errorCode);
       const createdAt = lineMeta(
-        resolveRunFinishedLineClass(st),
-        `<strong>${escapeHtml(t('sdkView.runFinished'))}</strong> · ${escapeHtml(st)}`,
+        resolveRunFinishedLineClass(st, errorCode),
+        `<strong>${escapeHtml(t('sdkView.runFinished'))}</strong> · ${escapeHtml(display)}`,
         '',
         true
       );
@@ -3526,12 +4377,17 @@ export function createSdkRichView(chat, mountEl, hooks) {
         hooks.onHistoryRecord({
           kind: 'meta',
           variant: 'runFinished',
-          payload: st,
+          payload: persistSdkRunFinishedHistoryStatus({ status: st, lastErrorCode: errorCode }),
           createdAt,
         });
       }
       if (!silent && !suppressHistoryPersist && typeof hooks.onAnswerEnd === 'function') {
         hooks.onAnswerEnd();
+      }
+      } finally {
+        renderedRecordHistorySeq = previousSeq;
+        renderedRecordRoomEventSeq = previousRoom;
+        renderedRecordEventStreamId = previousStream;
       }
     },
 
@@ -3674,8 +4530,10 @@ export function createSdkRichView(chat, mountEl, hooks) {
     appendModeChange(mode, opts = {}) {
       stopTimeoutProgressSeries();
       const silent = opts.silent === true;
-      const normalized = mode === 'plan' ? 'plan' : mode === 'agent' ? 'agent' : mode === 'ask' ? 'ask' : '';
+      const normalized = parseExplicitSdkMode(mode);
       if (!normalized) return;
+      if (!shouldRenderModeChange(lastRenderedMode, normalized)) return;
+      lastRenderedMode = normalized;
       const modeLabel = normalized === 'plan' ? 'Plan' : normalized === 'ask' ? 'Ask' : 'Agent';
       if (!silent) hooks.appendPlain(`\n[Mode: ${modeLabel}]\n`);
       lineMeta(
@@ -3743,6 +4601,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
             tt === 'assistant' ||
             tt === 'thinking' ||
             tt === 'tool_call' ||
+            tt === 'usage' ||
             tt === 'status' ||
             tt === 'task' ||
             tt === 'request' ||
@@ -3756,6 +4615,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
         suppressHooksPlain = false;
         suppressHistoryPersist = false;
         mdRenderImmediate = false;
+        finalizeAllTerminalRunPresentations();
         scrollToBottom({ force: true });
       }
     },
@@ -3779,26 +4639,22 @@ export function createSdkRichView(chat, mountEl, hooks) {
       suppressHooksPlain = true;
       suppressHistoryPersist = true;
       mdRenderImmediate = true;
-      const instant = opts.instant === true;
+      const instant = opts.instant === true && records.length <= 20;
       try {
-        if (instant) {
-          for (let index = 0; index < records.length; index += 1) {
-            applyHistoryRecord(records[index]);
-          }
-        } else {
-          const maxImmediate = Math.min(records.length, 40);
-          for (let index = 0; index < maxImmediate; index += 1) {
-            applyHistoryRecord(records[index]);
-          }
+        const syncCount = instant ? records.length : Math.min(records.length, 20);
+        for (let index = 0; index < syncCount; index += 1) {
+          applyHistoryRecord(records[index]);
         }
       } finally {
         suppressHooksPlain = false;
         suppressHistoryPersist = false;
         mdRenderImmediate = false;
+        finalizeAllTerminalRunPresentations();
+        foldDuplicateOrderKeyCards();
         scrollToBottom({ force: true });
       }
-      if (instant || records.length <= 40) return;
-      void replayHistoryRecordsChunkedImpl(records, 40);
+      if (instant || records.length <= 20) return;
+      void replayHistoryRecordsChunkedImpl(records, 20);
     },
 
     async appendHistoryRecords(records, opts = {}) {
@@ -3807,6 +4663,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       suppressHistoryPersist = true;
       mdRenderImmediate = true;
       const instant = opts.instant === true;
+      const forceScroll = opts.forceScroll !== false;
       try {
         for (let index = 0; index < records.length; index += 1) {
           applyHistoryRecord(records[index]);
@@ -3825,12 +4682,53 @@ export function createSdkRichView(chat, mountEl, hooks) {
         suppressHooksPlain = false;
         suppressHistoryPersist = false;
         mdRenderImmediate = false;
-        scrollToBottom({ force: true });
+        finalizeAllTerminalRunPresentations();
+        foldDuplicateOrderKeyCards();
       }
+      if (preserveViewportAnchor) {
+        preserveViewportAnchor = false;
+        if (forceScroll) {
+          pendingViewportAnchor = null;
+          scrollToBottom({ force: true });
+          return;
+        }
+        void mountEl.offsetHeight;
+        restoreInsertScroll();
+        if (typeof requestAnimationFrame === 'function') {
+          await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+          restoreInsertScroll();
+        }
+        pendingViewportAnchor = null;
+        return;
+      }
+      pendingViewportAnchor = null;
+      scrollToBottom({ force: forceScroll });
     },
 
-    applyEvent(event) {
-      applySdkEvent(event);
+    applyEvent(event, meta = {}) {
+      const historySeq = Number(meta?.historySeq) > 0 ? Number(meta.historySeq) : 0;
+      const roomEventSeq = Number(meta?.roomEventSeq) > 0 ? Number(meta.roomEventSeq) : 0;
+      const eventStreamId = resolveEventStreamId(meta);
+      const previousRoom = renderedRecordRoomEventSeq;
+      const previousStream = renderedRecordEventStreamId;
+      renderedRecordRoomEventSeq = roomEventSeq;
+      renderedRecordEventStreamId = eventStreamId;
+      try {
+        runViewApplyWithOrder(resolveViewOrderKey({ historySeq, roomEventSeq, eventStreamId }), () => {
+          applySdkEvent(event, '', historySeq);
+        });
+      } finally {
+        markCopyTextDirty();
+        foldDuplicateOrderKeyCards();
+        if (preserveViewportAnchor) {
+          void mountEl.offsetHeight;
+          restoreInsertScroll();
+        }
+        pendingViewportAnchor = null;
+        preserveViewportAnchor = false;
+        renderedRecordRoomEventSeq = previousRoom;
+        renderedRecordEventStreamId = previousStream;
+      }
     },
 
     ensureRelatedChatLinks,

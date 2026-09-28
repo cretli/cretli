@@ -1,9 +1,13 @@
 /**
- * Live OpenCode harness smoke test — requires a Zen or Z.AI API key and opencode binary.
- * Exit 0 = prompt returned assistant text without user echo.
+ * Live OpenCode harness smoke test — requires an API key for a configured
+ * provider and the opencode binary. Exit 0 = assistant text returned and the
+ * reported provider/model matches the requested model when metadata is present.
  */
 import assert from 'node:assert/strict';
-import { getOrCreateOpenCodeInstance } from '../lib/opencode/opencode-server-manager.js';
+import {
+  disposeAllOpenCodeInstances,
+  getOrCreateOpenCodeInstance,
+} from '../lib/opencode/opencode-server-manager.js';
 import { OpenCodeMessageRegistry } from '../lib/agent-harness/opencode-message-registry.js';
 import { processOpenCodeStreamEventForHarness } from '../lib/agent-harness/opencode-event-normalizer.js';
 import { extractAssistantPlainText } from '../app_front/lib/sdk-chat-format.js';
@@ -20,8 +24,9 @@ const prompt = process.argv[3] || 'Reply with exactly: OK harness';
 const model = resolveOpenCodeModelForPrompt(process.argv[4] || 'opencode/x-preview-f-free');
 
 if (!hasOpenCodeCredentials()) {
-  console.error('SKIP: no OpenCode Zen or Z.AI API key');
-  process.exit(2);
+  console.error('SKIP: no OpenCode Zen, Z.AI, or MiMo API key');
+  process.exitCode = 2;
+  process.exit();
 }
 
 const slash = model.indexOf('/');
@@ -47,7 +52,9 @@ try {
   const registry = new OpenCodeMessageRegistry();
   /** @type {string[]} */
   const assistantChunks = [];
+  const observedToolCalls = [];
   let sawUserEchoInAssistant = false;
+  let observedModel = '';
 
   const sub = await client.event.subscribe();
   const stream = sub?.stream || sub?.data?.stream;
@@ -55,12 +62,22 @@ try {
 
   const consume = (async () => {
     for await (const event of stream) {
+      if (event?.type === 'message.updated') {
+        const info = event?.properties?.info;
+        if (info?.role === 'assistant' && info.providerID && info.modelID) {
+          observedModel = `${info.providerID}/${info.modelID}`;
+        }
+      }
       const sdkEvents = processOpenCodeStreamEventForHarness(event, {
         opencodeSessionId: sessionId,
         messageRegistry: registry,
         lastUserPromptText: prompt,
       });
       for (const sdkEvent of sdkEvents) {
+        if (sdkEvent.type === 'tool_call') {
+          observedToolCalls.push({ name: sdkEvent.name, status: sdkEvent.status });
+          continue;
+        }
         if (sdkEvent.type !== 'assistant') continue;
         const text = extractAssistantPlainText(sdkEvent);
         if (!text) continue;
@@ -80,10 +97,35 @@ try {
     },
   });
 
-  await Promise.race([
-    consume,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout 90s')), 90000)),
-  ]);
+  let timeoutHandle;
+  try {
+    await Promise.race([
+      consume,
+      new Promise((_, reject) => {
+        timeoutHandle = setTimeout(() => reject(new Error('timeout 90s')), 90000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+
+  if (!observedModel) {
+    const messagesResult = await client.session.messages({
+      path: { id: sessionId },
+      query: { directory: folder },
+    });
+    const messagesPayload = messagesResult?.data ?? messagesResult;
+    const messages = Array.isArray(messagesPayload)
+      ? messagesPayload
+      : (Array.isArray(messagesPayload?.messages) ? messagesPayload.messages : []);
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const info = messages[index]?.info;
+      if (info?.role === 'assistant' && info.providerID && info.modelID) {
+        observedModel = `${info.providerID}/${info.modelID}`;
+        break;
+      }
+    }
+  }
 
   const assistantText = assistantChunks.join('');
   console.log(JSON.stringify({
@@ -91,20 +133,32 @@ try {
     assistantText: assistantText.slice(0, 500),
     sawUserEchoInAssistant,
     model,
+    observedModel: observedModel || null,
+    observedToolCalls,
   }, null, 2));
 
   if (!assistantText.trim()) {
-    console.error('FAIL: empty assistant response');
-    process.exit(1);
+    throw new Error('empty assistant response');
   }
   if (sawUserEchoInAssistant) {
-    console.error('FAIL: assistant output echoed user prompt');
-    process.exit(1);
+    throw new Error('assistant output echoed user prompt');
+  }
+  if (providerID === 'cretli-mimo' && !observedModel) {
+    throw new Error('OpenCode did not report the assistant provider/model; MiMo endpoint use could not be verified');
+  }
+  if (observedModel && observedModel !== model) {
+    throw new Error(`OpenCode used ${observedModel}, expected ${model}`);
+  }
+  if (process.env.CRETLI_OPENCODE_REQUIRE_TOOL === '1'
+    && !observedToolCalls.some((row) => row.status === 'completed')) {
+    throw new Error('expected at least one completed tool call but observed none');
   }
   console.log('opencode-harness-e2e OK');
 } catch (err) {
   console.error('FAIL:', err?.message || err);
-  process.exit(1);
+  process.exitCode = 1;
 } finally {
   release?.();
+  // The manager keeps chat servers warm; a one-shot test should close its instance.
+  disposeAllOpenCodeInstances();
 }

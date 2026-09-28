@@ -1,6 +1,11 @@
 import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
-import { isMcpPlanCallDenied } from '../lib/mcp/mcp-policy.js';
+import {
+  isMcpPlanCallDenied,
+  isReadOnlyBuiltinMcpToolName,
+  isReviewProtocolMcpToolName,
+  readEffectiveMcpToolName,
+} from '../lib/mcp/mcp-policy.js';
 import { prepareHarnessMcp, buildMcpRuntimeContext } from '../lib/mcp/mcp-session.js';
 import { createMcpServer } from '../lib/mcp/mcp-service.js';
 import { qwenMcpAdapter } from '../lib/mcp/adapters/qwen-adapter.js';
@@ -45,6 +50,27 @@ assert.equal(isMcpPlanCallDenied({
   toolName: 'chat_delete',
   server: { kind: 'builtin-cretli' },
 }), false);
+
+assert.equal(
+  readEffectiveMcpToolName('mcp', {
+    toolName: 'mcp__cretli_builtincretl__delegation_show',
+  }),
+  'mcp__cretli_builtincretl__delegation_show',
+);
+assert.equal(isMcpPlanCallDenied({
+  mode: 'plan',
+  toolName: 'delegation_wait',
+  server: { kind: 'builtin-cretli' },
+}), false);
+assert.equal(isReadOnlyBuiltinMcpToolName('mcp__cretli_builtincretl__delegation_wait'), true);
+assert.equal(isReviewProtocolMcpToolName('mcp__cretli_builtincretl__delegation_reply'), true);
+assert.equal(isReviewProtocolMcpToolName('delegation_reply'), true);
+assert.equal(isReviewProtocolMcpToolName('delegation_show'), false);
+assert.equal(readEffectiveMcpToolName('mcp', { providerIdentifier: 'cretli_bridge' }), 'mcp');
+assert.equal(
+  readEffectiveMcpToolName('mcp__cretli_builtincretl__chat_show', {}),
+  'mcp__cretli_builtincretl__chat_show',
+);
 
 const created = await createMcpServer({
   name: 'Docs',

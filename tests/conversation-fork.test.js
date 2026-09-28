@@ -40,6 +40,8 @@ assert.match(prompt, /Source chat: "Ask" aaaaaaaa-1111-2222-3333-444444444444/);
 assert.match(prompt, /Copied history through event seq 12/);
 assert.match(prompt, /newest transcript file/);
 assert.match(prompt, /chat_show or chat_history/);
+assert.match(prompt, /cretli-ref chat=<uuid> seq=<n>/);
+assert.match(prompt, /chat_event/);
 assert.equal(buildConversationForkPrompt('', 'New message'), 'New message');
 assert.match(buildConversationForkPrompt('User: start\nAgent: reply', ''), /Continue the conversation from this point\.$/);
 assert.equal(buildConversationForkPrompt('', ''), '');
@@ -162,7 +164,7 @@ assert.equal(resolveInheritedPromptEcho('Just a normal message'), 'Just a normal
 const analysisPrompt = buildAgentAnalysisPrompt('Diagnose the agent.');
 assert.match(analysisPrompt, /AGENT ANALYSIS CONTEXT/);
 assert.match(analysisPrompt, /new sub-chat with its own empty history/);
-assert.match(analysisPrompt, /Do not continue its work/);
+assert.match(analysisPrompt, /The parent chat history was not copied/);
 assert.match(analysisPrompt, /Diagnose the agent\.$/);
 assert.equal(analysisPrompt.includes('HARNESS HANDOFF CONTEXT'), false);
 assert.equal(analysisPrompt.includes('CONVERSATION FORK CONTEXT'), false);

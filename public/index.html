@@ -249,6 +249,13 @@
       data-i18n-aria="sidebar.resizeSidebar"
     ></div>
   </aside>
+  <div
+    id="sidebar-edge-open"
+    class="sidebar-edge-open"
+    hidden
+    data-i18n-aria="sidebar.edgeOpen"
+    aria-label="Swipe from the left edge to open the chat list"
+  ></div>
 
   <div class="tabs">
     <button type="button" class="tab active" data-panel="chat" data-i18n="tabs.chat">Chat</button>
@@ -256,6 +263,7 @@
     <button type="button" class="tab" data-panel="tasks" data-i18n="tabs.tasks">Tasks</button>
     <button type="button" class="tab" data-panel="agents" data-i18n="tabs.agents">Agents</button>
     <button type="button" class="tab" data-panel="todo">Todo</button>
+    <button type="button" class="tab" data-panel="browser" data-i18n="tabs.browser">Browser</button>
     <button type="button" class="tab" data-panel="files">Files</button>
     <button type="button" class="tab" data-panel="git">Git</button>
     <button type="button" class="tab" data-panel="github" hidden data-i18n="tabs.github">GitHub</button>
@@ -314,6 +322,7 @@
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness" role="tab" aria-selected="false" data-i18n="settings.tabsHarness">Harness</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="interface" role="tab" aria-selected="false" data-i18n="settings.tabsInterface">App</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="chat" role="tab" aria-selected="false" data-i18n="settings.tabsChat">Chat &amp; agents</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="delegations" role="tab" aria-selected="false" data-i18n="settings.tabsDelegations">Delegations</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="widgets" role="tab" aria-selected="false" data-i18n="settings.widgetsTitle">Page widgets</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="mcp" role="tab" aria-selected="false" data-i18n="settings.mcpTitle">MCP</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="usage" role="tab" aria-selected="false" data-i18n="settings.tabsUsage">Usage</button>
@@ -364,7 +373,7 @@
         </div>
         <h3 class="settings-section-title settings-workspace-extra-title" data-i18n="settings.sharedCursorContextTitle">Additional Cursor sources (rules / skills / agents)</h3>
         <p class="settings-hint" data-i18n="settings.sharedCursorContextHint">
-          Paths to directories with their own .cursor/ (like a private multi-root workspace in Cursor IDE). One path per line. Applied to all projects and widgets.
+          Extra directories for your own .cursor/ trees, one path per line (for example /home/you/cursor-shared). Their alwaysApply rules are injected into every SDK chat, including widgets. Cretli bundled skills (cretli-multi-harness) are included automatically; do not list the Cretli repo.
         </p>
         <div class="cr-field">
           <cr-bar-textarea
@@ -469,7 +478,89 @@
             <span id="opencode-zai-api-key-save-status" class="cr-status"></span>
           </div>
         </div>
+        <h3 class="settings-section-title" data-i18n="settings.harnessOpenCodeMimoTitle">Xiaomi MiMo</h3>
+        <p class="settings-hint">
+          <span data-i18n="settings.harnessOpenCodeMimoHintPrefix">MiMo API key from</span>
+          <a href="https://platform.xiaomimimo.com/" target="_blank" rel="noopener noreferrer">Xiaomi MiMo</a>.
+          <span data-i18n="settings.harnessOpenCodeMimoHintSuffix">Adds mimo-v2.6-pro and mimo-v2.6-flash to the OpenCode model list. MIMO_API_KEY takes precedence.</span>
+        </p>
+        <p id="opencode-mimo-api-key-source-hint" class="settings-hint" aria-live="polite"></p>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.harnessOpenCodeMimoBaseUrlLabel">MiMo Base URL</label>
+          <cr-bar-input id="opencode-mimo-base-url-input" type="url" autocomplete="url" placeholder="https://api.xiaomimimo.com/v1 (PAYG default)" data-i18n-placeholder="settings.harnessOpenCodeMimoBaseUrlPlaceholder"></cr-bar-input>
+          <p id="opencode-mimo-base-url-hint" class="settings-hint" aria-live="polite"></p>
+          <div class="cr-row">
+            <cr-bar-button variant="primary" id="opencode-mimo-base-url-save-btn" data-i18n="settings.harnessOpenCodeMimoBaseUrlSave">Save Base URL</cr-bar-button>
+            <span id="opencode-mimo-base-url-save-status" class="cr-status"></span>
+          </div>
+        </div>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.harnessOpenCodeMimoApiKeyLabel">New MiMo API key</label>
+          <cr-bar-input id="opencode-mimo-api-key-input" type="password" autocomplete="new-password" placeholder="Paste your MiMo API key and click Save" data-i18n-placeholder="settings.harnessOpenCodeMimoApiKeyPlaceholder"></cr-bar-input>
+          <div class="cr-row">
+            <cr-bar-button variant="primary" id="opencode-mimo-api-key-save-btn" data-i18n="settings.harnessOpenCodeMimoApiKeySave">Save key</cr-bar-button>
+            <cr-bar-button id="opencode-mimo-api-key-clear-btn" data-i18n="settings.harnessOpenCodeMimoApiKeyClear">Remove from settings</cr-bar-button>
+            <span id="opencode-mimo-api-key-save-status" class="cr-status"></span>
+          </div>
+        </div>
         <p id="opencode-harness-status" class="settings-hint" aria-live="polite"></p>
+      </section>
+      <section class="settings-section" data-settings-tab="harness-opencode" id="opencode-approval-broker-settings">
+        <h3 class="settings-section-title" data-i18n="settings.approvalBrokerTitle">Approval Broker (OpenCode only)</h3>
+        <p class="settings-hint" data-i18n="settings.approvalBrokerScopeHint">Currently only the OpenCode permission flow is supported. Every other harness keeps its manual approval cards.</p>
+        <p class="settings-hint approval-broker-warning" data-i18n="settings.approvalBrokerSafetyHint">The broker never auto-approves writes, edits, network access, secrets or git writes. The external advisor receives only a redacted permission tuple (request id, action, command, file names, risk and categories) and your provider may retain it.</p>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.approvalBrokerModeLabel">Broker mode</label>
+          <cr-bar-select id="approval-broker-mode-select" data-i18n-aria="settings.approvalBrokerModeLabel"></cr-bar-select>
+          <p class="settings-hint" data-i18n="settings.approvalBrokerModeHint">off — manual only (default). shadow — record a recommendation without replying. local_reads — auto-approve only safe read-only actions.</p>
+          <div class="cr-row">
+            <span id="approval-broker-mode-status" class="cr-status" role="status" aria-live="polite"></span>
+          </div>
+        </div>
+        <h4 class="settings-subsection-title" data-i18n="settings.approvalAdvisorTitle">External advisor (optional)</h4>
+        <div class="cr-field">
+          <cr-checkbox id="approval-advisor-enabled-checkbox">
+            <span data-i18n="settings.approvalAdvisorEnabled">Enable external advisor</span>
+          </cr-checkbox>
+          <p class="settings-hint" data-i18n="settings.approvalAdvisorEnabledHint">Disabled by default and only active in local_reads mode; no request is sent while disabled.</p>
+        </div>
+        <div class="cr-field" id="approval-advisor-endpoint-field">
+          <label class="cr-field-label" data-i18n="settings.approvalAdvisorEndpointLabel">HTTPS endpoint</label>
+          <cr-bar-input id="approval-advisor-endpoint-input" type="url" autocomplete="off" placeholder="https://provider.example/v1/chat/completions" data-i18n-placeholder="settings.approvalAdvisorEndpointPlaceholder" data-i18n-aria="settings.approvalAdvisorEndpointLabel"></cr-bar-input>
+          <p id="approval-advisor-endpoint-status" class="cr-status" role="status" aria-live="polite"></p>
+          <p class="settings-hint" data-i18n="settings.approvalAdvisorEndpointHint">A public HTTPS OpenAI-compatible /chat/completions endpoint. HTTP and private addresses are rejected by the server; the SSRF/DNS checks stay authoritative.</p>
+        </div>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.approvalAdvisorModelLabel">Model</label>
+          <cr-bar-input id="approval-advisor-model-input" autocomplete="off" placeholder="provider-model" data-i18n-aria="settings.approvalAdvisorModelLabel"></cr-bar-input>
+        </div>
+        <div class="cr-row approval-broker-numbers">
+          <div class="cr-field">
+            <label class="cr-field-label" data-i18n="settings.approvalAdvisorTimeoutLabel">Timeout (ms)</label>
+            <cr-bar-input id="approval-advisor-timeout-input" type="number" min="3000" max="8000" step="100" data-i18n-aria="settings.approvalAdvisorTimeoutLabel"></cr-bar-input>
+          </div>
+          <div class="cr-field">
+            <label class="cr-field-label" data-i18n="settings.approvalAdvisorQuotaLabel">Daily quota</label>
+            <cr-bar-input id="approval-advisor-quota-input" type="number" min="0" max="10000" step="1" data-i18n-aria="settings.approvalAdvisorQuotaLabel"></cr-bar-input>
+          </div>
+        </div>
+        <p class="settings-hint" data-i18n="settings.approvalAdvisorQuotaHint">Timeout is clamped to 3000–8000 ms. A daily quota of 0 disables network calls; otherwise 1–10000 requests per day.</p>
+        <div class="cr-row">
+          <cr-bar-button variant="primary" id="approval-advisor-save-btn" data-i18n="settings.approvalAdvisorSave">Save advisor</cr-bar-button>
+          <span id="approval-advisor-save-status" class="cr-status" role="status" aria-live="polite"></span>
+        </div>
+        <h4 class="settings-subsection-title" data-i18n="settings.approvalAdvisorKeyTitle">Advisor API key</h4>
+        <p id="approval-advisor-key-source-hint" class="settings-hint" role="status" aria-live="polite"></p>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.approvalAdvisorApiKeyLabel">New API key</label>
+          <cr-bar-input id="approval-advisor-api-key-input" type="password" autocomplete="new-password" placeholder="Paste the key and click Save" data-i18n-placeholder="settings.approvalAdvisorApiKeyPlaceholder" data-i18n-aria="settings.approvalAdvisorApiKeyLabel"></cr-bar-input>
+          <div class="cr-row">
+            <cr-bar-button variant="primary" id="approval-advisor-api-key-save-btn" data-i18n="settings.approvalAdvisorApiKeySave">Save key</cr-bar-button>
+            <cr-bar-button id="approval-advisor-api-key-clear-btn" data-i18n="settings.approvalAdvisorApiKeyClear">Remove stored key</cr-bar-button>
+            <span id="approval-advisor-api-key-status" class="cr-status" role="status" aria-live="polite"></span>
+          </div>
+        </div>
+        <p class="settings-hint" data-i18n="settings.approvalAdvisorEnvHint">CRETLI_APPROVAL_ADVISOR_API_KEY always takes precedence over a stored key; Clear removes only the stored key.</p>
       </section>
       <section class="settings-section" data-settings-tab="harness-codebuddy" id="codebuddy-api-settings">
         <h3 class="settings-section-title" data-i18n="settings.harnessCodeBuddyApiTitle">CodeBuddy API</h3>
@@ -1049,11 +1140,30 @@
           <ul id="agents-shared-rules"></ul>
           <h4>Commands (.cursor/commands)</h4>
           <ul id="agents-commands"></ul>
+          <h4 data-i18n="settings.projectSkills">Project skills (.cursor/skills)</h4>
+          <ul id="agents-project-skills"></ul>
           <h4 data-i18n="settings.sharedSkills">Shared skills</h4>
           <ul id="agents-shared-skills"></ul>
           <h4 data-i18n="settings.userSkills">User skills (~/.cursor/skills-cursor)</h4>
           <ul id="agents-skills"></ul>
         </div>
+      </section>
+      <section class="settings-section" data-settings-tab="delegations">
+        <h3 class="settings-section-title" data-i18n="settings.delegationsCenterTitle">Delegation center</h3>
+        <p class="settings-hint" data-i18n="settings.delegationsCenterHint">Runtime health, stuck jobs, and repair actions for this workspace. Prompt text is never shown here.</p>
+        <div id="delegation-runtime-health" class="delegation-center-health" aria-live="polite"></div>
+        <div class="cr-row delegation-center-filters">
+          <label class="cr-field">
+            <span class="cr-field-label" data-i18n="settings.delegationsFilter">Show</span>
+            <cr-bar-select id="delegation-center-filter" aria-label="Delegation filter"></cr-bar-select>
+          </label>
+          <cr-bar-button id="delegation-center-refresh" data-i18n="settings.delegationsRefresh">Refresh</cr-bar-button>
+        </div>
+        <div id="delegation-center-list" class="delegation-center-list" role="list"></div>
+        <div class="cr-row delegation-center-more-row">
+          <cr-bar-button id="delegation-center-more" hidden data-i18n="settings.delegationsLoadMore">Load more</cr-bar-button>
+        </div>
+        <p id="delegation-center-status" class="cr-hint" aria-live="polite"></p>
       </section>
       <section class="settings-section" data-settings-tab="widgets" hidden>
         <h3 class="settings-section-title" data-i18n="settings.widgetsTitle">Page widgets</h3>
@@ -1185,6 +1295,17 @@
       <section class="settings-section" data-settings-tab="interface-browser">
         <h3 class="settings-section-title" data-i18n="settings.browserStorageTitle">Browser report &amp; storage</h3>
         <p class="settings-hint" data-i18n="settings.browserStorageHint">Local diagnostics for origin storage (quota, usage, localStorage keys, IndexedDB databases). Clearing removes only Cretli browser data.</p>
+        <div class="quick-commands-save-row browser-debug-policy-row">
+          <label><input type="checkbox" id="browser-policy-self-origin" /> <span data-i18n="settings.browserAllowSelfOrigin">Allow Browser to open Cretli's own origin (debug)</span></label>
+          <label><input type="checkbox" id="browser-policy-private-network" /> <span data-i18n="settings.browserAllowPrivateNetwork">Allow private/LAN addresses</span></label>
+          <label><input type="checkbox" id="browser-policy-insecure-tls" /> <span data-i18n="settings.browserAllowInsecureTls">Accept local HTTPS certificates (debug)</span></label>
+          <button type="button" id="browser-policy-self-origin-save" class="lan-save-btn-inline" data-i18n="settings.browserAllowSelfOriginSave">Save browser policy</button>
+          <span id="browser-policy-self-origin-status" class="quick-commands-save-status" aria-live="polite"></span>
+        </div>
+        <label class="settings-field browser-policy-origins-field">
+          <span data-i18n="settings.browserAllowedOrigins">Allowed browser origins (one per line)</span>
+          <textarea id="browser-policy-allowed-origins" rows="3" placeholder="https://your-pc:3011"></textarea>
+        </label>
         <div class="quick-commands-save-row browser-storage-actions-row">
           <button type="button" id="browser-storage-refresh-btn" class="lan-save-btn-inline" data-i18n="settings.browserStorageRefresh">Refresh</button>
           <button type="button" id="browser-storage-clear-local-btn" class="chat-settings-btn-danger" data-i18n="settings.browserStorageClearLocal">Clear app local/session storage</button>
@@ -1292,6 +1413,72 @@
       <div class="chat-settings-actions">
         <cr-bar-button id="todo-new-cancel-btn" data-i18n="todo.cancel">Cancel</cr-bar-button>
         <cr-bar-button variant="primary" id="todo-add-btn" data-i18n="todo.add">Add</cr-bar-button>
+      </div>
+    </div>
+  </div>
+
+  <div id="browser-panel" class="panel">
+    <div class="browser-layout">
+      <div class="browser-toolbar panel-toolbar">
+        <span class="browser-toolbar-label" data-i18n="browser.title">Browser</span>
+        <span id="browser-status" class="browser-status" aria-live="polite"></span>
+        <div class="browser-toolbar-actions">
+          <cr-bar-button id="browser-new-session-btn" data-i18n="browser.newSession">New session</cr-bar-button>
+          <cr-bar-button id="browser-close-session-btn" data-i18n="browser.closeSession">Close session</cr-bar-button>
+          <cr-bar-button id="browser-refresh-btn" title="Refresh" data-i18n-title="browser.refreshTitle" data-i18n="browser.refresh">Refresh</cr-bar-button>
+        </div>
+      </div>
+      <div id="browser-unavailable" class="browser-unavailable" hidden></div>
+      <div id="browser-body" class="browser-body" hidden>
+        <div class="browser-side">
+          <div class="browser-side-heading" data-i18n="browser.sessionsAria">Browser sessions</div>
+          <div id="browser-sessions" class="browser-sessions" role="listbox" aria-label="Browser sessions" data-i18n-aria="browser.sessionsAria"></div>
+          <div class="browser-side-heading" data-i18n="browser.tabAria">Browser tabs</div>
+          <div class="browser-tab-actions">
+            <cr-bar-button id="browser-new-tab-btn" data-i18n="browser.newTab">New tab</cr-bar-button>
+          </div>
+          <div id="browser-tabs" class="browser-tabs" role="listbox" aria-label="Browser tabs" data-i18n-aria="browser.tabAria"></div>
+        </div>
+        <div class="browser-main">
+          <div class="browser-nav">
+            <cr-icon-button id="browser-back-btn" title="Back" data-i18n-title="browser.back" aria-label="Back" data-i18n-aria="browser.back">
+              <span class="mdi mdi-arrow-left" aria-hidden="true"></span>
+            </cr-icon-button>
+            <cr-icon-button id="browser-forward-btn" title="Forward" data-i18n-title="browser.forward" aria-label="Forward" data-i18n-aria="browser.forward">
+              <span class="mdi mdi-arrow-right" aria-hidden="true"></span>
+            </cr-icon-button>
+            <cr-icon-button id="browser-reload-btn" title="Reload" data-i18n-title="browser.reload" aria-label="Reload" data-i18n-aria="browser.reload">
+              <span class="mdi mdi-refresh" aria-hidden="true"></span>
+            </cr-icon-button>
+            <cr-bar-input id="browser-url-input" class="browser-url-input" type="url" placeholder="URL (https://…)" data-i18n-placeholder="browser.urlPlaceholder" aria-label="Page URL"></cr-bar-input>
+            <cr-bar-button variant="primary" id="browser-go-btn" data-i18n="browser.go">Go</cr-bar-button>
+          </div>
+          <div class="browser-frame-wrap">
+            <img id="browser-frame" class="browser-frame" alt="Page screenshot" data-i18n-alt="browser.frameAlt" hidden />
+            <div id="browser-frame-empty" class="browser-empty browser-frame-empty" data-i18n="browser.frameEmpty">No preview yet — open a page.</div>
+          </div>
+          <div class="browser-keys">
+            <cr-bar-input id="browser-key-input" class="browser-key-input" placeholder="Text to type on the page" data-i18n-placeholder="browser.typePlaceholder" aria-label="Text to type on the page"></cr-bar-input>
+            <cr-bar-button id="browser-type-btn" data-i18n="browser.type">Type</cr-bar-button>
+            <cr-bar-button id="browser-enter-btn" data-i18n="browser.pressEnter">Enter</cr-bar-button>
+          </div>
+          <div class="browser-pulls">
+            <section class="browser-pull">
+              <div class="browser-pull-head">
+                <span class="browser-pull-title" data-i18n="browser.consoleTitle">Console</span>
+                <cr-bar-button id="browser-console-pull-btn" data-i18n="browser.pull">Pull</cr-bar-button>
+              </div>
+              <div id="browser-console-list" class="browser-pull-list" role="log" aria-live="polite"></div>
+            </section>
+            <section class="browser-pull">
+              <div class="browser-pull-head">
+                <span class="browser-pull-title" data-i18n="browser.networkTitle">Network</span>
+                <cr-bar-button id="browser-network-pull-btn" data-i18n="browser.pull">Pull</cr-bar-button>
+              </div>
+              <div id="browser-network-list" class="browser-pull-list" role="log" aria-live="polite"></div>
+            </section>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1590,15 +1777,16 @@
             <div class="chat-list-panel chat-toolbar-actions-panel">
               <ul class="chat-list-items chat-toolbar-actions-list" role="menu" aria-label="Chat actions">
                 <li id="chat-new-agent-btn" class="chat-list-item chat-toolbar-actions-item chat-toolbar-actions-item--primary" role="menuitem" tabindex="0" title="Start a new agent" data-i18n-title="chat.newAgent" aria-label="Start a new agent" data-i18n-aria="chat.newAgent"><span class="mdi mdi-robot-outline" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.newAgent">Nowy agent</span></li>
+                <li id="chat-monitor-agent-btn" class="chat-list-item chat-toolbar-actions-item" role="menuitem" tabindex="0" title="New subchat linked to this chat" data-i18n-title="chat.monitorAgent" aria-label="New subchat linked to this chat" data-i18n-aria="chat.monitorAgent"><span class="mdi mdi-chat-plus-outline" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.monitorAgent">New subchat linked to this chat</span></li>
                 <li id="chat-fork-menu-btn" class="chat-list-item chat-toolbar-actions-item" role="menuitem" tabindex="0" title="Fork chat" data-i18n-title="chat.fork" aria-label="Fork chat" data-i18n-aria="chat.fork"><span class="mdi mdi-source-fork" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.fork">Fork chat</span></li>
                 <li id="chat-intent-summary-btn" class="chat-list-item chat-toolbar-actions-item chat-toolbar-actions-item--group-start" role="menuitem" tabindex="0" title="Intentional summary" data-i18n-title="chat.intentSummary" aria-label="Intentional summary" data-i18n-aria="chat.intentSummary"><span class="mdi mdi-text-box-check-outline" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.intentSummary">Intencjonalne podsumowanie</span></li>
                 <li id="chat-reset-context-btn" class="chat-list-item chat-toolbar-actions-item" role="menuitem" tabindex="0" title="Reset agent context" data-i18n-title="chat.resetContext" aria-label="Reset agent context" data-i18n-aria="chat.resetContext"><span class="mdi mdi-restore" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.resetContext">Zresetuj kontekst agenta</span></li>
-                <li id="chat-monitor-agent-btn" class="chat-list-item chat-toolbar-actions-item" role="menuitem" tabindex="0" title="Analyze current agent in separate chat" data-i18n-title="chat.monitorAgent" aria-label="Analyze current agent in separate chat" data-i18n-aria="chat.monitorAgent"><span class="mdi mdi-robot-outline" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.monitorAgent">Analyze current agent (separate chat)</span></li>
                 <li id="chat-copy-btn" class="chat-list-item chat-toolbar-actions-item chat-toolbar-actions-item--group-start" role="menuitem" tabindex="0" title="Copy content (selection or the whole buffer)" data-i18n-title="terminal.copyTitle" aria-label="Copy" data-i18n-aria="terminal.copyAria"><span class="mdi mdi-content-copy" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="terminal.copy">Kopiuj</span></li>
                 <li id="chat-pin-url-menu-btn" class="chat-list-item chat-toolbar-actions-item chat-pin-url-menu-btn" role="menuitem" tabindex="0" title="Pin the chat to the current URL" data-i18n-title="chat.pinToUrlTitle" aria-label="Pin the chat to the current URL" data-i18n-aria="chat.pinToUrlTitle" aria-pressed="false" hidden><span class="mdi mdi-link-variant" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.pinToUrl">Pin to URL</span></li>
                 <li id="chat-fullscreen-btn" class="chat-list-item chat-toolbar-actions-item" role="menuitem" tabindex="0" title="Fullscreen" aria-label="Fullscreen" data-fullscreen="off"><span class="mdi mdi-fullscreen" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.fullscreenLabel">Fullscreen</span></li>
                 <li id="chat-settings-btn" class="chat-list-item chat-toolbar-actions-item" role="menuitem" tabindex="0" title="Chat settings" data-i18n-title="chat.settings" aria-label="Chat settings" data-i18n-aria="chat.settings"><span class="mdi mdi-cog" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.settings">Ustawienia czatu</span></li>
-                <li id="chat-stop-menu-btn" class="chat-list-item chat-toolbar-actions-item chat-toolbar-actions-item--danger chat-toolbar-actions-item--group-start" role="menuitem" tabindex="0" title="Stop (Ctrl+C)" data-i18n-title="sendBar.stopTitle" aria-label="Stop" data-i18n-aria="sendBar.stop"><span class="mdi mdi-stop" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="sendBar.stop">Stop</span></li>
+                <li id="chat-archive-menu-btn" class="chat-list-item chat-toolbar-actions-item chat-toolbar-actions-item--group-start" role="menuitem" tabindex="0" title="Archive chat" data-i18n-title="chat.archive" aria-label="Archive chat" data-i18n-aria="chat.archive"><span class="mdi mdi-archive-arrow-down-outline" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.archive">Archive chat</span></li>
+                <li id="chat-stop-menu-btn" class="chat-list-item chat-toolbar-actions-item chat-toolbar-actions-item--danger" role="menuitem" tabindex="0" title="Stop (Ctrl+C)" data-i18n-title="sendBar.stopTitle" aria-label="Stop" data-i18n-aria="sendBar.stop"><span class="mdi mdi-stop" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="sendBar.stop">Stop</span></li>
                 <li id="chat-delete-menu-btn" class="chat-list-item chat-toolbar-actions-item chat-toolbar-actions-item--danger" role="menuitem" tabindex="0" title="Delete the chat from the list and close the connection" data-i18n-title="chat.delete" aria-label="Delete chat" data-i18n-aria="chat.delete"><span class="mdi mdi-delete-outline" aria-hidden="true"></span><span class="chat-toolbar-action-label" data-i18n="chat.delete">Delete chat</span></li>
               </ul>
             </div>

@@ -11,6 +11,9 @@ process.env.CRETLI_TEST_DATA_DIR = dir;
 process.env.CURSOR_REMOTE_TEST_DATA_DIR = dir;
 process.env.CRETLI_DATA_DIR = dir;
 process.env.CURSOR_REMOTE_DATA_DIR = dir;
+if (process.env.CRETLI_DELEGATION_EMPTY_FAVORITES == null) {
+  process.env.CRETLI_DELEGATION_EMPTY_FAVORITES = 'all';
+}
 
 export const ISOLATED_DATA_DIR = dir;
 

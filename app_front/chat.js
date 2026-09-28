@@ -6,8 +6,10 @@ import {
   applyDefaultNewChatHarnessToModal,
   applyEnabledHarnesses,
   applyHarnessOrder,
+  ensureHarnessDefaultsLoaded,
   getEnabledHarnessIds,
   isHarnessEnabledInSettings,
+  refreshHarnessUsageLimits,
 } from './harnessSettings.js';
 import { AGENT_TRANSPORTS, getChatAgentTransport } from '../lib/agent-transport.js';
 import { appLogger } from './logger.js';
@@ -34,7 +36,9 @@ import {
   resolveInheritedPromptEcho,
   resolvePendingInheritedSend,
 } from '../lib/conversation-fork.js';
-import { resolveHarnessSwitchNest } from '../lib/chat-tree.js';
+import { resolveHarnessSwitchNest, isChatArchived, isRelatedChatLinkVisible } from '../lib/chat-tree.js';
+import { isReviewDelegationRow } from '../lib/delegation-width.js';
+import { isActiveDelegationStatus } from '../lib/delegation-status.js';
 import { buildApprovedPlanImplementPrompt } from '../lib/chat-plan-path.js';
 import {
   parseDelegationCommand,
@@ -81,12 +85,19 @@ import {
 import { parseTerminalInteraction, resolveTerminalState } from '../lib/status-parser.js';
 import {
   hasActiveAgentRun,
-  hasLiveHarnessWork,
+  hasKeepAliveHarnessWork,
   readHarnessPendingFlags,
+  resolveChatStatusWithHistorySync,
   resolveChatListDotState,
   resolveHarnessChatStateMeta,
 } from './features/chat/chatStatusMeta.js';
 import { shouldSkipChatDeleteConfirm } from './features/chat/chatDeleteConfirm.js';
+import {
+  buildChatByIdMap,
+  chatListVisualKey,
+  createRafDebouncer,
+  shouldSkipChatListItemWrite,
+} from './features/chat/chatListStateRefresh.js';
 import { normalizeSdkMode } from '../lib/sdk/sdk-mode.js';
 import { maybeRecoverMissedSdkRunOutcome } from './features/chat/sdkRunOutcomeRecovery.js';
 import { normalizeSdkUiMode } from '../lib/sdk/sdk-ui-mode.js';
@@ -117,9 +128,21 @@ import {
   normalizeAutoContextCompressionThresholdPercent,
   shouldTriggerAutoContextCompression,
 } from '../lib/context-compression.js';
-import { initChatHistorySyncPoll } from './features/chat/chatHistorySyncPoll.js';
+import { initChatHistorySyncPoll, ingestAgentPresenceMessage, applyAgentStatesToChats, invalidateAgentPresenceTrust } from './features/chat/chatHistorySyncPoll.js';
 import { initChatListResumeSync } from './features/chat/chatListResumeSync.js';
+import { createChatListLiveSync } from './features/chat/chatListLiveSync.js';
+import { isSidebarArchiveSectionOpen } from './features/sidebar/sidebarVisibleChats.js';
 import { getResumeHistorySyncDeferMs } from './features/chat/chatResumePolicy.js';
+import {
+  createInFlightHistorySyncTracker,
+  replaceViewAppliedRecords,
+  resetViewAppliedState,
+  setChatHistorySyncInFlight,
+  shouldKeepHistorySyncInFlight,
+  syncViewAppliedSessionKey,
+} from './features/chat/chatHistoryConvergence.js';
+import { applyCatchUpSdkHistoryRecords } from './features/chat/chatHistoryViewApply.js';
+import { runSdkHistoryConvergence as executeSdkHistoryConvergence } from './features/chat/chatHistoryConvergenceRun.js';
 import { isMobileLikeClient } from './lib/mobileClient.js';
 import { getLastBackgroundDurationMs } from './lib/pageBackgroundGrace.js';
 import {
@@ -127,14 +150,13 @@ import {
   beginSdkOpenTerminalHydration,
   clearSdkOpenTerminalHydrating,
   isSdkOpenTerminalHydrating,
-  takeMissingSdkHistoryRecords,
   hasSdkHistoryRoomWatermarks,
 } from './features/chat/sdkEventReplayGuard.js';
 import {
-  partitionRecordsByWindowStart,
   rememberHistoryWindowStart,
   sortRecordsByCreatedAt,
 } from './features/chat/chatHistoryWindowOrder.js';
+import { selectTurnAlignedHistoryWindow } from '../lib/sdk/sdk-history-turn-window.js';
 import { createSdkRichView } from './lib/sdk-rich-view.js';
 import { getChatSpeaker } from './features/voice/chatSpeaker.js';
 import { createVoiceReadOptions } from './features/voice/voiceReadControls.js';
@@ -155,9 +177,13 @@ import {
   readSdkChatHistoryStateAsync,
   replaceSdkChatHistoryRecords,
   sdkHistoryRecordsFromAgentMessageRows,
+  getLastAckedSeq,
 } from './lib/sdk-chat-history-store.js';
 import { createChatView } from './features/chat/chatView.js';
 import { createChatController } from './features/chat/chatController.js';
+import {
+  chatBelongsToWorkspaceGroup,
+} from './features/sidebar/workspaceChatMatch.js';
 import {
   collectWorkspaceFolders,
   matchFolderBySpokenName,
@@ -385,7 +411,7 @@ function setSkipChatDeleteConfirm(value) {
 const SEND_ENTER_DELAY_MS = 80;
 /** Short margin after xterm focus before sending a bare Enter. */
 const ENTER_FOCUS_DELAY_MS = 35;
-const CHAT_TITLES_SYNC_INTERVAL_MS = 15000;
+const CHAT_TITLES_SYNC_INTERVAL_MS = 120000;
 
 function isDebugAutoTitle() {
   if (typeof window === 'undefined') return false;
@@ -1753,16 +1779,17 @@ export function refreshRelatedChatHistoryLinks(chat) {
   const parent = parentId ? chats.find((entry) => entry.id === parentId) : null;
   const children = chats.filter((entry) => {
     if (!entry?.id || entry.id === chat.id || entry.isTemporary === true) return false;
+    if (isChatArchived(entry)) return false;
     const kind = String(entry.forkKind || '');
     if (kind === 'title' || kind === 'summary') return false;
     return String(entry.forkParentChatId || '') === chat.id
       || String(entry.delegationParentChatId || '') === chat.id;
   });
   view.ensureRelatedChatLinks({
-    parent: parentId
+    parent: parent && !isChatArchived(parent)
       ? {
         chatId: parentId,
-        title: parent?.title || parentId.slice(0, 8),
+        title: parent.title || parentId.slice(0, 8),
         reason: String(chat.forkKind || ''),
       }
       : null,
@@ -2010,14 +2037,14 @@ async function handleExecuteDelegationCommand(chat, extraInstructions) {
   if (!chat?.id) return;
   try {
     const listed = await api.getChatDelegations(chat.id);
-    const active = Array.isArray(listed?.delegations)
-      ? listed.delegations.find((row) => {
-        const status = String(row?.status || '');
-        return status === 'queued' || status === 'starting' || status === 'running'
-          || status === 'waiting_for_input' || status === 'cancelling';
+    const activeRows = Array.isArray(listed?.delegations)
+      ? listed.delegations.filter((row) => {
+        if (row?.active === true) return true;
+        return isActiveDelegationStatus(row?.status);
       })
-      : null;
-    if (active) {
+      : [];
+    const mutatingActive = activeRows.some((row) => !isReviewDelegationRow(row));
+    if (mutatingActive) {
       chat._sdkRichView?.appendMetaNotice?.(t('chat.delegationAlreadyActive'));
       return;
     }
@@ -2382,6 +2409,10 @@ export function sendNavKeyToActiveChat(direction) {
 const chats = [];
 /** Chat ids removed locally this session; stale GET responses must not resurrect them. */
 const removedChatIds = new Set();
+let sdkRoomBusMode = 'local';
+api.getSettings().then((data) => {
+  if (data?.sdkRoomBus === 'redis') sdkRoomBusMode = 'redis';
+}).catch(() => {});
 
 let requestAutoTitleFromAgent;
 let requestTitleFromFork;
@@ -2479,110 +2510,85 @@ function yieldToMainThread() {
   });
 }
 
+const historyResumeSyncTracker = createInFlightHistorySyncTracker();
+
+function isDocumentHidden() {
+  return typeof document !== 'undefined' && document.hidden === true;
+}
+
+function resolveChatDraftAndScroll(chat) {
+  const sendInput = typeof document !== 'undefined'
+    ? document.getElementById('chat-send-input')
+    : null;
+  const draftText = sendInput && typeof sendInput.value === 'string' ? sendInput.value : '';
+  const stream = chat?._sdkRichView?.streamEl || chat?._sdkRichView?.el || null;
+  const scrollTop = Number.isFinite(Number(stream?.scrollTop)) ? Number(stream.scrollTop) : 0;
+  return { draftText, scrollTop };
+}
+
 async function syncSdkHistoryOnResume(chat, context = {}) {
-  if (!chat?.id) return;
+  if (!chat?.id) return { status: 'unchanged' };
   const reason = String(context.reason || 'unknown');
-  if (isSdkOpenTerminalHydrating(chat) && reason !== 'selectChat') return;
-  if (chat._sdkResumeSyncPromise) return chat._sdkResumeSyncPromise;
-  const syncStartedAt = Date.now();
-  appLogger.log('chat-sync', 'resume sync start', {
-    chatId: chat.id,
-    reason: context.reason || 'unknown',
-  });
-  traceUiFreeze('chat-sync', 'start', {
-    chatId: chat.id,
-    reason: context.reason || 'unknown',
-    hydrating: chat._sdkHistoryHydrating === true,
-  });
-
-  const syncPromise = (async () => {
-    if (typeof document !== 'undefined' && document.hidden) return;
-    const resumeDeferMs = getResumeHistorySyncDeferMs(
-      String(context.reason || ''),
-      isMobileLikeClient(),
-      getLastBackgroundDurationMs()
-    );
-    if (resumeDeferMs > 0) {
-      appLogger.log('chat-sync', 'resume sync deferred', {
-        chatId: chat.id,
-        reason: context.reason || 'unknown',
-        deferMs: resumeDeferMs,
-      });
-      await new Promise((resolve) => setTimeout(resolve, resumeDeferMs));
-    }
-    if (typeof document !== 'undefined' && document.hidden) return;
-    const fetchStartedAt = Date.now();
-    const serverState = await syncChatHistoryDeltaFromServer(chat.id, chat.cursorSessionId || '');
-    const fetchMs = Date.now() - fetchStartedAt;
-    if (typeof document !== 'undefined' && document.hidden) return;
-    if (!serverState) {
-      if (chat._sdkHistoryHydrating === true && !isSdkOpenTerminalHydrating(chat)) {
-        chatTransport.completeSdkHistoryHydration(chat, []);
-      }
-      appLogger.log('chat-sync', 'resume sync empty', {
-        chatId: chat.id,
-        fetchMs,
-        reason: context.reason || 'unknown',
-      });
-      return;
-    }
-
-    const records = Array.isArray(serverState.events) ? serverState.events : [];
-    let applied = 0;
-    let applyMs = 0;
-    if (chat._sdkRichView) {
-      await yieldToMainThread();
-      const applyStartedAt = Date.now();
-      applied = await applyCatchUpSdkHistoryRecords(chat, records);
-      applyMs = Date.now() - applyStartedAt;
-      if (applied > 0) syncRichViewPlainBuffer(chat);
-      updateAwaitingInput(chat);
-      renderChatTerminalState(chat);
-    }
-    chatTransport.completeSdkHistoryHydration(chat, records);
-
-    traceUiFreeze('chat-sync', 'complete', {
-      chatId: chat.id,
-      reason: context.reason || 'unknown',
-      received: records.length,
-      applied,
-      fetchMs,
-      applyMs,
-      totalMs: Date.now() - syncStartedAt,
-    });
-
-    appLogger.log('chat-sync', 'resume catch-up complete', {
-      chatId: chat.id,
-      reason: context.reason || 'unknown',
-      received: records.length,
-      applied,
-      fetchMs,
-      applyMs,
-      totalMs: Date.now() - syncStartedAt,
-      headSeq: serverState.headSeq,
-      ackSeq: serverState.ackSeq,
-      hasRichView: !!chat._sdkRichView,
-    });
-    chat._pendingRemoteHistory = false;
-    notifyChatBackendReachable(chat);
-  })();
-
-  chat._sdkResumeSyncPromise = syncPromise;
+  if (isSdkOpenTerminalHydrating(chat) && reason !== 'selectChat') {
+    return { status: 'deferred', deferReason: 'open_terminal_hydrating' };
+  }
+  setChatHistorySyncInFlight(chat, true, renderChatTerminalState);
   try {
-    await syncPromise;
+    const result = await historyResumeSyncTracker.run(
+      chat.id,
+      () => runSdkHistoryConvergence(chat, context)
+    );
+    setChatHistorySyncInFlight(
+      chat,
+      shouldKeepHistorySyncInFlight(result),
+      renderChatTerminalState
+    );
+    return result;
   } catch (err) {
-    appLogger.log('chat-sync', 'resume catch-up failed', {
-      chatId: chat.id,
-      reason: context.reason || 'unknown',
-      error: String(err?.message || err),
-    });
-  } finally {
-    if (chat._sdkResumeSyncPromise === syncPromise) {
-      delete chat._sdkResumeSyncPromise;
-    }
+    setChatHistorySyncInFlight(chat, false, renderChatTerminalState);
+    throw err;
   }
 }
 
+async function runSdkHistoryConvergence(chat, context = {}) {
+  return executeSdkHistoryConvergence(chat, context, {
+    isDocumentHidden,
+    getResumeDeferMs: (reason) => getResumeHistorySyncDeferMs(
+      reason,
+      isMobileLikeClient(),
+      getLastBackgroundDurationMs()
+    ),
+    yieldToMain: yieldToMainThread,
+    fetchDelta: (target) => syncChatHistoryDeltaFromServer(
+      target.id,
+      target.cursorSessionId || ''
+    ),
+    readLocal: (target) => readSdkChatHistoryStateAsync(target.id),
+    applyCatchUp: applyCatchUpSdkHistoryRecords,
+    completeHydration: (target, records) => {
+      if (isSdkOpenTerminalHydrating(target) && (!Array.isArray(records) || records.length === 0)) {
+        return;
+      }
+      chatTransport.completeSdkHistoryHydration(target, records);
+    },
+    onApplied: (target) => {
+      syncRichViewPlainBuffer(target);
+      updateAwaitingInput(target);
+      renderChatTerminalState(target);
+    },
+    notifyReachable: notifyChatBackendReachable,
+    getDraftAndScroll: resolveChatDraftAndScroll,
+    getBackgroundMs: getLastBackgroundDurationMs,
+    getUnackedPingAgeMs: (target) => (
+      Number.isFinite(target._unackedPingAt) ? Date.now() - target._unackedPingAt : 0
+    ),
+    getStoreAckSeq: (target) => getLastAckedSeq(target.id),
+    log: (tag, message, payload) => appLogger.log(tag, message, payload),
+    trace: traceUiFreeze,
+  });
+}
+
+let chatListLiveSyncApi = null;
 const chatTransport = createChatTransport({
   WS_PATH_AGENT_SDK,
   CHAT_RECONNECT_MAX,
@@ -2606,6 +2612,7 @@ const chatTransport = createChatTransport({
   processAgentOutputCatchUp,
   writeCatchUpToTerminal,
   updateAwaitingInput,
+  onBackgroundSyncComplete: () => scheduleChatListStateRefresh(),
   flushSdkStructuredHistoryNow,
   setLaunchCommand,
   scrollChatTerminalToBottom,
@@ -2628,6 +2635,20 @@ const chatTransport = createChatTransport({
     closeChat(chat.id, { skipApiDelete: true });
   },
   onConnectionLost: handleChatConnectionLost,
+  onChatsChanged: () => {
+    chatListLiveSyncApi?.onChatsChanged();
+  },
+  onAgentPresence: (msg) => {
+    const result = ingestAgentPresenceMessage(chats, msg);
+    if (result.seqGap) {
+      void api.getChatAgentStates().then((data) => {
+        if (!data?.ok) return;
+        if (applyAgentStatesToChats(chats, data.states)) scheduleChatListStateRefresh();
+      }).catch(() => {});
+      return;
+    }
+    if (result.changed) scheduleChatListStateRefresh(result.dirtyIds);
+  },
 });
 
 function appendChatRecoveryNotice(chat, text, _tone = 'warn') {
@@ -2643,6 +2664,7 @@ initChatServerRecovery({
   syncBackgroundChatConnections,
   syncSdkHistoryOnResume,
   appendRecoveryNotice: appendChatRecoveryNotice,
+  onServerRestart: () => invalidateAgentPresenceTrust(),
   appLogger,
 });
 registerPageResumeCleanupHook(dismissStaleReconnectUiOnResume);
@@ -2684,17 +2706,22 @@ initChatHistorySyncPoll({
   getActiveChatId: () => activeChatId,
   syncSdkHistoryOnResume,
   appLogger,
+  getSdkRoomBusMode: () => sdkRoomBusMode,
+  hasOpenHarnessWs: () => chats.some((chat) => chat?.ws && chat.ws.readyState === 1),
   onPendingHistoryChange: () => {
     renderChatList();
   },
   onAgentStatesChange: () => {
-    refreshSidebarChatStates();
-    updateChatListModalStates();
+    scheduleChatListStateRefresh();
   },
 });
 
 initChatListResumeSync({
   refresh: (query) => loadChatsFromServer(query),
+});
+chatListLiveSyncApi = createChatListLiveSync({
+  refresh: (query) => loadChatsFromServer(query),
+  shouldIncludeArchived: () => isSidebarArchiveSectionOpen(),
 });
 
 const chatController = createChatController({
@@ -2766,16 +2793,17 @@ function getWorkspaceContextForChat() {
 function resolveChatCreationWorkspaceContext() {
   const workspaceSel = document.getElementById('chat-new-workspace-select');
   const folderSel = document.getElementById('chat-new-folder-select');
+  const ctx = getWorkspaceContextForChat();
   const workspaceFile = (
-    workspaceSel?.value ||
     selectedWorkspaceFile ||
-    getWorkspaceContextForChat()?.workspaceFile ||
+    workspaceSel?.value ||
+    ctx?.workspaceFile ||
     ''
   ).trim();
   const workspaceFolder = (
-    folderSel?.value ||
     selectedWorkspaceFolder ||
-    getWorkspaceContextForChat()?.workspaceFolder ||
+    folderSel?.value ||
+    ctx?.workspaceFolder ||
     ''
   ).trim();
   return {
@@ -2784,26 +2812,44 @@ function resolveChatCreationWorkspaceContext() {
   };
 }
 
-function getChatsForCurrentWorkspace() {
+let listCloneFoldersForHeader = () => [];
+
+/**
+ * Sidebar clone folders for a .code-workspace file. Used so the chat panel
+ * does not list a clone's chats on the parent workspace.
+ *
+ * @param {(workspaceFile: string) => string[]} lookup
+ */
+export function setWorkspaceCloneFolderLookup(lookup) {
+  listCloneFoldersForHeader = typeof lookup === 'function' ? lookup : () => [];
+}
+
+function filterChatsForHeaderWorkspace(wantArchived) {
   const ctx = getWorkspaceContextForChat();
   const headerWorkspace = ctx?.workspaceFile || null;
   if (!headerWorkspace) return [];
-  const headerNorm = normalizePath(headerWorkspace);
+  const cloneFolders = listCloneFoldersForHeader(headerWorkspace);
+  const headerFolder = ctx?.workspaceFolder || '';
+  const isCloneView = cloneFolders.some(
+    (folder) => normalizePath(folder) === normalizePath(headerFolder),
+  );
   return chats.filter((chat) => {
-    if (!chat.workspaceFile || normalizePath(chat.workspaceFile) !== headerNorm) return false;
-    return !chat.archivedAt;
+    if (!chatBelongsToWorkspaceGroup(chat, {
+      workspaceFile: headerWorkspace,
+      groupFolder: headerFolder,
+      isClone: isCloneView,
+      cloneFolders,
+    })) return false;
+    return wantArchived ? !!chat.archivedAt : !chat.archivedAt;
   });
 }
 
+function getChatsForCurrentWorkspace() {
+  return filterChatsForHeaderWorkspace(false);
+}
+
 function getArchivedChatsForCurrentWorkspace() {
-  const ctx = getWorkspaceContextForChat();
-  const headerWorkspace = ctx?.workspaceFile || null;
-  if (!headerWorkspace) return [];
-  const headerNorm = normalizePath(headerWorkspace);
-  return chats.filter((chat) => {
-    if (!chat.workspaceFile || normalizePath(chat.workspaceFile) !== headerNorm) return false;
-    return !!chat.archivedAt;
-  });
+  return filterChatsForHeaderWorkspace(true);
 }
 
 export function applyChatEnabledModels(enabledKeys) {
@@ -2973,9 +3019,12 @@ function setAgentState(chat, state) {
     chat._agentStateIdleTimer = null;
   }
   chat._agentState = state;
+  if (state === 'idle') {
+    chat._sdkRichView?.onHarnessIdle?.();
+  }
   renderChatTerminalState(chat);
-  updateChatListModalStates();
-  chatModelSelectApi.refreshModelSelectLabels();
+  scheduleChatListStateRefresh();
+  if (chat.id === activeChatId) chatModelSelectApi.refreshModelSelectLabels();
   syncAgentWakeLock(chats.some((entry) => entry._agentState === 'active'));
 }
 
@@ -2984,7 +3033,7 @@ function scheduleAgentIdleTransition(chat) {
   if (chat._agentStateIdleTimer) clearTimeout(chat._agentStateIdleTimer);
   chat._agentStateIdleTimer = setTimeout(() => {
     chat._agentStateIdleTimer = null;
-    if (hasOngoingTerminalAction(chat) || hasLiveHarnessWork(chat)) {
+    if (hasOngoingTerminalAction(chat) || hasKeepAliveHarnessWork(chat)) {
       setAgentState(chat, 'active');
       scheduleAgentIdleTransition(chat);
       return;
@@ -3010,28 +3059,26 @@ function scheduleTerminalStateRefresh(chat) {
   const waitMs = chat._lastOutputAt + TERMINAL_RECENT_OUTPUT_MS - Date.now();
   if (waitMs <= 0) {
     renderChatTerminalState(chat);
-    updateChatListModalStates();
-    chatModelSelectApi.refreshModelSelectLabels();
+    scheduleChatListStateRefresh();
+    if (chat.id === activeChatId) chatModelSelectApi.refreshModelSelectLabels();
     return;
   }
   chat._recentOutputExpireTimer = setTimeout(() => {
     chat._recentOutputExpireTimer = null;
     renderChatTerminalState(chat);
-    updateChatListModalStates();
-    chatModelSelectApi.refreshModelSelectLabels();
+    scheduleChatListStateRefresh();
+    if (chat.id === activeChatId) chatModelSelectApi.refreshModelSelectLabels();
   }, waitMs + 20);
 }
 
-function updateChatListModalStates() {
-  updateSidebarChatStates();
-  const modal = document.getElementById('chat-list-modal');
-  const listEl = document.getElementById('chat-list-items');
-  if (!modal || modal.hidden || !listEl) return;
-  listEl.querySelectorAll('.chat-list-item').forEach((li) => {
-    const id = li.dataset.chatId;
-    const chat = id ? chats.find((c) => c.id === id) : null;
-    const state = getChatListAgentState(chat);
-    const meta = chat ? getTerminalStateMeta(chat) : { tone: 'disconnected', label: t('status.disconnected') };
+function applyChatListItemVisualState(li, chat, kind) {
+  const disconnectedMeta = { tone: 'disconnected', label: t('status.disconnected') };
+  const state = getChatListAgentState(chat);
+  const meta = chat ? getTerminalStateMeta(chat) : disconnectedMeta;
+  const nextKey = chatListVisualKey(state, meta.tone, meta.label);
+  if (shouldSkipChatListItemWrite(li.dataset.visualKey, nextKey)) return;
+  li.dataset.visualKey = nextKey;
+  if (kind === 'modal') {
     const indicator = li.querySelector('.chat-list-item-state');
     if (indicator) {
       indicator.className = 'chat-list-item-state chat-list-item-state--' + state;
@@ -3045,37 +3092,80 @@ function updateChatListModalStates() {
       awaitingEl.textContent = meta.label;
       awaitingEl.setAttribute('title', t('chat.stateTitle', { label: meta.label }));
     }
+    return;
+  }
+  const indicator = li.querySelector('.sidebar-chat-item-state');
+  if (indicator) {
+    indicator.className = 'sidebar-chat-item-state sidebar-chat-item-state--' + state;
+    indicator.setAttribute('title', meta.label);
+  }
+  const awaitingEl = li.querySelector('.sidebar-chat-item-awaiting');
+  if (awaitingEl) {
+    applySidebarChatStatusEl(awaitingEl, meta, {
+      escapeHtml,
+      title: t('sidebar.stateTitle', { label: meta.label }),
+    });
+  }
+}
+
+function updateChatListModalStates() {
+  const byId = buildChatByIdMap(chats);
+  updateSidebarChatStates(byId);
+  const modal = document.getElementById('chat-list-modal');
+  const listEl = document.getElementById('chat-list-items');
+  if (!modal || modal.hidden || !listEl) return;
+  listEl.querySelectorAll('.chat-list-item').forEach((li) => {
+    const id = li.dataset.chatId;
+    applyChatListItemVisualState(li, id ? byId.get(id) : null, 'modal');
   });
 }
 
+const chatListStateRefresh = createRafDebouncer(() => {
+  updateChatListModalStates();
+});
+/** @type {Set<string>} */
+let pendingSidebarDirtyIds = new Set();
+
+function scheduleChatListStateRefresh(ids) {
+  if (Array.isArray(ids) && ids.length > 0) {
+    for (const id of ids) {
+      if (id) pendingSidebarDirtyIds.add(id);
+    }
+  } else {
+    pendingSidebarDirtyIds.add('*');
+  }
+  chatListStateRefresh.schedule();
+}
+
 /** In-place chat status update in the sidebar (no full re-render). */
-function updateSidebarChatStates() {
+function updateSidebarChatStates(chatById = null) {
   const aside = document.getElementById('app-sidebar');
   if (!aside || aside.hidden) return;
   const body = aside.querySelector('.sidebar-body');
   if (!body) return;
-  body.querySelectorAll('.sidebar-chat-item').forEach((li) => {
-    const id = li.dataset.chatId;
-    const chat = id ? chats.find((c) => c.id === id) : null;
-    const state = getChatListAgentState(chat);
-    const meta = chat ? getTerminalStateMeta(chat) : { tone: 'disconnected', label: t('status.disconnected') };
-    const indicator = li.querySelector('.sidebar-chat-item-state');
-    if (indicator) {
-      indicator.className = 'sidebar-chat-item-state sidebar-chat-item-state--' + state;
-      indicator.setAttribute('title', meta.label);
-    }
-    const awaitingEl = li.querySelector('.sidebar-chat-item-awaiting');
-    if (awaitingEl) {
-      applySidebarChatStatusEl(awaitingEl, meta, {
-        escapeHtml,
-        title: t('sidebar.stateTitle', { label: meta.label }),
-      });
-    }
-  });
+  const byId = chatById || buildChatByIdMap(chats);
+  const dirty = pendingSidebarDirtyIds;
+  pendingSidebarDirtyIds = new Set();
+  const patchAll = dirty.size === 0 || dirty.has('*');
+  if (patchAll) {
+    body.querySelectorAll('.sidebar-chat-item').forEach((li) => {
+      const id = li.dataset.chatId;
+      applyChatListItemVisualState(li, id ? byId.get(id) : null, 'sidebar');
+    });
+    return;
+  }
+  for (const id of dirty) {
+    const escaped = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+      ? CSS.escape(id)
+      : id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const li = body.querySelector(`.sidebar-chat-item[data-chat-id="${escaped}"]`);
+    if (!li) continue;
+    applyChatListItemVisualState(li, byId.get(id) || null, 'sidebar');
+  }
 }
 
 export function refreshSidebarChatStates() {
-  updateSidebarChatStates();
+  scheduleChatListStateRefresh();
 }
 
 function isTerminalTextareaMode(chat) {
@@ -3084,6 +3174,12 @@ function isTerminalTextareaMode(chat) {
 
 function updateAwaitingInput(chat) {
   if (!chat) return { textarea: false, choice: false, awaiting: false };
+  if (!chat.term) {
+    renderChatTerminalState(chat);
+    scheduleChatListStateRefresh();
+    if (chat.id === activeChatId) chatModelSelectApi.refreshModelSelectLabels();
+    return chat._terminalInteraction || { textarea: false, choice: false, awaiting: false };
+  }
   const parsed = parseTerminalInteraction(chat._buffer || '');
   const {
     approval,
@@ -3147,8 +3243,8 @@ function updateAwaitingInput(chat) {
     }
   }
   renderChatTerminalState(chat);
-  updateChatListModalStates();
-  chatModelSelectApi.refreshModelSelectLabels();
+  scheduleChatListStateRefresh();
+  if (chat.id === activeChatId) chatModelSelectApi.refreshModelSelectLabels();
   return chat._terminalInteraction;
 }
 
@@ -3198,7 +3294,9 @@ function resolveSdkChatStateMeta(chat) {
 
 function getTerminalStateMeta(chat) {
   const sdkMeta = resolveSdkChatStateMeta(chat);
-  if (sdkMeta) return sdkMeta;
+  if (sdkMeta) {
+    return resolveChatStatusWithHistorySync(chat?._historySyncInFlight === true, sdkMeta, t);
+  }
   const interaction = terminalInteractionForStateResolve(chat, chat?._terminalInteraction || {});
   const connection = chat?._connectionStatus || 'disconnected';
   const recentOutput = chat?._lastOutputAt && Date.now() - chat._lastOutputAt < TERMINAL_RECENT_OUTPUT_MS;
@@ -3206,13 +3304,14 @@ function getTerminalStateMeta(chat) {
   const state = resolveTerminalState(interaction, connection, agent, recentOutput);
   // status-parser is shared with the backend, so it returns a key instead of a
   // translated label.
-  return state.labelKey ? { ...state, label: t(state.labelKey) } : state;
+  const fallback = state.labelKey ? { ...state, label: t(state.labelKey) } : state;
+  return resolveChatStatusWithHistorySync(chat?._historySyncInFlight === true, fallback, t);
 }
 
 function renderChatTerminalState(chat, metaOverride = null) {
   const bar = chat?.sdkModeBarEl;
   if (!bar || chat.id !== activeChatId) {
-    updateChatListModalStates();
+    scheduleChatListStateRefresh();
     return;
   }
   const meta =
@@ -3273,7 +3372,6 @@ function updateFolderSelect(workspaceFile, preferredFolder = '') {
   if (!folderSel) return;
   if (!w) {
     folderSel.innerHTML = '';
-    selectedWorkspaceFolder = null;
     return;
   }
   const options = [];
@@ -3382,13 +3480,13 @@ function syncRichViewPlainBuffer(chat) {
  */
 function takeSdkHistoryWindow(chat, records) {
   const list = Array.isArray(records) ? records : [];
-  if (list.length <= CHAT_HISTORY_INITIAL_TAIL) {
-    chat._historyOlderLocal = [];
-    return list;
-  }
-  const cut = list.length - CHAT_HISTORY_INITIAL_TAIL;
-  chat._historyOlderLocal = list.slice(0, cut);
-  return list.slice(cut);
+  // A bare tail cut can land mid-run and drop the run's leading Thinking block, which
+  // splits its Activity tray on replay. Expand the window to the user turn that opens
+  // the run so the renderer rebuilds the same group as the live stream.
+  const windowed = selectTurnAlignedHistoryWindow(list, CHAT_HISTORY_INITIAL_TAIL);
+  const cut = list.length - windowed.length;
+  chat._historyOlderLocal = cut > 0 ? list.slice(0, cut) : [];
+  return windowed;
 }
 
 /**
@@ -3418,6 +3516,8 @@ async function hydrateSdkRichViewFromLocalCache(chat, localState, sessionKey) {
   const windowed = takeSdkHistoryWindow(chat, chronological);
   rememberHistoryWindowStart(chat, windowed, { reset: true });
   chat._sdkRichView.replayHistoryRecords(windowed, { instant: true });
+  syncViewAppliedSessionKey(chat.id, chat, sessionKey);
+  replaceViewAppliedRecords(chat.id, chat, windowed);
   syncRichViewPlainBuffer(chat);
   return { hydratedRecords: chronological, structuredReplayDone: true };
 }
@@ -3429,38 +3529,6 @@ async function hydrateSdkRichViewFromLocalCache(chat, localState, sessionKey) {
  * @param {boolean} structuredReplayDone
  * @returns {Promise<{ hydratedRecords: unknown[], structuredReplayDone: boolean }>}
  */
-/**
- * Applies a server catch-up batch without putting older streams under the
- * already-rendered window. localUser rows have no stream id, so takeMissing
- * skips them — prepend the whole older slice of the incoming batch instead.
- *
- * @param {object} chat
- * @param {unknown[]} incomingRecords
- * @returns {Promise<number>} number of records applied to the view
- */
-async function applyCatchUpSdkHistoryRecords(chat, incomingRecords) {
-  if (!chat?._sdkRichView || !Array.isArray(incomingRecords) || incomingRecords.length === 0) {
-    return 0;
-  }
-  const missing = takeMissingSdkHistoryRecords(chat, incomingRecords);
-  const windowOldestAt =
-    typeof chat._historyWindowOldestAt === 'string' ? chat._historyWindowOldestAt : '';
-  const missingParts = partitionRecordsByWindowStart(missing, windowOldestAt);
-  let applied = 0;
-  if (missingParts.older.length > 0) {
-    const older = partitionRecordsByWindowStart(incomingRecords, windowOldestAt).older;
-    const toPrepend = older.length > 0 ? older : missingParts.older;
-    chat._sdkRichView.prependHistoryRecords(toPrepend);
-    rememberHistoryWindowStart(chat, toPrepend);
-    applied += toPrepend.length;
-  }
-  if (missingParts.newer.length > 0) {
-    await chat._sdkRichView.appendHistoryRecords(missingParts.newer, { instant: true });
-    applied += missingParts.newer.length;
-  }
-  return applied;
-}
-
 async function mergeServerSdkHistoryIntoRichView(chat, serverEvents, sessionKey, structuredReplayDone) {
   if (!chat?._sdkRichView || !Array.isArray(serverEvents) || serverEvents.length === 0) {
     return { hydratedRecords: serverEvents || [], structuredReplayDone };
@@ -3479,6 +3547,8 @@ async function mergeServerSdkHistoryIntoRichView(chat, serverEvents, sessionKey,
   }
   rememberHistoryWindowStart(chat, serverEvents, { reset: true });
   chat._sdkRichView.replayHistoryRecords(serverEvents, { instant: true });
+  syncViewAppliedSessionKey(chat.id, chat, resolvedSessionKey);
+  replaceViewAppliedRecords(chat.id, chat, serverEvents);
   syncRichViewPlainBuffer(chat);
   return { hydratedRecords: serverEvents, structuredReplayDone: true };
 }
@@ -3572,6 +3642,7 @@ function openTerminal(chat) {
     } catch {
       // Detached pane — rebuild a fresh one with a send bar.
     }
+    resetViewAppliedState(chat.id, chat);
     chat.pane = null;
     chat._sdkRichView = null;
     chat.term = null;
@@ -3760,7 +3831,10 @@ function openTerminal(chat) {
   chat.pane = pane;
 
   chat._sdkRichView = createSdkRichView(chat, container, {
-    appendPlain: (s) => processAgentOutput(chat, s),
+    appendPlain: (s) => {
+      if (!chat.term) return;
+      processAgentOutput(chat, s);
+    },
     onHistoryRecord: (rec) => enqueueSdkStructuredHistoryRecord(chat, rec),
     loadOlderHistory: () => loadOlderSdkHistoryPage(chat),
     onFinishTitle: (title) => {
@@ -3842,8 +3916,17 @@ function openTerminal(chat) {
     onOpenCodeQuestionReply: (payload) => sendOpenCodeQuestionReply(chat, payload),
     onOpenCodePermissionReply: (payload) => sendOpenCodePermissionReply(chat, payload),
     onOpenDelegationChat: (childChatId) => {
-      if (childChatId) selectChat(childChatId);
+      if (!childChatId) return;
+      void (async () => {
+        if (!chats.some((entry) => entry.id === childChatId)) {
+          await loadChatsFromServer({ skipAutoSelect: true, preferChatId: childChatId });
+        }
+        selectChat(childChatId);
+      })().catch((error) => {
+        appLogger.log('delegation', 'open executor failed', { error: String(error) });
+      });
     },
+    isRelatedChatVisible: (relatedChatId) => isRelatedChatLinkVisible(chats, relatedChatId),
     onCancelDelegation: (delegationId) => {
       if (!delegationId) return;
       void api.postDelegationCancel(delegationId);
@@ -3855,6 +3938,28 @@ function openTerminal(chat) {
         if (chat._sdkHistoryHydrating) return;
         void syncSdkHistoryOnResume(chat, { reason: 'delegation_ack' }).catch(() => {});
       }).catch(() => {});
+    },
+    onRetryDelegation: (delegationId) => {
+      if (!delegationId) return;
+      void api.postDelegationRetry(delegationId).then((res) => {
+        if (res?.ok) {
+          if (chat._sdkHistoryHydrating) return;
+          void syncSdkHistoryOnResume(chat, { reason: 'delegation_retry' }).catch(() => {});
+          return;
+        }
+        alert(res?.error || t('chat.delegationRetryFailed'));
+      }).catch(() => {
+        alert(t('chat.serverConnectionError'));
+      });
+    },
+    onRetryMailbox: (messageId) => {
+      if (!chat?.id || !messageId) return;
+      void api.postChatMailboxRetry(chat.id, messageId).then((res) => {
+        if (res?.ok) return;
+        alert(res?.error || t('chat.mailboxRetryFailed'));
+      }).catch(() => {
+        alert(t('chat.serverConnectionError'));
+      });
     },
   });
   chat.term = null;
@@ -3941,9 +4046,11 @@ function openTerminal(chat) {
                 const windowed = takeSdkHistoryWindow(chat, sortRecordsByCreatedAt(merged));
                 rememberHistoryWindowStart(chat, windowed, { reset: true });
                 chat._sdkRichView.replayHistoryRecords(windowed, { instant: true });
+                replaceViewAppliedRecords(chat.id, chat, windowed);
               } else {
                 rememberHistoryWindowStart(chat, records, { reset: true });
                 chat._sdkRichView.applyAgentMessagesHistory(sdkHistoryRows);
+                replaceViewAppliedRecords(chat.id, chat, records);
               }
               structuredReplayDone = true;
               syncRichViewPlainBuffer(chat);
@@ -3969,6 +4076,7 @@ function openTerminal(chat) {
             const windowed = takeSdkHistoryWindow(chat, chronological);
             rememberHistoryWindowStart(chat, windowed, { reset: true });
             chat._sdkRichView.replayHistoryRecords(windowed, { instant: true });
+            replaceViewAppliedRecords(chat.id, chat, windowed);
             structuredReplayDone = true;
             syncRichViewPlainBuffer(chat);
           } else {
@@ -4102,8 +4210,13 @@ function findLastVisibleChatId(excludeChatId = '') {
   return null;
 }
 
-async function requestArchiveChat(chatId, options = {}) {
+export async function requestArchiveChat(chatId, options = {}) {
   if (!chatId) return false;
+  const archivedRow = chats.find((entry) => entry.id === chatId);
+  const relatedParentIds = [
+    String(archivedRow?.forkParentChatId || '').trim(),
+    String(archivedRow?.delegationParentChatId || '').trim(),
+  ].filter(Boolean);
   const switchToChatId =
     typeof options.switchToChatId === 'string' && options.switchToChatId.trim()
       ? options.switchToChatId.trim()
@@ -4130,10 +4243,34 @@ async function requestArchiveChat(chatId, options = {}) {
   if (switchToChatId && chats.some((entry) => entry.id === switchToChatId)) {
     selectChat(switchToChatId);
   }
+  relatedParentIds.forEach((id) => {
+    refreshRelatedChatHistoryLinks(chats.find((entry) => entry.id === id));
+  });
   return true;
 }
 
-async function requestRestoreChat(chatId) {
+function syncArchiveMenuUi(chat = null) {
+  const btn = document.getElementById('chat-archive-menu-btn');
+  if (!btn) return;
+  const archived = Boolean(String(chat?.archivedAt || '').trim());
+  const key = archived ? 'chat.restore' : 'chat.archive';
+  const label = t(key);
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+  btn.setAttribute('data-i18n-title', key);
+  btn.setAttribute('data-i18n-aria', key);
+  const labelEl = btn.querySelector('.chat-toolbar-action-label');
+  if (labelEl) {
+    labelEl.setAttribute('data-i18n', key);
+    labelEl.textContent = label;
+  }
+  const icon = btn.querySelector('.mdi');
+  if (!icon) return;
+  icon.classList.toggle('mdi-archive-arrow-down-outline', !archived);
+  icon.classList.toggle('mdi-archive-arrow-up-outline', archived);
+}
+
+export async function requestRestoreChat(chatId) {
   if (!chatId) return false;
   let data = null;
   try {
@@ -4202,6 +4339,7 @@ export function closeChat(id, options = {}) {
     chat._sdkRichView.destroy();
     chat._sdkRichView = null;
   }
+  resetViewAppliedState(id, chat);
   chatDiagnosticsApi.stopChatDiagPolling(chat);
   if (chat.term && typeof chat.term.dispose === 'function') chat.term.dispose();
   chat._termContainer = null;
@@ -4478,47 +4616,6 @@ async function createChatFromSendAction(parentChat, message, forkConversation) {
   return true;
 }
 
-const AGENT_MONITOR_PROMPT = [
-  'This is a new sub-chat that analyzes another Cretli chat.',
-  'You do not inherit that chat history. Diagnose the parent from its id and the live status snapshot below.',
-  'Is the agent working, stuck, waiting for input, or idle? What are the risks and what should happen next.',
-  'Answer briefly and concretely, in these sections:',
-  '1) Current state',
-  '2) What it means',
-  '3) Recommended next steps (max 5 bullets)',
-  '4) What is missing for a confident diagnosis',
-  'Do not trigger any external actions or callbacks.',
-].join('\n');
-
-function buildAgentMonitorMessage(chat) {
-  if (!chat?.id) return AGENT_MONITOR_PROMPT;
-  const status = getTerminalStateMeta(chat);
-  const connection = typeof chat._connectionStatus === 'string' ? chat._connectionStatus : 'unknown';
-  const agentState = getChatAgentState(chat);
-  const awaiting = chat._awaitingInput === true ? 'yes' : 'no';
-  const queuedCount = chat._sdkRichView?.queuedCount || Number(chat._sdkServerQueuedCount) || 0;
-  const contextTokens =
-    Number.isFinite(chat._contextUsageTotalTokens) && chat._contextUsageTotalTokens > 0
-      ? String(chat._contextUsageTotalTokens)
-      : 'unknown';
-  return [
-    AGENT_MONITOR_PROMPT,
-    '',
-    '[Parent chat snapshot]',
-    `chatId: ${chat.id}`,
-    `title: ${chat.title || 'untitled'}`,
-    `harness: ${chat.agentTransport || 'unknown'}`,
-    `model: ${chat.model || 'unknown'}`,
-    `connection: ${connection}`,
-    `agentState: ${agentState}`,
-    `terminalTone: ${status.tone}`,
-    `terminalLabel: ${status.label}`,
-    `awaitingInput: ${awaiting}`,
-    `queuedCount: ${queuedCount}`,
-    `contextTokens: ${contextTokens}`,
-  ].join('\n');
-}
-
 function getWorkspaceDefaultFolder(workspace) {
   if (!workspace || typeof workspace !== 'object') return '';
   if (typeof workspace.workspaceDir === 'string' && workspace.workspaceDir.trim()) {
@@ -4746,6 +4843,7 @@ function performSelectChat(id) {
   if (chat) {
     requestWidgetChatBinding(chat);
     syncWidgetPinUrlUi(chat);
+    syncArchiveMenuUi(chat);
     syncChatSdkModeUi(chat);
     renderChatTerminalState(chat);
     chatDiagnosticsApi.startChatContextUsageSync(chat);
@@ -4794,6 +4892,10 @@ export function loadChatsFromServer(query = {}) {
     }
     if (didRemove) renderChatList();
   });
+}
+
+export function getArchivedCounts() {
+  return chatController.getArchivedCounts();
 }
 
 let embedChatCreationPromise = null;
@@ -4987,6 +5089,7 @@ export function syncEmbedChatToHostPage() {
  */
 function syncChatTitlesFromServer() {
   if (chatTitlesSyncInFlight) return;
+  if (chatController.isChatsListLoadInFlight()) return;
   if (typeof document !== 'undefined') {
     if (document.visibilityState && document.visibilityState !== 'visible') return;
     const chatPanel = document.getElementById('chat-panel');
@@ -5584,10 +5687,13 @@ function applyNewChatFavoritePreset(value) {
   const harnessSelect = document.getElementById('chat-new-harness-select');
   const modelSelect = document.getElementById('chat-new-model-select');
   if (!(harnessSelect instanceof HTMLSelectElement) || !(modelSelect instanceof HTMLSelectElement)) return;
+  const presetModel = preset.harness === 'sdk'
+    ? chatModelSelectApi.resolveSdkPresetModel(preset.model)
+    : preset.model;
   harnessSelect.value = preset.harness;
   chatModelSelectApi.setModelPickerHarness(preset.harness);
-  chatModelSelectApi.renderModelSelectOptions(modelSelect, preset.model);
-  modelSelect.value = preset.model;
+  chatModelSelectApi.renderModelSelectOptions(modelSelect, presetModel);
+  modelSelect.value = presetModel;
   chatNewModelDropdownApi?.refresh?.();
   chatNewFavoritePresetDropdownApi?.close?.();
   syncNewChatFavoritePresetUi();
@@ -5595,8 +5701,8 @@ function applyNewChatFavoritePreset(value) {
     // A freshly loaded catalog can replace the model value; re-apply the chosen preset.
     if (getSelectedNewChatHarness() !== preset.harness) return;
     chatModelSelectApi.setModelPickerHarness(preset.harness);
-    chatModelSelectApi.renderModelSelectOptions(modelSelect, preset.model);
-    modelSelect.value = preset.model;
+    chatModelSelectApi.renderModelSelectOptions(modelSelect, presetModel);
+    modelSelect.value = presetModel;
     chatNewModelDropdownApi?.refresh?.();
     syncNewChatFavoritePresetUi();
   });
@@ -5618,6 +5724,44 @@ function refreshModelCatalogFromServer() {
       cachedSdkReady = !!(r && r.ok && r.ready);
     })
     .catch(() => {});
+}
+
+let chatModelCatalogPrefetchStarted = false;
+
+function prefetchChatModelCatalogs() {
+  if (chatModelCatalogPrefetchStarted) return;
+  chatModelCatalogPrefetchStarted = true;
+  void refreshModelCatalogFromServer();
+  void api.getOpenRouterModels().then((data) => {
+    if (!data?.ok) return;
+    const changed = chatModelSelectApi.applyAvailableModelsFromOpenRouter(data);
+    if (changed) chatModelSelectApi.refreshModelSelectLabels();
+  }).catch(() => {});
+  void api.getCodeBuddyModels().then((data) => {
+    if (!data?.ok) return;
+    const changed = chatModelSelectApi.applyAvailableModelsFromCodeBuddy(data);
+    if (changed) chatModelSelectApi.refreshModelSelectLabels();
+  }).catch(() => {});
+  void api.getDeepSeekModels().then((data) => {
+    if (!data?.ok) return;
+    const changed = chatModelSelectApi.applyAvailableModelsFromDeepSeek(data);
+    if (changed) chatModelSelectApi.refreshModelSelectLabels();
+  }).catch(() => {});
+  void api.getQwenModels().then((data) => {
+    if (!data?.ok) return;
+    const changed = chatModelSelectApi.applyAvailableModelsFromQwen(data);
+    if (changed) chatModelSelectApi.refreshModelSelectLabels();
+  }).catch(() => {});
+  void api.getCodexModels().then((data) => {
+    if (!data?.ok) return;
+    const changed = chatModelSelectApi.applyAvailableModelsFromCodex(data);
+    if (changed) chatModelSelectApi.refreshModelSelectLabels();
+  }).catch(() => {});
+  void fetchOpenCodeModelsCatalog().then((modelsData) => {
+    if (!modelsData?.ok) return;
+    chatModelSelectApi.applyAvailableModelsFromOpenCode(modelsData);
+    chatModelSelectApi.refreshModelSelectLabels();
+  }).catch(() => {});
 }
 
 function applyNewChatModalForkLabels() {
@@ -5671,6 +5815,11 @@ function getNewChatModalSourceChat() {
  * }} [options]
  */
 export function openNewChatModal(options = {}) {
+  prefetchChatModelCatalogs();
+  void refreshHarnessUsageLimits();
+  void ensureHarnessDefaultsLoaded().then(() => {
+    applyDefaultNewChatHarnessToModal();
+  });
   if (!chatNewModalApi) return;
   const requestedForkId =
     options && typeof options.forkFromChatId === 'string' ? options.forkFromChatId.trim() : '';
@@ -5836,6 +5985,17 @@ export function openNewChatModal(options = {}) {
   chatNewModalApi.open();
   if (titleInput) titleInput.focus();
   void loadWorkspaces().then(() => {
+    selectedWorkspaceFile =
+      preferredWorkspaceFile ||
+      selectedWorkspaceFile ||
+      getWorkspaceContextForChat()?.workspaceFile ||
+      selectedWorkspaceFile;
+    selectedWorkspaceFolder =
+      preferredWorkspaceFolder ||
+      selectedWorkspaceFolder ||
+      getWorkspaceContextForChat()?.workspaceFolder ||
+      selectedWorkspaceFolder;
+    chatController.renderWorkspacesSelects();
     ensureEmbedNewChatFolderSelect();
     const m = document.getElementById('chat-new-model-select');
     const source = getNewChatModalSourceChat();
@@ -6517,9 +6677,9 @@ async function createForkChatFromModal(parentChat, values) {
     values.displayText ||
     (sameHarness ? t('chat.forkContinueDisplayText') : t('chat.harnessHandoffDisplayText'));
   const initialPrompt = data.initialPrompt || values.message || '';
-  const live = analyze
-    ? openCreatedChatWithPrompt(created, initialPrompt, displayText)
-    : openCreatedForkChat(created, initialPrompt, displayText);
+  // Analysis sub-chats start empty. Keep only the parent reference as an
+  // inherited instruction and send it together with the user's first message.
+  const live = openCreatedForkChat(created, initialPrompt, analyze ? '' : displayText);
   syncWidgetPinUrlUi(live || created);
   notifyWidgetParentPagePinChanged();
   notifySidebar();
@@ -6639,8 +6799,6 @@ function createChatFromModal() {
     };
     if (forkParent?.id && forkUpToCreatedAt) values.upToCreatedAt = forkUpToCreatedAt;
     if (monitorParent?.id) {
-      values.message = buildAgentMonitorMessage(monitorParent);
-      values.displayText = t('chat.monitorAgentDisplayPrompt');
       values.analyze = true;
       if (!values.title) {
         values.title = t('chat.monitorDefaultTitle', { title: monitorParent.title || 'Chat' });
@@ -7693,32 +7851,6 @@ export function initChatPanel() {
 
   chatNewModelDropdownApi = chatModelSelectApi.ensureFloatingModelSelect(document.getElementById('chat-new-model-select'));
   chatNewFolderDropdownApi = chatModelSelectApi.ensureFloatingFolderSelect(document.getElementById('chat-new-folder-select'));
-  void refreshModelCatalogFromServer();
-  void api.getOpenRouterModels().then((data) => {
-    if (!data?.ok) return;
-    const changed = chatModelSelectApi.applyAvailableModelsFromOpenRouter(data);
-    if (changed) chatModelSelectApi.refreshModelSelectLabels();
-  }).catch(() => {});
-  void api.getCodeBuddyModels().then((data) => {
-    if (!data?.ok) return;
-    const changed = chatModelSelectApi.applyAvailableModelsFromCodeBuddy(data);
-    if (changed) chatModelSelectApi.refreshModelSelectLabels();
-  }).catch(() => {});
-  void api.getDeepSeekModels().then((data) => {
-    if (!data?.ok) return;
-    const changed = chatModelSelectApi.applyAvailableModelsFromDeepSeek(data);
-    if (changed) chatModelSelectApi.refreshModelSelectLabels();
-  }).catch(() => {});
-  void api.getQwenModels().then((data) => {
-    if (!data?.ok) return;
-    const changed = chatModelSelectApi.applyAvailableModelsFromQwen(data);
-    if (changed) chatModelSelectApi.refreshModelSelectLabels();
-  }).catch(() => {});
-  void api.getCodexModels().then((data) => {
-    if (!data?.ok) return;
-    const changed = chatModelSelectApi.applyAvailableModelsFromCodex(data);
-    if (changed) chatModelSelectApi.refreshModelSelectLabels();
-  }).catch(() => {});
   api.getSettings().then((data) => {
     if (!data?.ok) return;
     applyHarnessOrder(data.harnessOrder);
@@ -7737,11 +7869,6 @@ export function initChatPanel() {
     const ctx = getWorkspaceContextForChat();
     const folder = ctx?.workspaceFolder || serverSettingsWorkspaceFolder;
     if (folder && !selectedWorkspaceFolder) selectedWorkspaceFolder = folder;
-    return fetchOpenCodeModelsCatalog().then((modelsData) => {
-      if (!modelsData?.ok) return;
-      chatModelSelectApi.applyAvailableModelsFromOpenCode(modelsData);
-      chatModelSelectApi.refreshModelSelectLabels();
-    });
   }).catch(() => {});
   if (typeof window !== 'undefined') {
     window.addEventListener(CHAT_PRESETS_CHANGED_EVENT, () => {
@@ -7807,6 +7934,9 @@ export function initChatPanel() {
     });
     window.addEventListener('cretli-default-harness-changed', () => {
       applyDefaultNewChatHarnessToModal();
+    });
+    window.addEventListener('cretli-workspace-updated', () => {
+      void loadWorkspaces();
     });
   }
   void loadWorkspaces();
@@ -7941,6 +8071,22 @@ export function initChatPanel() {
       if (!id) return;
       sendKeySequenceToActiveChat('\x03');
     });
+  }
+
+  const archiveMenuBtn = document.getElementById('chat-archive-menu-btn');
+  if (archiveMenuBtn) {
+    bindChatToolbarActionItem(archiveMenuBtn, () => {
+      closeChatActionsModal();
+      const id = activeChatId;
+      if (!id) return;
+      const chat = chats.find((entry) => entry.id === id);
+      if (chat?.archivedAt) {
+        void requestRestoreChat(id);
+        return;
+      }
+      void requestArchiveChat(id);
+    });
+    syncArchiveMenuUi(activeChatId ? chats.find((c) => c.id === activeChatId) : null);
   }
 
   const deleteMenuBtn = document.getElementById('chat-delete-menu-btn');

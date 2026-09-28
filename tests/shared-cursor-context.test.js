@@ -1,3 +1,4 @@
+import './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -9,6 +10,12 @@ import {
   normalizeAdditionalCursorContextDirs,
   resolveSdkCwdList,
 } from '../lib/sdk/shared-cursor-context.js';
+import { resolveDataPath, resolveProjectPath } from '../lib/runtime-paths.js';
+import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
+
+test.after(() => {
+  removeIsolatedDataDir();
+});
 
 test('normalizeAdditionalCursorContextDirs keeps existing unique dirs', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cr-shared-ctx-'));
@@ -31,10 +38,13 @@ test('resolveSdkCwdList puts project first and skips duplicate shared root', () 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cr-shared-cwd-'));
   const project = path.join(root, 'project');
   const shared = path.join(root, 'shared');
+  const bundledShare = resolveDataPath('cursor-share');
+  const cretliRoot = resolveProjectPath();
   fs.mkdirSync(project);
   fs.mkdirSync(shared);
-  assert.deepEqual(resolveSdkCwdList(project, [shared, project]), [project, shared]);
-  assert.deepEqual(resolveSdkCwdList(project, []), [project]);
+  assert.deepEqual(resolveSdkCwdList(project, [shared, project]), [project, bundledShare, shared]);
+  assert.deepEqual(resolveSdkCwdList(project, []), [project, bundledShare]);
+  assert.equal(resolveSdkCwdList(project, []).includes(cretliRoot), false);
   fs.rmSync(root, { recursive: true, force: true });
 });
 

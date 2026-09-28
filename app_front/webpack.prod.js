@@ -77,6 +77,24 @@ export default {
           priority: 30,
           reuseExistingChunk: true,
         },
+        // Name must not match webpackChunkName "sdk-hljs" (the lazy wrapper).
+        // Webpack 5 forbids a cache group from reusing that named chunk when
+        // Files also imports highlight.js — the wrapper is not a parent of
+        // those modules.
+        hljs: {
+          test: /[\\/]node_modules[\\/]highlight\.js[\\/]/,
+          name: 'hljs',
+          chunks: (chunk) => !chunk.canBeInitial(),
+          priority: 28,
+          reuseExistingChunk: true,
+        },
+        sdkMarkdown: {
+          test: /[\\/]node_modules[\\/]markdown-it[\\/]/,
+          name: 'sdk-markdown',
+          chunks: (chunk) => !chunk.canBeInitial(),
+          priority: 27,
+          reuseExistingChunk: true,
+        },
         default: false,
         defaultVendors: false,
       },

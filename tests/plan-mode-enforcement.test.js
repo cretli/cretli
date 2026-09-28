@@ -7,6 +7,7 @@ import {
   resolvePlanModeToolDecision,
 } from '../lib/sdk/sdk-plan-guard.js';
 import { HARNESS_ASK_MODE_HINT, HARNESS_PLAN_MODE_HINT, applyHarnessOutboundPrompt } from '../lib/sdk/harness-plan-prompt.js';
+import { resolveOpenCodeApprovalAction } from '../lib/opencode/opencode-permission.js';
 
 const editEvent = { type: 'tool_call', name: 'edit', status: 'running' };
 const readEvent = { type: 'tool_call', name: 'read', status: 'running' };
@@ -71,7 +72,7 @@ const codexEdit = resolvePlanModeSdkEventDecision({
 assert.equal(codexEdit.deny, false);
 assert.equal(codexEdit.abortRun, false);
 assert.equal(codexEdit.notify, false);
-assert.ok(applyHarnessOutboundPrompt('hello', { mode: 'plan', transport: 'codex' }).startsWith(HARNESS_PLAN_MODE_HINT));
+assert.ok(applyHarnessOutboundPrompt('hello', { mode: 'plan', transport: 'codex' }).includes(HARNESS_PLAN_MODE_HINT));
 const codexAskEdit = resolvePlanModeSdkEventDecision({
   transport: 'codex',
   mode: 'ask',
@@ -79,7 +80,7 @@ const codexAskEdit = resolvePlanModeSdkEventDecision({
 });
 assert.equal(codexAskEdit.deny, true);
 assert.equal(codexAskEdit.abortRun, true);
-assert.ok(applyHarnessOutboundPrompt('hello', { mode: 'ask', transport: 'codex' }).startsWith(HARNESS_ASK_MODE_HINT));
+assert.ok(applyHarnessOutboundPrompt('hello', { mode: 'ask', transport: 'codex' }).includes(HARNESS_ASK_MODE_HINT));
 assert.equal(applyHarnessOutboundPrompt('hello', { mode: 'ask', transport: 'codex' }).includes('question-UI approval'), false);
 
 const sdkAskRead = resolvePlanModeSdkEventDecision({
@@ -152,5 +153,34 @@ assert.equal(askDeniedEdit.behavior, 'deny');
 assert.equal(askDeniedEdit.message, ASK_GUARD_USER_MESSAGE);
 const askAllowedRead = await askCanUseTool('read', { path: 'a.js' });
 assert.equal(askAllowedRead.behavior, 'allow');
+
+// The OpenCode approval broker MVP must never override the hard plan/review
+// guard: its local_reads mode only adds `once` for safe reads and can never
+// turn a plan/review deny into an allow.
+const brokerPlanRm = resolveOpenCodeApprovalAction({
+  mode: 'local_reads',
+  sdkMode: 'plan',
+  permissionEvent: { action: 'bash', metadata: { command: 'rm -rf tmp' } },
+  assignment: '',
+  workspaceFolder: process.cwd(),
+});
+assert.equal(brokerPlanRm.decision, 'deny');
+assert.equal(brokerPlanRm.reply, 'reject');
+const brokerReviewWrite = resolveOpenCodeApprovalAction({
+  mode: 'local_reads',
+  sdkMode: 'agent',
+  permissionEvent: { action: 'edit', resources: ['a.js'] },
+  assignment: 'review',
+  workspaceFolder: process.cwd(),
+});
+assert.equal(brokerReviewWrite.reply, 'reject');
+const brokerPlanRead = resolveOpenCodeApprovalAction({
+  mode: 'local_reads',
+  sdkMode: 'agent',
+  permissionEvent: { action: 'read', resources: ['a.js'] },
+  assignment: '',
+  workspaceFolder: process.cwd(),
+});
+assert.equal(brokerPlanRead.reply, 'once');
 
 console.log('plan-mode-enforcement.test.js OK');

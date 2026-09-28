@@ -31,6 +31,12 @@ const waitingPl = parseTimeoutProgressNotice(
 assert.equal(waitingPl?.idleSeconds, 5);
 assert.equal(waitingPl?.remainingSeconds, 3);
 
+const waitingPlUi = parseTimeoutProgressNotice(
+  '[SDK] Brak nowych zdarzeń od 21s. Próg ostrzegawczy za ok. 2979s.',
+);
+assert.equal(waitingPlUi?.idleSeconds, 21);
+assert.equal(waitingPlUi?.remainingSeconds, 2979);
+
 assert.equal(
   SUMMARY_FORK_META_LINE_PATTERNS.some((pattern) => pattern.test('[SDK] No new events')),
   true,

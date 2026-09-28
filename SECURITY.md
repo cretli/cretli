@@ -38,6 +38,59 @@ Only the latest release on the `master` branch is supported.
 - HTTPS uses a self-signed certificate (`npm run gen-cert`). It protects against passive
   eavesdropping on the LAN but is **not** a substitute for auth.
 
+## Browser module SSRF model
+
+The server-side Browser (`/api/browser/*`, `/ws-browser`) drives headless Chromium on the
+Cretli host, so it is an SSRF-sensitive feature. Its guarantees are:
+
+The active boundary is reported by `/api/browser/status` as `runtime.networkBoundary`.
+The default `mvp-defense-in-depth` mode is deliberately not an egress proxy and does
+not claim complete DNS/SSRF isolation. `proxy` and `required` modes require the
+operator to set `CRETLI_BROWSER_PROXY_SERVER`; this MVP passes that proxy to
+Playwright but does not implement or audit the proxy itself.
+
+- **Default-deny origins.** A workspace must explicitly allowlist each `http(s)://host`
+  before Chromium can reach it. `allowLocalhost` opens loopback only and
+  `allowPrivateNetwork` opens RFC1918/ULA literals only; neither implies the other.
+- **Always-blocked targets.** Link-local addresses (`169.254.0.0/16`, `fe80::/10`), cloud
+  metadata endpoints, multicast, documentation and other special ranges are rejected even
+  when allowlisted. IPv4-mapped, NAT64 (`64:ff9b::/96`), 6to4 (`2002::/16`) and Teredo
+  (`2001::/32`) forms are decoded or blocked so an address cannot be smuggled through a
+  transition prefix. URLs containing `user:pass@` are rejected.
+- **Self-origin block.** Cretli's configured `CRETLI_PUBLIC_ORIGIN` (and the direct
+  loopback URL) are always denied, even if allowlisted, so the browser cannot reach the
+  Cretli control plane through a reverse proxy.
+- **Redirects are re-checked.** Playwright does not expose server redirects to route
+  handlers, so every request is fetched with `maxRedirects: 0` and each redirect hop is
+  re-evaluated by the URL policy (navigation *and* subresources). Service workers stay
+  blocked so they cannot bypass the route policy. When a redirect crosses origins, the
+  original request's credentials (`Cookie`, `Authorization`, and other sensitive headers)
+  are stripped before the next hop is fetched, so an allowlisted page cannot bounce a
+  request to a second origin and leak them.
+- **Residual risk.** Chromium resolves hostnames in its own network stack, so Node's policy
+  check and Chromium's connection are separate resolutions. Chromium is launched with a
+  default-deny `--host-resolver-rules` map (`MAP * ~NOTFOUND` plus validated IPv4 pins) as
+  defense in depth, but this is not a hard IP-level guarantee: IP-literal requests and a
+  configured proxy remain outside it. WebRTC is restricted with
+  `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`, so without a proxy Chromium
+  cannot gather direct UDP candidates for a hostile page. WebSocket handshakes are not
+  visible to Playwright's `route` API, so they are covered only by the same default-deny
+  resolver and the always-blocked address list, not by per-request policy. Do not treat the
+  Browser as a network boundary.
+- **Resource limits.** Screenshots are capped per tab (2 fps; the client `force` flag does
+  not bypass the cap), input events are rate limited and serialized per tab, and the WS
+  queue is bounded.
+- **`browser_*` agent tools.** The server-side Chromium sessions are also exposed to SDK
+  agents as a separate `browser_*` namespace (never mixed with the widget `page_*` tools).
+  Every tab tool requires an explicit `browserSessionId` + `browserTabId`, and each call is
+  scoped to the calling owner session, workspace and chat, so an empty id list can never
+  widen the scope. Plan/ask modes and `review` delegations receive the read-only subset
+  only (the executor re-checks the guard on every mutation), `browser_input` requires an
+  explicit `confirm: true`, and Console/Network pulls expose bounded, redacted metadata via
+  a `since` cursor without response bodies or HAR. `browser_evaluate`, the CDP debugger,
+  WebRTC streaming and persistent cookies/`storageState` are intentionally not part of this
+  namespace.
+
 ## Hardening checklist
 
 1. **Set a password** on first run via `/login` (or the `/api/setup` endpoint).

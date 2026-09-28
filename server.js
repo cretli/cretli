@@ -47,7 +47,7 @@ import { createClientDebugLog } from './lib/client-debug-log.js';
 import { installFrontHmrMiddleware } from './lib/front-hmr.js';
 import { buildInteractivePtyEnv as buildPtyEnv } from './lib/pty-env.js';
 import { registerAppRoutes, registerDevAndUpdateRoutes } from './lib/register-app-routes.js';
-import { reconcileDelegationsOnBoot } from './lib/delegation-service.js';
+import { bootDelegationRuntime, shutdownDelegationRuntime, installDelegationTestAdapters } from './lib/delegation-runtime-boot.js';
 import { logServerReady } from './lib/boot-log.js';
 import { isHttpTimingEnabled } from './lib/routes/settings-routes.js';
 import {
@@ -58,6 +58,7 @@ import {
 } from './lib/pty-broadcast.js';
 import { attachWebSocketHandlers } from './lib/ws/ws-router.js';
 import { readCretliPublicOrigin } from './lib/ws/ws-origin.js';
+import { getLanHost } from './lib/lan-host.js';
 import { installServerLogCapture } from './lib/ws/server-log-ws.js';
 import { installFrontBuildWatcher } from './lib/ws/front-build-ws.js';
 import { runAgentsScheduler, AGENTS_SCHEDULER_INTERVAL_MS } from './lib/ws/agent-run-ws-handler.js';
@@ -65,6 +66,14 @@ import { readEnvAlias } from './lib/env-alias.js';
 import { assertLanSetupGuard, readSetupToken, resolveBindHost } from './lib/bind-host.js';
 import { resolveDataPath, resolveProjectPath } from './lib/runtime-paths.js';
 import { resolveFrontAssetVersion } from './lib/front-asset-version.js';
+import { setModelScoreRows } from './lib/model-catalog-meta.js';
+import { loadModelScoreRows } from './lib/model-score-heuristics-fs.js';
+import { detectBrowserRuntime } from './lib/browser/runtime-detect.js';
+import { BrowserSessionManager } from './lib/browser/session-manager.js';
+import { getWorkspacePolicy } from './lib/browser/policy-store.js';
+import { configureBrowserAgentRuntime } from './lib/browser/agent-tools.js';
+
+setModelScoreRows(loadModelScoreRows());
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOCAL_RUNTIME_HOME = resolveDataPath('runtime-home');
@@ -129,8 +138,9 @@ const FRONT_HOT_FALLBACK_ENABLED =
   FRONT_HOT_FALLBACK_ENV === '1' || FRONT_HOT_FALLBACK_ENV === 'true';
 
 const app = express();
-const INDEX_HTML_PATH = path.join(__dirname, 'public', 'index.html');
-const LOGIN_HTML_PATH = path.join(__dirname, 'public', 'login.html');
+const PUBLIC_DIR = String(process.env.CRETLI_PUBLIC_DIR || '').trim() || path.join(__dirname, 'public');
+const INDEX_HTML_PATH = path.join(PUBLIC_DIR, 'index.html');
+const LOGIN_HTML_PATH = path.join(PUBLIC_DIR, 'login.html');
 const dataDir = resolveDataPath();
 const keyPath = process.env.SSL_KEY_PATH || path.join(dataDir, 'key.pem');
 const certPath = process.env.SSL_CERT_PATH || path.join(dataDir, 'cert.pem');
@@ -198,7 +208,14 @@ app.use(compression({
     return compression.filter(req, res);
   },
 }));
-app.use(express.json({ limit: '8mb' }));
+// Browser navigation is GET/HEAD and must never need JSON parsing. Chromium
+// can expose an empty navigation body as the literal JSON value `null`; trying
+// to parse that body makes body-parser reject a normal page navigation with 400.
+// Keep JSON parsing for state-changing/API requests only.
+app.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD') return next();
+  return express.json({ limit: '8mb' })(req, res, next);
+});
 app.use((req, res, next) => {
   ensureStickyInstanceCookie(req, res, getServerInstanceId(), { secure: useHttps });
   next();
@@ -233,9 +250,60 @@ let lastTerminalSessionId = null;
 function getLocalCallbackBaseUrl() {
   return `${useHttps ? 'https' : 'http'}://127.0.0.1:${PORT}`;
 }
+
+/**
+ * Ports Browser must never reach without an explicit workspace opt-in:
+ * Cretli itself plus every running OpenCode instance.
+ * @returns {number[]}
+ */
+function readInternalBrowserPorts() {
+  const ports = new Set([PORT]);
+  try {
+    const raw = JSON.parse(readFileSync(path.join(dataDir, 'opencode-ports.json'), 'utf8'));
+    for (const key of Object.keys(raw || {})) {
+      const port = Number.parseInt(key, 10);
+      if (Number.isInteger(port) && port > 0 && port <= 65535) ports.add(port);
+    }
+  } catch {
+    // no OpenCode ports file -> Cretli's own port is enough
+  }
+  return [...ports];
+}
+
+const browserRuntime = await detectBrowserRuntime({ env: process.env });
+if (!browserRuntime.available) {
+  console.error(`[cretli] Browser module ${browserRuntime.status}: ${browserRuntime.reason}`);
+} else if (browserRuntime.sandboxWarning) {
+  console.error(`[cretli] Browser module warning: ${browserRuntime.sandboxWarning}`);
+}
+// Browser must never be able to reach Cretli itself, including through a
+// TLS-terminating reverse proxy whose public origin is configured explicitly.
+const cretliPublicOrigin = readCretliPublicOrigin();
+const lanHost = getLanHost();
+const browserSelfOrigins = [
+  cretliPublicOrigin,
+  lanHost ? `${useHttps ? 'https' : 'http'}://${lanHost}:${PORT}` : '',
+  `${useHttps ? 'https' : 'http'}://127.0.0.1:${PORT}`,
+  `http://localhost:${PORT}`,
+  `https://localhost:${PORT}`,
+].filter(Boolean);
+const browserManager = new BrowserSessionManager({
+  driver: browserRuntime.driver,
+  driverStatus: browserRuntime,
+  dataDir,
+  resolvePolicy: (workspaceKey) => getWorkspacePolicy(dataDir, workspaceKey),
+  blockedPorts: readInternalBrowserPorts(),
+  selfOrigins: browserSelfOrigins,
+});
+browserManager.startSweep();
+// Make the browser_* agent tools available to SDK runs for this process. Without
+// this the SDK room builder sees no runtime and (fail-closed) exposes no tools.
+configureBrowserAgentRuntime({ manager: browserManager });
+
 registerAppRoutes(app, {
   dataDir,
   uploadsDir,
+  browserManager,
   appendClientDebugLogFile: clientDebugLog.appendClientDebugLogFile,
   serverInstanceToken: SERVER_INSTANCE_TOKEN,
   serverStartedAt: SERVER_STARTED_AT,
@@ -276,7 +344,6 @@ registerAppRoutes(app, {
   getLastTerminalSessionId: () => lastTerminalSessionId,
   setLastTerminalSessionId: (sessionId) => { lastTerminalSessionId = sessionId; },
 });
-void reconcileDelegationsOnBoot();
 
 const wss = new WebSocketServer({ server });
 const wsRouterCtx = {
@@ -305,7 +372,8 @@ const wsRouterCtx = {
   loadAgentsSchedule,
   dataDir,
   useHttps,
-  publicOrigin: readCretliPublicOrigin(),
+  publicOrigin: cretliPublicOrigin,
+  browserManager,
 };
 attachWebSocketHandlers(wss, wsRouterCtx);
 
@@ -353,7 +421,7 @@ app.use('/dist/app', (req, res, next) => {
   if (/\.(?:css|js)$/.test(String(req.path || ''))) res.setHeader('Cache-Control', 'no-store');
   next();
 });
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(PUBLIC_DIR));
 const sdkRoomTransport = await initSdkRoomTransport();
 const seededRevisionCount = seedChatHistoryRevisionsFromIndex(listChatHistoryHeadSeqs());
 const lanSetupGuard = assertLanSetupGuard({
@@ -365,6 +433,30 @@ if (!lanSetupGuard.ok) {
   console.error(`Cretli: ${lanSetupGuard.message}`);
   process.exit(1);
 }
+await installDelegationTestAdapters();
+void bootDelegationRuntime();
+let delegationShutdownStarted = false;
+async function shutdownDelegationAndExit(signal) {
+  if (delegationShutdownStarted) return;
+  delegationShutdownStarted = true;
+  // Browser sessions are ephemeral: close Chromium before exiting.
+  try {
+    browserManager.stopSweep();
+    await browserManager.closeAll(`shutdown:${signal}`);
+  } catch (err) {
+    console.error(`[cretli] ${signal}: browser shutdown error: ${err?.message || err}`);
+  }
+  const result = await shutdownDelegationRuntime({ timeoutMs: 8000 });
+  const code = result.ok ? 0 : 1;
+  console.error(`[cretli] ${signal}: delegation shutdown ${result.ok ? 'complete' : 'timed out'}`);
+  process.exit(code);
+}
+process.on('SIGTERM', () => {
+  void shutdownDelegationAndExit('SIGTERM');
+});
+process.on('SIGINT', () => {
+  void shutdownDelegationAndExit('SIGINT');
+});
 server.listen(PORT, BIND_HOST, () => {
   installServerLogCapture();
   if (FRONT_HOT_FALLBACK_ENABLED) installFrontBuildWatcher(__dirname, SERVER_INSTANCE_TOKEN);

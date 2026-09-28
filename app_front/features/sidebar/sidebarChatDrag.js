@@ -1,15 +1,25 @@
 /**
- * Press-and-hold drag & drop for sidebar chats: reorder, nest under a root,
+ * Press-and-hold drag & drop for sidebar chats: reorder, nest under a parent,
  * or lift a child back to the root list.
  */
 
 import { resolveChatDrop, updateChatNestHold } from './sidebarChatDrop.js';
 import { collectChatIdsFromList } from './sidebarChatOrder.js';
+import {
+  MAX_SIDEBAR_NEST_INDENT,
+  readDropParentChatId,
+  readNestLevel,
+  resolveBlockNest,
+} from './sidebarChatDragBlock.js';
 
 const HOLD_MS = 250;
 const MOVE_CANCEL_PX = 8;
 const EDGE_SCROLL_PX = 48;
 const EDGE_SCROLL_SPEED = 12;
+
+function readChatNestLevel(li) {
+  return readNestLevel(li?.dataset?.nestLevel, li.classList.contains('is-child'));
+}
 
 /**
  * @param {HTMLElement} li
@@ -17,9 +27,11 @@ const EDGE_SCROLL_SPEED = 12;
  */
 function collectChatBlock(li) {
   const nodes = [li];
-  if (li.classList.contains('is-child')) return nodes;
+  const level = readChatNestLevel(li);
   let next = li.nextElementSibling;
-  while (next instanceof HTMLElement && next.classList.contains('sidebar-chat-item') && next.classList.contains('is-child')) {
+  while (next instanceof HTMLElement && next.classList.contains('sidebar-chat-item')) {
+    if (next.dataset.archived === '1') break;
+    if (readChatNestLevel(next) <= level) break;
     nodes.push(next);
     next = next.nextElementSibling;
   }
@@ -27,17 +39,51 @@ function collectChatBlock(li) {
 }
 
 /**
+ * @param {HTMLElement[]} block
+ * @param {number[]} relativeLevels
+ * @param {string} parentChatId
  * @param {HTMLElement} list
- * @returns {{ id: string, top: number, bottom: number, isChild: boolean }[]}
+ */
+function applyCapturedBlockNest(block, relativeLevels, parentChatId, list) {
+  const parentEl = parentChatId
+    ? list.querySelector(`.sidebar-chat-item[data-chat-id="${CSS.escape(parentChatId)}"]`)
+    : null;
+  const parentLevel = parentEl instanceof HTMLElement ? readChatNestLevel(parentEl) : 0;
+  const nest = resolveBlockNest({
+    parentChatId,
+    parentLevel,
+    relativeLevels,
+  });
+  block.forEach((node, idx) => {
+    const level = nest.levels[idx] ?? nest.rootLevel;
+    const indentLevel = nest.indentLevels[idx] ?? Math.min(MAX_SIDEBAR_NEST_INDENT, level);
+    node.dataset.nestLevel = String(level);
+    if (idx === 0) node.dataset.parentId = nest.parentId;
+    if (level > 0) {
+      node.classList.add('is-child');
+      node.style.setProperty('--sidebar-nest-level', String(indentLevel));
+    } else {
+      node.classList.remove('is-child');
+      node.style.removeProperty('--sidebar-nest-level');
+    }
+  });
+}
+
+/**
+ * @param {HTMLElement} list
+ * @returns {{ id: string, top: number, bottom: number, isChild: boolean, level: number, parentId: string }[]}
  */
 function measureChatItems(list) {
-  return Array.from(list.querySelectorAll('.sidebar-chat-item')).map((li) => {
+  return Array.from(list.querySelectorAll('.sidebar-chat-item:not([data-archived="1"])')).map((li) => {
     const rect = li.getBoundingClientRect();
+    const level = readChatNestLevel(li);
     return {
       id: li.dataset.chatId || '',
       top: rect.top,
       bottom: rect.bottom,
-      isChild: li.classList.contains('is-child'),
+      isChild: level > 0,
+      level,
+      parentId: li.dataset.parentId || '',
     };
   });
 }
@@ -64,6 +110,9 @@ export function initSidebarChatDrag({ body, isEnabled = () => true, onDrop = () 
    *   raf: number,
    *   originalIds: string[],
    *   originalParent: string,
+   *   block: HTMLElement[],
+   *   relativeLevels: number[],
+   *   dropParentChatId: string,
    *   moved: boolean,
    *   nestParentId: string,
    *   hoverId: string,
@@ -96,15 +145,10 @@ export function initSidebarChatDrag({ body, isEnabled = () => true, onDrop = () 
   function beginDrag(pending2) {
     const list = pending2.li.closest('.sidebar-chat-list');
     if (!(list instanceof HTMLElement)) return;
-    const originalParent = pending2.li.classList.contains('is-child')
-      ? (() => {
-          let prev = pending2.li.previousElementSibling;
-          while (prev instanceof HTMLElement && prev.classList.contains('is-child')) {
-            prev = prev.previousElementSibling;
-          }
-          return prev instanceof HTMLElement ? prev.dataset.chatId || '' : '';
-        })()
-      : '';
+    const block = collectChatBlock(pending2.li);
+    const baseLevel = readChatNestLevel(pending2.li);
+    const relativeLevels = block.map((node) => readChatNestLevel(node) - baseLevel);
+    const originalParent = String(pending2.li.dataset.parentId || '').trim();
     drag = {
       li: pending2.li,
       list,
@@ -112,6 +156,9 @@ export function initSidebarChatDrag({ body, isEnabled = () => true, onDrop = () 
       raf: 0,
       originalIds: collectChatIdsFromList(list),
       originalParent,
+      block,
+      relativeLevels,
+      dropParentChatId: originalParent,
       moved: false,
       nestParentId: '',
       hoverId: '',
@@ -128,7 +175,7 @@ export function initSidebarChatDrag({ body, isEnabled = () => true, onDrop = () 
    */
   function moveDraggedItem(y) {
     if (!drag) return;
-    const block = collectChatBlock(drag.li);
+    const block = drag.block;
     const draggedIds = block.map((node) => node.dataset.chatId || '').filter(Boolean);
     const hoverGuess = resolveChatDrop({
       items: measureChatItems(drag.list),
@@ -150,6 +197,8 @@ export function initSidebarChatDrag({ body, isEnabled = () => true, onDrop = () 
       : hoverGuess;
     paintNestHighlight(drag.list, drop.hoveredId, drop.mode === 'nest');
     drag.nestParentId = drop.nestParentId;
+    drag.dropParentChatId = readDropParentChatId(drop);
+    applyCapturedBlockNest(block, drag.relativeLevels, drag.dropParentChatId, drag.list);
     const beforeEl = drop.beforeId
       ? drag.list.querySelector(`.sidebar-chat-item[data-chat-id="${CSS.escape(drop.beforeId)}"]`)
       : null;
@@ -157,9 +206,6 @@ export function initSidebarChatDrag({ body, isEnabled = () => true, onDrop = () 
     const alreadyPlaced = beforeNode
       ? block[block.length - 1].nextElementSibling === beforeNode
       : drag.list.lastElementChild === block[block.length - 1];
-    const parentChatId = drop.parentChatId;
-    if (parentChatId) drag.li.classList.add('is-child');
-    else drag.li.classList.remove('is-child');
     if (alreadyPlaced) return;
     drag.moved = true;
     const frag = document.createDocumentFragment();
@@ -180,13 +226,10 @@ export function initSidebarChatDrag({ body, isEnabled = () => true, onDrop = () 
   }
 
   function parentAfterDrop(finished) {
-    if (finished.nestParentId) return finished.nestParentId;
-    if (!finished.li.classList.contains('is-child')) return '';
-    let prev = finished.li.previousElementSibling;
-    while (prev instanceof HTMLElement && prev.classList.contains('is-child')) {
-      prev = prev.previousElementSibling;
-    }
-    return prev instanceof HTMLElement ? prev.dataset.chatId || '' : '';
+    return readDropParentChatId({
+      nestParentId: finished.nestParentId,
+      parentChatId: finished.dropParentChatId,
+    });
   }
 
   function endDrag() {
@@ -197,7 +240,7 @@ export function initSidebarChatDrag({ body, isEnabled = () => true, onDrop = () 
     finished.li.classList.remove('is-dragging');
     clearNestHighlight(finished.list);
     document.body?.classList.remove('sidebar-chat-drag-active');
-    if (!finished.moved && !finished.nestParentId) return;
+    if (!finished.moved && parentAfterDrop(finished) === finished.originalParent) return;
     suppressClick = true;
     const orderedIds = collectChatIdsFromList(finished.list);
     const parentChatId = parentAfterDrop(finished);
@@ -224,6 +267,7 @@ export function initSidebarChatDrag({ body, isEnabled = () => true, onDrop = () 
     if (target.closest('.sidebar-chat-action')) return;
     const li = target.closest('.sidebar-chat-item');
     if (!li || !(li instanceof HTMLElement) || !li.dataset.chatId) return;
+    if (li.dataset.archived === '1') return;
     const list = li.closest('.sidebar-chat-list');
     const items = list?.querySelectorAll('.sidebar-chat-item');
     if (!items || items.length < 2) return;

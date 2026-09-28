@@ -150,6 +150,33 @@ export function initLanSettings() {
     hint.textContent = t('lanSettings.opencodeZaiKeyMissing');
   }
 
+  function applyOpenCodeMimoApiKeyHint(data) {
+    const hint = document.getElementById('opencode-mimo-api-key-source-hint');
+    const keyInput = document.getElementById('opencode-mimo-api-key-input');
+    const keyStatus = document.getElementById('opencode-mimo-api-key-save-status');
+    const baseUrlInput = document.getElementById('opencode-mimo-base-url-input');
+    const baseUrlHint = document.getElementById('opencode-mimo-base-url-hint');
+    if (keyInput) keyInput.value = '';
+    if (keyStatus) keyStatus.textContent = '';
+    if (!hint) return;
+    if (!data?.ok) { hint.textContent = ''; return; }
+    if (baseUrlInput && typeof data.opencodeMimoBaseUrl === 'string') baseUrlInput.value = data.opencodeMimoBaseUrl;
+    if (baseUrlHint) {
+      baseUrlHint.textContent = data.opencodeMimoBaseUrlFromEnv
+        ? t('lanSettings.opencodeMimoBaseUrlFromEnv')
+        : data.opencodeMimoBaseUrlStoredInSettings
+          ? t('lanSettings.opencodeMimoBaseUrlSetting')
+          : t('lanSettings.opencodeMimoBaseUrlDefault');
+    }
+    if (data.opencodeMimoApiKeyFromEnv) {
+      hint.textContent = t('lanSettings.opencodeMimoKeyFromEnv');
+      return;
+    }
+    hint.textContent = data.opencodeMimoApiKeyStoredInSettings && data.opencodeMimoApiKeyEffective
+      ? t('lanSettings.opencodeMimoKeyStored')
+      : t('lanSettings.opencodeMimoKeyMissing');
+  }
+
   function applyCodeBuddyApiKeyHint(data) {
     const hint = document.getElementById('codebuddy-api-key-source-hint');
     const keyInput = document.getElementById('codebuddy-api-key-input');
@@ -398,6 +425,7 @@ export function initLanSettings() {
     applyOpenRouterApiKeyHint(data);
     applyOpenCodeApiKeyHint(data);
     applyOpenCodeZaiApiKeyHint(data);
+    applyOpenCodeMimoApiKeyHint(data);
     applyCodeBuddyApiKeyHint(data);
     applyDeepSeekApiKeyHint(data);
     applyQwenApiKeyHint(data);
@@ -1086,6 +1114,68 @@ export function initLanSettings() {
         .catch(() => {
           if (opencodeZaiProviderStatusEl) opencodeZaiProviderStatusEl.textContent = t('lanSettings.connectionError');
         });
+    });
+  }
+
+  const opencodeMimoApiKeyInput = document.getElementById('opencode-mimo-api-key-input');
+  const opencodeMimoApiKeySaveBtn = document.getElementById('opencode-mimo-api-key-save-btn');
+  const opencodeMimoApiKeyClearBtn = document.getElementById('opencode-mimo-api-key-clear-btn');
+  const opencodeMimoApiKeyStatusEl = document.getElementById('opencode-mimo-api-key-save-status');
+  if (opencodeMimoApiKeySaveBtn && opencodeMimoApiKeyInput) {
+    opencodeMimoApiKeySaveBtn.addEventListener('click', () => {
+      const value = String(opencodeMimoApiKeyInput.value || '').trim();
+      if (!value) {
+        if (opencodeMimoApiKeyStatusEl) opencodeMimoApiKeyStatusEl.textContent = t('lanSettings.pasteKeyFirst');
+        return;
+      }
+      if (opencodeMimoApiKeyStatusEl) opencodeMimoApiKeyStatusEl.textContent = t('common.saving');
+      api.patchSettings({ opencodeMimoApiKey: value }).then((data) => {
+        if (!data?.ok) {
+          if (opencodeMimoApiKeyStatusEl) opencodeMimoApiKeyStatusEl.textContent = data?.error || t('lanSettings.saveError');
+          return;
+        }
+        applyOpenCodeMimoApiKeyHint(data);
+        if (opencodeMimoApiKeyStatusEl) opencodeMimoApiKeyStatusEl.textContent = t('common.saved');
+        window.dispatchEvent(new CustomEvent('cretli-opencode-key-changed'));
+      }).catch(() => {
+        if (opencodeMimoApiKeyStatusEl) opencodeMimoApiKeyStatusEl.textContent = t('lanSettings.connectionError');
+      });
+    });
+  }
+  if (opencodeMimoApiKeyClearBtn) {
+    opencodeMimoApiKeyClearBtn.addEventListener('click', () => {
+      if (opencodeMimoApiKeyStatusEl) opencodeMimoApiKeyStatusEl.textContent = t('common.removing');
+      api.patchSettings({ clearOpenCodeMimoApiKey: true }).then((data) => {
+        if (!data?.ok) {
+          if (opencodeMimoApiKeyStatusEl) opencodeMimoApiKeyStatusEl.textContent = data?.error || t('lanSettings.error');
+          return;
+        }
+        applyOpenCodeMimoApiKeyHint(data);
+        if (opencodeMimoApiKeyStatusEl) opencodeMimoApiKeyStatusEl.textContent = t('common.removed');
+        window.dispatchEvent(new CustomEvent('cretli-opencode-key-changed'));
+      }).catch(() => {
+        if (opencodeMimoApiKeyStatusEl) opencodeMimoApiKeyStatusEl.textContent = t('lanSettings.connectionError');
+      });
+    });
+  }
+  const opencodeMimoBaseUrlInput = document.getElementById('opencode-mimo-base-url-input');
+  const opencodeMimoBaseUrlSaveBtn = document.getElementById('opencode-mimo-base-url-save-btn');
+  const opencodeMimoBaseUrlStatusEl = document.getElementById('opencode-mimo-base-url-save-status');
+  if (opencodeMimoBaseUrlSaveBtn && opencodeMimoBaseUrlInput) {
+    opencodeMimoBaseUrlSaveBtn.addEventListener('click', () => {
+      const value = String(opencodeMimoBaseUrlInput.value || '').trim();
+      if (opencodeMimoBaseUrlStatusEl) opencodeMimoBaseUrlStatusEl.textContent = t('common.saving');
+      api.patchSettings({ opencodeMimoBaseUrl: value }).then((data) => {
+        if (!data?.ok) {
+          if (opencodeMimoBaseUrlStatusEl) opencodeMimoBaseUrlStatusEl.textContent = data?.error || t('lanSettings.saveError');
+          return;
+        }
+        applyOpenCodeMimoApiKeyHint(data);
+        if (opencodeMimoBaseUrlStatusEl) opencodeMimoBaseUrlStatusEl.textContent = t('common.saved');
+        window.dispatchEvent(new CustomEvent('cretli-opencode-key-changed'));
+      }).catch(() => {
+        if (opencodeMimoBaseUrlStatusEl) opencodeMimoBaseUrlStatusEl.textContent = t('lanSettings.connectionError');
+      });
     });
   }
 

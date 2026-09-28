@@ -1,4 +1,5 @@
 import { normalizeAgentTransport } from '../../../lib/agent-transport.js';
+import { coerceRunnableSdkModelValue } from '../../../lib/model-catalog.js';
 import {
   readLocalStorageSafe,
   writeLocalStorageSafe,
@@ -26,10 +27,12 @@ function normalizeModel(value) {
  */
 export function normalizeChatPreset(value) {
   if (!value || typeof value !== 'object') return null;
-  const model = normalizeModel(value.model);
+  let model = normalizeModel(value.model);
   if (!model) return null;
+  const harness = normalizeAgentTransport(value.harness);
+  if (harness === 'sdk') model = coerceRunnableSdkModelValue(model);
   return {
-    harness: normalizeAgentTransport(value.harness),
+    harness,
     model,
   };
 }
@@ -82,6 +85,16 @@ export function createChatPresetsStore(storageKey = CHAT_PRESETS_STORAGE_KEY) {
       parsed = [];
     }
     presets = normalizePresetList(parsed);
+    const migratedJson = JSON.stringify(presets);
+    let storedJson = '';
+    try {
+      storedJson = readLocalStorageSafe(storageKey, '');
+    } catch (_) {
+      storedJson = '';
+    }
+    if (storedJson && migratedJson !== storedJson) {
+      writeLocalStorageSafe(storageKey, migratedJson, 'chatPresets');
+    }
   }
 
   function getPresets() {

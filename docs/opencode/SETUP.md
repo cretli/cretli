@@ -9,14 +9,21 @@ Cretli can run chats through [OpenCode](https://opencode.ai/) instead of `@curso
 - **One** of these credentials (Zen is optional if you have Z.AI):
   - OpenCode Zen — `OPENCODE_API_KEY`, Settings → OpenCode → Zen, or `opencode auth login`
   - Z.AI — `ZAI_CODING_API_KEY` / `ZAI_API_KEY`, or Settings → OpenCode → Z.AI (default provider: GLM Coding Plan)
+  - Xiaomi MiMo PAYG or Token Plan — `MIMO_API_KEY` or Settings → Harness → OpenCode → Xiaomi MiMo
 
 ## First start
 
 1. Install dependencies (`npm install`).
-2. Configure a Zen **or** Z.AI key (Settings or env).
+2. Configure a Zen, Z.AI, or MiMo key (Settings or env).
 3. Start Cretli (`npm start`).
 4. Create a chat with harness **OpenCode** and pick a model (Zen e.g. `opencode/x-preview-f-free`, or GLM e.g. `zai-coding-plan/glm-5.3`).
 5. Send a prompt — the server lazily starts `opencode serve` for the workspace folder (first run may take ~1–2 minutes).
+
+With a MiMo key configured, Cretli registers Xiaomi MiMo as an OpenAI-compatible OpenCode provider named `cretli-mimo`. The model picker includes `cretli-mimo/mimo-v2.6-pro` and `cretli-mimo/mimo-v2.6-flash`. The default Base URL is the PAYG endpoint `https://api.xiaomimimo.com/v1`.
+
+MiMo's reasoning stream uses `reasoning_content`; Cretli maps that field in OpenCode so it can keep reasoning attached across tool-call turns. Xiaomi documents this pass-through as required for multi-turn conversations with tools in thinking mode ([MiMo reasoning guide](https://platform.xiaomimimo.com/docs/en-US/usage-guide/passing-back-reasoning_content)).
+
+For Token Plan, paste its `tp-...` or `ttp-...` key and the exact OpenAI-compatible Base URL shown on the Token Plan page in Settings → Harness → OpenCode → Xiaomi MiMo. Token Plan URLs are region-specific (for example, Europe: `https://token-plan-ams.xiaomimimo.com/v1`). `MIMO_BASE_URL` overrides the saved URL. The subscription key and PAYG key/endpoint cannot be mixed.
 
 Each workspace folder gets its own OpenCode server instance and port. Cretli attaches to an existing serve when health checks pass.
 
@@ -54,13 +61,14 @@ The chat shows **“Needs action”** while a question or permission is pending.
 | `spawn opencode EACCES` | Cretli is not root but PATH still includes `/root/...` (typical Cursor remote). Restart after this fix — unreadable PATH dirs are dropped and a found CLI (`opencodeBin`, bundled `opencode-*`, or `~/.opencode/bin`) is prepended |
 | Stale serve / wrong port | Stop orphan `opencode serve` processes; restart Cretli |
 | `Permission still in terminal` / `Permission request not found` | Restart Cretli after this harness fix; replies now send workspace `directory` (and fall back to `/permission/{id}/reply`). Upgrade OpenCode if the prompt still never appears. |
-| Empty model list | Verify a Zen or Z.AI key and `GET /provider` on the local serve port |
+| Empty model list | Verify a Zen, Z.AI, or MiMo key and `GET /provider` on the local serve port |
 
 ## Developer reference
 
 - Index: [README.md](./README.md)
 - Vendor tree: `bash scripts/setup-opencode-reference.sh`
 - Tests: `npm run test:opencode-permission`, `npm run test:opencode-ws-protocol`, `npm run test:opencode-harness-e2e` (live, needs key)
+- MiMo live smoke: `npm run test:opencode-harness-e2e -- /workspace "Reply with exactly MIMO_LIVE_API_OK" cretli-mimo/mimo-v2.6-flash`; the result includes the provider/model reported by OpenCode.
 - Extra parity checks: `npm run test:sdk-room-state`, `npm run test:sdk-transport-labels`
 - Playwright live suite: `npm run test:e2e:live` (includes OpenCode chat + reconnect flow)
 - OpenCode-only live smoke: `npm run test:e2e:live:opencode`

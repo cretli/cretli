@@ -1058,7 +1058,7 @@ export async function pullChatHistoryFromServer(chatId, options = {}) {
  *
  * @param {string} chatId
  * @param {{ pageLimit?: number, maxPages?: number }} [options]
- * @returns {Promise<{ cursorSessionId: string, events: unknown[], headSeq: number, ackSeq: number } | null>}
+ * @returns {Promise<{ cursorSessionId: string, events: unknown[], headSeq: number, ackSeq: number, incomplete: boolean } | null>}
  */
 export async function pullChatHistoryDeltaFromServer(chatId, options = {}) {
   if (!chatId) return null;
@@ -1098,7 +1098,13 @@ export async function pullChatHistoryDeltaFromServer(chatId, options = {}) {
       if (!r.hasMore || rows.length === 0) break;
     }
 
-    return { cursorSessionId, events, headSeq, ackSeq: since };
+    return {
+      cursorSessionId,
+      events,
+      headSeq,
+      ackSeq: since,
+      incomplete: headSeq > since,
+    };
   } catch (err) {
     appLogger.log('chat-history-pull', 'delta history pull failed', {
       chatId,
@@ -1123,17 +1129,66 @@ export function acknowledgeChatHistorySeq(chatId, seq) {
  * @param {string} chatId
  * @param {string} [cursorSessionId]
  * @param {{ pageLimit?: number, maxPages?: number }} [options]
- * @returns {Promise<{ cursorSessionId: string, events: unknown[], headSeq: number, ackSeq: number, applied: number } | null>}
+ * @returns {Promise<{ cursorSessionId: string, events: unknown[], headSeq: number, ackSeq: number, applied: number, incomplete: boolean, status: 'success' | 'partial' } | null>}
  */
 export async function syncChatHistoryDeltaFromServer(chatId, cursorSessionId = '', options = {}) {
   const sinceBeforePull = getLastAckedSeq(chatId);
   const serverState = await pullChatHistoryDeltaFromServer(chatId, options);
   if (!serverState) return null;
-  const records = Array.isArray(serverState.events) ? serverState.events : [];
-  const sessionKey = cursorSessionId || serverState.cursorSessionId || '';
+  return ingestChatHistoryDeltaResponse(chatId, cursorSessionId, serverState, sinceBeforePull);
+}
+
+/**
+ * Normalize a GET /history or POST /history-batch row into store records.
+ *
+ * @param {{ events?: unknown[], ackSeq?: number }} page
+ * @param {number} [sinceBeforePull]
+ * @returns {{ records: unknown[], ackSeq: number }}
+ */
+function normalizeHistoryDeltaPage(page, sinceBeforePull = 0) {
+  const rows = Array.isArray(page?.events) ? page.events : [];
+  const records = [];
+  let ackSeq = Number.isFinite(Number(page?.ackSeq)) ? Number(page.ackSeq) : sinceBeforePull;
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const wrapped = /** @type {{ seq?: unknown, rec?: unknown, historySeq?: unknown }} */ (row);
+    if (wrapped.rec != null) {
+      const rowSeq = Number(wrapped.seq);
+      if (Number.isSafeInteger(rowSeq) && rowSeq > ackSeq) ackSeq = rowSeq;
+      const rec = wrapped.rec;
+      if (!isValidSdkHistoryRecord(rec)) continue;
+      if (rec && typeof rec === 'object' && 'clientSeq' in rec) {
+        const { clientSeq: _drop, ...rest } = /** @type {Record<string, unknown>} */ (rec);
+        records.push({ ...rest, historySeq: Number.isSafeInteger(rowSeq) ? rowSeq : 0 });
+      } else {
+        records.push({
+          .../** @type {Record<string, unknown>} */ (rec),
+          historySeq: Number.isSafeInteger(rowSeq) ? rowSeq : 0,
+        });
+      }
+      continue;
+    }
+    if (!isValidSdkHistoryRecord(row)) continue;
+    const rowSeq = Number(wrapped.historySeq);
+    if (Number.isSafeInteger(rowSeq) && rowSeq > ackSeq) ackSeq = rowSeq;
+    records.push(row);
+  }
+  return { records, ackSeq };
+}
+
+/**
+ * Apply one already-fetched history page (single GET or batch POST row).
+ *
+ * @param {string} chatId
+ * @param {string} [cursorSessionId]
+ * @param {{ events?: unknown[], headSeq?: number, cursorSessionId?: string, hasMore?: boolean, ackSeq?: number, incomplete?: boolean }} page
+ * @param {number} [sinceBeforePull]
+ */
+export async function ingestChatHistoryDeltaResponse(chatId, cursorSessionId = '', page, sinceBeforePull = 0) {
+  if (!chatId || !page) return null;
+  const { records, ackSeq } = normalizeHistoryDeltaPage(page, sinceBeforePull);
+  const sessionKey = cursorSessionId || page.cursorSessionId || '';
   if (records.length > 0) {
-    // A zero ack means the batch is a full rebuild, not a suffix — appending it
-    // after a local tail stores last night's turns below tonight's.
     if (sinceBeforePull === 0) {
       await replaceSdkChatHistoryRecords(chatId, sessionKey, records);
     } else {
@@ -1146,13 +1201,17 @@ export async function syncChatHistoryDeltaFromServer(chatId, cursorSessionId = '
       });
     }
   }
-  acknowledgeChatHistorySeq(chatId, serverState.ackSeq);
+  acknowledgeChatHistorySeq(chatId, ackSeq);
+  const headSeq = typeof page.headSeq === 'number' ? page.headSeq : ackSeq;
+  const incomplete = page.incomplete === true || page.hasMore === true || headSeq > ackSeq;
   return {
     cursorSessionId: sessionKey,
     events: records,
-    headSeq: serverState.headSeq,
-    ackSeq: serverState.ackSeq,
+    headSeq,
+    ackSeq,
     applied: records.length,
+    incomplete,
+    status: incomplete ? 'partial' : 'success',
   };
 }
 

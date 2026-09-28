@@ -109,6 +109,8 @@ After an owner dies:
 
 Cross-device **history sync** (HTTP revision poll) still works without sticky — only **live run + send** require owner routing.
 
+Sidebar **agent presence** (`agentPresence` on `/ws-agent-sdk`) is **process-local** in phase 1. When `sdkRoomBus` is `redis`, clients must **not** skip `GET /api/chats/agent-states` — HTTP still reads only this instance's in-memory rooms, but skipping would freeze badges that another Node owns. A Redis presence channel is not implemented yet.
+
 ## WS protocol notes
 
 `hello` may include:

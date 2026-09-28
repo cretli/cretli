@@ -9,6 +9,7 @@ import {
   openNewChatModal,
   initAutoNameChatSetting,
   loadChatsFromServer,
+  getArchivedCounts,
   ensureEmbedChat,
   fitAllChats,
   getActiveSendInput,
@@ -26,7 +27,8 @@ import {
   getTerminalStateMetaPublic,
   getChatFavoritesStore,
   escapeHtml,
-  requestDeleteChat,
+  requestArchiveChat,
+  requestRestoreChat,
   refreshSidebarChatStates,
   canPinChatToUrl,
   toggleChatUrlPinById,
@@ -36,6 +38,7 @@ import {
   selectChatFromWidgetHost,
   setForcedEmbedChatId,
   refreshRelatedChatHistoryLinks,
+  setWorkspaceCloneFolderLookup,
 } from './chat.js';
 import { copyFromTerminal } from './panelCopy.js';
 import { initLanSettings } from './lanSettings.js';
@@ -85,6 +88,9 @@ import { loadPanelModule, getLoadedPanelModule } from './app/appShell/lazyPanelM
 import { createWorkspaceContext } from './app/appShell/workspaceContext.js';
 import { createHeaderContextTitle } from './app/appShell/headerContextTitle.js';
 import { createSidebarView } from './features/sidebar/sidebarView.js';
+import {
+  listCloneFoldersForWorkspaceFile,
+} from './features/sidebar/workspaceChatMatch.js';
 import { shouldCloseSidebarOnResume } from './features/sidebar/sidebarDock.js';
 import { wouldCreateChatParentCycle } from '../lib/chat-tree.js';
 import {
@@ -99,6 +105,8 @@ import { initI18n, t, getCurrentLang, setLang } from './i18n/index.js';
 import { applyStaticTranslations, wireStaticTranslations } from './i18n/applyStatic.js';
 import { initVoiceModeButton } from './features/voice/voiceModeButton.js';
 import { initUsageSettings, refreshUsageSettings } from './features/usage/usageSettings.js';
+import { initApprovalBrokerSettings, refreshApprovalBrokerSettings } from './features/approval/approvalBrokerSettings.js';
+import { initDelegationCenter, refreshDelegationCenter } from './features/delegations/delegationCenter.js';
 import { initInstallPrompt } from './features/pwa/installPrompt.js';
 import { initPwaUpdatePrompt } from './features/pwa/pwaUpdatePrompt.js';
 import { initPageBackgroundGrace } from './lib/pageBackgroundGrace.js';
@@ -111,7 +119,7 @@ import './components/ui/cr-storage-donut.js';
 let filesPanelInitialized = false;
 const STARTUP_DEBUG_FLAG_LS_KEY = 'cretli-debug-startup';
 const APP_BOOT_STARTED_AT_MS = typeof performance !== 'undefined' ? performance.now() : Date.now();
-const MAIN_PANELS = ['chat', 'terminal', 'tasks', 'agents', 'todo', 'files', 'git', 'github', 'logs', 'instances', 'tests'];
+const MAIN_PANELS = ['chat', 'terminal', 'tasks', 'agents', 'todo', 'browser', 'files', 'git', 'github', 'logs', 'instances', 'tests'];
 const RESTORABLE_PANELS = [...MAIN_PANELS, 'settings'];
 
 const APP_MODES = {
@@ -223,6 +231,13 @@ function ensurePanelReady(panelKey) {
       initPanelOnce(panelKey, () => mod.initInstancesPanel());
       return;
     }
+    if (panelKey === 'browser') {
+      initPanelOnce(panelKey, () => mod.initBrowserPanel({
+        getActiveChatId: getActiveChatIdValue,
+        getChats: getChatsList,
+      }));
+      return;
+    }
     if (panelKey === 'statusTests') {
       initPanelOnce(panelKey, () => mod.initStatusTestsPanel());
     }
@@ -308,6 +323,7 @@ const panelRouter = createPanelRouter({
   refreshGithubPanel: () => callLoadedPanel('github', 'refreshGithubPanel'),
   refreshTodoList,
   refreshInstancesPanel: () => callLoadedPanel('instances', 'refreshInstancesPanel'),
+  refreshBrowserPanel: () => callLoadedPanel('browser', 'refreshBrowserPanel'),
   onShowSettings: () => showSettingsPanelExtras(),
 });
 
@@ -344,8 +360,33 @@ const {
   ensureWorkspacesListLoaded,
 } = workspaceContext;
 
+setWorkspaceCloneFolderLookup((workspaceFile) =>
+  listCloneFoldersForWorkspaceFile(
+    getWorkspacesListFromCtx(),
+    workspaceFile,
+    (sidebarKey) => getSidebarWorkspaceFolder(sidebarKey),
+  ),
+);
+
+let settingsHeavyModulesInitialized = false;
+
+function ensureSettingsHeavyModules() {
+  if (settingsHeavyModulesInitialized) return;
+  settingsHeavyModulesInitialized = true;
+  initLanSettings();
+  initModelSettings();
+  initOpenRouterModelSettings();
+  initOpenCodeModelSettings();
+  initCodeBuddyModelSettings();
+  initDeepSeekModelSettings();
+  initQwenModelSettings();
+  initCodexModelSettings();
+  initApprovalBrokerSettings();
+}
+
 showSettingsPanelExtras = () => {
   ensureSettingsTabsVisible();
+  ensureSettingsHeavyModules();
   initWorkspaceHeader();
   refreshSettingsWorkspacePicker();
   const activeSettingsTab = document.getElementById('settings-panel')?.dataset?.activeSettingsTab
@@ -361,6 +402,12 @@ function getActiveWorkspaceFileFromHeader() {
 function getActiveWorkspaceFolderFromHeader() {
   const trigger = document.getElementById('header-workspace-trigger');
   return trigger?.dataset?.workspaceFolder || '';
+}
+
+function getActiveChatWorkspaceFolder() {
+  const activeId = getActiveChatIdValue();
+  const chat = getChatsList().find((entry) => entry.id === activeId);
+  return String(chat?.workspaceFolder || getActiveWorkspaceFolderFromHeader() || '').trim();
 }
 
 async function setChatForkParent(chatId, parentChatId) {
@@ -403,6 +450,7 @@ async function setChatForkParent(chatId, parentChatId) {
 const sidebarView = createSidebarView({
   getWorkspaces: getWorkspacesListFromCtx,
   getChats: getChatsList,
+  getArchivedCounts,
   getActiveWorkspaceFile: getActiveWorkspaceFileFromHeader,
   getActiveWorkspaceFolder: getActiveWorkspaceFolderFromHeader,
   getActiveChatId: getActiveChatIdValue,
@@ -412,8 +460,10 @@ const sidebarView = createSidebarView({
   chatFavorites: getChatFavoritesStore(),
   resolveChatState: getChatListAgentStatePublic,
   getTerminalStateMeta: getTerminalStateMetaPublic,
-  requestDeleteChat,
+  requestArchiveChat,
+  requestRestoreChat,
   requestNewChat: (workspaceContext) => openNewChatModal(workspaceContext),
+  requestLoadArchivedChats: () => loadChatsFromServer({ includeArchived: true, skipAutoSelect: true }),
   canPinChatToUrl,
   toggleChatUrlPinById,
   escapeHtml,
@@ -905,16 +955,21 @@ function ensureSettingsTabsVisible() {
  * @param {string} tabId
  */
 function refreshSettingsTabPanels(tabId) {
+  const settingsPanel = document.getElementById('settings-panel');
+  if (!settingsPanel?.classList.contains('active')) return;
+  ensureSettingsHeavyModules();
   if (tabId === 'harness') refreshHarnessSettingsPanel();
   if (tabId === 'harness-sdk') refreshModelSettingsPanel();
   if (tabId === 'harness-openrouter') refreshOpenRouterModelSettingsPanel();
   if (tabId === 'harness-opencode') refreshOpenCodeModelSettingsPanel();
+  if (tabId === 'harness-opencode') void refreshApprovalBrokerSettings();
   if (tabId === 'harness-codebuddy') refreshCodeBuddyModelSettingsPanel();
   if (tabId === 'harness-deepseek') refreshDeepSeekModelSettingsPanel();
   if (tabId === 'harness-qwen') refreshQwenModelSettingsPanel();
   if (tabId === 'harness-codex') refreshCodexModelSettingsPanel();
   if (tabId === 'chat') refreshModelSettingsPanel();
   if (tabId === 'usage') void refreshUsageSettings();
+  if (tabId === 'delegations') void refreshDelegationCenter();
   if (tabId === 'widgets') {
     void ensurePanelReady('widget').then(() => callLoadedPanel('widget', 'refreshWidgetPanel'));
   }
@@ -1576,6 +1631,56 @@ function initBrowserStorageTools() {
   void renderSnapshot();
 }
 
+function initBrowserSelfOriginSetting() {
+  const checkbox = document.getElementById('browser-policy-self-origin');
+  const privateNetwork = document.getElementById('browser-policy-private-network');
+  const insecureTls = document.getElementById('browser-policy-insecure-tls');
+  const originsInput = document.getElementById('browser-policy-allowed-origins');
+  const saveBtn = document.getElementById('browser-policy-self-origin-save');
+  const status = document.getElementById('browser-policy-self-origin-status');
+  if (!checkbox || !privateNetwork || !insecureTls || !originsInput || !saveBtn || !status) return;
+
+  const setStatus = (message, isError = false) => {
+    status.textContent = message;
+    status.style.color = isError ? 'var(--cr-error)' : '';
+  };
+  const load = async () => {
+    try {
+      const result = await api.getBrowserPolicy();
+      checkbox.checked = result?.policy?.allowSelfOrigin === true;
+      privateNetwork.checked = result?.policy?.allowPrivateNetwork === true;
+      insecureTls.checked = result?.policy?.allowInsecureTls === true;
+      originsInput.value = Array.isArray(result?.policy?.allowedOrigins)
+        ? result.policy.allowedOrigins.join('\n')
+        : '';
+    } catch (err) {
+      setStatus(err?.message || t('errors.unknown'), true);
+    }
+  };
+  saveBtn.addEventListener('click', async () => {
+    saveBtn.disabled = true;
+    setStatus(t('common.saving'));
+    try {
+      const allowedOrigins = originsInput.value
+        .split(/\r?\n/)
+        .map((origin) => origin.trim())
+        .filter(Boolean);
+      await api.patchBrowserPolicy({
+        allowSelfOrigin: checkbox.checked,
+        allowPrivateNetwork: privateNetwork.checked,
+        allowInsecureTls: insecureTls.checked,
+        allowedOrigins,
+      });
+      setStatus(t('common.saved'));
+    } catch (err) {
+      setStatus(err?.message || t('errors.unknown'), true);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+  void load();
+}
+
 function onDomReady() {
   startupLog('DOMContentLoaded');
   initClientInstance();
@@ -1704,6 +1809,7 @@ function bootApp() {
       measureStartupStep('initSpecialChars', () => initSpecialChars());
       measureStartupStep('initExtraBarContextPicker', () => initExtraBarContextPicker({
         getInputElement: () => getActiveSendBarForPanel()?.input ?? null,
+        getWorkspaceFolder: getActiveChatWorkspaceFolder,
       }));
       setSpecialCharHandler((sequence) => {
         if (!sequence) return;
@@ -1737,14 +1843,6 @@ function bootApp() {
     measureStartupStep('initVoiceModeButton', () => initVoiceModeButton());
     measureStartupStep('initServerRestartCoordinator', () => initServerRestartCoordinator());
     measureStartupStep('initConnectionStatusPanel', () => initConnectionStatusPanel());
-    measureStartupStep('initLanSettings', () => initLanSettings());
-    measureStartupStep('initModelSettings', () => initModelSettings());
-    measureStartupStep('initOpenRouterModelSettings', () => initOpenRouterModelSettings());
-    measureStartupStep('initOpenCodeModelSettings', () => initOpenCodeModelSettings());
-    measureStartupStep('initCodeBuddyModelSettings', () => initCodeBuddyModelSettings());
-    measureStartupStep('initDeepSeekModelSettings', () => initDeepSeekModelSettings());
-    measureStartupStep('initQwenModelSettings', () => initQwenModelSettings());
-    measureStartupStep('initCodexModelSettings', () => initCodexModelSettings());
     measureStartupStep('initHarnessSettings', () => initHarnessSettings());
     measureStartupStep('initChatPanel', () => initChatPanel());
     measureStartupStep('initPanelCopyButtons', () => initPanelCopyButtons());
@@ -1783,10 +1881,14 @@ function bootApp() {
     });
     measureStartupStep('initSettingsTabs', () => initSettingsTabs());
     measureStartupStep('initUsageSettings', () => initUsageSettings());
-    // Terminal, Tasks, Agents, Files, Git, Instances and Status tests are
-    // loaded and initialized on the first visit to their tab (see ensurePanelReady).
-    // GitHub is the exception: it decides whether its own tab is visible at all.
-    void ensurePanelReady('github');
+    measureStartupStep('initDelegationCenter', () => initDelegationCenter());
+    // GitHub only needs to exist to hide/show its tab — load after first paint.
+    const scheduleIdle = typeof requestIdleCallback === 'function'
+      ? (fn) => requestIdleCallback(fn, { timeout: 4000 })
+      : (fn) => setTimeout(fn, 1500);
+    scheduleIdle(() => {
+      void ensurePanelReady('github');
+    });
     measureStartupStep('initTodoPanel', () => initTodoPanel({ showPanel }));
     measureStartupStep('initLogsPanel', () => initLogsPanel());
 
@@ -1820,9 +1922,11 @@ function bootApp() {
     measureStartupStep('initThemeSelect', () => initThemeSelect());
     measureStartupStep('initLangSelect', () => initLangSelect());
     measureStartupStep('initBrowserStorageTools', () => initBrowserStorageTools());
+    measureStartupStep('initBrowserSelfOriginSetting', () => initBrowserSelfOriginSetting());
     measureStartupStep('initSpecialChars', () => initSpecialChars());
     measureStartupStep('initExtraBarContextPicker', () => initExtraBarContextPicker({
       getInputElement: () => getActiveSendBarForPanel()?.input ?? null,
+      getWorkspaceFolder: getActiveChatWorkspaceFolder,
     }));
     setSpecialCharHandler((sequence) => {
       if (!sequence) return;

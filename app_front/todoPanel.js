@@ -250,6 +250,9 @@ async function onDelete(e) {
 }
 
 export function refreshTodoList() {
+  void api.getAgentSdkStatus().then((data) => {
+    sdkReady = !!data?.ready;
+  }).catch(() => {});
   return api
     .getTodos()
     .then((data) => {
@@ -284,10 +287,6 @@ export function initTodoPanel(options = {}) {
   if (typeof options.showPanel === 'function') {
     showPanelFn = options.showPanel;
   }
-
-  api.getAgentSdkStatus().then((data) => {
-    sdkReady = !!data?.ready;
-  });
 
   listEl = document.getElementById('todo-list');
   statusEl = document.getElementById('todo-status');

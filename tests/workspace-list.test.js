@@ -76,6 +76,22 @@ test('applyWorkspaceAddPath creates a folder-only workspace and activates the fi
   assert.ok(settings.workspaceSidebarConfig[settings.workspaces[0].id].folders[settings.workspaceFolder]);
 });
 
+test('applyWorkspaceAddPath activates a newly added folder workspace even when others exist', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'cretli-ws-add-next-'));
+  const settings = {
+    workspaces: [{ id: '/ws/app.code-workspace', kind: 'file', workspaceFile: '/ws/app.code-workspace' }],
+    workspaceFile: '/ws/app.code-workspace',
+    workspaceFolder: '/ws/app',
+  };
+  const result = applyWorkspaceAddPath(settings, dir);
+  assert.equal(result.ok, true);
+  assert.equal(settings.workspaces.length, 2);
+  const added = settings.workspaces[1];
+  assert.equal(added.kind, 'folders');
+  assert.equal(settings.workspaceFile, added.id);
+  assert.equal(settings.workspaceFolder, dir.replace(/\\/g, '/').replace(/\/$/, ''));
+});
+
 test('applyWorkspaceRemoveId drops registry and sidebar entries', () => {
   const settings = {
     workspaces: [

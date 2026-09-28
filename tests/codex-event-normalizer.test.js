@@ -24,8 +24,30 @@ const reasoning = normalizeCodexThreadEvent({
   type: 'item.completed',
   item: { id: 'r-1', type: 'reasoning', text: 'thinking…' },
 });
-assert.equal(reasoning[0].type, 'assistant');
-assert.equal(reasoning[0].message.content[0].text, 'thinking…');
+assert.equal(reasoning[0].type, 'thinking');
+assert.equal(reasoning[0].text, 'thinking…');
+
+const reasoningUpdate = normalizeCodexThreadEvent({
+  type: 'item.updated',
+  item: { id: 'r-1', type: 'Reasoning', text: 'still thinking…' },
+});
+assert.equal(reasoningUpdate[0].type, 'thinking');
+assert.equal(reasoningUpdate[0].text, 'still thinking…');
+
+const encryptedReasoning = normalizeCodexThreadEvent({
+  type: 'item.completed',
+  item: { id: 'r-2', type: 'reasoning', summary: [], encrypted_content: 'secret' },
+});
+assert.equal(encryptedReasoning[0].type, 'thinking');
+assert.equal(encryptedReasoning[0].text, '');
+assert.equal(encryptedReasoning[0].unavailable, true);
+assert.equal('encrypted_content' in encryptedReasoning[0], false);
+
+const summarizedReasoning = normalizeCodexThreadEvent({
+  type: 'item.completed',
+  item: { id: 'r-3', type: 'reasoning', summary: ['short plan', { text: 'next step' }] },
+});
+assert.equal(summarizedReasoning[0].text, 'short plan\nnext step');
 
 const toolStart = normalizeCodexThreadEvent({
   type: 'item.started',
@@ -88,6 +110,26 @@ const toolDone = normalizeCodexThreadEvent({
 });
 assert.equal(toolDone[0].status, 'completed');
 assert.equal(toolDone[0].result, 'ok');
+
+const fileChange = normalizeCodexThreadEvent({
+  type: 'item.completed',
+  item: {
+    id: 'file-1',
+    type: 'file_change',
+    changes: [{ path: 'app.js', kind: 'update' }],
+    status: 'completed',
+  },
+});
+assert.equal(fileChange[0].name, 'edit');
+assert.deepEqual(fileChange[0].args.changes, [{ path: 'app.js', kind: 'update' }]);
+assert.deepEqual(fileChange[0].args.paths, ['app.js']);
+
+const usage = normalizeCodexThreadEvent({
+  type: 'turn.completed',
+  usage: { input_tokens: 10, output_tokens: 4, reasoning_output_tokens: 2 },
+});
+assert.equal(usage[1].kind, 'usage');
+assert.equal(usage[1].usage.reasoning_output_tokens, 2);
 
 const search = normalizeCodexThreadEvent({
   type: 'item.started',

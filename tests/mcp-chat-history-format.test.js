@@ -85,6 +85,22 @@ const unwrapped = unwrapHistoryEntry(history.events[1]);
 const toolLine = formatHistoryEvent(unwrapped, { includeToolPayloads: true });
 assert.match(toolLine.line, /2 {2}tool {2}bash/);
 
+const mailboxLine = formatHistoryEvent({
+  seq: 4,
+  rec: {
+    kind: 'meta',
+    variant: 'mailbox',
+    payload: JSON.stringify({
+      id: 'mail-1',
+      kind: 'reply',
+      status: 'queued',
+      fromChatId: 'child-1',
+      fromTitle: 'Executor',
+    }),
+  },
+});
+assert.match(mailboxLine.line, /4 {2}mailbox {2}reply {2}queued {2}Executor/);
+
 const huge = `x`.repeat(1_000_009);
 const hugeHistory = {
   headSeq: 1,

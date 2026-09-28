@@ -4,11 +4,17 @@ import {
   isPlanModeMutatingSdkEvent,
   isPlanModeMutatingToolName,
   resolvePlanModeToolDecision,
+  resolveReadOnlyGuardUserMessage,
+  PLAN_GUARD_USER_MESSAGE,
+  REVIEW_GUARD_USER_MESSAGE,
 } from '../lib/sdk/sdk-plan-guard.js';
 
 assert.equal(isPlanModeMutatingToolName('shell'), true);
 assert.equal(isPlanModeMutatingToolName('edit'), true);
+assert.equal(isPlanModeMutatingToolName('write'), true);
 assert.equal(isPlanModeMutatingToolName('read'), false);
+assert.equal(isPlanModeMutatingToolName('todo'), false);
+assert.equal(isPlanModeMutatingToolName('todo_write'), false);
 
 assert.equal(isMutatingPlanModeShellCommand(''), false);
 assert.equal(isMutatingPlanModeShellCommand('ls'), false);
@@ -94,6 +100,56 @@ assert.equal(
 );
 assert.equal(isMutatingPlanModeShellCommand("rg -n 'foo$(bar)|delete' x.js"), false);
 assert.equal(isMutatingPlanModeShellCommand('echo $(whoami)'), true);
+assert.equal(
+  isMutatingPlanModeShellCommand(
+    'for p in /AGENTS.md /home/AGENTS.md; do if test -f "$p"; then cat "$p"; fi; done',
+  ),
+  false,
+);
+assert.equal(
+  isMutatingPlanModeShellCommand(
+    "cat lib/sdk/sdk-history-isolation.js; rg -n 'extractTodoSummary' tests app_front lib/sdk; for p in /AGENTS.md /home/AGENTS.md /home/ar2oor/AGENTS.md; do if test -f \"$p\"; then cat \"$p\"; fi; done",
+  ),
+  false,
+);
+assert.equal(
+  isMutatingPlanModeShellCommand('if test -f README.md; then cat README.md; fi'),
+  false,
+);
+assert.equal(
+  isMutatingPlanModeShellCommand('for p in a b; do rm -rf tmp; done'),
+  true,
+);
+assert.equal(
+  isMutatingPlanModeShellCommand('if test -f x; then rm x; fi'),
+  true,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'codex',
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'shell',
+    input: {
+      command: [
+        '/bin/bash',
+        '-lc',
+        'cat lib/sdk/sdk-history-isolation.js; for p in /AGENTS.md /home/AGENTS.md; do if test -f "$p"; then cat "$p"; fi; done',
+      ],
+    },
+  }).deny,
+  false,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'codex',
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'shell',
+    input: { command: 'for p in a; do python3 -c "open(\'x\',\'w\').write(\'a\')"; done' },
+  }).deny,
+  true,
+);
 
 assert.equal(
   isPlanModeMutatingSdkEvent({ type: 'tool_call', name: 'shell', status: 'running' }),
@@ -186,6 +242,298 @@ assert.equal(
     mode: 'ask',
     toolName: 'edit',
   }).abortRun,
+  true,
+);
+
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'sdk',
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'edit',
+  }).deny,
+  true,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'sdk',
+    mode: 'agent',
+    toolName: 'edit',
+  }).deny,
+  false,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'deepseek',
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'todo_write',
+  }).deny,
+  false,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'deepseek',
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'bash',
+    input: { command: 'ls -la', description: 'List files in current directory' },
+  }).deny,
+  false,
+);
+// The dsh read-only sandbox refuses the write, so the run keeps going and the
+// reviewer can still finish the report.
+assert.deepEqual(
+  resolvePlanModeToolDecision({
+    transport: 'deepseek',
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'write',
+  }),
+  { deny: true, abortRun: false, notify: true },
+);
+assert.equal(resolveReadOnlyGuardUserMessage('agent', 'review'), REVIEW_GUARD_USER_MESSAGE);
+assert.equal(resolveReadOnlyGuardUserMessage('agent'), PLAN_GUARD_USER_MESSAGE);
+assert.ok(REVIEW_GUARD_USER_MESSAGE.includes('Review assignment'));
+
+const grokReviewMcpRead = resolvePlanModeToolDecision({
+  transport: 'sdk',
+  mode: 'agent',
+  assignment: 'review',
+  toolName: 'mcp',
+  input: {
+    providerIdentifier: 'cretli_bridge',
+    toolName: 'mcp__cretli_builtincretl__delegation_show',
+    args: { delegation_id: 'e0d7e1f3-63a5-461d-84ad-044c06c27342' },
+  },
+});
+assert.equal(grokReviewMcpRead.deny, false);
+assert.equal(grokReviewMcpRead.abortRun, false);
+const grokReviewMcpWait = resolvePlanModeToolDecision({
+  transport: 'sdk',
+  mode: 'agent',
+  assignment: 'review',
+  toolName: 'mcp',
+  input: {
+    providerIdentifier: 'cretli_bridge',
+    toolName: 'mcp__cretli_builtincretl__delegation_wait',
+    args: { ids: ['e0d7e1f3-63a5-461d-84ad-044c06c27342'] },
+  },
+});
+assert.equal(grokReviewMcpWait.deny, false);
+const grokReviewMcpOpaque = resolvePlanModeToolDecision({
+  transport: 'sdk',
+  mode: 'agent',
+  assignment: 'review',
+  toolName: 'mcp',
+  input: { providerIdentifier: 'cretli_bridge' },
+});
+assert.equal(grokReviewMcpOpaque.deny, true);
+assert.equal(grokReviewMcpOpaque.abortRun, false);
+const grokReviewMcpWrite = resolvePlanModeToolDecision({
+  transport: 'sdk',
+  mode: 'agent',
+  assignment: 'review',
+  toolName: 'mcp',
+  input: { toolName: 'mcp__other__write_file' },
+});
+assert.equal(grokReviewMcpWrite.deny, true);
+assert.equal(grokReviewMcpWrite.abortRun, false);
+const grokReviewDelegationReply = resolvePlanModeToolDecision({
+  transport: 'sdk',
+  mode: 'agent',
+  assignment: 'review',
+  toolName: 'mcp',
+  input: {
+    providerIdentifier: 'cretli_bridge',
+    toolName: 'mcp__cretli_builtincretl__delegation_reply',
+  },
+});
+assert.equal(grokReviewDelegationReply.deny, false);
+assert.equal(grokReviewDelegationReply.abortRun, false);
+
+const reviewVerifyAllowed = [
+  'node scripts/review-verify.js',
+  'node ./scripts/review-verify.js mcp-chat-history-format',
+  'node scripts/review-verify.js sdk-history-stream-coalesce sdk-assistant-block-reuse',
+  ['/bin/bash', '-lc', 'node scripts/review-verify.js mcp-chat-history-format'],
+];
+for (const command of reviewVerifyAllowed) {
+  assert.equal(
+    isMutatingPlanModeShellCommand(command, { allowReviewVerify: true }),
+    false,
+    String(command),
+  );
+  assert.equal(isMutatingPlanModeShellCommand(command), true, String(command));
+}
+
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'codex',
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'shell',
+    input: { command: 'node scripts/review-verify.js mcp-chat-history-format' },
+  }).deny,
+  false,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'sdk',
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'shell',
+    input: { command: 'node scripts/review-verify.js mcp-chat-history-format' },
+  }).deny,
+  false,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'sdk',
+    mode: 'plan',
+    toolName: 'shell',
+    input: { command: 'node scripts/review-verify.js' },
+  }).deny,
+  true,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'openrouter',
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'run_terminal_command',
+    input: { command: 'node scripts/review-verify.js sdk-assistant-block-reuse' },
+  }).deny,
+  false,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'sdk',
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'shell',
+    input: { command: 'cat lib/sdk/sdk-plan-guard.js' },
+  }).deny,
+  false,
+);
+
+const reviewBlocked = [
+  'node tests/mcp-chat-history-format.test.js',
+  'node tests/conversation-fork.test.js',
+  'node tests/sdk-history-stream-coalesce.test.js',
+  'node --test-reporter=./evil.js scripts/review-verify.js',
+  'node scripts/review-verify.js --test-reporter=spec',
+  'node scripts/review-verify.js unknown-id',
+  'node -e "require(\'fs\').writeFileSync(\'x.js\',\'a\')"',
+  'node --eval "console.log(1)"',
+  'node scripts/run-unit-tests.mjs',
+  'node tests/e2e/chat-mock.spec.js',
+  'node tests/../lib/sdk/sdk-plan-guard.js',
+  'npm test',
+  'npx playwright test',
+  'node scripts/review-verify.js && rm -rf tmp',
+  'python3 -c "open(\'x\',\'w\').write(\'a\')"',
+  'echo pwned > pwned.txt',
+  'git commit -m wip',
+];
+for (const command of reviewBlocked) {
+  assert.equal(
+    resolvePlanModeToolDecision({
+      transport: 'sdk',
+      mode: 'agent',
+      assignment: 'review',
+      toolName: 'shell',
+      input: { command },
+    }).deny,
+    true,
+    command,
+  );
+}
+
+const opaqueExec = resolvePlanModeToolDecision({
+  transport: 'sdk',
+  mode: 'agent',
+  assignment: 'review',
+  toolName: 'functions.exec',
+  input: { code: 'await exec("node tests/mcp-chat-history-format.test.js")' },
+});
+assert.equal(opaqueExec.deny, true);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'sdk',
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'functions.exec',
+    input: { javascript: 'require("fs").writeFileSync("x","a")' },
+  }).deny,
+  true,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'codex',
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'functions.exec',
+  }).deny,
+  true,
+);
+
+const openRouterDenyContinue = resolvePlanModeToolDecision({
+  transport: 'openrouter',
+  mode: 'agent',
+  assignment: 'review',
+  toolName: 'run_terminal_command',
+  input: { command: 'rm -rf tmp' },
+});
+assert.equal(openRouterDenyContinue.deny, true);
+assert.equal(openRouterDenyContinue.abortRun, false);
+
+const qwenDenyContinue = resolvePlanModeToolDecision({
+  transport: 'qwen',
+  mode: 'agent',
+  assignment: 'review',
+  toolName: 'shell',
+  input: { command: 'rm -rf tmp' },
+});
+assert.equal(qwenDenyContinue.deny, true);
+assert.equal(qwenDenyContinue.abortRun, false);
+
+const codexMutationAborts = resolvePlanModeToolDecision({
+  transport: 'codex',
+  mode: 'agent',
+  assignment: 'review',
+  toolName: 'shell',
+  input: { command: 'rm -rf tmp' },
+});
+assert.equal(codexMutationAborts.deny, true);
+assert.equal(codexMutationAborts.abortRun, true);
+
+const codexVerifyContinues = resolvePlanModeToolDecision({
+  transport: 'codex',
+  mode: 'agent',
+  assignment: 'review',
+  toolName: 'shell',
+  input: { command: 'node scripts/review-verify.js mcp-chat-history-format' },
+});
+assert.equal(codexVerifyContinues.deny, false);
+assert.equal(codexVerifyContinues.abortRun, false);
+
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'sdk',
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'edit',
+  }).deny,
+  true,
+);
+assert.equal(
+  resolvePlanModeToolDecision({
+    transport: 'sdk',
+    mode: 'agent',
+    assignment: 'review',
+    toolName: 'delete',
+  }).deny,
   true,
 );
 

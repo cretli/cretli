@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
   DEEPSEEK_INITIALIZE_TIMEOUT_MS,
   DEEPSEEK_MAX_TOKENS,
   DEEPSEEK_PROFILE,
-  DEEPSEEK_RUNTIME_PATCH_PATH,
   DEEPSEEK_RUNTIME_PLUGIN_PATH,
   buildDeepSeekHarnessOptions,
 } from '../lib/deepseek/deepseek-harness-options.js';
@@ -32,11 +32,43 @@ try {
   assert.equal(typeof actualOptions.dshHome, 'string');
   assert.ok(String(actualOptions.dshHome).includes('dsh-home'));
   assert.equal(typeof actualOptions.env, 'object');
-  assert.deepEqual(actualOptions.patches, [DEEPSEEK_RUNTIME_PATCH_PATH]);
-  assert.equal(
-    actualOptions.env.CRETLI_DSH_RUNTIME_PLUGIN,
-    pathToFileURL(DEEPSEEK_RUNTIME_PLUGIN_PATH).href,
-  );
+  assert.equal(actualOptions.env.CRETLI_DSH_RUNTIME_PLUGIN, undefined);
+  assert.equal(Array.isArray(actualOptions.patches), true);
+  assert.equal(actualOptions.patches.length, 1);
+  const inputPatchPath = actualOptions.patches[0];
+  assert.equal(typeof inputPatchPath, 'string');
+  assert.match(inputPatchPath, /dsh-runtime\.cordis\.patch\.yml$/);
+  const actualPatch = fs.readFileSync(inputPatchPath, 'utf8');
+  const expectedPluginHref = pathToFileURL(DEEPSEEK_RUNTIME_PLUGIN_PATH).href;
+  assert.equal(actualPatch.includes('!!js'), false);
+  assert.equal(actualPatch.includes(JSON.stringify(expectedPluginHref)), true);
+  assert.match(actualPatch, /id: llm-deepseek/);
+  assert.match(actualPatch, /id: "deepseek-flash"/);
+  assert.match(actualPatch, /inputModalities:/);
+
+  const actualWithBridge = buildDeepSeekHarnessOptions({
+    cwd: inputCwd,
+    model: 'deepseek-v4-pro',
+    dshBin: inputBin,
+    mcpBridge: {
+      command: process.execPath,
+      args: ['--version'],
+      env: { CRETLI_MCP_TOKEN: 'test-token' },
+    },
+  });
+  assert.equal(actualWithBridge.patches.length, 2);
+  assert.equal(actualWithBridge.patches[0], inputPatchPath);
+  assert.match(String(actualWithBridge.patches[1]), /dsh-mcp-bridge\.yml$/);
+
+  const actualReview = buildDeepSeekHarnessOptions({
+    cwd: inputCwd,
+    model: 'deepseek-v4-pro',
+    dshBin: inputBin,
+    reviewReadOnly: true,
+  });
+  assert.equal(actualReview.patches.length, 2);
+  assert.equal(actualReview.patches[0], inputPatchPath);
+  assert.match(String(actualReview.patches[1]), /dsh-review-readonly\.yml$/);
 
   const sdkAvailable = await isDeepSeekSdkAvailable();
   if (sdkAvailable) {

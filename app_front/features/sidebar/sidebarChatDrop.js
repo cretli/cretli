@@ -7,9 +7,21 @@
 export const CHAT_NEST_HOLD_MS = 500;
 
 /**
- * @typedef {{ id: string, top: number, bottom: number, isChild: boolean }} ChatDropItem
+ * @typedef {{ id: string, top: number, bottom: number, isChild: boolean, level?: number, parentId?: string }} ChatDropItem
  * @typedef {{ mode: 'nest' | 'insert', nestParentId: string, beforeId: string | null, parentChatId: string, hoveredId: string }} ChatDropResult
  */
+
+function readItemLevel(item) {
+  const level = Number(item?.level);
+  if (Number.isFinite(level) && level >= 0) return level;
+  return item?.isChild ? 1 : 0;
+}
+
+function readItemParentId(items, item) {
+  const parentId = typeof item?.parentId === 'string' ? item.parentId.trim() : '';
+  if (parentId) return parentId;
+  return item?.isChild ? folderRootId(items, item) : '';
+}
 
 /**
  * @param {ChatDropItem[]} items
@@ -26,30 +38,17 @@ function folderRootId(items, item) {
 }
 
 /**
- * @param {ChatDropItem[]} items
- * @param {number} startIndex
- * @returns {string | null}
- */
-function nextRootId(items, startIndex) {
-  for (let i = startIndex; i < items.length; i += 1) {
-    if (!items[i].isChild) return items[i].id;
-  }
-  return null;
-}
-
-/**
  * @param {ChatDropItem[]} others
  * @param {ChatDropItem} item
  * @param {string} hoveredId
  * @returns {ChatDropResult}
  */
 function insertBeforeItem(others, item, hoveredId) {
-  const parentChatId = item.isChild ? folderRootId(others, item) : '';
   return {
     mode: 'insert',
     nestParentId: '',
     beforeId: item.id,
-    parentChatId,
+    parentChatId: readItemParentId(others, item),
     hoveredId,
   };
 }
@@ -62,39 +61,24 @@ function insertBeforeItem(others, item, hoveredId) {
  */
 function insertAfterItem(others, item, hoveredId) {
   const index = others.findIndex((entry) => entry.id === item.id);
-  if (item.isChild) {
-    const next = others[index + 1];
-    if (!next) {
-      return {
-        mode: 'insert',
-        nestParentId: '',
-        beforeId: null,
-        parentChatId: folderRootId(others, item),
-        hoveredId,
-      };
-    }
-    if (next.isChild) {
-      return {
-        mode: 'insert',
-        nestParentId: '',
-        beforeId: next.id,
-        parentChatId: folderRootId(others, item),
-        hoveredId,
-      };
-    }
+  const itemLevel = readItemLevel(item);
+  const parentChatId = readItemParentId(others, item);
+  for (let i = index + 1; i < others.length; i += 1) {
+    const next = others[i];
+    if (readItemLevel(next) > itemLevel) continue;
     return {
       mode: 'insert',
       nestParentId: '',
       beforeId: next.id,
-      parentChatId: '',
+      parentChatId,
       hoveredId,
     };
   }
   return {
     mode: 'insert',
     nestParentId: '',
-    beforeId: nextRootId(others, index + 1),
-    parentChatId: '',
+    beforeId: null,
+    parentChatId,
     hoveredId,
   };
 }

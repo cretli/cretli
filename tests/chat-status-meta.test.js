@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import {
   hasActiveAgentRun,
+  hasKeepAliveHarnessWork,
   hasLiveHarnessWork,
+  shouldCloseLiveTurnAfterHistoryReplay,
+  overlayHistorySyncingMeta,
+  resolveChatStatusWithHistorySync,
   readHarnessPendingFlags,
   resolveChatListDotState,
   resolveHarnessChatStateMeta,
@@ -33,6 +37,33 @@ const inputDisconnectedActive = { connection: 'disconnected', agent: 'active' };
 const actualDisconnectedActive = resolveHarnessChatStateMeta(inputDisconnectedActive);
 assert.equal(actualDisconnectedActive.tone, 'active');
 assert.equal(actualDisconnectedActive.label, 'Agent working');
+
+const inputAttentionBeatsLive = {
+  connection: 'connected',
+  agent: 'active',
+  serverRunState: { state: 'attention', delegationStatus: 'completed' },
+};
+const actualAttentionBeatsLive = resolveHarnessChatStateMeta(inputAttentionBeatsLive);
+assert.equal(actualAttentionBeatsLive.tone, 'attention');
+
+const inputWaitingBeatsLive = {
+  connection: 'connected',
+  agent: 'active',
+  serverRunState: { state: 'waiting', waitingAgentCount: 2 },
+};
+const actualWaitingBeatsLive = resolveHarnessChatStateMeta(inputWaitingBeatsLive);
+assert.equal(actualWaitingBeatsLive.tone, 'awaiting');
+assert.match(actualWaitingBeatsLive.label, /2/);
+
+const inputActivityBusy = {
+  connection: 'disconnected',
+  agent: 'idle',
+  serverRunState: { state: 'busy', activityKey: 'read', activityArg: 'a.js' },
+};
+const actualActivityBusy = resolveHarnessChatStateMeta(inputActivityBusy);
+assert.equal(actualActivityBusy.tone, 'active');
+assert.match(actualActivityBusy.label, /Read/);
+assert.equal(actualActivityBusy.activityKey, 'read');
 
 const inputDisconnectedPending = {
   connection: 'disconnected',
@@ -121,6 +152,12 @@ assert.equal(hasLiveHarnessWork({ _sdkRichView: { queuedCount: 1 } }), true);
 assert.equal(hasLiveHarnessWork({ _opencodePendingQuestion: { id: 'q1' } }), true);
 assert.equal(hasLiveHarnessWork({ _sdkServerPendingPermissionCount: 1 }), true);
 assert.equal(hasLiveHarnessWork({ _agentState: 'idle', _sdkServerBusy: false }), false);
+assert.equal(hasKeepAliveHarnessWork({ _agentState: 'active' }), false);
+assert.equal(hasKeepAliveHarnessWork({ _agentState: 'active', _sdkServerBusy: true }), true);
+assert.equal(hasKeepAliveHarnessWork({ _agentState: 'active', _sdkRichView: { queuedCount: 1 } }), true);
+assert.equal(shouldCloseLiveTurnAfterHistoryReplay({ _agentState: 'active' }), true);
+assert.equal(shouldCloseLiveTurnAfterHistoryReplay({ _sdkServerBusy: true }), false);
+assert.equal(shouldCloseLiveTurnAfterHistoryReplay({ _serverRunState: { state: 'busy' } }), false);
 assert.equal(hasActiveAgentRun({ _agentState: 'active' }), true);
 assert.equal(hasActiveAgentRun({ _opencodePendingQuestion: { id: 'q1' } }), false);
 assert.equal(hasLiveHarnessWork({ _serverRunState: { state: 'busy' } }), true);
@@ -143,6 +180,13 @@ const inputServerWaiting = {
 };
 const actualServerWaiting = resolveHarnessChatStateMeta(inputServerWaiting);
 assert.equal(actualServerWaiting.tone, 'awaiting');
+assert.equal(actualServerWaiting.label, 'Needs action');
+const actualServerWaitingAgents = resolveHarnessChatStateMeta({
+  connection: 'disconnected',
+  agent: 'idle',
+  serverRunState: { state: 'waiting', waitingAgentCount: 2 },
+});
+assert.equal(actualServerWaitingAgents.label, 'Waiting for 2 agents');
 
 const inputServerDone = {
   connection: 'disconnected',
@@ -153,5 +197,22 @@ const actualServerDone = resolveHarnessChatStateMeta(inputServerDone);
 assert.equal(actualServerDone.tone, 'attention');
 assert.equal(actualServerDone.label, 'Completed');
 assert.equal(resolveChatListDotState('attention'), 'awaiting');
+
+const inputGenerating = overlayHistorySyncingMeta(true, (key) => (
+  key === 'chat.historySyncing' ? 'Syncing messages…' : key
+));
+assert.equal(inputGenerating.tone, 'syncing');
+assert.equal(inputGenerating.label, 'Syncing messages…');
+assert.equal(overlayHistorySyncingMeta(false), null);
+assert.equal(overlayHistorySyncingMeta(true).label, 'Syncing messages…');
+
+const inputGeneratingFallback = { tone: 'generating', label: 'Generating…' };
+const actualSyncOverGenerating = resolveChatStatusWithHistorySync(true, inputGeneratingFallback);
+assert.equal(actualSyncOverGenerating.tone, 'syncing');
+assert.equal(actualSyncOverGenerating.label, 'Syncing messages…');
+const actualKeepGenerating = resolveChatStatusWithHistorySync(false, inputGeneratingFallback);
+assert.equal(actualKeepGenerating.tone, 'generating');
+const actualSyncOverConnecting = resolveChatStatusWithHistorySync(true, actualConnecting);
+assert.equal(actualSyncOverConnecting.tone, 'syncing');
 
 console.log('All chat status meta tests passed.');

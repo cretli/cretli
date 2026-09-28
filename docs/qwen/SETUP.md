@@ -26,7 +26,7 @@ Runtime data lives in `data/qwen-home/` (isolated `HOME` for the CLI, never `~/.
 
 1. Confirm Settings → Harness shows Qwen as ready (package + key). A custom CLI path is optional.
 2. New chat → harness **Qwen**.
-3. Default model is `qwen3.8-max` (override with `QWEN_DEFAULT_MODEL` or the chat picker). Token Plan Individual ids: `qwen3.8-max`, `qwen3.8-flash`, `qwen3.7-max`, `qwen3.7-plus`, `qwen3.6-flash` (plus `glm-5.2` / `deepseek-v4-pro`). Pay-as-you-go still lists DashScope names (`qwen-plus`, `qwen3-coder-plus`). Old picker values such as `qwen-plus` are remapped to `qwen3.7-plus` on Token Plan.
+3. Default model is `qwen3.8-max` (override with `QWEN_DEFAULT_MODEL` or the chat picker). With an API key, Settings loads the live OpenAI-compatible `GET {baseUrl}/models` list (Token Plan ids are remapped as before). If that request fails, the picker uses the plan fallback: Token Plan Individual (`qwen3.8-max`, `qwen3.8-flash`, `qwen3.7-max`, `qwen3.7-plus`, `qwen3.6-flash`, plus `glm-5.2` / `deepseek-v4-pro`); pay-as-you-go DashScope names (`qwen-plus`, `qwen3-coder-plus`). Old picker values such as `qwen-plus` are remapped to `qwen3.7-plus` on Token Plan.
 4. Plan mode uses SDK `permissionMode: plan`. Agent mode uses `yolo`. Mutating tools are still blocked by the existing plan guard.
 
 Stop calls `AbortController.abort()` and `query.interrupt()`. The next prompt resumes `qwenSessionId` via `options.resume`.

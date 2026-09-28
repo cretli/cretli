@@ -75,10 +75,11 @@ export function closeExtraBar() {
 /**
  * @param {{
  *   getInputElement: () => HTMLInputElement|HTMLTextAreaElement|null,
+ *   getWorkspaceFolder?: () => string,
  * }} options
  * @returns {void}
  */
-export function initExtraBarContextPicker({ getInputElement }) {
+export function initExtraBarContextPicker({ getInputElement, getWorkspaceFolder = () => '' }) {
   const container = document.getElementById('extra-bar-context-picker');
   const wrap = document.getElementById('chat-extra-bar-wrap');
   if (!(container instanceof HTMLElement) || !(wrap instanceof HTMLElement)) {
@@ -97,25 +98,39 @@ export function initExtraBarContextPicker({ getInputElement }) {
 
   /** @type {object|null} */
   let cachedContext = null;
+  /** @type {string} */
+  let cachedWorkspaceFolder = '';
   /** @type {Promise<object|null>|null} */
   let loadPromise = null;
+
+  /**
+   * @returns {string}
+   */
+  function readWorkspaceFolder() {
+    if (typeof getWorkspaceFolder !== 'function') {
+      return '';
+    }
+    return String(getWorkspaceFolder() || '').trim();
+  }
 
   /**
    * @returns {Promise<object|null>}
    */
   async function loadContext() {
-    if (cachedContext) {
+    const workspaceFolder = readWorkspaceFolder();
+    if (cachedContext && cachedWorkspaceFolder === workspaceFolder) {
       return cachedContext;
     }
     if (loadPromise) {
       return loadPromise;
     }
-    loadPromise = getCursorContext()
+    loadPromise = getCursorContext(workspaceFolder)
       .then((data) => {
         if (!data?.ok) {
           return { __loadError: data?.error || t('sendBar.contextPickerLoadError') };
         }
         cachedContext = data;
+        cachedWorkspaceFolder = workspaceFolder;
         return data;
       })
       .catch((error) => ({
@@ -364,6 +379,7 @@ export function initExtraBarContextPicker({ getInputElement }) {
       return;
     }
     cachedContext = null;
+    cachedWorkspaceFolder = '';
     void refreshPanel();
   });
   observer.observe(wrap, { attributes: true, attributeFilter: ['class'] });

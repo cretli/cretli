@@ -72,7 +72,8 @@ updateDelegationRecord(record.id, { runId: started.runId, status: 'running' });
 
 const states = summarizeChatRunStates([parent.id, child.id]);
 assert.equal(states[child.id].state, 'busy');
-assert.equal(states[parent.id].state, 'busy');
+assert.equal(states[parent.id].state, 'waiting');
+assert.equal(states[parent.id].waitingAgentCount, 1);
 assert.equal(states[child.id].delegationId, record.id);
 
 patchMockChatRun(child.id, { waitingForInput: true, busy: true });
@@ -94,9 +95,18 @@ const doneStates = summarizeChatRunStates([child.id, parent.id]);
 assert.equal(doneStates[child.id].state, 'attention');
 assert.equal(doneStates[parent.id].state, 'attention');
 
+const idleChat = addChat('sess-agent-state-idle', 'Idle', null, '/tmp/ws', 'model', {
+  agentTransport: 'opencode',
+});
+const compact = summarizeChatRunStates([parent.id, child.id, idleChat.id]);
+assert.equal(compact[child.id].state, 'attention');
+assert.equal(compact[parent.id].state, 'attention');
+assert.equal(compact[idleChat.id], undefined);
+
 updateDelegationRecord(record.id, { acknowledgedAt: new Date().toISOString(), unverified: false });
-const ackedStates = summarizeChatRunStates([child.id]);
-assert.equal(ackedStates[child.id].state, 'idle');
-assert.equal(ackedStates[child.id].attention, false);
+const ackedStates = summarizeChatRunStates([child.id, parent.id, idleChat.id]);
+assert.equal(ackedStates[child.id], undefined);
+assert.equal(ackedStates[parent.id], undefined);
+assert.equal(ackedStates[idleChat.id], undefined);
 
 console.log('agent-run-state.test.js OK');

@@ -7,6 +7,9 @@ import {
   listClientInstanceCommandResults,
   resetClientInstanceCommandsForTests,
 } from '../lib/client-instance-commands.js';
+import { shouldPollClientInstanceCommands } from '../app_front/lib/clientInstanceCommands.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 resetClientInstanceCommandsForTests();
 
@@ -52,5 +55,18 @@ const expired = enqueueClientInstanceCommand(targetId, fromId, 'ping', null, Dat
 assert.ok(expired);
 const staleQueue = dequeueClientInstanceCommands(targetId, Date.now());
 assert.equal(staleQueue.length, 0);
+
+assert.equal(shouldPollClientInstanceCommands({ hidden: true, visibilityState: 'hidden' }), false);
+assert.equal(shouldPollClientInstanceCommands({ hidden: false, visibilityState: 'visible' }), true);
+
+const heartbeatSource = readFileSync(
+  fileURLToPath(new URL('../app_front/lib/clientInstanceHeartbeat.js', import.meta.url)),
+  'utf8'
+);
+assert.equal(
+  heartbeatSource.includes('pullAndExecuteClientInstanceCommands'),
+  false,
+  'Heartbeat must not pull commands alongside the 4s poll'
+);
 
 console.log('client-instance-commands.test.js: ok');

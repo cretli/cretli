@@ -7,6 +7,433 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+
+- Added the `cretli-release` release-review skill for Cretli chats and a
+  project Cursor subagent with the same read-only workflow.
+- OpenCode can use Xiaomi MiMo V2.6 Pro and Flash through a configurable MiMo
+  API key and regional Base URL.
+- Model catalog favorites can be managed per harness in Settings, including
+  model labels that distinguish otherwise identical display names. Added
+  harness icon assets and shared skill discovery across `.agents/skills` and
+  the existing Cursor skill directories.
+
+### Changed
+
+- Delegation runtime skips empty outbox flushes and drains mailboxes only for
+  known chats with queued messages.
+- Updated the Cursor and Codex SDK optional dependencies. SDK model registry
+  rejections now remove the rejected model from favorites and reset the chat
+  selection to Auto. Skill context is included in SDK prompts when a skill is
+  selected by the user.
+
+### Fixed
+
+- Browser navigation no longer fails on an empty GET/HEAD body that Chromium
+  exposes as JSON `null`. Added explicit workspace debug opt-ins for reaching
+  Cretli's own origin and accepting invalid TLS certificates; both remain off
+  by default.
+- Duplicate SDK catalog labels now expose model IDs and variant parameters so
+  distinct models remain identifiable in pickers.
+- Replaced a private LAN address in the Browser settings example with a
+  generic host name.
+- Skills are now loaded into the prompt only when explicitly invoked with
+  `@skill-name`, avoiding accidental activation when their names appear in text.
+- SDK history replay starts every initial window, fetched page, and prepended
+  older page on a user turn. A run keeps its leading Thinking block, so reloading
+  or paging an older run rebuilds the same Activity trays as the live stream
+  instead of splitting the first tool calls into a standalone tray.
+
+- Added the default-off OpenCode approval advisor Phase 2: a single redacted,
+  HTTPS/DNS-pinned OpenAI-compatible request for opt-in low-risk reads, with
+  daily quota, fail-closed errors, request-id idempotency, secret-safe audit and
+  no automatic write/edit/network approvals.
+
+- Browser hardening: DNS pinning is documented as defense-in-depth rather than an
+  IP-level guarantee; every navigation/subresource redirect hop is policy-checked;
+  URL userinfo, IPv4-mapped/NAT64/6to4 metadata, and Cretli's own origin
+  (including `CRETLI_PUBLIC_ORIGIN` behind a reverse proxy) are rejected; loopback
+  (`allowLocalhost`) and RFC1918/ULA (`allowPrivateNetwork`) are separate opt-ins;
+  Chromium no longer inherits `CODEX_SESSION_ID`/`CODEX_THREAD_ID`; REST input and
+  `force` screenshots share the WS rate caps; the panel paginates with the real
+  `nextSince` cursor and reads `canGoBack`/`canGoForward` from CDP history; and
+  non-proxied WebRTC UDP is disabled at launch.
+
+- Review fanout no longer marks jobs `failed` / `adapter_incomplete` while the
+  child waits for approver input: OpenCode review auto-allows non-mutating
+  permissions, implement/fix keep Ask with `waiting_for_input`, and
+  `delegation_wait` keeps `slot_occupied` until the job is truly terminal.
+
+- Chat catch-up no longer duplicates the last **Answer** bubble when the live
+  card is already on screen and a later usage/run-finished block sits after it.
+  The same historySeq / room seq reuses the existing card instead of inserting
+  a second copy. Already stacked copies collapse on the next history apply.
+  CreatePlan snapshots (`{"plan":""}` then the full Markdown) share one
+  Implementation plan card by call id instead of leaving 3–5 running copies.
+
+- Consecutive idle-wait cards stay one series: later ticks reuse the previous
+  waiting block instead of stacking a new card after compact status/system
+  lines or a dropped live pointer. Already stacked cards collapse into the
+  newest one immediately (next tick, history replay, or isolated insert).
+  Polish timeout notices with „Próg ostrzegawczy” parse as the same series.
+  History stores `progress` on those notices so F5 restores one newest-first
+  card. Review-verify catalog ids: `timeout-progress-series`, `notices`.
+
+- Review children no longer die on MCP probes: opaque or mutating MCP is
+  denied without aborting the SDK run, and `delegation_reply` stays allowed.
+  `model_pick` for plan/review skips uncertified harnesses (Codex) so the
+  parent does not get a favorite that `delegation_start` will refuse.
+
+- Parent mailbox analysis cannot impersonate the child: `delegation_reply`
+  `chat_id` must be the calling chat, inbound `[CHILD REPLY]` tells the parent
+  not to call `delegation_reply`, and a second `final_report` without an
+  attempt id is `already_terminal` once any final exists for that job.
+
+- `delegation_reply` run/attempt mismatch (409) now names the executing
+  `run_id`/`attempt_id` so children can retry after a stale `delegation_show`.
+  MCP bridge `/api/mcp/bridge/call` forwards request abort when the client
+  disconnects before the response is sent.
+
+- Compact tool tiles no longer stay on a spinner after the answer finishes:
+  start/result events share the same call id (including newline-concatenated
+  Cursor ids), and leftover running tiles close when the run is idle even if
+  history omitted FINISHED. The agent idle timer no longer treats local
+  `_agentState` as live work, so `onHarnessIdle` can clear the tray.
+
+- Review delegations no longer look successful when the child stops on a
+  one-liner or compacted thinking dump: that finish is `failed` with
+  `adapter_incomplete`. `model_pick` for `review` skips `*flash*` ids.
+  OpenCode waits 180s for the first SSE event (still overridable). SDK and
+  OpenCode idle watchdogs do not cancel a run while native tools are in
+  flight.
+
+- `model_list(..., enabled_only=true)` no longer lists the whole catalog when
+  Settings favorites are empty (default deny). Those rows are not
+  start-eligible; the empty-favorites `delegation_start` error says so.
+  One-shot “named model” delegations skip `model_pick` and workflow in the
+  multi-harness skill; `review_uncertified` is not an `implement` bypass.
+
+### Changed
+
+- DeepSeek **review** delegations are certified: DSH starts with a generated
+  read-only sandbox patch and headless approval policy; adapter capabilities
+  declare `sandboxReadOnly`. Review turns no longer abort the whole job on
+  sandbox-denied writes (same as OpenCode/OpenRouter).
+
+- Chat UI stays responsive with large sidebars: background WS sync no longer
+  re-renders every disconnected chat, list status updates coalesce on rAF, and
+  each workspace shows 40 live chats until you expand. `GET /api/chats` omits
+  `summaries` unless `includeSummaries=1`. History-batch posts up to 16 chats
+  and backs off empty pulls. Model catalogs and GitHub load after Settings /
+  idle. SDK Markdown skips PTY heuristics, forced layout, and `innerText`
+  copies; highlight.js is a lazy chunk. Heartbeat is 30s; command poll 15s.
+
+- Chat boot no longer fetches harness model catalogs (CodeBuddy / OpenCode /
+  SDK) until Settings → Harness. `GET /api/chats` skips archived rows unless
+  the archive section is open. Collapsed workspace groups render the header
+  only. markdown-it is a lazy chunk; history replay yields after 20 records.
+  The ping loop scans open sockets every 5s. Boot coalesces overlapping
+  chat-list GETs (`skipIfInFlight` on panel show). History-batch waits 1.5s
+  for the sidebar snapshot, skips idle ids when the visible set is empty,
+  and posts at most two batches per poll. Title sync is 120s and skips an
+  in-flight list load. Disconnecting a background WS drops it from the ping
+  set. markdown-it loads on first render, not on rich-view mount.
+
+- Sidebar agent badges update from coalesced `agentPresence` on existing
+  `/ws-agent-sdk` sockets (widget-scoped). HTTP `agent-states` is skipped only
+  while that feed is fresh and Redis multi-instance is off. Live tool names
+  are allowlisted basenames; Completed/Failed from the server beat a stale
+  local “working” state.
+
+- Chat history polls no longer overlap the 15s timer with gap-recheck, and
+  `getChatHistory` reuses in-flight GETs. Diagnostic commands have one poll
+  (paused while the document is hidden); the 30s heartbeat no longer pulls
+  commands. Background HTTP history uses the WS reconnect batch/concurrency
+  budget (never 0 on mobile), skips chats already covered by WebSocket unless
+  a delegation is pending, and does not clear `_pendingRemoteHistory` while
+  the view still lags the server. Multi-chat history pull is
+  `POST /api/chats/history-batch` with an explicit id list (empty body is 400,
+  widget scoped). `GET /api/chats/:id/history` stays compatible.
+
+- Product decision (2026-09-20): delegations do not get a Dream-RSI layer.
+  An `attempt` is a retry of the same job (fencing and idempotency), not a
+  search branch with siblings. `VERDICT` is another model's opinion
+  (`PASS`/`FAIL`/`BLOCKED`), not a fixed numeric replay evaluator, so
+  offline policy dreaming on stored jobs would be guessing. The server
+  keeps linear parent-loop state (role, round, stop) and does not
+  sequence exploration, worktree implementation fanout, or simulator
+  replay. Review fanout stays an optional width cap, not an executor
+  pool or decision tree. Isolated worktrees plus a hard test score remain
+  a possible later product, not a Dream-RSI plugin on today's store.
+
+### Added
+
+- Builtin MCP `delegation_wait`: bounded long-poll for parent jobs (`timeout_ms`
+  default 20s, max 25s, below the 30s bridge HTTP timeout; `until` all|any).
+  Returns `done`/`pending` plus per-id slot/outcome/verdict, not the report.
+  Chat UI shows “Waiting for N agents” above existing delegation cards.
+
+- Cursor SDK chats automatically receive bundled Cretli skills and agents through
+  a skills-only runtime share, without loading the Cretli repository rules.
+  The agents panel includes project skills; context queries accept a chat workspace.
+
+- Two concurrent **review** jobs on one parent are the default
+  (`CRETLI_DELEGATION_REVIEW_FANOUT`, cap 2). Set `=1` to keep a single
+  review slot. Implement/fix stay exclusive. A third review returns
+  `review_fanout_full` (MCP CONFLICT). This is not the D10/M12 executor
+  pool. The execute-plan command in chat only blocks when a mutating job
+  is already active; two review cards and “Waiting for N agents” stay
+  visible together. Settings Delegation center keeps Stop per job.
+
+- Builtin MCP `model_pick({ role, exclude_model, exclude_harness })` selects a
+  Settings favorite for plan, implement, review, or fix on a harness that is
+  enabled, ready, and delegatable. Empty favorites are unset for this pick (not
+  the whole catalog). Ranking uses frozen heuristic `cost_tier` /
+  `quality_tier` / `speed_tier` (local table + regex, not scraped benchmarks):
+  implement prefers cheaper eligible favorites; plan/review prefer quality.
+  Matcher lists are eligibility only. After a usage-limit or dead-harness fail,
+  pass `exclude_model` / `exclude_harness` and start the next candidate (skill
+  cap 3). `model_list` rows include those tiers and profile `roles`. Child
+  chats cannot start another `delegation_start`. Skill/agent
+  `.cursor/skills/cretli-multi-harness` and `.cursor/agents/cretli-multi-harness.md`
+  describe the parent loop (no Cursor `Task`; parent does not commit or push).
+
+- Delegation contract, review guarantees, and parent-loop durability
+  ([docs/DELEGATION-AUDIT-2026-09-20.md](docs/DELEGATION-AUDIT-2026-09-20.md)):
+  MCP list/show include `task_outcome`, `slot_occupied`, `run_stopping`, and
+  parsed `VERDICT`; inbox `id` pages the body. Review capabilities split
+  `preExecDeny` / `abortOnMutation` / `sandboxReadOnly` (event abort is not a
+  write block). Uncertified review adapters are refused unless
+  `CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED=1`. Health `ok` is readiness
+  (stale or hung tick is not ready). Orphaned `running` is interrupted after a
+  60s grace when the adapter is confirmed idle. Parent workflow state
+  (`delegation_workflow_show` / `update`) stores rounds/findings/deadline
+  without a server sequencer. Same-workspace mutating jobs from two parents
+  return `workspace_busy`. Opt-in `CRETLI_DELEGATION_GLOBAL_LIMIT` caps occupied
+  slots. Empty Settings favorites now deny `delegation_start` by default;
+  `CRETLI_DELEGATION_EMPTY_FAVORITES=all` restores the previous start behavior.
+  Review-verify catalog includes representative isolated delegation tests.
+  Workflow updates store every applied `idempotencyKey`→fingerprint (replay of
+  an earlier key is a no-op). `materialRevision` is a code/artifact id; a second
+  identical FAIL stops only when findings and material revision are unchanged.
+  MCP writes go through the in-process or remote API client (`GET`/`POST`
+  `/api/chats/:id/delegation-workflow`); the in-process client also refuses
+  child/foreign `chatId`. Adapter `getState` null/unknown no longer counts as
+  confirmed idle; orphan grace starts at the first confirmed idle observation.
+  Deadline cancel is non-blocking (deduped per delegation/attempt).
+  `same_findings` compares a new FAIL with the last FAIL review's material and
+  findings snapshot, so a separate material patch no longer deadlocks.
+  `delegationService.cancel` fences `attemptId`/`runId` after adapter `await`
+  so a stale cancel cannot finish or release a newer attempt.
+  Multi-harness skill has `loop` and `fanout-review` modes, infra retry with a
+  new idempotency key, and `TASK:` plus parent verification. MCP list/inbox
+  text uses full UUIDs and `scope=all`. OpenCode first-event timeout
+  sets `adapter_timeout`. `readDelegationMaterialRevision` snapshots git HEAD
+  plus dirty status. Workflow stores `lastReviewer` for review rotation.
+
+- Copy-ref on saved user and assistant chat blocks: one clipboard line
+  `cretli-ref chat=<full-uuid> seq=<n>`. The receiving agent loads the current
+  saved text with builtin MCP `chat_event({ chat, seq, field: "text" })` (page
+  with `offset`/`length` until `next_offset` is none). Thinking, tool, queued,
+  and in-flight blocks stay hidden. Copy content, Fork, and Pass are unchanged.
+  No new HTTP endpoint, composer auto-expand, `content_hash`, or seq ranges.
+
+- Mobile overlay: swipe the chat sidebar left to dismiss it, or swipe in from
+  the left screen edge to open it. Desktop, pin, and Safari back-swipe are
+  unchanged.
+- Delegation Phase IIIb: retry-delivery always requires `mailboxId` (including
+  0 or 1 retryable messages), coalesces parallel/replayed delivery and task
+  retries, recovers a `final_report` crash after the durable attempt result,
+  and adds an isolated HMR=0 Playwright pass of Settings → Delegations.
+  Adapter coverage is per real `*-agent-ws` module; live paid models stay
+  deferred. See [docs/DELEGATION-MODERNIZATION-PHASE-3B.md](docs/DELEGATION-MODERNIZATION-PHASE-3B.md).
+- Delegation Phase III: finishDelegation persists a durable attempt result
+  without auto-reviewed, and holds the parent slot until the child run is idle.
+  Busy start/retry returns `job_in_progress`, `run_stopping`, `stale_running`,
+  or `unknown` with `delegationId`/`attemptId`. MCP maps `still_active` and
+  `parent_busy` as CONFLICT. Retry-delivery targets one mailbox message.
+  Settings Delegation center confirms mutations, shows API errors, paginates
+  past 40 jobs, and documents an HMR=0 webpack `--no-watch` one-shot. See
+  [docs/DELEGATION-MODERNIZATION-PHASE-3.md](docs/DELEGATION-MODERNIZATION-PHASE-3.md).
+
+- Delegation runtime health (`GET /api/delegations/runtime`) and a Settings
+  Delegation center: worker vs process liveness, delayed ticks, degraded
+  recovery, scoped summaries, retry-task vs retry-delivery.
+- Single-writer lock for JSON delegation files, schema rejection for newer
+  documents, controlled boot/shutdown, and a SQLite backend (`node:sqlite`)
+  with backup/migrate/rollback. Default store stays JSON until an operator
+  migrates. See [docs/DELEGATION-STORE.md](docs/DELEGATION-STORE.md).
+- Isolated server E2E for delegations (separate port and data directory,
+  real SIGTERM). Live paid-model adapter certification is not included.
+- Delegation Phase IIb isolated E2E: SIGKILL during start/accept, busy-parent
+  mailbox, two `waiting_for_input` cycles, run-count after recovery, and a
+  Playwright pass against the live Settings Delegation center (filters,
+  retry-task vs retry-delivery, keyboard, PL/EN, mobile, workspace scope,
+  browser reconnect to that instance's WebSocket).
+
+### Changed
+
+- Sidebar chat rows archive on the archive icon instead of deleting. Archived
+  rows restore with the matching icon. Permanent delete stays in the chat
+  dropdown and the chat menu.
+
+- Cursor SDK agents treat other harness models as available for a sub-chat
+  through `harness_list` / `model_list` / `delegation_start`. Cursor `Task`
+  still only lists Cursor-local models; that list is not the Cretli catalog.
+
+### Fixed
+
+- Cursor SDK review no longer aborts when Grok (and similar models) call
+  builtin read MCP through the generic `mcp` wrapper. The guard classifies
+  the inner `toolName` (`delegation_show`, `chat_history`, …). Opaque or
+  mutating MCP still denies and still aborts the SDK review job.
+
+- Chat list presence poll no longer sends every chat UUID in
+  `GET /api/chats/agent-states?ids=…`. A long query plus cookies hit Node's
+  16 KiB header limit (`431 Request Header Fields Too Large`). The poll omits
+  `ids` and the response is a compact map (busy / waiting / attention only;
+  missing id = idle). History-revision GETs still send `ids` when short; when
+  omitted they return the widget/main allowlist, not the unscoped in-memory
+  index.
+
+- After PWA lock/unlock, the SDK mode bar shows “Syncing messages…” /
+  “Synchronizacja wiadomości…” while history catch-up sleeps (mobile 2.5s)
+  or waits for WS replay, instead of a stale generating/connecting label.
+  The label clears when the cycle finishes, after 8s, or if IndexedDB/fetch
+  hangs (tracker then allows the next resume). A hidden document after that
+  sleep skips HTTP fetch. Composer, draft, scroll, recovery modal, and the
+  service worker are unchanged.
+
+- Review verification is a host-owned runner (`node scripts/review-verify.js`)
+  with a frozen catalog, isolated data dir, and temp cwd. Cursor SDK review
+  offers native `shell` for that runner and read-only explorers; edit/delete
+  stay withheld and mutating commands abort the turn (no pre-exec hook).
+  Arbitrary `tests/**/*.test.js`, `--test-reporter`, and mutations stay denied.
+  Harnesses that can reject before exec do not abort the review job after a deny.
+  DeepSeek review no longer dies on DSH `todo_write` (same list as Cursor
+  `todo`); file `write`/`edit` still abort that job.
+
+- OpenAI voice Live no longer cuts the assistant off mid-word: `max_output_tokens`
+  is 600 (was 220, shared with audio tokens). Session logs record `response.done`
+  status when a turn is still incomplete.
+
+- Returning to the PWA no longer leaves an active chat missing replies that
+  already exist on the server: HTTP catch-up runs after short background
+  intervals, open sockets, and WS replay, store ACK is not treated as proof
+  the view is current, and a missed `sdkHistoryChanged` or another client's
+  history read no longer disables recovery. A later live mailbox/delegation
+  card does not hide an earlier hole, catch-up is chronological, render
+  failures do not advance watermarks, and polling does not mark an open
+  WebSocket healthy after error or deferred sync. Stale pong detection now
+  uses the first unacked ping. Catch-up now keeps a view-instance guard through
+  fetch/apply, applies `localUser` prompts from other clients without duplicating
+  optimistic echoes, notes historySeq for already-rendered live/replay events
+  without jumping past holes, and starts contiguous coverage from the hydrated
+  window rather than a lone live card. A failed HTTP catch-up during reconnect
+  no longer advances room watermarks for unrendered WS replay, so a later
+  retry still shows the missing reply exactly once. A live `applyEvent` throw
+  keeps that room seq as a hole: a later seq 102 or `sdkRunFinished` does not
+  mark seq 101 covered, and catch-up or WS retry still renders response 101
+  exactly once, inserted before the later card (assistant, run-finished, or
+  delegation) without a destructive full replay. Room event seq is compared
+  only inside a proven `eventStreamId`; a new stream's seq 1 is not placed
+  before an older session's seq 102, and a missing stream id does not invent
+  a global room order. Isolated Chromium coverage exists for the
+  transport→store→DOM path and a production resume path with mocked HTTP plus
+  IndexedDB; a real Android/iOS PWA session was not run.
+
+- Child `delegation_reply` with `final_report` no longer awaits cancel of its
+  own SDK run. That deadlock left the MCP bridge spinning until the agent was
+  cancelled. The report is persisted and returned first; leftover-run stop waits
+  a short grace so the MCP tool result can land, skips cancel when the run is
+  already idle, and rewrites that leftover `sdkRunFinished` to completed on
+  every harness. Only the accepted `finalReportRunId` is rewritten, so a later
+  user cancel in the same child stays a real cancel. The frontend also ignores
+  `lastErrorCode=delegation_final_report`. Leftover cancel after an accepted
+  `final_report` is silenced by the `runId` fence and covered by kernel rewrite
+  plus hydrate recovery tests; the child-stop timer stays an ingest window, not
+  an SLA. The Activity tray shows **Reported** / **Raport wysłany** (green),
+  not CANCELLED: leftover `status` events are rewritten the same way, and a
+  later cancel in that run cannot replace a reported/completed tray.
+
+- Swiping the sidebar closed no longer snaps it back open when pointer capture
+  is lost as the drawer slides under the finger.
+- Starting a sidebar swipe no longer flashes the page under the drawer (CSS
+  closed transform `translateX(-100%)` for a frame when transition was cut).
+- Mobile overlay keeps the sidebar resize handle; swipe-to-close ignores
+  `#sidebar-resizer` instead of disabling pointer events on it.
+
+- MCP/CLI archive, restore, and delete now push `chatsChanged` on agent
+  WebSockets so the sidebar reloads without a page refresh. Bulk archives
+  coalesce to one `GET /api/chats`.
+
+- SDK `status` FINISHED now stops Thinking spinners and marks every Activity
+  tray of that run. The last tray could already show FINISHED while earlier
+  trays stayed RUNNING and the Thinking block kept spinning after the chat
+  was idle.
+
+- Related-chat cards in a parent stream hid after the child was archived: the
+  sidebar dropped them, but history replay still painted “Child chat” rows.
+
+- A finished review child no longer keeps the read-only tool lock on later
+  Agent turns in that chat. The host used to treat sticky
+  `delegationAssignment=review` as Plan mode (`Plan mode blocked execution`)
+  even after the job completed. The review guard now lasts only while the
+  job is active, and the deny message names the review assignment.
+- Delegations: distinct child replies and per-attempt final reports; retry no
+  longer inherits review or suppresses the new report; oversize tasks fail
+  before creating a job; start/retry cannot overwrite an early terminal
+  status with `running`; cancel during a delayed start stops the late accept;
+  outbox delivers an attempt snapshot and marks only that intent after a
+  confirmed result; corrupt `delegations.json` is not silently replaced;
+  HTTP ack/retry honor the requested workspace; a second `waiting_for_input`
+  cycle is recorded.
+- Delegation runtime worker catches timer failures (corrupt JSON included)
+  without an unhandled rejection or process exit; it reports a degraded
+  state, retries with backoff, and does not rewrite the damaged file.
+  Outbox delivery patches one intent on the latest record so an append
+  during `await` is not dropped; ticks do not overlap, and boot/bridge/runtime
+  flush is serialized.
+- Delegation store safety: remigrating a switched directory no longer wipes
+  SQLite; JSON→SQLite copies resume from a checkpoint and hash full records;
+  owner lock does not steal a live writer during the metadata gap; SQLite
+  CAS reads, validates, and patches inside one transaction; shutdown honors
+  its deadline and keeps the lock while a late store callback can still
+  write; runtime health scopes mailbox counts and stays readable when the
+  store is corrupt; a newer SQLite schema is refused before any mutation.
+
+### Changed
+
+- Review assignments apply a read-only tool profile on adapters
+  (including DeepSeek) while that job is still active; the child still runs
+  as Agent. After the job ends, follow-up turns in the same chat follow SDK
+  mode. Dedicated read tools stay available during review; mutating tools
+  and shell are denied without a shell command allowlist. Report prompts
+  include blockers and artifacts; large reports are truncated in the parent
+  context with a pointer to `delegation_show`.
+- JSON persist remains the single-process store. A 200-item write/read
+  measurement and overlapping same-process writes stay acceptable; two
+  processes writing the same file can lose updates (last writer wins). No
+  new engine or executor pool in this change.
+- A periodic delegation runtime worker flushes the outbox with backoff,
+  times out stuck starting/cancelling/dispatching jobs, and drains mailboxes.
+  It does not treat a live in-process start as a boot interrupt.
+- A delegated child job that ends as completed, failed, or interrupted now
+  enqueues one parent mailbox reply (`Child reply`) when the executor did not
+  send `delegation_reply`. Cancel and start/retry failures do not ping the
+  parent. The report collector skips jobs whose reply is queued or delivered.
+
+### Added
+- Isolated Playwright fixture for the real delegation history card
+  (`npm run test:e2e:delegation-card`): replay/reconnect, retry, cancel,
+  errors, and uncertain delivery, with mock endpoints on a separate port
+  and without touching the running app store.
+- DeepSeek and Qwen Settings catalogs load live vendor `GET /models` lists when
+  an API key is set (15-minute cache, fallback on timeout or error). DeepSeek
+  default is `deepseek-flash` (V4.1 Flash); retired Flash ids remap in the
+  enabled-model list so the chat picker matches the live catalog. The DSH
+  `llm-deepseek` overlay declares image input on Flash so `read_image` works
+  (stock DSH treated unlisted ids as text-only).
+
 - Chat history shows a clickable parent/child link when a harness creates a
   child chat, forks a conversation, or nests a chat in the sidebar.
 - Chat mode selector is one Plan / Agent / Ask dropdown (same pattern as
@@ -70,6 +497,49 @@ All notable changes to this project are documented here. The format is based on
   private-key headers (`npm run test:secrets`). CI still runs gitleaks.
 
 ### Fixed
+- Delegated plan reviews no longer receive the executor prompt that says to
+  implement the approved plan. Delegations now carry an explicit `assignment`
+  (`review` or `implement`) through MCP, HTTP, persistence, and child prompt
+  construction; review assignments use the read-capable Agent tool surface so
+  repository inspection does not get cancelled by SDK Plan-mode enforcement.
+- Cursor SDK mailbox delivery waits for the run id returned after session
+  setup and prompt acceptance. Reading it before asynchronous setup finished
+  incorrectly marked accepted parent/child messages as `uncertain`. The
+  mailbox card labels that state as delivery unconfirmed and can retry
+  `failed` or `uncertain` messages.
+- Sidebar chat trees nest each child under its immediate parent. Drag-and-drop
+  keeps that parent (`data-parent-id` / the latest drop result) instead of
+  walking up to the first non-child, captures the dragged subtree at pointer
+  down so stale nest levels cannot swallow later rows, and lists every
+  descendant (indent clamps after depth 8). Mailbox replies and parent/child
+  history links are pushed live to an open chat (same path as delegation
+  cards) and survive history catch-up. The mailbox card shows the sender
+  title and updates queued → delivered; `chat_history` now lists those events.
+- DeepSeek DSH `workflow` / `agent()` subagents no longer dump `[subagent started]`
+  or child errors such as `no adapter registered` into the parent answer. They
+  render as `subagent` tool blocks. `lastAssistantMessage` is DSH `ContentBlock[]`
+  (plus a string fallback), so a child answer is no longer `[object Object]`.
+  Child `session.event` finish/turn-end stays on that block when the final
+  message is empty; known adapter/model errors become a `delegation_start` +
+  Settings-enabled-model hint. A child turn cannot change the parent run
+  status or replace `deepseekSessionId`. `delegation_start` falls back to a
+  Settings-enabled variant of the same model id (for example Codex `effort=high`
+  → favorite `effort=medium`) and lists those favorites when the model is
+  unknown. `model_list(..., enabled_only=true)` is that favorite list
+  (`enabled_only` stays false unless asked).
+- Finished SDK runs stop the spinner on every Thinking block of that turn, not
+  only the last one. A new Thinking block after an answer left the previous
+  one spinning in the live view.
+
+- DeepSeek no longer marks a turn `completed` when a rebuilt `dsh` process
+  reuses a persisted `sessionId`. That collision returns idle with an empty
+  response, so the next prompt after stop, MCP rebuild, or restart looked
+  hung. Cretli now drops the id with the process, retries a collision once
+  on a fresh session, and surfaces other empty/error turns in the UI.
+- DeepSeek chats no longer die on the first prompt with Cordis
+  `cannot create effect on inactive context`. The runtime overlay used a DSH
+  `!!js` node for the plugin `name`; the loader needs a string file URL, so
+  Cretli now writes that overlay the same way as the MCP patch.
 - Returning to a hidden PWA or tab refreshes the chat list, so chats created on
   another device, widget, or agent run appear without a manual reload.
 - `model_list` for Cursor SDK includes Settings-enabled variants (for example
@@ -226,6 +696,8 @@ All notable changes to this project are documented here. The format is based on
   and **Fork chat + this message** still send immediately.
 
 ### Fixed
+- Delegation and mailbox cards in chat no longer paint the whole report green
+  or clip long executor text on both sides (especially on a phone).
 - Plan mode allows Codex `web_search` and no longer treats `rg 'a|b|delete'` as a
   mutating pipeline (quoted `|` is not a shell pipe). Incomplete shell starts and
   `$(` / `|` inside `rg` patterns no longer abort the turn; Codex `parsed_cmd` is

@@ -7,10 +7,11 @@ import { requestClientDebugRemoteFlush, appLogger } from '../logger.js';
 import { logUiBlockerSnapshot } from './pwaFreezeDiagnostics.js';
 import { cretliApiFetch } from './cretliApiRequest.js';
 
-const COMMAND_POLL_MS = 4000;
+const COMMAND_POLL_MS = 15000;
 
 /** @type {ReturnType<typeof setInterval> | null} */
 let pollTimerId = null;
+let commandsInFlight = false;
 
 /** @type {Array<Record<string, unknown>>} */
 let pendingCommandResults = [];
@@ -88,11 +89,27 @@ function executeClientInstanceCommand(command) {
 }
 
 /**
+ * Sole command poll. Hidden tabs wait; heartbeat must not call this.
+ *
+ * @param {{ hidden?: boolean } | Document} [doc]
+ * @returns {boolean}
+ */
+export function shouldPollClientInstanceCommands(doc = typeof document !== 'undefined' ? document : null) {
+  if (!doc) return true;
+  if (doc.hidden === true) return false;
+  if (doc.visibilityState === 'hidden') return false;
+  return true;
+}
+
+/**
  * Fetches pending commands and executes them locally.
  * @returns {Promise<number>}
  */
 export async function pullAndExecuteClientInstanceCommands() {
   if (typeof fetch === 'undefined') return 0;
+  if (!shouldPollClientInstanceCommands()) return 0;
+  if (commandsInFlight) return 0;
+  commandsInFlight = true;
   const clientInstanceId = getClientInstanceId();
   try {
     const url = `${window.location.origin || ''}/api/client-instances/commands?clientInstanceId=${encodeURIComponent(clientInstanceId)}`;
@@ -109,6 +126,8 @@ export async function pullAndExecuteClientInstanceCommands() {
     return executed;
   } catch {
     return 0;
+  } finally {
+    commandsInFlight = false;
   }
 }
 
@@ -119,10 +138,11 @@ export function initClientInstanceCommands() {
   if (pollTimerId != null || typeof window === 'undefined') return;
   void pullAndExecuteClientInstanceCommands();
   pollTimerId = window.setInterval(() => {
+    if (!shouldPollClientInstanceCommands()) return;
     void pullAndExecuteClientInstanceCommands();
   }, COMMAND_POLL_MS);
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') void pullAndExecuteClientInstanceCommands();
+    if (shouldPollClientInstanceCommands()) void pullAndExecuteClientInstanceCommands();
   });
 }
 

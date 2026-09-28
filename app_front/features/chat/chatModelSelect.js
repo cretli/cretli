@@ -3,13 +3,17 @@ import '../../components/ui/cr-searchable-select.js';
 import { t } from '../../i18n/index.js';
 import {
   buildCatalogFromSdkStatusPayload,
+  coerceRunnableSdkModelValue,
+  decodeModelValue,
   FALLBACK_AGENT_MODELS,
   filterCatalogByEnabled,
   getCatalogEntryLabel,
   mergeModelCatalogEntries,
+  normalizeCatalogModelValue,
   normalizeChatEnabledModels,
   toLegacyModelOptions,
 } from '../../../lib/model-catalog.js';
+import { normalizeDeepSeekChatEnabledModels } from '../../../lib/deepseek/deepseek-model-ids.js';
 import { setDynamicModelContextWindows } from '../../../lib/sdk/sdk-context-advisory.js';
 import { escapeHtml } from './chatHtmlUtils.js';
 
@@ -182,7 +186,7 @@ export function createChatModelSelect(deps) {
    * @param {unknown} enabledKeys
    */
   function applyDeepSeekEnabledModels(enabledKeys) {
-    deepseekEnabledModelKeys = normalizeChatEnabledModels(enabledKeys);
+    deepseekEnabledModelKeys = normalizeDeepSeekChatEnabledModels(enabledKeys);
     if (pickerHarness === 'deepseek') rebuildAvailableAgentModels('deepseek');
     refreshModelSelectLabels();
   }
@@ -301,7 +305,7 @@ export function createChatModelSelect(deps) {
     }));
     if (nextCatalog.length === 0) return false;
     if (Array.isArray(payload?.chatEnabledModels)) {
-      deepseekEnabledModelKeys = normalizeChatEnabledModels(payload.chatEnabledModels);
+      deepseekEnabledModelKeys = normalizeDeepSeekChatEnabledModels(payload.chatEnabledModels);
     }
     const prevSig = JSON.stringify(deepseekModelCatalog);
     const nextSig = JSON.stringify(nextCatalog);
@@ -691,6 +695,27 @@ export function createChatModelSelect(deps) {
   }
 
   /**
+   * Map a saved SDK favorite onto a current catalog row (runnable variant).
+   *
+   * @param {string} storedValue
+   * @returns {string}
+   */
+  function resolveSdkPresetModel(storedValue) {
+    const coerced = coerceRunnableSdkModelValue(storedValue);
+    const catalog = sdkModelCatalog;
+    if (catalog.some((row) => normalizeCatalogModelValue(row.value) === coerced)) {
+      return coerced;
+    }
+    const decoded = decodeModelValue(coerced);
+    const modelId = normalizeCatalogModelValue(decoded.modelId);
+    if (!modelId || modelId.toLowerCase() === 'auto') return coerced;
+    const siblings = catalog.filter((row) => normalizeCatalogModelValue(row.modelId) === modelId);
+    if (siblings.length === 0) return coerced;
+    const defaultRow = siblings.find((row) => row.isDefault === true);
+    return normalizeCatalogModelValue(defaultRow?.value || siblings[0]?.value) || coerced;
+  }
+
+  /**
    * Updates the new-chat model picker for the selected harness (sync, uses cached catalog).
    * @param {'sdk' | 'openrouter' | 'opencode'} harness
    * @param {{ forceCloseDropdown?: boolean }} [options]
@@ -788,6 +813,7 @@ export function createChatModelSelect(deps) {
     ensureFloatingModelSelect,
     ensureFloatingFolderSelect,
     getModelLabelByValue,
+    resolveSdkPresetModel,
     getAvailableAgentModels,
     renderModelSelectOptions,
     getSdkModeBarModelOptions,

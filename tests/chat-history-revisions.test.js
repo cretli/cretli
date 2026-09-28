@@ -9,6 +9,7 @@ import {
   seedChatHistoryRevision,
   seedChatHistoryRevisionsFromIndex,
 } from '../lib/persist/chat-history-revisions.js';
+import { readChatHistoryBatch } from '../lib/persist/chat-history-persist.js';
 
 const chatId = 'chat-rev-test-1';
 
@@ -43,6 +44,15 @@ assert.equal(filtered['chat-rev-test-3'].headSeq, second.headSeq);
 assert.equal(filtered['chat-rev-test-3'].revision, second.revision);
 assert.equal(filtered['chat-rev-test-3'].hasPendingDelegation, false);
 assert.equal(filtered['missing-chat'], undefined);
+
+assert.deepEqual(getChatHistoryRevisions([]), {});
+assert.ok(getChatHistoryRevisions(undefined)['chat-rev-test-3']);
+assert.deepEqual(
+  readChatHistoryBatch([], ['chat-rev-test-3']),
+  {},
+  'Empty batch requests must not expand to every chat'
+);
+assert.deepEqual(readChatHistoryBatch([{ id: 'chat-rev-test-3', since: 0 }], []), {});
 
 markChatHasPendingDelegation('chat-rev-test-3');
 assert.equal(getChatHistoryRevisions(['chat-rev-test-3'])['chat-rev-test-3'].hasPendingDelegation, true);

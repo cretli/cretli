@@ -81,7 +81,10 @@ fs.symlinkSync(path.join(workspace, incidentRel), path.join(workspace, 'safe-lin
 function resolveRipgrepBin() {
   const envPath = String(process.env.CURSOR_RIPGREP_PATH || '').trim();
   if (envPath) {
-    return envPath;
+    // npm start sets this relative to the repo root, but this test spawns with
+    // cwd set to a temp workspace, so a relative value must be anchored here.
+    const resolved = path.isAbsolute(envPath) ? envPath : path.resolve(repoRoot, envPath);
+    if (fs.existsSync(resolved)) return resolved;
   }
   const bundled = path.join(repoRoot, 'node_modules', '.bin', 'rg');
   if (fs.existsSync(bundled)) {

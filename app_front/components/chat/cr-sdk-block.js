@@ -1,5 +1,6 @@
 import { LitElement, css, html } from 'lit';
 import { writeTextToClipboard } from '../../lib/clipboard.js';
+import { writeChatMessageRef } from '../../../lib/chat-message-ref.js';
 import { t } from '../../i18n/index.js';
 
 /**
@@ -28,6 +29,12 @@ class CrSdkBlock extends LitElement {
     passDisabled: { type: Boolean, reflect: true, attribute: 'pass-disabled' },
     passHint: { type: String, attribute: 'pass-hint' },
     historySeq: { type: Number, attribute: 'history-seq' },
+    chatId: { type: String, attribute: 'chat-id' },
+    refCopyable: { type: Boolean, reflect: true, attribute: 'ref-copyable' },
+    refCopyDisabled: { type: Boolean, reflect: true, attribute: 'ref-copy-disabled' },
+    refCopyHint: { type: String, attribute: 'ref-copy-hint' },
+    refCopied: { type: Boolean, state: true },
+    refCopyFailed: { type: Boolean, state: true },
   };
 
   static styles = css`
@@ -159,6 +166,16 @@ class CrSdkBlock extends LitElement {
       border-color: var(--cr-accent);
     }
 
+    .action-btn--copy-ref.is-copied {
+      color: var(--cr-success);
+      border-color: var(--cr-success-border);
+    }
+
+    .action-btn--copy-ref.is-error {
+      color: var(--cr-error);
+      border-color: var(--cr-error);
+    }
+
     summary::-webkit-details-marker {
       display: none;
     }
@@ -282,7 +299,14 @@ class CrSdkBlock extends LitElement {
     this.passDisabled = false;
     this.passHint = '';
     this.historySeq = 0;
+    this.chatId = '';
+    this.refCopyable = false;
+    this.refCopyDisabled = false;
+    this.refCopyHint = '';
+    this.refCopied = false;
+    this.refCopyFailed = false;
     this._copyResetTimer = 0;
+    this._refCopyResetTimer = 0;
     this._speakToken = '';
   }
 
@@ -328,6 +352,13 @@ class CrSdkBlock extends LitElement {
     event.preventDefault();
     event.stopPropagation();
     void this.copyBlockContent();
+  }
+
+  handleCopyRefClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.refCopyDisabled) return;
+    void this.copyBlockRef();
   }
 
   handleForceSendClick(event) {
@@ -423,6 +454,38 @@ class CrSdkBlock extends LitElement {
     return true;
   }
 
+  resetRefCopyFeedback(copied, failed) {
+    this.refCopied = copied;
+    this.refCopyFailed = failed;
+    if (this._refCopyResetTimer) window.clearTimeout(this._refCopyResetTimer);
+    this._refCopyResetTimer = window.setTimeout(() => {
+      this.refCopied = false;
+      this.refCopyFailed = false;
+      this._refCopyResetTimer = 0;
+    }, 1500);
+  }
+
+  async copyBlockRef() {
+    const result = await writeChatMessageRef(
+      {
+        variant: this.variant,
+        historySeq: this.historySeq,
+        chatId: this.chatId,
+        queued: this.queued === true,
+        running: this.running === true,
+      },
+      writeTextToClipboard,
+    );
+    if (result.ok) {
+      this.resetRefCopyFeedback(true, false);
+      return true;
+    }
+    if (result.reason === 'clipboard') {
+      this.resetRefCopyFeedback(false, true);
+    }
+    return false;
+  }
+
   getTimestampMeta() {
     const raw = String(this.createdAt || '').trim();
     if (!raw) return null;
@@ -444,6 +507,13 @@ class CrSdkBlock extends LitElement {
     const paths = Array.isArray(this.paths) ? this.paths : [];
     const timestamp = this.getTimestampMeta();
     const copyLabel = this.copied ? t('sdkBlock.copied') : t('sdkBlock.copyContent');
+    const copyRefLabel = this.refCopyFailed
+      ? t('sdkBlock.copyRefFailed')
+      : this.refCopied
+        ? t('sdkBlock.copyRefCopied')
+        : this.refCopyDisabled
+          ? (this.refCopyHint || t('sdkBlock.copyRefNeedsSavedHistory'))
+          : t('sdkBlock.copyRef');
     return html`
       <details ?open=${this.open} @toggle=${this.handleToggle}>
         <summary>
@@ -478,6 +548,22 @@ class CrSdkBlock extends LitElement {
               ? html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21 7L9 19l-5.5-5.5 1.41-1.41L9 16.17 19.59 5.59 21 7z"/></svg>`
               : html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19 21H8V7H19M19 5H8A2 2 0 0 0 6 7V21A2 2 0 0 0 8 23H19A2 2 0 0 0 21 21V7A2 2 0 0 0 19 5M16 1H4A2 2 0 0 0 2 3V17H4V3H16V1Z"/></svg>`}
           </button>
+          ${this.refCopyable || this.refCopyDisabled
+            ? html`
+                <button
+                  type="button"
+                  class="action-btn action-btn--copy-ref ${this.refCopied ? 'is-copied' : ''} ${this.refCopyFailed ? 'is-error' : ''}"
+                  ?disabled=${this.refCopyDisabled}
+                  title=${copyRefLabel}
+                  aria-label=${copyRefLabel}
+                  @click=${this.handleCopyRefClick}
+                  @mousedown=${(event) => event.stopPropagation()}
+                >
+                  ${this.refCopied
+                    ? html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21 7L9 19l-5.5-5.5 1.41-1.41L9 16.17 19.59 5.59 21 7z"/></svg>`
+                    : html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10.59 13.41c.41.39.41 1.03 0 1.42-.39.39-1.03.39-1.42 0a5.003 5.003 0 0 1 0-7.07l3.54-3.54a5.003 5.003 0 0 1 7.07 0 5.003 5.003 0 0 1 0 7.07l-1.49 1.49c.01-.82-.12-1.64-.4-2.42l.47-.48a2.982 2.982 0 0 0 0-4.24 2.982 2.982 0 0 0-4.24 0l-3.53 3.53a2.982 2.982 0 0 0 0 4.24m2.82-4.24c.39-.39 1.03-.39 1.42 0a5.003 5.003 0 0 1 0 7.07l-3.54 3.54a5.003 5.003 0 0 1-7.07 0 5.003 5.003 0 0 1 0-7.07l1.49-1.49c-.01.82.12 1.64.4 2.43l-.47.47a2.982 2.982 0 0 0 0 4.24 2.982 2.982 0 0 0 4.24 0l3.53-3.53a2.982 2.982 0 0 0 0-4.24.973.973 0 0 1 0-1.42Z"/></svg>`}
+                </button>`
+            : null}
           ${this.speakable
             ? html`
                 <button

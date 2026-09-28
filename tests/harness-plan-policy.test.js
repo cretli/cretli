@@ -5,6 +5,7 @@ import {
   resolveHarnessReadOnlyPolicy,
   resolveSdkPlanCreateOptions,
   SDK_PLAN_DISALLOWED_TOOLS,
+  SDK_REVIEW_DISALLOWED_TOOLS,
 } from '../lib/agent-harness/harness-plan-policy.js';
 import { getToolsForMode, isMutatingToolName } from '../lib/agent-harness/tool-definitions.js';
 
@@ -56,6 +57,12 @@ assert.deepEqual(resolveSdkPlanCreateOptions('plan').disallowedTools, SDK_PLAN_D
 assert.deepEqual(resolveSdkPlanCreateOptions('ask').disallowedTools, SDK_PLAN_DISALLOWED_TOOLS);
 assert.deepEqual(resolveSdkPlanCreateOptions('agent'), {});
 assert.deepEqual([...SDK_PLAN_DISALLOWED_TOOLS], ['edit', 'delete', 'shell']);
+assert.deepEqual([...SDK_REVIEW_DISALLOWED_TOOLS], ['edit', 'delete', 'shell']);
+assert.deepEqual(
+  [...(resolveSdkPlanCreateOptions('agent', 'review').disallowedTools || [])],
+  ['edit', 'delete', 'shell'],
+);
+assert.ok(resolveSdkPlanCreateOptions('agent', 'review').disallowedTools?.includes('shell'));
 assert.ok(!SDK_PLAN_DISALLOWED_TOOLS.includes('write'));
 assert.ok(!SDK_PLAN_DISALLOWED_TOOLS.includes('task'));
 assert.ok(!SDK_PLAN_DISALLOWED_TOOLS.includes('mcp'));
@@ -68,6 +75,18 @@ assert.ok(actualPlanTools.includes('grep'));
 assert.ok(!actualPlanTools.includes('write_file'));
 assert.ok(!actualPlanTools.includes('run_terminal_command'));
 assert.ok(getToolsForMode('agent').some((tool) => tool.function?.name === 'write_file'));
+const actualReviewTools = getToolsForMode('agent', 'review').map((tool) => tool.function?.name);
+assert.ok(actualReviewTools.includes('read_file'));
+assert.ok(actualReviewTools.includes('run_terminal_command'));
+assert.ok(!actualReviewTools.includes('write_file'));
+assert.equal(resolveHarnessReadOnlyPolicy('deepseek', 'agent', 'review').denyMutatingTools, true);
+assert.equal(resolveHarnessReadOnlyPolicy('openrouter', 'agent', 'review').abortOnMutation, false);
+assert.equal(resolveHarnessReadOnlyPolicy('opencode', 'agent', 'review').abortOnMutation, false);
+assert.equal(resolveHarnessReadOnlyPolicy('qwen', 'agent', 'review').abortOnMutation, false);
+assert.equal(resolveHarnessReadOnlyPolicy('codebuddy', 'agent', 'review').abortOnMutation, false);
+assert.equal(resolveHarnessReadOnlyPolicy('codex', 'agent', 'review').abortOnMutation, true);
+assert.equal(resolveHarnessReadOnlyPolicy('sdk', 'agent', 'review').abortOnMutation, true);
+assert.equal(resolveHarnessReadOnlyPolicy('deepseek', 'agent', 'review').abortOnMutation, false);
 
 const actualAskTools = getToolsForMode('ask').map((tool) => tool.function?.name);
 assert.ok(actualAskTools.includes('read_file'));
