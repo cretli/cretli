@@ -164,7 +164,7 @@ assert.equal(resolveInheritedPromptEcho('Just a normal message'), 'Just a normal
 const analysisPrompt = buildAgentAnalysisPrompt('Diagnose the agent.');
 assert.match(analysisPrompt, /AGENT ANALYSIS CONTEXT/);
 assert.match(analysisPrompt, /new sub-chat with its own empty history/);
-assert.match(analysisPrompt, /Do not continue its work/);
+assert.match(analysisPrompt, /The parent chat history was not copied/);
 assert.match(analysisPrompt, /Diagnose the agent\.$/);
 assert.equal(analysisPrompt.includes('HARNESS HANDOFF CONTEXT'), false);
 assert.equal(analysisPrompt.includes('CONVERSATION FORK CONTEXT'), false);

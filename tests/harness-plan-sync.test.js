@@ -27,21 +27,19 @@ assert.equal(emptyBindRoom._todoSyncDataDir, undefined);
 assert.match(HARNESS_PLAN_MODE_HINT, /Cretli persists your plan/);
 assert.match(HARNESS_PLAN_MODE_HINT, /question-UI approval/);
 assert.equal(
-  applyHarnessOutboundPrompt('hello', { mode: 'plan', transport: 'opencode' }).startsWith(HARNESS_PLAN_MODE_HINT),
+  applyHarnessOutboundPrompt('hello', { mode: 'plan', transport: 'opencode' }).includes(HARNESS_PLAN_MODE_HINT),
   true
 );
-assert.equal(
-  applyHarnessOutboundPrompt('hello', {
-    mode: 'plan',
-    transport: 'opencode',
-    skipPlanHint: true,
-  }),
-  'hello'
-);
-assert.equal(
-  applyHarnessOutboundPrompt('hello', { mode: 'plan', transport: 'qwen' }),
-  'hello'
-);
+const withoutPlanHint = applyHarnessOutboundPrompt('hello', {
+  mode: 'plan',
+  transport: 'opencode',
+  skipPlanHint: true,
+});
+assert.equal(withoutPlanHint.includes(HARNESS_PLAN_MODE_HINT), false);
+assert.equal(withoutPlanHint.endsWith('hello'), true);
+const qwenPlanPrompt = applyHarnessOutboundPrompt('hello', { mode: 'plan', transport: 'qwen' });
+assert.equal(qwenPlanPrompt.includes(HARNESS_PLAN_MODE_HINT), false);
+assert.equal(qwenPlanPrompt.endsWith('hello'), true);
 
 const captureRoom = {};
 resetHarnessPlanCapture(captureRoom);

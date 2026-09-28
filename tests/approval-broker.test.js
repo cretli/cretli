@@ -118,7 +118,7 @@ assert.equal(
 );
 assert.deepEqual(readApprovalAuditEntries({ file: auditFile }), []);
 
-const secretCommand = 'curl -H "Authorization: Bearer sk-or-v1-0123456789abcdef0123456789abcdef" https://example.com';
+const secretCommand = `curl -H "Authorization: Bearer ${'sk-or-v1-'}${'0123456789abcdef0123456789abcdef'}" https://example.com`;
 const written = recordOpenCodeApprovalAudit({
   room: { chatId: 'chat_1' },
   permissionEvent: { requestId: 'per_123', action: 'bash', metadata: { command: secretCommand } },

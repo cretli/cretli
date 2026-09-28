@@ -38,16 +38,22 @@ function loadMarkdownItCtor() {
  */
 export function createMarkdownRenderer(options = {}) {
   const highlight = typeof options.highlight === 'function' ? options.highlight : undefined;
+  /** @type {InstanceType<typeof import('markdown-it').default> | null} */
+  let instance = null;
   return {
     render(source) {
-      if (!instance) void loadMarkdownItCtor().then((Ctor) => {
-        instance = new Ctor({
-          html: false,
-          linkify: true,
-          breaks: true,
-          highlight,
+      if (!instance) {
+        void loadMarkdownItCtor().then((Ctor) => {
+          if (!instance) {
+            instance = new Ctor({
+              html: false,
+              linkify: true,
+              breaks: true,
+              highlight,
+            });
+          }
         });
-      });
+      }
       if (instance) return instance.render(String(source || ''));
       return `<pre><code>${escapePlain(source)}</code></pre>`;
     },

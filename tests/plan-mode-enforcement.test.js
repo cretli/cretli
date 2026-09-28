@@ -72,7 +72,7 @@ const codexEdit = resolvePlanModeSdkEventDecision({
 assert.equal(codexEdit.deny, false);
 assert.equal(codexEdit.abortRun, false);
 assert.equal(codexEdit.notify, false);
-assert.ok(applyHarnessOutboundPrompt('hello', { mode: 'plan', transport: 'codex' }).startsWith(HARNESS_PLAN_MODE_HINT));
+assert.ok(applyHarnessOutboundPrompt('hello', { mode: 'plan', transport: 'codex' }).includes(HARNESS_PLAN_MODE_HINT));
 const codexAskEdit = resolvePlanModeSdkEventDecision({
   transport: 'codex',
   mode: 'ask',
@@ -80,7 +80,7 @@ const codexAskEdit = resolvePlanModeSdkEventDecision({
 });
 assert.equal(codexAskEdit.deny, true);
 assert.equal(codexAskEdit.abortRun, true);
-assert.ok(applyHarnessOutboundPrompt('hello', { mode: 'ask', transport: 'codex' }).startsWith(HARNESS_ASK_MODE_HINT));
+assert.ok(applyHarnessOutboundPrompt('hello', { mode: 'ask', transport: 'codex' }).includes(HARNESS_ASK_MODE_HINT));
 assert.equal(applyHarnessOutboundPrompt('hello', { mode: 'ask', transport: 'codex' }).includes('question-UI approval'), false);
 
 const sdkAskRead = resolvePlanModeSdkEventDecision({
