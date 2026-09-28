@@ -192,7 +192,7 @@
     "@openai/codex-sdk": "^0.156.0",
     "@qwen-code/sdk": "^0.1.8",
     "@tencent-ai/agent-sdk": "^0.1.0",
-    "opencode-ai": "^1.18.26",
+    "opencode-ai": "^1.18.32",
     "redis": "^4.7.1"
   },
   "devDependencies": {
