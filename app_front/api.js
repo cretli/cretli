@@ -170,6 +170,18 @@ export async function patchSettingsLanHost(lanHost) {
   return patchSettings({ lanHost: lanHost != null ? String(lanHost).trim() : '' });
 }
 
+export async function getBrowserPolicy() {
+  return dedupeGetJson('/api/browser/policy', 'getBrowserPolicy');
+}
+
+export async function patchBrowserPolicy(policy) {
+  return apiFetchJson('/api/browser/policy?mode=agent', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ policy: policy || {} }),
+  }, 'patchBrowserPolicy');
+}
+
 const APPROVAL_SETTINGS_ALLOWED_KEYS = new Set([
   'approvalBroker',
   'approvalAdvisorApiKey',

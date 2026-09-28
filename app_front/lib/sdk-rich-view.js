@@ -1323,6 +1323,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const seen = new Set();
     for (const child of [...stream.children]) {
       if (!(child instanceof HTMLElement)) continue;
+      // A standalone Activity tray is created from the same history record as its first
+      // (hidden) full tool block, so it shares that order key without being a duplicate.
+      if (child.classList.contains('sdk-compact-activity-block')) continue;
       const id = viewOrderIdentity(readElementOrderKey(child));
       if (!id) continue;
       if (seen.has(id)) {

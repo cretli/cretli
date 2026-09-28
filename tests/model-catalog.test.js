@@ -5,6 +5,7 @@ import {
   decodeModelValue,
   encodeModelValue,
   enrichCatalogEntryLabels,
+  expandSdkModelsToCatalog,
   expandSdkModelRow,
   catalogFromModelsPayload,
   countCatalogEnabledModels,
@@ -78,6 +79,22 @@ assert.equal(buildVariantLabelFromParams(
   [{ id: 'fast', value: 'false' }],
   [{ id: 'fast', displayName: 'Fast', values: [{ value: 'true', displayName: 'Fast' }] }],
 ), 'Standard');
+
+const duplicateDisplayNames = expandSdkModelsToCatalog([
+  {
+    id: 'grok-4.7-standard',
+    displayName: 'Grok 4.7',
+    variants: [{ displayName: 'Extra High', params: [{ id: 'effort', value: 'xhigh' }] }],
+  },
+  {
+    id: 'grok-4.7-fast',
+    displayName: 'Grok 4.7',
+    variants: [{ displayName: 'Extra High', params: [{ id: 'effort', value: 'xhigh' }] }],
+  },
+]);
+assert.equal(duplicateDisplayNames.length, 2);
+assert.match(duplicateDisplayNames[0].label, /Extra High · grok-4\.7-standard/);
+assert.match(duplicateDisplayNames[1].label, /Extra High · grok-4\.7-fast/);
 
 const merged = mergeModelCatalogEntries(
   [{ value: 'auto', label: 'Auto', modelId: 'auto' }],

@@ -232,7 +232,10 @@ function ensurePanelReady(panelKey) {
       return;
     }
     if (panelKey === 'browser') {
-      initPanelOnce(panelKey, () => mod.initBrowserPanel());
+      initPanelOnce(panelKey, () => mod.initBrowserPanel({
+        getActiveChatId: getActiveChatIdValue,
+        getChats: getChatsList,
+      }));
       return;
     }
     if (panelKey === 'statusTests') {
@@ -1628,6 +1631,56 @@ function initBrowserStorageTools() {
   void renderSnapshot();
 }
 
+function initBrowserSelfOriginSetting() {
+  const checkbox = document.getElementById('browser-policy-self-origin');
+  const privateNetwork = document.getElementById('browser-policy-private-network');
+  const insecureTls = document.getElementById('browser-policy-insecure-tls');
+  const originsInput = document.getElementById('browser-policy-allowed-origins');
+  const saveBtn = document.getElementById('browser-policy-self-origin-save');
+  const status = document.getElementById('browser-policy-self-origin-status');
+  if (!checkbox || !privateNetwork || !insecureTls || !originsInput || !saveBtn || !status) return;
+
+  const setStatus = (message, isError = false) => {
+    status.textContent = message;
+    status.style.color = isError ? 'var(--cr-error)' : '';
+  };
+  const load = async () => {
+    try {
+      const result = await api.getBrowserPolicy();
+      checkbox.checked = result?.policy?.allowSelfOrigin === true;
+      privateNetwork.checked = result?.policy?.allowPrivateNetwork === true;
+      insecureTls.checked = result?.policy?.allowInsecureTls === true;
+      originsInput.value = Array.isArray(result?.policy?.allowedOrigins)
+        ? result.policy.allowedOrigins.join('\n')
+        : '';
+    } catch (err) {
+      setStatus(err?.message || t('errors.unknown'), true);
+    }
+  };
+  saveBtn.addEventListener('click', async () => {
+    saveBtn.disabled = true;
+    setStatus(t('common.saving'));
+    try {
+      const allowedOrigins = originsInput.value
+        .split(/\r?\n/)
+        .map((origin) => origin.trim())
+        .filter(Boolean);
+      await api.patchBrowserPolicy({
+        allowSelfOrigin: checkbox.checked,
+        allowPrivateNetwork: privateNetwork.checked,
+        allowInsecureTls: insecureTls.checked,
+        allowedOrigins,
+      });
+      setStatus(t('common.saved'));
+    } catch (err) {
+      setStatus(err?.message || t('errors.unknown'), true);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+  void load();
+}
+
 function onDomReady() {
   startupLog('DOMContentLoaded');
   initClientInstance();
@@ -1869,6 +1922,7 @@ function bootApp() {
     measureStartupStep('initThemeSelect', () => initThemeSelect());
     measureStartupStep('initLangSelect', () => initLangSelect());
     measureStartupStep('initBrowserStorageTools', () => initBrowserStorageTools());
+    measureStartupStep('initBrowserSelfOriginSetting', () => initBrowserSelfOriginSetting());
     measureStartupStep('initSpecialChars', () => initSpecialChars());
     measureStartupStep('initExtraBarContextPicker', () => initExtraBarContextPicker({
       getInputElement: () => getActiveSendBarForPanel()?.input ?? null,

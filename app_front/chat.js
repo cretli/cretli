@@ -4615,47 +4615,6 @@ async function createChatFromSendAction(parentChat, message, forkConversation) {
   return true;
 }
 
-const AGENT_MONITOR_PROMPT = [
-  'This is a new sub-chat that analyzes another Cretli chat.',
-  'You do not inherit that chat history. Diagnose the parent from its id and the live status snapshot below.',
-  'Is the agent working, stuck, waiting for input, or idle? What are the risks and what should happen next.',
-  'Answer briefly and concretely, in these sections:',
-  '1) Current state',
-  '2) What it means',
-  '3) Recommended next steps (max 5 bullets)',
-  '4) What is missing for a confident diagnosis',
-  'Do not trigger any external actions or callbacks.',
-].join('\n');
-
-function buildAgentMonitorMessage(chat) {
-  if (!chat?.id) return AGENT_MONITOR_PROMPT;
-  const status = getTerminalStateMeta(chat);
-  const connection = typeof chat._connectionStatus === 'string' ? chat._connectionStatus : 'unknown';
-  const agentState = getChatAgentState(chat);
-  const awaiting = chat._awaitingInput === true ? 'yes' : 'no';
-  const queuedCount = chat._sdkRichView?.queuedCount || Number(chat._sdkServerQueuedCount) || 0;
-  const contextTokens =
-    Number.isFinite(chat._contextUsageTotalTokens) && chat._contextUsageTotalTokens > 0
-      ? String(chat._contextUsageTotalTokens)
-      : 'unknown';
-  return [
-    AGENT_MONITOR_PROMPT,
-    '',
-    '[Parent chat snapshot]',
-    `chatId: ${chat.id}`,
-    `title: ${chat.title || 'untitled'}`,
-    `harness: ${chat.agentTransport || 'unknown'}`,
-    `model: ${chat.model || 'unknown'}`,
-    `connection: ${connection}`,
-    `agentState: ${agentState}`,
-    `terminalTone: ${status.tone}`,
-    `terminalLabel: ${status.label}`,
-    `awaitingInput: ${awaiting}`,
-    `queuedCount: ${queuedCount}`,
-    `contextTokens: ${contextTokens}`,
-  ].join('\n');
-}
-
 function getWorkspaceDefaultFolder(workspace) {
   if (!workspace || typeof workspace !== 'object') return '';
   if (typeof workspace.workspaceDir === 'string' && workspace.workspaceDir.trim()) {
@@ -6714,9 +6673,9 @@ async function createForkChatFromModal(parentChat, values) {
     values.displayText ||
     (sameHarness ? t('chat.forkContinueDisplayText') : t('chat.harnessHandoffDisplayText'));
   const initialPrompt = data.initialPrompt || values.message || '';
-  const live = analyze
-    ? openCreatedChatWithPrompt(created, initialPrompt, displayText)
-    : openCreatedForkChat(created, initialPrompt, displayText);
+  // Analysis sub-chats start empty. Keep only the parent reference as an
+  // inherited instruction and send it together with the user's first message.
+  const live = openCreatedForkChat(created, initialPrompt, analyze ? '' : displayText);
   syncWidgetPinUrlUi(live || created);
   notifyWidgetParentPagePinChanged();
   notifySidebar();
@@ -6836,8 +6795,6 @@ function createChatFromModal() {
     };
     if (forkParent?.id && forkUpToCreatedAt) values.upToCreatedAt = forkUpToCreatedAt;
     if (monitorParent?.id) {
-      values.message = buildAgentMonitorMessage(monitorParent);
-      values.displayText = t('chat.monitorAgentDisplayPrompt');
       values.analyze = true;
       if (!values.title) {
         values.title = t('chat.monitorDefaultTitle', { title: monitorParent.title || 'Chat' });

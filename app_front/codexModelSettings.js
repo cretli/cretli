@@ -10,8 +10,30 @@ import {
 } from '../lib/model-catalog-meta.js';
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from './lib/storageKeyAlias.js';
 import { escapeHtml } from './features/chat/chatHtmlUtils.js';
+import { bindFavoriteModelList, favoriteModelButtonHtml, isFavoriteModel, subscribeToFavoriteModelChanges } from './features/chat/modelFavoriteMarker.js';
 
 const CODEX_MODEL_SETTINGS_SORT_LS_KEY = 'cretli-codex-models-sort';
+const CODEX_MODEL_SETTINGS_HARNESS = 'codex';
+
+const CODEX_EFFORT_ORDER = Object.freeze({
+  low: 10,
+  medium: 20,
+  high: 30,
+  xhigh: 40,
+  max: 50,
+  ultra: 60,
+  persistent: 70,
+});
+
+const CODEX_MODEL_ORDER = Object.freeze({
+  'gpt-6-astra': 10,
+  'gpt-6-sol': 20,
+  'gpt-6-terra': 30,
+  'gpt-6-luna': 40,
+  'gpt-5.6-sol': 50,
+  'gpt-5.6-terra': 60,
+  'gpt-5.6-luna': 70,
+});
 
 /** @type {import('../lib/model-catalog.js').ModelCatalogEntry[]} */
 let settingsModelCatalog = [];
@@ -118,6 +140,32 @@ function resolveRowLabel(entry, groupName) {
   return entry.modelId || entry.value;
 }
 
+function resolveCodexEffortOrder(entry) {
+  const effort = Array.isArray(entry?.params)
+    ? entry.params.find((param) => String(param?.id || '').trim() === 'effort')?.value
+    : '';
+  return CODEX_EFFORT_ORDER[String(effort || '').trim().toLowerCase()] || 999;
+}
+
+function sortCodexBlock(block) {
+  if (block.type !== 'provider') return;
+  block.models.sort((a, b) => {
+    const modelIdA = a.entries[0]?.modelId || '';
+    const modelIdB = b.entries[0]?.modelId || '';
+    const rankA = CODEX_MODEL_ORDER[modelIdA] ?? 999;
+    const rankB = CODEX_MODEL_ORDER[modelIdB] ?? 999;
+    if (rankA !== rankB) return rankA - rankB;
+    return String(a.group || '').localeCompare(String(b.group || ''), undefined, { numeric: true });
+  });
+  for (const model of block.models) {
+    model.entries.sort((a, b) => {
+      const effortDiff = resolveCodexEffortOrder(a) - resolveCodexEffortOrder(b);
+      if (effortDiff !== 0) return effortDiff;
+      return String(a.label || '').localeCompare(String(b.label || ''), undefined, { numeric: true });
+    });
+  }
+}
+
 /**
  * @param {import('../lib/model-catalog.js').ModelCatalogEntry} entry
  * @param {string} groupName
@@ -126,6 +174,8 @@ function resolveRowLabel(entry, groupName) {
 function renderModelRowHtml(entry, groupName) {
   const checked = draftEnabledKeys.has(entry.value) || draftEnabledKeys.has(entry.modelId);
   const rowLabel = resolveRowLabel(entry, groupName);
+  const costLabel = entry.costLabel || '—';
+  const favorite = isFavoriteModel(CODEX_MODEL_SETTINGS_HARNESS, entry.value);
   return (
     '<label class="chat-model-settings-row">'
     + '<input type="checkbox" class="codex-model-settings-checkbox" data-model-value="'
@@ -135,7 +185,15 @@ function renderModelRowHtml(entry, groupName) {
     + ' />'
     + '<span class="chat-model-settings-row-body">'
     + '<span class="chat-model-settings-label">'
+    + favoriteModelButtonHtml(CODEX_MODEL_SETTINGS_HARNESS, entry.value, favorite)
     + escapeHtml(rowLabel)
+    + '</span>'
+    + '<span class="chat-model-settings-cost" title="'
+    + escapeHtml(t('settings.chatModelsCostTooltip'))
+    + '" aria-label="'
+    + escapeHtml(t('settings.chatModelsCostTooltip'))
+    + '">'
+    + escapeHtml(costLabel)
     + '</span>'
     + '</span>'
     + '</label>'
@@ -155,6 +213,7 @@ function renderModelSettingsList() {
     return;
   }
   const grouped = groupModelCatalogForSettings(visibleRows, settingsSortMode);
+  grouped.forEach(sortCodexBlock);
   const html = [];
   for (const block of grouped) {
     if (block.type === 'flat') {
@@ -412,6 +471,8 @@ export function initCodexModelSettings() {
   const refreshBtn = document.getElementById('codex-model-settings-refresh-btn');
   const statusEl = document.getElementById('codex-model-settings-status');
   if (!listEl || !saveBtn) return;
+  bindFavoriteModelList(listEl, () => renderModelSettingsList());
+  subscribeToFavoriteModelChanges(() => renderModelSettingsList());
   settingsSortMode = readSettingsSortMode();
   syncSortSelectUi();
   window.addEventListener('cr-lang-changed', () => {

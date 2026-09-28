@@ -6,7 +6,28 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Model catalog favorites can be managed per harness in Settings, including
+  model labels that distinguish otherwise identical display names. Added
+  harness icon assets and shared skill discovery across `.agents/skills` and
+  the existing Cursor skill directories.
+
+### Changed
+
+- Updated the Cursor and Codex SDK optional dependencies. SDK model registry
+  rejections now remove the rejected model from favorites and reset the chat
+  selection to Auto. Skill context is included in SDK prompts when a skill is
+  selected by the user.
+
 ### Fixed
+
+- Browser navigation no longer fails on an empty GET/HEAD body that Chromium
+  exposes as JSON `null`. Added explicit workspace debug opt-ins for reaching
+  Cretli's own origin and accepting invalid TLS certificates; both remain off
+  by default.
+- Duplicate SDK catalog labels now expose model IDs and variant parameters so
+  distinct models remain identifiable in pickers.
 
 - Added the default-off OpenCode approval advisor Phase 2: a single redacted,
   HTTPS/DNS-pinned OpenAI-compatible request for opt-in low-risk reads, with

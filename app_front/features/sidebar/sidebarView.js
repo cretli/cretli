@@ -494,6 +494,27 @@ export function createSidebarView(deps) {
       ? { tone: 'disconnected', label: t('chatUi.archivedState') }
       : getTerminalStateMeta(chat);
     const showMeta = meta.tone !== 'idle';
+    const harness = String(chat.agentTransport || 'sdk').trim().toLowerCase();
+    const harnessIcon = ({
+      sdk: 'cursor.svg',
+      'cursor-sdk': 'cursor.svg',
+      openrouter: 'openrouter.svg',
+      opencode: 'opencode.svg',
+      codebuddy: 'codebuddy.svg',
+      deepseek: 'deepseek.svg',
+      codex: 'codex.svg',
+      qwen: 'qwen.svg',
+    })[harness] || 'cursor.svg';
+    const harnessLabel = ({
+      sdk: 'Cursor SDK',
+      'cursor-sdk': 'Cursor SDK',
+      openrouter: 'OpenRouter',
+      opencode: 'OpenCode',
+      codebuddy: 'CodeBuddy',
+      deepseek: 'DeepSeek',
+      codex: 'Codex',
+      qwen: 'Qwen',
+    })[harness] || 'Cursor SDK';
     return (
       '<li class="sidebar-chat-item' +
       (chat.id === activeChatId ? ' is-active' : '') +
@@ -519,6 +540,14 @@ export function createSidebarView(deps) {
       '" title="' +
       escapeHtml(meta.label) +
       '" aria-hidden="true"></span>' +
+      '<span class="sidebar-chat-item-harness sidebar-chat-item-harness--' +
+      (harness === 'cursor-sdk' ? 'sdk' : (['sdk', 'openrouter', 'opencode', 'codebuddy', 'deepseek', 'codex', 'qwen'].includes(harness) ? harness : 'sdk')) +
+      '" title="' +
+      escapeHtml(harnessLabel) +
+      '" aria-hidden="true"><img src="/harness-icons/' +
+      harnessIcon +
+      '" alt="" loading="lazy" decoding="async">' +
+      '</span>' +
       '<span class="sidebar-chat-item-title">' +
       escapeHtml(chat.title) +
       (archived

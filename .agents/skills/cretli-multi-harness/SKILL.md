@@ -84,6 +84,26 @@ list is empty (pick still skips that harness).
    documented fallback role still has a favorite.
 5. `candidates[1]` is the infra fallback. Cap **1** infra retry per role after an empty `cancelled`, adapter failure, timeout, or usage/quota signal. The fallback must use a different model or harness; never start the same model/harness again for the same role after an infra failure. If no different candidate exists, stop as `BLOCKED` and report the concrete provider/quota reason.
 
+### Premium-model restraint
+
+Treat `cost_tier` as a **relative heuristic**, not a price quote. The catalog
+does not know the user's plan, provider billing, token usage, or whether a
+harness call has an incremental charge. Do not infer dollar costs or claim
+that a model is free. Exact spend data is not required to make a conservative
+selection policy.
+
+Use the lowest-cost eligible favorite that can reasonably do the role. Reserve
+the highest-cost tier (including `gpt-6-astra`, currently heuristic tier 5)
+for exceptional cases: a high-impact or unusually complex task where a
+concrete limitation of cheaper eligible choices is known, or a cheaper
+candidate has already failed for a **quality** reason and another round is
+justified. Do not select a premium model solely because the role is `plan` or
+`review`, because it is available, or as an infra retry; infra retries use the
+next different candidate under the existing retry rule. If no cheaper model
+is eligible, use the normal eligibility/blocked rules rather than silently
+inventing a cheaper option. Explain the exceptional reason briefly to the
+user when selecting a premium model.
+
 ### Roles (axes)
 
 | Role | Ranking | `assignment` |

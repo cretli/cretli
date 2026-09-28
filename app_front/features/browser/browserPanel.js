@@ -11,6 +11,7 @@
 import { t } from '../../i18n/index.js';
 import { escapeHtml } from '../chat/chatHtmlUtils.js';
 import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
+import { normalizeSdkMode } from '../../../lib/sdk/sdk-mode.js';
 
 const API_BASE = '/api/browser';
 const PULL_LIMIT = 100;
@@ -30,6 +31,8 @@ const state = {
   frame: null,
   busy: false,
   initDone: false,
+  getActiveChatId: () => '',
+  getChats: () => [],
 };
 
 /**
@@ -46,7 +49,19 @@ function isBrowserPanelActive() {
  * @returns {Promise<Record<string, any>>}
  */
 async function api(path, init = {}) {
-  const res = await cretliApiFetch(`${window.location.origin || ''}${API_BASE}${path}`, init);
+  const method = String(init.method || 'GET').toUpperCase();
+  let requestPath = path;
+  if (method !== 'GET' && method !== 'HEAD') {
+    const activeChatId = String(state.getActiveChatId?.() || '').trim();
+    const activeChat = state.getChats?.().find((chat) => chat?.id === activeChatId);
+    const mode = normalizeSdkMode(activeChat?.sdkMode || '');
+    const separator = requestPath.includes('?') ? '&' : '?';
+    const context = new URLSearchParams();
+    if (mode) context.set('mode', mode);
+    if (activeChatId) context.set('chatId', activeChatId);
+    if (context.toString()) requestPath += `${separator}${context.toString()}`;
+  }
+  const res = await cretliApiFetch(`${window.location.origin || ''}${API_BASE}${requestPath}`, init);
   let data = null;
   try {
     data = await res.json();
@@ -548,8 +563,10 @@ export async function refreshBrowserPanel() {
 /**
  * Wires static listeners exactly once (panel module init).
  */
-export function initBrowserPanel() {
+export function initBrowserPanel(deps = {}) {
   if (state.initDone) return;
+  state.getActiveChatId = typeof deps.getActiveChatId === 'function' ? deps.getActiveChatId : state.getActiveChatId;
+  state.getChats = typeof deps.getChats === 'function' ? deps.getChats : state.getChats;
   state.initDone = true;
 
   document.getElementById('browser-new-session-btn')?.addEventListener('click', () => void createSession());

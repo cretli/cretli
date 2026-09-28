@@ -87,13 +87,16 @@ A parent agent that needs a **sub-chat on another harness** (for example Cursor 
 
 All seven harnesses share the same WebSocket path (`/ws-agent-sdk`), protocol (`sdkEvent`, replay batches), rich view, and history persist format. OpenRouter, OpenCode, CodeBuddy, DeepSeek, Qwen, and Codex events are normalized to SDK-shaped payloads before broadcast. Archive, restore, delete, and sidebar nesting persist a `chatsChanged` frame to every attached agent socket so the live sidebar reloads without waiting for a page resume. If the chat row is gone (deleted on another device), the server sends `sdkError` with code `chat_not_found` and the client stops reconnecting instead of treating it as a recoverable `invalid_session`.
 
-Cursor SDK roots include a skills-only mirror at `data/cursor-share` (under the
-configured data directory). Canonical `.cursor/skills` trees and `.cursor/agents`
-files remain in the Cretli repo and refresh automatically; `.cursor/rules` is never
-mirrored. Bundled skills such as `cretli-multi-harness` also appear in shared picker
-context. Additional Cursor directories are for user-owned trees; their alwaysApply
-rules apply to every SDK chat. Context queries may pass `workspaceFolder` or `cwd`;
-the widget workspace takes precedence, with the current cwd as fallback.
+Skills use `.agents/skills/<name>/SKILL.md` as the cross-harness convention.
+Project, Cretli-bundled, user (`~/.agents/skills`), and configured shared roots are
+discovered at run time and listed in prompts for every harness. Existing
+`.cursor/skills` and `~/.cursor/skills-cursor` locations remain supported, so a
+skill can be added once without copying it into each workspace or harness home.
+When the Cursor SDK starts, Cretli also refreshes a skills-only mirror at
+`data/cursor-share`; `.cursor/agents` are mirrored too, while `.cursor/rules` are
+never mirrored. Shared-root `alwaysApply` rules continue to apply to Cursor SDK
+chats. Context queries may pass `workspaceFolder` or `cwd`; the widget workspace
+takes precedence, with the current cwd as fallback.
 
 ### The `sdk-*` prefix is protocol, not Cursor SDK
 

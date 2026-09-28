@@ -7502,8 +7502,12 @@ body.sdk-image-lightbox-open {
 }
 
 .chat-model-settings-checkbox,
+.codex-model-settings-checkbox,
 .openrouter-model-settings-checkbox,
-.opencode-model-settings-checkbox {
+.opencode-model-settings-checkbox,
+.codebuddy-model-settings-checkbox,
+.deepseek-model-settings-checkbox,
+.qwen-model-settings-checkbox {
   flex-shrink: 0;
   width: 16px;
   height: 16px;
@@ -7539,6 +7543,32 @@ body.sdk-image-lightbox-open {
   vertical-align: middle;
   text-transform: uppercase;
   letter-spacing: 0.02em;
+}
+
+.model-favorite-star {
+  display: inline-block;
+  margin-right: 0.3rem;
+  color: #eab308;
+  font-size: 0.82em;
+  vertical-align: 0.04em;
+}
+
+.model-favorite-toggle {
+  flex: 0 0 auto;
+  margin: -0.2rem 0.25rem -0.2rem -0.2rem;
+  padding: 0.2rem;
+  border: 0;
+  background: transparent;
+  color: var(--cr-text-muted, #858585);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.model-favorite-toggle:hover,
+.model-favorite-toggle:focus-visible,
+.model-favorite-toggle.is-active {
+  color: #eab308;
 }
 
 .chat-model-settings-cost {
@@ -9359,6 +9389,33 @@ body.sidebar-chat-drag-active {
     background: var(--cr-text-muted);
     opacity: 0.55;
   }
+}
+
+.sidebar-chat-item-harness {
+  display: inline-flex;
+  flex: 0 0 1.2rem;
+  align-items: center;
+  justify-content: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  box-sizing: border-box;
+  color: var(--cr-text-muted);
+  line-height: 0;
+
+  img {
+    display: block;
+    width: 1.1rem;
+    height: 1.1rem;
+    object-fit: contain;
+  }
+
+  &--openrouter { color: #94a3b8; }
+}
+
+body:not(.theme-light) .sidebar-chat-item-harness--sdk img,
+body:not(.theme-light) .sidebar-chat-item-harness--opencode img,
+body.theme-light .sidebar-chat-item-harness--codex img {
+  filter: invert(1);
 }
 
 .sidebar-chat-item-title {

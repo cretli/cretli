@@ -15,6 +15,7 @@ import {
   readHarnessModelUsage,
 } from './features/chat/harnessModelUsage.js';
 import { shouldLoadHarnessModelCatalogs } from './features/chat/harnessSettingsLoad.js';
+import { favoriteStarHtml, hasFavoriteHarness, subscribeToFavoriteModelChanges } from './features/chat/modelFavoriteMarker.js';
 
 /** @typedef {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen'} NewChatHarness */
 
@@ -239,6 +240,9 @@ function renderHarnessSetupStatus(data) {
     btn.classList.toggle('is-missing', !ready);
     btn.classList.toggle('is-disabled-harness', !checkbox.checked);
     btn.textContent = `${row.label}: ${detail}`;
+    if (hasFavoriteHarness(row.id)) {
+      btn.insertAdjacentHTML('beforeend', ` ${favoriteStarHtml()}`);
+    }
     btn.addEventListener('click', () => {
       const tabBtn = document.querySelector(`#settings-harness-tabs [data-settings-tab="${row.tab}"]`);
       if (tabBtn instanceof HTMLElement) tabBtn.click();
@@ -386,6 +390,9 @@ export function initHarnessSettings() {
   const selectEl = document.getElementById('default-new-chat-harness-select');
   const saveBtn = document.getElementById('default-new-chat-harness-save-btn');
   const statusEl = document.getElementById('default-new-chat-harness-save-status');
+  subscribeToFavoriteModelChanges(() => {
+    if (isHarnessSettingsPanelActive()) renderHarnessSetupStatus({ harnessStatus: cachedHarnessStatus });
+  });
   window.addEventListener('cr-lang-changed', () => {
     fillHarnessChoiceSelects();
     void loadDefaultHarnessFromServer({ includeModelUsage: false });

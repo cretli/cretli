@@ -58,6 +58,7 @@ import {
 } from './lib/pty-broadcast.js';
 import { attachWebSocketHandlers } from './lib/ws/ws-router.js';
 import { readCretliPublicOrigin } from './lib/ws/ws-origin.js';
+import { getLanHost } from './lib/lan-host.js';
 import { installServerLogCapture } from './lib/ws/server-log-ws.js';
 import { installFrontBuildWatcher } from './lib/ws/front-build-ws.js';
 import { runAgentsScheduler, AGENTS_SCHEDULER_INTERVAL_MS } from './lib/ws/agent-run-ws-handler.js';
@@ -207,7 +208,14 @@ app.use(compression({
     return compression.filter(req, res);
   },
 }));
-app.use(express.json({ limit: '8mb' }));
+// Browser navigation is GET/HEAD and must never need JSON parsing. Chromium
+// can expose an empty navigation body as the literal JSON value `null`; trying
+// to parse that body makes body-parser reject a normal page navigation with 400.
+// Keep JSON parsing for state-changing/API requests only.
+app.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD') return next();
+  return express.json({ limit: '8mb' })(req, res, next);
+});
 app.use((req, res, next) => {
   ensureStickyInstanceCookie(req, res, getServerInstanceId(), { secure: useHttps });
   next();
@@ -271,8 +279,10 @@ if (!browserRuntime.available) {
 // Browser must never be able to reach Cretli itself, including through a
 // TLS-terminating reverse proxy whose public origin is configured explicitly.
 const cretliPublicOrigin = readCretliPublicOrigin();
+const lanHost = getLanHost();
 const browserSelfOrigins = [
   cretliPublicOrigin,
+  lanHost ? `${useHttps ? 'https' : 'http'}://${lanHost}:${PORT}` : '',
   `${useHttps ? 'https' : 'http'}://127.0.0.1:${PORT}`,
   `http://localhost:${PORT}`,
   `https://localhost:${PORT}`,
