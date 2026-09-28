@@ -28,6 +28,8 @@ All notable changes to this project are documented here. The format is based on
   by default.
 - Duplicate SDK catalog labels now expose model IDs and variant parameters so
   distinct models remain identifiable in pickers.
+- Replaced a private LAN address in the Browser settings example with a
+  generic host name.
 
 - Added the default-off OpenCode approval advisor Phase 2: a single redacted,
   HTTPS/DNS-pinned OpenAI-compatible request for opt-in low-risk reads, with
