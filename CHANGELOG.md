@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- OpenCode can use Xiaomi MiMo V2.6 Pro and Flash through a configurable MiMo
+  API key and regional Base URL.
 - Model catalog favorites can be managed per harness in Settings, including
   model labels that distinguish otherwise identical display names. Added
   harness icon assets and shared skill discovery across `.agents/skills` and
