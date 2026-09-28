@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Added the `cretli-release` release-review skill for Cretli chats and a
+  project Cursor subagent with the same read-only workflow.
 - OpenCode can use Xiaomi MiMo V2.6 Pro and Flash through a configurable MiMo
   API key and regional Base URL.
 - Model catalog favorites can be managed per harness in Settings, including
