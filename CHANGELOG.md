@@ -19,6 +19,8 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- Delegation runtime skips empty outbox flushes and drains mailboxes only for
+  known chats with queued messages.
 - Updated the Cursor and Codex SDK optional dependencies. SDK model registry
   rejections now remove the rejected model from favorites and reset the chat
   selection to Auto. Skill context is included in SDK prompts when a skill is
