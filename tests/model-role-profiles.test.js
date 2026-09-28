@@ -30,6 +30,11 @@ assert.ok(listRolesForModel('gpt-6-astra').includes('implement'));
 assert.ok(listRolesForModel('glm-5.3-flash').includes('implement'));
 assert.equal(listRolesForModel('glm-5.3-flash').includes('review'), false);
 assert.ok(listRolesForModel('glm-5.3').includes('review'));
+assert.deepEqual(
+  listRolesForModel('cretli-mimo/mimo-v2.6-pro').sort(),
+  ['implement', 'plan', 'review'],
+);
+assert.deepEqual(listRolesForModel('cretli-mimo/mimo-v2.6-flash').sort(), ['fix', 'implement']);
 assert.equal(listRolesForModel('unknown-model').length, 0);
 
 const inputAstraMissing = selectModelPick({

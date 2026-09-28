@@ -53,6 +53,7 @@ import {
   registerRunItem,
   stopSdkBlockSpinners,
 } from '../../lib/sdk/sdk-run-block-registry.js';
+import { splitHistoryPageAtUserTurn } from '../../lib/sdk/sdk-history-turn-window.js';
 import {
   findReusableSdkAssistantBlockIndex,
   restoreSdkAssistantAccumulator,
@@ -3899,22 +3900,6 @@ export function createSdkRichView(chat, mountEl, hooks) {
   }
 
   /**
-   * True for records that open a user turn — a safe cut point between history pages,
-   * so a tool call and its result never land on opposite sides of the boundary.
-   *
-   * @param {unknown} record
-   * @returns {boolean}
-   */
-  function isUserTurnBoundary(record) {
-    if (!record || typeof record !== 'object') return false;
-    const rec = /** @type {Record<string, unknown>} */ (record);
-    if (rec.kind === 'localUser') return true;
-    if (rec.kind !== 'sdk') return false;
-    const event = /** @type {Record<string, unknown> | null} */ (rec.event);
-    return !!event && String(event.type || '').toLowerCase() === 'user';
-  }
-
-  /**
    * Renders older records above the current stream, keeping the viewport visually anchored.
    *
    * @param {unknown[]} records
@@ -4064,15 +4049,15 @@ export function createSdkRichView(chat, mountEl, hooks) {
 
   /**
    * Splits a page so the rendered part starts on a user turn; the older remainder waits
-   * for the next page instead of showing a run without its opening prompt.
+   * for the next page instead of showing a run without its opening prompt. A page with no
+   * user turn is buffered whole — rendering it would split its Activity tray from the
+   * earlier page that holds the run opening.
    *
    * @param {unknown[]} records
    * @returns {{ buffered: unknown[], renderable: unknown[] }}
    */
   function splitPageAtUserTurn(records) {
-    const boundary = records.findIndex((record) => isUserTurnBoundary(record));
-    if (boundary <= 0) return { buffered: [], renderable: records };
-    return { buffered: records.slice(0, boundary), renderable: records.slice(boundary) };
+    return splitHistoryPageAtUserTurn(records);
   }
 
   function finishOlderHistory() {
@@ -4109,6 +4094,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     renderHistoryTopState('loading');
     const restoreBuffer = bufferedOlderRecords;
     const restoreHasOlder = hasOlderHistory;
+    let retryRecords = restoreBuffer;
     try {
       let fetched = [];
       if (hasOlderHistory) {
@@ -4123,6 +4109,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       }
 
       const batch = fetched.concat(bufferedOlderRecords);
+      retryRecords = batch;
       bufferedOlderRecords = [];
       if (hasOlderHistory) {
         const split = splitPageAtUserTurn(batch);
@@ -4145,8 +4132,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
         stack: String(err?.stack || '').slice(0, 900),
       });
       if (armToken !== historyArmToken) return;
-      // Put the page back so a retry re-renders it instead of skipping over it.
-      bufferedOlderRecords = restoreBuffer;
+      // Keep the fetched page too: its cursor may already have moved past it, and
+      // dropping freshly buffered records here would make the retry skip that page.
+      bufferedOlderRecords = retryRecords;
       hasOlderHistory = restoreHasOlder;
       renderHistoryTopState('error');
     } finally {

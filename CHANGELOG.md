@@ -30,6 +30,12 @@ All notable changes to this project are documented here. The format is based on
   distinct models remain identifiable in pickers.
 - Replaced a private LAN address in the Browser settings example with a
   generic host name.
+- Skills are now loaded into the prompt only when explicitly invoked with
+  `@skill-name`, avoiding accidental activation when their names appear in text.
+- SDK history replay starts every initial window, fetched page, and prepended
+  older page on a user turn. A run keeps its leading Thinking block, so reloading
+  or paging an older run rebuilds the same Activity trays as the live stream
+  instead of splitting the first tool calls into a standalone tray.
 
 - Added the default-off OpenCode approval advisor Phase 2: a single redacted,
   HTTPS/DNS-pinned OpenAI-compatible request for opt-in low-risk reads, with

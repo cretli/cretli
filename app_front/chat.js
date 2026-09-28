@@ -156,6 +156,7 @@ import {
   rememberHistoryWindowStart,
   sortRecordsByCreatedAt,
 } from './features/chat/chatHistoryWindowOrder.js';
+import { selectTurnAlignedHistoryWindow } from '../lib/sdk/sdk-history-turn-window.js';
 import { createSdkRichView } from './lib/sdk-rich-view.js';
 import { getChatSpeaker } from './features/voice/chatSpeaker.js';
 import { createVoiceReadOptions } from './features/voice/voiceReadControls.js';
@@ -3479,13 +3480,13 @@ function syncRichViewPlainBuffer(chat) {
  */
 function takeSdkHistoryWindow(chat, records) {
   const list = Array.isArray(records) ? records : [];
-  if (list.length <= CHAT_HISTORY_INITIAL_TAIL) {
-    chat._historyOlderLocal = [];
-    return list;
-  }
-  const cut = list.length - CHAT_HISTORY_INITIAL_TAIL;
-  chat._historyOlderLocal = list.slice(0, cut);
-  return list.slice(cut);
+  // A bare tail cut can land mid-run and drop the run's leading Thinking block, which
+  // splits its Activity tray on replay. Expand the window to the user turn that opens
+  // the run so the renderer rebuilds the same group as the live stream.
+  const windowed = selectTurnAlignedHistoryWindow(list, CHAT_HISTORY_INITIAL_TAIL);
+  const cut = list.length - windowed.length;
+  chat._historyOlderLocal = cut > 0 ? list.slice(0, cut) : [];
+  return windowed;
 }
 
 /**
@@ -5686,10 +5687,13 @@ function applyNewChatFavoritePreset(value) {
   const harnessSelect = document.getElementById('chat-new-harness-select');
   const modelSelect = document.getElementById('chat-new-model-select');
   if (!(harnessSelect instanceof HTMLSelectElement) || !(modelSelect instanceof HTMLSelectElement)) return;
+  const presetModel = preset.harness === 'sdk'
+    ? chatModelSelectApi.resolveSdkPresetModel(preset.model)
+    : preset.model;
   harnessSelect.value = preset.harness;
   chatModelSelectApi.setModelPickerHarness(preset.harness);
-  chatModelSelectApi.renderModelSelectOptions(modelSelect, preset.model);
-  modelSelect.value = preset.model;
+  chatModelSelectApi.renderModelSelectOptions(modelSelect, presetModel);
+  modelSelect.value = presetModel;
   chatNewModelDropdownApi?.refresh?.();
   chatNewFavoritePresetDropdownApi?.close?.();
   syncNewChatFavoritePresetUi();
@@ -5697,8 +5701,8 @@ function applyNewChatFavoritePreset(value) {
     // A freshly loaded catalog can replace the model value; re-apply the chosen preset.
     if (getSelectedNewChatHarness() !== preset.harness) return;
     chatModelSelectApi.setModelPickerHarness(preset.harness);
-    chatModelSelectApi.renderModelSelectOptions(modelSelect, preset.model);
-    modelSelect.value = preset.model;
+    chatModelSelectApi.renderModelSelectOptions(modelSelect, presetModel);
+    modelSelect.value = presetModel;
     chatNewModelDropdownApi?.refresh?.();
     syncNewChatFavoritePresetUi();
   });

@@ -3,10 +3,13 @@ import '../../components/ui/cr-searchable-select.js';
 import { t } from '../../i18n/index.js';
 import {
   buildCatalogFromSdkStatusPayload,
+  coerceRunnableSdkModelValue,
+  decodeModelValue,
   FALLBACK_AGENT_MODELS,
   filterCatalogByEnabled,
   getCatalogEntryLabel,
   mergeModelCatalogEntries,
+  normalizeCatalogModelValue,
   normalizeChatEnabledModels,
   toLegacyModelOptions,
 } from '../../../lib/model-catalog.js';
@@ -692,6 +695,27 @@ export function createChatModelSelect(deps) {
   }
 
   /**
+   * Map a saved SDK favorite onto a current catalog row (runnable variant).
+   *
+   * @param {string} storedValue
+   * @returns {string}
+   */
+  function resolveSdkPresetModel(storedValue) {
+    const coerced = coerceRunnableSdkModelValue(storedValue);
+    const catalog = sdkModelCatalog;
+    if (catalog.some((row) => normalizeCatalogModelValue(row.value) === coerced)) {
+      return coerced;
+    }
+    const decoded = decodeModelValue(coerced);
+    const modelId = normalizeCatalogModelValue(decoded.modelId);
+    if (!modelId || modelId.toLowerCase() === 'auto') return coerced;
+    const siblings = catalog.filter((row) => normalizeCatalogModelValue(row.modelId) === modelId);
+    if (siblings.length === 0) return coerced;
+    const defaultRow = siblings.find((row) => row.isDefault === true);
+    return normalizeCatalogModelValue(defaultRow?.value || siblings[0]?.value) || coerced;
+  }
+
+  /**
    * Updates the new-chat model picker for the selected harness (sync, uses cached catalog).
    * @param {'sdk' | 'openrouter' | 'opencode'} harness
    * @param {{ forceCloseDropdown?: boolean }} [options]
@@ -789,6 +813,7 @@ export function createChatModelSelect(deps) {
     ensureFloatingModelSelect,
     ensureFloatingFolderSelect,
     getModelLabelByValue,
+    resolveSdkPresetModel,
     getAvailableAgentModels,
     renderModelSelectOptions,
     getSdkModeBarModelOptions,

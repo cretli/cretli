@@ -478,6 +478,31 @@
             <span id="opencode-zai-api-key-save-status" class="cr-status"></span>
           </div>
         </div>
+        <h3 class="settings-section-title" data-i18n="settings.harnessOpenCodeMimoTitle">Xiaomi MiMo</h3>
+        <p class="settings-hint">
+          <span data-i18n="settings.harnessOpenCodeMimoHintPrefix">MiMo API key from</span>
+          <a href="https://platform.xiaomimimo.com/" target="_blank" rel="noopener noreferrer">Xiaomi MiMo</a>.
+          <span data-i18n="settings.harnessOpenCodeMimoHintSuffix">Adds mimo-v2.6-pro and mimo-v2.6-flash to the OpenCode model list. MIMO_API_KEY takes precedence.</span>
+        </p>
+        <p id="opencode-mimo-api-key-source-hint" class="settings-hint" aria-live="polite"></p>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.harnessOpenCodeMimoBaseUrlLabel">MiMo Base URL</label>
+          <cr-bar-input id="opencode-mimo-base-url-input" type="url" autocomplete="url" placeholder="https://api.xiaomimimo.com/v1 (PAYG default)" data-i18n-placeholder="settings.harnessOpenCodeMimoBaseUrlPlaceholder"></cr-bar-input>
+          <p id="opencode-mimo-base-url-hint" class="settings-hint" aria-live="polite"></p>
+          <div class="cr-row">
+            <cr-bar-button variant="primary" id="opencode-mimo-base-url-save-btn" data-i18n="settings.harnessOpenCodeMimoBaseUrlSave">Save Base URL</cr-bar-button>
+            <span id="opencode-mimo-base-url-save-status" class="cr-status"></span>
+          </div>
+        </div>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.harnessOpenCodeMimoApiKeyLabel">New MiMo API key</label>
+          <cr-bar-input id="opencode-mimo-api-key-input" type="password" autocomplete="new-password" placeholder="Paste your MiMo API key and click Save" data-i18n-placeholder="settings.harnessOpenCodeMimoApiKeyPlaceholder"></cr-bar-input>
+          <div class="cr-row">
+            <cr-bar-button variant="primary" id="opencode-mimo-api-key-save-btn" data-i18n="settings.harnessOpenCodeMimoApiKeySave">Save key</cr-bar-button>
+            <cr-bar-button id="opencode-mimo-api-key-clear-btn" data-i18n="settings.harnessOpenCodeMimoApiKeyClear">Remove from settings</cr-bar-button>
+            <span id="opencode-mimo-api-key-save-status" class="cr-status"></span>
+          </div>
+        </div>
         <p id="opencode-harness-status" class="settings-hint" aria-live="polite"></p>
       </section>
       <section class="settings-section" data-settings-tab="harness-opencode" id="opencode-approval-broker-settings">
