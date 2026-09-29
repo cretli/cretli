@@ -191,6 +191,33 @@ await new Promise((resolve) => setTimeout(resolve, 80));
 assert.equal(settledAborts, 0);
 assert.equal(settledCloses, 0);
 
+// interrupt() times out, but the interrupted turn ended meanwhile and the
+// queue started the next turn on the same session -> do not kill it.
+let raceAborts = 0;
+let raceCloses = 0;
+const raceRoom = {
+  _activeTurnRunId: 'run-1',
+  _activeQuery: { interrupt: () => new Promise(() => {}), close: () => { raceCloses += 1; } },
+  _abortController: { abort: () => { raceAborts += 1; } },
+};
+const racePending = interruptActiveQuery(raceRoom, 30, 60_000);
+raceRoom._activeTurnRunId = 'run-2';
+await racePending;
+assert.equal(raceAborts, 0);
+assert.equal(raceCloses, 0);
+assert.notEqual(raceRoom._activeQuery, null);
+
+// Same turn still active when interrupt() times out -> abort/close.
+let sameTurnAborts = 0;
+const sameTurnRoom = {
+  _activeTurnRunId: 'run-1',
+  _activeQuery: { interrupt: () => new Promise(() => {}), close: () => {} },
+  _abortController: { abort: () => { sameTurnAborts += 1; } },
+};
+await interruptActiveQuery(sameTurnRoom, 30, 60_000);
+assert.equal(sameTurnAborts, 1);
+assert.equal(sameTurnRoom._activeQuery, null);
+
 let slowAborts = 0;
 let slowCloses = 0;
 const slowRoom = {

@@ -38,6 +38,15 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- Claude chats keep one streaming Claude Agent SDK session per chat instead
+  of starting a Claude Code process for every prompt. Model, permission mode,
+  and MCP changes apply to the live session through the SDK control calls.
+  The session restarts with resume only when the mode class, workspace, or
+  auth changes. Cancel interrupts only the current turn. Idle sessions close
+  after `CRETLI_CLAUDE_SESSION_IDLE_MS` (default 10 minutes), and
+  `CRETLI_CLAUDE_STREAMING_SESSION=0` restores one process per prompt. Claude
+  chats now set the `claude_code` system prompt preset. Before this change the
+  SDK sent an empty system prompt.
 - Claude chats receive the Cretli MCP bridge. Builtin tools, including
   `delegation_reply`, are loaded in the prompt instead of deferred tool search.
 - Delegation runtime skips empty outbox flushes and drains mailboxes only for
