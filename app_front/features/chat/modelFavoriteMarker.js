@@ -1,9 +1,7 @@
 import {
   CHAT_PRESETS_CHANGED_EVENT,
-  createChatPresetsStore,
+  chatPresetsStore,
 } from './chatPresets.js';
-
-const presetsStore = createChatPresetsStore();
 
 /**
  * @param {unknown} harness
@@ -19,7 +17,7 @@ function normalizeHarness(harness) {
  * @returns {boolean}
  */
 export function isFavoriteModel(harness, model) {
-  return presetsStore.isFavorite({
+  return chatPresetsStore.isFavorite({
     harness: normalizeHarness(harness),
     model: String(model || '').trim(),
   });
@@ -31,7 +29,7 @@ export function isFavoriteModel(harness, model) {
  */
 export function hasFavoriteHarness(harness) {
   const id = normalizeHarness(harness);
-  return id !== '' && presetsStore.getPresets().some((preset) => preset.harness === id);
+  return id !== '' && chatPresetsStore.getPresets().some((preset) => preset.harness === id);
 }
 
 /**
@@ -40,7 +38,7 @@ export function hasFavoriteHarness(harness) {
  * @returns {boolean}
  */
 export function toggleFavoriteModel(harness, model) {
-  return presetsStore.toggleFavorite({
+  return chatPresetsStore.toggleFavorite({
     harness: normalizeHarness(harness),
     model: String(model || '').trim(),
   });

@@ -9,7 +9,6 @@ import {
   ensureHarnessDefaultsLoaded,
   getEnabledHarnessIds,
   isHarnessEnabledInSettings,
-  refreshHarnessUsageLimits,
 } from './harnessSettings.js';
 import { AGENT_TRANSPORTS, getChatAgentTransport } from '../lib/agent-transport.js';
 import { appLogger } from './logger.js';
@@ -60,7 +59,7 @@ import { createFavoritesStore } from './lib/favorites.js';
 import {
   CHAT_PRESETS_CHANGED_EVENT,
   chatPresetKey,
-  createChatPresetsStore,
+  chatPresetsStore,
   normalizeChatPreset,
 } from './features/chat/chatPresets.js';
 import {
@@ -244,6 +243,13 @@ import {
 } from './features/chat/chatWidgetPin.js';
 import { createChatModelSelect } from './features/chat/chatModelSelect.js';
 import {
+  createNewChatCatalogCache,
+  createNewChatHarnessStatusTracker,
+  normalizeNewChatHarnessId,
+  resolveCatalogConfirmedReadiness,
+  resolveNewChatHarnessUiState,
+} from './features/chat/newChatHarnessStatus.js';
+import {
   CHAT_CONTEXT_USAGE_SYNC_MS,
   createChatDiagnostics,
 } from './features/chat/chatDiagnostics.js';
@@ -324,7 +330,7 @@ function resolveSendBarHostPagePick() {
   return requestWidgetHostPagePick;
 }
 const chatFavorites = createFavoritesStore('cretli-favorites-chats');
-const chatPresets = createChatPresetsStore();
+const chatPresets = chatPresetsStore;
 const CHAT_NAV_SEQUENCES = {
   up: '\x1b[A',
   down: '\x1b[B',
@@ -379,6 +385,11 @@ let pendingDeleteChatId = null;
 let chatNewModelDropdownApi = null;
 let chatNewFolderDropdownApi = null;
 let chatNewFavoritePresetDropdownApi = null;
+/** Element focused before the new-chat modal opened, restored on close. */
+/** @type {HTMLElement|null} */
+let newChatModalReturnFocus = null;
+/** Guards one-time registration of the modal's capture-phase keydown handling. */
+let newChatKeydownCaptureBound = false;
 
 /**
  * Clear all local data tied to a chat (localStorage).
@@ -1613,6 +1624,13 @@ function refreshPendingHarnessModelCatalog(harness) {
   if (nextHarness === 'qwen') {
     return api.getQwenModels().then((data) => {
       if (data?.ok) chatModelSelectApi.applyAvailableModelsFromQwen(data);
+      chatModelSelectApi.refreshModelSelectLabels();
+      return syncLoadedModelsToModeBar();
+    }).catch(() => {});
+  }
+  if (nextHarness === 'claude') {
+    return api.getClaudeModels().then((data) => {
+      if (data?.ok) chatModelSelectApi.applyAvailableModelsFromClaude(data);
       chatModelSelectApi.refreshModelSelectLabels();
       return syncLoadedModelsToModeBar();
     }).catch(() => {});
@@ -2874,6 +2892,10 @@ export function applyDeepSeekEnabledModels(enabledKeys) {
 
 export function applyQwenEnabledModels(enabledKeys) {
   chatModelSelectApi?.applyQwenEnabledModels(enabledKeys);
+}
+
+export function applyClaudeEnabledModels(enabledKeys) {
+  chatModelSelectApi?.applyClaudeEnabledModels(enabledKeys);
 }
 
 export function applyCodexEnabledModels(enabledKeys) {
@@ -5142,23 +5164,81 @@ let cachedOpenCodeReady = null;
 let cachedCodeBuddyReady = null;
 let cachedDeepSeekReady = null;
 let cachedQwenReady = null;
+let cachedClaudeReady = null;
 let cachedCodexReady = null;
 
 /** True while a chat is being created from the “New chat” modal — blocks double-submit. */
 let chatCreateInFlight = false;
+/** True once the user changed the harness in an open new-chat modal — async defaults must not override it. */
+let newChatHarnessUserTouched = false;
+/** True when the open modal already resolved an explicit harness (source chat / last delegation executor / last used). */
+let newChatHarnessExplicitChoice = false;
+/** True once the user changed the model in an open new-chat modal — async workspace loads must not override it. */
+let newChatModelUserTouched = false;
+/** True once a favorite preset applied its model in an open new-chat modal — async loads must not override it. */
+let newChatModelPresetApplied = false;
 
 /**
- * Resolve whether the given harness is currently ready, based on the last cached status.
+ * Resolve whether the given harness is known ready, unknown (null) or known not ready.
+ * A `null` cache must not be reported as an error.
  * @param {string} harness
+ * @returns {boolean | null}
  */
-function isNewChatHarnessReady(harness) {
-  if (harness === 'openrouter') return cachedOpenRouterReady !== null ? cachedOpenRouterReady : false;
-  if (harness === 'opencode') return cachedOpenCodeReady !== null ? cachedOpenCodeReady : false;
-  if (harness === 'codebuddy') return cachedCodeBuddyReady !== null ? cachedCodeBuddyReady : false;
-  if (harness === 'deepseek') return cachedDeepSeekReady !== null ? cachedDeepSeekReady : false;
-  if (harness === 'qwen') return cachedQwenReady !== null ? cachedQwenReady : false;
-  if (harness === 'codex') return cachedCodexReady !== null ? cachedCodexReady : false;
-  return cachedSdkReady !== null ? cachedSdkReady : false;
+function getNewChatHarnessReadiness(harness) {
+  if (harness === 'openrouter') return cachedOpenRouterReady;
+  if (harness === 'opencode') {
+    // OpenCode readiness is only trusted once its catalog confirmed models for the current
+    // catalog/settings generation; a cleared catalog downgrades a stale `true` to unknown.
+    return resolveCatalogConfirmedReadiness(cachedOpenCodeReady, newChatCatalogCache.get('opencode'));
+  }
+  if (harness === 'codebuddy') return cachedCodeBuddyReady;
+  if (harness === 'deepseek') return cachedDeepSeekReady;
+  if (harness === 'qwen') return cachedQwenReady;
+  if (harness === 'claude') return cachedClaudeReady;
+  if (harness === 'codex') return cachedCodexReady;
+  return cachedSdkReady;
+}
+
+/**
+ * @param {string} harness
+ * @param {boolean | null} ready
+ */
+function setNewChatHarnessReadyCache(harness, ready) {
+  if (harness === 'openrouter') cachedOpenRouterReady = ready;
+  else if (harness === 'opencode') cachedOpenCodeReady = ready;
+  else if (harness === 'codebuddy') cachedCodeBuddyReady = ready;
+  else if (harness === 'deepseek') cachedDeepSeekReady = ready;
+  else if (harness === 'qwen') cachedQwenReady = ready;
+  else if (harness === 'claude') cachedClaudeReady = ready;
+  else if (harness === 'codex') cachedCodexReady = ready;
+  else cachedSdkReady = ready;
+}
+
+/**
+ * Status-request generation, tracked per harness. A response may always update its own harness'
+ * readiness cache, but only reaches the hint/button/model picker while that harness is selected
+ * and its token is still the newest for that harness.
+ */
+const newChatHarnessStatusTracker = createNewChatHarnessStatusTracker();
+const newChatCatalogCache = createNewChatCatalogCache();
+
+/**
+ * @param {string} harness
+ * @returns {{ harness: string, seq: number }}
+ */
+function beginNewChatHarnessStatusCheck(harness) {
+  return newChatHarnessStatusTracker.begin(harness);
+}
+
+/**
+ * Whether a token is the newest request for its own harness, independent of the current
+ * selection. Use this to gate cache writes; UI writes additionally require it to be selected.
+ *
+ * @param {{ harness: string, seq: number } | null | undefined} token
+ * @returns {boolean}
+ */
+function isNewChatHarnessStatusLatest(token) {
+  return newChatHarnessStatusTracker.isLatest(token);
 }
 
 /**
@@ -5179,23 +5259,16 @@ function setNewChatCreateBusy(busy) {
       btn.textContent = btn.dataset.originalLabel;
       delete btn.dataset.originalLabel;
     }
-    btn.disabled = !isNewChatHarnessReady(getSelectedNewChatHarness());
+    syncNewChatHarnessUi();
   }
 }
 
 /**
  * @param {unknown} value
- * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen'}
+ * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen' | 'claude'}
  */
 function normalizeNewChatHarness(value) {
-  const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (raw === 'openrouter') return 'openrouter';
-  if (raw === 'opencode') return 'opencode';
-  if (raw === 'codebuddy') return 'codebuddy';
-  if (raw === 'deepseek') return 'deepseek';
-  if (raw === 'codex') return 'codex';
-  if (raw === 'qwen') return 'qwen';
-  return 'sdk';
+  return normalizeNewChatHarnessId(value);
 }
 
 function getSelectedNewChatHarness() {
@@ -5210,39 +5283,72 @@ function getNewChatHarnessError(harness) {
   if (harness === 'codebuddy') return t('chat.harnessErrorCodeBuddy');
   if (harness === 'deepseek') return t('chat.harnessErrorDeepSeek');
   if (harness === 'qwen') return t('chat.harnessErrorQwen');
+  if (harness === 'claude') return t('chat.harnessErrorClaude');
   if (harness === 'codex') return t('chat.harnessErrorCodex');
   return t('chat.harnessErrorSdk');
 }
 
-function applyNewChatHarnessStatus(harness, ready, errorMessage) {
-  const resolvedHarness = normalizeNewChatHarness(harness);
+/**
+ * Write readiness to the new-chat hint and Create button.
+ * `null` (status unknown) shows no warning and keeps Create disabled until a check answers.
+ * @param {string} resolvedHarness
+ * @param {boolean | null} readiness
+ * @param {string} [errorMessage]
+ */
+function renderNewChatHarnessUi(resolvedHarness, readiness, errorMessage) {
+  const uiState = resolveNewChatHarnessUiState(readiness, chatCreateInFlight);
   const createBtn = document.getElementById('chat-new-create');
   const hint = document.getElementById('chat-new-sdk-hint');
-  if (resolvedHarness === 'openrouter') {
-    cachedOpenRouterReady = ready;
-  } else if (resolvedHarness === 'opencode') {
-    cachedOpenCodeReady = ready;
-  } else if (resolvedHarness === 'codebuddy') {
-    cachedCodeBuddyReady = ready;
-  } else if (resolvedHarness === 'deepseek') {
-    cachedDeepSeekReady = ready;
-  } else if (resolvedHarness === 'qwen') {
-    cachedQwenReady = ready;
-  } else if (resolvedHarness === 'codex') {
-    cachedCodexReady = ready;
-  } else {
-    cachedSdkReady = ready;
-  }
   // While a chat is being created, never re-enable the button mid-flight.
-  if (createBtn) createBtn.disabled = chatCreateInFlight || !ready;
+  if (createBtn) {
+    createBtn.disabled = uiState.disableCreate;
+    // Tie the warning to Create only while it is visible/announced.
+    if (uiState.showWarning) createBtn.setAttribute('aria-describedby', 'chat-new-sdk-hint');
+    else createBtn.removeAttribute('aria-describedby');
+  }
   if (!hint) return;
-  if (ready) {
-    hint.hidden = true;
-    hint.textContent = '';
+  if (uiState.showWarning) {
+    hint.hidden = false;
+    hint.textContent = errorMessage || getNewChatHarnessError(resolvedHarness);
     return;
   }
-  hint.hidden = false;
-  hint.textContent = errorMessage || getNewChatHarnessError(resolvedHarness);
+  hint.hidden = true;
+  hint.textContent = '';
+}
+
+/**
+ * Synchronously mirror the cached readiness of a harness into the hint and Create button.
+ * Used on modal open and on harness change, before the status request resolves.
+ * @param {string} [harness]
+ * @returns {boolean | null}
+ */
+function syncNewChatHarnessUi(harness = getSelectedNewChatHarness()) {
+  const resolvedHarness = normalizeNewChatHarness(harness);
+  const readiness = getNewChatHarnessReadiness(resolvedHarness);
+  renderNewChatHarnessUi(resolvedHarness, readiness);
+  return readiness;
+}
+
+/**
+ * Apply a status response for a harness.
+ *
+ * A superseded response (a newer request for the same harness exists) is dropped entirely.
+ * Otherwise the harness' readiness cache is always updated — even when it is not selected —
+ * while only the selected harness reaches the hint/button/model picker.
+ *
+ * @param {string} harness
+ * @param {boolean | null} ready
+ * @param {string} [errorMessage]
+ * @param {{ harness: string, seq: number } | null} [token]
+ */
+function applyNewChatHarnessStatus(harness, ready, errorMessage, token) {
+  const resolvedHarness = normalizeNewChatHarness(harness);
+  if (token && !isNewChatHarnessStatusLatest(token)) return;
+  setNewChatHarnessReadyCache(resolvedHarness, ready);
+  if (resolvedHarness !== getSelectedNewChatHarness()) return;
+  // Render the effective readiness: for OpenCode a raw `true` stays unknown until its catalog
+  // confirmed models for the current catalog/settings generation.
+  renderNewChatHarnessUi(resolvedHarness, getNewChatHarnessReadiness(resolvedHarness), errorMessage);
 }
 
 function isEmbedWidgetMode() {
@@ -5268,14 +5374,15 @@ function ensureEmbedNewChatFolderSelect() {
   chatNewFolderDropdownApi?.refresh?.();
 }
 
-function applySdkStatusToUi(r) {
+function applySdkStatusToUi(r, token) {
+  if (token && !isNewChatHarnessStatusLatest(token)) return;
   // The backend localises this error, so match both languages it can return.
   if (
     r &&
     r.ok === false &&
     /unavailable in a widget session|niedostępny w sesji widgetu/i.test(String(r.error || ''))
   ) {
-    applyNewChatHarnessStatus('sdk', false, t('chat.sdkWidgetNeedsServerUpdate'));
+    applyNewChatHarnessStatus('sdk', false, t('chat.sdkWidgetNeedsServerUpdate'), token);
     return;
   }
   const modelsChanged = chatModelSelectApi.applyAvailableModelsFromSdkStatus(r);
@@ -5285,14 +5392,11 @@ function applySdkStatusToUi(r) {
     chatModelSelectApi.refreshModelSelectLabels();
   }
   const ready = !!(r && r.ok && r.ready);
-  if (getSelectedNewChatHarness() === 'sdk') {
-    applyNewChatHarnessStatus('sdk', ready);
-  } else {
-    cachedSdkReady = ready;
-  }
+  applyNewChatHarnessStatus('sdk', ready, undefined, token);
 }
 
-function applyOpenRouterStatusToUi(r) {
+function applyOpenRouterStatusToUi(r, token) {
+  if (token && !isNewChatHarnessStatusLatest(token)) return;
   if (Array.isArray(r?.models)) {
     chatModelSelectApi.applyAvailableModelsFromOpenRouter(r);
   }
@@ -5300,262 +5404,256 @@ function applyOpenRouterStatusToUi(r) {
   const ready = !!(r && r.openrouterApiKeyEffective);
   if (getSelectedNewChatHarness() === 'openrouter') {
     chatModelSelectApi.refreshNewChatModelPicker('openrouter');
-    applyNewChatHarnessStatus(
-      'openrouter',
-      ready,
-      invalidFormat
-        ? 'Invalid OpenRouter API key format — use a key from openrouter.ai/keys (starts with sk-or-v1-).'
-        : undefined,
-    );
-  } else {
-    cachedOpenRouterReady = ready;
   }
+  applyNewChatHarnessStatus(
+    'openrouter',
+    ready,
+    invalidFormat
+      ? 'Invalid OpenRouter API key format — use a key from openrouter.ai/keys (starts with sk-or-v1-).'
+      : undefined,
+    token,
+  );
 }
 
-function refreshNewChatSdkStatus() {
+function refreshNewChatSdkStatus(token) {
   return api
     .getAgentSdkStatus()
-    .then((r) => applySdkStatusToUi(r))
+    .then((r) => applySdkStatusToUi(r, token))
     .catch(() => {
-      if (getSelectedNewChatHarness() === 'sdk') {
-        applyNewChatHarnessStatus(
-          'sdk',
-          false,
-          t('chat.sdkCheckFailed'),
-        );
-      } else {
-        cachedSdkReady = false;
-      }
+      if (token && !isNewChatHarnessStatusLatest(token)) return;
+      applyNewChatHarnessStatus('sdk', false, t('chat.sdkCheckFailed'), token);
     });
 }
 
-function refreshNewChatOpenRouterStatus() {
+function refreshNewChatOpenRouterStatus(token) {
   return api
     .getOpenRouterStatus()
     .then((status) => {
-      applyOpenRouterStatusToUi(status);
+      if (token && !isNewChatHarnessStatusLatest(token)) return null;
+      applyOpenRouterStatusToUi(status, token);
       if (!status?.openrouterApiKeyEffective) return null;
-      return api.getOpenRouterModels().then((models) => {
-        chatModelSelectApi.applyAvailableModelsFromOpenRouter(models);
-        if (getSelectedNewChatHarness() === 'openrouter') {
-          chatModelSelectApi.refreshNewChatModelPicker('openrouter');
-        }
-      });
+      return newChatCatalogCache
+        .fetchDeduped('openrouter', () => api.getOpenRouterModels())
+        .then((models) => {
+          if (token && !isNewChatHarnessStatusLatest(token)) return;
+          if (models?.ok || Array.isArray(models?.models)) {
+            chatModelSelectApi.applyAvailableModelsFromOpenRouter(models);
+          }
+          if (getSelectedNewChatHarness() === 'openrouter') {
+            chatModelSelectApi.refreshNewChatModelPicker('openrouter');
+          }
+        });
     })
     .catch(() => {
-      if (getSelectedNewChatHarness() === 'openrouter') {
-        applyNewChatHarnessStatus(
-          'openrouter',
-          false,
-          t('chat.openrouterStatusFailed'),
-        );
-      } else {
-        cachedOpenRouterReady = false;
-      }
+      if (token && !isNewChatHarnessStatusLatest(token)) return;
+      applyNewChatHarnessStatus('openrouter', false, t('chat.openrouterStatusFailed'), token);
     });
 }
 
-function refreshNewChatOpenCodeStatus(options = {}) {
+function refreshNewChatOpenCodeStatus(options = {}, token) {
   const params = resolveOpenCodeCatalogParamCandidates()[0] || {};
   const pickerOptions = { forceCloseDropdown: options.forceCloseDropdown === true };
   return api
     .getOpenCodeStatus(params)
     .then((status) => {
+      if (token && !isNewChatHarnessStatusLatest(token)) return null;
       const keyOk = !!status?.opencodeCredentialsEffective;
       const ready = !!(status && status.opencodeReady);
-      if (getSelectedNewChatHarness() === 'opencode') {
-        applyNewChatHarnessStatus(
-          'opencode',
-          ready,
-          keyOk ? status?.error : t('chat.opencodeKeyMissing'),
-        );
-      } else {
-        cachedOpenCodeReady = ready;
-      }
+      applyNewChatHarnessStatus(
+        'opencode',
+        ready,
+        keyOk ? status?.error : t('chat.opencodeKeyMissing'),
+        token,
+      );
       if (!keyOk) return null;
-      return fetchOpenCodeModelsCatalog().then((models) => {
-        if (models?.ok) chatModelSelectApi.applyAvailableModelsFromOpenCode(models);
-        const hasModels = !!(models?.ok && Array.isArray(models.models) && models.models.length > 0);
-        if (getSelectedNewChatHarness() === 'opencode') {
-          chatModelSelectApi.refreshNewChatModelPicker('opencode', pickerOptions);
+      return newChatCatalogCache
+        .fetchDeduped('opencode', () => fetchOpenCodeModelsCatalog())
+        .then((models) => {
+          if (token && !isNewChatHarnessStatusLatest(token)) return;
+          if (models?.ok) chatModelSelectApi.applyAvailableModelsFromOpenCode(models);
+          const hasModels = !!(models?.ok && Array.isArray(models.models) && models.models.length > 0);
           applyNewChatHarnessStatus(
             'opencode',
             ready && hasModels,
             models?.error || (hasModels ? undefined : t('chat.opencodeNoModels')),
+            token,
           );
-        } else {
-          chatModelSelectApi.refreshModelSelectLabels();
-          void refreshSdkModeBarCombinedPicker();
-        }
-        cachedOpenCodeReady = ready && hasModels;
-      });
+          if (getSelectedNewChatHarness() === 'opencode') {
+            chatModelSelectApi.refreshNewChatModelPicker('opencode', pickerOptions);
+          } else {
+            chatModelSelectApi.refreshModelSelectLabels();
+            void refreshSdkModeBarCombinedPicker();
+          }
+        });
     })
     .catch(() => {
-      if (getSelectedNewChatHarness() === 'opencode') {
-        applyNewChatHarnessStatus(
-          'opencode',
-          false,
-          t('chat.opencodeStatusFailed'),
-        );
-      } else {
-        cachedOpenCodeReady = false;
-      }
+      if (token && !isNewChatHarnessStatusLatest(token)) return;
+      applyNewChatHarnessStatus('opencode', false, t('chat.opencodeStatusFailed'), token);
     });
 }
 
-function refreshNewChatCodeBuddyStatus() {
+function refreshNewChatCodeBuddyStatus(token) {
   return api
     .getCodeBuddyStatus()
     .then((status) => {
+      if (token && !isNewChatHarnessStatusLatest(token)) return null;
       const ready = !!(status && status.ready);
-      if (getSelectedNewChatHarness() === 'codebuddy') {
-        applyNewChatHarnessStatus(
-          'codebuddy',
-          ready,
-          status?.error
-            || (!status?.sdkAvailable
-              ? t('chat.codebuddySdkMissing')
-              : (!status?.cliFound ? t('chat.codebuddyCliMissing') : undefined)),
-        );
-      } else {
-        cachedCodeBuddyReady = ready;
-      }
+      applyNewChatHarnessStatus(
+        'codebuddy',
+        ready,
+        status?.error
+          || (!status?.sdkAvailable
+            ? t('chat.codebuddySdkMissing')
+            : (!status?.cliFound ? t('chat.codebuddyCliMissing') : undefined)),
+        token,
+      );
       if (!status?.codebuddyApiKeyEffective) return null;
-      return api.getCodeBuddyModels().then((models) => {
-        if (models?.ok) chatModelSelectApi.applyAvailableModelsFromCodeBuddy(models);
-        if (getSelectedNewChatHarness() === 'codebuddy') {
-          chatModelSelectApi.refreshNewChatModelPicker('codebuddy');
-        }
-      });
+      return newChatCatalogCache
+        .fetchDeduped('codebuddy', () => api.getCodeBuddyModels())
+        .then((models) => {
+          if (token && !isNewChatHarnessStatusLatest(token)) return;
+          if (models?.ok) chatModelSelectApi.applyAvailableModelsFromCodeBuddy(models);
+          if (getSelectedNewChatHarness() === 'codebuddy') {
+            chatModelSelectApi.refreshNewChatModelPicker('codebuddy');
+          }
+        });
     })
     .catch(() => {
-      if (getSelectedNewChatHarness() === 'codebuddy') {
-        applyNewChatHarnessStatus(
-          'codebuddy',
-          false,
-          t('chat.codebuddyStatusFailed'),
-        );
-      } else {
-        cachedCodeBuddyReady = false;
-      }
+      if (token && !isNewChatHarnessStatusLatest(token)) return;
+      applyNewChatHarnessStatus('codebuddy', false, t('chat.codebuddyStatusFailed'), token);
     });
 }
 
-function refreshNewChatDeepSeekStatus() {
+function refreshNewChatDeepSeekStatus(token) {
   return api
     .getDeepSeekStatus()
     .then((status) => {
+      if (token && !isNewChatHarnessStatusLatest(token)) return null;
       const ready = !!(status && status.ready);
-      if (getSelectedNewChatHarness() === 'deepseek') {
-        applyNewChatHarnessStatus(
-          'deepseek',
-          ready,
-          status?.error
-            || (!status?.sdkAvailable
-              ? t('chat.deepseekSdkMissing')
-              : (!status?.cliFound ? t('chat.deepseekCliMissing') : undefined)),
-        );
-      } else {
-        cachedDeepSeekReady = ready;
-      }
+      applyNewChatHarnessStatus(
+        'deepseek',
+        ready,
+        status?.error
+          || (!status?.sdkAvailable
+            ? t('chat.deepseekSdkMissing')
+            : (!status?.cliFound ? t('chat.deepseekCliMissing') : undefined)),
+        token,
+      );
       if (!status?.deepseekApiKeyEffective) return null;
-      return api.getDeepSeekModels().then((models) => {
-        if (models?.ok) chatModelSelectApi.applyAvailableModelsFromDeepSeek(models);
-        if (getSelectedNewChatHarness() === 'deepseek') {
-          chatModelSelectApi.refreshNewChatModelPicker('deepseek');
-        }
-      });
+      return newChatCatalogCache
+        .fetchDeduped('deepseek', () => api.getDeepSeekModels())
+        .then((models) => {
+          if (token && !isNewChatHarnessStatusLatest(token)) return;
+          if (models?.ok) chatModelSelectApi.applyAvailableModelsFromDeepSeek(models);
+          if (getSelectedNewChatHarness() === 'deepseek') {
+            chatModelSelectApi.refreshNewChatModelPicker('deepseek');
+          }
+        });
     })
     .catch(() => {
-      if (getSelectedNewChatHarness() === 'deepseek') {
-        applyNewChatHarnessStatus(
-          'deepseek',
-          false,
-          t('chat.deepseekStatusFailed'),
-        );
-      } else {
-        cachedDeepSeekReady = false;
-      }
+      if (token && !isNewChatHarnessStatusLatest(token)) return;
+      applyNewChatHarnessStatus('deepseek', false, t('chat.deepseekStatusFailed'), token);
     });
 }
 
-function refreshNewChatQwenStatus() {
+function refreshNewChatQwenStatus(token) {
   return api
     .getQwenStatus()
     .then((status) => {
+      if (token && !isNewChatHarnessStatusLatest(token)) return null;
       const ready = !!(status && status.ready);
-      if (getSelectedNewChatHarness() === 'qwen') {
-        applyNewChatHarnessStatus(
-          'qwen',
-          ready,
-          status?.error
-            || (!status?.sdkAvailable ? t('chat.qwenSdkMissing') : undefined),
-        );
-      } else {
-        cachedQwenReady = ready;
-      }
+      applyNewChatHarnessStatus(
+        'qwen',
+        ready,
+        status?.error
+          || (!status?.sdkAvailable ? t('chat.qwenSdkMissing') : undefined),
+        token,
+      );
       if (!status?.qwenApiKeyEffective) return null;
-      return api.getQwenModels().then((models) => {
-        if (models?.ok) chatModelSelectApi.applyAvailableModelsFromQwen(models);
-        if (getSelectedNewChatHarness() === 'qwen') {
-          chatModelSelectApi.refreshNewChatModelPicker('qwen');
-        }
-      });
+      return newChatCatalogCache
+        .fetchDeduped('qwen', () => api.getQwenModels())
+        .then((models) => {
+          if (token && !isNewChatHarnessStatusLatest(token)) return;
+          if (models?.ok) chatModelSelectApi.applyAvailableModelsFromQwen(models);
+          if (getSelectedNewChatHarness() === 'qwen') {
+            chatModelSelectApi.refreshNewChatModelPicker('qwen');
+          }
+        });
     })
     .catch(() => {
-      if (getSelectedNewChatHarness() === 'qwen') {
-        applyNewChatHarnessStatus(
-          'qwen',
-          false,
-          t('chat.qwenStatusFailed'),
-        );
-      } else {
-        cachedQwenReady = false;
-      }
+      if (token && !isNewChatHarnessStatusLatest(token)) return;
+      applyNewChatHarnessStatus('qwen', false, t('chat.qwenStatusFailed'), token);
     });
 }
 
-function refreshNewChatCodexStatus() {
+function refreshNewChatClaudeStatus(token) {
+  return api
+    .getClaudeStatus()
+    .then((status) => {
+      if (token && !isNewChatHarnessStatusLatest(token)) return null;
+      const ready = !!(status && status.ready);
+      applyNewChatHarnessStatus(
+        'claude',
+        ready,
+        status?.error
+          || (!status?.sdkAvailable ? t('chat.claudeSdkMissing') : undefined),
+        token,
+      );
+      if (!status?.sdkAvailable) return null;
+      return newChatCatalogCache
+        .fetchDeduped('claude', () => api.getClaudeModels())
+        .then((models) => {
+          if (token && !isNewChatHarnessStatusLatest(token)) return;
+          if (models?.ok) chatModelSelectApi.applyAvailableModelsFromClaude(models);
+          if (getSelectedNewChatHarness() === 'claude') {
+            chatModelSelectApi.refreshNewChatModelPicker('claude');
+          }
+        });
+    })
+    .catch(() => {
+      if (token && !isNewChatHarnessStatusLatest(token)) return;
+      applyNewChatHarnessStatus('claude', false, t('chat.claudeStatusFailed'), token);
+    });
+}
+
+function refreshNewChatCodexStatus(token) {
   return api
     .getCodexStatus()
     .then((status) => {
+      if (token && !isNewChatHarnessStatusLatest(token)) return null;
       const ready = !!(status && status.ready);
-      if (getSelectedNewChatHarness() === 'codex') {
-        applyNewChatHarnessStatus(
-          'codex',
-          ready,
-          status?.error
-            || (!status?.sdkAvailable
-              ? t('chat.codexSdkMissing')
-              : (!status?.cliFound ? (status?.cliHint || t('chat.codexCliMissing')) : undefined)),
-        );
-      } else {
-        cachedCodexReady = ready;
-      }
+      applyNewChatHarnessStatus(
+        'codex',
+        ready,
+        status?.error
+          || (!status?.sdkAvailable
+            ? t('chat.codexSdkMissing')
+            : (!status?.cliFound ? (status?.cliHint || t('chat.codexCliMissing')) : undefined)),
+        token,
+      );
       if (!status?.ready) return null;
-      return api.getCodexModels().then((models) => {
-        if (models?.ok) chatModelSelectApi.applyAvailableModelsFromCodex(models);
-        if (getSelectedNewChatHarness() === 'codex') {
-          chatModelSelectApi.refreshNewChatModelPicker('codex');
-        }
-      });
+      return newChatCatalogCache
+        .fetchDeduped('codex', () => api.getCodexModels())
+        .then((models) => {
+          if (token && !isNewChatHarnessStatusLatest(token)) return;
+          if (models?.ok) chatModelSelectApi.applyAvailableModelsFromCodex(models);
+          if (getSelectedNewChatHarness() === 'codex') {
+            chatModelSelectApi.refreshNewChatModelPicker('codex');
+          }
+        });
     })
     .catch(() => {
-      if (getSelectedNewChatHarness() === 'codex') {
-        applyNewChatHarnessStatus(
-          'codex',
-          false,
-          t('chat.codexStatusFailed'),
-        );
-      } else {
-        cachedCodexReady = false;
-      }
+      if (token && !isNewChatHarnessStatusLatest(token)) return;
+      applyNewChatHarnessStatus('codex', false, t('chat.codexStatusFailed'), token);
     });
 }
 
 function reloadOpenCodeModelsCatalog(chat = null) {
   return fetchOpenCodeModelsCatalog(chat).then(async (data) => {
-    if (data?.ok) chatModelSelectApi.applyAvailableModelsFromOpenCode(data);
+    if (data?.ok) {
+      newChatCatalogCache.set('opencode', data);
+      chatModelSelectApi.applyAvailableModelsFromOpenCode(data);
+    }
     chatModelSelectApi.refreshModelSelectLabels();
     const bar = document.querySelector('cr-sdk-mode-bar');
     const pendingHarness = String(bar?.pendingHarness || '').trim();
@@ -5569,30 +5667,61 @@ function reloadOpenCodeModelsCatalog(chat = null) {
   });
 }
 
+/**
+ * Run (or join) one status/catalog check for a harness and track it per harness.
+ *
+ * The token is created here, so event listeners cannot dispatch an untracked status request.
+ * The finalizer only releases the in-flight slot when this promise still owns it, so an older
+ * check settling cannot delete a newer one.
+ *
+ * @param {string} harness
+ * @param {{ forceCloseDropdown?: boolean }} [options]
+ * @returns {Promise<unknown>}
+ */
+function runNewChatHarnessStatusCheck(harness, options = {}) {
+  const resolvedHarness = normalizeNewChatHarness(harness);
+  const inFlight = newChatHarnessStatusTracker.getInFlight(resolvedHarness);
+  if (inFlight) return inFlight;
+  const token = beginNewChatHarnessStatusCheck(resolvedHarness);
+  let refreshPromise;
+  if (resolvedHarness === 'openrouter') {
+    refreshPromise = refreshNewChatOpenRouterStatus(token);
+  } else if (resolvedHarness === 'opencode') {
+    refreshPromise = refreshNewChatOpenCodeStatus(options, token);
+  } else if (resolvedHarness === 'codebuddy') {
+    refreshPromise = refreshNewChatCodeBuddyStatus(token);
+  } else if (resolvedHarness === 'deepseek') {
+    refreshPromise = refreshNewChatDeepSeekStatus(token);
+  } else if (resolvedHarness === 'qwen') {
+    refreshPromise = refreshNewChatQwenStatus(token);
+  } else if (resolvedHarness === 'claude') {
+    refreshPromise = refreshNewChatClaudeStatus(token);
+  } else if (resolvedHarness === 'codex') {
+    refreshPromise = refreshNewChatCodexStatus(token);
+  } else {
+    refreshPromise = refreshNewChatSdkStatus(token);
+  }
+  /** @type {Promise<unknown>} */
+  const tracked = Promise.resolve(refreshPromise).finally(() => {
+    newChatHarnessStatusTracker.clearInFlight(resolvedHarness, tracked);
+    if (resolvedHarness === getSelectedNewChatHarness()) syncNewChatFavoritePresetUi();
+  });
+  newChatHarnessStatusTracker.setInFlight(resolvedHarness, tracked);
+  return tracked;
+}
+
 function refreshNewChatHarnessStatus(options = {}) {
   const harness = getSelectedNewChatHarness();
+  // Mirror the cached readiness first so a harness switch cannot keep a stale hint/button.
+  syncNewChatHarnessUi(harness);
   chatModelSelectApi.refreshNewChatModelPicker(harness, {
     forceCloseDropdown: options.forceCloseDropdown === true,
   });
-  let refreshPromise;
-  if (harness === 'openrouter') {
-    refreshPromise = refreshNewChatOpenRouterStatus(options);
-  } else if (harness === 'opencode') {
-    refreshPromise = refreshNewChatOpenCodeStatus(options);
-  } else if (harness === 'codebuddy') {
-    refreshPromise = refreshNewChatCodeBuddyStatus();
-  } else if (harness === 'deepseek') {
-    refreshPromise = refreshNewChatDeepSeekStatus();
-  } else if (harness === 'qwen') {
-    refreshPromise = refreshNewChatQwenStatus();
-  } else if (harness === 'codex') {
-    refreshPromise = refreshNewChatCodexStatus();
-  } else {
-    refreshPromise = refreshNewChatSdkStatus();
+  if (!options.force && newChatHarnessStatusTracker.isSelectionSettled(harness)) {
+    return newChatHarnessStatusTracker.getInFlight(harness) || Promise.resolve();
   }
-  return Promise.resolve(refreshPromise).finally(() => {
-    syncNewChatFavoritePresetUi();
-  });
+  newChatHarnessStatusTracker.markSelectionSettled(harness);
+  return runNewChatHarnessStatusCheck(harness, options);
 }
 
 const NEW_CHAT_HARNESS_LABEL_KEYS = {
@@ -5602,6 +5731,7 @@ const NEW_CHAT_HARNESS_LABEL_KEYS = {
   codebuddy: 'settings.harnessCodeBuddy',
   deepseek: 'settings.harnessDeepSeek',
   qwen: 'settings.harnessQwen',
+  claude: 'settings.harnessClaude',
   codex: 'settings.harnessCodex',
 };
 
@@ -5620,21 +5750,29 @@ function getNewChatFavoritePresetLabel(preset) {
   return `${harnessLabel} · ${modelLabel}`;
 }
 
+function getVisibleNewChatFavoritePresets() {
+  const presets = chatPresets.getPresets();
+  if (!chatModelSelectApi) return presets;
+  return presets.filter((preset) => chatModelSelectApi.isModelEnabled(preset.harness, preset.model));
+}
+
 function renderNewChatFavoritePresetOptions() {
   const list = document.getElementById('chat-new-favorite-preset-items');
   const triggerLabel = document.getElementById('chat-new-favorite-preset-trigger-label');
+  const trigger = document.getElementById('chat-new-favorite-preset-trigger');
   if (!list) return;
   const current = getNewChatFavoritePreset();
   const currentKey = current ? chatPresetKey(current) : '';
-  const presets = chatPresets.getPresets();
+  const presets = getVisibleNewChatFavoritePresets();
   const selectedPreset = presets.find((preset) => chatPresetKey(preset) === currentKey);
-  if (triggerLabel) {
-    triggerLabel.textContent = selectedPreset
-      ? getNewChatFavoritePresetLabel(selectedPreset)
-      : presets.length
-        ? t('chat.favoritePresetPlaceholder')
-        : t('chat.favoritePresetEmpty');
-  }
+  const labelText = selectedPreset
+    ? getNewChatFavoritePresetLabel(selectedPreset)
+    : presets.length
+      ? t('chat.favoritePresetPlaceholder')
+      : t('chat.favoritePresetEmpty');
+  if (triggerLabel) triggerLabel.textContent = labelText;
+  // The trigger label is visually truncated; keep the full setup name available on hover.
+  if (trigger) trigger.title = labelText;
   list.textContent = '';
   if (presets.length === 0) {
     const empty = document.createElement('li');
@@ -5676,7 +5814,7 @@ function syncNewChatFavoritePresetUi() {
   const icon = button.querySelector('.mdi');
   if (icon) icon.className = `mdi ${active ? 'mdi-star' : 'mdi-star-outline'}`;
   const hint = document.getElementById('chat-new-favorite-preset-hint');
-  if (hint) hint.textContent = chatPresets.getPresets().length
+  if (hint) hint.textContent = getVisibleNewChatFavoritePresets().length
     ? t('chat.favoritePresetHint')
     : t('chat.favoritePresetEmpty');
 }
@@ -5687,10 +5825,14 @@ function applyNewChatFavoritePreset(value) {
   const harnessSelect = document.getElementById('chat-new-harness-select');
   const modelSelect = document.getElementById('chat-new-model-select');
   if (!(harnessSelect instanceof HTMLSelectElement) || !(modelSelect instanceof HTMLSelectElement)) return;
+  // A preset is an explicit user choice; keep late settings/workspace loads from overriding it.
+  newChatHarnessUserTouched = true;
+  newChatModelPresetApplied = true;
   const presetModel = preset.harness === 'sdk'
     ? chatModelSelectApi.resolveSdkPresetModel(preset.model)
     : preset.model;
   harnessSelect.value = preset.harness;
+  newChatHarnessStatusTracker.selectHarness(preset.harness);
   chatModelSelectApi.setModelPickerHarness(preset.harness);
   chatModelSelectApi.renderModelSelectOptions(modelSelect, presetModel);
   modelSelect.value = presetModel;
@@ -5698,7 +5840,9 @@ function applyNewChatFavoritePreset(value) {
   chatNewFavoritePresetDropdownApi?.close?.();
   syncNewChatFavoritePresetUi();
   void refreshNewChatHarnessStatus({ forceCloseDropdown: true }).then(() => {
-    // A freshly loaded catalog can replace the model value; re-apply the chosen preset.
+    // A freshly loaded catalog can replace the model value; re-apply the chosen preset
+    // unless the user already picked another model.
+    if (newChatModelUserTouched) return;
     if (getSelectedNewChatHarness() !== preset.harness) return;
     chatModelSelectApi.setModelPickerHarness(preset.harness);
     chatModelSelectApi.renderModelSelectOptions(modelSelect, presetModel);
@@ -5721,47 +5865,9 @@ function refreshModelCatalogFromServer() {
     .then((r) => {
       const changed = chatModelSelectApi.applyAvailableModelsFromSdkStatus(r);
       if (changed) chatModelSelectApi.refreshModelSelectLabels();
-      cachedSdkReady = !!(r && r.ok && r.ready);
+      setNewChatHarnessReadyCache('sdk', !!(r && r.ok && r.ready));
     })
     .catch(() => {});
-}
-
-let chatModelCatalogPrefetchStarted = false;
-
-function prefetchChatModelCatalogs() {
-  if (chatModelCatalogPrefetchStarted) return;
-  chatModelCatalogPrefetchStarted = true;
-  void refreshModelCatalogFromServer();
-  void api.getOpenRouterModels().then((data) => {
-    if (!data?.ok) return;
-    const changed = chatModelSelectApi.applyAvailableModelsFromOpenRouter(data);
-    if (changed) chatModelSelectApi.refreshModelSelectLabels();
-  }).catch(() => {});
-  void api.getCodeBuddyModels().then((data) => {
-    if (!data?.ok) return;
-    const changed = chatModelSelectApi.applyAvailableModelsFromCodeBuddy(data);
-    if (changed) chatModelSelectApi.refreshModelSelectLabels();
-  }).catch(() => {});
-  void api.getDeepSeekModels().then((data) => {
-    if (!data?.ok) return;
-    const changed = chatModelSelectApi.applyAvailableModelsFromDeepSeek(data);
-    if (changed) chatModelSelectApi.refreshModelSelectLabels();
-  }).catch(() => {});
-  void api.getQwenModels().then((data) => {
-    if (!data?.ok) return;
-    const changed = chatModelSelectApi.applyAvailableModelsFromQwen(data);
-    if (changed) chatModelSelectApi.refreshModelSelectLabels();
-  }).catch(() => {});
-  void api.getCodexModels().then((data) => {
-    if (!data?.ok) return;
-    const changed = chatModelSelectApi.applyAvailableModelsFromCodex(data);
-    if (changed) chatModelSelectApi.refreshModelSelectLabels();
-  }).catch(() => {});
-  void fetchOpenCodeModelsCatalog().then((modelsData) => {
-    if (!modelsData?.ok) return;
-    chatModelSelectApi.applyAvailableModelsFromOpenCode(modelsData);
-    chatModelSelectApi.refreshModelSelectLabels();
-  }).catch(() => {});
 }
 
 function applyNewChatModalForkLabels() {
@@ -5789,13 +5895,38 @@ function applyNewChatModalForkLabels() {
     createText = t('chat.forkCreate');
   }
   if (heading) heading.textContent = headingText;
-  if (createBtn) createBtn.textContent = createText;
+  // Never overwrite the in-flight “Creating…” label with a mode label; the busy
+  // state restores the original label when the request settles.
+  if (createBtn && createBtn.getAttribute('aria-busy') !== 'true') createBtn.textContent = createText;
 }
 
 function getNewChatModalSourceChat() {
   const id = monitorSourceChatId || passMessageSourceChatId || buildPlanSourceChatId || forkSourceChatId;
   if (!id) return null;
   return chats.find((entry) => entry.id === id) || null;
+}
+
+/**
+ * Apply a server/default harness after the modal is already open.
+ *
+ * Only runs while the user has not made (or inherited) an explicit harness choice. When the
+ * select actually changes, the tracker selection is advanced so the previous token no longer
+ * drives the UI, and the newly selected harness is checked immediately — a late default must
+ * never leave Create disabled without a request for that harness.
+ */
+function applyLateDefaultNewChatHarness() {
+  if (newChatHarnessUserTouched || newChatHarnessExplicitChoice) return;
+  if (!chatNewModalApi?.isOpen?.()) return;
+  const before = getSelectedNewChatHarness();
+  applyDefaultNewChatHarnessToModal();
+  const after = getSelectedNewChatHarness();
+  if (after === before) {
+    syncNewChatHarnessUi(after);
+    return;
+  }
+  newChatHarnessStatusTracker.selectHarness(after);
+  syncNewChatHarnessUi(after);
+  void refreshNewChatHarnessStatus({ force: true });
 }
 
 /**
@@ -5815,10 +5946,14 @@ function getNewChatModalSourceChat() {
  * }} [options]
  */
 export function openNewChatModal(options = {}) {
-  prefetchChatModelCatalogs();
-  void refreshHarnessUsageLimits();
+  newChatHarnessUserTouched = false;
+  newChatModelUserTouched = false;
+  newChatModelPresetApplied = false;
+  newChatHarnessExplicitChoice = false;
+  // Refresh settings defaults in the background; never let the late result override a
+  // harness the user picked (or that was resolved from a source chat) after opening.
   void ensureHarnessDefaultsLoaded().then(() => {
-    applyDefaultNewChatHarnessToModal();
+    applyLateDefaultNewChatHarness();
   });
   if (!chatNewModalApi) return;
   const requestedForkId =
@@ -5897,15 +6032,19 @@ export function openNewChatModal(options = {}) {
   const lastExecutor = (buildPlanChat || passMessageChat)
     ? readLastDelegationExecutor()
     : { harness: '', model: '' };
-  if (harnessSel instanceof HTMLSelectElement && selectedHarness) {
-    harnessSel.value = normalizeNewChatHarness(selectedHarness);
-  }
-  if (harnessSel instanceof HTMLSelectElement && sourceChat) {
+  if (harnessSel instanceof HTMLSelectElement && typeof options?.harness === 'string' && options.harness.trim()) {
+    harnessSel.value = normalizeNewChatHarness(options.harness);
+  } else if (harnessSel instanceof HTMLSelectElement && sourceChat) {
     harnessSel.value = normalizeNewChatHarness(sourceChat.agentTransport || 'sdk');
-  }
-  if (harnessSel instanceof HTMLSelectElement && lastExecutor.harness) {
+  } else if (harnessSel instanceof HTMLSelectElement && lastExecutor.harness) {
     harnessSel.value = normalizeNewChatHarness(lastExecutor.harness);
   }
+  // Remember that the modal resolved a harness explicitly so a late settings default cannot replace it.
+  newChatHarnessExplicitChoice = !!(
+    sourceChat ||
+    lastExecutor.harness ||
+    (typeof options?.harness === 'string' && options.harness.trim())
+  );
   const preferredWorkspaceFile =
     options && typeof options.workspaceFile === 'string' ? options.workspaceFile.trim() : '';
   const preferredWorkspaceFolder =
@@ -5942,48 +6081,19 @@ export function openNewChatModal(options = {}) {
         : '';
     titleInput.placeholder = t('chat.optionalNamePlaceholder');
   }
-  const createBtn = document.getElementById('chat-new-create');
   const harness = getSelectedNewChatHarness();
-  const harnessReady =
-    harness === 'openrouter'
-      ? cachedOpenRouterReady !== null
-        ? cachedOpenRouterReady
-        : false
-      : harness === 'opencode'
-        ? cachedOpenCodeReady !== null
-          ? cachedOpenCodeReady
-          : false
-        : harness === 'codebuddy'
-          ? cachedCodeBuddyReady !== null
-            ? cachedCodeBuddyReady
-            : false
-          : harness === 'deepseek'
-            ? cachedDeepSeekReady !== null
-              ? cachedDeepSeekReady
-              : false
-            : harness === 'qwen'
-              ? cachedQwenReady !== null
-                ? cachedQwenReady
-                : false
-            : harness === 'codex'
-              ? cachedCodexReady !== null
-                ? cachedCodexReady
-                : false
-          : cachedSdkReady !== null
-            ? cachedSdkReady
-            : false;
-  if (createBtn) createBtn.disabled = !harnessReady;
-  const hint = document.getElementById('chat-new-sdk-hint');
-  if (hint && !harnessReady) {
-    hint.hidden = false;
-    hint.textContent = getNewChatHarnessError(harness);
-  } else if (hint) {
-    hint.hidden = true;
-    hint.textContent = '';
-  }
+  newChatHarnessStatusTracker.selectHarness(harness);
+  // Unknown readiness shows no warning and keeps Create disabled; the status check below
+  // either enables it or shows the selected harness' own error.
+  syncNewChatHarnessUi(harness);
   applyNewChatModalForkLabels();
+  const activeBeforeOpen = document.activeElement;
+  newChatModalReturnFocus = activeBeforeOpen instanceof HTMLElement ? activeBeforeOpen : null;
   chatNewModalApi.open();
-  if (titleInput) titleInput.focus();
+  // The name is optional. Focus the first required choice so opening the dialog
+  // does not emphasize an empty field the user may never need to fill in.
+  const harnessSelectForFocus = document.getElementById('chat-new-harness-select');
+  if (harnessSelectForFocus instanceof HTMLElement) harnessSelectForFocus.focus();
   void loadWorkspaces().then(() => {
     selectedWorkspaceFile =
       preferredWorkspaceFile ||
@@ -5997,9 +6107,13 @@ export function openNewChatModal(options = {}) {
       selectedWorkspaceFolder;
     chatController.renderWorkspacesSelects();
     ensureEmbedNewChatFolderSelect();
-    const m = document.getElementById('chat-new-model-select');
-    const source = getNewChatModalSourceChat();
-    if (m) m.value = source?.model || selectedModel || 'auto';
+    if (!newChatModelUserTouched && !newChatModelPresetApplied) {
+      const m = document.getElementById('chat-new-model-select');
+      const source = getNewChatModalSourceChat();
+      // Keep the delegation executor model; a late workspace load must not reset it to the
+      // generic last-used model.
+      if (m) m.value = lastExecutor.model || source?.model || selectedModel || 'auto';
+    }
     chatModelSelectApi.refreshNewChatModelPicker(getSelectedNewChatHarness());
     chatNewModelDropdownApi?.refresh?.();
     syncNewChatFavoritePresetUi();
@@ -6009,7 +6123,7 @@ export function openNewChatModal(options = {}) {
     void prepareMessageDelegationModal(passMessageChat, passMessageMeta).then(() => {
       const modelSel = document.getElementById('chat-new-model-select');
       chatModelSelectApi.refreshNewChatModelPicker(getSelectedNewChatHarness());
-      if (modelSel instanceof HTMLSelectElement && lastExecutor.model) {
+      if (modelSel instanceof HTMLSelectElement && lastExecutor.model && !newChatModelUserTouched && !newChatModelPresetApplied) {
         modelSel.value = lastExecutor.model;
       }
       chatNewModelDropdownApi?.refresh?.();
@@ -6022,7 +6136,7 @@ export function openNewChatModal(options = {}) {
     void prepareBuildPlanModal(buildPlanChat).then(() => {
       const modelSel = document.getElementById('chat-new-model-select');
       chatModelSelectApi.refreshNewChatModelPicker(getSelectedNewChatHarness());
-      if (modelSel instanceof HTMLSelectElement && lastExecutor.model) {
+      if (modelSel instanceof HTMLSelectElement && lastExecutor.model && !newChatModelUserTouched && !newChatModelPresetApplied) {
         modelSel.value = lastExecutor.model;
       }
       chatNewModelDropdownApi?.refresh?.();
@@ -6049,6 +6163,153 @@ function closeNewChatModal() {
   clearDelegationPlanPreview();
   applyNewChatModalForkLabels();
   chatNewModalApi?.close();
+  restoreNewChatModalFocus();
+}
+
+/**
+ * Restore focus to the control that opened the new-chat modal.
+ */
+function restoreNewChatModalFocus() {
+  const target = newChatModalReturnFocus;
+  newChatModalReturnFocus = null;
+  if (!(target instanceof HTMLElement)) return;
+  if (!target.isConnected) return;
+  target.focus();
+}
+
+/**
+ * @returns {boolean}
+ */
+function isNewChatModalOpen() {
+  const modal = document.getElementById('chat-new-modal');
+  return !!modal && !modal.hidden;
+}
+
+/**
+ * Whether one of the new-chat portaled dropdowns is currently open.
+ * @returns {boolean}
+ */
+function isNewChatDropdownOpen() {
+  return (
+    chatNewModelDropdownApi?.isOpen?.() === true ||
+    chatNewFolderDropdownApi?.isOpen?.() === true ||
+    chatNewFavoritePresetDropdownApi?.isOpen?.() === true
+  );
+}
+
+/**
+ * Close the open new-chat dropdown (at most one is open at a time) and return the
+ * trigger that should regain focus.
+ * @returns {HTMLElement|null}
+ */
+function closeOpenNewChatDropdown() {
+  for (const host of document.querySelectorAll('#chat-new-modal cr-searchable-select')) {
+    if (host.isDropdownOpen?.() !== true) continue;
+    const trigger = host.shadowRoot?.querySelector('.trigger') || null;
+    host.closeDropdown?.();
+    return trigger instanceof HTMLElement ? trigger : null;
+  }
+  if (chatNewFavoritePresetDropdownApi?.isOpen?.() === true) {
+    chatNewFavoritePresetDropdownApi.close?.();
+    const trigger = document.getElementById('chat-new-favorite-preset-trigger');
+    return trigger instanceof HTMLElement ? trigger : null;
+  }
+  return null;
+}
+
+/**
+ * @param {HTMLElement} el
+ * @returns {boolean}
+ */
+function isNewChatFocusableVisible(el) {
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.hidden) return false;
+  const style = window.getComputedStyle(el);
+  if (style.display === 'none' || style.visibility === 'hidden') return false;
+  return el.getClientRects().length > 0 || el === document.activeElement;
+}
+
+/**
+ * Ordered focus targets of the new-chat dialog plus its open portaled dropdowns.
+ * The cr-searchable-select triggers live in shadow DOM and are represented by their host.
+ * @returns {Array<{ id: HTMLElement, focus: () => void }>}
+ */
+function collectNewChatFocusTargets() {
+  const modal = document.getElementById('chat-new-modal');
+  if (!modal || modal.hidden) return [];
+  const targets = [];
+  const nativeSelector =
+    'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  const pushNative = (el, { allowRovingOption = false } = {}) => {
+    if (!(el instanceof HTMLElement)) return;
+    if (el.classList.contains('chat-settings-select-hidden')) return;
+    // Searchable-select options use roving tabindex: -1 options can still receive
+    // programmatic focus from arrow-key navigation and must remain in the trap.
+    if (el.getAttribute('tabindex') === '-1' && !(allowRovingOption && el.getAttribute('role') === 'option')) return;
+    if (!isNewChatFocusableVisible(el)) return;
+    targets.push({ id: el, focus: () => el.focus() });
+  };
+  const pushPanel = (panel) => {
+    if (!(panel instanceof HTMLElement)) return;
+    for (const el of panel.querySelectorAll(`${nativeSelector}, [role="option"]`)) {
+      pushNative(el, { allowRovingOption: true });
+    }
+  };
+  for (const el of modal.querySelectorAll('*')) {
+    if (el.tagName === 'CR-SEARCHABLE-SELECT') {
+      const trigger = el.shadowRoot?.querySelector('.trigger');
+      if (trigger instanceof HTMLElement && !trigger.disabled && isNewChatFocusableVisible(trigger)) {
+        targets.push({ id: el, focus: () => trigger.focus() });
+      }
+      if (el.isDropdownOpen?.() === true && el._panelEl instanceof HTMLElement) {
+        pushPanel(el._panelEl);
+      }
+      continue;
+    }
+    if (el.matches(nativeSelector)) pushNative(el);
+    if (el.id === 'chat-new-favorite-preset-trigger') {
+      const panel = document.getElementById('chat-new-favorite-preset-modal');
+      if (panel && !panel.hidden) pushPanel(panel);
+    }
+  }
+  return targets;
+}
+
+/**
+ * Capture-phase keyboard handling for the new-chat dialog.
+ *
+ * Escape first closes an open portaled dropdown (without also closing the modal);
+ * Tab/Shift+Tab cycle focus inside the dialog plus any open dropdown, so focus can
+ * never escape the modal. Registered on document capture because the portaled panels
+ * live outside the dialog.
+ *
+ * @param {KeyboardEvent} event
+ */
+function handleNewChatModalCaptureKeydown(event) {
+  if (!isNewChatModalOpen()) return;
+  if (event.key === 'Escape') {
+    const trigger = closeOpenNewChatDropdown();
+    if (trigger) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (trigger.isConnected) trigger.focus();
+    }
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const targets = collectNewChatFocusTargets();
+  if (targets.length === 0) return;
+  const active = document.activeElement;
+  const index = targets.findIndex((t) => t.id === active);
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (index === -1) {
+    const fallback = event.shiftKey ? targets[targets.length - 1] : targets[0];
+    fallback.focus();
+    return;
+  }
+  const offset = event.shiftKey ? -1 : 1;
+  targets[(index + offset + targets.length) % targets.length].focus();
 }
 
 function listLoadedWorkspaces() {
@@ -6360,6 +6621,7 @@ function isVoiceHarnessUsable(harness) {
   if (harness === 'codebuddy') return cachedCodeBuddyReady !== false;
   if (harness === 'deepseek') return cachedDeepSeekReady !== false;
   if (harness === 'qwen') return cachedQwenReady !== false;
+  if (harness === 'claude') return cachedClaudeReady !== false;
   if (harness === 'codex') return cachedCodexReady !== false;
   return cachedSdkReady !== false;
 }
@@ -6505,7 +6767,7 @@ export async function switchVoiceHarness(options = {}) {
   if (!AGENT_TRANSPORTS.includes(nextHarness)) {
     return {
       ok: false,
-      error: 'Unknown harness. Try cursor, opencode, openrouter, codebuddy, deepseek, codex, qwen.',
+      error: 'Unknown harness. Try cursor, opencode, openrouter, codebuddy, deepseek, codex, qwen, claude.',
       harnesses: listReadyVoiceHarnesses(),
     };
   }
@@ -6756,6 +7018,8 @@ function createChatFromModal() {
               ? t('chat.deepseekDisabled')
               : harness === 'qwen'
                 ? t('chat.qwenDisabled')
+              : harness === 'claude'
+                ? t('chat.claudeDisabled')
               : harness === 'codex'
                 ? t('chat.codexDisabled')
             : t('chat.sdkDisabled')
@@ -7307,6 +7571,7 @@ function resolveContextDetailsTransportLabel(transport) {
   if (normalized === 'codebuddy') return t('chat.contextDetailsTransportCodeBuddy');
   if (normalized === 'deepseek') return t('chat.contextDetailsTransportDeepSeek');
   if (normalized === 'qwen') return t('chat.contextDetailsTransportQwen');
+  if (normalized === 'claude') return t('chat.contextDetailsTransportClaude');
   if (normalized === 'codex') return t('chat.contextDetailsTransportCodex');
   return normalized || '—';
 }
@@ -7766,14 +8031,33 @@ export function initChatPanel() {
       pendingDeleteChatId = null;
     });
   }
+  if (!newChatKeydownCaptureBound) {
+    newChatKeydownCaptureBound = true;
+    document.addEventListener('keydown', handleNewChatModalCaptureKeydown, { capture: true });
+  }
+  const newChatForm = document.getElementById('chat-new-form');
+  if (newChatForm) {
+    newChatForm.addEventListener('submit', (e) => {
+      // Enter inside the form submits; the button stays the single create path.
+      e.preventDefault();
+      if (isNewChatDropdownOpen()) return;
+      const createBtn = document.getElementById('chat-new-create');
+      if (createBtn?.disabled) return;
+      createChatFromModal();
+    });
+  }
+  // The shared modal helper only hides on backdrop click; clear state and restore
+  // focus there too, without changing how the other dialogs behave.
+  const newChatBackdrop = document.querySelector('#chat-new-modal .chat-settings-backdrop');
+  if (newChatBackdrop) newChatBackdrop.addEventListener('click', () => closeNewChatModal());
   const newCancelBtn = document.getElementById('chat-new-cancel');
-  const newCreateBtn = document.getElementById('chat-new-create');
   const newHarnessSel = document.getElementById('chat-new-harness-select');
   if (newCancelBtn) newCancelBtn.addEventListener('click', (e) => { e.preventDefault(); closeNewChatModal(); });
-  if (newCreateBtn) newCreateBtn.addEventListener('click', (e) => { e.preventDefault(); createChatFromModal(); });
   if (newHarnessSel) {
     newHarnessSel.addEventListener('change', () => {
+      newChatHarnessUserTouched = true;
       chatNewModelDropdownApi?.close?.();
+      newChatHarnessStatusTracker.selectHarness(getSelectedNewChatHarness());
       syncNewChatFavoritePresetUi();
       void refreshNewChatHarnessStatus({ forceCloseDropdown: true });
     });
@@ -7781,6 +8065,7 @@ export function initChatPanel() {
   const newModelSel = document.getElementById('chat-new-model-select');
   if (newModelSel) {
     newModelSel.addEventListener('change', () => {
+      newChatModelUserTouched = true;
       syncNewChatFavoritePresetUi();
     });
   }
@@ -7862,6 +8147,7 @@ export function initChatPanel() {
     applyCodeBuddyEnabledModels(data.codebuddyChatEnabledModels || []);
     applyDeepSeekEnabledModels(data.deepseekChatEnabledModels || []);
     applyQwenEnabledModels(data.qwenChatEnabledModels || []);
+    applyClaudeEnabledModels(data.claudeChatEnabledModels || []);
     applyCodexEnabledModels(data.codexChatEnabledModels || []);
     serverSettingsWorkspaceFolder = typeof data.workspaceFolder === 'string'
       ? data.workspaceFolder.trim()
@@ -7903,6 +8189,10 @@ export function initChatPanel() {
       const detail = event?.detail;
       applyQwenEnabledModels(detail?.qwenChatEnabledModels || []);
     });
+    window.addEventListener('cretli-claude-models-changed', (event) => {
+      const detail = event?.detail;
+      applyClaudeEnabledModels(detail?.claudeChatEnabledModels || []);
+    });
     window.addEventListener('cretli-codex-models-changed', (event) => {
       const detail = event?.detail;
       if (detail?.codexChatEnabledModels) {
@@ -7917,23 +8207,40 @@ export function initChatPanel() {
       chatModelSelectApi.refreshModelSelectLabels();
     });
     window.addEventListener('cretli-opencode-key-changed', () => {
+      newChatCatalogCache.clear('opencode');
+      newChatHarnessStatusTracker.invalidate('opencode');
       void reloadOpenCodeModelsCatalog();
-      void refreshNewChatOpenCodeStatus();
+      // Route through the tracker so the check gets a token and can never be overwritten by
+      // an older, tokenless response.
+      void runNewChatHarnessStatusCheck('opencode');
     });
     window.addEventListener('cretli-codebuddy-key-changed', () => {
-      void refreshNewChatCodeBuddyStatus();
+      newChatCatalogCache.clear('codebuddy');
+      newChatHarnessStatusTracker.invalidate('codebuddy');
+      void runNewChatHarnessStatusCheck('codebuddy');
     });
     window.addEventListener('cretli-deepseek-key-changed', () => {
-      void refreshNewChatDeepSeekStatus();
+      newChatCatalogCache.clear('deepseek');
+      newChatHarnessStatusTracker.invalidate('deepseek');
+      void runNewChatHarnessStatusCheck('deepseek');
     });
     window.addEventListener('cretli-qwen-key-changed', () => {
-      void refreshNewChatQwenStatus();
+      newChatCatalogCache.clear('qwen');
+      newChatHarnessStatusTracker.invalidate('qwen');
+      void runNewChatHarnessStatusCheck('qwen');
+    });
+    window.addEventListener('cretli-claude-key-changed', () => {
+      newChatCatalogCache.clear('claude');
+      newChatHarnessStatusTracker.invalidate('claude');
+      void runNewChatHarnessStatusCheck('claude');
     });
     window.addEventListener('cretli-codex-key-changed', () => {
-      void refreshNewChatCodexStatus();
+      newChatCatalogCache.clear('codex');
+      newChatHarnessStatusTracker.invalidate('codex');
+      void runNewChatHarnessStatusCheck('codex');
     });
     window.addEventListener('cretli-default-harness-changed', () => {
-      applyDefaultNewChatHarnessToModal();
+      applyLateDefaultNewChatHarness();
     });
     window.addEventListener('cretli-workspace-updated', () => {
       void loadWorkspaces();

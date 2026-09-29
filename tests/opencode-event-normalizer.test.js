@@ -53,6 +53,34 @@ assert.equal(toolEvents[0].type, 'tool_call');
 assert.equal(toolEvents[0].name, 'read_file');
 assert.equal(toolEvents[0].status, 'completed');
 
+const toolContext = {
+  opencodeSessionId: sessionId,
+  messageRegistry: registry,
+  toolSignatureByCallId: new Map(),
+};
+function bashPart(status) {
+  return {
+    type: 'message.part.updated',
+    properties: {
+      sessionID: sessionId,
+      part: {
+        type: 'tool',
+        messageID: 'm1',
+        callID: 'bash-1',
+        tool: 'bash',
+        state: {
+          status,
+          input: { command: 'git status --short' },
+          output: status === 'completed' ? 'clean' : '',
+        },
+      },
+    },
+  };
+}
+assert.equal(normalizeOpenCodeEvent(bashPart('running'), toolContext).length, 1);
+assert.equal(normalizeOpenCodeEvent(bashPart('running'), toolContext).length, 0);
+assert.equal(normalizeOpenCodeEvent(bashPart('completed'), toolContext)[0].status, 'completed');
+
 assert.equal(
   resolveOpenCodeSessionActivity({
     type: 'session.idle',

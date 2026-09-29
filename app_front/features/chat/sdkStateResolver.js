@@ -11,6 +11,7 @@ const HELLO_TRANSPORTS = new Set([
   'deepseek',
   'codex',
   'qwen',
+  'claude',
 ]);
 
 /**

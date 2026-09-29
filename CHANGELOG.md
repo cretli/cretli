@@ -10,24 +10,84 @@ All notable changes to this project are documented here. The format is based on
 
 - Added the `cretli-release` release-review skill for Cretli chats and a
   project Cursor subagent with the same read-only workflow.
+- Claude Code harness on the Claude Agent SDK (isolated optional install).
+  It supports Anthropic API keys, the Claude Code plan login, and
+  `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`, and detects the macOS
+  Keychain login. Plan, Ask, and review block edits with a `PreToolUse` hook
+  and `disallowedTools`, and load only project settings, so `permissions.allow`
+  rules cannot bypass them. Subagent text stays out of the main reply. A stale
+  resume session is cleared and the prompt retried once. Cancel interrupts
+  before it aborts. Permission denials and API retries no longer fail the run,
+  and SDK error codes map to readable messages. Cretli no longer refreshes plan
+  tokens itself; Claude Code does.
 - OpenCode can use Xiaomi MiMo V2.6 Pro and Flash through a configurable MiMo
   API key and regional Base URL.
 - Model catalog favorites can be managed per harness in Settings, including
   model labels that distinguish otherwise identical display names. Added
   harness icon assets and shared skill discovery across `.agents/skills` and
   the existing Cursor skill directories.
+- Delegation MCP results now surface `interrupt_code` in
+  `delegation_show`/`delegation_wait`/`delegation_start`. A review that only
+  starts through `CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED=1` returns
+  `review_uncertified=true` with a visible warning instead of silently looking
+  certified.
+- The OpenCode approval broker advisor can speak the System One protocol
+  (Jev/Laya) as well as the existing OpenAI-compatible chat protocol. Settings
+  gain `approvalBroker.advisor.protocol` and `minProbability` (the `noul`
+  threshold, clamped to 0.5–0.99), and the advisor audit records the protocol.
 
 ### Changed
 
+- Claude chats receive the Cretli MCP bridge. Builtin tools, including
+  `delegation_reply`, are loaded in the prompt instead of deferred tool search.
 - Delegation runtime skips empty outbox flushes and drains mailboxes only for
   known chats with queued messages.
 - Updated the Cursor and Codex SDK optional dependencies. SDK model registry
   rejections now remove the rejected model from favorites and reset the chat
   selection to Auto. Skill context is included in SDK prompts when a skill is
   selected by the user.
+- Delegation boot recovery now shares `probeChatRunLiveness` with the runtime
+  worker: unknown adapter state (missing adapter, null state, exception) keeps
+  the occupied slot instead of interrupting, confirmed idle
+  `running`/`waiting_for_input` gets the same 60s orphan grace as the worker,
+  and the starting timeout fires only on confirmed idle. Interrupted jobs carry
+  a durable `interruptCode` (`server_restart`, `starting_timeout`,
+  `running_orphan`; legacy rows stay empty). Only `server_restart` may be
+  continued, and only once per record; other codes and legacy interrupted rows
+  are stop-only. The parent skill documents the report-state persistence and the
+  narrowed `exclude_harness` rule.
 
 ### Fixed
 
+- DeepSeek review delegations no longer die within a second with Cordis
+  `cannot create effect on inactive context`. The read-only review overlay
+  paired `read-only` with approval `never`, which no stock DSH permission
+  preset matches, and its `sandbox-policy` override dropped the required
+  `workspaceRoot` (loader patches replace the whole `config`). The overlay now
+  declares a `cretli-review` preset as the default and restates
+  `workspaceRoot`; the test boots the real `dsh` with the overlay instead of
+  only matching YAML text.
+- OpenCode approval broker: a room recreated without delegation metadata now
+  rehydrates its delegation from the saved child chat (active job with a matching
+  `childChatId` only) before subscribing to events. `off`-mode delegated reads
+  stay inside the assigned workspace, and Cretli `data/` secrets such as
+  `data/config.json` are never auto-approved in any mode. Secret detection also
+  covers shell separators glued to the path (`data/config.json|head`), globs,
+  braces, quotes and alternate spellings (`data/*.json`, `data/./config.json`,
+  `'data/'config.json`, `HEAD:data/config.json`), searches that target the
+  `data/` directory (`rg foo data/`, `cd data && …`) and environment dumps (`env|head`,
+  `printenv`, `export`). Relative `..` tokens (`..`, `../other/x`,
+  `lib/../../x`) are resolved against the workspace, and commands with shell
+  expansion (`$VAR`, `$(…)`, backticks, `~`) always go to the user; `$` inside
+  single quotes is literal and does not count. This is a token heuristic, not a
+  shell parser: `cd` state across commands, a bare `data` search target without
+  a slash (`grep -r key data`) and recursive searches of the whole workspace are
+  not tracked. A permission that
+  was already pending before the room was recreated is not replayed by the event
+  stream and still needs a manual answer.
+- Codex review no longer aborts the delegation on read-only `git remote`
+  (`git remote`, `-v` / `--verbose`, `show`, `get-url`). `add`, `remove`,
+  `rename`, `set-url`, and `prune` stay denied.
 - Browser navigation no longer fails on an empty GET/HEAD body that Chromium
   exposes as JSON `null`. Added explicit workspace debug opt-ins for reaching
   Cretli's own origin and accepting invalid TLS certificates; both remain off

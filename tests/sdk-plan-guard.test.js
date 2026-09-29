@@ -22,6 +22,25 @@ assert.equal(isMutatingPlanModeShellCommand('rg -n "harness" --glob "*.js"'), fa
 assert.equal(isMutatingPlanModeShellCommand('cat app_front/App.js'), false);
 assert.equal(isMutatingPlanModeShellCommand('git status'), false);
 assert.equal(isMutatingPlanModeShellCommand('git --no-pager diff'), false);
+assert.equal(isMutatingPlanModeShellCommand('git remote'), false);
+assert.equal(isMutatingPlanModeShellCommand('git remote -v'), false);
+assert.equal(isMutatingPlanModeShellCommand('git remote --verbose'), false);
+assert.equal(isMutatingPlanModeShellCommand('git --no-pager remote -v'), false);
+assert.equal(isMutatingPlanModeShellCommand('git remote show origin'), false);
+assert.equal(isMutatingPlanModeShellCommand('git remote get-url origin'), false);
+assert.equal(isMutatingPlanModeShellCommand('git remote get-url --push origin'), false);
+assert.equal(
+  isMutatingPlanModeShellCommand(
+    "git status --short && git remote -v && git log --merges --format='%h %ad %s' --date=short -10",
+  ),
+  false,
+);
+assert.equal(isMutatingPlanModeShellCommand('git remote add origin git@example.com:acme/app.git'), true);
+assert.equal(isMutatingPlanModeShellCommand('git remote remove origin'), true);
+assert.equal(isMutatingPlanModeShellCommand('git remote rename origin upstream'), true);
+assert.equal(isMutatingPlanModeShellCommand('git remote set-url origin git@example.com:acme/app.git'), true);
+assert.equal(isMutatingPlanModeShellCommand('git remote prune origin'), true);
+assert.equal(isMutatingPlanModeShellCommand('git -c safe.directory=/tmp/app remote -v'), false);
 assert.equal(isMutatingPlanModeShellCommand('cd app_front && rg modal'), false);
 assert.equal(isMutatingPlanModeShellCommand('ls | head'), false);
 assert.equal(isMutatingPlanModeShellCommand('sed -n "1,80p" README.md'), false);
@@ -38,6 +57,13 @@ assert.equal(isMutatingPlanModeShellCommand('/usr/bin/rg foo'), false);
 assert.equal(isMutatingPlanModeShellCommand("/bin/bash -lc 'rm -rf tmp'"), true);
 assert.equal(isMutatingPlanModeShellCommand(['/bin/bash', '-lc', 'ls']), false);
 assert.equal(isMutatingPlanModeShellCommand(['/bin/bash', '-lc', 'git add -A']), true);
+assert.equal(
+  isMutatingPlanModeShellCommand([
+    { type: 'list_files', cmd: 'rg --files tests', path: 'tests' },
+    { type: 'search', cmd: "rg 'approval-.*\\.test\\.js$'", query: 'approval', path: null },
+  ]),
+  false,
+);
 
 assert.equal(isMutatingPlanModeShellCommand('rm -rf tmp'), true);
 assert.equal(isMutatingPlanModeShellCommand('echo hi > file.txt'), true);
@@ -150,6 +176,17 @@ assert.equal(
   }).deny,
   true,
 );
+const reviewRemote = resolvePlanModeToolDecision({
+  transport: 'codex',
+  mode: 'agent',
+  assignment: 'review',
+  toolName: 'shell',
+  input: {
+    command: ['/bin/bash', '-lc', 'git status --short && git remote -v && git log -1'],
+  },
+});
+assert.equal(reviewRemote.deny, false);
+assert.equal(reviewRemote.abortRun, false);
 
 assert.equal(
   isPlanModeMutatingSdkEvent({ type: 'tool_call', name: 'shell', status: 'running' }),

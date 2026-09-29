@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import {
+  isClaudeChat,
   isCodeBuddyChat,
   isCodexChat,
   isDeepSeekChat,
@@ -11,7 +12,7 @@ import {
   normalizeAgentTransport,
   usesHarnessWebSocket,
 } from '../lib/agent-transport.js';
-import { loadChats, saveChats, updateChat } from '../lib/persist/chats-persist.js';
+import { loadChats, saveChats, setChatClaudeSessionId, updateChat } from '../lib/persist/chats-persist.js';
 import { resolveDataPath } from '../lib/runtime-paths.js';
 
 const dataFile = resolveDataPath('chats.json');
@@ -73,9 +74,17 @@ try {
       qwenSessionId: 'qwen-sess-1',
       createdAt: new Date().toISOString(),
     },
+    {
+      id: '8',
+      title: 'CL',
+      cursorSessionId: 's8',
+      agentTransport: 'claude',
+      claudeSessionId: 'claude-sess-1',
+      createdAt: new Date().toISOString(),
+    },
   ]);
   const loaded = loadChats();
-  assert.equal(loaded.length, 7);
+  assert.equal(loaded.length, 8);
   assert.ok(loaded.some((chat) => chat.agentTransport === 'openrouter'));
   assert.ok(loaded.some((chat) => chat.agentTransport === 'opencode'));
   assert.ok(loaded.some((chat) => chat.opencodeSessionId === 'oc-sess-1'));
@@ -87,6 +96,14 @@ try {
   assert.ok(loaded.some((chat) => chat.codexThreadId === 'cx-thread-1'));
   assert.ok(loaded.some((chat) => chat.agentTransport === 'qwen'));
   assert.ok(loaded.some((chat) => chat.qwenSessionId === 'qwen-sess-1'));
+  assert.ok(loaded.some((chat) => chat.agentTransport === 'claude'));
+  assert.ok(loaded.some((chat) => chat.claudeSessionId === 'claude-sess-1'));
+  const claudeSessionUpdated = setChatClaudeSessionId('8', 'claude-sess-2');
+  assert.equal(claudeSessionUpdated?.claudeSessionId, 'claude-sess-2');
+  assert.equal(
+    loadChats().find((chat) => chat.id === '8')?.claudeSessionId,
+    'claude-sess-2',
+  );
   const archived = updateChat('2', { archived: true });
   assert.equal(typeof archived?.archivedAt, 'string');
   const restored = updateChat('2', { archived: false });
@@ -112,18 +129,21 @@ assert.equal(normalizeAgentTransport('codebuddy'), 'codebuddy');
 assert.equal(normalizeAgentTransport('deepseek'), 'deepseek');
 assert.equal(normalizeAgentTransport('codex'), 'codex');
 assert.equal(normalizeAgentTransport('qwen'), 'qwen');
+assert.equal(normalizeAgentTransport('claude'), 'claude');
 assert.equal(isOpenRouterChat({ agentTransport: 'openrouter' }), true);
 assert.equal(isOpenCodeChat({ agentTransport: 'opencode' }), true);
 assert.equal(isCodeBuddyChat({ agentTransport: 'codebuddy' }), true);
 assert.equal(isDeepSeekChat({ agentTransport: 'deepseek' }), true);
 assert.equal(isCodexChat({ agentTransport: 'codex' }), true);
 assert.equal(isQwenChat({ agentTransport: 'qwen' }), true);
+assert.equal(isClaudeChat({ agentTransport: 'claude' }), true);
 assert.equal(isSdkChat({ agentTransport: 'sdk' }), true);
 assert.equal(usesHarnessWebSocket({ agentTransport: 'opencode' }), true);
 assert.equal(usesHarnessWebSocket({ agentTransport: 'codebuddy' }), true);
 assert.equal(usesHarnessWebSocket({ agentTransport: 'deepseek' }), true);
 assert.equal(usesHarnessWebSocket({ agentTransport: 'codex' }), true);
 assert.equal(usesHarnessWebSocket({ agentTransport: 'qwen' }), true);
+assert.equal(usesHarnessWebSocket({ agentTransport: 'claude' }), true);
 assert.equal(usesHarnessWebSocket({ agentTransport: 'sdk' }), true);
 assert.equal(usesHarnessWebSocket({}), false);
 assert.equal(usesHarnessWebSocket({ id: 't-1', title: 'Terminal 1', ws: {} }), false);

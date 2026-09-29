@@ -8,6 +8,7 @@ import { encodeMcpToolName } from '../lib/mcp/mcp-tool-names.js';
 import { runOpenRouterAgentLoop } from '../lib/agent-harness/openrouter-agent-loop.js';
 import { prepareHarnessMcp, buildMcpRuntimeContext } from '../lib/mcp/mcp-session.js';
 import { getHarnessMcpAdapter } from '../lib/mcp/adapters/index.js';
+import { toClaudeMcpServers } from '../lib/mcp/mcp-vendor-map.js';
 import { rememberMcpExecutionContext, resetMcpExecutionRegistryForTests } from '../lib/mcp/mcp-execution-registry.js';
 import { writeDeepSeekMcpPatch } from '../lib/mcp/mcp-deepseek-patch.js';
 import { resetMcpRuntimeForTests } from '../lib/mcp/mcp-runtime.js';
@@ -17,13 +18,13 @@ const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), 'helpers
 const created = await createMcpServer({
   name: 'Loop',
   enabled: true,
-  harnesses: ['openrouter', 'sdk', 'codex', 'opencode', 'qwen', 'codebuddy', 'deepseek'],
+  harnesses: ['openrouter', 'sdk', 'codex', 'opencode', 'qwen', 'claude', 'codebuddy', 'deepseek'],
   transport: 'stdio',
   connection: { command: process.execPath, args: [fixture] },
   toolPolicy: { allowInPlan: ['ping_read'] },
 }, 0);
 
-const harnesses = ['sdk', 'codex', 'opencode', 'qwen', 'codebuddy', 'deepseek', 'openrouter'];
+const harnesses = ['sdk', 'codex', 'opencode', 'qwen', 'claude', 'codebuddy', 'deepseek', 'openrouter'];
 for (const harness of harnesses) {
   const adapter = getHarnessMcpAdapter(harness);
   assert.ok(adapter, harness);

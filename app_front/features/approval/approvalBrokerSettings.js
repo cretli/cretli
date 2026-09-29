@@ -2,7 +2,7 @@
  * Settings → Harness → OpenCode: Approval Broker + optional external advisor.
  *
  * The server already exposes the contract through GET/PATCH /api/settings:
- *   approvalBroker: { mode, advisor?: { enabled, baseUrl, model, timeoutMs, dailyQuota } }
+ *   approvalBroker: { mode, advisor?: { enabled, protocol, baseUrl, model, minProbability, timeoutMs, dailyQuota } }
  *   approvalAdvisorApiKey (write-only) / clearApprovalAdvisorApiKey
  *   approvalAdvisorEnabled / approvalAdvisorKeyFromEnv / approvalAdvisorKeyStoredInSettings
  *
@@ -14,7 +14,8 @@
  *
  * The pure helpers (`normalizeApprovalBrokerFormState`, `buildApprovalAdvisorPatch`,
  * `buildApprovalBrokerModePatch`, `clampAdvisorTimeoutMs`, `clampAdvisorDailyQuota`,
- * `validateAdvisorEndpointForUi`, `getAdvisorKeySource`, `isAdvisorFieldsetEnabled`)
+ * `clampAdvisorMinProbability`, `normalizeAdvisorProtocol`, `validateAdvisorEndpointForUi`,
+ * `getAdvisorKeySource`, `isAdvisorFieldsetEnabled`)
  * are exported for unit tests; the `init`/`refresh` functions only touch the DOM.
  */
 
@@ -24,19 +25,27 @@ import { t } from '../../i18n/index.js';
 export const APPROVAL_BROKER_MODES = Object.freeze(['off', 'shadow', 'local_reads']);
 export const APPROVAL_BROKER_DEFAULT_MODE = 'off';
 
+export const APPROVAL_ADVISOR_PROTOCOLS = Object.freeze(['openai_chat', 'systemone']);
+export const ADVISOR_DEFAULT_PROTOCOL = 'openai_chat';
+
 export const ADVISOR_DEFAULT_TIMEOUT_MS = 5000;
 export const ADVISOR_MIN_TIMEOUT_MS = 3000;
 export const ADVISOR_MAX_TIMEOUT_MS = 8000;
 export const ADVISOR_DEFAULT_DAILY_QUOTA = 100;
 export const ADVISOR_MAX_DAILY_QUOTA = 10000;
+export const ADVISOR_DEFAULT_MIN_PROBABILITY = 0.9;
+export const ADVISOR_MIN_MIN_PROBABILITY = 0.5;
+export const ADVISOR_MAX_MIN_PROBABILITY = 0.99;
 
 const MODE_SELECT_ID = 'approval-broker-mode-select';
 const MODE_STATUS_ID = 'approval-broker-mode-status';
 const ADVISOR_ENABLED_ID = 'approval-advisor-enabled-checkbox';
+const ADVISOR_PROTOCOL_ID = 'approval-advisor-protocol-select';
 const ADVISOR_ENDPOINT_ID = 'approval-advisor-endpoint-input';
 const ADVISOR_ENDPOINT_FIELD_ID = 'approval-advisor-endpoint-field';
 const ADVISOR_ENDPOINT_STATUS_ID = 'approval-advisor-endpoint-status';
 const ADVISOR_MODEL_ID = 'approval-advisor-model-input';
+const ADVISOR_MIN_PROBABILITY_ID = 'approval-advisor-min-probability-input';
 const ADVISOR_TIMEOUT_ID = 'approval-advisor-timeout-input';
 const ADVISOR_QUOTA_ID = 'approval-advisor-quota-input';
 const ADVISOR_SAVE_ID = 'approval-advisor-save-btn';
@@ -76,6 +85,28 @@ export function clampAdvisorDailyQuota(value) {
 }
 
 /**
+ * Clamp the System One `noul` threshold to 0.5–0.99. A non-number falls back to
+ * the safe 0.9 default.
+ *
+ * @param {unknown} value
+ * @returns {number}
+ */
+export function clampAdvisorMinProbability(value) {
+  const parsed = Number.parseFloat(String(value ?? ''));
+  const base = Number.isFinite(parsed) ? parsed : ADVISOR_DEFAULT_MIN_PROBABILITY;
+  return Math.min(ADVISOR_MAX_MIN_PROBABILITY, Math.max(ADVISOR_MIN_MIN_PROBABILITY, base));
+}
+
+/**
+ * @param {unknown} value
+ * @returns {'openai_chat' | 'systemone'}
+ */
+export function normalizeAdvisorProtocol(value) {
+  const protocol = String(value || '').trim().toLowerCase();
+  return APPROVAL_ADVISOR_PROTOCOLS.includes(protocol) ? protocol : ADVISOR_DEFAULT_PROTOCOL;
+}
+
+/**
  * @param {unknown} value
  * @returns {'off' | 'shadow' | 'local_reads'}
  */
@@ -89,7 +120,7 @@ function normalizeMode(value) {
  * Missing or unknown values fail closed to `off` / advisor disabled.
  *
  * @param {object|null|undefined} settings
- * @returns {{ mode: string, enabled: boolean, baseUrl: string, model: string, timeoutMs: number, dailyQuota: number }}
+ * @returns {{ mode: string, enabled: boolean, protocol: string, baseUrl: string, model: string, minProbability: number, timeoutMs: number, dailyQuota: number }}
  */
 export function normalizeApprovalBrokerFormState(settings) {
   const broker = settings && typeof settings === 'object' && settings.approvalBroker && typeof settings.approvalBroker === 'object'
@@ -102,8 +133,10 @@ export function normalizeApprovalBrokerFormState(settings) {
     // The advisor can only ever be active in `local_reads`; otherwise the UI
     // shows it disabled and the payload builder forces `enabled: false`.
     enabled: mode === 'local_reads' && advisor.enabled === true,
+    protocol: normalizeAdvisorProtocol(advisor.protocol),
     baseUrl: typeof advisor.baseUrl === 'string' ? advisor.baseUrl : '',
     model: typeof advisor.model === 'string' ? advisor.model : '',
+    minProbability: clampAdvisorMinProbability(advisor.minProbability),
     timeoutMs: clampAdvisorTimeoutMs(advisor.timeoutMs),
     dailyQuota: clampAdvisorDailyQuota(advisor.dailyQuota),
   };
@@ -135,8 +168,8 @@ export function buildApprovalBrokerModePatch(mode) {
  * `enabled` is forced off outside `local_reads` even if the form was tampered
  * with, so the UI can never activate the advisor behind a disabled control.
  *
- * @param {{ mode?: unknown, enabled?: unknown, baseUrl?: unknown, model?: unknown, timeoutMs?: unknown, dailyQuota?: unknown }} formState
- * @returns {{ approvalBroker: { mode: string, advisor: { enabled: boolean, baseUrl: string, model: string, timeoutMs: number, dailyQuota: number } } }}
+ * @param {{ mode?: unknown, enabled?: unknown, protocol?: unknown, baseUrl?: unknown, model?: unknown, minProbability?: unknown, timeoutMs?: unknown, dailyQuota?: unknown }} formState
+ * @returns {{ approvalBroker: { mode: string, advisor: { enabled: boolean, protocol: string, baseUrl: string, model: string, minProbability: number, timeoutMs: number, dailyQuota: number } } }}
  */
 export function buildApprovalAdvisorPatch(formState) {
   const mode = normalizeMode(formState?.mode);
@@ -145,8 +178,10 @@ export function buildApprovalAdvisorPatch(formState) {
       mode,
       advisor: {
         enabled: mode === 'local_reads' && formState?.enabled === true,
+        protocol: normalizeAdvisorProtocol(formState?.protocol),
         baseUrl: String(formState?.baseUrl || '').trim().slice(0, 2048),
         model: String(formState?.model || '').trim().slice(0, 120),
+        minProbability: clampAdvisorMinProbability(formState?.minProbability),
         timeoutMs: clampAdvisorTimeoutMs(formState?.timeoutMs),
         dailyQuota: clampAdvisorDailyQuota(formState?.dailyQuota),
       },
@@ -276,6 +311,19 @@ function fillModeOptions(selectEl) {
 }
 
 /**
+ * Fill the advisor protocol dropdown.
+ *
+ * @param {any} selectEl
+ */
+function fillProtocolOptions(selectEl) {
+  if (!selectEl) return;
+  selectEl.options = APPROVAL_ADVISOR_PROTOCOLS.map((protocol) => ({
+    value: protocol,
+    label: t(`settings.approvalAdvisorProtocol_${protocol}`),
+  }));
+}
+
+/**
  * Toggle the advisor fieldset for the current mode. Key controls stay active so
  * the operator can configure the key before switching modes.
  *
@@ -284,8 +332,10 @@ function fillModeOptions(selectEl) {
 function updateAdvisorControls(mode) {
   const enabled = isAdvisorFieldsetEnabled(mode);
   setDisabled(byId(ADVISOR_ENABLED_ID), !enabled);
+  setDisabled(byId(ADVISOR_PROTOCOL_ID), !enabled);
   setDisabled(byId(ADVISOR_ENDPOINT_ID), !enabled);
   setDisabled(byId(ADVISOR_MODEL_ID), !enabled);
+  setDisabled(byId(ADVISOR_MIN_PROBABILITY_ID), !enabled);
   setDisabled(byId(ADVISOR_TIMEOUT_ID), !enabled);
   setDisabled(byId(ADVISOR_QUOTA_ID), !enabled);
   setDisabled(byId(ADVISOR_SAVE_ID), !enabled);
@@ -346,19 +396,33 @@ function readMode(selectEl) {
 }
 
 /**
- * @returns {{ mode: string, enabled: boolean, baseUrl: string, model: string, timeoutMs: number, dailyQuota: number }}
+ * @param {any} selectEl
+ * @returns {string}
+ */
+function readProtocol(selectEl) {
+  const value = selectEl && 'value' in selectEl ? selectEl.value : '';
+  return normalizeAdvisorProtocol(value);
+}
+
+/**
+ * @returns {{ mode: string, enabled: boolean, protocol: string, baseUrl: string, model: string, minProbability: number, timeoutMs: number, dailyQuota: number }}
  */
 function readForm() {
   const enabledEl = byId(ADVISOR_ENABLED_ID);
   const endpointEl = byId(ADVISOR_ENDPOINT_ID);
   const modelEl = byId(ADVISOR_MODEL_ID);
+  const minProbabilityEl = byId(ADVISOR_MIN_PROBABILITY_ID);
   const timeoutEl = byId(ADVISOR_TIMEOUT_ID);
   const quotaEl = byId(ADVISOR_QUOTA_ID);
   return {
     mode: readMode(byId(MODE_SELECT_ID)),
     enabled: Boolean(enabledEl && 'checked' in enabledEl && enabledEl.checked),
+    protocol: readProtocol(byId(ADVISOR_PROTOCOL_ID)),
     baseUrl: endpointEl && 'value' in endpointEl ? String(endpointEl.value || '') : '',
     model: modelEl && 'value' in modelEl ? String(modelEl.value || '') : '',
+    minProbability: minProbabilityEl && 'value' in minProbabilityEl
+      ? minProbabilityEl.value
+      : ADVISOR_DEFAULT_MIN_PROBABILITY,
     timeoutMs: timeoutEl && 'value' in timeoutEl ? timeoutEl.value : ADVISOR_DEFAULT_TIMEOUT_MS,
     dailyQuota: quotaEl && 'value' in quotaEl ? quotaEl.value : ADVISOR_DEFAULT_DAILY_QUOTA,
   };
@@ -376,10 +440,15 @@ function applySettingsSnapshot(settings) {
   if (modeSelect && 'value' in modeSelect) modeSelect.value = form.mode;
   const enabledEl = byId(ADVISOR_ENABLED_ID);
   if (enabledEl && 'checked' in enabledEl) enabledEl.checked = form.enabled;
+  const protocolSelect = byId(ADVISOR_PROTOCOL_ID);
+  fillProtocolOptions(protocolSelect);
+  if (protocolSelect && 'value' in protocolSelect) protocolSelect.value = form.protocol;
   const endpointEl = byId(ADVISOR_ENDPOINT_ID);
   if (endpointEl && 'value' in endpointEl) endpointEl.value = form.baseUrl;
   const modelEl = byId(ADVISOR_MODEL_ID);
   if (modelEl && 'value' in modelEl) modelEl.value = form.model;
+  const minProbabilityEl = byId(ADVISOR_MIN_PROBABILITY_ID);
+  if (minProbabilityEl && 'value' in minProbabilityEl) minProbabilityEl.value = String(form.minProbability);
   const timeoutEl = byId(ADVISOR_TIMEOUT_ID);
   if (timeoutEl && 'value' in timeoutEl) timeoutEl.value = String(form.timeoutMs);
   const quotaEl = byId(ADVISOR_QUOTA_ID);
@@ -391,7 +460,8 @@ function applySettingsSnapshot(settings) {
 
 /**
  * Validate before saving the advisor config. Only UX; the backend validates
- * HTTPS/SSRF/DNS again.
+ * HTTPS/SSRF/DNS again. The model is required only for the OpenAI-compatible
+ * chat protocol; System One endpoints have a server-side default model.
  *
  * @param {object} form
  * @returns {{ ok: boolean, message: string }}
@@ -408,7 +478,7 @@ function validateAdvisorForm(form) {
     if (!endpoint.ok) {
       return { ok: false, message: endpointReasonMessage(endpoint.reason) };
     }
-    if (!String(form.model || '').trim()) {
+    if (normalizeAdvisorProtocol(form.protocol) === ADVISOR_DEFAULT_PROTOCOL && !String(form.model || '').trim()) {
       return { ok: false, message: t('settings.approvalAdvisorModelRequired') };
     }
   } else if (String(form.baseUrl || '').trim() && !endpoint.ok) {
@@ -567,6 +637,7 @@ export function initApprovalBrokerSettings() {
   initialized = true;
 
   fillModeOptions(modeSelect);
+  fillProtocolOptions(byId(ADVISOR_PROTOCOL_ID));
   updateAdvisorControls(readMode(modeSelect));
 
   modeSelect.addEventListener('cr-change', (event) => {
@@ -599,6 +670,13 @@ export function initApprovalBrokerSettings() {
     const select = byId(MODE_SELECT_ID);
     fillModeOptions(select);
     if (select && cachedSettings) select.value = normalizeApprovalBrokerFormState(cachedSettings).mode;
+    fillProtocolOptions(byId(ADVISOR_PROTOCOL_ID));
+    const protocolSelect = byId(ADVISOR_PROTOCOL_ID);
+    if (protocolSelect && 'value' in protocolSelect) {
+      protocolSelect.value = cachedSettings
+        ? normalizeApprovalBrokerFormState(cachedSettings).protocol
+        : readProtocol(protocolSelect);
+    }
     refreshEndpointValidity();
     if (cachedSettings) applyAdvisorKeyHint(cachedSettings);
   });

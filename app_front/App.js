@@ -48,6 +48,7 @@ import { initOpenCodeModelSettings, refreshOpenCodeModelSettingsPanel } from './
 import { initCodeBuddyModelSettings, refreshCodeBuddyModelSettingsPanel } from './codebuddyModelSettings.js';
 import { initDeepSeekModelSettings, refreshDeepSeekModelSettingsPanel } from './deepseekModelSettings.js';
 import { initQwenModelSettings, refreshQwenModelSettingsPanel } from './qwenModelSettings.js';
+import { initClaudeModelSettings, refreshClaudeModelSettingsPanel } from './claudeModelSettings.js';
 import { initCodexModelSettings, refreshCodexModelSettingsPanel } from './codexModelSettings.js';
 import { initHarnessSettings, refreshHarnessSettingsPanel } from './harnessSettings.js';
 import { maybeShowFirstRunSetup } from './features/setup/firstRunSetup.js';
@@ -380,6 +381,7 @@ function ensureSettingsHeavyModules() {
   initCodeBuddyModelSettings();
   initDeepSeekModelSettings();
   initQwenModelSettings();
+  initClaudeModelSettings();
   initCodexModelSettings();
   initApprovalBrokerSettings();
 }
@@ -966,6 +968,7 @@ function refreshSettingsTabPanels(tabId) {
   if (tabId === 'harness-codebuddy') refreshCodeBuddyModelSettingsPanel();
   if (tabId === 'harness-deepseek') refreshDeepSeekModelSettingsPanel();
   if (tabId === 'harness-qwen') refreshQwenModelSettingsPanel();
+  if (tabId === 'harness-claude') refreshClaudeModelSettingsPanel();
   if (tabId === 'harness-codex') refreshCodexModelSettingsPanel();
   if (tabId === 'chat') refreshModelSettingsPanel();
   if (tabId === 'usage') void refreshUsageSettings();

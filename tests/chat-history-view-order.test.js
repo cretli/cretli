@@ -7,6 +7,7 @@ import {
   insertRecordByViewOrder,
   isSameViewOrderKey,
   resolveViewOrderKey,
+  shouldPlaceViewCardBefore,
   viewOrderIdentity,
 } from '../app_front/features/chat/chatHistoryViewOrder.js';
 
@@ -232,6 +233,36 @@ assert.deepEqual(
   stackedAnswers.map((row) => row.text),
   ['plan a', 'usage'],
   'Already stacked duplicate Answer cards collapse to the first copy'
+);
+
+const olderPrompt = {
+  historySeq: 3,
+  eventStreamId: STREAM_A,
+  roomEventSeq: 2,
+  createdAt: '2026-09-28T21:55:56.926Z',
+};
+const laterAnswer = {
+  eventStreamId: STREAM_B,
+  roomEventSeq: 7521,
+  createdAt: '2026-09-28T21:59:20.000Z',
+};
+assert.equal(
+  shouldPlaceViewCardBefore(olderPrompt, laterAnswer),
+  true,
+  'An older prompt from another stream sits above a later answer'
+);
+assert.equal(
+  shouldPlaceViewCardBefore(laterAnswer, olderPrompt),
+  false,
+  'A later answer does not jump above an older prompt'
+);
+assert.equal(
+  shouldPlaceViewCardBefore(
+    { eventStreamId: STREAM_A, roomEventSeq: 9 },
+    { eventStreamId: STREAM_B, roomEventSeq: 3, createdAt: '2026-09-28T21:00:00.000Z' }
+  ),
+  false,
+  'Incomparable cards without both timestamps keep their append position'
 );
 
 console.log('All chat-history-view-order tests passed.');

@@ -103,6 +103,37 @@ export function compareViewOrderKeys(left, right) {
 }
 
 /**
+ * @param {unknown} source
+ * @returns {string}
+ */
+function readViewCardCreatedAt(source) {
+  if (!source || typeof source !== 'object') return '';
+  const createdAt = /** @type {{ createdAt?: unknown }} */ (source).createdAt;
+  return typeof createdAt === 'string' ? createdAt.trim() : '';
+}
+
+/**
+ * True when `incoming` must be inserted before `existing`.
+ * Seq order wins inside one stream. Cards from different streams stay
+ * incomparable by seq, so an older createdAt still belongs above a later tail
+ * (the opening user prompt must not stick under the answers).
+ *
+ * @param {{ historySeq?: number, roomEventSeq?: number, eventStreamId?: string, createdAt?: string }} incoming
+ * @param {{ historySeq?: number, roomEventSeq?: number, eventStreamId?: string, createdAt?: string }} existing
+ * @returns {boolean}
+ */
+export function shouldPlaceViewCardBefore(incoming, existing) {
+  if (compareViewOrderKeys(incoming, existing) < 0) return true;
+  if (isSameViewOrderKey(incoming, existing)) return false;
+  if (!hasViewOrderKey(incoming) || !hasViewOrderKey(existing)) return false;
+  if (compareViewOrderKeys(incoming, existing) !== 0) return false;
+  const incomingAt = readViewCardCreatedAt(incoming);
+  const existingAt = readViewCardCreatedAt(existing);
+  if (!incomingAt || !existingAt || incomingAt === existingAt) return false;
+  return incomingAt < existingAt;
+}
+
+/**
  * Index of the first existing card that should sit after `incomingKey`.
  *
  * @param {Array<{ historySeq?: number, roomEventSeq?: number, eventStreamId?: string }>} existingKeys

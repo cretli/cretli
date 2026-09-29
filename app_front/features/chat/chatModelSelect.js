@@ -66,6 +66,8 @@ export function createChatModelSelect(deps) {
   /** @type {import('../../../lib/model-catalog.js').ModelCatalogEntry[]} */
   let qwenModelCatalog = [];
   /** @type {import('../../../lib/model-catalog.js').ModelCatalogEntry[]} */
+  let claudeModelCatalog = [];
+  /** @type {import('../../../lib/model-catalog.js').ModelCatalogEntry[]} */
   let codexModelCatalog = [];
   /** @type {Array<{ value: string, label: string }>} */
   let availableAgentModels = toLegacyModelOptions(sdkModelCatalog);
@@ -82,13 +84,15 @@ export function createChatModelSelect(deps) {
   /** @type {string[]} */
   let qwenEnabledModelKeys = [];
   /** @type {string[]} */
+  let claudeEnabledModelKeys = [];
+  /** @type {string[]} */
   let codexEnabledModelKeys = [];
-  /** @type {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen'} */
+  /** @type {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen' | 'claude'} */
   let pickerHarness = 'sdk';
 
   /**
    * @param {unknown} harness
-   * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen'}
+   * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen' | 'claude'}
    */
   function normalizeModelPickerHarness(harness) {
     const raw = typeof harness === 'string' ? harness.trim().toLowerCase() : '';
@@ -98,6 +102,7 @@ export function createChatModelSelect(deps) {
     if (raw === 'deepseek') return 'deepseek';
     if (raw === 'codex') return 'codex';
     if (raw === 'qwen') return 'qwen';
+    if (raw === 'claude') return 'claude';
     return 'sdk';
   }
 
@@ -121,6 +126,9 @@ export function createChatModelSelect(deps) {
     }
     if (resolved === 'qwen') {
       return { catalog: qwenModelCatalog, keys: qwenEnabledModelKeys };
+    }
+    if (resolved === 'claude') {
+      return { catalog: claudeModelCatalog, keys: claudeEnabledModelKeys };
     }
     if (resolved === 'codex') {
       return { catalog: codexModelCatalog, keys: codexEnabledModelKeys };
@@ -197,6 +205,15 @@ export function createChatModelSelect(deps) {
   function applyQwenEnabledModels(enabledKeys) {
     qwenEnabledModelKeys = normalizeChatEnabledModels(enabledKeys);
     if (pickerHarness === 'qwen') rebuildAvailableAgentModels('qwen');
+    refreshModelSelectLabels();
+  }
+
+  /**
+   * @param {unknown} enabledKeys
+   */
+  function applyClaudeEnabledModels(enabledKeys) {
+    claudeEnabledModelKeys = normalizeChatEnabledModels(enabledKeys);
+    if (pickerHarness === 'claude') rebuildAvailableAgentModels('claude');
     refreshModelSelectLabels();
   }
 
@@ -340,6 +357,32 @@ export function createChatModelSelect(deps) {
     }
     qwenModelCatalog = nextCatalog;
     if (pickerHarness === 'qwen') rebuildAvailableAgentModels('qwen');
+    return true;
+  }
+
+  /**
+   * @param {unknown} payload
+   * @returns {boolean}
+   */
+  function applyAvailableModelsFromClaude(payload) {
+    if (!payload?.ok || !Array.isArray(payload.models)) return false;
+    const nextCatalog = payload.models.map((row) => ({
+      value: row.id,
+      label: row.name || row.id,
+      modelId: row.id,
+      group: row.name || row.id,
+    }));
+    if (nextCatalog.length === 0) return false;
+    if (Array.isArray(payload?.chatEnabledModels)) {
+      claudeEnabledModelKeys = normalizeChatEnabledModels(payload.chatEnabledModels);
+    }
+    const prevSig = JSON.stringify(claudeModelCatalog);
+    const nextSig = JSON.stringify(nextCatalog);
+    if (prevSig === nextSig && pickerHarness === 'claude' && availableAgentModels.length > 0) {
+      return false;
+    }
+    claudeModelCatalog = nextCatalog;
+    if (pickerHarness === 'claude') rebuildAvailableAgentModels('claude');
     return true;
   }
 
@@ -520,6 +563,7 @@ export function createChatModelSelect(deps) {
       || getCatalogEntryLabel(codebuddyModelCatalog, value)
       || getCatalogEntryLabel(deepseekModelCatalog, value)
       || getCatalogEntryLabel(qwenModelCatalog, value)
+      || getCatalogEntryLabel(claudeModelCatalog, value)
       || getCatalogEntryLabel(codexModelCatalog, value);
   }
 
@@ -792,6 +836,27 @@ export function createChatModelSelect(deps) {
     }));
   }
 
+  /**
+   * Whether a model value is in the enabled list for its harness.
+   * An empty enabled list means every model is enabled.
+   *
+   * @param {unknown} harness
+   * @param {unknown} modelValue
+   * @returns {boolean}
+   */
+  function isModelEnabled(harness, modelValue) {
+    const { keys } = getCatalogStateForHarness(harness);
+    const enabled = normalizeChatEnabledModels(keys);
+    if (enabled.length === 0) return true;
+    const value = normalizeCatalogModelValue(modelValue);
+    if (!value) return false;
+    if (normalizeModelPickerHarness(harness) === 'sdk') {
+      const coerced = coerceRunnableSdkModelValue(value);
+      return enabled.some((key) => coerceRunnableSdkModelValue(key) === coerced);
+    }
+    return enabled.includes(value);
+  }
+
   return {
     applyChatEnabledModels,
     applyOpenRouterEnabledModels,
@@ -799,6 +864,7 @@ export function createChatModelSelect(deps) {
     applyCodeBuddyEnabledModels,
     applyDeepSeekEnabledModels,
     applyQwenEnabledModels,
+    applyClaudeEnabledModels,
     applyCodexEnabledModels,
     setModelPickerHarness,
     refreshNewChatModelPicker,
@@ -808,6 +874,7 @@ export function createChatModelSelect(deps) {
     applyAvailableModelsFromCodeBuddy,
     applyAvailableModelsFromDeepSeek,
     applyAvailableModelsFromQwen,
+    applyAvailableModelsFromClaude,
     applyAvailableModelsFromCodex,
     refreshModelSelectLabels,
     ensureFloatingModelSelect,
@@ -817,5 +884,6 @@ export function createChatModelSelect(deps) {
     getAvailableAgentModels,
     renderModelSelectOptions,
     getSdkModeBarModelOptions,
+    isModelEnabled,
   };
 }

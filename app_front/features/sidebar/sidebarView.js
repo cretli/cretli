@@ -504,6 +504,7 @@ export function createSidebarView(deps) {
       deepseek: 'deepseek.svg',
       codex: 'codex.svg',
       qwen: 'qwen.svg',
+      claude: 'claude.svg',
     })[harness] || 'cursor.svg';
     const harnessLabel = ({
       sdk: 'Cursor SDK',
@@ -514,6 +515,7 @@ export function createSidebarView(deps) {
       deepseek: 'DeepSeek',
       codex: 'Codex',
       qwen: 'Qwen',
+      claude: 'Claude',
     })[harness] || 'Cursor SDK';
     return (
       '<li class="sidebar-chat-item' +
@@ -541,7 +543,7 @@ export function createSidebarView(deps) {
       escapeHtml(meta.label) +
       '" aria-hidden="true"></span>' +
       '<span class="sidebar-chat-item-harness sidebar-chat-item-harness--' +
-      (harness === 'cursor-sdk' ? 'sdk' : (['sdk', 'openrouter', 'opencode', 'codebuddy', 'deepseek', 'codex', 'qwen'].includes(harness) ? harness : 'sdk')) +
+      (harness === 'cursor-sdk' ? 'sdk' : (['sdk', 'openrouter', 'opencode', 'codebuddy', 'deepseek', 'codex', 'qwen', 'claude'].includes(harness) ? harness : 'sdk')) +
       '" title="' +
       escapeHtml(harnessLabel) +
       '" aria-hidden="true"><img src="/harness-icons/' +

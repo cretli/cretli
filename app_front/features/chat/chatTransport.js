@@ -108,6 +108,7 @@ function resolveSdkRunFailureNotice(msg) {
     || code === 'qwen_rate_limit'
     || code === 'qwen_auth'
     || code === 'opencode_error'
+    || code === 'claude_error'
   ) {
     return '';
   }

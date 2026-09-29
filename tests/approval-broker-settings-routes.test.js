@@ -109,8 +109,10 @@ test('PATCH persists broker mode and advisor config without a key', async () => 
       policyVersion: 'hacked-version',
       advisor: {
         enabled: true,
+        protocol: 'systemone',
         baseUrl: ENDPOINT,
         model: 'advisor-model',
+        minProbability: 0.75,
         timeoutMs: 6000,
         dailyQuota: 50,
       },
@@ -122,8 +124,10 @@ test('PATCH persists broker mode and advisor config without a key', async () => 
   assert.equal(patched.body.approvalBroker.policyVersion, 'opencode-local-1', 'policyVersion must not be client-controlled');
   assert.deepEqual(patched.body.approvalBroker.advisor, {
     enabled: true,
+    protocol: 'systemone',
     baseUrl: ENDPOINT,
     model: 'advisor-model',
+    minProbability: 0.75,
     timeoutMs: 6000,
     dailyQuota: 50,
   });
@@ -134,11 +138,41 @@ test('PATCH persists broker mode and advisor config without a key', async () => 
   assert.equal(reloaded.body.approvalBroker.mode, 'local_reads');
   assert.deepEqual(reloaded.body.approvalBroker.advisor, {
     enabled: true,
+    protocol: 'systemone',
     baseUrl: ENDPOINT,
     model: 'advisor-model',
+    minProbability: 0.75,
     timeoutMs: 6000,
     dailyQuota: 50,
   });
+});
+
+test('PATCH normalizes unknown protocol and out-of-range minProbability instead of rejecting', async () => {
+  delete process.env[APPROVAL_ADVISOR_API_KEY_ENV];
+  const client = createSettingsClient();
+
+  const patched = await client.patch({
+    approvalBroker: {
+      mode: 'local_reads',
+      advisor: {
+        enabled: true,
+        protocol: 'yolo',
+        baseUrl: ENDPOINT,
+        model: 'advisor-model',
+        minProbability: 5,
+      },
+    },
+  });
+  assert.equal(patched.status, 200);
+  assert.equal(patched.body.ok, true);
+  assert.equal(patched.body.approvalBroker.advisor.protocol, 'openai_chat', 'unknown protocol normalizes to openai_chat');
+  assert.equal(patched.body.approvalBroker.advisor.minProbability, 0.99, 'minProbability clamps to 0.99');
+
+  const lowered = await client.patch({
+    approvalBroker: { mode: 'local_reads', advisor: { minProbability: 0.1 } },
+  });
+  assert.equal(lowered.body.approvalBroker.advisor.minProbability, 0.5, 'minProbability clamps to 0.5');
+  assert.equal(lowered.body.approvalBroker.advisor.protocol, 'openai_chat');
 });
 
 test('switching mode back to off keeps the advisor block but the mode gate deactivates it', async () => {

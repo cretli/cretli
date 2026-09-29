@@ -8,6 +8,7 @@ import {
   finishDelegation,
   hasInFlightDelegationStart,
   inspectDelegationSlot,
+  reconcileDelegationsOnBoot,
   releaseDelegationRunSlot,
   setDelegationCrashHook,
   delegationService,
@@ -65,6 +66,7 @@ const start = (p) => service.createAndStart({
   patchMockChatRun(job.childChatId, { busy: false, waitingForInput: false });
   await tickDelegationRuntime({ now: Date.now(), drainMailbox: false });
   assert.equal(getDelegationById(job.id).status, 'interrupted');
+  assert.equal(getDelegationById(job.id).interruptCode, 'starting_timeout');
 }
 
 {
@@ -160,6 +162,7 @@ registerMockChatRunAdapter('opencode');
   await tickDelegationRuntime({ now: Date.now(), drainMailbox: false });
   const actual = getDelegationById(job.id);
   assert.equal(actual.status, 'interrupted');
+  assert.equal(actual.interruptCode, 'running_orphan');
   assert.equal(String(actual.runStoppingAt || '').trim(), '');
 }
 
@@ -512,6 +515,169 @@ registerMockChatRunAdapter('opencode');
   const latest = getDelegationById(job.id);
   assert.equal(latest.attemptId, 'a2');
   assert.equal(latest.status, 'running');
+  registerMockChatRunAdapter('opencode');
+}
+
+// Worker starting timeout needs a confirmed idle adapter. A null/unknown
+// state keeps the occupied slot.
+{
+  registerChatRunAdapter({
+    transport: 'opencode',
+    getState: () => null,
+    cancel: async () => {},
+    start: async () => ({ accepted: true, runId: 'unknown-start' }),
+  });
+  const child = parent('unknown starting child');
+  const job = createDelegationRecord({
+    parentChatId: parent('unknown starting parent').id,
+    childChatId: child.id,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    assignment: 'implement',
+    status: 'starting',
+    runId: 'wanted',
+  });
+  updateDelegationRecord(job.id, {
+    lastTransitionAt: new Date(Date.now() - DELEGATION_STARTING_TIMEOUT_MS - 1000).toISOString(),
+  });
+  await tickDelegationRuntime({ now: Date.now(), drainMailbox: false });
+  assert.equal(getDelegationById(job.id).status, 'starting');
+  registerMockChatRunAdapter('opencode');
+}
+
+// Worker orphan grace is counted from the first confirmed idle observation.
+{
+  const child = parent('grace child');
+  const job = createDelegationRecord({
+    parentChatId: parent('grace child parent').id,
+    childChatId: child.id,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    assignment: 'implement',
+    status: 'running',
+    runId: 'grace-run',
+  });
+  registerChatRunAdapter({
+    transport: 'opencode',
+    getState: () => ({ runId: 'grace-run', busy: false, waitingForInput: false }),
+    cancel: async () => {},
+    start: async () => ({ accepted: true, runId: 'grace-run' }),
+  });
+  const armedAt = Date.now();
+  await tickDelegationRuntime({ now: armedAt, drainMailbox: false });
+  const armed = getDelegationById(job.id);
+  assert.equal(armed.status, 'running');
+  assert.ok(String(armed.idleObservedAt || '').trim());
+  await tickDelegationRuntime({ now: armedAt + DELEGATION_RUNNING_ORPHAN_GRACE_MS - 1000, drainMailbox: false });
+  assert.equal(getDelegationById(job.id).status, 'running');
+  await tickDelegationRuntime({ now: armedAt + DELEGATION_RUNNING_ORPHAN_GRACE_MS + 1000, drainMailbox: false });
+  const finished = getDelegationById(job.id);
+  assert.equal(finished.status, 'interrupted');
+  assert.equal(finished.interruptCode, 'running_orphan');
+  registerMockChatRunAdapter('opencode');
+}
+
+// Boot: an unknown/throw adapter state keeps an occupied running slot.
+{
+  registerChatRunAdapter({
+    transport: 'opencode',
+    getState: () => {
+      throw new Error('boot adapter down');
+    },
+    cancel: async () => {},
+    start: async () => ({ accepted: true, runId: 'boot-throw' }),
+  });
+  const child = parent('boot throw child');
+  const job = createDelegationRecord({
+    parentChatId: parent('boot throw parent').id,
+    childChatId: child.id,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    assignment: 'implement',
+    status: 'running',
+    runId: 'boot-throw',
+  });
+  updateDelegationRecord(job.id, {
+    idleObservedAt: new Date(Date.now() - DELEGATION_RUNNING_ORPHAN_GRACE_MS - 1000).toISOString(),
+  });
+  await reconcileDelegationsOnBoot();
+  assert.equal(getDelegationById(job.id).status, 'running');
+  registerMockChatRunAdapter('opencode');
+}
+
+// Boot: starting with unknown liveness and no run id keeps the occupied slot.
+{
+  registerChatRunAdapter({
+    transport: 'opencode',
+    getState: () => null,
+    cancel: async () => {},
+    start: async () => ({ accepted: true, runId: 'boot-start' }),
+  });
+  const child = parent('boot start child');
+  const job = createDelegationRecord({
+    parentChatId: parent('boot start parent').id,
+    childChatId: child.id,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    assignment: 'implement',
+    status: 'starting',
+  });
+  await reconcileDelegationsOnBoot();
+  const after = getDelegationById(job.id);
+  assert.equal(after.status, 'starting');
+  registerMockChatRunAdapter('opencode');
+}
+
+// Boot: starting with unknown liveness and a run id also keeps the slot.
+{
+  registerChatRunAdapter({
+    transport: 'opencode',
+    getState: () => null,
+    cancel: async () => {},
+    start: async () => ({ accepted: true, runId: 'boot-start-run' }),
+  });
+  const child = parent('boot start run child');
+  const job = createDelegationRecord({
+    parentChatId: parent('boot start run parent').id,
+    childChatId: child.id,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    assignment: 'implement',
+    status: 'starting',
+    runId: 'boot-start-run',
+  });
+  await reconcileDelegationsOnBoot();
+  const after = getDelegationById(job.id);
+  assert.equal(after.status, 'starting');
+  registerMockChatRunAdapter('opencode');
+}
+
+// Boot: the starting timeout only fires with a confirmed idle adapter and is
+// non-retryable (starting_timeout).
+{
+  registerChatRunAdapter({
+    transport: 'opencode',
+    getState: () => ({ runId: 'boot-timeout', busy: false, waitingForInput: false }),
+    cancel: async () => {},
+    start: async () => ({ accepted: true, runId: 'boot-timeout' }),
+  });
+  const child = parent('boot timeout child');
+  const job = createDelegationRecord({
+    parentChatId: parent('boot timeout parent').id,
+    childChatId: child.id,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    assignment: 'implement',
+    status: 'starting',
+    runId: 'boot-timeout',
+  });
+  updateDelegationRecord(job.id, {
+    lastTransitionAt: new Date(Date.now() - DELEGATION_STARTING_TIMEOUT_MS - 1000).toISOString(),
+  });
+  await reconcileDelegationsOnBoot();
+  const after = getDelegationById(job.id);
+  assert.equal(after.status, 'interrupted');
+  assert.equal(after.interruptCode, 'starting_timeout');
   registerMockChatRunAdapter('opencode');
 }
 

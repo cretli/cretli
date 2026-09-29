@@ -144,6 +144,13 @@ same key with different parameters is `CONFLICT`.
 `readDelegationMaterialRevision(cwd)` (short `HEAD` plus dirty `status`
 fingerprint). Snapshot it before review and after implement/fix.
 
+After **every** report, persist the outcome before picking the next role: call
+`delegation_workflow_update` with `last_verdict` (or `fanout_verdicts` for a
+fanout), `report_text`, and the fresh `material_revision` from
+`readDelegationMaterialRevision(cwd)`, under a stable per-review
+`idempotency_key`. A parent restart must not lose the last verdict or the
+artifact revision that verdict reviewed.
+
 Tell the child to write in the **user's language** and end with exactly:
 
 `TASK: audit|implement|review`
@@ -167,8 +174,8 @@ watched implement job has `slot_occupied` false. There is no `finished`
 status.
 
 `delegation_wait` returns per-id `status`, `slot_occupied`, `run_stopping`,
-`task_outcome`, `verdict`, and a short summary — not the report body. Page
-`delegation_show` / `delegation_inbox` for content. Follow
+`task_outcome`, `interrupt_code`, `verdict`, and a short summary — not the
+report body. Page `delegation_show` / `delegation_inbox` for content. Follow
 `truncated=true next_cursor=…` until the cursor is empty. List **text** uses
 the full UUID (do not invent prefix lookup).
 
@@ -204,18 +211,26 @@ reviews beyond the cap wait until a slot frees.
   `adapter_incomplete`, first-event timeout, ChatGPT/Codex **usage limit**,
   harness quota, one-line thinking dump): wait until `slot_occupied` is false,
   then `model_pick` with `exclude_model` = the failed id. Review never picks
-  `*flash*` ids. If the whole harness is dead (Codex usage cap, OpenCode not
-  ready), also `exclude_harness` (e.g. `codex`). Start the next candidate with
-  a **new** idempotency key (replay returns the failed job). Never retry the
-  same model/harness after an infra failure. If no different candidate exists,
-  stop as `BLOCKED` and include the provider/quota reason; do not burn three
-  retries on a dead sub-chat. Example: child
-  `1502cdb2` on `codex` / `gpt-6-astra` hit a usage limit — fall back to
-  Composer on `sdk`. Cap 1 infra retry per role. Do not stop sibling fanout
-  reviews. Do not infra-retry `VERDICT: FAIL`/`BLOCKED`.
-- **BLOCKED**, unspecified after a full report read **and** infra retry,
-  **interrupted**, or loop **timeout** → stop. Do not start another child in
-  `loop` mode.
+  `*flash*` ids. Use `exclude_harness` **only** with concrete evidence that the
+  harness itself is unavailable, rate-limited, or over quota (a usage-limit
+  error, `adapter not ready`, provider outage); otherwise exclude just that
+  model with `exclude_model` and keep the harness. Start the next candidate
+  with a **new** idempotency key (replay returns the failed job). Never retry
+  the same model/harness after an infra failure. If no different candidate
+  exists, stop as `BLOCKED` and include the provider/quota reason; do not burn
+  three retries on a dead sub-chat. Example: child `1502cdb2` on `codex` /
+  `gpt-6-astra` hit a usage limit — fall back to Composer on `sdk` and, because
+  the quota evidence is concrete, use `exclude_harness=codex`. Cap 1 infra
+  retry per role. Do not stop sibling fanout reviews. Do not infra-retry
+  `VERDICT: FAIL`/`BLOCKED`.
+- **BLOCKED**, unspecified after a full report read **and** infra retry, or
+  loop **timeout** → stop. Do not start another child in `loop` mode.
+- **`interrupted`**: only a job with `interrupt_code=server_restart` may be
+  continued, and at most **once** per record. Continue it with a new
+  idempotency key, then never continue that record again. `starting_timeout`,
+  `running_orphan`, any other `interrupt_code`, and legacy interrupted rows
+  with an empty code are stop-only — report the code to the user and do not
+  retry the record.
 
 ## Caps and tie-break
 

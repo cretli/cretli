@@ -11,6 +11,7 @@ const HARNESSES = [
   ['codex', 'Codex'],
   ['opencode', 'OpenCode'],
   ['qwen', 'Qwen'],
+  ['claude', 'Claude'],
   ['codebuddy', 'CodeBuddy'],
   ['deepseek', 'DeepSeek'],
   ['openrouter', 'OpenRouter'],

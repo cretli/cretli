@@ -402,4 +402,175 @@ assert.equal(
   'relative workspace resources resolve against the assigned workspace',
 );
 
+// --- off-mode workspace + secret gates -------------------------------------
+
+// Delegated read auto-allow stays inside the assigned workspace.
+const offReviewDiff = resolveOpenCodeApprovalAction({
+  mode: 'off',
+  sdkMode: 'agent',
+  permissionEvent: { action: 'bash', metadata: { command: 'git diff --stat' } },
+  assignment: 'review',
+  workspaceFolder: brokerWorkspace,
+});
+assert.equal(offReviewDiff.decision, 'allow');
+assert.equal(offReviewDiff.reply, 'once');
+
+for (const command of ['cat /etc/passwd', 'cat /tmp/outside.txt']) {
+  const offOutside = resolveOpenCodeApprovalAction({
+    mode: 'off',
+    sdkMode: 'agent',
+    permissionEvent: { action: 'bash', metadata: { command } },
+    assignment: 'review',
+    workspaceFolder: brokerWorkspace,
+  });
+  assert.notEqual(offOutside.reply, 'once', `off must not auto-approve outside the workspace: ${command}`);
+  assert.equal(offOutside.decision, 'ask_user');
+}
+assert.equal(
+  resolveOpenCodeApprovalAction({
+    mode: 'off',
+    sdkMode: 'agent',
+    permissionEvent: { action: 'read', resources: ['/etc/hostname'] },
+    assignment: 'implement',
+    workspaceFolder: brokerWorkspace,
+  }).decision,
+  'ask_user',
+  'off must not auto-approve delegated reads outside the workspace',
+);
+
+// Cretli runtime secrets in data/ never get an auto-`once` in any mode.
+const cretliConfig = { action: 'bash', metadata: { command: 'cat data/config.json' } };
+const cretliMcpSecrets = { action: 'bash', metadata: { command: 'cat data/mcp-secrets.json' } };
+assert.equal(classifyOpenCodePermissionRisk(cretliConfig).categories.includes('secrets'), true);
+assert.equal(classifyOpenCodePermissionRisk(cretliMcpSecrets).categories.includes('secrets'), true);
+for (const [mode, assignment] of [['off', 'implement'], ['local_reads', 'implement'], ['off', 'review'], ['shadow', '']]) {
+  const action = resolveOpenCodeApprovalAction({
+    mode,
+    sdkMode: 'agent',
+    permissionEvent: cretliConfig,
+    assignment,
+    workspaceFolder: brokerWorkspace,
+  });
+  assert.notEqual(action.reply, 'once', `data/config.json must not be auto-approved in ${mode}/${assignment}`);
+  assert.notEqual(action.reply, 'always');
+}
+
+// --- shell suffixes and relative escapes ------------------------------------
+
+// A shell separator directly after a Cretli secret path must not hide the
+// `secrets` category, and must never produce an auto-`once`.
+const secretSuffixCommands = [
+  'cat data/config.json|head',
+  'cat ./data/config.json',
+  `cat ${brokerWorkspace}/data/config.json`,
+  'grep key data/config.json',
+  'rg token data/mcp-secrets.json',
+  'head -5 data/config.json',
+];
+for (const command of secretSuffixCommands) {
+  const event = { action: 'bash', metadata: { command } };
+  assert.ok(
+    classifyOpenCodePermissionRisk(event).categories.includes('secrets'),
+    `expected secrets category for: ${command}`,
+  );
+  for (const mode of ['off', 'local_reads']) {
+    const action = resolveOpenCodeApprovalAction({
+      mode,
+      sdkMode: 'agent',
+      permissionEvent: event,
+      assignment: 'review',
+      workspaceFolder: brokerWorkspace,
+    });
+    assert.notEqual(action.reply, 'once', `${mode} must not auto-approve secrets: ${command}`);
+  }
+}
+
+// Plain in-workspace reads (including a `..` that resolves back inside) keep
+// the off-mode review auto-allow; no false alarms.
+for (const command of ['git diff --stat lib/x.js', 'rg foo lib/', 'cat lib/../package.json']) {
+  const action = resolveOpenCodeApprovalAction({
+    mode: 'off',
+    sdkMode: 'agent',
+    permissionEvent: { action: 'bash', metadata: { command } },
+    assignment: 'review',
+    workspaceFolder: brokerWorkspace,
+  });
+  assert.equal(action.reply, 'once', `off review must still auto-approve: ${command}`);
+}
+
+// Relative tokens that climb outside the workspace need the user.
+for (const command of ['cat ../other/secret.txt', 'cat lib/../../x', 'cd .. && cat other/secret.txt', 'ls ..']) {
+  const action = resolveOpenCodeApprovalAction({
+    mode: 'off',
+    sdkMode: 'agent',
+    permissionEvent: { action: 'bash', metadata: { command } },
+    assignment: 'review',
+    workspaceFolder: brokerWorkspace,
+  });
+  assert.equal(action.decision, 'ask_user', `off must not auto-approve outside the workspace: ${command}`);
+  assert.notEqual(action.reply, 'once', `off must not auto-approve outside the workspace: ${command}`);
+}
+
+// Globs, path spellings, env dumps and shell expansion never get an auto-once.
+for (const command of [
+  'cat data/conf*.json',
+  'cat data/*.json',
+  'cat data/./config.json',
+  'git show HEAD:data/config.json',
+  'env',
+  'env | head',
+  'cat $HOME/notes.txt',
+  'cat $HOME/../x',
+  'cd ${HOME}/.. && ls',
+  'cat ~root/x',
+  'env|head',
+  'printenv|head',
+  'git status; export',
+  "cat 'data/'config.json",
+  'cat data/"config.json"',
+  'cat data/config\\.json',
+  'cat DATA/*.json',
+  'head {data/config.json,}',
+  'cat data/{config,x}.json',
+  'cat data/mcp-tx.json',
+  'cat data/vapid-keys.json',
+  'rg foo data/',
+  'grep -rn key ./data',
+  'ls ~',
+  'cd data && cat config.json',
+  'cd data&&head -n 40 config.json',
+]) {
+  for (const mode of ['off', 'local_reads']) {
+    const action = resolveOpenCodeApprovalAction({
+      mode,
+      sdkMode: 'agent',
+      permissionEvent: { action: 'bash', metadata: { command } },
+      assignment: 'review',
+      workspaceFolder: brokerWorkspace,
+    });
+    assert.notEqual(action.reply, 'once', `${mode} must not auto-approve: ${command}`);
+  }
+}
+
+for (const command of [
+  'git log --oneline -5',
+  'ls data/',
+  'cat testdata/config.json',
+  'git diff main..HEAD',
+  'rg data lib/',
+  'grep -rn "a..b" lib/',
+  "rg -n 'foo$' lib/",
+  'rg -n env lib/',
+  'rg -n data app_front/data/',
+]) {
+  const action = resolveOpenCodeApprovalAction({
+    mode: 'off',
+    sdkMode: 'agent',
+    permissionEvent: { action: 'bash', metadata: { command } },
+    assignment: 'review',
+    workspaceFolder: brokerWorkspace,
+  });
+  assert.equal(action.reply, 'once', `off review must still auto-approve: ${command}`);
+}
+
 console.log('opencode-permission.test.js OK');

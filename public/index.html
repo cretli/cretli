@@ -336,6 +336,7 @@
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codebuddy" role="tab" aria-selected="false" data-i18n="settings.harnessCodeBuddy">CodeBuddy</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-deepseek" role="tab" aria-selected="false" data-i18n="settings.harnessDeepSeek">DeepSeek</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-qwen" role="tab" aria-selected="false" data-i18n="settings.harnessQwen">Qwen</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-claude" role="tab" aria-selected="false" data-i18n="settings.harnessClaude">Claude</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codex" role="tab" aria-selected="false" data-i18n="settings.harnessCodex">Codex</button>
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-interface-tabs" id="settings-interface-tabs" role="tablist" hidden data-i18n-aria="settings.tabsInterface" aria-label="App">
@@ -507,7 +508,7 @@
       </section>
       <section class="settings-section" data-settings-tab="harness-opencode" id="opencode-approval-broker-settings">
         <h3 class="settings-section-title" data-i18n="settings.approvalBrokerTitle">Approval Broker (OpenCode only)</h3>
-        <p class="settings-hint" data-i18n="settings.approvalBrokerScopeHint">Currently only the OpenCode permission flow is supported. Every other harness keeps its manual approval cards.</p>
+        <p class="settings-hint" data-i18n="settings.approvalBrokerScopeHint">Only the OpenCode permission flow goes through the broker. Codex and CodeBuddy in Agent mode never ask for approvals at all; other harness flows keep their manual cards.</p>
         <p class="settings-hint approval-broker-warning" data-i18n="settings.approvalBrokerSafetyHint">The broker never auto-approves writes, edits, network access, secrets or git writes. The external advisor receives only a redacted permission tuple (request id, action, command, file names, risk and categories) and your provider may retain it.</p>
         <div class="cr-field">
           <label class="cr-field-label" data-i18n="settings.approvalBrokerModeLabel">Broker mode</label>
@@ -524,17 +525,26 @@
           </cr-checkbox>
           <p class="settings-hint" data-i18n="settings.approvalAdvisorEnabledHint">Disabled by default and only active in local_reads mode; no request is sent while disabled.</p>
         </div>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.approvalAdvisorProtocolLabel">Protocol</label>
+          <cr-bar-select id="approval-advisor-protocol-select" data-i18n-aria="settings.approvalAdvisorProtocolLabel"></cr-bar-select>
+          <p class="settings-hint" data-i18n="settings.approvalAdvisorProtocolHint">openai_chat — an OpenAI-compatible /chat/completions API. systemone — the System One protocol used by Jev/Laya (for example https://api.typesafe.ai/v1/systemone with model jev-latest).</p>
+        </div>
         <div class="cr-field" id="approval-advisor-endpoint-field">
           <label class="cr-field-label" data-i18n="settings.approvalAdvisorEndpointLabel">HTTPS endpoint</label>
           <cr-bar-input id="approval-advisor-endpoint-input" type="url" autocomplete="off" placeholder="https://provider.example/v1/chat/completions" data-i18n-placeholder="settings.approvalAdvisorEndpointPlaceholder" data-i18n-aria="settings.approvalAdvisorEndpointLabel"></cr-bar-input>
           <p id="approval-advisor-endpoint-status" class="cr-status" role="status" aria-live="polite"></p>
-          <p class="settings-hint" data-i18n="settings.approvalAdvisorEndpointHint">A public HTTPS OpenAI-compatible /chat/completions endpoint. HTTP and private addresses are rejected by the server; the SSRF/DNS checks stay authoritative.</p>
+          <p class="settings-hint" data-i18n="settings.approvalAdvisorEndpointHint">A public HTTPS endpoint: an OpenAI-compatible /chat/completions API or a System One API. HTTP and private addresses are rejected by the server; the SSRF/DNS checks stay authoritative.</p>
         </div>
         <div class="cr-field">
           <label class="cr-field-label" data-i18n="settings.approvalAdvisorModelLabel">Model</label>
           <cr-bar-input id="approval-advisor-model-input" autocomplete="off" placeholder="provider-model" data-i18n-aria="settings.approvalAdvisorModelLabel"></cr-bar-input>
         </div>
         <div class="cr-row approval-broker-numbers">
+          <div class="cr-field">
+            <label class="cr-field-label" data-i18n="settings.approvalAdvisorMinProbabilityLabel">Min probability</label>
+            <cr-bar-input id="approval-advisor-min-probability-input" type="number" min="0.5" max="0.99" step="0.01" data-i18n-aria="settings.approvalAdvisorMinProbabilityLabel"></cr-bar-input>
+          </div>
           <div class="cr-field">
             <label class="cr-field-label" data-i18n="settings.approvalAdvisorTimeoutLabel">Timeout (ms)</label>
             <cr-bar-input id="approval-advisor-timeout-input" type="number" min="3000" max="8000" step="100" data-i18n-aria="settings.approvalAdvisorTimeoutLabel"></cr-bar-input>
@@ -544,7 +554,7 @@
             <cr-bar-input id="approval-advisor-quota-input" type="number" min="0" max="10000" step="1" data-i18n-aria="settings.approvalAdvisorQuotaLabel"></cr-bar-input>
           </div>
         </div>
-        <p class="settings-hint" data-i18n="settings.approvalAdvisorQuotaHint">Timeout is clamped to 3000–8000 ms. A daily quota of 0 disables network calls; otherwise 1–10000 requests per day.</p>
+        <p class="settings-hint" data-i18n="settings.approvalAdvisorQuotaHint">Timeout is clamped to 3000–8000 ms; the System One min probability is clamped to 0.5–0.99 (default 0.9). A daily quota of 0 disables network calls; otherwise 1–10000 requests per day.</p>
         <div class="cr-row">
           <cr-bar-button variant="primary" id="approval-advisor-save-btn" data-i18n="settings.approvalAdvisorSave">Save advisor</cr-bar-button>
           <span id="approval-advisor-save-status" class="cr-status" role="status" aria-live="polite"></span>
@@ -652,6 +662,55 @@
           </div>
         </div>
         <p id="qwen-harness-status" class="settings-hint" aria-live="polite"></p>
+      </section>
+      <section class="settings-section" data-settings-tab="harness-claude" id="claude-api-settings">
+        <h3 class="settings-section-title" data-i18n="settings.harnessClaudeBillingTitle">Claude billing</h3>
+        <p class="settings-hint" data-i18n="settings.harnessClaudeBillingHint">Claude Code plan uses the subscription login on this machine. An API key bills console.anthropic.com credits instead.</p>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.harnessClaudeAuthModeLabel">Billing</label>
+          <div class="cr-row">
+            <cr-bar-select id="claude-auth-mode-select"></cr-bar-select>
+            <span id="claude-auth-mode-save-status" class="cr-status"></span>
+          </div>
+        </div>
+        <p id="claude-subscription-status" class="settings-hint" aria-live="polite"></p>
+        <div class="cr-row">
+          <cr-bar-button variant="primary" id="claude-plan-login-btn" data-i18n="settings.harnessClaudePlanLogin">Sign in to Claude Code</cr-bar-button>
+          <cr-bar-button id="claude-plan-login-cancel-btn" data-i18n="common.cancel">Cancel</cr-bar-button>
+          <span id="claude-plan-login-status" class="cr-status"></span>
+        </div>
+        <div id="claude-plan-login-box" class="cr-card" hidden>
+          <p class="settings-hint" data-i18n="settings.harnessClaudePlanLoginHint">Open the link, approve the Claude Code plan, then paste the code shown on the page.</p>
+          <p><a id="claude-plan-login-url" href="#" target="_blank" rel="noopener noreferrer"></a></p>
+          <div class="cr-field">
+            <label class="cr-field-label" data-i18n="settings.harnessClaudePlanCodeLabel">Code</label>
+            <cr-bar-input id="claude-plan-login-code" type="text" autocomplete="off"></cr-bar-input>
+          </div>
+          <cr-bar-button variant="primary" id="claude-plan-login-submit-btn" data-i18n="settings.harnessClaudePlanCodeSave">Save code</cr-bar-button>
+        </div>
+        <h3 class="settings-section-title" data-i18n="settings.harnessClaudeApiTitle">Anthropic API</h3>
+        <p class="settings-hint">
+          <span data-i18n="settings.harnessClaudeHintPrefix">Key from</span>
+          <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">console.anthropic.com</a>
+          <span data-i18n="settings.harnessClaudeHintSuffix"> (API Keys). ANTHROPIC_API_KEY takes precedence. Optional package @anthropic-ai/claude-agent-sdk must also be installed.</span>
+        </p>
+        <p id="claude-api-key-source-hint" class="settings-hint" aria-live="polite"></p>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.harnessClaudeApiKeyLabel">New API key</label>
+          <cr-bar-input
+            id="claude-api-key-input"
+            type="password"
+            autocomplete="new-password"
+            placeholder="Paste your Anthropic API key and click Save"
+            data-i18n-placeholder="settings.harnessClaudeApiKeyPlaceholder"
+          ></cr-bar-input>
+          <div class="cr-row">
+            <cr-bar-button variant="primary" id="claude-api-key-save-btn" data-i18n="settings.harnessClaudeApiKeySave">Save key</cr-bar-button>
+            <cr-bar-button id="claude-api-key-clear-btn" data-i18n="settings.harnessClaudeApiKeyClear">Remove from settings</cr-bar-button>
+            <span id="claude-api-key-save-status" class="cr-status"></span>
+          </div>
+        </div>
+        <p id="claude-harness-status" class="settings-hint" aria-live="polite"></p>
       </section>
       <section class="settings-section" data-settings-tab="harness-codex" id="codex-api-settings">
         <h3 class="settings-section-title" data-i18n="settings.harnessCodexBillingTitle">Codex billing</h3>
@@ -1098,6 +1157,34 @@
         <div class="cr-row">
           <cr-bar-button variant="primary" id="qwen-model-settings-save-btn" data-i18n="settings.chatModelsSave">Save model list</cr-bar-button>
           <span id="qwen-model-settings-status" class="cr-status" aria-live="polite"></span>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="harness-claude">
+        <h3 class="settings-section-title" data-i18n="settings.harnessClaudeModelsTitle">Claude — chat models</h3>
+        <p class="settings-hint" data-i18n="settings.harnessClaudeModelsHint">
+          Anthropic model ids (Opus / Sonnet / Haiku). Check entries for the chat model picker when harness is Claude.
+        </p>
+        <p id="claude-model-settings-summary" class="settings-hint" aria-live="polite"></p>
+        <div class="chat-model-settings-toolbar">
+          <cr-bar-input
+            type="search"
+            id="claude-model-settings-search"
+            class="chat-model-settings-search"
+            placeholder="Search models…"
+            data-i18n-placeholder="settings.chatModelsSearchPlaceholder"
+            autocomplete="off"
+          ></cr-bar-input>
+          <label class="chat-model-settings-sort-wrap">
+            <span class="chat-model-settings-sort-label" data-i18n="settings.chatModelsSortLabel">Sort</span>
+            <cr-bar-select id="claude-model-settings-sort" class="chat-model-settings-sort" aria-label="Sort models"></cr-bar-select>
+          </label>
+          <cr-bar-button id="claude-model-settings-toggle-all-btn" data-i18n="settings.chatModelsToggleAll">Select / deselect all</cr-bar-button>
+          <cr-bar-button id="claude-model-settings-clear-btn" data-i18n="settings.chatModelsClear">Show all in chat</cr-bar-button>
+        </div>
+        <div id="claude-model-settings-list" class="chat-model-settings-list" role="group" aria-labelledby="claude-model-settings-summary"></div>
+        <div class="cr-row">
+          <cr-bar-button variant="primary" id="claude-model-settings-save-btn" data-i18n="settings.chatModelsSave">Save model list</cr-bar-button>
+          <span id="claude-model-settings-status" class="cr-status" aria-live="polite"></span>
         </div>
       </section>
       <section class="settings-section" data-settings-tab="harness-codex">
@@ -1980,35 +2067,42 @@
         <div class="chat-settings-backdrop"></div>
         <div class="chat-settings-dialog">
           <h2 id="chat-new-heading" class="chat-settings-title" data-i18n="chat.new">New chat</h2>
-          <div class="chat-settings-form">
-            <label for="chat-new-title-input" data-i18n="chat.name">Name</label>
-            <input type="text" id="chat-new-title-input" class="chat-settings-input" placeholder="Optional chat name" data-i18n-placeholder="chat.optionalNamePlaceholder" />
-            <div id="chat-new-folder-row">
+          <form id="chat-new-form" class="chat-settings-form" novalidate>
+            <div class="chat-new-field">
+              <label for="chat-new-title-input" data-i18n="chat.name">Name</label>
+              <input type="text" id="chat-new-title-input" class="chat-settings-input" placeholder="Optional chat name" data-i18n-placeholder="chat.optionalNamePlaceholder" />
+            </div>
+            <div id="chat-new-folder-row" class="chat-new-field">
               <label for="chat-new-folder-select" data-i18n="workspace.folder">Folder (terminal, agent)</label>
               <select id="chat-new-folder-select" class="chat-settings-select"></select>
             </div>
-            <label for="chat-new-harness-select">Harness</label>
-            <select id="chat-new-harness-select" class="chat-settings-select">
-              <option value="sdk">Cursor SDK</option>
-              <option value="openrouter">OpenRouter</option>
-              <option value="opencode">OpenCode</option>
-              <option value="codebuddy">CodeBuddy</option>
-              <option value="deepseek">DeepSeek</option>
-              <option value="qwen">Qwen</option>
-              <option value="codex">Codex</option>
-            </select>
-            <label for="chat-new-model-select">Model</label>
-            <select id="chat-new-model-select" class="chat-settings-select"></select>
+            <div class="chat-new-field">
+              <label for="chat-new-harness-select" data-i18n="chat.harnessLabel">Harness</label>
+              <select id="chat-new-harness-select" class="chat-settings-select">
+                <option value="sdk">Cursor SDK</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="opencode">OpenCode</option>
+                <option value="codebuddy">CodeBuddy</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="qwen">Qwen</option>
+                <option value="claude">Claude</option>
+                <option value="codex">Codex</option>
+              </select>
+            </div>
+            <div class="chat-new-field">
+              <label for="chat-new-model-select" data-i18n="chat.modelLabel">Model</label>
+              <select id="chat-new-model-select" class="chat-settings-select"></select>
+            </div>
             <div class="chat-new-favorite-preset-row">
               <label for="chat-new-favorite-preset-trigger" data-i18n="chat.favoritePresetLabel">Favorite setup</label>
               <div class="chat-new-favorite-preset-controls">
-                <button type="button" id="chat-new-favorite-preset-trigger" class="chat-new-favorite-preset-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="chat-new-favorite-preset-modal">
+                <button type="button" id="chat-new-favorite-preset-trigger" class="chat-new-favorite-preset-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="chat-new-favorite-preset-modal" aria-describedby="chat-new-favorite-preset-hint">
                   <span id="chat-new-favorite-preset-trigger-label" class="chat-new-favorite-preset-trigger-label">Select a favorite setup</span>
                   <span class="mdi mdi-chevron-down chat-new-favorite-preset-trigger-arrow" aria-hidden="true"></span>
                 </button>
-                <div id="chat-new-favorite-preset-modal" class="chat-list-modal chat-new-favorite-preset-modal" role="dialog" aria-label="Favorite setups" hidden>
+                <div id="chat-new-favorite-preset-modal" class="chat-list-modal chat-new-favorite-preset-modal" hidden>
                   <div class="chat-list-panel">
-                    <ul id="chat-new-favorite-preset-items" class="chat-list-items" role="listbox"></ul>
+                    <ul id="chat-new-favorite-preset-items" class="chat-list-items" role="listbox" aria-label="Favorite setups" data-i18n-aria="chat.favoritePresetAria"></ul>
                   </div>
                 </div>
                 <button type="button" id="chat-new-favorite-preset-toggle" class="chat-new-favorite-preset-toggle" aria-pressed="false" aria-label="Add current setup to favorites" title="Add current setup to favorites">
@@ -2017,11 +2111,11 @@
               </div>
               <p id="chat-new-favorite-preset-hint" class="chat-settings-hint-inline"></p>
             </div>
-            <p id="chat-new-sdk-hint" class="chat-settings-hint-inline chat-new-sdk-hint" hidden></p>
-          </div>
+            <p id="chat-new-sdk-hint" class="chat-settings-hint-inline chat-new-sdk-hint" aria-live="polite" hidden></p>
+          </form>
           <div class="chat-settings-actions">
             <button type="button" id="chat-new-cancel" class="chat-settings-btn-secondary" data-i18n="chat.cancel">Cancel</button>
-            <button type="button" id="chat-new-create" class="chat-settings-btn-primary" data-i18n="chat.create">Create chat</button>
+            <button type="submit" id="chat-new-create" class="chat-settings-btn-primary" form="chat-new-form" data-i18n="chat.create">Create chat</button>
           </div>
         </div>
       </div>

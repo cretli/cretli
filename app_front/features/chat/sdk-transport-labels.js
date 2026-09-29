@@ -9,15 +9,16 @@ const HELLO_TRANSPORTS = new Set([
   'deepseek',
   'codex',
   'qwen',
+  'claude',
 ]);
 
 /**
  * @param {unknown} transport
- * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen'}
+ * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen' | 'claude'}
  */
 export function normalizeHarnessTransport(transport) {
   const raw = typeof transport === 'string' ? transport.trim().toLowerCase() : '';
-  if (raw === 'openrouter' || raw === 'opencode' || raw === 'codebuddy' || raw === 'deepseek' || raw === 'codex' || raw === 'qwen') return raw;
+  if (raw === 'openrouter' || raw === 'opencode' || raw === 'codebuddy' || raw === 'deepseek' || raw === 'codex' || raw === 'qwen' || raw === 'claude') return raw;
   return 'sdk';
 }
 
@@ -42,6 +43,7 @@ export function resolveHarnessDisplayLabel(transport) {
   if (normalized === 'deepseek') return 'DeepSeek';
   if (normalized === 'codex') return 'Codex';
   if (normalized === 'qwen') return 'Qwen';
+  if (normalized === 'claude') return 'Claude';
   return 'SDK';
 }
 
@@ -87,6 +89,9 @@ export function buildHarnessLaunchLabel(input) {
   }
   if (transport === 'qwen') {
     return `Qwen · ${modeLabel} · ${sessionLabel}`;
+  }
+  if (transport === 'claude') {
+    return `Claude · ${modeLabel} · ${sessionLabel}`;
   }
   return `@cursor/sdk · ${modeLabel} · ${sessionLabel}`;
 }

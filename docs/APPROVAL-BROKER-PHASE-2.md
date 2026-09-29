@@ -16,17 +16,31 @@ does not host a model and does not use a Cretli harness as an advisor.
 
 ## Provider contract
 
-The configured endpoint must be a public HTTPS OpenAI-compatible
-`/chat/completions` endpoint. Requests are single, non-streaming JSON requests
-without tools. The request contains only a redacted permission tuple: request
+Two wire protocols are supported, selected by `approvalBroker.advisor.protocol`:
+
+- `openai_chat` (default) — a public HTTPS OpenAI-compatible
+  `/chat/completions` endpoint. Requests are single, non-streaming JSON requests
+  without tools and ask the model to answer with a structured decision object.
+- `systemone` — the System One protocol used by Jev (TypeSafe AI) and Laya
+  (Convai). The request is `{ model?, state, questions: { safe_read: { type:
+  "noul", instructions } } }`, where `state` is the same redacted tuple and
+  `model` is omitted when empty so the server uses its default. The answer is
+  accepted only from `answers.safe_read` when `type` is `noul` and `noul` is a
+  real number in `[0, 1]`; strings are never coerced, values are never clamped
+  and Laya extra fields (`routing`, `action`, `confidence`) are ignored. The
+  answer becomes `allow` only when `noul >= approvalBroker.advisor.minProbability`
+  (default 0.9, clamped to 0.5–0.99).
+
+In both protocols the request contains only a redacted permission tuple: request
 ID, permission, command, resource basenames, risk and categories. It never
 contains cwd, chat history, diffs, the full workspace or an API key.
 
 The response is accepted only as structured JSON. `allow` may produce one
 OpenCode `once` reply if the request is still pending. `ask_user`, `deny`, bad
-JSON, timeout, quota exhaustion, HTTP/429, transport errors and configuration
-errors all keep the human approval card. The advisor never sends `always` or
-`reject`, and there is no retry or provider failover.
+JSON, a malformed System One answer, timeout, quota exhaustion, HTTP/429,
+transport errors and configuration errors all keep the human approval card. The
+advisor never sends `always` or `reject`, and there is no retry or provider
+failover.
 
 ## Secrets and endpoint safety
 
@@ -50,14 +64,21 @@ The settings shape is:
     "mode": "local_reads",
     "advisor": {
       "enabled": true,
-      "baseUrl": "https://provider.example/v1/chat/completions",
-      "model": "provider-model",
+      "protocol": "systemone",
+      "baseUrl": "https://api.typesafe.ai/v1/systemone",
+      "model": "jev-latest",
+      "minProbability": 0.9,
       "timeoutMs": 5000,
       "dailyQuota": 100
     }
   }
 }
 ```
+
+A System One preset is only a hint in the settings panel: Jev at
+`https://api.typesafe.ai/v1/systemone` with model `jev-latest`. `minProbability`
+applies to `systemone` only and is clamped to 0.5–0.99 (a non-number falls back
+to 0.9). An empty `model` is allowed for `systemone` but not for `openai_chat`.
 
 The stored key is write-only through settings PATCH and can be removed with
 `clearApprovalAdvisorApiKey`. Environment configuration takes precedence.
@@ -69,8 +90,9 @@ advisor request begins. A human reply claims the `requestId` guard first and
 wins over a late model response. A late or failed advisor response leaves the
 run in `waiting_for_input`; it is not converted to `adapter_incomplete`.
 
-Audit records provider host, model, latency, usage/cost when supplied, the raw
-advisor decision, final decision and a classified error. Audit text is
+Audit records provider host, protocol, model, latency, usage/cost when supplied,
+the raw advisor decision, final decision and a classified error. The advisor
+policy version is `advisor-external-2` (System One support). Audit text is
 redacted and stored under the existing approval audit directory.
 
 Phase 2 is intentionally opt-in and should first be evaluated in a controlled

@@ -9,6 +9,7 @@ import {
 } from '../lib/persist/todos-persist.js';
 import { readChatPlanFile, writeChatPlanFile } from '../lib/chat-plan-persist.js';
 import {
+  ensureLinkedTodoForPlan,
   persistTodoImplementationSummary,
   persistTodoPlan,
   readCurrentRunAssistantText,
@@ -270,6 +271,29 @@ runCase('updateTodo: plan merge keeps previous markdown', () => {
   const item = loadTodosData(dataDir, project).items[0];
   assert.equal(item.plan.markdown, 'Original plan');
   assert.ok(item.plan.approvedAt);
+});
+
+runCase('ensureLinkedTodoForPlan: returns the todo created by addTodo', () => {
+  const dataDir = path.join(tmpRoot, 'ensure1');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'ensure1proj');
+  mkdirSync(project, { recursive: true });
+  addTodo(dataDir, project, { title: 'Pre-existing item' });
+  const todoId = ensureLinkedTodoForPlan({
+    dataDir,
+    cwd: project,
+    chatId: 'chat-ensure-1',
+    title: 'Fresh plan todo',
+  });
+  assert.ok(todoId);
+  const items = loadTodosData(dataDir, project).items;
+  assert.equal(items.length, 2);
+  const created = items.find((row) => row.id === todoId);
+  assert.equal(created.title, 'Fresh plan todo');
+  assert.equal(created.status, 'ready');
+  // The id must come from the addTodo return value, not items[0] guessing.
+  const preExisting = items.find((row) => row.title === 'Pre-existing item');
+  assert.notEqual(todoId, preExisting.id);
 });
 
 try {

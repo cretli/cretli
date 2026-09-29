@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import {
   addTodo,
   deleteTodo,
+  hashTodoCreateArgs,
   loadTodosData,
   TODOS_MAX_ITEMS,
   updateTodo,
@@ -13,14 +14,25 @@ import {
 
 let failed = 0;
 
+/** @type {Promise<void>[]} */
+const pendingCases = [];
+
+function reportFailure(name, err) {
+  failed += 1;
+  console.error('FAIL:', name);
+  console.error(err && err.stack ? err.stack : String(err));
+}
+
 function runCase(name, fn) {
   try {
-    fn();
+    const result = fn();
+    if (result && typeof result.then === 'function') {
+      pendingCases.push(result.then(() => console.log('OK:', name), (err) => reportFailure(name, err)));
+      return;
+    }
     console.log('OK:', name);
   } catch (err) {
-    failed += 1;
-    console.error('FAIL:', name);
-    console.error(err && err.stack ? err.stack : String(err));
+    reportFailure(name, err);
   }
 }
 
@@ -37,7 +49,7 @@ runCase('loadTodosData: empty dir', () => {
   const project = path.join(tmpRoot, 'd1proj');
   mkdirSync(project, { recursive: true });
   const doc = loadTodosData(dataDir, project);
-  assert.equal(doc.version, 2);
+  assert.equal(doc.version, 3);
   assert.ok(Array.isArray(doc.items));
   assert.equal(doc.items.length, 0);
 });
@@ -181,6 +193,413 @@ runCase('item limit', () => {
   }
   assert.throws(() => addTodo(dataDir, project, { title: 'overflow' }), (e) => e.code === 'LIMIT');
 });
+
+runCase('migration v2 -> v3: roots get siblingIndex from array order, missing parent becomes root', () => {
+  const dataDir = path.join(tmpRoot, 'mig');
+  mkdirSync(path.join(dataDir, 'todos'), { recursive: true });
+  const project = path.join(tmpRoot, 'migproj');
+  mkdirSync(project, { recursive: true });
+  const key = workspaceKeyFromCwd(project);
+  assert.ok(key);
+  writeFileSync(path.join(dataDir, 'todos', `${key}.json`), JSON.stringify({
+    version: 2,
+    updatedAt: '2024-01-01T00:00:00.000Z',
+    items: [
+      { id: 't1', title: 'One', status: 'idea', createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z' },
+      { id: 't2', title: 'Two', status: 'idea', parentId: 'missing-parent', createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z' },
+      { id: 't3', title: 'Three', status: 'idea', createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z' },
+    ],
+    idempotency: {},
+  }), 'utf8');
+  const doc = loadTodosData(dataDir, project);
+  assert.equal(doc.version, 3);
+  assert.equal(doc.items.length, 3);
+  const byTitle = new Map(doc.items.map((row) => [row.title, row]));
+  assert.equal(byTitle.get('One').siblingIndex, 0);
+  assert.equal(byTitle.get('Two').siblingIndex, 1);
+  assert.equal(byTitle.get('Two').parentId, undefined);
+  assert.equal(byTitle.get('Three').siblingIndex, 2);
+});
+
+runCase('saved file writes version 3', () => {
+  const dataDir = path.join(tmpRoot, 'v3');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'v3proj');
+  mkdirSync(project, { recursive: true });
+  addTodo(dataDir, project, { title: 'Versioned' });
+  const key = workspaceKeyFromCwd(project);
+  const raw = JSON.parse(readFileSync(path.join(dataDir, 'todos', `${key}.json`), 'utf8'));
+  assert.equal(raw.version, 3);
+});
+
+runCase('loadTodosData: normalizes tree fields and drops invalid ones', () => {
+  const dataDir = path.join(tmpRoot, 'norm');
+  mkdirSync(path.join(dataDir, 'todos'), { recursive: true });
+  const project = path.join(tmpRoot, 'normproj');
+  mkdirSync(project, { recursive: true });
+  const key = workspaceKeyFromCwd(project);
+  writeFileSync(path.join(dataDir, 'todos', `${key}.json`), JSON.stringify({
+    version: 3,
+    updatedAt: '2024-01-01T00:00:00.000Z',
+    items: [
+      {
+        id: 'n1', title: 'Good', status: 'idea',
+        assignee: { harness: 'opencode', model: 'glm-x', role: 'implement' },
+        runMode: 'sequential',
+        orchestratorChatId: 'chat-orch',
+        chatId: 'chat-run',
+        createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'n2', title: 'BadHarness', status: 'idea',
+        assignee: { harness: 'banana', role: 'plan' },
+        runMode: 'weird',
+        siblingIndex: -3,
+        createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'n3', title: 'BadRole', status: 'idea',
+        assignee: { harness: 'opencode', role: 'wrench' },
+        createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z',
+      },
+    ],
+    idempotency: {},
+  }), 'utf8');
+  const doc = loadTodosData(dataDir, project);
+  const byTitle = new Map(doc.items.map((row) => [row.title, row]));
+  const good = byTitle.get('Good');
+  assert.deepEqual(good.assignee, { harness: 'opencode', model: 'glm-x', role: 'implement' });
+  assert.equal(good.runMode, 'sequential');
+  assert.equal(good.orchestratorChatId, 'chat-orch');
+  assert.equal(good.chatId, 'chat-run');
+  const badHarness = byTitle.get('BadHarness');
+  assert.equal(badHarness.assignee, undefined);
+  assert.equal(badHarness.runMode, undefined);
+  const badRole = byTitle.get('BadRole');
+  assert.equal(badRole.assignee, undefined);
+});
+
+runCase('addTodo: child with parentId and default sibling position', () => {
+  const dataDir = path.join(tmpRoot, 'child');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'childproj');
+  mkdirSync(project, { recursive: true });
+  const root = addTodo(dataDir, project, { title: 'Root' }).item;
+  const first = addTodo(dataDir, project, { title: 'First', parentId: root.id }).item;
+  const second = addTodo(dataDir, project, { title: 'Second', parentId: root.id }).item;
+  const doc = loadTodosData(dataDir, project);
+  const byTitle = new Map(doc.items.map((row) => [row.title, row]));
+  assert.equal(byTitle.get('First').parentId, root.id);
+  assert.equal(byTitle.get('First').siblingIndex, 0);
+  assert.equal(byTitle.get('Second').siblingIndex, 1);
+  assert.equal(byTitle.get('Root').siblingIndex, 0);
+  assert.equal(first.parentId, root.id);
+  assert.equal(second.parentId, root.id);
+});
+
+runCase('addTodo: missing parent rejects NOT_FOUND', () => {
+  const dataDir = path.join(tmpRoot, 'nopar');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'noparproj');
+  mkdirSync(project, { recursive: true });
+  assert.throws(
+    () => addTodo(dataDir, project, { title: 'Orphan', parentId: 'nope' }),
+    (e) => e.code === 'NOT_FOUND'
+  );
+});
+
+runCase('depth limit: chain of 6 ok, 7th rejected', () => {
+  const dataDir = path.join(tmpRoot, 'depth');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'depthproj');
+  mkdirSync(project, { recursive: true });
+  let parent = addTodo(dataDir, project, { title: 'L1' }).item;
+  for (let i = 2; i <= 6; i += 1) {
+    parent = addTodo(dataDir, project, { title: `L${i}`, parentId: parent.id }).item;
+  }
+  assert.throws(
+    () => addTodo(dataDir, project, { title: 'L7', parentId: parent.id }),
+    (e) => e.code === 'VALIDATION' && /depth/i.test(e.message)
+  );
+});
+
+runCase('updateTodo: cycle rejected', () => {
+  const dataDir = path.join(tmpRoot, 'cyc');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'cycproj');
+  mkdirSync(project, { recursive: true });
+  const a = addTodo(dataDir, project, { title: 'A' }).item;
+  const b = addTodo(dataDir, project, { title: 'B', parentId: a.id }).item;
+  assert.throws(
+    () => updateTodo(dataDir, project, a.id, { parentId: b.id }),
+    (e) => e.code === 'VALIDATION'
+  );
+  assert.throws(
+    () => updateTodo(dataDir, project, a.id, { parentId: a.id }),
+    (e) => e.code === 'VALIDATION'
+  );
+});
+
+runCase('updateTodo: move renumbers old and new sibling groups', () => {
+  const dataDir = path.join(tmpRoot, 'move');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'moveproj');
+  mkdirSync(project, { recursive: true });
+  const r1 = addTodo(dataDir, project, { title: 'R1' }).item;
+  const r2 = addTodo(dataDir, project, { title: 'R2' }).item;
+  addTodo(dataDir, project, { title: 'A', parentId: r1.id });
+  const b = addTodo(dataDir, project, { title: 'B', parentId: r1.id }).item;
+  addTodo(dataDir, project, { title: 'C', parentId: r2.id });
+  addTodo(dataDir, project, { title: 'D', parentId: r2.id });
+
+  // Move B under R2 at the front of the group.
+  updateTodo(dataDir, project, b.id, { parentId: r2.id, siblingIndex: 0 });
+  let doc = loadTodosData(dataDir, project);
+  const group = (parentId) => doc.items
+    .filter((row) => row.parentId === parentId)
+    .sort((x, y) => x.siblingIndex - y.siblingIndex)
+    .map((row) => row.title);
+  assert.deepEqual(group(r1.id), ['A']);
+  assert.deepEqual(group(r2.id), ['B', 'C', 'D']);
+  const indexes = doc.items.filter((row) => row.parentId === r2.id).map((row) => row.siblingIndex);
+  assert.deepEqual(indexes.sort(), [0, 1, 2]);
+
+  // Move B back to root: both groups renumber again.
+  updateTodo(dataDir, project, b.id, { parentId: null });
+  doc = loadTodosData(dataDir, project);
+  const moved = doc.items.find((row) => row.id === b.id);
+  assert.equal(moved.parentId, undefined);
+  const r1Children = doc.items.filter((row) => row.parentId === r1.id).map((row) => row.siblingIndex);
+  assert.deepEqual(r1Children.sort(), [0]);
+});
+
+runCase('deleteTodo removes the whole subtree and returns all removed items', () => {
+  const dataDir = path.join(tmpRoot, 'subtree');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'subtreeproj');
+  mkdirSync(project, { recursive: true });
+  const root = addTodo(dataDir, project, { title: 'Root' }).item;
+  const mid = addTodo(dataDir, project, { title: 'Mid', parentId: root.id, chatId: 'chat-mid' }).item;
+  const leaf = addTodo(dataDir, project, { title: 'Leaf', parentId: mid.id, chatId: 'chat-leaf' }).item;
+  addTodo(dataDir, project, { title: 'Other' });
+  const { doc, removed, removedItems } = deleteTodo(dataDir, project, root.id);
+  assert.equal(removed.id, root.id);
+  const removedIds = removedItems.map((row) => row.id).sort();
+  assert.deepEqual(removedIds, [root.id, mid.id, leaf.id].sort());
+  const remaining = doc.items.map((row) => row.title);
+  assert.deepEqual(remaining, ['Other']);
+});
+
+runCase('hashTodoCreateArgs: parentId and assignee change the hash', () => {
+  const base = { title: 'T', body: 'B', status: 'idea' };
+  const rootHash = hashTodoCreateArgs(base);
+  assert.notEqual(hashTodoCreateArgs({ ...base, parentId: 'p1' }), rootHash);
+  assert.notEqual(
+    hashTodoCreateArgs({ ...base, assignee: { harness: 'opencode', role: 'implement' } }),
+    rootHash
+  );
+  assert.notEqual(
+    hashTodoCreateArgs({ ...base, assignee: { harness: 'opencode', role: 'review' } }),
+    hashTodoCreateArgs({ ...base, assignee: { harness: 'opencode', role: 'implement' } })
+  );
+  assert.equal(hashTodoCreateArgs({ ...base, parentId: undefined }), rootHash);
+});
+
+runCase('idempotency replay detects parentId mismatch as CONFLICT', () => {
+  const dataDir = path.join(tmpRoot, 'idem');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'idemproj');
+  mkdirSync(project, { recursive: true });
+  const root = addTodo(dataDir, project, { title: 'Root' }).item;
+  addTodo(dataDir, project, { title: 'Kid', idempotencyKey: 'k1' });
+  assert.throws(
+    () => addTodo(dataDir, project, { title: 'Kid', idempotencyKey: 'k1', parentId: root.id }),
+    (e) => e.code === 'CONFLICT'
+  );
+});
+
+runCase('plan approval resets when markdown changes', () => {
+  const dataDir = path.join(tmpRoot, 'planreset');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'planresetproj');
+  mkdirSync(project, { recursive: true });
+  addTodo(dataDir, project, { title: 'Approval' });
+  const id = loadTodosData(dataDir, project).items[0].id;
+  updateTodo(dataDir, project, id, { plan: { markdown: 'v1' } });
+  updateTodo(dataDir, project, id, { plan: { approvedAt: '2024-01-01T00:00:00.000Z' } });
+  let item = loadTodosData(dataDir, project).items[0];
+  assert.ok(item.plan.approvedAt);
+
+  updateTodo(dataDir, project, id, { plan: { markdown: 'v2 different' } });
+  item = loadTodosData(dataDir, project).items[0];
+  assert.equal(item.plan.approvedAt, undefined);
+
+  // Re-approve, then edit with identical markdown: approval survives.
+  updateTodo(dataDir, project, id, { plan: { approvedAt: '2024-01-02T00:00:00.000Z' } });
+  updateTodo(dataDir, project, id, { plan: { markdown: 'v2 different' } });
+  item = loadTodosData(dataDir, project).items[0];
+  assert.equal(item.plan.approvedAt, '2024-01-02T00:00:00.000Z');
+});
+
+runCase('strict validation: siblingIndex, assignee, runMode', () => {
+  const dataDir = path.join(tmpRoot, 'strict');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'strictproj');
+  mkdirSync(project, { recursive: true });
+  assert.throws(() => addTodo(dataDir, project, { title: 'X', siblingIndex: 'abc' }), (e) => e.code === 'VALIDATION');
+  assert.throws(() => addTodo(dataDir, project, { title: 'X', siblingIndex: -1 }), (e) => e.code === 'VALIDATION');
+  assert.throws(() => addTodo(dataDir, project, { title: 'X', siblingIndex: 1.5 }), (e) => e.code === 'VALIDATION');
+  assert.throws(
+    () => addTodo(dataDir, project, { title: 'X', assignee: { harness: 'banana', role: 'plan' } }),
+    (e) => e.code === 'VALIDATION'
+  );
+  assert.throws(() => addTodo(dataDir, project, { title: 'X', runMode: 'chaotic' }), (e) => e.code === 'VALIDATION');
+  const ok = addTodo(dataDir, project, {
+    title: 'X',
+    assignee: { harness: 'opencode', model: 'm', role: 'review' },
+    runMode: 'sequential',
+    orchestratorChatId: 'chat-orch-1',
+  }).item;
+  assert.equal(ok.runMode, 'sequential');
+  assert.equal(ok.orchestratorChatId, 'chat-orch-1');
+  const cleared = updateTodo(dataDir, project, ok.id, { runMode: null, assignee: null });
+  const clearedItem = cleared.items.find((row) => row.id === ok.id);
+  assert.equal(clearedItem.runMode, undefined);
+  assert.equal(clearedItem.assignee, undefined);
+});
+
+runCase('updateTodo: undefined keys (route-style partial patch) keep tree fields and position', () => {
+  const dataDir = path.join(tmpRoot, 'partial');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'partialproj');
+  mkdirSync(project, { recursive: true });
+  const root = addTodo(dataDir, project, { title: 'Root' }).item;
+  const first = addTodo(dataDir, project, { title: 'First', parentId: root.id }).item;
+  addTodo(dataDir, project, { title: 'Second', parentId: root.id });
+  updateTodo(dataDir, project, first.id, {
+    chatId: 'chat-1',
+    assignee: { harness: 'opencode', model: 'm', role: 'implement' },
+  });
+  const untouched = {
+    chatId: undefined,
+    parentId: undefined,
+    siblingIndex: undefined,
+    assignee: undefined,
+    runMode: undefined,
+    orchestratorChatId: undefined,
+  };
+  for (const patch of [{ title: 'First 2' }, { status: 'doing' }, { body: 'notes' }]) {
+    updateTodo(dataDir, project, first.id, { ...untouched, ...patch });
+  }
+  const actual = loadTodosData(dataDir, project).items.find((row) => row.id === first.id);
+  assert.equal(actual.parentId, root.id);
+  assert.equal(actual.chatId, 'chat-1');
+  assert.equal(actual.assignee.harness, 'opencode');
+  assert.equal(actual.siblingIndex, 0);
+  assert.equal(actual.title, 'First 2');
+});
+
+runCase('updateTodo: siblingIndex move inside the same group', () => {
+  const dataDir = path.join(tmpRoot, 'samegroup');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'samegroupproj');
+  mkdirSync(project, { recursive: true });
+  const root = addTodo(dataDir, project, { title: 'Root' }).item;
+  const ids = {};
+  for (const title of ['A', 'B', 'C']) {
+    ids[title] = addTodo(dataDir, project, { title, parentId: root.id }).item.id;
+  }
+  const order = () => loadTodosData(dataDir, project).items
+    .filter((row) => row.parentId === root.id)
+    .sort((a, b) => a.siblingIndex - b.siblingIndex)
+    .map((row) => row.title)
+    .join(',');
+  updateTodo(dataDir, project, ids.B, { siblingIndex: 2 });
+  assert.equal(order(), 'A,C,B');
+  updateTodo(dataDir, project, ids.B, { siblingIndex: 0 });
+  assert.equal(order(), 'B,A,C');
+  updateTodo(dataDir, project, ids.A, { parentId: root.id });
+  assert.equal(order(), 'B,A,C');
+});
+
+runCase('updateTodo: assignee with empty harness clears it (MCP clear form)', () => {
+  const dataDir = path.join(tmpRoot, 'clearassignee');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'clearassigneeproj');
+  mkdirSync(project, { recursive: true });
+  const item = addTodo(dataDir, project, {
+    title: 'Assigned',
+    assignee: { harness: 'opencode', role: 'implement' },
+  }).item;
+  updateTodo(dataDir, project, item.id, { assignee: { harness: '', role: '' } });
+  const actual = loadTodosData(dataDir, project).items.find((row) => row.id === item.id);
+  assert.equal(actual.assignee, undefined);
+});
+
+runCase('updateTodo: explicit null parentId moves to root', () => {
+  const dataDir = path.join(tmpRoot, 'nullparent');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'nullparentproj');
+  mkdirSync(project, { recursive: true });
+  const root = addTodo(dataDir, project, { title: 'Root' }).item;
+  const child = addTodo(dataDir, project, { title: 'Child', parentId: root.id }).item;
+  updateTodo(dataDir, project, child.id, { parentId: null });
+  const actual = loadTodosData(dataDir, project).items.find((row) => row.id === child.id);
+  assert.equal(actual.parentId, undefined);
+});
+
+runCase('updateTodo: empty string parentId moves to root (MCP clear form)', () => {
+  const dataDir = path.join(tmpRoot, 'emptyparent');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'emptyparentproj');
+  mkdirSync(project, { recursive: true });
+  const root = addTodo(dataDir, project, { title: 'Root' }).item;
+  const child = addTodo(dataDir, project, { title: 'Child', parentId: root.id, runMode: 'sequential' }).item;
+  updateTodo(dataDir, project, child.id, { parentId: '', runMode: '' });
+  const actual = loadTodosData(dataDir, project).items.find((row) => row.id === child.id);
+  assert.equal(actual.parentId, undefined);
+  assert.equal(actual.runMode, undefined);
+});
+
+runCase('addTodo: idempotency replay with a different runMode or siblingIndex conflicts', () => {
+  const dataDir = path.join(tmpRoot, 'idemtree');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'idemtreeproj');
+  mkdirSync(project, { recursive: true });
+  addTodo(dataDir, project, { title: 'Node', idempotencyKey: 'k1', runMode: 'parallel' });
+  assert.throws(
+    () => addTodo(dataDir, project, { title: 'Node', idempotencyKey: 'k1', runMode: 'sequential' }),
+    (err) => err.code === 'CONFLICT',
+  );
+  addTodo(dataDir, project, { title: 'Other', idempotencyKey: 'k2' });
+  assert.throws(
+    () => addTodo(dataDir, project, { title: 'Other', idempotencyKey: 'k2', siblingIndex: 3 }),
+    (err) => err.code === 'CONFLICT',
+  );
+  const replay = addTodo(dataDir, project, { title: 'Node', idempotencyKey: 'k1', runMode: 'parallel' });
+  assert.equal(replay.replayed, true);
+});
+
+runCase('concurrent updates do not lose writes', async () => {
+  const dataDir = path.join(tmpRoot, 'concurrent');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'concurrentproj');
+  mkdirSync(project, { recursive: true });
+  const id = addTodo(dataDir, project, { title: 'Shared' }).item.id;
+  const JOBS = 25;
+  const jobs = Array.from({ length: JOBS }, (_, i) => Promise.resolve().then(() => {
+    updateTodo(dataDir, project, id, { appendChangelog: { kind: 'note', text: `note-${i}` } });
+  }));
+  await Promise.all(jobs);
+  const item = loadTodosData(dataDir, project).items[0];
+  const texts = item.changelog.map((entry) => entry.text);
+  for (let i = 0; i < JOBS; i += 1) {
+    assert.ok(texts.includes(`note-${i}`), `missing note-${i}`);
+  }
+  assert.equal(item.changelog.length, JOBS);
+});
+
+await Promise.all(pendingCases);
 
 try {
   rmSync(tmpRoot, { recursive: true, force: true });

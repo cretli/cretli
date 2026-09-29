@@ -83,6 +83,7 @@ export function maybeRecoverMissedSdkRunOutcome(chat, snapshot, options = {}) {
     && code !== 'qwen_quota'
     && code !== 'qwen_rate_limit'
     && code !== 'qwen_auth'
+    && code !== 'claude_error'
     && errorMessage !== failureDetail
   ) {
     chat._sdkRichView.appendError(errorMessage);

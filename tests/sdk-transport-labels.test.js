@@ -13,6 +13,7 @@ assert.equal(normalizeHarnessTransport('codebuddy'), 'codebuddy');
 assert.equal(normalizeHarnessTransport('deepseek'), 'deepseek');
 assert.equal(normalizeHarnessTransport('codex'), 'codex');
 assert.equal(normalizeHarnessTransport('qwen'), 'qwen');
+assert.equal(normalizeHarnessTransport('claude'), 'claude');
 assert.equal(normalizeHarnessTransport('unknown'), 'sdk');
 
 assert.equal(resolveHarnessDisplayLabel('sdk'), 'SDK');
@@ -22,6 +23,7 @@ assert.equal(resolveHarnessDisplayLabel('codebuddy'), 'CodeBuddy');
 assert.equal(resolveHarnessDisplayLabel('deepseek'), 'DeepSeek');
 assert.equal(resolveHarnessDisplayLabel('codex'), 'Codex');
 assert.equal(resolveHarnessDisplayLabel('qwen'), 'Qwen');
+assert.equal(resolveHarnessDisplayLabel('claude'), 'Claude');
 
 assert.equal(resolveHarnessModeLabel('sdk', 'plan'), 'Plan');
 assert.equal(resolveHarnessModeLabel('sdk', 'agent'), 'Agent');
@@ -88,6 +90,14 @@ assert.equal(
     sessionRef: '12345678',
   }),
   'Qwen · Plan · session 12345678…'
+);
+assert.equal(
+  buildHarnessLaunchLabel({
+    transport: 'claude',
+    mode: 'agent',
+    sessionRef: '12345678',
+  }),
+  'Claude · Agent · session 12345678…'
 );
 
 console.log('sdk-transport-labels.test.js OK');

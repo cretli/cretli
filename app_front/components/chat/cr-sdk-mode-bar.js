@@ -399,7 +399,7 @@ class CrSdkModeBar extends LitElement {
 
   normalizeBarHarness(value, fallback = '') {
     const raw = String(value || '').trim().toLowerCase();
-    if (raw === 'openrouter' || raw === 'opencode' || raw === 'codebuddy' || raw === 'deepseek' || raw === 'codex' || raw === 'qwen') return raw;
+    if (raw === 'openrouter' || raw === 'opencode' || raw === 'codebuddy' || raw === 'deepseek' || raw === 'codex' || raw === 'qwen' || raw === 'claude') return raw;
     if (raw === 'sdk') return 'sdk';
     return fallback;
   }
@@ -793,6 +793,7 @@ class CrSdkModeBar extends LitElement {
       { value: 'deepseek', label: 'DeepSeek' },
       { value: 'qwen', label: 'Qwen' },
       { value: 'codex', label: 'Codex' },
+      { value: 'claude', label: 'Claude' },
     ];
     const enabledIds = Array.isArray(this.enabledHarnesses) ? this.enabledHarnesses : null;
     const harnessById = new Map(allHarnessOptions.map((entry) => [entry.value, entry]));

@@ -91,11 +91,11 @@ import { buildDelegationCardModel } from '../../lib/delegation-card-model.js';
 import { isActiveDelegationStatus } from '../../lib/delegation-status.js';
 import { parseRelatedChatPayload } from '../../lib/chat-relation-payload.js';
 import {
-  compareViewOrderKeys,
   hasViewOrderKey,
   isSameViewOrderKey,
   resolveEventStreamId,
   resolveViewOrderKey,
+  shouldPlaceViewCardBefore,
   viewOrderIdentity,
 } from '../features/chat/chatHistoryViewOrder.js';
 import {
@@ -836,6 +836,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
   let lastStreamChild = null;
 
   let mdRaf = 0;
+  /** Host the pending animation frame will paint. A second Answer in the same frame must not be dropped. */
+  let mdScheduledHost = null;
   let copyTextCache = '';
   let copyTextDirty = true;
   function markCopyTextDirty() {
@@ -1035,10 +1037,23 @@ export function createSdkRichView(chat, mountEl, hooks) {
    */
   function scheduleMd(mdHost, raw) {
     mdHost.dataset.rawMd = raw;
+    // One shared frame used to paint only the first host. A second Answer
+    // created in the same turn kept an empty body.
+    if (mdScheduledHost && mdScheduledHost !== mdHost) {
+      const previous = mdScheduledHost;
+      mdScheduledHost = null;
+      if (mdRaf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(mdRaf);
+      mdRaf = 0;
+      flushMarkdown(previous, previous.dataset.rawMd || '', { diagrams: false });
+    }
     if (mdRaf) return;
+    mdScheduledHost = mdHost;
     mdRaf = requestAnimationFrame(() => {
       mdRaf = 0;
-      flushMarkdown(mdHost, mdHost.dataset.rawMd || '', { diagrams: false });
+      const host = mdScheduledHost;
+      mdScheduledHost = null;
+      if (!(host instanceof HTMLElement) || !host.isConnected) return;
+      flushMarkdown(host, host.dataset.rawMd || '', { diagrams: false });
     });
   }
 
@@ -1255,7 +1270,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
    */
   function readElementOrderKey(el) {
     if (!(el instanceof HTMLElement)) {
-      return { historySeq: 0, roomEventSeq: 0, eventStreamId: '' };
+      return { historySeq: 0, roomEventSeq: 0, eventStreamId: '', createdAt: '' };
     }
     const historySeq =
       Number(/** @type {any} */ (el).historySeq)
@@ -1265,11 +1280,20 @@ export function createSdkRichView(chat, mountEl, hooks) {
       || Number(el.dataset.mailboxHistorySeq)
       || 0;
     const roomEventSeq = Number(el.dataset.roomEventSeq) || 0;
-    return resolveViewOrderKey({
-      historySeq,
-      roomEventSeq,
-      eventStreamId: el.dataset.eventStreamId || '',
-    });
+    const propCreatedAt = /** @type {{ createdAt?: unknown }} */ (el).createdAt;
+    const timeEl = el.querySelector?.('time');
+    const timeValue = timeEl instanceof HTMLTimeElement ? timeEl.dateTime : '';
+    const createdAt = typeof propCreatedAt === 'string' && propCreatedAt.trim()
+      ? propCreatedAt.trim()
+      : (el.dataset.createdAt || timeValue || '').trim();
+    return {
+      ...resolveViewOrderKey({
+        historySeq,
+        roomEventSeq,
+        eventStreamId: el.dataset.eventStreamId || '',
+      }),
+      createdAt,
+    };
   }
 
   /**
@@ -1299,7 +1323,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (stream !== realStream || !hasViewOrderKey(incomingKey)) return null;
     for (const child of stream.children) {
       if (!(child instanceof HTMLElement)) continue;
-      if (compareViewOrderKeys(incomingKey, readElementOrderKey(child)) < 0) {
+      if (shouldPlaceViewCardBefore(incomingKey, readElementOrderKey(child))) {
         return child;
       }
     }
@@ -2842,7 +2866,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       const acc = typeof chat._sdkAssistantAcc === 'string' ? chat._sdkAssistantAcc : '';
       const split = splitTrailingTitleJson(acc);
       const display = split.title ? split.text : acc;
-      if (split.title && !display.trim()) {
+      if (!display.trim()) {
         assistantMdEl.closest('cr-sdk-block')?.remove();
         assistantMdEl = null;
       } else if (mdRenderImmediate) {
@@ -3206,13 +3230,15 @@ export function createSdkRichView(chat, mountEl, hooks) {
   }
 
   function flushPendingAssistantMarkdown() {
-    if (assistantMdEl && mdRaf) {
-      flushMarkdown(assistantMdEl, assistantMdEl.dataset.rawMd || '');
-    }
+    const pendingHost = mdScheduledHost || (mdRaf ? assistantMdEl : null);
+    mdScheduledHost = null;
     if (mdRaf && typeof cancelAnimationFrame === 'function') {
       cancelAnimationFrame(mdRaf);
     }
     mdRaf = 0;
+    if (pendingHost instanceof HTMLElement && pendingHost.isConnected) {
+      flushMarkdown(pendingHost, pendingHost.dataset.rawMd || '');
+    }
   }
 
   /**

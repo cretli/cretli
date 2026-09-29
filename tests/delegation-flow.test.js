@@ -12,7 +12,7 @@ import {
   finishDelegation,
   reconcileDelegationsOnBoot,
 } from '../lib/delegation-service.js';
-import { isActiveDelegationStatus } from '../lib/delegation-status.js';
+import { isActiveDelegationStatus, DELEGATION_RUNNING_ORPHAN_GRACE_MS } from '../lib/delegation-status.js';
 import { listDelegationsForParent } from '../lib/persist/delegations-persist.js';
 import {
   registerMockChatRunAdapter,
@@ -208,7 +208,16 @@ const staleJob = await service.createAndStart({
 });
 patchMockChatRun(staleJob.delegation.childChatId, { busy: false, waitingForInput: false });
 await reconcileDelegationsOnBoot();
+// A confirmed idle running job gets the same 60s orphan grace as the worker.
+const armedBoot = listDelegationsForParent(parent6.id)[0];
+assert.equal(armedBoot.status, 'running');
+assert.ok(String(armedBoot.idleObservedAt || '').trim());
+updateDelegationRecord(staleJob.delegation.id, {
+  idleObservedAt: new Date(Date.now() - DELEGATION_RUNNING_ORPHAN_GRACE_MS - 1000).toISOString(),
+});
+await reconcileDelegationsOnBoot();
 assert.equal(listDelegationsForParent(parent6.id)[0].status, 'interrupted');
+assert.equal(listDelegationsForParent(parent6.id)[0].interruptCode, 'running_orphan');
 assert.notEqual(listDelegationsForParent(parent5.id)[0].status, 'interrupted');
 
 const parent3Finished = listDelegationsForParent(parent3.id)[0];

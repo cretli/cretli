@@ -14,10 +14,10 @@ import {
   loadHarnessModelUsage,
   readHarnessModelUsage,
 } from './features/chat/harnessModelUsage.js';
-import { shouldLoadHarnessModelCatalogs } from './features/chat/harnessSettingsLoad.js';
+import { shouldLoadHarnessModelCatalogs, resolveHarnessSelectValue } from './features/chat/harnessSettingsLoad.js';
 import { favoriteStarHtml, hasFavoriteHarness, subscribeToFavoriteModelChanges } from './features/chat/modelFavoriteMarker.js';
 
-/** @typedef {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen'} NewChatHarness */
+/** @typedef {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen' | 'claude'} NewChatHarness */
 
 /** @type {NewChatHarness} */
 let cachedDefaultHarness = 'sdk';
@@ -29,7 +29,6 @@ let cachedEnabledHarnesses = listEnabledHarnesses(undefined, cachedHarnessOrder)
 let cachedHarnessStatus = null;
 /** @type {Record<string, { enabled: number, total: number }>} */
 let cachedHarnessModelUsage = Object.create(null);
-let cachedHarnessUsageLimits = new Map();
 let harnessSettingsLoadSeq = 0;
 
 /**
@@ -44,6 +43,7 @@ function normalizeDefaultHarness(value) {
   if (raw === 'deepseek') return 'deepseek';
   if (raw === 'codex') return 'codex';
   if (raw === 'qwen') return 'qwen';
+  if (raw === 'claude') return 'claude';
   return 'sdk';
 }
 
@@ -114,6 +114,7 @@ function harnessCatalog() {
     { id: 'codebuddy', tab: 'harness-codebuddy', label: t('settings.harnessCodeBuddy') },
     { id: 'deepseek', tab: 'harness-deepseek', label: t('settings.harnessDeepSeek') },
     { id: 'qwen', tab: 'harness-qwen', label: t('settings.harnessQwen') },
+    { id: 'claude', tab: 'harness-claude', label: t('settings.harnessClaude') },
     { id: 'codex', tab: 'harness-codex', label: t('settings.harnessCodex') },
   ];
 }
@@ -128,24 +129,8 @@ function enabledHarnessOptions() {
     .filter((row) => isHarnessEnabled(row.id, cachedEnabledHarnesses))
     .map((row) => ({
       value: row.id,
-      label: cachedHarnessUsageLimits.has(row.id)
-        ? `${row.label} — ${t('chat.harnessUsageLimit')}`
-        : row.label,
+      label: row.label,
     }));
-}
-
-export async function refreshHarnessUsageLimits() {
-  try {
-    const data = await api.getHarnessCatalog();
-    cachedHarnessUsageLimits = new Map(
-      (Array.isArray(data?.items) ? data.items : [])
-        .filter((row) => row?.usage_limit)
-        .map((row) => [String(row.id || ''), row.usage_limit]),
-    );
-    fillHarnessChoiceSelects();
-  } catch {
-    // Advisory metadata; readiness and model selection still work.
-  }
 }
 
 /**
@@ -161,14 +146,13 @@ function fillNativeHarnessSelect(selectEl) {
     el.textContent = option.label;
     selectEl.appendChild(el);
   }
-  if (options.some((row) => row.value === current)) {
-    selectEl.value = current;
-    return;
-  }
-  const fallback = options.some((row) => row.value === cachedDefaultHarness)
-    ? cachedDefaultHarness
-    : (options[0]?.value || '');
-  if (fallback) selectEl.value = fallback;
+  // A usage/cache refresh must never drop the user's current choice when it is still available.
+  const nextValue = resolveHarnessSelectValue({
+    current,
+    options: options.map((option) => option.value),
+    fallback: cachedDefaultHarness,
+  });
+  if (nextValue) selectEl.value = nextValue;
 }
 
 function fillHarnessChoiceSelects() {
@@ -222,6 +206,7 @@ function renderHarnessSetupStatus(data) {
     const missingCodeBuddy = row.id === 'codebuddy' && backend && backend.available === false;
     const missingDeepSeek = row.id === 'deepseek' && backend && backend.available === false;
     const missingQwen = row.id === 'qwen' && backend && backend.available === false;
+    const missingClaude = row.id === 'claude' && backend && backend.available === false;
     const missingCodex = row.id === 'codex' && backend && backend.available === false;
     const detail = ready
       ? t('settings.harnessStatusReady')
@@ -233,6 +218,8 @@ function renderHarnessSetupStatus(data) {
             ? t('settings.harnessStatusDeepSeekMissing')
             : missingQwen
               ? t('settings.harnessStatusQwenMissing')
+              : missingClaude
+                ? t('settings.harnessStatusClaudeMissing')
               : missingCodex
                 ? t('settings.harnessStatusCodexMissing')
                 : t('settings.harnessStatusNeedsKey');
@@ -404,6 +391,7 @@ export function initHarnessSettings() {
     'cretli-codebuddy-models-changed',
     'cretli-deepseek-models-changed',
     'cretli-qwen-models-changed',
+    'cretli-claude-models-changed',
     'cretli-codex-models-changed',
   ]) {
     window.addEventListener(eventName, () => {

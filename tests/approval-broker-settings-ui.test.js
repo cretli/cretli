@@ -11,18 +11,25 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   ADVISOR_DEFAULT_DAILY_QUOTA,
+  ADVISOR_DEFAULT_MIN_PROBABILITY,
+  ADVISOR_DEFAULT_PROTOCOL,
   ADVISOR_DEFAULT_TIMEOUT_MS,
   ADVISOR_MAX_DAILY_QUOTA,
+  ADVISOR_MAX_MIN_PROBABILITY,
   ADVISOR_MAX_TIMEOUT_MS,
+  ADVISOR_MIN_MIN_PROBABILITY,
   ADVISOR_MIN_TIMEOUT_MS,
+  APPROVAL_ADVISOR_PROTOCOLS,
   APPROVAL_BROKER_MODES,
   buildApprovalAdvisorPatch,
   buildApprovalBrokerModePatch,
   clampAdvisorDailyQuota,
+  clampAdvisorMinProbability,
   clampAdvisorTimeoutMs,
   getAdvisorKeySource,
   isAdvisorFieldsetEnabled,
   isPrivateOrLocalHost,
+  normalizeAdvisorProtocol,
   normalizeApprovalBrokerFormState,
   validateAdvisorEndpointForUi,
 } from '../app_front/features/approval/approvalBrokerSettings.js';
@@ -34,16 +41,20 @@ assert.deepEqual(APPROVAL_BROKER_MODES, ['off', 'shadow', 'local_reads']);
 assert.deepEqual(normalizeApprovalBrokerFormState(null), {
   mode: 'off',
   enabled: false,
+  protocol: ADVISOR_DEFAULT_PROTOCOL,
   baseUrl: '',
   model: '',
+  minProbability: ADVISOR_DEFAULT_MIN_PROBABILITY,
   timeoutMs: ADVISOR_DEFAULT_TIMEOUT_MS,
   dailyQuota: ADVISOR_DEFAULT_DAILY_QUOTA,
 });
 assert.deepEqual(normalizeApprovalBrokerFormState({}), {
   mode: 'off',
   enabled: false,
+  protocol: ADVISOR_DEFAULT_PROTOCOL,
   baseUrl: '',
   model: '',
+  minProbability: ADVISOR_DEFAULT_MIN_PROBABILITY,
   timeoutMs: ADVISOR_DEFAULT_TIMEOUT_MS,
   dailyQuota: ADVISOR_DEFAULT_DAILY_QUOTA,
 });
@@ -52,6 +63,24 @@ assert.equal(
   normalizeApprovalBrokerFormState({ approvalBroker: { mode: 'SHADOW' } }).mode,
   'shadow',
   'mode must be case-insensitive',
+);
+assert.deepEqual(APPROVAL_ADVISOR_PROTOCOLS, ['openai_chat', 'systemone']);
+assert.equal(
+  normalizeApprovalBrokerFormState({ approvalBroker: { mode: 'local_reads', advisor: { protocol: 'systemone' } } }).protocol,
+  'systemone',
+);
+assert.equal(
+  normalizeApprovalBrokerFormState({ approvalBroker: { mode: 'local_reads', advisor: { protocol: 'bogus' } } }).protocol,
+  'openai_chat',
+  'unknown protocol fails closed to openai_chat',
+);
+assert.equal(
+  normalizeApprovalBrokerFormState({ approvalBroker: { mode: 'local_reads', advisor: { minProbability: 0.1 } } }).minProbability,
+  ADVISOR_MIN_MIN_PROBABILITY,
+);
+assert.equal(
+  normalizeApprovalBrokerFormState({ approvalBroker: { mode: 'local_reads', advisor: { minProbability: 5 } } }).minProbability,
+  ADVISOR_MAX_MIN_PROBABILITY,
 );
 
 // The advisor can only be enabled in local_reads, even if a stale settings file
@@ -86,6 +115,13 @@ assert.equal(clampAdvisorDailyQuota(-40), 0);
 assert.equal(clampAdvisorDailyQuota(0), 0);
 assert.equal(clampAdvisorDailyQuota(999999), ADVISOR_MAX_DAILY_QUOTA);
 assert.equal(clampAdvisorDailyQuota(250), 250);
+assert.equal(clampAdvisorMinProbability(undefined), ADVISOR_DEFAULT_MIN_PROBABILITY);
+assert.equal(clampAdvisorMinProbability('abc'), ADVISOR_DEFAULT_MIN_PROBABILITY);
+assert.equal(clampAdvisorMinProbability(0.1), ADVISOR_MIN_MIN_PROBABILITY);
+assert.equal(clampAdvisorMinProbability(5), ADVISOR_MAX_MIN_PROBABILITY);
+assert.equal(clampAdvisorMinProbability(0.75), 0.75);
+assert.equal(normalizeAdvisorProtocol('SYSTEMONE'), 'systemone');
+assert.equal(normalizeAdvisorProtocol('bogus'), ADVISOR_DEFAULT_PROTOCOL);
 
 // --- payloads --------------------------------------------------------------
 
@@ -105,8 +141,10 @@ assert.equal(
 const advisorPatch = buildApprovalAdvisorPatch({
   mode: 'local_reads',
   enabled: true,
+  protocol: 'systemone',
   baseUrl: '  https://advisor.example.test/v1/chat/completions  ',
   model: '  advisor-model  ',
+  minProbability: 0.8,
   timeoutMs: 9000,
   dailyQuota: 123,
 });
@@ -115,13 +153,33 @@ assert.deepEqual(advisorPatch, {
     mode: 'local_reads',
     advisor: {
       enabled: true,
+      protocol: 'systemone',
       baseUrl: 'https://advisor.example.test/v1/chat/completions',
       model: 'advisor-model',
+      minProbability: 0.8,
       timeoutMs: ADVISOR_MAX_TIMEOUT_MS,
       dailyQuota: 123,
     },
   },
 });
+assert.equal(
+  buildApprovalAdvisorPatch({ mode: 'local_reads', enabled: true }).approvalBroker.advisor.protocol,
+  'openai_chat',
+  'protocol defaults to openai_chat',
+);
+assert.equal(
+  buildApprovalAdvisorPatch({ mode: 'local_reads', enabled: true }).approvalBroker.advisor.minProbability,
+  ADVISOR_DEFAULT_MIN_PROBABILITY,
+  'minProbability defaults to 0.9',
+);
+assert.equal(
+  buildApprovalAdvisorPatch({ mode: 'local_reads', enabled: true, protocol: 'bogus' }).approvalBroker.advisor.protocol,
+  'openai_chat',
+);
+assert.equal(
+  buildApprovalAdvisorPatch({ mode: 'local_reads', enabled: true, protocol: 'systemone', minProbability: 0.1 }).approvalBroker.advisor.minProbability,
+  ADVISOR_MIN_MIN_PROBABILITY,
+);
 assert.equal(
   buildApprovalAdvisorPatch({ mode: 'off', enabled: true }).approvalBroker.advisor.enabled,
   false,
@@ -221,10 +279,12 @@ for (const id of [
   'approval-broker-mode-select',
   'approval-broker-mode-status',
   'approval-advisor-enabled-checkbox',
+  'approval-advisor-protocol-select',
   'approval-advisor-endpoint-field',
   'approval-advisor-endpoint-input',
   'approval-advisor-endpoint-status',
   'approval-advisor-model-input',
+  'approval-advisor-min-probability-input',
   'approval-advisor-timeout-input',
   'approval-advisor-quota-input',
   'approval-advisor-save-btn',
@@ -236,8 +296,14 @@ for (const id of [
   assert.equal(indexHtml.includes(`id="${id}"`), true, `missing element #${id}`);
 }
 
+assert.match(indexHtml, /id="approval-advisor-min-probability-input"[^>]*min="0.5"[^>]*max="0.99"/);
 assert.match(indexHtml, /id="approval-advisor-timeout-input"[^>]*min="3000"[^>]*max="8000"/);
 assert.match(indexHtml, /id="approval-advisor-quota-input"[^>]*min="0"[^>]*max="10000"/);
+assert.match(
+  indexHtml,
+  /data-i18n="settings\.approvalAdvisorProtocolHint"[^>]*>[^<]*api\.typesafe\.ai\/v1\/systemone/,
+  'the Jev/System One preset hint must be visible in the panel',
+);
 assert.equal(
   indexHtml.includes('CRETLI_APPROVAL_ADVISOR_API_KEY'),
   true,

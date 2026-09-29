@@ -53,6 +53,12 @@ assert.equal(inputQwenPolicy.denyMutatingTools, true);
 assert.equal(inputQwenPolicy.abortOnMutation, true);
 assert.equal(inputQwenPolicy.promptHint, false);
 
+const inputClaudePolicy = resolveHarnessPlanPolicy('claude');
+assert.equal(inputClaudePolicy.nativeMode, true);
+assert.equal(inputClaudePolicy.denyMutatingTools, true);
+assert.equal(inputClaudePolicy.abortOnMutation, true);
+assert.equal(inputClaudePolicy.promptHint, false);
+
 assert.deepEqual(resolveSdkPlanCreateOptions('plan').disallowedTools, SDK_PLAN_DISALLOWED_TOOLS);
 assert.deepEqual(resolveSdkPlanCreateOptions('ask').disallowedTools, SDK_PLAN_DISALLOWED_TOOLS);
 assert.deepEqual(resolveSdkPlanCreateOptions('agent'), {});
@@ -83,6 +89,8 @@ assert.equal(resolveHarnessReadOnlyPolicy('deepseek', 'agent', 'review').denyMut
 assert.equal(resolveHarnessReadOnlyPolicy('openrouter', 'agent', 'review').abortOnMutation, false);
 assert.equal(resolveHarnessReadOnlyPolicy('opencode', 'agent', 'review').abortOnMutation, false);
 assert.equal(resolveHarnessReadOnlyPolicy('qwen', 'agent', 'review').abortOnMutation, false);
+assert.equal(resolveHarnessReadOnlyPolicy('claude', 'agent', 'review').abortOnMutation, false);
+assert.equal(resolveHarnessReadOnlyPolicy('claude', 'agent', 'review').denyMutatingTools, true);
 assert.equal(resolveHarnessReadOnlyPolicy('codebuddy', 'agent', 'review').abortOnMutation, false);
 assert.equal(resolveHarnessReadOnlyPolicy('codex', 'agent', 'review').abortOnMutation, true);
 assert.equal(resolveHarnessReadOnlyPolicy('sdk', 'agent', 'review').abortOnMutation, true);

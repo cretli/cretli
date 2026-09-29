@@ -12,17 +12,21 @@ import path from 'node:path';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 import {
   applyApprovalBrokerSettingsPatch,
+  normalizeApprovalAdvisorSettings,
   normalizeApprovalBrokerSettings,
   readApprovalBrokerMode,
 } from '../lib/approval/approval-broker.js';
 import {
   ADVISOR_MAX_REASON_CHARS,
+  ADVISOR_POLICY_VERSION,
   APPROVAL_ADVISOR_API_KEY_ENV,
   buildAdvisorPermissionTuple,
   buildAdvisorRequestBody,
+  buildSystemOneRequestBody,
   getApprovalAdvisorMetaForClient,
   getEffectiveApprovalAdvisorApiKey,
   parseAdvisorCompletion,
+  parseSystemOneAnswer,
   postApprovalAdvisorRequest,
   readApprovalAdvisorSettings,
   recordApprovalAdvisorAudit,
@@ -103,11 +107,27 @@ assert.equal(readApprovalBrokerMode({}), 'off', 'broker defaults off');
 assert.equal(readApprovalAdvisorSettings({}).enabled, false, 'advisor defaults disabled');
 assert.deepEqual(readApprovalAdvisorSettings({}), {
   enabled: false,
+  protocol: 'openai_chat',
   baseUrl: '',
   model: '',
+  minProbability: 0.9,
   timeoutMs: 5000,
   dailyQuota: 100,
 });
+
+// --- advisor protocol + minProbability normalization ------------------------
+
+{
+  assert.equal(normalizeApprovalAdvisorSettings({ protocol: 'systemone' }).protocol, 'systemone');
+  assert.equal(normalizeApprovalAdvisorSettings({ protocol: 'SYSTEMONE' }).protocol, 'systemone', 'protocol is case-insensitive');
+  assert.equal(normalizeApprovalAdvisorSettings({ protocol: 'bogus' }).protocol, 'openai_chat', 'unknown protocol fails closed to openai_chat');
+  assert.equal(normalizeApprovalAdvisorSettings({}).protocol, 'openai_chat', 'protocol defaults to openai_chat');
+  assert.equal(normalizeApprovalAdvisorSettings({ minProbability: 0.7 }).minProbability, 0.7);
+  assert.equal(normalizeApprovalAdvisorSettings({ minProbability: 0.1 }).minProbability, 0.5, 'minProbability clamps to 0.5');
+  assert.equal(normalizeApprovalAdvisorSettings({ minProbability: 5 }).minProbability, 0.99, 'minProbability clamps to 0.99');
+  assert.equal(normalizeApprovalAdvisorSettings({ minProbability: 'NaN' }).minProbability, 0.9, 'a non-number falls back to 0.9');
+  assert.equal(normalizeApprovalAdvisorSettings({ minProbability: null }).minProbability, 0.9);
+}
 
 // Updating only the mode must not erase a configured advisor block.
 {
@@ -202,14 +222,26 @@ function countingTransport(response) {
   const plan = resolveApprovalAdvisorPlan(advisorSettings(), lowRiskReadAction);
   assert.equal(plan.eligible, true, 'a low-risk read ask_user in local_reads is eligible');
   assert.equal(plan.hostname, 'advisor.example.test');
+  assert.equal(plan.protocol, 'openai_chat');
+  assert.equal(plan.minProbability, 0.9);
   assert.equal(plan.timeoutMs, 5000);
 }
 
 assert.equal(
   resolveApprovalAdvisorPlan(advisorSettings({ model: '' }), lowRiskReadAction).reason,
   'no_model',
-  'missing model must not trigger a provider request',
+  'missing model must not trigger a provider request for openai_chat',
 );
+
+// System One does not require a model: the endpoint has a server-side default.
+{
+  const settings = advisorSettings({ model: '' });
+  settings.approvalBroker.advisor.protocol = 'systemone';
+  const plan = resolveApprovalAdvisorPlan(settings, lowRiskReadAction);
+  assert.equal(plan.eligible, true, 'systemone is eligible without a model');
+  assert.equal(plan.protocol, 'systemone');
+  assert.equal(plan.model, '');
+}
 
 // --- env key always wins over the stored setting ---------------------------
 
@@ -244,6 +276,76 @@ assert.equal(
   assert.equal(serialized.toLowerCase().includes('authorization'), false, 'no auth material in the body');
   assert.equal(Array.isArray(body.messages) && body.messages.length === 2, true, 'system + redacted tuple only');
   assert.equal(body.messages[1].content.includes('/home/user/workspace'), false);
+}
+
+// --- System One request body: state + one noul question, optional model ----
+
+{
+  const tuple = buildAdvisorPermissionTuple({ permissionEvent: lowRiskReadEvent, approvalAction: lowRiskReadAction });
+  const body = buildSystemOneRequestBody({ model: 'jev-latest', tuple });
+  assert.deepEqual(body.state, tuple, 'the System One state is exactly the redacted tuple');
+  assert.equal(body.questions.safe_read.type, 'noul');
+  assert.match(body.questions.safe_read.instructions, /read-only/i);
+  assert.match(body.questions.safe_read.instructions, /files/i);
+  assert.equal(body.model, 'jev-latest');
+  assert.equal('messages' in body, false, 'System One must not send an OpenAI chat payload');
+  const serialized = JSON.stringify(body);
+  assert.equal(serialized.includes('/home/user/workspace'), false, 'no cwd / workspace layout on the wire');
+  assert.equal(serialized.includes(KEY), false, 'the key is never in the request body');
+  const noModel = buildSystemOneRequestBody({ model: '', tuple });
+  assert.equal('model' in noModel, false, 'an empty model is omitted for the server default');
+}
+
+// Resource basenames are redacted for both protocols.
+{
+  const tuple = buildAdvisorPermissionTuple({
+    permissionEvent: { requestId: 'path_secret', action: 'read', resources: ['/workspace/secret=abc123'] },
+    approvalAction: lowRiskReadAction,
+  });
+  assert.equal(tuple.resources.length, 1);
+  assert.equal(JSON.stringify(tuple).includes('abc123'), false, 'resource basenames are redacted before sending');
+}
+
+// --- System One answer parsing ---------------------------------------------
+
+{
+  assert.deepEqual(parseSystemOneAnswer({ answers: { safe_read: { type: 'noul', noul: 0.95 } } }, 0.9), {
+    decision: 'allow',
+    reason: 'noul 0.95',
+    confidence: 0.95,
+    error: null,
+  });
+  // Exact threshold boundary is inclusive.
+  assert.equal(parseSystemOneAnswer({ answers: { safe_read: { type: 'noul', noul: 0.9 } } }, 0.9).decision, 'allow');
+  assert.equal(parseSystemOneAnswer({ answers: { safe_read: { type: 'noul', noul: 0.899 } } }, 0.9).decision, 'ask_user');
+  // Laya adds routing/action/confidence; `confidence` is not a substitute for noul.
+  const laya = parseSystemOneAnswer(
+    { answers: { safe_read: { type: 'noul', noul: 0.2, confidence: 0.99, routing: 'x', action: 'allow' } } },
+    0.9,
+  );
+  assert.equal(laya.decision, 'ask_user', 'Laya extra fields are ignored and never widen allow');
+  assert.equal(laya.confidence, 0.2, 'confidence always mirrors noul');
+  // Bad shapes: string values, NaN, Infinity, out of range, wrong type, missing.
+  for (const bad of [
+    { answers: { safe_read: { type: 'noul', noul: '0.95' } } },
+    { answers: { safe_read: { type: 'noul', noul: Number.NaN } } },
+    { answers: { safe_read: { type: 'noul', noul: Number.POSITIVE_INFINITY } } },
+    { answers: { safe_read: { type: 'noul', noul: -0.1 } } },
+    { answers: { safe_read: { type: 'noul', noul: 1.1 } } },
+    { answers: { safe_read: { type: 'choice', noul: 0.99 } } },
+    { answers: { safe_read: { type: 'noul' } } },
+    { answers: {} },
+    {},
+  ]) {
+    const parsed = parseSystemOneAnswer(bad, 0.9);
+    assert.equal(parsed.decision, 'ask_user', `${JSON.stringify(bad)} must collapse to ask_user`);
+    assert.equal(parsed.error, 'bad_answer', `${JSON.stringify(bad)} must carry an error code`);
+  }
+  assert.equal(parseSystemOneAnswer('{bad json', 0.9).error, 'bad_json');
+  assert.equal(parseSystemOneAnswer('{"answers":{"safe_read":{"type":"noul","noul":0.95}}}', 0.9).decision, 'allow');
+  // An omitted threshold falls back to the 0.9 default.
+  assert.equal(parseSystemOneAnswer({ answers: { safe_read: { type: 'noul', noul: 0.91 } } }).decision, 'allow');
+  assert.equal(parseSystemOneAnswer({ answers: { safe_read: { type: 'noul', noul: 0.89 } } }).decision, 'ask_user');
 }
 
 // --- response parsing: allow / ask_user / deny->ask_user / bad json --------
@@ -317,6 +419,88 @@ await expectAskUser('network', { error: 'network', code: 'network' }, 'network')
   assert.equal(result.error, null);
   assert.equal(transportCalls.length, 1);
 }
+
+// --- System One transport: builder/parser chosen by plan.protocol ----------
+
+function systemOneSettings(overrides = {}) {
+  const settings = advisorSettings(overrides);
+  settings.approvalBroker.advisor.protocol = 'systemone';
+  if (overrides.minProbability !== undefined) settings.approvalBroker.advisor.minProbability = overrides.minProbability;
+  return settings;
+}
+
+{
+  transportCalls.length = 0;
+  resetApprovalAdvisorQuota();
+  const settings = systemOneSettings();
+  const plan = resolveApprovalAdvisorPlan(settings, lowRiskReadAction);
+  assert.equal(plan.protocol, 'systemone');
+  const result = await requestApprovalAdvisor({
+    plan,
+    settings,
+    permissionEvent: lowRiskReadEvent,
+    approvalAction: lowRiskReadAction,
+    transport: countingTransport({
+      status: 200,
+      json: {
+        model: 'jev-latest',
+        answers: { safe_read: { type: 'noul', noul: 0.97, confidence: 0.99, routing: 'x' } },
+        usage: { input_tokens: 120, output_tokens: 8 },
+      },
+    }),
+  });
+  assert.equal(result.advisorDecision, 'allow');
+  assert.equal(result.confidence, 0.97, 'confidence comes from noul, not the Laya confidence field');
+  assert.equal(result.protocol, 'systemone');
+  assert.equal(result.usageTokens, 128, 'System One usage is input_tokens + output_tokens');
+  assert.equal(result.error, null);
+  assert.equal(transportCalls.length, 1);
+  const sent = JSON.parse(transportCalls[0].payload);
+  assert.deepEqual(sent.state, buildAdvisorPermissionTuple({ permissionEvent: lowRiskReadEvent, approvalAction: lowRiskReadAction }));
+  assert.equal(sent.questions.safe_read.type, 'noul');
+  assert.equal('messages' in sent, false, 'no OpenAI chat payload for systemone');
+}
+
+// A noul below the threshold stays ask_user with no error (a valid answer).
+{
+  transportCalls.length = 0;
+  resetApprovalAdvisorQuota();
+  const settings = systemOneSettings({ minProbability: 0.95 });
+  const plan = resolveApprovalAdvisorPlan(settings, lowRiskReadAction);
+  const result = await requestApprovalAdvisor({
+    plan,
+    settings,
+    permissionEvent: lowRiskReadEvent,
+    approvalAction: lowRiskReadAction,
+    transport: countingTransport({ status: 200, json: { answers: { safe_read: { type: 'noul', noul: 0.94 } } } }),
+  });
+  assert.equal(result.advisorDecision, 'ask_user');
+  assert.equal(result.error, null);
+  assert.equal(result.confidence, 0.94);
+}
+
+async function expectSystemOneAskUser(label, transportResponse, expectedError) {
+  transportCalls.length = 0;
+  resetApprovalAdvisorQuota();
+  const settings = systemOneSettings();
+  const plan = resolveApprovalAdvisorPlan(settings, lowRiskReadAction);
+  const result = await requestApprovalAdvisor({
+    plan,
+    settings,
+    permissionEvent: lowRiskReadEvent,
+    approvalAction: lowRiskReadAction,
+    transport: countingTransport(transportResponse),
+  });
+  assert.equal(transportCalls.length, 1, `systemone ${label}: exactly one transport call`);
+  assert.equal(result.advisorDecision, 'ask_user', `systemone ${label}: collapses to ask_user`);
+  assert.equal(result.error, expectedError, `systemone ${label}: error code`);
+  assert.equal(result.protocol, 'systemone');
+}
+
+await expectSystemOneAskUser('timeout', { error: 'timeout', code: 'timeout' }, 'timeout');
+await expectSystemOneAskUser('rate_limited', { status: 429 }, 'rate_limited');
+await expectSystemOneAskUser('ssrf', { error: 'ssrf', code: 'blocked-address' }, 'ssrf');
+await expectSystemOneAskUser('bad_answer', { status: 200, json: { answers: { safe_read: { type: 'choice', choice: 'x' } } } }, 'bad_answer');
 
 // --- quota: a second request in the window is refused without the network ---
 {
@@ -495,11 +679,26 @@ resetApprovalAdvisorQuota();
   assert.equal(entry.usageCost, 0.0012);
   assert.equal(entry.advisorDecision, 'allow');
   assert.equal(entry.finalDecision, 'allow_once');
+  assert.equal(entry.protocol, 'openai_chat', 'audit records the advisor protocol');
+  assert.equal(entry.advisorPolicyVersion, ADVISOR_POLICY_VERSION);
+  assert.equal(entry.advisorPolicyVersion, 'advisor-external-2');
   assert.equal(entry.ts, '2026-01-02T03:04:05.000Z');
   const line = JSON.stringify(entry);
   assert.equal(line.includes('sk-advisor-secret-0123456789'), false, 'audit redacts any key that slips into the reason');
   assert.equal(line.includes('Authorization'), false);
   assert.equal(readApprovalAuditEntries({ file })[0].requestId, 'perm_read_1');
+
+  // A System One plan records its own protocol.
+  const systemOneEntry = recordApprovalAdvisorAudit({
+    room: { chatId: 'chat_1' },
+    permissionEvent: lowRiskReadEvent,
+    approvalAction: lowRiskReadAction,
+    plan: resolveApprovalAdvisorPlan(systemOneSettings(), lowRiskReadAction),
+    result: { advisorDecision: 'ask_user', confidence: 0.4, provider: 'advisor.example.test', model: '' },
+    finalDecision: 'ask_user',
+    now: Date.UTC(2026, 0, 2, 3, 4, 6),
+  }, { file });
+  assert.equal(systemOneEntry.protocol, 'systemone');
 
   // off / shadow produce no advisor audit.
   assert.equal(recordApprovalAdvisorAudit({

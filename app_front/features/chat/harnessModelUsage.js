@@ -48,6 +48,7 @@ export async function loadHarnessModelUsage(settings) {
     api.getCodeBuddyModels(),
     api.getDeepSeekModels(),
     api.getQwenModels(),
+    api.getClaudeModels(),
     api.getCodexModels(),
   ]);
   const sdk = readSettledPayload(settled[0]);
@@ -56,7 +57,8 @@ export async function loadHarnessModelUsage(settings) {
   const codebuddy = readSettledPayload(settled[3]);
   const deepseek = readSettledPayload(settled[4]);
   const qwen = readSettledPayload(settled[5]);
-  const codex = readSettledPayload(settled[6]);
+  const claude = readSettledPayload(settled[6]);
+  const codex = readSettledPayload(settled[7]);
   return {
     sdk: countCatalogEnabledModels(catalogFromModelsPayload(sdk), settings?.chatEnabledModels),
     openrouter: countCatalogEnabledModels(
@@ -76,6 +78,7 @@ export async function loadHarnessModelUsage(settings) {
       normalizeDeepSeekChatEnabledModels(settings?.deepseekChatEnabledModels),
     ),
     qwen: countCatalogEnabledModels(catalogFromModelsPayload(qwen), settings?.qwenChatEnabledModels),
+    claude: countCatalogEnabledModels(catalogFromModelsPayload(claude), settings?.claudeChatEnabledModels),
     codex: countCatalogEnabledModels(catalogFromModelsPayload(codex), settings?.codexChatEnabledModels),
   };
 }

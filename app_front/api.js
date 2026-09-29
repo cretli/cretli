@@ -476,6 +476,32 @@ export async function getQwenModels() {
   return dedupeGetJson('/api/qwen/models', 'getQwenModels');
 }
 
+/** Claude Agent SDK status (SDK + Anthropic API key). */
+export async function getClaudeStatus() {
+  return dedupeGetJson('/api/claude/status', 'getClaudeStatus');
+}
+
+/** Claude Agent SDK model catalog. */
+export async function getClaudeModels() {
+  return dedupeGetJson('/api/claude/models', 'getClaudeModels');
+}
+
+export async function startClaudePlanLogin() {
+  return apiFetchJson('/api/claude/login/start', { method: 'POST' }, 'startClaudePlanLogin');
+}
+
+export async function completeClaudePlanLogin(code) {
+  return apiFetchJson('/api/claude/login/complete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  }, 'completeClaudePlanLogin');
+}
+
+export async function cancelClaudePlanLogin() {
+  return apiFetchJson('/api/claude/login/cancel', { method: 'POST' }, 'cancelClaudePlanLogin');
+}
+
 /** Codex SDK status (SDK + CLI + ChatGPT session or API key). */
 export async function getCodexStatus() {
   return dedupeGetJson('/api/codex/status', 'getCodexStatus');

@@ -16,7 +16,8 @@ import {
   listQueuedMailboxForRecipient,
   loadMailboxMessages,
 } from '../lib/persist/delegation-mailbox-persist.js';
-import { getDelegationById } from '../lib/persist/delegations-persist.js';
+import { getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
+import { DELEGATION_RUNNING_ORPHAN_GRACE_MS } from '../lib/delegation-status.js';
 import { drainChatMailbox, ensureDelegationParentMailboxReply, listChatMailbox, retryMailboxMessage, sendDelegationReply } from '../lib/delegation-mailbox.js';
 import { startChatRun } from '../lib/chat-run-service.js';
 import fs from 'node:fs';
@@ -527,7 +528,16 @@ const bootInterruptJob = await service.createAndStart({
 });
 patchMockChatRun(bootInterruptJob.delegation.childChatId, { busy: false, waitingForInput: false });
 await reconcileDelegationsOnBoot();
+// Confirmed idle running jobs get the 60s orphan grace instead of an
+// immediate server-restart interrupt.
+assert.equal(getDelegationById(bootInterruptJob.delegation.id)?.status, 'running');
+assert.ok(String(getDelegationById(bootInterruptJob.delegation.id)?.idleObservedAt || '').trim());
+updateDelegationRecord(bootInterruptJob.delegation.id, {
+  idleObservedAt: new Date(Date.now() - DELEGATION_RUNNING_ORPHAN_GRACE_MS - 1000).toISOString(),
+});
+await reconcileDelegationsOnBoot();
 assert.equal(getDelegationById(bootInterruptJob.delegation.id)?.status, 'interrupted');
+assert.equal(getDelegationById(bootInterruptJob.delegation.id)?.interruptCode, 'running_orphan');
 assert.equal(findMailboxReplyForDelegation(bootInterruptJob.delegation.id)?.kind, 'reply');
 
 const startFailParent = createPlanParent('Start failed no ping');

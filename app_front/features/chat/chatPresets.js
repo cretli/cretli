@@ -160,3 +160,5 @@ export function createChatPresetsStore(storageKey = CHAT_PRESETS_STORAGE_KEY) {
     removeFavorite,
   };
 }
+
+export const chatPresetsStore = createChatPresetsStore();
