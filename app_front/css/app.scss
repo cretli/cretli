@@ -425,6 +425,43 @@ body:has(#settings-panel.active) #settings-panel.panel {
   }
 }
 
+/* Third-level harness tabs (Keys / Models / Permissions): same underline style
+   as the harness bar above, distinguished by slightly smaller font + surface-2 bg. */
+.settings-harness-subtab-bar {
+  gap: 0;
+  padding: 0 0.5rem;
+  background: var(--cr-surface-2);
+  border-bottom: 1px solid var(--cr-border);
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+
+  .settings-tab {
+    padding: 0.45rem 0.75rem;
+    font-size: 0.8rem;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--cr-text-muted);
+
+    &:hover {
+      color: var(--cr-text);
+    }
+
+    &.active {
+      color: var(--cr-text);
+      border-bottom-color: var(--cr-accent);
+    }
+  }
+}
+
+/* OpenCode Klucze: visual separator between providers (Zen / Z.AI / MiMo). */
+#opencode-api-settings h3.settings-section-title:not(:first-child) {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--cr-border);
+}
+
 .settings-workspace-box {
   display: flex;
   flex-direction: column;

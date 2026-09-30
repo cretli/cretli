@@ -5,6 +5,7 @@ import {
   buildSpaLocation,
   buildSpaPath,
   isHarnessSettingsTab,
+  isHarnessSubtabOf,
   isInterfaceSettingsTab,
   isSpaShellPath,
   parseSpaPath,
@@ -59,33 +60,116 @@ test('parseSpaPath accepts harness backend tabs', () => {
   });
   assert.deepEqual(parseSpaPath('/settings/harness-sdk'), {
     panel: 'settings',
-    settingsTab: 'harness-sdk',
+    settingsTab: 'harness-sdk-keys',
   });
   assert.deepEqual(parseSpaPath('/settings/harness-openrouter'), {
     panel: 'settings',
-    settingsTab: 'harness-openrouter',
+    settingsTab: 'harness-openrouter-keys',
   });
   assert.deepEqual(parseSpaPath('/settings/harness-opencode'), {
     panel: 'settings',
-    settingsTab: 'harness-opencode',
+    settingsTab: 'harness-opencode-keys',
   });
   assert.deepEqual(parseSpaPath('/settings/harness-codebuddy'), {
     panel: 'settings',
-    settingsTab: 'harness-codebuddy',
+    settingsTab: 'harness-codebuddy-keys',
   });
   assert.deepEqual(parseSpaPath('/settings/harness-deepseek'), {
     panel: 'settings',
-    settingsTab: 'harness-deepseek',
+    settingsTab: 'harness-deepseek-keys',
   });
   assert.deepEqual(parseSpaPath('/settings/harness-codex'), {
     panel: 'settings',
-    settingsTab: 'harness-codex',
+    settingsTab: 'harness-codex-keys',
   });
   assert.deepEqual(parseSpaPath('/settings/harness-qwen'), {
     panel: 'settings',
-    settingsTab: 'harness-qwen',
+    settingsTab: 'harness-qwen-keys',
+  });
+  assert.deepEqual(parseSpaPath('/settings/harness-claude'), {
+    panel: 'settings',
+    settingsTab: 'harness-claude-keys',
   });
   assert.equal(parseSpaPath('/settings/harness/sdk'), null);
+});
+
+test('parseSpaPath accepts third-level harness sub-tabs', () => {
+  assert.deepEqual(parseSpaPath('/settings/harness-sdk-keys'), {
+    panel: 'settings',
+    settingsTab: 'harness-sdk-keys',
+  });
+  assert.deepEqual(parseSpaPath('/settings/harness-sdk-models'), {
+    panel: 'settings',
+    settingsTab: 'harness-sdk-models',
+  });
+  assert.deepEqual(parseSpaPath('/settings/harness-openrouter-models'), {
+    panel: 'settings',
+    settingsTab: 'harness-openrouter-models',
+  });
+  assert.deepEqual(parseSpaPath('/settings/harness-opencode-keys'), {
+    panel: 'settings',
+    settingsTab: 'harness-opencode-keys',
+  });
+  assert.deepEqual(parseSpaPath('/settings/harness-opencode-models'), {
+    panel: 'settings',
+    settingsTab: 'harness-opencode-models',
+  });
+  assert.deepEqual(parseSpaPath('/settings/harness-opencode-approvals'), {
+    panel: 'settings',
+    settingsTab: 'harness-opencode-approvals',
+  });
+  assert.deepEqual(parseSpaPath('/settings/harness-codebuddy-models'), {
+    panel: 'settings',
+    settingsTab: 'harness-codebuddy-models',
+  });
+  assert.deepEqual(parseSpaPath('/settings/harness-deepseek-models'), {
+    panel: 'settings',
+    settingsTab: 'harness-deepseek-models',
+  });
+  assert.deepEqual(parseSpaPath('/settings/harness-qwen-models'), {
+    panel: 'settings',
+    settingsTab: 'harness-qwen-models',
+  });
+  assert.deepEqual(parseSpaPath('/settings/harness-claude-models'), {
+    panel: 'settings',
+    settingsTab: 'harness-claude-models',
+  });
+  assert.deepEqual(parseSpaPath('/settings/harness-codex-models'), {
+    panel: 'settings',
+    settingsTab: 'harness-codex-models',
+  });
+  assert.equal(parseSpaPath('/settings/harness-opencode-unknown'), null);
+});
+
+test('remapSettingsTab maps legacy harness tabs to the Keys sub-tab', () => {
+  for (const harnessId of [
+    'sdk',
+    'openrouter',
+    'opencode',
+    'codebuddy',
+    'deepseek',
+    'qwen',
+    'claude',
+    'codex',
+  ]) {
+    assert.equal(remapSettingsTab(`harness-${harnessId}`), `harness-${harnessId}-keys`);
+  }
+  assert.equal(remapSettingsTab('harness-opencode-models'), 'harness-opencode-models');
+  assert.equal(remapSettingsTab('harness-opencode-approvals'), 'harness-opencode-approvals');
+  assert.equal(remapSettingsTab('harness'), 'harness');
+});
+
+test('isHarnessSubtabOf matches the base id and third-level sub-tabs', () => {
+  assert.equal(isHarnessSubtabOf('harness-sdk', 'sdk'), true);
+  assert.equal(isHarnessSubtabOf('harness-sdk-keys', 'sdk'), true);
+  assert.equal(isHarnessSubtabOf('harness-sdk-models', 'sdk'), true);
+  assert.equal(isHarnessSubtabOf('harness-opencode-approvals', 'opencode'), true);
+  assert.equal(isHarnessSubtabOf('harness-opencode-models', 'opencode'), true);
+  assert.equal(isHarnessSubtabOf('harness-codex-models', 'codebuddy'), false);
+  assert.equal(isHarnessSubtabOf('harness-codex-models', 'codex'), true);
+  assert.equal(isHarnessSubtabOf('harness', 'sdk'), false);
+  assert.equal(isHarnessSubtabOf('workspace', 'sdk'), false);
+  assert.equal(isHarnessSubtabOf('harness-sdk-models', ''), false);
 });
 
 test('isHarnessSettingsTab covers overview and backend tabs', () => {
@@ -95,6 +179,12 @@ test('isHarnessSettingsTab covers overview and backend tabs', () => {
   assert.equal(isHarnessSettingsTab('harness-deepseek'), true);
   assert.equal(isHarnessSettingsTab('harness-codex'), true);
   assert.equal(isHarnessSettingsTab('harness-qwen'), true);
+  assert.equal(isHarnessSettingsTab('harness-sdk-keys'), true);
+  assert.equal(isHarnessSettingsTab('harness-sdk-models'), true);
+  assert.equal(isHarnessSettingsTab('harness-openrouter-keys'), true);
+  assert.equal(isHarnessSettingsTab('harness-opencode-models'), true);
+  assert.equal(isHarnessSettingsTab('harness-opencode-approvals'), true);
+  assert.equal(isHarnessSettingsTab('harness-claude-models'), true);
   assert.equal(isHarnessSettingsTab('workspace'), false);
   assert.equal(isHarnessSettingsTab(''), false);
 });
@@ -155,7 +245,9 @@ test('buildSpaPath writes allowlisted paths', () => {
   assert.equal(buildSpaPath({ panel: 'tasks' }), '/tasks');
   assert.equal(buildSpaPath({ panel: 'settings' }), '/settings');
   assert.equal(buildSpaPath({ panel: 'settings', settingsTab: 'workspace' }), '/settings/workspace');
-  assert.equal(buildSpaPath({ panel: 'settings', settingsTab: 'harness-sdk' }), '/settings/harness-sdk');
+  assert.equal(buildSpaPath({ panel: 'settings', settingsTab: 'harness-sdk' }), '/settings/harness-sdk-keys');
+  assert.equal(buildSpaPath({ panel: 'settings', settingsTab: 'harness-sdk-models' }), '/settings/harness-sdk-models');
+  assert.equal(buildSpaPath({ panel: 'settings', settingsTab: 'harness-opencode-approvals' }), '/settings/harness-opencode-approvals');
   assert.equal(buildSpaPath({ panel: 'settings', settingsTab: 'interface-voice' }), '/settings/interface-voice');
   assert.equal(buildSpaPath({ panel: 'nope' }), '/chat');
   assert.equal(buildSpaPath({ panel: 'settings', settingsTab: 'nope' }), '/settings');

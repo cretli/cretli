@@ -330,14 +330,47 @@
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-harness-tabs" id="settings-harness-tabs" role="tablist" hidden data-i18n-aria="settings.tabsHarness" aria-label="Harness">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness" role="tab" aria-selected="false" data-i18n="settings.tabsHarnessOverview">Overview</button>
-      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-sdk" role="tab" aria-selected="false" data-i18n="settings.harnessSdk">Cursor SDK</button>
-      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-openrouter" role="tab" aria-selected="false" data-i18n="settings.harnessOpenRouter">OpenRouter</button>
-      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-opencode" role="tab" aria-selected="false" data-i18n="settings.harnessOpenCode">OpenCode</button>
-      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codebuddy" role="tab" aria-selected="false" data-i18n="settings.harnessCodeBuddy">CodeBuddy</button>
-      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-deepseek" role="tab" aria-selected="false" data-i18n="settings.harnessDeepSeek">DeepSeek</button>
-      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-qwen" role="tab" aria-selected="false" data-i18n="settings.harnessQwen">Qwen</button>
-      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-claude" role="tab" aria-selected="false" data-i18n="settings.harnessClaude">Claude</button>
-      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codex" role="tab" aria-selected="false" data-i18n="settings.harnessCodex">Codex</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-sdk" data-harness-tab="sdk" role="tab" aria-selected="false" data-i18n="settings.harnessSdk">Cursor SDK</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-openrouter" data-harness-tab="openrouter" role="tab" aria-selected="false" data-i18n="settings.harnessOpenRouter">OpenRouter</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-opencode" data-harness-tab="opencode" role="tab" aria-selected="false" data-i18n="settings.harnessOpenCode">OpenCode</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codebuddy" data-harness-tab="codebuddy" role="tab" aria-selected="false" data-i18n="settings.harnessCodeBuddy">CodeBuddy</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-deepseek" data-harness-tab="deepseek" role="tab" aria-selected="false" data-i18n="settings.harnessDeepSeek">DeepSeek</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-qwen" data-harness-tab="qwen" role="tab" aria-selected="false" data-i18n="settings.harnessQwen">Qwen</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-claude" data-harness-tab="claude" role="tab" aria-selected="false" data-i18n="settings.harnessClaude">Claude</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codex" data-harness-tab="codex" role="tab" aria-selected="false" data-i18n="settings.harnessCodex">Codex</button>
+    </div>
+    <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-sdk" data-harness-id="sdk" role="tablist" hidden data-i18n-aria="settings.harnessSdk" aria-label="Cursor SDK">
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-sdk-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-sdk-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+    </div>
+    <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-openrouter" data-harness-id="openrouter" role="tablist" hidden data-i18n-aria="settings.harnessOpenRouter" aria-label="OpenRouter">
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-openrouter-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-openrouter-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+    </div>
+    <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-opencode" data-harness-id="opencode" role="tablist" hidden data-i18n-aria="settings.harnessOpenCode" aria-label="OpenCode">
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-opencode-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-opencode-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-opencode-approvals" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabApprovals">Permissions</button>
+    </div>
+    <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-codebuddy" data-harness-id="codebuddy" role="tablist" hidden data-i18n-aria="settings.harnessCodeBuddy" aria-label="CodeBuddy">
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codebuddy-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codebuddy-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+    </div>
+    <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-deepseek" data-harness-id="deepseek" role="tablist" hidden data-i18n-aria="settings.harnessDeepSeek" aria-label="DeepSeek">
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-deepseek-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-deepseek-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+    </div>
+    <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-qwen" data-harness-id="qwen" role="tablist" hidden data-i18n-aria="settings.harnessQwen" aria-label="Qwen">
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-qwen-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-qwen-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+    </div>
+    <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-claude" data-harness-id="claude" role="tablist" hidden data-i18n-aria="settings.harnessClaude" aria-label="Claude">
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-claude-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-claude-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+    </div>
+    <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-codex" data-harness-id="codex" role="tablist" hidden data-i18n-aria="settings.harnessCodex" aria-label="Codex">
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codex-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codex-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-interface-tabs" id="settings-interface-tabs" role="tablist" hidden data-i18n-aria="settings.tabsInterface" aria-label="App">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="interface" role="tab" aria-selected="false" data-i18n="settings.tabsInterfaceAppearance">Appearance</button>
@@ -347,7 +380,7 @@
     </div>
     </div>
     <div class="settings-sections cr-page-body">
-      <section class="settings-section" data-settings-tab="workspace">
+      <section class="settings-section" data-settings-tab="workspace" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.workspaceTitle">Workspace</h3>
         <p class="settings-hint" data-i18n="settings.workspaceSidebarHint">Folder enable, name, and default folder save immediately. Use Save to remove a workspace or write folders into the .code-workspace file.</p>
         <div class="settings-workspace-box">
@@ -392,7 +425,7 @@
         <div class="workspace-dir" id="workspace-dir" data-i18n="common.loading">Loading…</div>
         <div class="folders" id="folders"></div>
       </section>
-      <section class="settings-section" data-settings-tab="connection">
+      <section class="settings-section" data-settings-tab="connection" role="tabpanel">
         <h3 class="settings-section-title">LAN (link & QR)</h3>
         <div class="cr-field">
           <label class="cr-field-label" data-i18n="settings.lanAddress">LAN address:</label>
@@ -408,20 +441,20 @@
           <img id="terminal-sync-qr" alt="QR" class="terminal-sync-qr" />
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="harness" id="harness-setup-wizard">
+      <section class="settings-section" data-settings-tab="harness" id="harness-setup-wizard" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessSetupTitle">Choose a chat backend</h3>
         <p class="settings-hint" data-i18n="settings.harnessSetupHint">Terminal, files, and git work without an API key. Chat needs one of these backends.</p>
         <p class="settings-hint" data-i18n="settings.harnessEnabledHint">Uncheck a harness to hide it from new chat, the mode bar, and voice. Existing chats keep working. Only checked models of an enabled harness are offered as choices.</p>
         <ul id="harness-setup-status" class="harness-setup-status"></ul>
         <p id="harness-enabled-save-status" class="cr-status" aria-live="polite"></p>
       </section>
-      <section class="settings-section" data-settings-tab="harness" id="local-harness-plugins">
+      <section class="settings-section" data-settings-tab="harness" id="local-harness-plugins" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.localHarnessTitle">Local harness plugins</h3>
         <p class="settings-hint" data-i18n="settings.localHarnessHint">Plugins discovered on this server. Enabling one only stores the choice; it still cannot be used for chat until runtime support ships. Saved plugins that are no longer discovered are removed when you save.</p>
         <ul id="local-harness-plugins-list" class="local-harness-plugins-list"></ul>
         <p id="local-harness-plugins-status" class="cr-status" aria-live="polite"></p>
       </section>
-      <section class="settings-section" data-settings-tab="harness">
+      <section class="settings-section" data-settings-tab="harness" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessDefaultsTitle">New chat defaults</h3>
         <p class="settings-hint" data-i18n="settings.harnessDefaultsHint">Default agent harness when opening the new chat dialog.</p>
         <div class="cr-field">
@@ -433,7 +466,7 @@
           </div>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="harness-opencode" id="opencode-api-settings">
+      <section class="settings-section" data-settings-tab="harness-opencode-keys" id="opencode-api-settings" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessOpenCodeApiTitle">OpenCode API (Zen)</h3>
         <p class="settings-hint">
           <span data-i18n="settings.harnessOpenCodeHintPrefix">Key from</span>
@@ -512,7 +545,7 @@
         </div>
         <p id="opencode-harness-status" class="settings-hint" aria-live="polite"></p>
       </section>
-      <section class="settings-section" data-settings-tab="harness-opencode" id="opencode-approval-broker-settings">
+      <section class="settings-section" data-settings-tab="harness-opencode-approvals" id="opencode-approval-broker-settings" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.approvalBrokerTitle">Approval Broker (OpenCode only)</h3>
         <p class="settings-hint" data-i18n="settings.approvalBrokerScopeHint">Only the OpenCode permission flow goes through the broker. Codex and CodeBuddy in Agent mode never ask for approvals at all; other harness flows keep their manual cards.</p>
         <p class="settings-hint approval-broker-warning" data-i18n="settings.approvalBrokerSafetyHint">The broker never auto-approves writes, edits, network access, secrets or git writes. The external advisor receives only a redacted permission tuple (request id, action, command, file names, risk and categories) and your provider may retain it.</p>
@@ -578,7 +611,7 @@
         </div>
         <p class="settings-hint" data-i18n="settings.approvalAdvisorEnvHint">CRETLI_APPROVAL_ADVISOR_API_KEY always takes precedence over a stored key; Clear removes only the stored key.</p>
       </section>
-      <section class="settings-section" data-settings-tab="harness-codebuddy" id="codebuddy-api-settings">
+      <section class="settings-section" data-settings-tab="harness-codebuddy-keys" id="codebuddy-api-settings" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessCodeBuddyApiTitle">CodeBuddy API</h3>
         <p class="settings-hint">
           <span data-i18n="settings.harnessCodeBuddyHintPrefix">Key from</span>
@@ -603,7 +636,7 @@
         </div>
         <p id="codebuddy-harness-status" class="settings-hint" aria-live="polite"></p>
       </section>
-      <section class="settings-section" data-settings-tab="harness-deepseek" id="deepseek-api-settings">
+      <section class="settings-section" data-settings-tab="harness-deepseek-keys" id="deepseek-api-settings" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessDeepSeekApiTitle">DeepSeek API</h3>
         <p class="settings-hint">
           <span data-i18n="settings.harnessDeepSeekHintPrefix">Key from</span>
@@ -628,7 +661,7 @@
         </div>
         <p id="deepseek-harness-status" class="settings-hint" aria-live="polite"></p>
       </section>
-      <section class="settings-section" data-settings-tab="harness-qwen" id="qwen-api-settings">
+      <section class="settings-section" data-settings-tab="harness-qwen-keys" id="qwen-api-settings" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessQwenApiTitle">Qwen Cloud API</h3>
         <p class="settings-hint">
           <span data-i18n="settings.harnessQwenHintPrefix">Key from</span>
@@ -669,7 +702,7 @@
         </div>
         <p id="qwen-harness-status" class="settings-hint" aria-live="polite"></p>
       </section>
-      <section class="settings-section" data-settings-tab="harness-claude" id="claude-api-settings">
+      <section class="settings-section" data-settings-tab="harness-claude-keys" id="claude-api-settings" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessClaudeBillingTitle">Claude billing</h3>
         <p class="settings-hint" data-i18n="settings.harnessClaudeBillingHint">Choose Claude Code plan login on this machine or Anthropic API billing.</p>
         <div class="cr-field">
@@ -720,7 +753,7 @@
         </div>
         <p id="claude-harness-status" class="settings-hint" aria-live="polite"></p>
       </section>
-      <section class="settings-section" data-settings-tab="harness-codex" id="codex-api-settings">
+      <section class="settings-section" data-settings-tab="harness-codex-keys" id="codex-api-settings" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessCodexBillingTitle">Codex billing</h3>
         <p class="settings-hint">
           <span data-i18n="settings.harnessCodexBillingHint">ChatGPT plan uses Go/Plus/Pro limits (</span>
@@ -772,7 +805,7 @@
         </div>
         <p id="codex-harness-status" class="settings-hint" aria-live="polite"></p>
       </section>
-      <section class="settings-section" data-settings-tab="harness-sdk">
+      <section class="settings-section" data-settings-tab="harness-sdk-keys" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessSdkTitle">Cursor API (SDK)</h3>
         <p class="settings-hint">
           Key from
@@ -816,7 +849,7 @@
           <span id="sdk-auto-recovery-save-status" class="cr-status"></span>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="harness-openrouter">
+      <section class="settings-section" data-settings-tab="harness-openrouter-keys" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessOpenRouterTitle">OpenRouter API</h3>
         <p class="settings-hint">
           <span data-i18n="settings.harnessOpenRouterHintPrefix">Key from</span>
@@ -840,7 +873,7 @@
           </div>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="connection">
+      <section class="settings-section" data-settings-tab="connection" role="tabpanel">
         <h3 class="settings-section-title">Frontend (HMR)</h3>
         <p class="settings-hint" data-i18n="settings.hmrHint">Disabling HMR can help with frontend refresh issues. Changing it requires a server restart.</p>
         <div class="cr-field">
@@ -853,7 +886,7 @@
           </div>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="interface">
+      <section class="settings-section" data-settings-tab="interface" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.appearance">Appearance</h3>
         <div class="cr-field">
           <label class="cr-field-label" data-i18n="settings.theme">Theme</label>
@@ -864,14 +897,14 @@
           <span data-i18n="settings.pinActiveWorkspace">Move the active workspace to the top of the sidebar</span>
         </cr-checkbox>
       </section>
-      <section class="settings-section" data-settings-tab="interface">
+      <section class="settings-section" data-settings-tab="interface" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.language">Language</h3>
         <p class="settings-hint" data-i18n="settings.languageHint">Interface language. English by default.</p>
         <div class="cr-field">
           <cr-bar-select id="lang-select"></cr-bar-select>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="interface">
+      <section class="settings-section" data-settings-tab="interface" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.notifications">Notifications</h3>
         <p class="settings-hint" data-i18n="settings.notificationsHint">Notify on this device when an agent run finishes. Requires installable PWA + granted permission. The server keeps your push subscription in data/push-subscriptions.json.</p>
         <div class="auto-name-chat-row">
@@ -880,7 +913,7 @@
         </div>
         <p id="pwa-push-status" class="settings-hint" aria-live="polite"></p>
       </section>
-      <section class="settings-section" data-settings-tab="interface-terminal">
+      <section class="settings-section" data-settings-tab="interface-terminal" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.terminalTitle">Terminal</h3>
         <p class="settings-hint" data-i18n="settings.fontSizeHint">Terminal font size. Auto — fits the screen on mobile, default on desktop.</p>
         <div class="cr-field">
@@ -891,14 +924,14 @@
           <span data-i18n="settings.readOnly">Read-only mode (block typing in terminal)</span>
         </cr-checkbox>
       </section>
-      <section class="settings-section" data-settings-tab="interface-terminal">
+      <section class="settings-section" data-settings-tab="interface-terminal" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.kibTitle">Kib gesture (phone)</h3>
         <p class="settings-hint" data-i18n="settings.kibHint">Hold ~0.5s on the terminal (canvas without the system "Paste" menu) — 4 directions and option rings after a distance. Bottom: first ring = arrow, second ring = refresh. The active ring has a green outline.</p>
         <cr-checkbox id="kib-radial-checkbox">
           <span data-i18n="settings.enableKib">Enable Kib gesture (default on touch screens)</span>
         </cr-checkbox>
       </section>
-      <section class="settings-section" data-settings-tab="interface-voice">
+      <section class="settings-section" data-settings-tab="interface-voice" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.voiceTitle">Voice (OpenAI)</h3>
         <p class="settings-hint" data-i18n="settings.voiceHint">
           Optional. Only needed for the OpenAI speech engine — the built-in browser voice works without a key.
@@ -915,7 +948,7 @@
           </div>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="interface-voice">
+      <section class="settings-section" data-settings-tab="interface-voice" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.azureSpeechTitle">Voice (Azure Speech)</h3>
         <p class="settings-hint" data-i18n="settings.azureSpeechHint">
           Optional. Native Polish narrators (Agnieszka, Marek, Zofia) — the OpenAI voices read Polish with
@@ -935,7 +968,7 @@
           </div>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="interface-voice">
+      <section class="settings-section" data-settings-tab="interface-voice" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.geminiTitle">Voice (Gemini Live)</h3>
         <p class="settings-hint" data-i18n="settings.geminiHint">
           Optional. Cheaper continuous conversation than OpenAI Realtime. Key from Google AI Studio.
@@ -953,7 +986,7 @@
           </div>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="chat">
+      <section class="settings-section" data-settings-tab="chat" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.quickCommands">Quick commands</h3>
         <p class="settings-hint" data-i18n="settings.quickCommandsHint">One command per line. Tap the bar above a panel to send the command to the terminal or to the chat Send field.</p>
         <textarea id="quick-commands-input" class="quick-commands-textarea" rows="5" placeholder="e.g.&#10;git status&#10;npm run dev&#10;git pull" data-i18n-placeholder="settings.quickCommandsPlaceholder"></textarea>
@@ -962,7 +995,7 @@
           <span id="quick-commands-save-status" class="quick-commands-save-status"></span>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="chat">
+      <section class="settings-section" data-settings-tab="chat" role="tabpanel">
         <h3 class="settings-section-title">Chat</h3>
         <div class="auto-name-chat-row">
           <input type="checkbox" id="auto-name-chat-checkbox" class="auto-name-chat-checkbox" />
@@ -997,7 +1030,7 @@
           <label for="agent-title-print-checkbox"><strong>Name from content — print mode (JSON)</strong> – Cursor CLI <code>--print --output-format json</code> instead of an interactive agent + curl. Faster and more stable; requires the <code>agent</code> logged in on the server. <a href="https://cursor.com/docs/cli/reference/output-format" target="_blank" rel="noopener">Docs</a>. <span data-i18n="settings.titlePrintHint">You can also set env CURSOR_AGENT_TITLE_PRINT=1.</span></label>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="harness-sdk">
+      <section class="settings-section" data-settings-tab="harness-sdk-models" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessSdkModelsTitle">Cursor SDK — chat models</h3>
         <p class="settings-hint" data-i18n="settings.chatModelsHint">
           Full list of models available for your API key (including modes such as High/Low). Check the entries that should appear in the chat model picker. When none are selected, all models remain available.
@@ -1027,7 +1060,7 @@
           <span id="chat-model-settings-status" class="cr-status" aria-live="polite"></span>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="harness-openrouter">
+      <section class="settings-section" data-settings-tab="harness-openrouter-models" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessOpenRouterModelsTitle">OpenRouter — chat models</h3>
         <p class="settings-hint" data-i18n="settings.harnessOpenRouterModelsHint">
           Models from your OpenRouter API key. Check entries that should appear in the chat model picker for OpenRouter harness chats.
@@ -1055,7 +1088,7 @@
           <span id="openrouter-model-settings-status" class="cr-status" aria-live="polite"></span>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="harness-opencode">
+      <section class="settings-section" data-settings-tab="harness-opencode-models" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessOpenCodeModelsTitle">OpenCode — chat models</h3>
         <p class="settings-hint" data-i18n="settings.harnessOpenCodeModelsHint">
           Models from OpenCode providers on the server. Check entries for the chat model picker when harness is OpenCode.
@@ -1083,7 +1116,7 @@
           <span id="opencode-model-settings-status" class="cr-status" aria-live="polite"></span>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="harness-codebuddy">
+      <section class="settings-section" data-settings-tab="harness-codebuddy-models" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessCodeBuddyModelsTitle">CodeBuddy — chat models</h3>
         <p class="settings-hint" data-i18n="settings.harnessCodeBuddyModelsHint">
           Models from your Tencent CodeBuddy account (CLI catalog). Check entries for the chat model picker when harness is CodeBuddy.
@@ -1111,7 +1144,7 @@
           <span id="codebuddy-model-settings-status" class="cr-status" aria-live="polite"></span>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="harness-deepseek">
+      <section class="settings-section" data-settings-tab="harness-deepseek-models" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessDeepSeekModelsTitle">DeepSeek — chat models</h3>
         <p class="settings-hint" data-i18n="settings.harnessDeepSeekModelsHint">
           Official DeepSeek Harness routes (V4 Flash / V4 Pro). Check entries for the chat model picker when harness is DeepSeek.
@@ -1139,7 +1172,7 @@
           <span id="deepseek-model-settings-status" class="cr-status" aria-live="polite"></span>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="harness-qwen">
+      <section class="settings-section" data-settings-tab="harness-qwen-models" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessQwenModelsTitle">Qwen — chat models</h3>
         <p class="settings-hint" data-i18n="settings.harnessQwenModelsHint">
           Qwen Cloud model ids (3.8 Max / Plus / Coder). Check entries for the chat model picker when harness is Qwen.
@@ -1167,7 +1200,7 @@
           <span id="qwen-model-settings-status" class="cr-status" aria-live="polite"></span>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="harness-claude">
+      <section class="settings-section" data-settings-tab="harness-claude-models" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessClaudeModelsTitle">Claude — chat models</h3>
         <p class="settings-hint" data-i18n="settings.harnessClaudeModelsHint">
           Anthropic model ids (Opus / Sonnet / Haiku). Check entries for the chat model picker when harness is Claude.
@@ -1195,7 +1228,7 @@
           <span id="claude-model-settings-status" class="cr-status" aria-live="polite"></span>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="harness-codex">
+      <section class="settings-section" data-settings-tab="harness-codex-models" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessCodexModelsTitle">Codex — chat models</h3>
         <p class="settings-hint" data-i18n="settings.harnessCodexModelsHint">
           Fallback Codex SDK catalog. Check entries for the chat model picker when harness is Codex.
@@ -1225,7 +1258,7 @@
           <span id="codex-model-settings-status" class="cr-status" aria-live="polite"></span>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="chat">
+      <section class="settings-section" data-settings-tab="chat" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.rulesAndAgents">Rules and agents</h3>
         <div class="agents-toggle" id="agents-toggle"><span class="mdi mdi-chevron-down" aria-hidden="true"></span> <span data-i18n="settings.rulesAndAgentsTitle"> Rules and agents (project + skills)</span></div>
         <div class="agents-panel" id="agents-rules-panel" style="display:none;">
@@ -1243,7 +1276,7 @@
           <ul id="agents-skills"></ul>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="delegations">
+      <section class="settings-section" data-settings-tab="delegations" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.delegationsCenterTitle">Delegation center</h3>
         <p class="settings-hint" data-i18n="settings.delegationsCenterHint">Runtime health, stuck jobs, and repair actions for this workspace. Prompt text is never shown here.</p>
         <div id="delegation-runtime-health" class="delegation-center-health" aria-live="polite"></div>
@@ -1260,7 +1293,7 @@
         </div>
         <p id="delegation-center-status" class="cr-hint" aria-live="polite"></p>
       </section>
-      <section class="settings-section" data-settings-tab="widgets" hidden>
+      <section class="settings-section" data-settings-tab="widgets" hidden role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.widgetsTitle">Page widgets</h3>
         <p class="settings-hint" data-i18n="settings.widgetsHint">Each installation is bound to one workspace and to the allowed page origins.</p>
         <div class="widget-panel-layout">
@@ -1319,12 +1352,12 @@
           </section>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="mcp" hidden>
+      <section class="settings-section" data-settings-tab="mcp" hidden role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.mcpTitle">MCP</h3>
         <p class="settings-hint" data-i18n="settings.mcpHint">Configure MCP servers once. Pick workspaces and harnesses; agents receive the tools without extra shell scripts. Secrets stay on the server.</p>
         <div id="settings-mcp-root" class="mcp-settings-root"></div>
       </section>
-      <section class="settings-section" data-settings-tab="usage" hidden>
+      <section class="settings-section" data-settings-tab="usage" hidden role="tabpanel">
         <h3 class="settings-section-title" data-i18n="usage.title">Usage and cost</h3>
         <p class="settings-hint" data-i18n="usage.hint">Approximate totals for this Cretli instance. Not a provider invoice.</p>
         <div class="settings-usage-controls">
@@ -1414,7 +1447,7 @@
           <p id="usage-breakdown-empty" class="settings-hint" data-i18n="usage.noRows" hidden>No usage in this range.</p>
         </div>
       </section>
-      <section class="settings-section" id="settings-account-section" data-settings-tab="account" hidden>
+      <section class="settings-section" id="settings-account-section" data-settings-tab="account" hidden role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.account">Account</h3>
         <p class="settings-hint" data-i18n="settings.accountInfo">You are logged in. Logging out will invalidate the current session on this device.</p>
         <div id="settings-app-update" class="settings-app-update">
@@ -1447,7 +1480,7 @@
           <span id="account-logout-status" class="quick-commands-save-status"></span>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="interface-browser">
+      <section class="settings-section" data-settings-tab="interface-browser" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.browserStorageTitle">Browser report &amp; storage</h3>
         <p class="settings-hint" data-i18n="settings.browserStorageHint">Local diagnostics for origin storage (quota, usage, localStorage keys, IndexedDB databases). Clearing removes only Cretli browser data.</p>
         <div class="quick-commands-save-row browser-debug-policy-row">

@@ -81,8 +81,10 @@ import {
   replaceLocationView,
 } from './app/appShell/panelRouter.js';
 import {
+  SPA_HARNESS_IDS,
   SPA_SETTINGS_TABS,
   isHarnessSettingsTab,
+  isHarnessSubtabOf,
   isInterfaceSettingsTab,
   remapSettingsTab,
 } from '../lib/spa-routes.js';
@@ -964,6 +966,34 @@ function initAccountLogout() {
 const SETTINGS_TAB_LS_KEY = 'cretli-settings-tab';
 const SETTINGS_TABS = SPA_SETTINGS_TABS;
 
+/**
+ * Returns the harness id for third-level settings tabs such as
+ * `harness-opencode-models`, or `''` for the overview/unknown tabs.
+ *
+ * @param {string} tabId
+ * @returns {string}
+ */
+function getHarnessIdFromSettingsTab(tabId) {
+  const raw = typeof tabId === 'string' ? tabId.trim() : '';
+  if (!raw.startsWith('harness-')) return '';
+  return SPA_HARNESS_IDS.find(
+    (harnessId) => raw === `harness-${harnessId}` || raw.startsWith(`harness-${harnessId}-`),
+  ) || '';
+}
+
+/**
+ * True for a harness Keys/Models sub-tab (the model catalog is loaded there).
+ * The OpenCode Approvals tab is excluded.
+ *
+ * @param {string} tabId
+ * @param {string} harnessId
+ * @returns {boolean}
+ */
+function isHarnessModelSubtab(tabId, harnessId) {
+  if (!isHarnessSubtabOf(tabId, harnessId)) return false;
+  return tabId !== `harness-${harnessId}-approvals`;
+}
+
 function ensureSettingsTabsVisible() {
   const tabBar = document.getElementById('settings-tabs');
   if (!tabBar) return;
@@ -987,15 +1017,15 @@ function refreshSettingsTabPanels(tabId) {
   if (!settingsPanel?.classList.contains('active')) return;
   ensureSettingsHeavyModules();
   if (tabId === 'harness') refreshHarnessSettingsPanel();
-  if (tabId === 'harness-sdk') refreshModelSettingsPanel();
-  if (tabId === 'harness-openrouter') refreshOpenRouterModelSettingsPanel();
-  if (tabId === 'harness-opencode') refreshOpenCodeModelSettingsPanel();
-  if (tabId === 'harness-opencode') void refreshApprovalBrokerSettings();
-  if (tabId === 'harness-codebuddy') refreshCodeBuddyModelSettingsPanel();
-  if (tabId === 'harness-deepseek') refreshDeepSeekModelSettingsPanel();
-  if (tabId === 'harness-qwen') refreshQwenModelSettingsPanel();
-  if (tabId === 'harness-claude') refreshClaudeModelSettingsPanel();
-  if (tabId === 'harness-codex') refreshCodexModelSettingsPanel();
+  if (isHarnessModelSubtab(tabId, 'sdk')) refreshModelSettingsPanel();
+  if (isHarnessModelSubtab(tabId, 'openrouter')) refreshOpenRouterModelSettingsPanel();
+  if (isHarnessModelSubtab(tabId, 'opencode')) refreshOpenCodeModelSettingsPanel();
+  if (isHarnessModelSubtab(tabId, 'codebuddy')) refreshCodeBuddyModelSettingsPanel();
+  if (isHarnessModelSubtab(tabId, 'deepseek')) refreshDeepSeekModelSettingsPanel();
+  if (isHarnessModelSubtab(tabId, 'qwen')) refreshQwenModelSettingsPanel();
+  if (isHarnessModelSubtab(tabId, 'claude')) refreshClaudeModelSettingsPanel();
+  if (isHarnessModelSubtab(tabId, 'codex')) refreshCodexModelSettingsPanel();
+  if (tabId === 'harness-opencode-approvals') void refreshApprovalBrokerSettings();
   if (tabId === 'chat') refreshModelSettingsPanel();
   if (tabId === 'usage') void refreshUsageSettings();
   if (tabId === 'delegations') void refreshDelegationCenter();
@@ -1017,6 +1047,8 @@ function isSettingsTabButtonActive(btn, tabId, inMainBar) {
   const btnTab = btn.dataset.settingsTab || '';
   if (inMainBar && btnTab === 'harness') return isHarnessSettingsTab(tabId);
   if (inMainBar && btnTab === 'interface') return isInterfaceSettingsTab(tabId);
+  const harnessTab = btn.dataset.harnessTab || '';
+  if (harnessTab) return isHarnessSubtabOf(tabId, harnessTab);
   return btnTab === tabId;
 }
 
@@ -1048,6 +1080,16 @@ function applySettingsTab(tabId) {
   let activeBtn = applySettingsTabButtonState(mainBar, resolvedTabId, true);
   activeBtn = applySettingsTabButtonState(harnessBar, resolvedTabId, false) || activeBtn;
   activeBtn = applySettingsTabButtonState(interfaceBar, resolvedTabId, false) || activeBtn;
+
+  const activeHarnessId = getHarnessIdFromSettingsTab(resolvedTabId);
+  document.querySelectorAll('.settings-harness-subtab-bar').forEach((bar) => {
+    const barHarnessId = bar.dataset.harnessId || '';
+    const isVisible = Boolean(activeHarnessId) && barHarnessId === activeHarnessId;
+    bar.hidden = !isVisible;
+    const barActiveBtn = applySettingsTabButtonState(bar, resolvedTabId, false);
+    if (isVisible) activeBtn = barActiveBtn || activeBtn;
+  });
+
   if (harnessBar) harnessBar.hidden = !isHarnessSettingsTab(resolvedTabId);
   if (interfaceBar) interfaceBar.hidden = !isInterfaceSettingsTab(resolvedTabId);
   document.querySelectorAll('.settings-section[data-settings-tab]').forEach((section) => {
@@ -1095,6 +1137,9 @@ function initSettingsTabs() {
   bindSettingsTabClicks(tabBar);
   bindSettingsTabClicks(document.getElementById('settings-harness-tabs'));
   bindSettingsTabClicks(document.getElementById('settings-interface-tabs'));
+  document.querySelectorAll('.settings-harness-subtab-bar').forEach((bar) => {
+    bindSettingsTabClicks(bar);
+  });
   applySettingsTab(initialTab);
 }
 

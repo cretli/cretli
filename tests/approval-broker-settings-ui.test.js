@@ -266,8 +266,8 @@ const sectionMatch = indexHtml.match(/<section[^>]*id="opencode-approval-broker-
 assert.ok(sectionMatch, 'the approval broker settings section must exist');
 assert.match(
   sectionMatch[0],
-  /data-settings-tab="harness-opencode"/,
-  'the panel must live in the existing OpenCode harness tab',
+  /data-settings-tab="harness-opencode-approvals"/,
+  'the panel must live in the OpenCode permissions sub-tab',
 );
 assert.equal(
   /data-settings-tab="approval"/.test(indexHtml),
