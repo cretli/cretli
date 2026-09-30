@@ -283,11 +283,7 @@ export function initLanSettings() {
       selectEl.value = data?.claudeAuthMode === 'api-key' ? 'api-key' : 'subscription';
     }
     if (!statusEl) return;
-    if (!data?.ok) {
-      statusEl.textContent = '';
-      return;
-    }
-    if (data.claudeAuthMode === 'api-key') {
+    if (!data?.ok || data.claudeAuthMode === 'api-key') {
       statusEl.textContent = '';
       return;
     }
@@ -305,6 +301,10 @@ export function initLanSettings() {
     if (!hint) return;
     if (!data?.ok) {
       hint.textContent = '';
+      return;
+    }
+    if (data.claudeProviderConfigured) {
+      hint.textContent = t('lanSettings.claudeProviderConfigured');
       return;
     }
     if (data.claudeApiKeyFromEnv) {
@@ -932,8 +932,7 @@ export function initLanSettings() {
   if (claudePlanLoginBtn) {
     claudePlanLoginBtn.addEventListener('click', () => {
       if (claudePlanLoginStatusEl) claudePlanLoginStatusEl.textContent = t('common.saving');
-      api
-        .patchSettings({ claudeAuthMode: 'subscription' })
+      api.patchSettings({ claudeAuthMode: 'subscription' })
         .then((data) => {
           if (!data?.ok) {
             if (claudePlanLoginStatusEl) claudePlanLoginStatusEl.textContent = data?.error || t('lanSettings.saveError');
@@ -1004,8 +1003,7 @@ export function initLanSettings() {
     claudeAuthModeSelect.addEventListener('cr-change', (event) => {
       const value = event?.detail?.value === 'api-key' ? 'api-key' : 'subscription';
       if (claudeAuthModeStatusEl) claudeAuthModeStatusEl.textContent = t('common.saving');
-      api
-        .patchSettings({ claudeAuthMode: value })
+      api.patchSettings({ claudeAuthMode: value })
         .then((data) => {
           if (!data?.ok) {
             if (claudeAuthModeStatusEl) claudeAuthModeStatusEl.textContent = data?.error || t('lanSettings.saveError');

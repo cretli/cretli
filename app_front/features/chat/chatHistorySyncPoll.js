@@ -36,6 +36,7 @@ import {
   resolveHistorySyncPollFollowUp,
   shouldClearPendingRemoteHistory,
 } from './chatHistoryConvergence.js';
+import { isBlockingPersistedLocalChatHarnessState } from './persistedLocalChatState.js';
 
 const POLL_INTERVAL_MS = 15000;
 const HISTORY_POLL_START_DELAY_MS = 1500;
@@ -254,6 +255,21 @@ function waitMs(ms) {
 }
 
 /**
+ * Chats the revision poll may touch. A persisted local chat whose plugin is missing,
+ * disabled, not chat-capable, or host-incompatible has no SDK runtime, so it must never
+ * trigger an agent-state/history-revision HTTP request or an active resume sync. Every
+ * other row (including `not_loaded`, no-state, and legacy rows) is preserved unchanged.
+ *
+ * @param {object[] | null | undefined} chats
+ * @returns {object[]}
+ */
+export function selectPersistedLocalChatHistoryPollChats(chats) {
+  return (Array.isArray(chats) ? chats : []).filter(
+    (chat) => chat?.id && chat?.cursorSessionId && !isBlockingPersistedLocalChatHarnessState(chat)
+  );
+}
+
+/**
  * @param {Array<{ chat: object, revision: object }>} jobs
  */
 async function pullBackgroundHistoryQueue(jobs) {
@@ -266,7 +282,12 @@ async function pullBackgroundHistoryQueue(jobs) {
   });
   for (let offset = 0; offset < cappedJobs.length; offset += chunkSize) {
     if (offset > 0) await waitMs(delayMs);
-    const slice = cappedJobs.slice(offset, offset + chunkSize);
+    // A background chat can turn blocking while the poll is in flight. Drop it before
+    // the fetch, and re-check again before ingest because the POST itself is async.
+    const slice = cappedJobs
+      .slice(offset, offset + chunkSize)
+      .filter(({ chat }) => !isBlockingPersistedLocalChatHarnessState(chat));
+    if (slice.length === 0) continue;
     const body = buildChatHistoryBatchBody(
       slice.map(({ chat }) => ({
         id: chat.id,
@@ -287,6 +308,9 @@ async function pullBackgroundHistoryQueue(jobs) {
     }
     if (!response?.ok || !response.histories || typeof response.histories !== 'object') continue;
     for (const { chat, revision } of slice) {
+      // The response is async: a chat may have flipped to blocking while the batch was
+      // in flight. It must never ingest history or be pulled any further.
+      if (isBlockingPersistedLocalChatHarnessState(chat)) continue;
       const page = response.histories[chat.id];
       if (!page) continue;
       const sinceBeforePull = getLastAckedSeq(chat.id);
@@ -364,9 +388,17 @@ function shouldSkipAgentStatesHttp() {
   });
 }
 
-async function runChatHistoryRevisionPoll() {
+/**
+ * One revision-poll pass. Exported so the blocked-chat exclusion can be regression-tested
+ * without timers; production passes run through `pollChatHistoryRevisions`.
+ *
+ * @returns {Promise<void>}
+ */
+export async function runChatHistoryRevisionPoll() {
   if (!deps || typeof document === 'undefined' || document.hidden) return;
-  const chats = deps.getChats().filter((chat) => chat?.id && chat?.cursorSessionId);
+  // Blocked persisted local chats are dropped before any agent-state/history HTTP so a
+  // missing/disabled plugin can never drive SDK sync for that chat.
+  const chats = selectPersistedLocalChatHistoryPollChats(deps.getChats());
   if (chats.length === 0) return;
   const now = Date.now();
   if (!shouldSkipAgentStatesHttp()) {
@@ -381,17 +413,23 @@ async function runChatHistoryRevisionPoll() {
       });
     }
   }
+  // A chat can turn blocking while the agent-state request was in flight: re-check the
+  // live state before deciding which chats may be history-polled or resume-synced.
+  const eligibleChats = chats.filter(
+    (chat) => !isBlockingPersistedLocalChatHarnessState(chat)
+  );
+  if (eligibleChats.length === 0) return;
   const activeChatId = deps.getActiveChatId();
   const monitoredChatIds = selectHistoryHttpChatIds(
-    selectMonitoredChatIds(chats, deps.getActiveChatId, getChatActivityAt),
-    chats,
+    selectMonitoredChatIds(eligibleChats, deps.getActiveChatId, getChatActivityAt),
+    eligibleChats,
     {
       activeChatId,
       visibleChatIds: getRenderedSidebarChatIds(),
     },
   );
-  const wsChatIds = selectBackgroundWsChatIds(chats, deps.getActiveChatId, getChatActivityAt, now);
-  const monitoredChats = chats.filter((chat) => monitoredChatIds.has(chat.id));
+  const wsChatIds = selectBackgroundWsChatIds(eligibleChats, deps.getActiveChatId, getChatActivityAt, now);
+  const monitoredChats = eligibleChats.filter((chat) => monitoredChatIds.has(chat.id));
   if (monitoredChats.length === 0) return;
   try {
     const response = await getChatHistoryRevisions(monitoredChats.map((chat) => chat.id));
@@ -400,6 +438,10 @@ async function runChatHistoryRevisionPoll() {
     /** @type {Array<{ chat: object, revision: object }>} */
     const backgroundHttpJobs = [];
     for (const chat of monitoredChats) {
+      // Re-check the live state after the revision request and immediately before any
+      // active resume sync or background fetch/ingest: a chat that flipped to blocking
+      // in flight must not drive SDK history.
+      if (isBlockingPersistedLocalChatHarnessState(chat)) continue;
       const revision = revisions[chat.id];
       if (!revision || typeof revision.headSeq !== 'number') {
         setChatPendingRemoteHistory(chat, false);

@@ -101,8 +101,13 @@ For each named constant, interval, file and behavior in the prompt, find file:li
   per history read) — the cheapest-looking win is often on the wrong side of the wire.
 - **Stale docs**: dated plan/repair docs in `docs/` may describe code that already changed
   (`@deprecated` constants are the tell). Require the new plan to rebase, not restate.
-- **Test convention**: check the suite's style before promising tests. This repo's `tests/*.test.js`
-  are assertion scripts ending in `console.log('<file>.test.js OK')`, not `node:test`.
+- **Test convention**: check the suite's style before promising tests. Two styles coexist in
+  `tests/*.test.js`: plain assertion scripts ending in `console.log('<file>.test.js OK')`
+  (e.g. `harness-status.test.js`) **and** real `node:test` suites using `import test from 'node:test'`
+  with `assert/strict` (e.g. `harness-plugin-loader.test.js`, `theme.test.js`, widget tests). Read the
+  file first: the former runs as `node tests/x.test.js`, the latter as `node --test tests/x.test.js`.
+  Note some `node:test` suites are not wired into `scripts/run-unit-tests.mjs`, so `npm test` passing
+  does not mean they ran.
 
 Grep hygiene: exclude `public/**` (built bundles embed full source maps → giant garbage hits) and
 `data/`; scope to `app_front`/`lib` and `--include=*.js`.
@@ -121,3 +126,10 @@ artifacts line listing every file:line cited, so the parent can spot-check.
 `message_text` and `history_seq`+`content_hash` are mutually exclusive; sending both fails with
 `VALIDATION_ERROR: Provide exactly one of history_seq+content_hash or message_text`.
 A successful reply returns `status=queued` and does **not** mark the job reviewed — don't resend.
+
+**If instead every `cretli_bridge` call fails with `MCP session is unknown or no longer active`**
+(including read-only `ping_read` / `delegation_show`), that is infrastructure, not your payload:
+retry the reply a bounded 2–3 times reusing the same `idempotency_key`, publish the full report in
+the chat response so it isn't lost, append a delivery-blocker section naming the exact error and the
+replay key, and end with `BLOCKED` — never a verdict implying the parent received it. See
+**cretli-delegation-implement**, Step 6, for the same fallback on the executor side.

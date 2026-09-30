@@ -4,6 +4,7 @@ import {
   createNewChatCatalogCache,
   createNewChatHarnessStatusTracker,
   isSuccessfulCatalog,
+  listEnabledLocalChatHarnessOptions,
   normalizeNewChatHarnessId,
   resolveCatalogConfirmedReadiness,
   resolveNewChatHarnessUiState,
@@ -14,6 +15,31 @@ assert.equal(normalizeNewChatHarnessId(' qwen '), 'qwen');
 assert.equal(normalizeNewChatHarnessId('codex'), 'codex');
 assert.equal(normalizeNewChatHarnessId('nonsense'), 'sdk');
 assert.equal(normalizeNewChatHarnessId(undefined), 'sdk');
+
+// A local id survives normalization only while it is in the enabled allowlist.
+const localIds = new Set(['alpha']);
+assert.equal(normalizeNewChatHarnessId('alpha', { localIds }), 'alpha');
+assert.equal(normalizeNewChatHarnessId('  ALPHA  ', { localIds }), 'alpha');
+assert.equal(normalizeNewChatHarnessId('beta', { localIds }), 'sdk');
+assert.equal(normalizeNewChatHarnessId('alpha'), 'sdk');
+assert.equal(normalizeNewChatHarnessId('sdk', { localIds }), 'sdk');
+
+// Catalog rows become options only when local + enabled + chat-capable (once).
+assert.deepEqual(
+  listEnabledLocalChatHarnessOptions({
+    items: [
+      { id: 'alpha', label: 'Alpha', origin: 'local', enabled: true, capabilities: { chat: true } },
+      { id: 'beta', label: 'Beta', origin: 'local', enabled: false, capabilities: { chat: true } },
+      { id: 'gamma', label: 'Gamma', origin: 'local', enabled: true, capabilities: { chat: false } },
+      { id: 'sdk', label: 'SDK', origin: 'builtin', enabled: true, capabilities: { chat: true } },
+      { id: 'alpha', label: 'Duplicate', origin: 'local', enabled: true, capabilities: { chat: true } },
+      { id: '', label: 'Blank', origin: 'local', enabled: true, capabilities: { chat: true } },
+    ],
+  }),
+  [{ id: 'alpha', label: 'Alpha' }],
+);
+assert.deepEqual(listEnabledLocalChatHarnessOptions(null), []);
+assert.deepEqual(listEnabledLocalChatHarnessOptions({ items: [] }), []);
 
 // Unknown readiness must keep Create disabled without showing a warning (the reported bug).
 assert.deepEqual(resolveNewChatHarnessUiState(null), {

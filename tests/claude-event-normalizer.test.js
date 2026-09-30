@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { takeStreamDelta } from '../app_front/lib/sdk-chat-format.js';
 import {
   CLAUDE_ASSISTANT_ERROR_MESSAGES,
+  collectClaudeIdleNotices,
   createClaudeEventNormalizer,
   normalizeClaudeMessage,
   resolveClaudeAssistantErrorMessage,
+  resolveClaudeResultUsage,
   stringifyClaudeToolResult,
 } from '../lib/agent-harness/claude-event-normalizer.js';
 import { resolvePlanModeSdkEventDecision } from '../lib/sdk/sdk-plan-guard.js';
@@ -160,7 +162,7 @@ const authError = normalizeClaudeMessage({
 });
 assert.equal(authError[0].kind, 'api_error');
 assert.equal(authError[0].errorType, 'authentication_failed');
-assert.match(String(authError[0].message), /claude login|setup-token/);
+assert.match(String(authError[0].message), /Anthropic API key|cloud provider credentials/);
 
 assert.equal(
   resolveClaudeAssistantErrorMessage('model_not_found'),
@@ -322,5 +324,87 @@ const mainCall = subNormalizer.normalize({
 });
 assert.equal(mainCall.length, 1);
 assert.equal(mainCall[0].parentToolUseId, undefined);
+
+// --- Task E: result telemetry → usage event (camelCase, frontend shape) ---
+const usageResult = normalizeClaudeMessage({
+  type: 'result',
+  subtype: 'success',
+  is_error: false,
+  session_id: 'claude-sess-1',
+  duration_ms: 1234,
+  total_cost_usd: 0.42,
+  usage: {
+    input_tokens: 100,
+    output_tokens: 40,
+    cache_read_input_tokens: 300,
+    cache_creation_input_tokens: 20,
+  },
+  modelUsage: { 'claude-sonnet-4-6': { inputTokens: 100, outputTokens: 40, costUSD: 0.42 } },
+});
+assert.equal(usageResult[0].kind, 'usage');
+assert.equal(usageResult[0].usage.inputTokens, 420);
+assert.equal(usageResult[0].usage.outputTokens, 40);
+assert.equal(usageResult[0].usage.totalTokens, 460);
+assert.equal(usageResult[0].usage.cacheReadTokens, 300);
+assert.equal(usageResult[0].usage.cacheWriteTokens, 20);
+assert.equal(usageResult[0].totalCostUsd, 0.42);
+assert.equal(usageResult[0].durationMs, 1234);
+assert.equal(usageResult[0].modelUsage['claude-sonnet-4-6'].costUSD, 0.42);
+assert.equal(usageResult[1].kind, 'result');
+assert.equal(usageResult[1].status, 'completed');
+assert.deepEqual(
+  resolveClaudeResultUsage({ usage: { input_tokens: 0, output_tokens: 0 } }),
+  null,
+);
+
+// --- Task E: rate_limit_event → advisory notice, never an error ---
+const rateLimit = normalizeClaudeMessage({
+  type: 'rate_limit_event',
+  session_id: 'claude-sess-1',
+  rate_limit_info: { status: 'allowed_warning', resetsAt: 1_800_000_000 },
+});
+assert.equal(rateLimit.length, 1);
+assert.equal(rateLimit[0].kind, 'notice');
+assert.equal(rateLimit[0].noticeType, 'rate_limit');
+assert.equal(rateLimit[0].status, 'allowed_warning');
+assert.equal(rateLimit[0].resetsAt, 1_800_000_000);
+assert.match(String(rateLimit[0].message), /rate limit/i);
+assert.match(String(rateLimit[0].message), /Resets at/);
+
+// --- Task E: compact_boundary → advisory notice ---
+const compact = normalizeClaudeMessage({
+  type: 'system',
+  subtype: 'compact_boundary',
+  session_id: 'claude-sess-1',
+  compact_metadata: { trigger: 'auto', pre_tokens: 180000, post_tokens: 40000 },
+});
+const compactNotice = compact.find((event) => event.kind === 'notice');
+assert.ok(compactNotice, 'compact notice is emitted');
+assert.equal(compactNotice.noticeType, 'compact');
+assert.equal(compactNotice.trigger, 'auto');
+assert.equal(compactNotice.preTokens, 180000);
+assert.equal(compactNotice.postTokens, 40000);
+
+// --- Task P: between-turn collection returns only notices ---
+assert.deepEqual(
+  collectClaudeIdleNotices({ type: 'tool_progress', tool_use_id: 't1' }).length,
+  0,
+);
+assert.deepEqual(
+  collectClaudeIdleNotices({ type: 'system', subtype: 'task_notification', session_id: 's' }).length,
+  0,
+);
+assert.equal(
+  collectClaudeIdleNotices({
+    type: 'system',
+    subtype: 'compact_boundary',
+    compact_metadata: { trigger: 'manual' },
+  })[0].noticeType,
+  'compact',
+);
+assert.equal(
+  collectClaudeIdleNotices({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } })[0].noticeType,
+  'rate_limit',
+);
 
 console.log('claude-event-normalizer.test.js OK');

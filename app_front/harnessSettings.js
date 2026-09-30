@@ -16,6 +16,8 @@ import {
 } from './features/chat/harnessModelUsage.js';
 import { shouldLoadHarnessModelCatalogs, resolveHarnessSelectValue } from './features/chat/harnessSettingsLoad.js';
 import { favoriteStarHtml, hasFavoriteHarness, subscribeToFavoriteModelChanges } from './features/chat/modelFavoriteMarker.js';
+import { initLocalHarnessPlugins, refreshLocalHarnessPlugins } from './features/settings/localHarnessPlugins.js';
+import { attachHarnessHealthRow } from './features/harness-health/harnessHealthCard.js';
 
 /** @typedef {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen' | 'claude'} NewChatHarness */
 
@@ -243,6 +245,8 @@ function renderHarnessSetupStatus(data) {
     usageEl.setAttribute('aria-label', t('settings.harnessModelUsageHint', usage));
     item.append(dragBtn, enableLabel, btn, usageEl);
     listEl.appendChild(item);
+    // Lazy health card: chevron lives in the row, the card wraps to its own line.
+    attachHarnessHealthRow(item, row.id, row.label);
   }
 }
 
@@ -374,6 +378,7 @@ export function ensureHarnessDefaultsLoaded() {
  * Initializes harness defaults UI (Settings → Harness).
  */
 export function initHarnessSettings() {
+  initLocalHarnessPlugins();
   const selectEl = document.getElementById('default-new-chat-harness-select');
   const saveBtn = document.getElementById('default-new-chat-harness-save-btn');
   const statusEl = document.getElementById('default-new-chat-harness-save-status');
@@ -433,4 +438,5 @@ export function initHarnessSettings() {
 
 export function refreshHarnessSettingsPanel() {
   void loadDefaultHarnessFromServer({ includeModelUsage: shouldLoadHarnessModelCatalogs('settings') });
+  void refreshLocalHarnessPlugins();
 }

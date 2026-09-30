@@ -243,7 +243,7 @@ function resolveServerRunStateMeta(serverRunState, translate) {
     const status = String(serverRunState.delegationStatus || 'completed');
     const key = `chat.delegationStatus.${status}`;
     const label = translate(key);
-    return { tone: 'attention', label: label === key ? status : label };
+    return { tone: 'attention', label: label === key ? status : label, status };
   }
   return null;
 }

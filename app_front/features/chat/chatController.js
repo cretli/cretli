@@ -1,6 +1,6 @@
 import { normalizeSdkMode } from '../../../lib/sdk/sdk-mode.js';
 import { normalizeSdkUiMode } from '../../../lib/sdk/sdk-ui-mode.js';
-import { getChatAgentTransport } from '../../../lib/agent-transport.js';
+import { resolvePersistedLocalChatTransport, isBlockingPersistedLocalChatHarnessState } from './persistedLocalChatState.js';
 import { setActiveChatIdsForEviction } from '../../lib/sdk-chat-history-store.js';
 import { migrateChatStorageOutOfLocalStorage } from '../../lib/chatStorageMigration.js';
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from '../../lib/storageKeyAlias.js';
@@ -41,6 +41,7 @@ export function createChatController(deps) {
     startChatBackgroundMonitor,
     startGlobalChatPingLoop,
     ensureChatConnection,
+    teardownBlockedChatRuntime,
     openTerminal,
     getChatsForCurrentWorkspace,
     setChatStatus,
@@ -146,6 +147,10 @@ export function createChatController(deps) {
           : Object.create(null);
       const chats = getChats();
       const runtimeById = new Map(chats.map((chat) => [chat.id, chat]));
+      /** @type {object[]} Existing chats that flipped from non-blocking to blocking in this refresh. */
+      const blockedTransitions = [];
+      /** @type {object[]} Existing chats that flipped from blocking to non-blocking in this refresh. */
+      const restoredTransitions = [];
       let serverChats = data.chats;
       if (
         data.linkedChat?.id
@@ -156,6 +161,7 @@ export function createChatController(deps) {
       const nextChats = serverChats.map((serverChat) => {
         const existing = runtimeById.get(serverChat.id);
         if (existing) {
+          const wasBlocked = isBlockingPersistedLocalChatHarnessState(existing);
           existing.title = serverChat.title;
           existing.cursorSessionId = serverChat.cursorSessionId;
           existing.model = serverChat.model;
@@ -166,7 +172,7 @@ export function createChatController(deps) {
           existing.summaries = Array.isArray(serverChat.summaries)
             ? serverChat.summaries
             : (Array.isArray(existing.summaries) ? existing.summaries : []);
-          existing.agentTransport = getChatAgentTransport(serverChat);
+          existing.agentTransport = resolvePersistedLocalChatTransport(serverChat);
           existing.sdkMode = normalizeSdkMode(serverChat.sdkMode);
           existing.sdkUiMode = normalizeSdkUiMode(serverChat.sdkUiMode);
           existing.autoContextCompressionEnabled = serverChat.autoContextCompressionEnabled === true;
@@ -176,6 +182,16 @@ export function createChatController(deps) {
             ? Number(serverChat.autoContextCompressionThreshold)
             : 80;
           existing.autoContextCompressionReset = serverChat.autoContextCompressionReset !== false;
+          if (serverChat.harnessState && typeof serverChat.harnessState === 'object') {
+            existing.harnessState = serverChat.harnessState;
+          } else {
+            delete existing.harnessState;
+          }
+          if (!wasBlocked && isBlockingPersistedLocalChatHarnessState(existing)) {
+            blockedTransitions.push(existing);
+          } else if (wasBlocked && !isBlockingPersistedLocalChatHarnessState(existing)) {
+            restoredTransitions.push(existing);
+          }
           if (typeof serverChat.sdkAgentId === 'string' && serverChat.sdkAgentId.trim()) {
             existing.sdkAgentId = serverChat.sdkAgentId.trim();
           } else {
@@ -227,7 +243,7 @@ export function createChatController(deps) {
           createdAt: serverChat.createdAt,
           updatedAt: serverChat.updatedAt,
           summaries: Array.isArray(serverChat.summaries) ? serverChat.summaries : [],
-          agentTransport: getChatAgentTransport(serverChat),
+          agentTransport: resolvePersistedLocalChatTransport(serverChat),
           sdkMode: normalizeSdkMode(serverChat.sdkMode),
           sdkUiMode: normalizeSdkUiMode(serverChat.sdkUiMode),
           autoContextCompressionEnabled: serverChat.autoContextCompressionEnabled === true,
@@ -238,6 +254,9 @@ export function createChatController(deps) {
             : 80,
           autoContextCompressionReset: serverChat.autoContextCompressionReset !== false,
         };
+        if (serverChat.harnessState && typeof serverChat.harnessState === 'object') {
+          created.harnessState = serverChat.harnessState;
+        }
         if (typeof serverChat.sdkAgentId === 'string' && serverChat.sdkAgentId.trim()) {
           created.sdkAgentId = serverChat.sdkAgentId.trim();
         }
@@ -294,6 +313,31 @@ export function createChatController(deps) {
       }
       updateChatBarSelect();
       if (!skipAutoSelect && getActiveChatId()) selectChat(getActiveChatId());
+      // A live/resume list refresh mutates an already-hydrated chat in place, so a
+      // `skipAutoSelect` pass never reaches selectChat/openTerminal. When a chat just
+      // turned blocking, swap any mounted SDK pane for the blocked notice and tear its
+      // live socket down. Only a real non-blocking -> blocking edge triggers this, so
+      // unblocked/not_loaded rows keep their existing lifecycle untouched.
+      for (const chat of blockedTransitions) {
+        if (chat.pane?.isConnected === true && typeof openTerminal === 'function') {
+          openTerminal(chat);
+        }
+        if (typeof teardownBlockedChatRuntime === 'function') {
+          teardownBlockedChatRuntime(chat);
+        } else if (typeof ensureChatConnection === 'function') {
+          ensureChatConnection(chat);
+        }
+      }
+      // A chat that turned non-blocking while its minimal blocked notice was mounted must
+      // be rebuilt through the ordinary pane path: a mounted notice is a connected pane, so
+      // `openTerminal` would otherwise return early. `openTerminal` removes the stale notice
+      // and rebuilds exactly one normal pane. Only a real blocking -> non-blocking edge with
+      // a mounted pane is queued — never a routine non-blocking refresh or a new chat.
+      for (const chat of restoredTransitions) {
+        if (chat.pane?.isConnected === true && typeof openTerminal === 'function') {
+          openTerminal(chat);
+        }
+      }
       syncBackgroundChatConnections();
       bindChatVisibilityAndReconnect();
       startChatBackgroundMonitor();

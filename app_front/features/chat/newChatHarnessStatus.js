@@ -12,9 +12,13 @@
 
 /**
  * @param {unknown} value
- * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen' | 'claude'}
+ * @param {{ localIds?: Set<string> | null }} [options] optional set of enabled
+ *   local `capabilities.chat` plugin ids that must survive normalization. A local
+ *   id is only preserved while it is in this set; anything else still collapses to
+ *   `sdk` (the pre-plugin behavior).
+ * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen' | 'claude' | string}
  */
-export function normalizeNewChatHarnessId(value) {
+export function normalizeNewChatHarnessId(value, options = {}) {
   const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (raw === 'openrouter') return 'openrouter';
   if (raw === 'opencode') return 'opencode';
@@ -23,7 +27,41 @@ export function normalizeNewChatHarnessId(value) {
   if (raw === 'codex') return 'codex';
   if (raw === 'qwen') return 'qwen';
   if (raw === 'claude') return 'claude';
+  const localIds = options && options.localIds instanceof Set ? options.localIds : null;
+  if (raw && localIds && localIds.has(raw)) return raw;
   return 'sdk';
+}
+
+/**
+ * Enabled local `capabilities.chat` plugins from a harness-catalog payload.
+ *
+ * Only rows that are local, explicitly enabled, and chat-capable are returned;
+ * `available` is intentionally not required because a discovered local plugin is
+ * always `not_loaded` until the create request loads it. Rows carry only safe
+ * metadata (id + label); labels must be rendered as text by the caller.
+ *
+ * @param {unknown} catalog `{ items: [...] }` from GET /api/harness-catalog/harnesses
+ * @returns {Array<{ id: string, label: string }>}
+ */
+export function listEnabledLocalChatHarnessOptions(catalog) {
+  const rows = catalog && typeof catalog === 'object' && Array.isArray(catalog.items)
+    ? catalog.items
+    : [];
+  const seen = new Set();
+  /** @type {Array<{ id: string, label: string }>} */
+  const options = [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    if (row.origin !== 'local') continue;
+    if (row.enabled !== true) continue;
+    if (!row.capabilities || row.capabilities.chat !== true) continue;
+    const id = typeof row.id === 'string' ? row.id.trim().toLowerCase() : '';
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const label = typeof row.label === 'string' && row.label.trim() ? row.label.trim() : id;
+    options.push({ id, label });
+  }
+  return options;
 }
 
 /**

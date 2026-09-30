@@ -4489,7 +4489,22 @@ export function createSdkRichView(chat, mountEl, hooks) {
       const transport = typeof progress.transport === 'string' ? progress.transport : 'sdk';
       const label =
         transport === 'openrouter' ? 'OpenRouter' : transport === 'opencode' ? 'OpenCode' : 'SDK';
-
+      if (phase === 'notice' || phase === 'retry') {
+        const message = typeof progress.message === 'string' ? progress.message.trim() : '';
+        if (!message) return;
+        const notice = `[${transport === 'claude' ? 'Claude' : label}] ${message}`;
+        if (!silent) hooks.appendPlain(`\n${notice}\n`);
+        if (!silent && typeof hooks.onHistoryRecord === 'function' && !suppressHistoryPersist) {
+          hooks.onHistoryRecord({
+            kind: 'meta',
+            variant: 'notice',
+            payload: notice,
+            noticeType: progress.noticeType || phase,
+            createdAt: new Date().toISOString(),
+          });
+        }
+        return;
+      }
       if (phase === 'started') {
         const notice = `[${label}] ${t('sdkView.runProgressStarted')}`;
         const progressState = { idleSeconds: 0, remainingSeconds: 0, isStarted: true };

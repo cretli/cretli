@@ -43,6 +43,7 @@ import {
   selectMonitoredChatIds,
   shouldKeepChatSocket,
 } from './chatBackgroundPolicy.js';
+import { isBlockingPersistedLocalChatHarnessState } from './persistedLocalChatState.js';
 import {
   MOBILE_WS_REPLAY_DEADLINE_MS,
   MOBILE_WS_REPLAY_FALLBACK_MS,
@@ -176,7 +177,10 @@ export function createChatTransport(deps) {
   }
 
   function requestActiveSdkWarmup(chat) {
-    if (!chat || chat.id !== getActiveChatId()) return;
+    // A blocked persisted local chat has no SDK runtime: never warm it up, even if a
+    // stale socket reference survives a transition.
+    if (!chat || isBlockingPersistedLocalChatHarnessState(chat)) return;
+    if (chat.id !== getActiveChatId()) return;
     if (!chat.ws || chat.ws.readyState !== WebSocket.OPEN) return;
     const streamId =
       typeof chat._sdkEventStreamId === 'string' ? chat._sdkEventStreamId.trim() : '';
@@ -546,6 +550,10 @@ export function createChatTransport(deps) {
       .slice(0, batchSize);
     for (const chat of batch) {
       pendingConnectQueue.delete(chat.id);
+      if (isBlockingPersistedLocalChatHarnessState(chat)) {
+        teardownBlockedChatRuntime(chat);
+        continue;
+      }
       ensureChatConnection(chat);
     }
     if (pendingConnectQueue.size > 0) schedulePendingConnectDrain();
@@ -579,6 +587,10 @@ export function createChatTransport(deps) {
     const batch = Array.from(backgroundReconnectQueue.values()).slice(0, batchSize);
     for (const chat of batch) {
       backgroundReconnectQueue.delete(chat.id);
+      if (isBlockingPersistedLocalChatHarnessState(chat)) {
+        teardownBlockedChatRuntime(chat);
+        continue;
+      }
       ensureChatConnection(chat);
       requestActiveSdkWarmup(chat);
     }
@@ -588,6 +600,14 @@ export function createChatTransport(deps) {
   }
 
   function enqueueBackgroundChatReconnect(chat) {
+    // Never queue or warm up a blocked persisted local chat. This is the path a
+    // `skipAutoSelect` list refresh reaches through `syncBackgroundChatConnections`, so a
+    // chat that turned blocking while a socket/pane was already live must be torn down
+    // here instead of only dropping its queue entry.
+    if (isBlockingPersistedLocalChatHarnessState(chat)) {
+      teardownBlockedChatRuntime(chat);
+      return;
+    }
     if (!shouldKeepChatSocket(chat, getChats())) return;
     if (!chat?.id || !chat?.cursorSessionId) return;
     if (chat.id === getActiveChatId()) {
@@ -692,6 +712,12 @@ export function createChatTransport(deps) {
   }
 
   function scheduleChatReconnect(chat) {
+    // A persisted local chat whose plugin is missing/disabled/incompatible must never
+    // schedule an SDK WebSocket retry, including background recovery.
+    if (isBlockingPersistedLocalChatHarnessState(chat)) {
+      stopChatReconnect(chat);
+      return;
+    }
     if (!shouldKeepChatSocket(chat, getChats())) return;
     if (!chat?.cursorSessionId) return;
     if (!getMaintainSessionsEnabled()) return;
@@ -746,7 +772,46 @@ export function createChatTransport(deps) {
     }, delay);
   }
 
+  /**
+   * Drop every live SDK resource for a persisted local chat that became blocked: an open
+   * or connecting socket, reconnect timers, queued connect/reconnect entries, ping/replay
+   * waiters, and the connect slot. The chat stays visible through the blocked pane.
+   *
+   * @param {object | null | undefined} chat
+   */
+  function teardownBlockedChatRuntime(chat) {
+    if (!chat || typeof chat !== 'object') return;
+    stopChatReconnect(chat);
+    pendingConnectQueue.delete(chat.id);
+    backgroundReconnectQueue.delete(chat.id);
+    openPingChats.delete(chat);
+    if (chat._resumeProbeTimer != null) {
+      clearTimeout(chat._resumeProbeTimer);
+      delete chat._resumeProbeTimer;
+    }
+    clearSdkWsReplayWaitState(chat);
+    const socket = chat.ws;
+    chat.ws = null;
+    if (socket) {
+      detachChatSocket(socket);
+      try {
+        socket.close();
+      } catch (_) {}
+      releaseWsConnectSlot(chat);
+    }
+    chat._connectionStatus = 'disconnected';
+    if (chat.id === getActiveChatId()) setChatStatus('disconnected');
+  }
+
   function ensureChatConnection(chat) {
+    // Blocked persisted local chats have no usable SDK runtime: never open a socket
+    // (auto-select, recovery, or background), never leave a reconnect timer armed, and
+    // cleanly detach/close any socket that was already open before the state blocked.
+    if (isBlockingPersistedLocalChatHarnessState(chat)) {
+      teardownBlockedChatRuntime(chat);
+      renderChatTerminalState(chat);
+      return;
+    }
     if (!shouldKeepChatSocket(chat, getChats())) return;
     if (!chat?.cursorSessionId) return;
     if (
@@ -1337,6 +1402,8 @@ export function createChatTransport(deps) {
               transport: transportLabel,
               duration: idleLabel,
             });
+          } else if (phase === 'notice' || phase === 'retry') {
+            notice = typeof msg.message === 'string' ? msg.message.trim() : '';
           }
           if (remainingMs != null && remainingMs > 0 && phase !== 'started') {
             notice += ` ${t('chatUi.runProgressWarnThreshold', {
@@ -1359,6 +1426,9 @@ export function createChatTransport(deps) {
                 idleForMs,
                 remainingMs,
                 timeoutMs,
+                transport: msg.transport,
+                message: msg.message,
+                noticeType: msg.noticeType,
               });
               if (chat.term) {
                 appendSdkTermChunk(chat, `\r\n\x1b[33m${notice}\x1b[0m\r\n`);
@@ -1738,6 +1808,8 @@ export function createChatTransport(deps) {
     const resumeActiveChat = (reason, forceReconnect = false) => {
       const active = getChats().find((chat) => chat.id === getActiveChatId());
       if (!active?.cursorSessionId) return;
+      // A blocked persisted local chat must not resume SDK history sync or probing.
+      if (isBlockingPersistedLocalChatHarnessState(active)) return;
       if (isSdkOpenTerminalHydrating(active)) return;
       const backgroundMs = getLastBackgroundDurationMs();
       const wasPageHidden = backgroundMs > 0 || hiddenAt > 0;
@@ -1885,6 +1957,7 @@ export function createChatTransport(deps) {
 
   return {
     ensureChatConnection,
+    teardownBlockedChatRuntime,
     scheduleChatReconnect,
     syncBackgroundChatConnections,
     bindChatVisibilityAndReconnect,

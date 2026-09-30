@@ -1045,6 +1045,78 @@ export async function getUsageSummary(query = {}) {
 }
 
 /**
+ * Bucketed usage from GET /api/usage/timeseries.
+ *
+ * @param {{ from?: string, to?: string, bucket?: 'hour'|'day', groupBy?: 'model'|'harness'|'feature', metric?: 'usd'|'tokens'|'events'|'runs' }} [query]
+ * @returns {Promise<{ ok: boolean, from?: string, to?: string, bucket?: string, groupBy?: string, metric?: string, buckets?: string[], series?: Array<{ group: string, values: number[] }>, error?: string }>}
+ */
+export async function getUsageTimeseries(query = {}) {
+  const params = new URLSearchParams();
+  if (query.from) params.set('from', String(query.from));
+  if (query.to) params.set('to', String(query.to));
+  if (query.bucket) params.set('bucket', String(query.bucket));
+  if (query.groupBy) params.set('groupBy', String(query.groupBy));
+  if (query.metric) params.set('metric', String(query.metric));
+  const suffix = params.toString() ? `?${params}` : '';
+  return dedupeGetJson(`/api/usage/timeseries${suffix}`, 'getUsageTimeseries');
+}
+
+/**
+ * Ranked per-model usage from GET /api/usage/models.
+ *
+ * @param {{ from?: string, to?: string, metric?: 'tokens'|'usd'|'events'|'runs', limit?: number }} [query]
+ * @returns {Promise<{ ok: boolean, from?: string, to?: string, metric?: string, models?: object[], error?: string }>}
+ */
+export async function getUsageModels(query = {}) {
+  const params = new URLSearchParams();
+  if (query.from) params.set('from', String(query.from));
+  if (query.to) params.set('to', String(query.to));
+  if (query.metric) params.set('metric', String(query.metric));
+  if (query.limit) params.set('limit', String(query.limit));
+  const suffix = params.toString() ? `?${params}` : '';
+  return dedupeGetJson(`/api/usage/models${suffix}`, 'getUsageModels');
+}
+
+/**
+ * Per-harness health (runs, plan limits, lockouts) from GET /api/harnesses/health.
+ * One call returns every catalog harness, keyed by id.
+ *
+ * `fresh: true` skips the URL-keyed dedupe: a forced card refresh after the
+ * lockout-clear POST would otherwise re-attach to the identical in-flight GET
+ * that started before the POST and commit its stale payload.
+ *
+ * @param {{ from?: string, to?: string, fresh?: boolean }} [query]
+ * @returns {Promise<{ ok: boolean, from?: string, to?: string, harnesses?: Record<string, object>, error?: string }>}
+ */
+export async function getHarnessHealth(query = {}) {
+  const params = new URLSearchParams();
+  if (query.from) params.set('from', String(query.from));
+  if (query.to) params.set('to', String(query.to));
+  const suffix = params.toString() ? `?${params}` : '';
+  const url = `/api/harnesses/health${suffix}`;
+  // GETs already send cache: 'no-store', so a cache-buster query is not needed.
+  if (query.fresh) return apiFetchJson(url, undefined, 'getHarnessHealth');
+  return dedupeGetJson(url, 'getHarnessHealth');
+}
+
+/**
+ * Manually clears a cached lockout for one harness (optionally one model).
+ *
+ * @param {string} harness
+ * @param {{ model?: string }} [payload]
+ * @returns {Promise<{ ok: boolean, harness?: string, model?: string|null, removed?: number, error?: string }>}
+ */
+export async function clearHarnessUsageLimit(harness, payload = {}) {
+  const id = encodeURIComponent(String(harness || '').trim().toLowerCase());
+  const model = payload?.model ? String(payload.model).trim() : '';
+  return apiFetchJson(`/api/harnesses/${id}/usage-limit/clear`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(model ? { model } : {}),
+  }, 'clearHarnessUsageLimit', { timeoutMs: 8000 });
+}
+
+/**
  * Mints an ephemeral Realtime token. Instructions and tools are pinned on the
  * server, so this call carries only preferences.
  *

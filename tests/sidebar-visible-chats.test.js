@@ -40,6 +40,32 @@ test('collapsed workspace groups skip chat-row HTML', () => {
   assert.equal(shouldSerializeWorkspaceChatList(false, false), true);
 });
 
+test('capSidebarVisibleTreeChats keeps a subchat-group header with its parent', () => {
+  const tree = [
+    { chat: { id: 'p' }, parentId: '', level: 0, isLastChild: false },
+    { isGroup: true, parentId: 'p', id: 'subchat-group:p', level: 1, isLastChild: false },
+    { chat: { id: 'c1' }, parentId: 'p', level: 1, isLastChild: true },
+  ];
+  const capped = capSidebarVisibleTreeChats(tree, { limit: 10 });
+  assert.deepEqual(
+    capped.items.map((row) => (row.isGroup ? row.id : row.chat.id)),
+    ['p', 'subchat-group:p', 'c1']
+  );
+  assert.equal(capped.hidden, 0);
+});
+
+test('capSidebarVisibleTreeChats drops a group header when its parent fell outside the cap', () => {
+  const tree = [
+    { chat: { id: 'a' }, parentId: '', level: 0, isLastChild: false },
+    { chat: { id: 'b' }, parentId: '', level: 0, isLastChild: false },
+    { chat: { id: 'p' }, parentId: '', level: 0, isLastChild: false },
+    { isGroup: true, parentId: 'p', id: 'subchat-group:p', level: 1, isLastChild: false },
+    { chat: { id: 'c1' }, parentId: 'p', level: 1, isLastChild: true },
+  ];
+  const capped = capSidebarVisibleTreeChats(tree, { limit: 2 });
+  assert.deepEqual(capped.items.map((row) => (row.isGroup ? row.id : row.chat.id)), ['a', 'b']);
+});
+
 test('mapChatForClientList omits summaries unless requested', () => {
   const chat = { id: '1', title: 'A', summaries: [{ summary: 'long' }] };
   const slim = mapChatForClientList(chat);

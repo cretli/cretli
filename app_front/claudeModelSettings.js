@@ -11,6 +11,7 @@ import {
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from './lib/storageKeyAlias.js';
 import { escapeHtml } from './features/chat/chatHtmlUtils.js';
 import { bindFavoriteModelList, favoriteModelButtonHtml, isFavoriteModel, subscribeToFavoriteModelChanges } from './features/chat/modelFavoriteMarker.js';
+import { decodeModelValue, encodeModelValue } from '../lib/model-catalog.js';
 
 const CLAUDE_MODEL_SETTINGS_SORT_LS_KEY = 'cretli-claude-models-sort';
 const CLAUDE_MODEL_SETTINGS_HARNESS = 'claude';
@@ -25,24 +26,51 @@ let settingsLoaded = false;
 let settingsSortMode = 'provider';
 
 /**
- * @param {Array<{ id?: string, name?: string }>} models
+ * @param {Array<{ id?: string, name?: string, value?: string, label?: string, modelId?: string, group?: string, params?: unknown[], variantLabel?: string, contextWindowTokens?: number|null }>} models
  * @returns {import('../lib/model-catalog.js').ModelCatalogEntry[]}
  */
 function buildCatalogFromClaudeModels(models) {
   if (!Array.isArray(models)) return [];
-  return models
-    .map((row) => {
-      const id = String(row?.id || '').trim();
-      if (!id) return null;
-      const name = String(row?.name || id).trim();
-      /** @type {import('../lib/model-catalog.js').ModelCatalogEntry} */
-      return {
-        value: id,
-        label: name,
+  const hasEffortCatalog = models.some((row) => {
+    const params = Array.isArray(row?.params) ? row.params : decodeModelValue(row?.value || row?.id).params;
+    return params?.some((param) => param?.id === 'effort');
+  });
+  const effortRows = hasEffortCatalog
+    ? models.filter((row) => {
+      const params = Array.isArray(row?.params) ? row.params : decodeModelValue(row?.value || row?.id).params;
+      return params?.some((param) => param?.id === 'effort');
+    })
+    : models.flatMap((row) => {
+      const id = String(row?.value || row?.id || '').trim();
+      if (!id) return [];
+      const name = String(row?.label || row?.name || id).trim();
+      return ['low', 'medium', 'high', 'xhigh', 'max'].map((effort) => ({
+        ...row,
+        value: encodeModelValue(id, [{ id: 'effort', value: effort }]),
+        label: `${name} — ${effort.toUpperCase()}`,
         modelId: id,
         group: name,
+        params: [{ id: 'effort', value: effort }],
+        variantLabel: effort.toUpperCase(),
+      }));
+    });
+  return effortRows
+    .map((row) => {
+      const id = String(row?.value || row?.id || '').trim();
+      if (!id) return null;
+      const name = String(row?.label || row?.name || id).trim();
+      /** @type {import('../lib/model-catalog.js').ModelCatalogEntry} */
+      const entry = {
+        value: id,
+        label: name,
+        modelId: String(row?.modelId || row?.id || id).trim(),
+        group: String(row?.group || row?.name || row?.modelId || id).trim(),
         provider: 'anthropic',
       };
+      if (Array.isArray(row?.params) && row.params.length > 0) entry.params = row.params;
+      if (row?.variantLabel) entry.variantLabel = String(row.variantLabel);
+      if (Number.isFinite(row?.contextWindowTokens)) entry.contextWindowTokens = row.contextWindowTokens;
+      return entry;
     })
     .filter(Boolean);
 }
@@ -234,11 +262,23 @@ function updateModelSettingsSummary() {
 }
 
 function setDraftEnabledKeys(keys) {
+  const catalogValues = new Set(settingsModelCatalog.map((row) => row.value));
   draftEnabledKeys = new Set(
     (Array.isArray(keys) ? keys : [])
       .map((item) => String(item || '').trim())
       .filter(Boolean),
   );
+  for (const key of [...draftEnabledKeys]) {
+    if (catalogValues.has(key)) continue;
+    const legacyDefault = settingsModelCatalog.find((row) => (
+      row.modelId === key
+      && Array.isArray(row.params)
+      && row.params.some((param) => param?.id === 'effort' && param?.value === 'medium')
+    ));
+    if (!legacyDefault) continue;
+    draftEnabledKeys.delete(key);
+    draftEnabledKeys.add(legacyDefault.value);
+  }
 }
 
 function readDraftEnabledKeysFromUi() {
@@ -262,12 +302,7 @@ async function refreshClaudeStatusPanel() {
   if (!statusEl) return;
   try {
     const data = await api.getClaudeStatus();
-    const usesPlan = data?.claudeAuthMode !== 'api-key';
-    if (usesPlan && !data?.claudeSubscriptionSignedIn) {
-      statusEl.textContent = t('settings.harnessClaudeSubscriptionMissing');
-      return;
-    }
-    if (!usesPlan && !data?.claudeApiKeyEffective) {
+    if (data?.credentialsConfigured === false) {
       statusEl.textContent = t('settings.harnessClaudeNotReadyNoKey');
       return;
     }
@@ -279,9 +314,7 @@ async function refreshClaudeStatusPanel() {
       statusEl.textContent = data?.error || t('settings.harnessClaudeNotReady');
       return;
     }
-    statusEl.textContent = usesPlan
-      ? t('settings.harnessClaudeReadyPlan')
-      : t('settings.harnessClaudeReady');
+    statusEl.textContent = t('settings.harnessClaudeReady');
   } catch {
     statusEl.textContent = t('settings.harnessClaudeNotReady');
   }
@@ -307,7 +340,11 @@ async function loadClaudeModelSettingsData() {
       return;
     }
     settingsModelCatalog = enrichCatalogEntryMetaList(
-      buildCatalogFromClaudeModels(modelsData.models),
+      buildCatalogFromClaudeModels(
+        Array.isArray(modelsData.catalog) && modelsData.catalog.length > 0
+          ? modelsData.catalog
+          : modelsData.models,
+      ),
     );
     const enabledFromSettings = Array.isArray(settingsData?.claudeChatEnabledModels)
       ? settingsData.claudeChatEnabledModels

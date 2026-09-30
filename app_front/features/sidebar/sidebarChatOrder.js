@@ -59,7 +59,11 @@ export function writeChatOrderForList(listIds) {
  */
 export function collectChatIdsFromList(list) {
   if (!list || typeof list.querySelectorAll !== 'function') return [];
-  return Array.from(list.querySelectorAll('.sidebar-chat-item:not([data-archived="1"])'))
+  return Array.from(
+    list.querySelectorAll(
+      '.sidebar-chat-item:not([data-archived="1"]):not([hidden]):not(.is-subchat-hidden)'
+    )
+  )
     .map((li) => (li.dataset && li.dataset.chatId) || '')
     .filter((id) => id);
 }

@@ -33,6 +33,7 @@ export function canStartSwipe(options = {}) {
   if (options.isChatDragging === true) return false;
   if (options.isWorkspaceDragging === true) return false;
   if (isResizerTarget(options.target)) return false;
+  if (isHiddenRowTarget(options.target)) return false;
   return true;
 }
 
@@ -387,6 +388,18 @@ function createGesture(kind, ev, width) {
 function isResizerTarget(target) {
   if (!target || typeof target !== 'object' || typeof target.closest !== 'function') return false;
   return !!target.closest('#sidebar-resizer');
+}
+
+/**
+ * A pointer on a row hidden by a collapsed subchat group must not start a
+ * sidebar swipe gesture.
+ *
+ * @param {unknown} target
+ * @returns {boolean}
+ */
+function isHiddenRowTarget(target) {
+  if (!target || typeof target !== 'object' || typeof target.closest !== 'function') return false;
+  return !!target.closest('[hidden], .is-subchat-hidden');
 }
 
 /**

@@ -9,6 +9,7 @@ import {
 test('isIconOnlySidebarStatus covers disconnected, connecting, active and needs-action', () => {
   assert.equal(isIconOnlySidebarStatus('disconnected'), true);
   assert.equal(isIconOnlySidebarStatus('connecting'), true);
+  assert.equal(isIconOnlySidebarStatus('syncing'), true);
   assert.equal(isIconOnlySidebarStatus('active'), true);
   assert.equal(isIconOnlySidebarStatus('awaiting'), true);
   assert.equal(isIconOnlySidebarStatus('idle'), false);
@@ -32,6 +33,16 @@ test('renderSidebarChatStatusHtml uses a spinner icon when connecting', () => {
   assert.match(actual, /mdi-loading/);
   assert.match(actual, /mdi-spin/);
   assert.equal(actual.includes('Connecting'), false);
+});
+
+test('renderSidebarChatStatusHtml uses an animated sync icon while syncing messages', () => {
+  const actual = renderSidebarChatStatusHtml(
+    { tone: 'syncing', label: 'Synchronizacja wiadomości…' },
+    (value) => value
+  );
+  assert.match(actual, /mdi-sync/);
+  assert.match(actual, /mdi-spin/);
+  assert.equal(actual.includes('Synchronizacja'), false);
 });
 
 test('applySidebarChatStatusEl does not rewrite markup when the tone is unchanged', () => {
@@ -130,10 +141,20 @@ test('applySidebarChatStatusEl rewrites when activity changes and tone stays act
   assert.equal(el.innerHTML, 'Read a.js');
 });
 
-test('renderSidebarChatStatusHtml keeps the attention label', () => {
+test('renderSidebarChatStatusHtml uses outcome icons for settled delegation states', () => {
   const actual = renderSidebarChatStatusHtml(
-    { tone: 'attention', label: 'Completed' },
+    { tone: 'attention', label: 'Completed', status: 'completed' },
     (value) => `esc:${value}`
   );
-  assert.equal(actual, 'esc:Completed');
+  assert.match(actual, /mdi-check-circle-outline/);
+  assert.equal(actual.includes('Completed'), false);
+  assert.match(renderSidebarChatStatusHtml({ tone: 'attention', status: 'failed' }), /mdi-alert-circle-outline/);
+  assert.match(renderSidebarChatStatusHtml({ tone: 'attention', status: 'interrupted' }), /mdi-pause-circle-outline/);
+  assert.match(renderSidebarChatStatusHtml({ tone: 'attention', status: 'cancelled' }), /mdi-close-circle-outline/);
+});
+
+test('attention status is icon-only when it represents a settled delegation outcome', () => {
+  assert.equal(isIconOnlySidebarStatus('attention', { status: 'completed' }), true);
+  assert.equal(isIconOnlySidebarStatus('attention', { status: 'failed' }), true);
+  assert.equal(isIconOnlySidebarStatus('attention', { label: 'Needs attention' }), false);
 });

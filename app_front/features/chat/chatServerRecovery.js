@@ -15,6 +15,7 @@ import {
 } from '../../lib/pageBackgroundGrace.js';
 import { t } from '../../i18n/index.js';
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from '../../lib/storageKeyAlias.js';
+import { isBlockingPersistedLocalChatHarnessState } from './persistedLocalChatState.js';
 
 const SERVER_INSTANCE_TOKEN_STORAGE_KEY = 'cretli-server-instance-token';
 const RECOVERY_POLL_INTERVAL_MS = 1500;
@@ -278,7 +279,10 @@ export function applyChatConnectionRecovery(recoveryDeps, { serverRestarted = fa
     }
   }
   const activeChat = (recoveryDeps.getChats?.() || []).find((chat) => chat?.id === activeChatId);
-  if (activeChat?.cursorSessionId) {
+  // A persisted local chat whose plugin is unavailable/disabled/incompatible has no SDK
+  // runtime: never reconnect it, sync its history, or announce recovery for it. Background
+  // recovery below still runs so every other chat recovers normally.
+  if (activeChat?.cursorSessionId && !isBlockingPersistedLocalChatHarnessState(activeChat)) {
     if (serverRestarted) {
       recoveryDeps.appendRecoveryNotice?.(activeChat, t('chat.serverRestarted'), 'warn');
       if (wasChatBusyBeforeRecovery(activeChat)) {
@@ -471,6 +475,9 @@ export function initChatServerRecovery(dependencies) {
 export function handleChatConnectionLost(chat, context = {}) {
   if (!deps || !chat?.cursorSessionId) return;
   if (chat._remoteDeleted === true) return;
+  // Blocked persisted local chats never open a socket, so a stray loss event must not
+  // start the SDK recovery loop for them.
+  if (isBlockingPersistedLocalChatHarnessState(chat)) return;
   if (shouldSuppressServerDisconnectUi()) return;
   if (chat.id !== deps.getActiveChatId()) return;
   if (isIntentionalWsReconnect(chat)) {

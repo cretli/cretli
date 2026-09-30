@@ -28,6 +28,7 @@ import {
   getChatFavoritesStore,
   escapeHtml,
   requestArchiveChat,
+  requestArchiveSettledChats,
   requestRestoreChat,
   refreshSidebarChatStates,
   canPinChatToUrl,
@@ -464,6 +465,31 @@ const sidebarView = createSidebarView({
   getTerminalStateMeta: getTerminalStateMetaPublic,
   requestArchiveChat,
   requestRestoreChat,
+  onArchiveSettled: async (chatIds, { parentId } = {}) => {
+    const count = Array.isArray(chatIds) ? chatIds.length : 0;
+    if (!count) return false;
+    if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+      const message = t('sidebar.archiveSettledConfirm', { count: String(count) });
+      if (!window.confirm(message)) return false;
+    }
+    let result = null;
+    try {
+      result = await requestArchiveSettledChats(chatIds);
+    } catch (_) {
+      result = null;
+    }
+    if (!result?.ok) {
+      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+        window.alert(t('sidebar.archiveSettledFailed'));
+      }
+      // Returning false keeps the group expanded so the user can retry instead of
+      // the sidebar pretending the archive succeeded.
+      return false;
+    }
+    // The sidebar clears its per-parent expansion after a confirmed archive.
+    void parentId;
+    return true;
+  },
   requestNewChat: (workspaceContext) => openNewChatModal(workspaceContext),
   requestLoadArchivedChats: () => loadChatsFromServer({ includeArchived: true, skipAutoSelect: true }),
   canPinChatToUrl,

@@ -415,6 +415,12 @@
         <ul id="harness-setup-status" class="harness-setup-status"></ul>
         <p id="harness-enabled-save-status" class="cr-status" aria-live="polite"></p>
       </section>
+      <section class="settings-section" data-settings-tab="harness" id="local-harness-plugins">
+        <h3 class="settings-section-title" data-i18n="settings.localHarnessTitle">Local harness plugins</h3>
+        <p class="settings-hint" data-i18n="settings.localHarnessHint">Plugins discovered on this server. Enabling one only stores the choice; it still cannot be used for chat until runtime support ships. Saved plugins that are no longer discovered are removed when you save.</p>
+        <ul id="local-harness-plugins-list" class="local-harness-plugins-list"></ul>
+        <p id="local-harness-plugins-status" class="cr-status" aria-live="polite"></p>
+      </section>
       <section class="settings-section" data-settings-tab="harness">
         <h3 class="settings-section-title" data-i18n="settings.harnessDefaultsTitle">New chat defaults</h3>
         <p class="settings-hint" data-i18n="settings.harnessDefaultsHint">Default agent harness when opening the new chat dialog.</p>
@@ -665,7 +671,7 @@
       </section>
       <section class="settings-section" data-settings-tab="harness-claude" id="claude-api-settings">
         <h3 class="settings-section-title" data-i18n="settings.harnessClaudeBillingTitle">Claude billing</h3>
-        <p class="settings-hint" data-i18n="settings.harnessClaudeBillingHint">Claude Code plan uses the subscription login on this machine. An API key bills console.anthropic.com credits instead.</p>
+        <p class="settings-hint" data-i18n="settings.harnessClaudeBillingHint">Choose Claude Code plan login on this machine or Anthropic API billing.</p>
         <div class="cr-field">
           <label class="cr-field-label" data-i18n="settings.harnessClaudeAuthModeLabel">Billing</label>
           <div class="cr-row">
@@ -680,7 +686,7 @@
           <span id="claude-plan-login-status" class="cr-status"></span>
         </div>
         <div id="claude-plan-login-box" class="cr-card" hidden>
-          <p class="settings-hint" data-i18n="settings.harnessClaudePlanLoginHint">Open the link, approve the Claude Code plan, then paste the code shown on the page.</p>
+          <p class="settings-hint" data-i18n="settings.harnessClaudePlanLoginHint">Open the link, approve Claude Code, then paste the code shown.</p>
           <p><a id="claude-plan-login-url" href="#" target="_blank" rel="noopener noreferrer"></a></p>
           <div class="cr-field">
             <label class="cr-field-label" data-i18n="settings.harnessClaudePlanCodeLabel">Code</label>
@@ -688,6 +694,8 @@
           </div>
           <cr-bar-button variant="primary" id="claude-plan-login-submit-btn" data-i18n="settings.harnessClaudePlanCodeSave">Save code</cr-bar-button>
         </div>
+        <h3 class="settings-section-title" data-i18n="settings.harnessClaudeApiTitle">Claude API credentials</h3>
+        <p class="settings-hint" data-i18n="settings.harnessClaudeBillingHint">Use your own Anthropic API key or credentials for Bedrock, Vertex, or Foundry. Usage is billed by your selected provider.</p>
         <h3 class="settings-section-title" data-i18n="settings.harnessClaudeApiTitle">Anthropic API</h3>
         <p class="settings-hint">
           <span data-i18n="settings.harnessClaudeHintPrefix">Key from</span>
@@ -1319,32 +1327,92 @@
       <section class="settings-section" data-settings-tab="usage" hidden>
         <h3 class="settings-section-title" data-i18n="usage.title">Usage and cost</h3>
         <p class="settings-hint" data-i18n="usage.hint">Approximate totals for this Cretli instance. Not a provider invoice.</p>
+        <div class="settings-usage-controls">
+          <div class="settings-usage-control">
+            <label class="settings-usage-control-label" for="usage-range-select" data-i18n="usage.rangeLabel">Range</label>
+            <select id="usage-range-select" class="settings-usage-select">
+              <option value="24h" data-i18n="usage.range24h">Today (UTC)</option>
+              <option value="7d" data-i18n="usage.range7d">7 days</option>
+              <option value="30d" data-i18n="usage.range30d">30 days</option>
+            </select>
+          </div>
+          <div class="settings-usage-control">
+            <label class="settings-usage-control-label" for="usage-metric-select" data-i18n="usage.metricLabel">Metric</label>
+            <select id="usage-metric-select" class="settings-usage-select">
+              <option value="tokens" data-i18n="usage.metricTokens">Tokens</option>
+              <option value="usd" data-i18n="usage.metricUsd">Cost</option>
+              <option value="runs" data-i18n="usage.metricRuns">Runs</option>
+            </select>
+          </div>
+          <div class="settings-usage-control">
+            <label class="settings-usage-control-label" for="usage-group-select" data-i18n="usage.groupLabel">Group by</label>
+            <select id="usage-group-select" class="settings-usage-select">
+              <option value="harness" data-i18n="usage.groupByHarness">Harness</option>
+              <option value="model" data-i18n="usage.groupByModel">Model</option>
+            </select>
+          </div>
+        </div>
         <p id="usage-summary-period" class="settings-hint"></p>
-        <p id="usage-summary-today" class="settings-hint"></p>
-        <p id="usage-summary-month" class="settings-hint"></p>
         <p id="usage-summary-empty" class="settings-hint" data-i18n="usage.empty" hidden>No billed usage yet this month.</p>
-        <h4 class="settings-usage-subtitle" data-i18n="usage.byProvider">By provider</h4>
-        <table id="usage-by-provider" class="settings-usage-table">
-          <thead>
-            <tr>
-              <th data-i18n="usage.colProvider">Provider</th>
-              <th data-i18n="usage.colUsd">USD</th>
-              <th data-i18n="usage.colTokens">Tokens</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-        <h4 class="settings-usage-subtitle" data-i18n="usage.byFeature">By feature</h4>
-        <table id="usage-by-feature" class="settings-usage-table">
-          <thead>
-            <tr>
-              <th data-i18n="usage.colFeature">Feature</th>
-              <th data-i18n="usage.colUsd">USD</th>
-              <th data-i18n="usage.colTokens">Tokens</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div id="usage-loading" class="settings-usage-state" data-i18n="usage.loading" hidden>Loading…</div>
+        <div id="usage-error" class="settings-usage-state settings-usage-state-error" hidden>
+          <span id="usage-error-text" data-i18n="usage.loadFailed">Could not load usage.</span>
+          <button type="button" id="usage-retry" class="settings-usage-btn" data-i18n="usage.retry">Retry</button>
+        </div>
+        <div id="usage-content" class="settings-usage-content" hidden>
+          <p id="usage-kpi-error" class="settings-usage-section-error" hidden></p>
+          <div id="usage-kpis" class="settings-usage-kpis">
+            <div class="settings-usage-kpi">
+              <span class="settings-usage-kpi-label" data-i18n="usage.kpiToday">Today</span>
+              <span class="settings-usage-kpi-cost" id="usage-kpi-today-cost">—</span>
+              <span class="settings-usage-kpi-est" id="usage-kpi-today-est" hidden></span>
+              <span class="settings-usage-kpi-meta" id="usage-kpi-today-meta">—</span>
+            </div>
+            <div class="settings-usage-kpi">
+              <span class="settings-usage-kpi-label" data-i18n="usage.kpi7d">7 days</span>
+              <span class="settings-usage-kpi-cost" id="usage-kpi-week-cost">—</span>
+              <span class="settings-usage-kpi-est" id="usage-kpi-week-est" hidden></span>
+              <span class="settings-usage-kpi-meta" id="usage-kpi-week-meta">—</span>
+            </div>
+            <div class="settings-usage-kpi">
+              <span class="settings-usage-kpi-label" data-i18n="usage.kpiMonth">Month</span>
+              <span class="settings-usage-kpi-cost" id="usage-kpi-month-cost">—</span>
+              <span class="settings-usage-kpi-est" id="usage-kpi-month-est" hidden></span>
+              <span class="settings-usage-kpi-meta" id="usage-kpi-month-meta">—</span>
+            </div>
+          </div>
+          <figure class="settings-usage-chart-figure">
+            <figcaption class="settings-usage-subtitle" id="usage-chart-title" data-i18n="usage.chartTitle">Usage over time</figcaption>
+            <div class="settings-usage-chart-scroll">
+              <div id="usage-chart" class="settings-usage-chart" role="img" aria-label=""></div>
+            </div>
+            <p id="usage-chart-empty" class="settings-hint" data-i18n="usage.chartEmpty" hidden>No data for this range.</p>
+            <p id="usage-chart-section-error" class="settings-usage-section-error" hidden></p>
+            <div id="usage-chart-legend" class="settings-usage-legend"></div>
+            <details class="settings-usage-chart-details">
+              <summary data-i18n="usage.chartTableSummary">Chart data (table)</summary>
+              <div class="settings-usage-table-scroll">
+                <table id="usage-chart-table" class="settings-usage-table">
+                  <thead></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </details>
+          </figure>
+          <p id="usage-table-section-error" class="settings-usage-section-error" hidden></p>
+          <div class="settings-usage-table-head">
+            <h4 class="settings-usage-subtitle" id="usage-table-title" data-i18n="usage.byModel">By model</h4>
+            <button type="button" id="usage-export-csv" class="settings-usage-btn" data-i18n="usage.exportCsv">Export CSV</button>
+          </div>
+          <div class="settings-usage-table-scroll">
+            <table id="usage-breakdown" class="settings-usage-table settings-usage-breakdown">
+              <thead id="usage-breakdown-head"></thead>
+              <tbody id="usage-breakdown-body"></tbody>
+            </table>
+          </div>
+          <div id="usage-breakdown-cards" class="settings-usage-cards" hidden></div>
+          <p id="usage-breakdown-empty" class="settings-hint" data-i18n="usage.noRows" hidden>No usage in this range.</p>
+        </div>
       </section>
       <section class="settings-section" id="settings-account-section" data-settings-tab="account" hidden>
         <h3 class="settings-section-title" data-i18n="settings.account">Account</h3>

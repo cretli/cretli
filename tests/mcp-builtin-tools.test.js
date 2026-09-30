@@ -19,6 +19,7 @@ import { setBuiltinMcpRuntimeDeps } from '../lib/mcp/builtin/runtime-deps.js';
 import { resolveDataPath } from '../lib/runtime-paths.js';
 import { hashDelegationContent } from '../lib/delegation-request.js';
 import {
+  hangNextMockChatRunStart,
   registerMockChatRunAdapter,
   resetMockChatRuns,
 } from '../lib/chat-run/mock-adapter.js';
@@ -199,13 +200,25 @@ const plan = await handlersA.chat_plan_show({});
 assert.ok(plan.structuredContent.revision >= 1);
 
 const planDoc = readChatPlanDocument({ cwd: workspaceA, chatId: chatA.id });
-const started = await handlersA.delegation_start({
-  plan_revision: planDoc.revision,
-  harness: 'opencode',
-  model: 'opencode/test',
-  idempotency_key: 'del-a',
-});
+const releaseSlowStart = hangNextMockChatRunStart();
+let startTimeout;
+const startResult = await Promise.race([
+  handlersA.delegation_start({
+    plan_revision: planDoc.revision,
+    harness: 'opencode',
+    model: 'opencode/test',
+    idempotency_key: 'del-a',
+  }),
+  new Promise((resolve) => {
+    startTimeout = setTimeout(() => resolve(null), 1000);
+  }),
+]);
+clearTimeout(startTimeout);
+releaseSlowStart();
+assert.ok(startResult, 'delegation_start should acknowledge before adapter acceptance');
+const started = startResult;
 assert.equal(started.isError, false);
+assert.equal(started.structuredContent.status, 'starting');
 const delegationId = started.structuredContent.id;
 assert.ok(started.structuredContent.child_chat_id);
 const listedA = await handlersA.delegation_list({});

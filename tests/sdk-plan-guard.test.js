@@ -16,6 +16,40 @@ assert.equal(isPlanModeMutatingToolName('read'), false);
 assert.equal(isPlanModeMutatingToolName('todo'), false);
 assert.equal(isPlanModeMutatingToolName('todo_write'), false);
 
+// Claude Code native tool classification (SDK 0.3.284 aliases included).
+for (const name of [
+  'Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'TodoWrite',
+  'Agent', 'Task', 'BashOutput', 'ExitPlanMode', 'AskUserQuestion',
+  'ListMcpResources', 'ListMcpResourcesTool', 'ReadMcpResource',
+  'ReadMcpResourceTool', 'ReadMcpResourceDir', 'ReadMcpResourceDirTool',
+  'Skill',
+]) {
+  assert.equal(isPlanModeMutatingToolName(name), false, `${name} must stay read-only`);
+}
+for (const name of ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'KillShell', 'KillBash', 'TaskStop']) {
+  assert.equal(isPlanModeMutatingToolName(name), true, `${name} must stay mutating`);
+}
+
+// The Claude transport denies KillShell in Plan/Ask and aborts the run.
+{
+  const killShell = resolvePlanModeToolDecision({
+    transport: 'claude',
+    mode: 'plan',
+    toolName: 'KillShell',
+    input: { shell_id: 'bg-1' },
+  });
+  assert.equal(killShell.deny, true);
+  assert.equal(killShell.abortRun, true);
+  assert.equal(killShell.notify, true);
+  const skillPlan = resolvePlanModeToolDecision({
+    transport: 'claude',
+    mode: 'plan',
+    toolName: 'Skill',
+    input: { skill: 'canvas' },
+  });
+  assert.equal(skillPlan.deny, false);
+}
+
 assert.equal(isMutatingPlanModeShellCommand(''), false);
 assert.equal(isMutatingPlanModeShellCommand('ls'), false);
 assert.equal(isMutatingPlanModeShellCommand('rg -n "harness" --glob "*.js"'), false);

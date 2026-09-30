@@ -35,7 +35,11 @@ export function capSidebarVisibleTreeChats(treeChats, options = {}) {
       cursor = typeof row?.parentId === 'string' ? row.parentId : '';
     }
   }
-  const items = list.filter((item) => item?.chat?.id && keep.has(item.chat.id));
+  const items = list.filter((item) => {
+    // A subchat-group header travels with its parent row; it has no chat id.
+    if (item?.isGroup === true) return keep.has(String(item.parentId || ''));
+    return item?.chat?.id && keep.has(item.chat.id);
+  });
   return { items, hidden: Math.max(0, list.length - items.length) };
 }
 

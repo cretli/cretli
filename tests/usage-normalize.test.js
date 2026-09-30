@@ -3,10 +3,13 @@ import test from 'node:test';
 import { emptyUsageTokens } from '../lib/usage/usage-event.js';
 import {
   deltaTokens,
+  fromClaudeUsage,
+  fromCodexUsage,
   fromGeminiLiveUsage,
   fromOpenAiRealtimeUsage,
   fromOpenRouterUsage,
   fromSdkUsage,
+  mapProviderToHarness,
   readGeminiLiveCumulative,
 } from '../lib/usage/usage-normalize.js';
 
@@ -82,4 +85,37 @@ test('deltaTokens never goes negative', () => {
     { ...emptyUsageTokens(), textInput: 9 }
   );
   assert.equal(actual.textInput, 0);
+});
+
+test('maps Codex turn usage without double-counting cached input', () => {
+  const actual = fromCodexUsage({
+    input_tokens: 1000,
+    cached_input_tokens: 400,
+    output_tokens: 250,
+    reasoning_output_tokens: 30,
+  });
+  assert.equal(actual.textInput, 600);
+  assert.equal(actual.cachedInput, 400);
+  assert.equal(actual.textOutput, 250);
+  assert.equal(actual.reasoning, 30);
+});
+
+test('maps resolved Claude usage without double-counting cache reads', () => {
+  const actual = fromClaudeUsage({
+    inputTokens: 1000,
+    outputTokens: 200,
+    cacheReadTokens: 600,
+    cacheWriteTokens: 100,
+  });
+  assert.equal(actual.textInput, 400);
+  assert.equal(actual.cachedInput, 600);
+  assert.equal(actual.textOutput, 200);
+});
+
+test('maps legacy providers to harnesses and falls back to unknown', () => {
+  assert.equal(mapProviderToHarness('cursor'), 'sdk');
+  assert.equal(mapProviderToHarness('openrouter'), 'openrouter');
+  assert.equal(mapProviderToHarness('openai'), 'voice');
+  assert.equal(mapProviderToHarness('anthropic'), 'unknown');
+  assert.equal(mapProviderToHarness(''), 'unknown');
 });

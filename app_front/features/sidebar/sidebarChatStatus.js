@@ -5,8 +5,15 @@
 
 const DISCONNECTED_ICON_HTML = '<span class="mdi mdi-link-variant-off" aria-hidden="true"></span>';
 const CONNECTING_ICON_HTML = '<span class="mdi mdi-loading mdi-spin" aria-hidden="true"></span>';
+const SYNCING_ICON_HTML = '<span class="mdi mdi-sync mdi-spin" aria-hidden="true"></span>';
 const WORKING_ICON_HTML = '<span class="mdi mdi-cog-outline mdi-spin" aria-hidden="true"></span>';
 const NEEDS_ACTION_ICON_HTML = '<span class="mdi mdi-alert-circle-outline" aria-hidden="true"></span>';
+const SETTLED_STATUS_ICONS = {
+  completed: '<span class="mdi mdi-check-circle-outline" aria-hidden="true"></span>',
+  failed: '<span class="mdi mdi-alert-circle-outline" aria-hidden="true"></span>',
+  interrupted: '<span class="mdi mdi-pause-circle-outline" aria-hidden="true"></span>',
+  cancelled: '<span class="mdi mdi-close-circle-outline" aria-hidden="true"></span>',
+};
 
 const NEEDS_ACTION_TONES = new Set([
   'awaiting',
@@ -22,8 +29,10 @@ const NEEDS_ACTION_TONES = new Set([
  */
 export function isIconOnlySidebarStatus(tone, meta = null) {
   if (tone === 'active' && meta?.activityKey) return false;
+  if (tone === 'attention' && SETTLED_STATUS_ICONS[meta?.status]) return true;
   return tone === 'disconnected'
     || tone === 'connecting'
+    || tone === 'syncing'
     || tone === 'active'
     || NEEDS_ACTION_TONES.has(tone);
 }
@@ -38,7 +47,9 @@ export function renderSidebarChatStatusHtml(meta, escapeHtml) {
   const label = typeof meta?.label === 'string' ? meta.label : '';
   if (tone === 'disconnected') return DISCONNECTED_ICON_HTML;
   if (tone === 'connecting') return CONNECTING_ICON_HTML;
+  if (tone === 'syncing') return SYNCING_ICON_HTML;
   if (tone === 'active' && !meta?.activityKey) return WORKING_ICON_HTML;
+  if (tone === 'attention' && SETTLED_STATUS_ICONS[meta?.status]) return SETTLED_STATUS_ICONS[meta.status];
   if (NEEDS_ACTION_TONES.has(tone)) return NEEDS_ACTION_ICON_HTML;
   const escape = typeof escapeHtml === 'function' ? escapeHtml : (value) => String(value || '');
   return escape(label);
@@ -64,15 +75,18 @@ export function applySidebarChatStatusEl(el, meta, options = {}) {
   if (title && el.getAttribute('title') !== title) el.setAttribute('title', title);
   const activityKey = typeof meta?.activityKey === 'string' ? meta.activityKey : '';
   const label = typeof meta?.label === 'string' ? meta.label : '';
+  const status = typeof meta?.status === 'string' ? meta.status : '';
   const currentTone = el.getAttribute('data-status-tone') || '';
   const currentActivity = el.getAttribute('data-activity-key') || '';
   const currentLabel = el.getAttribute('data-status-label') || '';
-  if (currentTone === tone && currentActivity === activityKey && currentLabel === label) {
+  const currentStatus = el.getAttribute('data-status-outcome') || '';
+  if (currentTone === tone && currentActivity === activityKey && currentLabel === label && currentStatus === status) {
     return false;
   }
   el.setAttribute('data-status-tone', tone);
   el.setAttribute('data-activity-key', activityKey);
   el.setAttribute('data-status-label', label);
+  el.setAttribute('data-status-outcome', status);
   el.innerHTML = renderSidebarChatStatusHtml(meta, options.escapeHtml);
   return true;
 }

@@ -10,7 +10,7 @@ import {
   getEnabledHarnessIds,
   isHarnessEnabledInSettings,
 } from './harnessSettings.js';
-import { AGENT_TRANSPORTS, getChatAgentTransport } from '../lib/agent-transport.js';
+import { AGENT_TRANSPORTS } from '../lib/agent-transport.js';
 import { appLogger } from './logger.js';
 import {
   CHAT_RECONNECT_MAX,
@@ -245,10 +245,16 @@ import { createChatModelSelect } from './features/chat/chatModelSelect.js';
 import {
   createNewChatCatalogCache,
   createNewChatHarnessStatusTracker,
+  listEnabledLocalChatHarnessOptions,
   normalizeNewChatHarnessId,
   resolveCatalogConfirmedReadiness,
   resolveNewChatHarnessUiState,
 } from './features/chat/newChatHarnessStatus.js';
+import {
+  isBlockingPersistedLocalChatHarnessState,
+  resolveBlockingPersistedLocalChatStateCode,
+  resolvePersistedLocalChatUnavailableMessageKey,
+} from './features/chat/persistedLocalChatState.js';
 import {
   CHAT_CONTEXT_USAGE_SYNC_MS,
   createChatDiagnostics,
@@ -2546,6 +2552,9 @@ function resolveChatDraftAndScroll(chat) {
 
 async function syncSdkHistoryOnResume(chat, context = {}) {
   if (!chat?.id) return { status: 'unchanged' };
+  // A blocked persisted local chat has no SDK runtime: never fetch or apply SDK history,
+  // regardless of which lifecycle path asked for the resume sync.
+  if (isBlockingPersistedLocalChatHarnessState(chat)) return { status: 'unchanged' };
   const reason = String(context.reason || 'unknown');
   if (isSdkOpenTerminalHydrating(chat) && reason !== 'selectChat') {
     return { status: 'deferred', deferReason: 'open_terminal_hydrating' };
@@ -2780,6 +2789,7 @@ const chatController = createChatController({
   startChatBackgroundMonitor,
   startGlobalChatPingLoop,
   ensureChatConnection,
+  teardownBlockedChatRuntime: chatTransport.teardownBlockedChatRuntime,
   openTerminal,
   getChatsForCurrentWorkspace,
   setChatStatus,
@@ -3656,8 +3666,139 @@ function isChatPaneMounted(chat) {
   return !!(chat?.pane && chat.pane.isConnected);
 }
 
+/**
+ * Whether the mounted pane already shows the blocked notice for the chat's current code.
+ * Re-rendering every select would needlessly replace an identical notice.
+ *
+ * @param {object} chat
+ * @returns {boolean}
+ */
+function isPersistedLocalChatBlockedPaneMounted(chat) {
+  if (!isChatPaneMounted(chat)) return false;
+  const code = resolveBlockingPersistedLocalChatStateCode(chat);
+  if (!code) return false;
+  return chat.pane.dataset?.persistedLocalStateCode === code;
+}
+
+/**
+ * Whether the mounted pane is the minimal blocked notice for any code, regardless of the
+ * chat's current harness state. This detects a stale notice once the persisted state has
+ * turned non-blocking (e.g. `not_loaded`, a missing state, or restored availability): the
+ * notice pane records its code in `dataset.persistedLocalStateCode`.
+ *
+ * @param {object} chat
+ * @returns {boolean}
+ */
+function isPersistedLocalChatBlockedNoticeMounted(chat) {
+  if (!isChatPaneMounted(chat)) return false;
+  const mountedCode = chat.pane.dataset?.persistedLocalStateCode;
+  return typeof mountedCode === 'string' && mountedCode !== '';
+}
+
+/**
+ * Drop the mounted blocked notice so `openTerminal` can run the ordinary pane construction.
+ * The notice owns no rich view, send bar, shared mode bar, or socket, so only the DOM node
+ * and the pane reference are released — the standard path then appends exactly one normal
+ * pane (no duplicate pane).
+ *
+ * @param {object} chat
+ */
+function removeMountedPersistedLocalChatBlockedPane(chat) {
+  if (!isPersistedLocalChatBlockedNoticeMounted(chat)) return;
+  chat.pane.remove();
+  chat.pane = null;
+  chat.sdkModeBarEl = null;
+}
+
+/**
+ * Replace a live SDK pane with the blocked notice when a persisted local chat's plugin
+ * turns missing/disabled/not-chat-capable/host-incompatible at runtime. Tears down the
+ * rich view, send bar, shared mode-bar binding, diagnostics polling, history timers, and
+ * socket first, then renders exactly one blocked pane in place of the removed one.
+ *
+ * @param {object} chat
+ */
+function replaceMountedPersistedLocalChatBlockedPane(chat) {
+  if (!chat) return;
+  if (chat._sdkHistoryFlushTimer) {
+    clearTimeout(chat._sdkHistoryFlushTimer);
+    chat._sdkHistoryFlushTimer = null;
+  }
+  chat._sdkHistoryPending = [];
+  if (chat._reconnectTimer) {
+    clearTimeout(chat._reconnectTimer);
+    chat._reconnectTimer = null;
+  }
+  chatDiagnosticsApi?.stopChatDiagPolling?.(chat);
+  chat.pane?._sendBar?.destroy?.();
+  try {
+    chat._sdkRichView?.destroy?.();
+  } catch {
+    // A partially mounted rich view may throw on destroy — the pane is dropped anyway.
+  }
+  resetViewAppliedState(chat.id, chat);
+  if (chat.term && typeof chat.term.dispose === 'function') chat.term.dispose();
+  chat._termContainer = null;
+  chat.sdkModeBarEl = null;
+  // Delegate the socket teardown to the transport helper: it detaches every callback
+  // exactly once before close and releases the connect slot. Never null `chat.ws` here
+  // (a bare close would leave live listeners and a held slot).
+  chatTransport.teardownBlockedChatRuntime(chat);
+  if (chat.pane && chat.pane.parentNode) chat.pane.remove();
+  chat.pane = null;
+  chat._sdkRichView = null;
+  chat.term = null;
+  chat.fitAddon = null;
+  renderPersistedLocalChatBlockedPane(chat);
+}
+
+/**
+ * Minimal pane for a persisted local chat whose plugin is unavailable, disabled,
+ * not chat-capable, or host-incompatible. It deliberately skips the SDK rich view,
+ * send bar, shared mode bar, history fetch, and WebSocket: the chat stays visible with
+ * a localized reason until the plugin state changes. `chat.agentTransport` is never
+ * rewritten, so the sidebar and diagnostics keep showing the raw plugin id.
+ *
+ * @param {object} chat
+ */
+function renderPersistedLocalChatBlockedPane(chat) {
+  const chatTabs = document.getElementById('chat-tabs');
+  if (!chatTabs) return;
+  const pane = document.createElement('div');
+  pane.className = 'chat-tab-pane';
+  pane.dataset.chatId = chat.id;
+  pane.dataset.persistedLocalStateCode = resolveBlockingPersistedLocalChatStateCode(chat);
+  const notice = document.createElement('div');
+  notice.className = 'chat-terminal-statebar chat-terminal-statebar--disconnected';
+  notice.setAttribute('role', 'note');
+  notice.textContent = t(resolvePersistedLocalChatUnavailableMessageKey(chat));
+  pane.appendChild(notice);
+  chatTabs.appendChild(pane);
+  if (chat.id === activeChatId) pane.classList.add('active');
+  chat.pane = pane;
+  chat._sdkRichView = null;
+  chat.sdkModeBarEl = null;
+  chat.term = null;
+  chat.fitAddon = null;
+  chat._connectionStatus = 'disconnected';
+  if (chat.id === activeChatId) setChatStatus('disconnected');
+}
+
 function openTerminal(chat) {
-  if (isChatPaneMounted(chat)) return;
+  if (isChatPaneMounted(chat)) {
+    if (isBlockingPersistedLocalChatHarnessState(chat)) {
+      // The plugin state can turn blocking after the SDK pane was already mounted (list
+      // refresh): swap the live runtime for the blocked notice instead of returning as-is.
+      if (!isPersistedLocalChatBlockedPaneMounted(chat)) {
+        replaceMountedPersistedLocalChatBlockedPane(chat);
+      }
+      return;
+    }
+    // The blocking state can also clear (blocked -> not_loaded / missing / restored).
+    // Only a mounted notice is stale here; a mounted regular pane keeps its fast-path return.
+    if (!isPersistedLocalChatBlockedNoticeMounted(chat)) return;
+    removeMountedPersistedLocalChatBlockedPane(chat);
+  }
   if (chat.pane && !chat.pane.isConnected) {
     try {
       chat._sdkRichView?.destroy?.();
@@ -3672,6 +3813,10 @@ function openTerminal(chat) {
   }
   if (!document.getElementById('chat-tabs')) {
     scheduleOpenTerminalWhenReady(chat);
+    return;
+  }
+  if (isBlockingPersistedLocalChatHarnessState(chat)) {
+    renderPersistedLocalChatBlockedPane(chat);
     return;
   }
   const pane = document.createElement('div');
@@ -4271,6 +4416,72 @@ export async function requestArchiveChat(chatId, options = {}) {
   return true;
 }
 
+/**
+ * Archive a whole sidebar "settled subchats" group in one pass: one reload
+ * instead of one per child. The caller confirms with the user first.
+ *
+ * @param {string[]} chatIds
+ * @param {{ switchToChatId?: string }} [options]
+ * @returns {Promise<{ ok: boolean, archived: number, failed: number }>}
+ */
+export async function requestArchiveSettledChats(chatIds, options = {}) {
+  const ids = [...new Set(
+    (Array.isArray(chatIds) ? chatIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+  )];
+  if (!ids.length) return { ok: true, archived: 0, failed: 0 };
+  const archivedSet = new Set(ids);
+  const activeId = getActiveChatIdValue();
+  let switchToChatId =
+    typeof options.switchToChatId === 'string' && options.switchToChatId.trim()
+      ? options.switchToChatId.trim()
+      : '';
+  if (!switchToChatId) {
+    for (let index = chats.length - 1; index >= 0; index -= 1) {
+      const row = chats[index];
+      if (!row || archivedSet.has(row.id) || row.archivedAt) continue;
+      switchToChatId = row.id;
+      break;
+    }
+  }
+  const relatedParentIds = new Set();
+  let failed = 0;
+  for (const id of ids) {
+    const row = chats.find((entry) => entry.id === id);
+    for (const parent of [row?.forkParentChatId, row?.delegationParentChatId]) {
+      const parentId = String(parent || '').trim();
+      if (parentId && !archivedSet.has(parentId)) relatedParentIds.add(parentId);
+    }
+    let data = null;
+    try {
+      data = await api.archiveChat(id, true);
+    } catch {
+      data = null;
+    }
+    if (!data?.ok) {
+      failed += 1;
+      continue;
+    }
+    closeChat(id, {
+      skipApiDelete: true,
+      switchToChatId: id === activeId ? switchToChatId : '',
+    });
+  }
+  await loadChatsFromServer({
+    includeArchived: true,
+    preferChatId: switchToChatId || '',
+    skipAutoSelect: false,
+  });
+  if (switchToChatId && chats.some((entry) => entry.id === switchToChatId)) {
+    selectChat(switchToChatId);
+  }
+  relatedParentIds.forEach((id) => {
+    refreshRelatedChatHistoryLinks(chats.find((entry) => entry.id === id));
+  });
+  return { ok: failed === 0, archived: ids.length - failed, failed };
+}
+
 function syncArchiveMenuUi(chat = null) {
   const btn = document.getElementById('chat-archive-menu-btn');
   if (!btn) return;
@@ -4420,7 +4631,7 @@ export function getActiveChatTerminalState() {
   return {
     term: chat.term ?? null,
     ws: chat.ws || null,
-    agentTransport: getChatAgentTransport(chat),
+    agentTransport: normalizeNewChatHarness(chat.agentTransport || 'sdk'),
   };
 }
 
@@ -5179,12 +5390,23 @@ let newChatModelUserTouched = false;
 let newChatModelPresetApplied = false;
 
 /**
+ * Enabled local `capabilities.chat` plugin ids, refreshed from the harness
+ * catalog. Only ids in this set survive `normalizeNewChatHarness`; everything
+ * else still collapses to `sdk`. The create request itself is verified again on
+ * the server, so this list is a UI convenience, not a trust boundary.
+ */
+const localChatHarnessIds = new Set();
+
+/**
  * Resolve whether the given harness is known ready, unknown (null) or known not ready.
  * A `null` cache must not be reported as an error.
  * @param {string} harness
  * @returns {boolean | null}
  */
 function getNewChatHarnessReadiness(harness) {
+  // The server loads and verifies the plugin at create time; the only UI
+  // precondition is that the id is an enabled local chat plugin.
+  if (localChatHarnessIds.has(harness)) return true;
   if (harness === 'openrouter') return cachedOpenRouterReady;
   if (harness === 'opencode') {
     // OpenCode readiness is only trusted once its catalog confirmed models for the current
@@ -5204,6 +5426,7 @@ function getNewChatHarnessReadiness(harness) {
  * @param {boolean | null} ready
  */
 function setNewChatHarnessReadyCache(harness, ready) {
+  if (localChatHarnessIds.has(harness)) return;
   if (harness === 'openrouter') cachedOpenRouterReady = ready;
   else if (harness === 'opencode') cachedOpenCodeReady = ready;
   else if (harness === 'codebuddy') cachedCodeBuddyReady = ready;
@@ -5268,12 +5491,54 @@ function setNewChatCreateBusy(busy) {
  * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen' | 'claude'}
  */
 function normalizeNewChatHarness(value) {
-  return normalizeNewChatHarnessId(value);
+  return normalizeNewChatHarnessId(value, { localIds: localChatHarnessIds });
 }
 
 function getSelectedNewChatHarness() {
   const harnessSel = document.getElementById('chat-new-harness-select');
   return normalizeNewChatHarness(harnessSel?.value || 'sdk');
+}
+
+/**
+ * Rebuild the injected local `<option>` rows from enabled local `capabilities.chat`
+ * plugins and update the allowlist used by {@link normalizeNewChatHarness}.
+ * Labels come from the plugin manifest and are written as textContent only.
+ *
+ * @param {unknown} catalog `{ items: [...] }` GET /api/harness-catalog/harnesses
+ */
+function applyLocalChatHarnessOptions(catalog) {
+  const options = listEnabledLocalChatHarnessOptions(catalog);
+  localChatHarnessIds.clear();
+  for (const option of options) {
+    localChatHarnessIds.add(option.id);
+  }
+  const select = document.getElementById('chat-new-harness-select');
+  if (!(select instanceof HTMLSelectElement)) return;
+  for (const existing of Array.from(select.querySelectorAll('option[data-local-harness="1"]'))) {
+    existing.remove();
+  }
+  for (const option of options) {
+    const element = document.createElement('option');
+    element.value = option.id;
+    element.textContent = option.label;
+    element.dataset.localHarness = '1';
+    select.appendChild(element);
+  }
+}
+
+/**
+ * Fetch and apply the enabled local chat plugins. Best-effort: a catalog failure
+ * keeps the previous allowlist and never breaks the new-chat modal.
+ *
+ * @returns {Promise<void>}
+ */
+async function refreshLocalChatHarnessOptions() {
+  try {
+    const catalog = await api.getHarnessCatalog();
+    applyLocalChatHarnessOptions(catalog);
+  } catch {
+    // Keep the previous allowlist.
+  }
 }
 
 /** Harness readiness error shown in the new-chat modal. Resolved lazily so i18n is initialized. */
@@ -5680,6 +5945,13 @@ function reloadOpenCodeModelsCatalog(chat = null) {
  */
 function runNewChatHarnessStatusCheck(harness, options = {}) {
   const resolvedHarness = normalizeNewChatHarness(harness);
+  if (localChatHarnessIds.has(resolvedHarness)) {
+    // Local plugins have no vendor status/model check in this slice; the create
+    // endpoint performs the only real verification. Never route them through the
+    // SDK credential check.
+    syncNewChatHarnessUi(resolvedHarness);
+    return Promise.resolve();
+  }
   const inFlight = newChatHarnessStatusTracker.getInFlight(resolvedHarness);
   if (inFlight) return inFlight;
   const token = beginNewChatHarnessStatusCheck(resolvedHarness);
@@ -5712,6 +5984,13 @@ function runNewChatHarnessStatusCheck(harness, options = {}) {
 
 function refreshNewChatHarnessStatus(options = {}) {
   const harness = getSelectedNewChatHarness();
+  if (localChatHarnessIds.has(harness)) {
+    // Bypass the per-harness status tracker and model picker: a local id must
+    // never be conflated with the SDK selection key, and its readiness is
+    // decided by the server at create time.
+    syncNewChatHarnessUi(harness);
+    return Promise.resolve();
+  }
   // Mirror the cached readiness first so a harness switch cannot keep a stale hint/button.
   syncNewChatHarnessUi(harness);
   chatModelSelectApi.refreshNewChatModelPicker(harness, {
@@ -5924,7 +6203,7 @@ function applyLateDefaultNewChatHarness() {
     syncNewChatHarnessUi(after);
     return;
   }
-  newChatHarnessStatusTracker.selectHarness(after);
+  if (!localChatHarnessIds.has(after)) newChatHarnessStatusTracker.selectHarness(after);
   syncNewChatHarnessUi(after);
   void refreshNewChatHarnessStatus({ force: true });
 }
@@ -6045,6 +6324,21 @@ export function openNewChatModal(options = {}) {
     lastExecutor.harness ||
     (typeof options?.harness === 'string' && options.harness.trim())
   );
+  const requestedRawHarness = (
+    (typeof options?.harness === 'string' && options.harness.trim())
+    || (sourceChat && typeof sourceChat.agentTransport === 'string' ? sourceChat.agentTransport.trim() : '')
+  ).toLowerCase();
+  void refreshLocalChatHarnessOptions().then(() => {
+    // A local id can only be preserved once the enabled-local allowlist loaded.
+    // If the modal was opened directly on a local source chat, correct the select
+    // after the async refresh instead of letting it collapse to sdk.
+    if (!requestedRawHarness || !localChatHarnessIds.has(requestedRawHarness)) return;
+    const select = document.getElementById('chat-new-harness-select');
+    if (select instanceof HTMLSelectElement && select.value !== requestedRawHarness) {
+      select.value = requestedRawHarness;
+      syncNewChatHarnessUi(requestedRawHarness);
+    }
+  });
   const preferredWorkspaceFile =
     options && typeof options.workspaceFile === 'string' ? options.workspaceFile.trim() : '';
   const preferredWorkspaceFolder =
@@ -6082,7 +6376,7 @@ export function openNewChatModal(options = {}) {
     titleInput.placeholder = t('chat.optionalNamePlaceholder');
   }
   const harness = getSelectedNewChatHarness();
-  newChatHarnessStatusTracker.selectHarness(harness);
+  if (!localChatHarnessIds.has(harness)) newChatHarnessStatusTracker.selectHarness(harness);
   // Unknown readiness shows no warning and keeps Create disabled; the status check below
   // either enables it or shows the selected harness' own error.
   syncNewChatHarnessUi(harness);
@@ -7975,6 +8269,9 @@ export function initChatPanel() {
   bindChatVisibilityAndReconnect();
   chatController.initChatPanelBridge();
   mountSdkModeBarInToolbar();
+  // Warm the enabled-local allowlist so reopened local chats stay local after a
+  // sidebar sync/reload. Best-effort; a failure leaves the list empty.
+  void refreshLocalChatHarnessOptions();
 
   if (typeof window !== 'undefined') {
     // The status label is passed into the mode bar as a plain string, so it has
@@ -8057,7 +8354,8 @@ export function initChatPanel() {
     newHarnessSel.addEventListener('change', () => {
       newChatHarnessUserTouched = true;
       chatNewModelDropdownApi?.close?.();
-      newChatHarnessStatusTracker.selectHarness(getSelectedNewChatHarness());
+      const selected = getSelectedNewChatHarness();
+      if (!localChatHarnessIds.has(selected)) newChatHarnessStatusTracker.selectHarness(selected);
       syncNewChatFavoritePresetUi();
       void refreshNewChatHarnessStatus({ forceCloseDropdown: true });
     });

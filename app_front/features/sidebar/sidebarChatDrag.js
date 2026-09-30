@@ -10,6 +10,7 @@ import {
   readDropParentChatId,
   readNestLevel,
   resolveBlockNest,
+  selectDraggableChatRows,
 } from './sidebarChatDragBlock.js';
 
 const HOLD_MS = 250;
@@ -30,7 +31,7 @@ function collectChatBlock(li) {
   const level = readChatNestLevel(li);
   let next = li.nextElementSibling;
   while (next instanceof HTMLElement && next.classList.contains('sidebar-chat-item')) {
-    if (next.dataset.archived === '1') break;
+    if (next.dataset.archived === '1' || next.hidden || next.classList.contains('is-subchat-hidden')) break;
     if (readChatNestLevel(next) <= level) break;
     nodes.push(next);
     next = next.nextElementSibling;
@@ -74,7 +75,7 @@ function applyCapturedBlockNest(block, relativeLevels, parentChatId, list) {
  * @returns {{ id: string, top: number, bottom: number, isChild: boolean, level: number, parentId: string }[]}
  */
 function measureChatItems(list) {
-  return Array.from(list.querySelectorAll('.sidebar-chat-item:not([data-archived="1"])')).map((li) => {
+  const rows = Array.from(list.querySelectorAll('.sidebar-chat-item')).map((li) => {
     const rect = li.getBoundingClientRect();
     const level = readChatNestLevel(li);
     return {
@@ -84,8 +85,13 @@ function measureChatItems(list) {
       isChild: level > 0,
       level,
       parentId: li.dataset.parentId || '',
+      archived: li.dataset.archived,
+      hidden: li.hidden === true,
+      subchatHidden: li.classList.contains('is-subchat-hidden'),
+      isGroup: false,
     };
   });
+  return selectDraggableChatRows(rows);
 }
 
 /**
@@ -267,7 +273,7 @@ export function initSidebarChatDrag({ body, isEnabled = () => true, onDrop = () 
     if (target.closest('.sidebar-chat-action')) return;
     const li = target.closest('.sidebar-chat-item');
     if (!li || !(li instanceof HTMLElement) || !li.dataset.chatId) return;
-    if (li.dataset.archived === '1') return;
+    if (li.dataset.archived === '1' || li.hidden || li.classList.contains('is-subchat-hidden')) return;
     const list = li.closest('.sidebar-chat-list');
     const items = list?.querySelectorAll('.sidebar-chat-item');
     if (!items || items.length < 2) return;

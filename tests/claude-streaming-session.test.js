@@ -11,15 +11,31 @@ delete process.env.CRETLI_CLAUDE_STREAMING_SESSION;
 
 const {
   CLAUDE_SYSTEM_PROMPT,
+  appendClaudeStderrChunk,
+  buildClaudeNoticePayload,
   buildClaudeQueryOptions,
   createClaudePromptRunner,
+  interruptActiveQuery,
+  readClaudeStderrTail,
+  readLastClaudeStderrLine,
+  redactClaudeStderrLine,
 } = await import('../lib/claude/claude-agent-ws.js');
 const {
   setClaudeSdkForTests,
   resetClaudeSdkForTests,
   loadClaudeSdk,
 } = await import('../lib/claude/claude-sdk.js');
-const { buildClaudeUserMessage, buildClaudeAuthSignature } = await import('../lib/claude/claude-session.js');
+const {
+  buildClaudeUserMessage,
+  buildClaudeAuthSignature,
+  buildClaudeTuningSignature,
+  resolveClaudeRunTuning,
+} = await import('../lib/claude/claude-session.js');
+const {
+  invalidateClaudeModelsCache,
+  isClaudeSessionModelCatalogFresh,
+  listClaudeModels,
+} = await import('../lib/claude/claude-models.js');
 
 const SDK_SESSION_ID = 'sess-1';
 
@@ -43,6 +59,11 @@ function extractText(message) {
  *   resumeFailureOnce?: boolean,
  *   failNextTurn?: boolean,
  *   sessionId?: string,
+ *   rejectSetModelOnce?: boolean,
+ *   rejectSetPermissionModeOnce?: boolean,
+ *   interruptSilent?: boolean,
+ *   endSilently?: boolean,
+ *   supportedModels?: Array<Record<string, unknown>>,
  * }} [config]
  */
 function createFakeClaudeSdk(config = {}) {
@@ -52,9 +73,16 @@ function createFakeClaudeSdk(config = {}) {
     autoResult: config.autoResult !== false,
     resumeFailureOnce: config.resumeFailureOnce === true,
     failNextTurn: config.failNextTurn === true,
+    rejectSetModelOnce: config.rejectSetModelOnce === true,
+    rejectSetPermissionModeOnce: config.rejectSetPermissionModeOnce === true,
+    interruptSilent: config.interruptSilent === true,
+    endSilently: config.endSilently === true,
+    supportedModels: config.supportedModels || [],
   };
   let resumeFailureEmitted = false;
   let failEmitted = false;
+  let setModelRejected = false;
+  let permissionRejected = false;
 
   function createQuery({ prompt, options }) {
     const call = {
@@ -69,6 +97,12 @@ function createFakeClaudeSdk(config = {}) {
       messages: [],
       turnCount: 0,
       pendingResult: null,
+      emit(value) {
+        enqueue({ value });
+      },
+      emitError(error) {
+        fail(error);
+      },
       completeTurn(overrides = {}) {
         if (!call.pendingResult) return false;
         const emit = call.pendingResult;
@@ -95,6 +129,14 @@ function createFakeClaudeSdk(config = {}) {
     function fail(error) {
       enqueue({ error });
       closed = true;
+    }
+
+    function endNow() {
+      closed = true;
+      while (waiters.length > 0) {
+        const waiter = waiters.shift();
+        waiter({ value: undefined });
+      }
     }
 
     function emitResult(overrides = {}) {
@@ -165,17 +207,28 @@ function createFakeClaudeSdk(config = {}) {
     const query = {
       async interrupt() {
         call.interrupts += 1;
-        emitResult();
+        if (!state.interruptSilent) emitResult();
       },
       async setModel(model) {
         call.setModel.push(model);
+        if (state.rejectSetModelOnce && !setModelRejected) {
+          setModelRejected = true;
+          throw new Error('setModel rejected');
+        }
       },
       async setPermissionMode(mode) {
         call.setPermissionMode.push(mode);
+        if (state.rejectSetPermissionModeOnce && !permissionRejected) {
+          permissionRejected = true;
+          throw new Error('setPermissionMode rejected');
+        }
       },
       async setMcpServers(servers) {
         call.setMcpServers.push(servers);
         return { added: [], removed: [], errors: [] };
+      },
+      async supportedModels() {
+        return state.supportedModels;
       },
       close() {
         call.closes += 1;
@@ -207,6 +260,10 @@ function createFakeClaudeSdk(config = {}) {
           if (state.failNextTurn && !failEmitted) {
             failEmitted = true;
             fail(new Error('stream boom'));
+            return;
+          }
+          if (state.endSilently) {
+            endNow();
             return;
           }
           if (state.autoResult) emitResult();
@@ -342,6 +399,22 @@ try {
     buildClaudeAuthSignature('api-key', {}),
   );
   assert.notEqual(buildClaudeAuthSignature('api-key', {}), signatureA);
+  const awsSignature = buildClaudeAuthSignature('api-key', {
+    CLAUDE_CODE_USE_BEDROCK: '1',
+    AWS_SESSION_TOKEN: 'aws-session-secret-a',
+  });
+  assert.notEqual(awsSignature, buildClaudeAuthSignature('api-key', {
+    CLAUDE_CODE_USE_BEDROCK: '1',
+    AWS_SESSION_TOKEN: 'aws-session-secret-b',
+  }));
+  assert.doesNotMatch(awsSignature, /aws-session-secret-a/);
+  const planSignature = buildClaudeAuthSignature('subscription', {
+    CLAUDE_CODE_OAUTH_TOKEN: 'plan-token-secret-a',
+  });
+  assert.doesNotMatch(planSignature, /plan-token-secret-a/);
+  assert.notEqual(planSignature, buildClaudeAuthSignature('subscription', {
+    CLAUDE_CODE_OAUTH_TOKEN: 'plan-token-secret-b',
+  }));
 
   // --- test seam: loadClaudeSdk returns the fake ---
   const seamFake = createFakeClaudeSdk();
@@ -548,6 +621,283 @@ try {
     assert.equal(finished.length, 2);
     assert.deepEqual(finished.map((event) => event.status), ['completed', 'completed']);
     assert.equal(fake.calls.length, 1);
+  }
+
+  // --- Task D: start-time tuning is validated and restarts the session ---
+  {
+    const tuning = resolveClaudeRunTuning({
+      CRETLI_CLAUDE_EFFORT: 'xhigh',
+      CRETLI_CLAUDE_FALLBACK_MODEL: 'opus',
+      CRETLI_CLAUDE_DELEGATION_MAX_TURNS: '3',
+      CRETLI_CLAUDE_DELEGATION_MAX_BUDGET_USD: '1.5',
+    }, { delegation: true });
+    assert.deepEqual(tuning, {
+      effort: 'xhigh',
+      fallbackModel: 'opus',
+      maxTurns: 3,
+      maxBudgetUsd: 1.5,
+    });
+    const invalidTuning = resolveClaudeRunTuning({
+      CRETLI_CLAUDE_EFFORT: 'ultra',
+      CRETLI_CLAUDE_FALLBACK_MODEL: '   ',
+      CRETLI_CLAUDE_DELEGATION_MAX_TURNS: '0',
+      CRETLI_CLAUDE_DELEGATION_MAX_BUDGET_USD: '-1',
+    }, { delegation: true });
+    assert.deepEqual(invalidTuning, {
+      effort: '',
+      fallbackModel: '',
+      maxTurns: null,
+      maxBudgetUsd: null,
+    });
+    const nonDelegation = resolveClaudeRunTuning({
+      CRETLI_CLAUDE_DELEGATION_MAX_TURNS: '3',
+      CRETLI_CLAUDE_DELEGATION_MAX_BUDGET_USD: '1.5',
+    }, { delegation: false });
+    assert.equal(nonDelegation.maxTurns, null);
+    assert.equal(nonDelegation.maxBudgetUsd, null);
+
+    const delegationOptions = buildClaudeQueryOptions(
+      { cwd: '/tmp', sdkMode: 'agent', delegationAssignment: 'implement' },
+      'agent',
+      {
+        env: {
+          CRETLI_CLAUDE_EFFORT: 'medium',
+          CRETLI_CLAUDE_DELEGATION_MAX_TURNS: '4',
+          CRETLI_CLAUDE_DELEGATION_MAX_BUDGET_USD: '3',
+        },
+      },
+    );
+    assert.equal(delegationOptions.effort, 'medium');
+    assert.equal(delegationOptions.maxTurns, 4);
+    assert.equal(delegationOptions.maxBudgetUsd, 3);
+    assert.equal(buildClaudeQueryOptions({ cwd: '/tmp' }, 'agent', { env: {} }).effort, undefined);
+
+    // Changing a start-time env value restarts the process with resume.
+    const fake = createFakeClaudeSdk();
+    const room = createRoom();
+    const env = {
+      ANTHROPIC_API_KEY: 'test-key',
+      CLAUDE_CONFIG_DIR: tempDir,
+      CRETLI_CLAUDE_EFFORT: 'high',
+    };
+    const { runner } = createRunner({ room, sdk: fake.sdk, buildEnv: () => ({ ...env }) });
+    await runner.startPrompt('one');
+    assert.equal(fake.calls[0].options.effort, 'high');
+    env.CRETLI_CLAUDE_EFFORT = 'low';
+    await runner.startPrompt('two');
+    assert.equal(fake.calls.length, 2, 'effort change must restart the process');
+    assert.equal(fake.calls[1].options.resume, SDK_SESSION_ID);
+    assert.equal(fake.calls[1].options.effort, 'low');
+  }
+
+  // --- Task D/startKey: tuning signature is stable and compared ---
+  {
+    assert.equal(
+      buildClaudeTuningSignature({ effort: 'high', fallbackModel: 'opus', maxTurns: 2, maxBudgetUsd: 1 }),
+      buildClaudeTuningSignature({ effort: 'high', fallbackModel: 'opus', maxTurns: 2, maxBudgetUsd: 1 }),
+    );
+    assert.notEqual(
+      buildClaudeTuningSignature({ effort: 'high' }),
+      buildClaudeTuningSignature({ effort: 'low' }),
+    );
+  }
+
+  // --- Task C: query.supportedModels() populates the session catalog ---
+  {
+    const previousKey = process.env.ANTHROPIC_API_KEY;
+    const previousBase = process.env.ANTHROPIC_BASE_URL;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_BASE_URL;
+    invalidateClaudeModelsCache();
+    try {
+      const fake = createFakeClaudeSdk({
+        supportedModels: [
+          { value: 'opus', displayName: 'Opus' },
+          { value: 'sonnet', displayName: 'Sonnet' },
+        ],
+      });
+      const room = createRoom();
+      const { runner } = createRunner({ room, sdk: fake.sdk });
+      await runner.startPrompt('one');
+      await waitFor(() => isClaudeSessionModelCatalogFresh(), { timeoutMs: 500 });
+      const listed = await listClaudeModels();
+      assert.equal(listed.modelsSource, 'session');
+      assert.deepEqual(listed.models.map((row) => row.id), ['opus', 'sonnet']);
+    } finally {
+      if (typeof previousKey === 'string') process.env.ANTHROPIC_API_KEY = previousKey;
+      else delete process.env.ANTHROPIC_API_KEY;
+      if (typeof previousBase === 'string') process.env.ANTHROPIC_BASE_URL = previousBase;
+      else delete process.env.ANTHROPIC_BASE_URL;
+      invalidateClaudeModelsCache();
+    }
+  }
+
+  // --- Task G: stderr ring buffer, redaction and last-line fallback ---
+  {
+    assert.equal(redactClaudeStderrLine('Authorization: Bearer abc.def.ghi'), 'Authorization: Bearer ***');
+    assert.match(redactClaudeStderrLine('sk-ant-api03-secretvalue'), /sk-ant-\*\*\*/);
+    assert.equal(redactClaudeStderrLine('ANTHROPIC_API_KEY=sk-ant-xyz'), 'ANTHROPIC_API_KEY=***');
+    assert.equal(redactClaudeStderrLine('CLAUDE_CODE_OAUTH_TOKEN=abc123'), 'CLAUDE_CODE_OAUTH_TOKEN=***');
+
+    const stderrRoom = createRoom();
+    for (let i = 0; i < 60; i += 1) appendClaudeStderrChunk(stderrRoom, `line-${i}\n`);
+    assert.equal(readClaudeStderrTail(stderrRoom).length, 50);
+    assert.equal(readClaudeStderrTail(stderrRoom)[0], 'line-10');
+    assert.equal(readLastClaudeStderrLine(stderrRoom), 'line-59');
+
+    const optionsRoom = createRoom();
+    const stderrOptions = buildClaudeQueryOptions(optionsRoom, 'agent');
+    assert.equal(typeof stderrOptions.stderr, 'function');
+    stderrOptions.stderr('starting claude\nsk-ant-secret\n');
+    assert.deepEqual(readClaudeStderrTail(optionsRoom), ['starting claude', 'sk-ant-***']);
+
+    // A silent session end uses the last non-empty stderr line as the message.
+    const fake = createFakeClaudeSdk({ endSilently: true });
+    const room = createRoom();
+    const { runner, events } = createRunner({ room, sdk: fake.sdk });
+    appendClaudeStderrChunk(room, 'fatal: claude binary crashed\n');
+    await runner.startPrompt('one');
+    const failed = finishedEvents(events).at(-1);
+    assert.equal(failed.status, 'error');
+    assert.equal(failed.lastErrorMessage, 'fatal: claude binary crashed');
+  }
+
+  // --- Task R: rejected setModel restarts the session with resume ---
+  {
+    const fake = createFakeClaudeSdk({ rejectSetModelOnce: true });
+    const room = createRoom();
+    const { runner } = createRunner({ room, sdk: fake.sdk });
+    await runner.startPrompt('one');
+    room.modelId = 'claude-model-b';
+    await runner.startPrompt('two');
+    assert.equal(fake.calls.length, 2, 'rejected setModel must restart');
+    assert.equal(fake.calls[0].closes, 1);
+    assert.deepEqual(fake.calls[0].setModel, ['claude-model-b']);
+    assert.equal(fake.calls[1].options.resume, SDK_SESSION_ID);
+  }
+
+  // --- Task R: rejected setPermissionMode restarts the session with resume ---
+  {
+    const fake = createFakeClaudeSdk({ rejectSetPermissionModeOnce: true });
+    const room = createRoom({ sdkMode: 'plan' });
+    const { runner } = createRunner({ room, sdk: fake.sdk });
+    await runner.startPrompt('one', 'plan');
+    await runner.startPrompt('two', 'ask');
+    assert.equal(fake.calls.length, 2, 'rejected setPermissionMode must restart');
+    assert.equal(fake.calls[0].closes, 1);
+    assert.deepEqual(fake.calls[0].setPermissionMode, ['default']);
+    assert.equal(fake.calls[1].options.resume, SDK_SESSION_ID);
+  }
+
+  // --- Task R: interrupt fallback fires only while the turn is still open ---
+  {
+    const fake = createFakeClaudeSdk({ autoResult: false, interruptSilent: true });
+    const room = createRoom();
+    const { runner } = createRunner({ room, sdk: fake.sdk });
+    const first = runner.startPrompt('one');
+    await waitFor(() => fake.calls.length === 1 && fake.calls[0].pendingResult);
+    await interruptActiveQuery(room, 5, 15);
+    await waitFor(() => fake.calls[0].closes >= 1, { timeoutMs: 500 });
+    await first;
+    assert.equal(room._activeQuery, null);
+    assert.equal(fake.calls[0].closes, 1);
+  }
+  {
+    const fake = createFakeClaudeSdk({ autoResult: false });
+    const room = createRoom();
+    const { runner, events } = createRunner({ room, sdk: fake.sdk });
+    const first = runner.startPrompt('one');
+    await waitFor(() => fake.calls.length === 1 && fake.calls[0].pendingResult);
+    await interruptActiveQuery(room, 5, 20);
+    await first;
+    assert.equal(finishedEvents(events).at(-1).status, 'completed');
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.equal(fake.calls[0].closes, 0, 'fallback must not fire after the turn ends');
+    assert.equal(room._claudeSession.alive, true);
+  }
+
+  // --- Task P: between-turn notices broadcast without a runId; others are dropped ---
+  {
+    const fake = createFakeClaudeSdk({ autoResult: false });
+    const room = createRoom();
+    const { runner, events } = createRunner({ room, sdk: fake.sdk });
+    const first = runner.startPrompt('one');
+    await waitFor(() => fake.calls.length === 1 && fake.calls[0].pendingResult);
+    fake.calls[0].completeTurn();
+    await first;
+
+    fake.calls[0].emit({
+      type: 'rate_limit_event',
+      session_id: SDK_SESSION_ID,
+      rate_limit_info: { status: 'allowed_warning', resetsAt: 1_800_000_000 },
+    });
+    await waitFor(() => noticeEvents(events).some((event) => event.noticeType === 'rate_limit'));
+    const rateNotice = noticeEvents(events).find((event) => event.noticeType === 'rate_limit');
+    assert.equal(rateNotice.runId, undefined);
+    assert.equal(rateNotice.status, 'allowed_warning');
+    assert.equal(rateNotice.resetsAt, 1_800_000_000);
+
+    const sdkEventsBefore = events.filter((event) => event.type === 'sdkEvent').length;
+    fake.calls[0].emit({ type: 'tool_progress', tool_use_id: 't-1', session_id: SDK_SESSION_ID });
+    fake.calls[0].emit({
+      type: 'system',
+      subtype: 'task_notification',
+      session_id: SDK_SESSION_ID,
+      task_id: 'task-1',
+    });
+    fake.calls[0].emit({
+      type: 'assistant',
+      parent_tool_use_id: 't-1',
+      session_id: SDK_SESSION_ID,
+      message: { content: [{ type: 'text', text: 'late subagent text' }] },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(events.filter((event) => event.type === 'sdkEvent').length, sdkEventsBefore);
+    assert.equal(room._activeTurn, null);
+  }
+
+  // --- Task E (ws): a result with usage broadcasts an sdkEvent usage ---
+  {
+    const fake = createFakeClaudeSdk({
+      autoResult: false,
+    });
+    const room = createRoom();
+    const { runner, events } = createRunner({ room, sdk: fake.sdk });
+    const first = runner.startPrompt('one');
+    await waitFor(() => fake.calls.length === 1 && fake.calls[0].pendingResult);
+    fake.calls[0].completeTurn({
+      usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 2 },
+      total_cost_usd: 0.02,
+      modelUsage: { sonnet: { costUSD: 0.02 } },
+    });
+    await first;
+    const usageEvent = events
+      .filter((event) => event.type === 'sdkEvent')
+      .map((event) => event.event)
+      .find((event) => event && event.type === 'usage');
+    assert.ok(usageEvent, 'usage sdkEvent is broadcast');
+    assert.equal(usageEvent.usage.inputTokens, 12);
+    assert.equal(usageEvent.usage.outputTokens, 5);
+    assert.equal(usageEvent.usage.totalTokens, 17);
+    assert.equal(usageEvent.usage.cacheReadTokens, 2);
+    assert.equal(usageEvent.totalCostUsd, 0.02);
+    assert.equal(usageEvent.modelUsage.sonnet.costUSD, 0.02);
+  }
+
+  // --- Task E (ws): notice payload keeps advisories out of the error path ---
+  {
+    const payload = buildClaudeNoticePayload({
+      kind: 'notice',
+      noticeType: 'rate_limit',
+      message: 'Claude is nearing its rate limit.',
+      status: 'allowed_warning',
+      resetsAt: 1_800_000_000,
+    });
+    assert.equal(payload.type, 'sdkRunProgress');
+    assert.equal(payload.noticeType, 'rate_limit');
+    assert.equal(payload.status, 'allowed_warning');
+    assert.equal(payload.resetsAt, 1_800_000_000);
+    assert.equal(payload.phase, 'notice');
   }
 
   console.log('claude-streaming-session.test.js OK');

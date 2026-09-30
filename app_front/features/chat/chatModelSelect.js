@@ -143,7 +143,15 @@ export function createChatModelSelect(deps) {
     const resolvedHarness = normalizeModelPickerHarness(harness);
     pickerHarness = resolvedHarness;
     const { catalog, keys } = getCatalogStateForHarness(resolvedHarness);
-    const filtered = filterCatalogByEnabled(catalog, keys);
+    const filtered = resolvedHarness === 'claude' && keys.length > 0
+      ? catalog.filter((row) => {
+        const effort = Array.isArray(row.params)
+          ? row.params.find((param) => param?.id === 'effort')?.value
+          : '';
+        return keys.includes(row.value)
+          || (effort === 'medium' && keys.includes(row.modelId));
+      })
+      : filterCatalogByEnabled(catalog, keys);
     availableAgentModels = toLegacyModelOptions(filtered);
   }
 
@@ -366,12 +374,20 @@ export function createChatModelSelect(deps) {
    */
   function applyAvailableModelsFromClaude(payload) {
     if (!payload?.ok || !Array.isArray(payload.models)) return false;
-    const nextCatalog = payload.models.map((row) => ({
-      value: row.id,
-      label: row.name || row.id,
-      modelId: row.id,
-      group: row.name || row.id,
-    }));
+    const rows = Array.isArray(payload.catalog) && payload.catalog.length > 0
+      ? payload.catalog
+      : payload.models;
+    const nextCatalog = rows.map((row) => {
+      const value = String(row?.value || row?.id || '').trim();
+      if (!value) return null;
+      const modelId = String(row?.modelId || row?.id || value).trim();
+      const label = String(row?.label || row?.name || value).trim();
+      const entry = { value, label, modelId, group: String(row?.group || modelId).trim() };
+      if (Array.isArray(row?.params) && row.params.length > 0) entry.params = row.params;
+      if (row?.variantLabel) entry.variantLabel = String(row.variantLabel);
+      if (row?.isDefault === true) entry.isDefault = true;
+      return entry;
+    }).filter(Boolean);
     if (nextCatalog.length === 0) return false;
     if (Array.isArray(payload?.chatEnabledModels)) {
       claudeEnabledModelKeys = normalizeChatEnabledModels(payload.chatEnabledModels);
@@ -853,6 +869,14 @@ export function createChatModelSelect(deps) {
     if (normalizeModelPickerHarness(harness) === 'sdk') {
       const coerced = coerceRunnableSdkModelValue(value);
       return enabled.some((key) => coerceRunnableSdkModelValue(key) === coerced);
+    }
+    if (normalizeModelPickerHarness(harness) === 'claude') {
+      const entry = getCatalogStateForHarness(harness).catalog.find((row) => row.value === value);
+      const effort = Array.isArray(entry?.params)
+        ? entry.params.find((param) => param?.id === 'effort')?.value
+        : '';
+      return enabled.includes(value)
+        || Boolean(effort === 'medium' && entry?.modelId && enabled.includes(entry.modelId));
     }
     return enabled.includes(value);
   }

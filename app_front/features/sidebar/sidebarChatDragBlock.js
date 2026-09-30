@@ -45,6 +45,32 @@ export function readDropParentChatId(drop) {
 }
 
 /**
+ * A row that may take part in chat drag & drop. Hidden rows (folded into a
+ * collapsed subchat group, or hidden behind a collapsed parent) must never be
+ * measured, reordered, or used as a drop target.
+ *
+ * @param {{ id?: unknown, archived?: unknown, hidden?: unknown, subchatHidden?: unknown, isGroup?: unknown } | null | undefined} row
+ * @returns {boolean}
+ */
+export function isChatRowDraggable(row) {
+  if (!row || typeof row !== 'object') return false;
+  if (row.isGroup === true) return false;
+  if (row.archived === true || row.archived === '1') return false;
+  if (row.hidden === true) return false;
+  if (row.subchatHidden === true) return false;
+  return true;
+}
+
+/**
+ * @param {{ id?: unknown }[]} rows
+ * @returns {{ id: string }[]}
+ */
+export function selectDraggableChatRows(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows.filter((row) => isChatRowDraggable(row) && String(row?.id || '').trim() !== '');
+}
+
+/**
  * @param {{
  *   parentChatId?: string,
  *   parentLevel?: number,
