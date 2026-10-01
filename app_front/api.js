@@ -628,6 +628,16 @@ export async function postDelegationAck(id, payload = {}) {
   }, `postDelegationAck:${id}`);
 }
 
+/** User rating from the delegation card (rater is fixed server-side to `user`). */
+export async function postDelegationRate(id, payload = {}) {
+  if (!id) return { ok: false, error: 'Missing delegation id' };
+  return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}/rate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  }, `postDelegationRate:${id}`);
+}
+
 export async function postChatMailboxReply(id, payload) {
   if (!id) return { ok: false, error: 'Missing chat id' };
   return apiFetchJson(`/api/chats/${encodeURIComponent(id)}/mailbox/reply`, {
@@ -843,7 +853,11 @@ export async function deleteTodo(id) {
   return apiFetchJson(`/api/todos/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'deleteTodo');
 }
 
-/** Starts or opens the agent chat linked to a Todo. */
+/**
+ * Starts or opens the agent chat linked to a Todo.
+ * `payload` is forwarded as-is; pass `{ forceNew: true }` to always create a
+ * fresh chat instead of reusing the linked one.
+ */
 export async function postTodoStartAgent(id, payload = {}) {
   if (!id) return { ok: false, error: 'Missing id' };
   return apiFetchJson(
@@ -1075,6 +1089,25 @@ export async function getUsageModels(query = {}) {
   if (query.limit) params.set('limit', String(query.limit));
   const suffix = params.toString() ? `?${params}` : '';
   return dedupeGetJson(`/api/usage/models${suffix}`, 'getUsageModels');
+}
+
+/**
+ * Model × role delegation outcomes from GET /api/delegations/stats.
+ *
+ * Same scope gate as the delegations list (workspace + widget installation):
+ * the server never returns another installation's aggregate. Pass the active
+ * workspace scope so the panel only aggregates chats of the workspace selected
+ * in the header; an empty query falls back to the server's default.
+ *
+ * @param {{ workspaceFolder?: string, workspaceFile?: string }} [query]
+ * @returns {Promise<{ ok: boolean, window_ms?: number, generated_at?: string, min_jobs?: number, roles?: object, list?: object[], unused_14d?: string[], unused_14d_error?: boolean, error?: string }>}
+ */
+export async function getDelegationStats(query = {}) {
+  const params = new URLSearchParams();
+  if (query.workspaceFolder) params.set('workspaceFolder', String(query.workspaceFolder));
+  if (query.workspaceFile) params.set('workspaceFile', String(query.workspaceFile));
+  const suffix = params.toString() ? `?${params}` : '';
+  return dedupeGetJson(`/api/delegations/stats${suffix}`, 'getDelegationStats');
 }
 
 /**

@@ -89,6 +89,11 @@ import {
 } from '../features/chat/chatDelegations.js';
 import { buildDelegationCardModel } from '../../lib/delegation-card-model.js';
 import { isActiveDelegationStatus } from '../../lib/delegation-status.js';
+import {
+  DELEGATION_RATING_TAGS,
+  MAX_DELEGATION_RATING_NOTE_LENGTH,
+  MAX_DELEGATION_RATING_TAGS,
+} from '../../lib/delegation-rating-constants.js';
 import { parseRelatedChatPayload } from '../../lib/chat-relation-payload.js';
 import {
   hasViewOrderKey,
@@ -761,6 +766,14 @@ export function createSdkRichView(chat, mountEl, hooks) {
   }
   mountEl.classList.add('sdk-rich-chat-mount');
   mountEl.innerHTML = '';
+  const scrollToBottomButton = document.createElement('button');
+  scrollToBottomButton.type = 'button';
+  scrollToBottomButton.className = 'sdk-rich-scroll-bottom';
+  scrollToBottomButton.setAttribute('aria-label', t('sdkView.scrollToBottom'));
+  scrollToBottomButton.title = t('sdkView.scrollToBottom');
+  scrollToBottomButton.innerHTML = '<span class="mdi mdi-arrow-down" aria-hidden="true"></span>';
+  scrollToBottomButton.hidden = true;
+  mountEl.parentElement?.appendChild(scrollToBottomButton);
   // Sentinel lives outside the stream — replayHistoryRecords wipes the stream on every replay.
   const historyTopEl = document.createElement('div');
   historyTopEl.className = 'sdk-rich-history-top';
@@ -785,6 +798,12 @@ export function createSdkRichView(chat, mountEl, hooks) {
   const openCodeQuestionByRequestId = new Map();
   /** @type {Map<string, HTMLElement>} */
   const openCodePermissionByRequestId = new Map();
+
+  function clearOpenCodeInteractiveMaps() {
+    openCodeQuestionByRequestId.clear();
+    openCodePermissionByRequestId.clear();
+  }
+
   const compactTrayHosts = new Set();
   const fullToolBlocks = new Set();
   const compactStatusLines = new Set();
@@ -895,14 +914,18 @@ export function createSdkRichView(chat, mountEl, hooks) {
   function updateStickFromScroll() {
     if (suppressScrollStickUpdate) return;
     stickToBottom = isNearBottom();
+    const maxScroll = mountEl.scrollHeight - mountEl.clientHeight;
+    scrollToBottomButton.hidden = maxScroll <= SCROLL_STICK_THRESHOLD_PX || stickToBottom;
   }
 
   /**
    * @param {{ force?: boolean } | boolean} [opts]
    */
   function scrollToBottom(opts) {
-    if (suppressAutoScroll || preserveViewportAnchor) return;
     const force = opts === true || (opts && typeof opts === 'object' && opts.force === true);
+    // Explicit user navigation must work even while history paging has disabled
+    // automatic scroll adjustments; those guards are only for background updates.
+    if (!force && (suppressAutoScroll || preserveViewportAnchor)) return;
     if (!force && !stickToBottom) return;
     if (force) stickToBottom = true;
     requestAnimationFrame(() => {
@@ -914,12 +937,14 @@ export function createSdkRichView(chat, mountEl, hooks) {
       } finally {
         requestAnimationFrame(() => {
           suppressScrollStickUpdate = false;
+          updateStickFromScroll();
         });
       }
     });
   }
 
   mountEl.addEventListener('scroll', updateStickFromScroll, { passive: true });
+  scrollToBottomButton.addEventListener('click', () => scrollToBottom({ force: true }));
 
   mountEl.addEventListener('cr-sdk-block-speak', (event) => {
     const detail = event?.detail || {};
@@ -2578,6 +2603,33 @@ export function createSdkRichView(chat, mountEl, hooks) {
   }
 
   /**
+   * @param {string} requestId
+   * @param {{ status?: string }} [meta]
+   */
+  function markOpenCodeQuestionResolved(requestId, meta = {}) {
+    const id = String(requestId || '').trim();
+    if (!id) return;
+    const block = openCodeQuestionByRequestId.get(id);
+    if (!block) return;
+    const status = typeof meta.status === 'string' ? meta.status.trim() : 'answered';
+    block.classList.add('sdk-rich-opencode-question--resolved');
+    block.querySelectorAll('button, input').forEach((el) => {
+      /** @type {HTMLButtonElement | HTMLInputElement} */ (el).disabled = true;
+    });
+    if (status === 'expired' || status === 'cancelled') {
+      block.classList.add('sdk-rich-opencode-question--expired');
+      const body = block.querySelector('.sdk-rich-opencode-question-body');
+      if (body && !body.querySelector('.sdk-rich-opencode-question-expired')) {
+        const notice = document.createElement('p');
+        notice.className = 'sdk-rich-opencode-question-expired';
+        notice.textContent = t('sdkView.questionExpired');
+        body.appendChild(notice);
+      }
+    }
+    openCodeQuestionByRequestId.delete(id);
+  }
+
+  /**
    * @param {Record<string, unknown>} ev
    */
   function renderOpenCodeQuestion(ev) {
@@ -2585,6 +2637,11 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const requestId = typeof ev.requestId === 'string' ? ev.requestId.trim() : '';
     const questions = Array.isArray(ev.questions) ? ev.questions : [];
     if (!requestId || questions.length === 0) return;
+    if (openCodeQuestionByRequestId.has(requestId)) {
+      const existing = openCodeQuestionByRequestId.get(requestId);
+      if (existing?.isConnected) return;
+      openCodeQuestionByRequestId.delete(requestId);
+    }
     const block = createSdkBlock({
       variant: 'question',
       label: t('sdkView.openCodeQuestion'),
@@ -3341,6 +3398,15 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (rec.kind !== 'meta') return;
 
     const variant = rec.variant;
+    if (variant === 'questionResolved') {
+      const meta = rec.payload && typeof rec.payload === 'object'
+        ? /** @type {Record<string, unknown>} */ (rec.payload)
+        : {};
+      const requestId = typeof meta.requestId === 'string' ? meta.requestId : '';
+      const status = typeof meta.status === 'string' ? meta.status : 'answered';
+      markOpenCodeQuestionResolved(requestId, { status });
+      return;
+    }
     const payload = typeof rec.payload === 'string' ? rec.payload : '';
     if (variant === 'banner') {
       lineMeta(
@@ -3542,6 +3608,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const attemptsLabel = model.attemptHistory.length > 1
       ? `<div class="sdk-rich-delegation-meta">${escapeHtml(t('chat.delegationAttemptsStored', { n: String(model.attemptHistory.length) }))}</div>`
       : '';
+    const pickReasonLabel = model.pickReason
+      ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-pick-reason" title="${escapeHtml(model.pickReason)}">${escapeHtml(t('chat.delegationPickReason'))}: ${escapeHtml(model.pickReason)}</div>`
+      : '';
     content.innerHTML = [
       `<strong class="sdk-rich-delegation-title">${escapeHtml(t('chat.delegationCardTitle'))}</strong>`,
       `<div class="sdk-rich-delegation-meta">${escapeHtml(delegationStatusLabel(status))} ${unverified} ${uncertain}</div>`,
@@ -3549,6 +3618,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       deliveryLabel,
       attemptsLabel,
       executorLabel ? `<div class="sdk-rich-delegation-meta">${escapeHtml(executorLabel)}</div>` : '',
+      pickReasonLabel,
       sourceLabel,
       duration,
       waiting,
@@ -3601,7 +3671,209 @@ export function createSdkRichView(chat, mountEl, hooks) {
         actions.appendChild(retryBtn);
       }
     }
+    renderDelegationRating(card, content, id, model);
     scrollToBottom();
+  }
+
+  /**
+   * @param {string | undefined} raw
+   * @returns {any}
+   */
+  function parseCardJson(raw) {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Star rating block on a delegation card: read-only once the persisted user
+   * rating exists, otherwise stars + allow-listed tags + an optional note.
+   *
+   * The card keeps draft/busy/error state on the element (not in a closure) so
+   * a history re-render neither loses the selection nor duplicates controls.
+   * Every visible string is set through `textContent`, so an untrusted note or
+   * tag can never inject markup.
+   *
+   * @param {HTMLElement} card
+   * @param {HTMLElement} content
+   * @param {string} delegationId
+   * @param {ReturnType<typeof buildDelegationCardModel>} model
+   */
+  function renderDelegationRating(card, content, delegationId, model) {
+    const previous = content.querySelector('.sdk-rich-delegation-rate');
+    if (previous instanceof HTMLElement) previous.remove();
+    if (!model.canRate && !model.userRating) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'sdk-rich-delegation-rate';
+    content.appendChild(wrap);
+
+    const rated = model.userRating || parseCardJson(card.dataset.userRating);
+    if (rated) {
+      const line = document.createElement('div');
+      line.className = 'sdk-rich-delegation-rate-rated';
+      const stars = document.createElement('span');
+      stars.className = 'sdk-rich-delegation-rate-stars';
+      stars.textContent = '★'.repeat(Math.max(1, Math.min(5, Number(rated.score) || 1)));
+      line.appendChild(stars);
+      line.appendChild(document.createTextNode(
+        ` ${t('chat.delegationRatedLabel', { score: String(Number(rated.score) || '') })}`,
+      ));
+      wrap.appendChild(line);
+      const tags = Array.isArray(rated.tags) ? rated.tags : [];
+      if (tags.length > 0) {
+        const tagLine = document.createElement('div');
+        tagLine.className = 'sdk-rich-delegation-rate-tags';
+        for (const tag of tags) {
+          const chip = document.createElement('span');
+          chip.className = 'sdk-rich-delegation-rate-tag';
+          chip.textContent = t(`chat.delegationRateTags.${tag}`);
+          tagLine.appendChild(chip);
+        }
+        wrap.appendChild(tagLine);
+      }
+      const note = String(rated.note || '').trim();
+      if (note) {
+        const noteEl = document.createElement('div');
+        noteEl.className = 'sdk-rich-delegation-rate-note';
+        noteEl.textContent = note;
+        wrap.appendChild(noteEl);
+      }
+      return;
+    }
+    if (typeof hooks.onRateDelegation !== 'function') return;
+
+    const draft = {
+      score: Number(parseCardJson(card.dataset.ratingDraft)?.score) || 0,
+      tags: (parseCardJson(card.dataset.ratingDraft)?.tags || []).map(String),
+      note: String(parseCardJson(card.dataset.ratingDraft)?.note || ''),
+    };
+    const busy = card.dataset.ratingBusy === '1';
+    const errorText = String(card.dataset.ratingError || '');
+
+    const paint = () => renderDelegationRating(card, content, delegationId, model);
+    const saveDraft = () => {
+      card.dataset.ratingDraft = JSON.stringify(draft);
+    };
+
+    const label = document.createElement('div');
+    label.className = 'sdk-rich-delegation-rate-label';
+    label.textContent = t('chat.delegationRateTitle');
+    wrap.appendChild(label);
+
+    const starsEl = document.createElement('div');
+    starsEl.className = 'sdk-rich-delegation-stars';
+    starsEl.setAttribute('role', 'group');
+    starsEl.setAttribute('aria-label', t('chat.delegationRateTitle'));
+    for (let score = 1; score <= 5; score += 1) {
+      const star = document.createElement('button');
+      star.type = 'button';
+      star.className = 'sdk-rich-delegation-star';
+      star.textContent = '★';
+      star.disabled = busy;
+      star.setAttribute('aria-label', t('chat.delegationRateStarAria', { score: String(score) }));
+      star.setAttribute('aria-pressed', String(draft.score === score));
+      if (draft.score === score) star.classList.add('is-active');
+      star.addEventListener('click', () => {
+        if (busy) return;
+        draft.score = score;
+        saveDraft();
+        paint();
+      });
+      starsEl.appendChild(star);
+    }
+    wrap.appendChild(starsEl);
+
+    const tagsEl = document.createElement('div');
+    tagsEl.className = 'sdk-rich-delegation-rate-tags';
+    for (const tag of DELEGATION_RATING_TAGS) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'sdk-rich-delegation-rate-tag';
+      chip.textContent = t(`chat.delegationRateTags.${tag}`);
+      chip.disabled = busy;
+      chip.setAttribute('aria-pressed', String(draft.tags.includes(tag)));
+      if (draft.tags.includes(tag)) chip.classList.add('is-active');
+      chip.addEventListener('click', () => {
+        if (busy) return;
+        if (draft.tags.includes(tag)) {
+          draft.tags = draft.tags.filter((entry) => entry !== tag);
+        } else if (draft.tags.length < MAX_DELEGATION_RATING_TAGS) {
+          draft.tags = [...draft.tags, tag];
+        }
+        saveDraft();
+        paint();
+      });
+      tagsEl.appendChild(chip);
+    }
+    wrap.appendChild(tagsEl);
+
+    const noteEl = document.createElement('input');
+    noteEl.type = 'text';
+    noteEl.className = 'sdk-rich-delegation-rate-note-input';
+    noteEl.maxLength = MAX_DELEGATION_RATING_NOTE_LENGTH;
+    noteEl.placeholder = t('chat.delegationRateNotePlaceholder');
+    noteEl.setAttribute('aria-label', t('chat.delegationRateNotePlaceholder'));
+    noteEl.value = draft.note;
+    noteEl.disabled = busy;
+    noteEl.addEventListener('input', () => {
+      draft.note = noteEl.value;
+      saveDraft();
+    });
+    wrap.appendChild(noteEl);
+
+    const submit = document.createElement('button');
+    submit.type = 'button';
+    submit.className = 'sdk-rich-delegation-btn sdk-rich-delegation-rate-submit';
+    submit.textContent = busy ? t('chat.delegationRateBusy') : t('chat.delegationRateSubmit');
+    submit.disabled = busy || !draft.score;
+    submit.addEventListener('click', () => {
+      if (busy || !draft.score || draft.score < 1 || draft.score > 5) return;
+      card.dataset.ratingBusy = '1';
+      delete card.dataset.ratingError;
+      paint();
+      Promise.resolve()
+        .then(() => hooks.onRateDelegation(delegationId, {
+          score: draft.score,
+          tags: [...draft.tags],
+          note: draft.note,
+        }))
+        .then((res) => {
+          delete card.dataset.ratingBusy;
+          const stored = res && res.ok !== false && res.rating ? res.rating : null;
+          if (stored) {
+            // Persist the card-shaped snapshot only (same fields the server
+            // embeds in the history payload).
+            card.dataset.userRating = JSON.stringify({
+              score: Number(stored.score),
+              tags: Array.isArray(stored.tags) ? stored.tags : [],
+              note: String(stored.note || ''),
+              ts: String(stored.ts || new Date().toISOString()),
+            });
+            delete card.dataset.ratingDraft;
+            delete card.dataset.ratingError;
+          } else {
+            card.dataset.ratingError = String(res?.error || t('chat.delegationRateFailed'));
+          }
+        })
+        .catch(() => {
+          delete card.dataset.ratingBusy;
+          card.dataset.ratingError = t('chat.serverConnectionError');
+        })
+        .finally(() => paint());
+    });
+    wrap.appendChild(submit);
+
+    if (errorText) {
+      const errorEl = document.createElement('div');
+      errorEl.className = 'sdk-rich-delegation-rate-error';
+      errorEl.dataset.tone = 'error';
+      errorEl.textContent = errorText;
+      wrap.appendChild(errorEl);
+    }
   }
 
   /**
@@ -4171,6 +4443,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
   return {
     destroy() {
       mountEl.removeEventListener('scroll', updateStickFromScroll);
+      scrollToBottomButton.remove();
       disconnectHistoryTopObserver();
       if (mdRaf) cancelAnimationFrame(mdRaf);
       mdRaf = 0;
@@ -4257,13 +4530,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
       return hasQueuedOrSentUserText(text);
     },
 
-    resolveOpenCodeQuestion(requestId) {
-      const id = String(requestId || '').trim();
-      if (!id) return;
-      const block = openCodeQuestionByRequestId.get(id);
-      if (!block) return;
-      block.classList.add('sdk-rich-opencode-question--resolved');
-      openCodeQuestionByRequestId.delete(id);
+    resolveOpenCodeQuestion(requestId, meta = {}) {
+      markOpenCodeQuestionResolved(requestId, meta);
     },
 
     resolveOpenCodePermission(requestId) {
@@ -4618,6 +4886,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       clearSegmentPointers();
       resetRenderedActivity();
       queuedUserBlocks.length = 0;
+      clearOpenCodeInteractiveMaps();
       stream.replaceChildren();
 
       suppressHooksPlain = true;
@@ -4676,6 +4945,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       lastHistoryErrorText = '';
       // A replay redefines the window, so any page fetched by scrolling up is gone with it.
       bufferedOlderRecords = [];
+      clearOpenCodeInteractiveMaps();
       stream.replaceChildren();
       suppressHooksPlain = true;
       suppressHistoryPersist = true;

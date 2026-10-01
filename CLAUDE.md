@@ -32,3 +32,16 @@ Dlaczego: zadania tworzone przez `TaskCreate` są widoczne tylko w tym chacie. C
 - Gdy użytkownik prosi o plan lub listę zadań
 - Gdy podczas pracy odkryjesz powiązane zadania do zrobienia później
 - Po zakończeniu pętli multi-harness — opcjonalnie `todo_create` dla otwartych punktów
+
+### Referencja do todo w innym chacie
+
+Linia `cretli-ref todo=<uuid>` to wskaźnik, nie treść zadania. Gdy ją zobaczysz:
+
+```
+todo_show({ todo_id: "<uuid>" })
+```
+
+Odczyt nie zmienia statusu — status zmieniaj świadomie przez `todo_update`.
+`todo_show` i `todo_update` przyjmują też prefiks ID (≥ 8 znaków) rozstrzygany
+w workspace wywołującego chatu. Nie mieszaj tego z `cretli-ref chat=<uuid> seq=<n>`
+(ten ładuje `chat_event`).

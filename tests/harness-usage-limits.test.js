@@ -1,6 +1,6 @@
-import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
+import { ISOLATED_DATA_DIR, removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -11,6 +11,24 @@ import {
   clearHarnessUsageLimit,
 } from '../lib/harness-usage-limits.js';
 import { selectModelPick } from '../lib/model-role-profiles.js';
+import { resolveDataPath, resolveProjectPath } from '../lib/runtime-paths.js';
+
+// --- Real-data guard ---------------------------------------------------------
+// `harness-usage-limits.js` resolves its default file once at import time.
+// The 2026-09 leak (`opencode / test-usage-limit-<pid>`) happened when that
+// module was imported while CRETLI_DATA_DIR still pointed at the repo `data/`.
+// The isolated helper must therefore win the import race; assert that here and
+// verify the repo store is byte-identical before/after this suite.
+assert.equal(resolveDataPath(), ISOLATED_DATA_DIR, 'default data dir must be the isolated one');
+assert.ok(
+  resolveDataPath('harness-usage-limits.json').startsWith(ISOLATED_DATA_DIR),
+  'default limits file must live under the isolated data dir',
+);
+const realLimitsFile = resolveProjectPath('data', 'harness-usage-limits.json');
+const realHistoryFile = resolveProjectPath('data', 'usage', 'limits.jsonl');
+const readIfExists = (file) => (existsSync(file) ? readFileSync(file, 'utf8') : null);
+const realLimitsBefore = readIfExists(realLimitsFile);
+const realHistoryBefore = readIfExists(realHistoryFile);
 
 assert.equal(isUsageLimitMessage('Usage limit reached for 5 hour.'), true);
 assert.equal(isUsageLimitMessage('429 quota has been exhausted'), true);
@@ -161,6 +179,9 @@ try {
 } finally {
   rmSync(retentionDir, { recursive: true, force: true });
 }
+
+assert.equal(readIfExists(realLimitsFile), realLimitsBefore, 'suite must not write the repo data/harness-usage-limits.json');
+assert.equal(readIfExists(realHistoryFile), realHistoryBefore, 'suite must not append to the repo data/usage/limits.jsonl');
 
 removeIsolatedDataDir();
 console.log('harness-usage-limits.test.js OK');

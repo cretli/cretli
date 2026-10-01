@@ -6,8 +6,17 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Claude `AskUserQuestion`: configurable wait (`CRETLI_CLAUDE_QUESTION_TIMEOUT_MS`,
+  default 30 min), session idle timer paused while a question is pending, pending
+  questions replayed on WebSocket reconnect, and `questionResolved` / UI feedback
+  when a reply arrives too late.
+
 ### Added
 
+- Todo panel: multi-select status filter on root tasks (idea / ready / doing /
+  done), with subtree preserved and filter choice stored per workspace folder.
 - Added the `cretli-release` release-review skill for Cretli chats and a
   project Cursor subagent with the same read-only workflow.
 - Claude Code harness on the Claude Agent SDK (isolated optional install).
@@ -35,6 +44,26 @@ All notable changes to this project are documented here. The format is based on
   (Jev/Laya) as well as the existing OpenAI-compatible chat protocol. Settings
   gain `approvalBroker.advisor.protocol` and `minProbability` (the `noul`
   threshold, clamped to 0.5–0.99), and the advisor audit records the protocol.
+- Delegation ratings: the parent rates a finished job with MCP
+  `delegation_rate` (stars 1–5, allow-listed telemetry tags, optional note) and
+  the user from the delegation card over `POST /api/delegations/:id/rate`
+  (weight 2× in the mean). Ratings are immutable per (job, rater) — an
+  identical replay succeeds, a changed payload conflicts — stored as metadata
+  in the rotating `data/delegation-ratings.jsonl` (no report text), and blend
+  into `model_pick` quality for every role including review (max 25% share, an
+  exact no-op without ratings). Settings → Usage shows the star average and
+  count per harness/model/role. The multi-harness skill requires a parent
+  rating after FAIL → fix → PASS and when a report is rejected.
+- Delegacje zbierają teraz metryki efektywności per run w polu `metrics` rekordu
+  (wszystkie pola nullable — brak danych to nie błąd): tokeny `tokens_in` /
+  `tokens_out` oraz `tokens_out_per_sec` (harness Cursor SDK, z `lastUsagePayload`),
+  `tool_calls_n` (licznik zamkniętych tool calls w SDK) oraz `files_changed` /
+  `lines_added` / `lines_removed` z snapshotu `git diff HEAD` przed startem i po
+  zakończeniu (tylko implement/fix; git działa dla każdego harnessa). `model-pick-history`
+  agreguje z tego `median_tokens_per_sec` (każda rola) oraz `median_tool_calls` /
+  `median_files_changed` (implement) w bloku `observed`. `model_pick` wystawia te
+  pola na `candidates[].observed` (tylko odczyt; ranking nadal blenduje `pass_rate`
+  przez observed quality, nie mediany wydajności).
 
 ### Changed
 
@@ -68,6 +97,16 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- Delegation run metrics: SDK `tool_calls_n` is recorded only for
+  `implement`/`fix` (plan/review stay null); `beginHarnessRun` clears
+  `room._lastUsagePayload` so a retry on the same room does not inherit stale
+  token totals; git diff metrics count a file when a run reverts pre-existing
+  dirty work to HEAD even when line deltas are zero.
+- Completed delegations no longer leave a stale `runStoppingAt` marker that
+  blocks workspace `implement`/`fix` for other parents after the child run is
+  gone (including across server restarts). Terminal rows past the stopping
+  stale window release the slot and persist a cleared marker; `workspace_busy`
+  responses name the blocker delegation id and parent chat.
 - DeepSeek review delegations no longer die within a second with Cordis
   `cannot create effect on inactive context`. The read-only review overlay
   paired `read-only` with approval `never`, which no stock DSH permission

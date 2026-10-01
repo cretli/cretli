@@ -127,17 +127,17 @@ export function initDropdown(options = {}) {
     triggerEl.setAttribute('aria-expanded', 'false');
   }
 
-  function forceClose() {
+  function forceClose(reason = '') {
     const wasOpen = open;
     cleanupPositioning();
     open = false;
     resetFloatingStyles();
-    if (wasOpen && onClose) onClose();
+    if (wasOpen && onClose) onClose(reason);
   }
 
-  function close() {
+  function close(reason = '') {
     if (!open) return;
-    forceClose();
+    forceClose(reason);
   }
 
   function openDropdown() {
@@ -166,19 +166,24 @@ export function initDropdown(options = {}) {
     const target = event.target;
     if (!(target instanceof Node)) return;
     if (floatingEl.contains(target) || triggerEl.contains(target)) return;
-    close();
+    close('outside');
   }
 
   function onDocumentKeydown(event) {
     if (!open) return;
     if (event.key !== 'Escape') return;
-    close();
+    close('escape');
   }
 
-  /** Visible, focusable options inside the panel. */
+  /** Visible, enabled, focusable options inside the panel. */
   function readOptions() {
     return Array.from(floatingEl.querySelectorAll(optionSelector)).filter(
-      (el) => el instanceof HTMLElement && !el.hidden && el.getClientRects().length > 0,
+      (el) =>
+        el instanceof HTMLElement &&
+        !el.hidden &&
+        !el.hasAttribute('disabled') &&
+        el.getAttribute('aria-disabled') !== 'true' &&
+        el.getClientRects().length > 0,
     );
   }
 

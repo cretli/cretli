@@ -13,6 +13,8 @@ const actualRunning = buildDelegationCardModel(inputRunning);
 assert.equal(actualRunning.canCancel, true);
 assert.equal(actualRunning.canRetry, false);
 assert.equal(actualRunning.canAck, false);
+assert.equal(actualRunning.canRate, false, 'a running job is not rateable');
+assert.equal(actualRunning.userRating, null);
 assert.equal(actualRunning.attemptNumber, 1);
 
 const inputDone = {
@@ -31,7 +33,28 @@ assert.equal(actualDone.showUnverified, true);
 assert.equal(actualDone.attemptNumber, 2);
 assert.equal(actualDone.durationMs, 60000);
 assert.equal(actualDone.deliveryState, 'pending');
-assert.deepEqual(actualDone.actions, ['ack', 'retry']);
+assert.equal(actualDone.canRate, true, 'a terminal job without a rating is rateable');
+assert.equal(actualDone.userRating, null);
+assert.deepEqual(actualDone.actions, ['ack', 'retry', 'rate']);
+
+// A persisted user rating makes the card read-only: no second rating action.
+const ratedDone = buildDelegationCardModel({
+  ...inputDone,
+  userRating: { score: 4, tags: ['great'], note: ' solid ', ts: '2026-09-18T10:02:00.000Z' },
+});
+assert.equal(ratedDone.canRate, false);
+assert.deepEqual(ratedDone.userRating, {
+  score: 4,
+  tags: ['great'],
+  note: 'solid',
+  ts: '2026-09-18T10:02:00.000Z',
+});
+assert.deepEqual(ratedDone.actions, ['ack', 'retry'], 'the rate action disappears once rated');
+
+// A malformed rating payload degrades to "not rated" instead of crashing.
+const brokenRating = buildDelegationCardModel({ ...inputDone, userRating: { score: 9 } });
+assert.equal(brokenRating.canRate, true);
+assert.equal(brokenRating.userRating, null);
 
 const reconnectEvents = [
   {

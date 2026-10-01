@@ -1425,6 +1425,7 @@ body.theme-light .widget-panel-select {
 }
 
 .terminal-viewport-wrap {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -2567,6 +2568,57 @@ body.files-preview-resizing {
   justify-content: flex-start;
 }
 
+.todo-status-filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: min(14rem, 42vw);
+  height: var(--cr-control-height, 1.75rem);
+  padding: 0 0.55rem;
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+  color: var(--cr-text);
+  font-family: var(--cr-font-ui);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.todo-status-filter-trigger:hover {
+  border-color: var(--cr-border-strong);
+  background: var(--cr-surface-raised);
+}
+
+.todo-status-filter-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-status-filter-list {
+  padding: 0.35rem 0;
+}
+
+.todo-status-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--cr-text);
+}
+
+.todo-status-filter-row:hover {
+  background: var(--cr-surface-raised);
+}
+
+.todo-status-filter-row cr-checkbox {
+  flex: 1;
+  min-width: 0;
+  font-size: inherit;
+}
+
 .todo-status {
   margin-left: auto;
   font-size: 0.75rem;
@@ -2682,7 +2734,7 @@ body.files-preview-resizing {
   align-items: stretch;
   gap: 0.15rem;
   min-height: 2.25rem;
-  margin-left: calc(var(--todo-level) * 1rem);
+  margin-left: calc(var(--todo-level) * (1.5rem + 0.15rem));
   border: 1px solid var(--cr-border-subtle);
   border-radius: var(--cr-radius-sm);
   background: var(--cr-surface-translucent);
@@ -2709,6 +2761,7 @@ body.files-preview-resizing {
 .todo-row-grip,
 .todo-row-toggle,
 .todo-row-add,
+.todo-row-menu,
 .todo-row-main {
   border: 0;
   background: transparent;
@@ -2719,18 +2772,31 @@ body.files-preview-resizing {
 
 .todo-row-grip,
 .todo-row-toggle,
-.todo-row-add {
+.todo-row-add,
+.todo-row-menu {
   flex: 0 0 2rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--cr-text-muted);
+}
+
+/* Dragging must not scroll the list, but the other row buttons keep the
+ * default touch-action so a swipe over them still scrolls on mobile. */
+.todo-row-grip {
   touch-action: none;
 }
 
+/* Parent indentation equals the toggle width plus the row gap: margin-left is
+ * `var(--todo-level) * (1.5rem + 0.15rem)`. A leaf still shows an empty toggle
+ * unless `[hidden]` wins over the `display:inline-flex` group rule above; the
+ * UA `[hidden]{display:none}` cannot beat a class selector. */
 .todo-row-toggle[hidden] {
-  display: inline-flex !important;
-  visibility: hidden;
+  display: none;
+}
+
+.todo-row-toggle {
+  flex: 0 0 1.5rem;
 }
 
 .todo-row-add:disabled {
@@ -2754,6 +2820,79 @@ body.files-preview-resizing {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.todo-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.todo-row-text .todo-row-title {
+  flex: 0 0 auto;
+}
+
+.todo-row-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.68rem;
+  line-height: 1.25;
+  color: var(--cr-text-muted);
+}
+
+.chat-list-modal.todo-row-menu-panel {
+  z-index: 20200;
+}
+
+.todo-row-menu-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.2rem;
+}
+
+.todo-row-menu-item {
+  width: 100%;
+  gap: 0.45rem;
+  font: inherit;
+  font-size: 0.9rem;
+  /* `.chat-list-item` is also used on <li>; a <button> adds UA background,
+   * border, centered text and a non-inherited color, which turned each row
+   * into a light-grey tile. Reset all of it so it matches the attachment
+   * menu (`.send-keys-screenshot-menu-item`). */
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.todo-row-menu-item .mdi {
+  font-size: 1rem;
+  color: currentColor;
+}
+
+.todo-row-menu-item--danger,
+.todo-row-menu-item--danger .mdi,
+.todo-row-menu-item--danger .chat-list-item-title {
+  color: var(--cr-error);
+}
+
+.todo-row-menu-item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.todo-row-menu-item:disabled:hover {
+  background: transparent;
+}
+
+.todo-row-menu-separator {
+  height: 1px;
+  margin: 0.25rem 0.35rem;
+  background: var(--cr-border-subtle);
 }
 
 .todo-row-badge,
@@ -2791,11 +2930,70 @@ body.files-preview-resizing {
 }
 
 .todo-editor {
+  display: block;
+  min-width: 0;
+}
+
+/* The dialog keeps the header + tab bar fixed and scrolls only the active
+ * panel, so the whole card must not scroll a second time. */
+.todo-editor-dialog .todo-item {
   display: flex;
   flex-direction: column;
-  gap: var(--cr-space-3);
-  max-height: min(70vh, 36rem);
-  overflow: auto;
+  min-height: 0;
+  /* Leave room for the dialog title and padding so a short (landscape) viewport
+   * does not add a page scroll on top of the panel scroll. */
+  max-height: min(calc(100vh - 8rem), 44rem);
+  max-height: min(calc(100dvh - 8rem), 44rem);
+  overflow: hidden;
+}
+
+cr-todo-card.todo-card {
+  display: block;
+  min-width: 0;
+}
+
+.todo-editor-tabs {
+  flex: 0 0 auto;
+  margin: 0 -0.6rem;
+}
+
+.todo-editor-panels {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.todo-item-tabpanel {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.todo-item-tabpanel[hidden] {
+  display: none !important;
+}
+
+.todo-item-tab-empty {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-item-settings-actions {
+  display: flex;
+  justify-content: flex-start;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--cr-border);
+}
+
+.todo-item-settings-actions cr-bar-button {
+  width: auto;
 }
 
 .todo-editor-label {
@@ -2844,6 +3042,7 @@ body.files-preview-resizing {
   gap: 0.5rem;
   align-items: center;
   min-width: 0;
+  flex: 0 0 auto;
 }
 
 .todo-item-status-wrap {
@@ -2892,6 +3091,201 @@ body.files-preview-resizing {
   flex: 1;
   min-width: 0;
   font-weight: 500;
+  resize: none;
+}
+
+.todo-item-idbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface-inset);
+  flex: 0 0 auto;
+}
+
+.todo-item-idbadge {
+  font-family: var(--cr-font-mono, monospace);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  color: var(--cr-text-muted);
+}
+
+.todo-item-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface-translucent);
+  color: var(--cr-text);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.todo-item-copy:hover {
+  border-color: var(--cr-border-strong);
+  color: var(--cr-accent);
+}
+
+.todo-item-copy .mdi {
+  font-size: 0.95rem;
+}
+
+.todo-item-meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--cr-text-muted);
+  flex: 0 0 auto;
+}
+
+.todo-item-meta-sep {
+  opacity: 0.6;
+}
+
+.todo-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.todo-item-body-tabs {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
+.todo-item-body-tab {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  background: transparent;
+  color: var(--cr-text-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.todo-item-body-tab[aria-pressed='true'],
+.todo-item-body-tab[aria-selected='true'] {
+  border-color: var(--cr-accent);
+  color: var(--cr-accent);
+  background: var(--cr-surface-translucent);
+}
+
+.todo-item-body-preview {
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-bg);
+  min-height: var(--cr-toolbar-control-height);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.todo-item-body-empty {
+  color: var(--cr-text-muted);
+}
+
+.todo-item-chats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.todo-item-chats-title {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cr-text-muted);
+}
+
+.todo-item-chats-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.todo-item-chat {
+  min-width: 0;
+}
+
+.todo-item-chat-link,
+.todo-item-chat--deleted {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-bg);
+  color: var(--cr-text);
+  text-decoration: none;
+  min-width: 0;
+}
+
+.todo-item-chat-link:hover {
+  border-color: var(--cr-border-strong);
+}
+
+.todo-item-chat-link .mdi {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-item-chat--deleted {
+  border-style: dashed;
+  background: var(--cr-surface-inset);
+  color: var(--cr-text-muted);
+  opacity: 0.75;
+}
+
+.todo-item-chat-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.todo-item-chat-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+}
+
+.todo-item-chat-sub {
+  font-size: 0.7rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-item-history-chat {
+  display: inline-block;
+  margin-right: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--cr-text);
+}
+
+.todo-editor-assignee {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
 }
 
 .todo-item-source {
@@ -3012,7 +3406,8 @@ body.files-preview-resizing {
 }
 
 .todo-item-actions .todo-item-agent,
-.todo-item-actions .todo-item-delete {
+.todo-item-actions .todo-item-delete,
+.todo-item-actions .todo-item-newchat {
   display: inline-flex;
   align-items: stretch;
   justify-content: stretch;
@@ -3024,9 +3419,19 @@ body.files-preview-resizing {
   order: 0;
 }
 
-.todo-item-agent {
+.todo-item-newchat {
   order: 1;
   margin-left: auto;
+}
+
+.todo-item-newchat-harness {
+  order: 2;
+  align-self: center;
+}
+
+.todo-item-agent {
+  order: 3;
+  margin-left: 0;
 }
 
 .todo-composer .todo-add-btn {
@@ -6403,6 +6808,31 @@ body.files-preview-resizing {
   padding: 0 0.55rem calc(0.45rem + 3px);
 }
 
+.terminal-viewport-wrap > .sdk-rich-scroll-bottom {
+  position: absolute;
+  z-index: 3;
+  right: 1rem;
+  bottom: 1rem;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 1px solid var(--cr-border-strong);
+  border-radius: 50%;
+  background: var(--cr-surface);
+  color: var(--cr-text);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 22%);
+  cursor: pointer;
+}
+
+.terminal-viewport-wrap > .sdk-rich-scroll-bottom[hidden] {
+  display: none;
+}
+
+.sdk-rich-scroll-bottom .mdi {
+  font-size: 1.25rem;
+}
+
 /*
  * The SDK container is the same direct child div as xterm, so the generic
  * .terminal-viewport-wrap > div { overflow: hidden } rule outweighs the plain
@@ -6589,6 +7019,12 @@ cr-sdk-block.sdk-rich-block--queued {
 
 cr-sdk-block.sdk-rich-opencode-question--resolved {
   opacity: 0.65;
+}
+
+.sdk-rich-opencode-question-expired {
+  margin: var(--cr-space-2) 0 0;
+  font-size: 0.85rem;
+  color: var(--cr-text-muted);
 }
 
 .sdk-rich-opencode-permission-body {
@@ -6815,6 +7251,10 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
   color: var(--cr-text-muted);
 }
 
+.sdk-rich-delegation-pick-reason {
+  overflow-wrap: anywhere;
+}
+
 .sdk-rich-delegation-report {
   margin: var(--cr-space-1) 0 0;
   max-height: min(28rem, 60vh);
@@ -6853,6 +7293,91 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
   background: var(--cr-control-bg);
   color: var(--cr-text);
   cursor: pointer;
+}
+
+.sdk-rich-delegation-rate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+  margin-top: var(--cr-space-1);
+}
+
+.sdk-rich-delegation-rate-label {
+  color: var(--cr-text-muted);
+  font-size: 0.85em;
+}
+
+.sdk-rich-delegation-stars {
+  display: flex;
+  gap: var(--cr-space-1);
+}
+
+.sdk-rich-delegation-star {
+  min-width: var(--cr-control-height);
+  min-height: var(--cr-control-height);
+  padding: 0 var(--cr-space-1);
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-control-bg);
+  color: var(--cr-text-muted);
+  cursor: pointer;
+}
+
+.sdk-rich-delegation-star.is-active,
+.sdk-rich-delegation-rate-tag.is-active {
+  border-color: var(--cr-accent);
+  color: var(--cr-accent);
+}
+
+.sdk-rich-delegation-star:disabled,
+.sdk-rich-delegation-rate-tag:disabled,
+.sdk-rich-delegation-rate-submit:disabled,
+.sdk-rich-delegation-rate-note-input:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.sdk-rich-delegation-rate-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cr-space-1);
+}
+
+.sdk-rich-delegation-rate-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--cr-control-height);
+  padding: 0 var(--cr-space-2);
+  border: 1px solid var(--cr-border-strong);
+  border-radius: 999px;
+  background: var(--cr-control-bg);
+  color: var(--cr-text);
+  cursor: pointer;
+}
+
+.sdk-rich-delegation-rate-note-input {
+  width: 100%;
+  max-width: 28rem;
+  min-height: var(--cr-control-height);
+  padding: 0 var(--cr-space-2);
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-control-bg);
+  color: var(--cr-text);
+}
+
+.sdk-rich-delegation-rate-error {
+  color: var(--cr-error);
+}
+
+.sdk-rich-delegation-rate-stars {
+  color: var(--cr-accent);
+}
+
+.sdk-rich-delegation-rate-note {
+  color: var(--cr-text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .sdk-rich-related-chat .sdk-rich-line__content {
@@ -7992,6 +8517,21 @@ body.sdk-image-lightbox-open {
   color: var(--cr-text-muted);
 }
 
+.settings-usage-unused-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0.25rem 0 0.6rem;
+}
+
+.settings-usage-delegation-stats {
+  min-width: 0;
+}
+
+.settings-usage-delegation-stats .settings-usage-subtitle {
+  margin: 0.75rem 0 0.4rem;
+}
+
 .settings-usage-cards {
   display: none;
   flex-direction: column;
@@ -8908,8 +9448,35 @@ body:has(#chat-panel.active:not(.hide-send-field)) #chat-context-meter {
   }
 
   .todo-item-agent,
-  .todo-item-delete {
+  .todo-item-delete,
+  .todo-item-newchat {
     width: auto;
+  }
+
+  .todo-item-newchat {
+    margin-left: 0;
+  }
+
+  .todo-item-actions .todo-item-newchat,
+  .todo-item-actions .todo-item-agent {
+    flex: 1 1 auto;
+  }
+
+  .todo-item-idbar {
+    gap: 0.3rem;
+  }
+
+  .todo-item-copy span:last-child {
+    display: none;
+  }
+
+  .todo-item-body-preview {
+    max-height: 50vh;
+  }
+
+  .todo-row-badge,
+  .todo-row-mark {
+    max-width: 30%;
   }
 
   .todo-cwd-hint {

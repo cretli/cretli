@@ -4,8 +4,10 @@ import os from 'os';
 import path from 'path';
 import { writeChatPlanFile } from '../lib/chat-plan-persist.js';
 import {
+  buildTodoChatIndex,
   enrichTodoItemsWithSourceChat,
   hydrateTodoPlanMarkdown,
+  resolveTodoChats,
   resolveTodoSourceChat,
   resolveTodoSourceChatId,
 } from '../lib/todo-source-chat.js';
@@ -122,6 +124,76 @@ runCase('hydrateTodoPlanMarkdown: prefers workspace file over stored excerpt', (
   } finally {
     rmSync(inputCwd, { recursive: true, force: true });
   }
+});
+
+runCase('resolveTodoChats: joins every source and merges roles per chat', () => {
+  const index = buildTodoChatIndex([
+    { id: 'c-creator', title: 'Creator', agentTransport: 'opencode', updatedAt: '2026-01-01T00:00:00.000Z', workspaceFolder: '/ws/a' },
+    { id: 'c-planner', title: 'Planner', agentTransport: 'sdk', updatedAt: '2026-01-02T00:00:00.000Z', workspaceFolder: '/ws/a' },
+    { id: 'c-exec', title: 'Exec', agentTransport: 'sdk', updatedAt: '2026-01-03T00:00:00.000Z', workspaceFolder: '/ws/a' },
+    { id: 'c-orch', title: 'Orch', agentTransport: 'sdk', updatedAt: '2025-12-31T00:00:00.000Z', workspaceFolder: '/ws/a' },
+    { id: 'c-delegate', title: 'Delegate', agentTransport: 'opencode', updatedAt: '2026-01-04T00:00:00.000Z', workspaceFolder: '/ws/a', todoId: 'todo-1', delegationId: 'del-1' },
+  ], { workspaceFolder: '/ws/a' });
+  const chats = resolveTodoChats({
+    id: 'todo-1',
+    createdByChatId: 'c-creator',
+    plan: { sourceChatId: 'c-planner' },
+    chatId: 'c-exec',
+    orchestratorChatId: 'c-orch',
+    linkedChatIds: ['c-exec'],
+    changelog: [{ kind: 'note', text: 'status: idea→doing', chatId: 'c-creator', at: '2026-01-05T00:00:00.000Z' }],
+  }, index);
+  assert.deepEqual(chats.map((row) => row.id), ['c-creator', 'c-delegate', 'c-exec', 'c-planner', 'c-orch']);
+  const byId = new Map(chats.map((row) => [row.id, row]));
+  assert.deepEqual(byId.get('c-creator').roles.sort(), ['creator', 'linked']);
+  assert.equal(byId.get('c-creator').lastAt, '2026-01-05T00:00:00.000Z');
+  assert.deepEqual(byId.get('c-delegate').roles.sort(), ['delegate', 'linked']);
+  assert.deepEqual(byId.get('c-exec').roles.sort(), ['executor', 'linked']);
+  assert.deepEqual(byId.get('c-planner').roles, ['planner']);
+  assert.deepEqual(byId.get('c-orch').roles, ['orchestrator']);
+  assert.equal(byId.get('c-creator').harness, 'opencode');
+  assert.equal(byId.get('c-creator').deleted, false);
+});
+
+runCase('resolveTodoChats: missing chat is deleted with no title', () => {
+  const chats = resolveTodoChats({
+    id: 'todo-2',
+    createdByChatId: 'chat-gone',
+    linkedChatIds: ['chat-gone'],
+  }, buildTodoChatIndex([]));
+  assert.deepEqual(chats, [{
+    id: 'chat-gone',
+    title: '',
+    harness: '',
+    roles: ['creator', 'linked'],
+    lastAt: '',
+    deleted: true,
+  }]);
+});
+
+runCase('resolveTodoChats: index filters chats to the workspace', () => {
+  const index = buildTodoChatIndex([
+    { id: 'c-local', title: 'Local', agentTransport: 'sdk', updatedAt: '2026-01-01T00:00:00.000Z', workspaceFolder: '/ws/a' },
+    { id: 'c-foreign', title: 'Foreign', agentTransport: 'sdk', updatedAt: '2026-01-02T00:00:00.000Z', workspaceFolder: '/ws/b' },
+  ], { workspaceFolder: '/ws/a' });
+  const chats = resolveTodoChats({ id: 'todo-3', linkedChatIds: ['c-local', 'c-foreign'] }, index);
+  const byId = new Map(chats.map((row) => [row.id, row]));
+  assert.equal(byId.get('c-local').deleted, false);
+  assert.equal(byId.get('c-foreign').deleted, true);
+});
+
+runCase('enrichTodoItemsWithSourceChat: exposes chats[] next to sourceChat', () => {
+  const inputChats = [{ id: 'chat-1', title: 'Toolbar', agentTransport: 'opencode', updatedAt: '2026-01-01T00:00:00.000Z' }];
+  const items = enrichTodoItemsWithSourceChat([{ id: 'todo-9', chatId: 'chat-1' }], inputChats);
+  assert.equal(items[0].sourceChat.id, 'chat-1');
+  assert.deepEqual(items[0].chats, [{
+    id: 'chat-1',
+    title: 'Toolbar',
+    harness: 'opencode',
+    roles: ['executor'],
+    lastAt: '2026-01-01T00:00:00.000Z',
+    deleted: false,
+  }]);
 });
 
 process.exit(failed ? 1 : 0);

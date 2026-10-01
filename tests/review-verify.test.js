@@ -58,4 +58,17 @@ fs.rmSync(incident.dataDir, { recursive: true, force: true });
 assert.equal(REVIEW_VERIFY_SCRIPT, 'scripts/review-verify.js');
 assert.equal(fs.existsSync(envMarker), false);
 
+// Task 6: the model_pick incident suites are audited catalog ids now.
+assert.equal(REVIEW_VERIFY_CATALOG['model-pick-rotation'], 'tests/model-pick-rotation.test.js');
+assert.equal(REVIEW_VERIFY_CATALOG['model-pick-observed'], 'tests/model-pick-observed.test.js');
+const modelPickIncident = await runReviewVerify({
+  ids: ['model-pick-rotation', 'model-pick-observed'],
+  projectRoot,
+  catalog: REVIEW_VERIFY_CATALOG,
+});
+assert.equal(modelPickIncident.ok, true, modelPickIncident.error);
+assert.match(modelPickIncident.output, /model-pick-rotation/);
+assert.match(modelPickIncident.output, /model-pick-observed/);
+fs.rmSync(modelPickIncident.dataDir, { recursive: true, force: true });
+
 console.log('review-verify.test.js OK');

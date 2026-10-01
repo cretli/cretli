@@ -71,6 +71,7 @@ for (const name of [
   'todo_list', 'todo_show', 'todo_create', 'todo_update',
   'chat_plan_show', 'delegation_list', 'delegation_show', 'delegation_wait', 'delegation_start', 'delegation_cancel',
   'delegation_reply', 'delegation_inbox', 'delegation_workflow_show', 'delegation_workflow_update',
+  'delegation_rate',
   'task_list', 'task_run_list', 'agent_list', 'agent_run_list', 'harness_list', 'model_list', 'model_pick',
 ]) {
   assert.ok(names.includes(name), name);
@@ -86,6 +87,7 @@ assert.ok(BUILTIN_MCP_READ_TOOLS.includes('delegation_inbox'));
 assert.ok(BUILTIN_MCP_READ_TOOLS.includes('delegation_wait'));
 assert.ok(BUILTIN_MCP_READ_TOOLS.includes('delegation_workflow_show'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_workflow_update'));
+assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_rate'));
 assert.ok(BUILTIN_MCP_READ_TOOLS.includes('model_pick'));
 assert.equal(CRETILI_MCP_TOOL_DEFS.find((tool) => tool.name === 'todo_list')?.annotations.readOnlyHint, true);
 
@@ -467,6 +469,24 @@ assert.ok(models.structuredContent.items.length >= favoriteModels.structuredCont
 const unknownRole = await handlersA.model_pick({ role: 'orchestrate' });
 assert.equal(unknownRole.isError, true);
 assert.match(unknownRole.content[0].text, /VALIDATION_ERROR/);
+// `exclude_models` / `exclude_harnesses` must be string arrays; a wrong type is
+// a VALIDATION_ERROR instead of being silently dropped by the picker.
+const stringExcludeModels = await handlersA.model_pick({ role: 'review', exclude_models: 'grok-4.6' });
+assert.equal(stringExcludeModels.isError, true);
+assert.match(stringExcludeModels.content[0].text, /VALIDATION_ERROR/);
+assert.match(stringExcludeModels.content[0].text, /exclude_models/);
+const objectExcludeHarnesses = await handlersA.model_pick({ role: 'review', exclude_harnesses: {} });
+assert.equal(objectExcludeHarnesses.isError, true);
+assert.match(objectExcludeHarnesses.content[0].text, /exclude_harnesses/);
+const mixedExcludeModels = await handlersA.model_pick({ role: 'review', exclude_models: ['grok-4.6', 5] });
+assert.equal(mixedExcludeModels.isError, true);
+assert.match(mixedExcludeModels.content[0].text, /VALIDATION_ERROR/);
+// `count` is an integer 1..5.
+for (const badCount of [0, 6, 2.5, 'two']) {
+  const rejected = await handlersA.model_pick({ role: 'review', count: badCount });
+  assert.equal(rejected.isError, true, `count=${badCount} must be rejected`);
+  assert.match(rejected.content[0].text, /count must be an integer between 1 and 5/);
+}
 const harnesses = await handlersA.harness_list({});
 assert.ok(harnesses.structuredContent.items.some((row) => row.id === 'sdk'));
 const missingHarness = await handlersA.model_list({});

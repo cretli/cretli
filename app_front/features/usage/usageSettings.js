@@ -6,9 +6,21 @@
  * `usageCharts.js` so they can be unit-tested without a DOM.
  */
 
-import { getUsageSummary, getUsageTimeseries, getUsageModels } from '../../api.js';
+import { getUsageSummary, getUsageTimeseries, getUsageModels, getDelegationStats } from '../../api.js';
 import { t, getCurrentLang } from '../../i18n/index.js';
 import { formatUsd } from '../../../lib/usage/usage-rates.js';
+import {
+  createDelegationStatsTokenGate,
+  delegationStatsRows,
+  delegationStatsUnused,
+  delegationStatsUnusedState,
+  delegationStatsViewState,
+  renderDelegationStatsCardsHtml,
+  renderDelegationStatsHeadHtml,
+  renderDelegationStatsMetaHtml,
+  renderDelegationStatsRowsHtml,
+  renderDelegationUnusedHtml,
+} from './delegationStatsView.js';
 import {
   addDaysIso,
   buildChartModel,
@@ -96,6 +108,7 @@ const state = {
 };
 
 let requestToken = 0;
+const delegationStatsGate = createDelegationStatsTokenGate();
 let wired = false;
 
 /**
@@ -104,6 +117,22 @@ let wired = false;
  */
 function byId(id) {
   return document.getElementById(id);
+}
+
+/**
+ * Active workspace scope, read from the header trigger the same way the
+ * delegation center does. Without it the stats endpoint sees every chat of the
+ * installation when the query is empty.
+ *
+ * @returns {{ workspaceFolder: string, workspaceFile: string }}
+ */
+function getActiveWorkspaceScope() {
+  if (typeof document === 'undefined') return { workspaceFolder: '', workspaceFile: '' };
+  const trigger = document.getElementById('header-workspace-trigger');
+  return {
+    workspaceFolder: String(trigger?.dataset?.workspaceFolder || '').trim(),
+    workspaceFile: String(trigger?.dataset?.workspaceFile || '').trim(),
+  };
 }
 
 /**
@@ -455,6 +484,97 @@ function renderTable(rows) {
 }
 
 /**
+ * Per-section loading/error/content toggle for the delegation model × role
+ * panel. The panel lives inside the Usage tab but has its own endpoint, so it
+ * keeps its own state instead of hiding the whole tab.
+ *
+ * @param {'loading'|'ready'|'error'} view
+ * @returns {void}
+ */
+function setDelegationStatsView(view) {
+  const loadingEl = byId('delegation-stats-loading');
+  const errorEl = byId('delegation-stats-error');
+  const errorTextEl = byId('delegation-stats-error-text');
+  const contentEl = byId('delegation-stats-content');
+  if (loadingEl) loadingEl.hidden = view !== 'loading';
+  if (errorEl) errorEl.hidden = view !== 'error';
+  if (contentEl) contentEl.hidden = view !== 'ready';
+  if (view === 'error' && errorTextEl) errorTextEl.textContent = t('delegationStats.loadFailed');
+}
+
+/**
+ * @param {PromiseSettledResult<object>} result
+ * @returns {void}
+ */
+function renderDelegationStats(result) {
+  if (result.status === 'rejected' || result.value?.ok !== true) {
+    const reason = result.status === 'rejected'
+      ? result.reason?.message || String(result.reason)
+      : (result.value?.error || 'delegations stats request failed');
+    console.warn('[usage] delegation stats failed:', reason);
+    setDelegationStatsView('error');
+    return;
+  }
+  const payload = result.value;
+  const rows = delegationStatsRows(payload);
+  const hasRows = delegationStatsViewState(payload) === 'ready';
+  const lang = getCurrentLang();
+  const metaEl = byId('delegation-stats-meta');
+  if (metaEl) metaEl.textContent = renderDelegationStatsMetaHtml(payload, t);
+  const head = byId('delegation-stats-head');
+  if (head) head.innerHTML = renderDelegationStatsHeadHtml(t);
+  const body = byId('delegation-stats-body');
+  if (body) body.innerHTML = renderDelegationStatsRowsHtml(rows, t, lang);
+  const cards = byId('delegation-stats-cards');
+  if (cards) cards.innerHTML = renderDelegationStatsCardsHtml(rows, t, lang);
+  const unusedEl = byId('delegation-stats-unused-list');
+  if (unusedEl) {
+    unusedEl.innerHTML = renderDelegationUnusedHtml(
+      delegationStatsUnused(payload),
+      t,
+      delegationStatsUnusedState(payload),
+    );
+  }
+  const table = byId('delegation-stats-table');
+  if (table) table.hidden = !hasRows;
+  if (cards) cards.hidden = !hasRows;
+  const emptyEl = byId('delegation-stats-empty');
+  if (emptyEl) emptyEl.hidden = hasRows;
+  setDelegationStatsView('ready');
+}
+
+/**
+ * Renders a settled stats result only while its token is still the newest.
+ * A full-tab reload whose stats response settled before a newer panel-only
+ * refresh must not repaint the stale snapshot.
+ *
+ * @param {number} token
+ * @param {PromiseSettledResult<object>} result
+ * @returns {void}
+ */
+function renderDelegationStatsIfCurrent(token, result) {
+  if (!delegationStatsGate.isCurrent(token)) return;
+  renderDelegationStats(result);
+}
+
+/**
+ * Refresh only the delegation outcomes panel (its own endpoint) without
+ * reloading the usage ledger. Used by the panel refresh/retry buttons.
+ *
+ * @returns {Promise<void>}
+ */
+export async function refreshDelegationStatsSettings() {
+  if (typeof document === 'undefined') return;
+  const section = document.querySelector('.settings-section[data-settings-tab="usage"]');
+  if (!section) return;
+  const token = delegationStatsGate.begin();
+  setDelegationStatsView('loading');
+  const [result] = await Promise.allSettled([getDelegationStats(getActiveWorkspaceScope())]);
+  if (!delegationStatsGate.isCurrent(token)) return;
+  renderDelegationStats(result);
+}
+
+/**
  * @param {'loading'|'ready'|'error'} view
  * @returns {void}
  */
@@ -491,6 +611,8 @@ function setSectionError(id, message) {
  * Reloads the ledger and repaints the Usage tab.
  * Uses Promise.allSettled so a single failing request only hides that section,
  * not the whole view. The global error banner appears only when all three fail.
+ * The delegation panel has its own endpoint and state, so it is painted before
+ * that early return and stays visible when the ledger is entirely down.
  *
  * @returns {Promise<void>}
  */
@@ -499,10 +621,12 @@ export async function refreshUsageSettings() {
   const section = document.querySelector('.settings-section[data-settings-tab="usage"]');
   if (!section) return;
   const token = ++requestToken;
+  const statsToken = delegationStatsGate.begin();
   setView('loading');
+  setDelegationStatsView('loading');
   const query = rangeQuery(state.range);
 
-  const [summaryResult, chartResult, tableResult] = await Promise.allSettled([
+  const [summaryResult, chartResult, tableResult, delegationStatsResult] = await Promise.allSettled([
     getUsageSummary(kpiQuery()),
     getUsageTimeseries({
       ...query,
@@ -513,9 +637,14 @@ export async function refreshUsageSettings() {
     state.groupBy === 'harness'
       ? getUsageSummary(query)
       : getUsageModels({ ...query, metric: 'tokens' }),
+    getDelegationStats(getActiveWorkspaceScope()),
   ]);
 
   if (token !== requestToken) return;
+
+  // The panel is independent of the ledger: paint its own result even when all
+  // three ledger requests failed, so a ledger outage cannot hide it.
+  renderDelegationStatsIfCurrent(statsToken, delegationStatsResult);
 
   const allFailed = [summaryResult, chartResult, tableResult].every(
     (r) => r.status === 'rejected' || !r.value?.ok
@@ -582,6 +711,8 @@ export async function refreshUsageSettings() {
     setSectionError('usage-table-section-error', t('usage.sectionLoadFailed'));
   }
 
+  // The delegation panel was already painted above (independent endpoint and
+  // scope), before the all-failed early return.
   setView('ready');
 }
 
@@ -670,6 +801,12 @@ export function initUsageSettings() {
   byId('usage-export-csv')?.addEventListener('click', () => {
     exportCsv();
   });
+  byId('delegation-stats-refresh')?.addEventListener('click', () => {
+    void refreshDelegationStatsSettings();
+  });
+  byId('delegation-stats-retry')?.addEventListener('click', () => {
+    void refreshDelegationStatsSettings();
+  });
   byId('usage-breakdown-head')?.addEventListener('click', (event) => {
     const button = event.target?.closest?.('[data-sort-key]');
     if (!button) return;
@@ -682,10 +819,16 @@ export function initUsageSettings() {
     }
     renderTable(state.rows);
   });
-  window.addEventListener('cr-lang-changed', () => {
+  const refreshUsageIfVisible = () => {
     const section = document.querySelector('.settings-section[data-settings-tab="usage"]');
     if (section && !section.hidden) void refreshUsageSettings();
-  });
+  };
+  window.addEventListener('cr-lang-changed', refreshUsageIfVisible);
+  // The stats endpoint is workspace-scoped, so a workspace switch (active
+  // workspace or workspace configuration) must reload the whole panel instead
+  // of showing the previous workspace's aggregate.
+  window.addEventListener('cretli-workspace-updated', refreshUsageIfVisible);
+  window.addEventListener('cretli-active-workspace-changed', refreshUsageIfVisible);
 }
 
 export { harnessLabel, state as usageUiState };

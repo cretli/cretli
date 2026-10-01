@@ -76,6 +76,7 @@
     "test:claude-api-key": "node tests/claude-api-key.test.js",
     "test:claude-models": "node tests/claude-models.test.js",
     "test:claude-agent-ws-policy": "node tests/claude-agent-ws-policy.test.js",
+    "test:claude-question-timeout": "node --test tests/claude-question-timeout.test.js",
     "test:claude-streaming-session": "node tests/claude-streaming-session.test.js",
     "test:claude-session-reset": "node tests/claude-session-reset.test.js",
     "test:qwen-event-normalizer": "node tests/qwen-event-normalizer.test.js",

@@ -26,6 +26,28 @@ in "Step 6 — send it" apply here too; only the dead-session fallback is docume
   terminator lines, and stop.
 - The terminator is required in the *chat* response too, not only in the MCP reply.
 
+## Step 0 — re-establish ground truth before editing (the snapshot can be stale, and the round may already be partly done)
+A delegated FIX round can be **re-run after a prior attempt was interrupted**, and the prompt's
+git-snapshot block is captured at chat start — it drifts. In 2026-10-01 the snapshot showed
+`lib/model-role-profiles.js` at 863 lines (old single-pass filter, generic `MODEL_UNAVAILABLE`), but
+on disk it was 1024 lines already carrying the consumer half of this very fix (soft/hard exclude split,
+`collect()` retry, `unavailableModelError`, `history_exclude_relaxed`, candidate reordering). My first
+`edit` failed with "File … has not been read in this session" because my in-context copy was outdated.
+So **before the first edit**: re-read the in-scope files with `read_file`, and run
+`git status --porcelain` + `git diff --stat` to see what a prior run already landed. Cite the line
+numbers you verified *now*, never the review's prompt-quoted ones (they drift).
+- **Producer vs consumer halves.** `model_pick` logic is split: the pure ranker/consumer
+  (`lib/model-role-profiles.js`, `selectModelPick` + `normalizePickHistory`/`normalizeFreshLimitHits`)
+  and the *producer* of the injected history (`lib/model-pick-history.js` — the only module that
+  emits `pickIndex`, `freshLimitHits`, `excludeModels`, `next_review_passed`, `chatUsage`). A partial
+  round often updates consumer + tests + SKILL.md but leaves the producer emitting the OLD shapes
+  (`pickIndex: chatRoleRows.length`, `freshLimitHits: number`, `lastOf(assignment)`, latest-review-not-
+  first-review, no cache). **Run the tests FIRST**: they encode the intended contract, so a consumer
+  helper that reads a shape the producer doesn't emit yet = the producer is the missing half; the
+  suites stay red until you complete it. Match your producer output to what `normalize*` expects.
+- A brand-new module that the snapshot lists as `??` (untracked, e.g. `model-pick-history.js`) is a
+  WIP artifact of the same round — finish/align it rather than treating it as off-limits.
+
 ## Step 1 — treat the finding as a hypothesis, not an instruction
 Read the target file and its test file fully, plus the contract/module the finding's helper lives in.
 Confirm the exploit path from the code (which line actually consumes the untrusted value), and check
@@ -175,6 +197,10 @@ Never pass `chat_id` unless you are certain it is *this* executor chat's UUID �
 (2026-09-30). Simply omit `chat_id` and retry with the same `idempotency_key`; it queued cleanly.
 Symptom of the failure case: every `cretli_bridge` call returns `MCP session is unknown or no longer active` — including
 read-only `ping_read` and `delegation_show`, not just `delegation_reply`.
+- The session can die **mid-run**: the same `delegation_show`/reply tools that worked while you paged
+  the [TASK] reports can start returning that error only at final-reply time (2026-10-01). So don't
+  trust early-success as proof the channel is alive — confirm with one **fresh** read-only
+  `delegation_show` call right before concluding, and note it may have succeeded earlier.
 - Diagnose with one read-only call before concluding: a payload/validation error is yours
   (see the review skill's `message_text` vs `history_seq` rule); a *session* error on a read-only tool
   is infrastructure, and retrying variants won't help.

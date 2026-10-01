@@ -17,6 +17,77 @@ import {
 /** Top and bottom bands of a row are reorder; the middle nests. */
 export const TODO_DROP_EDGE_RATIO = 0.28;
 
+/** Persisted todo item status values (root filter). */
+export const TODO_ITEM_STATUSES = ['idea', 'ready', 'doing', 'done'];
+
+/**
+ * @param {unknown} status
+ * @returns {'idea' | 'ready' | 'doing' | 'done'}
+ */
+export function normalizeTodoItemStatus(status) {
+  const raw = String(status || 'idea').trim();
+  return /** @type {'idea' | 'ready' | 'doing' | 'done'} */ (
+    TODO_ITEM_STATUSES.includes(raw) ? raw : 'idea'
+  );
+}
+
+/**
+ * @param {unknown} values
+ * @returns {Set<string> | null} `null` = no filter (show all roots).
+ */
+export function parseTodoRootStatusFilter(values) {
+  if (!Array.isArray(values)) return null;
+  /** @type {Set<string>} */
+  const selected = new Set();
+  values.forEach((value) => {
+    const key = String(value || '').trim();
+    if (TODO_ITEM_STATUSES.includes(key)) selected.add(key);
+  });
+  if (selected.size === 0 || selected.size >= TODO_ITEM_STATUSES.length) return null;
+  return selected;
+}
+
+/**
+ * @param {Set<string> | null | undefined} filter
+ * @returns {string[]}
+ */
+export function serializeTodoRootStatusFilter(filter) {
+  if (!filter || filter.size === 0 || filter.size >= TODO_ITEM_STATUSES.length) return [];
+  return TODO_ITEM_STATUSES.filter((status) => filter.has(status));
+}
+
+/**
+ * Keeps only subtrees whose root matches `statusFilter`. Orphans (missing parent)
+ * are treated as roots, same as flattenTodoTree.
+ *
+ * @param {object[] | null | undefined} items
+ * @param {Set<string> | null | undefined} statusFilter
+ * @returns {object[]}
+ */
+export function filterTodoItemsByRootStatus(items, statusFilter) {
+  const list = Array.isArray(items) ? items : [];
+  if (!statusFilter || statusFilter.size === 0) return list;
+  const byId = buildTodoIndex(list);
+  const known = new Set(byId.keys());
+  /** @type {string[]} */
+  const rootIds = [];
+  list.forEach((item) => {
+    if (!item?.id) return;
+    const parentId = readTodoParentId(item);
+    const isRoot = !parentId || !known.has(parentId);
+    if (isRoot) rootIds.push(String(item.id));
+  });
+  /** @type {Set<string>} */
+  const visibleIds = new Set();
+  rootIds.forEach((rootId) => {
+    const root = byId.get(rootId);
+    if (!root) return;
+    if (!statusFilter.has(normalizeTodoItemStatus(root.status))) return;
+    collectTodoSubtreeIds(list, rootId).forEach((id) => visibleIds.add(id));
+  });
+  return list.filter((item) => item?.id && visibleIds.has(String(item.id)));
+}
+
 /**
  * @param {object} a
  * @param {object} b
@@ -126,6 +197,145 @@ export function formatTodoAssigneeBadge(item) {
   const role = String(assignee.role || '').trim();
   return [harness, model, role].filter(Boolean).join(' · ');
 }
+
+/**
+ * Harness a Todo's agent chat should start with. The explicit assignee wins,
+ * then the stored source harness (or the harness captured in sourceChat), then
+ * the caller's fallback. Both the row menu and the card dialog use this, so the
+ * same todo resolves to the same harness from every entry point.
+ *
+ * @param {unknown} item
+ * @param {string} [fallback]
+ * @returns {string}
+ */
+export function resolveTodoStartHarness(item, fallback = 'sdk') {
+  const row = item && typeof item === 'object' ? /** @type {Record<string, any>} */ (item) : {};
+  const assignee = row.assignee && typeof row.assignee === 'object' ? row.assignee : null;
+  const candidates = [assignee?.harness, row.sourceHarness, row.sourceChat?.agentTransport];
+  for (const candidate of candidates) {
+    const value = String(candidate || '').trim();
+    if (value) return value;
+  }
+  return String(fallback || '').trim() || 'sdk';
+}
+
+/**
+ * First 8 characters of the todo uuid — the same short id MCP `formatTodoLine`
+ * prints, so a user can paste it back into `todo_show`.
+ *
+ * @param {unknown} id
+ * @returns {string}
+ */
+export function formatTodoShortId(id) {
+  return String(id || '').trim().slice(0, 8);
+}
+
+/**
+ * @param {unknown} item
+ * @returns {number}
+ */
+export function countActiveTodoChats(item) {
+  const chats = Array.isArray(item?.chats) ? item.chats : [];
+  return chats.filter((chat) => !chat?.deleted).length;
+}
+
+/**
+ * Most recent activity timestamp known for a todo (chat activity first, then
+ * the item revision).
+ *
+ * @param {unknown} item
+ * @returns {string}
+ */
+export function resolveTodoLastActivityAt(item) {
+  const chats = Array.isArray(item?.chats) ? item.chats : [];
+  const latest = chats
+    .filter((chat) => !chat?.deleted)
+    .map((chat) => String(chat?.lastAt || '').trim())
+    .filter(Boolean)
+    .sort()
+    .pop();
+  return latest || String(/** @type {any} */ (item)?.updatedAt || '').trim();
+}
+
+/**
+ * Coarse relative age for a todo row/dialog. Returns null for a missing or
+ * unparsable timestamp so callers can omit the whole fragment.
+ *
+ * @param {unknown} iso
+ * @param {number} [nowMs]
+ * @returns {{ unit: 'now' | 'minutes' | 'hours' | 'days', count: number } | null}
+ */
+export function formatTodoRelativeTime(iso, nowMs = Date.now()) {
+  const raw = String(iso || '').trim();
+  if (!raw) return null;
+  const at = Date.parse(raw);
+  if (!Number.isFinite(at)) return null;
+  const diffMs = Number(nowMs) - at;
+  if (!Number.isFinite(diffMs) || diffMs < 60_000) return { unit: 'now', count: 0 };
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 60) return { unit: 'minutes', count: minutes };
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return { unit: 'hours', count: hours };
+  return { unit: 'days', count: Math.floor(hours / 24) };
+}
+
+/**
+ * i18n key for "{count} chats" with Polish plural categories.
+ *
+ * @param {number} count
+ * @param {string} [lang]
+ * @returns {'todo.chatCountOne' | 'todo.chatCountFew' | 'todo.chatCountMany'}
+ */
+export function resolveTodoChatCountKey(count, lang = 'en') {
+  const n = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+  if (String(lang || '').trim().toLowerCase().startsWith('pl')) {
+    const mod10 = n % 10;
+    const mod100 = n % 100;
+    if (n === 1) return 'todo.chatCountOne';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'todo.chatCountFew';
+    return 'todo.chatCountMany';
+  }
+  return n === 1 ? 'todo.chatCountOne' : 'todo.chatCountMany';
+}
+
+/**
+ * Everything the row meta line and the dialog ID/meta bar need, so the same
+ * formatting is unit-testable without a DOM.
+ *
+ * @param {unknown} item
+ * @param {number} [nowMs]
+ * @returns {{
+ *   shortId: string,
+ *   chats: number,
+ *   age: ReturnType<typeof formatTodoRelativeTime>,
+ * }}
+ */
+export function readTodoRowMeta(item, nowMs = Date.now()) {
+  return {
+    shortId: formatTodoShortId(/** @type {any} */ (item)?.id),
+    chats: countActiveTodoChats(item),
+    age: formatTodoRelativeTime(resolveTodoLastActivityAt(item), nowMs),
+  };
+}
+
+/**
+ * Clipboard markdown for a todo: title, notes and the persisted plan.
+ *
+ * @param {unknown} item
+ * @returns {string}
+ */
+export function buildTodoMarkdown(item) {
+  const title = String(/** @type {any} */ (item)?.title || '').trim();
+  const body = /** @type {any} */ (item)?.body != null ? String(/** @type {any} */ (item).body).trim() : '';
+  const plan = /** @type {any} */ (item)?.plan;
+  const planMarkdown =
+    plan && typeof plan === 'object' && typeof plan.markdown === 'string' ? plan.markdown.trim() : '';
+  const parts = [`# ${title || '(untitled)'}`];
+  if (body) parts.push('', body);
+  if (planMarkdown) parts.push('', '## Plan', '', planMarkdown);
+  return parts.join('\n');
+}
+
 
 /**
  * @param {object[] | null | undefined} items

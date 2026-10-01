@@ -39,6 +39,15 @@ assert.equal(inputAskMode?.rec.payload, 'ask');
 const inputIgnored = mapWsPayloadToHistoryRecord('sdkBusy', { type: 'sdkBusy' }, { harness: 'openrouter' });
 assert.equal(inputIgnored, null);
 
+const inputOpenCodeQuestionResolved = mapWsPayloadToHistoryRecord(
+  'opencodeQuestionResolved',
+  { type: 'opencodeQuestionResolved', requestId: 'q-op-1' },
+  { harness: 'opencode' },
+);
+assert.equal(inputOpenCodeQuestionResolved?.rec.variant, 'questionResolved');
+assert.equal(inputOpenCodeQuestionResolved?.rec.payload.requestId, 'q-op-1');
+assert.equal(inputOpenCodeQuestionResolved?.rec.payload.status, 'answered');
+
 const inputRoom = { eventStreamId: 'stream-1', eventLog: [] };
 const actualPushed = pushRoomEvent(inputRoom, { type: 'sdkBusy', busy: true }, 2);
 assert.equal(actualPushed.roomEventSeq, 1);

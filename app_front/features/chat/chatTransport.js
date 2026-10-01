@@ -1128,9 +1128,34 @@ export function createChatTransport(deps) {
           );
           return;
         }
+        if (msg.type === 'questionReplyRejected') {
+          const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
+          if (requestId) {
+            chat._sdkRichView?.resolveOpenCodeQuestion?.(requestId, {
+              status: msg.reason === 'expired' ? 'expired' : 'cancelled',
+            });
+            if (chat._opencodePendingQuestion?.requestId === requestId) {
+              delete chat._opencodePendingQuestion;
+            }
+            if (!chat._opencodePendingQuestion && !chat._opencodePendingPermission) {
+              chat._awaitingInput = false;
+              if (chat._terminalInteraction) {
+                chat._terminalInteraction = {
+                  ...chat._terminalInteraction,
+                  question: false,
+                  awaiting: false,
+                };
+              }
+              renderChatTerminalState(chat);
+            }
+          }
+          appendTransportNotice(chat, t('sdkView.questionExpired'), 'warn');
+          return;
+        }
         if (msg.type === 'opencodeQuestionResolved' || msg.type === 'questionResolved') {
           const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
-          chat._sdkRichView?.resolveOpenCodeQuestion?.(requestId);
+          const status = typeof msg.status === 'string' ? msg.status : 'answered';
+          chat._sdkRichView?.resolveOpenCodeQuestion?.(requestId, { status });
           if (chat._opencodePendingQuestion?.requestId === requestId) {
             delete chat._opencodePendingQuestion;
           }

@@ -34,33 +34,53 @@ function loadMarkdownItCtor() {
 
 /**
  * @param {{ highlight?: (code: string, lang: string) => string }} [options]
- * @returns {{ render: (source: string) => string }}
+ * @returns {{ render: (source: string) => string, ready: () => Promise<object> }}
  */
 export function createMarkdownRenderer(options = {}) {
   const highlight = typeof options.highlight === 'function' ? options.highlight : undefined;
   /** @type {InstanceType<typeof import('markdown-it').default> | null} */
   let instance = null;
+  /** @returns {Promise<object>} */
+  function ensureInstance() {
+    return loadMarkdownItCtor().then((Ctor) => {
+      if (!instance) {
+        instance = new Ctor({
+          html: false,
+          linkify: true,
+          breaks: true,
+          highlight,
+        });
+      }
+      return instance;
+    });
+  }
   return {
     render(source) {
       if (!instance) {
-        void loadMarkdownItCtor().then((Ctor) => {
-          if (!instance) {
-            instance = new Ctor({
-              html: false,
-              linkify: true,
-              breaks: true,
-              highlight,
-            });
-          }
-        });
+        void ensureInstance();
       }
       if (instance) return instance.render(String(source || ''));
       return `<pre><code>${escapePlain(source)}</code></pre>`;
+    },
+    /** Resolves once markdown-it is loaded and this renderer has an instance. */
+    ready() {
+      return instance ? Promise.resolve(instance) : ensureInstance();
     },
   };
 }
 
 const defaultRenderer = createMarkdownRenderer();
+
+/**
+ * Loads markdown-it ahead of the first Markdown render (for example when the
+ * editor opens) so a preview can re-render from the escaped fallback to real
+ * Markdown once the chunk arrives.
+ *
+ * @returns {Promise<object>}
+ */
+export function preloadMarkdown() {
+  return defaultRenderer.ready();
+}
 
 /**
  * @param {unknown} source

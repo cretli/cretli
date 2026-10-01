@@ -4106,6 +4106,16 @@ function openTerminal(chat) {
         void syncSdkHistoryOnResume(chat, { reason: 'delegation_ack' }).catch(() => {});
       }).catch(() => {});
     },
+    onRateDelegation: (delegationId, payload) => {
+      if (!delegationId) return Promise.resolve({ ok: false, error: 'Missing delegation id' });
+      return api.postDelegationRate(delegationId, payload).then((res) => {
+        if (res?.ok && !chat._sdkHistoryHydrating) {
+          // The server publishes the rated card; pull it into the stream.
+          void syncSdkHistoryOnResume(chat, { reason: 'delegation_rate' }).catch(() => {});
+        }
+        return res;
+      });
+    },
     onRetryDelegation: (delegationId) => {
       if (!delegationId) return;
       void api.postDelegationRetry(delegationId).then((res) => {

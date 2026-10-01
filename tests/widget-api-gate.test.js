@@ -99,6 +99,45 @@ const widgetHistoryBatch = await runGate({
 });
 assert.equal(widgetHistoryBatch.next, true);
 
+// Global delegation statistics are host-only; `/:id` stays available.
+const widgetDelegationStats = await runGate({
+  method: 'GET',
+  path: '/api/delegations/stats',
+  widgetAccess: access,
+});
+assert.equal(widgetDelegationStats.next, false);
+assert.equal(widgetDelegationStats.statusCode, 403);
+
+const widgetDelegationById = await runGate({
+  method: 'GET',
+  path: '/api/delegations/delegation-123',
+  widgetAccess: access,
+});
+assert.equal(widgetDelegationById.next, true);
+
+const widgetDelegationExecutors = await runGate({
+  method: 'GET',
+  path: '/api/delegations/executors',
+  widgetAccess: access,
+});
+assert.equal(widgetDelegationExecutors.next, true);
+
+// The card rating is one of the per-delegation widget actions (with
+// cancel/retry/ack): a widget session may rate the job it can already see.
+const widgetDelegationRate = await runGate({
+  method: 'POST',
+  path: '/api/delegations/delegation-123/rate',
+  widgetAccess: access,
+});
+assert.equal(widgetDelegationRate.next, true, 'POST /api/delegations/:id/rate must pass the widget gate');
+
+const widgetDelegationAck = await runGate({
+  method: 'POST',
+  path: '/api/delegations/delegation-123/ack',
+  widgetAccess: access,
+});
+assert.equal(widgetDelegationAck.next, true);
+
 const widgetPresence = filterPresenceForScope(
   { 'chat-own': { state: 'busy' }, 'chat-foreign': { state: 'waiting' } },
   ['chat-own', 'chat-foreign'],

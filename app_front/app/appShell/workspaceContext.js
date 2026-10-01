@@ -341,6 +341,14 @@ export function createWorkspaceContext(deps = {}) {
       })
       .then(() => {
         refreshUiAfterWorkspaceChange(normalizedWorkspaceFile, normalizedWorkspaceFolder);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('cretli-active-workspace-changed', {
+            detail: {
+              workspaceFile: normalizedWorkspaceFile,
+              workspaceFolder: normalizedWorkspaceFolder,
+            },
+          }));
+        }
         return true;
       })
       .catch(() => false);

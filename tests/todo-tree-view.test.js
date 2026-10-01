@@ -1,9 +1,19 @@
 import assert from 'node:assert/strict';
 import {
+  buildTodoMarkdown,
   canAddTodoChild,
+  countActiveTodoChats,
+  filterTodoItemsByRootStatus,
   flattenTodoTree,
   formatTodoAssigneeBadge,
+  normalizeTodoItemStatus,
+  parseTodoRootStatusFilter,
+  serializeTodoRootStatusFilter,
+  formatTodoRelativeTime,
+  formatTodoShortId,
   readTodoRowMark,
+  readTodoRowMeta,
+  resolveTodoChatCountKey,
   resolveTodoDrop,
   todoDropZoneFromRatio,
 } from '../app_front/features/todo/todoTreeView.js';
@@ -24,6 +34,48 @@ function runCase(name, fn) {
 function rowIds(rows) {
   return rows.map((row) => row.item.id);
 }
+
+runCase('normalizeTodoItemStatus and root status filter parsing', () => {
+  assert.equal(normalizeTodoItemStatus('ready'), 'ready');
+  assert.equal(normalizeTodoItemStatus('unknown'), 'idea');
+  assert.equal(parseTodoRootStatusFilter(null), null);
+  assert.equal(parseTodoRootStatusFilter([]), null);
+  assert.equal(parseTodoRootStatusFilter(['idea', 'ready', 'doing', 'done']), null);
+  const partial = parseTodoRootStatusFilter(['ready', 'doing']);
+  assert.ok(partial instanceof Set);
+  assert.deepEqual([...partial], ['ready', 'doing']);
+  assert.deepEqual(serializeTodoRootStatusFilter(partial), ['ready', 'doing']);
+  assert.deepEqual(serializeTodoRootStatusFilter(null), []);
+});
+
+runCase('filterTodoItemsByRootStatus keeps matching roots and their subtrees', () => {
+  const items = [
+    { id: 'a', status: 'idea', siblingIndex: 0 },
+    { id: 'a1', parentId: 'a', status: 'done', siblingIndex: 0 },
+    { id: 'b', status: 'ready', siblingIndex: 1 },
+    { id: 'c', status: 'doing', siblingIndex: 2 },
+    { id: 'orphan', parentId: 'missing', status: 'done', siblingIndex: 0 },
+  ];
+  const all = filterTodoItemsByRootStatus(items, null);
+  assert.equal(all.length, 5);
+  const readyOnly = filterTodoItemsByRootStatus(items, new Set(['ready']));
+  assert.deepEqual(
+    readyOnly.map((row) => row.id),
+    ['b']
+  );
+  const ideaBranch = filterTodoItemsByRootStatus(items, new Set(['idea']));
+  assert.deepEqual(
+    ideaBranch.map((row) => row.id),
+    ['a', 'a1']
+  );
+  const doneRoots = filterTodoItemsByRootStatus(items, new Set(['done']));
+  assert.deepEqual(
+    doneRoots.map((row) => row.id),
+    ['orphan']
+  );
+  const open = flattenTodoTree(ideaBranch, []);
+  assert.deepEqual(rowIds(open), ['a', 'a1']);
+});
 
 runCase('flattenTodoTree sorts siblings and hides a collapsed subtree', () => {
   const items = [
@@ -124,6 +176,77 @@ runCase('canAddTodoChild stops at max depth', () => {
   assert.equal(canAddTodoChild(items, 'n5'), false);
   assert.equal(canAddTodoChild(items, 'missing'), false);
 });
+
+runCase('formatTodoShortId keeps the first 8 characters', () => {
+  assert.equal(formatTodoShortId('e7212fc3-b544-4894-baf1-6db621cfeece'), 'e7212fc3');
+  assert.equal(formatTodoShortId('  abcd  '), 'abcd');
+  assert.equal(formatTodoShortId(''), '');
+  assert.equal(formatTodoShortId(null), '');
+});
+
+runCase('countActiveTodoChats ignores deleted entries', () => {
+  assert.equal(countActiveTodoChats(null), 0);
+  assert.equal(countActiveTodoChats({}), 0);
+  assert.equal(
+    countActiveTodoChats({
+      chats: [{ id: 'a' }, { id: 'b', deleted: true }, { id: 'c', deleted: false }],
+    }),
+    2
+  );
+});
+
+runCase('formatTodoRelativeTime buckets by minutes/hours/days', () => {
+  const now = Date.parse('2026-02-01T12:00:00.000Z');
+  assert.equal(formatTodoRelativeTime('', now), null);
+  assert.equal(formatTodoRelativeTime('not-a-date', now), null);
+  assert.deepEqual(formatTodoRelativeTime('2026-02-01T11:59:30.000Z', now), { unit: 'now', count: 0 });
+  assert.deepEqual(formatTodoRelativeTime('2026-02-01T11:30:00.000Z', now), { unit: 'minutes', count: 30 });
+  assert.deepEqual(formatTodoRelativeTime('2026-02-01T09:00:00.000Z', now), { unit: 'hours', count: 3 });
+  assert.deepEqual(formatTodoRelativeTime('2026-01-30T12:00:00.000Z', now), { unit: 'days', count: 2 });
+});
+
+runCase('resolveTodoChatCountKey: Polish and English plurals', () => {
+  assert.equal(resolveTodoChatCountKey(1, 'pl'), 'todo.chatCountOne');
+  assert.equal(resolveTodoChatCountKey(2, 'pl'), 'todo.chatCountFew');
+  assert.equal(resolveTodoChatCountKey(4, 'pl'), 'todo.chatCountFew');
+  assert.equal(resolveTodoChatCountKey(5, 'pl'), 'todo.chatCountMany');
+  assert.equal(resolveTodoChatCountKey(12, 'pl'), 'todo.chatCountMany');
+  assert.equal(resolveTodoChatCountKey(22, 'pl'), 'todo.chatCountFew');
+  assert.equal(resolveTodoChatCountKey(1, 'en'), 'todo.chatCountOne');
+  assert.equal(resolveTodoChatCountKey(3, 'en'), 'todo.chatCountMany');
+});
+
+runCase('readTodoRowMeta picks the freshest chat activity', () => {
+  const now = Date.parse('2026-02-01T12:00:00.000Z');
+  const item = {
+    id: 'e7212fc3-b544-4894-baf1-6db621cfeece',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    chats: [
+      { id: 'a', lastAt: '2026-02-01T10:00:00.000Z', deleted: false },
+      { id: 'b', lastAt: '2026-02-01T11:00:00.000Z', deleted: true },
+    ],
+  };
+  assert.deepEqual(readTodoRowMeta(item, now), {
+    shortId: 'e7212fc3',
+    chats: 1,
+    age: { unit: 'hours', count: 2 },
+  });
+  assert.deepEqual(readTodoRowMeta({ id: 'x', updatedAt: '' }, now), {
+    shortId: 'x',
+    chats: 0,
+    age: null,
+  });
+});
+
+runCase('buildTodoMarkdown includes title, body and plan', () => {
+  assert.equal(buildTodoMarkdown({ title: 'Task' }), '# Task');
+  assert.equal(
+    buildTodoMarkdown({ title: 'Task', body: 'Notes', plan: { markdown: '# Plan' } }),
+    '# Task\n\nNotes\n\n## Plan\n\n# Plan'
+  );
+  assert.equal(buildTodoMarkdown({}), '# (untitled)');
+});
+
 
 if (failed) {
   console.error(`${failed} failed`);

@@ -1446,6 +1446,34 @@
           <div id="usage-breakdown-cards" class="settings-usage-cards" hidden></div>
           <p id="usage-breakdown-empty" class="settings-hint" data-i18n="usage.noRows" hidden>No usage in this range.</p>
         </div>
+        <div class="settings-usage-delegation-stats">
+          <div class="settings-usage-table-head">
+            <h4 class="settings-usage-subtitle" id="delegation-stats-title" data-i18n="delegationStats.title">Model × role outcomes</h4>
+            <button type="button" id="delegation-stats-refresh" class="settings-usage-btn" data-i18n="delegationStats.refresh">Refresh</button>
+          </div>
+          <p class="settings-hint" data-i18n="delegationStats.hint">Observed results of delegated jobs per harness, model and role. Quality is the observed 1–5 tier; pass rate ignores infrastructure failures.</p>
+          <p id="delegation-stats-meta" class="settings-hint"></p>
+          <div id="delegation-stats-loading" class="settings-usage-state" data-i18n="delegationStats.loading" hidden>Loading delegation results…</div>
+          <div id="delegation-stats-error" class="settings-usage-state settings-usage-state-error" hidden>
+            <span id="delegation-stats-error-text" data-i18n="delegationStats.loadFailed">Could not load delegation results.</span>
+            <button type="button" id="delegation-stats-retry" class="settings-usage-btn" data-i18n="delegationStats.retry">Retry</button>
+          </div>
+          <div id="delegation-stats-content" hidden>
+            <div class="settings-usage-table-scroll">
+              <table id="delegation-stats-table" class="settings-usage-table settings-usage-breakdown">
+                <thead id="delegation-stats-head"></thead>
+                <tbody id="delegation-stats-body"></tbody>
+              </table>
+            </div>
+            <div id="delegation-stats-cards" class="settings-usage-cards" hidden></div>
+            <p id="delegation-stats-empty" class="settings-hint" data-i18n="delegationStats.empty" hidden>No delegation results in this window.</p>
+            <div class="settings-usage-table-head">
+              <h5 class="settings-usage-subtitle" data-i18n="delegationStats.unusedTitle">Unused for 14 days</h5>
+            </div>
+            <p class="settings-hint" data-i18n="delegationStats.unusedHint">Enabled harnesses without a delegated job in the last 14 days.</p>
+            <div id="delegation-stats-unused-list" class="settings-usage-unused-list"></div>
+          </div>
+        </div>
       </section>
       <section class="settings-section" id="settings-account-section" data-settings-tab="account" hidden role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.account">Account</h3>

@@ -6,6 +6,7 @@ import {
   addTodo,
   deleteTodo,
   hashTodoCreateArgs,
+  linkTodoChat,
   loadTodosData,
   TODOS_MAX_ITEMS,
   updateTodo,
@@ -597,6 +598,94 @@ runCase('concurrent updates do not lose writes', async () => {
     assert.ok(texts.includes(`note-${i}`), `missing note-${i}`);
   }
   assert.equal(item.changelog.length, JOBS);
+});
+
+runCase('addTodo: stores createdByChatId and seeds linkedChatIds', () => {
+  const dataDir = path.join(tmpRoot, 'creator');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'creatorproj');
+  mkdirSync(project, { recursive: true });
+  const created = addTodo(dataDir, project, {
+    title: 'From chat',
+    createdByChatId: 'chat-creator',
+    sourceHarness: 'opencode',
+  }).item;
+  assert.equal(created.createdByChatId, 'chat-creator');
+  assert.deepEqual(created.linkedChatIds, ['chat-creator']);
+  assert.equal(created.sourceHarness, 'opencode');
+  const reloaded = loadTodosData(dataDir, project).items[0];
+  assert.equal(reloaded.createdByChatId, 'chat-creator');
+  assert.deepEqual(reloaded.linkedChatIds, ['chat-creator']);
+});
+
+runCase('addTodo: idempotency replay keeps links untouched', () => {
+  const dataDir = path.join(tmpRoot, 'replaylinks');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'replaylinksproj');
+  mkdirSync(project, { recursive: true });
+  const first = addTodo(dataDir, project, {
+    title: 'Replay',
+    idempotencyKey: 'k-links',
+    createdByChatId: 'chat-a',
+  }).item;
+  const replayed = addTodo(dataDir, project, {
+    title: 'Replay',
+    idempotencyKey: 'k-links',
+    createdByChatId: 'chat-b',
+  });
+  assert.equal(replayed.replayed, true);
+  const item = loadTodosData(dataDir, project).items.find((row) => row.id === first.id);
+  assert.equal(item.createdByChatId, 'chat-a');
+  assert.deepEqual(item.linkedChatIds, ['chat-a']);
+});
+
+runCase('linkTodoChat: adds link without bumping updatedAt; duplicate is a no-op', () => {
+  const dataDir = path.join(tmpRoot, 'linktodo');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'linktodoproj');
+  mkdirSync(project, { recursive: true });
+  const item = addTodo(dataDir, project, { title: 'Link me' }).item;
+  const before = loadTodosData(dataDir, project).items[0].updatedAt;
+  const added = linkTodoChat(dataDir, project, item.id, 'chat-x');
+  assert.equal(added.changed, true);
+  assert.deepEqual(added.item.linkedChatIds, ['chat-x']);
+  assert.equal(added.item.updatedAt, before, 'link must not bump the item revision');
+  const again = linkTodoChat(dataDir, project, item.id, 'chat-x');
+  assert.equal(again.changed, false);
+  assert.equal(loadTodosData(dataDir, project).items[0].updatedAt, before);
+});
+
+runCase('linkTodoChat: concurrent update with the pre-link expected_updated_at succeeds', () => {
+  const dataDir = path.join(tmpRoot, 'linkrace');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'linkraceproj');
+  mkdirSync(project, { recursive: true });
+  const item = addTodo(dataDir, project, { title: 'Race' }).item;
+  const revision = loadTodosData(dataDir, project).items[0].updatedAt;
+  linkTodoChat(dataDir, project, item.id, 'chat-delegate');
+  const updated = updateTodo(dataDir, project, item.id, {
+    status: 'doing',
+    expectedUpdatedAt: revision,
+    linkedChatId: 'chat-agent',
+  });
+  const row = updated.items.find((entry) => entry.id === item.id);
+  assert.equal(row.status, 'doing');
+  assert.deepEqual(row.linkedChatIds, ['chat-agent', 'chat-delegate']);
+});
+
+runCase('linkedChatIds: capped at 100, newest first', () => {
+  const dataDir = path.join(tmpRoot, 'linkcap');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'linkcapproj');
+  mkdirSync(project, { recursive: true });
+  const item = addTodo(dataDir, project, { title: 'Cap' }).item;
+  for (let i = 0; i < 120; i += 1) {
+    updateTodo(dataDir, project, item.id, { linkedChatId: `chat-${i}` });
+  }
+  const row = loadTodosData(dataDir, project).items.find((entry) => entry.id === item.id);
+  assert.equal(row.linkedChatIds.length, 100);
+  assert.equal(row.linkedChatIds[0], 'chat-119');
+  assert.equal(row.linkedChatIds.includes('chat-0'), false);
 });
 
 await Promise.all(pendingCases);

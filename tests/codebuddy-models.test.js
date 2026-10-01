@@ -12,8 +12,8 @@ import {
 } from '../lib/codebuddy/codebuddy-models.js';
 import { isCodeBuddyCliFound, resolveBundledCodeBuddyCli } from '../lib/codebuddy/codebuddy-cli.js';
 
-assert.equal(DEFAULT_CODEBUDDY_MODEL, 'default-model');
-assert.equal(resolveDefaultCodeBuddyModel(), 'default-model');
+assert.equal(DEFAULT_CODEBUDDY_MODEL, 'hy4-preview-f');
+assert.equal(resolveDefaultCodeBuddyModel(), 'hy4-preview-f');
 
 const fromSdkShape = catalogEntryFromCodeBuddyRow({
   value: 'glm-5.2',
@@ -44,25 +44,22 @@ assert.equal(fromProductShape?.contextWindowTokens, 176000);
 assert.equal(catalogEntryFromCodeBuddyRow({ name: 'no-id' }), null);
 
 const deduped = catalogEntriesFromCodeBuddyRows([
-  { id: 'default-model', name: 'Default' },
-  { value: 'default-model', displayName: 'Default again' },
-  { modelId: 'fast-model', name: 'Fast' },
+  { id: 'hy4-preview-f', name: 'Hy4 Preview' },
+  { value: 'hy4-preview-f', displayName: 'Hy4 Preview again' },
+  { modelId: 'hy3-preview', name: 'Hy3 Preview' },
 ]);
-assert.deepEqual(deduped.map((row) => row.value), ['default-model', 'fast-model']);
+assert.deepEqual(deduped.map((row) => row.value), ['hy4-preview-f', 'hy3-preview']);
 
 assert.equal(inferCodeBuddyProvider('kimi-k3'), 'moonshot');
 assert.equal(inferCodeBuddyProvider('gemini-3.5-flash'), 'google');
 assert.equal(inferCodeBuddyProvider('minimax-m3'), 'minimax');
 
 assert.notEqual(DEFAULT_CODEBUDDY_MODEL, 'deepseek-v3.1');
-assert.equal(resolveCodeBuddyRunModel(''), 'default-model');
-assert.equal(resolveCodeBuddyRunModel('deepseek-v3.1'), 'default-model');
-assert.equal(resolveCodeBuddyRunModel('glm-5.2'), 'glm-5.2');
-const previousEdition = process.env.CODEBUDDY_INTERNET_ENVIRONMENT;
-process.env.CODEBUDDY_INTERNET_ENVIRONMENT = 'internal';
-assert.equal(resolveCodeBuddyRunModel('deepseek-v3.1'), 'deepseek-v3.1');
-if (typeof previousEdition === 'string') process.env.CODEBUDDY_INTERNET_ENVIRONMENT = previousEdition;
-else delete process.env.CODEBUDDY_INTERNET_ENVIRONMENT;
+assert.equal(resolveCodeBuddyRunModel(''), 'hy4-preview-f');
+assert.equal(resolveCodeBuddyRunModel('deepseek-v3.1'), 'hy4-preview-f');
+assert.equal(resolveCodeBuddyRunModel('glm-5.2'), 'hy4-preview-f');
+assert.equal(resolveCodeBuddyRunModel('hy3'), 'hy3');
+assert.equal(resolveCodeBuddyRunModel('hy3-preview'), 'hy3-preview');
 
 const parsedLinePerModel = parseAccountModelsFromCodeBuddyError(`
 400 model [deepseek-v3.1] service info not found
@@ -83,9 +80,10 @@ assert.deepEqual(parseAccountModelsFromCodeBuddyError('no list here'), []);
 
 const fallback = listFallbackCodeBuddyModels();
 assert.ok(fallback.length > 0);
-assert.ok(fallback.some((row) => row.value === 'default-model'));
-assert.ok(fallback.some((row) => row.value === 'glm-5.2'));
-assert.ok(fallback.some((row) => row.value === 'kimi-k3'));
+assert.ok(fallback.some((row) => row.value === 'hy4-preview-f'));
+assert.ok(fallback.some((row) => row.value === 'hy3'));
+assert.ok(fallback.some((row) => row.value === 'hy3-preview'));
+assert.ok(!fallback.some((row) => row.value === 'glm-5.2'));
 assert.ok(!fallback.some((row) => row.value === 'gpt-5.1'));
 const bundledCli = resolveBundledCodeBuddyCli();
 if (bundledCli) {

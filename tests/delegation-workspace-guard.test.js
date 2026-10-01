@@ -6,6 +6,7 @@ import path from 'node:path';
 import { addChat } from '../lib/persist/chats-persist.js';
 import { createDelegationService } from '../lib/delegation-service.js';
 import {
+  formatWorkspaceBusyError,
   listOccupiedDelegations,
   normalizeDelegationWorkspaceKey,
   resolveDelegationGlobalLimit,
@@ -35,6 +36,9 @@ const occupied = [{
   });
   assert.equal(same.ok, false);
   assert.equal(same.code, 'workspace_busy');
+  assert.match(same.error, /Blocker delegation id: job-a/);
+  assert.match(same.error, /Blocker parent chat: parent-a/);
+  assert.equal(formatWorkspaceBusyError(occupied[0]).includes('job-a'), true);
 }
 
 {
