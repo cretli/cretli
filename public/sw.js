@@ -11,8 +11,18 @@
 // the cache, and a strict match would serve Response.error() for the app bundle,
 // leaving the cached HTML shell without any JavaScript.
 
-const CACHE_NAME = 'cretli-v22';
+const CACHE_NAME = 'cretli-v26';
 const OFFLINE_URL = '/offline.html';
+
+// Pure notificationclick decision logic, shared with the unit test. Kept in a
+// separate classic script because service workers here are not module workers.
+// A failed load must not break install: notificationclick below falls back.
+try {
+  importScripts('/sw-notification-click.js');
+} catch (_) {}
+try {
+  importScripts('/sw-push-inbox.js');
+} catch (_) {}
 
 const SHELL_ASSETS = [
   '/',
@@ -27,6 +37,14 @@ const SHELL_ASSETS = [
   '/icons/maskable-512.png',
   '/icons/monochrome-512.png',
   '/icons/apple-touch-180.png',
+  '/harness-icons/claude.svg',
+  '/harness-icons/codebuddy.svg',
+  '/harness-icons/codex.svg',
+  '/harness-icons/cursor.svg',
+  '/harness-icons/deepseek.svg',
+  '/harness-icons/opencode.svg',
+  '/harness-icons/openrouter.svg',
+  '/harness-icons/qwen.svg',
   '/dist/app/index.css',
   '/dist/app/login.css',
   '/dist/app/vendor.bundle.js',
@@ -36,7 +54,7 @@ const SHELL_ASSETS = [
   '/dist/app/i18n-pl.bundle.js',
 ];
 
-const CACHE_FIRST_PREFIXES = ['/icons/', '/screenshots/', '/manifest.webmanifest', '/icon.svg'];
+const CACHE_FIRST_PREFIXES = ['/icons/', '/harness-icons/', '/screenshots/', '/manifest.webmanifest', '/icon.svg'];
 const NETWORK_TIMEOUT_MS = 3000;
 
 // addAll() is atomic, so a single missing asset would leave the whole shell
@@ -258,26 +276,76 @@ self.addEventListener('push', (event) => {
     data: payload.data || {},
     vibrate: [80, 40, 80],
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  const persistInbox = (async () => {
+    if (!self.cretliPushInbox) return;
+    // Persist unconditionally: the write is cheap and the app-side freshness
+    // watermark (never the SW) decides whether the record is still relevant.
+    await self.cretliPushInbox.persistPushPayload(payload).catch(() => undefined);
+  })();
+  event.waitUntil(
+    Promise.all([self.registration.showNotification(title, options), persistInbox])
+  );
 });
 
+// A notification click must not reload an already-open PWA: postMessage lets the
+// app switch chats through its SPA router and resume the socket in place. Only
+// non-app windows (login/offline) or a missing window fall back to navigate/open.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data || {};
   const targetUrl = data.url || '/';
+  const policy = self.cretliNotificationClickPolicy;
+  const dataChatId = typeof data.chatId === 'string' ? data.chatId.trim() : '';
+  // Agent-finished pushes carry only a url with the chat id as a query param.
+  const chatId = dataChatId || (policy ? policy.readChatIdFromUrl(targetUrl, self.location.origin) : '');
   const focusOrOpen = async () => {
     const allClients = await self.clients.matchAll({
       type: 'window',
       includeUncontrolled: true,
     });
-    for (const client of allClients) {
-      if ('focus' in client) {
-        if (data.url && 'navigate' in client) {
+    const clientInfos = allClients.map((client) => ({
+      url: client.url,
+      canFocus: 'focus' in client,
+      canPostMessage: typeof client.postMessage === 'function',
+      canNavigate: 'navigate' in client,
+    }));
+    const decision = policy
+      ? policy.resolveNotificationClickAction({
+          clients: clientInfos,
+          targetUrl,
+          chatId,
+          origin: self.location.origin,
+        })
+      : (() => {
+          // Policy script unavailable: keep the old focus/navigate behaviour.
+          const sameOriginIndex = allClients.findIndex(
+            (client) =>
+              typeof client.url === 'string' && client.url.startsWith(self.location.origin)
+          );
+          return sameOriginIndex >= 0
+            ? { action: 'navigate', clientIndex: sameOriginIndex, url: targetUrl }
+            : { action: 'openWindow', clientIndex: -1, url: targetUrl };
+        })();
+    if (decision.action === 'postMessage') {
+      const client = allClients[decision.clientIndex];
+      if (client) {
+        try {
+          client.postMessage({ type: 'open-chat', chatId, url: targetUrl });
+        } catch (_) {}
+        if ('focus' in client) return client.focus();
+        return null;
+      }
+    }
+    if (decision.action === 'navigate') {
+      const client = allClients[decision.clientIndex];
+      if (client) {
+        if ('navigate' in client) {
           try {
             await client.navigate(targetUrl);
           } catch (_) {}
         }
-        return client.focus();
+        if ('focus' in client) return client.focus();
+        return null;
       }
     }
     if (self.clients.openWindow) return self.clients.openWindow(targetUrl);

@@ -28,6 +28,8 @@ import {
   maybeRecoverMissedSdkRunOutcome,
 } from './sdkRunOutcomeRecovery.js';
 import { getWidgetAccessToken } from '../../api.js';
+import { clearChatLocalBootCache } from './chatLocalBootCache.js';
+import { clearPushInboxCache } from '../pwa/pushInbox.js';
 import { getClientInstanceId } from '../../lib/clientInstance.js';
 import { t } from '../../i18n/index.js';
 import {
@@ -56,16 +58,26 @@ import {
   shouldSyncActiveChatHistoryOnResume,
 } from './chatResumePolicy.js';
 import {
-  CHAT_RESUME_PROBE_PONG_MS,
   CHAT_STALE_PONG_MS,
   recordPingSent,
   recordPongReceived,
+  resolveResumeProbePongTimeoutMs,
   shouldCloseSocketForResumeProbeTimeout,
   shouldCloseSocketForStalePong,
   shouldMarkResumeSocketHealthy,
   listChatsNeedingPing,
   CHAT_PING_LOOP_INTERVAL_MS,
 } from './chatPingPolicy.js';
+import {
+  PAGE_RESUME_FINALIZE_MS,
+  PAGE_RESUME_LOG_TAG,
+  buildPageResumeLogPayload,
+  createPageResumeTrace,
+  markPageResumeProbeTimeout,
+  markPageResumeStage,
+  notePageResumeFirstMessage,
+  setPageResumeDecision,
+} from './pageResumeTrace.js';
 import {
   canOpenChatWebSocketNow,
   resolveBackgroundReconnectBatchDelayMs,
@@ -238,6 +250,50 @@ export function createChatTransport(deps) {
     notifyChatConnectionRestored(chat);
   }
 
+  /**
+   * Emit the single 'page-resume' log entry for the current active-chat return.
+   *
+   * @param {object | null | undefined} chat
+   * @param {string} completedBy
+   */
+  function finalizePageResumeTrace(chat, completedBy) {
+    const trace = chat?._pageResumeTrace;
+    if (!trace || trace.logged === true) return;
+    trace.logged = true;
+    if (chat._pageResumeFinalizeTimer != null) {
+      clearTimeout(chat._pageResumeFinalizeTimer);
+      delete chat._pageResumeFinalizeTimer;
+    }
+    appLogger.log(PAGE_RESUME_LOG_TAG, 'resume timings', buildPageResumeLogPayload(trace, completedBy));
+    delete chat._pageResumeTrace;
+  }
+
+  /**
+   * Start a new trace, flushing an unfinished one from a previous return.
+   *
+   * @param {object} chat
+   * @param {{ reason: string, backgroundMs: number, readyState: number | undefined }} input
+   * @returns {object}
+   */
+  function beginPageResumeTrace(chat, input) {
+    if (chat._pageResumeTrace) finalizePageResumeTrace(chat, 'superseded');
+    const trace = createPageResumeTrace({
+      chatId: chat.id,
+      reason: input.reason,
+      backgroundMs: input.backgroundMs,
+      mobile: isMobileLikeClient(),
+      readyState: input.readyState,
+      notification: String(input.reason || '').trim() === 'notification',
+      startedAt: Date.now(),
+    });
+    chat._pageResumeTrace = trace;
+    if (chat._pageResumeFinalizeTimer != null) clearTimeout(chat._pageResumeFinalizeTimer);
+    chat._pageResumeFinalizeTimer = setTimeout(() => {
+      finalizePageResumeTrace(chat, 'deadline');
+    }, PAGE_RESUME_FINALIZE_MS);
+    return trace;
+  }
+
   function appendTransportNotice(chat, text, tone = 'info') {
     if (!chat) return;
     const message = String(text || '').trim();
@@ -351,8 +407,9 @@ export function createChatTransport(deps) {
   const CHAT_CATCHUP_DEDUP_MS = 15000;
   const RESUME_BACKGROUND_SYNC_DEFER_MS = 4500;
   const RESUME_BACKGROUND_SYNC_DEFER_MOBILE_MS = 8000;
-  const RESUME_ACTIVE_CHAT_COALESCE_MS = 350;
-  const MOBILE_RESUME_CONNECT_DEFER_MS = 600;
+  // Active-chat resume connects immediately; this only coalesces the
+  // visibilitychange/pageshow pair that fires together on return.
+  const RESUME_ACTIVE_CHAT_COALESCE_MS = 50;
   let activeWsConnectCount = 0;
   /** @type {Map<string, object>} */
   const pendingConnectQueue = new Map();
@@ -380,6 +437,13 @@ export function createChatTransport(deps) {
     }
   }
 
+  function completePageResumeAfterCatchUp(chat) {
+    if (!chat?._pageResumeTrace) return;
+    markPageResumeStage(chat._pageResumeTrace, 'catchUp');
+    markPageResumeStage(chat._pageResumeTrace, 'uiReady');
+    finalizePageResumeTrace(chat, 'catch_up_complete');
+  }
+
   function requestHttpCatchUpAfterReplay(chat, reason) {
     if (typeof onSdkResume !== 'function') {
       if (chat._sdkHistoryHydrating === true && !isSdkOpenTerminalHydrating(chat)) {
@@ -387,7 +451,9 @@ export function createChatTransport(deps) {
       }
       return;
     }
-    Promise.resolve(onSdkResume(chat, { reason })).catch(() => {});
+    Promise.resolve(onSdkResume(chat, { reason }))
+      .then(() => completePageResumeAfterCatchUp(chat))
+      .catch(() => {});
   }
 
   function fireSdkWsReplayFallback(chat) {
@@ -471,6 +537,8 @@ export function createChatTransport(deps) {
     chat._awaitingResumeProbePong = true;
     chat._resumeProbeAt = Date.now();
     chat._resumeProbeGeneration = chat._wsGeneration || 0;
+    const probeTimeoutMs = resolveResumeProbePongTimeoutMs(isMobileLikeClient());
+    markPageResumeStage(chat._pageResumeTrace, 'probeSent');
     sendChatPing(chat);
     if (chat._resumeProbeTimer != null) clearTimeout(chat._resumeProbeTimer);
     const generation = chat._resumeProbeGeneration;
@@ -481,16 +549,31 @@ export function createChatTransport(deps) {
           awaitingResumeProbePong: chat._awaitingResumeProbePong === true,
           resumeProbeAt: chat._resumeProbeAt,
           now: Date.now(),
-          probeTimeoutMs: CHAT_RESUME_PROBE_PONG_MS,
+          probeTimeoutMs,
           socketGeneration: chat._wsGeneration,
           probeGeneration: generation,
         })
       ) {
+        markPageResumeProbeTimeout(chat._pageResumeTrace);
+        // A suspended socket's close handshake can hang until the browser's
+        // closing timeout, so do not wait for onclose: detach it and reconnect now.
+        const deadSocket = chat.ws;
+        detachChatSocket(deadSocket);
+        chat.ws = null;
+        delete chat._wsConnectingSince;
+        openPingChats.delete(chat);
+        releaseWsConnectSlot(chat);
         try {
-          chat.ws?.close();
+          deadSocket?.close();
         } catch (_) {}
+        chat._reconnectAttempts = 0;
+        if (chat._reconnectTimer) {
+          clearTimeout(chat._reconnectTimer);
+          chat._reconnectTimer = null;
+        }
+        if (!isPageCurrentlyHidden()) ensureChatConnection(chat);
       }
-    }, CHAT_RESUME_PROBE_PONG_MS);
+    }, probeTimeoutMs);
   }
 
   async function flushPendingSdkRoomEvents(chat, pending) {
@@ -883,6 +966,7 @@ export function createChatTransport(deps) {
           if (msg.replay === true) wsExtra.replay = true;
           traceUiFreezeWs('in', chat.id, msg.type || 'unknown', wsExtra);
         }
+        notePageResumeFirstMessage(chat._pageResumeTrace, messageType);
         if (msg.type === 'sdkTtft' && !Number.isFinite(msg.clientReceivedAt)) {
           msg.clientReceivedAt = Date.now();
         }
@@ -892,6 +976,10 @@ export function createChatTransport(deps) {
             awaitingResumeProbePong: chat._awaitingResumeProbePong === true,
           })) {
             markChatConnectionHealthy(chat);
+          }
+          if (chat._pageResumeTrace && chat._pageResumeTrace.expectsCatchUp !== true) {
+            markPageResumeStage(chat._pageResumeTrace, 'uiReady');
+            finalizePageResumeTrace(chat, 'probe_pong');
           }
           return;
         }
@@ -948,6 +1036,7 @@ export function createChatTransport(deps) {
             expected: chat._sdkReplayBatchExpected || 0,
             hydrating: chat._sdkHistoryHydrating === true,
           });
+          markPageResumeStage(chat._pageResumeTrace, 'replayEnd');
           delete chat._sdkReplayBatchActive;
           delete chat._sdkReplayBatchExpected;
           clearSdkWsReplayWaitState(chat);
@@ -1170,6 +1259,13 @@ export function createChatTransport(deps) {
             }
             renderChatTerminalState(chat);
           }
+          return;
+        }
+        if (msg.type === 'opencodePermissionAdvisorPick') {
+          const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
+          const reply = typeof msg.reply === 'string' ? msg.reply : 'once';
+          const applyAfterMs = Number(msg.applyAfterMs);
+          chat._sdkRichView?.showOpenCodePermissionAdvisorPick?.(requestId, reply, applyAfterMs);
           return;
         }
         if (msg.type === 'opencodePermissionResolved') {
@@ -1592,6 +1688,8 @@ export function createChatTransport(deps) {
         ...buildSocketDiagnostics(chat),
       });
       if (event?.code === 4401 && typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        clearChatLocalBootCache(typeof localStorage !== 'undefined' ? localStorage : null);
+        void clearPushInboxCache();
         const currentPath = `${window.location.pathname || '/'}${window.location.search || ''}`;
         const shouldDropNext = currentPath === '/login' || currentPath.startsWith('/login?');
         const next = encodeURIComponent(shouldDropNext ? '/' : currentPath);
@@ -1624,6 +1722,7 @@ export function createChatTransport(deps) {
       chat._unackedPingAt = 0;
       chat._awaitingResumeProbePong = false;
       chat._connectionStatus = 'connected';
+      markPageResumeStage(chat._pageResumeTrace, 'wsOpen');
       appLogger.log('chat-ws', 'socket opened', {
         chatId: chat.id,
         ...buildSocketDiagnostics(chat),
@@ -1826,123 +1925,151 @@ export function createChatTransport(deps) {
     }, CHAT_BACKGROUND_MONITOR_INTERVAL_MS);
   }
 
-  function bindChatVisibilityAndReconnect() {
-    if (visibilityBound || typeof document === 'undefined') return;
-    visibilityBound = true;
-
-    const resumeActiveChat = (reason, forceReconnect = false) => {
-      const active = getChats().find((chat) => chat.id === getActiveChatId());
-      if (!active?.cursorSessionId) return;
-      // A blocked persisted local chat must not resume SDK history sync or probing.
-      if (isBlockingPersistedLocalChatHarnessState(active)) return;
-      if (isSdkOpenTerminalHydrating(active)) return;
-      const backgroundMs = getLastBackgroundDurationMs();
-      const wasPageHidden = backgroundMs > 0 || hiddenAt > 0;
-      const shouldResumeHistorySync = shouldRunResumeChatHistorySync(
-        reason,
+  function resumeActiveChat(reason, forceReconnect = false) {
+    const active = getChats().find((chat) => chat.id === getActiveChatId());
+    if (!active?.cursorSessionId) return;
+    // A blocked persisted local chat must not resume SDK history sync or probing.
+    if (isBlockingPersistedLocalChatHarnessState(active)) return;
+    if (isSdkOpenTerminalHydrating(active)) return;
+    const backgroundMs = getLastBackgroundDurationMs();
+    const wasPageHidden = backgroundMs > 0 || hiddenAt > 0;
+    const shouldResumeHistorySync = shouldRunResumeChatHistorySync(
+      reason,
+      backgroundMs,
+      forceReconnect,
+      wasPageHidden
+    );
+    const isMobileLike = isMobileLikeClient();
+    // readyState is captured before any recycle so the log shows what the app saw.
+    const readyState = active.ws?.readyState;
+    const trace = beginPageResumeTrace(active, { reason, backgroundMs, readyState });
+    // The pane may already show cached history when the page comes back; timestamp it at
+    // trace start so `cachedRender` (and totalMs) reflects the visible-content baseline.
+    if (active._sdkRichView?.hasRenderedHistory?.()) {
+      markPageResumeStage(trace, 'cachedRender');
+    }
+    if (
+      shouldRecycleActiveChatSocketOnResume(
         backgroundMs,
         forceReconnect,
-        wasPageHidden
-      );
-      const readyState = active.ws?.readyState;
-      if (shouldRecycleActiveChatSocketOnResume(backgroundMs, forceReconnect, readyState)) {
-        active._reconnectAttempts = 0;
-        if (active._reconnectTimer) {
-          clearTimeout(active._reconnectTimer);
-          active._reconnectTimer = null;
-        }
-        if (active.ws) {
-          const staleSocket = active.ws;
-          detachChatSocket(staleSocket);
-          active.ws = null;
-          delete active._wsConnectingSince;
-          try {
-            staleSocket.close();
-          } catch (_) {}
-        }
-      }
-      clearLastBackgroundDurationMs();
-      const needsReconnect = !active.ws || active.ws.readyState !== WebSocket.OPEN;
-      traceUiFreeze('chat-transport', 'resume-active', {
-        chatId: active.id,
-        reason,
-        forceReconnect,
-        backgroundMs,
-        needsReconnect,
         readyState,
-        hydrating: active._sdkHistoryHydrating === true,
-      });
-      const connectActiveChat = () => {
-        if (!active.ws || active.ws.readyState !== WebSocket.OPEN) {
-          if (
-            needsReconnect &&
-            active._sdkRichView &&
-            active._sdkHistoryHydrating !== true &&
-            shouldResumeHistorySync
-          ) {
-            beginSdkHistoryHydration(active);
-          }
-          ensureChatConnection(active);
-          return;
-        }
-        startResumeSocketProbe(active);
-      };
-      if (isMobileLikeClient() && needsReconnect && typeof window !== 'undefined') {
-        window.setTimeout(connectActiveChat, MOBILE_RESUME_CONNECT_DEFER_MS);
-      } else {
-        connectActiveChat();
+        isMobileLike
+      )
+    ) {
+      active._reconnectAttempts = 0;
+      if (active._reconnectTimer) {
+        clearTimeout(active._reconnectTimer);
+        active._reconnectTimer = null;
       }
-      updateAwaitingInput(active);
-      const skipHttpSyncForWsReplay = shouldSkipHttpHistorySyncForMobileWsReplay(
-        needsReconnect,
-        isMobileLikeClient()
-      );
-      if (skipHttpSyncForWsReplay) {
-        active._sdkAwaitingWsReplay = true;
-        if (!Number.isFinite(active._sdkReplayWaitStartedAt)) {
-          active._sdkReplayWaitStartedAt = Date.now();
-        }
-        markHistorySyncInFlightForWsReplay(active, true, renderChatTerminalState);
-        scheduleSdkWsReplayFallback(active);
+      if (active.ws) {
+        const staleSocket = active.ws;
+        detachChatSocket(staleSocket);
+        active.ws = null;
+        delete active._wsConnectingSince;
+        try {
+          staleSocket.close();
+        } catch (_) {}
       }
-      const shouldSyncHistory =
-        shouldResumeHistorySync &&
-        !skipHttpSyncForWsReplay &&
-        (needsReconnect ||
-          shouldSyncActiveChatHistoryOnResume(backgroundMs, forceReconnect, readyState));
-      if (!shouldSyncHistory) {
+      setPageResumeDecision(trace, 'recycle');
+    }
+    clearLastBackgroundDurationMs();
+    const needsReconnect = !active.ws || active.ws.readyState !== WebSocket.OPEN;
+    if (trace && trace.decision === 'unknown') {
+      setPageResumeDecision(trace, needsReconnect ? 'reconnect' : 'probe');
+    }
+    traceUiFreeze('chat-transport', 'resume-active', {
+      chatId: active.id,
+      reason,
+      forceReconnect,
+      backgroundMs,
+      needsReconnect,
+      readyState,
+      hydrating: active._sdkHistoryHydrating === true,
+    });
+    const connectActiveChat = () => {
+      if (!active.ws || active.ws.readyState !== WebSocket.OPEN) {
         if (
-          active._sdkHistoryHydrating === true &&
-          !skipHttpSyncForWsReplay &&
-          !isSdkOpenTerminalHydrating(active)
+          needsReconnect &&
+          active._sdkRichView &&
+          active._sdkHistoryHydrating !== true &&
+          shouldResumeHistorySync
         ) {
-          completeSdkHistoryHydration(active, []);
+          beginSdkHistoryHydration(active);
         }
+        ensureChatConnection(active);
         return;
       }
-      if (typeof onSdkResume !== 'function') return;
-      Promise.resolve(onSdkResume(active, { reason })).catch((error) => {
+      startResumeSocketProbe(active);
+    };
+    // Active chat connects immediately: the short coalescing window above already
+    // merged visibilitychange/pageshow. Background chats keep their own quiet
+    // period (RESUME_BACKGROUND_WS_QUIET_MOBILE_MS) in the background monitor.
+    connectActiveChat();
+    updateAwaitingInput(active);
+    const skipHttpSyncForWsReplay = shouldSkipHttpHistorySyncForMobileWsReplay(
+      needsReconnect,
+      isMobileLike
+    );
+    if (skipHttpSyncForWsReplay) {
+      active._sdkAwaitingWsReplay = true;
+      if (!Number.isFinite(active._sdkReplayWaitStartedAt)) {
+        active._sdkReplayWaitStartedAt = Date.now();
+      }
+      markHistorySyncInFlightForWsReplay(active, true, renderChatTerminalState);
+      scheduleSdkWsReplayFallback(active);
+    }
+    const shouldSyncHistory =
+      shouldResumeHistorySync &&
+      !skipHttpSyncForWsReplay &&
+      (needsReconnect ||
+        shouldSyncActiveChatHistoryOnResume(backgroundMs, forceReconnect, readyState));
+    if (trace) {
+      trace.expectsCatchUp = skipHttpSyncForWsReplay || shouldSyncHistory;
+    }
+    if (!shouldSyncHistory) {
+      if (
+        active._sdkHistoryHydrating === true &&
+        !skipHttpSyncForWsReplay &&
+        !isSdkOpenTerminalHydrating(active)
+      ) {
+        completeSdkHistoryHydration(active, []);
+      }
+      // The trace closes on the resume-probe pong or the finalize deadline.
+      return;
+    }
+    if (typeof onSdkResume !== 'function') {
+      completePageResumeAfterCatchUp(active);
+      return;
+    }
+    Promise.resolve(onSdkResume(active, { reason }))
+      .then(() => completePageResumeAfterCatchUp(active))
+      .catch((error) => {
         appLogger.log('chat-sync', 'resume catch-up failed', {
           chatId: active.id,
           reason,
           error: String(error),
         });
+        finalizePageResumeTrace(active, 'catch_up_failed');
       });
-    };
+  }
 
-    const scheduleResumeActiveChat = (reason, forceReconnect = false) => {
-      pendingResumeReason = reason;
-      pendingResumeForceReconnect = pendingResumeForceReconnect || forceReconnect;
-      if (resumeActiveChatTimerId != null) return;
-      resumeActiveChatTimerId = setTimeout(() => {
-        resumeActiveChatTimerId = null;
-        const nextReason = pendingResumeReason || 'visibility';
-        const nextForceReconnect = pendingResumeForceReconnect;
-        pendingResumeReason = null;
-        pendingResumeForceReconnect = false;
-        resumeActiveChat(nextReason, nextForceReconnect);
-      }, RESUME_ACTIVE_CHAT_COALESCE_MS);
-    };
+  function scheduleResumeActiveChat(reason, forceReconnect = false) {
+    pendingResumeReason = reason;
+    pendingResumeForceReconnect = pendingResumeForceReconnect || forceReconnect;
+    if (resumeActiveChatTimerId != null) return;
+    resumeActiveChatTimerId = setTimeout(() => {
+      resumeActiveChatTimerId = null;
+      const nextReason = pendingResumeReason || 'visibility';
+      const nextForceReconnect = pendingResumeForceReconnect;
+      pendingResumeReason = null;
+      pendingResumeForceReconnect = false;
+      resumeActiveChat(nextReason, nextForceReconnect);
+    }, RESUME_ACTIVE_CHAT_COALESCE_MS);
+  }
+
+  function bindChatVisibilityAndReconnect() {
+    if (visibilityBound || typeof document === 'undefined') return;
+    visibilityBound = true;
 
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
@@ -1986,6 +2113,7 @@ export function createChatTransport(deps) {
     scheduleChatReconnect,
     syncBackgroundChatConnections,
     bindChatVisibilityAndReconnect,
+    scheduleResumeActiveChat,
     startChatBackgroundMonitor,
     startGlobalChatPingLoop,
     stopGlobalChatPingLoop,

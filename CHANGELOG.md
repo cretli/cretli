@@ -6,8 +6,34 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- Harness statistics use compact mobile lockout alerts, grouped metric cards,
+  readable window/status labels, durations in seconds/minutes and wrapped
+  error details. Technical lockout codes are collapsed behind a details row.
+
+- Harness overview shows active model lockouts with their reset time even when
+  collapsed. The expandable health card now has a visible Statistics button;
+  its lockout notice disappears when the reset time arrives or after unlock.
+
+- Optional `@openai/codex-sdk` (and the bundled Codex CLI) bumped to **0.160.0**.
+  GPT-6.1 Sol (`gpt-6.1-sol`) is in the API-key fallback catalog. ChatGPT plan
+  chats still use the live account list from `models_cache.json`, which this
+  CLI can refresh.
+
 ### Fixed
 
+- OpenCode approval advisor: a filename such as `chat-title-service.js` is no
+  longer classified as a privilege command, so a safe read can reach Jev. When
+  Jev allows, Once is highlighted for the advisor timeout (default 5s) and the
+  reply is sent only if the card is still pending.
+- OpenCode approval advisor eligibility: the mutation-only `medium` class is no
+  longer blanket-eligible. Only the host-owned `node scripts/review-verify.js`
+  runner may be widened; every other mutation (`node`/`python` scripts, `mv`,
+  `sed -i`, `git commit`, redirections, …) and any `low` tuple carrying
+  `mutation` fails closed. The advisor prompts now describe this two-class
+  allowlist, the policy version is `advisor-external-3`, and the reviewer/contract
+  comments and Phase 2 doc match the code.
 - Claude `AskUserQuestion`: configurable wait (`CRETLI_CLAUDE_QUESTION_TIMEOUT_MS`,
   default 30 min), session idle timer paused while a question is pending, pending
   questions replayed on WebSocket reconnect, and `questionResolved` / UI feedback
@@ -15,6 +41,46 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Each harness now has a dedicated Statistics tab beside Keys and Models,
+  showing its last 7 days of runs, errors, latency, plan limits and lockouts.
+  Direct links to `/settings/harness-{id}-stats` open the matching panel.
+
+- Settings → Usage now shows per-harness plan windows, measured remaining
+  percentage, reset countdown, active model lockouts and a linear exhaustion
+  forecast from successive readings of the same window. Missing, stale and
+  reset readings never produce a forecast. Claude SDK fractions are normalized
+  to percentages; model picking applies the plan penalty at 90% and keeps
+  active lockouts excluded.
+
+- Settings → Chat and agents → "Automatic chat titles": choose mode, provider and
+  model of the server-side title generator. Providers with a one-shot HTTP
+  chat-completion API are offered (OpenRouter, DeepSeek, Qwen, Codex, Claude),
+  and Codex (ChatGPT plan) / Claude (subscription) also work without an API key via
+  a one-shot local `codex exec --ephemeral` / Agent SDK call with tools denied (uses
+  plan quota, writes no chat); `auto` picks the first available. CLI/SDK
+  harnesses (Cursor SDK, OpenCode, CodeBuddy) are listed as unavailable with the
+  reason. New `GET /api/settings/auto-title/providers` and
+  `POST /api/settings/auto-title/test` (writes nothing, never returns a key);
+  `PATCH /api/settings` rejects an unknown `autoTitle.provider` with 400. The
+  server log now says why no generator ran (no key / wrong OpenRouter key format
+  / harness disabled) instead of a generic "no API key".
+- Agent-set chat titles: new MCP tool `chat_set_title` (calling chat only, backed by
+  `POST /api/chats/:id/agent-title`) and Settings → Chat and agents → Titles →
+  "Who sets the title" (server / agent / agent with server fallback). In agent
+  modes every harness prompt carries a short instruction to name the chat after the
+  first reply and again after a substantial change (Agent mode only, never for
+  manual/locked or temporary chats, nor for a delegation chat until its delegation has
+  finished); renames go through the same
+  sanitizer, CAS and history as server titles, limited to one per 10 minutes and 12
+  per day. `PATCH /api/settings` rejects an unknown `autoTitle.source` with 400.
+- Chat title history and controls: `POST /api/chats/:id/regenerate-title` (explicit
+  regenerate, overrides a manual title), `GET /api/chats/:id/title-history` and
+  `POST /api/chats/:id/title-lock`. MCP `chat_show` returns `titleHistory`. Chat
+  settings gain a "Title history" timeline (restore an old title, "lock title"
+  switch), "Update chat name" now calls the server instead of prompting the agent in
+  the conversation, and the chat list marks auto/manual titles. `chatsChanged`
+  `reason: 'title'` refreshes an open settings modal without overwriting text being
+  typed. Local harness plugins now get the first-turn auto title too.
 - Todo panel: multi-select status filter on root tasks (idea / ready / doing /
   done), with subtree preserved and filter choice stored per workspace folder.
 - Added the `cretli-release` release-review skill for Cretli chats and a

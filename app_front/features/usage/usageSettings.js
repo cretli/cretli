@@ -6,7 +6,8 @@
  * `usageCharts.js` so they can be unit-tested without a DOM.
  */
 
-import { getUsageSummary, getUsageTimeseries, getUsageModels, getDelegationStats } from '../../api.js';
+import { getUsagePlanLimits, getUsageSummary, getUsageTimeseries, getUsageModels, getDelegationStats } from '../../api.js';
+import { renderPlanLimitsHtml } from './planLimitsView.js';
 import { t, getCurrentLang } from '../../i18n/index.js';
 import { formatUsd } from '../../../lib/usage/usage-rates.js';
 import {
@@ -624,9 +625,11 @@ export async function refreshUsageSettings() {
   const statsToken = delegationStatsGate.begin();
   setView('loading');
   setDelegationStatsView('loading');
+  const planEl = byId('usage-plan-limits');
+  if (planEl) planEl.textContent = t('usage.loading');
   const query = rangeQuery(state.range);
 
-  const [summaryResult, chartResult, tableResult, delegationStatsResult] = await Promise.allSettled([
+  const [summaryResult, chartResult, tableResult, delegationStatsResult, planResult] = await Promise.allSettled([
     getUsageSummary(kpiQuery()),
     getUsageTimeseries({
       ...query,
@@ -638,9 +641,14 @@ export async function refreshUsageSettings() {
       ? getUsageSummary(query)
       : getUsageModels({ ...query, metric: 'tokens' }),
     getDelegationStats(getActiveWorkspaceScope()),
+    getUsagePlanLimits(),
   ]);
 
   if (token !== requestToken) return;
+
+  if (planEl) planEl.innerHTML = planResult.status === 'fulfilled' && planResult.value?.ok
+    ? renderPlanLimitsHtml(planResult.value, { t, lang: getCurrentLang() })
+    : escapeHtml(t('usage.sectionLoadFailed'));
 
   // The panel is independent of the ledger: paint its own result even when all
   // three ledger requests failed, so a ledger outage cannot hide it.

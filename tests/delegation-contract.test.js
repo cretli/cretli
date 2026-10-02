@@ -2,7 +2,7 @@ import './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import { addChat } from '../lib/persist/chats-persist.js';
 import { createDelegationRecord, getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
-import { inspectDelegationSlot } from '../lib/delegation-service.js';
+import { inspectDelegationSlot, recordDelegationVerifyResult } from '../lib/delegation-service.js';
 import {
   aggregateReviewFanoutVerdicts,
   mapDelegationRoleToAssignment,
@@ -46,6 +46,11 @@ updateDelegationRecord(completedHeld.id, {
   runStoppingAt: new Date().toISOString(),
   report: `${'x'.repeat(50)}\nVERDICT: PASS`,
 });
+recordDelegationVerifyResult({
+  delegationId: completedHeld.id,
+  attemptId: completedHeld.attemptId,
+  result: { ok: false, dataDir: '/tmp/isolated-review-data' },
+});
 const heldRow = getDelegationById(completedHeld.id);
 const occupied = inspectDelegationSlot(heldRow);
 assert.equal(occupied.occupied, true);
@@ -76,6 +81,9 @@ assert.equal(shown.structuredContent.task_outcome, 'unspecified');
 assert.equal(shown.structuredContent.slot_occupied, true);
 assert.equal(shown.structuredContent.run_stopping, true);
 assert.equal(shown.structuredContent.verdict, 'PASS');
+assert.equal(shown.structuredContent.verify_result.status, 'failed');
+assert.equal(shown.structuredContent.verify_result.exitCode, 1);
+assert.match(shown.content[0].text, /review_verify: failed exit=1/);
 assert.match(shown.content[0].text, /slot_occupied=true/);
 assert.match(shown.content[0].text, /status=completed/);
 

@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import {
+  CHAT_RESUME_PROBE_PONG_DESKTOP_MS,
+  CHAT_RESUME_PROBE_PONG_MOBILE_MS,
   CHAT_RESUME_PROBE_PONG_MS,
   CHAT_STALE_PONG_MS,
   recordPingSent,
   recordPongReceived,
+  resolveResumeProbePongTimeoutMs,
   resolveUnackedPingAt,
   shouldCloseSocketForResumeProbeTimeout,
   shouldCloseSocketForStalePong,
@@ -55,6 +58,25 @@ assert.equal(resolveUnackedPingAt({ lastPingAt: 26000, lastPongAt: 27000, unacke
 
 assert.equal(shouldMarkResumeSocketHealthy({ awaitingResumeProbePong: true }), false);
 assert.equal(shouldMarkResumeSocketHealthy({ awaitingResumeProbePong: false }), true);
+
+assert.equal(CHAT_RESUME_PROBE_PONG_MS, 20000, 'The long/default probe timeout is unchanged');
+assert.equal(CHAT_RESUME_PROBE_PONG_MOBILE_MS, 2000);
+assert.equal(CHAT_RESUME_PROBE_PONG_DESKTOP_MS, 4000);
+assert.equal(resolveResumeProbePongTimeoutMs(true), CHAT_RESUME_PROBE_PONG_MOBILE_MS);
+assert.equal(resolveResumeProbePongTimeoutMs(false), CHAT_RESUME_PROBE_PONG_DESKTOP_MS);
+assert.equal(resolveResumeProbePongTimeoutMs(undefined), CHAT_RESUME_PROBE_PONG_DESKTOP_MS);
+assert.equal(
+  shouldCloseSocketForResumeProbeTimeout({
+    awaitingResumeProbePong: true,
+    resumeProbeAt: 10,
+    now: 10 + CHAT_RESUME_PROBE_PONG_MOBILE_MS + 1,
+    probeTimeoutMs: resolveResumeProbePongTimeoutMs(true),
+    socketGeneration: 1,
+    probeGeneration: 1,
+  }),
+  true,
+  'A mobile resume probe closes the socket after ~2s'
+);
 
 assert.equal(
   shouldCloseSocketForResumeProbeTimeout({

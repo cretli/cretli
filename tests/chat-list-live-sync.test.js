@@ -76,4 +76,36 @@ function createHarness() {
   assert.equal(refreshCalls.length, 0);
 }
 
+{
+  // reason:'title' notifies the title hook (once per frame) and still reloads the list once
+  const titleCalls = [];
+  const timers = [];
+  const refreshCalls = [];
+  const sync = createChatListLiveSync({
+    refresh: async (query) => { refreshCalls.push(query); },
+    onTitleChanged: (chatId) => titleCalls.push(chatId),
+    setTimeoutFn: (fn) => { timers.push(fn); return timers.length; },
+    clearTimeoutFn: () => {},
+  });
+  sync.onChatsChanged({ type: 'chatsChanged', reason: 'title', chatId: 'c1' });
+  sync.onChatsChanged({ type: 'chatsChanged', reason: 'archive', chatId: 'c2' });
+  sync.onChatsChanged();
+  assert.deepEqual(titleCalls, ['c1']);
+  timers[timers.length - 1]();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(refreshCalls.length, 1);
+
+  // a throwing hook never blocks the list reload
+  const throwing = createChatListLiveSync({
+    refresh: async (query) => { refreshCalls.push(query); },
+    onTitleChanged: () => { throw new Error('boom'); },
+    setTimeoutFn: (fn) => { timers.push(fn); return timers.length; },
+    clearTimeoutFn: () => {},
+  });
+  const before = timers.length;
+  throwing.onChatsChanged({ reason: 'title', chatId: 'c1' });
+  assert.equal(timers.length, before + 1);
+}
+
 console.log('chat-list-live-sync.test.js OK');

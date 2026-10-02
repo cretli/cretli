@@ -40,6 +40,9 @@ assert.match(permissionPayload.body, /OpenCode run/);
 assert.match(permissionPayload.body, /bash: npm test/);
 assert.equal(permissionPayload.tag, 'cretli-ask-chat-1-per_1');
 assert.equal(permissionPayload.data.kind, 'permission');
+assert.equal(permissionPayload.data.chatId, 'chat-1');
+assert.equal(permissionPayload.data.type, 'agent-needs-input');
+assert.equal(typeof permissionPayload.data.at, 'number');
 assert.equal(permissionPayload.data.url, '/?source=pwa&panel=chat&chat=chat-1');
 
 const questionPayload = buildAgentNeedsInputPushPayload({
@@ -52,6 +55,8 @@ const questionPayload = buildAgentNeedsInputPushPayload({
 assert.equal(questionPayload.title, 'Cretli — agent asked a question');
 assert.match(questionPayload.body, /Pick a color/);
 assert.equal(questionPayload.data.kind, 'question');
+assert.equal(questionPayload.data.chatId, 'chat-2');
+assert.equal(typeof questionPayload.data.at, 'number');
 
 const longDetail = 'x'.repeat(200);
 const clipped = buildAgentNeedsInputPushPayload({

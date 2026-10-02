@@ -32,6 +32,7 @@ const parentId = crypto.randomUUID();
     role: 'review',
     round: 1,
     lastImplementer: 'composer-2',
+    lastModel: 'review-model-1',
     lastVerdict: 'FAIL',
     findingsText: 'same finding',
     idempotencyKey: 'review-1',
@@ -39,6 +40,7 @@ const parentId = crypto.randomUUID();
   assert.equal(first.consecutiveSameFail, 1);
   assert.equal(first.stopReason, '');
   assert.equal(first.lastReviewer, '');
+  assert.equal(first.lastModel, 'review-model-1');
   const namedReviewer = applyDelegationWorkflowPatch({
     parentChatId: parentId,
     lastReviewer: 'deepseek-flash',
@@ -53,6 +55,7 @@ const parentId = crypto.randomUUID();
     role: 'review',
     round: 1,
     lastImplementer: 'composer-2',
+    lastModel: 'review-model-1',
     lastVerdict: 'FAIL',
     findingsText: 'same finding',
     idempotencyKey: 'review-1',

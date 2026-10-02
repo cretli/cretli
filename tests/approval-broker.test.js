@@ -56,6 +56,17 @@ assert.deepEqual(classifyOpenCodePermissionRisk(envEvent).categories.includes('s
 assert.equal(classifyOpenCodePermissionRisk(rmEvent).risk, 'high');
 assert.equal(classifyOpenCodePermissionRisk(readEvent).risk, 'low');
 
+const serviceFilename = {
+  action: 'bash',
+  metadata: { command: 'grep -n "title" lib/chat-title-service.js | head -30' },
+};
+assert.equal(classifyOpenCodePermissionRisk(serviceFilename).categories.includes('privilege'), false);
+assert.equal(classifyOpenCodePermissionRisk(serviceFilename).risk, 'low');
+assert.equal(classifyOpenCodePermissionRisk({ action: 'bash', metadata: { command: 'service nginx restart' } }).categories.includes('privilege'), true);
+assert.equal(classifyOpenCodePermissionRisk({ action: 'bash', metadata: { command: 'sudo true' } }).categories.includes('privilege'), true);
+assert.equal(classifyOpenCodePermissionRisk({ action: 'bash', metadata: { command: '/usr/sbin/service nginx start' } }).categories.includes('privilege'), true);
+assert.equal(classifyOpenCodePermissionRisk({ action: 'bash', metadata: { command: 'echo service' } }).categories.includes('privilege'), false);
+
 const offRead = resolveOpenCodeApprovalAction({ mode: 'off', sdkMode: 'agent', permissionEvent: readEvent, assignment: '' });
 assert.equal(offRead.decision, 'ask_user');
 assert.equal(offRead.reply, null, 'off keeps the interactive card');

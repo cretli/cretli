@@ -125,4 +125,72 @@ await new Promise((resolve) => setTimeout(resolve, 40));
 assert.equal(kernel.rooms.has('sess-1'), false);
 assert.deepEqual(aborted, ['sess-1']);
 
+// Agent-finished push wiring: every kernel harness notifies on sdkRunFinished,
+// except server-started runs (delegation/headless/mailbox) which keep SDK parity.
+const finishedCalls = [];
+const notifyKernel = createAgentRoomKernel({
+  transport: 'qwen',
+  persistHistory: () => {},
+  recordUsage: () => null,
+  notifyRunFinished: (input) => {
+    finishedCalls.push(input);
+  },
+});
+const interactiveRoom = notifyKernel.createRoomState({
+  sessionKey: 's-int',
+  chatId: 'chat-int',
+  chatTitle: 'Interactive chat',
+  _interactiveClientSeen: true,
+});
+notifyKernel.broadcastRoom(interactiveRoom, {
+  type: 'sdkRunFinished',
+  status: 'completed',
+  runId: 'run-int',
+});
+assert.equal(finishedCalls.length, 1);
+assert.equal(finishedCalls[0].chatId, 'chat-int');
+assert.equal(finishedCalls[0].chatTitle, 'Interactive chat');
+assert.equal(finishedCalls[0].status, 'completed');
+
+// Delegation children have no interactive client: SDK parity means no push.
+const delegationRoom = notifyKernel.createRoomState({
+  sessionKey: 's-del',
+  chatId: 'chat-del',
+  delegationId: 'delegation-1',
+});
+notifyKernel.broadcastRoom(delegationRoom, {
+  type: 'sdkRunFinished',
+  status: 'completed',
+  runId: 'run-del',
+});
+assert.equal(finishedCalls.length, 1, 'headless delegation runs must not push');
+
+// Mailbox/headless server-started runs without a client also stay silent.
+const serverHeldRoom = notifyKernel.createRoomState({
+  sessionKey: 's-hold',
+  chatId: 'chat-hold',
+  serverHold: true,
+});
+notifyKernel.broadcastRoom(serverHeldRoom, {
+  type: 'sdkRunFinished',
+  status: 'completed',
+  runId: 'run-hold',
+});
+assert.equal(finishedCalls.length, 1, 'server-started runs without a client must not push');
+
+// A user watching a delegation child arms the push, exactly like the SDK room
+// keeping `onRunFinished` after a WS connection.
+const watchedDelegationRoom = notifyKernel.createRoomState({
+  sessionKey: 's-del-watch',
+  chatId: 'chat-del-watch',
+  delegationId: 'delegation-2',
+  _interactiveClientSeen: true,
+});
+notifyKernel.broadcastRoom(watchedDelegationRoom, {
+  type: 'sdkRunFinished',
+  status: 'completed',
+  runId: 'run-del-watch',
+});
+assert.equal(finishedCalls.length, 2, 'a watched room keeps SDK push semantics');
+
 console.log('All room-kernel tests passed.');

@@ -428,6 +428,8 @@ const reviewVerifyAllowed = [
   'node ./scripts/review-verify.js mcp-chat-history-format',
   'node scripts/review-verify.js sdk-history-stream-coalesce sdk-assistant-block-reuse',
   ['/bin/bash', '-lc', 'node scripts/review-verify.js mcp-chat-history-format'],
+  // wrapper without path is still allowed (skipReadOnlyShellPrefix handles it)
+  'env node scripts/review-verify.js notices',
 ];
 for (const command of reviewVerifyAllowed) {
   assert.equal(
@@ -503,6 +505,22 @@ const reviewBlocked = [
   'npm test',
   'npx playwright test',
   'node scripts/review-verify.js && rm -rf tmp',
+  // Z1 regression: binary with path separator must be blocked in review
+  './node scripts/review-verify.js notices',
+  '/tmp/evil/node scripts/review-verify.js notices',
+  'env /usr/bin/node scripts/review-verify.js notices',
+  // Z1 regression: wrapper with path separator must be blocked too
+  '/tmp/evil/env node scripts/review-verify.js notices',
+  './time node scripts/review-verify.js notices',
+  // Z1 regression: env-var prefix (PATH=./evil) bypasses binary check in tokenizeShellSegment
+  'PATH=. node scripts/review-verify.js notices',
+  'PATH=/tmp/evil node scripts/review-verify.js notices',
+  'NODE_OPTIONS=--require ./payload.js node scripts/review-verify.js notices',
+  'LD_PRELOAD=./fixture.so node scripts/review-verify.js notices',
+  // Z1 regression: newline/& separator hides env-var prefix from start-of-segment check
+  'ls\nPATH=. node scripts/review-verify.js notices',
+  'ls & PATH=. node scripts/review-verify.js notices',
+  'rg foo\nLD_PRELOAD=./x.so node scripts/review-verify.js notices',
   'python3 -c "open(\'x\',\'w\').write(\'a\')"',
   'echo pwned > pwned.txt',
   'git commit -m wip',

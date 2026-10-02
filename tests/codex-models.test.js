@@ -12,6 +12,8 @@ assert.equal(resolveDefaultCodexModel(), 'gpt-5.6-sol');
 
 const fallback = listFallbackCodexModels();
 assert.ok(fallback.some((row) => row.modelId === 'gpt-6-astra'));
+assert.ok(fallback.some((row) => row.modelId === 'gpt-6.1-sol'));
+assert.ok(fallback.some((row) => row.value === 'gpt-6.1-sol::effort=medium'));
 assert.ok(fallback.some((row) => row.modelId === 'gpt-5.6-sol'));
 assert.ok(fallback.some((row) => row.modelId === 'gpt-5.6-terra'));
 assert.ok(fallback.some((row) => row.modelId === 'gpt-5.6-luna'));
@@ -45,6 +47,10 @@ assert.ok(fallback.some((row) => row.value === 'gpt-5.3-codex-spark::effort=low'
 const astraDefault = fallback.find((row) => row.modelId === 'gpt-6-astra' && row.isDefault);
 assert.ok(astraDefault);
 assert.equal(astraDefault.value, 'gpt-6-astra::effort=medium');
+
+const sol61Default = fallback.find((row) => row.modelId === 'gpt-6.1-sol' && row.isDefault);
+assert.ok(sol61Default);
+assert.equal(sol61Default.value, 'gpt-6.1-sol::effort=low');
 
 const solDefault = fallback.find((row) => row.modelId === 'gpt-5.6-sol' && row.isDefault);
 assert.ok(solDefault);

@@ -587,7 +587,10 @@ const reconnectTimer = transportSource.indexOf('_reconnectTimer = setTimeout', r
 assert.ok(reconnectStart > -1 && reconnectGuard > reconnectStart, 'scheduleChatReconnect must consult the blocking helper');
 assert.ok(reconnectGuard < reconnectTimer, 'scheduleChatReconnect must guard before arming the timer');
 
-const resumeStart = transportSource.indexOf('const resumeActiveChat = (reason');
+const resumeStart = Math.max(
+  transportSource.indexOf('function resumeActiveChat(reason'),
+  transportSource.indexOf('const resumeActiveChat = (reason')
+);
 const resumeGuard = transportSource.indexOf('isBlockingPersistedLocalChatHarnessState(active)', resumeStart);
 const resumeSync = transportSource.indexOf('onSdkResume(active', resumeStart);
 assert.ok(resumeStart > -1 && resumeGuard > resumeStart, 'resumeActiveChat must consult the blocking helper');

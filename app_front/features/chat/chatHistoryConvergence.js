@@ -512,6 +512,18 @@ export function resolveHistorySyncPollFollowUp(input) {
 }
 
 /**
+ * Cold-start cached render: arm the discreet mode-bar "syncing" label once local IDB
+ * history is already on screen, so the delta catch-up is visible without a full-screen
+ * spinner. `structuredReplayDone` is exactly the signal that cached history rendered.
+ *
+ * @param {{ structuredReplayDone?: boolean } | null | undefined} localHydration
+ * @returns {boolean}
+ */
+export function shouldArmCachedHistorySyncIndicator(localHydration) {
+  return localHydration?.structuredReplayDone === true;
+}
+
+/**
  * Visible catch-up indicator. Tracker `isRunning` does not cover WS replay wait.
  *
  * @param {object | null | undefined} chat

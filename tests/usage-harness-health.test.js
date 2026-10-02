@@ -72,13 +72,13 @@ function tempDataDir() {
   return mkdtempSync(path.join(tmpdir(), 'cretli-harness-health-'));
 }
 
-test('claude rate_limit_info extraction keeps optional plan numbers verbatim', () => {
+test('claude rate_limit_info extraction normalizes SDK fractions to shared percentages', () => {
   const notice = buildClaudeRateLimitNotice({
     type: 'rate_limit_event',
     rate_limit_info: {
       status: 'rejected',
       resetsAt: 1_800_000_000,
-      utilization: 82.5,
+      utilization: 0.825,
       rateLimitType: 'five_hour',
     },
   });
@@ -98,7 +98,7 @@ test('plan-limit snapshot resolves from a raw event and from a normalized notice
     type: 'rate_limit_event',
     rate_limit_info: {
       status: 'allowed_warning',
-      utilization: 41,
+      utilization: 0.41,
       resetsAt: 1_800_000_000,
       rateLimitType: 'seven_day',
     },
@@ -320,7 +320,7 @@ test('buildClaudeNoticePayload carries plan fields end-to-end into the health sn
       rate_limit_info: {
         status: 'rejected',
         resetsAt: 4_000_000_000,
-        utilization: 88.25,
+        utilization: 0.8825,
         rateLimitType: 'five_hour',
         overageStatus: 'enabled',
         isUsingOverage: true,
@@ -432,3 +432,68 @@ test('harness health map drops prototype ids and clear validates the catalog', a
 });
 
 removeIsolatedDataDir();
+
+
+test('forecast persists measured growth per harness/window and expires at reset', () => {
+  const dataDir = mkdtempSync(path.join(tmpdir(), 'cretli-plan-forecast-'));
+  const start = Date.parse('2026-10-02T12:00:00Z');
+  const resetsAt = new Date(start + 5 * 3600000).toISOString();
+  const note = (utilization, offset, extra = {}) => noteHarnessPlanLimit({ harness: 'qwen',
+    rateLimitType: 'five_hour', utilization, observedAt: new Date(start + offset).toISOString(), resetsAt, dataDir, ...extra });
+  const read = (offset = 3600000) => readHarnessPlanLimits('qwen', { dataDir, now: start + offset })[0];
+  try {
+    note(20, 0);
+    assert.equal(read(0).forecast, null);
+    note(40, 3600000);
+    assert.equal(read().remainingPercent, 60);
+    assert.equal(read().forecast.percentPerHour, 20);
+    assert.equal(read().forecast.exhaustsAt, new Date(start + 4 * 3600000).toISOString());
+    assert.equal(read().forecast.beforeReset, true);
+    note(30, 1800000); // Out-of-order event cannot replace the last reading.
+    assert.equal(read().utilization, 40);
+    note(99, 3600000, { harness: 'codex' });
+    note(99, 3600000, { rateLimitType: 'seven_day' });
+    assert.equal(readHarnessPlanLimits('qwen', { dataDir, now: start + 3600000 }).find(r => r.rateLimitType === 'seven_day').forecast, null);
+    const expired = read(5 * 3600000);
+    assert.equal(expired.expired, true);
+    assert.equal(expired.forecast, null);
+    assert.equal(expired.remainingPercent, null);
+    note(10, 2 * 3600000); // Decrease cannot be extrapolated across a reset.
+    assert.equal(read(2 * 3600000).forecast, null);
+    note(20, 3 * 3600000, { resetsAt: new Date(start + 10 * 3600000).toISOString() });
+    assert.equal(read(3 * 3600000).forecast, null);
+    note(null, 4 * 3600000);
+    assert.equal('utilization' in read(4 * 3600000), false);
+    assert.equal(read(4 * 3600000).remainingPercent, null);
+  } finally { rmSync(dataDir, { recursive: true, force: true }); }
+});
+
+test('stale samples and flat readings do not produce a forecast', () => {
+  const dataDir = mkdtempSync(path.join(tmpdir(), 'cretli-plan-stale-'));
+  const start = Date.parse('2026-10-02T12:00:00Z');
+  const note = (utilization, hours) => noteHarnessPlanLimit({ harness: 'sdk', rateLimitType: 'seven_day',
+    utilization, observedAt: new Date(start + hours * 3600000).toISOString(),
+    resetsAt: new Date(start + 7 * 86400000).toISOString(), dataDir });
+  try {
+    note(20, 0); note(20, 1);
+    assert.equal(readHarnessPlanLimits('sdk', { dataDir, now: start + 3600000 })[0].forecast, null);
+    note(30, 2);
+    const stale = readHarnessPlanLimits('sdk', { dataDir, now: start + 9 * 3600000 })[0];
+    assert.equal(stale.stale, true);
+    assert.equal(stale.forecast, null);
+  } finally { rmSync(dataDir, { recursive: true, force: true }); }
+});
+
+
+test('shared rate-limit notices work for every harness without guessing a scale', () => {
+  for (const harness of ['sdk', 'claude', 'codex', 'qwen', 'openrouter', 'future']) {
+    const snapshot = resolveHarnessPlanLimitSnapshot(harness, { noticeType: 'rate_limit', rateLimitType: 'session', utilization: 0.8 });
+    assert.equal(snapshot.utilization, 0.8);
+    assert.equal(snapshot.rateLimitType, 'session');
+    const absent = resolveHarnessPlanLimitSnapshot(harness, { noticeType: 'rate_limit', status: 'allowed', utilization: null });
+    assert.equal('utilization' in absent, false);
+  }
+  const claude = buildClaudeRateLimitNotice({ rate_limit_info: { status: 'allowed_warning', utilization: 0.008 } });
+  assert.equal(claude.utilization, 0.8);
+  assert.equal('utilization' in buildClaudeRateLimitNotice({ rate_limit_info: { status: 'allowed', utilization: '' } }), false);
+});

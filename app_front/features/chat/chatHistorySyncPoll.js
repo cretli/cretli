@@ -172,6 +172,10 @@ export function canClearPendingRemoteHistoryAfterStoreAck(input) {
 /**
  * Apply a compact agent-states map. Missing keys are idle (clears a previous busy row).
  *
+ * A response is authoritative even when a chat's state did not change, so every
+ * chat is stamped with the server watermark `_serverRunStateAt`. That watermark
+ * blocks an older push-inbox record from resurrecting a superseded state.
+ *
  * @param {object[]} chats
  * @param {Record<string, object> | null | undefined} statesById
  * @returns {boolean}
@@ -179,9 +183,11 @@ export function canClearPendingRemoteHistoryAfterStoreAck(input) {
 export function applyAgentStatesToChats(chats, statesById) {
   if (!statesById || typeof statesById !== 'object') return false;
   let changed = false;
+  const touchedAt = Date.now();
   for (const chat of chats) {
     const next = statesById[chat.id] || null;
     const prev = chat._serverRunState || null;
+    chat._serverRunStateAt = touchedAt;
     if (agentRunStateDedupeKey(prev) === agentRunStateDedupeKey(next)) continue;
     chat._serverRunState = next;
     changed = true;
@@ -208,6 +214,11 @@ export function agentRunStateDedupeKey(row) {
 /**
  * Patch presence from a WS frame. Snapshot treats missing ids as idle.
  *
+ * Every chat mentioned by the frame gets `_serverRunStateAt = Date.now()`, even
+ * when its state is unchanged and even in a snapshot. The watermark is the
+ * authoritative server clock that push-inbox patches are compared against, so it
+ * must advance on every server message, not only on a state-key change.
+ *
  * @param {object[]} chats
  * @param {{ states?: Record<string, object>, cleared?: string[], snapshot?: boolean } | null | undefined} message
  * @returns {{ changed: boolean, dirtyIds: string[] }}
@@ -215,11 +226,13 @@ export function agentRunStateDedupeKey(row) {
 export function applyAgentPresenceToChats(chats, message) {
   if (!message || typeof message !== 'object') return { changed: false, dirtyIds: [] };
   const list = Array.isArray(chats) ? chats : [];
+  const touchedAt = Date.now();
   if (message.snapshot === true) {
     const states = message.states && typeof message.states === 'object' ? message.states : {};
     const dirtyIds = [];
     for (const chat of list) {
       const next = states[chat.id] || null;
+      chat._serverRunStateAt = touchedAt;
       if (agentRunStateDedupeKey(chat._serverRunState) === agentRunStateDedupeKey(next)) continue;
       chat._serverRunState = next;
       dirtyIds.push(chat.id);
@@ -232,6 +245,7 @@ export function applyAgentPresenceToChats(chats, message) {
   for (const [id, next] of Object.entries(states)) {
     const chat = byId.get(id);
     if (!chat) continue;
+    chat._serverRunStateAt = touchedAt;
     if (agentRunStateDedupeKey(chat._serverRunState) === agentRunStateDedupeKey(next)) continue;
     chat._serverRunState = next;
     dirtyIds.push(id);
@@ -239,7 +253,9 @@ export function applyAgentPresenceToChats(chats, message) {
   for (const rawId of Array.isArray(message.cleared) ? message.cleared : []) {
     const id = String(rawId || '').trim();
     const chat = byId.get(id);
-    if (!chat || !chat._serverRunState) continue;
+    if (!chat) continue;
+    chat._serverRunStateAt = touchedAt;
+    if (!chat._serverRunState) continue;
     chat._serverRunState = null;
     dirtyIds.push(id);
   }

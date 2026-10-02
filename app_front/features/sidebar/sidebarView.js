@@ -649,6 +649,10 @@ export function createSidebarView(deps) {
         ? { tone: 'disconnected', label: t(localHarnessDisplay.messageKey) }
         : getTerminalStateMeta(chat));
     const showMeta = meta.tone !== 'idle';
+    // Transient push-inbox preview: in-memory only, cleared on history sync.
+    const pushPreview = chat._pushPreview && typeof chat._pushPreview.text === 'string'
+      ? chat._pushPreview.text.trim()
+      : '';
     const harness = String(chat.agentTransport || 'sdk').trim().toLowerCase();
     const harnessIcon = resolveSidebarHarnessIcon(chat);
     const harnessIconHtml = harnessIcon
@@ -678,6 +682,7 @@ export function createSidebarView(deps) {
       (isLastChild ? ' is-last-child' : '') +
       (archived ? ' is-archived' : '') +
       (hasPinAction ? ' has-pin-actions' : '') +
+      (pushPreview ? ' has-push-preview' : '') +
       '" role="option" aria-selected="' +
       (chat.id === activeChatId ? 'true' : 'false') +
       '" data-chat-id="' +
@@ -705,6 +710,7 @@ export function createSidebarView(deps) {
       '" aria-hidden="true">' +
       harnessIconHtml +
       '</span>' +
+      '<span class="sidebar-chat-item-main">' +
       '<span class="sidebar-chat-item-title">' +
       escapeHtml(chat.title) +
       (archived
@@ -723,6 +729,14 @@ export function createSidebarView(deps) {
         : '') +
       (chat.widgetPinnedUrl
         ? '<span class="sidebar-chat-item-pin-badge" title="' + escapeHtml(t('sidebar.pinnedUrlTitle')) + '">URL</span>'
+        : '') +
+      '</span>' +
+      (pushPreview && !archived
+        ? '<span class="sidebar-chat-item-preview" title="' +
+          escapeHtml(pushPreview) +
+          '">' +
+          escapeHtml(pushPreview) +
+          '</span>'
         : '') +
       '</span>' +
       (subchatSummary && !archived

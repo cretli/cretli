@@ -10,6 +10,7 @@ import {
 import { readChatPlanFile, writeChatPlanFile } from '../lib/chat-plan-persist.js';
 import {
   ensureLinkedTodoForPlan,
+  extractLatestAssistantTextFromHistoryStore,
   persistTodoImplementationSummary,
   persistTodoPlan,
   readCurrentRunAssistantText,
@@ -294,6 +295,29 @@ runCase('ensureLinkedTodoForPlan: returns the todo created by addTodo', () => {
   // The id must come from the addTodo return value, not items[0] guessing.
   const preExisting = items.find((row) => row.title === 'Pre-existing item');
   assert.notEqual(todoId, preExisting.id);
+});
+
+runCase('extractLatestAssistantTextFromHistoryStore reads last assistant turn', () => {
+  const text = extractLatestAssistantTextFromHistoryStore({
+    events: [
+      {
+        seq: 1,
+        rec: {
+          kind: 'sdk',
+          event: { type: 'assistant', message: { content: [{ type: 'text', text: 'First reply' }] } },
+        },
+      },
+      { seq: 2, rec: { kind: 'localUser' } },
+      {
+        seq: 3,
+        rec: {
+          kind: 'sdk',
+          event: { type: 'assistant', message: { content: [{ type: 'text', text: 'Final answer' }] } },
+        },
+      },
+    ],
+  });
+  assert.equal(text, 'Final answer');
 });
 
 try {

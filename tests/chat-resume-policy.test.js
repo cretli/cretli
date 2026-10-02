@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import {
   ACTIVE_CHAT_HISTORY_POLL_WS_GRACE_MS,
+  RESUME_FORCE_WS_RECONNECT_MOBILE_MS,
   RESUME_FORCE_WS_RECONNECT_MS,
+  RESUME_HISTORY_SYNC_DEFER_DESKTOP_MS,
+  RESUME_HISTORY_SYNC_DEFER_MOBILE_MS,
   RESUME_HISTORY_SYNC_MIN_MS,
+  RESUME_POLL_REASON_EXTRA_DEFER_MOBILE_MS,
   getResumeHistorySyncDeferMs,
+  resolveResumeForceWsReconnectMs,
   shouldApplyReplayEventsToRenderedView,
   shouldDeferResumeHistorySyncReason,
   shouldHttpCatchUpAfterWsReplay,
@@ -25,6 +30,25 @@ assert.equal(
   true
 );
 assert.equal(shouldRecycleActiveChatSocketOnResume(120000, false, WebSocket.CONNECTING), false);
+
+assert.equal(RESUME_FORCE_WS_RECONNECT_MOBILE_MS, 15000);
+assert.equal(resolveResumeForceWsReconnectMs(true), RESUME_FORCE_WS_RECONNECT_MOBILE_MS);
+assert.equal(resolveResumeForceWsReconnectMs(false), RESUME_FORCE_WS_RECONNECT_MS);
+assert.equal(
+  shouldRecycleActiveChatSocketOnResume(5000, false, WebSocket.OPEN, true),
+  false,
+  'A short mobile background keeps the socket (the short probe checks it)'
+);
+assert.equal(
+  shouldRecycleActiveChatSocketOnResume(RESUME_FORCE_WS_RECONNECT_MOBILE_MS, false, WebSocket.OPEN, true),
+  true,
+  'Mobile recycles an apparently-open socket after ~15s in the background'
+);
+assert.equal(
+  shouldRecycleActiveChatSocketOnResume(16000, false, WebSocket.OPEN, false),
+  false,
+  'Desktop still waits the long threshold'
+);
 
 assert.equal(
   shouldSyncActiveChatHistoryOnResume(2000, false, WebSocket.OPEN),
@@ -53,19 +77,41 @@ assert.equal(shouldRunResumeChatHistorySync('pageshow', 5000, false, false), tru
 assert.equal(shouldRunResumeChatHistorySync('visibility', 0, false, true), true);
 assert.equal(shouldRunResumeChatHistorySync('online', 0, false, false), true);
 assert.equal(shouldRunResumeChatHistorySync('backend_recovery', 0, false, false), true);
+assert.equal(
+  shouldRunResumeChatHistorySync('notification', 0, false, false),
+  true,
+  'A notification click must catch the active chat up even without a measured background'
+);
 
 assert.equal(shouldSkipHttpHistorySyncForMobileWsReplay(true, true), true);
 assert.equal(shouldSkipHttpHistorySyncForMobileWsReplay(true, false), false);
 assert.equal(shouldSkipHttpHistorySyncForMobileWsReplay(false, true), false);
 assert.equal(shouldDeferResumeHistorySyncReason('replay_fallback'), true);
+assert.equal(shouldDeferResumeHistorySyncReason('notification'), false);
 assert.equal(shouldHttpCatchUpAfterWsReplay(), true);
 assert.equal(shouldApplyReplayEventsToRenderedView(), true);
 
-assert.equal(getResumeHistorySyncDeferMs('visibility', true, 0) > 0, true);
+assert.equal(RESUME_HISTORY_SYNC_DEFER_MOBILE_MS, 2500);
+assert.equal(RESUME_HISTORY_SYNC_DEFER_DESKTOP_MS, 1200);
+assert.equal(
+  getResumeHistorySyncDeferMs('visibility', true, 0),
+  0,
+  'Active-chat resume sync runs immediately after open/replay'
+);
+assert.equal(
+  getResumeHistorySyncDeferMs('replay_fallback', true, 0),
+  0,
+  'Active-chat replay fallback catches up immediately too'
+);
 assert.equal(
   getResumeHistorySyncDeferMs('cross_device_poll', true, 0) >
     getResumeHistorySyncDeferMs('visibility', true, 0),
-  true
+  true,
+  'Background poll syncs keep their own defer'
+);
+assert.equal(
+  getResumeHistorySyncDeferMs('cross_device_poll', true, 0),
+  RESUME_HISTORY_SYNC_DEFER_MOBILE_MS + RESUME_POLL_REASON_EXTRA_DEFER_MOBILE_MS
 );
 
 assert.equal(

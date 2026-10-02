@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat, applyAutoTitle } from '../lib/persist/chats-persist.js';
 import { appendChatHistoryEvents } from '../lib/persist/chat-history-persist.js';
 import { createDelegationRecord, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { writeChatPlanFile, readChatPlanDocument } from '../lib/chat-plan-persist.js';
@@ -12,7 +12,7 @@ import {
   CRETILI_MCP_TOOL_DEFS,
   createCretliMcpToolHandlers,
 } from '../lib/mcp/mcp-builtin-tools.js';
-import { BUILTIN_MCP_MUTATING_TOOLS, BUILTIN_MCP_READ_TOOLS } from '../lib/mcp/mcp-policy.js';
+import { getBuiltinMcpMutatingTools, getBuiltinMcpReadTools } from '../lib/mcp/mcp-policy.js';
 import { callTool } from '../lib/mcp/mcp-runtime.js';
 import { createBuiltinCretliServer } from '../lib/mcp/mcp-config.js';
 import { setBuiltinMcpRuntimeDeps } from '../lib/mcp/builtin/runtime-deps.js';
@@ -23,6 +23,9 @@ import {
   registerMockChatRunAdapter,
   resetMockChatRuns,
 } from '../lib/chat-run/mock-adapter.js';
+
+const BUILTIN_MCP_READ_TOOLS = getBuiltinMcpReadTools();
+const BUILTIN_MCP_MUTATING_TOOLS = getBuiltinMcpMutatingTools();
 
 resetMockChatRuns();
 registerMockChatRunAdapter('opencode');
@@ -69,7 +72,7 @@ const names = CRETILI_MCP_TOOL_DEFS.map((tool) => tool.name);
 for (const name of [
   'chat_list', 'chat_show', 'chat_history', 'chat_event',
   'todo_list', 'todo_show', 'todo_create', 'todo_update',
-  'chat_plan_show', 'delegation_list', 'delegation_show', 'delegation_wait', 'delegation_start', 'delegation_cancel',
+  'chat_plan_show', 'delegation_list', 'delegation_show', 'delegation_verify', 'delegation_wait', 'delegation_start', 'delegation_cancel',
   'delegation_reply', 'delegation_inbox', 'delegation_workflow_show', 'delegation_workflow_update',
   'delegation_rate',
   'task_list', 'task_run_list', 'agent_list', 'agent_run_list', 'harness_list', 'model_list', 'model_pick',
@@ -82,6 +85,7 @@ assert.ok(BUILTIN_MCP_READ_TOOLS.includes('chat_history'));
 assert.ok(BUILTIN_MCP_READ_TOOLS.includes('chat_event'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('todo_create'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_start'));
+assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_verify'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_reply'));
 assert.ok(BUILTIN_MCP_READ_TOOLS.includes('delegation_inbox'));
 assert.ok(BUILTIN_MCP_READ_TOOLS.includes('delegation_wait'));
@@ -396,6 +400,14 @@ assert.match(foreignShow.content[0].text, /OUT_OF_SCOPE/);
 const foreignOk = await handlersA.chat_show({ chat: chatB.id, scope: 'all' });
 assert.equal(foreignOk.isError, false);
 assert.match(foreignOk.content[0].text, /Workspace B chat/);
+const shownBefore = await handlersA.chat_show({ chat: chatB.id, scope: 'all' });
+assert.deepEqual(shownBefore.structuredContent.titleHistory, []);
+applyAutoTitle(chatB.id, 'area: titled by server', { reason: 'regenerate', force: true });
+const shownAfter = await handlersA.chat_show({ chat: chatB.id, scope: 'all' });
+assert.equal(shownAfter.structuredContent.title_source, 'auto');
+assert.equal(shownAfter.structuredContent.titleHistory.length, 1);
+assert.equal(shownAfter.structuredContent.titleHistory[0].title, 'area: titled by server');
+assert.equal(shownAfter.structuredContent.titleHistory[0].reason, 'regenerate');
 const foreignEvent = await handlersA.chat_event({ chat: chatB.id, seq: 1, field: 'text' });
 assert.equal(foreignEvent.isError, true);
 assert.match(foreignEvent.content[0].text, /OUT_OF_SCOPE/);

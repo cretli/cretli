@@ -23,6 +23,7 @@ import {
 import { parseExplicitSdkMode, shouldRenderModeChange } from '../../lib/sdk/sdk-mode.js';
 import { normalizeSdkUiMode } from '../../lib/sdk/sdk-ui-mode.js';
 import { splitTrailingTitleJson } from '../features/chat/chatTitleParsing.js';
+import { extractTodoRefsFromMessage, todoStatusLabelKey } from '../features/chat/todoMention.js';
 import { parseTimeoutProgressNotice } from '../../lib/notices.js';
 import {
   buildStableSdkToolCallFallback,
@@ -798,10 +799,22 @@ export function createSdkRichView(chat, mountEl, hooks) {
   const openCodeQuestionByRequestId = new Map();
   /** @type {Map<string, HTMLElement>} */
   const openCodePermissionByRequestId = new Map();
+  /** @type {Map<string, ReturnType<typeof setInterval>>} */
+  const openCodeAdvisorPickTimers = new Map();
+
+  function clearAdvisorPermissionPick(requestId) {
+    const id = String(requestId || '').trim();
+    if (!id) return;
+    const timer = openCodeAdvisorPickTimers.get(id);
+    if (timer) clearInterval(timer);
+    openCodeAdvisorPickTimers.delete(id);
+  }
 
   function clearOpenCodeInteractiveMaps() {
     openCodeQuestionByRequestId.clear();
     openCodePermissionByRequestId.clear();
+    openCodeAdvisorPickTimers.forEach((timer) => clearInterval(timer));
+    openCodeAdvisorPickTimers.clear();
   }
 
   const compactTrayHosts = new Set();
@@ -2468,6 +2481,58 @@ export function createSdkRichView(chat, mountEl, hooks) {
   }
 
   /**
+   * Compact todo marker inside a user turn. The raw pointer stays in copyText.
+   *
+   * @param {HTMLElement} body
+   * @param {string} todoId
+   */
+  function appendTodoHistoryRow(body, todoId) {
+    const known = chat._todoRowMeta && chat._todoRowMeta[todoId];
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'sdk-rich-todo-row';
+    const title = document.createElement('span');
+    title.className = 'sdk-rich-todo-row-title';
+    title.textContent = known?.title || todoId.slice(0, 8);
+    const statusKey = todoStatusLabelKey(known?.status);
+    if (statusKey) {
+      const status = document.createElement('span');
+      status.className = 'sdk-rich-todo-row-status';
+      status.textContent = t(statusKey);
+      row.append(title, status);
+    } else {
+      row.append(title);
+    }
+    row.addEventListener('click', () => {
+      document.dispatchEvent(new CustomEvent('cretli-open-todo', { detail: { todoId } }));
+    });
+    body.appendChild(row);
+    if (known?.title || typeof hooks.resolveTodoRow !== 'function') return;
+    void Promise.resolve(hooks.resolveTodoRow(todoId)).then((summary) => {
+      const nextTitle = String(summary?.title || '').trim();
+      if (!nextTitle) return;
+      if (!chat._todoRowMeta) chat._todoRowMeta = {};
+      chat._todoRowMeta[todoId] = {
+        title: nextTitle,
+        status: String(summary?.status || ''),
+      };
+      title.textContent = nextTitle;
+      const statusKeyNext = todoStatusLabelKey(summary?.status);
+      let statusEl = row.querySelector('.sdk-rich-todo-row-status');
+      if (!statusKeyNext) {
+        statusEl?.remove();
+        return;
+      }
+      if (!(statusEl instanceof HTMLElement)) {
+        statusEl = document.createElement('span');
+        statusEl.className = 'sdk-rich-todo-row-status';
+        row.appendChild(statusEl);
+      }
+      statusEl.textContent = t(statusKeyNext);
+    }).catch(() => {});
+  }
+
+  /**
    * User message rendered as a regular cr-sdk-block.
    *
    * @param {string} textRaw
@@ -2483,12 +2548,21 @@ export function createSdkRichView(chat, mountEl, hooks) {
     let shown = text;
     if (text === 'Child reply') shown = t('chat.mailboxReplyFromChild');
     else if (text === 'Task from parent') shown = t('chat.mailboxTaskFromParent');
-    const textForDisplay = stripScreenshotMarkers(shown);
+    const extracted = extractTodoRefsFromMessage(shown);
+    const continuePrompt = t('sendBar.todoContinuePrompt');
+    const visibleText = extracted.todoIds.length && extracted.text === continuePrompt
+      ? ''
+      : extracted.text;
+    const textForDisplay = stripScreenshotMarkers(visibleText);
     block.copyText = text;
     const body = document.createElement('div');
     body.className = 'sdk-rich-user-body';
-    body.innerHTML = escapeHtml(textForDisplay).replace(/\r?\n/g, '<br/>');
+    if (textForDisplay) {
+      body.innerHTML = escapeHtml(textForDisplay).replace(/\r?\n/g, '<br/>');
+    }
+    extracted.todoIds.forEach((todoId) => appendTodoHistoryRow(body, todoId));
     appendInlineImageThumbs(body, collectInlineImageRefs(text));
+    if (!textForDisplay && extracted.todoIds.length === 0 && !body.childElementCount) return null;
     block.appendChild(body);
     return block;
   }
@@ -2812,6 +2886,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       button.textContent = label;
       button.addEventListener('click', () => {
         if (typeof hooks.onOpenCodePermissionReply !== 'function') return;
+        clearAdvisorPermissionPick(requestId);
         hooks.onOpenCodePermissionReply({ requestId, reply });
         block.classList.add('sdk-rich-opencode-permission--answered');
         actions.querySelectorAll('button').forEach((el) => {
@@ -4537,10 +4612,39 @@ export function createSdkRichView(chat, mountEl, hooks) {
     resolveOpenCodePermission(requestId) {
       const id = String(requestId || '').trim();
       if (!id) return;
+      clearAdvisorPermissionPick(id);
       const block = openCodePermissionByRequestId.get(id);
       if (!block) return;
       block.classList.add('sdk-rich-opencode-permission--resolved');
       openCodePermissionByRequestId.delete(id);
+    },
+
+    showOpenCodePermissionAdvisorPick(requestId, reply, applyAfterMs) {
+      const id = String(requestId || '').trim();
+      const choice = reply === 'always' || reply === 'reject' ? reply : 'once';
+      const block = openCodePermissionByRequestId.get(id);
+      if (!id || !block || block.classList.contains('sdk-rich-opencode-permission--answered')) return;
+      const button = block.querySelector(`.sdk-rich-opencode-permission-${choice}`);
+      if (!(button instanceof HTMLButtonElement)) return;
+      clearAdvisorPermissionPick(id);
+      const baseLabel = button.dataset.baseLabel || button.textContent || choice;
+      button.dataset.baseLabel = baseLabel;
+      block.querySelectorAll('.sdk-rich-opencode-permission-actions button').forEach((el) => {
+        el.classList.remove('is-advisor-pick');
+        if (el instanceof HTMLButtonElement && el.dataset.baseLabel) el.textContent = el.dataset.baseLabel;
+      });
+      button.classList.add('is-advisor-pick');
+      const waitMs = Number(applyAfterMs);
+      const endsAt = Date.now() + (Number.isFinite(waitMs) && waitMs > 0 ? waitMs : 0);
+      const tick = () => {
+        const left = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+        button.textContent = left > 0 ? `${baseLabel} · ${left}s` : baseLabel;
+        if (left <= 0) clearAdvisorPermissionPick(id);
+      };
+      tick();
+      if (endsAt > Date.now()) {
+        openCodeAdvisorPickTimers.set(id, setInterval(tick, 250));
+      }
     },
 
     appendBannerConnected(opts = {}) {

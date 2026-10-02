@@ -1,6 +1,6 @@
 ---
 name: cretli-delegation-implement
-description: Execute a Cretli delegated "implement" assignment that fixes a review finding — prove the finding with a failing regression test before fixing it, verify scope for untracked files, and report BLOCKED when the cretli_bridge session is dead.
+description: Execute a Cretli delegated "implement" assignment that fixes a review finding — verify the finding's cited root-cause branch and gate order before applying the task's snippet, prove it with a failing regression test, substitute repo-native runners when the task's test command is stale, and report BLOCKED when the cretli_bridge session is dead.
 source: auto-skill
 extracted_at: '2026-09-29T21:13:52.207Z'
 ---
@@ -54,6 +54,17 @@ Confirm the exploit path from the code (which line actually consumes the untrust
 what else consumes the function (`grep_search` for the exported names) to prove "no runtime
 integration" before claiming the blast radius is small. Prompt-quoted line numbers drift; cite the
 lines you verified.
+- **The cited root-cause branch may not be the one that fires, and the provided snippet may be a
+  silent no-op.** Approval-advisor round (2026-10-02): [TASK] blamed the `categories.length > 0 →
+  unsafe_category` gate in `resolveApprovalAdvisorPlan` (the name it quoted, `canConsultApprovalAdvisor`,
+  didn't even exist). But the *earlier* `action.risk !== 'low' → not_low_risk` gate rejects the same
+  actions first, and the upstream classifier (`classifyOpenCodePermissionRisk`) gives mutation-only
+  commands `risk: 'medium'`, so `unsafe_category` was unreachable from that flow — applying only the
+  category relaxation would have changed nothing user-visible. Follow the task's stated *intent*
+  ("mutation-only, risk=medium must be advisor-eligible"), verify **gate order** in the real code, and
+  widen minimally *inside the same function* (there: a `mutationOnlyMedium` exception on both gates).
+  Report the corrected root cause and the snippet deviation explicitly — "the finding named the wrong
+  line" is a finding of its own.
 - The path may be **already mitigated indirectly** by an accidental coupling elsewhere, and the
   assignment still stands. BE7 example: the legacy `/ws-agent?resume=` guard enumerated builtin
   transports, but local plugin ids were *also* caught because `normalizeAgentTransport(unknown)`
@@ -107,6 +118,44 @@ Where the assignment names an existing test file as "acceptable only if clean/un
 `git ls-files --error-unmatch <file>`. An **untracked** (`??`) file has no HEAD baseline, so it is
 not clean — do not append to someone's WIP artifact; create a new narrowly scoped
 `tests/<name>.test.js` instead (Step 5: the runner auto-globs it, so no package edits are needed).
+
+**Observing a fire-and-forget helper whose guard you are fixing (deps-injection seam).** When the
+finding is a *substring-vs-type* bug in a caller that invokes a shared best-effort helper — e.g.
+`local-harness-runtime.js` `watchRunFinishedForSideEffects` calling `notifyAgentFinished` on any
+frame containing `'sdkRunFinished'`/`'sdkPromptStarted'` without checking `payload.type` — the fix is:
+keep `data.includes(...)` as a cheap prefilter to avoid `JSON.parse` on every frame, but gate the
+side effects on the parsed `payload.type` (`=== 'sdkRunFinished'` → notify + auto-title; `===
+'sdkPromptStarted'` → reset the dedupe flag), matching how `room-kernel` guards before notifying and
+how `noteRoomRunFinishedForAutoTitle` already returns false on wrong type.
+- The real helper can't be observed through its own defaults in tests: `notifyAgentFinished` early-
+  returns *before* setting `room._agentFinishedPushNotified` / broadcasting because `web-push` is
+  installed (`isPushAvailable()` true) but `hasPushSubscriptions()` reads an empty
+  `push-subscriptions.json` in the scratch `CRETLI_DATA_DIR` → false. `node:test`'s `mock.module`
+  won't repoint a binding the importer already captured (the caller is statically imported at the top
+  of the suite), so it is NOT the right tool here.
+- Instead add the repo's own convention: a module-global seam defaulting to `null`
+  (`let depsForTest = null; export function __setXForTest(d){ depsForTest = d && typeof d==='object' ? d : null; }`)
+  forwarded as the helper's *second* `deps` arg (`notifyAgentFinished(input, depsForTest || {})`).
+  Inert in production, mirrors `__setChatTitleServiceForTest` and the existing `createChatTitleDispatcher(deps)`
+  / `notifyAgentFinished(input, deps)` injection style. Inject `isPushAvailable/hasPushSubscriptions:
+  ()=>true` + a `broadcastPush` that records into an array → the REAL helper still runs its flag/dedupe
+  logic faithfully, so you can assert both "wrong-type frame pushes nothing" and "one real finish +
+  one fake + one duplicate = exactly 1 broadcast; a real `sdkPromptStarted` re-arms to 2".
+- This seam is a production-file edit *beyond* the literal guard — justify it as "necessary to prove
+  the guard" and list it under deviations, keeping it additive/null-defaulted. Prove the bite with the
+  standard fix-disabled experiment: neuter to the old `includes` branches (sentinel comment), the two
+  new tests fail with the exact defect signature (`broadcasts.length` 2≠1 and 3≠2), restore, grep the
+  sentinel → exit 1, re-run green.
+
+- **An existing test may codify the very bug you are fixing.** Approval-advisor round: the block
+  "A medium-risk mutation is also ineligible" asserted exactly the buggy contract, so implementing
+  the task's intent *must* flip it. Invert it in the same change and list it under deviations —
+  keeping it would leave the suite red post-fix or lock in the old behavior; silently deleting it
+  would hide a contract change.
+- **Plain assert scripts abort at the FIRST failing assertion** (no test() isolation). The pre-fix
+  run therefore only shows one bite (`AssertionError … false !== true` + stack line) and never
+  executes your later new blocks — say exactly that in the report ("first new assertion failed
+  pre-fix; subsequent blocks are post-fix green or locks"), don't imply the whole set ran red.
 
 Also verify each new assertion's *semantics* before running, or you'll "fix" a test that was wrong:
 a directory holding a plugin is still a perfectly valid root for `resolveHarnessPluginRoot`, so
@@ -171,9 +220,19 @@ session, so rely on the mtime comparison for the byte-for-byte claim.
 ## Step 5 — targeted verification, with a recorded baseline
 - `node --test tests/<suite>.test.js` for each affected suite, and quote the summary lines
   (`# tests / # pass / # fail`) verbatim.
+- **The [TASK] may name a runner that does not exist.** Approval-advisor round (2026-10-02): the
+  instructed command was `node --experimental-vm-modules node_modules/.bin/jest tests/...` — jest is
+  not installed in this repo (`npm test` = `scripts/run-unit-tests.mjs`). Run the named suite with
+  the repo-native form anyway (`node tests/<file>` for plain assert scripts, `node --test` for
+  node:test files), pass it, and report the command substitution as a deviation — do not mark BLOCKED
+  over a stale doc command, and do not silently skip the suite.
+- Capturing results: `tail -1` of piped output can show an `ExperimentalWarning` line instead of the
+  verdict, and `echo exit=$?` after a pipe reports the pipe's last stage, not node's. Use
+  `"$out" 2>&1; e=$?` into a file or `${PIPESTATUS[0]}`, and grep for ` OK$` / `^# (tests|pass|fail)`.
 - Lint the changed files only (`npx eslint <paths>`), **then** run repo-wide `npx eslint .` once to
-  capture the pre-existing baseline (observed: `12 problems (0 errors, 12 warnings)`, all in unrelated
-  delegation/mcp tests). Report both so "clean" is not overclaimed.
+  capture the pre-existing baseline (drifts with others' WIP: `12 problems (0 errors, 12 warnings)`
+  on 2026-09-30, `13/13` on 2026-10-02 — always report the count you actually saw, 0 errors is the
+  load-bearing part). Report both so "clean" is not overclaimed.
 - Run one adjacent smoke suite (e.g. `npm run test:harness-status`) to show the module graph is fine.
 - Check how the runner discovers suites — read `scripts/run-unit-tests.mjs`, don't grep it for the
   suite name. Verified semantics: it **globs every `tests/*.test.js`** (sorted), spawns each in its
@@ -187,10 +246,16 @@ session, so rely on the mtime comparison for the byte-for-byte claim.
   before choosing a runner form.
 
 ## Step 6 — when the bridge session is dead, report BLOCKED honestly
-Happy path confirmed (BE7): `delegation_reply` with `delegation_id` + `reply_kind=final_report` +
-`task_outcome=success` + stable `idempotency_key` and NO `attempt_id`/`run_id` returns
-`Queued reply <uuid> status=queued to=<parent>` without CONFLICT — omit them unless the error names
-the executing run.
+Happy path confirmed twice (BE7, and 2026-10-02 with a fresh `delegation_show` right before sending —
+it printed the live `attempt_id`/`run_id` and I still omitted both): `delegation_reply` with
+`delegation_id` + `reply_kind=final_report` + `task_outcome=success` + stable `idempotency_key` and
+NO `attempt_id`/`run_id` returns `Queued reply <uuid> status=queued to=<parent>` without CONFLICT —
+omit them unless the error names the executing run.
+- **Fixes that widen a gate may leave a sibling bias in place — report it, don't "fix" it.** The
+  approval-advisor eligibility now lets mutation-only commands reach the external model, but the
+  module's `ADVISOR_SYSTEM_PROMPT` still tells the model to approve only read-only actions — so the
+  model itself may keep answering `ask_user`. Rewriting prompts is a product decision outside an
+  eligibility scope; name it under "remaining problems".
 Never pass `chat_id` unless you are certain it is *this* executor chat's UUID — the prompt gives the
 *parent* chat and the delegation id, and neither works: `chat_id = <delegation_id>` returned
 `CONFLICT: delegation_reply chat_id must be this chat. You cannot reply as another executor.`

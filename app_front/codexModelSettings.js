@@ -27,6 +27,7 @@ const CODEX_EFFORT_ORDER = Object.freeze({
 
 const CODEX_MODEL_ORDER = Object.freeze({
   'gpt-6-astra': 10,
+  'gpt-6.1-sol': 15,
   'gpt-6-sol': 20,
   'gpt-6-terra': 30,
   'gpt-6-luna': 40,

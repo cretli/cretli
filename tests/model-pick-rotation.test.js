@@ -260,6 +260,15 @@ const freshLimit = selectModelPick({
 assert.equal(freshLimit.pick.harness, 'b');
 assert.ok(freshLimit.candidates.find((row) => row.harness === 'a').plan_limit_penalty > 0);
 
+// The shared plan contract is percent, including small fractional percentages.
+for (const utilization of [0.8, 1, 12, 89.9, 90, 100]) {
+  const result = selectModelPick({ role: 'implement', harnesses: exploreHarnesses,
+    modelsByHarness: exploreModels, rotation: 'balanced', explore: false,
+    history: { planLimits: [{ harness: 'a', utilization, resetsAt: '2099-01-01T00:00:00Z' }] },
+  });
+  assert.equal(result.candidates.find((row) => row.harness === 'a').plan_limit_penalty,
+    utilization >= 90 ? PLAN_LIMIT_PENALTY : 0);
+}
 // --- Review auto-excludes the last implementer and last reviewer ---
 createDelegationRecord({
   parentChatId: 'review-chat',

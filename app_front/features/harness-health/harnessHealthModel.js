@@ -163,7 +163,8 @@ function normalizeActiveLimit(raw, ctx) {
  */
 function normalizePlanLimit(raw, ctx) {
   if (!raw || typeof raw !== 'object') return null;
-  const utilization = normalizeUtilization(raw.utilization);
+  const expired = raw.expired === true || (Date.parse(raw.resetsAt) <= ctx.now);
+  const utilization = expired ? null : normalizeUtilization(raw.utilization);
   const observedAt = String(raw.observedAt || '');
   const stale = raw.stale === true;
   const resetsAt = String(raw.resetsAt || '');
@@ -178,6 +179,10 @@ function normalizePlanLimit(raw, ctx) {
     observedAt,
     stale,
     staleHours: stale ? formatStaleHours(observedAt, ctx.now) : null,
+    expired,
+    remainingText: utilization == null ? '' : formatPercent(1 - utilization, ctx.lang),
+    forecastTime: !stale && !expired && raw.forecast?.beforeReset ? formatResetTime(raw.forecast.exhaustsAt, ctx) : '',
+
   };
 }
 
@@ -335,6 +340,14 @@ function metricHtml(label, value, warn = false) {
   return `<div class="harness-health-metric${warn ? ' is-warn' : ''}"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`;
 }
 
+function durationText(ms, lang) {
+  if (ms == null) return '—';
+  const number = new Intl.NumberFormat(localeFor(lang), { maximumFractionDigits: 1 });
+  if (ms < 1000) return `${number.format(ms)} ms`;
+  if (ms < 60000) return `${number.format(ms / 1000)} s`;
+  return `${number.format(ms / 60000)} min`;
+}
+
 /**
  * @param {object} limit normalized plan-limit row
  * @param {(key: string, vars?: object) => string} t
@@ -342,10 +355,14 @@ function metricHtml(label, value, warn = false) {
  */
 function planLimitHtml(limit, t) {
   const parts = ['<div class="harness-health-plan-row">'];
+  const types = { five_hour: 'windowFiveHour', seven_day: 'windowSevenDay', seven_day_opus: 'windowSevenDayOpus', seven_day_sonnet: 'windowSevenDaySonnet', session: 'windowSession', overage: 'windowOverage' };
+  const statuses = { allowed: 'windowAllowed', allowed_warning: 'windowWarning', rejected: 'windowRejected' };
+  const type = types[limit.rateLimitType] ? t(`harnessHealth.${types[limit.rateLimitType]}`) : limit.rateLimitType || '—';
+  const status = limit.expired ? t('harnessHealth.windowExpired') : statuses[limit.status] ? t(`harnessHealth.${statuses[limit.status]}`) : limit.status;
   parts.push('<div class="harness-health-plan-head">');
-  parts.push(`<span class="harness-health-plan-type">${escapeHtml(limit.rateLimitType || '—')}</span>`);
-  if (limit.status) {
-    parts.push(`<span class="harness-health-plan-status">${escapeHtml(limit.status)}</span>`);
+  parts.push(`<span class="harness-health-plan-type">${escapeHtml(type)}</span>`);
+  if (status) {
+    parts.push(`<span class="harness-health-plan-status">${escapeHtml(status)}</span>`);
   }
   parts.push('</div>');
   if (limit.utilizationPercent != null) {
@@ -356,7 +373,10 @@ function planLimitHtml(limit, t) {
       + `<span class="harness-health-bar-value">${escapeHtml(limit.utilizationText)}</span>`
     );
   }
+  if (limit.utilizationPercent == null && !limit.expired) parts.push(`<p class="harness-health-plan-meta">${escapeHtml(t('harnessHealth.planNoPercentage'))}</p>`);
   const meta = [];
+  if (limit.remainingText) meta.push(escapeHtml(t('harnessHealth.planRemaining', { percent: limit.remainingText })));
+  if (limit.forecastTime) meta.push(escapeHtml(t('harnessHealth.planForecast', { time: limit.forecastTime })));
   if (limit.resetTime) meta.push(escapeHtml(t('harnessHealth.planLimitReset', { time: limit.resetTime })));
   else meta.push(escapeHtml(t('harnessHealth.planLimitNoReset')));
   if (limit.stale) {
@@ -406,7 +426,7 @@ export function renderHealthCardHtml(model, ctx = {}) {
     parts.push('<div class="harness-health-lockout-text">');
     parts.push(`<span class="harness-health-lockout-title">${escapeHtml(t('harnessHealth.activeLimitTitle'))}</span>`);
     if (lock.model) parts.push(`<span>${escapeHtml(t('harnessHealth.activeLimitModel', { model: lock.model }))}</span>`);
-    if (lock.code) parts.push(`<span>${escapeHtml(t('harnessHealth.activeLimitCode', { code: lock.code }))}</span>`);
+    if (lock.code) parts.push(`<details class="harness-health-diagnostic"><summary>${escapeHtml(t('harnessHealth.technicalDetails'))}</summary><code>${escapeHtml(lock.code)}</code></details>`);
     if (lock.resetTime) parts.push(`<span>${escapeHtml(t('harnessHealth.activeLimitReset', { time: lock.resetTime }))}</span>`);
     parts.push('</div>');
     parts.push(
@@ -424,8 +444,16 @@ export function renderHealthCardHtml(model, ctx = {}) {
   if (!safe.hasData) {
     parts.push(`<p class="harness-health-empty">${escapeHtml(t('harnessHealth.emptyRuns'))}</p>`);
   } else {
+    parts.push('<dl class="harness-health-metrics">');
+    parts.push(metricHtml(t('harnessHealth.metricRuns'), formatInteger(safe.runs, lang)));
+    parts.push(metricHtml(t('harnessHealth.metricSuccess'), formatPercent(safe.successRate, lang)));
+    parts.push(metricHtml(t('harnessHealth.metricP50'), durationText(safe.p50LatencyMs, lang)));
+    parts.push(metricHtml(t('harnessHealth.metricP95'), durationText(safe.p95LatencyMs, lang)));
+    parts.push(metricHtml(t('harnessHealth.metricLimitHits'), formatInteger(safe.limitHits, lang), safe.limitHits > 0));
+    parts.push('</dl>');
+
     const ariaLabel = t('harnessHealth.sparklineAria', { runs: safe.runs, errors: safe.errorRuns });
-    parts.push('<div class="harness-health-spark">');
+    parts.push(`<div class="harness-health-activity"><span class="harness-health-subtitle">${escapeHtml(t('harnessHealth.activityTitle'))}</span><div class="harness-health-spark">`);
     parts.push(renderSparklineSvg(safe.daily, {
       ariaLabel,
       runsLabel: t('harnessHealth.sparklineLegendRuns'),
@@ -437,15 +465,7 @@ export function renderHealthCardHtml(model, ctx = {}) {
       runs: t('harnessHealth.dailyTableRuns'),
       errors: t('harnessHealth.dailyTableErrors'),
     }));
-    parts.push('</div>');
-
-    parts.push('<dl class="harness-health-metrics">');
-    parts.push(metricHtml(t('harnessHealth.metricRuns'), formatInteger(safe.runs, lang)));
-    parts.push(metricHtml(t('harnessHealth.metricSuccess'), formatPercent(safe.successRate, lang)));
-    parts.push(metricHtml(t('harnessHealth.metricP50'), safe.p50LatencyMs == null ? '—' : t('harnessHealth.milliseconds', { value: formatInteger(safe.p50LatencyMs, lang) })));
-    parts.push(metricHtml(t('harnessHealth.metricP95'), safe.p95LatencyMs == null ? '—' : t('harnessHealth.milliseconds', { value: formatInteger(safe.p95LatencyMs, lang) })));
-    parts.push(metricHtml(t('harnessHealth.metricLimitHits'), formatInteger(safe.limitHits, lang), safe.limitHits > 0));
-    parts.push('</dl>');
+    parts.push('</div></div>');
 
     parts.push(`<div class="harness-health-errors"><span class="harness-health-subtitle">${escapeHtml(t('harnessHealth.lastErrorsTitle'))}</span>`);
     if (safe.lastErrors.length === 0) {

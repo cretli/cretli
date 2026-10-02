@@ -429,6 +429,73 @@ function findItem(id) {
   return latestItems.find((item) => String(item?.id || '') === id) || null;
 }
 
+/**
+ * @param {object | null} item
+ * @returns {{ id: string, title: string, status: string } | null}
+ */
+function summarizeTodo(item) {
+  if (!item?.id) return null;
+  return {
+    id: String(item.id),
+    title: String(item.title || ''),
+    status: String(item.status || ''),
+  };
+}
+
+/**
+ * Load one todo into the in-memory list when the panel has not fetched it yet.
+ *
+ * @param {string} id
+ * @returns {Promise<object | null>}
+ */
+async function ensureTodoLoaded(id) {
+  const todoId = String(id || '').trim();
+  if (!todoId) return null;
+  const cached = findItem(todoId);
+  if (cached) return cached;
+  const data = await api.getTodos();
+  if (!data?.ok || !Array.isArray(data.items)) return null;
+  latestItems = data.items;
+  if (listEl) renderList(data);
+  return findItem(todoId);
+}
+
+/**
+ * Open the Todo panel on one task.
+ *
+ * @param {string} id
+ * @returns {Promise<boolean>}
+ */
+export async function openTodo(id) {
+  const item = await ensureTodoLoaded(id);
+  if (!item) return false;
+  showPanelFn('todo');
+  openEditor(String(item.id));
+  return true;
+}
+
+/**
+ * Open the newest chat for a todo, or start an agent when none exists.
+ *
+ * @param {string} id
+ * @returns {Promise<boolean>}
+ */
+export async function continueTodo(id) {
+  const item = await ensureTodoLoaded(id);
+  if (!item) return false;
+  openLatestTodoChat(item);
+  return true;
+}
+
+/**
+ * @param {string} id
+ * @returns {Promise<{ id: string, title: string, status: string } | null>}
+ */
+export async function loadTodoSummary(id) {
+  const item = await ensureTodoLoaded(id);
+  return summarizeTodo(item);
+}
+
 function syncEditorItem() {
   if (!editorCard || !editorTodoId) return;
   const item = findItem(editorTodoId);

@@ -27,7 +27,11 @@ import {
 import { writeTextToClipboard } from './lib/clipboard.js';
 import { setChatStatus } from './connectionStatus.js';
 import { createSendBar } from './sendBar.js';
+import { createSendBarTodoChip } from './features/sendBar/sendBarTodoChip.js';
+import { createTodoMentionPicker } from './features/chat/todoMentionPicker.js';
+import { appendTodoRef, parseTodoMention, removeTodoMention, resolveTodoContinueBlock } from './features/chat/todoMention.js';
 import { initModal } from './lib/modal.js';
+import { initAutoTitleSettings } from './features/settings/autoTitleSettings.js';
 import { showChoiceDialog } from './lib/choiceDialog.js';
 import {
   buildHarnessHandoffPrompt,
@@ -85,6 +89,7 @@ import { parseTerminalInteraction, resolveTerminalState } from '../lib/status-pa
 import {
   hasActiveAgentRun,
   hasKeepAliveHarnessWork,
+  hasLiveHarnessWork,
   readHarnessPendingFlags,
   resolveChatStatusWithHistorySync,
   resolveChatListDotState,
@@ -129,6 +134,11 @@ import {
 } from '../lib/context-compression.js';
 import { initChatHistorySyncPoll, ingestAgentPresenceMessage, applyAgentStatesToChats, invalidateAgentPresenceTrust } from './features/chat/chatHistorySyncPoll.js';
 import { initChatListResumeSync } from './features/chat/chatListResumeSync.js';
+import {
+  clearPushPreview,
+  consumePushInbox,
+  initPushInboxResumeConsumer,
+} from './features/pwa/pushInbox.js';
 import { createChatListLiveSync } from './features/chat/chatListLiveSync.js';
 import { isSidebarArchiveSectionOpen } from './features/sidebar/sidebarVisibleChats.js';
 import { getResumeHistorySyncDeferMs } from './features/chat/chatResumePolicy.js';
@@ -137,9 +147,11 @@ import {
   replaceViewAppliedRecords,
   resetViewAppliedState,
   setChatHistorySyncInFlight,
+  shouldArmCachedHistorySyncIndicator,
   shouldKeepHistorySyncInFlight,
   syncViewAppliedSessionKey,
 } from './features/chat/chatHistoryConvergence.js';
+import { markPageResumeStage } from './features/chat/pageResumeTrace.js';
 import { applyCatchUpSdkHistoryRecords } from './features/chat/chatHistoryViewApply.js';
 import { runSdkHistoryConvergence as executeSdkHistoryConvergence } from './features/chat/chatHistoryConvergenceRun.js';
 import { isMobileLikeClient } from './lib/mobileClient.js';
@@ -531,6 +543,7 @@ export function readChatBufferForChatRestore(chatId, isSdk) {
 
 /** Initialize Chat checkboxes in the Settings panel. */
 export function initAutoNameChatSetting() {
+  initAutoTitleSettings();
   const cb = document.getElementById('auto-name-chat-checkbox');
   if (cb) {
     cb.checked = getAutoNameChatEnabled();
@@ -598,6 +611,8 @@ function patchChatTitle(chat, title, opts = {}) {
   const normalized = typeof title === 'string' ? title.trim() : '';
   if (!chat || !normalized) return false;
   if ((chat.title || '').trim() === normalized) return false;
+  // The server already titled this chat (auto) or the user renamed it: automatic client flows must not override.
+  if (!opts.showHint && (chat.titleSource === 'auto' || chat.titleSource === 'manual')) return false;
   if (chat._titlePatchInFlight && chat._titlePatchTarget === normalized) return false;
   chat._titlePatchInFlight = true;
   chat._titlePatchTarget = normalized;
@@ -2047,7 +2062,10 @@ async function approveChatPlan(chat) {
   try {
     const data = await api.postChatSyncTodoPlan(chat.id, { approved: true });
     const nextTodoId = typeof data?.chat?.todoId === 'string' ? data.chat.todoId.trim() : '';
-    if (nextTodoId) chat.todoId = nextTodoId;
+    if (nextTodoId) {
+      chat.todoId = nextTodoId;
+      syncChatTodoChip(chat);
+    }
   } catch {
     // Plan sync is best-effort; implementation can still proceed.
   }
@@ -2433,6 +2451,174 @@ export function sendNavKeyToActiveChat(direction) {
 const chats = [];
 /** Chat ids removed locally this session; stale GET responses must not resurrect them. */
 const removedChatIds = new Set();
+
+/**
+ * @param {object} chat
+ * @param {HTMLInputElement | HTMLTextAreaElement} input
+ * @param {{ start: number, end: number } | null | undefined} mention
+ */
+function clearTodoMentionToken(chat, input, mention) {
+  chat._todoMentionRange = null;
+  chat._todoMentionDismissed = '';
+  if (!mention) return;
+  const next = removeTodoMention(input.value, mention);
+  input.value = next.text;
+  input.setSelectionRange(next.caret, next.caret);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+/**
+ * @param {object} chat
+ */
+/**
+ * @param {object} currentChat
+ * @param {{ id?: string, chatId?: string, chats?: object[] }} item
+ * @returns {{ chatId: string, title: string } | null}
+ */
+function readTodoContinueBlock(currentChat, item) {
+  const linkedChatIds = [];
+  const direct = String(item?.chatId || '').trim();
+  if (direct) linkedChatIds.push(direct);
+  for (const row of Array.isArray(item?.chats) ? item.chats : []) {
+    const id = String(row?.id || '').trim();
+    if (id) linkedChatIds.push(id);
+  }
+  return resolveTodoContinueBlock({
+    todoId: item?.id,
+    currentChatId: currentChat?.id,
+    chats,
+    linkedChatIds,
+    isBusy: (entry) => hasLiveHarnessWork(entry),
+  });
+}
+
+/**
+ * Play in the open chat: show the todo row and ask this agent to continue it.
+ *
+ * @param {object} chat
+ * @param {object} item
+ */
+function continueTodoInActiveChat(chat, item) {
+  if (readTodoContinueBlock(chat, item)) return;
+  const todoId = String(item?.id || '').trim();
+  if (!todoId || !chat?.id) return;
+  const input = chat.pane?._sendBar?.input;
+  const mention = chat._todoMentionRange;
+  if (input) clearTodoMentionToken(chat, input, mention);
+  else chat._todoMentionRange = null;
+  const typed = String(input?.value || '').trim();
+  const note = t('sendBar.todoContinuePrompt');
+  const text = appendTodoRef(typed ? `${typed}\n${note}` : note, todoId);
+  chat.todoId = todoId;
+  if (!chat._todoRowMeta) chat._todoRowMeta = {};
+  chat._todoRowMeta[todoId] = {
+    title: String(item?.title || ''),
+    status: String(item?.status || ''),
+  };
+  chat._todoChip?.setDraft(null);
+  chat._todoChip?.setLinked(null);
+  void api.patchChat(chat.id, { todoId }).catch(() => {});
+  const sendBar = chat.pane?._sendBar;
+  if (input && sendBar && typeof sendBar.submit === 'function') {
+    input.value = text;
+    sendBar.submit();
+    return;
+  }
+  sendTextToAgent(chat, text);
+}
+
+function ensureTodoMentionPicker(chat) {
+  if (chat._todoMentionPicker) return chat._todoMentionPicker;
+  chat._todoMentionPicker = createTodoMentionPicker({
+    onSelect: (item) => {
+      if (readTodoContinueBlock(chat, item)) return;
+      const input = chat.pane?._sendBar?.input;
+      const mention = chat._todoMentionRange;
+      if (input) clearTodoMentionToken(chat, input, mention);
+      else chat._todoMentionRange = null;
+      chat._todoChip?.setDraft({
+        id: String(item?.id || ''),
+        title: String(item?.title || ''),
+        status: String(item?.status || ''),
+      });
+    },
+    onContinue: (item) => {
+      continueTodoInActiveChat(chat, item);
+    },
+    getContinueBlock: (item) => readTodoContinueBlock(chat, item),
+    onClose: () => {
+      const mention = chat._todoMentionRange;
+      if (!mention) return;
+      chat._todoMentionDismissed = `${mention.start}:${mention.end}:${mention.query}`;
+    },
+  });
+  return chat._todoMentionPicker;
+}
+
+/**
+ * @param {object} chat
+ * @param {HTMLInputElement | HTMLTextAreaElement} input
+ */
+function syncTodoMention(chat, input) {
+  const caret = input.selectionStart ?? input.value.length;
+  const mention = parseTodoMention(input.value, caret);
+  const picker = ensureTodoMentionPicker(chat);
+  if (!mention) {
+    chat._todoMentionRange = null;
+    chat._todoMentionDismissed = '';
+    if (picker?.isOpen()) picker.close();
+    return;
+  }
+  chat._todoMentionRange = mention;
+  const key = `${mention.start}:${mention.end}:${mention.query}`;
+  if (picker.isOpen()) {
+    picker.setQuery(mention.query);
+    return;
+  }
+  if (chat._todoMentionDismissed === key) return;
+  picker.open(mention.query);
+}
+
+/**
+ * @param {Event} event
+ */
+function onChatComposerMention(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
+  if (!target.classList.contains('send-keys-input')) return;
+  const chat = chats.find((entry) => entry.pane?._sendBar?.input === target);
+  if (!chat) return;
+  syncTodoMention(chat, target);
+}
+
+function openTodoMentionFromMenu() {
+  const chat = activeChatId ? chats.find((entry) => entry.id === activeChatId) : null;
+  if (!chat) return;
+  chat._todoMentionDismissed = '';
+  chat._todoMentionRange = null;
+  ensureTodoMentionPicker(chat).open('');
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('input', onChatComposerMention, true);
+  document.addEventListener('keyup', onChatComposerMention, true);
+  document.addEventListener('click', onChatComposerMention, true);
+  document.addEventListener('cretli-open-todo-mention', openTodoMentionFromMenu);
+  document.addEventListener('cretli-open-todo', (event) => {
+    const todoId = String(event?.detail?.todoId || '').trim();
+    if (!todoId) return;
+    void import('./todoPanel.js').then((mod) => mod.openTodo(todoId));
+  });
+}
+
+/**
+ * @param {object} chat
+ */
+function syncChatTodoChip(chat) {
+  const chip = chat?._todoChip;
+  if (!chip) return;
+  chip.setLinked(null);
+}
 let sdkRoomBusMode = 'local';
 api.getSettings().then((data) => {
   if (data?.sdkRoomBus === 'redis') sdkRoomBusMode = 'redis';
@@ -2565,6 +2751,8 @@ async function syncSdkHistoryOnResume(chat, context = {}) {
       chat.id,
       () => runSdkHistoryConvergence(chat, context)
     );
+    // Authoritative history landed: the transient inbox preview is stale.
+    if (result?.status !== 'deferred') clearPushPreview(chat);
     setChatHistorySyncInFlight(
       chat,
       shouldKeepHistorySyncInFlight(result),
@@ -2662,8 +2850,8 @@ const chatTransport = createChatTransport({
     closeChat(chat.id, { skipApiDelete: true });
   },
   onConnectionLost: handleChatConnectionLost,
-  onChatsChanged: () => {
-    chatListLiveSyncApi?.onChatsChanged();
+  onChatsChanged: (msg) => {
+    chatListLiveSyncApi?.onChatsChanged(msg);
   },
   onAgentPresence: (msg) => {
     const result = ingestAgentPresenceMessage(chats, msg);
@@ -2746,9 +2934,67 @@ initChatHistorySyncPoll({
 initChatListResumeSync({
   refresh: (query) => loadChatsFromServer(query),
 });
+
+let pushInboxConsumeInFlight = false;
+let pushInboxConsumeQueued = false;
+
+/**
+ * Re-fetch authoritative agent states right after an inbox patch. This is the
+ * same path the app already uses for a presence seq gap; `loadChatsFromServer`
+ * alone does not refresh `_serverRunState`.
+ */
+async function refreshPushInboxAgentStates() {
+  try {
+    const data = await api.getChatAgentStates();
+    if (!data?.ok) return;
+    if (applyAgentStatesToChats(chats, data.states)) scheduleChatListStateRefresh();
+  } catch (error) {
+    appLogger?.log?.('push-inbox', 'agent-state refresh failed', { error: String(error) });
+  }
+}
+
+/**
+ * Coalesces overlapping triggers. consumePushInbox deletes the records it
+ * applies, so the single queued follow-up pass (needed because refreshFromServer
+ * reloads the chat list and then asks for another consume) always settles.
+ */
+function runPushInboxConsume() {
+  if (pushInboxConsumeInFlight) {
+    pushInboxConsumeQueued = true;
+    return;
+  }
+  pushInboxConsumeInFlight = true;
+  void consumePushInbox({
+    getChats: () => chats,
+    getLastAckedSeq,
+    getActiveChatId: () => activeChatId,
+    renderChatList,
+    syncChatHistoryDelta: (chat) => syncChatHistoryDeltaFromServer(
+      chat.id,
+      chat.cursorSessionId || ''
+    ),
+    syncActiveChatHistory: (chat) => syncSdkHistoryOnResume(chat, { reason: 'push_inbox' }),
+    refreshAgentStates: refreshPushInboxAgentStates,
+    refreshFromServer: () => loadChatsFromServer({ skipAutoSelect: true }),
+    logger: appLogger,
+  }).catch(() => {}).finally(() => {
+    pushInboxConsumeInFlight = false;
+    if (!pushInboxConsumeQueued) return;
+    pushInboxConsumeQueued = false;
+    runPushInboxConsume();
+  });
+}
+
+function consumePushInboxFromStore() {
+  runPushInboxConsume();
+}
+
+initPushInboxResumeConsumer({ consume: consumePushInboxFromStore });
+
 chatListLiveSyncApi = createChatListLiveSync({
   refresh: (query) => loadChatsFromServer(query),
   shouldIncludeArchived: () => isSidebarArchiveSectionOpen(),
+  onTitleChanged: (chatId) => handleServerTitleChanged(chatId),
 });
 
 const chatController = createChatController({
@@ -2790,9 +3036,12 @@ const chatController = createChatController({
   startGlobalChatPingLoop,
   ensureChatConnection,
   teardownBlockedChatRuntime: chatTransport.teardownBlockedChatRuntime,
+  teardownChatRuntime,
   openTerminal,
   getChatsForCurrentWorkspace,
   setChatStatus,
+  onAfterBootHydrate: consumePushInboxFromStore,
+  onAfterChatsLoad: consumePushInboxFromStore,
 });
 
 /** Chats assigned to the current header workspace. Older chats (no workspaceFile) are hidden. */
@@ -3785,6 +4034,8 @@ function renderPersistedLocalChatBlockedPane(chat) {
 }
 
 function openTerminal(chat) {
+  // Opening the chat supersedes any transient push-inbox preview.
+  clearPushPreview(chat);
   if (isChatPaneMounted(chat)) {
     if (isBlockingPersistedLocalChatHarnessState(chat)) {
       // The plugin state can turn blocking after the SDK pane was already mounted (list
@@ -3864,8 +4115,9 @@ function openTerminal(chat) {
     const trimmed = (text || '').trim();
     const hasPageSelection = !!meta.pageSelectionContext;
     const hasAttachments = Array.isArray(meta.attachmentPaths) && meta.attachmentPaths.some(Boolean);
+    const draftTodoId = String(chat._todoChip?.getDraft()?.id || '').trim();
     const textareaMode = isTerminalTextareaMode(chat);
-    if (!trimmed && !hasPageSelection && !hasAttachments) {
+    if (!trimmed && !hasPageSelection && !hasAttachments && !draftTodoId) {
       if (textareaMode) return false;
       sendKeyToAgent('\r');
       return true;
@@ -3914,6 +4166,18 @@ function openTerminal(chat) {
       }
       maybeAutoNameNewChat(chat, rawText);
     }
+    if (draftTodoId && !isTitlePrompt) {
+      const block = readTodoContinueBlock(chat, { id: draftTodoId });
+      if (block) {
+        chat._sdkRichView?.appendMetaNotice?.(t('sendBar.todoContinueBusy', { title: block.title }));
+        chat._todoChip?.clearDraft();
+        if (!trimmed && !hasPageSelection && !hasAttachments) return false;
+      } else {
+        payloadText = appendTodoRef(payloadText, draftTodoId);
+        displayText = appendTodoRef(displayText, draftTodoId);
+        chat._todoChip?.clearDraft();
+      }
+    }
     sendTextToAgent(chat, payloadText, { displayText });
     writeChatDraft(chat.id, '');
     return true;
@@ -3928,6 +4192,7 @@ function openTerminal(chat) {
     showStop: false,
     showExtraBarStop: false,
     onSend: chatOnSend,
+    onContextLayoutChange: () => scheduleChatSendBarReserveSync(),
     onArrowUp: () => {},
     onArrowDown: () => {},
     showScreenshotButton: true,
@@ -3955,6 +4220,16 @@ function openTerminal(chat) {
   });
   pane._sendBar = sendBar;
   pane.appendChild(sendBar.root);
+  if (sendBar.todoChipHost instanceof HTMLElement) {
+    chat._todoChip = createSendBarTodoChip({
+      host: sendBar.todoChipHost,
+      onOpen: (todoId) => {
+        void import('./todoPanel.js').then((mod) => mod.openTodo(todoId));
+      },
+      onLayoutChange: () => sendBar.syncContextStack?.(),
+    });
+    syncChatTodoChip(chat);
+  }
   if (getChatSendBarResizeObserver() && sendBar.root instanceof HTMLElement) {
     getChatSendBarResizeObserver().observe(sendBar.root);
   }
@@ -4004,6 +4279,7 @@ function openTerminal(chat) {
     },
     onHistoryRecord: (rec) => enqueueSdkStructuredHistoryRecord(chat, rec),
     loadOlderHistory: () => loadOlderSdkHistoryPage(chat),
+    resolveTodoRow: (todoId) => import('./todoPanel.js').then((mod) => mod.loadTodoSummary(todoId)),
     onFinishTitle: (title) => {
       patchChatTitle(chat, title, {
         source: 'finish-summary',
@@ -4151,6 +4427,7 @@ function openTerminal(chat) {
   void (async () => {
       /** @type {unknown[]} */
       let hydratedRecords = [];
+      let cachedSyncIndicatorArmed = false;
       try {
       const sessionKey = typeof chat.cursorSessionId === 'string' ? chat.cursorSessionId : '';
       const localState = await readSdkChatHistoryStateAsync(chat.id);
@@ -4165,6 +4442,15 @@ function openTerminal(chat) {
       const localHydration = await hydrateSdkRichViewFromLocalCache(chat, localState, sessionKey);
       hydratedRecords = localHydration.hydratedRecords;
       structuredReplayDone = localHydration.structuredReplayDone;
+
+      // Cached history is now on screen. Show the discreet mode-bar "syncing" label while
+      // the delta catches up (never a full-screen spinner), and record the cached render
+      // stage on an active page-resume trace. Cleared in the finally below.
+      if (shouldArmCachedHistorySyncIndicator(localHydration)) {
+        setChatHistorySyncInFlight(chat, true, renderChatTerminalState);
+        cachedSyncIndicatorArmed = true;
+        if (chat._pageResumeTrace) markPageResumeStage(chat._pageResumeTrace, 'cachedRender');
+      }
 
       // --- 1. SYNC WITH BACKEND: pull the log from the server (source of truth) ---
       try {
@@ -4286,6 +4572,9 @@ function openTerminal(chat) {
       }
 
       } finally {
+        if (cachedSyncIndicatorArmed) {
+          setChatHistorySyncInFlight(chat, false, renderChatTerminalState);
+        }
         clearSdkOpenTerminalHydrating(chat);
         chatTransport.completeSdkHistoryHydration(chat, hydratedRecords);
         ensureChatConnection(chat);
@@ -4537,6 +4826,41 @@ export async function requestRestoreChat(chatId) {
 }
 
 /**
+ * Tear down live pane/socket state for a chat row without removing it from the list or API.
+ *
+ * @param {object | null | undefined} chat
+ */
+export function teardownChatRuntime(chat) {
+  if (!chat || typeof chat !== 'object') return;
+  if (chat._sdkHistoryFlushTimer) {
+    clearTimeout(chat._sdkHistoryFlushTimer);
+    chat._sdkHistoryFlushTimer = null;
+  }
+  chat._sdkHistoryPending = [];
+  if (chat._recentOutputExpireTimer) {
+    clearTimeout(chat._recentOutputExpireTimer);
+    chat._recentOutputExpireTimer = null;
+  }
+  if (chat._reconnectTimer) {
+    clearTimeout(chat._reconnectTimer);
+    chat._reconnectTimer = null;
+  }
+  chatTransport.teardownBlockedChatRuntime(chat);
+  if (chat._sdkRichView && typeof chat._sdkRichView.destroy === 'function') {
+    chat._sdkRichView.destroy();
+    chat._sdkRichView = null;
+  }
+  resetViewAppliedState(chat.id, chat);
+  chatDiagnosticsApi.stopChatDiagPolling(chat);
+  if (chat.term && typeof chat.term.dispose === 'function') chat.term.dispose();
+  chat.term = null;
+  chat._termContainer = null;
+  chat.pane?._sendBar?.destroy?.();
+  if (chat.pane && chat.pane.parentNode) chat.pane.remove();
+  chat.pane = null;
+}
+
+/**
  * Full chat delete: close the connection, UI, clear localStorage, remove on the backend.
  * @param {string} id - chat id (uuid)
  * @param {{ skipApiDelete?: boolean, switchToChatId?: string|null }} [options]
@@ -4564,30 +4888,7 @@ export function closeChat(id, options = {}) {
     renderChatList();
     return;
   }
-  if (chat._sdkHistoryFlushTimer) {
-    clearTimeout(chat._sdkHistoryFlushTimer);
-    chat._sdkHistoryFlushTimer = null;
-  }
-  chat._sdkHistoryPending = [];
-  if (chat._recentOutputExpireTimer) {
-    clearTimeout(chat._recentOutputExpireTimer);
-    chat._recentOutputExpireTimer = null;
-  }
-  if (chat._reconnectTimer) {
-    clearTimeout(chat._reconnectTimer);
-    chat._reconnectTimer = null;
-  }
-  if (chat.ws && chat.ws.readyState !== WebSocket.CLOSED) chat.ws.close();
-  if (chat._sdkRichView && typeof chat._sdkRichView.destroy === 'function') {
-    chat._sdkRichView.destroy();
-    chat._sdkRichView = null;
-  }
-  resetViewAppliedState(id, chat);
-  chatDiagnosticsApi.stopChatDiagPolling(chat);
-  if (chat.term && typeof chat.term.dispose === 'function') chat.term.dispose();
-  chat._termContainer = null;
-  chat.pane?._sendBar?.destroy?.();
-  if (chat.pane && chat.pane.parentNode) chat.pane.remove();
+  teardownChatRuntime(chat);
   chats.splice(idx, 1);
   clearChatLocalData(id);
   if (!options.skipApiDelete) {
@@ -5060,6 +5361,28 @@ export async function selectChatFromWidgetHost(chatId) {
   forcedEmbedChatId = null;
 }
 
+/**
+ * Switch to the chat from a PWA notification click without reloading the SPA.
+ * The service worker posts this after focusing the existing window.
+ *
+ * @param {{ chatId?: string, url?: string }} message
+ */
+export function openChatFromNotification(message) {
+  const chatId = String(message?.chatId || '').trim();
+  if (!chatId) return;
+  const activate = () => {
+    selectChat(chatId);
+    chatTransport.scheduleResumeActiveChat('notification', false);
+  };
+  if (chats.some((chat) => chat.id === chatId)) {
+    activate();
+    return;
+  }
+  void loadChatsFromServer({ preferChatId: chatId, skipAutoSelect: true })
+    .catch(() => {})
+    .then(activate);
+}
+
 function performSelectChat(id) {
   chats.forEach((chat) => {
     chat.pane?._sendBar?.closeSendMenu?.();
@@ -5083,6 +5406,7 @@ function performSelectChat(id) {
     }).catch(() => {});
   }
   if (chat) openTerminal(chat);
+  if (chat) syncChatTodoChip(chat);
   if (chat) {
     requestWidgetChatBinding(chat);
     syncWidgetPinUrlUi(chat);
@@ -8040,6 +8364,8 @@ function openChatSettingsModal() {
   const sessionMetaEl = document.getElementById('chat-settings-session-meta');
   if (!modal || !titleInput) return;
   titleInput.value = chat.title || '';
+  titleInput.dataset.baseTitle = chat.title || '';
+  void refreshChatTitleHistorySection(chat);
   if (showSendFieldCheckbox) {
     showSendFieldCheckbox.checked = getShowSendFieldEnabled();
   }
@@ -8120,6 +8446,186 @@ function closeChatSettingsModal() {
 /**
  * Saves chat settings from the modal (PATCH) and closes the modal.
  */
+function setChatSettingsTitleHint(text, clearAfterMs = 4000) {
+  const hint = document.getElementById('chat-settings-update-title-hint');
+  if (!hint) return;
+  hint.textContent = text;
+  if (text && clearAfterMs > 0) {
+    setTimeout(() => {
+      if (hint.textContent === text) hint.textContent = '';
+    }, clearAfterMs);
+  }
+}
+
+function isChatSettingsModalOpenFor(chatId) {
+  const modal = document.getElementById('chat-settings-modal');
+  return !!(modal && !modal.hidden && chatId && chatId === activeChatId);
+}
+
+const TITLE_REASON_KEYS = {
+  first: 'chat.titleReasonFirst',
+  regenerate: 'chat.titleReasonRegenerate',
+  rename: 'chat.titleReasonRename',
+  backfill: 'chat.titleReasonBackfill',
+};
+
+/**
+ * Builds the "Title history" timeline (newest first) + lock checkbox for the open settings modal.
+ * @param {object} chat
+ * @param {{ title?: string, titleSource?: string, history?: Array<object> } | null} [loaded] already fetched response
+ */
+async function refreshChatTitleHistorySection(chat, loaded = null) {
+  const listEl = document.getElementById('chat-settings-title-history-list');
+  const lockCheckbox = document.getElementById('chat-settings-title-lock');
+  if (!listEl || !chat?.id) return;
+  const data = loaded || await api.getChatTitleHistory(chat.id).catch(() => null);
+  if (!isChatSettingsModalOpenFor(chat.id)) return;
+  if (!data || !data.ok) return;
+  if (typeof data.titleSource === 'string' && data.titleSource) chat.titleSource = data.titleSource;
+  if (lockCheckbox) lockCheckbox.checked = chat.titleSource === 'manual';
+  const history = Array.isArray(data.history) ? [...data.history].reverse() : [];
+  listEl.textContent = '';
+  if (history.length === 0) {
+    const empty = document.createElement('li');
+    empty.textContent = t('chat.titleHistoryEmpty');
+    listEl.appendChild(empty);
+    return;
+  }
+  const currentTitle = typeof data.title === 'string' ? data.title : (chat.title || '');
+  history.forEach((entry, index) => {
+    const li = document.createElement('li');
+    const at = document.createElement('span');
+    at.className = 'chat-settings-title-history-at';
+    const when = new Date(entry.at);
+    at.textContent = Number.isNaN(when.getTime()) ? '' : when.toLocaleString();
+    const text = document.createElement('span');
+    text.className = 'chat-settings-title-history-text';
+    text.textContent = entry.title || '';
+    const meta = document.createElement('span');
+    meta.className = 'chat-settings-title-history-meta';
+    const sourceLabel = t(entry.source === 'manual' ? 'chat.titleSourceManual' : 'chat.titleSourceAuto');
+    const reasonKey = TITLE_REASON_KEYS[entry.reason];
+    meta.textContent = reasonKey ? `${sourceLabel} · ${t(reasonKey)}` : sourceLabel;
+    li.append(at, text, meta);
+    if (index === 0 && entry.title === currentTitle) {
+      const current = document.createElement('span');
+      current.className = 'chat-settings-title-history-meta';
+      current.textContent = `(${t('chat.titleHistoryCurrent')})`;
+      li.appendChild(current);
+    } else if (entry.title) {
+      const restore = document.createElement('button');
+      restore.type = 'button';
+      restore.className = 'chat-settings-btn-secondary';
+      restore.textContent = t('chat.titleHistoryRestore');
+      restore.addEventListener('click', () => {
+        void restoreChatTitleFromHistory(chat, entry.title, restore);
+      });
+      li.appendChild(restore);
+    }
+    listEl.appendChild(li);
+  });
+}
+
+async function restoreChatTitleFromHistory(chat, title, button) {
+  if (button) button.disabled = true;
+  try {
+    const res = await api.patchChat(chat.id, { title });
+    if (!res?.ok) return;
+    chat.title = title;
+    chat.titleSource = 'manual';
+    const titleInput = document.getElementById('chat-settings-title-input');
+    if (titleInput) {
+      titleInput.value = title;
+      titleInput.dataset.baseTitle = title;
+    }
+    renderChatList();
+    updateChatBarSelect();
+    setChatSettingsTitleHint(t('chat.titleHistoryRestored'));
+    await refreshChatTitleHistorySection(chat);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+/** "Update title": server-side regenerate, nothing is injected into the conversation. */
+async function regenerateActiveChatTitle(button) {
+  const chat = activeChatId ? chats.find((c) => c.id === activeChatId) : null;
+  if (!chat) {
+    setChatSettingsTitleHint(t('chat.noActiveChat'));
+    return;
+  }
+  if (button) button.disabled = true;
+  setChatSettingsTitleHint(t('chat.titleRegenerating'), 0);
+  try {
+    const res = await api.regenerateChatTitle(chat.id);
+    if (res?.ok && res.chat) {
+      chat.title = res.chat.title;
+      chat.titleSource = res.chat.titleSource || 'auto';
+      const titleInput = document.getElementById('chat-settings-title-input');
+      if (titleInput && isChatSettingsModalOpenFor(chat.id)) {
+        // Only replace the field when the user has not started editing it.
+        if (titleInput.value === (titleInput.dataset.baseTitle ?? '')) titleInput.value = chat.title;
+        titleInput.dataset.baseTitle = chat.title;
+      }
+      renderChatList();
+      updateChatBarSelect();
+      setChatSettingsTitleHint(t('chat.titleRegenerated'));
+      await refreshChatTitleHistorySection(chat);
+    } else if (res?.reason === 'no_generator') {
+      setChatSettingsTitleHint(t('chat.titleRegenerateUnavailable'), 8000);
+    } else if (res?.status === 'skipped') {
+      setChatSettingsTitleHint(t('chat.titleRegenerateSkipped', { reason: res.reason || '' }), 8000);
+    } else {
+      setChatSettingsTitleHint(t('chat.titleRegenerateFailed'), 8000);
+    }
+  } catch (err) {
+    appLogger.log('api-error', 'POST /api/chats/' + chat.id + '/regenerate-title', String(err));
+    setChatSettingsTitleHint(t('chat.titleRegenerateFailed'), 8000);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function applyActiveChatTitleLock(checkbox) {
+  const chat = activeChatId ? chats.find((c) => c.id === activeChatId) : null;
+  if (!chat) return;
+  const wanted = checkbox.checked === true;
+  const res = await api.setChatTitleLock(chat.id, wanted).catch(() => null);
+  if (!res?.ok || !res.chat) {
+    checkbox.checked = !wanted;
+    return;
+  }
+  chat.titleSource = res.chat.titleSource;
+  renderChatList();
+  setChatSettingsTitleHint(t('chat.titleLockSaved'));
+}
+
+/**
+ * Server `chatsChanged` reason:'title' (auto title, another tab/device, MCP rename). The list reload
+ * is handled by the live sync; here the open settings modal is refreshed without overwriting
+ * text the user is typing.
+ */
+function handleServerTitleChanged(chatId) {
+  if (!chatId || !isChatSettingsModalOpenFor(chatId)) return;
+  const chat = chats.find((c) => c.id === chatId);
+  if (!chat) return;
+  void api.getChatTitleHistory(chatId).then((data) => {
+    if (!data?.ok || !isChatSettingsModalOpenFor(chatId)) return;
+    const serverTitle = typeof data.title === 'string' ? data.title : '';
+    const titleInput = document.getElementById('chat-settings-title-input');
+    if (titleInput && serverTitle !== (titleInput.dataset.baseTitle ?? '')) {
+      const untouched = titleInput.value === (titleInput.dataset.baseTitle ?? '');
+      if (untouched) {
+        titleInput.value = serverTitle;
+      } else {
+        setChatSettingsTitleHint(t('chat.titleChangedElsewhere'), 8000);
+      }
+      titleInput.dataset.baseTitle = serverTitle;
+    }
+    return refreshChatTitleHistorySection(chat, data);
+  }).catch(() => {});
+}
+
 function saveChatSettings() {
   const chat = activeChatId ? chats.find((c) => c.id === activeChatId) : null;
   if (!chat) {
@@ -8130,7 +8636,10 @@ function saveChatSettings() {
   if (!titleInput) return;
   const newTitle = (titleInput.value || '').trim();
   const payload = {};
-  if (newTitle !== (chat.title || '')) payload.title = newTitle;
+  // Compare with the title the field was filled with, not the live one: an auto title that landed
+  // while the modal was open must not be overwritten by a stale, untouched field.
+  const baseTitle = titleInput.dataset.baseTitle ?? (chat.title || '');
+  if (newTitle !== baseTitle && newTitle !== (chat.title || '')) payload.title = newTitle;
   const sdkUiModeSelect = document.getElementById('chat-settings-sdk-ui-mode');
   const nextSdkUiMode = normalizeSdkUiMode(sdkUiModeSelect?.value);
   if (nextSdkUiMode !== normalizeSdkUiMode(chat.sdkUiMode)) {
@@ -8758,8 +9267,14 @@ export function initChatPanel() {
   });
     if (updateTitleBtn) updateTitleBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      requestAutoTitleFromAgent();
+      void regenerateActiveChatTitle(updateTitleBtn);
     });
+    const titleLockCheckbox = document.getElementById('chat-settings-title-lock');
+    if (titleLockCheckbox) {
+      titleLockCheckbox.addEventListener('change', () => {
+        void applyActiveChatTitleLock(titleLockCheckbox);
+      });
+    }
     const titleFromForkBtn = document.getElementById('chat-settings-title-from-fork-btn');
     if (titleFromForkBtn) {
       titleFromForkBtn.addEventListener('click', (e) => {

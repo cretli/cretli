@@ -36,6 +36,7 @@ import {
   resolveApprovalAdvisorPlan,
   shouldScheduleApprovalAdvisor,
   validateApprovalAdvisorEndpoint,
+  waitForAdvisorApplyWindow,
 } from '../lib/approval/approval-advisor.js';
 import { createOpenCodePermissionReplyGuard } from '../lib/opencode/opencode-permission-reply-guard.js';
 import { resolveOpenCodeApprovalAction } from '../lib/opencode/opencode-permission.js';
@@ -205,10 +206,202 @@ function countingTransport(response) {
   assert.match(plan.reason, /not_low_risk|unsafe_category/);
 }
 
-// A medium-risk mutation is also ineligible.
+// The one mutation-only medium class the advisor may widen: the host-owned
+// review-verify runner. This is the only command that may carry `mutation`.
 {
-  const editAction = { mode: 'local_reads', decision: 'ask_user', risk: 'medium', categories: ['mutation'], shadow: false };
-  assert.equal(resolveApprovalAdvisorPlan(advisorSettings(), editAction).eligible, false);
+  const command = 'node scripts/review-verify.js';
+  const action = {
+    mode: 'local_reads',
+    decision: 'ask_user',
+    risk: 'medium',
+    categories: ['mutation'],
+    command,
+    shadow: false,
+  };
+  const plan = resolveApprovalAdvisorPlan(advisorSettings(), action);
+  assert.equal(plan.eligible, true, 'the review-verify runner must be advisor-eligible');
+  assert.equal(plan.reason, '');
+  // A catalog id is still the same runner.
+  assert.equal(
+    resolveApprovalAdvisorPlan(advisorSettings(), { ...action, command: 'node scripts/review-verify.js notices' }).eligible,
+    true,
+  );
+}
+
+// Problem 1 lock: every OTHER mutation-only medium stays with the human. A
+// blanket `risk === 'medium'` gate would wrongly auto-approve all of these.
+{
+  for (const command of [
+    'mkdir scratch',
+    'mv a b',
+    'sed -i s/a/b/ file.txt',
+    'git commit -m x',
+    'node scripts/other.js',
+    'python script.py',
+    'node scripts/review-verify.js --test-reporter=spec',
+    'node scripts/review-verify.js unknown-id',
+    'node scripts/review-verify.js; rm -rf build',
+    // Z1 regression: binary with path separator must never be eligible
+    './node scripts/review-verify.js notices',
+    '/tmp/evil/node scripts/review-verify.js notices',
+    '/abs/path/node scripts/review-verify.js notices',
+    'dir/nodejs scripts/review-verify.js notices',
+    '/usr/bin/time /tmp/evil/node scripts/review-verify.js notices',
+  ]) {
+    const action = {
+      mode: 'local_reads',
+      decision: 'ask_user',
+      risk: 'medium',
+      categories: ['mutation'],
+      command,
+      shadow: false,
+    };
+    const plan = resolveApprovalAdvisorPlan(advisorSettings(), action);
+    assert.equal(plan.eligible, false, `${command} must NOT be advisor-eligible`);
+    assert.equal(plan.reason, 'not_low_risk', `${command} fails the risk gate`);
+  }
+}
+
+// Anything carrying a dangerous category stays ineligible.
+{
+  const mixed = { mode: 'local_reads', decision: 'ask_user', risk: 'medium', categories: ['mutation', 'network'], shadow: false };
+  assert.equal(resolveApprovalAdvisorPlan(advisorSettings(), mixed).eligible, false, 'mutation + network is not eligible');
+  assert.equal(
+    resolveApprovalAdvisorPlan(advisorSettings(), { ...mixed, risk: 'high' }).eligible,
+    false,
+    'mutation + network at high risk is not eligible',
+  );
+  // The category gate still bites even when the risk gate alone would pass.
+  const lowPlan = resolveApprovalAdvisorPlan(advisorSettings(), { ...lowRiskReadAction, categories: ['mutation', 'secrets'] });
+  assert.equal(lowPlan.eligible, false);
+  assert.equal(lowPlan.reason, 'unsafe_category');
+  // An inconsistent medium risk without any mutation category fails closed.
+  assert.equal(
+    resolveApprovalAdvisorPlan(advisorSettings(), { ...mixed, categories: ['network'] }).eligible,
+    false,
+    'medium risk with only a dangerous category fails closed',
+  );
+}
+
+// --- eligibility edge cases fail closed ------------------------------------
+{
+  // Missing risk field: never infer `low`.
+  const noRisk = { mode: 'local_reads', decision: 'ask_user', categories: ['mutation'] };
+  const noRiskPlan = resolveApprovalAdvisorPlan(advisorSettings(), noRisk);
+  assert.equal(noRiskPlan.eligible, false, 'a missing risk fails closed');
+  assert.equal(noRiskPlan.reason, 'not_low_risk');
+  // categories undefined on a low-risk action behaves like an empty list.
+  const noCategories = { mode: 'local_reads', decision: 'ask_user', risk: 'low' };
+  assert.equal(
+    resolveApprovalAdvisorPlan(advisorSettings(), noCategories).eligible,
+    true,
+    'low + undefined categories is a read-only action',
+  );
+  // categories undefined with a medium risk cannot prove mutation-only, so it
+  // fails closed.
+  assert.equal(
+    resolveApprovalAdvisorPlan(advisorSettings(), { ...noCategories, risk: 'medium' }).eligible,
+    false,
+    'medium + undefined categories fails closed',
+  );
+  // medium + [] (inconsistent: medium without mutation) fails closed.
+  assert.equal(
+    resolveApprovalAdvisorPlan(advisorSettings(), { mode: 'local_reads', decision: 'ask_user', risk: 'medium', categories: [] }).eligible,
+    false,
+    'medium + [] fails closed',
+  );
+  // Z1 regression: medium + mutation with no command field (undefined) fails closed.
+  assert.equal(
+    resolveApprovalAdvisorPlan(advisorSettings(), { mode: 'local_reads', decision: 'ask_user', risk: 'medium', categories: ['mutation'] }).eligible,
+    false,
+    'medium + mutation + no command fails closed',
+  );
+  // high + ['mutation'] fails closed.
+  assert.equal(
+    resolveApprovalAdvisorPlan(advisorSettings(), { mode: 'local_reads', decision: 'ask_user', risk: 'high', categories: ['mutation'] }).eligible,
+    false,
+    'high + mutation fails closed',
+  );
+  // Problem 4: low + ['mutation'] is inconsistent and must not widen, even for
+  // the otherwise-allowed review-verify command.
+  const lowMutation = {
+    mode: 'local_reads',
+    decision: 'ask_user',
+    risk: 'low',
+    categories: ['mutation'],
+    command: 'node scripts/review-verify.js',
+  };
+  const lowMutationPlan = resolveApprovalAdvisorPlan(advisorSettings(), lowMutation);
+  assert.equal(lowMutationPlan.eligible, false, 'low + mutation must fail closed');
+  assert.equal(lowMutationPlan.reason, 'unsafe_category');
+}
+
+// End-to-end: the real local decision for an interactive `node scripts/review-verify.js`
+// is ask_user + medium + ['mutation'] and must now reach the advisor instead of
+// dying at the eligibility gate.
+{
+  const command = 'node scripts/review-verify.js';
+  const bashEvent = { requestId: 'perm_bash_verify', action: 'bash', metadata: { command }, resources: [command] };
+  const action = resolveOpenCodeApprovalAction({
+    mode: 'local_reads',
+    sdkMode: 'agent',
+    permissionEvent: bashEvent,
+    assignment: '',
+    workspaceFolder: process.cwd(),
+  });
+  assert.equal(action.decision, 'ask_user');
+  assert.equal(action.risk, 'medium');
+  assert.deepEqual(action.categories, ['mutation']);
+  assert.equal(
+    resolveApprovalAdvisorPlan(advisorSettings(), action).eligible,
+    true,
+    'the review-verify bash probe must reach the advisor',
+  );
+  assert.equal(
+    shouldScheduleApprovalAdvisor({ approvalAction: action, settings: advisorSettings(), requestId: 'perm_bash_verify', requested: new Set() }),
+    true,
+    'the mutation-only probe must be scheduled once',
+  );
+}
+
+// End-to-end lock: a real non-review mutation (mkdir) stays non-scheduled even
+// though it is mutation-only medium.
+{
+  const command = 'mkdir scratch-dir';
+  const bashEvent = { requestId: 'perm_bash_mkdir', action: 'bash', metadata: { command }, resources: [command] };
+  const action = resolveOpenCodeApprovalAction({
+    mode: 'local_reads',
+    sdkMode: 'agent',
+    permissionEvent: bashEvent,
+    assignment: '',
+    workspaceFolder: process.cwd(),
+  });
+  assert.equal(action.risk, 'medium');
+  assert.deepEqual(action.categories, ['mutation']);
+  assert.equal(resolveApprovalAdvisorPlan(advisorSettings(), action).eligible, false);
+  assert.equal(
+    shouldScheduleApprovalAdvisor({ approvalAction: action, settings: advisorSettings(), requestId: 'perm_bash_mkdir', requested: new Set() }),
+    false,
+  );
+}
+
+// End-to-end lock: a network command stays non-scheduled.
+{
+  const command = 'curl https://example.test/data';
+  const bashEvent = { requestId: 'perm_bash_net', action: 'bash', metadata: { command }, resources: [command] };
+  const action = resolveOpenCodeApprovalAction({
+    mode: 'local_reads',
+    sdkMode: 'agent',
+    permissionEvent: bashEvent,
+    assignment: '',
+    workspaceFolder: process.cwd(),
+  });
+  assert.equal(action.risk, 'high');
+  assert.equal(resolveApprovalAdvisorPlan(advisorSettings(), action).eligible, false);
+  assert.equal(
+    shouldScheduleApprovalAdvisor({ approvalAction: action, settings: advisorSettings(), requestId: 'perm_bash_net', requested: new Set() }),
+    false,
+  );
 }
 
 // shadow is never eligible.
@@ -276,6 +469,10 @@ assert.equal(
   assert.equal(serialized.toLowerCase().includes('authorization'), false, 'no auth material in the body');
   assert.equal(Array.isArray(body.messages) && body.messages.length === 2, true, 'system + redacted tuple only');
   assert.equal(body.messages[1].content.includes('/home/user/workspace'), false);
+  // Problem 2 lock: the system prompt must describe the real eligibility rule
+  // (read-only OR the host-owned review-verify runner), not "read-only only".
+  assert.match(body.messages[0].content, /review-verify\.js/, 'the system prompt names the allowed runner');
+  assert.match(body.messages[0].content, /read-only/i, 'the system prompt still describes the low-risk read class');
 }
 
 // --- System One request body: state + one noul question, optional model ----
@@ -287,6 +484,7 @@ assert.equal(
   assert.equal(body.questions.safe_read.type, 'noul');
   assert.match(body.questions.safe_read.instructions, /read-only/i);
   assert.match(body.questions.safe_read.instructions, /files/i);
+  assert.match(body.questions.safe_read.instructions, /review-verify\.js/, 'System One instructions name the allowed runner');
   assert.equal(body.model, 'jev-latest');
   assert.equal('messages' in body, false, 'System One must not send an OpenAI chat payload');
   const serialized = JSON.stringify(body);
@@ -639,6 +837,23 @@ resetApprovalAdvisorQuota();
   assert.equal(resolveAdvisorReplyOutcome({ advisorDecision: 'ask_user' }, { mode: 'local_reads', stillPending: true, replyStatus: 'sent' }), 'ask_user');
 }
 
+{
+  let pending = true;
+  let slept = 0;
+  const still = await waitForAdvisorApplyWindow(5000, () => pending, async (ms) => {
+    slept = ms;
+    pending = false;
+  });
+  assert.equal(slept, 5000);
+  assert.equal(still, false, 'a human reply during the highlight window wins');
+  const kept = await waitForAdvisorApplyWindow(5000, () => true, async () => {});
+  assert.equal(kept, true);
+  const gone = await waitForAdvisorApplyWindow(5000, () => false, async () => {
+    throw new Error('must not wait when the card is already answered');
+  });
+  assert.equal(gone, false);
+}
+
 // The one-shot reply guard is what makes "human wins" real: whoever claims the
 // requestId first (the human card or the advisor) is the only one allowed to POST.
 {
@@ -681,7 +896,7 @@ resetApprovalAdvisorQuota();
   assert.equal(entry.finalDecision, 'allow_once');
   assert.equal(entry.protocol, 'openai_chat', 'audit records the advisor protocol');
   assert.equal(entry.advisorPolicyVersion, ADVISOR_POLICY_VERSION);
-  assert.equal(entry.advisorPolicyVersion, 'advisor-external-2');
+  assert.equal(entry.advisorPolicyVersion, 'advisor-external-3');
   assert.equal(entry.ts, '2026-01-02T03:04:05.000Z');
   const line = JSON.stringify(entry);
   assert.equal(line.includes('sk-advisor-secret-0123456789'), false, 'audit redacts any key that slips into the reason');

@@ -2650,6 +2650,115 @@ body.files-preview-resizing {
   gap: 0.75rem;
 }
 
+.todo-mention-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+}
+.todo-mention-active {
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-2);
+  color: var(--cr-text);
+  font-size: 0.8rem;
+}
+.todo-mention-message {
+  margin: 0;
+  color: var(--cr-text-muted);
+  font-size: 0.8rem;
+}
+.todo-mention-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+  max-height: 16rem;
+  overflow: auto;
+}
+.todo-mention-row {
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-1);
+  min-width: 0;
+  --todo-mention-level: 0;
+  padding-left: calc(var(--todo-mention-level) * 0.85rem);
+}
+.todo-mention-pick {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-2);
+  height: var(--cr-control-height);
+  padding: 0 var(--cr-space-2);
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+  color: var(--cr-text);
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+.todo-mention-pick:hover:not(:disabled) {
+  border-color: var(--cr-accent);
+}
+.todo-mention-mark,
+.todo-mention-lock {
+  flex: 0 0 auto;
+  width: 1rem;
+  color: var(--cr-text-muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+.todo-mention-lock {
+  color: var(--cr-warn);
+}
+.todo-mention-row[data-status='ready'] .todo-mention-mark {
+  color: var(--cr-ready);
+}
+.todo-mention-row[data-status='doing'] .todo-mention-mark {
+  color: var(--cr-warn);
+}
+.todo-mention-row[data-status='done'] .todo-mention-mark {
+  color: var(--cr-success);
+}
+.todo-mention-row[data-status='done'] .todo-mention-title {
+  color: var(--cr-text-muted);
+  text-decoration: line-through;
+}
+.todo-mention-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.todo-mention-pick:disabled {
+  cursor: default;
+}
+.todo-mention-continue {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--cr-control-height);
+  height: var(--cr-control-height);
+  padding: 0;
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+  color: var(--cr-text);
+  cursor: pointer;
+}
+.todo-mention-continue:hover:not(:disabled) {
+  border-color: var(--cr-accent);
+  color: var(--cr-accent);
+}
+.todo-mention-continue:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .todo-section-title {
   margin: 0 0 0.55rem;
   font-size: 0.72rem;
@@ -4706,6 +4815,18 @@ cr-todo-card.todo-card {
   vertical-align: middle;
 }
 
+.chat-list-item-title-source {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.3rem;
+  font-size: 0.6rem;
+  line-height: 1.2;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  opacity: 0.6;
+  vertical-align: middle;
+}
+
 .chat-list-item-sync-badge {
   display: inline-block;
   margin-left: 0.35rem;
@@ -5255,6 +5376,44 @@ cr-todo-card.todo-card {
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.chat-settings-title-history {
+  margin-top: 0.75rem;
+}
+
+.chat-settings-title-history-list {
+  list-style: none;
+  margin: 0.4rem 0;
+  padding: 0;
+  max-height: 11rem;
+  overflow-y: auto;
+  font-size: 0.8rem;
+}
+
+.chat-settings-title-history-list > li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+}
+
+.chat-settings-title-history-at {
+  flex: none;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-settings-title-history-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.chat-settings-title-history-meta {
+  flex: none;
+  opacity: 0.6;
 }
 
 .chat-settings-hint-inline {
@@ -6490,17 +6649,82 @@ cr-todo-card.todo-card {
     min-width: 0;
     flex: 0 0 auto;
   }
-  .send-keys-attachments-bar {
+  .send-keys-context-stack[hidden],
+  .send-keys-todo-chip[hidden],
+  .send-keys-attachments-bar[hidden] {
+    display: none;
+  }
+  .send-keys-context-stack {
     position: absolute;
     left: 0;
     right: 0;
     bottom: calc(100% + 0.3rem);
     z-index: 3;
     display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+    max-width: 100%;
+    pointer-events: none;
+  }
+  .send-keys-context-stack > * {
+    pointer-events: auto;
+    max-width: 100%;
+  }
+  .send-keys-todo-chip {
+    display: flex;
+    align-items: center;
+    gap: var(--cr-space-1);
+    max-width: 100%;
+  }
+  .send-keys-todo-chip-open {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cr-space-2);
+    max-width: 100%;
+    min-height: var(--cr-control-height);
+    padding: 0 var(--cr-space-2);
+    border: 1px solid var(--cr-border);
+    border-radius: var(--cr-radius-sm);
+    background: var(--cr-surface);
+    color: var(--cr-text);
+    font: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  .send-keys-todo-chip-open:hover {
+    border-color: var(--cr-accent);
+  }
+  .send-keys-todo-chip-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 16rem;
+  }
+  .send-keys-todo-chip-status {
+    flex: 0 0 auto;
+    color: var(--cr-text-muted);
+  }
+  .send-keys-todo-chip-clear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--cr-control-height);
+    height: var(--cr-control-height);
+    padding: 0;
+    border: 1px solid var(--cr-border);
+    border-radius: var(--cr-radius-sm);
+    background: var(--cr-surface);
+    color: var(--cr-text-muted);
+    cursor: pointer;
+  }
+  .send-keys-attachments-bar {
+    display: flex;
     align-items: center;
     gap: 0.35rem;
     overflow-x: auto;
-    padding: 0.2rem 0.15rem 0.2rem 0.45rem;
+    max-width: 100%;
+    padding: 0.2rem 0.15rem 0.2rem 0;
     pointer-events: auto;
   }
   .send-keys-attachment-item {
@@ -7072,6 +7296,12 @@ cr-sdk-block.sdk-rich-opencode-question--resolved {
 .sdk-rich-opencode-permission-reject:hover {
   border-color: var(--cr-error);
   color: var(--cr-error);
+}
+
+.sdk-rich-opencode-permission-actions button.is-advisor-pick {
+  border-color: var(--cr-accent);
+  color: var(--cr-accent);
+  box-shadow: inset 0 0 0 1px var(--cr-accent);
 }
 
 cr-sdk-block.sdk-rich-opencode-permission--resolved {
@@ -7718,6 +7948,42 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
   font-size: 13px;
   line-height: 1.55;
   color: var(--cr-text);
+}
+
+.sdk-rich-todo-row {
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-2);
+  width: 100%;
+  max-width: 100%;
+  margin-top: var(--cr-space-2);
+  min-height: var(--cr-control-height);
+  padding: 0 var(--cr-space-2);
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+  color: var(--cr-text);
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sdk-rich-user-body > .sdk-rich-todo-row:first-child {
+  margin-top: 0;
+}
+
+.sdk-rich-todo-row-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sdk-rich-todo-row-status {
+  flex: 0 0 auto;
+  color: var(--cr-text-muted);
 }
 
 .sdk-rich-inline-thumbs {
@@ -8532,6 +8798,22 @@ body.sdk-image-lightbox-open {
   margin: 0.75rem 0 0.4rem;
 }
 
+.settings-usage-plan-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+
+  progress {
+    width: 100%;
+    accent-color: var(--cr-text-strong);
+  }
+
+  .settings-hint {
+    margin: 0;
+  }
+}
+
 .settings-usage-cards {
   display: none;
   flex-direction: column;
@@ -8646,6 +8928,35 @@ body.sdk-image-lightbox-open {
     cursor: pointer;
     font-size: 0.9rem;
   }
+}
+
+.auto-title-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--cr-space-2);
+  margin-top: var(--cr-space-2);
+}
+
+.auto-title-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+  min-width: 0;
+
+  select {
+    width: 100%;
+    max-width: 100%;
+    min-height: 2.5rem;
+  }
+}
+
+.auto-title-warning {
+  color: var(--cr-warning, #b45309);
+}
+
+#auto-title-status.is-error {
+  color: var(--cr-danger, #b91c1c);
 }
 
 .auto-name-chat-checkbox {
@@ -10897,6 +11208,37 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   font-size: 0.85rem;
 }
 
+// Title + transient push-inbox preview stacked so the preview reads as a
+// second line. The row grows only while a preview exists.
+.sidebar-chat-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.sidebar-chat-item-main .sidebar-chat-item-title {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+.sidebar-chat-item-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cr-text-muted);
+  font-size: 0.68rem;
+  line-height: 1.15;
+}
+
+.sidebar-chat-item.has-push-preview {
+  height: auto;
+  min-height: var(--sidebar-row-height);
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+}
+
 .sidebar-chat-item-temp-badge,
 .sidebar-chat-item-todo-badge,
 .sidebar-chat-item-pin-badge {
@@ -11281,9 +11623,9 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  padding: 0;
+  min-height: 2rem;
+  gap: 0.25rem;
+  padding: 0 0.25rem;
   border: 1px solid transparent;
   border-radius: var(--cr-radius-sm);
   background: transparent;
@@ -11304,6 +11646,20 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   &.is-open .mdi {
     transform: rotate(180deg);
   }
+}
+
+.harness-health-row-limit {
+  grid-column: 1 / -1;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--cr-radius-sm);
+  color: var(--cr-text);
+  background: var(--cr-surface-2);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.harness-health-row-limit[hidden] {
+  display: none !important;
 }
 
 .harness-health-card {
@@ -11638,8 +11994,8 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   }
 
   .harness-health-toggle {
-    width: 2.75rem;
-    height: 2.75rem;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
   }
 
   .harness-health-refresh,
@@ -11662,6 +12018,12 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   .harness-health-lockout {
     flex-direction: column;
   }
+
+  .harness-health-lockout-text {
+    flex: none;
+    width: 100%;
+    overflow-wrap: anywhere;
+  }
 }
 
 /* Narrow phones: drop the duplicated "enabled" caption (the checkbox keeps its
@@ -11673,5 +12035,185 @@ body.theme-light .sidebar-chat-item-harness--codex img {
 
   .harness-health-row .harness-setup-enable span {
     display: none;
+  }
+}
+
+
+/* Dedicated harness statistics: readable groups with compact mobile alerts. */
+.harness-health-card[data-role='harness-statistics'] {
+  --harness-health-muted: var(--cr-text-subtle, var(--cr-text-muted));
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 0.875rem;
+
+  .harness-health-body {
+    gap: 1rem;
+  }
+
+  .harness-health-head {
+    justify-content: space-between;
+  }
+
+  .harness-health-notice {
+    flex-basis: 100%;
+  }
+
+  .harness-health-badge {
+    font-size: 0.8rem;
+    padding: 0.35rem 0.65rem;
+  }
+
+  .harness-health-refresh,
+  .harness-health-unlock,
+  .harness-health-retry {
+    min-height: 2.75rem;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8rem;
+  }
+
+  .harness-health-lockout {
+    padding: 0.8rem;
+    gap: 0.75rem;
+    border-radius: var(--cr-radius-md);
+  }
+
+  .harness-health-lockout-text {
+    gap: 0.4rem;
+    overflow-wrap: anywhere;
+  }
+
+  .harness-health-lockout-title {
+    font-size: 0.95rem;
+  }
+
+  .harness-health-diagnostic {
+    font-size: 0.75rem;
+    color: var(--harness-health-muted);
+    order: 1;
+
+    summary {
+      cursor: pointer;
+    }
+
+    code {
+      display: block;
+      margin-top: 0.4rem;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  .harness-health-plan,
+  .harness-health-activity,
+  .harness-health-errors {
+    padding: 0.85rem;
+    border: 1px solid var(--cr-border);
+    border-radius: var(--cr-radius-md);
+    background: var(--cr-surface);
+    min-width: 0;
+  }
+
+  .harness-health-subtitle {
+    margin-bottom: 0.65rem;
+    font-size: 0.8rem;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--cr-text);
+  }
+
+  .harness-health-plan-head {
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .harness-health-plan-status {
+    padding: 0.2rem 0.45rem;
+    border-radius: var(--cr-radius-sm);
+    background: var(--cr-surface-2);
+    font-size: 0.75rem;
+  }
+
+  .harness-health-plan-meta {
+    margin: 0.5rem 0 0;
+    line-height: 1.5;
+    font-size: 0.8rem;
+  }
+
+  .harness-health-metrics {
+    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+    gap: 0.6rem;
+  }
+
+  .harness-health-metric {
+    padding: 0.75rem;
+    gap: 0.4rem;
+    border: 1px solid var(--cr-border);
+    border-radius: var(--cr-radius-md);
+    background: var(--cr-surface);
+
+    dt {
+      font-size: 0.75rem;
+      line-height: 1.4;
+    }
+
+    dd {
+      font-size: 1.25rem;
+      font-weight: 600;
+      line-height: 1.2;
+    }
+  }
+
+  .harness-health-spark {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .harness-health-spark-svg {
+    width: 100%;
+    max-height: 6rem;
+    align-self: flex-start;
+  }
+
+  .harness-health-daily summary {
+    font-size: 0.8rem;
+    padding: 0.35rem 0;
+  }
+
+  .harness-health-errors-list {
+    gap: 0;
+
+    li {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 0.3rem 0.75rem;
+      padding: 0.6rem 0;
+      border-bottom: 1px solid var(--cr-border);
+      font-size: 0.8rem;
+    }
+
+    li:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    code {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  .harness-health-error-model {
+    grid-column: 1 / -1;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .harness-health-details {
+    font-size: 0.8rem;
+    min-height: 2.75rem;
+    display: inline-flex;
+    align-items: center;
   }
 }

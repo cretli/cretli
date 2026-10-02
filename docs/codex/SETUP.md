@@ -29,7 +29,7 @@ Stop aborts the in-flight `codex exec` process (`AbortSignal`). The next prompt 
 
 - **Package missing** — `npm install @openai/codex-sdk`.
 - **CLI not found** — install `@openai/codex`, or set `CODEX_BIN`.
-- **Termux / Android (`findCodexExecutable`)** — Node reports `platform: android`, so npm skips the linux optional package. The JS wrapper then throws. Match the installed Codex version, e.g. `npm install @openai/codex-linux-arm64@npm:@openai/codex@0.153.4-linux-arm64 --force`, then restart the server. If the musl binary still fails to execute, Codex CLI is not usable on that device.
+- **Termux / Android (`findCodexExecutable`)** — Node reports `platform: android`, so npm skips the linux optional package. The JS wrapper then throws. Match the installed Codex version, e.g. `npm install @openai/codex-linux-arm64@npm:@openai/codex@0.160.0-linux-arm64 --force`, then restart the server. If the musl binary still fails to execute, Codex CLI is not usable on that device.
 - **Missing credentials** — Settings → Harness → Codex: sign in with ChatGPT, or set `CODEX_API_KEY`.
 - **Device-code login fails** — enable device-code authorization in ChatGPT security settings, then retry Sign in with ChatGPT.
 - **Termux `error sending request for url (…/deviceauth/usercode)`** — the musl Codex binary cannot see Android `/etc/resolv.conf` or CA certs. Install `pkg install proot ca-certificates`, restart Cretli. Cretli then wraps `codex` with proot and sets `SSL_CERT_FILE` / `CODEX_CA_CERTIFICATE` to `$PREFIX/etc/tls/cert.pem`.

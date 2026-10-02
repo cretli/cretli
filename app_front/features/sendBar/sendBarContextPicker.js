@@ -164,7 +164,7 @@ export function initExtraBarContextPicker({ getInputElement, getWorkspaceFolder 
    */
   function renderItemButtons(items) {
     return items.map((item) => `
-      <button type="button" class="quick-cmd-btn extra-bar-context-picker-item" data-id="${escapeHtml(item.id)}" data-insert="${escapeHtml(item.insert)}" title="${escapeHtml(item.hint ? `${item.label} (${item.hint})` : item.label)}">
+      <button type="button" class="quick-cmd-btn extra-bar-context-picker-item" data-id="${escapeHtml(item.id)}" data-action="${escapeHtml(item.action || '')}" data-insert="${escapeHtml(item.insert)}" title="${escapeHtml(item.hint ? `${item.label} (${item.hint})` : item.label)}">
         ${escapeHtml(item.label)}
       </button>
     `).join('');
@@ -259,6 +259,17 @@ export function initExtraBarContextPicker({ getInputElement, getWorkspaceFolder 
     const sections = [];
     /** @type {Set<string>} */
     let recentIds = new Set();
+
+    sections.push({
+      section: t('sendBar.contextPickerTodoSection'),
+      items: [{
+        id: 'todo:picker',
+        label: t('sendBar.contextPickerTodo'),
+        hint: t('sendBar.contextPickerTodoHint'),
+        insert: '',
+        action: 'open-todo',
+      }],
+    });
 
     if (normalizedQuery === '') {
       const recentItems = pickRecentItems(allItems, recentEntries, CONTEXT_PICKER_RECENT_SECTION_MAX);
@@ -359,6 +370,11 @@ export function initExtraBarContextPicker({ getInputElement, getWorkspaceFolder 
     }
     const itemBtn = target.closest('.extra-bar-context-picker-item');
     if (!(itemBtn instanceof HTMLButtonElement)) {
+      return;
+    }
+    if (itemBtn.dataset.action === 'open-todo') {
+      closeExtraBar();
+      document.dispatchEvent(new CustomEvent('cretli-open-todo-mention'));
       return;
     }
     const insert = itemBtn.dataset.insert ?? '';

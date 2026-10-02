@@ -4,6 +4,8 @@ import { tmpdir } from 'os';
 import path from 'path';
 import test from 'node:test';
 import { registerUsageRoutes } from '../lib/routes/usage-routes.js';
+import { noteHarnessPlanLimit } from '../lib/usage/harness-health.js';
+import { noteHarnessUsageLimit } from '../lib/harness-usage-limits.js';
 import { recordUsage } from '../lib/usage/usage-ledger.js';
 
 function createFakeApp() {
@@ -316,4 +318,28 @@ test('timeseries endpoint fills the requested range with empty buckets', async (
   assert.equal(actual.statusCode, 200);
   assert.deepEqual(actual.body.buckets, ['2026-08-28', '2026-08-29', '2026-08-30', '2026-08-31']);
   assert.deepEqual(actual.body.series, [{ group: 'gemini', values: [1_000_000, 0, 0, 1_000_000] }]);
+});
+
+
+test('plan state is independent of ledger range and strips raw lockout messages', async () => {
+  const dataDir = mkdtempSync(path.join(tmpdir(), 'cretli-plan-api-'));
+  noteHarnessPlanLimit({ harness: 'qwen', rateLimitType: 'session', utilization: 75, dataDir });
+  noteHarnessUsageLimit({ harness: 'codex', model: 'model', message: 'session limit secret text', dataDir });
+  const actual = await callRoute('GET', '/api/usage/plan-limits', { dataDir, query: { from: 'invalid' } });
+  assert.equal(actual.body.ok, true);
+  assert.equal(actual.body.planLimits[0].remainingPercent, 25);
+  assert.equal(actual.body.lockouts[0].harness, 'codex');
+  assert.equal('message' in actual.body.lockouts[0], false);
+  assert.equal(JSON.stringify(actual.body).includes('secret text'), false);
+});
+
+
+test('plan state rejects widget and integration callers', () => {
+  const app = createFakeApp();
+  registerUsageRoutes(app);
+  for (const req of [{ widgetAccess: {} }, { mcpIntegration: {} }]) {
+    const res = createFakeResponse();
+    app.routes.get('GET /api/usage/plan-limits')(req, res);
+    assert.equal(res.statusCode, 403);
+  }
 });

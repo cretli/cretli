@@ -254,6 +254,56 @@ assert.equal(subagentTurnEnd[0].status, 'error');
 assert.match(String(subagentTurnEnd[0].result), /deepseek-flash/);
 assert.match(String(subagentTurnEnd[0].result), /delegation_start/);
 
+const reusedChildScope = {
+  rootSessionId: 'dsh-1',
+  childSessionIds: new Set(),
+  childDiagnostics: new Map(),
+};
+normalizeDeepSeekNotification({
+  method: 'session.event',
+  params: {
+    sessionId: 'child-reused',
+    event: {
+      type: 'turn/end',
+      data: {
+        turn: 1,
+        reason: { kind: 'error', error: { message: 'no adapter registered for provider "codex"' } },
+      },
+    },
+  },
+}, reusedChildScope);
+const reusedChildFailure = normalizeDeepSeekNotification({
+  method: 'subagent.finished',
+  params: { childSessionId: 'child-reused', status: 'error' },
+}, reusedChildScope);
+assert.equal(reusedChildFailure[0].status, 'error');
+assert.equal(reusedChildScope.childDiagnostics.has('child-reused'), false);
+normalizeDeepSeekNotification({
+  method: 'session.event',
+  params: {
+    sessionId: 'child-reused',
+    event: {
+      type: 'turn/end',
+      data: {
+        turn: 2,
+        reason: { kind: 'error', error: { message: 'no adapter registered for provider "codex"' } },
+      },
+    },
+  },
+}, reusedChildScope);
+const reusedChildEmptySuccess = normalizeDeepSeekNotification({
+  method: 'subagent.finished',
+  params: {
+    childSessionId: 'child-reused',
+    status: 'ok',
+    stopReason: 'completed',
+    lastAssistantMessage: [],
+  },
+}, reusedChildScope);
+assert.equal(reusedChildEmptySuccess[0].status, 'completed');
+assert.equal(reusedChildEmptySuccess[0].result, '');
+assert.equal(reusedChildScope.childDiagnostics.has('child-reused'), false);
+
 const describedPlain = describeDeepSeekSubagentResult('hello');
 assert.equal(describedPlain.isError, false);
 assert.equal(describedPlain.text, 'hello');

@@ -1,6 +1,22 @@
 /** Recycle an open active-chat socket only after long background (avoids SDK replay storms). */
 export const RESUME_FORCE_WS_RECONNECT_MS = 60000;
 
+/**
+ * Mobile recycles an apparently-open active socket much earlier: iOS/Android
+ * freeze or kill the socket within seconds, and the resume probe is short.
+ */
+export const RESUME_FORCE_WS_RECONNECT_MOBILE_MS = 15000;
+
+/**
+ * @param {boolean} isMobileLike
+ * @returns {number}
+ */
+export function resolveResumeForceWsReconnectMs(isMobileLike) {
+  return isMobileLike === true
+    ? RESUME_FORCE_WS_RECONNECT_MOBILE_MS
+    : RESUME_FORCE_WS_RECONNECT_MS;
+}
+
 /** HTTP history catch-up after any real background interval (0 = even a short absence). */
 export const RESUME_HISTORY_SYNC_MIN_MS = 0;
 
@@ -19,10 +35,10 @@ export const ACTIVE_CHAT_HISTORY_POLL_SKIP_GAP = 0;
 /** Ignore duplicate active-chat history sync within this window. */
 export const RESUME_SYNC_COOLDOWN_MS = 45000;
 
-/** Base defer before resume history sync on mobile (visibility/pageshow). */
+/** Base defer before resume history sync on mobile (background poll reasons only). */
 export const RESUME_HISTORY_SYNC_DEFER_MOBILE_MS = 2500;
 
-/** Base defer before resume history sync on desktop. */
+/** Base defer before resume history sync on desktop (background poll reasons only). */
 export const RESUME_HISTORY_SYNC_DEFER_DESKTOP_MS = 1200;
 
 /** Extra defer for poll/room-state driven sync on mobile. */
@@ -50,13 +66,19 @@ export function shouldSkipHttpHistorySyncForMobileWsReplay(needsReconnect, isMob
  * @param {number} backgroundMs
  * @param {boolean} forceReconnect
  * @param {number | undefined} readyState
+ * @param {boolean} [isMobileLike]
  * @returns {boolean}
  */
-export function shouldRecycleActiveChatSocketOnResume(backgroundMs, forceReconnect, readyState) {
+export function shouldRecycleActiveChatSocketOnResume(
+  backgroundMs,
+  forceReconnect,
+  readyState,
+  isMobileLike = false
+) {
   if (readyState !== WebSocket.OPEN) return false;
   if (forceReconnect) return true;
   if (!Number.isFinite(backgroundMs) || backgroundMs <= 0) return false;
-  return backgroundMs >= RESUME_FORCE_WS_RECONNECT_MS;
+  return backgroundMs >= resolveResumeForceWsReconnectMs(isMobileLike);
 }
 
 /**
@@ -106,6 +128,7 @@ export function shouldRunResumeChatHistorySync(reason, backgroundMs, forceReconn
   if (Number.isFinite(backgroundMs) && backgroundMs > 0) return true;
   const normalized = String(reason || '').trim();
   if (normalized === 'online' || normalized === 'backend_recovery') return true;
+  if (normalized === 'notification') return true;
   if ((normalized === 'pageshow' || normalized === 'visibility') && wasPageHidden) return true;
   return false;
 }
@@ -128,6 +151,10 @@ export function shouldDeferResumeHistorySyncReason(reason) {
 }
 
 /**
+ * Active-chat resume reasons (visibility/pageshow/online/backend_recovery,
+ * replay_complete/replay_fallback) sync immediately. Only the background poll
+ * reasons keep the original defer, which protects the UI during a poll storm.
+ *
  * @param {string} reason
  * @param {boolean} isMobileLike
  * @param {number} [backgroundMs]
@@ -135,16 +162,18 @@ export function shouldDeferResumeHistorySyncReason(reason) {
  */
 export function getResumeHistorySyncDeferMs(reason, isMobileLike, backgroundMs = 0) {
   if (!shouldDeferResumeHistorySyncReason(reason)) return 0;
-  let deferMs = isMobileLike ? RESUME_HISTORY_SYNC_DEFER_MOBILE_MS : RESUME_HISTORY_SYNC_DEFER_DESKTOP_MS;
   const normalized = String(reason || '').trim();
-  if (
-    isMobileLike &&
-    (normalized === 'cross_device_poll' || normalized === 'room_state_gap')
-  ) {
+  // Active-chat resume reasons (visibility/pageshow/online/backend_recovery,
+  // replay_fallback) sync immediately; only background poll reasons keep a defer.
+  if (normalized !== 'cross_device_poll' && normalized !== 'room_state_gap') return 0;
+  let deferMs = isMobileLike
+    ? RESUME_HISTORY_SYNC_DEFER_MOBILE_MS
+    : RESUME_HISTORY_SYNC_DEFER_DESKTOP_MS;
+  if (isMobileLike) {
     deferMs += RESUME_POLL_REASON_EXTRA_DEFER_MOBILE_MS;
-  }
-  if (isMobileLike && Number.isFinite(backgroundMs) && backgroundMs >= RESUME_FORCE_WS_RECONNECT_MS) {
-    deferMs += 1500;
+    if (Number.isFinite(backgroundMs) && backgroundMs >= resolveResumeForceWsReconnectMs(true)) {
+      deferMs += 1500;
+    }
   }
   return deferMs;
 }

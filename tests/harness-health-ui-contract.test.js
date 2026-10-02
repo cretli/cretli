@@ -78,7 +78,7 @@ test('a lockout clear invalidates the cache before the forced refresh', () => {
   assert.match(cacheSource, /const seq = \+\+latestSeq/);
   assert.match(cacheSource, /if \(seq !== latestSeq\) return null/);
   assert.match(cacheSource, /cache = \{ at: now\(\), payload: data \}/);
-  assert.match(cardSource, /healthCache\.invalidate\(\);\s*\n\s*await reloadCard\(record, true\)/);
+  assert.match(cardSource, /healthCache\.invalidate\(\);\s*\n\s*renderExpandedCards\(\);\s*\n\s*await reloadCard\(record, true\)/);
 });
 
 test('a forced health GET bypasses the URL-keyed dedupeGetJson', () => {
@@ -123,7 +123,7 @@ test('health row keeps controls on one line with the card below', () => {
 
 test('health card keeps local contrast and larger mobile tap targets', () => {
   assert.match(scss, /--harness-health-muted: var\(--cr-text-subtle, var\(--cr-text-muted\)\)/);
-  assert.match(scss, /@media \(max-width: 599px\) \{[\s\S]*?\.harness-health-toggle \{[\s\S]*?width: 2\.75rem;/);
+  assert.match(scss, /@media \(max-width: 599px\) \{[\s\S]*?\.harness-health-toggle \{[\s\S]*?min-width: 2\.75rem;/);
   assert.match(scss, /@media \(max-width: 599px\) \{[\s\S]*?\.harness-health-refresh,[\s\S]*?min-height: 2\.75rem;/);
 });
 
@@ -155,4 +155,16 @@ test('no new runtime dependency is added for the card', () => {
   const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
   assert.equal(deps.chart, undefined);
   assert.equal(deps['chart.js'], undefined);
+});
+
+
+test('every harness exposes a Statistics tab and a dedicated panel', () => {
+  const html = read('public/index.html');
+  for (const harness of ['sdk', 'openrouter', 'opencode', 'codebuddy', 'deepseek', 'qwen', 'claude', 'codex']) {
+    assert.ok(html.includes(`data-settings-tab="harness-${harness}-stats" role="tab"`));
+    assert.ok(html.includes(`data-settings-tab="harness-${harness}-stats" role="tabpanel"`));
+  }
+  const app = read('app_front/App.js');
+  assert.match(app, /showHarnessStatistics\(getHarnessIdFromSettingsTab\(tabId\)\)/);
+  assert.match(cardSource, /export async function showHarnessStatistics/);
 });

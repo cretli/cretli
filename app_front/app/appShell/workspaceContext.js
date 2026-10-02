@@ -10,6 +10,7 @@ import {
   normalizeWorkspaceSidebarConfig,
   resolveWorkspaceItemKey,
 } from './workspaceHelpers.js';
+import { readChatLocalBootCache } from '../../features/chat/chatLocalBootCache.js';
 
 export function createWorkspaceContext(deps = {}) {
   const {
@@ -29,6 +30,21 @@ export function createWorkspaceContext(deps = {}) {
   let workspacesList = [];
   let workspacesListFetchPromise = null;
   let workspaceSidebarConfig = {};
+
+  /**
+   * Cold-start fast path: install a locally cached workspace list so the sidebar can group
+   * the cached chats before `GET /api/workspaces` answers. A non-empty live list always
+   * wins, and the next `ensureWorkspacesListLoaded()` still revalidates from the server.
+   *
+   * @param {unknown[]} list
+   * @returns {boolean}
+   */
+  function seedWorkspacesList(list) {
+    if (!Array.isArray(list) || list.length === 0) return false;
+    if (Array.isArray(workspacesList) && workspacesList.length > 0) return false;
+    workspacesList = list;
+    return true;
+  }
 
   function applyEmbedWorkspaceContext(installation = null) {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
@@ -103,7 +119,9 @@ export function createWorkspaceContext(deps = {}) {
         return workspacesList;
       })
       .catch(() => {
-        workspacesList = [];
+        // Keep a previously seeded/live list on a failed revalidation so an offline cold
+        // start still groups its cached chats instead of falling back to the empty state.
+        if (!Array.isArray(workspacesList) || workspacesList.length === 0) workspacesList = [];
         return workspacesList;
       })
       .finally(() => {
@@ -465,7 +483,16 @@ export function createWorkspaceContext(deps = {}) {
         const workspaceFile = settingsData.ok ? settingsData.workspaceFile || '' : '';
         const workspaceFolder = settingsData.ok ? settingsData.workspaceFolder || '' : '';
         setWorkspaceSidebarConfig(settingsData?.workspaceSidebarConfig);
+        const bootCached = typeof localStorage !== 'undefined'
+          ? readChatLocalBootCache(localStorage)
+          : null;
+        const bootContext = bootCached?.workspaceContext;
+        const bootDiffersFromSettings = bootContext && (
+          normalizePath(bootContext.workspaceFile) !== normalizePath(workspaceFile)
+          || normalizePath(bootContext.workspaceFolder) !== normalizePath(workspaceFolder)
+        );
         updateWorkspaceTriggerLabel(workspaceFile, workspaceFolder);
+        if (bootDiffersFromSettings) refreshChatListForWorkspace();
       })
       .catch(() => {});
   }
@@ -497,5 +524,6 @@ export function createWorkspaceContext(deps = {}) {
     getSidebarWorkspaceFolder: (sidebarKey) => resolveFolderForWorkspaceSelection(sidebarKey, ''),
     getWorkspacesList: () => buildExpandedWorkspacesList(),
     ensureWorkspacesListLoaded,
+    seedWorkspacesList,
   };
 }

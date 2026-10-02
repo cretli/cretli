@@ -376,6 +376,171 @@ test('disposeLocalHarnessSession goes through the live pin, is idempotent, and i
   assert.deepEqual(module.calls.disposed, ['session-1']);
 });
 
+test('local harness run end feeds the auto-title dispatcher (no room kernel on this path)', async () => {
+  const root = await makeRoot();
+  await addPlugin(root, 'alpha');
+  const { __setChatTitleServiceForTest } = await import('../lib/chat-title-service.js');
+  const requested = [];
+  __setChatTitleServiceForTest({ requestTitle: async (id, o) => requested.push([id, o]) });
+  try {
+    const chat = addChat('local-sess', 'alpha chat 1', undefined, undefined, undefined, { agentTransport: 'alpha' });
+    const sent = [];
+    const ws = fakeWs();
+    ws.send = (data) => sent.push(data);
+    const module = fakeModule({
+      handleChatWebSocket: ({ ws: socket }) => {
+        socket.send(JSON.stringify({ type: 'sdkRunFinished', runId: 'r1', status: 'error' }));
+        socket.send('not json sdkRunFinished');
+        socket.send(JSON.stringify({ type: 'sdkRunFinished', runId: 'r2', status: 'completed' }));
+      },
+    });
+    const dispatched = await dispatchLocalHarnessWebSocket(ws, 'local-sess', { id: chat.id, agentTransport: 'alpha' }, {
+      env: { [HARNESS_PLUGIN_ROOT_ENV]: root },
+      settings: { enabledLocalHarnesses: ['alpha'] },
+      hostVersion: '0.4.0',
+      semver: SEMVER_COMPATIBLE,
+      importer: async () => module,
+    });
+    assert.equal(dispatched.ok, true, JSON.stringify(dispatched));
+    // The dispatcher defers via setTimeout(0); setImmediate polling alone can outrun that timer.
+    for (let i = 0; i < 200 && requested.length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.ok(requested.length > 0, 'timed out waiting for title requested');
+    assert.deepEqual(requested, [[chat.id, { reason: 'first' }]]);
+    assert.equal(sent.length, 3, 'frames still reach the client untouched');
+  } finally {
+    __setChatTitleServiceForTest(null);
+  }
+});
+
+test('local socket push and flag reset are gated on payload.type, not on the substring', async () => {
+  const root = await makeRoot();
+  await addPlugin(root, 'alpha');
+
+  const broadcasts = [];
+  const { __setAgentFinishedPushDepsForTest } = await import('../lib/agent-harness/local-harness-runtime.js');
+  __setAgentFinishedPushDepsForTest({
+    isPushAvailable: () => true,
+    hasPushSubscriptions: () => true,
+    broadcastPush: async (payload) => {
+      broadcasts.push(payload);
+    },
+    loadChatHistory: () => ({ headSeq: 1, records: [] }),
+    extractLatestAssistantText: () => '',
+    resolveChatTitle: async (_chatId, roomTitle) => roomTitle || 'Local title',
+  });
+  // Keep the auto-title dispatcher from touching the title service during this test.
+  const { __setChatTitleServiceForTest } = await import('../lib/chat-title-service.js');
+  __setChatTitleServiceForTest({ requestTitle: async () => {} });
+  try {
+    const chat = addChat('push-sess', 'push chat', undefined, undefined, undefined, { agentTransport: 'alpha' });
+    const sent = [];
+    const ws = fakeWs();
+    ws.send = (data) => sent.push(data);
+
+    const frames = [
+      // Mentions the token but is an sdkEvent: must NOT schedule a push.
+      JSON.stringify({ type: 'sdkEvent', kind: 'log', text: 'sdkRunFinished appears in this text' }),
+      // Mentions the reset token under a wrong type: must NOT re-arm the flag.
+      JSON.stringify({ type: 'sdkEvent', text: 'sdkPromptStarted appears in this text' }),
+      // A genuine finish: schedules exactly one push.
+      JSON.stringify({ type: 'sdkRunFinished', runId: 'real-1', status: 'completed' }),
+      // The same run reported again: deduped by the per-room flag.
+      JSON.stringify({ type: 'sdkRunFinished', runId: 'real-1', status: 'completed' }),
+    ];
+
+    const module = fakeModule({
+      handleChatWebSocket: ({ ws: socket }) => {
+        for (const frame of frames) socket.send(frame);
+      },
+    });
+    const dispatched = await dispatchLocalHarnessWebSocket(
+      ws,
+      'push-sess',
+      { id: chat.id, title: 'push chat', agentTransport: 'alpha' },
+      {
+        env: { [HARNESS_PLUGIN_ROOT_ENV]: root },
+        settings: { enabledLocalHarnesses: ['alpha'] },
+        hostVersion: '0.4.0',
+        semver: SEMVER_COMPATIBLE,
+        importer: async () => module,
+      },
+    );
+    assert.equal(dispatched.ok, true, JSON.stringify(dispatched));
+    for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(broadcasts.length, 1, 'only the real sdkRunFinished frame may push');
+    assert.equal(broadcasts[0].data.status, 'completed', 'the push must come from the real finish');
+    assert.deepEqual(sent, frames, 'frames still reach the client untouched');
+  } finally {
+    __setAgentFinishedPushDepsForTest(null);
+    __setChatTitleServiceForTest(null);
+  }
+});
+
+test('local socket re-arms the push flag only on a real sdkPromptStarted frame', async () => {
+  const root = await makeRoot();
+  await addPlugin(root, 'alpha');
+
+  const broadcasts = [];
+  const { __setAgentFinishedPushDepsForTest } = await import('../lib/agent-harness/local-harness-runtime.js');
+  __setAgentFinishedPushDepsForTest({
+    isPushAvailable: () => true,
+    hasPushSubscriptions: () => true,
+    broadcastPush: async (payload) => {
+      broadcasts.push(payload);
+    },
+    loadChatHistory: () => ({ headSeq: 1, records: [] }),
+    extractLatestAssistantText: () => '',
+    resolveChatTitle: async (_chatId, roomTitle) => roomTitle || 'Local title',
+  });
+  const { __setChatTitleServiceForTest } = await import('../lib/chat-title-service.js');
+  __setChatTitleServiceForTest({ requestTitle: async () => {} });
+  try {
+    const chat = addChat('rearm-sess', 'rearm chat', undefined, undefined, undefined, { agentTransport: 'alpha' });
+    const ws = fakeWs();
+    ws.send = () => {};
+
+    const frames = [
+      JSON.stringify({ type: 'sdkRunFinished', runId: 'r1', status: 'completed' }),
+      // Fake prompt-started (wrong type): must not reset, so the next finish stays deduped.
+      JSON.stringify({ type: 'sdkEvent', text: 'sdkPromptStarted mentioned' }),
+      JSON.stringify({ type: 'sdkRunFinished', runId: 'r1', status: 'completed' }),
+      // Real prompt-started: re-arms the flag for the next run.
+      JSON.stringify({ type: 'sdkPromptStarted', runId: 'r2' }),
+      JSON.stringify({ type: 'sdkRunFinished', runId: 'r2', status: 'completed' }),
+    ];
+
+    const module = fakeModule({
+      handleChatWebSocket: ({ ws: socket }) => {
+        for (const frame of frames) socket.send(frame);
+      },
+    });
+    const dispatched = await dispatchLocalHarnessWebSocket(
+      ws,
+      'rearm-sess',
+      { id: chat.id, title: 'rearm chat', agentTransport: 'alpha' },
+      {
+        env: { [HARNESS_PLUGIN_ROOT_ENV]: root },
+        settings: { enabledLocalHarnesses: ['alpha'] },
+        hostVersion: '0.4.0',
+        semver: SEMVER_COMPATIBLE,
+        importer: async () => module,
+      },
+    );
+    assert.equal(dispatched.ok, true, JSON.stringify(dispatched));
+    for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+
+    // Exactly two pushes: r1 (once, the duplicate and the fake reset change nothing) and r2
+    // (after the real sdkPromptStarted re-armed the flag).
+    assert.equal(broadcasts.length, 2, 'fake prompt-started must not re-arm; real one must');
+  } finally {
+    __setAgentFinishedPushDepsForTest(null);
+    __setChatTitleServiceForTest(null);
+  }
+});
+
 test('invalidateLocalHarnessModuleCache clears the load cache but keeps a live pin', async () => {
   const root = await makeRoot();
   await addPlugin(root, 'alpha');

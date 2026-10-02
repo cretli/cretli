@@ -9,6 +9,7 @@ const LIVE_SYNC_DEBOUNCE_MS = 150;
  * @param {{
  *   refresh: (query: { skipAutoSelect: boolean, includeArchived?: boolean }) => unknown,
  *   shouldIncludeArchived?: () => boolean,
+ *   onTitleChanged?: (chatId: string | null) => unknown,
  *   setTimeoutFn?: typeof setTimeout,
  *   clearTimeoutFn?: typeof clearTimeout,
  *   debounceMs?: number,
@@ -17,6 +18,7 @@ const LIVE_SYNC_DEBOUNCE_MS = 150;
 export function createChatListLiveSync({
   refresh,
   shouldIncludeArchived = () => false,
+  onTitleChanged = () => {},
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
   debounceMs = LIVE_SYNC_DEBOUNCE_MS,
@@ -35,7 +37,15 @@ export function createChatListLiveSync({
   }
 
   return {
-    onChatsChanged() {
+    /** @param {{ reason?: string, chatId?: string | null }} [msg] server `chatsChanged` frame */
+    onChatsChanged(msg) {
+      // A title change also reloads the list; the hook lets an open settings modal react
+      // without clobbering text the user is typing.
+      if (msg && msg.reason === 'title') {
+        try {
+          onTitleChanged(typeof msg.chatId === 'string' && msg.chatId ? msg.chatId : null);
+        } catch (_) {}
+      }
       schedule();
     },
     cancel() {

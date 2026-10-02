@@ -273,3 +273,14 @@ test('buildSpaLocation drops panel/tab aliases and keeps other query params', ()
   );
   assert.equal(buildSpaLocation({ panel: 'chat', search: '' }), '/chat');
 });
+
+
+test('each harness statistics tab has a round-trip direct link', () => {
+  for (const harness of ['sdk', 'openrouter', 'opencode', 'codebuddy', 'deepseek', 'qwen', 'claude', 'codex']) {
+    const settingsTab = `harness-${harness}-stats`;
+    const url = buildSpaPath({ panel: 'settings', settingsTab });
+    assert.equal(url, `/settings/${settingsTab}`);
+    assert.deepEqual(parseSpaPath(url), { panel: 'settings', settingsTab });
+    assert.equal(isHarnessSubtabOf(settingsTab, harness), true);
+  }
+});

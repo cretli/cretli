@@ -2,6 +2,8 @@
 import { appLogger } from './logger.js';
 import { getCurrentLang } from './i18n/index.js';
 import { readStorageValueWithAlias } from './lib/storageKeyAlias.js';
+import { clearChatLocalBootCache } from './features/chat/chatLocalBootCache.js';
+import { clearPushInboxCache } from './features/pwa/pushInbox.js';
 import {
   applyCsrfFromAuthPayload,
   buildCretliApiHeaders,
@@ -101,6 +103,8 @@ async function json(r) {
 function redirectLogin() {
   if (typeof window === 'undefined') return;
   if (window.location.pathname === '/login') return;
+  clearChatLocalBootCache(typeof localStorage !== 'undefined' ? localStorage : null);
+  void clearPushInboxCache();
   const next = encodeURIComponent(window.location.pathname + window.location.search);
   window.location.replace(`/login?next=${next}`);
 }
@@ -672,6 +676,29 @@ export async function patchChat(id, data) {
   }, `patchChat:${id}`);
 }
 
+export async function getChatTitleHistory(id) {
+  if (!id) return { ok: false, error: 'Missing chat id' };
+  return apiFetchJson(`/api/chats/${encodeURIComponent(id)}/title-history`, {}, `getChatTitleHistory:${id}`);
+}
+
+export async function regenerateChatTitle(id) {
+  if (!id) return { ok: false, error: 'Missing chat id' };
+  return apiFetchJson(`/api/chats/${encodeURIComponent(id)}/regenerate-title`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  }, `regenerateChatTitle:${id}`, { timeoutMs: 45000 });
+}
+
+export async function setChatTitleLock(id, locked) {
+  if (!id) return { ok: false, error: 'Missing chat id' };
+  return apiFetchJson(`/api/chats/${encodeURIComponent(id)}/title-lock`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ locked: locked === true }),
+  }, `setChatTitleLock:${id}`);
+}
+
 export async function archiveChat(id, archived) {
   if (!id) return { ok: false, error: 'Missing chat id' };
   return patchChat(id, { archived: archived === true });
@@ -1048,6 +1075,10 @@ export async function postUsageEvent(payload = {}) {
       workspaceFile: payload.workspaceFile ? String(payload.workspaceFile) : undefined,
     }),
   }, 'postUsageEvent', { timeoutMs: 8000 });
+}
+
+export async function getUsagePlanLimits() {
+  return dedupeGetJson('/api/usage/plan-limits', 'getUsagePlanLimits');
 }
 
 export async function getUsageSummary(query = {}) {

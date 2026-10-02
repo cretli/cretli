@@ -20,7 +20,14 @@ export function setChatSendBarReserve(px) {
  */
 function measureSendBarReserve(pane, bar) {
   if (!(pane instanceof HTMLElement) || !(bar instanceof HTMLElement)) return 0;
-  const reserve = pane.getBoundingClientRect().bottom - bar.getBoundingClientRect().top;
+  const barRect = bar.getBoundingClientRect();
+  let top = barRect.top;
+  const stack = bar.querySelector('.send-keys-context-stack');
+  if (stack instanceof HTMLElement && !stack.hidden) {
+    const stackTop = stack.getBoundingClientRect().top;
+    if (Number.isFinite(stackTop)) top = Math.min(top, stackTop);
+  }
+  const reserve = pane.getBoundingClientRect().bottom - top;
   if (!Number.isFinite(reserve)) return 0;
   return Math.max(0, Math.round(reserve));
 }

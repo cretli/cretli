@@ -6,6 +6,7 @@ export function createSendBarAttachments(options) {
     sendBtn,
     getInputElement,
     getBasePlaceholder,
+    onVisibilityChange = () => {},
   } = options;
 
   if (!(attachmentsBar instanceof HTMLElement)) {
@@ -69,6 +70,7 @@ export function createSendBarAttachments(options) {
       attachmentsBar.textContent = '';
       updateInputPlaceholder();
       updateSendButtonState();
+      onVisibilityChange();
       return;
     }
 
@@ -120,6 +122,7 @@ export function createSendBarAttachments(options) {
 
     updateInputPlaceholder();
     updateSendButtonState();
+    onVisibilityChange();
   }
 
   function setPageSelectionAttachment(label, context) {

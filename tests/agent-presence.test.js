@@ -77,6 +77,15 @@ assert.equal(
 assert.equal(chats[0]._serverRunState.waitingAgentCount, 3);
 assert.equal(chats[1]._serverRunState, null);
 
+// A server agent-states response is authoritative even when nothing changed: it
+// still advances the server watermark that blocks stale push-inbox patches.
+const unchangedStamp = [{ id: 'same', _serverRunState: { state: 'busy' } }];
+assert.equal(
+  applyAgentStatesToChats(unchangedStamp, { same: { state: 'busy' } }),
+  false
+);
+assert.ok(unchangedStamp[0]._serverRunStateAt > 0);
+
 const deltaChats = [
   { id: 'keep', _serverRunState: { state: 'busy' } },
   { id: 'gone', _serverRunState: { state: 'attention' } },

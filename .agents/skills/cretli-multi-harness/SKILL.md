@@ -285,7 +285,10 @@ reviews beyond the cap wait until a slot frees.
 - After a child **PASS** on implement/fix, independently reproduce 1–2 claims
   (test or minimal repo). Child PASS without that evidence is `unspecified`.
   If the reviewer's `traits.review_can_run_tests` is `false` (no native shell or
-  a read-only hook), the **parent MUST** run the catalog tests.
+  a read-only hook), the **parent MUST** call `delegation_verify` for that job.
+  Read the stored `verify_result` from `delegation_show` separately from `VERDICT`; a failed
+  review-verify is a hard failure even when the child says PASS. Findings are
+  defects to fix, not a map for further exploration.
 - **`waiting_for_input`** (OpenCode question/permission or SDK Ask on
   implement/fix): keep polling `delegation_wait`; do not infra-retry or free
   the fanout slot until the user approves in the child chat or the job reaches

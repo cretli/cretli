@@ -114,6 +114,15 @@ export function createChatView(deps) {
               escapeHtml(t('chatUi.temporaryBadge')) +
               '</span>'
             : '') +
+          (c.titleSource === 'auto' || c.titleSource === 'manual'
+            ? '<span class="chat-list-item-title-source chat-list-item-title-source--' +
+              c.titleSource +
+              '" title="' +
+              escapeHtml(t(c.titleSource === 'auto' ? 'chatUi.titleSourceAutoTip' : 'chatUi.titleSourceManualTip')) +
+              '">' +
+              escapeHtml(t(c.titleSource === 'auto' ? 'chatUi.titleSourceAuto' : 'chatUi.titleSourceManual')) +
+              '</span>'
+            : '') +
           (c.todoId
             ? '<span class="chat-list-item-todo-badge" title="' +
               escapeHtml(t('chatUi.linkedTodo')) +

@@ -4,6 +4,25 @@ export const CHAT_STALE_PONG_MS = 150000;
 /** Resume probe: close an apparently-open socket if the control ping gets no pong. */
 export const CHAT_RESUME_PROBE_PONG_MS = 20000;
 
+/** Short resume probe on mobile: a suspended socket almost never answers. */
+export const CHAT_RESUME_PROBE_PONG_MOBILE_MS = 2000;
+
+/** Short resume probe on desktop. */
+export const CHAT_RESUME_PROBE_PONG_DESKTOP_MS = 4000;
+
+/**
+ * Resume probe timeout by client class. The regular ping loop is unchanged; this
+ * only shortens the "is this open socket actually alive?" check after a return.
+ *
+ * @param {boolean} isMobileLike
+ * @returns {number}
+ */
+export function resolveResumeProbePongTimeoutMs(isMobileLike) {
+  return isMobileLike === true
+    ? CHAT_RESUME_PROBE_PONG_MOBILE_MS
+    : CHAT_RESUME_PROBE_PONG_DESKTOP_MS;
+}
+
 /**
  * @param {{
  *   unackedPingAt?: number,

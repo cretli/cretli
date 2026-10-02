@@ -40,7 +40,13 @@ import {
   setForcedEmbedChatId,
   refreshRelatedChatHistoryLinks,
   setWorkspaceCloneFolderLookup,
+  openChatFromNotification,
 } from './chat.js';
+import {
+  clearChatLocalBootCache,
+  readChatLocalBootCache,
+} from './features/chat/chatLocalBootCache.js';
+import { clearPushInboxCache } from './features/pwa/pushInbox.js';
 import { copyFromTerminal } from './panelCopy.js';
 import { initLanSettings } from './lanSettings.js';
 import { initModelSettings, refreshModelSettingsPanel } from './modelSettings.js';
@@ -51,6 +57,7 @@ import { initDeepSeekModelSettings, refreshDeepSeekModelSettingsPanel } from './
 import { initQwenModelSettings, refreshQwenModelSettingsPanel } from './qwenModelSettings.js';
 import { initClaudeModelSettings, refreshClaudeModelSettingsPanel } from './claudeModelSettings.js';
 import { initCodexModelSettings, refreshCodexModelSettingsPanel } from './codexModelSettings.js';
+import { showHarnessStatistics } from './features/harness-health/harnessHealthCard.js';
 import { initHarnessSettings, refreshHarnessSettingsPanel } from './harnessSettings.js';
 import { maybeShowFirstRunSetup } from './features/setup/firstRunSetup.js';
 import { initAppUpdateSettings } from './features/settings/appUpdateSettings.js';
@@ -86,6 +93,7 @@ import {
   isHarnessSettingsTab,
   isHarnessSubtabOf,
   isInterfaceSettingsTab,
+  isChatSettingsTab,
   remapSettingsTab,
 } from '../lib/spa-routes.js';
 import { loadPanelModule, getLoadedPanelModule } from './app/appShell/lazyPanelModules.js';
@@ -114,8 +122,10 @@ import { initDelegationCenter, refreshDelegationCenter } from './features/delega
 import { initInstallPrompt } from './features/pwa/installPrompt.js';
 import { initPwaUpdatePrompt } from './features/pwa/pwaUpdatePrompt.js';
 import { initPageBackgroundGrace } from './lib/pageBackgroundGrace.js';
+import { isMobileLikeClient } from './lib/mobileClient.js';
 import { initPageResumeCleanup, registerPageResumeCleanupHook } from './lib/pageResumeCleanup.js';
 import { initPushSettingsToggle } from './features/pwa/pushSubscription.js';
+import { initServiceWorkerMessages, readNotificationBootInfo } from './features/pwa/swMessages.js';
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from './lib/storageKeyAlias.js';
 import './components/ui/index.js';
 import './components/ui/cr-storage-donut.js';
@@ -362,7 +372,22 @@ const {
   getSidebarWorkspaceFolder,
   getWorkspacesList: getWorkspacesListFromCtx,
   ensureWorkspacesListLoaded,
+  seedWorkspacesList,
 } = workspaceContext;
+
+/**
+ * Seed the sidebar's workspace list from the cold-start snapshot so cached chats render
+ * before `GET /api/workspaces` answers. `ensureWorkspacesListLoaded` still revalidates.
+ *
+ * @returns {boolean} whether a cached list was installed
+ */
+function seedWorkspacesListFromBootCache() {
+  try {
+    const cached = readChatLocalBootCache(typeof localStorage !== 'undefined' ? localStorage : null);
+    if (cached && cached.workspaces.length > 0) return seedWorkspacesList(cached.workspaces);
+  } catch (_) {}
+  return false;
+}
 
 setWorkspaceCloneFolderLookup((workspaceFile) =>
   listCloneFoldersForWorkspaceFile(
@@ -955,6 +980,8 @@ function initAccountLogout() {
     if (status) status.textContent = t('app.logoutProgress');
     try {
       await api.logout();
+      clearChatLocalBootCache(typeof localStorage !== 'undefined' ? localStorage : null);
+      await clearPushInboxCache();
       if (typeof window !== 'undefined') window.location.assign('/login');
     } catch (err) {
       if (status) status.textContent = t('app.logoutError', { detail: err?.message || t('app.logoutErrorUnknown') });
@@ -991,7 +1018,7 @@ function getHarnessIdFromSettingsTab(tabId) {
  */
 function isHarnessModelSubtab(tabId, harnessId) {
   if (!isHarnessSubtabOf(tabId, harnessId)) return false;
-  return tabId !== `harness-${harnessId}-approvals`;
+  return tabId === `harness-${harnessId}-keys` || tabId === `harness-${harnessId}-models`;
 }
 
 function ensureSettingsTabsVisible() {
@@ -1017,6 +1044,7 @@ function refreshSettingsTabPanels(tabId) {
   if (!settingsPanel?.classList.contains('active')) return;
   ensureSettingsHeavyModules();
   if (tabId === 'harness') refreshHarnessSettingsPanel();
+  if (tabId.endsWith('-stats')) void showHarnessStatistics(getHarnessIdFromSettingsTab(tabId));
   if (isHarnessModelSubtab(tabId, 'sdk')) refreshModelSettingsPanel();
   if (isHarnessModelSubtab(tabId, 'openrouter')) refreshOpenRouterModelSettingsPanel();
   if (isHarnessModelSubtab(tabId, 'opencode')) refreshOpenCodeModelSettingsPanel();
@@ -1047,6 +1075,7 @@ function isSettingsTabButtonActive(btn, tabId, inMainBar) {
   const btnTab = btn.dataset.settingsTab || '';
   if (inMainBar && btnTab === 'harness') return isHarnessSettingsTab(tabId);
   if (inMainBar && btnTab === 'interface') return isInterfaceSettingsTab(tabId);
+  if (inMainBar && btnTab === 'chat') return isChatSettingsTab(tabId);
   const harnessTab = btn.dataset.harnessTab || '';
   if (harnessTab) return isHarnessSubtabOf(tabId, harnessTab);
   return btnTab === tabId;
@@ -1077,9 +1106,11 @@ function applySettingsTab(tabId) {
   const mainBar = document.getElementById('settings-tabs');
   const harnessBar = document.getElementById('settings-harness-tabs');
   const interfaceBar = document.getElementById('settings-interface-tabs');
+  const chatBar = document.getElementById('settings-chat-tabs');
   let activeBtn = applySettingsTabButtonState(mainBar, resolvedTabId, true);
   activeBtn = applySettingsTabButtonState(harnessBar, resolvedTabId, false) || activeBtn;
   activeBtn = applySettingsTabButtonState(interfaceBar, resolvedTabId, false) || activeBtn;
+  activeBtn = applySettingsTabButtonState(chatBar, resolvedTabId, false) || activeBtn;
 
   const activeHarnessId = getHarnessIdFromSettingsTab(resolvedTabId);
   document.querySelectorAll('.settings-harness-subtab-bar').forEach((bar) => {
@@ -1092,6 +1123,7 @@ function applySettingsTab(tabId) {
 
   if (harnessBar) harnessBar.hidden = !isHarnessSettingsTab(resolvedTabId);
   if (interfaceBar) interfaceBar.hidden = !isInterfaceSettingsTab(resolvedTabId);
+  if (chatBar) chatBar.hidden = !isChatSettingsTab(resolvedTabId);
   document.querySelectorAll('.settings-section[data-settings-tab]').forEach((section) => {
     if (section.id === 'settings-account-section' && section.dataset.accountEnabled !== 'true') {
       section.hidden = true;
@@ -1137,6 +1169,7 @@ function initSettingsTabs() {
   bindSettingsTabClicks(tabBar);
   bindSettingsTabClicks(document.getElementById('settings-harness-tabs'));
   bindSettingsTabClicks(document.getElementById('settings-interface-tabs'));
+  bindSettingsTabClicks(document.getElementById('settings-chat-tabs'));
   document.querySelectorAll('.settings-harness-subtab-bar').forEach((bar) => {
     bindSettingsTabClicks(bar);
   });
@@ -1209,6 +1242,7 @@ const APP_IDB_NAMES = Object.freeze([
   'cretli-sdk-chat',
   'cretli-chat-buffers',
   'cretli-preferences',
+  'cretli-push-inbox',
 ]);
 
 function formatBytes(value) {
@@ -1833,6 +1867,28 @@ function showBackendUnavailableOverlay(retryFn) {
   }, 4000);
 }
 
+/**
+ * A notification click with no open window lands on ?source=pwa (full reload).
+ * Log it against the in-place 'page-resume' traces so both paths are comparable.
+ */
+function logNotificationBootResume() {
+  if (typeof window === 'undefined') return;
+  const info = readNotificationBootInfo(window.location.search || '');
+  if (!info) return;
+  const bootMs =
+    typeof performance !== 'undefined' && Number.isFinite(performance.now())
+      ? Math.round(performance.now())
+      : 0;
+  appLogger.log('page-resume', 'notification boot (full reload)', {
+    chatId: info.chatId,
+    reason: 'notification',
+    notification: true,
+    reload: true,
+    mobile: isMobileLikeClient(),
+    durations: { totalMs: bootMs },
+  });
+}
+
 function bootApp() {
   const isEmbedMode = isEmbedModeEnabled();
   const modeConfig = isEmbedMode ? APP_MODES.embed : APP_MODES.main;
@@ -1925,6 +1981,9 @@ function bootApp() {
     measureStartupStep('initInstallPrompt', () => initInstallPrompt());
     measureStartupStep('initPwaUpdatePrompt', () => initPwaUpdatePrompt());
     measureStartupStep('initPushSettingsToggle', () => initPushSettingsToggle());
+    measureStartupStep('initServiceWorkerMessages', () =>
+      initServiceWorkerMessages({ onOpenChat: openChatFromNotification, logger: appLogger })
+    );
     measureStartupStep('initWorkspacePopover', () => initWorkspacePopover() || Promise.resolve());
     measureStartupStep('initSettingsWorkspacePicker', () => initSettingsWorkspacePicker() || Promise.resolve());
     measureStartupStep('initSidebar', () => {
@@ -1950,8 +2009,15 @@ function bootApp() {
         return 'sidebar';
       });
       // Push notifications and PWA shortcuts deep-link to ?chat=<id>.
+      // The workspace list is seeded from the boot snapshot first so cached chats group
+      // immediately, then revalidated from the server and re-rendered once it lands.
+      const seededBootWorkspaces = seedWorkspacesListFromBootCache();
       void loadChatsFromServer({ preferChatId: readRequestedChatId() });
-      ensureWorkspacesListLoaded().then(() => sidebarView.forceRerender());
+      const sidebarWorkspaceRender = ensureWorkspacesListLoaded()
+        .then(() => sidebarView.forceRerender())
+        .then(() => (seededBootWorkspaces ? ensureWorkspacesListLoaded({ refresh: true }) : null))
+        .then(() => sidebarView.forceRerender());
+      sidebarWorkspaceRender.catch(() => {});
     });
     measureStartupStep('initSettingsTabs', () => initSettingsTabs());
     measureStartupStep('initUsageSettings', () => initUsageSettings());
@@ -2029,6 +2095,7 @@ function bootApp() {
     showPanel(initialPanel, modeConfig);
     startupLog(`initial panel rendered: ${initialPanel}`);
     startupLog('boot sync phase done');
+    logNotificationBootResume();
     // Read by the inline boot guard in index.html: no flag within its timeout
     // means the boot stalled and the failure screen should take over.
     window.__crAppBooted = true;

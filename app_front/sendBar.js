@@ -130,10 +130,22 @@ export function createSendBar(options) {
   const downBtn = root.querySelector('.send-keys-down-btn');
   const stopBtn = root.querySelector('.send-keys-stop-btn');
   const inputSlot = root.querySelector('.send-keys-input-slot');
+  const contextStack = document.createElement('div');
+  contextStack.className = 'send-keys-context-stack';
+  contextStack.hidden = true;
+  const todoChipHost = document.createElement('div');
+  todoChipHost.className = 'send-keys-todo-chip';
+  todoChipHost.hidden = true;
   const attachmentsBar = document.createElement('div');
   attachmentsBar.className = 'send-keys-attachments-bar';
   attachmentsBar.hidden = true;
-  root.prepend(attachmentsBar);
+  contextStack.append(todoChipHost, attachmentsBar);
+  root.prepend(contextStack);
+
+  function syncContextStack() {
+    contextStack.hidden = todoChipHost.hidden && attachmentsBar.hidden;
+    if (typeof options.onContextLayoutChange === 'function') options.onContextLayoutChange();
+  }
 
   function getTextareaBarWrap() {
     return typeof document !== 'undefined' ? document.getElementById('send-bar-textarea-wrap') : null;
@@ -161,6 +173,7 @@ export function createSendBar(options) {
     sendBtn,
     getInputElement: () => inputController.getInputElement(),
     getBasePlaceholder: () => inputController.getBasePlaceholder(),
+    onVisibilityChange: syncContextStack,
   });
   inputController.updateInputPlaceholder();
 
@@ -386,6 +399,8 @@ export function createSendBar(options) {
     destroy: () => sendMenu?.destroy(),
     addExtraBar,
     attachTextareaToWrap: () => inputController.attachTextareaToWrap(),
+    todoChipHost,
+    syncContextStack,
   };
 }
 

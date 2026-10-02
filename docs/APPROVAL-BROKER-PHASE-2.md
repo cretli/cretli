@@ -8,10 +8,13 @@ does not host a model and does not use a Cretli harness as an advisor.
 - `approvalBroker.mode` remains `off` by default.
 - `approvalBroker.advisor.enabled` is `false` by default.
 - The advisor is consulted only in opt-in `local_reads` mode, for a local
-  `ask_user` decision classified as low-risk with no unsafe categories.
+  `ask_user` decision that is either low-risk with no unsafe categories, or the
+  mutation-only `medium` invocation of the host-owned
+  `node scripts/review-verify.js` runner (the only mutation the advisor may
+  widen).
 - `shadow` never sends an automatic permission reply. Writes, edits, deletes,
   network access, secrets, privilege changes, production actions and git writes
-  remain manual.
+  remain manual, as does every mutation other than the review-verify runner.
 - Missing HTTPS endpoint or API key means no network request.
 
 ## Provider contract
@@ -35,8 +38,10 @@ In both protocols the request contains only a redacted permission tuple: request
 ID, permission, command, resource basenames, risk and categories. It never
 contains cwd, chat history, diffs, the full workspace or an API key.
 
-The response is accepted only as structured JSON. `allow` may produce one
-OpenCode `once` reply if the request is still pending. `ask_user`, `deny`, bad
+The response is accepted only as structured JSON. `allow` highlights Once on
+the permission card and waits `timeoutMs` (the same 3000–8000 ms setting,
+default 5000). The `once` reply is sent only if the request is still pending
+when that window ends; a human click during the wait wins. `ask_user`, `deny`, bad
 JSON, a malformed System One answer, timeout, quota exhaustion, HTTP/429,
 transport errors and configuration errors all keep the human approval card. The
 advisor never sends `always` or `reject`, and there is no retry or provider
@@ -86,13 +91,16 @@ The stored key is write-only through settings PATCH and can be removed with
 ## Async behavior and audit
 
 The permission card is inserted into the pending map and broadcast before any
-advisor request begins. A human reply claims the `requestId` guard first and
-wins over a late model response. A late or failed advisor response leaves the
+advisor request begins. When the advisor allows, the card highlights Once and
+counts down for `timeoutMs` before the reply is posted. A human reply claims
+the `requestId` guard first and wins over a late model response, including a
+reply that arrives during the countdown. A late or failed advisor response leaves the
 run in `waiting_for_input`; it is not converted to `adapter_incomplete`.
 
 Audit records provider host, protocol, model, latency, usage/cost when supplied,
 the raw advisor decision, final decision and a classified error. The advisor
-policy version is `advisor-external-2` (System One support). Audit text is
+policy version is `advisor-external-3` (narrow review-verify mutation allowlist).
+Audit text is
 redacted and stored under the existing approval audit directory.
 
 Phase 2 is intentionally opt-in and should first be evaluated in a controlled

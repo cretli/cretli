@@ -1,5 +1,5 @@
 /**
- * Settings → Harness: lazy per-harness health card.
+ * Settings → Harness: visible limit status and expandable statistics.
  *
  * One `GET /api/harnesses/health` request feeds every expanded row; the
  * payload is memoized by `harnessHealthCache.js` for
@@ -28,11 +28,13 @@ import {
 
 export { HARNESS_HEALTH_CACHE_TTL_MS };
 
-/** @type {Map<string, { harnessId: string, label: string, toggle: HTMLElement, card: HTMLElement, state: string, notice: string }>} */
+/** @type {Map<string, { harnessId: string, label: string, toggle: HTMLElement, card: HTMLElement, summary: HTMLElement, state: string, notice: string }>} */
 const cards = new Map();
 /** @type {Set<string>} */
 const expanded = new Set();
+const statisticsPanels = new Map();
 let langListenerWired = false;
+let resetTimer = null;
 
 /**
  * @param {number} [now]
@@ -74,10 +76,30 @@ function renderCard(record) {
  * @returns {void}
  */
 function renderExpandedCards() {
+  if (resetTimer) clearTimeout(resetTimer);
+  let nextReset = Infinity;
+  for (const record of cards.values()) {
+    const entry = healthCache.getCached()?.harnesses?.[record.harnessId];
+    const model = buildHealthCardModel(entry, { now: Date.now(), lang: getCurrentLang() });
+    record.summary.hidden = !model.activeLimit;
+    record.summary.textContent = model.activeLimit
+      ? t('harnessHealth.rowBlocked', { time: model.activeLimit.resetTime })
+        + (model.activeLimit.model ? ` · ${t('harnessHealth.activeLimitModel', { model: model.activeLimit.model })}` : '')
+      : '';
+    if (model.activeLimit) nextReset = Math.min(nextReset, Date.parse(model.activeLimit.resetAt));
+  }
   for (const id of expanded) {
     const record = cards.get(id);
     if (record && healthCache.hasCache()) renderCard(record);
   }
+  if (healthCache.hasCache()) {
+    for (const record of statisticsPanels.values()) {
+      renderCard(record);
+      const limit = buildHealthCardModel(healthCache.getCached()?.harnesses?.[record.harnessId]).activeLimit;
+      if (limit) nextReset = Math.min(nextReset, Date.parse(limit.resetAt));
+    }
+  }
+  if (Number.isFinite(nextReset)) resetTimer = setTimeout(renderExpandedCards, Math.min(2_147_483_647, Math.max(1, nextReset - Date.now() + 20)));
 }
 
 /**
@@ -159,6 +181,7 @@ function setNotice(record, message) {
  * @returns {void}
  */
 function markExpandedError() {
+  for (const record of statisticsPanels.values()) setCardState(record, 'error');
   for (const id of expanded) {
     const record = cards.get(id);
     if (record) setCardState(record, 'error');
@@ -217,6 +240,7 @@ async function unlockHarness(record, model) {
     const data = await clearHarnessUsageLimit(record.harnessId, { model });
     if (!data?.ok) throw new Error(data?.error || 'clear failed');
     healthCache.invalidate();
+    renderExpandedCards();
     await reloadCard(record, true);
     setNotice(record, data.removed > 0 ? t('harnessHealth.unlockDone') : t('harnessHealth.unlockNone'));
   } catch {
@@ -258,6 +282,8 @@ function applyToggleLabel(record, isOpen) {
   record.toggle.classList.toggle('is-open', isOpen);
   record.toggle.setAttribute('aria-label', text);
   record.toggle.title = text;
+  const label = record.toggle.querySelector('[data-role="stats-label"]');
+  if (label) label.textContent = t('harnessHealth.statistics');
 }
 
 /**
@@ -278,6 +304,7 @@ export function attachHarnessHealthRow(itemEl, harnessId, label) {
   const previous = cards.get(id);
   if (previous?.card?.isConnected) previous.card.remove();
   if (previous?.toggle?.isConnected) previous.toggle.remove();
+  if (previous?.summary?.isConnected) previous.summary.remove();
 
   // Grid keeps drag/checkbox/status/usage/chevron on one line at 320–360 px;
   // the card spans the full width on the row underneath.
@@ -289,7 +316,12 @@ export function attachHarnessHealthRow(itemEl, harnessId, label) {
   toggle.className = `harness-health-toggle${isOpen ? ' is-open' : ''}`;
   toggle.dataset.harnessId = id;
   toggle.setAttribute('aria-controls', `harness-health-card-${id}`);
-  toggle.innerHTML = '<span class="mdi mdi-chevron-down" aria-hidden="true"></span>';
+  toggle.innerHTML = '<span data-role="stats-label"></span><span class="mdi mdi-chevron-down" aria-hidden="true"></span>';
+
+  const summary = document.createElement('span');
+  summary.className = 'harness-health-row-limit';
+  summary.hidden = true;
+  summary.setAttribute('role', 'status');
 
   const card = document.createElement('div');
   card.className = 'harness-health-card';
@@ -297,11 +329,15 @@ export function attachHarnessHealthRow(itemEl, harnessId, label) {
   card.dataset.harnessId = id;
   card.hidden = !isOpen;
 
-  const record = { harnessId: id, label: safeLabel, toggle, card, state: 'idle', notice: '' };
+  const record = { harnessId: id, label: safeLabel, toggle, card, summary, state: 'idle', notice: '' };
   cards.set(id, record);
   applyToggleLabel(record, isOpen);
 
-  itemEl.append(toggle, card);
+  itemEl.append(toggle, summary, card);
+  // One cached request feeds all summaries; expanding statistics adds no read.
+  void healthCache.load(false).then((data) => {
+    if (data) renderExpandedCards();
+  }).catch(() => { /* Unknown health must not imply a lockout. */ });
 
   toggle.addEventListener('click', () => {
     const open = !expanded.has(id);
@@ -320,7 +356,19 @@ export function attachHarnessHealthRow(itemEl, harnessId, label) {
     void loadAndRender(record);
   });
 
-  card.addEventListener('click', (event) => {
+  bindCardActions(record);
+
+  if (isOpen) {
+    if (healthCache.hasCache()) renderCard(record);
+    else void loadAndRender(record);
+  }
+
+  ensureLanguageListener();
+}
+
+
+function bindCardActions(record) {
+  record.card.addEventListener('click', (event) => {
     const raw = event.target;
     const target = raw instanceof Element ? raw.closest('[data-action]') : null;
     if (!target) return;
@@ -333,15 +381,28 @@ export function attachHarnessHealthRow(itemEl, harnessId, label) {
       void unlockHarness(record, target.getAttribute('data-model') || '');
     } else if (action === 'details') {
       event.preventDefault();
-      openUsageForHarness(id);
+      openUsageForHarness(record.harnessId);
     }
   });
+}
 
-  if (isOpen) {
-    if (healthCache.hasCache()) renderCard(record);
-    else void loadAndRender(record);
+/** Opens the dedicated statistics tab without replacing the overview row. */
+export async function showHarnessStatistics(harnessId) {
+  const card = document.querySelector(`.settings-section[data-settings-tab="harness-${harnessId}-stats"] [data-role="harness-statistics"]`);
+  if (!(card instanceof HTMLElement)) return;
+  let record = statisticsPanels.get(harnessId);
+  if (!record || record.card !== card) {
+    const label = document.querySelector(`#settings-harness-tabs [data-harness-tab="${harnessId}"]`)?.textContent || harnessId;
+    record = { harnessId, label, card, state: 'idle', notice: '' };
+    statisticsPanels.set(harnessId, record);
+    bindCardActions(record);
   }
+  ensureLanguageListener();
+  await loadAndRender(record);
+}
 
+
+function ensureLanguageListener() {
   if (!langListenerWired && typeof window !== 'undefined') {
     langListenerWired = true;
     window.addEventListener('cr-lang-changed', () => {
@@ -349,6 +410,7 @@ export function attachHarnessHealthRow(itemEl, harnessId, label) {
         if (cardRecord) applyToggleLabel(cardRecord, expanded.has(cardId));
       }
       if (!healthCache.hasCache()) return;
+      renderExpandedCards();
       for (const openId of expanded) {
         const openRecord = cards.get(openId);
         if (openRecord) renderCard(openRecord);

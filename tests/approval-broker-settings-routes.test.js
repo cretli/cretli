@@ -39,6 +39,9 @@ function createSettingsClient() {
     patch(path, fn) {
       handlers.set(`PATCH ${path}`, fn);
     },
+    post(path, fn) {
+      handlers.set(`POST ${path}`, fn);
+    },
   };
   const ctx = {
     port: 0,
