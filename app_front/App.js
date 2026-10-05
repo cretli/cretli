@@ -18,6 +18,7 @@ import {
   refreshChatListForWorkspace,
   selectChat,
   setSidebarRenderHook,
+  setSidebarTransientPatchHook,
   setSidebarOpenHook,
   setSidebarCloseHook,
   setWorkspaceSwitchHook,
@@ -94,12 +95,18 @@ import {
   isHarnessSubtabOf,
   isInterfaceSettingsTab,
   isChatSettingsTab,
+  isWatcherSettingsTab,
   remapSettingsTab,
 } from '../lib/spa-routes.js';
 import { loadPanelModule, getLoadedPanelModule } from './app/appShell/lazyPanelModules.js';
 import { createWorkspaceContext } from './app/appShell/workspaceContext.js';
 import { createHeaderContextTitle } from './app/appShell/headerContextTitle.js';
 import { createSidebarView } from './features/sidebar/sidebarView.js';
+import {
+  configureSidebarLayoutSync,
+  hydrateSidebarLayout,
+  publishSidebarLayout,
+} from './features/sidebar/sidebarLayoutSync.js';
 import {
   listCloneFoldersForWorkspaceFile,
 } from './features/sidebar/workspaceChatMatch.js';
@@ -239,6 +246,10 @@ function ensurePanelReady(panelKey) {
     }
     if (panelKey === 'mcpSettings') {
       initPanelOnce(panelKey, () => mod.initMcpSettingsPanel());
+      return;
+    }
+    if (panelKey === 'watcherSettings') {
+      initPanelOnce(panelKey, () => mod.initWorkspaceWatcherSettingsPanel());
       return;
     }
     if (panelKey === 'instances') {
@@ -529,6 +540,23 @@ const sidebarView = createSidebarView({
   },
   refreshStates: refreshSidebarChatStates,
   setChatForkParent,
+});
+
+configureSidebarLayoutSync({
+  readLocal: () => ({
+    ...sidebarView.readLayoutSnapshot(),
+    favoriteChatIds: getChatFavoritesStore().listFavorites(),
+  }),
+  apply: (layout) => {
+    sidebarView.applyLayoutSnapshot(layout);
+    if (Array.isArray(layout.favoriteChatIds)) {
+      getChatFavoritesStore().replaceFavorites(layout.favoriteChatIds);
+    }
+    sidebarView.forceRerender();
+  },
+});
+getChatFavoritesStore().setChangeListener((ids) => {
+  publishSidebarLayout({ favoriteChatIds: ids });
 });
 
 function isEmbedModeEnabled() {
@@ -1063,6 +1091,16 @@ function refreshSettingsTabPanels(tabId) {
   if (tabId === 'mcp') {
     void ensurePanelReady('mcpSettings').then(() => callLoadedPanel('mcpSettings', 'refreshMcpSettingsPanel'));
   }
+  if (isWatcherSettingsTab(tabId)) {
+    void ensurePanelReady('watcherSettings').then(() => {
+      const root = document.getElementById('settings-watcher-root');
+      if (root?.dataset.rendered === 'true') {
+        callLoadedPanel('watcherSettings', 'syncWorkspaceWatcherSettingsTab');
+        return;
+      }
+      callLoadedPanel('watcherSettings', 'refreshWorkspaceWatcherSettingsPanel');
+    });
+  }
 }
 
 /**
@@ -1076,6 +1114,7 @@ function isSettingsTabButtonActive(btn, tabId, inMainBar) {
   if (inMainBar && btnTab === 'harness') return isHarnessSettingsTab(tabId);
   if (inMainBar && btnTab === 'interface') return isInterfaceSettingsTab(tabId);
   if (inMainBar && btnTab === 'chat') return isChatSettingsTab(tabId);
+  if (inMainBar && btnTab === 'watcher') return isWatcherSettingsTab(tabId);
   const harnessTab = btn.dataset.harnessTab || '';
   if (harnessTab) return isHarnessSubtabOf(tabId, harnessTab);
   return btnTab === tabId;
@@ -1107,10 +1146,12 @@ function applySettingsTab(tabId) {
   const harnessBar = document.getElementById('settings-harness-tabs');
   const interfaceBar = document.getElementById('settings-interface-tabs');
   const chatBar = document.getElementById('settings-chat-tabs');
+  const watcherBar = document.getElementById('settings-watcher-tabs');
   let activeBtn = applySettingsTabButtonState(mainBar, resolvedTabId, true);
   activeBtn = applySettingsTabButtonState(harnessBar, resolvedTabId, false) || activeBtn;
   activeBtn = applySettingsTabButtonState(interfaceBar, resolvedTabId, false) || activeBtn;
   activeBtn = applySettingsTabButtonState(chatBar, resolvedTabId, false) || activeBtn;
+  activeBtn = applySettingsTabButtonState(watcherBar, resolvedTabId, false) || activeBtn;
 
   const activeHarnessId = getHarnessIdFromSettingsTab(resolvedTabId);
   document.querySelectorAll('.settings-harness-subtab-bar').forEach((bar) => {
@@ -1124,12 +1165,18 @@ function applySettingsTab(tabId) {
   if (harnessBar) harnessBar.hidden = !isHarnessSettingsTab(resolvedTabId);
   if (interfaceBar) interfaceBar.hidden = !isInterfaceSettingsTab(resolvedTabId);
   if (chatBar) chatBar.hidden = !isChatSettingsTab(resolvedTabId);
+  if (watcherBar) watcherBar.hidden = !isWatcherSettingsTab(resolvedTabId);
   document.querySelectorAll('.settings-section[data-settings-tab]').forEach((section) => {
     if (section.id === 'settings-account-section' && section.dataset.accountEnabled !== 'true') {
       section.hidden = true;
       return;
     }
-    section.hidden = section.dataset.settingsTab !== resolvedTabId;
+    const sectionTab = section.dataset.settingsTab || '';
+    if (sectionTab === 'watcher') {
+      section.hidden = !isWatcherSettingsTab(resolvedTabId);
+      return;
+    }
+    section.hidden = sectionTab !== resolvedTabId;
   });
   try {
     writeStorageValueWithAlias(localStorage, SETTINGS_TAB_LS_KEY, resolvedTabId);
@@ -1170,6 +1217,7 @@ function initSettingsTabs() {
   bindSettingsTabClicks(document.getElementById('settings-harness-tabs'));
   bindSettingsTabClicks(document.getElementById('settings-interface-tabs'));
   bindSettingsTabClicks(document.getElementById('settings-chat-tabs'));
+  bindSettingsTabClicks(document.getElementById('settings-watcher-tabs'));
   document.querySelectorAll('.settings-harness-subtab-bar').forEach((bar) => {
     bindSettingsTabClicks(bar);
   });
@@ -1991,10 +2039,12 @@ function bootApp() {
         sidebarView.render();
         headerContextTitle.refresh();
       });
+      setSidebarTransientPatchHook(() => sidebarView.patchTransientVisualStates());
       setSidebarOpenHook(() => sidebarView.open());
       setSidebarCloseHook(() => sidebarView.close());
       setWorkspaceSwitchHook((workspaceFile, folder) => switchWorkspace(workspaceFile, folder));
       sidebarView.init();
+      void hydrateSidebarLayout();
       registerPageResumeCleanupHook(() => {
         const shouldClose = shouldCloseSidebarOnResume({
           isOpen: sidebarView.isOpen(),

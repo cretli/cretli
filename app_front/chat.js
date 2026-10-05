@@ -30,6 +30,7 @@ import { createSendBar } from './sendBar.js';
 import { createSendBarTodoChip } from './features/sendBar/sendBarTodoChip.js';
 import { createTodoMentionPicker } from './features/chat/todoMentionPicker.js';
 import { appendTodoRef, parseTodoMention, removeTodoMention, resolveTodoContinueBlock } from './features/chat/todoMention.js';
+import { buildTodoContinueNote } from '../lib/todo-execution-prompt.js';
 import { initModal } from './lib/modal.js';
 import { initAutoTitleSettings } from './features/settings/autoTitleSettings.js';
 import { showChoiceDialog } from './lib/choiceDialog.js';
@@ -39,7 +40,15 @@ import {
   resolveInheritedPromptEcho,
   resolvePendingInheritedSend,
 } from '../lib/conversation-fork.js';
-import { resolveHarnessSwitchNest, isChatArchived, isRelatedChatLinkVisible } from '../lib/chat-tree.js';
+import {
+  resolveHarnessSwitchNest,
+  isChatArchived,
+  isForkSubtreeBusy,
+  isRelatedChatLinkVisible,
+  markForkSubtreeArchived,
+  findLastLiveSelectableChatId,
+  resolveArchiveSwitchId as resolveArchiveSwitchTargetId,
+} from '../lib/chat-tree.js';
 import { isReviewDelegationRow } from '../lib/delegation-width.js';
 import { isActiveDelegationStatus } from '../lib/delegation-status.js';
 import { buildApprovedPlanImplementPrompt } from '../lib/chat-plan-path.js';
@@ -90,12 +99,20 @@ import {
   hasActiveAgentRun,
   hasKeepAliveHarnessWork,
   hasLiveHarnessWork,
+  hasProtocolAgentRun,
   readHarnessPendingFlags,
   resolveChatStatusWithHistorySync,
   resolveChatListDotState,
   resolveHarnessChatStateMeta,
+  SIDEBAR_CONNECTING_GRACE_MS,
 } from './features/chat/chatStatusMeta.js';
 import { shouldSkipChatDeleteConfirm } from './features/chat/chatDeleteConfirm.js';
+import {
+  isWatcherPinnedChat,
+  parseWatcherCommand,
+  runWatcherCommand,
+  watcherCommandHelpLines,
+} from './features/chat/watcherPinnedChat.js';
 import {
   buildChatByIdMap,
   chatListVisualKey,
@@ -115,7 +132,8 @@ import {
   dismissStaleReconnectUiOnResume,
 } from './features/chat/chatServerRecovery.js';
 import { registerPageResumeCleanupHook } from './lib/pageResumeCleanup.js';
-import { traceUiFreeze } from './lib/uiFreezeTrace.js';
+import { isUiFreezeTraceActive, traceUiFreeze } from './lib/uiFreezeTrace.js';
+import { getUiFreezeMetrics } from './features/sidebar/sidebarRenderMetrics.js';
 import {
   armContextCompressionWatchdog,
   disarmContextCompressionWatchdog,
@@ -133,6 +151,7 @@ import {
   shouldTriggerAutoContextCompression,
 } from '../lib/context-compression.js';
 import { initChatHistorySyncPoll, ingestAgentPresenceMessage, applyAgentStatesToChats, invalidateAgentPresenceTrust } from './features/chat/chatHistorySyncPoll.js';
+import { forget as forgetPresenceChat } from './features/chat/agentPresenceStore.js';
 import { initChatListResumeSync } from './features/chat/chatListResumeSync.js';
 import {
   clearPushPreview,
@@ -140,7 +159,9 @@ import {
   initPushInboxResumeConsumer,
 } from './features/pwa/pushInbox.js';
 import { createChatListLiveSync } from './features/chat/chatListLiveSync.js';
+import { createChatListExplicitReloadGuard } from './features/chat/chatListExplicitReload.js';
 import { isSidebarArchiveSectionOpen } from './features/sidebar/sidebarVisibleChats.js';
+import { applyRemoteSidebarLayout } from './features/sidebar/sidebarLayoutSync.js';
 import { getResumeHistorySyncDeferMs } from './features/chat/chatResumePolicy.js';
 import {
   createInFlightHistorySyncTracker,
@@ -194,6 +215,7 @@ import { createChatView } from './features/chat/chatView.js';
 import { createChatController } from './features/chat/chatController.js';
 import {
   chatBelongsToWorkspaceGroup,
+  resolveWorkspaceTargetForChat,
 } from './features/sidebar/workspaceChatMatch.js';
 import {
   collectWorkspaceFolders,
@@ -229,6 +251,10 @@ import {
 } from './features/chat/chatSettingsPrefs.js';
 import { escapeHtml } from './features/chat/chatHtmlUtils.js';
 import { applySidebarChatStatusEl } from './features/sidebar/sidebarChatStatus.js';
+import {
+  createSidebarStatusStabilizer,
+} from './features/sidebar/sidebarChatStatusStability.js';
+import { applyWorkspaceWatcherPresence } from './features/sidebar/workspaceAutopilotBadge.js';
 import {
   scheduleChatSendBarReserveSync,
   getChatSendBarResizeObserver,
@@ -2373,6 +2399,71 @@ function sendTextToAgent(chat, text, opts = {}) {
   });
 }
 
+/**
+ * Pinned workspace chat: run a slash command through the existing watcher/todo
+ * APIs and echo the outcome into the transcript. Plain text is refused (the
+ * pinned chat is not an LLM conversation).
+ *
+ * @param {object} chat
+ * @param {string} text
+ * @returns {Promise<void>}
+ */
+async function handleWatcherPinnedCommandSend(chat, text) {
+  const view = chat?._sdkRichView;
+  const parsed = parseWatcherCommand(text);
+  if (!parsed) {
+    view?.appendMetaNotice?.(t('watcherPinned.onlyCommands'));
+    return;
+  }
+  if (parsed.command === 'help') {
+    view?.appendMetaNotice?.(
+      `${t('watcherPinned.helpTitle')}\n${watcherCommandHelpLines((key) => t(key)).join('\n')}`,
+    );
+    return;
+  }
+  const result = await runWatcherCommand({
+    command: parsed.command,
+    args: parsed.args,
+    workspaceFolder: String(chat?.workspaceFolder || ''),
+    chatId: String(chat?.id || ''),
+  });
+  view?.appendMetaNotice?.(`${parsed.raw} → ${result.message}`);
+}
+
+/**
+ * Reflect pinned mode in the active chat pane: a body class for CSS, a command
+ * placeholder on the send field, and a one-time help notice.
+ *
+ * @param {object | null | undefined} chat
+ * @returns {void}
+ */
+function applyPinnedChatModeUi(chat) {
+  const pinnedMode = isWatcherPinnedChat(chat);
+  document.body?.classList.toggle('watcher-pinned-chat', pinnedMode);
+  const pane = document.querySelector('.chat-tab-pane.active');
+  pane?.classList.toggle('is-watcher-pinned', pinnedMode);
+  const input = getActiveSendInput();
+  if (input) {
+    if (pinnedMode) {
+      if (input.dataset.watcherPinnedPlaceholder !== '1') {
+        input.dataset.watcherPinnedBase = input.getAttribute('placeholder') || '';
+        input.dataset.watcherPinnedPlaceholder = '1';
+      }
+      input.setAttribute('placeholder', t('watcherPinned.placeholder'));
+    } else if (input.dataset.watcherPinnedPlaceholder === '1') {
+      input.setAttribute('placeholder', input.dataset.watcherPinnedBase || '');
+      delete input.dataset.watcherPinnedPlaceholder;
+    }
+  }
+  if (pinnedMode && chat && !chat._watcherPinnedHelpShown) {
+    chat._watcherPinnedHelpShown = true;
+    chat._sdkRichView?.appendMetaNotice?.(
+      `${t('watcherPinned.helpTitle')}\n${watcherCommandHelpLines((key) => t(key)).join('\n')}`,
+      { silent: true },
+    );
+  }
+}
+
 export function sendKeySequenceToActiveChat(sequence) {
   if (!sequence) return false;
   const chat = activeChatId ? chats.find((c) => c.id === activeChatId) : null;
@@ -2507,7 +2598,7 @@ function continueTodoInActiveChat(chat, item) {
   if (input) clearTodoMentionToken(chat, input, mention);
   else chat._todoMentionRange = null;
   const typed = String(input?.value || '').trim();
-  const note = t('sendBar.todoContinuePrompt');
+  const note = buildTodoContinueNote(t('sendBar.todoContinuePrompt'));
   const text = appendTodoRef(typed ? `${typed}\n${note}` : note, todoId);
   chat.todoId = todoId;
   if (!chat._todoRowMeta) chat._todoRowMeta = {};
@@ -2640,7 +2731,7 @@ function initChatModelSelectApi() {
     getActiveChatId: () => activeChatId,
     getChats: () => chats,
     getChatsForCurrentWorkspace,
-    getTerminalStateMeta,
+    getTerminalStateMeta: getSidebarChatStateMeta,
     getSelectedModel: () => selectedModel,
     syncChatSdkModeUi,
   });
@@ -2694,6 +2785,9 @@ function initChatTitleForkApi() {
 }
 
 let activeChatId = null;
+/** Last chat whose pane stays mounted beside the active one. */
+let retainedChatPaneId = '';
+let previousRetainedChatPaneId = '';
 let workspaces = [];
 let selectedWorkspaceFile = null;
 let selectedWorkspaceFolder = null;
@@ -2742,7 +2836,7 @@ async function syncSdkHistoryOnResume(chat, context = {}) {
   // regardless of which lifecycle path asked for the resume sync.
   if (isBlockingPersistedLocalChatHarnessState(chat)) return { status: 'unchanged' };
   const reason = String(context.reason || 'unknown');
-  if (isSdkOpenTerminalHydrating(chat) && reason !== 'selectChat') {
+  if (isSdkOpenTerminalHydrating(chat)) {
     return { status: 'deferred', deferReason: 'open_terminal_hydrating' };
   }
   setChatHistorySyncInFlight(chat, true, renderChatTerminalState);
@@ -2804,6 +2898,21 @@ async function runSdkHistoryConvergence(chat, context = {}) {
 }
 
 let chatListLiveSyncApi = null;
+// Recognizes the trailing archive/restore echo of a reload this client already applied:
+// the `chatsChanged` frame carries only `{ reason, chatId }`, so the current list is the
+// only way to tell it apart from an independent same-id change. The explicit reload runs
+// with `includeArchived: true` and the controller rebuilds `chats` in place, so by the
+// time requestArchiveChat/requestRestoreChat call guard.end() the row already reflects the
+// new state — the late echo is redundant. A frame whose state is NOT yet in the list falls
+// through to the in-flight TTL and reloads, so independent changes are never swallowed.
+const chatListExplicitReloadGuard = createChatListExplicitReloadGuard({
+  isChatStateAlreadyApplied: (reason, chatId) => {
+    const row = chats.find((entry) => entry.id === chatId);
+    if (!row) return false;
+    const archived = Boolean(String(row.archivedAt || '').trim());
+    return reason === 'restore' ? !archived : archived;
+  },
+});
 const chatTransport = createChatTransport({
   WS_PATH_AGENT_SDK,
   CHAT_RECONNECT_MAX,
@@ -2827,7 +2936,7 @@ const chatTransport = createChatTransport({
   processAgentOutputCatchUp,
   writeCatchUpToTerminal,
   updateAwaitingInput,
-  onBackgroundSyncComplete: () => scheduleChatListStateRefresh(),
+  onBackgroundSyncComplete: (ids) => scheduleChatListStateRefresh(ids),
   flushSdkStructuredHistoryNow,
   setLaunchCommand,
   scrollChatTerminalToBottom,
@@ -2853,16 +2962,28 @@ const chatTransport = createChatTransport({
   onChatsChanged: (msg) => {
     chatListLiveSyncApi?.onChatsChanged(msg);
   },
+  onSidebarLayout: (msg) => {
+    applyRemoteSidebarLayout(msg);
+  },
   onAgentPresence: (msg) => {
+    if (Array.isArray(msg?.watchers) && applyWorkspaceWatcherPresence(msg.watchers)) {
+      // A workspace autopilot badge changed; a full sidebar render is cheap
+      // because renderSignature short-circuits unchanged frames.
+      notifySidebar();
+    }
     const result = ingestAgentPresenceMessage(chats, msg);
+    // A gap frame is still a valid newer delta: apply it now, then repair the missing
+    // middle with the HTTP snapshot. A late response cannot roll the delta back because
+    // `requestedAt` is compared against the per-chat applied watermark.
+    if (result.changed) scheduleChatListStateRefresh(result.dirtyIds);
     if (result.seqGap) {
+      const requestedAt = Date.now();
       void api.getChatAgentStates().then((data) => {
         if (!data?.ok) return;
-        if (applyAgentStatesToChats(chats, data.states)) scheduleChatListStateRefresh();
+        const applied = applyAgentStatesToChats(chats, data.states, { requestedAt });
+        if (applied.changed) scheduleChatListStateRefresh(applied.dirtyIds);
       }).catch(() => {});
-      return;
     }
-    if (result.changed) scheduleChatListStateRefresh(result.dirtyIds);
   },
 });
 
@@ -2895,12 +3016,13 @@ initChatContextCompressionRecovery({
 const chatView = createChatView({
   initDropdown,
   chatFavorites,
+  getChats: () => chats,
   getChatsForCurrentWorkspace,
   getArchivedChatsForCurrentWorkspace,
   getActiveChatId: () => activeChatId,
   getChatLastUsedAt,
   getChatAgentState,
-  getTerminalStateMeta,
+  getTerminalStateMeta: getSidebarChatStateMeta,
   escapeHtml,
   selectChat,
   requestDeleteChat,
@@ -2926,8 +3048,8 @@ initChatHistorySyncPoll({
   onPendingHistoryChange: () => {
     renderChatList();
   },
-  onAgentStatesChange: () => {
-    scheduleChatListStateRefresh();
+  onAgentStatesChange: (dirtyIds) => {
+    scheduleChatListStateRefresh(dirtyIds);
   },
 });
 
@@ -2945,9 +3067,11 @@ let pushInboxConsumeQueued = false;
  */
 async function refreshPushInboxAgentStates() {
   try {
+    const requestedAt = Date.now();
     const data = await api.getChatAgentStates();
     if (!data?.ok) return;
-    if (applyAgentStatesToChats(chats, data.states)) scheduleChatListStateRefresh();
+    const applied = applyAgentStatesToChats(chats, data.states, { requestedAt });
+    if (applied.changed) scheduleChatListStateRefresh(applied.dirtyIds);
   } catch (error) {
     appLogger?.log?.('push-inbox', 'agent-state refresh failed', { error: String(error) });
   }
@@ -2995,6 +3119,24 @@ chatListLiveSyncApi = createChatListLiveSync({
   refresh: (query) => loadChatsFromServer(query),
   shouldIncludeArchived: () => isSidebarArchiveSectionOpen(),
   onTitleChanged: (chatId) => handleServerTitleChanged(chatId),
+  // The title frame carries the new row content, so one chat is patched in place and the
+  // list keeps its `GET /api/chats` for structural changes only.
+  onTitlePatched: (chatId, title, titleSource) => (
+    chatController.patchChatTitle(chatId, title, titleSource) === true
+  ),
+  onWatcherChanged: () => {
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('cretli:workspace-watcher-changed'));
+    }
+  },
+  // Requirement 4b: chatsChanged frames/sec split by reason. Guarded here at the
+  // callsite; the seam defaults to a no-op so chatListLiveSync stays DOM-free.
+  onChatsChangedFrame: (msg) => {
+    if (isUiFreezeTraceActive()) {
+      getUiFreezeMetrics()?.recordChatsChangedFrame({ reason: msg?.reason });
+    }
+  },
+  shouldSuppressChatsChanged: (frame) => chatListExplicitReloadGuard.shouldSuppressChatsChanged(frame),
 });
 
 const chatController = createChatController({
@@ -3042,6 +3184,7 @@ const chatController = createChatController({
   setChatStatus,
   onAfterBootHydrate: consumePushInboxFromStore,
   onAfterChatsLoad: consumePushInboxFromStore,
+  onPresenceHydrate: (dirtyIds) => scheduleChatListStateRefresh(dirtyIds),
 });
 
 /** Chats assigned to the current header workspace. Older chats (no workspaceFile) are hidden. */
@@ -3169,6 +3312,68 @@ function getChatAgentState(chat) {
   return chat._agentState || 'disconnected';
 }
 
+/**
+ * Per-chat timers that keep the sidebar row from blinking. Timers only request a
+ * sidebar refresh; the next pass re-reads the resolver with the settled signals.
+ */
+const sidebarStatusStabilizer = createSidebarStatusStabilizer({
+  onExpire: (chatId) => scheduleChatListStateRefresh(chatId ? [chatId] : []),
+});
+
+/**
+ * True when the chat is supposed to hold a socket right now. Background chats
+ * are deliberately kept socket-less by the WS policy, so their absence of a
+ * socket is normal idle, not a connection error.
+ *
+ * @param {object|null|undefined} chat
+ * @returns {boolean}
+ */
+function chatExpectsLiveSocket(chat) {
+  if (!chat) return false;
+  if (chat.id === activeChatId) return true;
+  const mode = chat._backgroundMonitorMode;
+  if (mode === 'ws' || mode === 'ws-active') return true;
+  return hasLiveHarnessWork(chat);
+}
+
+/**
+ * Sidebar-row meta: the resolver surface plus the stability layer.
+ *
+ * @param {object|null|undefined} chat
+ * @returns {{ tone: string, label: string, activityKey?: string, status?: string }}
+ */
+function getSidebarChatStateMeta(chat) {
+  if (!chat) return { tone: 'disconnected', label: t('status.disconnected') };
+  const meta = getTerminalStateMeta(chat, 'sidebar');
+  return sidebarStatusStabilizer.stabilize(chat.id, meta, {
+    serverBusy: hasProtocolAgentRun(chat),
+    localActive: getChatAgentState(chat) === 'active',
+    serverKnown: Boolean(chat._serverRunState) || typeof chat._sdkServerBusy === 'boolean',
+  });
+}
+
+/**
+ * Sidebar-only connection policy for the legacy PTY branch (the harness branch
+ * applies it inside the resolver).
+ *
+ * @param {{ tone: string, label: string }} meta
+ * @param {object} chat
+ * @returns {{ tone: string, label: string }}
+ */
+function applySidebarConnectionPolicy(meta, chat) {
+  const connection = chat?._connectionStatus || 'disconnected';
+  if (meta.tone === 'connecting') {
+    const connectingForMs = sidebarStatusStabilizer.connectingForMs(chat.id, connection);
+    if (connectingForMs < SIDEBAR_CONNECTING_GRACE_MS) {
+      return { tone: 'idle', label: t('status.ready') };
+    }
+  }
+  if (meta.tone === 'disconnected' && !chatExpectsLiveSocket(chat)) {
+    return { tone: 'idle', label: t('status.ready') };
+  }
+  return meta;
+}
+
 export function getChatsList() {
   return chats;
 }
@@ -3186,7 +3391,7 @@ export function getChatListAgentStatePublic(chat) {
 }
 
 export function getTerminalStateMetaPublic(chat) {
-  return getTerminalStateMeta(chat);
+  return getSidebarChatStateMeta(chat);
 }
 
 export function getChatFavoritesStore() {
@@ -3209,6 +3414,21 @@ export function toggleChatUrlPinById(chatId, hintEl = null) {
 let sidebarRenderHook = null;
 export function setSidebarRenderHook(fn) {
   sidebarRenderHook = typeof fn === 'function' ? fn : null;
+}
+
+/** @type {(() => void)|null} */
+let sidebarTransientPatchHook = null;
+
+/**
+ * App.js registers `sidebarView.scheduleUpdate` here. The coalesced sidebar pass
+ * repaints the in-place visuals that live outside the structural signature (active
+ * chat row, settled-group summaries, parent badges) even when the frame's render
+ * short-circuits.
+ * @param {(() => void)|null} fn
+ * @returns {void}
+ */
+export function setSidebarTransientPatchHook(fn) {
+  sidebarTransientPatchHook = typeof fn === 'function' ? fn : null;
 }
 
 /** @type {(() => void)|null} */
@@ -3269,8 +3489,22 @@ export function setWorkspaceSwitchHook(fn) {
   workspaceSwitchHook = typeof fn === 'function' ? fn : null;
 }
 
-function notifySidebar() {
+/**
+ * Coalesced sidebar update. notifySidebar() fires from ~20 sites (presence /
+ * title / chatsChanged frames, selection, watcher badges); rebuilding per call
+ * measured ~13 signatures/sec ≈ 180ms/s of main-thread work. Collapse them to at
+ * most one render per animation frame. The render's signature-skip already
+ * repaints the in-place visuals (active row, group summaries), so a status/active
+ * frame costs no rebuild. Callers that need the DOM immediately use the
+ * synchronous sidebarView.forceRerender() instead.
+ */
+const sidebarUpdateScheduler = createRafDebouncer(() => {
   if (sidebarRenderHook) sidebarRenderHook();
+});
+
+function notifySidebar() {
+  if (isUiFreezeTraceActive()) getUiFreezeMetrics()?.recordNotifySidebar();
+  sidebarUpdateScheduler.schedule();
 }
 
 function hasOngoingTerminalAction(chat) {
@@ -3291,7 +3525,7 @@ function hasOngoingTerminalAction(chat) {
 
 function getChatListAgentState(chat) {
   if (!chat) return 'disconnected';
-  return resolveChatListDotState(getTerminalStateMeta(chat).tone);
+  return resolveChatListDotState(getSidebarChatStateMeta(chat).tone);
 }
 
 function setAgentState(chat, state) {
@@ -3304,7 +3538,7 @@ function setAgentState(chat, state) {
     chat._sdkRichView?.onHarnessIdle?.();
   }
   renderChatTerminalState(chat);
-  scheduleChatListStateRefresh();
+  scheduleChatListStateRefresh(chat?.id ? [chat.id] : []);
   if (chat.id === activeChatId) chatModelSelectApi.refreshModelSelectLabels();
   syncAgentWakeLock(chats.some((entry) => entry._agentState === 'active'));
 }
@@ -3340,22 +3574,22 @@ function scheduleTerminalStateRefresh(chat) {
   const waitMs = chat._lastOutputAt + TERMINAL_RECENT_OUTPUT_MS - Date.now();
   if (waitMs <= 0) {
     renderChatTerminalState(chat);
-    scheduleChatListStateRefresh();
+    scheduleChatListStateRefresh([chat.id]);
     if (chat.id === activeChatId) chatModelSelectApi.refreshModelSelectLabels();
     return;
   }
   chat._recentOutputExpireTimer = setTimeout(() => {
     chat._recentOutputExpireTimer = null;
     renderChatTerminalState(chat);
-    scheduleChatListStateRefresh();
+    scheduleChatListStateRefresh([chat.id]);
     if (chat.id === activeChatId) chatModelSelectApi.refreshModelSelectLabels();
   }, waitMs + 20);
 }
 
 function applyChatListItemVisualState(li, chat, kind) {
   const disconnectedMeta = { tone: 'disconnected', label: t('status.disconnected') };
-  const state = getChatListAgentState(chat);
-  const meta = chat ? getTerminalStateMeta(chat) : disconnectedMeta;
+  const meta = chat ? getSidebarChatStateMeta(chat) : disconnectedMeta;
+  const state = chat ? resolveChatListDotState(meta.tone) : 'disconnected';
   const nextKey = chatListVisualKey(state, meta.tone, meta.label);
   if (shouldSkipChatListItemWrite(li.dataset.visualKey, nextKey)) return;
   li.dataset.visualKey = nextKey;
@@ -3374,6 +3608,11 @@ function applyChatListItemVisualState(li, chat, kind) {
       awaitingEl.setAttribute('title', t('chat.stateTitle', { label: meta.label }));
     }
     return;
+  }
+  // Wider fixed chip column while the row is working so the activity label never
+  // squeezes the title (see .sidebar-chat-item.has-activity-status in app.scss).
+  if (li.classList && typeof li.classList.toggle === 'function') {
+    li.classList.toggle('has-activity-status', meta.tone === 'active');
   }
   const indicator = li.querySelector('.sidebar-chat-item-state');
   if (indicator) {
@@ -3399,6 +3638,10 @@ function updateChatListModalStates() {
     const id = li.dataset.chatId;
     applyChatListItemVisualState(li, id ? byId.get(id) : null, 'modal');
   });
+  // Settled-group summaries + the active-row highlight live outside the sidebar
+  // signature, so a status-only frame must repaint them here (the row chips above
+  // are the hot path; this is a bounded extra walk, guarded for a hidden drawer).
+  if (sidebarTransientPatchHook) sidebarTransientPatchHook();
 }
 
 const chatListStateRefresh = createRafDebouncer(() => {
@@ -3407,14 +3650,31 @@ const chatListStateRefresh = createRafDebouncer(() => {
 /** @type {Set<string>} */
 let pendingSidebarDirtyIds = new Set();
 
+/**
+ * Queue an in-place repaint of the named sidebar rows only. A call with no ids, an
+ * empty array, or an array that carries no valid id does nothing: it neither plans a
+ * frame nor marks the whole list dirty. The full-list branch is driven exclusively by
+ * scheduleChatListStateRefreshAll(), which the drawer-open path uses.
+ */
 function scheduleChatListStateRefresh(ids) {
-  if (Array.isArray(ids) && ids.length > 0) {
-    for (const id of ids) {
-      if (id) pendingSidebarDirtyIds.add(id);
-    }
-  } else {
-    pendingSidebarDirtyIds.add('*');
+  if (!Array.isArray(ids) || ids.length === 0) return;
+  let added = false;
+  for (const id of ids) {
+    if (!id) continue;
+    pendingSidebarDirtyIds.add(id);
+    added = true;
   }
+  if (!added) return;
+  chatListStateRefresh.schedule();
+}
+
+/**
+ * Full-list repaint. The wildcard wins over any per-chat ids queued in the same frame.
+ * Only the drawer-open path (`openSidebar` -> `refreshStates` -> refreshSidebarChatStates)
+ * reaches this; a single chat's status change never does.
+ */
+export function scheduleChatListStateRefreshAll() {
+  pendingSidebarDirtyIds.add('*');
   chatListStateRefresh.schedule();
 }
 
@@ -3424,29 +3684,39 @@ function updateSidebarChatStates(chatById = null) {
   if (!aside || aside.hidden) return;
   const body = aside.querySelector('.sidebar-body');
   if (!body) return;
+  // Requirement 3b: rows rewritten per call, split patchAll vs per-dirty. Guarded at
+  // the callsite so an inactive trace allocates/counts nothing (patchAll reads the
+  // already-built NodeList length; per-dirty increments only while tracing).
+  const trace = isUiFreezeTraceActive();
   const byId = chatById || buildChatByIdMap(chats);
   const dirty = pendingSidebarDirtyIds;
   pendingSidebarDirtyIds = new Set();
-  const patchAll = dirty.size === 0 || dirty.has('*');
-  if (patchAll) {
-    body.querySelectorAll('.sidebar-chat-item').forEach((li) => {
+  // A coalesced frame with nothing dirty emits no patch at all — bail before the walk.
+  if (dirty.size === 0) return;
+  if (dirty.has('*')) {
+    const items = body.querySelectorAll('.sidebar-chat-item');
+    items.forEach((li) => {
       const id = li.dataset.chatId;
       applyChatListItemVisualState(li, id ? byId.get(id) : null, 'sidebar');
     });
+    if (trace) getUiFreezeMetrics()?.recordSidebarPatch({ patchAll: true, rows: items.length });
     return;
   }
+  let rewritten = 0;
   for (const id of dirty) {
     const escaped = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
       ? CSS.escape(id)
       : id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     const li = body.querySelector(`.sidebar-chat-item[data-chat-id="${escaped}"]`);
     if (!li) continue;
+    if (trace) rewritten += 1;
     applyChatListItemVisualState(li, byId.get(id) || null, 'sidebar');
   }
+  if (trace) getUiFreezeMetrics()?.recordSidebarPatch({ patchAll: false, rows: rewritten });
 }
 
 export function refreshSidebarChatStates() {
-  scheduleChatListStateRefresh();
+  scheduleChatListStateRefreshAll();
 }
 
 function isTerminalTextareaMode(chat) {
@@ -3457,7 +3727,7 @@ function updateAwaitingInput(chat) {
   if (!chat) return { textarea: false, choice: false, awaiting: false };
   if (!chat.term) {
     renderChatTerminalState(chat);
-    scheduleChatListStateRefresh();
+    scheduleChatListStateRefresh([chat.id]);
     if (chat.id === activeChatId) chatModelSelectApi.refreshModelSelectLabels();
     return chat._terminalInteraction || { textarea: false, choice: false, awaiting: false };
   }
@@ -3524,7 +3794,7 @@ function updateAwaitingInput(chat) {
     }
   }
   renderChatTerminalState(chat);
-  scheduleChatListStateRefresh();
+  scheduleChatListStateRefresh([chat.id]);
   if (chat.id === activeChatId) chatModelSelectApi.refreshModelSelectLabels();
   return chat._terminalInteraction;
 }
@@ -3556,26 +3826,41 @@ function terminalInteractionForStateResolve(chat, interaction) {
  * Harness chats (rich-view) use protocol pending flags, not PTY buffer heuristics.
  *
  * @param {object|null|undefined} chat
+ * @param {'bar' | 'sidebar'} [surface]
  * @returns {{ tone: string, label: string } | null}
  */
-function resolveSdkChatStateMeta(chat) {
+function resolveSdkChatStateMeta(chat, surface = 'bar') {
   if (!chat?._sdkRichView && !chat?._serverRunState) return null;
   const pending = readHarnessPendingFlags(chat);
   const queuedCount = chat._sdkRichView?.queuedCount || Number(chat._sdkServerQueuedCount) || 0;
-  return resolveHarnessChatStateMeta({
-    connection: chat._connectionStatus || 'disconnected',
+  const connection = chat._connectionStatus || 'disconnected';
+  const input = {
+    surface,
+    connection,
     agent: getChatAgentState(chat),
     hasPendingQuestion: pending.hasPendingQuestion,
     hasPendingPermission: pending.hasPendingPermission,
     queuedCount,
     serverRunState: chat._serverRunState || null,
     translate: t,
-  });
+  };
+  if (surface === 'sidebar') {
+    input.connectingForMs = sidebarStatusStabilizer.connectingForMs(chat.id, connection);
+    input.socketExpected = chatExpectsLiveSocket(chat);
+  }
+  return resolveHarnessChatStateMeta(input);
 }
 
-function getTerminalStateMeta(chat) {
-  const sdkMeta = resolveSdkChatStateMeta(chat);
+/**
+ * @param {object|null|undefined} chat
+ * @param {'bar' | 'sidebar'} [surface] Sidebar rows suppress the history-sync
+ *   overlay and the short-lived connecting/disconnected churn.
+ * @returns {{ tone: string, label: string }}
+ */
+function getTerminalStateMeta(chat, surface = 'bar') {
+  const sdkMeta = resolveSdkChatStateMeta(chat, surface);
   if (sdkMeta) {
+    if (surface === 'sidebar') return sdkMeta;
     return resolveChatStatusWithHistorySync(chat?._historySyncInFlight === true, sdkMeta, t);
   }
   const interaction = terminalInteractionForStateResolve(chat, chat?._terminalInteraction || {});
@@ -3586,13 +3871,14 @@ function getTerminalStateMeta(chat) {
   // status-parser is shared with the backend, so it returns a key instead of a
   // translated label.
   const fallback = state.labelKey ? { ...state, label: t(state.labelKey) } : state;
+  if (surface === 'sidebar') return applySidebarConnectionPolicy(fallback, chat);
   return resolveChatStatusWithHistorySync(chat?._historySyncInFlight === true, fallback, t);
 }
 
 function renderChatTerminalState(chat, metaOverride = null) {
   const bar = chat?.sdkModeBarEl;
   if (!bar || chat.id !== activeChatId) {
-    scheduleChatListStateRefresh();
+    scheduleChatListStateRefresh(chat?.id ? [chat.id] : []);
     return;
   }
   const meta =
@@ -3600,6 +3886,9 @@ function renderChatTerminalState(chat, metaOverride = null) {
     getTerminalStateMeta(chat);
   bar.statusLabel = meta.label;
   bar.statusTone = meta.tone;
+  // The active chat keeps a row in the list as well, so repaint that row (was: only
+  // the bar). Without the full `*`, nothing else would refresh the active row here.
+  scheduleChatListStateRefresh([chat.id]);
   if (isPendingHarnessSwitch(bar, chat)) return;
   bar.model = normalizeModelValue(chat?.model || 'auto');
   chatDiagnosticsApi?.updateChatContextMeter?.(
@@ -3611,6 +3900,7 @@ function renderChatTerminalState(chat, metaOverride = null) {
 function renderChatList() {
   chatView.renderChatList();
   notifySidebar();
+  chatController?.persistChatListBootCache?.();
 }
 
 function updateChatBarSelect() {
@@ -3635,9 +3925,14 @@ function bindChatToolbarActionItem(itemEl, onActivate) {
   });
 }
 
+/** Keeps an explicit chat selection while its workspace switch refreshes the list. */
+let workspaceRefreshPreserveDepth = 0;
+
 /** After a header workspace change — refresh the chat list and maybe switch the active chat. */
 export function refreshChatListForWorkspace() {
-  chatController.refreshChatListForWorkspace();
+  chatController.refreshChatListForWorkspace({
+    preserveActiveChat: workspaceRefreshPreserveDepth > 0,
+  });
   notifySidebar();
 }
 
@@ -3916,6 +4211,50 @@ function isChatPaneMounted(chat) {
 }
 
 /**
+ * Drop a chat's rich view and pane. The chat row stays; the next open rebuilds the pane.
+ *
+ * @param {object} chat
+ */
+function unmountChatPane(chat) {
+  if (!chat?.pane) return;
+  chatDiagnosticsApi?.stopChatDiagPolling?.(chat);
+  chat.pane?._sendBar?.destroy?.();
+  try {
+    chat._sdkRichView?.destroy?.();
+  } catch {
+    // A partially mounted rich view may throw on destroy.
+  }
+  resetViewAppliedState(chat.id, chat);
+  if (chat.term && typeof chat.term.dispose === 'function') chat.term.dispose();
+  if (chat.pane.parentNode) chat.pane.remove();
+  chat.pane = null;
+  chat._sdkRichView = null;
+  chat.term = null;
+  chat.fitAddon = null;
+  chat._termContainer = null;
+  chat.sdkModeBarEl = null;
+}
+
+/**
+ * Keep the active chat and the one opened just before it. Older panes leave the DOM.
+ *
+ * @param {string} nextActiveId
+ */
+function retainMountedChatPanes(nextActiveId) {
+  const nextId = String(nextActiveId || '').trim();
+  if (!nextId) return;
+  const leavingId = nextId === retainedChatPaneId ? previousRetainedChatPaneId : retainedChatPaneId;
+  const keep = new Set([nextId, leavingId].filter(Boolean));
+  for (const chat of chats) {
+    if (!chat?.pane || keep.has(chat.id)) continue;
+    unmountChatPane(chat);
+  }
+  if (nextId === retainedChatPaneId) return;
+  previousRetainedChatPaneId = retainedChatPaneId;
+  retainedChatPaneId = nextId;
+}
+
+/**
  * Whether the mounted pane already shows the blocked notice for the chat's current code.
  * Re-rendering every select would needlessly replace an identical notice.
  *
@@ -4120,6 +4459,13 @@ function openTerminal(chat) {
     if (!trimmed && !hasPageSelection && !hasAttachments && !draftTodoId) {
       if (textareaMode) return false;
       sendKeyToAgent('\r');
+      return true;
+    }
+    if (isWatcherPinnedChat(chat)) {
+      // Pinned workspace chat is a command shell over the watcher APIs, not a
+      // model conversation. Never start an agent run from it.
+      void handleWatcherPinnedCommandSend(chat, trimmed || rawText);
+      writeChatDraft(chat.id, '');
       return true;
     }
     const executeCommand = parseDelegationCommand(rawText);
@@ -4464,7 +4810,7 @@ function openTerminal(chat) {
           chat._historyOlderLocal = [];
         }
         if (serverState && Array.isArray(serverState.events) && serverState.events.length > 0) {
-          const events = serverState.events;
+          const events = takeSdkHistoryWindow(chat, serverState.events);
           const merged = await mergeServerSdkHistoryIntoRichView(
             chat,
             events,
@@ -4667,26 +5013,26 @@ function confirmDeleteChat(skipNextPrompt) {
 }
 
 function findLastVisibleChatId(excludeChatId = '') {
-  for (let index = chats.length - 1; index >= 0; index -= 1) {
-    const chat = chats[index];
-    if (!chat || chat.id === excludeChatId) continue;
-    if (chat.archivedAt) continue;
-    return chat.id;
-  }
-  return null;
+  return findLastLiveSelectableChatId(chats, excludeChatId);
 }
 
 export async function requestArchiveChat(chatId, options = {}) {
   if (!chatId) return false;
+  const suppressListReloadChatId = String(chatId).trim();
+  chatListExplicitReloadGuard.begin([suppressListReloadChatId]);
+  try {
+    return await requestArchiveChatInner(chatId, options);
+  } finally {
+    chatListExplicitReloadGuard.end([suppressListReloadChatId]);
+  }
+}
+
+async function requestArchiveChatInner(chatId, options) {
   const archivedRow = chats.find((entry) => entry.id === chatId);
   const relatedParentIds = [
     String(archivedRow?.forkParentChatId || '').trim(),
     String(archivedRow?.delegationParentChatId || '').trim(),
   ].filter(Boolean);
-  const switchToChatId =
-    typeof options.switchToChatId === 'string' && options.switchToChatId.trim()
-      ? options.switchToChatId.trim()
-      : findLastVisibleChatId(chatId);
   let data = null;
   try {
     data = await api.archiveChat(chatId, true);
@@ -4694,19 +5040,46 @@ export async function requestArchiveChat(chatId, options = {}) {
     data = null;
   }
   if (!data?.ok) {
-    alert(data?.error || t('chat.archiveFailed'));
+    const message = data?.code === 'CHAT_ARCHIVE_BUSY'
+      ? t('chat.archiveBusy')
+      : (data?.error || t('chat.archiveFailed'));
+    alert(message);
     return false;
   }
-  closeChat(chatId, {
-    skipApiDelete: true,
-    switchToChatId,
+  // The server archives the whole subtree atomically; mirror that locally BEFORE
+  // computing the fallback or tearing anything down, so neither the switch target
+  // nor the lifecycle can point at a row that is leaving the live tree. Rows stay
+  // in `chats`, so `partitionChatsByArchive` moves parent and children together
+  // and `flattenChatsTree` keeps the relation (no level-0 orphans).
+  const stamp = typeof data?.chat?.archivedAt === 'string' && data.chat.archivedAt.trim()
+    ? data.chat.archivedAt.trim()
+    : new Date().toISOString();
+  const archivedIds = new Set(markForkSubtreeArchived(chats, chatId, stamp));
+  archivedIds.add(String(chatId).trim());
+  const switchToChatId = resolveArchiveSwitchTargetId({
+    chats,
+    requestedId: options.switchToChatId,
+    archivedIds,
+    activeChatId,
   });
+  // closeChat stays the single teardown entry point, but `keepRow` makes it close
+  // runtime/presence/local data only — it is no longer the mechanism that moves
+  // the branch. One explicit close per archived id, one render for the pass.
+  for (const id of archivedIds) {
+    closeChat(id, {
+      skipApiDelete: true,
+      keepRow: true,
+      switchToChatId,
+      render: false,
+    });
+  }
+  renderChatList();
   await loadChatsFromServer({
     includeArchived: true,
-    preferChatId: switchToChatId || '',
-    skipAutoSelect: false,
+    preferChatId: switchToChatId || undefined,
+    skipAutoSelect: !switchToChatId,
   });
-  if (switchToChatId && chats.some((entry) => entry.id === switchToChatId)) {
+  if (switchToChatId && chats.some((entry) => entry.id === switchToChatId && !entry.archivedAt)) {
     selectChat(switchToChatId);
   }
   relatedParentIds.forEach((id) => {
@@ -4716,8 +5089,10 @@ export async function requestArchiveChat(chatId, options = {}) {
 }
 
 /**
- * Archive a whole sidebar "settled subchats" group in one pass: one reload
- * instead of one per child. The caller confirms with the user first.
+ * Archive a whole sidebar "settled subchats" group in one pass: one local
+ * subtree update and one reload instead of one `closeChat` per child. The caller
+ * confirms with the user first. Partial API failures leave the failed rows live
+ * and stamp only the subtrees whose PATCH succeeded.
  *
  * @param {string[]} chatIds
  * @param {{ switchToChatId?: string }} [options]
@@ -4730,21 +5105,19 @@ export async function requestArchiveSettledChats(chatIds, options = {}) {
       .filter(Boolean)
   )];
   if (!ids.length) return { ok: true, archived: 0, failed: 0 };
-  const archivedSet = new Set(ids);
-  const activeId = getActiveChatIdValue();
-  let switchToChatId =
-    typeof options.switchToChatId === 'string' && options.switchToChatId.trim()
-      ? options.switchToChatId.trim()
-      : '';
-  if (!switchToChatId) {
-    for (let index = chats.length - 1; index >= 0; index -= 1) {
-      const row = chats[index];
-      if (!row || archivedSet.has(row.id) || row.archivedAt) continue;
-      switchToChatId = row.id;
-      break;
-    }
+  chatListExplicitReloadGuard.begin(ids);
+  try {
+    return await requestArchiveSettledChatsInner(ids, options);
+  } finally {
+    chatListExplicitReloadGuard.end(ids);
   }
+}
+
+async function requestArchiveSettledChatsInner(ids, options) {
+  const archivedSet = new Set(ids);
+  const fallbackStamp = new Date().toISOString();
   const relatedParentIds = new Set();
+  const archivedIds = new Set();
   let failed = 0;
   for (const id of ids) {
     const row = chats.find((entry) => entry.id === id);
@@ -4762,17 +5135,35 @@ export async function requestArchiveSettledChats(chatIds, options = {}) {
       failed += 1;
       continue;
     }
+    const stamp = typeof data?.chat?.archivedAt === 'string' && data.chat.archivedAt.trim()
+      ? data.chat.archivedAt.trim()
+      : fallbackStamp;
+    markForkSubtreeArchived(chats, id, stamp).forEach((markedId) => archivedIds.add(markedId));
+    archivedIds.add(id);
+  }
+  // One local update for the whole successful group: fallback and lifecycle are
+  // computed once, after every archived subtree is stamped.
+  const switchToChatId = resolveArchiveSwitchTargetId({
+    chats,
+    requestedId: options.switchToChatId,
+    archivedIds,
+    activeChatId,
+  });
+  for (const id of archivedIds) {
     closeChat(id, {
       skipApiDelete: true,
-      switchToChatId: id === activeId ? switchToChatId : '',
+      keepRow: true,
+      switchToChatId,
+      render: false,
     });
   }
+  renderChatList();
   await loadChatsFromServer({
     includeArchived: true,
-    preferChatId: switchToChatId || '',
-    skipAutoSelect: false,
+    preferChatId: switchToChatId || undefined,
+    skipAutoSelect: !switchToChatId,
   });
-  if (switchToChatId && chats.some((entry) => entry.id === switchToChatId)) {
+  if (switchToChatId && chats.some((entry) => entry.id === switchToChatId && !entry.archivedAt)) {
     selectChat(switchToChatId);
   }
   relatedParentIds.forEach((id) => {
@@ -4785,8 +5176,10 @@ function syncArchiveMenuUi(chat = null) {
   const btn = document.getElementById('chat-archive-menu-btn');
   if (!btn) return;
   const archived = Boolean(String(chat?.archivedAt || '').trim());
-  const key = archived ? 'chat.restore' : 'chat.archive';
+  const blocked = !archived && isForkSubtreeBusy(chats, chat?.id, hasLiveHarnessWork);
+  const key = archived ? 'chat.restore' : (blocked ? 'chat.archiveBusy' : 'chat.archive');
   const label = t(key);
+  btn.disabled = blocked;
   btn.title = label;
   btn.setAttribute('aria-label', label);
   btn.setAttribute('data-i18n-title', key);
@@ -4804,25 +5197,31 @@ function syncArchiveMenuUi(chat = null) {
 
 export async function requestRestoreChat(chatId) {
   if (!chatId) return false;
-  let data = null;
+  const suppressListReloadChatId = String(chatId).trim();
+  chatListExplicitReloadGuard.begin([suppressListReloadChatId]);
   try {
-    data = await api.archiveChat(chatId, false);
-  } catch {
-    data = null;
+    let data = null;
+    try {
+      data = await api.archiveChat(chatId, false);
+    } catch {
+      data = null;
+    }
+    if (!data?.ok) {
+      alert(data?.error || t('chat.restoreFailed'));
+      return false;
+    }
+    await loadChatsFromServer({
+      includeArchived: true,
+      preferChatId: chatId,
+      skipAutoSelect: false,
+    });
+    if (chats.some((entry) => entry.id === chatId)) {
+      selectChat(chatId);
+    }
+    return true;
+  } finally {
+    chatListExplicitReloadGuard.end([suppressListReloadChatId]);
   }
-  if (!data?.ok) {
-    alert(data?.error || t('chat.restoreFailed'));
-    return false;
-  }
-  await loadChatsFromServer({
-    includeArchived: true,
-    preferChatId: chatId,
-    skipAutoSelect: false,
-  });
-  if (chats.some((entry) => entry.id === chatId)) {
-    selectChat(chatId);
-  }
-  return true;
 }
 
 /**
@@ -4863,17 +5262,24 @@ export function teardownChatRuntime(chat) {
 /**
  * Full chat delete: close the connection, UI, clear localStorage, remove on the backend.
  * @param {string} id - chat id (uuid)
- * @param {{ skipApiDelete?: boolean, switchToChatId?: string|null }} [options]
+ * @param {{ skipApiDelete?: boolean, switchToChatId?: string|null, keepRow?: boolean, render?: boolean }} [options]
+ *   `keepRow` closes runtime/presence/local data but leaves the list row in place (archive);
+ *   `render:false` defers the repaint to a batched caller.
  */
 export function closeChat(id, options = {}) {
+  const keepRow = options.keepRow === true;
+  const shouldRender = options.render !== false;
   const idx = chats.findIndex((c) => c.id === id);
   const chat = idx === -1 ? null : chats[idx];
   const switchToChatId =
     typeof options.switchToChatId === 'string' && options.switchToChatId.trim()
       ? options.switchToChatId.trim()
       : null;
+  // The presence store outlives the chat object, so a deleted id must not hydrate a future
+  // row that happens to reuse it.
+  forgetPresenceChat(id);
   if (!chat) {
-    if (!options.skipApiDelete) {
+    if (!options.skipApiDelete && !keepRow) {
       removedChatIds.add(id);
       api.deleteChat(id).catch(() => {});
     }
@@ -4885,13 +5291,13 @@ export function closeChat(id, options = {}) {
       activeChatId = fallbackId;
       if (activeChatId) selectChat(activeChatId);
     }
-    renderChatList();
+    if (shouldRender) renderChatList();
     return;
   }
   teardownChatRuntime(chat);
-  chats.splice(idx, 1);
+  if (!keepRow) chats.splice(idx, 1);
   clearChatLocalData(id);
-  if (!options.skipApiDelete) {
+  if (!options.skipApiDelete && !keepRow) {
     removedChatIds.add(id);
     api.deleteChat(id).catch(() => {});
   }
@@ -4908,7 +5314,7 @@ export function closeChat(id, options = {}) {
       document.querySelectorAll('.chat-tab-pane').forEach((p) => p.classList.remove('active'));
     }
   }
-  renderChatList();
+  if (shouldRender) renderChatList();
 }
 
 /**
@@ -5383,15 +5789,44 @@ export function openChatFromNotification(message) {
     .then(activate);
 }
 
+/**
+ * Active workspace follows the chat being opened. A chat that only stores
+ * `workspaceFolder` (pinned watcher chats) is matched against the loaded catalog.
+ * The following list refresh must not replace this selection.
+ *
+ * @param {object | null | undefined} chat
+ */
+function alignActiveWorkspaceWithChat(chat) {
+  if (!chat || isEmbedWidgetMode()) return;
+  const target = resolveWorkspaceTargetForChat(
+    chat,
+    getWorkspaceContextForChat(),
+    listLoadedWorkspaces(),
+  );
+  if (!target) return;
+  workspaceRefreshPreserveDepth += 1;
+  Promise.resolve(applyVoiceWorkspaceSwitch(target.workspaceFile, target.workspaceFolder))
+    .finally(() => {
+      workspaceRefreshPreserveDepth = Math.max(0, workspaceRefreshPreserveDepth - 1);
+    });
+}
+
 function performSelectChat(id) {
+  const reselectingActive = activeChatId === id;
+  const prevActiveChatId = activeChatId;
+  retainMountedChatPanes(id);
   chats.forEach((chat) => {
     chat.pane?._sendBar?.closeSendMenu?.();
+    if (chat.id === id) return;
     chatDiagnosticsApi.stopChatContextUsageSync(chat);
   });
   recordChatLastUsed(id);
   recordChatActivity(id);
   notifySidebar();
   chatController.selectChat(id);
+  // `activeChatId` just moved, so `chatExpectsLiveSocket` changed for BOTH the previous
+  // and the newly active row. With the full `*` gone, neither repaints itself.
+  scheduleChatListStateRefresh([prevActiveChatId, id]);
   scheduleChatSendBarReserveSync();
   const chat = chats.find((c) => c.id === id);
   if (chat?._serverRunState?.state === 'waiting' && chat._serverRunState.delegationId) {
@@ -5402,10 +5837,11 @@ function performSelectChat(id) {
         attention: false,
         state: chat._serverRunState.state === 'waiting' ? 'idle' : chat._serverRunState.state,
       };
-      refreshSidebarChatStates();
+      scheduleChatListStateRefresh([chat.id]);
     }).catch(() => {});
   }
   if (chat) openTerminal(chat);
+  if (chat) alignActiveWorkspaceWithChat(chat);
   if (chat) syncChatTodoChip(chat);
   if (chat) {
     requestWidgetChatBinding(chat);
@@ -5413,25 +5849,13 @@ function performSelectChat(id) {
     syncArchiveMenuUi(chat);
     syncChatSdkModeUi(chat);
     renderChatTerminalState(chat);
+    applyPinnedChatModeUi(chat);
     chatDiagnosticsApi.startChatContextUsageSync(chat);
-    if (chat._sdkRichView) {
+    if (chat._sdkRichView && !reselectingActive) {
       setTimeout(() => chat._sdkRichView.scrollToBottom(), 50);
-      if (!chat._sdkHistoryHydrating) {
+      if (!chat._sdkHistoryHydrating && !isSdkOpenTerminalHydrating(chat)) {
         void syncSdkHistoryOnResume(chat, { reason: 'selectChat' }).catch((err) => {
           appLogger.log('chat-sync', 'selectChat catch-up failed', {
-            chatId: chat.id,
-            error: String(err?.message || err),
-          });
-        });
-      }
-      // Fetch real token usage from server diag in the background.
-      const now = Date.now();
-      if (!chat._contextUsageSyncAt || now - chat._contextUsageSyncAt > CHAT_CONTEXT_USAGE_SYNC_MS) {
-        chat._contextUsageSyncAt = now;
-        void api.getChatDiag(chat.id).then((res) => {
-          chatDiagnosticsApi.applyServerContextUsageFromDiag(chat, res);
-        }).catch((err) => {
-          appLogger.log('chat-diag', 'server diag fetch failed', {
             chatId: chat.id,
             error: String(err?.message || err),
           });
@@ -9208,6 +9632,7 @@ export function initChatPanel() {
         void requestRestoreChat(id);
         return;
       }
+      if (isForkSubtreeBusy(chats, id, hasLiveHarnessWork)) return;
       void requestArchiveChat(id);
     });
     syncArchiveMenuUi(activeChatId ? chats.find((c) => c.id === activeChatId) : null);

@@ -1,4 +1,4 @@
-import { LitElement, html } from 'lit';
+import { LitElement, html, nothing } from 'lit';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { t } from '../../i18n/index.js';
 import { VALID_TRANSPORTS } from '../../../lib/agent-transport.js';
@@ -38,6 +38,7 @@ const ROLE_KEYS = {
 class CrTodoCard extends LitElement {
   static properties = {
     item: { type: Object },
+    hasChildren: { type: Boolean },
     planExpanded: { type: Boolean },
     bodyPreview: { type: Boolean },
     newChatHarness: { type: String },
@@ -47,6 +48,7 @@ class CrTodoCard extends LitElement {
   constructor() {
     super();
     this.item = null;
+    this.hasChildren = false;
     this.planExpanded = false;
     this.bodyPreview = false;
     this.newChatHarness = '';
@@ -82,6 +84,7 @@ class CrTodoCard extends LitElement {
     const id = this.item?.id ? String(this.item.id) : '';
     const status = e?.detail?.value ? String(e.detail.value) : '';
     if (!id || !status) return;
+    if (this.hasChildren && status !== 'idea' && status !== 'ready') return;
     this.item = { ...this.item, status };
     this._emit('todo-status-change', { id, status });
   }
@@ -514,6 +517,7 @@ class CrTodoCard extends LitElement {
     if (!planMarkdown) return '';
     const updatedAt =
       item?.plan && typeof item.plan.updatedAt === 'string' ? item.plan.updatedAt.slice(0, 10) : '';
+    const approvedAt = item?.plan && typeof item.plan.approvedAt === 'string' ? item.plan.approvedAt.trim() : '';
     return html`
       <div class="todo-item-plan">
         <button
@@ -524,10 +528,23 @@ class CrTodoCard extends LitElement {
         >
           <span class="mdi mdi-file-document-outline" aria-hidden="true"></span>
           <span>${t('todo.plan')}${updatedAt ? html` <span class="todo-item-meta">(${updatedAt})</span>` : ''}</span>
+          ${approvedAt ? html`<span class="mdi mdi-check-circle todo-item-plan-approved" title=${approvedAt} aria-label=${t('todo.planApproved')}></span>` : ''}
           <span class="mdi ${this.planExpanded ? 'mdi-chevron-up' : 'mdi-chevron-down'}" aria-hidden="true"></span>
         </button>
         ${this.planExpanded
-          ? html`<div class="todo-item-plan-body files-preview-markdown">${unsafeHTML(renderMarkdownHtml(planMarkdown))}</div>`
+          ? html`
+            <div class="todo-item-plan-body files-preview-markdown">${unsafeHTML(renderMarkdownHtml(planMarkdown))}</div>
+            ${!approvedAt ? html`
+              <button
+                type="button"
+                class="todo-item-plan-approve-btn"
+                @click=${() => this._emit('todo-plan-approve', { id: item.id, updatedAt: item.updatedAt })}
+              >
+                <span class="mdi mdi-check-circle-outline" aria-hidden="true"></span>
+                ${t('todo.planApprove')}
+              </button>
+            ` : ''}
+          `
           : ''}
       </div>
     `;
@@ -752,7 +769,7 @@ class CrTodoCard extends LitElement {
                 class="todo-editor-run"
                 size="md"
                 aria-label=${t('todo.runMode')}
-                .value=${item?.runMode === 'sequential' ? 'sequential' : 'parallel'}
+                .value=${item?.runMode === 'parallel' ? 'parallel' : 'sequential'}
                 .options=${runOptions}
                 @cr-change=${this._onRunModeChange}
               ></cr-bar-select>
@@ -779,6 +796,10 @@ class CrTodoCard extends LitElement {
     const id = item.id ? String(item.id) : '';
     const title = item.title ? String(item.title) : '';
     const status = item.status ? String(item.status) : 'idea';
+    const statusLocked = this.hasChildren && (status === 'doing' || status === 'done');
+    const statusOptions = this.hasChildren
+      ? getTodoStatusOptions().filter((option) => option.value === 'idea' || option.value === 'ready')
+      : getTodoStatusOptions();
 
     return html`
       <article class="todo-item todo-item--${status}" data-id=${id} data-status=${status}>
@@ -791,7 +812,9 @@ class CrTodoCard extends LitElement {
               aria-label=${t('todo.statusLabel')}
               data-id=${id}
               .value=${status}
-              .options=${getTodoStatusOptions()}
+              .options=${statusOptions}
+              .disabled=${statusLocked}
+              title=${this.hasChildren ? t('todo.statusFromChildren') : t('todo.statusLabel')}
               @cr-change=${this._onStatusChange}
             ></cr-bar-select>
           </div>
@@ -807,6 +830,7 @@ class CrTodoCard extends LitElement {
             @keydown=${this._onTitleKeydown}
           ></cr-bar-textarea>
         </div>
+        ${this.hasChildren ? html`<p>${t('todo.statusFromChildren')}</p>` : nothing}
         ${this._renderIdBar(item)} ${this._renderMeta(item)} ${this._renderTabs()}
         <div class="todo-editor-panels">
           ${this._renderDescriptionPanel(item)} ${this._renderChatsPanel(item)}

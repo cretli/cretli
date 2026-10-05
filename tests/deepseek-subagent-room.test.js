@@ -91,6 +91,26 @@ const parentText = applyDeepSeekRoomNotification(room, sessionEvent(ROOT, {
 assert.equal(parentText[0].type, 'assistant');
 assert.equal(parentText[0].message.content[0].text, 'parent answer');
 
+const parentUsage = applyDeepSeekRoomNotification(room, sessionEvent(ROOT, {
+  type: 'assistant/message',
+  data: {
+    message: { content: [{ type: 'text', text: 'parent answer' }] },
+    usage: { inputTokens: 900, outputTokens: 50, cacheReadTokens: 100 },
+  },
+}));
+assert.equal(parentUsage.length, 1);
+assert.equal(parentUsage[0].type, 'usage');
+assert.deepEqual(parentUsage[0].usage, { inputTokens: 900, outputTokens: 50, cacheReadTokens: 100 });
+
+const childUsage = applyDeepSeekRoomNotification(room, sessionEvent(CHILD, {
+  type: 'assistant/message',
+  data: { usage: { inputTokens: 40, outputTokens: 5 } },
+}));
+assert.equal(childUsage.length, 1);
+assert.equal(childUsage[0].type, 'usage');
+assert.deepEqual(childUsage[0].usage, { inputTokens: 40, outputTokens: 5 });
+assert.equal(room.deepseekSessionId, ROOT);
+
 const blocksRoom = createRoom();
 const blockOk = applyDeepSeekRoomNotification(blocksRoom, {
   method: 'subagent.finished',

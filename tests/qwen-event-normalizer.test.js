@@ -108,6 +108,24 @@ const priorReadTool = normalizeQwenMessage({
 assert.equal(priorReadTool[0].status, 'error');
 assert.match(String(priorReadTool[0].result), /has not been read/);
 
+// Regression: the tool_search "missing" heuristic must not mark unrelated
+// successful results as errors. todo_show appends the execution workflow,
+// which contains "missing eligible models", but the call succeeded.
+const workflowMentionsMissing = normalizeQwenMessage({
+  type: 'user',
+  message: {
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: 'call-todo',
+        name: 'todo_show',
+        content: 'On BLOCKED, missing eligible models or exhausted harnesses.',
+      },
+    ],
+  },
+});
+assert.equal(workflowMentionsMissing[0].status, 'completed');
+
 const searchNormalizer = createQwenEventNormalizer();
 const searchStart = searchNormalizer.normalize({
   type: 'assistant',

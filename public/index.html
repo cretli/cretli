@@ -325,6 +325,7 @@
       <button type="button" class="settings-tab cr-tab" data-settings-tab="delegations" role="tab" aria-selected="false" data-i18n="settings.tabsDelegations">Delegations</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="widgets" role="tab" aria-selected="false" data-i18n="settings.widgetsTitle">Page widgets</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="mcp" role="tab" aria-selected="false" data-i18n="settings.mcpTitle">MCP</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="watcher" role="tab" aria-selected="false" data-i18n="settings.watcherTitle">Workspace Watcher</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="usage" role="tab" aria-selected="false" data-i18n="settings.tabsUsage">Usage</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="account" role="tab" aria-selected="false" data-i18n="settings.tabsAccount">Account</button>
     </div>
@@ -383,6 +384,13 @@
     <div class="settings-tabs cr-tabs settings-subtabs settings-chat-tabs" id="settings-chat-tabs" role="tablist" hidden data-i18n-aria="settings.tabsChat" aria-label="Chat &amp; agents">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="chat" role="tab" aria-selected="false" data-i18n="settings.tabsChatGeneral">General</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="chat-titles" role="tab" aria-selected="false" data-i18n="settings.tabsChatTitles">Titles</button>
+    </div>
+    <div class="settings-tabs cr-tabs settings-subtabs" id="settings-watcher-tabs" role="tablist" hidden data-i18n-aria="settings.watcherTabsAria" aria-label="Workspace Watcher sections">
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="watcher" role="tab" aria-selected="false" data-i18n="settings.watcherTab_status">Status</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="watcher-monitor" role="tab" aria-selected="false" data-i18n="settings.watcherTab_monitor">Monitoring</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="watcher-settings" role="tab" aria-selected="false" data-i18n="settings.watcherTab_settings">Settings</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="watcher-scout" role="tab" aria-selected="false" data-i18n="settings.watcherTab_scout">Scout</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="watcher-actions" role="tab" aria-selected="false" data-i18n="settings.watcherTab_actions">Actions</button>
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-interface-tabs" id="settings-interface-tabs" role="tablist" hidden data-i18n-aria="settings.tabsInterface" aria-label="App">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="interface" role="tab" aria-selected="false" data-i18n="settings.tabsInterfaceAppearance">Appearance</button>
@@ -1446,6 +1454,11 @@
         <p class="settings-hint" data-i18n="settings.mcpHint">Configure MCP servers once. Pick workspaces and harnesses; agents receive the tools without extra shell scripts. Secrets stay on the server.</p>
         <div id="settings-mcp-root" class="mcp-settings-root"></div>
       </section>
+      <section class="settings-section" data-settings-tab="watcher" hidden role="tabpanel">
+        <h3 class="settings-section-title" data-i18n="settings.watcherTitle">Workspace Watcher</h3>
+        <p class="settings-hint" data-i18n="settings.watcherHint">One deterministic guard per workspace. Observe logs idle work; autopilot starts one short-lived orchestrator cycle that delegates implementation and review. Autopilot is off by default and never commits or pushes.</p>
+        <div id="settings-watcher-root" class="watcher-settings-root"></div>
+      </section>
       <section class="settings-section" data-settings-tab="usage" hidden role="tabpanel">
         <h3 class="settings-section-title" data-i18n="usage.title">Usage and cost</h3>
         <p class="settings-hint" data-i18n="usage.hint">Approximate totals for this Cretli instance. Not a provider invoice.</p>
@@ -1694,6 +1707,7 @@
 
   <div id="todo-panel" class="panel">
     <div class="todo-layout">
+      <div id="todo-watcher-bar" class="todo-watcher-bar" hidden></div>
       <div class="todo-toolbar panel-toolbar">
         <cr-icon-button id="todo-refresh-btn" title="Refresh list" data-i18n-title="git.refreshTitle" aria-label="Refresh list" data-i18n-aria="git.refreshTitle">
           <span class="mdi mdi-refresh" aria-hidden="true"></span>
@@ -1704,6 +1718,7 @@
         <span id="todo-cwd-hint" class="todo-cwd-hint" hidden></span>
         <span id="todo-status" class="todo-status" aria-live="polite"></span>
       </div>
+      <div id="todo-watcher-why" class="todo-watcher-why" hidden></div>
       <div class="todo-scroll">
         <div id="todo-list" class="todo-list" role="region" aria-label="Todo list"></div>
       </div>

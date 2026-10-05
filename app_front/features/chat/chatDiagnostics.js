@@ -169,6 +169,7 @@ export function createChatDiagnostics(deps) {
   /** @param {object|null|undefined} chat */
   function startChatContextUsageSync(chat) {
     if (!chat || chat.agentTransport !== 'sdk') return;
+    if (chat._contextUsageSyncTimer) return;
     stopChatContextUsageSync(chat);
     const tick = async () => {
       if (chat.id !== getActiveChatId()) return;

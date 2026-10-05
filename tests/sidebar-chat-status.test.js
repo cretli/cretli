@@ -6,6 +6,40 @@ import {
   renderSidebarChatStatusHtml,
 } from '../app_front/features/sidebar/sidebarChatStatus.js';
 
+/**
+ * Minimal chip double with an icon node and an activity-label node so a test can
+ * prove the icon node survives a label-only update.
+ */
+function makeChipEl({ tone, activityKey = '', label = '' }) {
+  const attrs = new Map();
+  const iconNode = { className: 'mdi mdi-cog-outline mdi-spin', textContent: '' };
+  const labelNode = { className: 'sidebar-chat-item-activity-label', textContent: '', hidden: false };
+  const el = {
+    hidden: false,
+    className: 'sidebar-chat-item-awaiting sidebar-chat-item-awaiting--' + tone,
+    innerHTML: '',
+    _iconNode: iconNode,
+    _labelNode: labelNode,
+    getAttribute(name) {
+      return attrs.has(name) ? attrs.get(name) : null;
+    },
+    setAttribute(name, value) {
+      attrs.set(name, String(value));
+    },
+    querySelector(selector) {
+      if (selector === '.sidebar-chat-item-activity-label') return labelNode;
+      if (selector === '.mdi') return iconNode;
+      return null;
+    },
+  };
+  el.setAttribute('data-status-tone', tone);
+  el.setAttribute('data-activity-key', activityKey);
+  el.setAttribute('data-status-label', label);
+  el.setAttribute('data-status-outcome', '');
+  labelNode.textContent = activityKey ? label : '';
+  return el;
+}
+
 test('isIconOnlySidebarStatus covers disconnected, connecting, active and needs-action', () => {
   assert.equal(isIconOnlySidebarStatus('disconnected'), true);
   assert.equal(isIconOnlySidebarStatus('connecting'), true);
@@ -111,34 +145,75 @@ test('renderSidebarChatStatusHtml uses an alert icon when action is needed', () 
   assert.equal(actual.includes('Needs action'), false);
 });
 
-test('renderSidebarChatStatusHtml shows activity text when the agent has a tool', () => {
+test('renderSidebarChatStatusHtml shows the icon plus activity text when the agent has a tool', () => {
   const actual = renderSidebarChatStatusHtml(
     { tone: 'active', label: 'Read a.js', activityKey: 'read' },
     (value) => `esc:${value}`
   );
-  assert.equal(actual, 'esc:Read a.js');
+  assert.match(actual, /mdi-cog-outline/);
+  assert.match(actual, /mdi-spin/);
+  assert.match(actual, /sidebar-chat-item-activity-label/);
+  assert.match(actual, /esc:Read a\.js/);
 });
 
-test('applySidebarChatStatusEl rewrites when activity changes and tone stays active', () => {
-  const el = {
-    hidden: false,
-    className: 'sidebar-chat-item-awaiting sidebar-chat-item-awaiting--active',
-    innerHTML: '<span class="mdi mdi-cog-outline mdi-spin" aria-hidden="true"></span>',
-    attrs: { 'data-status-tone': 'active', 'data-activity-key': '', 'data-status-label': 'Agent working' },
-    getAttribute(name) {
-      return this.attrs[name] || '';
-    },
-    setAttribute(name, value) {
-      this.attrs[name] = String(value);
-    },
-  };
+test('applySidebarChatStatusEl keeps the icon node when only the activity label changes', () => {
+  const el = makeChipEl({ tone: 'active', activityKey: 'read', label: 'Read a.js' });
+  const iconNode = el._iconNode;
   const rewritten = applySidebarChatStatusEl(
     el,
-    { tone: 'active', label: 'Read a.js', activityKey: 'read' },
+    { tone: 'active', label: 'Grep y', activityKey: 'grep' },
     { escapeHtml: (value) => value }
   );
   assert.equal(rewritten, true);
-  assert.equal(el.innerHTML, 'Read a.js');
+  assert.equal(el._iconNode, iconNode, 'icon node identity preserved (spinner keeps running)');
+  assert.equal(el._labelNode.textContent, 'Grep y', 'label updated through textContent');
+  assert.equal(el.innerHTML, '', 'markup was not rewritten');
+  assert.equal(el.getAttribute('data-activity-key'), 'grep');
+});
+
+test('applySidebarChatStatusEl clears the label when the generic working state returns', () => {
+  const el = makeChipEl({ tone: 'active', activityKey: 'read', label: 'Read a.js' });
+  const iconNode = el._iconNode;
+  applySidebarChatStatusEl(el, { tone: 'active', label: 'Agent working' }, { escapeHtml: (value) => value });
+  assert.equal(el._iconNode, iconNode);
+  assert.equal(el._labelNode.textContent, '');
+  assert.equal(el.getAttribute('data-activity-key'), '');
+});
+
+test('applySidebarChatStatusEl appends the activity label without replacing an icon-only chip', () => {
+  const attrs = new Map();
+  const iconNode = { className: 'mdi mdi-cog-outline mdi-spin' };
+  const children = [iconNode];
+  const el = {
+    hidden: false,
+    className: 'sidebar-chat-item-awaiting sidebar-chat-item-awaiting--active',
+    innerHTML: '',
+    ownerDocument: {
+      createElement: () => ({ className: '', textContent: '' }),
+    },
+    getAttribute(name) {
+      return attrs.has(name) ? attrs.get(name) : null;
+    },
+    setAttribute(name, value) {
+      attrs.set(name, String(value));
+    },
+    querySelector() {
+      return null;
+    },
+    appendChild(node) {
+      children.push(node);
+      return node;
+    },
+  };
+  el.setAttribute('data-status-tone', 'active');
+  el.setAttribute('data-activity-key', '');
+  el.setAttribute('data-status-label', 'Agent working');
+  el.setAttribute('data-status-outcome', '');
+  applySidebarChatStatusEl(el, { tone: 'active', label: 'Read a.js', activityKey: 'read' });
+  assert.equal(children[0], iconNode, 'icon node preserved');
+  assert.equal(children[1].className, 'sidebar-chat-item-activity-label');
+  assert.equal(children[1].textContent, 'Read a.js');
+  assert.equal(el.innerHTML, '', 'markup was not rewritten');
 });
 
 test('renderSidebarChatStatusHtml uses outcome icons for settled delegation states', () => {

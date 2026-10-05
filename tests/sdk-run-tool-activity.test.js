@@ -4,6 +4,11 @@ import {
   noteSdkRunToolActivity,
   resetSdkRunToolActivity,
 } from '../lib/sdk/sdk-run-tool-activity.js';
+import {
+  __resetAgentPresenceHooksForTest,
+  getChatPresenceActivity,
+  setAgentPresenceDirtyHandler,
+} from '../lib/agent-presence-hooks.js';
 
 const room = {};
 resetSdkRunToolActivity(room);
@@ -35,5 +40,30 @@ resetSdkRunToolActivity(room);
 noteSdkRunToolActivity(room, { type: 'tool_call', call_id: 'hang', status: 'running' });
 resetSdkRunToolActivity(room);
 assert.equal(hasOpenSdkRunTools(room), false);
+
+__resetAgentPresenceHooksForTest();
+let dirtyCount = 0;
+setAgentPresenceDirtyHandler(() => {
+  dirtyCount += 1;
+});
+const live = { chatId: 'chat-tools' };
+noteSdkRunToolActivity(live, { type: 'tool_call', call_id: 'a', name: 'read', path: 'a.js', status: 'running' });
+noteSdkRunToolActivity(live, { type: 'tool_call', call_id: 'b', name: 'grep', path: 'b.js', status: 'running' });
+assert.equal(getChatPresenceActivity('chat-tools')?.activityKey, 'grep');
+noteSdkRunToolActivity(live, { type: 'tool_result', call_id: 'b' });
+assert.equal(getChatPresenceActivity('chat-tools')?.activityKey, 'read');
+assert.equal(getChatPresenceActivity('chat-tools')?.activityArg, 'a.js');
+noteSdkRunToolActivity(live, { type: 'thinking', text: 'still reading' });
+assert.equal(getChatPresenceActivity('chat-tools')?.activityKey, 'read');
+noteSdkRunToolActivity(live, { type: 'tool_result', call_id: 'a' });
+assert.equal(getChatPresenceActivity('chat-tools'), null);
+noteSdkRunToolActivity(live, { type: 'thinking', text: 'next' });
+assert.equal(getChatPresenceActivity('chat-tools')?.activityKey, 'thinking');
+const dirtyAfterThinking = dirtyCount;
+noteSdkRunToolActivity(live, { type: 'thinking', text: 'more' });
+assert.equal(dirtyCount, dirtyAfterThinking);
+resetSdkRunToolActivity(live);
+assert.equal(getChatPresenceActivity('chat-tools'), null);
+__resetAgentPresenceHooksForTest();
 
 console.log('sdk-run-tool-activity.test.js OK');

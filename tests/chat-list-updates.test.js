@@ -51,6 +51,49 @@ widget.bufferedAmount = 3_000_000;
 assert.equal(sendChatListClientMessage(widget, '{"type":"agentPresence"}'), false);
 assert.equal(sendChatListClientMessage(session, '{"type":"agentPresence"}'), true);
 
+// A `title` frame now carries the row content so the client can patch one chat instead of
+// refetching the whole list. That content must respect the widget scope: a widget socket is
+// subscribed to an allowlist of chat ids and must never learn another workspace's titles.
+__clearChatListUpdateClientsForTest();
+const scopedWidget = socket();
+const scopedSession = socket();
+subscribeChatListUpdates(scopedWidget, { kind: 'widget', chatIds: ['own'] });
+subscribeChatListUpdates(scopedSession, { kind: 'session' });
+broadcastChatListChanged({
+  reason: 'title',
+  chatId: 'foreign',
+  title: 'Foreign title',
+  titleSource: 'auto',
+});
+assert.deepEqual(scopedWidget.messages, [], 'a content frame for a foreign chat is not sent to the widget');
+assert.deepEqual(scopedSession.messages.at(-1), {
+  type: 'chatsChanged',
+  reason: 'title',
+  chatId: 'foreign',
+  title: 'Foreign title',
+  titleSource: 'auto',
+});
+broadcastChatListChanged({ reason: 'title', chatId: 'own', title: 'My title', titleSource: 'manual' });
+assert.deepEqual(scopedWidget.messages.at(-1), {
+  type: 'chatsChanged',
+  reason: 'title',
+  chatId: 'own',
+  title: 'My title',
+  titleSource: 'manual',
+});
+// Backward compatibility: a frame without content is still broadcast to everybody, so an
+// old client keeps reloading the list.
+broadcastChatListChanged({ reason: 'title', chatId: 'foreign' });
+assert.equal(scopedWidget.messages.at(-1).reason, 'title', 'a contentless title frame reaches every scope');
+assert.equal(Object.prototype.hasOwnProperty.call(scopedWidget.messages.at(-1), 'title'), false);
+// Structural frames carry no content either, so archive/delete/nest still reach widgets.
+broadcastChatListChanged({ reason: 'archive', chatId: 'foreign' });
+assert.equal(scopedWidget.messages.at(-1).reason, 'archive');
+const untitleable = socket();
+subscribeChatListUpdates(untitleable, { kind: 'widget', chatIds: [] });
+broadcastChatListChanged({ reason: 'title', chatId: 'own', title: 'Renamed', titleSource: 'auto' });
+assert.equal(untitleable.messages.length, 0, 'an empty widget allowlist receives no content frame');
+
 const dataFile = resolveDataPath('chats.json');
 const backup = fs.existsSync(dataFile) ? fs.readFileSync(dataFile, 'utf8') : null;
 try {

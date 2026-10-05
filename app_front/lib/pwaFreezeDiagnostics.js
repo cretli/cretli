@@ -13,6 +13,7 @@ import {
   shouldLogUiFreezeLongTask,
   isUiFreezeDiagnosticsEnabled,
 } from './uiFreezeTrace.js';
+import { recentSpanName, spanDuring } from './chatPerfBudget.js';
 import { requestClientDebugRemoteFlush } from '../logger.js';
 
 const SNAPSHOT_DELAYS_MS = [0, 500, 1000, 2000, 4000, 8000, 12000];
@@ -275,6 +276,7 @@ function bindLongTaskObserver() {
           durationMs: Math.round(entry.duration),
           startMs: Math.round(entry.startTime),
           name: entry.name || 'longtask',
+          span: spanDuring(entry.startTime, entry.duration),
         });
         requestClientDebugRemoteFlush('ui-freeze-perf');
       }
@@ -304,6 +306,7 @@ function startMainThreadWatchdog() {
       logger.log('ui-freeze-perf', 'main thread stall', {
         driftMs: Math.round(driftMs),
         reason: 'timer drift while UI should stay responsive',
+        span: recentSpanName(driftMs),
       });
       requestClientDebugRemoteFlush('ui-freeze-perf');
     }
@@ -326,6 +329,7 @@ function startContinuousMainThreadWatchdog() {
     logger.log('ui-freeze-perf', 'main thread stall', {
       driftMs: Math.round(driftMs),
       reason: 'continuous watchdog — UI may be frozen',
+      span: recentSpanName(driftMs),
     });
     requestClientDebugRemoteFlush('ui-freeze-perf');
   }, 2000);

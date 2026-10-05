@@ -50,10 +50,13 @@ const success = normalizeCodeBuddyMessage({
   session_id: 'cb-sess-1',
   duration_ms: 1200,
   total_cost_usd: 0.01,
+  usage: { input_tokens: 10, output_tokens: 5 },
 });
-assert.equal(success[0].kind, 'result');
-assert.equal(success[0].status, 'completed');
-assert.equal(success[0].sessionId, 'cb-sess-1');
+assert.equal(success.length, 2);
+assert.equal(success[0].kind, 'usage');
+assert.equal(success[1].kind, 'result');
+assert.equal(success[1].status, 'completed');
+assert.equal(success[1].sessionId, 'cb-sess-1');
 
 const failed = normalizeCodeBuddyMessage({
   type: 'result',

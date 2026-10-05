@@ -78,6 +78,67 @@ check('in-process todo_show returns chats[] with the creator role', () => {
   assert.equal(creator.deleted, false);
 });
 
+// --- Hierarchy through the real MCP client and persistence ---
+const hierarchyRoot = await ip.todo_create({ title: 'Hierarchy root', status: 'ready', idempotency_key: 'hierarchy-root' });
+const hierarchyId = hierarchyRoot.structuredContent.item.id;
+const hierarchyFirst = await ip.todo_create({ title: 'First', status: 'ready', parent_id: hierarchyId, idempotency_key: 'hierarchy-first' });
+const hierarchyLast = await ip.todo_create({ title: 'Last', status: 'ready', parent_id: hierarchyId, idempotency_key: 'hierarchy-last' });
+const hierarchyShown = await ip.todo_show({ todo_id: hierarchyId });
+check('todo_show exposes ordered direct children without claiming them', () => {
+  const item = hierarchyShown.structuredContent.item;
+  assert.equal(item.children_count, 2);
+  assert.deepEqual(item.children.map((child) => child.id), [hierarchyFirst.structuredContent.item.id, hierarchyLast.structuredContent.item.id]);
+  assert.deepEqual(item.children.map((child) => child.status), ['ready', 'ready']);
+  assert.equal(item.has_plan, false);
+  assert.equal(item.plan_approved_at, '');
+  assert.equal(hierarchyShown.structuredContent.next_children_cursor, '');
+  assert.match(hierarchyShown.content[0].text, /When the user requests execution/);
+  assert.match(hierarchyShown.content[0].text, /assignment=review/);
+});
+
+const paginationRoot = await ip.todo_create({ title: 'Paged tree', idempotency_key: 'paged-tree' });
+const paginationId = paginationRoot.structuredContent.item.id;
+for (let i = 0; i < 22; i += 1) {
+  await ip.todo_create({ title: `Step ${i}`, parent_id: paginationId, idempotency_key: `paged-child-${i}` });
+}
+const childrenPage1 = await ip.todo_show({ todo_id: paginationId });
+const childrenPage2 = await ip.todo_show({ todo_id: paginationId, children_cursor: childrenPage1.structuredContent.next_children_cursor });
+check('todo_show pages children independently of body', () => {
+  assert.equal(childrenPage1.structuredContent.item.children_count, 22);
+  assert.equal(childrenPage1.structuredContent.item.children.length, 20);
+  assert.equal(childrenPage1.structuredContent.next_children_cursor, '20');
+  assert.deepEqual(childrenPage2.structuredContent.item.children.map((child) => child.title), ['Step 20', 'Step 21']);
+  assert.equal(childrenPage2.structuredContent.next_children_cursor, '');
+  assert.equal(childrenPage1.structuredContent.revision, childrenPage2.structuredContent.revision);
+});
+await ip.todo_update({ todo_id: paginationId, expected_updated_at: childrenPage1.structuredContent.item.updated_at, patch: { plan: { markdown: 'Plan for all descendants' } } });
+const draftParent = await ip.todo_show({ todo_id: paginationId, field: 'plan' });
+check('todo_show exposes draft plan approval state', () => {
+  assert.equal(draftParent.structuredContent.item.has_plan, true);
+  assert.equal(draftParent.structuredContent.item.plan_approved_at, '');
+  assert.equal(draftParent.structuredContent.item.plan, 'Plan for all descendants');
+  assert.match(draftParent.content[0].text, /awaiting approval/);
+});
+
+async function setHierarchyStatus(id, status) {
+  const shown = await ip.todo_show({ todo_id: id });
+  return ip.todo_update({ todo_id: id, expected_updated_at: shown.structuredContent.item.updated_at, patch: { status } });
+}
+const premature = await setHierarchyStatus(hierarchyId, 'done');
+const outOfOrder = await setHierarchyStatus(hierarchyLast.structuredContent.item.id, 'doing');
+await setHierarchyStatus(hierarchyFirst.structuredContent.item.id, 'done');
+const partialParent = await ip.todo_show({ todo_id: hierarchyId });
+await setHierarchyStatus(hierarchyLast.structuredContent.item.id, 'done');
+const completedParent = await ip.todo_show({ todo_id: hierarchyId });
+check('MCP enforces sibling order and completes parents only after all children', () => {
+  assert.equal(premature.isError, true);
+  assert.match(premature.content[0].text, /VALIDATION_ERROR/);
+  assert.equal(outOfOrder.isError, true);
+  assert.equal(partialParent.structuredContent.item.status, 'doing');
+  assert.equal(completedParent.structuredContent.item.status, 'done');
+  assert.equal(completedParent.structuredContent.item.run_mode, 'sequential');
+});
+
 // --- In-process: id prefix + update links the calling chat ---
 const ipPrefix = ipId.slice(0, 8);
 const ipUpdated = await ip.todo_update({

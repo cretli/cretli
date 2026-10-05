@@ -3,7 +3,6 @@ import '../../components/ui/cr-searchable-select.js';
 import { t } from '../../i18n/index.js';
 import {
   buildCatalogFromSdkStatusPayload,
-  coerceRunnableSdkModelValue,
   decodeModelValue,
   FALLBACK_AGENT_MODELS,
   filterCatalogByEnabled,
@@ -755,24 +754,24 @@ export function createChatModelSelect(deps) {
   }
 
   /**
-   * Map a saved SDK favorite onto a current catalog row (runnable variant).
+   * Map a saved SDK favorite onto a current catalog row.
    *
    * @param {string} storedValue
    * @returns {string}
    */
   function resolveSdkPresetModel(storedValue) {
-    const coerced = coerceRunnableSdkModelValue(storedValue);
+    const normalized = normalizeCatalogModelValue(storedValue);
     const catalog = sdkModelCatalog;
-    if (catalog.some((row) => normalizeCatalogModelValue(row.value) === coerced)) {
-      return coerced;
+    if (catalog.some((row) => normalizeCatalogModelValue(row.value) === normalized)) {
+      return normalized;
     }
-    const decoded = decodeModelValue(coerced);
+    const decoded = decodeModelValue(normalized);
     const modelId = normalizeCatalogModelValue(decoded.modelId);
-    if (!modelId || modelId.toLowerCase() === 'auto') return coerced;
+    if (!modelId || modelId.toLowerCase() === 'auto') return normalized;
     const siblings = catalog.filter((row) => normalizeCatalogModelValue(row.modelId) === modelId);
-    if (siblings.length === 0) return coerced;
+    if (siblings.length === 0) return normalized;
     const defaultRow = siblings.find((row) => row.isDefault === true);
-    return normalizeCatalogModelValue(defaultRow?.value || siblings[0]?.value) || coerced;
+    return normalizeCatalogModelValue(defaultRow?.value || siblings[0]?.value) || normalized;
   }
 
   /**
@@ -867,8 +866,7 @@ export function createChatModelSelect(deps) {
     const value = normalizeCatalogModelValue(modelValue);
     if (!value) return false;
     if (normalizeModelPickerHarness(harness) === 'sdk') {
-      const coerced = coerceRunnableSdkModelValue(value);
-      return enabled.some((key) => coerceRunnableSdkModelValue(key) === coerced);
+      return enabled.includes(value);
     }
     if (normalizeModelPickerHarness(harness) === 'claude') {
       const entry = getCatalogStateForHarness(harness).catalog.find((row) => row.value === value);

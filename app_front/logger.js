@@ -118,6 +118,7 @@ const FREEZE_REMOTE_FLUSH_TAGS = new Set([
   'ui-freeze-trace',
   'ui-freeze-http',
   'ui-freeze-ws',
+  'ui-freeze-budget',
   'page-resume',
 ]);
 

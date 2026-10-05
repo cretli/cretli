@@ -21,6 +21,7 @@ import {
   removeStorageValueWithAlias,
   writeStorageValueWithAlias,
 } from '../../lib/storageKeyAlias.js';
+import { getChatUpdatedAtMs } from './chatListSort.js';
 
 /** localStorage key holding the boot snapshot. */
 export const CHAT_LOCAL_BOOT_CACHE_KEY = 'cretli-chat-boot-cache-v1';
@@ -135,6 +136,7 @@ export function sanitizeChatRowForBootCache(chat) {
   );
   if (compressionReset !== undefined) row.autoContextCompressionReset = compressionReset;
   if (/** @type {{ isTemporary?: unknown }} */ (chat).isTemporary === true) row.isTemporary = true;
+  if (/** @type {{ watcherPinned?: unknown }} */ (chat).watcherPinned === true) row.watcherPinned = true;
   const harnessState = /** @type {{ harnessState?: unknown }} */ (chat).harnessState;
   if (harnessState && typeof harnessState === 'object') {
     const code = readTrimmed(/** @type {{ code?: unknown }} */ (harnessState).code);
@@ -201,11 +203,49 @@ export function sanitizeWorkspaceForBootCache(workspace) {
  * }} input
  * @returns {{ v: number, savedAt: number, activeChatId: string, workspaceContext: { workspaceFile: string, workspaceFolder: string }, workspaces: object[], chats: object[] }}
  */
-export function buildChatLocalBootCache(input = {}) {
-  const chats = (Array.isArray(input.chats) ? input.chats : [])
+/**
+ * Newest rows first, always keeping the active chat and watcher-pinned rows
+ * even when they fall outside the cap.
+ *
+ * @param {unknown[]} chats
+ * @param {unknown} activeChatId
+ * @returns {object[]}
+ */
+function selectChatsForBootCache(chats, activeChatId) {
+  const rows = (Array.isArray(chats) ? chats : [])
     .map(sanitizeChatRowForBootCache)
-    .filter(Boolean)
-    .slice(0, CHAT_LOCAL_BOOT_CACHE_MAX_CHATS);
+    .filter(Boolean);
+  const activeId = readTrimmed(activeChatId);
+  const kept = new Set();
+  const required = [];
+  const rest = [];
+  for (const row of rows) {
+    if (kept.has(row.id)) continue;
+    if (row.watcherPinned === true || (activeId && row.id === activeId)) {
+      required.push(row);
+      kept.add(row.id);
+      continue;
+    }
+    rest.push(row);
+  }
+  if (rows.length <= CHAT_LOCAL_BOOT_CACHE_MAX_CHATS) return rows;
+  rest.sort((left, right) => {
+    const delta = getChatUpdatedAtMs(right) - getChatUpdatedAtMs(left);
+    if (delta !== 0) return delta;
+    return String(left.id).localeCompare(String(right.id));
+  });
+  const selected = required.slice();
+  for (const row of rest) {
+    if (selected.length >= CHAT_LOCAL_BOOT_CACHE_MAX_CHATS) break;
+    if (kept.has(row.id)) continue;
+    selected.push(row);
+    kept.add(row.id);
+  }
+  return selected;
+}
+
+export function buildChatLocalBootCache(input = {}) {
+  const chats = selectChatsForBootCache(input.chats, input.activeChatId);
   const workspaces = (Array.isArray(input.workspaces) ? input.workspaces : [])
     .map(sanitizeWorkspaceForBootCache)
     .filter(Boolean)
@@ -299,8 +339,32 @@ export function readChatLocalBootCache(storage) {
 }
 
 /**
- * Persist the snapshot, swallowing quota/private-mode errors. Returns whether it was
- * written.
+ * Content fingerprint of a snapshot, deliberately ignoring `savedAt`: the live sync writes
+ * on every reload, and a reload that changed nothing must not hit localStorage again.
+ *
+ * @param {ReturnType<typeof buildChatLocalBootCache>} doc
+ * @returns {string}
+ */
+function chatBootCacheSignature(doc) {
+  return JSON.stringify([
+    doc.v,
+    doc.activeChatId,
+    doc.workspaceContext,
+    doc.workspaces,
+    doc.chats,
+  ]);
+}
+
+/**
+ * Last written fingerprint per storage object. Only this module writes the key, so a match
+ * means the stored document already holds exactly this content.
+ * @type {WeakMap< object, string >}
+ */
+const lastWrittenSignatures = new WeakMap();
+
+/**
+ * Persist the snapshot, swallowing quota/private-mode errors. Returns whether the stored
+ * snapshot is current afterwards (an identical document is not written again).
  *
  * @param {Storage | null | undefined} storage
  * @param {Parameters<typeof buildChatLocalBootCache>[0]} input
@@ -316,8 +380,11 @@ export function writeChatLocalBootCache(storage, input) {
     const previous = readChatLocalBootCache(storage);
     if (previous && previous.workspaces.length > 0) doc.workspaces = previous.workspaces;
   }
+  const signature = chatBootCacheSignature(doc);
+  if (lastWrittenSignatures.get(storage) === signature) return true;
   try {
     writeStorageValueWithAlias(storage, CHAT_LOCAL_BOOT_CACHE_KEY, JSON.stringify(doc));
+    lastWrittenSignatures.set(storage, signature);
     return true;
   } catch (_) {
     return false;
@@ -331,6 +398,7 @@ export function writeChatLocalBootCache(storage, input) {
  */
 export function clearChatLocalBootCache(storage) {
   if (!storage || typeof storage.removeItem !== 'function') return;
+  lastWrittenSignatures.delete(storage);
   try {
     removeStorageValueWithAlias(storage, CHAT_LOCAL_BOOT_CACHE_KEY);
   } catch (_) {}

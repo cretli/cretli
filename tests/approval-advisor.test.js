@@ -30,6 +30,7 @@ import {
   postApprovalAdvisorRequest,
   readApprovalAdvisorSettings,
   recordApprovalAdvisorAudit,
+  recordApprovalAdvisorSkipAudit,
   requestApprovalAdvisor,
   resetApprovalAdvisorQuota,
   resolveAdvisorReplyOutcome,
@@ -358,7 +359,7 @@ function countingTransport(response) {
     'the review-verify bash probe must reach the advisor',
   );
   assert.equal(
-    shouldScheduleApprovalAdvisor({ approvalAction: action, settings: advisorSettings(), requestId: 'perm_bash_verify', requested: new Set() }),
+    shouldScheduleApprovalAdvisor({ approvalAction: action, settings: advisorSettings(), requestId: 'perm_bash_verify', requested: new Set() }).eligible,
     true,
     'the mutation-only probe must be scheduled once',
   );
@@ -380,7 +381,7 @@ function countingTransport(response) {
   assert.deepEqual(action.categories, ['mutation']);
   assert.equal(resolveApprovalAdvisorPlan(advisorSettings(), action).eligible, false);
   assert.equal(
-    shouldScheduleApprovalAdvisor({ approvalAction: action, settings: advisorSettings(), requestId: 'perm_bash_mkdir', requested: new Set() }),
+    shouldScheduleApprovalAdvisor({ approvalAction: action, settings: advisorSettings(), requestId: 'perm_bash_mkdir', requested: new Set() }).eligible,
     false,
   );
 }
@@ -399,7 +400,7 @@ function countingTransport(response) {
   assert.equal(action.risk, 'high');
   assert.equal(resolveApprovalAdvisorPlan(advisorSettings(), action).eligible, false);
   assert.equal(
-    shouldScheduleApprovalAdvisor({ approvalAction: action, settings: advisorSettings(), requestId: 'perm_bash_net', requested: new Set() }),
+    shouldScheduleApprovalAdvisor({ approvalAction: action, settings: advisorSettings(), requestId: 'perm_bash_net', requested: new Set() }).eligible,
     false,
   );
 }
@@ -418,6 +419,51 @@ function countingTransport(response) {
   assert.equal(plan.protocol, 'openai_chat');
   assert.equal(plan.minProbability, 0.9);
   assert.equal(plan.timeoutMs, 5000);
+}
+
+// Area 2 product decision: advisor eligibility is action-type-agnostic. The
+// gate reads only the risk/category tuple, never the action name, so the same
+// `low` + `[]` ask_user widens identically for `bash` and `edit`. (The real
+// local classifier still emits `edit` as medium+mutation — out of scope here.)
+{
+  const settings = advisorSettings();
+  const editLowRead = {
+    mode: 'local_reads',
+    decision: 'ask_user',
+    action: 'edit',
+    risk: 'low',
+    categories: [],
+    command: '',
+    shadow: false,
+  };
+
+  // (a) edit + low + [] is eligible, and yields the same verdict as bash.
+  const editPlan = resolveApprovalAdvisorPlan(settings, editLowRead);
+  assert.equal(editPlan.eligible, true, 'edit + ask_user + low + [] must be advisor-eligible');
+  assert.equal(editPlan.reason, '', 'an eligible edit tuple carries no reject reason');
+  const bashPlan = resolveApprovalAdvisorPlan(settings, { ...editLowRead, action: 'bash' });
+  assert.deepEqual(
+    { eligible: bashPlan.eligible, reason: bashPlan.reason },
+    { eligible: editPlan.eligible, reason: editPlan.reason },
+    'eligibility must not depend on the action type for the same low + [] tuple',
+  );
+
+  // (b) edit + medium with no mutation category and a non-review-verify command
+  // fails the risk gate.
+  const editMedium = resolveApprovalAdvisorPlan(settings, {
+    ...editLowRead,
+    risk: 'medium',
+    command: 'npm run build',
+  });
+  assert.equal(editMedium.eligible, false);
+  assert.equal(editMedium.reason, 'not_low_risk', 'edit + medium + [] fails closed at the risk gate');
+
+  // (c) edit + low with any non-empty category fails the category gate.
+  for (const categories of [['mutation'], ['network'], ['secrets']]) {
+    const plan = resolveApprovalAdvisorPlan(settings, { ...editLowRead, categories });
+    assert.equal(plan.eligible, false, `edit + low + ${JSON.stringify(categories)} is not eligible`);
+    assert.equal(plan.reason, 'unsafe_category', `edit + low + ${JSON.stringify(categories)} fails the category gate`);
+  }
 }
 
 assert.equal(
@@ -815,16 +861,37 @@ resetApprovalAdvisorQuota();
 }
 
 // --- scheduling gate: idempotency, off/shadow/high-risk never scheduled ----
+// The gate returns the reason next to the verdict so a skip is auditable.
 {
   const settings = advisorSettings();
   const requested = new Set();
-  assert.equal(shouldScheduleApprovalAdvisor({ approvalAction: lowRiskReadAction, settings, requestId: 'r1', requested }), true);
+  const gate = (approvalAction, requestId, source = settings) => (
+    shouldScheduleApprovalAdvisor({ approvalAction, settings: source, requestId, requested })
+  );
+  assert.deepEqual(gate(lowRiskReadAction, 'r1'), { eligible: true, reason: '' });
   requested.add('r1');
-  assert.equal(shouldScheduleApprovalAdvisor({ approvalAction: lowRiskReadAction, settings, requestId: 'r1', requested }), false, 'advised once per requestId');
-  assert.equal(shouldScheduleApprovalAdvisor({ approvalAction: lowRiskReadAction, settings, requestId: '', requested }), false);
-  assert.equal(shouldScheduleApprovalAdvisor({ approvalAction: { ...lowRiskReadAction, risk: 'high', categories: ['secrets'] }, settings, requestId: 'r2', requested }), false);
-  assert.equal(shouldScheduleApprovalAdvisor({ approvalAction: { ...lowRiskReadAction, shadow: true }, settings, requestId: 'r3', requested }), false);
-  assert.equal(shouldScheduleApprovalAdvisor({ approvalAction: lowRiskReadAction, settings: advisorSettings({ mode: 'off' }), requestId: 'r4', requested }), false);
+  assert.deepEqual(gate(lowRiskReadAction, 'r1'), { eligible: false, reason: 'already_requested' }, 'advised once per requestId');
+  assert.deepEqual(gate(lowRiskReadAction, ''), { eligible: false, reason: 'no_request_id' });
+  assert.deepEqual(
+    gate({ ...lowRiskReadAction, risk: 'high', categories: ['secrets'] }, 'r2'),
+    { eligible: false, reason: 'not_low_risk' },
+  );
+  assert.deepEqual(
+    gate({ ...lowRiskReadAction, shadow: true }, 'r3'),
+    { eligible: false, reason: 'shadow' },
+  );
+  assert.deepEqual(
+    gate(lowRiskReadAction, 'r4', advisorSettings({ mode: 'off' })),
+    { eligible: false, reason: 'mode_not_local_reads' },
+  );
+  assert.deepEqual(
+    gate({ ...lowRiskReadAction, mode: 'shadow', shadow: true }, 'r5'),
+    { eligible: false, reason: 'action_mode_mismatch' },
+  );
+  assert.deepEqual(
+    gate(lowRiskReadAction, 'r6', advisorSettings({ key: '' })),
+    { eligible: false, reason: 'no_api_key' },
+  );
 }
 
 // --- advisor reply outcome + human-wins guard ------------------------------
@@ -922,6 +989,79 @@ resetApprovalAdvisorQuota();
     result: { advisorDecision: 'allow' },
     finalDecision: 'ask_user',
   }, { file }), null);
+  clearEnvKey();
+}
+
+// --- advisor_skip audit: every skip is recorded, not only local_reads -------
+// `recordApprovalAdvisorAudit` refuses anything but `local_reads`; the skip
+// writer must not, because `mode_not_local_reads` and `action_mode_mismatch`
+// are exactly the skips an operator needs to see.
+{
+  const file = path.join(ISOLATED_DATA_DIR, 'advisor-skip-test', 'audit.jsonl');
+  const action = { ...lowRiskReadAction, mode: 'shadow', shadow: true };
+  process.env[APPROVAL_ADVISOR_API_KEY_ENV] = KEY;
+
+  assert.equal(recordApprovalAdvisorAudit({
+    room: { chatId: 'chat_1' },
+    permissionEvent: lowRiskReadEvent,
+    approvalAction: action,
+    result: { advisorDecision: 'allow' },
+    finalDecision: 'ask_user',
+  }, { file }), null, 'the advisor entry stays mode-gated');
+
+  // End-to-end: whatever reason the gate produced is what lands in the entry.
+  const gate = shouldScheduleApprovalAdvisor({
+    approvalAction: action,
+    settings: advisorSettings(),
+    requestId: 'perm_skip_mode',
+    requested: new Set(),
+  });
+  assert.deepEqual(gate, { eligible: false, reason: 'action_mode_mismatch' });
+  const entry = recordApprovalAdvisorSkipAudit({
+    room: { chatId: 'chat_1' },
+    permissionEvent: { requestId: 'perm_skip_mode' },
+    approvalAction: action,
+    requestId: 'perm_skip_mode',
+    reason: gate.reason,
+    now: Date.UTC(2026, 0, 2, 3, 4, 7),
+  }, { file });
+  assert.ok(entry, 'a non-local_reads skip is still audited');
+  assert.equal(entry.kind, 'advisor_skip');
+  assert.equal(entry.reason, 'action_mode_mismatch');
+  assert.equal(entry.requestId, 'perm_skip_mode');
+  assert.equal(entry.chatId, 'chat_1');
+  assert.equal(entry.risk, 'low');
+  assert.equal(entry.mode, 'shadow', 'the skip records the mode that caused it');
+  assert.equal(entry.ts, '2026-01-02T03:04:07.000Z');
+  assert.equal(entry.advisorPolicyVersion, ADVISOR_POLICY_VERSION);
+
+  // The reason passes through the same secret scrub and length cap.
+  const leaky = recordApprovalAdvisorSkipAudit({
+    permissionEvent: lowRiskReadEvent,
+    approvalAction: lowRiskReadAction,
+    requestId: ' perm_leak ',
+    reason: `no_api_key ${KEY} Authorization: Bearer tailtoken123456 ${'x'.repeat(400)}`,
+  }, { file });
+  assert.ok(leaky);
+  assert.equal(leaky.requestId, 'perm_leak');
+  assert.equal(leaky.reason.length, ADVISOR_MAX_REASON_CHARS, 'skip reason is capped like the advisor reason');
+  const leakyLine = JSON.stringify(leaky);
+  assert.equal(leakyLine.includes(KEY), false, 'the skip audit never carries the key');
+  assert.equal(leakyLine.includes('tailtoken123456'), false, 'bearer tokens are scrubbed');
+
+  // The caller-side guards have reasons too and need no resolved action.
+  const guardEntry = recordApprovalAdvisorSkipAudit({
+    permissionEvent: {},
+    reason: 'no_pending_permission_map',
+  }, { file });
+  assert.equal(guardEntry.kind, 'advisor_skip');
+  assert.equal('mode' in guardEntry, false, 'no empty mode field when nothing was classified');
+  assert.equal(guardEntry.risk, 'low');
+  assert.equal(recordApprovalAdvisorSkipAudit({ permissionEvent: {}, reason: 'no_request_id' }, { file }).requestId, '');
+
+  const rows = readApprovalAuditEntries({ file });
+  assert.equal(rows.filter((row) => row.kind === 'advisor').length, 0, 'a skip never writes an advisor row');
+  assert.equal(rows.filter((row) => row.kind === 'advisor_skip').length, 4);
   clearEnvKey();
 }
 

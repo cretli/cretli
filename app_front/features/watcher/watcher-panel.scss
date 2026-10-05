@@ -1,0 +1,141 @@
+/* Todo tab Workspace Watcher top bar + "Why?" decision log. */
+
+.todo-watcher-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border, #2a2a2a);
+  background: color-mix(in srgb, var(--panel, #1b1b1b) 88%, transparent);
+  font-size: 0.82rem;
+}
+
+.todo-watcher-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.todo-watcher-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.todo-watcher-mode-label {
+  opacity: 0.7;
+}
+
+.todo-watcher-status {
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border, #2a2a2a);
+  white-space: nowrap;
+  max-width: 32ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.todo-watcher-status[data-state='off'] {
+  opacity: 0.6;
+}
+
+.todo-watcher-status[data-state='working'] {
+  border-color: #3b82f6;
+  color: #93c5fd;
+}
+
+.todo-watcher-status[data-state='waiting'] {
+  border-color: #f59e0b;
+  color: #fcd34d;
+}
+
+.todo-watcher-status[data-state='blocked'] {
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+
+.todo-watcher-pill {
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: #7c3aed;
+  color: #fff;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.todo-watcher-spacer {
+  flex: 1 1 auto;
+}
+
+.todo-watcher-btn,
+.todo-watcher-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.todo-watcher-btn:hover,
+.todo-watcher-link:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.todo-watcher-why {
+  max-height: 40vh;
+  overflow: auto;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border, #2a2a2a);
+}
+
+.todo-watcher-why-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.todo-watcher-why-table th,
+.todo-watcher-why-table td {
+  text-align: left;
+  padding: 0.2rem 0.4rem;
+  border-bottom: 1px solid var(--border, #2a2a2a);
+  vertical-align: top;
+}
+
+.todo-watcher-why-at {
+  white-space: nowrap;
+  opacity: 0.75;
+}
+
+.todo-watcher-why-kind {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.todo-watcher-why-empty,
+.todo-watcher-error {
+  opacity: 0.75;
+}
+
+.todo-row-badge[data-kind='claimed'] {
+  background: #2563eb;
+  color: #fff;
+  border-radius: 999px;
+  padding: 0 0.4rem;
+}
+
+.todo-row-badge[data-kind='queued'] {
+  opacity: 0.8;
+  border: 1px dashed currentColor;
+  border-radius: 999px;
+  padding: 0 0.4rem;
+}

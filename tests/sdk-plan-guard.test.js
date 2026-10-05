@@ -106,6 +106,11 @@ assert.equal(isMutatingPlanModeShellCommand('git add -A'), true);
 assert.equal(isMutatingPlanModeShellCommand('sed -i s/a/b/ file.js'), true);
 assert.equal(isMutatingPlanModeShellCommand('find . -delete'), true);
 assert.equal(isMutatingPlanModeShellCommand('python3 -c "open(\'x\',\'w\').write(\'a\')"'), true);
+// A read-only-looking heredoc script is still opaque code: no filesystem sandbox.
+assert.equal(
+  isMutatingPlanModeShellCommand("cd /tmp && python3 - <<'EOF'\nimport json\nprint(json.dumps({}))\nEOF"),
+  true,
+);
 assert.equal(
   isMutatingPlanModeShellCommand(
     "rg -n 'export|import|backup|localStorage|save|delete|status' app_front/Modules/ShippingConfirmations.js",
@@ -365,7 +370,12 @@ assert.deepEqual(
 );
 assert.equal(resolveReadOnlyGuardUserMessage('agent', 'review'), REVIEW_GUARD_USER_MESSAGE);
 assert.equal(resolveReadOnlyGuardUserMessage('agent'), PLAN_GUARD_USER_MESSAGE);
-assert.ok(REVIEW_GUARD_USER_MESSAGE.includes('Review assignment'));
+assert.ok(REVIEW_GUARD_USER_MESSAGE.includes('Review is read-only'));
+// The guard points the reviewer at the audited test runner instead of a shell.
+assert.match(REVIEW_GUARD_USER_MESSAGE, /scripts\/review-verify\.js/);
+// A denied interpreter must be explained, with a usable read-only alternative.
+assert.match(REVIEW_GUARD_USER_MESSAGE, /python3/);
+assert.match(REVIEW_GUARD_USER_MESSAGE, /`jq`/);
 
 const grokReviewMcpRead = resolvePlanModeToolDecision({
   transport: 'sdk',
@@ -430,6 +440,11 @@ const reviewVerifyAllowed = [
   ['/bin/bash', '-lc', 'node scripts/review-verify.js mcp-chat-history-format'],
   // wrapper without path is still allowed (skipReadOnlyShellPrefix handles it)
   'env node scripts/review-verify.js notices',
+  'node tests/mcp-chat-history-format.test.js',
+  'node tests/conversation-fork.test.js',
+  'node tests/sdk-history-stream-coalesce.test.js',
+  'node --test tests/sidebar-layout.test.js tests/sidebar-render-metrics.test.js',
+  'node --test tests/sidebar-layout.test.js tests/sidebar-render-metrics.test.js 2>&1 | tail -20',
 ];
 for (const command of reviewVerifyAllowed) {
   assert.equal(
@@ -491,9 +506,6 @@ assert.equal(
 );
 
 const reviewBlocked = [
-  'node tests/mcp-chat-history-format.test.js',
-  'node tests/conversation-fork.test.js',
-  'node tests/sdk-history-stream-coalesce.test.js',
   'node --test-reporter=./evil.js scripts/review-verify.js',
   'node scripts/review-verify.js --test-reporter=spec',
   'node scripts/review-verify.js unknown-id',

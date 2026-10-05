@@ -1,5 +1,4 @@
 import { normalizeAgentTransport } from '../../../lib/agent-transport.js';
-import { coerceRunnableSdkModelValue } from '../../../lib/model-catalog.js';
 import {
   readLocalStorageSafe,
   writeLocalStorageSafe,
@@ -27,10 +26,9 @@ function normalizeModel(value) {
  */
 export function normalizeChatPreset(value) {
   if (!value || typeof value !== 'object') return null;
-  let model = normalizeModel(value.model);
+  const model = normalizeModel(value.model);
   if (!model) return null;
   const harness = normalizeAgentTransport(value.harness);
-  if (harness === 'sdk') model = coerceRunnableSdkModelValue(model);
   return {
     harness,
     model,

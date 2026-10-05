@@ -1,5 +1,9 @@
 import { sortChatsByDate } from './chatListSort.js';
-import { resolveChatListDotState } from './chatStatusMeta.js';
+import { hasLiveHarnessWork, resolveChatListDotState } from './chatStatusMeta.js';
+import {
+  buildForkArchiveBlockedIds,
+  isForkArchiveBlocked,
+} from '../../../lib/chat-tree.js';
 import { t } from '../../i18n/index.js';
 
 export function createChatView(deps) {
@@ -7,6 +11,7 @@ export function createChatView(deps) {
     initDropdown,
     chatFavorites,
     getChatsForCurrentWorkspace,
+    getChats = getChatsForCurrentWorkspace,
     getArchivedChatsForCurrentWorkspace = () => [],
     getActiveChatId,
     getTerminalStateMeta,
@@ -77,6 +82,7 @@ export function createChatView(deps) {
     const ordered = sortChatsByDate(filtered);
     const archivedOrdered = sortChatsByDate(getArchivedChatsForCurrentWorkspace());
     const allChats = [...ordered, ...archivedOrdered];
+    const { blocked: forkArchiveBlocked } = buildForkArchiveBlockedIds(getChats(), hasLiveHarnessWork);
     const embedNewChatRow = isEmbedMode()
       ? '<li class="chat-list-item chat-list-item-header chat-list-item-action" role="option" data-action="new-chat" tabindex="-1">' +
         '<span class="mdi mdi-plus" aria-hidden="true"></span>' +
@@ -206,15 +212,18 @@ export function createChatView(deps) {
         }
 
         if (!isArchived) {
+          const archiveBlocked = isForkArchiveBlocked(forkArchiveBlocked, chatId);
           const archiveBtn = document.createElement('button');
           archiveBtn.type = 'button';
           archiveBtn.className = 'dropdown-fav-btn dropdown-archive-btn';
-          archiveBtn.title = t('chatUi.archiveChat');
+          archiveBtn.title = t(archiveBlocked ? 'chatUi.archiveBusy' : 'chatUi.archiveChat');
           archiveBtn.setAttribute('aria-label', archiveBtn.title);
+          if (archiveBlocked) archiveBtn.disabled = true;
           archiveBtn.innerHTML = '<span class="mdi mdi-archive-arrow-down-outline" aria-hidden="true"></span>';
           archiveBtn.addEventListener('click', (ev) => {
             ev.preventDefault();
             ev.stopPropagation();
+            if (archiveBlocked) return;
             void requestArchiveChat(chatId, { preserveListOpen: true });
           });
           el.appendChild(archiveBtn);

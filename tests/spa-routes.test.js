@@ -7,6 +7,7 @@ import {
   isHarnessSettingsTab,
   isHarnessSubtabOf,
   isInterfaceSettingsTab,
+  isWatcherSettingsTab,
   isSpaShellPath,
   parseSpaPath,
   remapSettingsTab,
@@ -228,6 +229,21 @@ test('parseSpaPath aliases /settings/browser to interface-browser', () => {
     '/settings/interface-browser',
   );
   assert.equal(isSpaShellPath('/settings/browser'), true);
+});
+
+test('isWatcherSettingsTab covers the watcher sub-tabs', () => {
+  assert.equal(isWatcherSettingsTab('watcher'), true);
+  assert.equal(isWatcherSettingsTab('watcher-monitor'), true);
+  assert.equal(isWatcherSettingsTab('watcher-settings'), true);
+  assert.equal(isWatcherSettingsTab('watcher-scout'), true);
+  assert.equal(isWatcherSettingsTab('watcher-actions'), true);
+  assert.equal(isWatcherSettingsTab('workspace'), false);
+  assert.equal(isWatcherSettingsTab(''), false);
+  assert.deepEqual(parseSpaPath('/settings/watcher-scout'), {
+    panel: 'settings',
+    settingsTab: 'watcher-scout',
+  });
+  assert.equal(buildSpaPath({ panel: 'settings', settingsTab: 'watcher-monitor' }), '/settings/watcher-monitor');
 });
 
 test('isInterfaceSettingsTab covers appearance, terminal, voice and storage tabs', () => {

@@ -124,6 +124,13 @@ try {
   assert.deepEqual(seen, [['caller-chat', 'tool: sets title']]);
   assert.match(res.content[0].text, /Title set/);
   await assert.rejects(() => tool.handler({ title: 'x' }, { client, session: {} }), /calling chat/);
+  // A client without setAgentTitle (reduced/stale context) must degrade gracefully, not throw a red error.
+  const noMethod = await tool.handler(
+    { title: 'tool: graceful' },
+    { client: {}, session: { chatId: 'caller-chat', workspaceFolder: process.cwd() } },
+  );
+  assert.equal(noMethod.isError, false);
+  assert.match(noMethod.content[0].text, /cannot set chat titles/);
 
   // --- real in-process MCP client path (what builtin tools use inside Cretli) ---
   const { createInProcessMcpClient } = await import('../lib/mcp/mcp-inprocess-client.js');

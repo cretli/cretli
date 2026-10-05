@@ -18,6 +18,7 @@ import {
   noteHarnessPlanLimit,
   readHarnessPlanLimits,
 } from '../lib/usage/harness-health.js';
+import { readHarnessPlanLimitHistory } from '../lib/usage/plan-limit-history.js';
 import { resolveHarnessPlanLimitSnapshot } from '../lib/usage/harness-usage.js';
 import {
   buildHarnessHealthMap,
@@ -296,6 +297,13 @@ test('room-kernel turns a rejected rate-limit event into a lockout and a plan sn
     assert.equal(plan[0].utilization, 88);
     assert.equal(plan[0].rateLimitType, 'five_hour');
 
+    // The structured rejected event must reach the plan history exactly once:
+    // noteHarnessPlanLimit writes it and the rate-limit-event lockout path must
+    // not append a second copy.
+    const planHistory = readHarnessPlanLimitHistory({ harness: 'claude', dataDir });
+    assert.equal(planHistory.length, 1);
+    assert.equal(planHistory[0].status, 'rejected');
+
     // A warning refreshes the snapshot but must not add another lockout row.
     kernel.broadcastRoom(room, {
       type: 'sdkRunProgress',
@@ -496,4 +504,96 @@ test('shared rate-limit notices work for every harness without guessing a scale'
   const claude = buildClaudeRateLimitNotice({ rate_limit_info: { status: 'allowed_warning', utilization: 0.008 } });
   assert.equal(claude.utilization, 0.8);
   assert.equal('utilization' in buildClaudeRateLimitNotice({ rate_limit_info: { status: 'allowed', utilization: '' } }), false);
+});
+
+test('plan-limit history records every sample per harness in one shared store', () => {
+  const dataDir = tempDataDir();
+  try {
+    const t0 = Date.parse('2026-10-01T10:00:00Z');
+    const at = (i) => new Date(t0 + i * 3_600_000).toISOString();
+    for (const harness of ['claude', 'qwen']) {
+      noteHarnessPlanLimit({ harness, rateLimitType: 'five_hour', utilization: 40, resetsAt: at(6), observedAt: at(0), dataDir });
+      noteHarnessPlanLimit({ harness, rateLimitType: 'five_hour', utilization: 70, resetsAt: at(6), observedAt: at(1), dataDir });
+      noteHarnessPlanLimit({ harness, rateLimitType: 'five_hour', status: 'rejected', resetsAt: at(6), observedAt: at(2), dataDir });
+    }
+    for (const harness of ['claude', 'qwen']) {
+      const rows = readHarnessPlanLimitHistory({ harness, dataDir });
+      assert.equal(rows.length, 3, `three rows for ${harness}`);
+      assert.deepEqual(rows.map((row) => row.observedAt), [at(0), at(1), at(2)]); // ascending
+      assert.deepEqual(rows.map((row) => row.utilization), [40, 70, undefined]);
+      assert.equal(rows[2].status, 'rejected');
+      assert.equal('utilization' in rows[2], false); // never invented
+    }
+    // A single shared file keeps the two harnesses distinct.
+    assert.equal(readHarnessPlanLimitHistory({ dataDir }).length, 6);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('plan-limit history ignores a reading with none of status/utilization/resetsAt/rateLimitType', () => {
+  const dataDir = tempDataDir();
+  try {
+    assert.equal(noteHarnessPlanLimit({ harness: 'claude', dataDir }), null);
+    assert.equal(noteHarnessPlanLimit({ harness: 'claude', model: 'claude-sonnet-4-5', dataDir }), null);
+    assert.equal(noteHarnessPlanLimit({ harness: 'claude', observedAt: '2026-10-01T10:00:00Z', dataDir }), null);
+    assert.deepEqual(readHarnessPlanLimitHistory({ dataDir }), []);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('text rejection writes a plan-limit history row without a fabricated percentage', () => {
+  const dataDir = tempDataDir();
+  try {
+    assert.equal(noteHarnessUsageLimit({ harness: 'claude', model: 'claude-sonnet-4-5', message: 'Usage limit reached. Reset at 2026-12-31T00:00:00', dataDir }), true);
+    assert.equal(noteHarnessUsageLimit({ harness: 'qwen', model: 'qwen-max', message: '429 rate limit exceeded', dataDir }), true);
+
+    const claude = readHarnessPlanLimitHistory({ harness: 'claude', dataDir });
+    assert.equal(claude.length, 1);
+    assert.equal(claude[0].status, 'rejected');
+    assert.equal(claude[0].model, 'claude-sonnet-4-5');
+    assert.match(claude[0].resetsAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    assert.ok(Date.parse(claude[0].resetsAt) > Date.now());
+    assert.equal('utilization' in claude[0], false);
+
+    const qwen = readHarnessPlanLimitHistory({ harness: 'qwen', dataDir });
+    assert.equal(qwen.length, 1);
+    assert.equal(qwen[0].status, 'rejected');
+    // The message states no reset date, so the row must not invent one from the
+    // lockout-store TTL fallback.
+    assert.equal('resetsAt' in qwen[0], false);
+
+    // A non-limit message must not add any row.
+    assert.equal(noteHarnessUsageLimit({ harness: 'codex', model: 'codex', message: 'network timeout', dataDir }), false);
+    assert.deepEqual(readHarnessPlanLimitHistory({ harness: 'codex', dataDir }), []);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('plan-limit history does not disturb the last snapshot or the health card', () => {
+  const dataDir = tempDataDir();
+  const resetsAt = '2026-10-01T18:00:00.000Z';
+  try {
+    noteHarnessPlanLimit({ harness: 'claude', rateLimitType: 'five_hour', utilization: 40, resetsAt, observedAt: '2026-10-01T10:00:00.000Z', dataDir });
+    noteHarnessPlanLimit({ harness: 'claude', rateLimitType: 'five_hour', utilization: 70, resetsAt, observedAt: '2026-10-01T11:00:00.000Z', dataDir });
+
+    // Upsert keeps ONE last snapshot at the latest reading...
+    const now = Date.parse('2026-10-01T11:30:00.000Z');
+    const plan = readHarnessPlanLimits('claude', { dataDir, now });
+    assert.equal(plan.length, 1);
+    assert.equal(plan[0].utilization, 70);
+
+    // ...while history keeps BOTH samples.
+    assert.deepEqual(readHarnessPlanLimitHistory({ harness: 'claude', dataDir }).map((row) => row.utilization), [40, 70]);
+
+    const health = buildHarnessHealth({ harness: 'claude', from: '2026-10-01', to: '2026-10-01', dataDir, now });
+    assert.equal(health.planLimits.length, 1);
+    assert.equal(health.planLimits[0].utilization, 70);
+    assert.equal(health.planLimitHistory.count, 2);
+    assert.equal(health.planLimitHistory.lastAt, '2026-10-01T11:00:00.000Z');
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
 });

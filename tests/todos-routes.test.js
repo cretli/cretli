@@ -97,6 +97,28 @@ function withApp(fn) {
 }
 
 runCase(
+  'parent start-agent starts an orchestrator in agent mode and delegates the entire subtree',
+  withApp(async (invoke) => {
+    const parent = addTodo(dataDir, cwd, { title: 'Execute the tree', status: 'ready' }).item;
+    const first = addTodo(dataDir, cwd, { title: 'First step', parentId: parent.id, status: 'ready' }).item;
+    addTodo(dataDir, cwd, { title: 'Second step', parentId: parent.id, status: 'ready' });
+    const started = await invoke('POST', '/api/todos/:id/start-agent', {
+      params: { id: parent.id },
+      body: { agentTransport: 'claude', workspaceFolder: cwd, workspaceFile },
+    });
+    assert.equal(started.body.ok, true);
+    assert.equal(started.body.chat.sdkMode, 'agent');
+    assert.equal(started.body.todo.orchestratorChatId, started.body.chat.id);
+    assert.match(started.body.initialPrompt, /entire subtree/);
+    assert.match(started.body.initialPrompt, /assignment=implement/);
+    assert.match(started.body.initialPrompt, /assignment=review/);
+    assert.match(started.body.initialPrompt, /Continue automatically/);
+    assert.doesNotMatch(started.body.initialPrompt, /Start by preparing a plan/);
+    assert.equal(loadTodosData(dataDir, cwd).items.find((row) => row.id === first.id).status, 'ready');
+  })
+);
+
+runCase(
   'start-agent without forceNew creates once and then reuses the chat',
   withApp(async (invoke) => {
     const created = addTodo(dataDir, cwd, { title: 'Reuse me', status: 'ready' });
@@ -290,6 +312,32 @@ runCase(
     }
   })
 );
+
+runCase('tree API: reject premature completion and later starts, roll up parents and reopen ancestors', withApp(async (invoke) => {
+  const root = addTodo(dataDir, cwd, { title: 'Sequential tree', status: 'ready' }).item;
+  const first = addTodo(dataDir, cwd, { title: 'First branch', status: 'ready', parentId: root.id }).item;
+  const leaf = addTodo(dataDir, cwd, { title: 'First leaf', status: 'ready', parentId: first.id }).item;
+  const last = addTodo(dataDir, cwd, { title: 'Last branch', status: 'ready', parentId: root.id }).item;
+  const patch = (id, status) => invoke('PATCH', '/api/todos/:id', { params: { id }, body: { status } });
+  assert.equal((await patch(root.id, 'done')).status, 400);
+  assert.equal((await patch(last.id, 'doing')).status, 400);
+  const blocked = await invoke('POST', '/api/todos/:id/start-agent', { params: { id: last.id } });
+  assert.equal(blocked.status, 409);
+  assert.equal(getItem(last.id).chatId, undefined, 'denial must not create a chat');
+  assert.equal((await patch(leaf.id, 'done')).status, 200);
+  assert.equal(getItem(first.id).status, 'done');
+  assert.equal(getItem(root.id).status, 'doing');
+  const started = await invoke('POST', '/api/todos/:id/start-agent', {
+    params: { id: last.id }, body: { agentTransport: 'claude' },
+  });
+  assert.equal(started.status, 200);
+  assert.equal((await patch(last.id, 'done')).status, 200);
+  assert.equal(getItem(root.id).status, 'done');
+  assert.equal((await patch(leaf.id, 'ready')).status, 200);
+  assert.equal(getItem(first.id).status, 'ready');
+  assert.equal(getItem(root.id).status, 'doing');
+  function getItem(id) { return loadTodosData(dataDir, cwd).items.find((row) => row.id === id); }
+}));
 
 Promise.all(pending).then(() => {
   rmSync(cwd, { recursive: true, force: true });

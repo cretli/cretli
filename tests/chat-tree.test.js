@@ -2,12 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyChatOrder,
+  buildForkArchiveBlockedIds,
   flattenChatsTree,
+  getCollectForkSubtreeIdsCallCount,
   isChatArchived,
+  isForkArchiveBlocked,
+  isForkSubtreeBusy,
   isRelatedChatLinkVisible,
+  markForkSubtreeArchived,
   mergeChatOrder,
   partitionChatsByArchive,
+  resetCollectForkSubtreeIdsCallCount,
+  selectChatsForSidebarList,
+  resolveArchiveSwitchId,
   resolveHarnessSwitchNest,
+  findLastLiveSelectableChatId,
   wouldCreateChatParentCycle,
 } from '../lib/chat-tree.js';
 import { resolveChatDrop, updateChatNestHold } from '../app_front/features/sidebar/sidebarChatDrop.js';
@@ -17,6 +26,101 @@ function chat(id, parent) {
   if (parent) row.forkParentChatId = parent;
   return row;
 }
+
+test('isForkSubtreeBusy is true for the chat or a nested child', () => {
+  const chats = [
+    { id: 'parent', _serverRunState: { state: 'idle' } },
+    { id: 'child', forkParentChatId: 'parent', _serverRunState: { state: 'busy' } },
+    { id: 'other', _serverRunState: { state: 'busy' } },
+  ];
+  const isBusy = (chat) => chat._serverRunState?.state === 'busy';
+  assert.equal(isForkSubtreeBusy(chats, 'parent', isBusy), true);
+  assert.equal(isForkSubtreeBusy(chats, 'child', isBusy), true);
+  assert.equal(isForkSubtreeBusy(chats, 'missing', isBusy), false);
+  const idleParent = [{ id: 'parent' }, { id: 'child', forkParentChatId: 'parent' }];
+  assert.equal(isForkSubtreeBusy(idleParent, 'parent', isBusy), false);
+});
+
+test('buildForkArchiveBlockedIds matches isForkSubtreeBusy for every chat id', () => {
+  const chats = [
+    chat('root'),
+    chat('c1', 'root'),
+    chat('c2', 'c1'),
+    { id: 'busy-leaf', forkParentChatId: 'c2', _serverRunState: { state: 'busy' } },
+    chat('other'),
+    chat('orphan', 'missing-parent'),
+  ];
+  const isBusy = (c) => c._serverRunState?.state === 'busy';
+  const { blocked, buildPassSteps } = buildForkArchiveBlockedIds(chats, isBusy);
+  for (const row of chats) {
+    assert.equal(
+      isForkArchiveBlocked(blocked, row.id),
+      isForkSubtreeBusy(chats, row.id, isBusy),
+      row.id,
+    );
+  }
+  assert.equal(isForkArchiveBlocked(blocked, 'missing'), false);
+  assert.equal(buildPassSteps, chats.length + 3, 'one upward step per ancestor of the busy leaf');
+});
+
+test('buildForkArchiveBlockedIds lookup pass does not call collectForkSubtreeIds', () => {
+  const chats = [];
+  for (let i = 0; i < 40; i += 1) {
+    chats.push(i === 0 ? chat('n0') : chat(`n${i}`, `n${i - 1}`));
+  }
+  chats[39]._serverRunState = { state: 'busy' };
+  const isBusy = (c) => c._serverRunState?.state === 'busy';
+  resetCollectForkSubtreeIdsCallCount();
+  const { blocked } = buildForkArchiveBlockedIds(chats, isBusy);
+  for (const row of chats) {
+    isForkArchiveBlocked(blocked, row.id);
+  }
+  assert.equal(getCollectForkSubtreeIdsCallCount(), 0);
+});
+
+test('buildForkArchiveBlockedIds stops on fork parent cycles', () => {
+  const chats = [
+    { id: 'a', forkParentChatId: 'b', _serverRunState: { state: 'busy' } },
+    { id: 'b', forkParentChatId: 'a' },
+  ];
+  const isBusy = (c) => c._serverRunState?.state === 'busy';
+  const { blocked, buildPassSteps } = buildForkArchiveBlockedIds(chats, isBusy);
+  assert.equal(isForkArchiveBlocked(blocked, 'a'), true);
+  assert.equal(isForkArchiveBlocked(blocked, 'b'), true);
+  assert.equal(buildPassSteps, chats.length + 1, 'one upward step then stops on already-blocked ancestor');
+});
+
+test('buildForkArchiveBlockedIds is O(chats) when every node in a deep chain is busy', () => {
+  const depth = 80;
+  const chats = [];
+  for (let i = 0; i < depth; i += 1) {
+    const row = i === 0 ? chat('n0') : chat(`n${i}`, `n${i - 1}`);
+    row._serverRunState = { state: 'busy' };
+    chats.push(row);
+  }
+  const isBusy = (c) => c._serverRunState?.state === 'busy';
+  const { blocked, buildPassSteps } = buildForkArchiveBlockedIds(chats, isBusy);
+  for (const row of chats) {
+    assert.equal(
+      isForkArchiveBlocked(blocked, row.id),
+      isForkSubtreeBusy(chats, row.id, isBusy),
+      row.id,
+    );
+  }
+  resetCollectForkSubtreeIdsCallCount();
+  for (const row of chats) {
+    isForkArchiveBlocked(blocked, row.id);
+  }
+  assert.equal(getCollectForkSubtreeIdsCallCount(), 0);
+  assert.ok(
+    buildPassSteps <= chats.length + depth - 1,
+    `expected linear pass steps, got ${buildPassSteps} for ${chats.length} chats`,
+  );
+  assert.ok(
+    buildPassSteps < chats.length * (depth - 1) / 2,
+    'must not replay full ancestor walks for every busy row',
+  );
+});
 
 test('flattenChatsTree nests forks one level under the folder root', () => {
   const chats = [chat('root'), chat('child', 'root'), chat('other')];
@@ -75,6 +179,45 @@ test('partitionChatsByArchive drops archived forks from the live nest tree', () 
     ['root', 0],
     ['live', 1],
   ]);
+});
+
+test('partitionChatsByArchive keeps an archived parent of a live child in the nest', () => {
+  const parent = { ...chat('parent'), archivedAt: '2026-10-05T10:00:00.000Z' };
+  const child = chat('child', 'parent');
+  const sibling = { ...chat('sib', 'parent'), archivedAt: '2026-10-05T10:00:00.000Z' };
+  const unrelated = { ...chat('old'), archivedAt: '2026-10-05T10:00:00.000Z' };
+  const { live, archived } = partitionChatsByArchive([parent, child, sibling, unrelated]);
+  assert.deepEqual(live.map((row) => row.id), ['parent', 'child']);
+  assert.deepEqual(archived.map((row) => row.id), ['sib', 'old']);
+  const tree = flattenChatsTree(live).map((row) => [row.chat.id, row.level, row.parentId]);
+  assert.deepEqual(tree, [
+    ['parent', 0, ''],
+    ['child', 1, 'parent'],
+  ]);
+});
+
+test('partitionChatsByArchive keeps an archived grandparent when the middle row is archived', () => {
+  const root = { ...chat('root'), archivedAt: '2026-10-05T10:00:00.000Z' };
+  const middle = { ...chat('middle', 'root'), archivedAt: '2026-10-05T10:00:00.000Z' };
+  const leaf = chat('leaf', 'middle');
+  const { live, archived } = partitionChatsByArchive([root, middle, leaf]);
+  assert.deepEqual(archived, []);
+  const tree = flattenChatsTree(live).map((row) => [row.chat.id, row.level]);
+  assert.deepEqual(tree, [
+    ['root', 0],
+    ['middle', 1],
+    ['leaf', 2],
+  ]);
+});
+
+test('selectChatsForSidebarList includes archived ancestors and drops other archived rows', () => {
+  const parent = { ...chat('parent'), archivedAt: '2026-10-05T10:00:00.000Z' };
+  const child = chat('child', 'parent');
+  const unrelated = { ...chat('old'), archivedAt: '2026-10-05T10:00:00.000Z' };
+  const actual = selectChatsForSidebarList([parent, child, unrelated]).map((row) => row.id);
+  assert.deepEqual(actual, ['parent', 'child']);
+  const all = selectChatsForSidebarList([parent, child, unrelated], { includeArchived: true }).map((row) => row.id);
+  assert.deepEqual(all, ['parent', 'child', 'old']);
 });
 
 test('flattenChatsTree treats a missing parent as a root', () => {
@@ -219,4 +362,195 @@ test('resolveChatDrop inserts a grandchild among siblings of the same parent', (
   assert.equal(actual.mode, 'insert');
   assert.equal(actual.parentChatId, 'b');
   assert.equal(actual.beforeId, 'c2');
+});
+
+test('markForkSubtreeArchived stamps the whole subtree and keeps every row', () => {
+  const chats = [chat('root'), chat('child', 'root'), chat('grand', 'child'), chat('other')];
+  const ids = markForkSubtreeArchived(chats, 'root', '2026-10-05T12:00:00.000Z');
+  assert.deepEqual(ids, ['root', 'child', 'grand']);
+  assert.equal(chats.length, 4);
+  assert.equal(chats[0].archivedAt, '2026-10-05T12:00:00.000Z');
+  assert.equal(chats[1].archivedAt, '2026-10-05T12:00:00.000Z');
+  assert.equal(chats[2].archivedAt, '2026-10-05T12:00:00.000Z');
+  assert.equal(chats[3].archivedAt, undefined);
+});
+
+test('markForkSubtreeArchived keeps the original stamp on already archived rows', () => {
+  const chats = [
+    chat('root'),
+    { ...chat('child', 'root'), archivedAt: '2026-01-01T00:00:00.000Z' },
+  ];
+  const ids = markForkSubtreeArchived(chats, 'root', '2026-10-05T12:00:00.000Z');
+  assert.deepEqual(ids, ['root', 'child']);
+  assert.equal(chats[0].archivedAt, '2026-10-05T12:00:00.000Z');
+  assert.equal(chats[1].archivedAt, '2026-01-01T00:00:00.000Z');
+});
+
+test('markForkSubtreeArchived leaves rows untouched for an unknown root', () => {
+  const chats = [chat('a')];
+  assert.deepEqual(markForkSubtreeArchived(chats, 'missing', '2026-10-05T12:00:00.000Z'), []);
+  assert.equal(chats[0].archivedAt, undefined);
+});
+
+test('markForkSubtreeArchived keeps the archived subtree nested in the archive partition', () => {
+  const chats = [chat('root'), chat('child', 'root'), chat('grand', 'child'), chat('live')];
+  markForkSubtreeArchived(chats, 'root', '2026-10-05T12:00:00.000Z');
+  const { live, archived } = partitionChatsByArchive(chats);
+  assert.deepEqual(live.map((row) => row.id), ['live']);
+  const tree = flattenChatsTree(archived).map((row) => [row.chat.id, row.level, row.parentId]);
+  assert.deepEqual(tree, [
+    ['root', 0, ''],
+    ['child', 1, 'root'],
+    ['grand', 2, 'child'],
+  ]);
+});
+
+test('markForkSubtreeArchived archives a single chat without descendants', () => {
+  const chats = [chat('only'), chat('other')];
+  const ids = markForkSubtreeArchived(chats, 'only', '2026-10-05T12:00:00.000Z');
+  assert.deepEqual(ids, ['only']);
+  assert.equal(chats[0].archivedAt, '2026-10-05T12:00:00.000Z');
+  assert.equal(chats[1].archivedAt, undefined);
+  const { live, archived } = partitionChatsByArchive(chats);
+  assert.deepEqual(live.map((row) => row.id), ['other']);
+  assert.deepEqual(archived.map((row) => row.id), ['only']);
+});
+
+test('markForkSubtreeArchived defaults to an ISO timestamp', () => {
+  const chats = [chat('only')];
+  markForkSubtreeArchived(chats, 'only');
+  assert.match(chats[0].archivedAt, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test('resolveArchiveSwitchId keeps the active chat when archiving an unrelated row', () => {
+  const chats = [chat('A'), chat('B'), chat('C')];
+  const archivedIds = new Set(['B']);
+  markForkSubtreeArchived(chats, 'B', '2026-10-05T12:00:00.000Z');
+  assert.equal(
+    resolveArchiveSwitchId({ chats, archivedIds, activeChatId: 'A' }),
+    'A',
+    'archiving B must not move the pane off A'
+  );
+});
+
+test('resolveArchiveSwitchId picks a live fallback when the active chat is archived', () => {
+  const chats = [chat('A'), chat('B'), chat('child', 'B')];
+  const stamp = '2026-10-05T12:00:00.000Z';
+  const archivedIds = new Set(markForkSubtreeArchived(chats, 'B', stamp));
+  assert.equal(
+    resolveArchiveSwitchId({ chats, archivedIds, activeChatId: 'child' }),
+    'A',
+    'active descendant leaves the live tree; fallback is another live row'
+  );
+});
+
+test('resolveArchiveSwitchId returns empty when nothing was archived', () => {
+  const chats = [chat('A'), chat('B')];
+  assert.equal(resolveArchiveSwitchId({ chats, archivedIds: new Set(), activeChatId: 'A' }), '');
+});
+
+test('resolveArchiveSwitchId honors an explicit live switch target', () => {
+  const chats = [chat('A'), chat('B'), chat('C')];
+  const archivedIds = new Set(markForkSubtreeArchived(chats, 'B', '2026-10-05T12:00:00.000Z'));
+  assert.equal(
+    resolveArchiveSwitchId({ chats, archivedIds, activeChatId: 'A', requestedId: 'C' }),
+    'C'
+  );
+});
+
+test('findLastLiveSelectableChatId skips watcher-pinned rows', () => {
+  const chats = [
+    chat('A'),
+    { ...chat('watcher'), watcherPinned: true },
+  ];
+  assert.equal(findLastLiveSelectableChatId(chats, ''), 'A');
+});
+
+test('resolveArchiveSwitchId never auto-opens a watcher-pinned chat', () => {
+  const chats = [
+    chat('A'),
+    { ...chat('watcher'), watcherPinned: true },
+  ];
+  const archivedIds = new Set(markForkSubtreeArchived(chats, 'A', '2026-10-05T12:00:00.000Z'));
+  assert.equal(resolveArchiveSwitchId({ chats, archivedIds, activeChatId: 'A' }), '');
+});
+
+test('buildForkArchiveBlockedIds counts an exact linear pass for a leaf-first deep chain', () => {
+  const depth = 40;
+  const chain = [];
+  for (let i = 0; i < depth; i += 1) {
+    const row = i === 0 ? chat('n0') : chat(`n${i}`, `n${i - 1}`);
+    row._serverRunState = { state: 'busy' };
+    chain.push(row);
+  }
+  // Worst-case iteration order: the deepest busy leaf is seen first, so its
+  // upward walk blocks every ancestor; the remaining busy rows must then stop on
+  // the already-blocked ancestor instead of re-walking the chain.
+  const chats = [...chain].reverse();
+  const isBusy = (c) => c._serverRunState?.state === 'busy';
+  resetCollectForkSubtreeIdsCallCount();
+  const { blocked, buildPassSteps } = buildForkArchiveBlockedIds(chats, isBusy);
+  assert.equal(getCollectForkSubtreeIdsCallCount(), 0, 'the blocked pass never falls back to collectForkSubtreeIds');
+  assert.equal(
+    buildPassSteps,
+    chats.length + depth - 1,
+    `expected exactly one upward step per ancestor, got ${buildPassSteps} for ${chats.length} chats`,
+  );
+  assert.equal(blocked.size, depth, 'every node of an all-busy chain is blocked');
+  for (const row of chats) {
+    assert.equal(
+      isForkArchiveBlocked(blocked, row.id),
+      isForkSubtreeBusy(chats, row.id, isBusy),
+      row.id,
+    );
+  }
+});
+
+test('buildForkArchiveBlockedIds counts one shared-ancestor step for many busy siblings', () => {
+  const chats = [chat('root')]; // idle parent shared by every busy child
+  for (let i = 0; i < 40; i += 1) {
+    const row = chat(`c${i}`, 'root');
+    row._serverRunState = { state: 'busy' };
+    chats.push(row);
+  }
+  const isBusy = (c) => c._serverRunState?.state === 'busy';
+  resetCollectForkSubtreeIdsCallCount();
+  const { blocked, buildPassSteps } = buildForkArchiveBlockedIds(chats, isBusy);
+  assert.equal(getCollectForkSubtreeIdsCallCount(), 0, 'the blocked pass never falls back to collectForkSubtreeIds');
+  assert.equal(
+    buildPassSteps,
+    chats.length + 1,
+    'the first busy child walks to the idle root once; the rest stop on the already-blocked ancestor',
+  );
+  assert.equal(blocked.size, chats.length, 'root plus every busy child is blocked');
+  assert.equal(isForkArchiveBlocked(blocked, 'root'), true, 'an ancestor of a busy child is blocked');
+});
+
+test('archiving a subtree with an active descendant moves the whole branch to the archive partition', () => {
+  const chats = [chat('root'), chat('child', 'root'), chat('grand', 'child'), chat('liveSibling')];
+  const stamp = '2026-10-05T12:00:00.000Z';
+  const archivedIds = new Set(markForkSubtreeArchived(chats, 'root', stamp));
+  assert.deepEqual([...archivedIds], ['root', 'child', 'grand']);
+  const { live, archived } = partitionChatsByArchive(chats);
+  assert.deepEqual(
+    archived.map((row) => row.id),
+    ['root', 'child', 'grand'],
+    'an archived branch with no live descendant leaves the live tree as one unit',
+  );
+  assert.deepEqual(live.map((row) => row.id), ['liveSibling']);
+  const tree = flattenChatsTree(archived).map((row) => [row.chat.id, row.level, row.parentId]);
+  assert.deepEqual(
+    tree,
+    [
+      ['root', 0, ''],
+      ['child', 1, 'root'],
+      ['grand', 2, 'child'],
+    ],
+    'flattenChatsTree keeps the branch nested in the open archive (no level-0 orphan from a child)',
+  );
+  assert.equal(
+    resolveArchiveSwitchId({ chats, archivedIds, activeChatId: 'grand' }),
+    'liveSibling',
+    'the pane hands off to the surviving live row when the active chat was a descendant',
+  );
 });

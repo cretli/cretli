@@ -16,6 +16,8 @@ import {
   traceUiFreeze,
   traceUiFreezeWs,
 } from '../../lib/uiFreezeTrace.js';
+import { measureSpan } from '../../lib/chatPerfBudget.js';
+import { getUiFreezeMetrics, presenceFrameReason } from '../sidebar/sidebarRenderMetrics.js';
 import { resolveAgentStateFromMessage } from './sdkStateResolver.js';
 import { isSdkChatGoneErrorCode } from '../../../lib/sdk/sdk-ws-chat-gone.js';
 import {
@@ -176,6 +178,7 @@ export function createChatTransport(deps) {
     onChatGone = null,
     onConnectionLost = null,
     onChatsChanged = null,
+    onSidebarLayout = null,
     onAgentPresence = null,
     onBackgroundSyncComplete = null,
   } = deps;
@@ -965,6 +968,16 @@ export function createChatTransport(deps) {
           }
           if (msg.replay === true) wsExtra.replay = true;
           traceUiFreezeWs('in', chat.id, msg.type || 'unknown', wsExtra);
+          // Presence-frame baseline (requirement 4a/4c). Guarded here at the callsite.
+          // chat.id is the socket discriminator: each chat's agent socket re-delivers
+          // the same shared bus seq, so a repeat of one seq across chat ids is a dup.
+          if (msg.type === 'agentPresence') {
+            getUiFreezeMetrics()?.recordPresenceFrame({
+              reason: presenceFrameReason(msg),
+              seq: msg.seq,
+              socketId: chat.id,
+            });
+          }
         }
         notePageResumeFirstMessage(chat._pageResumeTrace, messageType);
         if (msg.type === 'sdkTtft' && !Number.isFinite(msg.clientReceivedAt)) {
@@ -985,6 +998,10 @@ export function createChatTransport(deps) {
         }
         if (msg.type === 'chatsChanged') {
           if (typeof onChatsChanged === 'function') onChatsChanged(msg);
+          return;
+        }
+        if (msg.type === 'sidebarLayout') {
+          if (typeof onSidebarLayout === 'function') onSidebarLayout(msg);
           return;
         }
         if (msg.type === 'agentPresence') {
@@ -1024,10 +1041,18 @@ export function createChatTransport(deps) {
         if (msg.type === 'replayBatch' && Array.isArray(msg.events)) {
           // Re-enter the socket handler so hydration can buffer, and so room
           // watermarks move only on the same path that actually renders.
-          for (const event of msg.events) {
-            if (!event || typeof event !== 'object') continue;
-            chat._processSdkSocketMessage?.({ ...event, replay: true });
+          const events = msg.events;
+          const deliver = () => {
+            for (const event of events) {
+              if (!event || typeof event !== 'object') continue;
+              chat._processSdkSocketMessage?.({ ...event, replay: true });
+            }
+          };
+          if (!isUiFreezeTraceActive()) {
+            deliver();
+            return;
           }
+          measureSpan('ws.replayBatch', { events: events.length }, deliver);
           return;
         }
         if (msg.type === 'replayBatchEnd') {
@@ -1265,7 +1290,10 @@ export function createChatTransport(deps) {
           const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
           const reply = typeof msg.reply === 'string' ? msg.reply : 'once';
           const applyAfterMs = Number(msg.applyAfterMs);
-          chat._sdkRichView?.showOpenCodePermissionAdvisorPick?.(requestId, reply, applyAfterMs);
+          const advisorDecision = typeof msg.advisorDecision === 'string' ? msg.advisorDecision : '';
+          chat._sdkRichView?.showOpenCodePermissionAdvisorPick?.(requestId, reply, applyAfterMs, {
+            advisorDecision,
+          });
           return;
         }
         if (msg.type === 'opencodePermissionResolved') {
@@ -1713,6 +1741,10 @@ export function createChatTransport(deps) {
         onConnectionLost(chat, { reason: 'socket_closed', code: event?.code });
       }
       scheduleChatReconnect(chat);
+      // scheduleChatReconnect repaints its proceed paths, but its guard-returns (maintain
+      // sessions off, socket not kept, blocking harness) leave the row stale. Repaint this
+      // row directly; for a background chat renderChatTerminalState schedules only [chat.id].
+      renderChatTerminalState(chat);
     };
     socket.onopen = () => {
       delete chat._wsConnectingSince;
@@ -1808,8 +1840,16 @@ export function createChatTransport(deps) {
     const monitoredChatIds = selectMonitoredChatIds(chats, getActiveChatId, getChatActivityAt, now);
     let wsCount = 0;
     let pollCount = 0;
+    // The sidebar row folds the monitor mode into its status (chatExpectsLiveSocket and
+    // applySidebarConnectionPolicy), so a mode flip changes the displayed row. Collect only
+    // the chats whose mode or connection actually moved. The ws chats get repainted through
+    // the socket handlers -> renderChatTerminalState, but disconnectBackgroundChat's no-socket
+    // branch flips _connectionStatus WITHOUT a render, so those ids must be captured here too.
+    const dirtyBackgroundIds = [];
     for (const chat of chats) {
       if (!chat?.cursorSessionId) continue;
+      const prevMode = chat._backgroundMonitorMode;
+      const prevConnection = chat._connectionStatus;
       chat._backgroundMonitorMode = resolveBackgroundMonitorMode(
         chat,
         wsChatIds,
@@ -1819,12 +1859,16 @@ export function createChatTransport(deps) {
       if (wsChatIds.has(chat.id)) {
         wsCount += 1;
         enqueueBackgroundChatReconnect(chat);
-        continue;
+      } else {
+        if (monitoredChatIds.has(chat.id)) pollCount += 1;
+        disconnectBackgroundChat(chat);
       }
-      if (monitoredChatIds.has(chat.id)) pollCount += 1;
-      disconnectBackgroundChat(chat);
+      if ((chat._backgroundMonitorMode !== prevMode || chat._connectionStatus !== prevConnection)
+        && chat.id) {
+        dirtyBackgroundIds.push(chat.id);
+      }
     }
-    if (typeof onBackgroundSyncComplete === 'function') onBackgroundSyncComplete();
+    if (typeof onBackgroundSyncComplete === 'function') onBackgroundSyncComplete(dirtyBackgroundIds);
     appLogger?.log?.('chat-background', 'sync policy applied', {
       wsCount,
       pollCount,

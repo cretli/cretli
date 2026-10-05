@@ -14,6 +14,7 @@ const {
   inferChatTitleSource,
   loadChats,
   saveChats,
+  setChatTitleLocked,
   updateChat,
 } = await import('../lib/persist/chats-persist.js');
 const { getChatTitleHistory, MAX_TITLE_HISTORY } = await import(
@@ -62,7 +63,14 @@ try {
   assert.equal(r1.applied, true);
   assert.equal(r1.chat.titleSource, 'auto');
   assert.equal(r1.chat.titleRev, 1);
-  assert.deepEqual(sent.at(-1), { type: 'chatsChanged', reason: 'title', chatId: fresh.id });
+  // The frame carries the row content so a client patches one chat instead of refetching the list.
+  assert.deepEqual(sent.at(-1), {
+    type: 'chatsChanged',
+    reason: 'title',
+    chatId: fresh.id,
+    title: 'api: add title service',
+    titleSource: 'auto',
+  });
   let hist = getChatTitleHistory(fresh.id);
   assert.equal(hist.length, 1);
   assert.equal(hist[0].source, 'auto');
@@ -78,6 +86,13 @@ try {
   const renamed = updateChat(fresh.id, { title: 'Mine' });
   assert.equal(renamed.titleSource, 'manual');
   assert.equal(getChatTitleHistory(fresh.id).at(-1).source, 'manual');
+  assert.deepEqual(sent.at(-1), {
+    type: 'chatsChanged',
+    reason: 'title',
+    chatId: fresh.id,
+    title: 'Mine',
+    titleSource: 'manual',
+  }, 'a manual rename broadcasts its new title too');
   const blocked = applyAutoTitle(fresh.id, 'something else');
   assert.equal(blocked.applied, false);
   assert.equal(blocked.skipped, 'manual');
@@ -87,6 +102,20 @@ try {
   const forced = applyAutoTitle(fresh.id, 'forced: regenerated', { force: true, reason: 'regenerate' });
   assert.equal(forced.applied, true);
   assert.equal(forced.chat.titleSource, 'auto');
+
+  // title lock: the source flips while the text stays — the frame must carry both, or the
+  // client would have to refetch the whole list to learn the lock state.
+  const lockable = addChat('sess-l', 'Plain chat', undefined, undefined, undefined, {});
+  applyAutoTitle(lockable.id, 'Generated title', { force: true });
+  sent.length = 0;
+  setChatTitleLocked(lockable.id, true);
+  assert.deepEqual(sent.at(-1), {
+    type: 'chatsChanged',
+    reason: 'title',
+    chatId: lockable.id,
+    title: 'Generated title',
+    titleSource: 'manual',
+  }, 'the lock toggle broadcasts the title with its new source');
 
   // race: generation started at rev N, manual rename in the meantime => stale / manual wins
   const racer = addChat('sess-r', 'Codex chat 9', undefined, undefined, undefined, {});

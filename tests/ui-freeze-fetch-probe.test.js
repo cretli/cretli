@@ -63,12 +63,22 @@ assert.equal(clientDebugProbeLogs.length, 0);
 
 await globalThis.window.fetch('/api/chats', { method: 'GET' });
 
-const chatsProbeLogs = logs.filter(
+const chatsOutsideResume = logs.filter(
   (entry) =>
     entry.tag === 'ui-freeze-http' &&
     String(entry.payload?.url || '').includes('/api/chats')
 );
-assert.equal(chatsProbeLogs.length >= 2, true);
+assert.equal(chatsOutsideResume.length, 0);
+
+uiFreezeTrace.beginUiFreezeResumeSession('test');
+await globalThis.window.fetch('/api/chats', { method: 'GET' });
+
+const chatsInsideResume = logs.filter(
+  (entry) =>
+    entry.tag === 'ui-freeze-http' &&
+    String(entry.payload?.url || '').includes('/api/chats')
+);
+assert.equal(chatsInsideResume.length >= 2, true);
 
 globalThis.window = originalWindow;
 globalThis.localStorage = originalLocalStorage;

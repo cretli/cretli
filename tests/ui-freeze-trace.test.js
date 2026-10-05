@@ -9,8 +9,10 @@ import {
 
 assert.equal(isUiFreezeDiagnosticsEnabled(), false);
 assert.equal(isUiFreezeReportTag('ui-freeze-ws'), true);
+assert.equal(isUiFreezeReportTag('ui-freeze-budget'), true);
 assert.equal(isUiFreezeReportTag('fork-title'), false);
 assert.equal(matchesLogsPanelFilter('ui-freeze', LOGS_FILTER_FREEZE), true);
+assert.equal(matchesLogsPanelFilter('ui-freeze-budget', LOGS_FILTER_FREEZE), true);
 assert.equal(matchesLogsPanelFilter('fork-title', LOGS_FILTER_FREEZE), false);
 assert.equal(shouldLogUiFreezeLongTask(100), false);
 

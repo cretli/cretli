@@ -5,8 +5,10 @@ import {
   deltaTokens,
   fromClaudeUsage,
   fromCodexUsage,
+  fromDeepSeekUsage,
   fromGeminiLiveUsage,
   fromOpenAiRealtimeUsage,
+  fromOpenCodeUsage,
   fromOpenRouterUsage,
   fromSdkUsage,
   mapProviderToHarness,
@@ -110,6 +112,43 @@ test('maps resolved Claude usage without double-counting cache reads', () => {
   assert.equal(actual.textInput, 400);
   assert.equal(actual.cachedInput, 600);
   assert.equal(actual.textOutput, 200);
+});
+
+test('maps DSH DeepSeek usage with disjoint cache reads', () => {
+  const actual = fromDeepSeekUsage({
+    inputTokens: 900,
+    outputTokens: 50,
+    cacheReadTokens: 100,
+    reasoningTokens: 20,
+  });
+  assert.equal(actual.textInput, 900);
+  assert.equal(actual.textOutput, 50);
+  assert.equal(actual.cachedInput, 100);
+  assert.equal(actual.reasoning, 20);
+});
+
+test('maps OpenCode assistant tokens as disjoint input and cache.read', () => {
+  const actual = fromOpenCodeUsage({
+    input: 500,
+    output: 20,
+    reasoning: 5,
+    cache: { read: 300, write: 0 },
+  });
+  assert.equal(actual.textInput, 500);
+  assert.equal(actual.cachedInput, 300);
+  assert.equal(actual.textOutput, 20);
+  assert.equal(actual.reasoning, 5);
+});
+
+test('maps raw DeepSeek wire usage without double-counting cache hits', () => {
+  const actual = fromDeepSeekUsage({
+    prompt_tokens: 1000,
+    prompt_cache_hit_tokens: 400,
+    completion_tokens: 50,
+  });
+  assert.equal(actual.textInput, 600);
+  assert.equal(actual.cachedInput, 400);
+  assert.equal(actual.textOutput, 50);
 });
 
 test('maps legacy providers to harnesses and falls back to unknown', () => {

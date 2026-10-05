@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { addChat, applyAutoTitle } from '../lib/persist/chats-persist.js';
 import { appendChatHistoryEvents } from '../lib/persist/chat-history-persist.js';
-import { createDelegationRecord, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
+import { createDelegationRecord, getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { writeChatPlanFile, readChatPlanDocument } from '../lib/chat-plan-persist.js';
 import { createInProcessMcpClient } from '../lib/mcp/mcp-inprocess-client.js';
 import {
@@ -16,6 +16,7 @@ import { getBuiltinMcpMutatingTools, getBuiltinMcpReadTools } from '../lib/mcp/m
 import { callTool } from '../lib/mcp/mcp-runtime.js';
 import { createBuiltinCretliServer } from '../lib/mcp/mcp-config.js';
 import { setBuiltinMcpRuntimeDeps } from '../lib/mcp/builtin/runtime-deps.js';
+import { getWorkspaceWatcher, mutateWorkspaceWatcherRow } from '../lib/persist/workspace-watchers-persist.js';
 import { resolveDataPath } from '../lib/runtime-paths.js';
 import { hashDelegationContent } from '../lib/delegation-request.js';
 import {
@@ -75,6 +76,8 @@ for (const name of [
   'chat_plan_show', 'delegation_list', 'delegation_show', 'delegation_verify', 'delegation_wait', 'delegation_start', 'delegation_cancel',
   'delegation_reply', 'delegation_inbox', 'delegation_workflow_show', 'delegation_workflow_update',
   'delegation_rate',
+  'workspace_watcher_show', 'workspace_watcher_update',
+  'watcher_status', 'watcher_set', 'watcher_report', 'watcher_claim_next', 'watcher_scout_findings',
   'task_list', 'task_run_list', 'agent_list', 'agent_run_list', 'harness_list', 'model_list', 'model_pick',
 ]) {
   assert.ok(names.includes(name), name);
@@ -93,6 +96,13 @@ assert.ok(BUILTIN_MCP_READ_TOOLS.includes('delegation_workflow_show'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_workflow_update'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_rate'));
 assert.ok(BUILTIN_MCP_READ_TOOLS.includes('model_pick'));
+assert.ok(BUILTIN_MCP_READ_TOOLS.includes('workspace_watcher_show'));
+assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('workspace_watcher_update'));
+assert.ok(BUILTIN_MCP_READ_TOOLS.includes('watcher_status'));
+assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('watcher_set'));
+assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('watcher_report'));
+assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('watcher_claim_next'));
+assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('watcher_scout_findings'));
 assert.equal(CRETILI_MCP_TOOL_DEFS.find((tool) => tool.name === 'todo_list')?.annotations.readOnlyHint, true);
 
 const builtin = createBuiltinCretliServer();
@@ -173,6 +183,65 @@ assert.equal(updated.isError, false);
 assert.equal(updated.structuredContent.item.title, 'Ship MCP v2');
 assert.equal(updated.structuredContent.item.status, 'doing');
 
+const watchShow = await handlersA.workspace_watcher_show({});
+assert.equal(watchShow.isError, false);
+assert.equal(watchShow.structuredContent.watcher.mode, 'off');
+
+const watcherStatus = await handlersA.watcher_status({});
+assert.equal(watcherStatus.isError, false);
+assert.equal(watcherStatus.structuredContent.watcher.mode, 'off');
+assert.match(watcherStatus.content[0].text, /recent_decisions:/);
+
+// State writes are orchestrator-only. Make chatA the cycle orchestrator first.
+mutateWorkspaceWatcherRow(workspaceA, () => ({ orchestratorChatId: chatA.id }), { dataDir: resolveDataPath() });
+
+const watchUpdate = await handlersA.workspace_watcher_update({ mode: 'observe' });
+assert.equal(watchUpdate.isError, false);
+assert.equal(watchUpdate.structuredContent.watcher.mode, 'observe');
+
+const setByOrchestrator = await handlersA.watcher_set({ mode: 'observe', policy: { maxParallel: 1 } });
+assert.equal(setByOrchestrator.isError, false);
+assert.equal(setByOrchestrator.structuredContent.watcher.mode, 'observe');
+
+const foreignWatcherHandlers = createCretliMcpToolHandlers(client, {
+  chatId: chatB.id,
+  workspaceFolder: workspaceA,
+  harness: 'opencode',
+  mode: 'agent',
+});
+const foreignSet = await foreignWatcherHandlers.watcher_set({ mode: 'autopilot' });
+assert.equal(foreignSet.isError, true);
+assert.match(foreignSet.content[0].text, /OUT_OF_SCOPE/);
+assert.equal((await handlersA.watcher_status({})).structuredContent.watcher.mode, 'observe');
+
+const watchAfter = await handlersA.workspace_watcher_show({});
+assert.equal(watchAfter.structuredContent.watcher.mode, 'observe');
+assert.match(watchAfter.content[0].text, /mode: observe/);
+
+const planTodoId = todoId;
+const planShow = await handlersA.todo_show({ todo_id: planTodoId });
+const planUpdated = await handlersA.todo_update({
+  todo_id: planTodoId,
+  expected_updated_at: planShow.structuredContent.item.updated_at,
+  patch: { plan: { markdown: '# Draft plan\n\nStep 1' } },
+});
+assert.match(planUpdated.content[0].text, /Updated TODO/);
+assert.equal(planUpdated.isError, false);
+const savedPlan = await handlersA.todo_show({ todo_id: planTodoId, field: 'plan' });
+assert.match(savedPlan.content[0].text, /# Draft plan/);
+const approvalDenied = await handlersA.todo_update({
+  todo_id: planTodoId,
+  expected_updated_at: planUpdated.structuredContent.item.updated_at,
+  patch: { plan: { approvedAt: new Date().toISOString() } },
+});
+assert.equal(approvalDenied.isError, true);
+assert.match(approvalDenied.content[0].text, /only include markdown/);
+
+const watchBadMode = await handlersA.workspace_watcher_update({ mode: 'turbo' });
+assert.equal(watchBadMode.isError, true);
+assert.match(watchBadMode.content[0].text, /VALIDATION_ERROR/);
+
+
 const handlersB = createCretliMcpToolHandlers(client, {
   chatId: chatB.id,
   workspaceFolder: workspaceB,
@@ -188,7 +257,7 @@ const listB = await handlersB.todo_list({});
 assert.equal(listB.structuredContent.items.length, 1);
 assert.equal(listB.structuredContent.items[0].title, 'B only');
 const listA = await handlersA.todo_list({});
-assert.equal(listA.structuredContent.items[0].title, 'Ship MCP v2');
+assert.equal(listA.structuredContent.items.find((item) => item.id === todoId).title, 'Ship MCP v2');
 
 const noFolder = createCretliMcpToolHandlers(client, { chatId: '', workspaceFolder: '', mode: 'agent' });
 const missingWs = await noFolder.todo_list({});
@@ -523,6 +592,10 @@ const page1 = await handlersA.todo_show({ todo_id: longId, field: 'body' });
 assert.equal(page1.structuredContent.truncated, true);
 assert.ok(page1.structuredContent.next_cursor);
 assert.equal(page1.structuredContent.item.body.length, 4000);
+// The paging hint must be in the text content, not only in structuredContent:
+// harnesses that read only MCP content (e.g. Qwen) cannot see structuredContent.
+assert.match(page1.content[0].text, /truncated=true/);
+assert.ok(page1.content[0].text.includes(`next_cursor=${page1.structuredContent.next_cursor}`));
 const page2 = await handlersA.todo_show({
   todo_id: longId,
   field: 'body',
@@ -558,6 +631,10 @@ const reportPage1 = await handlersA.delegation_show({
 assert.equal(reportPage1.isError, false);
 assert.equal(reportPage1.structuredContent.truncated, true);
 assert.ok(reportPage1.structuredContent.next_cursor);
+// The parent read a terminal report, so it counts as delivered: the queued
+// mailbox final_report must not wake it with the same body later.
+assert.ok(String(getDelegationById(reportRow.id)?.reportDeliveredAt || '').trim());
+assert.match(String(getDelegationById(reportRow.id)?.reportDeliveryId || ''), /^read:/);
 updateDelegationRecord(reportRow.id, {
   report: 'B'.repeat(4500),
   status: 'completed',
@@ -642,6 +719,235 @@ const planReplyDenied = await callTool(
   { message_text: 'blocked', idempotency_key: 'plan-reply' },
 );
 assert.equal(planReplyDenied.denied, true);
+
+await handlersA.todo_create({ title: 'Claim lease via MCP', status: 'ready', idempotency_key: 'claim-ttl' });
+const leasedClaim = await handlersA.workspace_watcher_update({ action: 'claim_next', ttl_ms: 1000 });
+assert.equal(leasedClaim.isError, false);
+assert.equal(leasedClaim.structuredContent.claimed, true);
+const claimedItem = leasedClaim.structuredContent.item;
+assert.equal(Date.parse(claimedItem.claimLeaseUntil) - Date.parse(claimedItem.claimedAt), 1000);
+assert.ok(claimedItem.claimedByChatId, 'the calling chat owns the claim by default');
+const leaseShown = await handlersA.todo_show({ todo_id: claimedItem.id });
+assert.equal(leaseShown.structuredContent.item.claim_lease_until, claimedItem.claimLeaseUntil);
+
+// watcher_claim_next is the spec-named alias of the same atomic claim.
+await handlersA.todo_create({ title: 'Claim via watcher_claim_next', status: 'ready', idempotency_key: 'claim-spec' });
+const specClaim = await handlersA.watcher_claim_next({ ttl_ms: 2000 });
+assert.equal(specClaim.isError, false);
+assert.equal(specClaim.structuredContent.claimed, true);
+assert.equal(specClaim.structuredContent.item.claimedByChatId, chatA.id);
+
+await handlersA.todo_create({ title: 'Claim hijack guard', status: 'ready', idempotency_key: 'claim-hijack' });
+mutateWorkspaceWatcherRow(workspaceA, () => ({ orchestratorChatId: chatA.id }), { dataDir: resolveDataPath() });
+const hijackClaim = await foreignWatcherHandlers.watcher_claim_next({ claimed_by_chat_id: chatA.id, ttl_ms: 1000 });
+assert.equal(hijackClaim.isError, true, 'a non-orchestrator chat cannot claim on behalf of another chat');
+assert.match(hijackClaim.content[0].text, /OUT_OF_SCOPE/);
+
+// Scout proposals through MCP: submit/list/accept. Scout never creates a todo by
+// itself, so accepting with the default policy produces no todo.
+mutateWorkspaceWatcherRow(workspaceA, () => ({
+  activeScoutScan: {
+    scanId: 'mcp-scout-scan',
+    chatId: chatA.id,
+    startedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    submitToken: 'mcp-scout-token',
+  },
+}), { dataDir: resolveDataPath() });
+const scoutSubmitted = await handlersA.watcher_scout_findings({
+  action: 'submit',
+  scan_id: 'mcp-scout-scan',
+  submit_token: 'mcp-scout-token',
+  findings: [{ title: 'MCP scout finding', category: 'bug', rationale: 'r', files: ['x.js'] }],
+});
+assert.equal(scoutSubmitted.isError, false);
+assert.equal(scoutSubmitted.structuredContent.added, 1);
+const scoutListed = await handlersA.watcher_scout_findings({ action: 'list' });
+const scoutTarget = scoutListed.structuredContent.findings.find((finding) => finding.title === 'MCP scout finding');
+assert.ok(scoutTarget, 'the submitted finding is listed');
+const scoutAccepted = await handlersA.watcher_scout_findings({ action: 'accept', ids: [scoutTarget.id] });
+assert.equal(scoutAccepted.structuredContent.changed, 1);
+assert.equal(scoutAccepted.structuredContent.createdTodos.length, 0, 'scoutAutoCreate defaults to false');
+
+// Finding 1: a real review finding recorded through MCP keeps its summary text,
+// not only the opaque hash, so the Scout can dedupe against prior reviews.
+mutateWorkspaceWatcherRow(workspaceA, () => ({ orchestratorChatId: chatA.id }), { dataDir: resolveDataPath() });
+const recordFindings = await handlersA.workspace_watcher_update({
+  action: 'record_findings',
+  todo_id: 'mcp-review-todo',
+  findings_hash: 'mcp-review-hash-1',
+  findings_text: 'Session token endpoint concatenates untrusted input',
+});
+assert.equal(recordFindings.isError, false, 'record_findings accepts findings_text');
+const recordedFindingsRow = getWorkspaceWatcher(workspaceA, { dataDir: resolveDataPath() });
+assert.equal(
+  recordedFindingsRow.findings.byTodo['mcp-review-todo'].summary,
+  'Session token endpoint concatenates untrusted input',
+  'the review finding summary is persisted, not just the hash',
+);
+
+// Finding 4: the recommended submit shape (no scan_id / submit_token) succeeds
+// because the tool context auto-injects the active Scout chat's credentials.
+mutateWorkspaceWatcherRow(workspaceA, () => ({
+  activeScoutScan: {
+    scanId: 'mcp-scout-auto',
+    chatId: chatA.id,
+    startedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    submitToken: 'mcp-scout-auto-token',
+  },
+}), { dataDir: resolveDataPath() });
+const recommendedSubmit = await handlersA.watcher_scout_findings({
+  action: 'submit',
+  findings: [{ title: 'Recommended MCP submit', category: 'security', files: ['y.js'] }],
+});
+assert.equal(recommendedSubmit.isError, false, 'recommended shape auto-injects scan_id + submit_token');
+assert.equal(recommendedSubmit.structuredContent.added, 1);
+
+// Finding 7: a foreign chat never gets the active Scout chat's credentials
+// injected, so it cannot submit findings it does not own.
+mutateWorkspaceWatcherRow(workspaceA, () => ({
+  activeScoutScan: {
+    scanId: 'mcp-scout-foreign',
+    chatId: chatA.id,
+    startedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    submitToken: 'mcp-scout-foreign-token',
+  },
+}), { dataDir: resolveDataPath() });
+const scoutForeignHandlers = createCretliMcpToolHandlers(client, {
+  chatId: chatB.id,
+  workspaceFolder: workspaceA,
+  harness: 'opencode',
+  mode: 'agent',
+});
+const foreignSubmit = await scoutForeignHandlers.watcher_scout_findings({
+  action: 'submit',
+  findings: [{ title: 'Foreign submit', category: 'bug' }],
+});
+assert.equal(foreignSubmit.isError, true, 'a foreign chat cannot submit Scout findings');
+assert.match(
+  String(foreignSubmit.output || foreignSubmit.structuredContent?.error || ''),
+  /scout|submit|scope|chat/i,
+);
+
+// A read-only Scout runs in Plan mode and must still be able to submit, while
+// resolution (accept/reject) stays Agent-only.
+const planScoutHandlers = createCretliMcpToolHandlers(client, { ...sessionA, mode: 'plan' });
+mutateWorkspaceWatcherRow(workspaceA, () => ({
+  activeScoutScan: {
+    scanId: 'plan-scout-scan',
+    chatId: chatA.id,
+    startedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    submitToken: 'plan-scout-token',
+  },
+}), { dataDir: resolveDataPath() });
+const planSubmit = await planScoutHandlers.watcher_scout_findings({
+  action: 'submit',
+  scan_id: 'plan-scout-scan',
+  submit_token: 'plan-scout-token',
+  findings: [{ title: 'Plan-mode scout finding', category: 'improvement' }],
+});
+assert.equal(planSubmit.isError, false, 'Scout submit is allowed in Plan mode');
+const planAccept = await planScoutHandlers.watcher_scout_findings({ action: 'accept', ids: [scoutTarget.id] });
+assert.equal(planAccept.isError, true, 'accept stays Agent-only');
+assert.equal(planAccept.structuredContent.code, 'PLAN_MODE_DENIED');
+
+// Workspace watcher cycle report through MCP: only the cycle's orchestrator chat
+// may report it, and the report closes the cycle with a durable record.
+mutateWorkspaceWatcherRow(workspaceA, () => ({
+  activeCycle: {
+    cycleId: 'mcp-cycle',
+    todoIds: [],
+    startedAt: new Date().toISOString(),
+    chatId: chatA.id,
+    runId: 'run-mcp-cycle',
+    phase: 'running',
+  },
+}), { dataDir: resolveDataPath() });
+const foreignHandlers = createCretliMcpToolHandlers(client, {
+  chatId: chatB.id,
+  workspaceFolder: workspaceA,
+  harness: 'opencode',
+  mode: 'agent',
+});
+const foreignReport = await foreignHandlers.workspace_watcher_update({
+  action: 'report', outcome: 'success', cycle_id: 'mcp-cycle',
+});
+assert.equal(foreignReport.isError, false);
+assert.equal(foreignReport.structuredContent.ok, false);
+assert.equal(foreignReport.structuredContent.reason, 'not_orchestrator');
+assert.ok(getWorkspaceWatcher(workspaceA, { dataDir: resolveDataPath() }).activeCycle, 'foreign report cannot close');
+
+const ownReport = await handlersA.workspace_watcher_update({
+  action: 'report', outcome: 'success', cycle_id: 'mcp-cycle', report_id: 'mcp-report', todo_ids: [],
+});
+assert.equal(ownReport.isError, false);
+assert.equal(ownReport.structuredContent.closed, true);
+assert.equal(getWorkspaceWatcher(workspaceA, { dataDir: resolveDataPath() }).activeCycle, null);
+const ownReplay = await handlersA.workspace_watcher_update({
+  action: 'report', outcome: 'failure', cycle_id: 'mcp-cycle', report_id: 'mcp-report',
+});
+assert.equal(ownReplay.structuredContent.replayed, true);
+
+// watcher_report: the spec-named tool shares the same orchestrator-only rule and
+// treats idempotency_key as the replay key.
+mutateWorkspaceWatcherRow(workspaceA, () => ({
+  activeCycle: {
+    cycleId: 'mcp-cycle-2',
+    todoIds: [],
+    startedAt: new Date().toISOString(),
+    chatId: chatA.id,
+    runId: 'run-mcp-cycle-2',
+    phase: 'running',
+  },
+}), { dataDir: resolveDataPath() });
+const foreignSpecReport = await foreignWatcherHandlers.watcher_report({
+  outcome: 'success', cycle_id: 'mcp-cycle-2', idempotency_key: 'mcp-report-2',
+});
+assert.equal(foreignSpecReport.isError, false);
+assert.equal(foreignSpecReport.structuredContent.ok, false);
+assert.equal(foreignSpecReport.structuredContent.reason, 'not_orchestrator');
+assert.ok(getWorkspaceWatcher(workspaceA, { dataDir: resolveDataPath() }).activeCycle, 'foreign watcher_report cannot close');
+
+const specReport = await handlersA.watcher_report({
+  outcome: 'success', cycle_id: 'mcp-cycle-2', idempotency_key: 'mcp-report-2', summary: 'cycle done',
+});
+assert.equal(specReport.isError, false);
+assert.equal(specReport.structuredContent.closed, true);
+assert.equal(getWorkspaceWatcher(workspaceA, { dataDir: resolveDataPath() }).activeCycle, null);
+const specReplay = await handlersA.watcher_report({
+  outcome: 'failure', cycle_id: 'mcp-cycle-2', idempotency_key: 'mcp-report-2',
+});
+assert.equal(specReplay.structuredContent.replayed, true);
+
+// Multi-slot authorization: while a cycle is live, ONLY activeCycles[].chatId
+// authorizes. A stale row-level orchestratorChatId must not let its old chat
+// drive a different live cycle.
+mutateWorkspaceWatcherRow(workspaceA, () => ({
+  orchestratorChatId: chatB.id,
+  activeCycles: [{
+    cycleId: 'mcp-multi',
+    todoIds: [],
+    startedAt: new Date().toISOString(),
+    chatId: chatA.id,
+    runId: 'run-mcp-multi',
+    phase: 'running',
+  }],
+}), { dataDir: resolveDataPath() });
+const staleOrchestratorSet = await foreignWatcherHandlers.watcher_set({ mode: 'autopilot' });
+assert.equal(staleOrchestratorSet.isError, true, 'a stale orchestratorChatId does not authorize while a live cycle exists');
+assert.match(staleOrchestratorSet.content[0].text, /OUT_OF_SCOPE/);
+const liveCycleSet = await handlersA.watcher_set({ mode: 'observe' });
+assert.equal(liveCycleSet.isError, false, 'the live cycle chat is authorized');
+
+// Repair the fixture so the shared store is not left with a live cycle.
+mutateWorkspaceWatcherRow(workspaceA, () => ({
+  orchestratorChatId: '',
+  activeCycles: [],
+  activeCycle: null,
+}), { dataDir: resolveDataPath() });
 
 removeIsolatedDataDir();
 console.log('mcp-builtin-tools.test.js OK');

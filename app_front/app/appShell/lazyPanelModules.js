@@ -16,6 +16,7 @@ const importers = {
   github: () => import(/* webpackChunkName: "panel-github" */ '../../githubPanel.js'),
   widget: () => import(/* webpackChunkName: "panel-misc" */ '../../widgetPanel.js'),
   mcpSettings: () => import(/* webpackChunkName: "panel-misc" */ '../../features/settings/mcpSettings.js'),
+  watcherSettings: () => import(/* webpackChunkName: "panel-misc" */ '../../features/settings/workspaceWatcherSettings.js'),
   instances: () =>
     import(/* webpackChunkName: "panel-misc" */ '../../features/instances/instancesPanel.js'),
   statusTests: () => import(/* webpackChunkName: "panel-misc" */ '../../statusTests.js'),

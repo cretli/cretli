@@ -73,10 +73,26 @@ const cases = [
     usage: { prompt_tokens: 40, completion_tokens: 12 },
     expectTokens: { textInput: 40, textOutput: 12, audioInput: 0, audioOutput: 0, cachedInput: 0, reasoning: 0 },
   },
-  { harness: 'deepseek', usage: { prompt_tokens: 10, completion_tokens: 5 }, expectTokens: null },
-  { harness: 'qwen', usage: { prompt_tokens: 10, completion_tokens: 5 }, expectTokens: null },
-  { harness: 'opencode', usage: { prompt_tokens: 10, completion_tokens: 5 }, expectTokens: null },
-  { harness: 'codebuddy', usage: { prompt_tokens: 10, completion_tokens: 5 }, expectTokens: null },
+  {
+    harness: 'deepseek',
+    usage: { inputTokens: 900, outputTokens: 50, cacheReadTokens: 100, reasoningTokens: 20 },
+    expectTokens: { textInput: 900, textOutput: 50, audioInput: 0, audioOutput: 0, cachedInput: 100, reasoning: 20 },
+  },
+  {
+    harness: 'qwen',
+    usage: { input_tokens: 10, output_tokens: 5 },
+    expectTokens: { textInput: 10, textOutput: 5, audioInput: 0, audioOutput: 0, cachedInput: 0, reasoning: 0 },
+  },
+  {
+    harness: 'opencode',
+    usage: { tokens: { input: 10, output: 5, reasoning: 0, cache: { read: 2, write: 0 } } },
+    expectTokens: { textInput: 10, textOutput: 5, audioInput: 0, audioOutput: 0, cachedInput: 2, reasoning: 0 },
+  },
+  {
+    harness: 'codebuddy',
+    usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 2 },
+    expectTokens: { textInput: 10, textOutput: 5, audioInput: 0, audioOutput: 0, cachedInput: 2, reasoning: 0 },
+  },
 ];
 
 for (const testCase of cases) {

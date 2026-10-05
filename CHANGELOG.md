@@ -6,7 +6,163 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Sidebar "Workspace" section header can expand to every workspace ("Show all
+  workspaces", persisted per device): each workspace group gets its own watcher
+  switch, so a watcher can be enabled for a workspace that never had one. With
+  the toggle off the section lists only enabled watchers; disabled-but-pinned
+  workspaces reappear in the "show all" view so their switch can turn them back
+  on.
+
+- Sidebar "Workspace" section toggles: a master switch in the section header
+  drives the server-wide watcher start gate (`startsEnabled`, i.e. off for every
+  workspace), and every pinned workspace gets its own switch that flips that
+  workspace between `autopilot` and `off`. Disabled-but-pinned workspaces stay in
+  the `agentPresence` payload (without a header badge) so the sidebar row and its
+  switch survive and can turn the watcher back on.
+
+- Built-in Browser for every harness: the `browser_*` tools (`browser_open`,
+  `browser_sessions`, `browser_tabs`, `browser_screenshot`, `browser_dom`,
+  `browser_console`, `browser_network`, `browser_navigate`, `browser_input`) are
+  now part of the builtin Cretli MCP catalog, so Codex, Claude, Qwen, OpenCode,
+  DeepSeek, CodeBuddy and OpenRouter chats preview a page in the Browser panel
+  instead of launching their own Chromium. A call acts for the login session
+  attached to the chat (a delegated child inherits it from its parent) and fails
+  closed without one; plan, ask and review runs stay read-only. `browser_open`
+  adopts the unbound session the user opened in the panel, and
+  `browser_screenshot` returns a private temp file path. New `cretli-browser`
+  skill and always-apply rule describe the workflow.
+
+- Settings → Workspace Watcher → Scout: daily scan budget (`scoutMaxPerDay`,
+  UTC day, `0` disables). The field was policy-only before; the form now reads,
+  validates, saves and resets it with the rest of the Scout section.
+
+- Workspace Watcher monitoring dashboard (Settings → Workspace Watcher): a live
+  section (mode/pause, each `activeCycles[]` slot with todo/phase/duration/chat
+  link, active delegations by harness/status, latest decision), a Gantt-like
+  multi-lane timeline (success/failure/blocked tones, 1h/24h/7d filters,
+  click-to-detail, live bars for running cycles), throughput/reliability
+  statistics (success rate, avg cycle time, daily/weekly throughput, common stop
+  reasons, top harnesses by delegation count and verified pass rate), a
+  filter-by-kind decision log, and an alerts block (active `stopReason` + clear,
+  `backoffUntil` countdown, quiet-hours end). Backed by the new
+  `GET /api/workspace-watcher/stats`; `cycleChats` entries now carry `startedAt`
+  (mirrored by `buildWorkspaceWatcherCycleClosePatch`, still capped at 20) so the
+  timeline shows real durations. Live updates reuse the existing chat-list
+  WebSocket (`chatsChanged` reason `workspace-watcher`); EN/PL labels added.
+
+- Workspace Watcher: one deterministic guard per workspace (server-side, no
+  LLM) that snapshots ready todos, live chats and delegations, and can drive an
+  autopilot. Modes `off` / `observe` / `autopilot` (default off, `maxParallel`
+  1). Autopilot spawns one short-lived orchestrator chat per cycle which plans
+  or delegates `implement`/`review` via the multi-harness flow and never
+  commits, pushes or auto-approves a plan. Durable singleton lease + CAS todo
+  claim, restart reconcile, per-UTC-day cycle budget, cooldown, exponential
+  backoff, quiet hours, same-findings stop, allowed-harness filter with real
+  usage-limit awareness, plan gate (plan-only then wait for a human), push
+  dedupe. Exposed through `GET/PATCH/DELETE /api/workspace-watcher`,
+  `GET /api/workspace-watcher/decisions`,
+  `POST /api/workspace-watcher/{pause,resume,clear-stop,tick,run-cycle,claim-next,reset-plan-requests,findings}`,
+  the `workspace_watcher_show` / `workspace_watcher_update` MCP tools and a new
+  Settings → Workspace Watcher panel. The Todo tab gets a watcher top bar (mode,
+  live status, pause, orchestrator chat link) with a "Why?" decision log, todo
+  rows show claimed/queued badges, and the sidebar shows a per-workspace
+  autopilot badge. Live updates reuse the existing chat-list WebSocket
+  (`chatsChanged` reason `workspace-watcher` plus the `agentPresence` watcher
+  summary) instead of a new socket. See `docs/ARCHITECTURE.md`.
+
+- Workspace Watcher: pinned workspace chat. Each workspace gets one durable chat
+  (`pinnedChatId`, materialized by idempotent `ensurePinnedChat` when autopilot
+  is enabled or on demand, and recreated if deleted) that outlives individual
+  cycles. The watcher appends deterministic notices (cycle start/stop, todo
+  done, blocked/alert, decision) to it through the new persist API
+  `appendChatNotice` — a persisted `meta`/`variant: 'watcher'` record, not a
+  per-notification agent run. The sidebar renders a dedicated "Workspace"
+  section with a robot icon per workspace (fed live by the existing
+  `agentPresence` watcher summary); opening it shows a special notice style
+  (timestamp + action icon + description). User commands map onto the existing
+  watcher/todo REST APIs (option A: `/pause`, `/resume`, `/stop`, `/clear-stop`,
+  `/tick`, `/cycle`, `/skip`, `/status`, `/help`) via
+  `GET/POST /api/workspace-watcher/pinned-chat`. Design trade-offs:
+  `docs/workspace-watcher-pinned-chat.md`.
+
+- Workspace Watcher docs and acceptance coverage: `docs/workspace-watcher.md`
+  documents the architecture, the `off`/`observe`/`autopilot` modes, the lease,
+  CAS claim, plan gate and no-commit/push guarantees, and how to debug through
+  the `decisionLog`. `tests/workspace-watcher-e2e.test.js` drives the real
+  autopilot runtime against the mock chat-run adapter: three ready todos run
+  sequentially, a failed cycle blocks only its todo while fresh work continues,
+  a restart mid-cycle reconciles once without a duplicate cycle or claim, two
+  processes are serialized by the singleton lease, and `off`/`observe` start no
+  agent. The `cretli-multi-harness` skill and `CLAUDE.md` now spell out the
+  watcher ↔ cycle-parent relationship (`watcher_report` at the end, no parent
+  commit/push, children never start further delegations).
+
+- Workspace Memory: a durable per-workspace fact store
+  (`data/workspace-memory/<workspaceKey>.json`, keyed by the same
+  `workspaceKeyFromCwd` hash todos use) for `decision`, `pattern`, `finding`,
+  `blocker` and `context` entries with optional `ttl_ms` expiry. Expired facts
+  are hidden lazily on read, writes are CAS-guarded under the shared
+  cross-process file lock so parallel cycles lose nothing, and the store is
+  bounded. The watcher cycle prompt now carries a capped (3000-token)
+  `WORKSPACE MEMORY` section and instructs the orchestrator to record decisions
+  before reporting. Exposed through the `workspace_memory_add` /
+  `workspace_memory_list` / `workspace_memory_delete` MCP tools, so a Scout scan
+  can read what earlier cycles already explored. Review-verify catalog id:
+  `workspace-memory`.
+
+- Workspace Scout: a separate periodic read-only LLM scan that proposes work
+  instead of executing it. Scout is **not** a watcher cycle: it has its own
+  `lastScoutAt` + `scoutScans` schedule/budget (`scoutIntervalHours`,
+  `scoutMaxPerDay`, `scoutMaxPerScan`), never touches `activeCycles` or
+  `maxCyclesPerDay`, and runs only while the watcher is `observe`/`autopilot`
+  and not in quiet hours. It gathers read-only signals (`git diff main`,
+  `git log --oneline -20`, changed-file TODO/FIXME/HACK markers, optional test
+  results and error logs, existing todos, prior review findings and Workspace
+  Memory), starts one `plan`-mode chat, and records findings
+  (`{id,title,category,rationale,files[],status}`) in five categories
+  (bug/improvement/security/opportunity/documentation). Proposals are deduped
+  against existing todos, resolved findings and "already explored" memory.
+  Scout never creates a todo; an explicit accept does, and only when
+  `scoutAutoCreate` is true (as an `idea` todo with an unapproved plan draft).
+  Policy fields
+  `scoutEnabled`/`scoutIntervalHours`/`scoutAutoCreate`/`scoutCategories`/
+  `scoutMaxPerDay`/`scoutMaxPerScan`; capabilities in
+  `lib/workspace-watcher-scout.js` (`buildScoutPrompt`, `parseScoutFindings`);
+  MCP tool `watcher_scout_findings` (list/accept/reject/submit, with `list` and
+  `submit` allowed in Plan mode for the read-only scan) and
+  `GET/POST /api/workspace-watcher/scout`. Fresh proposals also land in the
+  pinned workspace chat. See `docs/workspace-watcher.md`.
+
 ### Changed
+
+- Accepting a Scout finding with `scoutAutoCreate` creates an `idea` todo whose
+  plan draft is the finding rationale. `approvedAt` stays empty until a human
+  approves it in the UI. A retried create does not overwrite that draft.
+
+- TODO claims serialize across processes with other todo writes, reject
+  non-ready or blocked work, expose lease expiry through API/MCP, and clear
+  their metadata on completion. Selection respects assignments and sibling
+  order; failure-ceiling blockers remain visible until a manual retry.
+
+- Workspace Watcher snapshots include doing/blocked todos, waiting chats and
+  recent delegation errors. Event nudges cover observe and autopilot, exclude
+  the cycle's delegated chats from occupancy, and stop cleanly on shutdown.
+
+- Workspace Watcher runs up to `policy.maxParallel` cycles per workspace (hard
+  cap 5) instead of one `activeCycle`: live cycles live in `activeCycles[]`
+  (slot 0 mirrored to `activeCycle` for v1 readers), a start is refused only at
+  `activeCycles.length >= maxParallel`, each slot is authorized by its own
+  `chatId` (`orchestratorChatId` only covers an idle row), closing a slot keeps
+  the shared lease while a sibling is live, and reconcile drops only the dead
+  slot. The sidebar autopilot badge and the Todo watcher bar show the live cycle
+  count/list instead of only slot 0.
+
+- TODO trees run sequentially by default. Parent status follows its subtasks
+  at every depth: completion requires all descendants, and reopening a child
+  reopens its ancestors. API and manual agent starts enforce sibling order;
+  parallel execution remains an explicit choice.
 
 - Harness statistics use compact mobile lockout alerts, grouped metric cards,
   readable window/status labels, durations in seconds/minutes and wrapped
@@ -22,6 +178,130 @@ All notable changes to this project are documented here. The format is based on
   CLI can refresh.
 
 ### Fixed
+
+- Archiving a chat in the sidebar now moves the whole fork subtree (the parent and
+  every child) into the Archive together, without ever flashing the children as
+  top-level chats. Previously `closeChat` removed the parent row locally, so
+  `flattenChatsTree` treated the orphaned children as new roots — they popped to
+  level 0 in the live list and again in an open Archive section until a later
+  server reload folded them back. `requestArchiveChat`, `requestArchiveSettledChats`
+  and `requestRestoreChat` now stamp `archivedAt` on the whole subtree in place
+  (new pure helper `markForkSubtreeArchived` in `lib/chat-tree.js`), keep every row
+  so `partitionChatsByArchive` moves parent and children together, and `closeChat`
+  runs as a runtime teardown (`keepRow`) rather than the branch-moving mechanism.
+  The archive button's busy state is computed once per render pass
+  (`buildForkArchiveBlockedIds`, an O(chats) walk) instead of `isForkSubtreeBusy`
+  per visible row, removing the sidebar and chat-modal stutter on large lists. A
+  single "archive"/"restore" click issues at most one full `GET /api/chats`: the
+  explicit-reload guard (`app_front/features/chat/chatListExplicitReload.js`, wired
+  through `shouldSuppressChatsChanged`) suppresses the `archive`/`restore` live-sync
+  frame this client caused itself without dropping independent changes.
+
+- Settings → Harness → Cursor SDK → Models no longer hides the `grok-4.7`
+  500K context variants. Cretli now mirrors every row from Cursor
+  `models.list` instead of dropping a hardcoded model/variant pair, so the
+  chat model list matches the API. If Cursor's registry still rejects a
+  variant at run time, the SDK room's existing fallback to Auto and favorite
+  quarantine handle it.
+
+- Qwen tool tiles no longer turn red for successful calls that merely mention
+  "missing": the `tool_search` miss heuristic now runs only for `tool_search`
+  results, so `todo_show`, `run_shell_command`, `read_file` and other successful
+  MCP/CLI calls report `completed`.
+
+- `todo_show` now prints `truncated=true next_cursor=…` in the body/plan text and
+  documents the cursor format, so harnesses that read only MCP `content` (e.g.
+  Qwen) can page a long plan instead of guessing the opaque cursor and hitting
+  `VALIDATION_ERROR: Invalid detail cursor`.
+
+- CodeBuddy token telemetry reads assistant and streaming usage, deduplicates
+  partial/full message snapshots, and uses result totals only as a fallback.
+
+- Sidebar chat statuses update live again without rebuilding the list. Starting
+  or finishing work now repaints only the affected row (the row keeps its DOM
+  node and the spinning cog no longer restarts), and the working status is still
+  there after a reload because the last presence snapshot is remembered per chat
+  instead of being dropped while the list is loading. Duplicate presence frames
+  from multiple open chats are dropped, a missed frame is repaired from a fresh
+  snapshot, and the 15 s agent-states request stays only as a fallback. A burst of
+  tools no longer makes the activity label flicker, a WebSocket reconnect no
+  longer hides an agent that is still running, and a watcher-only update no longer
+  reloads the whole chat list.
+
+- Sidebar on mobile: the first tap after a swipe now always works. The synthetic
+  click that belongs to a gesture is swallowed only for 350 ms, and a real
+  `pointerdown` clears it, so a swipe that snaps back no longer makes the next tap
+  (close button or backdrop) do nothing.
+
+- Sidebar workspace header: a clone group (`cretli • Cretli - landing page`) no
+  longer inherits the autopilot badge from a sibling folder of its source
+  `.code-workspace`. `resolveWorkspaceWatcherBadge` now checks only a clone's own
+  folder, so the badge matches the watcher the group actually belongs to.
+
+- Sidebar chat rows: every status glyph (cog, check, alert, …) now occupies the
+  same fixed-width, centred box as the archive/star action buttons. Previously
+  the cog's natural glyph width made the cog → archive gap narrower than the
+  archive → star gap; equal boxes plus the shared column gap make all three
+  gaps identical while keeping the cog in the status icon column.
+
+- Sidebar archive header: the archived-chat count (`908`) rendered at the row
+  font size because `.sidebar-workspace-count` was nested under
+  `.sidebar-workspace-header`, which the archive header is not. The rule moved to
+  the top level, so the archive count now uses the same small count pill as the
+  workspace header.
+
+- Sidebar chat rows: the working-state cog now stays in the status icon column,
+  aligned with the settled check/alert icons, and the activity label sits to its
+  left. A running row reads `label ⚙ archive star` instead of the cog floating
+  left of the text and breaking the right-hand icon column.
+
+- Settings → Usage now counts DeepSeek Harness tokens. DSH reports token
+  accounting only on the assembled `assistant/message` session event, which the
+  event normalizer dropped (it exists to host usage after the streamed text);
+  the normalizer now forwards that usage as a synthetic `usage` event, and
+  `fromDeepSeekUsage` maps DSH's disjoint `TokenUsage` (`inputTokens` already
+  excludes `cacheReadTokens`) onto the canonical bag. In-process DeepSeek
+  subagent usage is attributed to the parent room too. Previously the DeepSeek
+  column and its chart slice stayed at zero even though `run` events were
+  recorded.
+
+- Review no longer denies plain project tests (`node --test tests/<file>.test.js`
+  or `node tests/<file>.test.js`, optional pipe to `head`/`tail`). The catalog
+  runner stays the audited path. Other node flags, npm, and writes stay denied.
+  A CodeBuddy review denial no longer drops the rest of that stream message.
+
+- Archiving a chat is refused while that chat or any nested child still has a
+  live run (`CHAT_ARCHIVE_BUSY`). The sidebar archive list keeps the same
+  parent/child tree as the live list instead of a flat row of archived chats.
+
+- Workspace Watcher no longer stays on `wait_active` / `max_parallel` after a
+  cycle report just because the archived orchestrator is still busy. Late
+  mailbox replies to a closed-cycle orchestrator are marked delivered
+  (`skipped_cycle_closed`) and do not start another run. That chat's leftover
+  occupancy does not count toward `maxParallel` unless it still holds a todo
+  claim or an active delegation. A `max_parallel` decision now stores
+  `slotHolders` (chat ids and `delegation:<id>` tokens) so Todo **Why?**, the
+  decisions API and the pinned-chat line name who holds the slot.
+
+- A parent is no longer woken twice for one child report. When the parent reads
+  a terminal report with `delegation_show` (or pages a `final_report` body with
+  `delegation_inbox`), that read now counts as delivery (`reportDeliveredAt` /
+  `reportDeliveryId: read:…`). A queued mailbox `final_report` for the same
+  delegation is finished as `delivered` (`skipped_already_delivered`) instead of
+  starting a redundant parent run and replaying the same report ("ponowna
+  dostawa"). A report the collector already placed in a parent prompt is skipped
+  the same way.
+
+- Builtin MCP tools load in any import order. The read-only guard messages moved
+  to `lib/sdk/sdk-guard-messages.js`, so `delegation-service.js` no longer pulls
+  `sdk-plan-guard.js` (MCP policy → tool catalog → delegation tools) back into
+  itself; loading the delegation tools first used to throw
+  `Cannot access 'DELEGATION_MCP_TOOLS' before initialization`.
+
+- Continuing a parent TODO now instructs the chat to orchestrate every unfinished
+  descendant, with implementation and independent verification subchats before
+  moving to the next task. New parent chats start in Agent mode; `todo_show`
+  exposes ordered, paginated children and plan approval state.
 
 - OpenCode approval advisor: a filename such as `chat-title-service.js` is no
   longer classified as a privilege command, so a safe read can reach Jev. When

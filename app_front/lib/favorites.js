@@ -95,6 +95,8 @@ export function createFavoritesStore(storageKey) {
   let memorySet = null;
   let memoryVersion = 0;
   let idbHydrationStarted = false;
+  /** @type {((ids: string[]) => void) | null} */
+  let changeListener = null;
 
   function ensureLoaded() {
     if (memorySet) return;
@@ -134,14 +136,22 @@ export function createFavoritesStore(storageKey) {
     return new Set(memorySet || []);
   }
 
-  function commitSet(set) {
+  /**
+   * @param {Set<string>} set
+   * @param {{ silent?: boolean }} [options]
+   * @returns {void}
+   */
+  function commitSet(set, options = {}) {
     memorySet = new Set(set);
     memoryVersion += 1;
     void writeFavoritesToIdb(storageKeyCurrent, Array.from(memorySet));
-    if (typeof localStorage === 'undefined') return;
-    try {
-      writeStorageValueWithAlias(localStorage, storageKeyCurrent, JSON.stringify(Array.from(set)));
-    } catch (_) {}
+    if (typeof localStorage !== 'undefined') {
+      try {
+        writeStorageValueWithAlias(localStorage, storageKeyCurrent, JSON.stringify(Array.from(set)));
+      } catch (_) {}
+    }
+    if (options.silent === true) return;
+    if (typeof changeListener === 'function') changeListener(Array.from(memorySet));
   }
 
   function isFavorite(value) {
@@ -163,8 +173,42 @@ export function createFavoritesStore(storageKey) {
     return true;
   }
 
+  /**
+   * @returns {string[]}
+   */
+  function listFavorites() {
+    return Array.from(getSetSnapshot());
+  }
+
+  /**
+   * Replace the set from the server. Does not notify the change listener,
+   * so a remote frame cannot publish itself back.
+   *
+   * @param {unknown} ids
+   * @returns {void}
+   */
+  function replaceFavorites(ids) {
+    const next = new Set();
+    (Array.isArray(ids) ? ids : []).forEach((id) => {
+      const value = String(id || '').trim();
+      if (value) next.add(value);
+    });
+    commitSet(next, { silent: true });
+  }
+
+  /**
+   * @param {((ids: string[]) => void) | null} listener
+   * @returns {void}
+   */
+  function setChangeListener(listener) {
+    changeListener = typeof listener === 'function' ? listener : null;
+  }
+
   return {
     isFavorite,
     toggleFavorite,
+    listFavorites,
+    replaceFavorites,
+    setChangeListener,
   };
 }

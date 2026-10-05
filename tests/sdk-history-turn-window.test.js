@@ -170,4 +170,33 @@ assert.deepEqual(
 assert.equal(fetchedPage.hasOlder, true);
 deleteChatHistory(pageChatId);
 
+function watcherRec(text) {
+  return { kind: 'meta', variant: 'watcher', payload: JSON.stringify({ text }) };
+}
+
+const notices = [];
+for (let index = 0; index < 30; index += 1) notices.push(watcherRec(`n${index}`));
+const noticeWindow = selectTurnAlignedHistoryWindow(notices, 10);
+assert.equal(noticeWindow.length, 10);
+assert.equal(JSON.parse(noticeWindow[0].payload).text, 'n20');
+assert.equal(JSON.parse(noticeWindow[noticeWindow.length - 1].payload).text, 'n29');
+assert.deepEqual(splitHistoryPageAtUserTurn(notices.slice(0, 5)), {
+  buffered: [],
+  renderable: notices.slice(0, 5),
+});
+const noticePool = notices.map((rec, index) => ({ seq: index + 1, rec }));
+assert.equal(
+  extendHistorySliceToTurnStart(noticePool, noticePool.slice(-10), 2000).length,
+  10,
+);
+
+const noticeChatId = 'sdk-history-turn-window-notices';
+deleteChatHistory(noticeChatId);
+appendChatHistoryEvents(noticeChatId, '', notices.map((rec) => ({ rec })));
+const noticePage = getChatHistoryPage(noticeChatId, { limit: 10 });
+assert.equal(noticePage.events.length, 10);
+assert.equal(noticePage.hasOlder, true);
+assert.equal(noticePage.events[0].seq, 21);
+deleteChatHistory(noticeChatId);
+
 console.log('sdk-history-turn-window.test.js OK');

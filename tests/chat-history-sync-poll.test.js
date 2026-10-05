@@ -13,10 +13,11 @@ const chats = [
   { id: 'idle-chat', _serverRunState: { state: 'busy', delegationId: 'd2', attention: false } },
 ];
 
-const changed = applyAgentStatesToChats(chats, {
+const result = applyAgentStatesToChats(chats, {
   'busy-chat': { state: 'busy', delegationId: 'd1', attention: false },
 });
-assert.equal(changed, true);
+assert.equal(result.changed, true);
+assert.deepEqual(result.dirtyIds, ['idle-chat'], 'only the row that actually changed is dirty');
 assert.equal(chats[0]._serverRunState.state, 'busy');
 assert.equal(chats[1]._serverRunState, null);
 
@@ -57,13 +58,15 @@ assert.equal(
 const waitingChats = [
   { id: 'w1', _serverRunState: { state: 'waiting', waitingAgentCount: 1, activityKey: '' } },
 ];
+const waitingResult = applyAgentStatesToChats(waitingChats, {
+  w1: { state: 'waiting', waitingAgentCount: 2, activityKey: 'read' },
+});
 assert.equal(
-  applyAgentStatesToChats(waitingChats, {
-    w1: { state: 'waiting', waitingAgentCount: 2, activityKey: 'read' },
-  }),
+  waitingResult.changed,
   true,
   'waitingAgentCount and activityKey must bust the HTTP dedupe key'
 );
+assert.deepEqual(waitingResult.dirtyIds, ['w1']);
 assert.equal(waitingChats[0]._serverRunState.waitingAgentCount, 2);
 assert.equal(waitingChats[0]._serverRunState.activityKey, 'read');
 

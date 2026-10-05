@@ -13,10 +13,56 @@ import {
   shouldHydrateChatListFromBootCache,
   writeChatLocalBootCache,
 } from './chatLocalBootCache.js';
+import { hydrateChat as hydratePresenceChat } from './agentPresenceStore.js';
 
 function normalizePath(pathValue) {
   if (!pathValue || typeof pathValue !== 'string') return '';
   return pathValue.replace(/\\/g, '/').replace(/\/$/, '').trim();
+}
+
+/**
+ * Fingerprint of everything the chat list renders from the runtime rows (sidebar, chat bar,
+ * list modal, boot cache) plus the per-workspace archive counts. Two loads whose fingerprint
+ * matches produced the same visible list, so the expensive repaint can be skipped.
+ * Runtime-only fields (`pane`, `ws`, `_buffer`, `_fromBootCache`) are deliberately excluded.
+ *
+ * @param {object[] | null | undefined} list
+ * @param {Record<string, number> | null | undefined} archivedCounts
+ * @returns {string}
+ */
+function chatListRepaintSignature(list, archivedCounts) {
+  const parts = [];
+  for (const chat of Array.isArray(list) ? list : []) {
+    if (!chat || !chat.id) continue;
+    parts.push([
+      chat.id,
+      chat.title || '',
+      chat.titleSource || '',
+      chat.model || '',
+      chat.workspaceFile || '',
+      chat.workspaceFolder || '',
+      chat.createdAt || '',
+      chat.updatedAt || '',
+      chat.archivedAt || '',
+      chat.forkParentChatId || '',
+      chat.forkKind || '',
+      chat.widgetPinnedUrl || '',
+      chat.todoId || '',
+      chat.sdkAgentId || '',
+      chat.agentTransport || '',
+      chat.sdkMode || '',
+      chat.sdkUiMode || '',
+      chat.harnessState?.code || '',
+      chat.isTemporary === true ? '1' : '0',
+      chat.watcherPinned === true ? '1' : '0',
+      Array.isArray(chat.summaries) ? chat.summaries.length : 0,
+    ].join('\u0000'));
+  }
+  const counts = archivedCounts && typeof archivedCounts === 'object' ? archivedCounts : {};
+  const countParts = Object.keys(counts)
+    .sort()
+    .map((key) => `${key}=${counts[key]}`);
+  return `${parts.join('\u0001')}#${countParts.join('\u0002')}`;
 }
 
 export function createChatController(deps) {
@@ -53,6 +99,7 @@ export function createChatController(deps) {
     setChatStatus,
     onAfterBootHydrate,
     onAfterChatsLoad,
+    onPresenceHydrate,
   } = deps;
   let chatsLoadPromise = null;
   /** @type {object | null} */
@@ -142,12 +189,20 @@ export function createChatController(deps) {
     const headerBeforeRestore = readHeaderWorkspaceContext();
     restoreHeaderWorkspaceContext(cached.workspaceContext);
     runtimeChats.length = 0;
+    /** @type {string[]} Ids whose remembered presence is new to the cached row. */
+    const presenceDirtyIds = [];
     cached.chats.forEach((chat) => {
       chat._fromBootCache = true;
+      // The boot snapshot drops every `_` field, so a cached row never carries presence.
+      // A WS snapshot that landed before this list was seeded is still authoritative for it.
+      if (hydratePresenceChat(chat)) presenceDirtyIds.push(chat.id);
       runtimeChats.push(chat);
     });
     setActiveChatIdsForEviction(runtimeChats.map((chat) => chat.id));
     renderChatList();
+    if (presenceDirtyIds.length > 0 && typeof onPresenceHydrate === 'function') {
+      onPresenceHydrate(presenceDirtyIds);
+    }
     if (
       (headerBeforeRestore.workspaceFile || headerBeforeRestore.workspaceFolder)
       && !headerWorkspaceMatches(cached.workspaceContext, headerBeforeRestore)
@@ -303,16 +358,19 @@ export function createChatController(deps) {
     }
     chatsLoadPromise = api.getChats(apiQuery).then((data) => {
       if (!data.ok || !Array.isArray(data.chats)) return;
+      const chats = getChats();
+      const repaintBefore = chatListRepaintSignature(chats, archivedCounts);
       archivedCounts =
         data.archivedCounts && typeof data.archivedCounts === 'object'
           ? data.archivedCounts
           : Object.create(null);
-      const chats = getChats();
       const runtimeById = new Map(chats.map((chat) => [chat.id, chat]));
       /** @type {object[]} Existing chats that flipped from non-blocking to blocking in this refresh. */
       const blockedTransitions = [];
       /** @type {object[]} Existing chats that flipped from blocking to non-blocking in this refresh. */
       const restoredTransitions = [];
+      /** @type {string[]} New rows whose remembered presence changed their visible status. */
+      const presenceDirtyIds = [];
       let serverChats = data.chats;
       if (
         data.linkedChat?.id
@@ -382,6 +440,13 @@ export function createChatController(deps) {
           } else {
             delete existing.isTemporary;
           }
+          // Durable Workspace Watcher chat marker: drives pinned-mode UI and the
+          // dedicated sidebar section instead of the normal chat list.
+          if (serverChat.watcherPinned === true) {
+            existing.watcherPinned = true;
+          } else {
+            delete existing.watcherPinned;
+          }
           if (typeof serverChat.forkParentChatId === 'string' && serverChat.forkParentChatId.trim()) {
             existing.forkParentChatId = serverChat.forkParentChatId.trim();
           } else {
@@ -442,6 +507,9 @@ export function createChatController(deps) {
         if (serverChat.isTemporary === true) {
           created.isTemporary = true;
         }
+        if (serverChat.watcherPinned === true) {
+          created.watcherPinned = true;
+        }
         if (typeof serverChat.forkParentChatId === 'string' && serverChat.forkParentChatId.trim()) {
           created.forkParentChatId = serverChat.forkParentChatId.trim();
         }
@@ -456,6 +524,9 @@ export function createChatController(deps) {
         }
         const saved = readChatBufferForChatRestore(created.id, true);
         if (saved && saved.length > 0) created._buffer = saved.slice(-CHAT_BUFFER_MAX);
+        // A row this client just learned about starts without presence, and the server only
+        // re-sends a row when its fingerprint changes. Paint what the store already knows.
+        if (hydratePresenceChat(created)) presenceDirtyIds.push(created.id);
         return created;
       });
       const liveOrphans = chats.filter((chat) => {
@@ -471,9 +542,19 @@ export function createChatController(deps) {
       }
       chats.length = 0;
       nextChats.forEach((chat) => chats.push(chat));
+      const repaintNeeded = chatListRepaintSignature(chats, archivedCounts) !== repaintBefore;
       setActiveChatIdsForEviction(nextChats.map((c) => c.id));
       void migrateChatStorageOutOfLocalStorage(nextChats.map((c) => c.id));
-      renderChatList();
+      // An idempotent reconcile (a live frame for state the list already shows, a title the
+      // live sync already patched in place) must not rebuild the list modal. `updateChatBarSelect`
+      // and the boot-cache write below stay unconditional: the active chat can change anyway.
+      if (repaintNeeded) renderChatList();
+      // `chatListRepaintSignature` deliberately ignores runtime fields, so a hydrated
+      // presence row can land on a list that is otherwise unchanged and skip the repaint.
+      // The in-place sidebar refresh is what makes that status visible anyway.
+      if (presenceDirtyIds.length > 0 && typeof onPresenceHydrate === 'function') {
+        onPresenceHydrate(presenceDirtyIds);
+      }
       const visibleChats = nextChats.filter((chat) => !chat.archivedAt);
       const activeIdBeforeSelect = getActiveChatId();
       if (
@@ -499,10 +580,13 @@ export function createChatController(deps) {
           ? readStorageValueWithAlias(localStorage, LAST_CHAT_ID_KEY, '')
           : null;
         const validLast = lastId && visibleChats.some((chat) => chat.id === lastId);
+        // Never auto-open the durable watcher chat: it is an observability feed,
+        // not the user's working conversation.
+        const autoSelectChats = visibleChats.filter((chat) => chat?.watcherPinned !== true);
         if (validLast) {
           setActiveChatId(lastId);
-        } else if (visibleChats.length > 0 && !visibleChats.some((chat) => chat.id === getActiveChatId())) {
-          setActiveChatId(visibleChats[0].id);
+        } else if (autoSelectChats.length > 0 && !autoSelectChats.some((chat) => chat.id === getActiveChatId())) {
+          setActiveChatId(autoSelectChats[0].id);
         }
       }
       updateChatBarSelect();
@@ -557,6 +641,33 @@ export function createChatController(deps) {
     return chatsLoadPromise != null;
   }
 
+  /**
+   * Applies one `chatsChanged` reason:'title' frame in place: patches a single row so the
+   * sidebar, chat bar, list modal and boot cache repaint without `GET /api/chats`.
+   * `updatedAt` is left alone — the list sorts by creation date, so the row never moves, and
+   * the next real reload re-reads the server value.
+   *
+   * @param {string} chatId
+   * @param {string} title
+   * @param {string} titleSource
+   * @returns {boolean} false when this client has no such row, so the caller reloads the list
+   */
+  function patchChatTitle(chatId, title, titleSource) {
+    const id = typeof chatId === 'string' ? chatId.trim() : '';
+    const nextTitle = typeof title === 'string' ? title : '';
+    if (!id || !nextTitle) return false;
+    const chat = getChats().find((entry) => entry?.id === id);
+    if (!chat) return false;
+    const nextSource = typeof titleSource === 'string' ? titleSource.trim() : '';
+    if (chat.title === nextTitle && (chat.titleSource || '') === nextSource) return true;
+    chat.title = nextTitle;
+    if (nextSource) chat.titleSource = nextSource;
+    else delete chat.titleSource;
+    renderChatList();
+    persistChatListBootCache();
+    return true;
+  }
+
   function selectChatController(id) {
     const chats = getChats();
     const chat = chats.find((c) => c.id === id);
@@ -575,11 +686,11 @@ export function createChatController(deps) {
     setChatStatus(chat ? chat._connectionStatus || 'disconnected' : 'disconnected');
   }
 
-  function refreshChatListForWorkspace() {
+  function refreshChatListForWorkspace(options = {}) {
     const filtered = getChatsForCurrentWorkspace();
     const activeChatId = getActiveChatId();
     const stillVisible = activeChatId && filtered.some((c) => c.id === activeChatId);
-    if (!stillVisible) {
+    if (!stillVisible && options.preserveActiveChat !== true) {
       setActiveChatId(filtered.length ? filtered[0].id : null);
       selectChat(getActiveChatId());
       return;
@@ -620,9 +731,11 @@ export function createChatController(deps) {
     renderWorkspacesSelects,
     loadChatsFromServer,
     isChatsListLoadInFlight,
+    patchChatTitle,
     getArchivedCounts: () => archivedCounts,
     selectChat: selectChatController,
     refreshChatListForWorkspace,
     initChatPanelBridge,
+    persistChatListBootCache,
   };
 }

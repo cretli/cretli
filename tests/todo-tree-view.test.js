@@ -155,16 +155,23 @@ runCase('formatTodoAssigneeBadge and row marks', () => {
     id: 'c',
     parentId: 'p',
     siblingIndex: 0,
-    status: 'idea',
+    status: 'ready',
     assignee: { harness: 'opencode', model: 'glm', role: 'implement' },
   };
   const items = [parent, child];
   assert.equal(formatTodoAssigneeBadge(child), 'opencode · glm · implement');
   assert.equal(formatTodoAssigneeBadge(parent), '');
+  // An unapproved plan on the parent gates the whole subtree.
   assert.equal(readTodoRowMark(items, child), 'blocked');
   parent.plan = { markdown: '# plan', approvedAt: '2026-01-01T00:00:00.000Z' };
   assert.equal(readTodoRowMark(items, child), 'ready');
   assert.equal(readTodoRowMark(items, parent), '');
+  // An approved plan alone does not make a draft leaf runnable: `ready` is an
+  // explicit status, so `idea` rows stay unmarked even under an approved parent.
+  child.status = 'idea';
+  assert.equal(readTodoRowMark(items, child), '');
+  child.status = 'doing';
+  assert.equal(readTodoRowMark(items, child), '');
 });
 
 runCase('canAddTodoChild stops at max depth', () => {

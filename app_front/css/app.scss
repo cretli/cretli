@@ -3471,6 +3471,31 @@ cr-todo-card.todo-card {
   overflow: auto;
 }
 
+.todo-item-plan-approved {
+  color: var(--cr-success, #22c55e);
+  font-size: 1em;
+}
+
+.todo-item-plan-approve-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--cr-radius-sm);
+  border: 1px solid var(--cr-success, #22c55e);
+  background: transparent;
+  color: var(--cr-success, #22c55e);
+  font: inherit;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover {
+    background: color-mix(in srgb, var(--cr-success, #22c55e) 12%, transparent);
+  }
+}
+
 .todo-item-plan-body.files-preview-markdown :is(h1, h2, h3, h4):first-child {
   margin-top: 0;
 }
@@ -7652,6 +7677,53 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
   color: var(--cr-warn);
 }
 
+/* Pinned Workspace Chat: special watcher notice line (icon + timestamp + text). */
+.sdk-rich-line--watcher {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  background: color-mix(in srgb, var(--cr-accent, #3b82f6) 10%, transparent);
+  color: var(--cr-text);
+  font-size: 0.8rem;
+
+  .sdk-rich-watcher-icon {
+    flex-shrink: 0;
+    color: var(--cr-accent, #3b82f6);
+  }
+
+  .sdk-rich-watcher-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  &.sdk-rich-line--watcher-warn {
+    background: var(--cr-warn-bg);
+    color: var(--cr-warn);
+
+    .sdk-rich-watcher-icon {
+      color: var(--cr-warn);
+    }
+  }
+
+  &.sdk-rich-line--watcher-error {
+    background: color-mix(in srgb, #ef4444 14%, transparent);
+    color: #fca5a5;
+
+    .sdk-rich-watcher-icon {
+      color: #fca5a5;
+    }
+  }
+
+  &.sdk-rich-line--watcher-success {
+    background: color-mix(in srgb, #22c55e 14%, transparent);
+    color: #86efac;
+
+    .sdk-rich-watcher-icon {
+      color: #86efac;
+    }
+  }
+}
+
 .sdk-timeout-progress {
   display: grid;
   gap: 0.45rem;
@@ -8243,6 +8315,96 @@ body.sdk-image-lightbox-open {
       border-radius: 4px;
       background: var(--cr-surface-code);
     }
+  }
+}
+
+// GFM tables in chat, plans, todo, and file preview. Wide columns stay a grid
+// and scroll sideways; a narrow panel stacks each row under its header label.
+.sdk-rich-table-scroll {
+  container-type: inline-size;
+  margin: 0.45rem 0;
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: var(--cr-radius-sm);
+
+  table {
+    width: 100%;
+    min-width: 28rem;
+    border: 1px solid var(--cr-border);
+    border-collapse: collapse;
+    border-radius: var(--cr-radius-sm);
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+
+  th,
+  td {
+    padding: 0.4rem 0.55rem;
+    border-bottom: 1px solid var(--cr-border);
+    text-align: left;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+
+  th {
+    background: var(--cr-surface);
+    color: var(--cr-text-strong);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  tr:last-child td {
+    border-bottom: 0;
+  }
+}
+
+@container (max-width: 40rem) {
+  .sdk-rich-table-scroll table {
+    min-width: 0;
+    border: 0;
+  }
+
+  .sdk-rich-table-scroll table,
+  .sdk-rich-table-scroll thead,
+  .sdk-rich-table-scroll tbody,
+  .sdk-rich-table-scroll tr,
+  .sdk-rich-table-scroll th,
+  .sdk-rich-table-scroll td {
+    display: block;
+    width: auto;
+  }
+
+  .sdk-rich-table-scroll thead {
+    display: none;
+  }
+
+  .sdk-rich-table-scroll tr {
+    margin: 0 0 0.45rem;
+    border: 1px solid var(--cr-border);
+    border-radius: var(--cr-radius-sm);
+    background: var(--cr-surface);
+    overflow: hidden;
+  }
+
+  .sdk-rich-table-scroll tr td {
+    border-bottom: 1px solid var(--cr-border);
+  }
+
+  .sdk-rich-table-scroll tr td:last-child {
+    border-bottom: 0;
+  }
+
+  .sdk-rich-table-scroll td:empty {
+    display: none;
+  }
+
+  .sdk-rich-table-scroll td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.12rem;
+    color: var(--cr-text-muted);
+    font-size: 0.68rem;
+    font-weight: 600;
   }
 }
 
@@ -10787,21 +10949,233 @@ body.sidebar-workspace-drag-active {
       color: var(--cr-text);
     }
   }
+}
 
-  .sidebar-workspace-count {
+// Shared count pill. The workspace header and the archive section header both
+// render it, so it must not live nested inside `.sidebar-workspace-header` —
+// otherwise the archive count inherited the row font size ("908" looked oversized).
+.sidebar-workspace-count {
+  flex-shrink: 0;
+  min-width: 1.2rem;
+  padding: 0 0.35rem;
+  border-radius: 8px;
+  background: var(--cr-surface-2);
+  color: var(--cr-text-muted);
+  font-size: 0.7rem;
+  text-align: center;
+
+  &:empty {
+    display: none;
+  }
+}
+
+.sidebar-workspace-autopilot {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  margin-left: 0.35rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  border: 1px solid #3b82f6;
+  color: #93c5fd;
+  font-size: 0.68rem;
+  line-height: 1.5;
+  white-space: nowrap;
+
+  &[data-state='paused'] {
+    border-color: #f59e0b;
+    color: #fcd34d;
+  }
+
+  &[data-state='stopped'] {
+    border-color: #ef4444;
+    color: #fca5a5;
+  }
+}
+
+.sidebar-workspace-autopilot-label {
+  max-width: 12ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Dedicated "Workspace" section: pinned watcher chat per workspace, kept out of
+   the normal chat list. */
+.sidebar-pinned-section {
+  margin: 0.35rem 0 0.5rem;
+  padding: 0 0.5rem;
+}
+
+.sidebar-pinned-section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.35rem;
+  color: var(--cr-text-dim, #94a3b8);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sidebar-pinned-chats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sidebar-pinned-empty {
+  padding: 0.3rem 0.45rem;
+  color: var(--cr-text-muted);
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+.sidebar-pinned-chat {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.45rem;
+  border-radius: 0.4rem;
+  cursor: pointer;
+
+  &:hover,
+  &.is-active {
+    background: color-mix(in srgb, var(--cr-accent, #3b82f6) 16%, transparent);
+  }
+
+  .sidebar-pinned-chat-icon {
     flex-shrink: 0;
-    min-width: 1.2rem;
-    padding: 0 0.35rem;
-    border-radius: 8px;
-    background: var(--cr-surface-2);
-    color: var(--cr-text-muted);
-    font-size: 0.7rem;
-    text-align: center;
+    color: var(--cr-accent, #3b82f6);
+  }
 
-    &:empty {
-      display: none;
+  .sidebar-pinned-chat-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .sidebar-pinned-chat-title {
+    font-size: 0.82rem;
+    color: var(--cr-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sidebar-pinned-chat-sub {
+    font-size: 0.68rem;
+    color: var(--cr-text-dim, #94a3b8);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sidebar-pinned-chat-status {
+    flex-shrink: 0;
+    font-size: 0.66rem;
+    color: #fcd34d;
+  }
+}
+
+// Header control that switches the Workspace section between "watcher only" and
+// "every workspace" (so a watcher can be enabled for a workspace that has none).
+.sidebar-watcher-show-all {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cr-text-dim, #94a3b8);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+
+  .mdi {
+    font-size: 0.9rem;
+    line-height: 1;
+  }
+
+  &:hover {
+    background: var(--cr-hover);
+    color: var(--cr-text);
+  }
+
+  &.is-active {
+    border-color: color-mix(in srgb, var(--cr-accent, #3b82f6) 60%, transparent);
+    background: color-mix(in srgb, var(--cr-accent, #3b82f6) 22%, transparent);
+    color: var(--cr-accent, #3b82f6);
+  }
+}
+
+// A workspace listed only in "show all" mode has no pinned chat yet, so its row
+// is not clickable — only the switch is.
+.sidebar-pinned-chat--no-chat {
+  cursor: default;
+}
+
+// Small pill switch in the Workspace section: the master server-wide start gate
+// in the header and one per pinned workspace. `aria-checked` drives the state.
+.sidebar-watcher-toggle {
+  flex-shrink: 0;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 1.9rem;
+  height: 1.05rem;
+  padding: 0;
+  border: 1px solid var(--cr-border-strong);
+  border-radius: 999px;
+  background: var(--cr-surface-2);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+
+  .sidebar-watcher-toggle-knob {
+    position: absolute;
+    top: 50%;
+    left: 0.12rem;
+    width: 0.72rem;
+    height: 0.72rem;
+    border-radius: 50%;
+    background: var(--cr-text-muted);
+    transform: translateY(-50%);
+    transition: left 0.12s ease, background 0.12s ease;
+  }
+
+  &[aria-checked='true'] {
+    border-color: color-mix(in srgb, var(--cr-accent, #3b82f6) 70%, transparent);
+    background: color-mix(in srgb, var(--cr-accent, #3b82f6) 35%, transparent);
+
+    .sidebar-watcher-toggle-knob {
+      left: calc(100% - 0.84rem);
+      background: var(--cr-accent, #3b82f6);
     }
   }
+
+  &:hover:not(:disabled) {
+    border-color: var(--cr-border-control);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}
+
+// When the master gate is off, dim the per-workspace switches so the row state
+// never looks like it is actually running.
+.sidebar-pinned-section.is-gated .sidebar-pinned-chat .sidebar-watcher-toggle {
+  opacity: 0.5;
 }
 
 .sidebar-chat-list {
@@ -10847,7 +11221,7 @@ body.sidebar-workspace-drag-active {
 .sidebar-archive-list {
   list-style: none;
   margin: 0;
-  padding: 0 0 0 0.4rem;
+  padding: 0;
 
   &[hidden] {
     display: none;
@@ -11320,13 +11694,42 @@ body.theme-light .sidebar-chat-item-harness--codex img {
     font-weight: 400;
 
     .mdi {
+      flex-shrink: 0;
+      // Same box as an action button, glyph centred. Equal icon boxes plus the
+      // shared column-gap give the cog → archive → star gaps the same width.
+      width: 1.8rem;
       font-size: 0.95rem;
       line-height: 1;
+      text-align: center;
     }
   }
 
   &--active {
     color: var(--cr-success);
+    // Stable geometry: the spinning icon is always present and the label below
+    // reserves a fixed width, so tool-to-tool label changes never reflow the
+    // title next to the chip.
+    width: auto;
+    gap: 0.25rem;
+    // The markup is [icon][label]; row-reverse paints it as [label][icon] and
+    // packs from the right edge, so the cog lands in the same vertical column as
+    // the settled outcome icons (archive / star keep their columns) while the
+    // activity text sits to its left.
+    flex-direction: row-reverse;
+    justify-content: flex-start;
+
+    .sidebar-chat-item-activity-label {
+      display: inline-block;
+      width: 4rem;
+      max-width: 4rem;
+      overflow: hidden;
+      font-size: 0.62rem;
+      font-weight: 500;
+      line-height: 1;
+      text-align: right;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   }
 
   &--disconnected {
@@ -11402,6 +11805,14 @@ body.theme-light .sidebar-chat-item-harness--codex img {
     color: var(--cr-text);
     opacity: 1;
   }
+
+  &:disabled,
+  &:disabled:hover {
+    opacity: 0.35;
+    cursor: default;
+    background: transparent;
+    color: var(--cr-text-muted);
+  }
 }
 
 .sidebar-chat-item:hover .sidebar-chat-action,
@@ -11436,6 +11847,16 @@ body.theme-light .sidebar-chat-item-harness--codex img {
     grid-template-columns: 0.5rem 1.35rem minmax(0, 1fr) 2.2rem 1.8rem 1.55rem 1.55rem 1.55rem;
   }
 
+  // Working rows reserve a wider fixed chip column so the activity label never
+  // steals width from the title mid-run.
+  .sidebar-chat-item.has-activity-status {
+    grid-template-columns: 0.5rem 1.35rem minmax(0, 1fr) 2.2rem 5.75rem 1.55rem 1.55rem;
+  }
+
+  .sidebar-chat-item.has-activity-status.has-pin-actions {
+    grid-template-columns: 0.5rem 1.35rem minmax(0, 1fr) 2.2rem 5.75rem 1.55rem 1.55rem 1.55rem;
+  }
+
   .sidebar-chat-item-state { grid-column: 1; }
   .sidebar-chat-item-harness { grid-column: 2; }
   .sidebar-chat-item-title {
@@ -11461,7 +11882,6 @@ body.theme-light .sidebar-chat-item-harness--codex img {
     display: inline-flex;
     visibility: hidden;
   }
-  .sidebar-chat-item-awaiting--active,
   .sidebar-chat-item-awaiting--disconnected,
   .sidebar-chat-item-awaiting--connecting,
   .sidebar-chat-item-awaiting--syncing,
@@ -11472,6 +11892,16 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   .sidebar-chat-item-awaiting--choice {
     width: 100%;
     justify-content: flex-end;
+  }
+  // The working chip is row-reversed ([label][cog]), so it must pack from the
+  // right edge with flex-start to keep the cog on the outcome-icon column.
+  .sidebar-chat-item-awaiting--active {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  // Match the narrower action-button box so the cog lines up with archive/star.
+  .sidebar-chat-item-awaiting > .mdi {
+    width: 1.55rem;
   }
   .sidebar-chat-pin-btn { grid-column: 6; }
   .sidebar-chat-item:not(.has-pin-actions) .sidebar-chat-archive-btn,

@@ -5,6 +5,7 @@ import {
   isTodoNodeBlocked,
   listReadyTodoLeaves,
   renumberTodoSiblings,
+  synchronizeTodoParentStatuses,
   todoNodeDepth,
   todoSubtreeHeight,
   wouldCreateTodoParentCycle,
@@ -112,10 +113,23 @@ runCase('isTodoNodeBlocked: unapproved parent plan blocks children', () => {
   assert.equal(isTodoNodeBlocked(items, items[0]), false);
 });
 
+runCase('isTodoNodeBlocked: approved top parent unlocks an unapproved intermediate plan', () => {
+  const items = [
+    { id: 'root', status: 'doing', plan: { markdown: '# module', approvedAt: 'yes' } },
+    { id: 'phase', parentId: 'root', status: 'ready', plan: { markdown: '# phase draft' } },
+    { id: 'leaf', parentId: 'phase', status: 'ready' },
+  ];
+  assert.equal(isTodoNodeBlocked(items, items[2]), false);
+  assert.deepEqual(listReadyTodoLeaves(items).map((row) => row.id), ['leaf']);
+  items[0].plan = { markdown: '# module' };
+  assert.equal(isTodoNodeBlocked(items, items[2]), true);
+  assert.deepEqual(listReadyTodoLeaves(items).map((row) => row.id), []);
+});
+
 runCase('isTodoNodeBlocked: a grouping parent without a plan does not block', () => {
   const items = [
     { id: 'group' },
-    { id: 'kid', parentId: 'group' },
+    { id: 'kid', parentId: 'group', status: 'ready' },
   ];
   assert.equal(isTodoNodeBlocked(items, items[1]), false);
   assert.deepEqual(listReadyTodoLeaves(items).map((row) => row.id), ['kid']);
@@ -142,31 +156,33 @@ runCase('isTodoNodeBlocked: parallel parent ignores earlier siblings', () => {
   assert.equal(isTodoNodeBlocked(items, items[2]), false);
 });
 
-runCase('listReadyTodoLeaves: filters done/doing, non-leaves, and blocked', () => {
+runCase('listReadyTodoLeaves: filters done/doing/idea, non-leaves, and blocked', () => {
   const items = [
-    { id: 'root', plan: { approvedAt: 'yes' } },
-    { id: 'a', parentId: 'root', status: 'idea' },
+    { id: 'root', runMode: 'parallel', plan: { approvedAt: 'yes' } },
+    { id: 'a', parentId: 'root', status: 'ready' },
     { id: 'b', parentId: 'root', status: 'done' },
     { id: 'c', parentId: 'root', status: 'doing' },
-    { id: 'd', parentId: 'root', status: 'idea', plan: { approvedAt: 'yes' } },
-    { id: 'd1', parentId: 'd', status: 'idea' },
-    { id: 'solo', status: 'idea' },
+    { id: 'e', parentId: 'root', status: 'idea' },
+    { id: 'd', parentId: 'root', status: 'ready', plan: { approvedAt: 'yes' } },
+    { id: 'd1', parentId: 'd', status: 'ready' },
+    { id: 'solo', status: 'ready' },
     { id: 'blockedParent', plan: { markdown: 'no approval' } },
-    { id: 'blockedKid', parentId: 'blockedParent', status: 'idea' },
+    { id: 'blockedKid', parentId: 'blockedParent', status: 'ready' },
   ];
   const ready = listReadyTodoLeaves(items);
   const readyIds = ready.map((row) => row.id).sort();
-  // 'root' has children; 'b' done; 'c' doing; 'd' has child d1; d1 ready;
-  // 'a' ready; 'solo' ready; 'blockedKid' blocked by unapproved parent plan.
+  // 'root' has children; 'b' done; 'c' doing; 'e' idea (excluded);
+  // 'd' has child d1; d1 ready; 'a' ready; 'solo' ready;
+  // 'blockedKid' blocked by unapproved parent plan.
   assert.deepEqual(readyIds, ['a', 'd1', 'solo']);
 });
 
 runCase('listReadyTodoLeaves: rootId limits to a subtree', () => {
   const items = [
     { id: 'root', plan: { approvedAt: 'yes' } },
-    { id: 'a', parentId: 'root', status: 'idea' },
-    { id: 'b', parentId: 'root', status: 'idea' },
-    { id: 'other', status: 'idea' },
+    { id: 'a', parentId: 'root', status: 'ready' },
+    { id: 'b', parentId: 'root', status: 'ready' },
+    { id: 'other', status: 'ready' },
   ];
   const ready = listReadyTodoLeaves(items, { rootId: 'a' });
   assert.deepEqual(ready.map((row) => row.id), ['a']);
@@ -177,8 +193,8 @@ runCase('listReadyTodoLeaves: rootId limits to a subtree', () => {
 runCase('listReadyTodoLeaves: rootId scope still sees earlier siblings of a sequential parent', () => {
   const items = [
     { id: 'root', runMode: 'sequential', plan: { approvedAt: 'yes' } },
-    { id: 'a', parentId: 'root', siblingIndex: 0, status: 'idea' },
-    { id: 'b', parentId: 'root', siblingIndex: 1, status: 'idea' },
+    { id: 'a', parentId: 'root', siblingIndex: 0, status: 'ready' },
+    { id: 'b', parentId: 'root', siblingIndex: 1, status: 'ready' },
   ];
   assert.deepEqual(listReadyTodoLeaves(items, { rootId: 'b' }), []);
 });
@@ -186,11 +202,40 @@ runCase('listReadyTodoLeaves: rootId scope still sees earlier siblings of a sequ
 runCase('listReadyTodoLeaves: a blocked ancestor blocks its descendants', () => {
   const items = [
     { id: 'root', runMode: 'sequential', plan: { approvedAt: 'yes' } },
-    { id: 'a', parentId: 'root', siblingIndex: 0, status: 'idea' },
-    { id: 'b', parentId: 'root', siblingIndex: 1, status: 'idea', plan: { approvedAt: 'yes' } },
-    { id: 'b1', parentId: 'b', siblingIndex: 0, status: 'idea' },
+    { id: 'a', parentId: 'root', siblingIndex: 0, status: 'ready' },
+    { id: 'b', parentId: 'root', siblingIndex: 1, status: 'ready', plan: { approvedAt: 'yes' } },
+    { id: 'b1', parentId: 'b', siblingIndex: 0, status: 'ready' },
   ];
   assert.deepEqual(listReadyTodoLeaves(items).map((row) => row.id), ['a']);
+});
+
+runCase('default sequential blocks a later subtree until the earlier subtree is complete', () => {
+  const items = [
+    { id: 'r' },
+    { id: 'a', parentId: 'r', siblingIndex: 0, status: 'done' },
+    { id: 'a1', parentId: 'a', siblingIndex: 0, status: 'ready' },
+    { id: 'b', parentId: 'r', siblingIndex: 1, status: 'ready' },
+    { id: 'b1', parentId: 'b', status: 'ready' },
+  ];
+  assert.deepEqual(listReadyTodoLeaves(items).map((row) => row.id), ['a1']);
+  items[2].status = 'done';
+  assert.deepEqual(listReadyTodoLeaves(items).map((row) => row.id), ['b1']);
+});
+
+runCase('parent statuses complete and reopen bottom-up at every depth without changing leaves', () => {
+  const items = [
+    { id: 'r', status: 'done' },
+    { id: 'p', parentId: 'r', status: 'done' },
+    { id: 'c', parentId: 'p', status: 'doing' },
+  ];
+  synchronizeTodoParentStatuses(items);
+  assert.deepEqual(items.map((row) => row.status), ['doing', 'doing', 'doing']);
+  items[2].status = 'done';
+  synchronizeTodoParentStatuses(items);
+  assert.deepEqual(items.map((row) => row.status), ['done', 'done', 'done']);
+  items[2].status = 'ready';
+  synchronizeTodoParentStatuses(items);
+  assert.deepEqual(items.map((row) => row.status), ['ready', 'ready', 'ready']);
 });
 
 process.exit(failed ? 1 : 0);

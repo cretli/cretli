@@ -27,10 +27,16 @@ const EDGE_SCROLL_SPEED = 12;
  *   body: HTMLElement | null,
  *   isEnabled?: () => boolean,
  *   onOrderChange?: (keys: string[]) => void,
+ *   onSettled?: () => void,
  * }} options
  * @returns {{ isDragging: () => boolean }}
  */
-export function initSidebarWorkspaceDrag({ body, isEnabled = () => true, onOrderChange = () => {} }) {
+export function initSidebarWorkspaceDrag({
+  body,
+  isEnabled = () => true,
+  onOrderChange = () => {},
+  onSettled = () => {},
+}) {
   if (!body || typeof window === 'undefined' || typeof PointerEvent === 'undefined') {
     return { isDragging: () => false };
   }
@@ -109,16 +115,22 @@ export function initSidebarWorkspaceDrag({ body, isEnabled = () => true, onOrder
     cancelAnimationFrame(finished.raf);
     finished.li.classList.remove('is-dragging');
     document.body?.classList.remove('sidebar-workspace-drag-active');
-    if (!finished.moved) return;
-    // A live reorder already happened: swallow the click that browsers fire
-    // after pointerup so the drop does not toggle/activate the workspace.
-    suppressClick = true;
-    const keys = collectWorkspaceKeysFromList(finished.list);
-    const changed =
-      keys.length !== finished.originalKeys.length ||
-      keys.some((key, i) => key !== finished.originalKeys[i]);
-    if (!changed) return;
-    onOrderChange(keys);
+    try {
+      if (!finished.moved) return;
+      // A live reorder already happened: swallow the click that browsers fire
+      // after pointerup so the drop does not toggle/activate the workspace.
+      suppressClick = true;
+      const keys = collectWorkspaceKeysFromList(finished.list);
+      const changed =
+        keys.length !== finished.originalKeys.length ||
+        keys.some((key, i) => key !== finished.originalKeys[i]);
+      if (!changed) return;
+      onOrderChange(keys);
+    } finally {
+      // Flush any render deferred while the group was dragging, even a
+      // press-and-hold that never actually moved the group.
+      onSettled();
+    }
   }
 
   function onPointerDown(ev) {

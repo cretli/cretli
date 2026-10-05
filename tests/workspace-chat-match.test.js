@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   chatBelongsToWorkspaceGroup,
+  findWorkspaceFileContainingFolder,
   listCloneFoldersForWorkspaceFile,
+  resolveWorkspaceTargetForChat,
 } from '../app_front/features/sidebar/workspaceChatMatch.js';
 
 const workspaceFile = '/ws/app.code-workspace';
@@ -76,4 +78,109 @@ test('clone group does not take chats without a folder', () => {
     },
   );
   assert.equal(actual, false);
+});
+
+test('chat without workspaceFile matches parent group by workspaceFolder', () => {
+  // Watcher orchestrator chats and their delegation sub-chats have only
+  // workspaceFolder set (workspaceFile is null). They should appear in the
+  // sidebar under the matching workspace group.
+  const watcherChat = { workspaceFolder: parentFolder };
+  assert.equal(
+    chatBelongsToWorkspaceGroup(watcherChat, {
+      workspaceFile,
+      groupFolder: parentFolder,
+      isClone: false,
+      cloneFolders: [],
+    }),
+    true,
+  );
+});
+
+test('resolveWorkspaceTargetForChat switches file and folder from the chat', () => {
+  const catalog = [
+    {
+      workspaceFile,
+      workspaceDir: parentFolder,
+      folders: [{ resolvedPath: landingFolder }],
+    },
+  ];
+  const active = { workspaceFile: '/ws/other.code-workspace', workspaceFolder: '/ws/other' };
+  assert.deepEqual(
+    resolveWorkspaceTargetForChat(
+      { workspaceFile, workspaceFolder: landingFolder },
+      active,
+      catalog,
+    ),
+    { workspaceFile, workspaceFolder: landingFolder },
+  );
+  assert.equal(
+    resolveWorkspaceTargetForChat(
+      { workspaceFile, workspaceFolder: landingFolder },
+      { workspaceFile, workspaceFolder: landingFolder },
+      catalog,
+    ),
+    null,
+  );
+});
+
+test('resolveWorkspaceTargetForChat finds the file from a folder-only chat', () => {
+  const catalog = [
+    { workspaceFile, workspaceDir: parentFolder, folders: [{ resolvedPath: parentFolder }] },
+  ];
+  assert.equal(findWorkspaceFileContainingFolder(catalog, parentFolder), workspaceFile);
+  assert.deepEqual(
+    resolveWorkspaceTargetForChat(
+      { workspaceFolder: parentFolder },
+      { workspaceFile: '/ws/other.code-workspace', workspaceFolder: '/ws/other' },
+      catalog,
+    ),
+    { workspaceFile, workspaceFolder: parentFolder },
+  );
+  assert.equal(
+    resolveWorkspaceTargetForChat({ title: 'legacy' }, { workspaceFile }, catalog),
+    null,
+  );
+});
+
+test('resolveWorkspaceTargetForChat uses the sidebar preferred folder', () => {
+  const sidebarKey = `${workspaceFile}#clone-landing`;
+  const rows = [
+    { workspaceFile, sidebarKey: workspaceFile, isClone: false, workspaceDir: parentFolder },
+    { workspaceFile, sidebarKey, isClone: true, workspaceDir: parentFolder },
+  ];
+  const prefer = (key) => (key === sidebarKey ? landingFolder : parentFolder);
+  assert.equal(findWorkspaceFileContainingFolder(rows, landingFolder, prefer), workspaceFile);
+  assert.deepEqual(
+    resolveWorkspaceTargetForChat(
+      { workspaceFolder: landingFolder },
+      { workspaceFile, workspaceFolder: parentFolder },
+      rows,
+      prefer,
+    ),
+    { workspaceFile, workspaceFolder: landingFolder },
+  );
+});
+
+test('chat without workspaceFile does not match wrong folder or clone group', () => {
+  const watcherChat = { workspaceFolder: parentFolder };
+  assert.equal(
+    chatBelongsToWorkspaceGroup(watcherChat, {
+      workspaceFile,
+      groupFolder: landingFolder,
+      isClone: false,
+      cloneFolders: [],
+    }),
+    false,
+    'wrong folder',
+  );
+  assert.equal(
+    chatBelongsToWorkspaceGroup(watcherChat, {
+      workspaceFile,
+      groupFolder: parentFolder,
+      isClone: true,
+      cloneFolders: [parentFolder],
+    }),
+    false,
+    'clone group',
+  );
 });

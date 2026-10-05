@@ -32,6 +32,12 @@ import {
   shouldSkipHttpAgentStates,
 } from '../../../lib/agent-presence-policy.js';
 import {
+  agentRunStateDedupeKey,
+  applyDelta as applyPresenceDelta,
+  applyHttpStates as applyPresenceHttpStates,
+  applySnapshot as applyPresenceSnapshot,
+} from './agentPresenceStore.js';
+import {
   getViewAppliedSeq,
   resolveHistorySyncPollFollowUp,
   shouldClearPendingRemoteHistory,
@@ -71,6 +77,26 @@ let pollInFlight = false;
 let pollQueued = false;
 let lastPresenceAt = 0;
 let lastPresenceSeq = 0;
+/**
+ * Bus process identity of the last presence frame. A change means the server restarted
+ * (or the bus was re-initialized), so the local seq baseline is meaningless and a full
+ * snapshot is required before deltas can be trusted again.
+ * @type {string}
+ */
+let lastPresenceEpoch = '';
+/**
+ * Set when local presence is known incomplete (seq gap or epoch change). The HTTP
+ * agent-states fallback must not be skipped while this is set, and a snapshot clears it.
+ * @type {boolean}
+ */
+let presenceFallbackRequired = false;
+/**
+ * When the current uncertainty started. An HTTP response is only allowed to clear
+ * `presenceFallbackRequired` when it was requested after this instant; a gap that lands
+ * while the request is in flight stays pending for the next poll.
+ * @type {number}
+ */
+let presenceUncertaintyAt = 0;
 
 /**
  * @typedef {object} ChatHistorySyncPollDeps
@@ -79,7 +105,7 @@ let lastPresenceSeq = 0;
  * @property {(chat: object, context?: object) => Promise<{ status?: string } | void>} syncSdkHistoryOnResume
  * @property {{ log: (tag: string, message: string, payload?: object) => void }} appLogger
  * @property {() => void} [onPendingHistoryChange]
- * @property {() => void} [onAgentStatesChange]
+ * @property {(ids?: string[]) => void} [onAgentStatesChange]
  * @property {(ids?: string[]) => void} [onAgentPresenceChange]
  * @property {() => 'local' | 'redis' | string} [getSdkRoomBusMode]
  * @property {() => boolean} [hasOpenHarnessWs]
@@ -176,40 +202,50 @@ export function canClearPendingRemoteHistoryAfterStoreAck(input) {
  * chat is stamped with the server watermark `_serverRunStateAt`. That watermark
  * blocks an older push-inbox record from resurrecting a superseded state.
  *
+ * The full map also goes into `agentPresenceStore` first, so an id the list does not
+ * contain yet keeps its row and its watermark until the chat object exists.
+ *
  * @param {object[]} chats
  * @param {Record<string, object> | null | undefined} statesById
- * @returns {boolean}
+ * @param {{ requestedAt?: number }} [options] HTTP request start time. Rows already newer
+ *   than the request (a WS frame that landed while it was in flight) are left untouched,
+ *   so a late HTTP response can never roll back a newer push.
+ * @returns {{ changed: boolean, dirtyIds: string[] }} `dirtyIds` are the chats whose
+ *   rendered state changed (a new state or a missing one cleared to idle). Callers must
+ *   read `.changed`, never the object as a boolean (an object is always truthy).
  */
-export function applyAgentStatesToChats(chats, statesById) {
-  if (!statesById || typeof statesById !== 'object') return false;
+export function applyAgentStatesToChats(chats, statesById, options = {}) {
+  if (!statesById || typeof statesById !== 'object') return { changed: false, dirtyIds: [] };
   let changed = false;
+  /** @type {string[]} */
+  const dirtyIds = [];
   const touchedAt = Date.now();
-  for (const chat of chats) {
+  const requestedAt = Number(options?.requestedAt);
+  const watermark = Number.isFinite(requestedAt) && requestedAt > 0 ? requestedAt : touchedAt;
+  applyPresenceHttpStates(statesById, touchedAt, { ifRowAtOrBefore: watermark });
+  const list = Array.isArray(chats) ? chats : [];
+  for (const chat of list) {
+    const prevAt = Number(chat._serverRunStateAt) || 0;
+    if (prevAt > watermark) continue;
     const next = statesById[chat.id] || null;
     const prev = chat._serverRunState || null;
     chat._serverRunStateAt = touchedAt;
     if (agentRunStateDedupeKey(prev) === agentRunStateDedupeKey(next)) continue;
     chat._serverRunState = next;
     changed = true;
+    if (chat?.id) dirtyIds.push(chat.id);
   }
-  return changed;
+  // A full HTTP map is authoritative for the uncertainty it was requested after. A gap or
+  // epoch change that landed while the request was in flight stays pending for the next pass.
+  if (!(Number.isFinite(requestedAt) && requestedAt > 0) || presenceUncertaintyAt <= requestedAt) {
+    presenceFallbackRequired = false;
+  }
+  return { changed, dirtyIds };
 }
 
-/**
- * @param {object | null | undefined} row
- * @returns {string}
- */
-export function agentRunStateDedupeKey(row) {
-  if (!row) return '';
-  return [
-    row.state || '',
-    row.delegationId || '',
-    row.attention === true ? '1' : '0',
-    String(row.waitingAgentCount || 0),
-    row.activityKey || '',
-    row.activityArg || '',
-  ].join(':');
-}
+// The presence identity lives in the store, which is the only module that has to compare a
+// remembered row against a chat object. Re-exported so `pushInbox.js` keeps one definition.
+export { agentRunStateDedupeKey };
 
 /**
  * Patch presence from a WS frame. Snapshot treats missing ids as idle.
@@ -218,6 +254,11 @@ export function agentRunStateDedupeKey(row) {
  * when its state is unchanged and even in a snapshot. The watermark is the
  * authoritative server clock that push-inbox patches are compared against, so it
  * must advance on every server message, not only on a state-key change.
+ *
+ * The frame is recorded in `agentPresenceStore` before any chat object is touched, so a
+ * snapshot that arrives while the list is still loading — or a delta naming a delegation
+ * sub-chat the client has never seen — is not lost: `chatController` hydrates the row when
+ * the chat object appears.
  *
  * @param {object[]} chats
  * @param {{ states?: Record<string, object>, cleared?: string[], snapshot?: boolean } | null | undefined} message
@@ -229,6 +270,7 @@ export function applyAgentPresenceToChats(chats, message) {
   const touchedAt = Date.now();
   if (message.snapshot === true) {
     const states = message.states && typeof message.states === 'object' ? message.states : {};
+    applyPresenceSnapshot(states, touchedAt);
     const dirtyIds = [];
     for (const chat of list) {
       const next = states[chat.id] || null;
@@ -240,6 +282,7 @@ export function applyAgentPresenceToChats(chats, message) {
     return { changed: dirtyIds.length > 0, dirtyIds };
   }
   const states = message.states && typeof message.states === 'object' ? message.states : {};
+  applyPresenceDelta(states, message.cleared, touchedAt);
   const byId = new Map(list.map((chat) => [chat.id, chat]));
   const dirtyIds = [];
   for (const [id, next] of Object.entries(states)) {
@@ -378,13 +421,60 @@ async function pullBackgroundHistoryQueue(jobs) {
 }
 
 export function ingestAgentPresenceMessage(chats, message) {
-  const seq = Number(message?.seq);
-  const snapshot = message?.snapshot === true;
-  if (hasAgentPresenceSeqGap(lastPresenceSeq, seq, snapshot)) {
-    lastPresenceAt = 0;
-    if (Number.isSafeInteger(seq) && seq > 0) lastPresenceSeq = seq;
-    return { changed: false, dirtyIds: [], seqGap: true };
+  if (!message || typeof message !== 'object') {
+    return { changed: false, dirtyIds: [], seqGap: false };
   }
+  const seq = Number(message.seq);
+  const snapshot = message.snapshot === true;
+  const epoch = typeof message.epoch === 'string' ? message.epoch : '';
+  const epochChanged = epoch !== '' && lastPresenceEpoch !== '' && epoch !== lastPresenceEpoch;
+  if (epoch !== '') lastPresenceEpoch = epoch;
+
+  if (epochChanged) {
+    // The previous process's seq baseline is gone. Reset it before deciding anything.
+    lastPresenceSeq = 0;
+    presenceFallbackRequired = true;
+    presenceUncertaintyAt = Date.now();
+  }
+
+  if (snapshot) {
+    // A snapshot is self-contained and always wins, even when its seq is lower than the
+    // one we last applied (server restart). Reset downward, never keep the stale high seq.
+    if (Number.isSafeInteger(seq)) lastPresenceSeq = seq;
+    lastPresenceAt = Date.now();
+    const applied = applyAgentPresenceToChats(chats, message);
+    presenceFallbackRequired = false;
+    return { ...applied, seqGap: false };
+  }
+
+  if (epochChanged) {
+    // A delta from a new epoch cannot be trusted as a continuation. Apply its content (it
+    // is newer than the snapshot we no longer have) and require a snapshot for the rest.
+    if (Number.isSafeInteger(seq) && seq > 0) lastPresenceSeq = seq;
+    lastPresenceAt = 0;
+    presenceFallbackRequired = true;
+    presenceUncertaintyAt = Date.now();
+    const applied = applyAgentPresenceToChats(chats, message);
+    return { ...applied, seqGap: true };
+  }
+
+  if (Number.isSafeInteger(seq) && seq > 0 && seq <= lastPresenceSeq) {
+    // Duplicate or out-of-order (epoch, seq): each chat socket re-delivers the shared bus
+    // frame, so this is the common path. Drop it before any apply work.
+    return { changed: false, dirtyIds: [], seqGap: false, duplicate: true };
+  }
+
+  if (hasAgentPresenceSeqGap(lastPresenceSeq, seq, snapshot)) {
+    // Apply the frame: it is a valid newer delta. The missing middle is filled by the
+    // HTTP agent-states snapshot the caller triggers on `seqGap`.
+    lastPresenceAt = 0;
+    presenceFallbackRequired = true;
+    presenceUncertaintyAt = Date.now();
+    if (Number.isSafeInteger(seq) && seq > 0) lastPresenceSeq = seq;
+    const applied = applyAgentPresenceToChats(chats, message);
+    return { ...applied, seqGap: true };
+  }
+
   if (Number.isSafeInteger(seq) && seq > 0) lastPresenceSeq = seq;
   lastPresenceAt = Date.now();
   const applied = applyAgentPresenceToChats(chats, message);
@@ -401,7 +491,34 @@ function shouldSkipAgentStatesHttp() {
     hasOpenHarnessWs: deps?.hasOpenHarnessWs?.() === true,
     lastPresenceAt,
     hidden: typeof document !== 'undefined' && document.hidden === true,
+    presenceUncertain: presenceFallbackRequired,
   });
+}
+
+/**
+ * Tests only. Reads the module-local presence sync state.
+ * @returns {{ lastPresenceSeq: number, lastPresenceEpoch: string, lastPresenceAt: number, presenceFallbackRequired: boolean, presenceUncertaintyAt: number }}
+ */
+export function __getAgentPresenceSyncStateForTest() {
+  return {
+    lastPresenceSeq,
+    lastPresenceEpoch,
+    lastPresenceAt,
+    presenceFallbackRequired,
+    presenceUncertaintyAt,
+  };
+}
+
+/**
+ * Tests only. Resets the module-local presence sync state.
+ * @returns {void}
+ */
+export function __resetAgentPresenceSyncForTest() {
+  lastPresenceAt = 0;
+  lastPresenceSeq = 0;
+  lastPresenceEpoch = '';
+  presenceFallbackRequired = false;
+  presenceUncertaintyAt = 0;
 }
 
 /**
@@ -419,9 +536,15 @@ export async function runChatHistoryRevisionPoll() {
   const now = Date.now();
   if (!shouldSkipAgentStatesHttp()) {
     try {
+      // Remember when the request left: a WS frame that lands while it is in flight must
+      // win over this response, which cannot contain it.
+      const requestedAt = Date.now();
       const stateResponse = await getChatAgentStates();
-      if (stateResponse?.ok && applyAgentStatesToChats(chats, stateResponse.states)) {
-        if (typeof deps.onAgentStatesChange === 'function') deps.onAgentStatesChange();
+      if (stateResponse?.ok) {
+        const applied = applyAgentStatesToChats(chats, stateResponse.states, { requestedAt });
+        if (applied.changed && typeof deps.onAgentStatesChange === 'function') {
+          deps.onAgentStatesChange(applied.dirtyIds);
+        }
       }
     } catch (err) {
       deps.appLogger.log('chat-history-poll', 'agent-state poll failed', {
@@ -637,6 +760,9 @@ export function stopChatHistorySyncPoll() {
   historySyncRetryAttempt.clear();
   lastPresenceAt = 0;
   lastPresenceSeq = 0;
+  lastPresenceEpoch = '';
+  presenceFallbackRequired = false;
+  presenceUncertaintyAt = 0;
   for (const timer of gapRecheckTimers.values()) clearTimeout(timer);
   gapRecheckTimers.clear();
   gapFirstSeenAt.clear();

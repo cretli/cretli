@@ -688,6 +688,67 @@ runCase('linkedChatIds: capped at 100, newest first', () => {
   assert.equal(row.linkedChatIds.includes('chat-0'), false);
 });
 
+runCase('tree completion: reject premature parent done, roll up all levels and invalidate stale parent CAS', () => {
+  const dataDir = path.join(tmpRoot, 'rollup-data');
+  const project = path.join(tmpRoot, 'rollup-project');
+  mkdirSync(project, { recursive: true });
+  const root = addTodo(dataDir, project, { title: 'Root', status: 'ready' }).item;
+  const branch = addTodo(dataDir, project, { title: 'Branch', status: 'ready', parentId: root.id }).item;
+  const first = addTodo(dataDir, project, { title: 'First', status: 'ready', parentId: branch.id }).item;
+  const last = addTodo(dataDir, project, { title: 'Last', status: 'ready', parentId: root.id }).item;
+  const get = (id) => loadTodosData(dataDir, project).items.find((row) => row.id === id);
+  assert.throws(() => updateTodo(dataDir, project, root.id, { status: 'done' }), (e) => e.code === 'VALIDATION');
+  assert.equal(get(first.id).status, 'ready', 'attempting parent done never completes children');
+  const rootRevision = get(root.id).updatedAt;
+  updateTodo(dataDir, project, first.id, { status: 'done' });
+  assert.equal(get(branch.id).status, 'done');
+  assert.equal(get(root.id).status, 'doing');
+  assert.notEqual(get(root.id).updatedAt, rootRevision);
+  assert.throws(() => updateTodo(dataDir, project, root.id, { title: 'stale', expectedUpdatedAt: rootRevision }), (e) => e.code === 'CONFLICT');
+  updateTodo(dataDir, project, last.id, { status: 'done' });
+  assert.equal(get(root.id).status, 'done');
+  updateTodo(dataDir, project, first.id, { status: 'ready' });
+  assert.equal(get(branch.id).status, 'ready');
+  assert.equal(get(root.id).status, 'doing');
+  const added = addTodo(dataDir, project, { title: 'New unfinished child', parentId: branch.id, status: 'ready' }).item;
+  updateTodo(dataDir, project, first.id, { status: 'done' });
+  assert.equal(get(branch.id).status, 'doing');
+  deleteTodo(dataDir, project, added.id);
+  assert.equal(get(branch.id).status, 'done');
+  assert.equal(get(root.id).status, 'done');
+});
+
+runCase('ready on a container promotes idea descendants and leaves doing work alone', () => {
+  const dataDir = path.join(tmpRoot, 'promote-data');
+  const project = path.join(tmpRoot, 'promote-project');
+  mkdirSync(project, { recursive: true });
+  const root = addTodo(dataDir, project, { title: 'Plan', status: 'idea' }).item;
+  const branch = addTodo(dataDir, project, { title: 'Phase', status: 'idea', parentId: root.id }).item;
+  const draft = addTodo(dataDir, project, { title: 'Draft leaf', status: 'idea', parentId: branch.id }).item;
+  const started = addTodo(dataDir, project, { title: 'Started leaf', status: 'doing', parentId: branch.id }).item;
+  updateTodo(dataDir, project, root.id, { status: 'ready' });
+  const get = (id) => loadTodosData(dataDir, project).items.find((row) => row.id === id);
+  assert.equal(get(draft.id).status, 'ready');
+  assert.equal(get(branch.id).status, 'doing');
+  assert.equal(get(started.id).status, 'doing');
+  assert.equal(get(root.id).status, 'doing');
+});
+
+runCase('legacy done parent with open child is repaired on reads without rewriting storage', () => {
+  const dataDir = path.join(tmpRoot, 'legacy-status-data');
+  const project = path.join(tmpRoot, 'legacy-status-project');
+  mkdirSync(project, { recursive: true });
+  const parent = addTodo(dataDir, project, { title: 'Parent' }).item;
+  addTodo(dataDir, project, { title: 'Child', parentId: parent.id, status: 'ready' });
+  const file = path.join(dataDir, 'todos', `${workspaceKeyFromCwd(project)}.json`);
+  const doc = JSON.parse(readFileSync(file, 'utf8'));
+  doc.items.find((row) => row.id === parent.id).status = 'done';
+  writeFileSync(file, JSON.stringify(doc));
+  const before = readFileSync(file, 'utf8');
+  assert.equal(loadTodosData(dataDir, project).items.find((row) => row.id === parent.id).status, 'ready');
+  assert.equal(readFileSync(file, 'utf8'), before);
+});
+
 await Promise.all(pendingCases);
 
 try {

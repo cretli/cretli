@@ -7,7 +7,7 @@ import { addChat, loadChats, updateChat } from '../lib/persist/chats-persist.js'
 import { appendChatHistoryEvents, loadChatHistory } from '../lib/persist/chat-history-persist.js';
 import { writeChatPlanFile, readChatPlanDocument } from '../lib/chat-plan-persist.js';
 import { hashDelegationContent } from '../lib/delegation-request.js';
-import { collectDelegationReportsForPrompt } from '../lib/delegation-report-context.js';
+import { collectDelegationReportsForPrompt, markDelegationReportReadByParent } from '../lib/delegation-report-context.js';
 import { createDelegationService, finishDelegation, reconcileDelegationsOnBoot } from '../lib/delegation-service.js';
 import {
   createMailboxMessage,
@@ -19,12 +19,14 @@ import {
 import { getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { DELEGATION_RUNNING_ORPHAN_GRACE_MS } from '../lib/delegation-status.js';
 import { drainChatMailbox, ensureDelegationParentMailboxReply, listChatMailbox, retryMailboxMessage, sendDelegationReply } from '../lib/delegation-mailbox.js';
+import { upsertWorkspaceWatcher } from '../lib/persist/workspace-watchers-persist.js';
 import { startChatRun } from '../lib/chat-run-service.js';
 import fs from 'node:fs';
 import {
   registerMockChatRunAdapter,
   resetMockChatRuns,
   getMockChatRun,
+  getMockChatRunStartCount,
   patchMockChatRun,
   setMockChatRunFailStart,
 } from '../lib/chat-run/mock-adapter.js';
@@ -426,6 +428,37 @@ assert.equal(findMailboxReplyForDelegation(busyAutoJob.delegation.id)?.status, '
 assert.ok(String(getDelegationById(busyAutoJob.delegation.id)?.reportDeliveredAt || '').trim());
 assert.equal(collectDelegationReportsForPrompt(busyAutoParent.id).ids.length, 0);
 
+// A parent that already read the report (delegation_show) must not be woken by
+// the queued mailbox final_report with the same body ("ponowna dostawa").
+const readReportParent = createPlanParent('Read report already');
+await startChatRun({ chatId: readReportParent.id, prompt: 'parent already working', mode: 'plan' });
+const readReportJob = await service.createAndStart({
+  parentChatId: readReportParent.id,
+  executor: { transport: 'sdk', model: 'sdk/test' },
+  planRevision: readChatPlanDocument({ cwd: project, chatId: readReportParent.id }).revision,
+  idempotencyKey: 'read-report-finish',
+});
+await noteDelegationRoomEvent({
+  chatId: readReportJob.delegation.childChatId,
+  delegationId: readReportJob.delegation.id,
+  delegationAttemptId: readReportJob.delegation.attemptId,
+  _currentRunAssistantText: 'Report the parent already read.',
+}, {
+  type: 'sdkRunFinished',
+  status: 'completed',
+  runId: readReportJob.delegation.runId,
+});
+assert.equal(findMailboxReplyForDelegation(readReportJob.delegation.id)?.status, 'queued');
+assert.equal(markDelegationReportReadByParent(readReportJob.delegation.id), true);
+assert.equal(markDelegationReportReadByParent(readReportJob.delegation.id), false);
+const startsBeforeSkip = getMockChatRunStartCount();
+patchMockChatRun(readReportParent.id, { busy: false, waitingForInput: false });
+const drainedRead = await drainChatMailbox(readReportParent.id);
+assert.equal(drainedRead[0]?.status, 'delivered');
+assert.equal(drainedRead[0]?.delivery, 'skipped_already_delivered');
+assert.equal(getMockChatRunStartCount(), startsBeforeSkip);
+assert.equal(findMailboxReplyForDelegation(readReportJob.delegation.id)?.status, 'delivered');
+
 const silentParent = createPlanParent('Silent finishDelegation');
 const silentJob = await service.createAndStart({
   parentChatId: silentParent.id,
@@ -586,6 +619,32 @@ const widgetJob = await service.createAndStart({
   idempotencyKey: 'widget-msg',
 });
 assert.equal(widgetJob.ok, true);
+
+const closedOrchestrator = createParent('Closed cycle orchestrator');
+updateChat(closedOrchestrator.id, { archived: true });
+upsertWorkspaceWatcher(project, {
+  mode: 'autopilot',
+  cycleChats: [{
+    id: closedOrchestrator.id,
+    cycleId: 'cycle-closed-1',
+    at: '2026-10-05T11:40:28.807Z',
+    outcome: 'success',
+  }],
+});
+const staleReply = createMailboxMessage({
+  fromChatId: 'child-stale',
+  toChatId: closedOrchestrator.id,
+  kind: 'reply',
+  replyKind: 'final_report',
+  body: 'stale review duplicate',
+  status: 'queued',
+});
+const skipped = await drainChatMailbox(closedOrchestrator.id);
+assert.equal(skipped.length, 1);
+assert.equal(skipped[0].id, staleReply.id);
+assert.equal(skipped[0].status, 'delivered');
+assert.equal(skipped[0].delivery, 'skipped_cycle_closed');
+assert.equal(getMockChatRun(closedOrchestrator.id), null);
 
 let corruptThrew = false;
 fs.writeFileSync(getMailboxDataPath(), '{not-json', 'utf8');

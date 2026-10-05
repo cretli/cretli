@@ -24,6 +24,7 @@ import { parseExplicitSdkMode, shouldRenderModeChange } from '../../lib/sdk/sdk-
 import { normalizeSdkUiMode } from '../../lib/sdk/sdk-ui-mode.js';
 import { splitTrailingTitleJson } from '../features/chat/chatTitleParsing.js';
 import { extractTodoRefsFromMessage, todoStatusLabelKey } from '../features/chat/todoMention.js';
+import { stripTodoExecutionWorkflow } from '../../lib/todo-execution-prompt.js';
 import { parseTimeoutProgressNotice } from '../../lib/notices.js';
 import {
   buildStableSdkToolCallFallback,
@@ -48,6 +49,7 @@ import {
   findReusableSdkThinkingBlockIndex,
   restoreSdkThinkingAccumulator,
 } from '../../lib/sdk/sdk-thinking-block-reuse.js';
+import { findPrecedingActivityTrayIndex } from '../../lib/sdk/sdk-activity-group.js';
 import {
   listAllRunItems,
   listRunItems,
@@ -71,19 +73,21 @@ import {
 import { parseContextSeedPayload } from './context-seed-payload.js';
 import { parseInheritedPrompt } from '../../lib/conversation-fork.js';
 import { registerPageResumeCleanupHook } from './pageResumeCleanup.js';
+import { isUiFreezeTraceActive } from './uiFreezeTrace.js';
+import { measureSpan } from './chatPerfBudget.js';
 import { getChatSpeaker } from '../features/voice/chatSpeaker.js';
 import { t } from '../i18n/index.js';
 import { resolveHarnessDisplayLabel } from '../features/chat/sdk-transport-labels.js';
 import {
-  formatToolSearchResult,
-  isFailedToolSearchResult,
   isToolSearchName,
+  presentToolSearchUpdate,
   parseToolSearchQuery,
   readToolSearchQuery,
 } from '../../lib/agent-harness/tool-search-display.js';
 import '../components/chat/cr-sdk-block.js';
 import { resolveChatMessageRefAction } from '../../lib/chat-message-ref.js';
 import { escapeHtml } from '../features/chat/chatHtmlUtils.js';
+import { decorateMarkdownTables, repairLooseTableRows } from './render-markdown.js';
 import {
   delegationStatusLabel,
   parseDelegationHistoryPayload,
@@ -173,7 +177,7 @@ function bindMarkdownFence(instance) {
 }
 
 function createMarkdownIt(MarkdownIt) {
-  return bindMarkdownFence(
+  return decorateMarkdownTables(bindMarkdownFence(
     new MarkdownIt({
       html: false,
       linkify: true,
@@ -195,7 +199,7 @@ function createMarkdownIt(MarkdownIt) {
         return `<pre class="sdk-rich-pre"><code class="${languageClass.trim()}">${escapeHtml(code)}</code></pre>`;
       },
     }),
-  );
+  ));
 }
 
 function loadMarkdownIt() {
@@ -222,9 +226,10 @@ function loadMarkdownIt() {
  * @returns {string}
  */
 function renderMarkdownSource(source) {
-  if (mdEngine) return mdEngine.render(source);
+  const text = repairLooseTableRows(source);
+  if (mdEngine) return mdEngine.render(text);
   void loadMarkdownIt();
-  return `<pre class="sdk-rich-pre"><code>${escapeHtml(source)}</code></pre>`;
+  return `<pre class="sdk-rich-pre"><code>${escapeHtml(text)}</code></pre>`;
 }
 
 let mermaidModulePromise = null;
@@ -786,6 +791,19 @@ export function createSdkRichView(chat, mountEl, hooks) {
   /** Render target — temporarily swapped to an offscreen node while paging older history in. */
   let stream = realStream;
 
+  /**
+   * Times a render slice only while freeze diag is on.
+   * @template T
+   * @param {string} kind
+   * @param {Record<string, unknown>} fields
+   * @param {() => T} fn
+   * @returns {T}
+   */
+  function measureRenderSpan(kind, fields, fn) {
+    if (!isUiFreezeTraceActive()) return fn();
+    return measureSpan(kind, fields, fn, () => ({ children: realStream.childElementCount }));
+  }
+
   /** @type {HTMLElement | null} */
   let assistantMdEl = null;
   /** @type {HTMLDetailsElement | null} */
@@ -808,6 +826,36 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const timer = openCodeAdvisorPickTimers.get(id);
     if (timer) clearInterval(timer);
     openCodeAdvisorPickTimers.delete(id);
+  }
+
+  /**
+   * Stamp the advisor's decision onto the permission card. This is separate
+   * from the `Once` highlight on purpose: the highlight is a countdown that
+   * ends with the apply window (or a human click), while the badge is the
+   * durable record that an external model — not the human — picked `allow`.
+   * It stays visible even when the human answered first, because the advisor
+   * decision and the final decision are different facts.
+   *
+   * @param {HTMLElement} block
+   * @param {string} requestId
+   * @param {string} decision
+   */
+  function markOpenCodePermissionAdvisor(block, requestId, decision) {
+    if (!(block instanceof HTMLElement)) return;
+    const label = String(decision || '').trim().slice(0, 24) || 'allow';
+    let badge = block.querySelector('.sdk-rich-opencode-permission-advisor');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'sdk-rich-badge sdk-rich-badge--ok sdk-rich-opencode-permission-advisor';
+      const body = block.querySelector('.sdk-rich-opencode-permission-body');
+      if (!body) return;
+      body.insertBefore(badge, body.firstChild);
+    }
+    badge.textContent = t('sdkView.openCodePermissionAdvisorBadge', { decision: label });
+    // The id is the correlation key for `data/approvals/approval-audit.jsonl`;
+    // it is a server-generated `perm_*` token, never user content.
+    const id = String(requestId || '').trim().slice(0, 64);
+    if (id) badge.title = t('sdkView.openCodePermissionAdvisorTooltip', { requestId: id });
   }
 
   function clearOpenCodeInteractiveMaps() {
@@ -1035,6 +1083,20 @@ export function createSdkRichView(chat, mountEl, hooks) {
    * @param {string} raw
    */
   function flushMarkdown(mdHost, raw, opts = {}) {
+    if (!isUiFreezeTraceActive()) {
+      paintMarkdown(mdHost, raw, opts);
+      return;
+    }
+    const chars = raw == null ? 0 : String(raw).length;
+    measureRenderSpan('markdown.flush', { chars }, () => paintMarkdown(mdHost, raw, opts));
+  }
+
+  /**
+   * @param {HTMLElement} mdHost
+   * @param {string} raw
+   * @param {{ diagrams?: boolean }} [opts]
+   */
+  function paintMarkdown(mdHost, raw, opts = {}) {
     const r = raw == null ? '' : String(raw);
     const textForDisplay = stripScreenshotMarkers(r);
     mdHost.dataset.rawMd = r;
@@ -1672,6 +1734,66 @@ export function createSdkRichView(chat, mountEl, hooks) {
     scrollToBottom();
   }
 
+  /** Action -> Material Design icon for the pinned workspace watcher feed. */
+  const WATCHER_NOTICE_ICONS = {
+    cycle_start: 'mdi-play-circle-outline',
+    plan_gate: 'mdi-file-document-outline',
+    cycle_stop: 'mdi-stop-circle-outline',
+    cycle_blocked: 'mdi-alert-circle-outline',
+    cycle_failure: 'mdi-alert-octagon-outline',
+    blocked: 'mdi-cancel',
+    alert: 'mdi-alert-octagon-outline',
+    todo_done: 'mdi-check-circle-outline',
+    stopped: 'mdi-stop-circle-outline',
+    plan_approval: 'mdi-timer-sand',
+    idle_with_work: 'mdi-timer-sand',
+    decision: 'mdi-gavel',
+  };
+
+  /**
+   * Parse a persisted `watcher` meta notice. Returns null when the payload is
+   * missing/invalid so a foreign or older record renders nothing rather than
+   * throwing.
+   *
+   * @param {string} payload
+   * @returns {{ text: string, action: string, level: string, at: string } | null}
+   */
+  function parseWatcherNoticeRecord(payload) {
+    if (typeof payload !== 'string' || !payload.trim()) return null;
+    let data;
+    try {
+      data = JSON.parse(payload);
+    } catch {
+      return null;
+    }
+    if (!data || typeof data !== 'object') return null;
+    const text = typeof data.text === 'string' ? data.text.trim() : '';
+    if (!text) return null;
+    return {
+      text,
+      action: typeof data.action === 'string' && data.action.trim() ? data.action.trim() : 'info',
+      level: ['info', 'warn', 'error', 'success'].includes(data.level) ? data.level : 'info',
+      at: typeof data.at === 'string' ? data.at : '',
+    };
+  }
+
+  /**
+   * Special persisted style for the pinned workspace watcher chat: timestamp +
+   * action icon + description.
+   *
+   * @param {{ text: string, action: string, level: string, at: string }} info
+   * @param {string} createdAt
+   */
+  function renderWatcherNoticeLine(info, createdAt) {
+    const icon = WATCHER_NOTICE_ICONS[info.action] || 'mdi-robot-outline';
+    lineMeta(
+      `sdk-rich-line--watcher sdk-rich-line--watcher-${info.level}`,
+      `<span class="mdi ${icon} sdk-rich-watcher-icon" aria-hidden="true"></span>` +
+        `<span class="sdk-rich-watcher-text">${escapeHtml(info.text)}</span>`,
+      info.at || createdAt
+    );
+  }
+
   /**
    * @param {string} text
    * @param {{ silent?: boolean }} [opts]
@@ -2037,6 +2159,68 @@ export function createSdkRichView(chat, mountEl, hooks) {
   }
 
   /**
+   * Hidden tool twins, waiting rows, and status lines sit between activity
+   * cards without starting a new turn.
+   *
+   * @param {HTMLElement} child
+   * @returns {boolean}
+   */
+  function isActivityGroupSpacer(child) {
+    if (child.classList.contains('sdk-full-tool-block')) return true;
+    if (child.classList.contains(TIMEOUT_PROGRESS_SERIES_CLASS)) return true;
+    if (child.classList.contains('sdk-rich-line')) return true;
+    return false;
+  }
+
+  /**
+   * Activity cards are one per tool when a later sibling forces an isolated
+   * render (the run map is restored and no longer sees the previous tray).
+   * The card already in the DOM, immediately before this insert point and
+   * not across a user/assistant/plan boundary, is the group to extend.
+   *
+   * @returns {object | null}
+   */
+  function findPrecedingActivityTray() {
+    const nodes = [];
+    for (const child of stream.children) {
+      if (!(child instanceof HTMLElement)) continue;
+      nodes.push({
+        el: child,
+        spacer: isActivityGroupSpacer(child),
+        hasTray: child._sdkCompactTray?.tilesEl?.isConnected === true,
+      });
+    }
+    const orderKey = resolveViewOrderKey({
+      historySeq: renderedRecordHistorySeq,
+      roomEventSeq: renderedRecordRoomEventSeq,
+      eventStreamId: renderedRecordEventStreamId,
+    });
+    const anchor = stream === realStream && !suppressAutoScroll
+      ? findInsertBeforeChild(orderKey)
+      : null;
+    const anchorIndex = anchor instanceof HTMLElement
+      ? nodes.findIndex((node) => node.el === anchor)
+      : -1;
+    const index = findPrecedingActivityTrayIndex(nodes, anchorIndex);
+    if (index < 0) return null;
+    return nodes[index].el._sdkCompactTray || null;
+  }
+
+  /**
+   * @param {object} tray
+   */
+  function noteActivityGroupTimestamp(tray) {
+    const block = tray?.container;
+    if (!(block instanceof HTMLElement)) return;
+    if (!block.classList.contains('sdk-compact-activity-block')) return;
+    const next = typeof renderedRecordCreatedAt === 'string' ? renderedRecordCreatedAt : '';
+    if (!next) return;
+    const prev = typeof block.createdAt === 'string' ? block.createdAt : '';
+    if (prev && prev >= next) return;
+    block.createdAt = next;
+  }
+
+  /**
    * @param {string} runKey
    * @param {HTMLElement | null} thinkingBlock
    * @returns {object}
@@ -2046,8 +2230,15 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (existing) return existing;
 
     if (!thinkingBlock) {
+      const preceding = findPrecedingActivityTray();
+      if (preceding) {
+        latestTrayByRun.set(runKey, preceding);
+        registerRunItem(traysByRun, runKey, preceding);
+        noteActivityGroupTimestamp(preceding);
+        return preceding;
+      }
       const latestTray = latestTrayByRun.get(runKey);
-      if (latestTray) return latestTray;
+      if (latestTray?.tilesEl?.isConnected) return latestTray;
     }
 
     let container = thinkingBlock;
@@ -2550,9 +2741,10 @@ export function createSdkRichView(chat, mountEl, hooks) {
     else if (text === 'Task from parent') shown = t('chat.mailboxTaskFromParent');
     const extracted = extractTodoRefsFromMessage(shown);
     const continuePrompt = t('sendBar.todoContinuePrompt');
-    const visibleText = extracted.todoIds.length && extracted.text === continuePrompt
+    const displayText = extracted.todoIds.length ? stripTodoExecutionWorkflow(extracted.text) : extracted.text;
+    const visibleText = extracted.todoIds.length && displayText === continuePrompt
       ? ''
-      : extracted.text;
+      : displayText;
     const textForDisplay = stripScreenshotMarkers(visibleText);
     block.copyText = text;
     const body = document.createElement('div');
@@ -3165,14 +3357,16 @@ export function createSdkRichView(chat, mountEl, hooks) {
       const args = incomingArgs && Object.keys(incomingArgs).length > 0 ? incomingArgs : prevArgs;
       let result = ev.result !== undefined ? ev.result : record?.event?.result;
       if (isToolSearchName(name) && args) {
-        result = formatToolSearchResult(args, result);
-      }
-      if (
-        isToolSearchName(name)
-        && isFailedToolSearchResult(result)
-        && shouldAcceptSdkToolStatus(status, 'error')
-      ) {
-        status = 'error';
+        const presented = presentToolSearchUpdate({
+          status,
+          args,
+          result,
+          open: isOpenSdkToolStatus(status),
+        });
+        result = presented.result;
+        if (presented.status === 'error' && shouldAcceptSdkToolStatus(status, 'error')) {
+          status = 'error';
+        }
       }
       const evForUi = {
         ...(status === incomingStatus ? ev : { ...ev, status }),
@@ -3551,6 +3745,10 @@ export function createSdkRichView(chat, mountEl, hooks) {
       const progress =
         rec.progress && typeof rec.progress === 'object' ? rec.progress : null;
       handleMetaNotice(payload, { silent: true, progress });
+    } else if (variant === 'watcher') {
+      const info = parseWatcherNoticeRecord(payload);
+      if (!info) return;
+      renderWatcherNoticeLine(info, createdAt);
     } else if (variant === 'contextSeed') {
       if (!payload.trim()) return;
       createContextSeedBlock(payload.trim(), createdAt);
@@ -4551,7 +4749,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
      * @returns {number}
      */
     prependHistoryRecords(records) {
-      return prependHistoryRecordsImpl(records);
+      const cards = Array.isArray(records) ? records.length : 0;
+      return measureRenderSpan('history.prepend', { cards }, () => prependHistoryRecordsImpl(records));
     },
 
     onStreamReset() {
@@ -4619,11 +4818,14 @@ export function createSdkRichView(chat, mountEl, hooks) {
       openCodePermissionByRequestId.delete(id);
     },
 
-    showOpenCodePermissionAdvisorPick(requestId, reply, applyAfterMs) {
+    showOpenCodePermissionAdvisorPick(requestId, reply, applyAfterMs, meta = {}) {
       const id = String(requestId || '').trim();
       const choice = reply === 'always' || reply === 'reject' ? reply : 'once';
       const block = openCodePermissionByRequestId.get(id);
-      if (!id || !block || block.classList.contains('sdk-rich-opencode-permission--answered')) return;
+      if (!id || !block) return;
+      const advisorDecision = typeof meta?.advisorDecision === 'string' ? meta.advisorDecision : '';
+      if (advisorDecision) markOpenCodePermissionAdvisor(block, id, advisorDecision);
+      if (block.classList.contains('sdk-rich-opencode-permission--answered')) return;
       const button = block.querySelector(`.sdk-rich-opencode-permission-${choice}`);
       if (!(button instanceof HTMLButtonElement)) return;
       clearAdvisorPermissionPick(id);
@@ -5050,24 +5252,26 @@ export function createSdkRichView(chat, mountEl, hooks) {
       // A replay redefines the window, so any page fetched by scrolling up is gone with it.
       bufferedOlderRecords = [];
       clearOpenCodeInteractiveMaps();
-      stream.replaceChildren();
-      suppressHooksPlain = true;
-      suppressHistoryPersist = true;
-      mdRenderImmediate = true;
       const instant = opts.instant === true && records.length <= 20;
-      try {
-        const syncCount = instant ? records.length : Math.min(records.length, 20);
-        for (let index = 0; index < syncCount; index += 1) {
-          applyHistoryRecord(records[index]);
+      const syncCount = instant ? records.length : Math.min(records.length, 20);
+      measureRenderSpan('history.replay', { cards: syncCount }, () => {
+        suppressHooksPlain = true;
+        suppressHistoryPersist = true;
+        mdRenderImmediate = true;
+        stream.replaceChildren();
+        try {
+          for (let index = 0; index < syncCount; index += 1) {
+            applyHistoryRecord(records[index]);
+          }
+        } finally {
+          suppressHooksPlain = false;
+          suppressHistoryPersist = false;
+          mdRenderImmediate = false;
+          finalizeAllTerminalRunPresentations();
+          foldDuplicateOrderKeyCards();
+          scrollToBottom({ force: true });
         }
-      } finally {
-        suppressHooksPlain = false;
-        suppressHistoryPersist = false;
-        mdRenderImmediate = false;
-        finalizeAllTerminalRunPresentations();
-        foldDuplicateOrderKeyCards();
-        scrollToBottom({ force: true });
-      }
+      });
       if (instant || records.length <= 20) return;
       void replayHistoryRecordsChunkedImpl(records, 20);
     },

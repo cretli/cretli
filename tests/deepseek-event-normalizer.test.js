@@ -29,6 +29,54 @@ const assembledMessage = normalizeDeepSeekNotification({
 assert.equal(assembledMessage[0].kind, 'session');
 assert.equal(assembledMessage[0].sessionId, 'dsh-1');
 
+// DSH attaches token accounting to the assembled message; the text must stay
+// suppressed (already streamed) while usage reaches the telemetry hook.
+const assembledUsage = normalizeDeepSeekNotification({
+  method: 'session.event',
+  params: {
+    sessionId: 'dsh-1',
+    event: {
+      type: 'assistant/message',
+      data: {
+        message: { content: [{ type: 'text', text: 'Hello from DeepSeek' }] },
+        usage: { inputTokens: 900, outputTokens: 50, cacheReadTokens: 100, reasoningTokens: 20 },
+      },
+    },
+  },
+});
+assert.equal(assembledUsage.length, 1);
+assert.equal(assembledUsage[0].type, 'usage');
+assert.deepEqual(assembledUsage[0].usage, {
+  inputTokens: 900,
+  outputTokens: 50,
+  cacheReadTokens: 100,
+  reasoningTokens: 20,
+});
+assert.equal(assembledUsage.some((item) => item.type === 'assistant'), false);
+
+// An in-process subagent's usage is forwarded (attributed to the parent room),
+// while its text surface stays hidden.
+const childUsage = normalizeDeepSeekNotification(
+  {
+    method: 'session.event',
+    params: {
+      sessionId: 'dsh-child-1',
+      event: {
+        type: 'assistant/message',
+        data: {
+          message: { content: [{ type: 'text', text: 'child text' }] },
+          usage: { inputTokens: 40, outputTokens: 5 },
+        },
+      },
+    },
+  },
+  { rootSessionId: 'dsh-1', childSessionIds: new Set() },
+);
+assert.equal(childUsage.length, 1);
+assert.equal(childUsage[0].type, 'usage');
+assert.deepEqual(childUsage[0].usage, { inputTokens: 40, outputTokens: 5 });
+assert.equal(childUsage.some((item) => item.type === 'assistant'), false);
+
 const toolEvents = normalizeDeepSeekNotification({
   method: 'session.event',
   params: {

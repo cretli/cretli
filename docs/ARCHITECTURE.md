@@ -142,8 +142,9 @@ OpenCode chats persist optional `opencodeSessionId` in `data/chats.json` for ses
   or “yes” → Agent). Review assignments keep native Cursor edit/delete/shell blocked
   (no pre-exec hook for shell). Harnesses that can deny before exec may run
   `node scripts/review-verify.js` with a frozen catalog of audited tests inside an
-  isolated data dir; arbitrary `tests/**/*.test.js`, reporters, and mutations stay
-  denied. A pre-exec deny does not abort the review job. Codex has no pre-exec
+  isolated data dir, and plain `node --test tests/<file>.test.js` or
+  `node tests/<file>.test.js` (optional pipe to `head`/`tail` only). Other node
+  flags, reporters, npm, and mutations stay denied. A pre-exec deny does not abort the review job. Codex has no pre-exec
   hook: the trusted runner is allowed, other mutations abort the turn. Codex Plan
   is prompt-only (no turn abort); Codex Ask still denies mutations on the host.
   Read-only sandbox is not used because Linux bwrap fails on non-git workspace
@@ -375,6 +376,13 @@ Model windows come from a static prefix table in `lib/sdk/sdk-context-advisory.j
 | GET | `/api/mcp/servers/:id/tools` | Last known catalog |
 | GET | `/api/mcp/status` | Config/connection status for workspace, harness, session |
 | GET/POST | `/api/mcp/bridge/*` | Session integration-token bridge (not widget, not cookie UI) |
+| GET/PATCH/DELETE | `/api/workspace-watcher` | Per-workspace watcher state (`mode`, `policy`, `stopReason`). GET never creates a row |
+| POST | `/api/workspace-watcher/tick` | One deterministic tick; autopilot may also start a cycle |
+| POST | `/api/workspace-watcher/run-cycle` | Reconcile + tick + guarded cycle start for this workspace |
+| POST | `/api/workspace-watcher/claim-next` | Atomically claim the next ready todo for a chat |
+| POST | `/api/workspace-watcher/reset-plan-requests` | Clear the anti-loop plan memory (all, or one `todoId`) |
+| POST | `/api/workspace-watcher/findings` | Record a review findings hash for the same-findings guard |
+| POST | `/api/workspace-watcher/save-plan` | Save draft todo plan with CAS; changed text requires human reapproval |
 
 ## Chat management tooling (CLI + MCP)
 
@@ -390,7 +398,8 @@ prefix or unique title substring).
   --confirm`.
 - **MCP** — `node scripts/cretli-mcp.js` (stdio, newline-delimited JSON-RPC):
   shared catalog in `lib/mcp/builtin/` (chats, TODOs, saved plans, delegations
-  plus mailbox reply/inbox, task/agent catalogs, harnesses/models). Tools are scoped to the calling chat
+  plus mailbox reply/inbox, task/agent catalogs, harnesses/models, and the `browser_*` tools of the
+  built-in Browser — `lib/mcp/builtin/browser-tools.js`, server process only). Tools are scoped to the calling chat
   workspace, not the UI global folder. `chat_list` / `chat_show` / `chat_history` / `chat_event`
   default to that workspace; pass `scope=all` to reach another workspace by id.
   `chat_history` pages events by seq (optional tool payloads). `chat_event` reads a UTF-16
@@ -580,6 +589,74 @@ a hidden session is never invisible.
 - Mobile: `visualViewport` keyboard offset, fixed send bar with safe-area insets, radial
   Kib gesture, special-char bar, screenshot/dictation support.
 
+### Sidebar live chat status
+
+A sidebar row status moves through four stages, and only the last one touches the DOM:
+
+1. **Presence bus (server)** — `lib/agent-presence-bus.js` coalesces per-chat run
+   state into one `agentPresence { epoch, seq, snapshot, states, cleared, watchers }`
+   frame per flush (~80 ms). The compact state comes from `summarizeChatRunStates`
+   (`lib/agent-run-state.js`): each id is `busy`, `waiting`, or `attention` from its
+   active run and delegation rows, and idle ids are omitted. Every chat WebSocket is
+   a subscriber, so one bus frame is delivered once per open socket; `seq` is shared
+   across sockets and `epoch` identifies the server process.
+2. **Presence store (client)** — `app_front/features/chat/agentPresenceStore.js`
+   remembers the last state per chat id, including ids the chat list does not contain
+   yet. `ingestAgentPresenceMessage` (`chatHistorySyncPoll.js`) drops `(epoch, seq)`
+   duplicates, detects a gap, and applies a frame that arrives before the list is
+   loaded; a full `GET /api/chats/agent-states` response shares the snapshot
+   semantics. Every applied row stamps `_serverRunStateAt`, the watermark that
+   rejects an older push-inbox record, and `hydrateChat` paints a remembered row onto
+   a chat object built later (boot cache or `GET /api/chats`).
+3. **Resolver** — `getSidebarChatStateMeta` (`app_front/chat.js`) turns
+   `_serverRunState`, pending question/permission flags, local agent state and the
+   connection state into one `{ tone, label }` via `resolveHarnessChatStateMeta`
+   (`app_front/features/chat/chatStatusMeta.js`).
+   `sidebarChatStatusStability.js` adds per-chat timers: entering "working" or
+   "needs action" is immediate, leaving "working" has a 500 ms exit hysteresis, and a
+   tool label is held for at least 500 ms so a burst of tools does not flicker.
+4. **Point patch** — `scheduleChatListStateRefresh(dirtyIds)` (rAF-coalesced) hands
+   the dirty ids to `updateSidebarChatStates`, which rewrites only those rows'
+   chip/indicator through `applySidebarChatStatusEl`. A call with no ids, an empty
+   array, or an array that carries no valid id is a **no-op**: it neither plans a frame
+   nor marks the list dirty, and an empty dirty set ends `updateSidebarChatStates`
+   before the walk, so it emits no patch at all. The full-list wildcard (`*`) survives
+   only on the drawer-open path (`openSidebar` → `refreshStates` →
+   `refreshSidebarChatStates` → `scheduleChatListStateRefreshAll`), where it wins over
+   any ids queued in the same frame. Selecting a chat dirties just
+   `[prevActiveChatId, nextId]`, because `chatExpectsLiveSocket` reads `activeChatId`
+   and both rows would otherwise go stale once the full `*` is gone. The status tone is
+   deliberately **not** part of `renderSignature`, so no presence or time-based status
+   change can rebuild the list; a full render happens only for structure, layout, group
+   composition, or watcher changes.
+
+`chatsChanged` frames take a separate, cheaper path
+(`app_front/features/chat/chatListLiveSync.js`): a watcher frame only refreshes
+watcher panels, a title frame patches the single row, and only
+create/delete/nest/archive frames trigger a debounced `GET /api/chats`. The 15 s
+`GET /api/chats/agent-states` poll (`chatHistorySyncPoll.js`) remains only as a
+fallback for a missed or uncertain presence stream, and is skipped while a fresh WS
+frame is trusted.
+
+#### Status priority (`resolveHarnessChatStateMeta`, highest first)
+
+| # | Signal | Result |
+|---|--------|--------|
+| 1 | Pending question / permission (`_opencodePendingQuestion`, `_sdkServerPendingQuestionCount`, …) | `awaiting` — "Needs action" |
+| 2 | Server run state `waiting` (delegation `waiting_for_input`, or a run waiting for input) | `awaiting` — "Waiting for N agents" or "Needs action" |
+| 3 | Server run state `attention` (finished delegation awaiting review) | `attention` — Completed / Failed / Interrupted |
+| 4 | Server run state `busy` with an `activityKey` | `active` — tool label (Read / Grep / Write / Edit / …) |
+| 5 | Server run state `busy` without a key | `active` — "Agent working" |
+| 6 | Local queued prompts (`queuedCount > 0`, local agent active) | `active` — "Agent working · queue: N" |
+| 7 | Local agent active (fallback) | `active` — "Agent working" |
+| 8 | `connecting` / `reconnecting` | `connecting`, or `idle` during the sidebar 1.5 s grace window |
+| 9 | idle / disconnected | `idle` — "Ready" (background sidebar row) or `disconnected` |
+
+Work reported by the server always outranks a transient connection state, so a
+WebSocket reconnect never masks an agent that is still running. The sidebar variant
+(`surface: 'sidebar'`) additionally treats a deliberately socket-less background row
+as idle instead of disconnected.
+
 ### Offline shell and boot guard
 
 `public/sw.js` precaches the app shell, so a navigation succeeds even with the server
@@ -642,6 +719,116 @@ the stuck setup or stream and retries the prompt once.
    `sdkError` with code `run_stuck_auto_recovery`.
 
 Implementation: `lib/sdk/sdk-run-auto-recovery.js`, integrated in `lib/sdk/cursor-agent-sdk-ws.js`.
+
+## TODO tree execution
+
+Children run in sibling order by default. A parent can explicitly opt into
+parallel execution. Readiness and manual agent starts honor every ancestor's
+sequence and plan approval gate. Parent statuses are derived bottom-up from
+children; a parent becomes done only after all descendants are done. Reopening
+a leaf, adding a child or moving unfinished work under a completed parent
+reopens the affected ancestors. Parent status changes also advance their CAS
+tokens. Reads repair legacy inconsistent statuses without rewriting the file.
+
+## Workspace Watcher
+
+One deterministic guard per workspace (normalized folder key) that keeps an eye
+on todos, chats and delegations and, when autopilot is enabled, starts the next
+agent. It is the hybrid from the design note: a cheap server-side watcher (no
+LLM) plus a short-lived LLM orchestrator started only when a cycle is needed.
+
+- **Modes**: `off` (nothing), `observe` (snapshot + one "idle, there is work"
+  push per episode), `autopilot` (starts cycles). Default **off**,
+  `maxParallel` **1**. `off` is a true no-op: a missing row is a read-only `off`
+  default and the tick never writes.
+- **Snapshot** (`lib/workspace-watcher.js`): ready todo leaves, active chats
+  (busy/waiting via `probeChatRunLiveness`) and delegations, including a
+  terminal delegation whose unconfirmed stop (`runStoppingAt`) still holds a
+  parent slot. The busy set is the union of live chats and delegation slots, so
+  a delegation without a child chat still counts exactly once.
+  It also reports doing and blocked todo ids, chats waiting for input, and
+  the latest delegation errors in that workspace. The current cycles and their
+  delegated chats are excluded from occupancy; unknown chat liveness blocks
+  a new cycle until the adapter can confirm its state.
+- **Triggers**: todo creation/status/plan approval, delegation transitions and
+  chat presence changes schedule one debounced pass per normalized workspace
+  (1.5 seconds). The runtime worker heartbeat is the fallback (5 seconds by
+  default). Shutdown removes pending timers and unregisters the runner.
+- **Decision** (`decideWorkspaceWatcherAction`): pure. `observe` returns
+  `observe_ready`; `autopilot` applies `lib/workspace-watcher-guardrails.js`
+  and returns `start_cycle`, a plan gate (`plan_gate`) or a wait
+  (`wait_active`, `wait_cooldown`, `wait_budget`, `backoff`,
+  `wait_quiet_hours`, `wait_same_findings`, `wait_plan_approval`).
+- **Guardrails** (pure, clock-injected): per-UTC-day cycle budget
+  (`cycles.day`/`count`, reset at midnight UTC), cooldown since `lastCycleAt`,
+  exponential backoff from the accumulated failures capped by
+  `backoffCapMs`, UTC quiet hours (HH:MM, wraps midnight), a consecutive
+  same-findings stop, and the `allowedHarnesses` filter plus real usage-limit
+  awareness (`listHarnessUsageLimits`).
+- **Cycle** (`lib/workspace-watcher-cycle.js`): the durable identity
+  (`cycleId` + reserved `chatId`, appended to `activeCycles`, slot 0 mirrored to
+  `activeCycle` for v1 readers) is written **before** the
+  adapter is asked to start, and the same `cycleId` is the chat-run
+  `requestId`, so a restart replays instead of duplicating. The ready todo is
+  claimed with a CAS (`ready` → `doing` + `claimedByChatId`, never overwriting
+  `doing`/`done`). One cycle = one chat run, and a row drives up to
+  `policy.maxParallel` of them (hard cap 5): a start is refused
+  (`cycle_active`) only once `activeCycles.length >= maxParallel`, re-checked
+  inside the write lock. A start failure rolls that slot back, releases the
+  claim, bumps `failures[todoId]` and arms the backoff. Every slot is
+  authorized by its own `chatId`; the row-level `orchestratorChatId` is only the
+  idle "last known" owner. The orchestrator prompt follows
+  the `cretli-multi-harness` skill: `model_pick` + `delegation_start`
+  implement/review, a cheap implement-role model or an explicit
+  `policy.orchestrator` override, and **no** commit/push/merge.
+- **Todo claims**: all todo writers and watcher transactions share one
+  reentrant cross-process file lock. Claims verify a ready leaf and its CAS
+  revision inside that lock and record `claimedAt` / `claimLeaseUntil`
+  (30-second default TTL, configurable via `claim_next` `ttl_ms`). A live or
+  unknown chat, a reserved start, or an active child delegation keeps its
+  claim even past the TTL. Confirmed abandoned work returns to ready; done
+  clears claim metadata without reopening the task. A real status change
+  advances the CAS token; link-only bookkeeping preserves it.
+  Selection prefers a compatible assignee, sibling index, then the oldest
+  update. Failure-ceiling blockers are stored as `blockedReason` plus a
+  changelog entry, not a fifth status; a manual status update clears them.
+- **Plan gate**: `requirePlanApproval` never auto-approves. The first time an
+  unapproved todo is picked the watcher starts a plan-only cycle and records
+  `planRequests[todoId]`. Every later tick waits for a human (`wait_plan_approval`)
+  until the plan is approved or the operator clears the request, so plan cycles
+  cannot loop. If a planning run ends without a draft, it counts as a failure,
+  clears that request and retries under the backoff and failure ceiling.
+- **Memory** (`lib/persist/workspace-memory-persist.js`): a durable per-workspace
+  fact store at `data/workspace-memory/<workspaceKey>.json` (keyed by
+  `workspaceKeyFromCwd`, the todo identity). Five types — `decision`, `pattern`,
+  `finding`, `blocker`, `context` — with optional `ttl_ms` expiry hidden lazily
+  on read, a 500-entry bound and CAS + shared file lock so parallel cycles lose
+  no writes. The cycle prompt gets a capped (3000-token) `WORKSPACE MEMORY`
+  section and the orchestrator is told to record durable facts before reporting;
+  `workspace_memory_add/list/delete` are the MCP surface (the read tool is what a
+  Scout scan uses to skip already-explored areas).
+- **Restart/reconcile**: on boot (`lib/delegation-runtime-boot.js`) and each
+  heartbeat, every dead entry in `activeCycles` is cleared independently (its
+  failure and backoff recorded), a live sibling keeps its slot, its todo claim
+  and the single shared row lease, and stale todo claims whose owning chat is
+  confirmed gone are released.
+- **Runtime**: the delegation runtime worker drives the observe heartbeat and
+  the async autopilot pass; both are best-effort and never rethrow into the
+  worker.
+- **Control**: REST routes (`lib/routes/workspace-watcher-routes.js`: `GET/PATCH
+  /api/workspace-watcher`, `GET /api/workspace-watcher/decisions`, and the
+  `pause` / `resume` / `clear-stop` action endpoints), the
+  `workspace_watcher_show` / `workspace_watcher_update` MCP tools and Settings →
+  Workspace Watcher, all through `lib/workspace-watcher-control.js`.
+- **UI**: the Todo tab top bar and "Why?" decision log
+  (`app_front/features/watcher/watcherPanel.js`), the per-workspace policy editor
+  (`app_front/features/settings/workspaceWatcherSettings.js`), and the sidebar
+  autopilot badge. Live updates reuse the existing chat-list WebSocket: watcher
+  writes fan out a `chatsChanged` with `reason: 'workspace-watcher'` and the
+  coalesced `agentPresence` frame carries a compact per-workspace watcher summary
+  (`lib/workspace-watcher-live.js`, `lib/agent-presence-bus.js`), so no extra
+  socket is opened. Todo rows show a "claimed by chat" / "queued" badge from the
+  claim fields.
 
 ## Known limitations
 

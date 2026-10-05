@@ -28,6 +28,11 @@ import './components/ui/cr-bar-button.js';
 import './components/ui/cr-checkbox.js';
 import './components/ui/cr-dialog.js';
 import './components/ui/cr-todo-card.js';
+import {
+  initWatcherPanel,
+  refreshWatcherPanel,
+  isWatcherAutopilot,
+} from './features/watcher/watcherPanel.js';
 
 /** @type {HTMLElement|null} */
 let listEl = null;
@@ -398,6 +403,7 @@ function bindCardHandlers(card) {
   card.addEventListener('todo-copy', onCardCopy);
   card.addEventListener('todo-assignee-change', onEditorAssigneeChange);
   card.addEventListener('todo-runmode-change', onEditorRunModeChange);
+  card.addEventListener('todo-plan-approve', onPlanApprove);
 }
 
 /** @param {Event} e */
@@ -504,6 +510,7 @@ function syncEditorItem() {
     return;
   }
   editorCard.item = item;
+  editorCard.hasChildren = latestItems.some((row) => row.parentId === item.id);
 }
 
 function renderList(data) {
@@ -784,6 +791,18 @@ function openLatestTodoChat(item) {
   setStatus(t('todo.openedLinkedChat'));
 }
 
+/**
+ * Open the watcher's orchestrator chat from the top bar.
+ *
+ * @param {string} chatId
+ */
+function openWatcherChat(chatId) {
+  const id = String(chatId || '').trim();
+  if (!id) return;
+  openTodoAgentChat({ id }, { reused: true });
+  showPanelFn('chat');
+}
+
 /** @param {string} id */
 async function deleteTodoWithConfirm(id) {
   if (!confirmAction(t('todo.confirmDelete'))) return;
@@ -807,6 +826,21 @@ async function deleteTodoWithConfirm(id) {
  * @param {HTMLElement} el
  * @param {{ item: object, level: number, hasChildren: boolean, collapsed: boolean }} row
  */
+/** Re-paint queued/claimed badges after the watcher view changes without a full list fetch. */
+export function repaintTodoRowBadges() {
+  if (!listEl || !latestItems.length) return;
+  const visibleItems = filterTodoItemsByRootStatus(latestItems, rootStatusFilter);
+  if (!visibleItems.length) return;
+  const rows = flattenTodoTree(visibleItems, collapsedIds);
+  const wrapEl = listEl.querySelector('.todo-rows');
+  if (!wrapEl) return;
+  const byId = new Map(rows.map((row) => [String(row.item.id), row]));
+  wrapEl.querySelectorAll('.todo-row').forEach((el) => {
+    const row = byId.get(String(el.dataset.id || ''));
+    if (row) paintTodoRow(el, row);
+  });
+}
+
 function paintTodoRow(el, row) {
   const id = String(row.item.id || '');
   const status = String(row.item.status || 'idea');
@@ -847,15 +881,33 @@ function paintTodoRow(el, row) {
     if (row.hasChildren) el.setAttribute('aria-expanded', row.collapsed ? 'false' : 'true');
     else el.removeAttribute('aria-expanded');
   }
-  const badgeFull = formatTodoAssigneeBadge(row.item);
+  const claimedBy = String(row.item?.claimedByChatId || '').trim();
+  const isClaimed = !!claimedBy;
+  const isQueued = !isClaimed && status === 'ready' && isWatcherAutopilot();
+  const assigneeBadge = formatTodoAssigneeBadge(row.item);
+  let badgeFull = '';
+  let badgeKind = '';
+  if (isClaimed) {
+    badgeFull = t('todo.claimedBy', { chat: claimedBy.slice(0, 8) });
+    badgeKind = 'claimed';
+  } else if (isQueued) {
+    badgeFull = t('todo.queued');
+    badgeKind = 'queued';
+  } else {
+    badgeFull = assigneeBadge;
+  }
   if (badge instanceof HTMLElement) {
     const narrow = typeof window !== 'undefined'
       && typeof window.matchMedia === 'function'
       && window.matchMedia('(max-width: 640px)').matches;
-    const badgeText = narrow ? String(row.item?.assignee?.harness || '').trim() : badgeFull;
+    const badgeText = narrow && !isClaimed && !isQueued
+      ? String(row.item?.assignee?.harness || '').trim()
+      : badgeFull;
     badge.hidden = !badgeText;
     badge.textContent = badgeText;
-    if (badgeFull) badge.title = badgeFull;
+    badge.dataset.kind = badgeKind;
+    if (isClaimed) badge.title = t('todo.claimedBy', { chat: claimedBy });
+    else if (badgeFull) badge.title = badgeFull;
     else badge.removeAttribute('title');
   }
   const markKind = readTodoRowMark(latestItems, row.item);
@@ -1018,6 +1070,7 @@ function openEditor(id) {
   editorTodoId = id;
   editorDialog.heading = t('todo.editTask');
   editorCard.item = item;
+  editorCard.hasChildren = latestItems.some((row) => row.parentId === item.id);
   editorCard.newChatHarness = '';
   editorCard.bodyPreview = false;
   // A different todo always starts on the description tab; re-renders of the
@@ -1113,7 +1166,7 @@ function saveEditorRunMode(runMode) {
  */
 async function patchEditorRunMode(todoId, runMode) {
   const next = runMode === 'sequential' ? 'sequential' : 'parallel';
-  const current = findItem(todoId)?.runMode === 'sequential' ? 'sequential' : 'parallel';
+  const current = findItem(todoId)?.runMode === 'parallel' ? 'parallel' : 'sequential';
   if (current === next) return;
   try {
     const data = await api.patchTodo(todoId, { runMode: next });
@@ -1308,6 +1361,29 @@ async function onBodyBlur(e) {
 }
 
 /** @param {Event} e */
+async function onPlanApprove(e) {
+  const id = String(e?.detail?.id || '').trim();
+  const updatedAt = String(e?.detail?.updatedAt || '').trim();
+  if (!id) return;
+  try {
+    const data = await api.patchTodo(id, {
+      plan: { approvedAt: new Date().toISOString() },
+      expectedUpdatedAt: updatedAt || undefined,
+    });
+    if (!data?.ok) {
+      setStatus(data?.error || t('todo.planApproveError'), true);
+      refreshTodoList();
+      return;
+    }
+    setStatus(t('todo.planApproved'));
+    renderList(data);
+  } catch {
+    setStatus(t('todo.planApproveError'), true);
+    refreshTodoList();
+  }
+}
+
+/** @param {Event} e */
 async function onDelete(e) {
   const id = e?.detail?.id;
   if (!id) return;
@@ -1317,6 +1393,7 @@ async function onDelete(e) {
 export function refreshTodoList() {
   loadCollapsed();
   loadStatusFilter();
+  void refreshWatcherPanel();
   void api.getAgentSdkStatus().then((data) => {
     sdkReady = !!data?.ready;
   }).catch(() => {});
@@ -1358,6 +1435,13 @@ export function initTodoPanel(options = {}) {
   statusEl = document.getElementById('todo-status');
   hintEl = document.getElementById('todo-cwd-hint');
   ensureStatusFilterUi(document.querySelector('#todo-panel .todo-toolbar'));
+  initWatcherPanel({
+    getTodoTitle: (id) => String(findItem(id)?.title || ''),
+    openChat: openWatcherChat,
+  });
+  window.addEventListener('cretli:workspace-watcher-view-updated', () => {
+    repaintTodoRowBadges();
+  });
   const newOpenBtn = document.getElementById('todo-new-open-btn');
   const modalEl = document.getElementById('todo-new-modal');
   const modalBackdropEl = modalEl?.querySelector('.chat-settings-backdrop') || null;

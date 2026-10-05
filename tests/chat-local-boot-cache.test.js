@@ -122,6 +122,36 @@ assert.equal(doc.v, CHAT_LOCAL_BOOT_CACHE_VERSION);
 assert.equal(doc.activeChatId, 'chat-b');
 assert.equal(doc.workspaceContext.workspaceFile, '/ws/a.code-workspace');
 assert.equal(doc.chats.length, 2);
+const overflow = [];
+for (let index = 0; index < 301; index += 1) {
+  overflow.push({
+    id: `old-${index}`,
+    title: 'old',
+    updatedAt: '2020-01-01T00:00:00.000Z',
+    createdAt: '2020-01-01T00:00:00.000Z',
+  });
+}
+overflow[50].updatedAt = '2010-01-01T00:00:00.000Z';
+overflow[50].createdAt = '2010-01-01T00:00:00.000Z';
+overflow.push({
+  id: 'newest',
+  title: 'new',
+  updatedAt: '2026-10-05T00:00:00.000Z',
+  createdAt: '2026-10-05T00:00:00.000Z',
+});
+overflow.push({
+  id: 'pinned',
+  title: 'pin',
+  watcherPinned: true,
+  updatedAt: '2019-01-01T00:00:00.000Z',
+});
+const capped = buildChatLocalBootCache({ chats: overflow, activeChatId: 'old-0' });
+const cappedIds = capped.chats.map((chat) => chat.id);
+assert.equal(cappedIds.includes('newest'), true);
+assert.equal(cappedIds.includes('pinned'), true);
+assert.equal(cappedIds.includes('old-0'), true);
+assert.equal(cappedIds.includes('old-50'), false);
+assert.ok(capped.chats.length <= 302);
 assert.equal(doc.workspaces.length, 1);
 assert.deepEqual(doc.workspaces[0].folders, [{ name: 'src', resolvedPath: '/ws/a/src', enabled: true }]);
 assert.equal('fileExists' in doc.workspaces[0], false, 'workspace sanitizer keeps only UI fields');

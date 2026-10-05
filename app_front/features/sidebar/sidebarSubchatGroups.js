@@ -547,6 +547,8 @@ export function renderSubchatGroupHtml(group, options = {}) {
     escape(sidebarKey) +
     '" data-subchat-group="1" data-parent-id="' +
     escape(parentId) +
+    '" data-group-summary="' +
+    escape(summaryLabel) +
     '" style="--sidebar-nest-level:' +
     String(indentLevel) +
     '">' +

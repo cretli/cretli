@@ -437,3 +437,30 @@ test('formatSubchatParentBadge summarizes collapsed children only when present',
     title: 'Zakończone subczaty w tym czacie: 2 ✓, 1 ✗',
   });
 });
+
+test('groupSettledChildren forms no group for an orphan but folds a settled branch under a present parent', () => {
+  // Missing parent => flattenChatsTree re-roots the settled child to level 0. A
+  // re-rooted chat has no parent bucket, so it must stay visible rather than be
+  // swallowed by a group whose parent row the sidebar never renders.
+  const orphan = groupSettledChildren(tree([chat('orphan', 'gone')]), { now: NOW });
+  assert.equal(orphan.groups.length, 0, 'an orphaned child has no present parent to group under');
+  assert.equal(orphan.hiddenIds.size, 0, 'the re-rooted child is never folded into an invisible group');
+  assert.deepEqual(orphan.items.map((item) => item.chat.id), ['orphan']);
+
+  // Present parent => the whole settled branch (child + descendants) folds into
+  // one compound group whose allChildIds covers every hidden descendant.
+  const nested = groupSettledChildren(
+    tree([chat('root'), chat('old', 'root'), chat('old-child', 'old')]),
+    { now: NOW },
+  );
+  assert.equal(nested.groups.length, 1);
+  const group = nested.groups[0];
+  assert.equal(group.parentId, 'root');
+  assert.deepEqual(group.childIds, ['old'], 'only the folded direct child heads the group');
+  assert.deepEqual(
+    [...group.allChildIds].sort(),
+    ['old', 'old-child'],
+    'the compound group covers the whole settled subtree',
+  );
+  assert.deepEqual([...nested.hiddenIds].sort(), ['old', 'old-child']);
+});

@@ -3,6 +3,7 @@ import {
   buildOpenCodePermissionSdkEvent,
   buildOpenCodePlanPermissionRuleset,
   classifyOpenCodePermissionRisk,
+  isOpenCodePermissionWithinWorkspace,
   isOpenCodePlanMutatingPermission,
   listOpenCodePermissionIdsForFailedTool,
   postOpenCodePermissionResponse,
@@ -511,6 +512,55 @@ for (const command of ['cat ../other/secret.txt', 'cat lib/../../x', 'cd .. && c
   assert.notEqual(action.reply, 'once', `off must not auto-approve outside the workspace: ${command}`);
 }
 
+// Quoted text is search data, not a path argument: `grep -r 'foo' '../i18n'`
+// is a within-workspace read even though the pattern spells `..`.
+const quotedPatternRead = { action: 'bash', metadata: { command: "grep -r 'foo' '../i18n'" } };
+assert.equal(
+  isOpenCodePermissionWithinWorkspace(quotedPatternRead, brokerWorkspace),
+  true,
+  "quoted pattern '../i18n' is data, not an escaped path",
+);
+assert.equal(
+  resolveOpenCodeApprovalAction({
+    mode: 'local_reads',
+    sdkMode: 'agent',
+    permissionEvent: quotedPatternRead,
+    assignment: 'implement',
+    workspaceFolder: brokerWorkspace,
+  }).reply,
+  'once',
+  "local_reads must auto-approve a delegated read with a quoted '../' pattern",
+);
+
+// Unquoted relative escapes and absolute paths still leave the workspace.
+for (const command of ['cat ../etc/shadow', 'cat /etc/passwd']) {
+  const event = { action: 'bash', metadata: { command } };
+  assert.equal(
+    isOpenCodePermissionWithinWorkspace(event, brokerWorkspace),
+    false,
+    `must stay outside the workspace: ${command}`,
+  );
+  const action = resolveOpenCodeApprovalAction({
+    mode: 'local_reads',
+    sdkMode: 'agent',
+    permissionEvent: event,
+    assignment: 'implement',
+    workspaceFolder: brokerWorkspace,
+  });
+  assert.equal(action.decision, 'ask_user', `must ask the user: ${command}`);
+  assert.equal(action.reply, null, `must not auto-reply: ${command}`);
+}
+
+// A nested shell runs its quoted argument, so there quotes are separators.
+assert.equal(
+  isOpenCodePermissionWithinWorkspace(
+    { action: 'bash', metadata: { command: "bash -c 'cat ../etc/shadow'" } },
+    brokerWorkspace,
+  ),
+  false,
+  "bash -c 'cat ../etc/shadow' must stay outside the workspace",
+);
+
 // Globs, path spellings, env dumps and shell expansion never get an auto-once.
 for (const command of [
   'cat data/conf*.json',
@@ -539,6 +589,11 @@ for (const command of [
   'ls ~',
   'cd data && cat config.json',
   'cd data&&head -n 40 config.json',
+  "bash -c 'printenv'",
+  'sh -c "env | head"',
+  "echo 'x'; env",
+  "rg 'a|b' lib | env",
+  'echo "a\\"; env; echo \\"b"; printenv',
 ]) {
   for (const mode of ['off', 'local_reads']) {
     const action = resolveOpenCodeApprovalAction({
@@ -549,6 +604,28 @@ for (const command of [
       workspaceFolder: brokerWorkspace,
     });
     assert.notEqual(action.reply, 'once', `${mode} must not auto-approve: ${command}`);
+  }
+}
+
+// A quoted search pattern is data, not a pipeline stage: `|export|` or `|kill|`
+// inside quotes must not read as an env dump or a privilege command.
+for (const command of [
+  "rg -n 'memory-tools|watcher-tools|builtin' lib/mcp/builtin/*.js | rg -i 'register|export|tools' | head -20",
+  'rg -n "export function startChatRun|export async function startChatRun" lib/chat-run-service.js | head',
+  "grep -nE 'env|set|declare' lib/x.js",
+  "rg 'sudo|kill|docker' lib/",
+]) {
+  const event = { action: 'bash', metadata: { command } };
+  assert.deepEqual(classifyOpenCodePermissionRisk(event).categories, [], `expected no risk category for: ${command}`);
+  for (const assignment of ['review', '']) {
+    const action = resolveOpenCodeApprovalAction({
+      mode: 'local_reads',
+      sdkMode: 'agent',
+      permissionEvent: event,
+      assignment,
+      workspaceFolder: brokerWorkspace,
+    });
+    assert.equal(action.reply, 'once', `local_reads must auto-approve quoted pattern read: ${command}`);
   }
 }
 
@@ -571,6 +648,27 @@ for (const command of [
     workspaceFolder: brokerWorkspace,
   });
   assert.equal(action.reply, 'once', `off review must still auto-approve: ${command}`);
+}
+
+// Escaped quotes break naive single-quote stripping; privilege/env must still flag.
+const escapedPrivilege = { action: 'bash', metadata: { command: "echo \\'; sudo systemctl stop x; echo \\'" } };
+const escapedEnv = { action: 'bash', metadata: { command: "echo \\'; env; echo \\'" } };
+const escapedPrivRisk = classifyOpenCodePermissionRisk(escapedPrivilege);
+const escapedEnvRisk = classifyOpenCodePermissionRisk(escapedEnv);
+assert.ok(escapedPrivRisk.categories.includes('privilege'), 'escaped-quote sudo must be privilege');
+assert.equal(escapedPrivRisk.risk, 'high');
+assert.ok(escapedEnvRisk.categories.includes('secrets'), 'escaped-quote env must be secrets');
+assert.equal(escapedEnvRisk.risk, 'high');
+for (const event of [escapedPrivilege, escapedEnv]) {
+  const action = resolveOpenCodeApprovalAction({
+    mode: 'local_reads',
+    sdkMode: 'agent',
+    permissionEvent: event,
+    assignment: '',
+    workspaceFolder: brokerWorkspace,
+  });
+  assert.notEqual(action.reply, 'once', `must not auto-approve: ${event.metadata.command}`);
+  assert.equal(action.decision, 'ask_user');
 }
 
 console.log('opencode-permission.test.js OK');

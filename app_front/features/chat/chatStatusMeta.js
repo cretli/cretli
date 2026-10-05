@@ -1,9 +1,30 @@
 /**
  * Harness chat status badge (SDK / OpenCode / OpenRouter).
  * Uses protocol signals only — not PTY buffer heuristics.
+ *
+ * Priority table applied by `resolveHarnessChatStateMeta` (highest first):
+ *   1. pending question / permission          -> awaiting (needs action)
+ *   2. server run state waiting / attention   -> awaiting / attention
+ *   3. server run state busy                  -> active (tool label when the
+ *      server sent an activity key, generic label otherwise)
+ *   4. local agent active with a queued count -> active (queue label)
+ *   5. local agent active (fallback)          -> active (generic label)
+ *   6. connecting / reconnecting              -> connecting (mode bar) or idle
+ *      during the sidebar grace window
+ *   7. idle / disconnected                    -> ready (idle) or disconnected
+ * Work reported by the server always outranks a transient connection state, so a
+ * WebSocket reconnect never masks an agent that is still running.
+ *
+ * `surface: 'sidebar'` is the sidebar-row variant: no `syncing` overlay, a
+ * background chat without a socket shows idle instead of disconnected, and
+ * `connecting` appears only after `SIDEBAR_CONNECTING_GRACE_MS` of continuous
+ * connecting. The active chat mode bar keeps using the default `'bar'` surface.
  */
 
 /** @typedef {{ tone: string, label: string }} ChatStatusMeta */
+
+/** Sidebar rows hide a short-lived `connecting` blink until this grace elapses. */
+export const SIDEBAR_CONNECTING_GRACE_MS = 1500;
 
 // English mirrors the default locale; callers that pass a `translate` function
 // (the app) never reach these, so they only cover direct/test usage.
@@ -256,28 +277,57 @@ function resolveServerRunStateMeta(serverRunState, translate) {
  * @param {boolean} [input.hasPendingPermission]
  * @param {number} [input.queuedCount]
  * @param {object | null} [input.serverRunState]
+ * @param {'bar' | 'sidebar'} [input.surface] Sidebar-row variant (default 'bar').
+ * @param {number} [input.connectingForMs] Sidebar: continuous connecting time.
+ * @param {boolean} [input.socketExpected] Sidebar: false when the background
+ *   policy deliberately keeps this chat without a socket, so a missing socket is
+ *   normal idle rather than a connection error.
  * @param {(key: string, vars?: Record<string, string|number>|null) => string} [input.translate]
  * @returns {ChatStatusMeta}
  */
 export function resolveHarnessChatStateMeta(input = {}) {
   const translate = typeof input.translate === 'function' ? input.translate : translateFallback;
+  const surface = input.surface === 'sidebar' ? 'sidebar' : 'bar';
   const connection = String(input.connection || 'disconnected');
-  if (connection === 'connecting' || connection === 'reconnecting') {
-    return { tone: 'connecting', label: translate('status.connecting') };
-  }
+
+  // 1. Pending question / permission outranks every other signal.
   const pending = input.hasPendingQuestion === true || input.hasPendingPermission === true;
   if (pending) {
     return { tone: 'awaiting', label: translate('status.needsAction') };
   }
+
+  // 2./3. Server run state: waiting / attention, then busy (with or without tool label).
   const serverMeta = resolveServerRunStateMeta(input.serverRunState, translate);
   const serverState = String(input.serverRunState?.state || '');
   if (serverMeta && (serverState === 'waiting' || serverState === 'attention')) {
     return serverMeta;
   }
+  if (serverMeta) return serverMeta;
+
+  // 4. Local queue count only when the server is not reporting busy work.
+  const queuedCount = readQueuedCount(input.queuedCount);
+  if (queuedCount > 0 && String(input.agent || 'idle') === 'active') {
+    return { tone: 'active', label: translate('status.agentWorkingQueued', { count: queuedCount }) };
+  }
+
+  // 5. Local agent run fallback.
   const liveMeta = resolveLiveHarnessStateMeta(input, translate);
   if (liveMeta) return liveMeta;
-  if (serverMeta) return serverMeta;
+
+  // 6. Connection fallback — reached only when no work signal exists.
+  if (connection === 'connecting' || connection === 'reconnecting') {
+    if (surface === 'sidebar') {
+      const connectingForMs = Number(input.connectingForMs) || 0;
+      if (connectingForMs < SIDEBAR_CONNECTING_GRACE_MS) {
+        return { tone: 'idle', label: translate('status.ready') };
+      }
+    }
+    return { tone: 'connecting', label: translate('status.connecting') };
+  }
   if (connection === 'disconnected') {
+    if (surface === 'sidebar' && input.socketExpected === false) {
+      return { tone: 'idle', label: translate('status.ready') };
+    }
     return { tone: 'disconnected', label: translate('status.disconnected') };
   }
   const agent = String(input.agent || 'idle');

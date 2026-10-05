@@ -10,6 +10,7 @@ import {
   resolveChatListDotState,
   resolveHarnessChatStateMeta,
 } from '../app_front/features/chat/chatStatusMeta.js';
+import { createSidebarStatusStabilizer } from '../app_front/features/sidebar/sidebarChatStatusStability.js';
 
 // Expected labels below are the English i18n fallbacks from chatStatusMeta.js.
 
@@ -64,6 +65,37 @@ const actualActivityBusy = resolveHarnessChatStateMeta(inputActivityBusy);
 assert.equal(actualActivityBusy.tone, 'active');
 assert.match(actualActivityBusy.label, /Read/);
 assert.equal(actualActivityBusy.activityKey, 'read');
+
+const inputLiveActivity = {
+  connection: 'connected',
+  agent: 'active',
+  serverRunState: { state: 'busy', activityKey: 'read', activityArg: 'a.js' },
+};
+const actualLiveActivity = resolveHarnessChatStateMeta(inputLiveActivity);
+assert.equal(actualLiveActivity.tone, 'active');
+assert.match(actualLiveActivity.label, /Read/);
+assert.equal(actualLiveActivity.activityKey, 'read');
+
+const inputServerBusyBeatsLocalQueue = {
+  connection: 'connected',
+  agent: 'active',
+  queuedCount: 2,
+  serverRunState: { state: 'busy', activityKey: 'read', activityArg: 'a.js' },
+};
+const actualServerBusyBeatsLocalQueue = resolveHarnessChatStateMeta(inputServerBusyBeatsLocalQueue);
+assert.equal(actualServerBusyBeatsLocalQueue.tone, 'active');
+assert.match(actualServerBusyBeatsLocalQueue.label, /Read/);
+assert.equal(actualServerBusyBeatsLocalQueue.activityKey, 'read');
+
+const inputServerBusyNoKeyBeatsLocalQueue = {
+  connection: 'connected',
+  agent: 'active',
+  queuedCount: 2,
+  serverRunState: { state: 'busy' },
+};
+const actualServerBusyNoKeyBeatsQueue = resolveHarnessChatStateMeta(inputServerBusyNoKeyBeatsLocalQueue);
+assert.equal(actualServerBusyNoKeyBeatsQueue.tone, 'active');
+assert.equal(actualServerBusyNoKeyBeatsQueue.label, 'Agent working');
 
 const inputDisconnectedPending = {
   connection: 'disconnected',
@@ -214,5 +246,202 @@ const actualKeepGenerating = resolveChatStatusWithHistorySync(false, inputGenera
 assert.equal(actualKeepGenerating.tone, 'generating');
 const actualSyncOverConnecting = resolveChatStatusWithHistorySync(true, actualConnecting);
 assert.equal(actualSyncOverConnecting.tone, 'syncing');
+
+// --- Priority table: work from the server outranks a transient connection. ---
+
+const inputBusyConnecting = {
+  connection: 'connecting',
+  agent: 'idle',
+  serverRunState: { state: 'busy', activityKey: 'read', activityArg: 'a.js' },
+};
+const actualBusyConnecting = resolveHarnessChatStateMeta(inputBusyConnecting);
+assert.equal(actualBusyConnecting.tone, 'active');
+assert.equal(actualBusyConnecting.label, 'Read a.js');
+
+const inputBusyNoActivityConnecting = {
+  connection: 'connecting',
+  agent: 'idle',
+  serverRunState: { state: 'busy' },
+};
+assert.equal(resolveHarnessChatStateMeta(inputBusyNoActivityConnecting).tone, 'active');
+
+const inputWaitingConnecting = {
+  connection: 'connecting',
+  agent: 'idle',
+  serverRunState: { state: 'waiting' },
+};
+assert.equal(resolveHarnessChatStateMeta(inputWaitingConnecting).tone, 'awaiting');
+
+const inputPendingConnecting = { connection: 'connecting', agent: 'idle', hasPendingPermission: true };
+assert.equal(resolveHarnessChatStateMeta(inputPendingConnecting).tone, 'awaiting');
+
+// --- Sidebar surface: background chats without a socket are idle, not broken. ---
+
+const inputSidebarBackgroundDisconnected = {
+  surface: 'sidebar',
+  connection: 'disconnected',
+  agent: 'idle',
+  socketExpected: false,
+};
+const actualSidebarBackground = resolveHarnessChatStateMeta(inputSidebarBackgroundDisconnected);
+assert.equal(actualSidebarBackground.tone, 'idle');
+assert.equal(actualSidebarBackground.label, 'Ready');
+assert.equal(resolveHarnessChatStateMeta({ ...inputSidebarBackgroundDisconnected, surface: 'bar' }).tone, 'disconnected');
+
+const inputSidebarExpectedDisconnected = {
+  surface: 'sidebar',
+  connection: 'disconnected',
+  agent: 'idle',
+  socketExpected: true,
+};
+assert.equal(resolveHarnessChatStateMeta(inputSidebarExpectedDisconnected).tone, 'disconnected');
+
+const inputSidebarConnecting = {
+  surface: 'sidebar',
+  connection: 'connecting',
+  agent: 'idle',
+  socketExpected: true,
+  connectingForMs: 200,
+};
+assert.equal(resolveHarnessChatStateMeta(inputSidebarConnecting).tone, 'idle');
+assert.equal(
+  resolveHarnessChatStateMeta({ ...inputSidebarConnecting, connectingForMs: 2000 }).tone,
+  'connecting'
+);
+// Sidebar work still wins over the connecting grace.
+assert.equal(
+  resolveHarnessChatStateMeta({
+    ...inputSidebarConnecting,
+    connectingForMs: 200,
+    serverRunState: { state: 'busy', activityKey: 'grep', activityArg: 'x' },
+  }).tone,
+  'active'
+);
+
+// --- Hysteresis: a short busy -> idle -> busy blip keeps the row working. ---
+
+function createFakeClockStabilizer() {
+  let nowValue = 1_000_000;
+  const timers = new Set();
+  const expires = [];
+  const stabilizer = createSidebarStatusStabilizer({
+    now: () => nowValue,
+    setTimeout: (fn, ms) => {
+      const timer = { fn, at: nowValue + ms };
+      timers.add(timer);
+      return timer;
+    },
+    clearTimeout: (timer) => timers.delete(timer),
+    onExpire: (chatId) => expires.push(chatId),
+  });
+  const advance = (ms) => {
+    nowValue += ms;
+    for (const timer of [...timers]) {
+      if (timer.at <= nowValue) {
+        timers.delete(timer);
+        timer.fn();
+      }
+    }
+  };
+  return { stabilizer, advance, now: () => nowValue, expires };
+}
+
+const activeMeta = { tone: 'active', label: 'Read a.js', activityKey: 'read' };
+const idleMeta = { tone: 'idle', label: 'Ready' };
+const busySources = { serverBusy: true, serverKnown: true, localActive: true };
+const idleBlipSources = { serverBusy: false, serverKnown: true, localActive: true };
+
+const blip = createFakeClockStabilizer();
+blip.stabilizer.stabilize('c1', activeMeta, busySources);
+blip.advance(50);
+assert.equal(blip.stabilizer.stabilize('c1', idleMeta, idleBlipSources).tone, 'active');
+blip.advance(300);
+assert.equal(blip.stabilizer.stabilize('c1', idleMeta, idleBlipSources).tone, 'active');
+blip.stabilizer.stabilize('c1', activeMeta, busySources);
+assert.equal(blip.stabilizer.stabilize('c1', activeMeta, busySources).tone, 'active');
+
+const threshold = createFakeClockStabilizer();
+threshold.stabilizer.stabilize('c2', activeMeta, busySources);
+threshold.advance(100);
+assert.equal(threshold.stabilizer.stabilize('c2', idleMeta, idleBlipSources).tone, 'active');
+threshold.advance(600);
+assert.equal(threshold.stabilizer.stabilize('c2', idleMeta, idleBlipSources).tone, 'idle');
+
+const agreement = createFakeClockStabilizer();
+agreement.stabilizer.stabilize('c3', activeMeta, busySources);
+agreement.advance(50);
+assert.equal(
+  agreement.stabilizer.stabilize('c3', idleMeta, { serverBusy: false, serverKnown: true, localActive: false }).tone,
+  'idle'
+);
+
+const labels = createFakeClockStabilizer();
+labels.stabilizer.stabilize('c4', activeMeta, busySources);
+labels.advance(100);
+const heldLabel = labels.stabilizer.stabilize(
+  'c4',
+  { tone: 'active', label: 'Grep y', activityKey: 'grep' },
+  busySources
+);
+assert.equal(heldLabel.label, 'Read a.js');
+labels.advance(500);
+const nextLabel = labels.stabilizer.stabilize(
+  'c4',
+  { tone: 'active', label: 'Grep y', activityKey: 'grep' },
+  busySources
+);
+assert.equal(nextLabel.label, 'Grep y');
+labels.advance(100);
+const heldGeneric = labels.stabilizer.stabilize(
+  'c4',
+  { tone: 'active', label: 'Agent working' },
+  busySources
+);
+assert.equal(heldGeneric.activityKey, 'grep');
+labels.advance(600);
+assert.equal(
+  labels.stabilizer.stabilize('c4', { tone: 'active', label: 'Agent working' }, busySources).activityKey,
+  ''
+);
+
+// After the tool label was visible longer than labelMs, losing activityKey still
+// holds it for labelMs measured from the drop, not from labelSince.
+const longLabel = createFakeClockStabilizer();
+longLabel.stabilizer.stabilize('c6', activeMeta, busySources);
+longLabel.advance(700);
+const stillRead = longLabel.stabilizer.stabilize(
+  'c6',
+  { tone: 'active', label: 'Agent working' },
+  busySources
+);
+assert.equal(stillRead.label, 'Read a.js');
+assert.equal(stillRead.activityKey, 'read');
+longLabel.advance(400);
+const stillReadMidHold = longLabel.stabilizer.stabilize(
+  'c6',
+  { tone: 'active', label: 'Agent working' },
+  busySources
+);
+assert.equal(stillReadMidHold.label, 'Read a.js');
+longLabel.advance(200);
+const genericAfterHold = longLabel.stabilizer.stabilize(
+  'c6',
+  { tone: 'active', label: 'Agent working' },
+  busySources
+);
+assert.equal(genericAfterHold.label, 'Agent working');
+assert.equal(genericAfterHold.activityKey, '');
+
+// The connecting grace window reports elapsed time and wakes the row once at the
+// 1.5s boundary, then resets when the socket connects.
+const connecting = createFakeClockStabilizer();
+assert.equal(connecting.stabilizer.connectingForMs('c5', 'connecting'), 0);
+connecting.advance(600);
+assert.equal(connecting.stabilizer.connectingForMs('c5', 'connecting'), 600);
+assert.equal(connecting.expires.length, 0);
+connecting.advance(1000);
+assert.equal(connecting.expires.includes('c5'), true);
+assert.equal(connecting.stabilizer.connectingForMs('c5', 'connecting') >= 1500, true);
+assert.equal(connecting.stabilizer.connectingForMs('c5', 'connected'), 0);
 
 console.log('All chat status meta tests passed.');

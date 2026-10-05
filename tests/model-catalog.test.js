@@ -4,7 +4,6 @@ import {
   buildVariantLabelFromParams,
   decodeModelValue,
   encodeModelValue,
-  coerceRunnableSdkModelValue,
   enrichCatalogEntryLabels,
   expandSdkModelsToCatalog,
   expandSdkModelRow,
@@ -81,25 +80,39 @@ assert.equal(buildVariantLabelFromParams(
   [{ id: 'fast', displayName: 'Fast', values: [{ value: 'true', displayName: 'Fast' }] }],
 ), 'Standard');
 
-assert.equal(
-  coerceRunnableSdkModelValue('grok-4.7::context=500k,fast=false,reasoning_effort=high'),
-  'grok-4.7::context=256k,fast=false,reasoning_effort=high',
-);
-assert.equal(coerceRunnableSdkModelValue('grok-4.6::effort=high,fast=false'), 'grok-4.6::effort=high,fast=false');
-
+// Cursor advertises both grok-4.7 context windows. Cretli mirrors the
+// advertised catalog: the 500k row is not hidden (the SDK room falls back if
+// Cursor's registry rejects it at run time).
 const grok47Rows = expandSdkModelsToCatalog([
   {
     id: 'grok-4.7',
     displayName: 'Grok 4.7',
-    parameters: [{ id: 'context' }, { id: 'reasoning_effort' }, { id: 'fast' }],
+    parameters: [
+      { id: 'context', displayName: 'Context', values: [{ value: '256k', displayName: '256K' }, { value: '500k', displayName: '500K' }] },
+      { id: 'reasoning_effort', displayName: 'Effort', values: [{ value: 'high', displayName: 'High' }] },
+      { id: 'fast', displayName: 'Fast', values: [{ value: 'true', displayName: 'Fast' }] },
+    ],
     variants: [
-      { params: [{ id: 'context', value: '256k' }, { id: 'reasoning_effort', value: 'high' }, { id: 'fast', value: 'false' }] },
-      { params: [{ id: 'context', value: '500k' }, { id: 'reasoning_effort', value: 'high' }, { id: 'fast', value: 'false' }] },
+      { displayName: 'Grok 4.7  High', params: [{ id: 'context', value: '256k' }, { id: 'reasoning_effort', value: 'high' }, { id: 'fast', value: 'false' }] },
+      { displayName: 'Grok 4.7  High', params: [{ id: 'context', value: '500k' }, { id: 'reasoning_effort', value: 'high' }, { id: 'fast', value: 'false' }] },
     ],
   },
 ]);
-assert.equal(grok47Rows.length, 1);
+assert.equal(grok47Rows.length, 2);
 assert.match(grok47Rows[0].value, /context=256k/);
+assert.match(grok47Rows[1].value, /context=500k/);
+// The repeated parent name in variant.displayName is dropped in favour of the
+// parameter label, so context (not a collision suffix) distinguishes the rows.
+assert.equal(grok47Rows[0].label, 'Grok 4.7 — 256K · High');
+assert.equal(grok47Rows[1].label, 'Grok 4.7 — 500K · High');
+assert.deepEqual(resolveModelSelection(grok47Rows[1].value), {
+  id: 'grok-4.7',
+  params: [
+    { id: 'context', value: '500k' },
+    { id: 'fast', value: 'false' },
+    { id: 'reasoning_effort', value: 'high' },
+  ],
+});
 
 const duplicateDisplayNames = expandSdkModelsToCatalog([
   {

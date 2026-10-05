@@ -41,13 +41,55 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && url.pathname.endsWith('/history')) {
     return reply(200, { ok: true, headSeq: 10, events: [{ seq: 10, rec: { kind: 'localUser', text: 'hi' } }] });
   }
+  if (req.method === 'GET' && url.pathname === '/api/workspace-watcher') {
+    return reply(200, { ok: true, watcher: { mode: 'off' }, snapshot: {}, guardrails: {} });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/workspace-watcher/scout') {
+    if (req.headers['x-cretli-csrf'] !== 'csrf456') return reply(403, { ok: false, error: 'CSRF' });
+    let raw = '';
+    req.on('data', (chunk) => { raw += chunk; });
+    req.on('end', () => {
+      const body = JSON.parse(raw || '{}');
+      reply(200, { ok: true, saved: body, action: body.action });
+    });
+    return;
+  }
+  if (req.method === 'POST' && ['/api/workspace-watcher/save-plan', '/api/workspace-watcher/claim-next', '/api/workspace-watcher/report'].includes(url.pathname)) {
+    if (req.headers['x-cretli-csrf'] !== 'csrf456') return reply(403, { ok: false, error: 'CSRF' });
+    let raw = '';
+    req.on('data', (chunk) => { raw += chunk; });
+    req.on('end', () => {
+      const body = JSON.parse(raw || '{}');
+      if (url.pathname === '/api/workspace-watcher/report') {
+        if (body.outcome === 'denied') {
+          return reply(403, { ok: false, reason: 'not_orchestrator', cwd: body.workspaceFolder });
+        }
+        if (body.cycleId === 'missing-cycle') {
+          return reply(404, { ok: false, reason: 'no_cycle', cwd: body.workspaceFolder });
+        }
+        if (body.cycleId === 'mismatch-cycle') {
+          return reply(403, { ok: false, reason: 'cycle_mismatch', cwd: body.workspaceFolder });
+        }
+      }
+      if (url.pathname === '/api/workspace-watcher/claim-next') {
+        const sourceChatId = String(body.sourceChatId || '').trim();
+        const claimedByChatId = String(body.claimedByChatId || '').trim();
+        if (sourceChatId && claimedByChatId && sourceChatId !== claimedByChatId) {
+          return reply(403, { ok: false, reason: 'claim_owner_forbidden', cwd: body.workspaceFolder });
+        }
+      }
+      reply(200, { ok: true, saved: body });
+    });
+    return;
+  }
   if (req.method === 'PATCH') {
     if (req.headers['x-cretli-csrf'] !== 'csrf456') return reply(403, { ok: false, error: 'CSRF' });
     let raw = '';
     req.on('data', (chunk) => { raw += chunk; });
     req.on('end', () => {
       const id = url.pathname.split('/').pop();
-      reply(200, { ok: true, chat: { id, ...JSON.parse(raw || '{}') } });
+      const item = { id, ...JSON.parse(raw || '{}') };
+      reply(200, { ok: true, chat: item, item });
     });
     return;
   }
@@ -68,6 +110,67 @@ try {
   // Login on demand, then authorized requests carry cookie + CSRF.
   const chats = await client.listChats();
   assert.equal(chats.length, 2);
+  const draftInput = {
+    action: 'save_plan', workspaceFolder: '/tmp/w1', todoId: 'todo-1',
+    expectedUpdatedAt: 'revision-1', planMarkdown: '# Remote draft', sourceChatId: 'chat-1',
+  };
+  const draft = await client.workspaceWatcherUpdate(draftInput);
+  const { action: _action, ...draftBody } = draftInput;
+  assert.deepEqual(draft.saved, draftBody);
+  const claimRequest = await client.workspaceWatcherUpdate({ action: 'claim_next', workspaceFolder: '/tmp/w1', claimedByChatId: 'claim-owner', ttlMs: 1000 });
+  assert.deepEqual(claimRequest.saved, { workspaceFolder: '/tmp/w1', claimedByChatId: 'claim-owner', ttlMs: 1000 });
+  const foreignClaim = await client.workspaceWatcherUpdate({
+    action: 'claim_next',
+    workspaceFolder: '/tmp/w1',
+    sourceChatId: 'chat-owner',
+    claimedByChatId: 'chat-foreign',
+    ttlMs: 1000,
+  });
+  assert.equal(foreignClaim.ok, false);
+  assert.equal(foreignClaim.reason, 'claim_owner_forbidden');
+  assert.equal(foreignClaim.cwd, '/tmp/w1');
+  const reportRequest = await client.workspaceWatcherUpdate({
+    action: 'report', workspaceFolder: '/tmp/w1', sourceChatId: 'chat-1', outcome: 'success',
+    cycleId: 'cycle-1', reportId: 'report-1', todoIds: ['todo-1'], message: 'done',
+  });
+  assert.deepEqual(reportRequest.saved, {
+    workspaceFolder: '/tmp/w1', sourceChatId: 'chat-1', outcome: 'success',
+    cycleId: 'cycle-1', reportId: 'report-1', todoIds: ['todo-1'], message: 'done',
+  });
+  const foreignReport = await client.workspaceWatcherUpdate({
+    action: 'report',
+    workspaceFolder: '/tmp/w1',
+    sourceChatId: 'chat-foreign',
+    outcome: 'denied',
+    cycleId: 'cycle-1',
+  });
+  assert.equal(foreignReport.ok, false);
+  assert.equal(foreignReport.reason, 'not_orchestrator');
+  assert.ok(foreignReport.view?.watcher, 'soft denial still loads the watcher view');
+  const noCycleReport = await client.workspaceWatcherUpdate({
+    action: 'report',
+    workspaceFolder: '/tmp/w1',
+    sourceChatId: 'chat-1',
+    outcome: 'success',
+    cycleId: 'missing-cycle',
+  });
+  assert.equal(noCycleReport.ok, false);
+  assert.equal(noCycleReport.reason, 'no_cycle');
+  const mismatchReport = await client.workspaceWatcherUpdate({
+    action: 'report',
+    workspaceFolder: '/tmp/w1',
+    sourceChatId: 'chat-1',
+    outcome: 'success',
+    cycleId: 'mismatch-cycle',
+  });
+  assert.equal(mismatchReport.ok, false);
+  assert.equal(mismatchReport.reason, 'cycle_mismatch');
+  const plan = { markdown: '# Todo draft', sourceChatId: 'chat-1' };
+  const updatedTodo = await client.updateTodo({
+    workspaceFolder: '/tmp/w1', todoId: 'todo-1', expectedUpdatedAt: 'revision-1', plan,
+  });
+  assert.deepEqual(updatedTodo.plan, plan);
+  assert.equal(updatedTodo.expectedUpdatedAt, 'revision-1');
   assert.equal(client.sessionCookie, 'cr_session=tok123');
   assert.equal(client.csrfToken, 'csrf456');
 
@@ -106,6 +209,24 @@ try {
   assert.equal(findChatByRef(CHATS, 'unrelat').chat.id, CHATS[2].id);
   assert.equal(findChatByRef(CHATS, 'widget').matches.length, 2);
   assert.equal(findChatByRef(CHATS, 'nope').matches.length, 0);
+
+  const scoutSubmit = await client.workspaceWatcherScout({
+    workspaceFolder: '/tmp/w1',
+    action: 'submit',
+    sourceChatId: 'scout-chat-1',
+    scanId: 'scan-remote-1',
+    scoutSubmitToken: 'submit-tok-1',
+    findings: [{ title: 'Remote scout finding', category: 'bug' }],
+  });
+  assert.equal(scoutSubmit.action, 'submit');
+  assert.deepEqual(scoutSubmit.saved, {
+    workspaceFolder: '/tmp/w1',
+    action: 'submit',
+    sourceChatId: 'scout-chat-1',
+    scanId: 'scan-remote-1',
+    scoutSubmitToken: 'submit-tok-1',
+    findings: [{ title: 'Remote scout finding', category: 'bug' }],
+  });
 
   console.log('remote-api-client.test.js OK');
 } finally {

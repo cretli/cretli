@@ -2,12 +2,14 @@
  * Cross-cutting resume/freeze tracing (HTTP, WS, phases). Opt-in via UI freeze diag.
  */
 import { readStorageValueWithAlias } from './storageKeyAlias.js';
+import { recordHttpSample, setChatPerfReporter } from './chatPerfBudget.js';
 
 export const UI_FREEZE_DIAG_LS_KEY = 'cretli-ui-freeze-diag';
 
 export const UI_FREEZE_TRACE_TAG = 'ui-freeze-trace';
 export const UI_FREEZE_HTTP_TAG = 'ui-freeze-http';
 export const UI_FREEZE_WS_TAG = 'ui-freeze-ws';
+export const UI_FREEZE_BUDGET_TAG = 'ui-freeze-budget';
 
 /** Tags included in the Logs panel freeze filter. */
 export const UI_FREEZE_REPORT_TAGS = new Set([
@@ -17,6 +19,7 @@ export const UI_FREEZE_REPORT_TAGS = new Set([
   UI_FREEZE_TRACE_TAG,
   UI_FREEZE_HTTP_TAG,
   UI_FREEZE_WS_TAG,
+  UI_FREEZE_BUDGET_TAG,
   'page-resume',
   'chat-sync',
   'chat-ws',
@@ -175,6 +178,20 @@ export function traceUiFreezeWs(direction, chatId, type, extra = {}) {
 }
 
 /**
+ * Budget breach (markdown, history replay, HTTP burst). Same freeze filter as other diag lines.
+ * @param {string} message
+ * @param {Record<string, unknown>} [payload]
+ */
+export function traceUiFreezeBudget(message, payload = {}) {
+  if (!isUiFreezeTraceActive() || !logger?.log) return;
+  logger.log(UI_FREEZE_BUDGET_TAG, message, {
+    sessionId: resumeSessionId || undefined,
+    elapsedMs: resumeSessionStartedAt ? getUiFreezeResumeElapsedMs() : undefined,
+    ...payload,
+  });
+}
+
+/**
  * @param {number} durationMs
  * @returns {boolean}
  */
@@ -215,6 +232,23 @@ function installFetchProbe() {
     if (marker === '1' || marker.toLowerCase() === 'true') return true;
     return false;
   }
+  function elapsedSince(startedAt) {
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    return Math.round(now - startedAt);
+  }
+  function noteFetched(method, url, label, startedAt, status, error) {
+    if (!isUiFreezeTraceActive()) return;
+    const elapsedMs = elapsedSince(startedAt);
+    if (resumeTraceUntil > Date.now()) {
+      if (error) {
+        traceUiFreezeHttp('ERROR', label, url, { elapsedMs, error });
+      } else {
+        traceUiFreezeHttp('END', label, url, { status, elapsedMs });
+      }
+    }
+    if (!String(url).includes('/api/')) return;
+    recordHttpSample({ method, path: url, elapsedMs, status });
+  }
   window.fetch = async function uiFreezeFetchProbe(input, init) {
     const url = typeof input === 'string' ? input : input?.url || String(input);
     if (shouldSkipFetchProbe(url, init)) {
@@ -223,29 +257,15 @@ function installFetchProbe() {
     const method = init?.method || (typeof input === 'object' && input?.method) || 'GET';
     const label = `${String(method).toUpperCase()} ${url}`;
     const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    const inResumeWindow = resumeTraceUntil > Date.now();
-    if (isUiFreezeTraceActive() && (inResumeWindow || String(url).includes('/api/'))) {
+    if (isUiFreezeTraceActive() && resumeTraceUntil > Date.now()) {
       traceUiFreezeHttp('START', label, url);
     }
     try {
       const response = await nativeFetch(input, init);
-      if (isUiFreezeTraceActive()) {
-        const elapsedMs = Math.round(
-          (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt
-        );
-        traceUiFreezeHttp('END', label, url, { status: response.status, elapsedMs });
-      }
+      noteFetched(method, url, label, startedAt, response.status, '');
       return response;
     } catch (err) {
-      if (isUiFreezeTraceActive()) {
-        const elapsedMs = Math.round(
-          (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt
-        );
-        traceUiFreezeHttp('ERROR', label, url, {
-          elapsedMs,
-          error: String(err?.message || err),
-        });
-      }
+      noteFetched(method, url, label, startedAt, 0, String(err?.message || err));
       throw err;
     }
   };
@@ -260,6 +280,9 @@ export function initUiFreezeTrace(options = {}) {
   if (!isUiFreezeTraceActive()) return;
   initialized = true;
   logger = options.logger || null;
+  setChatPerfReporter((violation) => {
+    traceUiFreezeBudget(violation.message, violation.fields);
+  });
   installFetchProbe();
   traceUiFreeze('boot', 'trace-ready', {
     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 120) : '',

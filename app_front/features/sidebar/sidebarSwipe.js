@@ -14,6 +14,13 @@ export const SWIPE_CLOSE_VELOCITY_PX_MS = 0.5;
 export const SWIPE_SETTLE_MS = 220;
 export const SWIPE_EDGE_OPEN_PX = 20;
 
+/**
+ * How long a released gesture keeps swallowing clicks. The browser may fire a
+ * synthetic click that belongs to the swipe, but it often fires none at all —
+ * so the flag must self-expire instead of eating the user's next real tap.
+ */
+export const SUPPRESS_CLICK_MS = 350;
+
 const SWIPING_CLASS = 'sidebar-swiping';
 const SETTLING_CLASS = 'sidebar-swipe-settling';
 
@@ -82,6 +89,8 @@ export function shouldOpenSwipe(options = {}) {
  *   onOpen?: () => void,
  *   onPreviewReveal?: () => void,
  *   onPreviewHide?: () => void,
+ *   onGestureEnd?: () => void,
+ *   now?: () => number,
  * }} [options]
  * @returns {{ isSwiping: () => boolean, abort: () => void }}
  */
@@ -102,6 +111,11 @@ export function initSidebarSwipe(options = {}) {
   const onOpen = typeof options.onOpen === 'function' ? options.onOpen : () => {};
   const onPreviewReveal = typeof options.onPreviewReveal === 'function' ? options.onPreviewReveal : () => {};
   const onPreviewHide = typeof options.onPreviewHide === 'function' ? options.onPreviewHide : () => {};
+  // Fires once per gesture release (settle or abort) so the host can flush a
+  // render that was deferred while the drawer was moving.
+  const onGestureEnd = typeof options.onGestureEnd === 'function' ? options.onGestureEnd : () => {};
+  // Injectable clock so the synthetic-click window is testable without timers.
+  const now = typeof options.now === 'function' ? options.now : () => Date.now();
   const sidebar = getSidebar();
   const backdrop = getBackdrop();
   const edgeOpen = getEdgeOpen();
@@ -109,7 +123,7 @@ export function initSidebarSwipe(options = {}) {
 
   /** @type {Gesture | null} */
   let gesture = null;
-  let suppressClick = false;
+  let suppressClickUntil = 0;
   let settleTimer = 0;
   /** @type {((ev: TransitionEvent) => void) | null} */
   let settleListener = null;
@@ -132,8 +146,12 @@ export function initSidebarSwipe(options = {}) {
     });
   }
 
-  function isActive() {
-    return gesture !== null;
+  // A drawer is only "swiping" while it physically tracks or settles under the
+  // finger (inline transform in play). The `pending` phase is just a pointer
+  // that has not moved yet — most taps live here and must not block
+  // applyVisibility()/render().
+  function isSwiping() {
+    return gesture !== null && gesture.phase !== 'pending';
   }
 
   function onClosePointerDown(ev) {
@@ -229,10 +247,14 @@ export function initSidebarSwipe(options = {}) {
   }
 
   function onSuppressedClick(ev) {
-    if (!isActive() && !suppressClick) return;
+    // Swallow only a click that belongs to the swipe: one fired while the
+    // drawer is still tracking/settling, or inside the short synthetic-click
+    // window after release. Once that window closes the flag must not eat the
+    // user's next real tap — that was the "sidebar won't hide" symptom.
+    if (!isSwiping() && now() >= suppressClickUntil) return;
     ev.preventDefault();
     ev.stopImmediatePropagation();
-    suppressClick = false;
+    suppressClickUntil = 0;
   }
 
   function settleClose() {
@@ -240,7 +262,7 @@ export function initSidebarSwipe(options = {}) {
     beginSettle(-gesture.width, 0);
     waitForSettle(() => {
       teardownGesture();
-      suppressClick = true;
+      suppressClickUntil = now() + SUPPRESS_CLICK_MS;
       onClose();
       clearInlineStyles(sidebar, backdrop);
     });
@@ -251,7 +273,7 @@ export function initSidebarSwipe(options = {}) {
     beginSettle(0, 1);
     waitForSettle(() => {
       teardownGesture();
-      suppressClick = true;
+      suppressClickUntil = now() + SUPPRESS_CLICK_MS;
       clearInlineStyles(sidebar, backdrop);
     });
   }
@@ -261,7 +283,7 @@ export function initSidebarSwipe(options = {}) {
     beginSettle(0, 1);
     waitForSettle(() => {
       teardownGesture();
-      suppressClick = true;
+      suppressClickUntil = now() + SUPPRESS_CLICK_MS;
       onOpen();
       clearInlineStyles(sidebar, backdrop);
     });
@@ -336,6 +358,7 @@ export function initSidebarSwipe(options = {}) {
     detachSettleWait();
     gesture = null;
     document.body?.classList.remove(SWIPING_CLASS, SETTLING_CLASS);
+    onGestureEnd();
   }
 
   function abort() {
@@ -346,17 +369,59 @@ export function initSidebarSwipe(options = {}) {
     if (kind === 'open') onPreviewHide();
   }
 
+  // A pointer press always belongs to a new interaction: drop any leftover
+  // synthetic-click suppression so a fast follow-up tap reaches its handler.
+  function onPointerDownReset() {
+    suppressClickUntil = 0;
+  }
+
+  // Once a gesture is settling the outcome is already committed. An interruption
+  // (implicit pointer capture released after `pointerup`, a late blur, a tab
+  // switch) must not tear that down: aborting would drop the inline transform
+  // while the drawer snaps to its CSS position — i.e. it would revert the
+  // close/open the user just released. The settle finishes by itself through
+  // transitionend or the SWIPE_SETTLE_MS timeout.
+  function abortInterruptedGesture() {
+    if (gesture && gesture.phase === 'settling') return;
+    abort();
+  }
+
+  // A dropped pointerup (tab switch, OS gesture, alt-tab) must not leave
+  // `gesture` stuck, which would pin isSwiping() truthy and freeze the UI.
+  function onLostFocus() {
+    abortInterruptedGesture();
+  }
+
+  function onVisibilityChange() {
+    if (document.hidden === true) abortInterruptedGesture();
+  }
+
+  // Touch and pen implicitly capture the pointer on pointerdown and the browser
+  // releases it immediately after `pointerup` — while the drawer is already
+  // settling. That is a normal end of the gesture, not a lost pointer. Only a
+  // capture lost during pending/tracking (and for our own pointer) is an
+  // interruption that must clear the stuck gesture.
+  function onLostPointerCapture(ev) {
+    if (!gesture) return;
+    if (ev && ev.pointerId !== gesture.pointerId) return;
+    abortInterruptedGesture();
+  }
+
   sidebar.addEventListener('pointerdown', onClosePointerDown);
   edgeOpen?.addEventListener('pointerdown', onOpenPointerDown);
   window.addEventListener('pointermove', onPointerMove, { capture: true });
   window.addEventListener('pointerup', onPointerUp, { capture: true });
   window.addEventListener('pointercancel', onPointerCancel, { capture: true });
   window.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
+  window.addEventListener('pointerdown', onPointerDownReset, true);
+  window.addEventListener('blur', onLostFocus);
+  window.addEventListener('lostpointercapture', onLostPointerCapture, true);
+  document.addEventListener('visibilitychange', onVisibilityChange);
   sidebar.addEventListener('click', onSuppressedClick, true);
   backdrop?.addEventListener('click', onSuppressedClick, true);
 
   return {
-    isSwiping: isActive,
+    isSwiping,
     abort,
   };
 }

@@ -973,11 +973,31 @@ function firstRowSeq(rows) {
  * @param {{ tail?: number }} [options]
  * @returns {Promise<{ cursorSessionId: string, events: unknown[], headSeq: number, oldestLoadedSeq: number, hasOlder: boolean } | null>}
  */
+/** @type {Map<string, Promise<unknown>>} */
+const historyTailFlights = new Map();
+
 export async function pullChatHistoryTailFromServer(chatId, options = {}) {
   if (!chatId) return null;
   const tail = Number.isFinite(options.tail)
     ? Math.max(1, Number(options.tail))
     : CHAT_HISTORY_INITIAL_TAIL;
+  const flightKey = `${chatId}:${tail}`;
+  const existing = historyTailFlights.get(flightKey);
+  if (existing) return existing;
+  const flight = loadChatHistoryTail(chatId, tail);
+  historyTailFlights.set(flightKey, flight);
+  try {
+    return await flight;
+  } finally {
+    if (historyTailFlights.get(flightKey) === flight) historyTailFlights.delete(flightKey);
+  }
+}
+
+/**
+ * @param {string} chatId
+ * @param {number} tail
+ */
+async function loadChatHistoryTail(chatId, tail) {
   try {
     const r = await getChatHistory(chatId, { tail });
     if (!r || !r.ok) return null;

@@ -213,6 +213,25 @@ const planMetrics = collectRoomDelegationMetrics(sdkRoom, {
 });
 assert.equal(planMetrics.tool_calls_n, null, 'plan leaves tool_calls_n null on SDK');
 
+// --- collectRoomDelegationMetrics (DeepSeek token snapshot) ------------------
+// A deepseek room's `_lastUsagePayload` (accumulated by the DeepSeek room usage
+// path across DSH steps) must reach the card instead of staying null.
+const deepseekRoom = { _lastUsagePayload: { inputTokens: 350, outputTokens: 55 } };
+const deepseekMetrics = collectRoomDelegationMetrics(deepseekRoom, {
+  assignment: 'implement',
+  executor: { transport: 'deepseek' },
+});
+assert.equal(deepseekMetrics.tokens_in, 350, 'deepseek reports the run input tokens');
+assert.equal(deepseekMetrics.tokens_out, 55, 'deepseek reports the run output tokens');
+assert.equal(deepseekMetrics.tool_calls_n, null, 'deepseek tracks no tool-call tally');
+
+const emptyDeepseekMetrics = collectRoomDelegationMetrics({}, {
+  assignment: 'implement',
+  executor: { transport: 'deepseek' },
+});
+assert.equal(emptyDeepseekMetrics.tokens_in, null, 'no snapshot stays null, never a fabricated 0');
+assert.equal(emptyDeepseekMetrics.tokens_out, null);
+
 // --- beginHarnessRun clears stale SDK usage snapshot -------------------------
 const usageRoom = { _lastUsagePayload: { inputTokens: 999, outputTokens: 888 }, _lastRecordedUsageTokens: { textInput: 1 } };
 beginHarnessRun(usageRoom);

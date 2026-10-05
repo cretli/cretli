@@ -161,6 +161,18 @@ export async function getSettings() {
   return dedupeGetJson('/api/settings', 'getSettings');
 }
 
+export async function getSidebarLayout() {
+  return dedupeGetJson('/api/sidebar-layout', 'getSidebarLayout');
+}
+
+export async function patchSidebarLayout(payload) {
+  return apiFetchJson('/api/sidebar-layout', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  }, 'patchSidebarLayout');
+}
+
 export async function patchSettings(payload) {
   return apiFetchJson('/api/settings', {
     method: 'PATCH',

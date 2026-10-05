@@ -4,7 +4,15 @@
  * The drawer slides in from the left via the header menu icon.
  */
 
-import { applyChatOrder, flattenChatsTree, partitionChatsByArchive } from '../../../lib/chat-tree.js';
+import {
+  applyChatOrder,
+  buildForkArchiveBlockedIds,
+  flattenChatsTree,
+  isChatArchived,
+  isForkArchiveBlocked,
+  partitionChatsByArchive,
+} from '../../../lib/chat-tree.js';
+import { hasLiveHarnessWork } from '../chat/chatStatusMeta.js';
 import { MAX_SIDEBAR_NEST_INDENT } from './sidebarChatDragBlock.js';
 import { sortChatsByFavoriteThenDate } from '../chat/chatListSort.js';
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from '../../lib/storageKeyAlias.js';
@@ -16,10 +24,12 @@ import {
   SIDEBAR_VISIBLE_CHAT_LIMIT,
   shouldSerializeWorkspaceChatList,
   setRenderedSidebarChatIds,
+  getRenderedSidebarChatIds,
   setSidebarArchiveSectionOpen,
 } from './sidebarVisibleChats.js';
 import {
   formatSubchatParentBadge,
+  formatSubchatSummary,
   getAncestorContinuationLevels,
   groupSettledChildren,
   renderTreeContinuationHtml,
@@ -27,7 +37,24 @@ import {
 } from './sidebarSubchatGroups.js';
 import { initSidebarChatDrag } from './sidebarChatDrag.js';
 import { renderSidebarChatStatusHtml } from './sidebarChatStatus.js';
-import { readChatOrder, writeChatOrderForList } from './sidebarChatOrder.js';
+import {
+  applyWorkspaceWatcherModeLocal,
+  listEnabledWorkspaceWatcherPinnedChats,
+  listWorkspaceWatcherPinnedChats,
+  renderWorkspaceAutopilotBadgeHtml,
+  resolveWorkspaceWatcherBadge,
+  workspaceWatcherPresenceRevision,
+} from './workspaceAutopilotBadge.js';
+import {
+  getWorkspaceWatcherRuntimeControl,
+  isWorkspaceWatcherStartsEnabled,
+  refreshWorkspaceWatcherRuntimeControl,
+  setWorkspaceWatcherEnabled,
+  setWorkspaceWatcherStartsEnabled,
+  workspaceWatcherRuntimeRevision,
+} from './workspaceWatcherToggle.js';
+import { readChatOrder, writeChatOrder, writeChatOrderForList } from './sidebarChatOrder.js';
+import { publishSidebarLayout } from './sidebarLayoutSync.js';
 import { initSidebarWorkspaceDrag } from './sidebarWorkspaceDrag.js';
 import {
   readWorkspaceOrder,
@@ -38,6 +65,7 @@ import { resolvePersistedLocalChatHarnessDisplay } from '../chat/persistedLocalC
 import {
   chatBelongsToWorkspaceGroup,
   listCloneFoldersForWorkspaceFile,
+  resolveWorkspaceTargetForChat,
 } from './workspaceChatMatch.js';
 import {
   SIDEBAR_MIN_WIDTH,
@@ -45,6 +73,13 @@ import {
   clampSidebarWidth,
 } from './sidebarWidth.js';
 import { initSidebarSwipe } from './sidebarSwipe.js';
+import { isUiFreezeTraceActive } from '../../lib/uiFreezeTrace.js';
+import {
+  diffSignatureSegments,
+  getUiFreezeMetrics,
+  monoNow,
+} from './sidebarRenderMetrics.js';
+import { chatListVisualKey, createRafDebouncer } from '../chat/chatListStateRefresh.js';
 
 const SIDEBAR_OPEN_KEY = 'cretli-sidebar-open';
 const SIDEBAR_COLLAPSE_KEY = 'cretli-sidebar-collapsed';
@@ -53,6 +88,7 @@ const SIDEBAR_SUBCHAT_EXPANDED_KEY = 'cretli-sidebar-subchat-expanded';
 const SIDEBAR_PIN_KEY = 'cretli-sidebar-pinned';
 const SIDEBAR_WIDTH_KEY = 'cretli-sidebar-width';
 const SIDEBAR_PIN_ACTIVE_WORKSPACE_KEY = 'cretli-sidebar-pin-active-workspace';
+const SIDEBAR_WATCHER_SHOW_ALL_KEY = 'cretli-sidebar-watcher-show-all';
 
 /** @type {Set<string>} */
 const showAllChatsBySidebarKey = new Set();
@@ -102,6 +138,23 @@ function writePinActiveWorkspaceFlag(value) {
   if (typeof localStorage === 'undefined') return;
   try {
     writeStorageValueWithAlias(localStorage, SIDEBAR_PIN_ACTIVE_WORKSPACE_KEY, value ? '1' : '0');
+  } catch (_) {}
+}
+
+/** `Show all workspaces` in the Workspace section header (persisted per device). */
+function readWatcherShowAllFlag() {
+  if (typeof localStorage === 'undefined') return false;
+  try {
+    return readStorageValueWithAlias(localStorage, SIDEBAR_WATCHER_SHOW_ALL_KEY, '') === '1';
+  } catch (_) {
+    return false;
+  }
+}
+
+function writeWatcherShowAllFlag(value) {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    writeStorageValueWithAlias(localStorage, SIDEBAR_WATCHER_SHOW_ALL_KEY, value ? '1' : '0');
   } catch (_) {}
 }
 
@@ -260,6 +313,33 @@ export function resolveSidebarHarnessIcon(chat) {
   })[harness] || 'cursor.svg';
 }
 
+/**
+ * Pure decision for a partial workspace rebuild (leaf 00df6141 item 6): given the
+ * signatures that produced the currently mounted `<li>` nodes, the ordered keys
+ * of the next render and each key's fresh signature, decide which workspace
+ * nodes can be reused as-is, which must be rebuilt, and which are gone.
+ *
+ * Reusing a node keeps its chat rows (and any in-flight DOM/animation) intact,
+ * so a change in one workspace must not recreate the others.
+ *
+ * @param {Map<string, string>} previousSigs key → signature currently mounted
+ * @param {string[]} orderedKeys sidebar keys in render order
+ * @param {Map<string, string>} sigByKey fresh key → signature
+ * @returns {{ reuseKeys: Set<string>, rebuildKeys: string[], removeKeys: string[] }}
+ */
+export function planWorkspaceRebuild(previousSigs, orderedKeys, sigByKey) {
+  const reuseKeys = new Set();
+  const rebuildKeys = [];
+  for (const key of orderedKeys) {
+    const sig = sigByKey.get(key) || '';
+    if (previousSigs.get(key) === sig) reuseKeys.add(key);
+    else rebuildKeys.push(key);
+  }
+  const ordered = new Set(orderedKeys);
+  const removeKeys = [...previousSigs.keys()].filter((key) => !ordered.has(key));
+  return { reuseKeys, rebuildKeys, removeKeys };
+}
+
 export function createSidebarView(deps) {
   const {
     getWorkspaces,
@@ -298,7 +378,35 @@ export function createSidebarView(deps) {
   const subchatExpanded = readSubchatExpandedSet();
   setSidebarArchiveSectionOpen(archiveOpen.size > 0);
   let lastRenderSignature = '';
-  let pollTimer = null;
+  /** Previous NAMED signature segments, held only while the trace flag is on. */
+  let lastRenderSigParts = null;
+  /**
+   * Per-pass workspace-tree cache. A single render/update pass computes each
+   * workspace's archive-split + flat tree + settled-subchat grouping EXACTLY once
+   * and shares the result across the signature, the rendered-id set and the HTML
+   * build — previously three independent walks. Reset at the start of every pass.
+   * @type {{ activeChatId: string, searching: boolean, map: Map<string, object> } | null}
+   */
+  let renderPass = null;
+  /**
+   * Per-workspace `<li class="sidebar-workspace">` nodes kept across renders so a
+   * structure change in one workspace only recreates that node. Keyed by
+   * sidebar key, with the per-workspace structure signature that produced it.
+   * Cleared by `forceRerender()` (language/order changes need fresh text).
+   * @type {Map<string, { sig: string, node: Element }>}
+   */
+  const renderedWorkspaceNodes = new Map();
+  /** HTML of the last pinned watcher section, so it is only reshuffled on change. */
+  let lastPinnedSectionHtml = '';
+  /**
+   * Coalesced sidebar update: many callers (`notifySidebar`) fire per frame
+   * (presence / title / chatsChanged). One `render()` per animation frame bounds
+   * the cost; `forceRerender()` stays synchronous for callers that need the DOM
+   * immediately. `render` is a hoisted declaration so the arrow can reference it.
+   */
+  const updateScheduler = createRafDebouncer(() => {
+    render();
+  });
   let searchQuery = '';
   let workspaceDrag = { isDragging: () => false };
   let chatDrag = { isDragging: () => false };
@@ -363,10 +471,7 @@ export function createSidebarView(deps) {
     }
     applyPinButton();
     applyEdgeOpenHandle();
-    if (open) {
-      startPoll();
-      applySidebarWidth();
-    } else stopPoll();
+    if (open) applySidebarWidth();
     applyDockLayout();
   }
 
@@ -399,25 +504,6 @@ export function createSidebarView(deps) {
     applyVisibility();
   }
 
-  function startPoll() {
-    if (pollTimer) return;
-    pollTimer = setInterval(() => {
-      if (!open) {
-        stopPoll();
-        return;
-      }
-      if (typeof document !== 'undefined' && document.hidden) return;
-      refreshStates();
-    }, 5000);
-  }
-
-  function stopPoll() {
-    if (pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = null;
-    }
-  }
-
   function openSidebar() {
     open = true;
     writeOpenFlag(true);
@@ -444,9 +530,12 @@ export function createSidebarView(deps) {
   function setWorkspaceCollapsed(sidebarKey, value) {
     const key = normalizePath(sidebarKey);
     if (!key) return;
+    const had = collapsed.has(key);
+    if (value === had) return;
     if (value) collapsed.add(key);
     else collapsed.delete(key);
     writeCollapsedSet(collapsed);
+    publishSidebarLayout({ collapsedWorkspaces: [...collapsed] });
   }
 
   function toggleWorkspaceCollapsed(sidebarKey) {
@@ -461,10 +550,13 @@ export function createSidebarView(deps) {
   function setArchiveSectionOpen(sidebarKey, value) {
     const key = String(sidebarKey || '').trim();
     if (!key) return;
+    const had = archiveOpen.has(key);
+    if (value === had) return;
     if (value) archiveOpen.add(key);
     else archiveOpen.delete(key);
     writeArchiveOpenSet(archiveOpen);
     setSidebarArchiveSectionOpen(archiveOpen.size > 0);
+    publishSidebarLayout({ archiveOpen: [...archiveOpen] });
   }
 
   function isSubchatGroupExpanded(parentId) {
@@ -474,9 +566,73 @@ export function createSidebarView(deps) {
   function setSubchatGroupExpanded(parentId, value) {
     const key = String(parentId || '').trim();
     if (!key) return;
+    const had = subchatExpanded.has(key);
+    if (value === had) return;
     if (value) subchatExpanded.add(key);
     else subchatExpanded.delete(key);
     writeSubchatExpandedSet(subchatExpanded);
+    publishSidebarLayout({ subchatExpanded: [...subchatExpanded] });
+  }
+
+  /**
+   * @param {Iterable<string>} values
+   * @param {(value: string) => string} normalize
+   * @returns {Set<string>}
+   */
+  function replaceSet(values, normalize) {
+    const next = new Set();
+    (Array.isArray(values) ? values : [...values]).forEach((item) => {
+      const value = normalize(String(item || ''));
+      if (value) next.add(value);
+    });
+    return next;
+  }
+
+  /**
+   * @returns {{
+   *   chatOrder: string[],
+   *   workspaceOrder: string[],
+   *   collapsedWorkspaces: string[],
+   *   subchatExpanded: string[],
+   *   archiveOpen: string[],
+   * }}
+   */
+  function readLayoutSnapshot() {
+    return {
+      chatOrder: readChatOrder(),
+      workspaceOrder: readWorkspaceOrder(),
+      collapsedWorkspaces: [...collapsed],
+      subchatExpanded: [...subchatExpanded],
+      archiveOpen: [...archiveOpen],
+    };
+  }
+
+  /**
+   * Apply a server layout into the local cache without publishing it back.
+   *
+   * @param {object | null | undefined} layout
+   * @returns {void}
+   */
+  function applyLayoutSnapshot(layout) {
+    if (!layout || typeof layout !== 'object') return;
+    if (Array.isArray(layout.chatOrder)) writeChatOrder(layout.chatOrder);
+    if (Array.isArray(layout.workspaceOrder)) writeWorkspaceOrder(layout.workspaceOrder);
+    if (Array.isArray(layout.collapsedWorkspaces)) {
+      collapsed.clear();
+      replaceSet(layout.collapsedWorkspaces, normalizePath).forEach((key) => collapsed.add(key));
+      writeCollapsedSet(collapsed);
+    }
+    if (Array.isArray(layout.subchatExpanded)) {
+      subchatExpanded.clear();
+      replaceSet(layout.subchatExpanded, (value) => value.trim()).forEach((key) => subchatExpanded.add(key));
+      writeSubchatExpandedSet(subchatExpanded);
+    }
+    if (Array.isArray(layout.archiveOpen)) {
+      archiveOpen.clear();
+      replaceSet(layout.archiveOpen, (value) => value.trim()).forEach((key) => archiveOpen.add(key));
+      writeArchiveOpenSet(archiveOpen);
+      setSidebarArchiveSectionOpen(archiveOpen.size > 0);
+    }
   }
 
   function getSearchInput() {
@@ -501,12 +657,16 @@ export function createSidebarView(deps) {
 
   function visibleChatsForWorkspace(workspace) {
     const workspaceName = workspace.name || workspace.workspaceFile || '';
-    return orderedChats(chatsForWorkspace(workspace)).filter((chat) =>
-      matchesSidebarSearch(searchQuery, {
-        title: chat.title,
-        workspaceName,
-      })
-    );
+    return orderedChats(chatsForWorkspace(workspace))
+      // The durable watcher chat lives in its own "Workspace" section, never in
+      // the normal chat list, so it cannot be dragged/reordered like a chat.
+      .filter((chat) => chat?.watcherPinned !== true)
+      .filter((chat) =>
+        matchesSidebarSearch(searchQuery, {
+          title: chat.title,
+          workspaceName,
+        })
+      );
   }
 
   function archivedCountForWorkspace(workspace) {
@@ -586,6 +746,62 @@ export function createSidebarView(deps) {
     return { live, archived, grouped, tree };
   }
 
+  function beginRenderPass() {
+    const { blocked } = buildForkArchiveBlockedIds(getChats(), hasLiveHarnessWork);
+    renderPass = {
+      activeChatId: getActiveChatId() || '',
+      searching: isSearchActive(),
+      map: new Map(),
+      forkArchiveBlocked: blocked,
+    };
+    return renderPass;
+  }
+
+  /**
+   * @param {string} chatId
+   * @returns {boolean}
+   */
+  function isChatForkArchiveBlocked(chatId) {
+    if (renderPass?.forkArchiveBlocked) {
+      return isForkArchiveBlocked(renderPass.forkArchiveBlocked, chatId);
+    }
+    const { blocked } = buildForkArchiveBlockedIds(getChats(), hasLiveHarnessWork);
+    return isForkArchiveBlocked(blocked, chatId);
+  }
+
+  function endRenderPass() {
+    renderPass = null;
+  }
+
+  /**
+   * Archive-split + tree + settled-grouping for a workspace, memoised for the
+   * duration of one render/update pass. Outside a pass (e.g. a standalone
+   * `renderSignature()` call from tests) it falls back to an uncached compute.
+   *
+   * @param {object} workspace
+   * @returns {{ live: object[], archived: object[], grouped: object, tree: object[] }}
+   */
+  function workspaceModel(workspace) {
+    const key = workspace.sidebarKey || workspace.workspaceFile || '';
+    if (renderPass && renderPass.map.has(key)) return renderPass.map.get(key);
+    const activeChatId = renderPass ? renderPass.activeChatId : (getActiveChatId() || '');
+    const searching = renderPass ? renderPass.searching : isSearchActive();
+    const model = buildWorkspaceChatTree(visibleChatsForWorkspace(workspace), activeChatId, searching);
+    if (renderPass) renderPass.map.set(key, model);
+    return model;
+  }
+
+  /**
+   * Selector-safe id escaping (CSS.escape when available, conservative fallback).
+   * @param {string} value
+   * @returns {string}
+   */
+  function cssEscape(value) {
+    const s = String(value ?? '');
+    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(s);
+    return s.replace(/["\\]/g, '\\$&');
+  }
+
   /**
    * @param {import('./sidebarSubchatGroups.js').SubchatGroupNode} group
    * @param {string} sidebarKey
@@ -633,6 +849,72 @@ export function createSidebarView(deps) {
     }
   }
 
+  /**
+   * Action buttons for a chat row, emitted as HTML so the single delegated
+   * `.sidebar-body` listener can dispatch them by class. Previously these were
+   * created with `document.createElement` + one listener pair per button inside
+   * `wireBodyEvents()`, which ran on every rebuild.
+   *
+   * @param {object} chat
+   * @param {{ archived?: boolean }} [opts]
+   * @returns {string}
+   */
+  function renderChatActionButtonsHtml(chat, opts = {}) {
+    const chatId = String(chat?.id || '');
+    if (!chatId) return '';
+    const archived = opts.archived === true;
+    const showPin = canPinChatToUrl();
+    const pieces = [];
+
+    if (showPin) {
+      const pinnedUrl = typeof chat?.widgetPinnedUrl === 'string' ? chat.widgetPinnedUrl.trim() : '';
+      const isPinned = !!pinnedUrl;
+      const title = isPinned ? t('sidebar.unpinChatFromUrl', { url: pinnedUrl }) : t('sidebar.pinChatToUrl');
+      pieces.push(
+        '<button type="button" class="sidebar-chat-action sidebar-chat-action-first sidebar-chat-pin-btn'
+        + (isPinned ? ' sidebar-chat-pin-btn--active' : '')
+        + '" title="' + escapeHtml(title)
+        + '" aria-label="' + escapeHtml(title)
+        + '" aria-pressed="' + (isPinned ? 'true' : 'false') + '">'
+        + '<span class="mdi ' + (isPinned ? 'mdi-link-variant-off' : 'mdi-link-variant')
+        + '" aria-hidden="true"></span>'
+        + '</button>',
+      );
+    }
+
+    const archiveBlocked = !archived && isChatForkArchiveBlocked(chatId);
+    const archiveTitle = t(
+      archived ? 'sidebar.restoreChat' : (archiveBlocked ? 'sidebar.archiveBusy' : 'sidebar.archiveChat'),
+    );
+    pieces.push(
+      '<button type="button" class="sidebar-chat-action'
+      + (showPin ? '' : ' sidebar-chat-action-first')
+      + ' ' + (archived ? 'sidebar-chat-restore-btn' : 'sidebar-chat-archive-btn')
+      + (archiveBlocked ? ' disabled' : '')
+      + '" title="' + escapeHtml(archiveTitle)
+      + '" aria-label="' + escapeHtml(archiveTitle) + '">'
+      + '<span class="mdi '
+      + (archived ? 'mdi-archive-arrow-up-outline' : 'mdi-archive-arrow-down-outline')
+      + '" aria-hidden="true"></span>'
+      + '</button>',
+    );
+
+    const favActive = chatFavorites.isFavorite(chatId);
+    const favTitle = favActive ? t('sidebar.removeFavorite') : t('sidebar.addFavorite');
+    pieces.push(
+      '<button type="button" class="sidebar-chat-action sidebar-chat-fav-btn'
+      + '" title="' + escapeHtml(favTitle)
+      + '" aria-label="' + escapeHtml(favTitle)
+      + '" aria-pressed="' + (favActive ? 'true' : 'false') + '">'
+      + '<span class="mdi '
+      + (favActive ? 'mdi-star sidebar-chat-fav-btn--active' : 'mdi-star-outline')
+      + '" aria-hidden="true"></span>'
+      + '</button>',
+    );
+
+    return pieces.join('');
+  }
+
   function renderChatItem(chat, activeChatId, opts = {}) {
     const level = Math.max(0, Number(opts.level) || 0);
     const indentLevel = Math.min(MAX_SIDEBAR_NEST_INDENT, level);
@@ -640,6 +922,7 @@ export function createSidebarView(deps) {
     const parentId = typeof opts.parentId === 'string' ? opts.parentId : '';
     const subchatSummary = opts.subchatSummary || null;
     const archived = opts.archived === true;
+    const inArchiveList = opts.inArchiveList === true;
     const hasPinAction = !archived && canPinChatToUrl();
     const localHarnessDisplay = resolvePersistedLocalChatHarnessDisplay(chat);
     const state = archived || localHarnessDisplay.blocked ? 'disconnected' : resolveChatState(chat);
@@ -675,25 +958,34 @@ export function createSidebarView(deps) {
       ? 'local'
       : (harness === 'cursor-sdk' ? 'sdk' : (['sdk', 'openrouter', 'opencode', 'codebuddy', 'deepseek', 'codex', 'qwen', 'claude'].includes(harness) ? harness : 'sdk'));
     const harnessTitle = localHarnessDisplay.blocked ? t(localHarnessDisplay.messageKey) : harnessLabel;
+    // Key the row patch (chat.js applyChatListItemVisualState) skips on. Computed
+    // from the same state/meta the patch path derives, so the first patch after a
+    // full rebuild is a no-op for a live row (no animation restart).
+    const visualKey = chatListVisualKey(state, meta.tone, meta.label);
+    const activityKey = typeof meta.activityKey === 'string' ? meta.activityKey : '';
+    const statusLabel = typeof meta.label === 'string' ? meta.label : '';
     return (
       '<li class="sidebar-chat-item' +
       (chat.id === activeChatId ? ' is-active' : '') +
       (level > 0 ? ' is-child' : '') +
       (isLastChild ? ' is-last-child' : '') +
       (archived ? ' is-archived' : '') +
+      (meta.tone === 'active' ? ' has-activity-status' : '') +
       (hasPinAction ? ' has-pin-actions' : '') +
       (pushPreview ? ' has-push-preview' : '') +
       '" role="option" aria-selected="' +
       (chat.id === activeChatId ? 'true' : 'false') +
       '" data-chat-id="' +
       escapeHtml(chat.id) +
+      '" data-visual-key="' +
+      escapeHtml(visualKey) +
       '" data-nest-level="' +
-      String(archived ? 0 : level) +
+      String(level) +
       '" data-parent-id="' +
-      escapeHtml(archived ? '' : parentId) +
+      escapeHtml(parentId) +
       '"' +
-      (archived ? ' data-archived="1"' : '') +
-      (indentLevel > 0 && !archived ? ' style="--sidebar-nest-level:' + String(indentLevel) + '"' : '') +
+      (inArchiveList ? ' data-archived="1"' : '') +
+      (indentLevel > 0 ? ' style="--sidebar-nest-level:' + String(indentLevel) + '"' : '') +
       ' tabindex="' +
       (chat.id === activeChatId ? '0' : '-1') +
       '">' +
@@ -740,7 +1032,9 @@ export function createSidebarView(deps) {
         : '') +
       '</span>' +
       (subchatSummary && !archived
-        ? '<span class="sidebar-chat-item-subchat-summary" title="' +
+        ? '<span class="sidebar-chat-item-subchat-summary" data-summary-label="' +
+          escapeHtml(subchatSummary.label) +
+          '" title="' +
           escapeHtml(subchatSummary.title) +
           '" aria-label="' +
           escapeHtml(subchatSummary.title) +
@@ -754,6 +1048,10 @@ export function createSidebarView(deps) {
       escapeHtml(t('sidebar.stateTitle', { label: meta.label })) +
       '" data-status-tone="' +
       escapeHtml(meta.tone) +
+      '" data-status-label="' +
+      escapeHtml(statusLabel) +
+      '" data-activity-key="' +
+      escapeHtml(activityKey) +
       '" data-status-outcome="' +
       escapeHtml(meta.status || '') +
       '"' +
@@ -761,6 +1059,7 @@ export function createSidebarView(deps) {
       '>' +
       renderSidebarChatStatusHtml(meta, escapeHtml) +
       '</span>' +
+      renderChatActionButtonsHtml(chat, { archived }) +
       '</li>'
     );
   }
@@ -770,8 +1069,16 @@ export function createSidebarView(deps) {
     if (!count) return '';
     const openSection = searching || isArchiveSectionOpen(sidebarKey)
       || archivedChats.some((chat) => chat.id === activeChatId);
+    const archiveTree = flattenChatsTree(archivedChats);
     const listHtml = openSection
-      ? archivedChats.map((chat) => renderChatItem(chat, activeChatId, { archived: true })).join('')
+      ? archiveTree.map((item) => renderChatItem(item.chat, activeChatId, {
+        archived: true,
+        inArchiveList: true,
+        level: item.level,
+        isLastChild: item.isLastChild,
+        parentId: item.parentId,
+        continuationLevels: getAncestorContinuationLevels(item, archiveTree),
+      })).join('')
       : '';
     return (
       '<li class="sidebar-archive-group" data-sidebar-key="' +
@@ -808,7 +1115,7 @@ export function createSidebarView(deps) {
       normalizePath(preferredFolder) === normalizePath(activeWorkspaceFolder);
     const isCollapsed = !isSearchActive() && isWorkspaceCollapsed(sidebarKey);
     const searching = isSearchActive();
-    const { live, archived, grouped, tree } = buildWorkspaceChatTree(chats, activeChatId, searching);
+    const { live, archived, grouped, tree } = workspaceModel(workspace);
     const count = live.length;
     const serializeList = shouldSerializeWorkspaceChatList(isCollapsed, searching);
     const capped = capSidebarVisibleTreeChats(grouped.items, {
@@ -858,6 +1165,7 @@ export function createSidebarView(deps) {
               level: item.level,
               isLastChild: item.isLastChild,
               parentId: item.parentId,
+              archived: isChatArchived(item.chat),
               subchatSummary: collapsedSummariesByParent.get(item.chat.id) || null,
               continuationLevels: continuationLevelsFor(item),
             });
@@ -873,13 +1181,15 @@ export function createSidebarView(deps) {
       : archived.length || archivedCountForWorkspace(workspace)
         ? ''
         : '<li class="sidebar-chat-empty">' + escapeHtml(t('sidebar.noChats')) + '</li>';
+    const keptArchivedInLive = live.filter((chat) => isChatArchived(chat)).length;
+    const archiveHint = Math.max(0, archivedCountForWorkspace(workspace) - keptArchivedInLive);
     const archiveHtml = serializeList
       ? renderArchiveSection(
           sidebarKey,
           archived,
           activeChatId,
           searching,
-          archivedCountForWorkspace(workspace),
+          archiveHint,
         )
       : '';
 
@@ -905,6 +1215,7 @@ export function createSidebarView(deps) {
       '<span class="sidebar-workspace-count">' +
       (count ? String(count) : '') +
       '</span>' +
+      renderWorkspaceAutopilotBadgeHtml(workspace, preferredFolder, escapeHtml) +
       '<button type="button" class="sidebar-workspace-new-btn" title="' +
       escapeHtml(t('sidebar.newChat')) +
       '" aria-label="' +
@@ -927,20 +1238,207 @@ export function createSidebarView(deps) {
     );
   }
 
+  /**
+   * Small pill switch used by the Workspace section: one master gate in the
+   * header and one per pinned workspace. Rendered as a real
+   * `<button role="switch">` so the delegated sidebar click handler can dispatch
+   * it by class like every other row control.
+   *
+   * @param {{ scope: 'all' | 'workspace', workspaceFolder?: string, checked: boolean, title: string }} input
+   * @returns {string}
+   */
+  function renderWatcherToggleHtml(input) {
+    const scope = input.scope === 'all' ? 'all' : 'workspace';
+    const folder = String(input.workspaceFolder || '');
+    const checked = input.checked === true;
+    return (
+      '<button type="button" class="sidebar-watcher-toggle" role="switch"' +
+      ' aria-checked="' + (checked ? 'true' : 'false') + '"' +
+      ' data-watcher-scope="' + escapeHtml(scope) + '"' +
+      (folder ? ' data-workspace-folder="' + escapeHtml(folder) + '"' : '') +
+      ' aria-label="' + escapeHtml(input.title) + '"' +
+      ' title="' + escapeHtml(input.title) + '">' +
+      '<span class="sidebar-watcher-toggle-knob" aria-hidden="true"></span>' +
+      '</button>'
+    );
+  }
+
+  /**
+   * The dedicated "Workspace" section: one pinned watcher chat per workspace,
+   * rendered outside the normal chat list. It is fed by the coalesced
+   * `agentPresence` frame (no extra socket), so a newly materialized pinned chat
+   * appears live. Each row (and the section header) carries a watcher toggle.
+   *
+   * @param {string} activeChatId
+   * @returns {string}
+   */
+  /**
+   * One row of the Workspace section. `pinnedChatId` is empty for a workspace
+   * that has no pinned watcher chat yet (only reachable in "show all" mode); such
+   * a row is a plain entry whose switch alone is interactive.
+   */
+  function renderPinnedWatcherRow(row) {
+    const active = !!row.pinnedChatId && row.pinnedChatId === row.activeChatId;
+    const toggleTitle = t('sidebar.watcherToggleRowTitle', {
+      name: row.name,
+      state: row.enabled ? row.stateOn : row.stateOff,
+    }) + (row.gated ? ` ${t('sidebar.watcherToggleGated')}` : '');
+    return (
+      '<li class="sidebar-pinned-chat' + (active ? ' is-active' : '') +
+      (row.pinnedChatId ? '' : ' sidebar-pinned-chat--no-chat') +
+      '" role="option" aria-selected="' + (active ? 'true' : 'false') +
+      (row.pinnedChatId ? '" data-pinned-chat-id="' + escapeHtml(row.pinnedChatId) : '') +
+      '" tabindex="' + (active ? '0' : '-1') +
+      '" title="' + escapeHtml(row.sub || row.name) + '">' +
+      '<span class="mdi mdi-robot-outline sidebar-pinned-chat-icon" aria-hidden="true"></span>' +
+      '<span class="sidebar-pinned-chat-main">' +
+      '<span class="sidebar-pinned-chat-title">' + escapeHtml(row.name) + '</span>' +
+      '<span class="sidebar-pinned-chat-sub">' + escapeHtml(row.sub) + '</span>' +
+      '</span>' +
+      (row.status
+        ? '<span class="sidebar-pinned-chat-status">' + escapeHtml(row.status) + '</span>'
+        : '') +
+      renderWatcherToggleHtml({
+        scope: 'workspace',
+        workspaceFolder: row.folder,
+        checked: row.enabled,
+        title: toggleTitle,
+      }) +
+      '</li>'
+    );
+  }
+
+  function renderPinnedWorkspaceSection(activeChatId) {
+    const entries = listWorkspaceWatcherPinnedChats();
+    const showAll = readWatcherShowAllFlag();
+    if (!entries.length && !showAll) return '';
+    const chats = getChats();
+    const wsList = getWorkspaces();
+    const nameFor = (folder) => {
+      const norm = normalizePath(folder);
+      const ws = wsList.find((workspace) => {
+        const key = workspace.sidebarKey || workspace.workspaceFile || '';
+        return normalizePath(getPreferredWorkspaceFolder(key)) === norm;
+      }) || wsList.find((workspace) => normalizePath(workspace.workspaceFolder) === norm
+        || normalizePath(workspace.workspaceDir) === norm);
+      return ws?.name || String(folder).replace(/\\/g, '/').split('/').filter(Boolean).pop() || folder;
+    };
+    // Global start gate: off means every workspace's cycles/scout are blocked.
+    const allOn = isWorkspaceWatcherStartsEnabled();
+    const gated = !allOn && getWorkspaceWatcherRuntimeControl().known;
+    const stateOn = t('sidebar.watcherToggleOn');
+    const stateOff = t('sidebar.watcherToggleOff');
+    const entryByFolder = new Map(
+      entries.map((entry) => [normalizePath(entry.workspaceFolder), entry]),
+    );
+    const rows = [];
+    if (showAll) {
+      // One row per workspace group (clones included), so a watcher can be turned
+      // on for a workspace that has never had one.
+      const seenFolders = new Set();
+      for (const workspace of wsList) {
+        const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
+        const folder = String(
+          getPreferredWorkspaceFolder(sidebarKey)
+          || workspace.workspaceFolder
+          || workspace.workspaceDir
+          || '',
+        ).trim();
+        if (!folder) continue;
+        const norm = normalizePath(folder);
+        if (seenFolders.has(norm)) continue;
+        seenFolders.add(norm);
+        const entry = entryByFolder.get(norm) || null;
+        const chat = entry ? chats.find((item) => item.id === entry.pinnedChatId) : null;
+        rows.push(renderPinnedWatcherRow({
+          name: workspace.name || nameFor(folder),
+          sub: chat?.title || folder,
+          folder,
+          pinnedChatId: entry?.pinnedChatId || '',
+          enabled: !!resolveWorkspaceWatcherBadge(workspace, folder),
+          status: entry?.stopReason || (entry?.paused ? t('sidebar.watcherAutopilotPaused') : ''),
+          gated,
+          activeChatId,
+          stateOn,
+          stateOff,
+        }));
+      }
+    } else {
+      // Without "show all" the section is the watcher list, so a workspace whose
+      // watcher is off stays hidden — the list button reveals it again.
+      for (const entry of listEnabledWorkspaceWatcherPinnedChats()) {
+        const chat = chats.find((item) => item.id === entry.pinnedChatId);
+        if (!chat) continue;
+        rows.push(renderPinnedWatcherRow({
+          name: nameFor(entry.workspaceFolder),
+          sub: chat.title,
+          folder: entry.workspaceFolder,
+          pinnedChatId: entry.pinnedChatId,
+          enabled: true,
+          status: entry.stopReason || (entry.paused ? t('sidebar.watcherAutopilotPaused') : ''),
+          gated,
+          activeChatId,
+          stateOn,
+          stateOff,
+        }));
+      }
+    }
+    // Keep the header (and the list button) reachable while every watcher is
+    // off, otherwise the disabled rows could never be shown again.
+    if (!rows.length && !entries.length) return '';
+    const allTitle = t('sidebar.watcherToggleAllTitle', {
+      state: allOn ? stateOn : stateOff,
+    });
+    const showAllTitle = showAll ? t('sidebar.watcherShowAllHide') : t('sidebar.watcherShowAllShow');
+    return (
+      '<div class="sidebar-pinned-section' + (gated ? ' is-gated' : '') +
+      '" aria-label="' +
+      escapeHtml(t('sidebar.workspaceSection')) +
+      '">' +
+      '<div class="sidebar-pinned-section-header">' +
+      '<span class="mdi mdi-robot-outline" aria-hidden="true"></span>' +
+      escapeHtml(t('sidebar.workspaceSection')) +
+      '<button type="button" class="sidebar-watcher-show-all' + (showAll ? ' is-active' : '') +
+      '" aria-pressed="' + (showAll ? 'true' : 'false') +
+      '" data-watcher-show-all aria-label="' +
+      escapeHtml(showAllTitle) +
+      '" title="' +
+      escapeHtml(showAllTitle) +
+      '">' +
+      '<span class="mdi mdi-format-list-bulleted" aria-hidden="true"></span>' +
+      '</button>' +
+      renderWatcherToggleHtml({ scope: 'all', checked: allOn, title: allTitle }) +
+      '</div>' +
+      '<ul class="sidebar-pinned-chats" role="listbox">' +
+      (rows.length
+        ? rows.join('')
+        : !showAll
+          ? '<li class="sidebar-pinned-empty">' +
+            escapeHtml(t('sidebar.watcherNoneEnabled')) +
+            '</li>'
+          : '') +
+      '</ul>' +
+      '</div>'
+    );
+  }
+
+  /**
+   * The chat ids the list currently renders (per-workspace cap + open archive
+   * sections). Reused by the structural signature so membership changes — and
+   * only membership changes — drive a rebuild. Reads the memoised per-pass tree.
+   *
+   * @returns {Set<string>}
+   */
   function collectRenderableChatIds() {
     const ids = new Set();
     const searching = isSearchActive();
-    const activeChatId = getActiveChatId();
+    const activeChatId = renderPass ? renderPass.activeChatId : getActiveChatId();
     if (activeChatId) ids.add(activeChatId);
     for (const workspace of getWorkspaces()) {
       const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
       const isCollapsed = !searching && isWorkspaceCollapsed(sidebarKey);
       if (!shouldSerializeWorkspaceChatList(isCollapsed, searching)) continue;
-      const { archived, grouped } = buildWorkspaceChatTree(
-        visibleChatsForWorkspace(workspace),
-        activeChatId,
-        searching,
-      );
+      const { archived, grouped } = workspaceModel(workspace);
       const capped = capSidebarVisibleTreeChats(grouped.items, {
         limit: SIDEBAR_VISIBLE_CHAT_LIMIT,
         activeChatId,
@@ -959,120 +1457,337 @@ export function createSidebarView(deps) {
   }
 
   /**
-   * Signature of the settled-subchat groups (counts + expansion) so a status
-   * change inside an already collapsed group still repaints its summary.
+   * Membership-only signature of the settled-subchat groups: the folded child id
+   * set per parent. A status change that keeps the same members (e.g. completed →
+   * interrupted) must NOT rebuild — the summary is repainted in place by
+   * `patchTransientVisualStates`. Only a child entering/leaving the folded set
+   * changes this string and forces a rebuild.
    *
    * @returns {string}
    */
   function collectSubchatGroupSignature() {
     const parts = [];
     const searching = isSearchActive();
-    const activeChatId = getActiveChatId();
     for (const workspace of getWorkspaces()) {
       const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
       const isCollapsed = !searching && isWorkspaceCollapsed(sidebarKey);
       if (!shouldSerializeWorkspaceChatList(isCollapsed, searching)) continue;
-      const { grouped } = buildWorkspaceChatTree(
-        visibleChatsForWorkspace(workspace),
-        activeChatId,
-        searching,
-      );
+      const { grouped } = workspaceModel(workspace);
       for (const group of grouped.groups) {
-        const summary = group.summary || {};
-        parts.push(
-          [
-            sidebarKey,
-            group.parentId,
-            summary.total || 0,
-            summary.completed || 0,
-            summary.failed || 0,
-            summary.interrupted || 0,
-            summary.idle || 0,
-            group.expanded ? '1' : '0',
-          ].join(':'),
-        );
+        const childIds = Array.isArray(group.childIds)
+          ? [...group.childIds].sort().join(',')
+          : '';
+        parts.push(sidebarKey + ':' + group.parentId + ':' + childIds);
       }
     }
     return parts.join('|');
   }
 
-  function renderSignature() {
-    const wsList = getWorkspaces();
-    const activeWs = normalizePath(getActiveWorkspaceFile());
-    const activeChatId = getActiveChatId();
-    const collapsedKey = [...collapsed].sort().join('|');
-    const visibleIds = collectRenderableChatIds();
-    const groupSig = collectSubchatGroupSignature();
-    const structureSig = wsList
-      .map((workspace) => {
-        const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
-        const { live } = partitionChatsByArchive(visibleChatsForWorkspace(workspace));
-        return [
-          sidebarKey,
-          workspace.name || '',
-          workspace.isClone ? '1' : '0',
-          isWorkspaceCollapsed(sidebarKey) ? 'C' : 'O',
-          live
-            .map((c) =>
-              [
-                c.id,
-                c.title,
-                chatFavorites.isFavorite(c.id) ? '1' : '0',
-                c.forkParentChatId || '',
-                c.todoId ? 'D' : '',
-                c.widgetPinnedUrl || '',
-              ].join(':'),
-            )
-            .join(','),
-          String(archivedCountForWorkspace(workspace)),
-        ].join('#');
+  /**
+   * Per-workspace structural signature: everything that changes the rendered
+   * `<li class="sidebar-workspace">` subtree — name, clone marker, active /
+   * collapsed state, chat titles / order / favorites / pins, capped membership,
+   * settled-group membership and archive-section state. Transient visuals (row
+   * status tone, active row class, group summary text) are intentionally
+   * excluded because they are patched in place. The render pass shares these
+   * strings with the per-group rebuild so a change in one workspace does not
+   * recreate the other `<li>` nodes.
+   *
+   * @param {object} workspace
+   * @param {string} activeChatId
+   * @param {boolean} searching
+   * @returns {string}
+   */
+  function computeWorkspaceStructureSignature(workspace, activeChatId, searching) {
+    const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
+    const preferredFolder = getPreferredWorkspaceFolder(sidebarKey);
+    const isActive =
+      normalizePath(workspace.workspaceFile) === normalizePath(getActiveWorkspaceFile()) &&
+      normalizePath(preferredFolder) === normalizePath(getActiveWorkspaceFolder());
+    const isCollapsed = !searching && isWorkspaceCollapsed(sidebarKey);
+    const { live, grouped } = workspaceModel(workspace);
+    const serializeList = shouldSerializeWorkspaceChatList(isCollapsed, searching);
+    const capped = serializeList
+      ? capSidebarVisibleTreeChats(grouped.items, {
+        limit: SIDEBAR_VISIBLE_CHAT_LIMIT,
+        activeChatId,
+        showAll: searching || showAllChatsBySidebarKey.has(sidebarKey),
       })
-      .join('||');
-    const statusSig = getChats()
-      .filter((c) => c?.id && visibleIds.has(c.id))
-      .map((c) =>
-        [c.id, resolveChatState(c), getTerminalStateMeta(c).tone, c.id === activeChatId ? 'A' : ''].join(','),
-      )
-      .join('|');
-    return (
-      String(open) +
-      '||' +
-      String(pinned) +
-      '||' +
-      activeWs +
-      '||' +
-      String(searchQuery || '') +
-      '||' +
-      collapsedKey +
-      '||' +
-      [...showAllChatsBySidebarKey].sort().join('|') +
-      '||' +
-      [...archiveOpen].sort().join('|') +
-      '||' +
-      [...subchatExpanded].sort().join('|') +
-      '||' +
-      readWorkspaceOrder().join('\n') +
-      '||' +
-      readChatOrder().join('\n') +
-      '||' +
-      (readPinActiveWorkspaceFlag() ? '1' : '0') +
-      '||' +
-      structureSig +
-      '||' +
-      statusSig +
-      '||' +
-      groupSig
-    );
+      : { items: [], hidden: 0 };
+    const rows = serializeList
+      ? capped.items
+        .map((item) => (item?.isGroup
+          ? 'g:' + item.parentId + ':' + (item.childIds || []).join(',')
+          : 'c:' + (item.chat?.id || '')))
+        .join(',')
+      : '';
+    const groups = serializeList
+      ? grouped.groups
+        .map((group) => group.parentId + ':' + [...(group.childIds || [])].sort().join(','))
+        .join(',')
+      : '';
+    return [
+      workspace.name || '',
+      workspace.workspaceFile || '',
+      workspace.isClone ? '1' : '0',
+      isActive ? 'A' : '',
+      isCollapsed ? 'C' : 'O',
+      serializeList ? 'S' : 'H',
+      searching ? 'Q' : '',
+      showAllChatsBySidebarKey.has(sidebarKey) ? '1' : '0',
+      isArchiveSectionOpen(sidebarKey) ? '1' : '0',
+      live
+        .map((c) =>
+          [
+            c.id,
+            c.title,
+            chatFavorites.isFavorite(c.id) ? '1' : '0',
+            c.forkParentChatId || '',
+            c.todoId ? 'D' : '',
+            c.widgetPinnedUrl || '',
+          ].join(':'),
+        )
+        .join(','),
+      String(archivedCountForWorkspace(workspace)),
+      rows,
+      groups,
+    ].join('#');
+  }
+
+  /**
+   * @param {{ layout?: string, structure?: string, status?: string, group?: string, watcher?: string }} [partsOut]
+   *   Optional out-param populated with the NAMED signature segments so the trace
+   *   diff never has to slice the joined string on '||' (segment values can
+   *   themselves contain '||'). `status` is intentionally left unset: per-row tone
+   *   / active marker no longer affect the structural signature (they are applied
+   *   by a targeted row patch), so status-only frames short-circuit here.
+   * @returns {string}
+   */
+  function renderSignature(partsOut) {
+    const ownsPass = !renderPass;
+    if (ownsPass) beginRenderPass();
+    try {
+      const wsList = getWorkspaces();
+      const activeWs = normalizePath(getActiveWorkspaceFile());
+      const collapsedKey = [...collapsed].sort().join('|');
+      const visibleIds = collectRenderableChatIds();
+      const groupSig = collectSubchatGroupSignature();
+      const structureSig = wsList
+        .map((workspace) => {
+          const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
+          const { live } = workspaceModel(workspace);
+          return [
+            sidebarKey,
+            workspace.name || '',
+            workspace.isClone ? '1' : '0',
+            isWorkspaceCollapsed(sidebarKey) ? 'C' : 'O',
+            live
+              .map((c) =>
+                [
+                  c.id,
+                  c.title,
+                  chatFavorites.isFavorite(c.id) ? '1' : '0',
+                  c.forkParentChatId || '',
+                  c.todoId ? 'D' : '',
+                  c.widgetPinnedUrl || '',
+                ].join(':'),
+              )
+              .join(','),
+            String(archivedCountForWorkspace(workspace)),
+          ].join('#');
+        })
+        .join('||');
+      const membershipSig = [...visibleIds].sort().join(',');
+      const layoutSig =
+        String(open) +
+        '||' +
+        String(pinned) +
+        '||' +
+        activeWs +
+        '||' +
+        String(searchQuery || '') +
+        '||' +
+        collapsedKey +
+        '||' +
+        [...showAllChatsBySidebarKey].sort().join('|') +
+        '||' +
+        [...archiveOpen].sort().join('|') +
+        '||' +
+        [...subchatExpanded].sort().join('|') +
+        '||' +
+        readWorkspaceOrder().join('\n') +
+        '||' +
+        readChatOrder().join('\n') +
+        '||' +
+        (readPinActiveWorkspaceFlag() ? '1' : '0') +
+        '||' +
+        (readWatcherShowAllFlag() ? '1' : '0');
+      const watcherSig = String(workspaceWatcherPresenceRevision());
+      // The master start gate is server-wide state, not part of the presence
+      // frame, so its revision is tracked separately to repaint the header switch.
+      const runtimeSig = String(workspaceWatcherRuntimeRevision());
+      if (partsOut) {
+        partsOut.layout = layoutSig;
+        partsOut.structure = structureSig + '\n' + membershipSig;
+        partsOut.group = groupSig;
+        partsOut.watcher = watcherSig;
+        partsOut.runtime = runtimeSig;
+      }
+      return (
+        layoutSig +
+        '||' +
+        structureSig +
+        '||' +
+        membershipSig +
+        '||' +
+        groupSig +
+        '||' +
+        watcherSig +
+        '||' +
+        runtimeSig
+      );
+    } finally {
+      if (ownsPass) endRenderPass();
+    }
+  }
+
+  /**
+   * In-place repaint of the visuals that deliberately live OUTSIDE the structural
+   * signature: the active-chat class/ARIA, the settled-subchat group summary, and
+   * the collapsed parent badge. Reads the memoised per-pass tree, so calling this
+   * on a signature-skip costs one bounded DOM walk — no innerHTML rebuild.
+   * Runs inside a render pass (`renderPass` is set).
+   */
+  function patchTransientVisualStates() {
+    const aside = getContainer();
+    if (!aside || aside.hidden) return;
+    const body = aside.querySelector('.sidebar-body');
+    if (!body) return;
+    const activeChatId = renderPass ? renderPass.activeChatId : getActiveChatId();
+
+    body.querySelectorAll('.sidebar-chat-item').forEach((el) => {
+      const id = el.dataset?.chatId || '';
+      const active = !!id && id === activeChatId;
+      el.classList?.toggle('is-active', active);
+      el.setAttribute?.('aria-selected', active ? 'true' : 'false');
+    });
+    body.querySelectorAll('.sidebar-pinned-chat').forEach((el) => {
+      const id = el.dataset?.pinnedChatId || '';
+      const active = !!id && id === activeChatId;
+      el.classList?.toggle('is-active', active);
+      el.setAttribute?.('aria-selected', active ? 'true' : 'false');
+    });
+
+    // Settled-group summaries only repaint when a group is actually on screen.
+    const groupEls = body.querySelectorAll('.sidebar-subchat-group');
+    if (!groupEls || !groupEls.length) return;
+    const groupByKey = new Map();
+    const badgeByKey = new Map();
+    for (const workspace of getWorkspaces()) {
+      const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
+      const { grouped } = workspaceModel(workspace);
+      for (const group of grouped.groups) {
+        const key = sidebarKey + '\u0000' + group.parentId;
+        groupByKey.set(key, group);
+        if (group.expanded !== true) {
+          badgeByKey.set(sidebarKey + '\u0000' + group.parentId, formatSubchatParentBadge(group.summary, t));
+        }
+      }
+    }
+
+    groupEls.forEach((el) => {
+      const sidebarKey = el.getAttribute('data-sidebar-key') || '';
+      const parentId = el.getAttribute('data-parent-id') || '';
+      const group = groupByKey.get(sidebarKey + '\u0000' + parentId);
+      if (!group) return;
+      const summaryLabel = formatSubchatSummary(group.summary);
+      if ((el.getAttribute('data-group-summary') || '') === summaryLabel) return;
+      el.setAttribute('data-group-summary', summaryLabel);
+      const summaryEl = el.querySelector('.sidebar-subchat-group-summary');
+      const summaryTitle = summaryLabel ? t('sidebar.subchatSummary', { summary: summaryLabel }) : '';
+      if (summaryEl) {
+        summaryEl.textContent = summaryLabel;
+        if (summaryTitle) summaryEl.setAttribute('title', summaryTitle);
+        summaryEl.toggleAttribute?.('hidden', !summaryLabel);
+      }
+      const toggleEl = el.querySelector('.sidebar-subchat-group-toggle');
+      if (toggleEl && summaryTitle) toggleEl.setAttribute('aria-description', summaryTitle);
+    });
+
+    badgeByKey.forEach((badge, key) => {
+      if (!badge) return;
+      const parentId = key.split('\u0000')[1];
+      const row = body.querySelector(`.sidebar-chat-item[data-chat-id="${cssEscape(parentId)}"]`);
+      if (!row) return;
+      const badgeEl = row.querySelector('.sidebar-chat-item-subchat-summary');
+      if (!badgeEl) return;
+      if ((badgeEl.getAttribute('data-summary-label') || '') === badge.label) return;
+      badgeEl.setAttribute('data-summary-label', badge.label);
+      badgeEl.textContent = badge.label;
+      badgeEl.setAttribute('title', badge.title);
+      badgeEl.setAttribute('aria-label', badge.title);
+    });
   }
 
   function render() {
     const aside = getContainer();
     if (!aside) return;
     // Never rebuild the DOM mid-gesture — a live drag node would detach, and
-    // a swipe follows an inline transform on this aside.
-    if (workspaceDrag.isDragging() || chatDrag.isDragging() || swipe.isSwiping()) return;
-    const sig = renderSignature();
-    if (sig === lastRenderSignature) return;
+    // a swipe follows an inline transform on this aside. Coalesce a deferred
+    // render onto the next animation frame once the gesture releases; otherwise
+    // a change that arrived mid-drag would be dropped and the DOM left stale.
+    if (workspaceDrag.isDragging() || chatDrag.isDragging() || swipe.isSwiping()) {
+      updateScheduler.schedule();
+      return;
+    }
+    const body = aside.querySelector('.sidebar-body');
+    if (!body) return;
+    // The whole pass shares one workspace-tree computation (see workspaceModel).
+    beginRenderPass();
+    try {
+      renderPassBody(body);
+    } finally {
+      endRenderPass();
+    }
+  }
+
+  /**
+   * The rebuild branch of a render, run inside a `renderPass`. All measurement is
+   * opt-in through the uiFreeze trace flag (default off) and guarded at the
+   * callsite so production does zero extra work — this never changes what is
+   * rendered, only the signature/short-circuit it compares against.
+   * @param {Element} body
+   */
+  function renderPassBody(body) {
+    const trace = isUiFreezeTraceActive();
+    const metrics = trace ? getUiFreezeMetrics() : null;
+    const sigParts = trace ? {} : null;
+    const sigStart = trace ? monoNow() : 0;
+    const sig = renderSignature(sigParts);
+    const sigMs = trace ? monoNow() - sigStart : 0;
+    if (sig === lastRenderSignature) {
+      // Signature-only skip: still repaint the visuals that live OUTSIDE the
+      // signature (active chat, group summaries, collapsed parent badges).
+      patchTransientVisualStates();
+      if (trace) lastRenderSigParts = sigParts;
+      if (metrics) {
+        metrics.recordSidebarRender({
+          changed: false,
+          changedSegments: [],
+          sigMs,
+          rows: getRenderedSidebarChatIds().size,
+          rebuilt: false,
+        });
+      }
+      return;
+    }
+    // Segments are diffed ONLY on a real rebuild, against the parts that produced
+    // lastRenderSignature (null on the first measured rebuild → all-segment baseline).
+    let changedSegments = null;
+    if (trace) {
+      changedSegments = diffSignatureSegments(lastRenderSigParts, sigParts);
+      lastRenderSigParts = sigParts;
+    }
     lastRenderSignature = sig;
 
     const wsList = getWorkspaces();
@@ -1080,10 +1795,10 @@ export function createSidebarView(deps) {
     const activeWorkspaceFolder = getActiveWorkspaceFolder();
     const activeChatId = getActiveChatId();
 
-    const body = aside.querySelector('.sidebar-body');
-    if (!body) return;
-
     if (!wsList.length) {
+      renderedWorkspaceNodes.clear();
+      lastPinnedSectionHtml = '';
+      const innerStart = trace ? monoNow() : 0;
       body.innerHTML =
         '<div class="sidebar-empty">' +
         '<p class="sidebar-empty-hint">' + escapeHtml(t('workspace.emptyHint')) + '</p>' +
@@ -1091,6 +1806,16 @@ export function createSidebarView(deps) {
         escapeHtml(t('workspace.emptyAction')) +
         '</cr-bar-button>' +
         '</div>';
+      if (metrics) {
+        metrics.recordSidebarRender({
+          changed: true,
+          changedSegments,
+          sigMs,
+          innerMs: monoNow() - innerStart,
+          rows: 0,
+          rebuilt: true,
+        });
+      }
       body.querySelector('.sidebar-empty-add')?.addEventListener('click', () => {
         openWorkspaceSettings();
       });
@@ -1107,36 +1832,209 @@ export function createSidebarView(deps) {
     });
 
     const searching = isSearchActive();
-    const renderedIds = new Set();
-    settledGroupsByParent = new Map();
-    const groupsHtml = ordered
-      .map((workspace) => {
-        const chats = visibleChatsForWorkspace(workspace);
-        if (searching && chats.length === 0) return '';
-        return renderWorkspaceGroup(
-          workspace,
-          activeWorkspaceFile,
-          activeWorkspaceFolder,
-          activeChatId,
-          chats,
-          renderedIds
-        );
-      })
-      .filter(Boolean);
-    setRenderedSidebarChatIds(renderedIds);
+    const active = document.activeElement;
+    const focusInfo = active && typeof body.contains === 'function' && body.contains(active)
+      ? {
+        chatId: active.closest?.('.sidebar-chat-item')?.dataset?.chatId || '',
+        parentId: active.closest?.('.sidebar-subchat-group')?.getAttribute('data-parent-id') || '',
+        pinnedId: active.dataset?.pinnedChatId || '',
+      }
+      : null;
+    const scrollTop = typeof body.scrollTop === 'number' ? body.scrollTop : 0;
 
-    if (!groupsHtml.length) {
+    // The rendered-id set and the settled groups must stay correct even for the
+    // workspaces whose `<li>` node is reused, so they are derived from the shared
+    // render pass instead of being accumulated while building HTML.
+    setRenderedSidebarChatIds(collectRenderableChatIds());
+    settledGroupsByParent = new Map();
+    const structureByKey = new Map();
+    const chatsByKey = new Map();
+    for (const workspace of ordered) {
+      const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
+      chatsByKey.set(sidebarKey, visibleChatsForWorkspace(workspace));
+      const { grouped } = workspaceModel(workspace);
+      for (const group of grouped.groups) settledGroupsByParent.set(group.parentId, group);
+      // Per-workspace signatures are only needed on a rebuild (this branch), so
+      // the signature-only skip in renderSignature() stays cheap.
+      structureByKey.set(
+        sidebarKey,
+        computeWorkspaceStructureSignature(workspace, activeChatId, searching),
+      );
+    }
+    const visibleWorkspaces = ordered.filter((workspace) => {
+      const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
+      return !(searching && (chatsByKey.get(sidebarKey) || []).length === 0);
+    });
+
+    if (!visibleWorkspaces.length) {
+      renderedWorkspaceNodes.clear();
+      lastPinnedSectionHtml = '';
+      const innerStart = trace ? monoNow() : 0;
       body.innerHTML =
         '<div class="sidebar-empty">' + escapeHtml(t('sidebar.noSearchResults')) + '</div>';
+      if (metrics) {
+        metrics.recordSidebarRender({
+          changed: true,
+          changedSegments,
+          sigMs,
+          innerMs: monoNow() - innerStart,
+          rows: 0,
+          rebuilt: true,
+        });
+      }
       return;
     }
 
-    body.innerHTML =
-      '<ul class="sidebar-workspaces" role="listbox">' +
-      groupsHtml.join('') +
-      '</ul>';
-
+    const innerStart = trace ? monoNow() : 0;
+    reconcileWorkspaceNodes(body, visibleWorkspaces, {
+      activeWorkspaceFile,
+      activeWorkspaceFolder,
+      activeChatId,
+      structureByKey,
+      chatsByKey,
+    });
+    applyPinnedSection(body, activeChatId);
+    const innerMs = trace ? monoNow() - innerStart : 0;
+    const wireStart = trace ? monoNow() : 0;
     wireBodyEvents();
+    ensureChatListRovingTabindex(body);
+    restoreSidebarFocus(body, focusInfo);
+    if (typeof body.scrollTop === 'number' && body.scrollTop !== scrollTop) {
+      body.scrollTop = scrollTop;
+    }
+    if (metrics) {
+      metrics.recordSidebarRender({
+        changed: true,
+        changedSegments,
+        sigMs,
+        innerMs,
+        wireMs: monoNow() - wireStart,
+        rows: getRenderedSidebarChatIds().size,
+        rebuilt: true,
+      });
+    }
+  }
+
+  /**
+   * Parse a single workspace `<li>` (or pinned section) out of an HTML string.
+   * @param {string} html
+   * @returns {Element|null}
+   */
+  function buildSidebarNode(html) {
+    const template = document.createElement('template');
+    template.innerHTML = String(html || '').trim();
+    return template.content.firstElementChild;
+  }
+
+  /**
+   * Reuses unchanged workspace `<li>` nodes and swaps only the ones whose
+   * per-workspace structure signature changed, then reorders/removes the rest.
+   * The `<ul>` itself is never recreated, so delegated listeners and scroll
+   * position survive a partial rebuild.
+   */
+  function reconcileWorkspaceNodes(body, visibleWorkspaces, opts) {
+    let ul = body.querySelector('.sidebar-workspaces');
+    if (!ul) {
+      body.innerHTML = '<ul class="sidebar-workspaces" role="listbox"></ul>';
+      ul = body.querySelector('.sidebar-workspaces');
+      renderedWorkspaceNodes.clear();
+    }
+    // A forced render drops the reuse map so every row can be regenerated (for
+    // example after a language change). The existing list stays mounted to keep
+    // scroll and listeners stable, so remove any rows no longer owned by that
+    // map before inserting their replacements. This also repairs stale DOM after
+    // a hot module reload resets the closure while preserving the sidebar shell.
+    const trackedNodes = new Set(
+      [...renderedWorkspaceNodes.values()].map((entry) => entry.node).filter(Boolean),
+    );
+    for (const child of Array.from(ul.children)) {
+      if (!trackedNodes.has(child)) child.remove();
+    }
+    const orderedKeys = visibleWorkspaces.map(
+      (workspace) => workspace.sidebarKey || workspace.workspaceFile || '',
+    );
+    const previousSigs = new Map();
+    for (const [key, entry] of renderedWorkspaceNodes) previousSigs.set(key, entry.sig);
+    const plan = planWorkspaceRebuild(previousSigs, orderedKeys, opts.structureByKey);
+
+    visibleWorkspaces.forEach((workspace, index) => {
+      const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
+      const sig = opts.structureByKey.get(sidebarKey) || '';
+      let entry = renderedWorkspaceNodes.get(sidebarKey);
+      const mustRebuild = !plan.reuseKeys.has(sidebarKey) || !entry || !entry.node
+        || entry.node.parentNode !== ul;
+      if (mustRebuild) {
+        const html = renderWorkspaceGroup(
+          workspace,
+          opts.activeWorkspaceFile,
+          opts.activeWorkspaceFolder,
+          opts.activeChatId,
+          opts.chatsByKey.get(sidebarKey) || [],
+          new Set(),
+        );
+        if (!html) {
+          if (entry?.node?.parentNode) entry.node.remove();
+          renderedWorkspaceNodes.delete(sidebarKey);
+          return;
+        }
+        const node = buildSidebarNode(html);
+        if (!node) return;
+        if (entry?.node?.parentNode) entry.node.replaceWith(node);
+        entry = { sig, node };
+        renderedWorkspaceNodes.set(sidebarKey, entry);
+      } else {
+        entry.sig = sig;
+      }
+      const target = ul.children[index] || null;
+      if (target !== entry.node) ul.insertBefore(entry.node, target);
+    });
+    for (const key of plan.removeKeys) {
+      renderedWorkspaceNodes.get(key)?.node?.remove();
+      renderedWorkspaceNodes.delete(key);
+    }
+  }
+
+  /** Rebuild the (small) pinned watcher section only when its HTML changed. */
+  function applyPinnedSection(body, activeChatId) {
+    const html = renderPinnedWorkspaceSection(activeChatId);
+    const existing = body.querySelector('.sidebar-pinned-section');
+    if (!html) {
+      if (existing) existing.remove();
+      lastPinnedSectionHtml = '';
+      return;
+    }
+    if (existing && lastPinnedSectionHtml === html) return;
+    const node = buildSidebarNode(html);
+    if (!node) return;
+    if (existing) existing.replaceWith(node);
+    else body.insertBefore(node, body.firstChild);
+    lastPinnedSectionHtml = html;
+  }
+
+  /**
+   * Re-focus the row that had focus before a partial rebuild. Only called when
+   * focus was already inside the sidebar body.
+   */
+  function restoreSidebarFocus(body, info) {
+    if (!info) return;
+    let el = null;
+    if (info.chatId) {
+      el = body.querySelector('.sidebar-chat-item[data-chat-id="' + cssEscape(info.chatId) + '"]');
+    }
+    if (!el && info.parentId) {
+      el = body.querySelector(
+        '.sidebar-subchat-group[data-parent-id="' + cssEscape(info.parentId) + '"] .sidebar-subchat-group-toggle',
+      );
+    }
+    if (!el && info.pinnedId) {
+      el = body.querySelector('.sidebar-pinned-chat[data-pinned-chat-id="' + cssEscape(info.pinnedId) + '"]');
+    }
+    if (!el || el === document.activeElement) return;
+    try {
+      el.focus({ preventScroll: true });
+    } catch (_) {
+      el.focus?.();
+    }
   }
 
   function activateChatPanelTab() {
@@ -1145,280 +2043,382 @@ export function createSidebarView(deps) {
     chatTabButton.click();
   }
 
+  /**
+   * Delegated `pointerdown` (capture) for the chat-row action buttons. The
+   * capture phase runs before the drag layer's bubble listener on `.sidebar-body`,
+   * so stopping propagation keeps a press on an action button from arming a drag
+   * (the old code attached this per button).
+   */
+  function onSidebarBodyPointerDown(ev) {
+    const target = ev.target instanceof Element ? ev.target : null;
+    if (!target) return;
+    if (target.closest('.sidebar-chat-action')) ev.stopPropagation();
+  }
+
+  function closeSidebarAfterMobileAction() {
+    if (!pinned || isMobileViewport()) closeSidebar();
+  }
+
+  function openPinnedChatRow(el) {
+    const chatId = el?.dataset?.pinnedChatId || '';
+    if (!chatId) return;
+    activateChatPanelTab();
+    const chat = getChats().find((item) => item.id === chatId);
+    const entry = listWorkspaceWatcherPinnedChats().find((row) => row.pinnedChatId === chatId);
+    const folder = chat?.workspaceFolder || entry?.workspaceFolder || '';
+    const target = resolveWorkspaceTargetForChat(
+      { workspaceFile: chat?.workspaceFile || '', workspaceFolder: folder },
+      { workspaceFile: getActiveWorkspaceFile(), workspaceFolder: getActiveWorkspaceFolder() },
+      getWorkspaces(),
+      getPreferredWorkspaceFolder,
+    );
+    const finish = () => {
+      selectChat(chatId);
+      closeSidebarAfterMobileAction();
+    };
+    if (!target) {
+      finish();
+      return;
+    }
+    switchWorkspace(target.workspaceFile, target.workspaceFolder).then((ok) => {
+      if (ok) render();
+      finish();
+    });
+  }
+
+  function openNewChatForWorkspace(newBtn, ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const workspaceFile = newBtn.getAttribute('data-workspace-file') || '';
+    const sidebarKey = newBtn.getAttribute('data-sidebar-key') || workspaceFile;
+    const preferredFolder = getPreferredWorkspaceFolder(sidebarKey);
+
+    const openNewChat = () => {
+      activateChatPanelTab();
+      requestNewChat({ workspaceFile, workspaceFolder: preferredFolder });
+      // A pinned sidebar is docked on desktop, so opening the new-chat modal must
+      // not undo the user's layout choice. Mobile remains an overlay, therefore it
+      // should still close behind the modal.
+      closeSidebarAfterMobileAction();
+    };
+    const activeWorkspace = normalizePath(getActiveWorkspaceFile());
+    const activeFolder = normalizePath(getActiveWorkspaceFolder());
+    if (
+      normalizePath(workspaceFile) === activeWorkspace &&
+      normalizePath(preferredFolder) === activeFolder
+    ) {
+      openNewChat();
+      return;
+    }
+
+    switchWorkspace(workspaceFile, preferredFolder).then((ok) => {
+      if (!ok) return;
+      setWorkspaceCollapsed(sidebarKey, false);
+      render();
+      openNewChat();
+    });
+  }
+
+  function handleWorkspaceHeaderClick(header, ev) {
+    ev.stopPropagation();
+    const li = header.closest('.sidebar-workspace');
+    const workspaceFile = li?.dataset.workspaceFile || '';
+    const sidebarKey = li?.dataset.sidebarKey || workspaceFile;
+    if (ev.target instanceof Element && ev.target.closest('.sidebar-workspace-chevron')) {
+      toggleWorkspaceCollapsed(sidebarKey);
+      return;
+    }
+    const preferredFolder = getPreferredWorkspaceFolder(sidebarKey);
+    const isActive =
+      normalizePath(workspaceFile) === normalizePath(getActiveWorkspaceFile()) &&
+      normalizePath(preferredFolder) === normalizePath(getActiveWorkspaceFolder());
+    if (isActive) {
+      toggleWorkspaceCollapsed(sidebarKey);
+      return;
+    }
+    switchWorkspace(workspaceFile, preferredFolder).then((ok) => {
+      if (ok) {
+        setWorkspaceCollapsed(sidebarKey, false);
+        render();
+      }
+    });
+  }
+
+  function toggleArchiveSection(header, ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const group = header.closest('.sidebar-archive-group');
+    const key = group?.getAttribute('data-sidebar-key') || '';
+    if (!key) return;
+    setArchiveSectionOpen(key, !isArchiveSectionOpen(key));
+    if (isArchiveSectionOpen(key)) {
+      Promise.resolve(requestLoadArchivedChats()).catch(() => {});
+    }
+    forceRerender();
+  }
+
+  function toggleSubchatGroup(toggle, ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const parentId = toggle.getAttribute('data-parent-id') || '';
+    if (!parentId) return;
+    setSubchatGroupExpanded(parentId, !isSubchatGroupExpanded(parentId));
+    forceRerender();
+  }
+
+  function archiveSubchatGroup(archiveBtn, ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const parentId = archiveBtn.getAttribute('data-parent-id') || '';
+    const group = settledGroupsByParent.get(parentId);
+    if (!group) return;
+    void archiveSettledGroup(parentId, group.allChildIds);
+  }
+
+  function expandAllChats(moreEl, ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const key = moreEl.getAttribute('data-sidebar-key') || '';
+    if (!key) return;
+    showAllChatsBySidebarKey.add(key);
+    forceRerender();
+  }
+
+  function handleChatRowAction(btn, ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const row = btn.closest('.sidebar-chat-item');
+    const chatId = row?.dataset?.chatId || '';
+    if (!chatId) return;
+    if (btn.classList.contains('sidebar-chat-pin-btn')) {
+      void toggleChatUrlPinById(chatId);
+      return;
+    }
+    if (btn.classList.contains('sidebar-chat-fav-btn')) {
+      chatFavorites.toggleFavorite(chatId);
+      forceRerender();
+      return;
+    }
+    if (btn.classList.contains('sidebar-chat-restore-btn')) {
+      if (typeof requestRestoreChat !== 'function') return;
+      void requestRestoreChat(chatId);
+      return;
+    }
+    if (btn.classList.contains('sidebar-chat-archive-btn')) {
+      const chat = getChats().find((item) => item.id === chatId);
+      const isArchived = row?.dataset?.archived === '1' || Boolean(chat?.archivedAt);
+      if (isArchived) {
+        if (typeof requestRestoreChat !== 'function') return;
+        void requestRestoreChat(chatId);
+        return;
+      }
+      if (isChatForkArchiveBlocked(chatId)) return;
+      if (typeof requestArchiveChat !== 'function') return;
+      void requestArchiveChat(chatId, { preserveListOpen: true });
+    }
+  }
+
+  function selectChatRow(el) {
+    const chatId = el?.dataset?.chatId || '';
+    if (!chatId) return;
+    const chat = getChats().find((item) => item.id === chatId);
+    if (!chat) return;
+    activateChatPanelTab();
+
+    const finishSelect = () => {
+      selectChat(chatId);
+      if (isMobileViewport()) closeSidebar();
+    };
+
+    const target = resolveWorkspaceTargetForChat(
+      chat,
+      { workspaceFile: getActiveWorkspaceFile(), workspaceFolder: getActiveWorkspaceFolder() },
+      getWorkspaces(),
+      getPreferredWorkspaceFolder,
+    );
+    if (!target) {
+      finishSelect();
+      return;
+    }
+
+    switchWorkspace(target.workspaceFile, target.workspaceFolder).then((ok) => {
+      if (!ok) return;
+      const cloneFolders = listCloneFoldersForWorkspaceFile(
+        getWorkspaces(),
+        target.workspaceFile,
+        getPreferredWorkspaceFolder,
+      );
+      const chatSidebarKey = getWorkspaces().find((workspace) =>
+        chatBelongsToWorkspaceGroup(chat, {
+          workspaceFile: workspace.workspaceFile,
+          groupFolder: getPreferredWorkspaceFolder(workspace.sidebarKey || workspace.workspaceFile),
+          isClone: workspace.isClone === true,
+          cloneFolders,
+        }),
+      )?.sidebarKey;
+      setWorkspaceCollapsed(chatSidebarKey || chat.workspaceFile || '', false);
+      render();
+      finishSelect();
+    });
+  }
+
+  /**
+   * Flip the server-wide start gate or one workspace's watcher mode. The REST
+   * write is authoritative; on success the local stores are updated so the
+   * switch repaints before the next presence frame reconciles it.
+   *
+   * @param {Element} btn
+   * @returns {Promise<void>}
+   */
+  async function handleWatcherToggle(btn) {
+    if (!btn || btn.disabled) return;
+    const scope = btn.dataset?.watcherScope === 'all' ? 'all' : 'workspace';
+    const folder = String(btn.dataset?.workspaceFolder || '');
+    const next = btn.getAttribute('aria-checked') !== 'true';
+    btn.disabled = true;
+    const result = scope === 'all'
+      ? await setWorkspaceWatcherStartsEnabled(next)
+      : await setWorkspaceWatcherEnabled(folder, next);
+    btn.disabled = false;
+    if (!result.ok) return;
+    if (scope === 'workspace') {
+      applyWorkspaceWatcherModeLocal(folder, next ? 'autopilot' : 'off');
+    }
+    updateScheduler.schedule();
+  }
+
+  /**
+   * One click listener on the static `.sidebar-body`: every row, header and
+   * action button is dispatched through `closest()`. The body element itself is
+   * never replaced, so the listener set survives every rebuild.
+   */
+  function onSidebarBodyClick(ev) {
+    const target = ev.target instanceof Element ? ev.target : null;
+    if (!target) return;
+
+    const watcherShowAll = target.closest('.sidebar-watcher-show-all');
+    if (watcherShowAll) {
+      writeWatcherShowAllFlag(!readWatcherShowAllFlag());
+      forceRerender();
+      return;
+    }
+    const watcherToggle = target.closest('.sidebar-watcher-toggle');
+    if (watcherToggle) {
+      void handleWatcherToggle(watcherToggle);
+      return;
+    }
+    const pinnedRow = target.closest('.sidebar-pinned-chat');
+    if (pinnedRow) {
+      openPinnedChatRow(pinnedRow);
+      return;
+    }
+    const subchatArchive = target.closest('.sidebar-subchat-group-archive');
+    if (subchatArchive) {
+      archiveSubchatGroup(subchatArchive, ev);
+      return;
+    }
+    const actionBtn = target.closest('.sidebar-chat-action');
+    if (actionBtn) {
+      handleChatRowAction(actionBtn, ev);
+      return;
+    }
+    const newBtn = target.closest('.sidebar-workspace-new-btn');
+    if (newBtn) {
+      openNewChatForWorkspace(newBtn, ev);
+      return;
+    }
+    const archiveHeader = target.closest('.sidebar-archive-header');
+    if (archiveHeader) {
+      toggleArchiveSection(archiveHeader, ev);
+      return;
+    }
+    const subchatToggle = target.closest('.sidebar-subchat-group-toggle');
+    if (subchatToggle) {
+      toggleSubchatGroup(subchatToggle, ev);
+      return;
+    }
+    const moreEl = target.closest('.sidebar-chat-more');
+    if (moreEl) {
+      expandAllChats(moreEl, ev);
+      return;
+    }
+    const header = target.closest('.sidebar-workspace-header');
+    if (header) {
+      handleWorkspaceHeaderClick(header, ev);
+      return;
+    }
+    const chatRow = target.closest('.sidebar-chat-item');
+    if (chatRow) selectChatRow(chatRow);
+  }
+
+  /**
+   * One keydown listener on `.sidebar-body`: roving focus for the chat lists and
+   * Enter/Space activation for the non-button rows. Real `<button>` elements are
+   * left to the browser's native activation so a keypress never fires twice.
+   */
+  function onSidebarBodyKeydown(ev) {
+    const target = ev.target instanceof Element ? ev.target : null;
+    if (!target) return;
+    if (target.closest('button, .sidebar-chat-action')) return;
+
+    const chatItem = target.closest('.sidebar-chat-item');
+    if (chatItem) {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        chatItem.click();
+        return;
+      }
+      const list = chatItem.closest('.sidebar-chat-list');
+      if (!list) return;
+      const items = Array.from(list.querySelectorAll('.sidebar-chat-item:not(.is-subchat-hidden)'))
+        .filter((el) => !el.closest('[hidden]') && el.hidden !== true);
+      const index = items.indexOf(chatItem);
+      if (index < 0) return;
+      const nextIndex = resolveNextItemIndex(ev.key, index, items.length);
+      if (nextIndex === null) return;
+      ev.preventDefault();
+      items.forEach((el) => el.setAttribute('tabindex', '-1'));
+      items[nextIndex].setAttribute('tabindex', '0');
+      items[nextIndex].focus();
+      return;
+    }
+
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    const row = target.closest(
+      '.sidebar-pinned-chat, .sidebar-workspace-header, .sidebar-archive-header, .sidebar-chat-more',
+    );
+    if (!row) return;
+    ev.preventDefault();
+    row.click();
+  }
+
+  // `.sidebar-body` is static, but guard against a shell re-render replacing it.
+  const wiredBodyEvents = new WeakSet();
+
   function wireBodyEvents() {
     const body = getContainer()?.querySelector('.sidebar-body');
-    if (!body) return;
+    if (!body || wiredBodyEvents.has(body)) return;
+    wiredBodyEvents.add(body);
+    body.addEventListener('click', onSidebarBodyClick);
+    body.addEventListener('keydown', onSidebarBodyKeydown);
+    body.addEventListener('pointerdown', onSidebarBodyPointerDown, true);
+  }
 
-    body.querySelectorAll('.sidebar-workspace-new-btn').forEach((newBtn) => {
-      const workspaceFile = newBtn.getAttribute('data-workspace-file') || '';
-      const sidebarKey = newBtn.getAttribute('data-sidebar-key') || workspaceFile;
-      newBtn.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        const preferredFolder = getPreferredWorkspaceFolder(sidebarKey);
-
-        const openNewChat = () => {
-          activateChatPanelTab();
-          requestNewChat({ workspaceFile, workspaceFolder: preferredFolder });
-          // A pinned sidebar is docked on desktop, so opening the new-chat
-          // modal must not undo the user's layout choice. Mobile remains an
-          // overlay, therefore it should still close behind the modal.
-          if (!pinned || isMobileViewport()) closeSidebar();
-        };
-        const activeWorkspace = normalizePath(getActiveWorkspaceFile());
-        const activeFolder = normalizePath(getActiveWorkspaceFolder());
-        if (
-          normalizePath(workspaceFile) === activeWorkspace &&
-          normalizePath(preferredFolder) === activeFolder
-        ) {
-          openNewChat();
-          return;
-        }
-
-        switchWorkspace(workspaceFile, preferredFolder).then((ok) => {
-          if (!ok) return;
-          setWorkspaceCollapsed(sidebarKey, false);
-          render();
-          openNewChat();
-        });
-      });
-    });
-
-    body.querySelectorAll('.sidebar-workspace-header').forEach((header) => {
-      const li = header.closest('.sidebar-workspace');
-      const workspaceFile = li?.dataset.workspaceFile || '';
-      const sidebarKey = li?.dataset.sidebarKey || workspaceFile;
-      header.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        if (ev.target instanceof Element && ev.target.closest('.sidebar-workspace-chevron')) {
-          toggleWorkspaceCollapsed(sidebarKey);
-          return;
-        }
-        const preferredFolder = getPreferredWorkspaceFolder(sidebarKey);
-        const isActive =
-          normalizePath(workspaceFile) === normalizePath(getActiveWorkspaceFile()) &&
-          normalizePath(preferredFolder) === normalizePath(getActiveWorkspaceFolder());
-        if (isActive) {
-          toggleWorkspaceCollapsed(sidebarKey);
-          return;
-        }
-        switchWorkspace(workspaceFile, preferredFolder).then((ok) => {
-          if (ok) {
-            setWorkspaceCollapsed(sidebarKey, false);
-            render();
-          }
-        });
-      });
-      header.addEventListener('keydown', (e) => {
-        if (e.key !== 'Enter' && e.key !== ' ') return;
-        e.preventDefault();
-        header.click();
-      });
-    });
-
-    body.querySelectorAll('.sidebar-archive-header').forEach((header) => {
-      header.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const group = header.closest('.sidebar-archive-group');
-        const key = group?.getAttribute('data-sidebar-key') || '';
-        if (!key) return;
-        setArchiveSectionOpen(key, !isArchiveSectionOpen(key));
-        if (isArchiveSectionOpen(key)) {
-          Promise.resolve(requestLoadArchivedChats()).catch(() => {});
-        }
-        forceRerender();
-      });
-      header.addEventListener('keydown', (e) => {
-        if (e.key !== 'Enter' && e.key !== ' ') return;
-        e.preventDefault();
-        header.click();
-      });
-    });
-
-    body.querySelectorAll('.sidebar-subchat-group-toggle').forEach((toggle) => {
-      toggle.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const parentId = toggle.getAttribute('data-parent-id') || '';
-        if (!parentId) return;
-        setSubchatGroupExpanded(parentId, !isSubchatGroupExpanded(parentId));
-        forceRerender();
-      });
-    });
-
-    body.querySelectorAll('.sidebar-subchat-group-archive').forEach((archiveBtn) => {
-      archiveBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
-      archiveBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const parentId = archiveBtn.getAttribute('data-parent-id') || '';
-        const group = settledGroupsByParent.get(parentId);
-        if (!group) return;
-        void archiveSettledGroup(parentId, group.allChildIds);
-      });
-    });
-
-    body.querySelectorAll('.sidebar-chat-more').forEach((el) => {
-      const key = el.getAttribute('data-sidebar-key') || '';
-      const expand = () => {
-        if (!key) return;
-        showAllChatsBySidebarKey.add(key);
-        forceRerender();
-      };
-      el.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        expand();
-      });
-      el.addEventListener('keydown', (e) => {
-        if (e.key !== 'Enter' && e.key !== ' ') return;
-        e.preventDefault();
-        expand();
-      });
-    });
-
-    body.querySelectorAll('.sidebar-chat-item').forEach((el) => {
-      const chatId = el.dataset.chatId || '';
-      if (!chatId) return;
-
-      const chat = getChats().find((item) => item.id === chatId);
-      const showPin = canPinChatToUrl();
-      let firstActionBtn = null;
-
-      if (showPin) {
-        const pinnedUrl = typeof chat?.widgetPinnedUrl === 'string' ? chat.widgetPinnedUrl.trim() : '';
-        const pinned = !!pinnedUrl;
-        const pinBtn = document.createElement('button');
-        pinBtn.type = 'button';
-        pinBtn.className = 'sidebar-chat-action sidebar-chat-pin-btn' + (pinned ? ' sidebar-chat-pin-btn--active' : '');
-        pinBtn.title = pinned
-          ? t('sidebar.unpinChatFromUrl', { url: pinnedUrl })
-          : t('sidebar.pinChatToUrl');
-        pinBtn.setAttribute('aria-label', pinBtn.title);
-        pinBtn.setAttribute('aria-pressed', pinned ? 'true' : 'false');
-        pinBtn.innerHTML =
-          '<span class="mdi ' +
-          (pinned ? 'mdi-link-variant-off' : 'mdi-link-variant') +
-          '" aria-hidden="true"></span>';
-        pinBtn.addEventListener('pointerdown', (ev) => {
-          ev.stopPropagation();
-        });
-        pinBtn.addEventListener('click', (ev) => {
-          ev.preventDefault();
-          ev.stopPropagation();
-          void toggleChatUrlPinById(chatId);
-        });
-        el.appendChild(pinBtn);
-        firstActionBtn = pinBtn;
+  /**
+   * Roving-tabindex fallback: with no active chat nothing in a list would be
+   * reachable with Tab. Runs after a rebuild, so it only walks the fresh rows.
+   * @param {Element} body
+   */
+  function ensureChatListRovingTabindex(body) {
+    body.querySelectorAll('.sidebar-chat-list').forEach((list) => {
+      const readItems = () =>
+        Array.from(list.querySelectorAll('.sidebar-chat-item:not(.is-subchat-hidden)'))
+          .filter((el) => !el.closest('[hidden]') && el.hidden !== true);
+      const initial = readItems();
+      if (initial.length && !initial.some((el) => el.getAttribute('tabindex') === '0')) {
+        initial[0].setAttribute('tabindex', '0');
       }
-
-      const isArchived = el.dataset.archived === '1' || Boolean(chat?.archivedAt);
-      const archiveBtn = document.createElement('button');
-      archiveBtn.type = 'button';
-      archiveBtn.className =
-        'sidebar-chat-action ' +
-        (isArchived ? 'sidebar-chat-restore-btn' : 'sidebar-chat-archive-btn');
-      archiveBtn.title = t(isArchived ? 'sidebar.restoreChat' : 'sidebar.archiveChat');
-      archiveBtn.setAttribute('aria-label', archiveBtn.title);
-      archiveBtn.innerHTML =
-        '<span class="mdi ' +
-        (isArchived ? 'mdi-archive-arrow-up-outline' : 'mdi-archive-arrow-down-outline') +
-        '" aria-hidden="true"></span>';
-      archiveBtn.addEventListener('pointerdown', (ev) => {
-        ev.stopPropagation();
-      });
-      archiveBtn.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        if (isArchived) {
-          if (typeof requestRestoreChat !== 'function') return;
-          void requestRestoreChat(chatId);
-          return;
-        }
-        if (typeof requestArchiveChat !== 'function') return;
-        void requestArchiveChat(chatId, { preserveListOpen: true });
-      });
-      el.appendChild(archiveBtn);
-      if (!firstActionBtn) firstActionBtn = archiveBtn;
-
-      const favActive = chatFavorites.isFavorite(chatId);
-      const favBtn = document.createElement('button');
-      favBtn.type = 'button';
-      favBtn.className = 'sidebar-chat-action sidebar-chat-fav-btn';
-      favBtn.title = favActive ? t('sidebar.removeFavorite') : t('sidebar.addFavorite');
-      favBtn.setAttribute('aria-label', favBtn.title);
-      const renderFavIcon = (active) => {
-        favBtn.title = active ? t('sidebar.removeFavorite') : t('sidebar.addFavorite');
-        favBtn.setAttribute('aria-label', favBtn.title);
-        favBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
-        favBtn.innerHTML =
-          '<span class="mdi ' +
-          (active ? 'mdi-star sidebar-chat-fav-btn--active' : 'mdi-star-outline') +
-          '" aria-hidden="true"></span>';
-      };
-      renderFavIcon(favActive);
-      favBtn.addEventListener('pointerdown', (ev) => {
-        ev.stopPropagation();
-      });
-      favBtn.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        chatFavorites.toggleFavorite(chatId);
-        forceRerender();
-      });
-      el.appendChild(favBtn);
-
-      if (firstActionBtn) {
-        firstActionBtn.classList.add('sidebar-chat-action-first');
-      }
-
-      el.addEventListener('click', (ev) => {
-        if (ev.target instanceof Element && ev.target.closest('.sidebar-chat-action')) return;
-        const chat = getChats().find((item) => item.id === chatId);
-        if (!chat) return;
-
-        const activeWorkspace = normalizePath(getActiveWorkspaceFile());
-        const activeFolder = normalizePath(getActiveWorkspaceFolder());
-        const chatWorkspace = normalizePath(chat.workspaceFile || '');
-        const chatFolder = normalizePath(chat.workspaceFolder || '');
-        const finishSelect = () => {
-          selectChat(chatId);
-          if (isMobileViewport()) closeSidebar();
-        };
-
-        const sameWorkspace =
-          chatWorkspace &&
-          chatWorkspace === activeWorkspace &&
-          (!chatFolder || chatFolder === activeFolder);
-        if (!chatWorkspace || sameWorkspace) {
-          finishSelect();
-          return;
-        }
-
-        switchWorkspace(chat.workspaceFile || '', chat.workspaceFolder || '').then((ok) => {
-          if (!ok) return;
-          const cloneFolders = listCloneFoldersForWorkspaceFile(
-            getWorkspaces(),
-            chatWorkspace,
-            getPreferredWorkspaceFolder,
-          );
-          const chatSidebarKey = getWorkspaces().find((workspace) =>
-            chatBelongsToWorkspaceGroup(chat, {
-              workspaceFile: workspace.workspaceFile,
-              groupFolder: getPreferredWorkspaceFolder(workspace.sidebarKey || workspace.workspaceFile),
-              isClone: workspace.isClone === true,
-              cloneFolders,
-            }),
-          )?.sidebarKey;
-          setWorkspaceCollapsed(chatSidebarKey || chat.workspaceFile || '', false);
-          render();
-          finishSelect();
-        });
-      });
     });
-
-    initChatListKeyboard(body);
   }
 
   /**
@@ -1438,43 +2438,10 @@ export function createSidebarView(deps) {
   }
 
   /**
-   * Keyboard support for the chat listboxes (arrows, Home/End, Enter/Space)
-   * using the roving-tabindex pattern: exactly one item is tabbable at a time.
-   * @param {HTMLElement} root
+   * Keyboard support for the chat listboxes (arrows, Home/End, Enter/Space) now
+   * lives in the delegated `onSidebarBodyKeydown`; only the pure index helper is
+   * kept here (it is pinned by tests/sidebar-keyboard-nav.test.js).
    */
-  function initChatListKeyboard(root) {
-    root.querySelectorAll('.sidebar-chat-list').forEach((list) => {
-      const readItems = () =>
-        Array.from(
-          list.querySelectorAll('.sidebar-chat-item:not(.is-subchat-hidden)'),
-        ).filter((el) => !el.closest('[hidden]') && el.hidden !== true);
-      const initial = readItems();
-      // Without an active chat nothing would be reachable with Tab.
-      if (initial.length && !initial.some((el) => el.getAttribute('tabindex') === '0')) {
-        initial[0].setAttribute('tabindex', '0');
-      }
-      list.addEventListener('keydown', (e) => {
-        const current = e.target instanceof Element
-          ? e.target.closest('.sidebar-chat-item')
-          : null;
-        if (!current) return;
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          current.click();
-          return;
-        }
-        const items = readItems();
-        const index = items.indexOf(current);
-        if (index < 0) return;
-        const nextIndex = resolveNextItemIndex(e.key, index, items.length);
-        if (nextIndex === null) return;
-        e.preventDefault();
-        items.forEach((el) => el.setAttribute('tabindex', '-1'));
-        items[nextIndex].setAttribute('tabindex', '0');
-        items[nextIndex].focus();
-      });
-    });
-  }
 
   function initMenuButton() {
     const menuBtn = document.getElementById('header-menu-btn');
@@ -1609,8 +2576,16 @@ export function createSidebarView(deps) {
     chatDrag = initSidebarChatDrag({
       body,
       isEnabled: () => !isSearchActive() && !workspaceDrag.isDragging(),
+      // Even a no-op drag (press-and-hold that never reordered) deferred
+      // renders while it ran; flush the backlog once it releases.
+      onSettled: () => updateScheduler.schedule(),
       onDrop: ({ orderedIds, draggedId, parentChatId }) => {
+        const previousOrder = readChatOrder();
         writeChatOrderForList(orderedIds);
+        const nextOrder = readChatOrder();
+        if (previousOrder.join('\n') !== nextOrder.join('\n')) {
+          publishSidebarLayout({ chatOrder: nextOrder });
+        }
         const chat = getChats().find((item) => item.id === draggedId);
         const currentParent =
           typeof chat?.forkParentChatId === 'string' ? chat.forkParentChatId.trim() : '';
@@ -1632,8 +2607,15 @@ export function createSidebarView(deps) {
     workspaceDrag = initSidebarWorkspaceDrag({
       body,
       isEnabled: () => !isSearchActive(),
+      // Flush any render deferred while a workspace group was dragging.
+      onSettled: () => updateScheduler.schedule(),
       onOrderChange: (keys) => {
+        const previousOrder = readWorkspaceOrder();
         writeWorkspaceOrder(keys);
+        const nextOrder = readWorkspaceOrder();
+        if (previousOrder.join('\n') !== nextOrder.join('\n')) {
+          publishSidebarLayout({ workspaceOrder: nextOrder });
+        }
         forceRerender();
       },
     });
@@ -1653,6 +2635,9 @@ export function createSidebarView(deps) {
       onOpen: openSidebar,
       onPreviewReveal: revealDrawerPreview,
       onPreviewHide: hideDrawerPreview,
+      // A render requested while the drawer tracked/settled was deferred; flush
+      // it on release so the list is never left stale after a swipe.
+      onGestureEnd: () => updateScheduler.schedule(),
     });
   }
 
@@ -1677,11 +2662,22 @@ export function createSidebarView(deps) {
       if (swipe.isSwiping()) return;
       applyVisibility();
     });
+    // The master switch reads a server-wide gate that the presence frame does not
+    // carry: fetch it once, then refresh whenever the watcher reports a change.
+    window.addEventListener('cretli:workspace-watcher-changed', () => {
+      void refreshWorkspaceWatcherRuntimeControl().then(() => updateScheduler.schedule());
+    });
+    void refreshWorkspaceWatcherRuntimeControl().then((ok) => {
+      if (ok) updateScheduler.schedule();
+    });
     render();
   }
 
   function forceRerender() {
     lastRenderSignature = '';
+    // Language / explicit force: text must be regenerated, so drop the reuse map.
+    renderedWorkspaceNodes.clear();
+    lastPinnedSectionHtml = '';
     render();
   }
 
@@ -1694,5 +2690,15 @@ export function createSidebarView(deps) {
     isPinned: () => pinned,
     render,
     forceRerender,
+    // Coalesced "something changed" entry point — at most one render per frame.
+    scheduleUpdate: () => updateScheduler.schedule(),
+    // In-place repaint of the visuals kept out of the structural signature
+    // (active chat, group summaries, parent badges). Safe to call any time.
+    patchTransientVisualStates,
+    readLayoutSnapshot,
+    applyLayoutSnapshot,
+    // Test seams: the structural render signature is pure data → a string, so the
+    // "status/active must not rebuild" contract is unit-checkable without a DOM.
+    renderSignature,
   };
 }

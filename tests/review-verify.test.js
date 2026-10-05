@@ -61,6 +61,8 @@ assert.equal(fs.existsSync(envMarker), false);
 // Task 6: the model_pick incident suites are audited catalog ids now.
 assert.equal(REVIEW_VERIFY_CATALOG['model-pick-rotation'], 'tests/model-pick-rotation.test.js');
 assert.equal(REVIEW_VERIFY_CATALOG['model-pick-observed'], 'tests/model-pick-observed.test.js');
+assert.equal(REVIEW_VERIFY_CATALOG['workspace-watcher-pinned-chat'], 'tests/workspace-watcher-pinned-chat.test.js');
+assert.equal(REVIEW_VERIFY_CATALOG['watcher-pinned-chat-ui'], 'tests/watcher-pinned-chat-ui.test.js');
 const modelPickIncident = await runReviewVerify({
   ids: ['model-pick-rotation', 'model-pick-observed'],
   projectRoot,
@@ -70,5 +72,43 @@ assert.equal(modelPickIncident.ok, true, modelPickIncident.error);
 assert.match(modelPickIncident.output, /model-pick-rotation/);
 assert.match(modelPickIncident.output, /model-pick-observed/);
 fs.rmSync(modelPickIncident.dataDir, { recursive: true, force: true });
+
+// Workspace Memory is an audited catalog id, so a review child can verify the
+// suite without writing onto the live project data dir.
+assert.equal(REVIEW_VERIFY_CATALOG['workspace-memory'], 'tests/workspace-memory.test.js');
+assert.equal(REVIEW_VERIFY_CATALOG['workspace-watcher-scout'], 'tests/workspace-watcher-scout.test.js');
+const workspaceMemoryRun = await runReviewVerify({
+  ids: ['workspace-memory'],
+  projectRoot,
+  catalog: REVIEW_VERIFY_CATALOG,
+});
+assert.equal(workspaceMemoryRun.ok, true, workspaceMemoryRun.error);
+assert.match(workspaceMemoryRun.output, /workspace-memory/);
+assert.equal(fs.existsSync(path.join(workspaceMemoryRun.dataDir, 'review-verify-pwned.txt')), false);
+fs.rmSync(workspaceMemoryRun.dataDir, { recursive: true, force: true });
+
+const workspaceScoutRun = await runReviewVerify({
+  ids: ['workspace-watcher-scout'],
+  projectRoot,
+  catalog: REVIEW_VERIFY_CATALOG,
+});
+assert.equal(workspaceScoutRun.ok, true, workspaceScoutRun.error);
+assert.match(workspaceScoutRun.output, /workspace scout tests passed/);
+fs.rmSync(workspaceScoutRun.dataDir, { recursive: true, force: true });
+
+// The monitoring dashboard suites are audited catalog ids, so a review child can
+// verify the aggregation and render contract without touching live data.
+assert.equal(REVIEW_VERIFY_CATALOG['workspace-watcher-stats'], 'tests/workspace-watcher-stats.test.js');
+assert.equal(REVIEW_VERIFY_CATALOG['workspace-watcher-dashboard-ui'], 'tests/workspace-watcher-dashboard-ui.test.js');
+const watcherStatsRun = await runReviewVerify({
+  ids: ['workspace-watcher-stats', 'workspace-watcher-dashboard-ui'],
+  projectRoot,
+  catalog: REVIEW_VERIFY_CATALOG,
+});
+assert.equal(watcherStatsRun.ok, true, watcherStatsRun.error);
+assert.match(watcherStatsRun.output, /workspace-watcher-stats/);
+assert.match(watcherStatsRun.output, /workspace-watcher-dashboard-ui/);
+assert.equal(fs.existsSync(path.join(watcherStatsRun.dataDir, 'review-verify-pwned.txt')), false);
+fs.rmSync(watcherStatsRun.dataDir, { recursive: true, force: true });
 
 console.log('review-verify.test.js OK');

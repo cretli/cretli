@@ -99,10 +99,16 @@ function measureChatItems(list) {
  *   body: HTMLElement | null,
  *   isEnabled?: () => boolean,
  *   onDrop?: (result: { orderedIds: string[], draggedId: string, parentChatId: string }) => void,
+ *   onSettled?: () => void,
  * }} options
  * @returns {{ isDragging: () => boolean }}
  */
-export function initSidebarChatDrag({ body, isEnabled = () => true, onDrop = () => {} }) {
+export function initSidebarChatDrag({
+  body,
+  isEnabled = () => true,
+  onDrop = () => {},
+  onSettled = () => {},
+}) {
   if (!body || typeof window === 'undefined' || typeof PointerEvent === 'undefined') {
     return { isDragging: () => false };
   }
@@ -246,20 +252,27 @@ export function initSidebarChatDrag({ body, isEnabled = () => true, onDrop = () 
     finished.li.classList.remove('is-dragging');
     clearNestHighlight(finished.list);
     document.body?.classList.remove('sidebar-chat-drag-active');
-    if (!finished.moved && parentAfterDrop(finished) === finished.originalParent) return;
-    suppressClick = true;
-    const orderedIds = collectChatIdsFromList(finished.list);
-    const parentChatId = parentAfterDrop(finished);
-    const orderChanged =
-      orderedIds.length !== finished.originalIds.length ||
-      orderedIds.some((id, i) => id !== finished.originalIds[i]);
-    const parentChanged = parentChatId !== finished.originalParent;
-    if (!orderChanged && !parentChanged) return;
-    onDrop({
-      orderedIds,
-      draggedId: finished.li.dataset.chatId || '',
-      parentChatId,
-    });
+    try {
+      if (!finished.moved && parentAfterDrop(finished) === finished.originalParent) return;
+      suppressClick = true;
+      const orderedIds = collectChatIdsFromList(finished.list);
+      const parentChatId = parentAfterDrop(finished);
+      const orderChanged =
+        orderedIds.length !== finished.originalIds.length ||
+        orderedIds.some((id, i) => id !== finished.originalIds[i]);
+      const parentChanged = parentChatId !== finished.originalParent;
+      if (!orderChanged && !parentChanged) return;
+      onDrop({
+        orderedIds,
+        draggedId: finished.li.dataset.chatId || '',
+        parentChatId,
+      });
+    } finally {
+      // Every drag defers renders while it runs (a live node must not be
+      // detached mid-gesture), so flush the backlog exactly once on release —
+      // even for a press-and-hold that never reordered anything.
+      onSettled();
+    }
   }
 
   function onPointerDown(ev) {

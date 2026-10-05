@@ -68,22 +68,20 @@ const chats = [
   { id: 'a', _serverRunState: { state: 'busy', delegationId: 'd1', attention: false } },
   { id: 'b', _serverRunState: { state: 'busy', waitingAgentCount: 2 } },
 ];
-assert.equal(
-  applyAgentStatesToChats(chats, {
-    a: { state: 'busy', delegationId: 'd1', attention: false, waitingAgentCount: 3 },
-  }),
-  true
-);
+const presenceResult = applyAgentStatesToChats(chats, {
+  a: { state: 'busy', delegationId: 'd1', attention: false, waitingAgentCount: 3 },
+});
+assert.equal(presenceResult.changed, true);
+assert.deepEqual(presenceResult.dirtyIds, ['a', 'b'], 'a changed and a cleared row are both dirty');
 assert.equal(chats[0]._serverRunState.waitingAgentCount, 3);
 assert.equal(chats[1]._serverRunState, null);
 
 // A server agent-states response is authoritative even when nothing changed: it
 // still advances the server watermark that blocks stale push-inbox patches.
 const unchangedStamp = [{ id: 'same', _serverRunState: { state: 'busy' } }];
-assert.equal(
-  applyAgentStatesToChats(unchangedStamp, { same: { state: 'busy' } }),
-  false
-);
+const unchangedResult = applyAgentStatesToChats(unchangedStamp, { same: { state: 'busy' } });
+assert.equal(unchangedResult.changed, false);
+assert.deepEqual(unchangedResult.dirtyIds, [], 'an unchanged authoritative stamp dirties no row');
 assert.ok(unchangedStamp[0]._serverRunStateAt > 0);
 
 const deltaChats = [
