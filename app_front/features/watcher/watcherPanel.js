@@ -16,6 +16,11 @@ import { t, getCurrentLang } from '../../i18n/index.js';
 import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 import { getWorkspaceWatcherView, isWorkspaceWatcherRead } from './watcherGetCoalesce.js';
 import {
+  getWatcherWorkspaceFolder,
+  normalizeWatcherWorkspaceFolder,
+  scopeWatcherRequestToWorkspace,
+} from './watcherWorkspaceScope.js';
+import {
   WATCHER_MODES,
   renderWatcherBarHtml,
   renderWatcherDecisionsHtml,
@@ -25,6 +30,8 @@ import './watcher-panel.scss';
 
 /** @type {object | null} */
 let currentView = null;
+let currentViewFolder = '';
+let refreshGeneration = 0;
 let bound = false;
 /** @type {() => string} */
 let getTodoTitleFn = () => '';
@@ -38,14 +45,17 @@ let whyOpen = false;
  * @returns {Promise<{ status: number, json: object | null }>}
  */
 async function watcherApi(path, options = {}) {
-  if (isWorkspaceWatcherRead(path, options)) return getWorkspaceWatcherView(path);
+  // The bar belongs to one workspace. Scope every call like the settings panel
+  // so it neither reads nor writes another workspace's watcher row.
+  const scoped = scopeWatcherRequestToWorkspace(path, options, getWatcherWorkspaceFolder());
+  if (isWorkspaceWatcherRead(scoped.path, scoped.options)) return getWorkspaceWatcherView(scoped.path);
   const headers = { Accept: 'application/json', 'Accept-Language': getCurrentLang() };
-  if (options.body !== undefined) headers['Content-Type'] = 'application/json';
-  const res = await cretliApiFetch(path, {
-    method: options.method || 'GET',
+  if (scoped.options.body !== undefined) headers['Content-Type'] = 'application/json';
+  const res = await cretliApiFetch(scoped.path, {
+    method: scoped.options.method || 'GET',
     headers,
     credentials: 'include',
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    body: scoped.options.body !== undefined ? JSON.stringify(scoped.options.body) : undefined,
   });
   const json = await res.json().catch(() => null);
   return { status: res.status, json };
@@ -58,7 +68,7 @@ async function watcherApi(path, options = {}) {
  * @returns {object | null}
  */
 export function getWatcherView() {
-  return currentView;
+  return currentViewFolder === normalizeWatcherWorkspaceFolder(getWatcherWorkspaceFolder()) ? currentView : null;
 }
 
 /**
@@ -68,7 +78,7 @@ export function getWatcherView() {
  * @returns {boolean}
  */
 export function isWatcherAutopilot() {
-  return String(currentView?.watcher?.mode || 'off') === 'autopilot';
+  return String(getWatcherView()?.watcher?.mode || 'off') === 'autopilot';
 }
 
 /**
@@ -103,8 +113,26 @@ function paint(view) {
 export async function refreshWatcherPanel() {
   const bar = document.getElementById('todo-watcher-bar');
   if (!bar) return null;
+  const generation = ++refreshGeneration;
+  const folder = normalizeWatcherWorkspaceFolder(getWatcherWorkspaceFolder());
+  const isCurrent = () => generation === refreshGeneration
+    && folder === normalizeWatcherWorkspaceFolder(getWatcherWorkspaceFolder());
+  if (currentViewFolder !== folder) {
+    currentView = null;
+    currentViewFolder = folder;
+    whyOpen = false;
+    bar.hidden = true;
+    bar.innerHTML = '';
+    const why = document.getElementById('todo-watcher-why');
+    if (why) {
+      why.hidden = true;
+      why.innerHTML = '';
+    }
+  }
   try {
     const res = await watcherApi('/api/workspace-watcher');
+    if (!isCurrent()) return null;
+    if (res.json?.cwd && folder && normalizeWatcherWorkspaceFolder(res.json.cwd) !== folder) return null;
     if (!res.json?.ok) {
       bar.hidden = false;
       bar.innerHTML = `<span class="todo-watcher-error">${escapeWatcherHtml(res.json?.error || t('todo.watcherLoadError'))}</span>`;
@@ -115,6 +143,7 @@ export async function refreshWatcherPanel() {
     window.dispatchEvent(new CustomEvent('cretli:workspace-watcher-view-updated'));
     return res.json;
   } catch {
+    if (!isCurrent()) return null;
     bar.hidden = false;
     bar.innerHTML = `<span class="todo-watcher-error">${escapeWatcherHtml(t('todo.watcherLoadError'))}</span>`;
     return null;
@@ -180,6 +209,12 @@ export function initWatcherPanel(options = {}) {
     window.addEventListener('cretli:workspace-watcher-changed', () => {
       void refreshWatcherPanel();
     });
+    // The bar is workspace-scoped, so a workspace switch must drop the previous
+    // workspace's mode/status instead of leaving a stale (and write-dangerous)
+    // bar above the new workspace's todos.
+    window.addEventListener('cretli-active-workspace-changed', () => {
+      void refreshWatcherPanel();
+    });
   }
   void refreshWatcherPanel();
 }
@@ -190,6 +225,8 @@ export function initWatcherPanel(options = {}) {
  */
 export function __resetWatcherPanelForTest() {
   currentView = null;
+  currentViewFolder = '';
+  refreshGeneration += 1;
   bound = false;
   whyOpen = false;
   getTodoTitleFn = () => '';

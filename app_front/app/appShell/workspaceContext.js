@@ -30,6 +30,9 @@ export function createWorkspaceContext(deps = {}) {
   let workspacesList = [];
   let workspacesListFetchPromise = null;
   let workspaceSidebarConfig = {};
+  let headerRevision = 0;
+  let selectionRevision = 0;
+  let workspaceWriteQueue = Promise.resolve();
 
   /**
    * Cold-start fast path: install a locally cached workspace list so the sidebar can group
@@ -256,6 +259,8 @@ export function createWorkspaceContext(deps = {}) {
     const labelEl = document.getElementById('header-workspace-label');
     if (!trigger || !labelEl) return;
 
+    const changed = normalizePath(trigger.dataset.workspaceFile) !== normalizePath(workspaceFile)
+      || normalizePath(trigger.dataset.workspaceFolder) !== normalizePath(workspaceFolder);
     trigger.dataset.workspaceFile = workspaceFile || '';
     trigger.dataset.workspaceFolder = workspaceFolder || '';
 
@@ -271,6 +276,12 @@ export function createWorkspaceContext(deps = {}) {
       labelEl.textContent = folderName ? `${workspaceName} • ${folderName}` : workspaceName || '—';
     }
     onWorkspaceLabelChanged();
+    if (changed) {
+      headerRevision += 1;
+      window.dispatchEvent(new CustomEvent('cretli-active-workspace-changed', {
+        detail: { workspaceFile: workspaceFile || '', workspaceFolder: workspaceFolder || '' },
+      }));
+    }
   }
 
   /**
@@ -326,6 +337,10 @@ export function createWorkspaceContext(deps = {}) {
   function resolveFolderForWorkspaceSelection(sidebarKey, preferredFolder = '') {
     const workspaceFile = getWorkspaceFileFromSidebarKey(sidebarKey);
     const preferred = (preferredFolder || '').trim() || getWorkspaceSidebarFolder(sidebarKey);
+    // A chat's folder (or the configured sidebar folder) is authoritative even
+    // when the catalog is incomplete. Never replace it with the workspace-file
+    // parent directory, which is often shared by several unrelated projects.
+    if (preferred) return preferred;
     const workspaceItem = findWorkspaceItem(workspaceFile);
     const pickedFolder = pickFolderForWorkspace(workspaceItem, preferred);
     if (pickedFolder) return pickedFolder;
@@ -352,24 +367,37 @@ export function createWorkspaceContext(deps = {}) {
   function applyAndRefresh(workspaceFile, workspaceFolder) {
     const normalizedWorkspaceFile = (workspaceFile || '').trim();
     const normalizedWorkspaceFolder = (workspaceFolder || '').trim();
-    return api
-      .patchSettings({
+    const revision = ++selectionRevision;
+    const trigger = document.getElementById('header-workspace-trigger');
+    const previousFile = trigger?.dataset?.workspaceFile || '';
+    const previousFolder = trigger?.dataset?.workspaceFolder || '';
+    // Scope panels immediately, before the operator can open Todo while the
+    // settings write is still pending. Serialize writes so the server cannot
+    // end up on an older selection when requests finish out of order.
+    updateWorkspaceTriggerLabel(normalizedWorkspaceFile, normalizedWorkspaceFolder);
+    const appliedHeaderRevision = headerRevision;
+    const restoreOnFailure = () => {
+      if (revision === selectionRevision && appliedHeaderRevision === headerRevision) {
+        updateWorkspaceTriggerLabel(previousFile, previousFolder);
+      }
+      return false;
+    };
+    const write = workspaceWriteQueue.catch(() => {}).then(() => {
+      if (revision !== selectionRevision) return false;
+      return api.patchSettings({
         workspaceFile: normalizedWorkspaceFile,
         workspaceFolder: normalizedWorkspaceFolder,
-      })
-      .then(() => {
+      });
+    });
+    workspaceWriteQueue = write;
+    return write
+      .then((result) => {
+        if (result === false || revision !== selectionRevision) return false;
+        if (result?.ok === false) return restoreOnFailure();
         refreshUiAfterWorkspaceChange(normalizedWorkspaceFile, normalizedWorkspaceFolder);
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('cretli-active-workspace-changed', {
-            detail: {
-              workspaceFile: normalizedWorkspaceFile,
-              workspaceFolder: normalizedWorkspaceFolder,
-            },
-          }));
-        }
         return true;
       })
-      .catch(() => false);
+      .catch(restoreOnFailure);
   }
 
   function renderWorkspacePopoverItems(activeWorkspaceFile) {
@@ -466,23 +494,36 @@ export function createWorkspaceContext(deps = {}) {
       void switchWorkspace(workspaceFile, workspaceFolder);
     });
 
-    window.addEventListener('cretli-workspace-updated', () => {
+    window.addEventListener('cretli-workspace-updated', (event) => {
+      // The Files root picker explicitly selects a folder; other occurrences
+      // of this event only announce workspace catalog/configuration changes.
+      if (typeof event?.detail?.workspaceFolder === 'string') {
+        updateWorkspaceTriggerLabel(event.detail.workspaceFile || trigger.dataset.workspaceFile || '',
+          event.detail.workspaceFolder);
+      }
+      const revision = headerRevision;
       api
         .getSettings()
         .then((data) => {
           if (!data?.ok) return;
           setWorkspaceSidebarConfig(data.workspaceSidebarConfig);
-          refreshUiAfterWorkspaceChange(data.workspaceFile || '', data.workspaceFolder || '');
+          if (revision !== headerRevision) return;
+          // Settings are shared across clients; a background reload of sidebar
+          // configuration must not change this client's selected workspace.
+          refreshUiAfterWorkspaceChange(trigger.dataset.workspaceFile || data.workspaceFile || '',
+            trigger.dataset.workspaceFolder || data.workspaceFolder || '');
         })
         .catch(() => {});
     });
 
+    const bootRevision = headerRevision;
     return api
       .getSettings()
       .then((settingsData) => {
         const workspaceFile = settingsData.ok ? settingsData.workspaceFile || '' : '';
         const workspaceFolder = settingsData.ok ? settingsData.workspaceFolder || '' : '';
         setWorkspaceSidebarConfig(settingsData?.workspaceSidebarConfig);
+        if (bootRevision !== headerRevision) return;
         const bootCached = typeof localStorage !== 'undefined'
           ? readChatLocalBootCacheForColdStart(localStorage)
           : null;

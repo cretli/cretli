@@ -446,7 +446,9 @@ function renderRootDropdown(workspace, selectedFolder) {
         if (!res?.ok) return;
         closeRootDropdown();
         buildRootTree();
-        window.dispatchEvent(new CustomEvent('cretli-workspace-updated'));
+        window.dispatchEvent(new CustomEvent('cretli-workspace-updated', {
+          detail: { workspaceFolder: option.value },
+        }));
       }).catch(() => {});
     });
     rootDropdownEl.appendChild(btn);

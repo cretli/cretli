@@ -78,6 +78,11 @@ runCase('GET returns an off default without creating a row', withApp(async (invo
   assert.equal(res.body.snapshot.readyLeaves, undefined);
   assert.ok(Array.isArray(res.body.snapshot.readyTodoIds));
   assert.ok(res.body.guardrails);
+  // The additive Scout schedule: opted out for the default row, so no next scan.
+  assert.ok(res.body.scout, 'the HTTP view carries the Scout schedule');
+  assert.equal(res.body.scout.enabled, false);
+  assert.equal(res.body.scout.nextScanAt, 0);
+  assert.equal(res.body.scout.usedToday, 0);
   assert.equal(getWorkspaceWatcher(cwd, { dataDir }), null, 'a read must not persist a row');
 }));
 

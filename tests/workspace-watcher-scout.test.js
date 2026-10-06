@@ -29,6 +29,7 @@ import {
   buildScoutPrompt,
   buildScoutSignalsBlock,
   collectScoutSignals,
+  computeScoutSchedule,
   decideScoutRun,
   dedupeScoutFindings,
   expireStaleActiveScoutScan,
@@ -231,6 +232,32 @@ runCase('buildScoutPrompt is read-only and carries categories + signals', () => 
   assert.match(prompt, /UNTRUSTED DATA/);
 });
 
+runCase('the closed category set includes refactor with its smart heuristics', () => {
+  assert.ok(WORKSPACE_SCOUT_CATEGORIES.includes('refactor'));
+
+  // The allow-list keeps it and still drops unknown literals.
+  const normalized = normalizeWorkspaceWatcherPolicy({ scoutCategories: ['refactor', 'bogus'] });
+  assert.deepEqual(normalized.scoutCategories, ['refactor']);
+
+  // A refactor finding parses like any other category.
+  const parsed = parseScoutFindings(
+    '[{"title":"Split the watcher store","category":"refactor","rationale":"800 lines","files":["lib/a.js"]}]',
+  );
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].category, 'refactor');
+
+  // Prompt: rubric + heuristics appear only when refactor is allowed.
+  const withRefactor = buildScoutPrompt({ workspaceFolder: '/tmp/ws', categories: ['bug', 'refactor'] });
+  assert.match(withRefactor, /- refactor:/);
+  assert.match(withRefactor, /Refactor heuristics/);
+  assert.match(withRefactor, /600 lines/);
+  assert.match(withRefactor, /behavior-preserving/);
+
+  const withoutRefactor = buildScoutPrompt({ workspaceFolder: '/tmp/ws', categories: ['bug'] });
+  assert.doesNotMatch(withoutRefactor, /- refactor:/);
+  assert.doesNotMatch(withoutRefactor, /Refactor heuristics/);
+});
+
 /* ----------------------------------------------------------------- dedupe */
 
 runCase('dedupeScoutFindings drops todos, pending, resolved and explored memory', () => {
@@ -347,6 +374,61 @@ runCase('decideScoutRun enforces opt-in, mode, quiet hours, interval and budget'
 });
 
 /* ------------------------------------------------------------ store + CRUD */
+
+runCase('computeScoutSchedule reports the next scan, budget and live blocker', () => {
+  const now = Date.parse('2026-02-02T12:00:00.000Z');
+  const base = normalizeWorkspaceWatcherRow({
+    workspaceFolder: '/tmp/ws',
+    mode: 'observe',
+    policy: { scoutEnabled: true, scoutIntervalHours: 6, scoutMaxPerDay: 2 },
+  });
+
+  // Opted out → no schedule at all.
+  const off = computeScoutSchedule({ watcher: { ...base, policy: { ...base.policy, scoutEnabled: false } }, now });
+  assert.equal(off.enabled, false);
+  assert.equal(off.nextScanAt, 0);
+  assert.equal(off.blockedReason, 'scout_disabled');
+
+  // Never scanned → due now.
+  const due = computeScoutSchedule({ watcher: base, now });
+  assert.equal(due.enabled, true);
+  assert.equal(due.nextScanAt, now);
+  assert.equal(due.due, true);
+  assert.equal(due.allowed, true);
+  assert.equal(due.remainingToday, 2);
+
+  // A recent scan pushes the next one one interval out.
+  const recent = computeScoutSchedule({
+    watcher: { ...base, lastScoutAt: new Date(now - 60_000).toISOString() },
+    now,
+  });
+  assert.equal(recent.nextScanAt, now - 60_000 + 6 * 3600_000);
+  assert.equal(recent.due, false);
+  assert.equal(recent.blockedReason, 'scan_interval');
+
+  // A spent daily budget pushes the next scan to the UTC-day rollover.
+  const spent = computeScoutSchedule({
+    watcher: {
+      ...base,
+      lastScoutAt: new Date(now - 7 * 3600_000).toISOString(),
+      scoutScans: { day: '2026-02-02', count: 2 },
+    },
+    now,
+  });
+  assert.equal(spent.remainingToday, 0);
+  assert.equal(spent.nextScanAt, Date.parse('2026-02-03T00:00:00.000Z'));
+  assert.equal(spent.blockedReason, 'daily_budget');
+
+  // A live blocker does not move the schedule; it is reported separately.
+  const busy = computeScoutSchedule({
+    watcher: { ...base, lastScoutAt: new Date(now - 7 * 3600_000).toISOString() },
+    now,
+    scoutAgentCount: 1,
+  });
+  assert.equal(busy.nextScanAt, now);
+  assert.equal(busy.running, 1);
+  assert.equal(busy.blockedReason, 'scout_parallel');
+});
 
 runCase('record/accept/reject proposals; only scoutAutoCreate creates a todo', async () => {
   const { cwd, dataDir } = freshWorkspace('crud');

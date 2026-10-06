@@ -67,6 +67,7 @@ import {
   chatBelongsToWorkspaceGroup,
   listCloneFoldersForWorkspaceFile,
   resolveWorkspaceTargetForChat,
+  workspaceDisplayNameForFolder,
 } from './workspaceChatMatch.js';
 import {
   SIDEBAR_MIN_WIDTH,
@@ -415,6 +416,7 @@ export function createSidebarView(deps) {
     getTerminalStateMeta,
     requestArchiveChat,
     requestRestoreChat,
+    requestDeleteChat = () => {},
     requestNewChat = () => {},
     requestLoadArchivedChats = () => {},
     expandWorkspaceChatsForSearch = null,
@@ -985,7 +987,9 @@ export function createSidebarView(deps) {
     const chatId = String(chat?.id || '');
     if (!chatId) return '';
     const archived = opts.archived === true;
-    const showPin = canPinChatToUrl();
+    // A pinned URL is only meaningful for live chats; archived rows reserve the
+    // slot for the delete action instead (mirrors `hasPinAction` in the row model).
+    const showPin = !archived && canPinChatToUrl();
     const pieces = [];
 
     if (showPin) {
@@ -1033,6 +1037,20 @@ export function createSidebarView(deps) {
       + '" aria-hidden="true"></span>'
       + '</button>',
     );
+
+    // Archived chats get a permanent-delete action next to restore; live chats
+    // keep delete in the chat list / actions menu only, so an accidental tap in
+    // the tree cannot destroy active work.
+    if (archived) {
+      const deleteTitle = t('sidebar.deleteChat');
+      pieces.push(
+        '<button type="button" class="sidebar-chat-action sidebar-chat-delete-btn'
+        + '" title="' + escapeHtml(deleteTitle)
+        + '" aria-label="' + escapeHtml(deleteTitle) + '">'
+        + '<span class="mdi mdi-trash-can-outline" aria-hidden="true"></span>'
+        + '</button>',
+      );
+    }
 
     return pieces.join('');
   }
@@ -1297,15 +1315,7 @@ export function createSidebarView(deps) {
     if (!entries.length && !showAll) return '';
     const chats = getChats();
     const wsList = getWorkspaces();
-    const nameFor = (folder) => {
-      const norm = normalizePath(folder);
-      const ws = wsList.find((workspace) => {
-        const key = workspace.sidebarKey || workspace.workspaceFile || '';
-        return normalizePath(getPreferredWorkspaceFolder(key)) === norm;
-      }) || wsList.find((workspace) => normalizePath(workspace.workspaceFolder) === norm
-        || normalizePath(workspace.workspaceDir) === norm);
-      return ws?.name || String(folder).replace(/\\/g, '/').split('/').filter(Boolean).pop() || folder;
-    };
+    const nameFor = (folder) => workspaceDisplayNameForFolder(wsList, folder, getPreferredWorkspaceFolder);
     // Global start gate: off means every workspace's cycles/scout are blocked.
     const allOn = isWorkspaceWatcherStartsEnabled();
     const gated = !allOn && getWorkspaceWatcherRuntimeControl().known;
@@ -2115,7 +2125,8 @@ export function createSidebarView(deps) {
       return;
     }
     switchWorkspace(target.workspaceFile, target.workspaceFolder).then((ok) => {
-      if (ok) render();
+      if (!ok) return;
+      render();
       finish();
     });
   }
@@ -2249,6 +2260,14 @@ export function createSidebarView(deps) {
       if (isChatForkArchiveBlocked(chatId)) return;
       if (typeof requestArchiveChat !== 'function') return;
       void requestArchiveChat(chatId, { preserveListOpen: true });
+      return;
+    }
+    if (btn.classList.contains('sidebar-chat-delete-btn')) {
+      const chat = getChats().find((item) => item.id === chatId);
+      const isArchived = row?.dataset?.archived === '1' || Boolean(chat?.archivedAt);
+      if (!isArchived) return;
+      if (typeof requestDeleteChat !== 'function') return;
+      requestDeleteChat(chatId, { preserveListOpen: true });
     }
   }
 

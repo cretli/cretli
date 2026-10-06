@@ -297,14 +297,31 @@ A scan:
    Workspace Memory entries that mark an area as already explored, then stores
    them as `pendingScoutFindings` and appends a notice to the pinned chat.
 
-Categories: `bug`, `improvement`, `security`, `opportunity`, `documentation`.
-A finding is `{ id, title, category, rationale, files[], status }`. Scout never
-creates a todo on its own: `accept` resolves a proposal, and only when
-`policy.scoutAutoCreate` is true does it create an `idea` todo (idempotent on
-the finding id) whose plan draft is the finding rationale. `approvedAt` stays
-empty until a human approves the draft in the UI. A read-only scan runs in Plan mode; the
+Categories: `bug`, `improvement`, `refactor`, `security`, `opportunity`,
+`documentation`. The `refactor` rubric carries extra heuristics (oversized
+file/function split candidates, duplicated blocks, mixed responsibilities, deep
+nesting) so a proposal is a small, behavior-preserving, independently reviewable
+seam rather than a rewrite.
+A finding is `{ id, title, category, rationale, plan_markdown, files[], status }`.
+When `policy.scoutAutoCreate` is true, submitting a finding immediately creates
+an `idea` todo (idempotent on the finding id) with its proposed plan as an
+unapproved draft. Otherwise, `accept` creates the TODO. `approvedAt` stays empty
+until a human approves the draft in the UI. A read-only scan runs in Plan mode; the
 `watcher_scout_findings` `list`/`submit` actions are the only mutating builtin
 MCP calls allowed there (accept/reject stay Agent-only).
+
+Settings → Workspace Watcher → Scout shows the schedule the heartbeat will use:
+`computeScoutSchedule()` (`lib/workspace-watcher-scout.js`) reuses the same
+`decideScoutRun` gate and exposes it as the additive `scout` field on
+`GET /api/workspace-watcher` (`nextScanAt`, `lastScoutAt`, `usedToday` /
+`maxPerDay` / `remainingToday`, `running` / `maxParallel`, `pendingFindings`,
+and the live `blockedReason`). A spent daily budget pushes `nextScanAt` to the
+next UTC midnight, while a live blocker (pause, quiet hours, parallel cap) is
+reported separately instead of moving the schedule. The panel renders it as a
+per-second countdown and a **Run scan now** button; that button calls
+`runWorkspaceWatcherScoutNow()` through `POST /api/workspace-watcher/scout`
+`{ action: 'run' }`, which bypasses the interval for the explicit run but still
+respects mode, quiet hours and the per-day budget.
 
 ## Notifications
 
@@ -340,8 +357,8 @@ Defaults from `defaultWorkspaceWatcherPolicy()`:
 | `orchestrator` | `{ harness: '', model: '' }` | Empty = resolve a cheap `implement`-role pick; a set harness/model is a hard override |
 | `scoutEnabled` | `false` | Opt in to the separate periodic Scout scan |
 | `scoutIntervalHours` | `6` | Minimum gap between Scout scans (own schedule) |
-| `scoutAutoCreate` | `false` | Accept creates an `idea` todo with an unapproved plan draft per finding |
-| `scoutCategories` | all five | Categories Scout may propose (`bug`, `improvement`, `security`, `opportunity`, `documentation`) |
+| `scoutAutoCreate` | `false` | Automatically creates an `idea` todo with an unapproved plan draft for each submitted finding |
+| `scoutCategories` | all six | Categories Scout may propose (`bug`, `improvement`, `refactor`, `security`, `opportunity`, `documentation`) |
 | `scoutMaxPerDay` | `4` | UTC-day scan budget (independent of `maxCyclesPerDay`); `0` disables |
 | `scoutMaxPerScan` | `10` | Maximum proposals kept per scan |
 
@@ -379,6 +396,22 @@ Workspace Memory is exposed through `workspace_memory_add` /
 Settings → Workspace Watcher and the Todo top bar drive the same control layer
 (`lib/workspace-watcher-control.js`). The Scout section edits `scoutMaxPerDay`
 (UTC-day scan budget; `0` disables scans) along with the interval and parallel cap.
+
+Both surfaces are scoped to the **active workspace folder** read from the header
+workspace picker (`app_front/features/watcher/watcherWorkspaceScope.js`): reads
+carry `?workspaceFolder=` and writes put `workspaceFolder` in the JSON body.
+Without it the API falls back to the server's global "current cwd", which can be
+a different workspace than the one the operator is looking at — a chat can carry
+its own workspace, and the settings panel stays mounted across workspace
+switches. The settings form rebuilds (never a dashboard-only repaint) when the
+active workspace changes, so a stale form can never Save its policy onto the
+wrong workspace.
+
+A **clone** is a single-folder view of a workspace file (`<file>#clone-<id>`), so
+its watcher is the row for that one folder — not the parent's default folder. The
+clone folder is what the header carries after selecting the clone group, so the
+settings form and the Todo bar resolve the clone row on their own; switching
+between the parent and its clone is a folder change and rebuilds the form.
 
 ## Monitoring dashboard
 

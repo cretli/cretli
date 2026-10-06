@@ -15,6 +15,7 @@ import {
   buildPushPreviewPatch,
   clearPushPreview,
   consumePushInbox,
+  initPushInboxResumeConsumer,
   shouldDeletePushInboxRecord,
 } from '../app_front/features/pwa/pushInbox.js';
 import { applyAgentPresenceToChats } from '../app_front/features/chat/chatHistorySyncPoll.js';
@@ -380,5 +381,13 @@ assert.equal(shouldDeletePushInboxRecord({ chatId: 'c', at: 42 }, 42), true);
 assert.equal(shouldDeletePushInboxRecord({ chatId: 'c', at: 43 }, 42), false, 'newer SW record survives');
 assert.equal(shouldDeletePushInboxRecord(null, 42), false);
 assert.equal(shouldDeletePushInboxRecord({ chatId: 'c', at: 42 }, undefined), true, 'legacy unconditional');
+
+// (l) a resume consumer whose drain returns `undefined` (already in flight) must
+// not throw an unhandled TypeError. `runPushInboxConsume` returns early without a
+// promise on the coalesced path, and `pageshow`/`visibilitychange` call this bare.
+const resumeRun = initPushInboxResumeConsumer({ consume: () => undefined });
+assert.doesNotThrow(() => resumeRun());
+const resumeThrowing = initPushInboxResumeConsumer({ consume: () => { throw new Error('boom'); } });
+assert.doesNotThrow(() => resumeThrowing());
 
 console.log('push-inbox-logic.test.js: ok');

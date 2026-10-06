@@ -415,8 +415,14 @@ export async function consumePushInbox(deps) {
  * @returns {() => void}
  */
 export function initPushInboxResumeConsumer(deps) {
+  // `consume` is the caller's coalescing drain: when a run is already in flight
+  // it returns `undefined` instead of a promise. A resume event must not throw an
+  // unhandled TypeError on that path, so normalise through `Promise.resolve` and
+  // swallow both sync throws and rejections.
   const run = () => {
-    void deps.consume().catch(() => {});
+    void Promise.resolve()
+      .then(() => deps.consume())
+      .catch(() => {});
   };
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', () => {

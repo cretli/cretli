@@ -8,6 +8,18 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Archiving a chat now opens a confirmation dialog first: it shows how many
+  chats the cascade will archive together with the clicked chat's related
+  subchats and offers a "Don't ask again" checkbox that suppresses later
+  prompts (persisted per device). Programmatic archives (voice, harness switch,
+  watcher/Scout) stay prompt-free; the settled-subchats group keeps its
+  existing bulk confirmation.
+
+- Archived chats now expose a trash action in the sidebar: it permanently
+  deletes the chat through the existing delete flow (confirmation modal with
+  the "don't ask again" preference) straight from the archive section, without
+  restoring it first.
+
 - Sidebar "Workspace" section header can expand to every workspace ("Show all
   workspaces", persisted per device): each workspace group gets its own watcher
   switch, so a watcher can be enabled for a workspace that never had one. With
@@ -45,6 +57,13 @@ All notable changes to this project are documented here. The format is based on
   keeps the session's DPR and touch flags (Playwright cannot change them after
   the context is created). Screenshot files are written by one shared helper for
   both SDK and MCP harnesses.
+
+- Settings → Workspace Watcher → Scout: a new `refactor` scan category for
+  behavior-preserving code quality (split an oversized file or module, extract a
+  duplicated block, simplify deep nesting). The Scout prompt carries dedicated
+  heuristics so a proposal is a small, independently reviewable seam rather than
+  a rewrite, and the category joins the closed allow-list, the UI checkboxes and
+  the `watcher_scout_findings` tool.
 
 - Settings → Workspace Watcher → Scout: daily scan budget (`scoutMaxPerDay`,
   UTC day, `0` disables). The field was policy-only before; the form now reads,
@@ -190,6 +209,32 @@ All notable changes to this project are documented here. The format is based on
   CLI can refresh.
 
 ### Fixed
+
+- Scout and review chats that store only a workspace folder now appear in the
+  matching sidebar clone, including its archive, instead of disappearing from
+  both the parent and clone workspace lists.
+
+- Opening an older chat saved in the shared `.code-workspace` directory now
+  selects the workspace's configured project folder for watcher and Scout
+  controls, preventing an `esystent.pl` chat from enabling a `projects` scout.
+  Direct chat selection and the sidebar use the same folder lookup.
+
+- A watcher for a shared `.code-workspace` parent directory no longer inherits
+  the name of a project configured to use a different folder in the sidebar.
+
+- Opening a workspace watcher now selects its exact folder before Todo loads.
+  Rapid switches and late settings responses cannot restore a previous
+  workspace; folder-only watcher chats prefer the workspace configured for
+  that folder over another workspace that merely includes it. An open Todo
+  panel reloads automatically when the workspace changes.
+
+- The Todo watcher bar clears the previous workspace's controls on a switch
+  and ignores delayed responses and failures from that workspace, preventing
+  another project's active task from appearing under the current chat.
+
+- Todo requests now carry the client workspace for reads, edits, deletes and
+  agent starts. Switching workspaces clears the previous list and editor;
+  delayed responses from another workspace cannot replace the current list.
 
 - Codex review no longer dies when one shell command is denied. `codex exec`
   still cannot reject a single call, so that turn stops, then the same review

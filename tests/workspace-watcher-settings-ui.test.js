@@ -115,8 +115,12 @@ test('a live watcher change repaints only the dashboard, preserving the form', (
   // Full renders are gated on the `full` flag so the live path skips the form.
   assert.match(source, /if \(full\) \{[\s\S]*?renderWatcherPanel\(root, lastView\);/, 'renderWatcherPanel only runs on the full path');
   // The live path stays dashboard-only, but a change that races the first load
-  // still renders the form once (dataset.rendered guard).
-  assert.match(source, /const full = options\.full !== false \|\| root\.dataset\.rendered !== 'true';/);
+  // still renders the form once (dataset.rendered guard), and a workspace switch
+  // forces the form because the previous workspace's policy must not stay editable.
+  assert.match(
+    source,
+    /const full = options\.full !== false\s*\|\| root\.dataset\.rendered !== 'true'\s*\|\| watcherWorkspaceScopeChanged\(renderedWorkspaceFolder\);/,
+  );
   assert.match(source, /root\.dataset\.rendered = 'true';/, 'the panel records that the form has rendered');
 });
 
@@ -131,6 +135,54 @@ test('the dashboard ticker stops when the panel is hidden or detached', () => {
   assert.match(source, /function stopWatcherTicker\(\)/, 'an explicit ticker teardown helper exists');
   assert.match(source, /clearInterval\(dashTimer\)/, 'the interval is actually cleared');
   assert.match(source, /container\.offsetParent !== null/, 'visibility is detected via offsetParent');
-  assert.match(source, /function tickWatcherTimes\(root\) \{[\s\S]*?if \(!dashboardIsVisible\(container\)\) \{[\s\S]*?stopWatcherTicker\(\);/, 'the tick self-cleans while hidden');
+  // The monitoring dashboard and the Scout schedule card both mount a live
+  // countdown, so the tick self-cleans only once neither is on screen.
+  assert.match(
+    source,
+    /function tickWatcherTimes\(root\) \{[\s\S]*?if \(!dashboardIsVisible\(container\) && !dashboardIsVisible\(scoutSchedule\)\) \{[\s\S]*?stopWatcherTicker\(\);/,
+    'the tick self-cleans while both countdown surfaces are hidden',
+  );
   assert.match(source, /visibilitychange/, 'backgrounding the browser tab stops the ticker');
+});
+
+test('the Scout tab shows the next scan and a manual run trigger', () => {
+  // The schedule card is rendered from the server-computed `scout` view field.
+  assert.match(source, /id="watcher-scout-schedule-info"/);
+  assert.match(source, /renderScoutScheduleHtml\(data\.scout \|\| \{\}, Date\.now\(\)\)/);
+  assert.match(source, /function renderScoutScheduleHtml\(/);
+  assert.match(source, /settings\.watcherScoutNextScan/);
+  assert.match(source, /data-watcher-countdown="\$\{nextScanAt\}"/);
+  // Manual trigger posts `action: run` and preserves the form via a live refresh.
+  assert.match(source, /id="watcher-scout-run"/);
+  assert.match(source, /\/api\/workspace-watcher\/scout', \{ method: 'POST', body: \{ action: 'run' \} \}/);
+  assert.match(source, /async function runScoutNow\(root\)/);
+  assert.match(source, /refreshWorkspaceWatcherSettingsPanel\(\{ full: false \}\)/);
+  assert.match(source, /function paintScoutSchedule\(root\)/);
+  // The Scout tab also drives the per-second countdown ticker.
+  assert.match(source, /tab === 'monitor' \|\| tab === 'scout'/);
+  // A blocked answer is surfaced as a translated reason, not a generic error.
+  assert.match(source, /function scoutReasonText\(/);
+  for (const [lang, dict] of [['en', en], ['pl', pl]]) {
+    for (const key of [
+      'watcherScoutScheduleTitle',
+      'watcherScoutNextScan',
+      'watcherScoutLastScan',
+      'watcherScoutScansToday',
+      'watcherScoutRemaining',
+      'watcherScoutRunning',
+      'watcherScoutPending',
+      'watcherScoutNotScheduled',
+      'watcherScoutDueNow',
+      'watcherScoutBlocked',
+      'watcherScoutRunNow',
+      'watcherScoutRunHint',
+      'watcherScoutRunStarted',
+      'watcherScoutRunError',
+      'watcherScoutReason_scan_interval',
+      'watcherScoutReason_daily_budget',
+      'watcherScoutReason_scout_parallel',
+    ]) {
+      assert.ok(dict.settings?.[key], `${lang}.settings.${key} is missing`);
+    }
+  }
 });

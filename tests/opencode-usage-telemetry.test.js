@@ -52,6 +52,7 @@ test('message.updated with assistant tokens records a non-zero opencode delta', 
     audioInput: 0,
     audioOutput: 0,
     cachedInput: 30,
+    cacheWrite: 0,
     reasoning: 10,
   });
 });

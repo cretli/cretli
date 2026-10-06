@@ -4,6 +4,7 @@ import { getCurrentLang } from './i18n/index.js';
 import { readStorageValueWithAlias } from './lib/storageKeyAlias.js';
 import { applyChatAuthSessionBoundary } from './features/chat/chatSessionBoundary.js';
 import { clearPushInboxCache } from './features/pwa/pushInbox.js';
+import { scopeTodoPayload, todoWorkspaceQuery } from './features/todo/todoWorkspaceScope.js';
 import {
   applyCsrfFromAuthPayload,
   buildCretliApiHeaders,
@@ -920,8 +921,8 @@ export async function getFileContent(filePath) {
 }
 
 /** Todos for the current workspace, stored server-side in data/todos. */
-export async function getTodos() {
-  return dedupeGetJson('/api/todos', 'getTodos');
+export async function getTodos(workspaceFolder) {
+  return dedupeGetJson(`/api/todos${todoWorkspaceQuery(workspaceFolder)}`, 'getTodos');
 }
 
 export async function postTodo(payload) {
@@ -930,7 +931,7 @@ export async function postTodo(payload) {
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload || {}),
+      body: JSON.stringify(scopeTodoPayload(payload || {})),
     },
     'postTodo'
   );
@@ -943,15 +944,15 @@ export async function patchTodo(id, payload) {
     {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload || {}),
+      body: JSON.stringify(scopeTodoPayload(payload || {})),
     },
     'patchTodo'
   );
 }
 
-export async function deleteTodo(id) {
+export async function deleteTodo(id, workspaceFolder) {
   if (!id) return { ok: false, error: 'Missing id' };
-  return apiFetchJson(`/api/todos/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'deleteTodo');
+  return apiFetchJson(`/api/todos/${encodeURIComponent(id)}${todoWorkspaceQuery(workspaceFolder)}`, { method: 'DELETE' }, 'deleteTodo');
 }
 
 /**
@@ -966,7 +967,7 @@ export async function postTodoStartAgent(id, payload = {}) {
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload || {}),
+      body: JSON.stringify(scopeTodoPayload(payload || {})),
     },
     'postTodoStartAgent'
   );

@@ -2384,6 +2384,22 @@
     </div>
   </div>
 
+  <div id="chat-archive-confirm-modal" class="chat-settings-modal" role="dialog" aria-labelledby="chat-archive-confirm-heading" aria-modal="true" hidden>
+    <div class="chat-settings-backdrop"></div>
+    <div class="chat-settings-dialog">
+      <h2 id="chat-archive-confirm-heading" class="chat-settings-title" data-i18n="chat.archiveConfirmTitle">Archive chat?</h2>
+      <p id="chat-archive-confirm-message" class="chat-settings-hint-inline">—</p>
+      <label class="chat-settings-checkbox-label" for="chat-archive-confirm-dont-ask">
+        <input type="checkbox" id="chat-archive-confirm-dont-ask" class="chat-settings-checkbox">
+        <span data-i18n="chat.archiveConfirmDontAsk">Don't ask again</span>
+      </label>
+      <div class="chat-settings-actions">
+        <button type="button" id="chat-archive-confirm-cancel" class="chat-settings-btn-secondary" data-i18n="chat.cancel">Cancel</button>
+        <button type="button" id="chat-archive-confirm-confirm" class="chat-settings-btn-primary" data-i18n="chat.archiveConfirm">Archive</button>
+      </div>
+    </div>
+  </div>
+
   <div id="restart-server-loading-modal" class="chat-settings-modal restart-server-loading-modal" role="dialog" aria-live="polite" aria-modal="true" hidden>
     <div class="chat-settings-backdrop"></div>
     <div class="chat-settings-dialog restart-server-loading-dialog">

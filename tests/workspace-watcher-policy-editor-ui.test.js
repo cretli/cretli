@@ -89,7 +89,7 @@ test('the Scout block renders toggle, 1-24h interval slider, auto-create and cat
     assert.match(source, new RegExp(`${field}:`), `readWatcherForm sends ${field}`);
   }
   // Categories mirror the closed server set so the UI and allow-list can't drift.
-  assert.match(source, /SCOUT_CATEGORIES = \['bug', 'improvement', 'security', 'opportunity', 'documentation'\]/);
+  assert.match(source, /SCOUT_CATEGORIES = \['bug', 'improvement', 'refactor', 'security', 'opportunity', 'documentation'\]/);
 });
 
 test('a reset-to-defaults control fills the client default mirror (form-only, no PATCH)', () => {
@@ -145,7 +145,7 @@ test('every new editor label exists in both en and pl', () => {
     'watcherScoutSection', 'watcherScoutEnabled', 'watcherScoutAutoCreate',
     'watcherScoutMaxParallel', 'watcherScoutMaxParallelHint',
     'watcherScoutInterval', 'watcherScoutCategories',
-    'watcherCat_bug', 'watcherCat_improvement', 'watcherCat_security',
+    'watcherCat_bug', 'watcherCat_improvement', 'watcherCat_refactor', 'watcherCat_security',
     'watcherCat_opportunity', 'watcherCat_documentation',
     'watcherOrchestrator', 'watcherResetDefaults',
     'watcherValidationMaxParallel', 'watcherValidationQuiet', 'watcherValidationScoutInterval',

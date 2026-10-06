@@ -66,7 +66,7 @@ import {
   clearDelegationIdempotencyKey,
   hashTextSha256,
 } from './features/chat/chatDelegations.js';
-import { t } from './i18n/index.js';
+import { t, getCurrentLang } from './i18n/index.js';
 import { initDropdown } from './lib/dropdown.js';
 import { createFavoritesStore } from './lib/favorites.js';
 import {
@@ -108,6 +108,10 @@ import {
   SIDEBAR_CONNECTING_GRACE_MS,
 } from './features/chat/chatStatusMeta.js';
 import { shouldSkipChatDeleteConfirm } from './features/chat/chatDeleteConfirm.js';
+import {
+  buildArchiveConfirmMessage,
+  countArchiveSubtree,
+} from './features/chat/chatArchiveConfirm.js';
 import {
   isWatcherPinnedChat,
   parseWatcherCommand,
@@ -455,8 +459,11 @@ let passMessageSourceChatId = null;
 /** @type {{ historySeq: number, createdAt: string, text: string }} */
 let passMessageMeta = { historySeq: 0, createdAt: '', text: '' };
 let chatDeleteConfirmModalApi;
+let chatArchiveConfirmModalApi;
 let chatContextDetailsModalApi;
 let pendingDeleteChatId = null;
+/** @type {{ chatId: string, options: object, resolve: (value: boolean) => void } | null} */
+let pendingArchiveConfirm = null;
 let chatNewModelDropdownApi = null;
 let chatNewFolderDropdownApi = null;
 let chatNewFavoritePresetDropdownApi = null;
@@ -491,6 +498,14 @@ function getSkipChatDeleteConfirm() {
 
 function setSkipChatDeleteConfirm(value) {
   chatStore.setSkipChatDeleteConfirm(value);
+}
+
+function getSkipChatArchiveConfirm() {
+  return chatStore.getSkipChatArchiveConfirm();
+}
+
+function setSkipChatArchiveConfirm(value) {
+  chatStore.setSkipChatArchiveConfirm(value);
 }
 
 /** Delay (ms) before sending Enter after text — shared by the Send field and the title request. */
@@ -3057,7 +3072,7 @@ const chatView = createChatView({
   escapeHtml,
   selectChat,
   requestDeleteChat,
-  requestArchiveChat,
+  requestArchiveChat: requestArchiveChatConfirmed,
   requestRestoreChat,
   refreshModelSelectLabels: () => chatModelSelectApi?.refreshModelSelectLabels(),
   onFavoritesChanged: renderChatList,
@@ -3349,6 +3364,15 @@ function resolveChatCreationWorkspaceContext() {
 }
 
 let listCloneFoldersForHeader = () => [];
+let getPreferredWorkspaceFolderForChat = () => '';
+let listWorkspaceContextsForChat = () => listLoadedWorkspaces();
+
+/** Use the same configured workspace folders for direct and sidebar chat selection. */
+export function setWorkspacePreferredFolderLookup(lookup, listWorkspaceContexts) {
+  getPreferredWorkspaceFolderForChat = typeof lookup === 'function' ? lookup : () => '';
+  listWorkspaceContextsForChat = typeof listWorkspaceContexts === 'function'
+    ? listWorkspaceContexts : () => listLoadedWorkspaces();
+}
 
 /**
  * Sidebar clone folders for a .code-workspace file. Used so the chat panel
@@ -5122,6 +5146,79 @@ function findLastVisibleChatId(excludeChatId = '') {
   return findLastLiveSelectableChatId(chats, excludeChatId);
 }
 
+function openChatArchiveConfirmModal() {
+  if (!chatArchiveConfirmModalApi) {
+    const modalEl = document.getElementById('chat-archive-confirm-modal');
+    if (modalEl) {
+      chatArchiveConfirmModalApi = initModal(modalEl, {
+        backdropSelector: '.chat-settings-backdrop',
+      });
+    }
+  }
+  chatArchiveConfirmModalApi?.open();
+  const modalEl = document.getElementById('chat-archive-confirm-modal');
+  if (modalEl) modalEl.hidden = false;
+}
+
+/**
+ * Close the confirm and settle its pending promise. `confirmed` runs the actual
+ * archive; anything else resolves false. The "don't ask again" checkbox is only
+ * honored when the user confirms, so closing without archiving never persists it.
+ *
+ * @param {boolean} confirmed
+ */
+function settleArchiveConfirm(confirmed) {
+  const pending = pendingArchiveConfirm;
+  if (!pending) {
+    chatArchiveConfirmModalApi?.close();
+    return;
+  }
+  pendingArchiveConfirm = null;
+  chatArchiveConfirmModalApi?.close();
+  if (!confirmed) {
+    pending.resolve(false);
+    return;
+  }
+  const skipEl = document.getElementById('chat-archive-confirm-dont-ask');
+  if (skipEl?.checked) setSkipChatArchiveConfirm(true);
+  void requestArchiveChat(pending.chatId, pending.options).then(
+    (ok) => pending.resolve(ok === true),
+    () => pending.resolve(false),
+  );
+}
+
+/**
+ * User-facing archive entry point: shows the cascade confirm (with a
+ * "don't ask again" checkbox) unless the preference already opts out, then
+ * delegates to {@link requestArchiveChat}. Programmatic/internal callers keep
+ * using `requestArchiveChat` directly so they never open a modal.
+ *
+ * @param {string} chatId
+ * @param {{ switchToChatId?: string, preserveListOpen?: boolean }} [options]
+ * @returns {Promise<boolean>}
+ */
+export function requestArchiveChatConfirmed(chatId, options = {}) {
+  const id = String(chatId || '').trim();
+  if (!id) return Promise.resolve(false);
+  if (getSkipChatArchiveConfirm()) return requestArchiveChat(id, options);
+  if (pendingArchiveConfirm) {
+    const previous = pendingArchiveConfirm;
+    pendingArchiveConfirm = null;
+    previous.resolve(false);
+  }
+  return new Promise((resolve) => {
+    pendingArchiveConfirm = { chatId: id, options, resolve };
+    const { total, subchats } = countArchiveSubtree(chats, id);
+    const messageEl = document.getElementById('chat-archive-confirm-message');
+    if (messageEl) {
+      messageEl.textContent = buildArchiveConfirmMessage(total, subchats, t, getCurrentLang());
+    }
+    const skipEl = document.getElementById('chat-archive-confirm-dont-ask');
+    if (skipEl) skipEl.checked = false;
+    openChatArchiveConfirmModal();
+  });
+}
+
 export async function requestArchiveChat(chatId, options = {}) {
   if (!chatId) return false;
   const suppressListReloadChatId = String(chatId).trim();
@@ -5910,7 +6007,8 @@ function alignActiveWorkspaceWithChat(chat) {
   const target = resolveWorkspaceTargetForChat(
     chat,
     getWorkspaceContextForChat(),
-    listLoadedWorkspaces(),
+    listWorkspaceContextsForChat(),
+    getPreferredWorkspaceFolderForChat,
   );
   if (!target) return;
   workspaceRefreshPreserveDepth += 1;
@@ -9389,6 +9487,9 @@ export function initChatPanel() {
   chatDeleteConfirmModalApi = initModal(document.getElementById('chat-delete-confirm-modal'), {
     backdropSelector: '.chat-settings-backdrop',
   });
+  chatArchiveConfirmModalApi = initModal(document.getElementById('chat-archive-confirm-modal'), {
+    backdropSelector: '.chat-settings-backdrop',
+  });
   chatContextDetailsModalApi = initModal(document.getElementById('chat-context-details-modal'), {
     backdropSelector: '.chat-settings-backdrop',
   });
@@ -9397,6 +9498,12 @@ export function initChatPanel() {
     chatDeleteBackdrop.addEventListener('click', () => {
       pendingDeleteChatId = null;
     });
+  }
+  // `settleArchiveConfirm(false)` hides the modal too; initModal's backdrop
+  // handler closes it first, so the order here only needs to resolve the promise.
+  const chatArchiveBackdrop = document.querySelector('#chat-archive-confirm-modal .chat-settings-backdrop');
+  if (chatArchiveBackdrop) {
+    chatArchiveBackdrop.addEventListener('click', () => settleArchiveConfirm(false));
   }
   if (!newChatKeydownCaptureBound) {
     newChatKeydownCaptureBound = true;
@@ -9493,6 +9600,20 @@ export function initChatPanel() {
     deleteConfirmSkipBtn.addEventListener('click', (e) => {
       e.preventDefault();
       confirmDeleteChat(true);
+    });
+  }
+  const archiveConfirmCancelBtn = document.getElementById('chat-archive-confirm-cancel');
+  const archiveConfirmBtn = document.getElementById('chat-archive-confirm-confirm');
+  if (archiveConfirmCancelBtn) {
+    archiveConfirmCancelBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      settleArchiveConfirm(false);
+    });
+  }
+  if (archiveConfirmBtn) {
+    archiveConfirmBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      settleArchiveConfirm(true);
     });
   }
   if (contextDetailsCloseBtn) {
@@ -9760,7 +9881,7 @@ export function initChatPanel() {
         return;
       }
       if (isForkSubtreeBusy(chats, id, hasLiveHarnessWork)) return;
-      void requestArchiveChat(id);
+      void requestArchiveChatConfirmed(id);
     });
     syncArchiveMenuUi(activeChatId ? chats.find((c) => c.id === activeChatId) : null);
   }
@@ -10042,6 +10163,11 @@ export function initChatPanel() {
     const deleteConfirmModal = document.getElementById('chat-delete-confirm-modal');
     if (deleteConfirmModal && !deleteConfirmModal.hidden) {
       closeChatDeleteConfirmModal();
+      return;
+    }
+    const archiveConfirmModal = document.getElementById('chat-archive-confirm-modal');
+    if (archiveConfirmModal && !archiveConfirmModal.hidden) {
+      settleArchiveConfirm(false);
       return;
     }
     if (!document.body.classList.contains('chat-fullscreen-active')) return;

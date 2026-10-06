@@ -102,16 +102,46 @@ test('maps Codex turn usage without double-counting cached input', () => {
   assert.equal(actual.reasoning, 30);
 });
 
-test('maps resolved Claude usage without double-counting cache reads', () => {
+test('maps resolved Claude usage without double-counting cache reads or writes', () => {
   const actual = fromClaudeUsage({
     inputTokens: 1000,
     outputTokens: 200,
     cacheReadTokens: 600,
     cacheWriteTokens: 100,
   });
-  assert.equal(actual.textInput, 400);
+  assert.equal(actual.textInput, 300);
   assert.equal(actual.cachedInput, 600);
+  assert.equal(actual.cacheWrite, 100);
   assert.equal(actual.textOutput, 200);
+});
+
+test('maps the stage-2 Claude fixture to 1070 disjoint tokens', () => {
+  // 100 uncached + 900 cache-read + 50 cache-write + 20 output.
+  const actual = fromClaudeUsage({
+    inputTokens: 100 + 900 + 50,
+    outputTokens: 20,
+    cacheReadTokens: 900,
+    cacheWriteTokens: 50,
+  });
+  assert.equal(actual.textInput, 100);
+  assert.equal(actual.cachedInput, 900);
+  assert.equal(actual.cacheWrite, 50);
+  assert.equal(actual.textOutput, 20);
+  assert.equal(
+    actual.textInput + actual.cachedInput + actual.cacheWrite + actual.textOutput,
+    1070
+  );
+});
+
+test('OpenRouter prompt already contains cached tokens, so cache is split out', () => {
+  const actual = fromOpenRouterUsage({
+    prompt_tokens: 1000,
+    completion_tokens: 20,
+    prompt_tokens_details: { cached_tokens: 400 },
+  });
+  assert.equal(actual.textInput, 600);
+  assert.equal(actual.cachedInput, 400);
+  assert.equal(actual.textOutput, 20);
 });
 
 test('maps DSH DeepSeek usage with disjoint cache reads', () => {

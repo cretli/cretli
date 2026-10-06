@@ -148,6 +148,7 @@ test('room-kernel records a codebuddy token delta from result usage', () => {
     audioInput: 0,
     audioOutput: 0,
     cachedInput: 300,
+    cacheWrite: 0,
     reasoning: 0,
   });
 });

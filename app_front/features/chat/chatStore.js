@@ -6,6 +6,7 @@ import {
 import { getChatActivityStore } from './chatActivityStore.js';
 const CHAT_DRAFT_LOCALSTORAGE_PREFIX = 'cretli-chat-draft-';
 const CHAT_DELETE_CONFIRM_SKIP_KEY = 'cretli-chat-delete-skip-confirm';
+const CHAT_ARCHIVE_CONFIRM_SKIP_KEY = 'cretli-chat-archive-skip-confirm';
 
 /**
  * Task 2.1: activity/last-used live in a RAM store (see chatActivityStore.js).
@@ -96,6 +97,22 @@ export function setSkipChatDeleteConfirm(value) {
   if (typeof localStorage === 'undefined') return;
   try {
     writeStorageValueWithAlias(localStorage, CHAT_DELETE_CONFIRM_SKIP_KEY, value ? '1' : '0');
+  } catch (_) {}
+}
+
+export function getSkipChatArchiveConfirm() {
+  if (typeof localStorage === 'undefined') return false;
+  try {
+    return readStorageValueWithAlias(localStorage, CHAT_ARCHIVE_CONFIRM_SKIP_KEY, '') === '1';
+  } catch (_) {
+    return false;
+  }
+}
+
+export function setSkipChatArchiveConfirm(value) {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    writeStorageValueWithAlias(localStorage, CHAT_ARCHIVE_CONFIRM_SKIP_KEY, value ? '1' : '0');
   } catch (_) {}
 }
 

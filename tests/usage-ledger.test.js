@@ -9,6 +9,7 @@ import {
   summarizeUsageTimeseries,
 } from '../lib/usage/usage-ledger.js';
 import { createUsageEvent } from '../lib/usage/usage-event.js';
+import { aggregateAccountingScopes } from '../lib/usage/usage-contract.js';
 import { readUsageEvents } from '../lib/persist/usage-persist.js';
 
 test('records priced events to a daily jsonl file', () => {
@@ -231,7 +232,7 @@ test('usage events keep only known token keys and clamp huge values', () => {
   });
   assert.deepEqual(
     Object.keys(event.tokens).sort(),
-    ['audioInput', 'audioOutput', 'cachedInput', 'reasoning', 'textInput', 'textOutput']
+    ['audioInput', 'audioOutput', 'cacheWrite', 'cachedInput', 'reasoning', 'textInput', 'textOutput']
   );
   assert.equal(event.tokens.textInput, 1e10);
   assert.equal(event.tokens.evil, undefined);
@@ -259,6 +260,159 @@ test('group rows carry p50/p95 latency from run events', () => {
   assert.deepEqual(summary.byModel['composer-2'].harnesses, ['sdk']);
   assert.equal(summary.byHarness.sdk.harness, 'sdk');
   assert.equal(summary.byDay['2026-08-28'].p95LatencyMs, 900);
+});
+
+test('summary derives disjoint tokens so cache and reasoning are not double counted', () => {
+  const summary = summarizeUsage([
+    {
+      provider: 'openai',
+      harness: 'codex',
+      model: 'gpt-5-codex',
+      feature: 'chat',
+      usd: null,
+      tokens: { textInput: 600, cachedInput: 400, textOutput: 250, reasoning: 30 },
+    },
+    {
+      provider: 'other',
+      harness: 'claude',
+      model: 'claude-sonnet-4-5',
+      feature: 'chat',
+      usd: null,
+      tokens: { textInput: 100, cachedInput: 900, cacheWrite: 50, textOutput: 20 },
+    },
+  ]);
+  // codex: 600 uncached + 400 cache-read + (250 - 30) output + 30 reasoning
+  // claude: 100 uncached + 900 cache-read + 50 cache-write + 20 output
+  assert.equal(summary.tokens.textInput, 700);
+  assert.equal(summary.tokens.cachedInput, 1300);
+  assert.equal(summary.tokens.cacheWrite, 50);
+  assert.equal(summary.tokens.textOutput, 240, 'reasoning is subtracted from the codex output bucket');
+  assert.equal(summary.tokens.reasoning, 30);
+  const additive = Object.values(summary.tokens).reduce((sum, value) => sum + value, 0);
+  assert.equal(additive, 2320, '1250 codex + 1070 claude');
+});
+
+test('summary keeps OpenRouter cache disjoint from prompt tokens', () => {
+  const summary = summarizeUsage([
+    {
+      provider: 'openrouter',
+      harness: 'openrouter',
+      model: 'llama-3',
+      feature: 'chat',
+      usd: null,
+      tokens: { textInput: 600, cachedInput: 400, textOutput: 20 },
+    },
+  ]);
+  assert.equal(summary.tokens.textInput, 600);
+  assert.equal(summary.tokens.cachedInput, 400);
+  assert.equal(summary.tokens.textOutput, 20);
+});
+
+test('own and consolidated scopes are subtotaled separately and flagged mixed', () => {
+  const events = [
+    {
+      at: '2026-08-28T10:00:00.000Z',
+      provider: 'other',
+      harness: 'deepseek',
+      model: 'deepseek-flash',
+      feature: 'chat',
+      usd: null,
+      accountingScope: 'own',
+      tokens: { textInput: 100, cachedInput: 20, textOutput: 10 },
+    },
+    {
+      at: '2026-08-28T10:01:00.000Z',
+      provider: 'other',
+      harness: 'deepseek',
+      model: 'deepseek-flash',
+      feature: 'chat',
+      usd: 2,
+      accountingScope: 'consolidated',
+      tokens: { textInput: 40, cachedInput: 5, textOutput: 5 },
+    },
+  ];
+  const summary = summarizeUsage(events);
+
+  // The default top-level view is `own`: the child delta must not leak in.
+  assert.equal(summary.tokens.textInput, 100);
+  assert.equal(summary.tokens.cachedInput, 20);
+  assert.equal(summary.tokens.textOutput, 10);
+  assert.equal(summary.tokensByScope.own.textInput, 100);
+  assert.equal(summary.tokensByScope.consolidated.textInput, 40);
+  assert.equal(summary.tokensByScope.consolidated.cachedInput, 5);
+  assert.equal(summary.totalUsd, 0, 'consolidated usd is not own usd');
+  assert.equal(summary.usdByScope.consolidated, 2);
+  assert.equal(summary.eventsByScope.own, 1);
+  assert.equal(summary.eventsByScope.consolidated, 1);
+  assert.equal(summary.mixed, true, 'both scopes present must be flagged');
+
+  // Group rows carry the same split, so a UI row cannot add the scopes either.
+  const row = summary.byModel['deepseek-flash'];
+  assert.equal(row.tokens.textInput, 100);
+  assert.equal(row.tokensByScope.consolidated.textInput, 40);
+  assert.equal(row.usd, 0);
+  assert.equal(row.usdByScope.consolidated, 2);
+  assert.equal(row.events, 1, 'group event count is the own view');
+  assert.equal(row.eventsByScope.consolidated, 1);
+  assert.equal(row.mixed, true);
+});
+
+test('a single-scope summary stays unmixed and equals its own subtotal', () => {
+  const ownOnly = summarizeUsage([
+    { provider: 'other', harness: 'deepseek', model: 'deepseek-flash', feature: 'chat', usd: null, accountingScope: 'own', tokens: { textInput: 7 } },
+  ]);
+  assert.equal(ownOnly.mixed, false);
+  assert.equal(ownOnly.tokens.textInput, 7);
+  assert.equal(ownOnly.tokensByScope.consolidated.textInput, 0);
+
+  const consolidatedOnly = summarizeUsage([
+    { provider: 'other', harness: 'deepseek', model: 'deepseek-flash', feature: 'chat', usd: null, accountingScope: 'consolidated', tokens: { textInput: 9 } },
+  ]);
+  assert.equal(consolidatedOnly.mixed, false);
+  assert.equal(consolidatedOnly.tokens.textInput, 0, 'the own default view ignores consolidated-only data');
+  assert.equal(consolidatedOnly.tokensByScope.consolidated.textInput, 9);
+});
+
+test('ledger scope subtotals agree with the contract aggregator', () => {
+  const events = [
+    { provider: 'other', harness: 'deepseek', model: 'm', feature: 'chat', usd: null, accountingScope: 'own', tokens: { textInput: 100, cachedInput: 20, textOutput: 10 } },
+    { provider: 'other', harness: 'deepseek', model: 'm', feature: 'chat', usd: null, accountingScope: 'consolidated', tokens: { textInput: 40, cachedInput: 5, textOutput: 5 } },
+  ];
+  const summary = summarizeUsage(events);
+  const aggregate = aggregateAccountingScopes(
+    events.map((event) => ({ scope: event.accountingScope, harness: event.harness, tokens: event.tokens }))
+  );
+  assert.equal(summary.tokensByScope.own.textInput, aggregate.own.inputWithoutCache);
+  assert.equal(summary.tokensByScope.own.cachedInput, aggregate.own.cacheRead);
+  assert.equal(summary.tokensByScope.own.textOutput, aggregate.own.outputWithoutReasoning);
+  assert.equal(summary.tokensByScope.consolidated.textInput, aggregate.consolidated.inputWithoutCache);
+  assert.equal(summary.mixed, aggregate.mixed);
+});
+
+test('timeseries token series stay inside one accounting scope', () => {
+  const events = [
+    { at: '2026-08-28T10:00:00.000Z', provider: 'other', harness: 'deepseek', model: 'deepseek-flash', feature: 'chat', eventType: 'delta', usd: null, accountingScope: 'own', tokens: { textInput: 100 } },
+    { at: '2026-08-28T10:01:00.000Z', provider: 'other', harness: 'deepseek', model: 'deepseek-flash', feature: 'chat', eventType: 'delta', usd: null, accountingScope: 'consolidated', tokens: { textInput: 40 } },
+    { at: '2026-08-28T10:02:00.000Z', provider: 'other', harness: 'deepseek', model: 'child-only-model', feature: 'chat', eventType: 'delta', usd: null, accountingScope: 'consolidated', tokens: { textInput: 9 } },
+  ];
+  const own = summarizeUsageTimeseries(events, { bucket: 'day', groupBy: 'model', metric: 'tokens' });
+  assert.equal(own.scope, 'own');
+  assert.equal(own.series.find((row) => row.group === 'deepseek-flash').values[0], 100);
+  assert.equal(
+    own.series.some((row) => row.group === 'child-only-model'),
+    false,
+    'a consolidated-only group is not an all-zero own series'
+  );
+
+  const consolidated = summarizeUsageTimeseries(events, {
+    bucket: 'day',
+    groupBy: 'model',
+    metric: 'tokens',
+    scope: 'consolidated',
+  });
+  assert.equal(consolidated.scope, 'consolidated');
+  assert.equal(consolidated.series.find((row) => row.group === 'deepseek-flash').values[0], 40);
+  assert.equal(consolidated.series.find((row) => row.group === 'child-only-model').values[0], 9);
 });
 
 test('byModel rows expose the dominant harness and the ranked harness list', () => {

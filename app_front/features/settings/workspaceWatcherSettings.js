@@ -19,13 +19,18 @@ import {
   formatDuration,
 } from '../watcher/watcherDashboard.js';
 import { renderWatcherTimelineHtml, WATCHER_TIMELINE_RANGES } from '../watcher/watcherTimeline.js';
+import {
+  getWatcherWorkspaceFolder,
+  scopeWatcherRequestToWorkspace,
+  watcherWorkspaceScopeChanged,
+} from '../watcher/watcherWorkspaceScope.js';
 import './workspace-watcher-settings.scss';
 
 const MODES = ['off', 'observe', 'autopilot'];
 const PICK_ROLES = ['plan', 'implement', 'review'];
 /** Scout categories — must match `WORKSPACE_SCOUT_CATEGORIES` on the server so
  *  the checkboxes and the closed-set allow-list never drift. */
-const SCOUT_CATEGORIES = ['bug', 'improvement', 'security', 'opportunity', 'documentation'];
+const SCOUT_CATEGORIES = ['bug', 'improvement', 'refactor', 'security', 'opportunity', 'documentation'];
 /** Cooldown slider bounds in ms. The persisted default is 30s (see below), so
  *  the slider spans a practical 0–15 min band in 30s steps. */
 const COOLDOWN_MIN_MS = 0;
@@ -87,6 +92,10 @@ const dashState = {
 };
 /** @type {object | null} */
 let lastView = null;
+/** Workspace folder the mounted form was rendered for. A live refresh for a
+ *  different folder would otherwise repaint the status card while the form still
+ *  edits the previous workspace. Empty until the first full render. */
+let renderedWorkspaceFolder = '';
 /** @type {object | null} */
 let lastStats = null;
 /** @type {ReturnType<typeof setInterval> | null} */
@@ -150,14 +159,18 @@ function formatActiveCyclesSummary(watcher) {
  * @param {{ method?: string, body?: unknown }} [options]
  */
 async function watcherApi(path, options = {}) {
-  if (isWorkspaceWatcherRead(path, options)) return getWorkspaceWatcherView(path);
+  // Every watcher call is workspace-scoped: without an explicit folder the
+  // server answers for its own "current cwd", which can be a different
+  // workspace than the one the operator opened Settings for.
+  const scoped = scopeWatcherRequestToWorkspace(path, options, getWatcherWorkspaceFolder());
+  if (isWorkspaceWatcherRead(scoped.path, scoped.options)) return getWorkspaceWatcherView(scoped.path);
   const headers = { Accept: 'application/json', 'Accept-Language': getCurrentLang() };
-  if (options.body !== undefined) headers['Content-Type'] = 'application/json';
-  const res = await cretliApiFetch(path, {
-    method: options.method || 'GET',
+  if (scoped.options.body !== undefined) headers['Content-Type'] = 'application/json';
+  const res = await cretliApiFetch(scoped.path, {
+    method: scoped.options.method || 'GET',
     headers,
     credentials: 'include',
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    body: scoped.options.body !== undefined ? JSON.stringify(scoped.options.body) : undefined,
   });
   const json = await res.json().catch(() => null);
   return { status: res.status, json };
@@ -174,11 +187,27 @@ export function initWorkspaceWatcherSettingsPanel() {
     // edits); repaint only the dashboard subroot.
     void refreshWorkspaceWatcherSettingsPanel({ full: false });
   });
+  // Switching the active workspace changes which watcher row the form edits.
+  // Leaving the previous workspace's policy on screen is one Save away from
+  // writing it to the wrong workspace, so a switch rebuilds the form. While the
+  // watcher settings pane is hidden the refresh is deferred to the next open
+  // (see `syncWorkspaceWatcherSettingsTab`).
+  const refreshOnActiveWorkspaceChange = () => {
+    const panel = document.getElementById('settings-watcher-root');
+    if (!panel || panel.dataset.bound !== 'true' || panel.dataset.rendered !== 'true') return;
+    if (!watcherWorkspaceScopeChanged(renderedWorkspaceFolder)) return;
+    const section = document.querySelector('.settings-section[data-settings-tab="watcher"]');
+    if (section && section.hidden) return;
+    void refreshWorkspaceWatcherSettingsPanel();
+  };
+  window.addEventListener('cretli-active-workspace-changed', refreshOnActiveWorkspaceChange);
+  window.addEventListener('cretli-workspace-updated', refreshOnActiveWorkspaceChange);
   window.addEventListener('cr-lang-changed', () => {
     const panel = document.getElementById('settings-watcher-root');
     if (!panel || panel.dataset.bound !== 'true') return;
     paintWatcherDashboard(panel);
     paintWatcherRuntimeControl(panel);
+    paintScoutSchedule(panel);
   });
   // The per-second ticker is pure background work while the document is hidden;
   // stop it and let the next visible refresh rebind it.
@@ -193,8 +222,12 @@ export async function refreshWorkspaceWatcherSettingsPanel(options = {}) {
   if (!root) return;
   // Until the panel has rendered its form once, force a full render even for a
   // "live" call, so a change event that races the initial load can't leave the
-  // form unmounted (the superseded full render would otherwise be dropped).
-  const full = options.full !== false || root.dataset.rendered !== 'true';
+  // form unmounted (the superseded full render would otherwise be dropped). A
+  // workspace switch also forces the full path: the live path must never leave
+  // the previous workspace's policy editable.
+  const full = options.full !== false
+    || root.dataset.rendered !== 'true'
+    || watcherWorkspaceScopeChanged(renderedWorkspaceFolder);
   const seq = ++refreshSeq;
   if (full) root.innerHTML = `<p class="settings-hint">${escapeHtml(t('settings.watcherLoading'))}</p>`;
   // The harness catalog is only needed to build the form (full path); fetch it
@@ -225,6 +258,7 @@ export async function refreshWorkspaceWatcherSettingsPanel(options = {}) {
   if (full) {
     renderWatcherPanel(root, lastView);
     root.dataset.rendered = 'true';
+    renderedWorkspaceFolder = String(res.json.workspaceFolder || res.json.cwd || '').trim();
   } else {
     paintWatcherRuntimeControl(root);
   }
@@ -334,6 +368,69 @@ function renderWatcherStatusCardHtml(data) {
   `;
 }
 
+/**
+ * Human label for a Scout block reason (`scan_interval`, `daily_budget`, …).
+ * Falls back to the raw server reason when the dictionary has no entry yet.
+ *
+ * @param {unknown} reason
+ * @returns {string}
+ */
+function scoutReasonText(reason) {
+  const key = String(reason || '').trim();
+  if (!key) return '';
+  const i18nKey = `settings.watcherScoutReason_${key}`;
+  const text = t(i18nKey);
+  return text === i18nKey ? key : text;
+}
+
+/**
+ * Schedule card for the Scout tab. `nextScanAt` is computed server-side from the
+ * same eligibility gate the heartbeat uses, so the countdown cannot drift from
+ * the real schedule. The countdown node is repainted per second by
+ * `tickWatcherTimes` while the Scout tab is visible.
+ *
+ * @param {object} scout
+ * @param {number} now
+ * @returns {string}
+ */
+function renderScoutScheduleHtml(scout = {}, now = Date.now()) {
+  const enabled = scout.enabled === true;
+  const nextScanAt = Number(scout.nextScanAt) || 0;
+  let nextText;
+  if (!enabled) {
+    nextText = escapeHtml(t('settings.watcherScoutNotScheduled'));
+  } else if (nextScanAt > now) {
+    nextText = `<span data-watcher-countdown="${nextScanAt}">${escapeHtml(formatCountdown(nextScanAt, now))}</span>`
+      + ` <span class="watcher-scout-abs">${escapeHtml(new Date(nextScanAt).toLocaleString())}</span>`;
+  } else {
+    nextText = escapeHtml(t('settings.watcherScoutDueNow'));
+  }
+  const blocked = String(scout.blockedReason || '').trim();
+  const blockedHtml = blocked
+    ? `<p class="cr-hint"><span class="watcher-badge" data-mode="paused">${escapeHtml(t('settings.watcherScoutBlocked'))}</span> ${escapeHtml(scoutReasonText(blocked))}</p>`
+    : '';
+  return ''
+    + `<p class="cr-hint"><strong>${escapeHtml(t('settings.watcherScoutNextScan'))}:</strong> ${nextText}</p>`
+    + `<p class="cr-hint">${escapeHtml(t('settings.watcherScoutLastScan'))}: ${escapeHtml(scout.lastScoutAt || '-')}</p>`
+    + `<p class="cr-hint">${escapeHtml(t('settings.watcherScoutScansToday'))}: ${Number(scout.usedToday) || 0} / ${Number(scout.maxPerDay) || 0}`
+    + ` · ${escapeHtml(t('settings.watcherScoutRemaining'))}: ${Number(scout.remainingToday) || 0}</p>`
+    + `<p class="cr-hint">${escapeHtml(t('settings.watcherScoutRunning'))}: ${Number(scout.running) || 0} / ${Number(scout.maxParallel) || 1}`
+    + ` · ${escapeHtml(t('settings.watcherScoutPending'))}: ${Number(scout.pendingFindings) || 0}</p>`
+    + blockedHtml;
+}
+
+/**
+ * Repaint only the Scout schedule card from the cached view. No-op on the paths
+ * where the Scout tab was never rendered.
+ *
+ * @param {HTMLElement} root
+ */
+function paintScoutSchedule(root) {
+  const node = root.querySelector('#watcher-scout-schedule-info');
+  if (!node || !lastView) return;
+  node.innerHTML = renderScoutScheduleHtml(lastView.scout || {}, Date.now());
+}
+
 /** @param {object} runtime */
 function renderWatcherRuntimeControlHtml(runtime = {}) {
   const disabled = runtime.startsEnabled === false || (runtime.statusUnavailable && runtime.startsEnabled == null);
@@ -439,7 +536,9 @@ function applyWatcherTab(root) {
   }
   const savebar = root.querySelector('#watcher-savebar');
   if (savebar) savebar.hidden = tab !== 'settings' && tab !== 'scout';
-  if (tab === 'monitor') {
+  // Both the monitoring dashboard and the Scout schedule card render a live
+  // countdown, so the per-second ticker follows either of them.
+  if (tab === 'monitor' || tab === 'scout') {
     ensureWatcherTicker(root);
     tickWatcherTimes(root);
   } else {
@@ -451,6 +550,13 @@ function applyWatcherTab(root) {
 export function syncWorkspaceWatcherSettingsTab() {
   const root = document.getElementById('settings-watcher-root');
   if (!root || root.dataset.rendered !== 'true') return;
+  // The active workspace may have moved while the pane was hidden (the change
+  // event is skipped there); re-open on a full refresh instead of showing the
+  // previous workspace's policy.
+  if (watcherWorkspaceScopeChanged(renderedWorkspaceFolder)) {
+    void refreshWorkspaceWatcherSettingsPanel();
+    return;
+  }
   syncWatcherTabFromSettings();
   applyWatcherTab(root);
 }
@@ -606,6 +712,16 @@ function renderWatcherPanel(root, data) {
     <div ${watcherPanelAttrs('scout')}>
     <div class="cr-card watcher-form">
       <section class="watcher-section">
+        <h4 class="watcher-section-title">${escapeHtml(t('settings.watcherScoutScheduleTitle'))}</h4>
+        <div id="watcher-scout-schedule-info">${renderScoutScheduleHtml(data.scout || {}, Date.now())}</div>
+        <div class="cr-row watcher-actions watcher-scout-run-row">
+          <cr-bar-button id="watcher-scout-run"${data.scout?.enabled === true ? '' : ' disabled'}>${escapeHtml(t('settings.watcherScoutRunNow'))}</cr-bar-button>
+          <span id="watcher-scout-run-status" class="cr-status"></span>
+        </div>
+        <p class="cr-hint">${escapeHtml(t('settings.watcherScoutRunHint'))}</p>
+      </section>
+
+      <section class="watcher-section">
         <h4 class="watcher-section-title">${escapeHtml(t('settings.watcherScoutSection'))}</h4>
         <label class="cr-check"><input type="checkbox" id="watcher-scout-enabled"${policy.scoutEnabled === true ? ' checked' : ''}> ${escapeHtml(t('settings.watcherScoutEnabled'))}</label>
         <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherScoutMaxParallel'))}</span><input id="watcher-scout-max-parallel" type="number" min="1" max="5" value="${Number(policy.scoutMaxParallel) || 1}"></label>
@@ -704,7 +820,9 @@ function renderWatcherPanel(root, data) {
   root.querySelector('#watcher-claim')?.addEventListener('click', () => watcherAction(root, 'claim_next'));
   root.querySelector('#watcher-reset-plan')?.addEventListener('click', () => watcherAction(root, 'reset_plan_requests'));
   root.querySelector('#watcher-record-findings')?.addEventListener('click', () => watcherAction(root, 'record_findings'));
+  root.querySelector('#watcher-scout-run')?.addEventListener('click', () => runScoutNow(root));
   bindWatcherDashboard(root);
+  applyWatcherTab(root);
 }
 
 /**
@@ -974,6 +1092,44 @@ async function watcherAction(root, action) {
 }
 
 /**
+ * Manual Scout trigger. The server bypasses the scan interval for an explicit
+ * run but still respects the mode, quiet hours and the per-day budget, so a
+ * blocked answer is reported as a reason (not an error). A non-full refresh
+ * keeps the operator's unsaved policy edits and the status line intact.
+ *
+ * @param {HTMLElement} root
+ */
+async function runScoutNow(root) {
+  const button = root.querySelector('#watcher-scout-run');
+  if (button) button.setAttribute('disabled', 'true');
+  const status = root.querySelector('#watcher-scout-run-status');
+  if (status) status.textContent = t('settings.watcherWorking');
+  let res;
+  try {
+    res = await watcherApi('/api/workspace-watcher/scout', { method: 'POST', body: { action: 'run' } });
+  } catch {
+    res = { json: null };
+  } finally {
+    if (button) button.removeAttribute('disabled');
+  }
+  const json = res.json || null;
+  const blockedReason = scoutReasonText(json?.reason);
+  if (!json?.ok || json.scanned === false) {
+    // Refresh first: the schedule card may show a spent budget or a blocker.
+    await refreshWorkspaceWatcherSettingsPanel({ full: false });
+    paintScoutSchedule(root);
+    const liveStatus = root.querySelector('#watcher-scout-run-status');
+    if (liveStatus) liveStatus.textContent = blockedReason || json?.error || t('settings.watcherScoutRunError');
+    return;
+  }
+  await refreshWorkspaceWatcherSettingsPanel({ full: false });
+  paintScoutSchedule(root);
+  // A full re-render (workspace switch) replaces the node, so re-query it.
+  const liveStatus = root.querySelector('#watcher-scout-run-status');
+  if (liveStatus) liveStatus.textContent = t('settings.watcherScoutRunStarted', { n: Number(json.added) || 0 });
+}
+
+/**
  * Assemble the dashboard block from the cached view + stats and the local UI
  * state (range / decisions filter / selected cycle). Rendering is pure string
  * building via `watcherDashboard.js` / `watcherTimeline.js`.
@@ -1048,18 +1204,21 @@ function stopWatcherTicker() {
  */
 function tickWatcherTimes(root) {
   const container = root.querySelector('#watcher-dashboard');
-  if (!dashboardIsVisible(container)) {
+  const scoutSchedule = root.querySelector('#watcher-scout-schedule-info');
+  // Either countdown surface keeps the ticker alive; when neither is on screen
+  // (a hidden tab, a detached panel) the ticker stops instead of spinning.
+  if (!dashboardIsVisible(container) && !dashboardIsVisible(scoutSchedule)) {
     stopWatcherTicker();
     return;
   }
   if (Date.now() - lastRuntimePollAt >= 5_000) void refreshWatcherRuntimeControl(root);
   const now = Date.now();
-  for (const node of container.querySelectorAll('[data-watcher-countdown]')) {
+  for (const node of root.querySelectorAll('[data-watcher-countdown]')) {
     const until = Number(node.getAttribute('data-watcher-countdown'));
     if (!Number.isFinite(until)) continue;
     node.textContent = formatCountdown(until, now);
   }
-  for (const node of container.querySelectorAll('[data-watcher-duration]')) {
+  for (const node of root.querySelectorAll('[data-watcher-duration]')) {
     const started = Number(node.getAttribute('data-watcher-duration'));
     if (!Number.isFinite(started) || started <= 0) continue;
     node.textContent = formatDuration(now - started);

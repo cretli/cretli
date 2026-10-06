@@ -27,6 +27,7 @@ const MODAL_IDS = [
   'chat-settings-modal',
   'chat-new-modal',
   'chat-delete-confirm-modal',
+  'chat-archive-confirm-modal',
   'connection-status-dialog',
 ];
 

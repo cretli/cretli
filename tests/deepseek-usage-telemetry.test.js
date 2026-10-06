@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createAgentRoomKernel } from '../lib/agent-harness/room-kernel.js';
 import { applyDeepSeekRoomNotification } from '../lib/deepseek/deepseek-agent-ws.js';
+import { createUsageEvent } from '../lib/usage/usage-event.js';
 
 /**
  * Full path for DeepSeek token accounting: a DSH `assistant/message` session
@@ -54,6 +55,7 @@ test('DSH assistant/message usage becomes a deepseek token delta', () => {
     audioInput: 0,
     audioOutput: 0,
     cachedInput: 100,
+    cacheWrite: 0,
     reasoning: 20,
   });
 });
@@ -130,3 +132,85 @@ test('room._lastUsagePayload accumulates across DSH steps and resets per run', (
   kernel.broadcastRoom(room, { type: 'sdkPromptStarted', runId: 'run-accum-2' });
   assert.equal(room._lastUsagePayload, null, 'the next run drops the previous total');
 });
+
+/**
+ * Parent and child usage stay in separate accounting scopes. The parent summary
+ * does not contain the child's tokens (the normalizer forwards child usage
+ * separately), so own and consolidated must never be summed, and the run
+ * coverage must expose how many expected children actually reported.
+ */
+test('DeepSeek child usage is consolidated and run coverage marks incomplete children', () => {
+  const records = [];
+  const kernel = createAgentRoomKernel({
+    transport: 'deepseek',
+    persistHistory: () => {},
+    recordUsage: (partial) => {
+      const event = createUsageEvent(partial);
+      records.push(event);
+      return event;
+    },
+  });
+  const room = kernel.createRoomState({
+    sessionKey: 'deepseek-consolidated',
+    chatId: 'deepseek-consolidated-chat',
+    modelId: 'deepseek-flash',
+  });
+  room.deepseekSessionId = 'dsh-root-cons';
+  kernel.broadcastRoom(room, { type: 'sdkPromptStarted', runId: 'run-cons' });
+
+  const broadcast = (items) => {
+    for (const item of items) kernel.broadcastRoom(room, { type: 'sdkEvent', event: item });
+  };
+
+  // Two child sessions are started: one reports usage, one never does.
+  broadcast(applyDeepSeekRoomNotification(room, {
+    method: 'subagent.started',
+    params: { parentSessionId: 'dsh-root-cons', childSessionId: 'dsh-child-1', provider: 'codex' },
+  }));
+  broadcast(applyDeepSeekRoomNotification(room, {
+    method: 'subagent.started',
+    params: { parentSessionId: 'dsh-root-cons', childSessionId: 'dsh-child-2', provider: 'codex' },
+  }));
+
+  // Parent own usage.
+  broadcast(applyDeepSeekRoomNotification(room, {
+    method: 'session.event',
+    params: {
+      sessionId: 'dsh-root-cons',
+      event: {
+        type: 'assistant/message',
+        data: {
+          message: { content: [{ type: 'text', text: 'parent' }] },
+          usage: { inputTokens: 100, outputTokens: 10 },
+        },
+      },
+    },
+  }));
+
+  // Child 1 consolidated usage; child 2 stays silent.
+  broadcast(applyDeepSeekRoomNotification(room, {
+    method: 'session.event',
+    params: {
+      sessionId: 'dsh-child-1',
+      event: { type: 'assistant/message', data: { usage: { inputTokens: 40, outputTokens: 5 } } },
+    },
+  }));
+
+  kernel.broadcastRoom(room, { type: 'sdkRunFinished', runId: 'run-cons', status: 'completed' });
+
+  const deltas = records.filter((row) => row.eventType === 'delta');
+  const own = deltas.filter((row) => row.accountingScope === 'own');
+  const consolidated = deltas.filter((row) => row.accountingScope === 'consolidated');
+  assert.equal(own.length, 1, 'parent usage stays own');
+  assert.equal(consolidated.length, 1, 'child usage is consolidated');
+  assert.equal(consolidated[0].tokens.textInput, 40);
+  assert.equal(own[0].tokens.textInput, 100);
+
+  const run = records.find((row) => row.eventType === 'run');
+  assert.equal(run.coverage.scope, 'consolidated');
+  assert.equal(run.coverage.expectedChildren, 2);
+  assert.equal(run.coverage.coveredChildren, 1);
+  assert.equal(run.coverage.proof, false, 'a silent child keeps coverage partial');
+  assert.equal(run.completeness, 'partial');
+});
+

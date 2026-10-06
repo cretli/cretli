@@ -11,6 +11,8 @@ assert.match(sent, /Dodatkowe wymagania/);
 assert.match(sent, /todo_next_ready/);
 assert.match(sent, /slot_occupied=false/);
 assert.match(sent, /Keep the leaf doing until verification PASS/);
+assert.match(sent, /Forward the pickId returned by model_pick as pick_id/);
+assert.match(sent, /without re-picking or matching the proposal by time/);
 assert.match(sent, /required unapproved plan/);
 assert.match(sent, /Continue automatically/);
 assert.equal(stripTodoExecutionWorkflow(extractTodoRefsFromMessage(sent).text), 'Dodatkowe wymagania\nKontynuuj to zadanie.');

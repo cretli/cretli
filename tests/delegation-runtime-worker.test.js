@@ -34,10 +34,12 @@ import {
 } from '../lib/delegation-status.js';
 import {
   applyDelegationWorkflowPatch,
+  getDelegationWorkflow,
   inspectDelegationWorkflowStart,
   isDelegationWorkflowDeadlinePassed,
   listDelegationWorkflowsPastDeadline,
 } from '../lib/delegation-workflow.js';
+import { formatTodoRef } from '../lib/todo-ref.js';
 
 stopDelegationRuntimeWorker();
 registerMockChatRunAdapter('opencode');
@@ -678,6 +680,59 @@ registerMockChatRunAdapter('opencode');
   const after = getDelegationById(job.id);
   assert.equal(after.status, 'interrupted');
   assert.equal(after.interruptCode, 'starting_timeout');
+  registerMockChatRunAdapter('opencode');
+}
+
+// A leaf deadline cancels only that leaf's active jobs; sibling leaves and the
+// cancel are fenced so the still-expired row is not re-cancelled every tick.
+{
+  registerMockChatRunAdapter('opencode');
+  const p = parent('deadline leaf scope parent');
+  const leafA = 'aaaabbbb-0000-1111-2222-333344445555';
+  const leafB = 'bbbbcccc-0000-1111-2222-333344445555';
+  const jobA = createDelegationRecord({
+    parentChatId: p.id,
+    childChatId: parent('deadline leaf A child').id,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    assignment: 'implement',
+    status: 'running',
+    attemptId: 'leaf-a-attempt',
+    runId: 'leaf-a-run',
+    sourceText: `${formatTodoRef(leafA)}\nleaf A job`,
+  });
+  const jobB = createDelegationRecord({
+    parentChatId: p.id,
+    childChatId: parent('deadline leaf B child').id,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    assignment: 'implement',
+    status: 'running',
+    attemptId: 'leaf-b-attempt',
+    runId: 'leaf-b-run',
+    sourceText: `${formatTodoRef(leafB)}\nleaf B job`,
+  });
+  applyDelegationWorkflowPatch({
+    parentChatId: p.id,
+    leafId: leafA,
+    deadlineAt: new Date(Date.now() - 1000).toISOString(),
+    clearStop: true,
+  });
+  resetDelegationRuntimeHealth();
+  await tickDelegationRuntime({ now: Date.now(), drainMailbox: false });
+  const aLatest = getDelegationById(jobA.id);
+  assert.ok(['cancelling', 'cancelled'].includes(aLatest.status), aLatest.status);
+  assert.equal(
+    getDelegationById(jobB.id).status,
+    'running',
+    'sibling leaf must not be cancelled by another leaf deadline',
+  );
+  await tickDelegationRuntime({ now: Date.now(), drainMailbox: false });
+  assert.equal(getDelegationById(jobB.id).status, 'running');
+  const rowA = getDelegationWorkflow(p.id, leafA);
+  assert.equal(rowA.deadlineCancelKey, rowA.deadlineAt);
+  const rowB = getDelegationWorkflow(p.id, leafB);
+  assert.equal(rowB, null, 'sibling leaf must not get a deadline row');
   registerMockChatRunAdapter('opencode');
 }
 

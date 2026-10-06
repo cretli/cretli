@@ -28,9 +28,10 @@ import {
   getTerminalStateMetaPublic,
   getChatFavoritesStore,
   escapeHtml,
-  requestArchiveChat,
+  requestArchiveChatConfirmed,
   requestArchiveSettledChats,
   requestRestoreChat,
+  requestDeleteChat,
   refreshSidebarChatStates,
   canPinChatToUrl,
   toggleChatUrlPinById,
@@ -41,6 +42,7 @@ import {
   setForcedEmbedChatId,
   refreshRelatedChatHistoryLinks,
   setWorkspaceCloneFolderLookup,
+  setWorkspacePreferredFolderLookup,
   openChatFromNotification,
   notifySidebarSearchHydration,
   expandSidebarWorkspaceSearchPool,
@@ -409,6 +411,7 @@ setWorkspaceCloneFolderLookup((workspaceFile) =>
     (sidebarKey) => getSidebarWorkspaceFolder(sidebarKey),
   ),
 );
+setWorkspacePreferredFolderLookup(getSidebarWorkspaceFolder, getWorkspacesListFromCtx);
 
 let settingsHeavyModulesInitialized = false;
 
@@ -503,8 +506,9 @@ const sidebarView = createSidebarView({
   chatFavorites: getChatFavoritesStore(),
   resolveChatState: getChatListAgentStatePublic,
   getTerminalStateMeta: getTerminalStateMetaPublic,
-  requestArchiveChat,
+  requestArchiveChat: requestArchiveChatConfirmed,
   requestRestoreChat,
+  requestDeleteChat,
   onArchiveSettled: async (chatIds, { parentId } = {}) => {
     const count = Array.isArray(chatIds) ? chatIds.length : 0;
     if (!count) return false;

@@ -5244,6 +5244,23 @@ cr-todo-card.todo-card {
   z-index: 1400;
 }
 
+#chat-archive-confirm-modal {
+  z-index: 1400;
+}
+
+#chat-archive-confirm-modal .chat-settings-checkbox-label {
+  margin-top: var(--cr-space-2);
+}
+
+#chat-archive-confirm-modal .chat-settings-checkbox {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  margin: 0;
+  accent-color: var(--cr-accent);
+}
+
 .chat-settings-backdrop {
   position: absolute;
   inset: 0;
@@ -11849,6 +11866,10 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   color: var(--cr-info);
 }
 
+.sidebar-chat-delete-btn:hover {
+  color: var(--cr-danger-text);
+}
+
 .sidebar-chat-action-first {
   margin-left: auto;
 }
@@ -11931,6 +11952,15 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   .sidebar-chat-item.has-pin-actions .sidebar-chat-archive-btn,
   .sidebar-chat-item.has-pin-actions .sidebar-chat-restore-btn { grid-column: 7; }
   .sidebar-chat-item.has-pin-actions .sidebar-chat-fav-btn { grid-column: 8; }
+  // Archived rows hide the (live-only) pin action and use the freed slot for a
+  // permanent-delete action after restore + favorite.
+  .sidebar-chat-item.is-archived {
+    grid-template-columns: 0.5rem 1.35rem minmax(0, 1fr) 2.2rem 1.8rem 1.55rem 1.55rem 1.55rem;
+  }
+  .sidebar-chat-item.is-archived.has-activity-status {
+    grid-template-columns: 0.5rem 1.35rem minmax(0, 1fr) 2.2rem 5.75rem 1.55rem 1.55rem 1.55rem;
+  }
+  .sidebar-chat-item.is-archived .sidebar-chat-delete-btn { grid-column: 8; }
   .sidebar-chat-action { width: 1.55rem; }
   .sidebar-chat-item .sidebar-chat-action-first { margin-left: 0; }
 

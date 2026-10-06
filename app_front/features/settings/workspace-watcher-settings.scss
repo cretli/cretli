@@ -151,6 +151,16 @@
   max-width: 220px;
 }
 
+/* Scout schedule card: a live "next scan" countdown plus a manual run button. */
+.watcher-scout-run-row {
+  align-items: center;
+}
+
+.watcher-scout-abs {
+  opacity: 0.7;
+  font-size: 11px;
+}
+
 .watcher-lists {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

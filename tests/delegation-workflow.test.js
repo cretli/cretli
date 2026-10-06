@@ -7,7 +7,14 @@ import {
   fingerprintDelegationWorkflowPatch,
   inspectDelegationWorkflowStart,
   isDelegationWorkflowDeadlinePassed,
+  resolveDelegationWorkflowRow,
 } from '../lib/delegation-workflow.js';
+import {
+  extractDelegationWorkflowLeafIdFromText,
+  isDelegationWorkflowHardStopReason,
+} from '../lib/delegation-workflow-leaf.js';
+import { formatTodoRef } from '../lib/todo-ref.js';
+import { updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import {
   getDelegationWorkflowsDataPath,
   loadDelegationWorkflows,
@@ -18,6 +25,7 @@ import { createDelegationRecord, getDelegationById } from '../lib/persist/delega
 import { createDelegationService } from '../lib/delegation-service.js';
 import { buildDelegationRequestHash, hashDelegationContent } from '../lib/delegation-request.js';
 import { registerMockChatRunAdapter, resetMockChatRuns } from '../lib/chat-run/mock-adapter.js';
+import { recordUsage } from '../lib/usage/usage-ledger.js';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 
 resetMockChatRuns();
@@ -554,6 +562,305 @@ const parentId = crypto.randomUUID();
   assert.equal(replay.replayed, true);
   assert.equal(replay.delegation.status, 'completed');
   assert.equal(replay.delegation.id, started.delegation.id);
+}
+
+{
+  const parentChatId = crypto.randomUUID();
+  const leafA = '1a72632d-aaaa-bbbb-cccc-ddddeeeeffff';
+  const leafB = 'b457689e-1111-2222-3333-444455556666';
+  applyDelegationWorkflowPatch({
+    parentChatId,
+    leafId: leafA,
+    round: 3,
+    maxRounds: 4,
+  });
+  applyDelegationWorkflowPatch({
+    parentChatId,
+    leafId: leafB,
+    round: 3,
+    maxRounds: 4,
+  });
+  const gateA = inspectDelegationWorkflowStart({ parentChatId, leafId: leafA });
+  const gateB = inspectDelegationWorkflowStart({ parentChatId, leafId: leafB });
+  assert.equal(gateA.ok, true);
+  assert.equal(gateB.ok, true);
+  applyDelegationWorkflowPatch({
+    parentChatId,
+    leafId: leafA,
+    round: 4,
+    maxRounds: 4,
+  });
+  const exhaustedA = inspectDelegationWorkflowStart({ parentChatId, leafId: leafA });
+  assert.equal(exhaustedA.ok, false);
+  assert.equal(exhaustedA.code, 'workflow_rounds_exhausted');
+  const stillB = inspectDelegationWorkflowStart({ parentChatId, leafId: leafB });
+  assert.equal(stillB.ok, true);
+}
+
+{
+  const parentChatId = crypto.randomUUID();
+  const leafId = 'deadbeef-aaaa-bbbb-cccc-ddddeeeeffff';
+  applyDelegationWorkflowPatch({
+    parentChatId,
+    leafId,
+    round: 2,
+    maxRounds: 6,
+    idempotencyKey: 'persist-leaf',
+  });
+  const reloaded = resolveDelegationWorkflowRow({ parentChatId, leafId });
+  assert.equal(reloaded.round, 2);
+  assert.equal(reloaded.leafId, leafId);
+}
+
+{
+  const parentChatId = crypto.randomUUID();
+  const leafId = 'cafebabe-1111-2222-3333-444455556666';
+  applyDelegationWorkflowPatch({
+    parentChatId,
+    leafId,
+    lastVerdict: 'FAIL',
+    findingsText: 'leaf-only',
+    idempotencyKey: 'leaf-f1',
+  });
+  const second = applyDelegationWorkflowPatch({
+    parentChatId,
+    leafId,
+    lastVerdict: 'FAIL',
+    findingsText: 'leaf-only',
+    idempotencyKey: 'leaf-f2',
+  });
+  assert.equal(second.stopReason, 'same_findings');
+  const blocked = inspectDelegationWorkflowStart({ parentChatId, leafId });
+  assert.equal(blocked.code, 'workflow_stopped');
+}
+
+{
+  const parentChatId = crypto.randomUUID();
+  const leafId = 'aabbccdd-eeee-ffff-1111-222233334444';
+  applyDelegationWorkflowPatch({
+    parentChatId,
+    leafId,
+    round: 4,
+    maxRounds: 4,
+  });
+  const row = resolveDelegationWorkflowRow({ parentChatId, leafId });
+  assert.equal(row.stopReason, 'rounds_exhausted_soft');
+  assert.equal(isDelegationWorkflowHardStopReason(row.stopReason), false);
+  const resumed = applyDelegationWorkflowPatch({
+    parentChatId,
+    leafId,
+    resumeRounds: true,
+    maxRounds: 6,
+  });
+  assert.equal(resumed.stopReason, '');
+  const gate = inspectDelegationWorkflowStart({ parentChatId, leafId });
+  assert.equal(gate.ok, true);
+}
+
+{
+  const parentChatId = crypto.randomUUID();
+  const leafId = '11112222-3333-4444-5555-666677778888';
+  const todoLine = formatTodoRef(leafId);
+  const impl = createDelegationRecord({
+    parentChatId,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    status: 'completed',
+    assignment: 'implement',
+    sourceKind: 'text',
+    sourceText: `${todoLine}\nImplement leaf`,
+    sourceHash: hashDelegationContent(`${todoLine}\nImplement leaf`),
+    requestHash: buildDelegationRequestHash({
+      parentChatId,
+      sourceKind: 'text',
+      sourceHash: hashDelegationContent('impl'),
+      harness: 'opencode',
+      model: 'opencode/test',
+      assignment: 'implement',
+    }),
+    idempotencyKey: crypto.randomUUID(),
+  });
+  const review = createDelegationRecord({
+    parentChatId,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    status: 'completed',
+    assignment: 'review',
+    sourceKind: 'text',
+    sourceText: `${todoLine}\nReview leaf`,
+    sourceHash: hashDelegationContent(`${todoLine}\nReview leaf`),
+    requestHash: buildDelegationRequestHash({
+      parentChatId,
+      sourceKind: 'text',
+      sourceHash: hashDelegationContent('rev'),
+      harness: 'opencode',
+      model: 'opencode/test',
+      assignment: 'review',
+    }),
+    idempotencyKey: crypto.randomUUID(),
+  });
+  updateDelegationRecord(review.id, { report: 'VERDICT: FAIL\nFindings' });
+  assert.equal(extractDelegationWorkflowLeafIdFromText(impl.sourceText), leafId);
+  const synced = resolveDelegationWorkflowRow({ parentChatId, leafId });
+  assert.equal(synced.round, 1);
+  assert.equal(synced.lastVerdict, 'FAIL');
+  updateDelegationRecord(review.id, { status: 'cancelled' });
+}
+
+{
+  const parentChatId = crypto.randomUUID();
+  applyDelegationWorkflowPatch({
+    parentChatId,
+    round: 4,
+    maxRounds: 4,
+  });
+  const legacy = inspectDelegationWorkflowStart({ parentChatId });
+  assert.equal(legacy.ok, false);
+  assert.equal(legacy.code, 'workflow_rounds_exhausted');
+}
+
+// ---------------------------------------------------------------------------
+// Per-leaf loop state: history inference, fan-out grouping, budgets, resume.
+// ---------------------------------------------------------------------------
+
+/**
+ * @param {string} parentChatId
+ * @param {string} leafId
+ * @param {'implement' | 'review'} assignment
+ * @param {string} [report]
+ * @returns {object}
+ */
+function leafTerminalJob(parentChatId, leafId, assignment, report = '') {
+  const todoLine = formatTodoRef(leafId);
+  const sourceText = `${todoLine}\n${assignment} job`;
+  const record = createDelegationRecord({
+    parentChatId,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    status: 'completed',
+    assignment,
+    sourceKind: 'text',
+    sourceText,
+    sourceHash: hashDelegationContent(sourceText),
+    requestHash: buildDelegationRequestHash({
+      parentChatId,
+      sourceKind: 'text',
+      sourceHash: hashDelegationContent(`${assignment}-${crypto.randomUUID()}`),
+      harness: 'opencode',
+      model: 'opencode/test',
+      assignment,
+    }),
+    idempotencyKey: crypto.randomUUID(),
+  });
+  if (report) updateDelegationRecord(record.id, { report });
+  return record;
+}
+
+// PASS resets the inferred round; a following cycle starts from 1 again.
+{
+  const parentChatId = crypto.randomUUID();
+  const leafId = 'feedface-0000-1111-2222-333344445555';
+  leafTerminalJob(parentChatId, leafId, 'implement');
+  leafTerminalJob(parentChatId, leafId, 'review', 'VERDICT: FAIL\nfinding one');
+  const first = resolveDelegationWorkflowRow({ parentChatId, leafId });
+  assert.equal(first.round, 1);
+  assert.equal(first.lastVerdict, 'FAIL');
+
+  leafTerminalJob(parentChatId, leafId, 'review', 'VERDICT: PASS');
+  const afterPass = resolveDelegationWorkflowRow({ parentChatId, leafId });
+  assert.equal(afterPass.round, 0);
+  assert.equal(afterPass.lastVerdict, 'PASS');
+
+  leafTerminalJob(parentChatId, leafId, 'implement');
+  const newCycle = resolveDelegationWorkflowRow({ parentChatId, leafId });
+  assert.equal(newCycle.round, 1);
+  assert.ok(newCycle.round < 2, 'post-PASS cycle must not resurrect pre-PASS rounds');
+  const newCycleAgain = resolveDelegationWorkflowRow({ parentChatId, leafId });
+  assert.equal(newCycleAgain.round, 1, 'resolve must not toggle the round on a second call');
+}
+
+// A parallel review fan-out is one round, not one round per reviewer.
+{
+  const parentChatId = crypto.randomUUID();
+  const leafId = 'decafbad-1111-2222-3333-444455556666';
+  leafTerminalJob(parentChatId, leafId, 'implement');
+  leafTerminalJob(parentChatId, leafId, 'review', 'VERDICT: FAIL\nreviewer A');
+  leafTerminalJob(parentChatId, leafId, 'review', 'VERDICT: FAIL\nreviewer B');
+  leafTerminalJob(parentChatId, leafId, 'review', 'VERDICT: FAIL\nreviewer C');
+  const fanout = resolveDelegationWorkflowRow({ parentChatId, leafId });
+  assert.equal(fanout.round, 1, 'three reviews of one cycle must not sum to three rounds');
+}
+
+// Two leaves do not sum their rounds: each resolve sees only its own cycle.
+{
+  const parentChatId = crypto.randomUUID();
+  const leafA = '1111aaaa-1111-2222-3333-444455556666';
+  const leafB = '2222bbbb-1111-2222-3333-444455556666';
+  for (let cycle = 0; cycle < 3; cycle += 1) {
+    leafTerminalJob(parentChatId, leafA, 'implement');
+    leafTerminalJob(parentChatId, leafA, 'review', 'VERDICT: FAIL');
+  }
+  leafTerminalJob(parentChatId, leafB, 'implement');
+  leafTerminalJob(parentChatId, leafB, 'review', 'VERDICT: FAIL');
+  const rowA = resolveDelegationWorkflowRow({ parentChatId, leafId: leafA });
+  const rowB = resolveDelegationWorkflowRow({ parentChatId, leafId: leafB });
+  assert.equal(rowA.round, 3);
+  assert.equal(rowB.round, 1, 'leaf B must not inherit leaf A rounds');
+}
+
+// Without a leaf id there is no history inference (legacy per-chat behavior).
+{
+  const parentChatId = crypto.randomUUID();
+  leafTerminalJob(parentChatId, '3333cccc-1111-2222-3333-444455556666', 'implement');
+  leafTerminalJob(parentChatId, '3333cccc-1111-2222-3333-444455556666', 'review', 'VERDICT: FAIL');
+  const legacy = resolveDelegationWorkflowRow({ parentChatId });
+  assert.equal(legacy, null, 'unattributed parent review must not create/steal a workflow round');
+  const gate = inspectDelegationWorkflowStart({ parentChatId });
+  assert.equal(gate.ok, true);
+}
+
+// resume_rounds with no explicit cap really lifts the soft gate.
+{
+  const parentChatId = crypto.randomUUID();
+  const leafId = '4444dddd-1111-2222-3333-444455556666';
+  applyDelegationWorkflowPatch({ parentChatId, leafId, round: 4, maxRounds: 4 });
+  const blocked = inspectDelegationWorkflowStart({ parentChatId, leafId });
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.code, 'workflow_rounds_exhausted');
+  const resumed = inspectDelegationWorkflowStart({ parentChatId, leafId, resumeRounds: true });
+  assert.equal(resumed.ok, true, 'resume_rounds must unblock the leaf');
+  const row = resolveDelegationWorkflowRow({ parentChatId, leafId });
+  assert.equal(row.stopReason, '');
+  assert.ok(Number(row.maxRounds) > Number(row.round));
+  assert.equal(Number(row.maxRounds), 5);
+}
+
+// Budgets block only when the ledger measured spend at or above the cap.
+{
+  const parentChatId = crypto.randomUUID();
+  const leafId = '5555eeee-1111-2222-3333-444455556666';
+  const noMeasurement = leafTerminalJob(parentChatId, leafId, 'implement');
+  applyDelegationWorkflowPatch({ parentChatId, leafId, budgetTokens: 1000 });
+  const safeBefore = inspectDelegationWorkflowStart({ parentChatId, leafId });
+  assert.equal(safeBefore.ok, true, 'missing measurement must not fabricate a budget block');
+
+  recordUsage({
+    provider: 'openai',
+    feature: 'chat',
+    harness: 'sdk',
+    model: 'budget-probe',
+    eventType: 'delta',
+    chatId: noMeasurement.childChatId,
+    delegationId: noMeasurement.id,
+    tokens: { textInput: 900, textOutput: 200 },
+  });
+  const budgetBlock = inspectDelegationWorkflowStart({ parentChatId, leafId });
+  assert.equal(budgetBlock.ok, false);
+  assert.equal(budgetBlock.code, 'workflow_budget_exhausted');
+
+  applyDelegationWorkflowPatch({ parentChatId, leafId, budgetTokens: 5000, idempotencyKey: 'raise-budget' });
+  const raised = inspectDelegationWorkflowStart({ parentChatId, leafId });
+  assert.equal(raised.ok, true);
 }
 
 console.log('delegation-workflow.test.js OK');

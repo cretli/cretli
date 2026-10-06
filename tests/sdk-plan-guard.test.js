@@ -5,6 +5,7 @@ import {
   isPlanModeMutatingToolName,
   resolvePlanModeToolDecision,
   resolveReadOnlyGuardUserMessage,
+  DEEPSEEK_REVIEW_GUARD_USER_MESSAGE,
   PLAN_GUARD_USER_MESSAGE,
   REVIEW_GUARD_USER_MESSAGE,
 } from '../lib/sdk/sdk-plan-guard.js';
@@ -370,7 +371,16 @@ assert.deepEqual(
 );
 assert.equal(resolveReadOnlyGuardUserMessage('agent', 'review'), REVIEW_GUARD_USER_MESSAGE);
 assert.equal(resolveReadOnlyGuardUserMessage('agent'), PLAN_GUARD_USER_MESSAGE);
-assert.ok(REVIEW_GUARD_USER_MESSAGE.includes('Review is read-only'));
+// DeepSeek review runs in DSH's read-only sandbox, so it gets its own wording.
+assert.equal(
+  resolveReadOnlyGuardUserMessage('agent', 'review', 'deepseek'),
+  DEEPSEEK_REVIEW_GUARD_USER_MESSAGE,
+);
+assert.equal(
+  resolveReadOnlyGuardUserMessage('agent', 'review', 'sdk'),
+  REVIEW_GUARD_USER_MESSAGE,
+);
+assert.ok(REVIEW_GUARD_USER_MESSAGE.includes('read-only review policy'));
 // The guard points the reviewer at the audited test runner instead of a shell.
 assert.match(REVIEW_GUARD_USER_MESSAGE, /scripts\/review-verify\.js/);
 // Unknown ids are a per-command deny, so the reviewer must not treat Bash as dead.
@@ -379,6 +389,9 @@ assert.match(REVIEW_GUARD_USER_MESSAGE, /other commands are not blocked/);
 // A denied interpreter must be explained, with a usable read-only alternative.
 assert.match(REVIEW_GUARD_USER_MESSAGE, /python3/);
 assert.match(REVIEW_GUARD_USER_MESSAGE, /`jq`/);
+// The DeepSeek variant explains the sandbox and keeps the audited test runner.
+assert.match(DEEPSEEK_REVIEW_GUARD_USER_MESSAGE, /read-only sandbox/);
+assert.match(DEEPSEEK_REVIEW_GUARD_USER_MESSAGE, /scripts\/review-verify\.js/);
 
 const grokReviewMcpRead = resolvePlanModeToolDecision({
   transport: 'sdk',

@@ -5,6 +5,7 @@ import {
   findWorkspaceFileContainingFolder,
   listCloneFoldersForWorkspaceFile,
   resolveWorkspaceTargetForChat,
+  workspaceDisplayNameForFolder,
 } from '../app_front/features/sidebar/workspaceChatMatch.js';
 
 const workspaceFile = '/ws/app.code-workspace';
@@ -18,6 +19,23 @@ const workspaces = [
     isClone: true,
   },
 ];
+
+test('a shared projects directory does not inherit the DOMQ watcher name', () => {
+  const catalog = [
+    { name: 'ar2oor-domq', workspaceFile: '/projects/domq.code-workspace', workspaceDir: '/projects' },
+    { name: 'Fade', workspaceFile: '/projects/fresh.code-workspace', workspaceDir: '/projects' },
+    { name: 'Freshthing', workspaceFile: '/projects/fresh.code-workspace', sidebarKey: '/projects/fresh.code-workspace#clone-shop', workspaceDir: '/projects' },
+  ];
+  const preferred = (key) => key.includes('clone') ? '/shop' : key.includes('domq') ? '/domq' : '/fade';
+  assert.equal(workspaceDisplayNameForFolder(catalog, '/projects', preferred), 'projects');
+  assert.equal(workspaceDisplayNameForFolder(catalog, '/domq', preferred), 'ar2oor-domq');
+  assert.equal(workspaceDisplayNameForFolder(catalog, '/fade', preferred), 'Fade');
+  assert.equal(workspaceDisplayNameForFolder(catalog, '/shop', preferred), 'Freshthing');
+});
+
+test('a workspace without a configured folder can still name its own directory', () => {
+  assert.equal(workspaceDisplayNameForFolder([{ name: 'Plain', workspaceDir: '/plain' }], '/plain'), 'Plain');
+});
 
 test('listCloneFoldersForWorkspaceFile returns clone folders only', () => {
   const actual = listCloneFoldersForWorkspaceFile(
@@ -161,7 +179,59 @@ test('resolveWorkspaceTargetForChat uses the sidebar preferred folder', () => {
   );
 });
 
-test('chat without workspaceFile does not match wrong folder or clone group', () => {
+test('a legacy chat in the workspace-file directory selects the configured project folder', () => {
+  const file = '/projects/esystent.pl.code-workspace';
+  const catalog = [{ workspaceFile: file, workspaceDir: '/projects' }];
+  const preferred = () => '/esystent.pl';
+  const chat = { workspaceFile: file, workspaceFolder: '/projects' };
+  assert.deepEqual(resolveWorkspaceTargetForChat(chat,
+    { workspaceFile: '/projects/other.code-workspace', workspaceFolder: '/other' },
+    catalog, preferred,
+  ), { workspaceFile: file, workspaceFolder: '/esystent.pl' });
+  assert.equal(resolveWorkspaceTargetForChat(chat,
+    { workspaceFile: file, workspaceFolder: '/esystent.pl' }, catalog, preferred,
+  ), null, 'chat alignment must not restore projects after the sidebar selected esystent');
+  assert.deepEqual(resolveWorkspaceTargetForChat(chat, {}, [], preferred),
+    { workspaceFile: file, workspaceFolder: '/esystent.pl' }, 'works before the catalog loads');
+});
+
+test('legacy folder resolution preserves explicit project, clone and folder-only watcher scopes', () => {
+  const file = '/projects/esystent.pl.code-workspace';
+  const clone = `${file}#clone-projects`;
+  const catalog = [
+    { workspaceFile: file, workspaceDir: '/projects' },
+    { workspaceFile: file, sidebarKey: clone, isClone: true, workspaceDir: '/projects' },
+  ];
+  const preferred = (key) => key === clone ? '/projects' : '/esystent.pl';
+  for (const chat of [
+    { workspaceFile: file, workspaceFolder: '/libs' },
+    { workspaceFile: file, workspaceFolder: '/projects' },
+    { workspaceFolder: '/projects' },
+  ]) {
+    assert.deepEqual(resolveWorkspaceTargetForChat(chat, {}, catalog, preferred),
+      { workspaceFile: file, workspaceFolder: chat.workspaceFolder });
+  }
+  assert.deepEqual(resolveWorkspaceTargetForChat({ workspaceFile: file }, {}, catalog, preferred),
+    { workspaceFile: file, workspaceFolder: '/esystent.pl' });
+  assert.deepEqual(resolveWorkspaceTargetForChat(
+    { workspaceFile: file, workspaceFolder: '/projects' }, {}, catalog,
+  ), { workspaceFile: file, workspaceFolder: '/projects' }, 'no configured default keeps the saved folder');
+});
+
+test('a folder-only watcher chooses its primary workspace before a read-only inclusion', () => {
+  const catalog = [
+    { workspaceFile: '/ws/fresh.code-workspace', folders: [{ resolvedPath: '/ws/domq' }] },
+    { workspaceFile: '/ws/domq.code-workspace', folders: [{ resolvedPath: '/ws/domq' }] },
+  ];
+  const prefer = (file) => file.includes('fresh') ? '/ws/fade' : '/ws/domq';
+  assert.deepEqual(resolveWorkspaceTargetForChat(
+    { workspaceFolder: '/ws/domq' },
+    { workspaceFile: '/ws/fresh.code-workspace', workspaceFolder: '/ws/fade' },
+    catalog, prefer,
+  ), { workspaceFile: '/ws/domq.code-workspace', workspaceFolder: '/ws/domq' });
+});
+
+test('chat without workspaceFile follows the exact clone folder', () => {
   const watcherChat = { workspaceFolder: parentFolder };
   assert.equal(
     chatBelongsToWorkspaceGroup(watcherChat, {
@@ -180,7 +250,32 @@ test('chat without workspaceFile does not match wrong folder or clone group', ()
       isClone: true,
       cloneFolders: [parentFolder],
     }),
-    false,
-    'clone group',
+    true,
+    'matching clone group',
   );
+  assert.equal(chatBelongsToWorkspaceGroup(watcherChat, {
+    workspaceFile,
+    groupFolder: parentFolder,
+    isClone: false,
+    cloneFolders: [parentFolder],
+  }), false, 'the parent must not duplicate a chat owned by its clone');
+});
+
+test('Freshthing folder-only Scout chats are visible only in Freshthing, including archived chats', () => {
+  const file = '/projects/ar2oor-fresh.code-workspace';
+  const fresh = '/www/freshthing.pl';
+  const fade = '/www/fade.freshthing.pl';
+  const chats = [
+    { id: 'scout', title: '[Scout] freshthing.pl', workspaceFolder: fresh },
+    { id: 'review', title: '[Scout] review', workspaceFolder: fresh, parentChatId: 'scout' },
+    { id: 'archive', title: '[Scout] freshthing.pl', workspaceFolder: fresh, archivedAt: '2026-10-06' },
+    { id: 'fade', title: '[Scout] fade.freshthing.pl', workspaceFolder: fade },
+    { id: 'unknown', title: '[Scout]' },
+  ];
+  const cloneFolders = [fresh];
+  const inGroup = (groupFolder, isClone) => chats.filter((chat) => chatBelongsToWorkspaceGroup(chat,
+    { workspaceFile: file, groupFolder, isClone, cloneFolders })).map((chat) => chat.id);
+  assert.deepEqual(inGroup(fresh, true), ['scout', 'review', 'archive']);
+  assert.deepEqual(inGroup(fade, false), ['fade']);
+  assert.deepEqual(inGroup('/www/unrelated', true), []);
 });

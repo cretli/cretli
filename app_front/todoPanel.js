@@ -5,6 +5,7 @@ import { formatTodoRef } from '../lib/todo-ref.js';
 import { writeTextToClipboard } from './lib/clipboard.js';
 import { initDropdown, closeAllOpenDropdowns } from './lib/dropdown.js';
 import { preloadMarkdown } from './lib/render-markdown.js';
+import { getTodoWorkspaceFolder, todoWorkspaceMatches } from './features/todo/todoWorkspaceScope.js';
 import {
   buildTodoMarkdown,
   canAddTodoChild,
@@ -46,6 +47,8 @@ let showPanelFn = () => {};
 let sdkReady = false;
 /** @type {object[]} */
 let latestItems = [];
+let latestWorkspaceFolder = '';
+let refreshGeneration = 0;
 /** @type {Set<string>} */
 let collapsedIds = new Set();
 /** @type {string} */
@@ -432,6 +435,7 @@ async function onCardCopy(e) {
  * @returns {object | null}
  */
 function findItem(id) {
+  if (!todoWorkspaceMatches(latestWorkspaceFolder)) return null;
   return latestItems.find((item) => String(item?.id || '') === id) || null;
 }
 
@@ -459,8 +463,11 @@ async function ensureTodoLoaded(id) {
   if (!todoId) return null;
   const cached = findItem(todoId);
   if (cached) return cached;
-  const data = await api.getTodos();
-  if (!data?.ok || !Array.isArray(data.items)) return null;
+  const folder = getTodoWorkspaceFolder();
+  const data = await api.getTodos(folder);
+  if (!todoWorkspaceMatches(folder) || !data?.ok || !Array.isArray(data.items)) return null;
+  if (data.cwd && folder && !todoWorkspaceMatches(data.cwd, folder)) return null;
+  latestWorkspaceFolder = folder;
   latestItems = data.items;
   if (listEl) renderList(data);
   return findItem(todoId);
@@ -514,6 +521,9 @@ function syncEditorItem() {
 }
 
 function renderList(data) {
+  const folder = getTodoWorkspaceFolder();
+  if (data?.cwd && folder && !todoWorkspaceMatches(data.cwd, folder)) return;
+  latestWorkspaceFolder = folder;
   if (!listEl) return;
   latestItems = Array.isArray(data?.items) ? data.items : [];
   const visibleItems = filterTodoItemsByRootStatus(latestItems, rootStatusFilter);
@@ -1390,7 +1400,34 @@ async function onDelete(e) {
   await deleteTodoWithConfirm(String(id));
 }
 
+function resetTodoWorkspaceView() {
+  if (todoWorkspaceMatches(latestWorkspaceFolder)) return;
+  closeEditor();
+  pendingParentId = '';
+  document.getElementById('todo-new-modal')?.setAttribute('hidden', '');
+  disposeAllRowMenus();
+  latestItems = [];
+  latestWorkspaceFolder = getTodoWorkspaceFolder();
+  if (listEl) listEl.textContent = '';
+  if (hintEl) {
+    hintEl.textContent = '';
+    hintEl.hidden = true;
+  }
+  setStatus('');
+}
+
+function onTodoWorkspaceChange() {
+  resetTodoWorkspaceView();
+  if (document.getElementById('todo-panel')?.classList.contains('active')) {
+    return refreshTodoList();
+  }
+}
+
 export function refreshTodoList() {
+  const generation = ++refreshGeneration;
+  const folder = getTodoWorkspaceFolder();
+  resetTodoWorkspaceView();
+  const isCurrent = () => generation === refreshGeneration && todoWorkspaceMatches(folder);
   loadCollapsed();
   loadStatusFilter();
   void refreshWatcherPanel();
@@ -1398,8 +1435,10 @@ export function refreshTodoList() {
     sdkReady = !!data?.ready;
   }).catch(() => {});
   return api
-    .getTodos()
+    .getTodos(folder)
     .then((data) => {
+      if (!isCurrent()) return;
+      if (data?.cwd && folder && !todoWorkspaceMatches(data.cwd, folder)) return;
       if (!data?.ok) {
         setStatus(data?.error || t('todo.loadFailed'), true);
         if (hintEl) hintEl.textContent = '';
@@ -1419,6 +1458,7 @@ export function refreshTodoList() {
       renderList(data);
     })
     .catch(() => {
+      if (!isCurrent()) return;
       setStatus(t('todo.loadError'), true);
       renderList({ items: [] });
     });
@@ -1434,6 +1474,7 @@ export function initTodoPanel(options = {}) {
   listEl = document.getElementById('todo-list');
   statusEl = document.getElementById('todo-status');
   hintEl = document.getElementById('todo-cwd-hint');
+  window.addEventListener('cretli-active-workspace-changed', onTodoWorkspaceChange);
   ensureStatusFilterUi(document.querySelector('#todo-panel .todo-toolbar'));
   initWatcherPanel({
     getTodoTitle: (id) => String(findItem(id)?.title || ''),

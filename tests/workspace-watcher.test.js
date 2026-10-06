@@ -2303,6 +2303,8 @@ runCase('cycle prompt: plan-only never approves; implement delegates with model_
     orchestrator: { harness: 'mock', model: 'm', source: 'policy' },
   });
   assert.match(implementPrompt, /delegation_start/);
+  assert.match(implementPrompt, /Forward the `pickId` returned by `model_pick` as `pick_id`/);
+  assert.match(implementPrompt, /Never re-pick or match the proposal by time/);
   assert.doesNotMatch(implementPrompt, /NEVER set plan\.approvedAt/);
   assert.match(implementPrompt, /Do not commit or push/);
   assert.match(implementPrompt, /mark this todo done/);
@@ -2312,6 +2314,7 @@ runCase('cycle prompt: plan-only never approves; implement delegates with model_
     decision: { kind: 'start_cycle' }, todo: { id: 't1' }, orchestrator: {},
   });
   assert.match(ungatedPrompt, /proceed directly to implementation/);
+  assert.match(ungatedPrompt, /Forward the `pickId` returned by `model_pick` as `pick_id`/);
   assert.doesNotMatch(ungatedPrompt, /wait for.*approval/);
 });
 

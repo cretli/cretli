@@ -12,6 +12,27 @@ export function normalizeWorkspacePath(pathValue) {
   return pathValue.replace(/\\/g, '/').replace(/\/$/, '').trim();
 }
 
+/** Name a watcher by its selected folder, never by a shared workspace-file parent. */
+export function workspaceDisplayNameForFolder(workspaces, folder, getPreferredFolder = () => '') {
+  const wanted = normalizeWorkspacePath(folder);
+  const rows = Array.isArray(workspaces) ? workspaces : [];
+  const primary = rows.find((workspace) => {
+    const key = workspace.sidebarKey || workspace.workspaceFile || '';
+    return normalizeWorkspacePath(getPreferredFolder(key)) === wanted;
+  });
+  const fallback = rows.find((workspace) => {
+    const key = workspace.sidebarKey || workspace.workspaceFile || '';
+    // A configured folder owns the name. Its .code-workspace directory does
+    // not identify another watcher, even if that watcher uses the same parent.
+    if (normalizeWorkspacePath(getPreferredFolder(key))) return false;
+    return normalizeWorkspacePath(workspace.workspaceFolder) === wanted
+      || normalizeWorkspacePath(workspace.workspaceDir) === wanted;
+  });
+  return (primary || fallback)?.name
+    || wanted.split('/').filter(Boolean).pop()
+    || folder;
+}
+
 /**
  * @param {object[]} workspaces
  * @param {string} workspaceFile
@@ -66,11 +87,10 @@ export function chatBelongsToWorkspaceGroup(chat, params = {}) {
 
   if (!chatFile) {
     // Chats without workspaceFile (e.g. watcher orchestrator chats and their
-    // delegation sub-chats) are matched by workspaceFolder instead. Clones are
-    // excluded the same way as normal chats.
+    // Scout/review chats) belong to the group with their exact folder. A clone
+    // owns its folder just as it does for chats that also store workspaceFile.
     if (!chatFolder || !groupFolder || chatFolder !== groupFolder) return false;
-    if (params.isClone === true) return false;
-    return !cloneFolders.has(chatFolder);
+    return params.isClone === true || !cloneFolders.has(chatFolder);
   }
 
   if (chatFile !== workspaceFile) return false;
@@ -112,6 +132,15 @@ export function findWorkspaceFileContainingFolder(workspaces, folder, getPreferr
   if (!wanted) return '';
   const prefer = typeof getPreferredFolder === 'function' ? getPreferredFolder : null;
   const rows = Array.isArray(workspaces) ? workspaces : [];
+  // A configured primary/clone folder identifies the intended workspace more
+  // precisely than membership: another workspace may include it read-only.
+  if (prefer) {
+    const primary = rows.find((workspace) => {
+      const file = String(workspace?.workspaceFile || workspace?.id || '').trim();
+      return file && normalizeWorkspacePath(prefer(workspace.sidebarKey || file)) === wanted;
+    });
+    if (primary) return String(primary.workspaceFile || primary.id).trim();
+  }
   for (const workspace of rows) {
     const file = String(workspace?.workspaceFile || workspace?.id || '').trim();
     if (!file) continue;
@@ -135,10 +164,24 @@ export function findWorkspaceFileContainingFolder(workspaces, folder, getPreferr
  */
 export function resolveWorkspaceTargetForChat(chat, active, workspaces = [], getPreferredFolder) {
   if (!chat || typeof chat !== 'object') return null;
-  const folderRaw = typeof chat.workspaceFolder === 'string' ? chat.workspaceFolder.trim() : '';
+  let folderRaw = typeof chat.workspaceFolder === 'string' ? chat.workspaceFolder.trim() : '';
   const fileRaw = typeof chat.workspaceFile === 'string' ? chat.workspaceFile.trim() : '';
   const file = fileRaw || findWorkspaceFileContainingFolder(workspaces, folderRaw, getPreferredFolder);
   if (!file) return null;
+  if (fileRaw && typeof getPreferredFolder === 'function') {
+    const preferred = String(getPreferredFolder(fileRaw) || '').trim();
+    const normalizedFile = normalizeWorkspacePath(fileRaw);
+    const fileDir = normalizedFile.slice(0, normalizedFile.lastIndexOf('/')) || '/';
+    const cloneFolders = listCloneFoldersForWorkspaceFile(workspaces, fileRaw, getPreferredFolder);
+    // Old chats often saved the directory containing the .code-workspace files
+    // (e.g. projects). Opening one should select the configured project for
+    // workspace controls. Keep real project/clone folders and folder-only
+    // watcher chats exact; the chat's execution metadata is left intact.
+    if (preferred && (!folderRaw || (normalizeWorkspacePath(folderRaw) === fileDir
+      && !cloneFolders.includes(normalizeWorkspacePath(folderRaw))))) {
+      folderRaw = preferred;
+    }
+  }
   const activeFile = normalizeWorkspacePath(active?.workspaceFile);
   const activeFolder = normalizeWorkspacePath(active?.workspaceFolder);
   const sameFile = normalizeWorkspacePath(file) === activeFile;
