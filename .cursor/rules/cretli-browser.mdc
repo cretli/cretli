@@ -10,8 +10,11 @@ sees the same tab in the **Browser** panel.
 
 1. `browser_open { url }` → `browserSessionId` + `browserTabId` (it adopts the
    session the user already opened in the panel).
-2. `browser_screenshot` (returns a file path), `browser_dom`, `browser_console`,
-   `browser_network`; in Agent mode also `browser_navigate` and `browser_input`.
+2. `browser_screenshot` (returns a file path; image pixels are CSS pixels, matching
+   click coordinates), `browser_elements` (visible controls, including inside Lit
+   shadow roots), `browser_dom`, `browser_console`, `browser_network`; in Agent
+   mode also `browser_navigate` and `browser_input` (`click`/`fill` by `selector`
+   or `role`+`name` / `text` / `label` / `placeholder`).
 
 Rules:
 

@@ -42,11 +42,13 @@ import {
   refreshRelatedChatHistoryLinks,
   setWorkspaceCloneFolderLookup,
   openChatFromNotification,
+  notifySidebarSearchHydration,
+  expandSidebarWorkspaceSearchPool,
 } from './chat.js';
-import {
-  clearChatLocalBootCache,
-  readChatLocalBootCache,
-} from './features/chat/chatLocalBootCache.js';
+import { deriveWorkspaceKey } from './features/chat/chatMetadataIdbSchema.js';
+import { readChatLocalBootCacheForColdStart } from './features/chat/chatLocalBootSync.js';
+import { installChatActivityStorageListener } from './features/chat/chatActivityStore.js';
+import { applyChatAuthSessionBoundary } from './features/chat/chatSessionBoundary.js';
 import { clearPushInboxCache } from './features/pwa/pushInbox.js';
 import { copyFromTerminal } from './panelCopy.js';
 import { initLanSettings } from './lanSettings.js';
@@ -394,7 +396,7 @@ const {
  */
 function seedWorkspacesListFromBootCache() {
   try {
-    const cached = readChatLocalBootCache(typeof localStorage !== 'undefined' ? localStorage : null);
+    const cached = readChatLocalBootCacheForColdStart(typeof localStorage !== 'undefined' ? localStorage : null);
     if (cached && cached.workspaces.length > 0) return seedWorkspacesList(cached.workspaces);
   } catch (_) {}
   return false;
@@ -530,6 +532,16 @@ const sidebarView = createSidebarView({
   },
   requestNewChat: (workspaceContext) => openNewChatModal(workspaceContext),
   requestLoadArchivedChats: () => loadChatsFromServer({ includeArchived: true, skipAutoSelect: true }),
+  expandWorkspaceChatsForSearch: (workspace, list) => {
+    const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
+    const groupFolder = getSidebarWorkspaceFolder(sidebarKey);
+    const workspaceKey = deriveWorkspaceKey({
+      workspaceFile: workspace.workspaceFile || '',
+      workspaceFolder: groupFolder || '',
+    });
+    return expandSidebarWorkspaceSearchPool(list, workspaceKey);
+  },
+  notifySidebarSearchActive: () => notifySidebarSearchHydration(),
   canPinChatToUrl,
   toggleChatUrlPinById,
   escapeHtml,
@@ -548,11 +560,14 @@ configureSidebarLayoutSync({
     favoriteChatIds: getChatFavoritesStore().listFavorites(),
   }),
   apply: (layout) => {
-    sidebarView.applyLayoutSnapshot(layout);
+    let needsRender = sidebarView.applyLayoutSnapshot(layout);
     if (Array.isArray(layout.favoriteChatIds)) {
+      const before = getChatFavoritesStore().listFavorites().join('\0');
       getChatFavoritesStore().replaceFavorites(layout.favoriteChatIds);
+      const after = getChatFavoritesStore().listFavorites().join('\0');
+      if (before !== after) needsRender = true;
     }
-    sidebarView.forceRerender();
+    if (needsRender) sidebarView.scheduleUpdate();
   },
 });
 getChatFavoritesStore().setChangeListener((ids) => {
@@ -1008,7 +1023,6 @@ function initAccountLogout() {
     if (status) status.textContent = t('app.logoutProgress');
     try {
       await api.logout();
-      clearChatLocalBootCache(typeof localStorage !== 'undefined' ? localStorage : null);
       await clearPushInboxCache();
       if (typeof window !== 'undefined') window.location.assign('/login');
     } catch (err) {
@@ -1287,6 +1301,7 @@ function initLangSelect() {
 
 const APP_STORAGE_PREFIXES = Object.freeze(['cretli-', 'cursor-remote-', 'cr-debug-overlay']);
 const APP_IDB_NAMES = Object.freeze([
+  'cretli-chat-metadata',
   'cretli-sdk-chat',
   'cretli-chat-buffers',
   'cretli-preferences',
@@ -1438,6 +1453,9 @@ function clearLocalStorageAppData() {
       } catch (_) {}
     }
   }
+  // Task 2.1: dropping the persisted activity maps must also drop the RAM copy,
+  // and the fresh session marker keeps later writes re-importable.
+  void applyChatAuthSessionBoundary({ reason: 'clear-local-data' });
 }
 
 function clearSessionStorageAppData() {
@@ -2034,6 +2052,7 @@ function bootApp() {
     );
     measureStartupStep('initWorkspacePopover', () => initWorkspacePopover() || Promise.resolve());
     measureStartupStep('initSettingsWorkspacePicker', () => initSettingsWorkspacePicker() || Promise.resolve());
+    measureStartupStep('initChatActivityStore', () => installChatActivityStorageListener());
     measureStartupStep('initSidebar', () => {
       setSidebarRenderHook(() => {
         sidebarView.render();

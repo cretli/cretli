@@ -74,6 +74,7 @@ const states = summarizeChatRunStates([parent.id, child.id]);
 assert.equal(states[child.id].state, 'busy');
 assert.equal(states[parent.id].state, 'waiting');
 assert.equal(states[parent.id].waitingAgentCount, 1);
+assert.equal(states[parent.id].inFlightChildCount, 1);
 assert.equal(states[child.id].delegationId, record.id);
 
 patchMockChatRun(child.id, { waitingForInput: true, busy: true });
@@ -81,6 +82,9 @@ updateDelegationRecord(record.id, { status: 'waiting_for_input' });
 const waitingStates = summarizeChatRunStates([child.id]);
 assert.equal(waitingStates[child.id].state, 'waiting');
 assert.equal(waitingStates[child.id].attention, true);
+const parentWaitingOnInput = summarizeChatRunStates([parent.id]);
+assert.equal(parentWaitingOnInput[parent.id].waitingAgentCount, 1);
+assert.equal(parentWaitingOnInput[parent.id].inFlightChildCount, 0);
 
 updateDelegationRecord(record.id, { acknowledgedAt: new Date().toISOString() });
 const openedWaiting = summarizeChatRunStates([child.id]);

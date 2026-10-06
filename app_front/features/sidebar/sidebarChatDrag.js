@@ -11,6 +11,8 @@ import {
   readNestLevel,
   resolveBlockNest,
   selectDraggableChatRows,
+  collectSidebarChatBlock,
+  insertSidebarChatBlockAt,
 } from './sidebarChatDragBlock.js';
 
 const HOLD_MS = 250;
@@ -20,23 +22,6 @@ const EDGE_SCROLL_SPEED = 12;
 
 function readChatNestLevel(li) {
   return readNestLevel(li?.dataset?.nestLevel, li.classList.contains('is-child'));
-}
-
-/**
- * @param {HTMLElement} li
- * @returns {HTMLElement[]}
- */
-function collectChatBlock(li) {
-  const nodes = [li];
-  const level = readChatNestLevel(li);
-  let next = li.nextElementSibling;
-  while (next instanceof HTMLElement && next.classList.contains('sidebar-chat-item')) {
-    if (next.dataset.archived === '1' || next.hidden || next.classList.contains('is-subchat-hidden')) break;
-    if (readChatNestLevel(next) <= level) break;
-    nodes.push(next);
-    next = next.nextElementSibling;
-  }
-  return nodes;
 }
 
 /**
@@ -157,7 +142,7 @@ export function initSidebarChatDrag({
   function beginDrag(pending2) {
     const list = pending2.li.closest('.sidebar-chat-list');
     if (!(list instanceof HTMLElement)) return;
-    const block = collectChatBlock(pending2.li);
+    const block = collectSidebarChatBlock(pending2.li);
     const baseLevel = readChatNestLevel(pending2.li);
     const relativeLevels = block.map((node) => readChatNestLevel(node) - baseLevel);
     const originalParent = String(pending2.li.dataset.parentId || '').trim();
@@ -214,15 +199,9 @@ export function initSidebarChatDrag({
     const beforeEl = drop.beforeId
       ? drag.list.querySelector(`.sidebar-chat-item[data-chat-id="${CSS.escape(drop.beforeId)}"]`)
       : null;
-    const beforeNode = beforeEl instanceof HTMLElement ? beforeEl : null;
-    const alreadyPlaced = beforeNode
-      ? block[block.length - 1].nextElementSibling === beforeNode
-      : drag.list.lastElementChild === block[block.length - 1];
-    if (alreadyPlaced) return;
+    const beforeLi = beforeEl instanceof HTMLElement ? beforeEl : null;
+    if (!insertSidebarChatBlockAt(drag.list, block, beforeLi)) return;
     drag.moved = true;
-    const frag = document.createDocumentFragment();
-    block.forEach((node) => frag.appendChild(node));
-    drag.list.insertBefore(frag, beforeNode);
   }
 
   function rafStep() {

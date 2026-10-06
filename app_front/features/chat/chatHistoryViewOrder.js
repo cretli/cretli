@@ -130,6 +130,15 @@ export function shouldPlaceViewCardBefore(incoming, existing) {
   const incomingAt = readViewCardCreatedAt(incoming);
   const existingAt = readViewCardCreatedAt(existing);
   if (!incomingAt || !existingAt || incomingAt === existingAt) return false;
+  const incomingHistory = Number(incoming?.historySeq) || 0;
+  const existingHistory = Number(existing?.historySeq) || 0;
+  const existingRoom = Number(existing?.roomEventSeq) || 0;
+  if (incomingHistory > 0 && existingHistory <= 0 && existingRoom > 0 && existingAt > incomingAt) {
+    const existingMs = Date.parse(existingAt);
+    if (Number.isFinite(existingMs) && Math.abs(Date.now() - existingMs) < 10 * 60 * 1000) {
+      return false;
+    }
+  }
   return incomingAt < existingAt;
 }
 

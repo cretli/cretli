@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   collectWorkspaceKeysFromList,
   computeDropIndex,
+  readWorkspaceKeyFromListNode,
   readWorkspaceOrder,
   workspaceOrderIndex,
   writeWorkspaceOrder,
@@ -60,14 +61,25 @@ test('computeDropIndex places before first, between and after last items', () =>
   assert.equal(computeDropIndex(centers, 999), 3);
 });
 
-test('collectWorkspaceKeysFromList reads data-sidebar-key from direct children', () => {
-  const list = {
-    querySelectorAll: () => [
-      { dataset: { sidebarKey: '/ws/b' } },
-      { dataset: { sidebarKey: '/ws/a' } },
-      { dataset: {} },
-    ],
-  };
+test('readWorkspaceKeyFromListNode reads Lit host attribute and legacy li dataset', () => {
+  if (typeof document === 'undefined') return;
+  const host = document.createElement('cr-sidebar-workspace');
+  host.setAttribute('sidebar-key', '/ws/host');
+  assert.equal(readWorkspaceKeyFromListNode(host), '/ws/host');
+  const li = document.createElement('li');
+  li.className = 'sidebar-workspace';
+  li.dataset.sidebarKey = '/ws/legacy';
+  assert.equal(readWorkspaceKeyFromListNode(li), '/ws/legacy');
+});
+
+test('collectWorkspaceKeysFromList reads keys from mounted Lit hosts', () => {
+  if (typeof document === 'undefined') return;
+  const list = document.createElement('ul');
+  const a = document.createElement('cr-sidebar-workspace');
+  a.setAttribute('sidebar-key', '/ws/b');
+  const b = document.createElement('cr-sidebar-workspace');
+  b.setAttribute('sidebar-key', '/ws/a');
+  list.append(a, b);
   assert.deepEqual(collectWorkspaceKeysFromList(list), ['/ws/b', '/ws/a']);
 });
 

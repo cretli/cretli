@@ -1,6 +1,10 @@
 import { sortChatsByDate } from './chatListSort.js';
 import { hasLiveHarnessWork, resolveChatListDotState } from './chatStatusMeta.js';
 import {
+  applyChatListPendingBadgePatch,
+  derivePendingBadgeMeta,
+} from './chatListPendingBadges.js';
+import {
   buildForkArchiveBlockedIds,
   isForkArchiveBlocked,
 } from '../../../lib/chat-tree.js';
@@ -70,6 +74,32 @@ export function createChatView(deps) {
     if (embedChatListDropdownApi?.isOpen?.()) return true;
     const modal = document.getElementById('chat-list-modal');
     return !!(modal && !modal.hidden);
+  }
+
+  /**
+   * Task 1.2: patch only the pending badge in the rows the open modal already
+   * rendered. Never rebuild the list, refresh model labels or persist cache.
+   *
+   * A closed modal gets zero pending DOM work: it re-reads
+   * `hasPendingRemoteHistory` when `openChatListModal` next renders it, which is
+   * where the deferred state becomes visible.
+   *
+   * The active-chat selector (`#chat-bar-trigger-label` / `#embed-chat-switcher-label`)
+   * carries only the chat title, so it never presents pending and is not patched.
+   *
+   * @param {object[] | null} [changedChats]
+   * @param {{ addedIds?: string[], removedIds?: string[] } | null} [meta]
+   */
+  function applyChatListPendingBadges(changedChats, meta) {
+    if (!isChatListOpen()) return;
+    const listEl = document.getElementById('chat-list-items');
+    if (!listEl) return;
+    const patch = Array.isArray(meta?.addedIds) || Array.isArray(meta?.removedIds)
+      ? meta
+      : derivePendingBadgeMeta(changedChats);
+    applyChatListPendingBadgePatch(listEl, patch, {
+      label: getPendingRemoteHistoryLabel(),
+    });
   }
 
   function openChatListModal() {
@@ -433,6 +463,7 @@ export function createChatView(deps) {
     closeChatListModal,
     closeChatActionsModal,
     renderChatList,
+    applyChatListPendingBadges,
     initDropdownWiring,
     isChatListDropdownOpen,
     isChatActionsDropdownOpen,

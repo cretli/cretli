@@ -63,12 +63,35 @@ let resumeSessionStartedAt = 0;
 let resumeTraceUntil = 0;
 /** @type {ReturnType<typeof fetch> | null} */
 let nativeFetch = null;
+/**
+ * Cached "is the trace on" answer. `true` is sticky (the server mirrors the
+ * setting before boot hooks and a live toggle needs a reload). While `false`,
+ * the URL/localStorage probe is throttled so hot paths such as the boot-cache
+ * comparator never read storage once per comparison.
+ * @type {boolean}
+ */
+let traceActiveCache = false;
+let traceActiveCheckedAt = 0;
+const TRACE_ACTIVE_RECHECK_MS = 1000;
 
 /**
  * @returns {boolean}
  */
 export function isUiFreezeTraceActive() {
-  return isUiFreezeDiagnosticsEnabled();
+  if (traceActiveCache) return true;
+  const now = Date.now();
+  if (now - traceActiveCheckedAt < TRACE_ACTIVE_RECHECK_MS) return false;
+  traceActiveCheckedAt = now;
+  traceActiveCache = isUiFreezeDiagnosticsEnabled();
+  return traceActiveCache;
+}
+
+/**
+ * Test seam: forces the next `isUiFreezeTraceActive()` call to re-probe.
+ */
+export function __resetUiFreezeTraceActiveCacheForTest() {
+  traceActiveCache = false;
+  traceActiveCheckedAt = 0;
 }
 
 /**

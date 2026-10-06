@@ -175,18 +175,52 @@ test('groupSettledChildren hides the whole subtree of a folded child', () => {
   assert.deepEqual(group.childIds, ['old']);
 });
 
-test('groupSettledChildren expands the group when the active chat is a child', () => {
+test('groupSettledChildren lets the user collapse a group even when the active chat is its sibling', () => {
   const chats = [chat('root'), chat('old', 'root'), chat('other', 'root')];
   const grouped = groupSettledChildren(tree(chats), { now: NOW, activeChatId: 'other' });
   const group = grouped.groups[0];
-  assert.equal(group.expanded, true);
-  assert.equal(grouped.hiddenIds.size, 0);
+  // The active chat is a visible sibling, not part of the folded group, so the
+  // group must not be pinned open against the user's collapse choice.
+  assert.equal(group.expanded, false);
+  assert.deepEqual([...grouped.hiddenIds], ['old']);
   assert.deepEqual(grouped.items.map((item) => (item.isGroup ? item.id : item.chat.id)), [
     'root',
     `${SUBCHAT_GROUP_KIND}:root`,
-    'old',
     'other',
   ]);
+});
+
+test('groupSettledChildren keeps the active chat and its ancestors visible in a collapsed group', () => {
+  const chats = [chat('root'), chat('old', 'root'), chat('mid'), chat('mid-old', 'mid'), chat('active', 'mid')];
+  const grouped = groupSettledChildren(tree(chats), { now: NOW, activeChatId: 'active' });
+  assert.equal(grouped.groups[0].expanded, false);
+  const visibleIds = grouped.items.map((item) => (item.isGroup ? item.id : item.chat.id));
+  assert.deepEqual(visibleIds, ['root', `${SUBCHAT_GROUP_KIND}:root`, 'mid', `${SUBCHAT_GROUP_KIND}:mid`, 'active']);
+  assert.equal(grouped.hiddenIds.has('mid'), false, 'an active ancestor is never folded');
+  assert.equal(grouped.hiddenIds.has('active'), false, 'the active chat is never folded');
+});
+
+test('groupSettledChildren never force-opens the ancestor chain of the active chat', () => {
+  // Every level has a settled sibling. Selecting a deep chat used to unfold each
+  // of these groups (activeAncestorIds), which is the reported "everything opens
+  // and I cannot collapse it" behavior.
+  const chats = [
+    chat('root'),
+    chat('old-root', 'root'),
+    chat('mid', 'root'),
+    chat('old-mid', 'mid'),
+    chat('active', 'mid'),
+  ];
+  const grouped = groupSettledChildren(tree(chats), { now: NOW, activeChatId: 'active' });
+  assert.deepEqual(
+    grouped.groups.map((group) => [group.parentId, group.expanded]),
+    [['root', false], ['mid', false]],
+  );
+  assert.deepEqual([...grouped.hiddenIds].sort(), ['old-mid', 'old-root']);
+  assert.deepEqual(
+    grouped.items.map((item) => (item.isGroup ? item.id : item.chat.id)),
+    ['root', `${SUBCHAT_GROUP_KIND}:root`, 'mid', `${SUBCHAT_GROUP_KIND}:mid`, 'active'],
+  );
 });
 
 test('groupSettledChildren lets the active parent collapse its settled-child group', () => {

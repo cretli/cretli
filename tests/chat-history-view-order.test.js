@@ -265,4 +265,22 @@ assert.equal(
   'Incomparable cards without both timestamps keep their append position'
 );
 
+assert.equal(
+  shouldPlaceViewCardBefore(
+    {
+      historySeq: 201,
+      eventStreamId: STREAM_B,
+      roomEventSeq: 1,
+      createdAt: '2026-09-19T10:00:03.000Z',
+    },
+    {
+      eventStreamId: STREAM_A,
+      roomEventSeq: 102,
+      createdAt: new Date().toISOString(),
+    }
+  ),
+  false,
+  'HTTP catch-up must not jump before a live-only card via wall-clock createdAt'
+);
+
 console.log('All chat-history-view-order tests passed.');

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Mounted history window DOM harness</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "lit": "/node_modules/lit/index.js",
+        "lit/": "/node_modules/lit/",
+        "lit-html": "/node_modules/lit-html/lit-html.js",
+        "lit-html/": "/node_modules/lit-html/",
+        "lit-element": "/node_modules/lit-element/index.js",
+        "lit-element/": "/node_modules/lit-element/",
+        "@lit/reactive-element": "/node_modules/@lit/reactive-element/reactive-element.js",
+        "@lit/reactive-element/": "/node_modules/@lit/reactive-element/",
+        "@lit-labs/ssr-dom-shim": "/node_modules/@lit-labs/ssr-dom-shim/index.js",
+        "@floating-ui/dom": "/node_modules/@floating-ui/dom/dist/floating-ui.dom.esm.js",
+        "@floating-ui/core": "/node_modules/@floating-ui/core/dist/floating-ui.core.esm.js",
+        "@floating-ui/utils": "/node_modules/@floating-ui/utils/dist/floating-ui.utils.esm.js",
+        "@floating-ui/utils/dom": "/node_modules/@floating-ui/utils/dist/floating-ui.utils.dom.esm.js"
+      }
+    }
+  </script>
+  <style>
+    #mount { height: 240px; overflow: auto; border: 1px solid #444; }
+    .sdk-rich-stream { display: flex; flex-direction: column; gap: 4px; }
+    .sdk-rich-card { min-height: 40px; padding: 8px; background: #252526; color: #d4d4d4; }
+    .sdk-rich-history-top { height: 24px; }
+  </style>
+</head>
+<body>
+  <div id="mount"></div>
+</body>
+</html>

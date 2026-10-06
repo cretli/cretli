@@ -10,7 +10,7 @@ import {
   normalizeWorkspaceSidebarConfig,
   resolveWorkspaceItemKey,
 } from './workspaceHelpers.js';
-import { readChatLocalBootCache } from '../../features/chat/chatLocalBootCache.js';
+import { readChatLocalBootCacheForColdStart } from '../../features/chat/chatLocalBootSync.js';
 
 export function createWorkspaceContext(deps = {}) {
   const {
@@ -484,7 +484,7 @@ export function createWorkspaceContext(deps = {}) {
         const workspaceFolder = settingsData.ok ? settingsData.workspaceFolder || '' : '';
         setWorkspaceSidebarConfig(settingsData?.workspaceSidebarConfig);
         const bootCached = typeof localStorage !== 'undefined'
-          ? readChatLocalBootCache(localStorage)
+          ? readChatLocalBootCacheForColdStart(localStorage)
           : null;
         const bootContext = bootCached?.workspaceContext;
         const bootDiffersFromSettings = bootContext && (

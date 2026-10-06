@@ -108,6 +108,33 @@ export function hasProtocolAgentRun(chat) {
   return readQueuedCount(chat._sdkRichView?.queuedCount) > 0;
 }
 
+/** Parent presence while child delegations are in flight (excludes waiting_for_input). */
+const IN_FLIGHT_CHILD_DELEGATION_STATUSES = new Set([
+  'queued',
+  'starting',
+  'running',
+  'cancelling',
+]);
+
+/**
+ * Server run row rewritten to `waiting` while child jobs still run (see
+ * `summarizeChatRunStates`). Distinct from a stale `waiting` row that only
+ * means the harness needs user input.
+ *
+ * @param {object | null | undefined} serverRunState
+ * @returns {boolean}
+ */
+export function hasServerRunInFlightChildWork(serverRunState) {
+  if (!serverRunState || typeof serverRunState !== 'object') return false;
+  const inFlightChildCount = serverRunState.inFlightChildCount;
+  if (inFlightChildCount !== undefined && inFlightChildCount !== null) {
+    const parsed = Number(inFlightChildCount);
+    if (Number.isFinite(parsed) && parsed > 0) return true;
+  }
+  const status = String(serverRunState.delegationStatus || '').trim().toLowerCase();
+  return IN_FLIGHT_CHILD_DELEGATION_STATUSES.has(status);
+}
+
 /**
  * Keep the idle timer from flipping to idle while the harness still has work.
  * Must not use `_agentState === 'active'` or the timer never settles.
@@ -147,6 +174,42 @@ export function hasActiveAgentRun(chat) {
   if (!chat) return false;
   if (chat._agentState === 'active') return true;
   return hasProtocolAgentRun(chat);
+}
+
+/**
+ * Archive-safe "a run is actually in flight" check (contract completed in 3.1).
+ *
+ * `hasActiveAgentRun` is `_agentState === 'active' || hasProtocolAgentRun(chat)`.
+ * The client-only `_agentState` leg starts on real harness output, but
+ * `scheduleAgentIdleTransition` keeps it alive for as long as
+ * `hasKeepAliveHarnessWork` is true, and that helper includes a pending
+ * question/permission and `_serverRunState.state === 'waiting'`. On top of that
+ * the global agent-states feed reports `attention` for *finished, unacknowledged*
+ * delegations. So `hasActiveAgentRun` alone cannot tell "running now" from
+ * "non-idle because a waiting/attention row is pending", which is exactly the
+ * ambiguity the archived-monitoring gate must not inherit.
+ *
+ * This predicate keeps the protocol busy/queued run and the local `_agentState`
+ * fallback, but lets an explicit non-run presence (stale waiting / attention /
+ * pending question / pending permission) veto the local flag. A server-confirmed
+ * run (`hasProtocolAgentRun`) always wins. A parent `waiting` row driven by
+ * in-flight child delegations (`inFlightChildCount` or an in-flight
+ * `delegationStatus`, never `waiting_for_input` alone) counts as a run even when
+ * the parent's own run state was folded to `waiting`.
+ *
+ * @param {object|null|undefined} chat
+ * @returns {boolean}
+ */
+export function hasConfirmedAgentRun(chat) {
+  if (!chat) return false;
+  if (hasProtocolAgentRun(chat)) return true;
+  if (hasServerRunInFlightChildWork(chat._serverRunState)) return true;
+  if (!hasActiveAgentRun(chat)) return false;
+  const state = chat._serverRunState?.state;
+  if (state === 'waiting' || state === 'attention') return false;
+  const pending = readHarnessPendingFlags(chat);
+  if (pending.hasPendingQuestion || pending.hasPendingPermission) return false;
+  return true;
 }
 
 /**
@@ -300,9 +363,14 @@ export function resolveHarnessChatStateMeta(input = {}) {
   const serverMeta = resolveServerRunStateMeta(input.serverRunState, translate);
   const serverState = String(input.serverRunState?.state || '');
   if (serverMeta && (serverState === 'waiting' || serverState === 'attention')) {
+    const staleArchivedSidebar =
+      surface === 'sidebar'
+      && input.socketExpected === false
+      && !hasServerRunInFlightChildWork(input.serverRunState);
+    if (!staleArchivedSidebar) return serverMeta;
+  } else if (serverMeta) {
     return serverMeta;
   }
-  if (serverMeta) return serverMeta;
 
   // 4. Local queue count only when the server is not reporting busy work.
   const queuedCount = readQueuedCount(input.queuedCount);

@@ -11,6 +11,7 @@ import {
   shouldApplySdkRoomEvent,
   syncSdkEventStream,
 } from './sdkEventReplayGuard.js';
+import { bufferLiveEventDuringHistoryReplay } from './chatHistoryHydrationLive.js';
 import {
   isUiFreezeTraceActive,
   traceUiFreeze,
@@ -30,8 +31,8 @@ import {
   maybeRecoverMissedSdkRunOutcome,
 } from './sdkRunOutcomeRecovery.js';
 import { getWidgetAccessToken } from '../../api.js';
-import { clearChatLocalBootCache } from './chatLocalBootCache.js';
 import { clearPushInboxCache } from '../pwa/pushInbox.js';
+import { applyChatAuthSessionBoundary } from './chatSessionBoundary.js';
 import { getClientInstanceId } from '../../lib/clientInstance.js';
 import { t } from '../../i18n/index.js';
 import {
@@ -1168,6 +1169,7 @@ export function createChatTransport(deps) {
           }
           return;
         }
+        if (bufferLiveEventDuringHistoryReplay(chat, msg)) return;
         if (bufferSdkRoomEventDuringHydration(chat, msg)) return;
         if (!shouldApplySdkRoomEvent(chat, msg)) return;
         if (msg.type === 'sdkTtft') {
@@ -1705,6 +1707,7 @@ export function createChatTransport(deps) {
       if (chat.ws !== socket || typeof socket.onmessage !== 'function') return;
       socket.onmessage({ data: JSON.stringify(message) });
     };
+    chat._flushPendingSdkRoomEvents = (pending) => flushPendingSdkRoomEvents(chat, pending);
     socket.onclose = (event) => {
       delete chat._wsConnectingSince;
       openPingChats.delete(chat);
@@ -1716,12 +1719,13 @@ export function createChatTransport(deps) {
         ...buildSocketDiagnostics(chat),
       });
       if (event?.code === 4401 && typeof window !== 'undefined' && window.location.pathname !== '/login') {
-        clearChatLocalBootCache(typeof localStorage !== 'undefined' ? localStorage : null);
-        void clearPushInboxCache();
-        const currentPath = `${window.location.pathname || '/'}${window.location.search || ''}`;
-        const shouldDropNext = currentPath === '/login' || currentPath.startsWith('/login?');
-        const next = encodeURIComponent(shouldDropNext ? '/' : currentPath);
-        window.location.replace(`/login?next=${next}`);
+        void applyChatAuthSessionBoundary({ reason: '4401' }).finally(() => {
+          void clearPushInboxCache();
+          const currentPath = `${window.location.pathname || '/'}${window.location.search || ''}`;
+          const shouldDropNext = currentPath === '/login' || currentPath.startsWith('/login?');
+          const next = encodeURIComponent(shouldDropNext ? '/' : currentPath);
+          window.location.replace(`/login?next=${next}`);
+        });
         return;
       }
       chat.ws = null;

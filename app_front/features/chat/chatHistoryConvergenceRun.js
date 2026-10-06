@@ -15,6 +15,7 @@ import {
 } from './chatHistoryConvergence.js';
 import { applyCatchUpSdkHistoryRecords } from './chatHistoryViewApply.js';
 import { ownsSdkHistoryHydration } from './sdkEventReplayGuard.js';
+import { setChatPendingRemoteHistoryFlag } from './chatPendingRemoteHistoryFlag.js';
 
 /**
  * @typedef {{
@@ -223,7 +224,7 @@ export async function runSdkHistoryConvergence(chat, context = {}, deps) {
     }),
   };
   if (result.shouldClearPending) {
-    chat._pendingRemoteHistory = false;
+    setChatPendingRemoteHistoryFlag(chat, false);
   }
   if (result.status !== HISTORY_SYNC_STATUS.DEFERRED) {
     deps.notifyReachable?.(chat);

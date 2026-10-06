@@ -8,11 +8,20 @@ import {
   readStorageValueWithAlias,
   writeStorageValueWithAlias,
 } from '../../lib/storageKeyAlias.js';
+import { getUiFreezeCounters, measureFreezeSpan } from '../../lib/uiFreezeCounters.js';
+import { normalizePath } from '../../app/appShell/workspaceHelpers.js';
 
 export const SIDEBAR_LAYOUT_KEYS = Object.freeze([
   'chatOrder',
   'workspaceOrder',
   'favoriteChatIds',
+  'collapsedWorkspaces',
+  'subchatExpanded',
+  'archiveOpen',
+]);
+
+/** Layout list fields compared as order-insensitive sets (normalized paths or ids). */
+const SIDEBAR_LAYOUT_SET_KEYS = new Set([
   'collapsedWorkspaces',
   'subchatExpanded',
   'archiveOpen',
@@ -47,10 +56,106 @@ export function pickSidebarLayoutFields(source) {
   /** @type {Record<string, string[]>} */
   const next = {};
   SIDEBAR_LAYOUT_KEYS.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(source || {}, key)) return;
     if (!Array.isArray(source?.[key])) return;
     next[key] = source[key].map((item) => String(item || '').trim()).filter(Boolean);
   });
   return next;
+}
+
+/**
+ * Canonical form for comparing layout lists (order-sensitive vs set-like fields).
+ *
+ * @param {string} key
+ * @param {unknown} raw
+ * @returns {string[]}
+ */
+export function normalizeSidebarLayoutList(key, raw) {
+  if (!Array.isArray(raw)) return [];
+  if (key === 'collapsedWorkspaces') {
+    const seen = new Set();
+    const next = [];
+    raw.forEach((item) => {
+      const value = normalizePath(String(item || ''));
+      if (!value || seen.has(value)) return;
+      seen.add(value);
+      next.push(value);
+    });
+    next.sort();
+    return next;
+  }
+  if (SIDEBAR_LAYOUT_SET_KEYS.has(key)) {
+    const seen = new Set();
+    const next = [];
+    raw.forEach((item) => {
+      const value = String(item || '').trim();
+      if (!value || seen.has(value)) return;
+      seen.add(value);
+      next.push(value);
+    });
+    next.sort();
+    return next;
+  }
+  const seen = new Set();
+  const next = [];
+  raw.forEach((item) => {
+    const value = String(item || '').trim();
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    next.push(value);
+  });
+  return next;
+}
+
+/**
+ * @param {string} key
+ * @param {unknown} a
+ * @param {unknown} b
+ * @returns {boolean}
+ */
+export function sidebarLayoutListsEqual(key, a, b) {
+  const left = normalizeSidebarLayoutList(key, a);
+  const right = normalizeSidebarLayoutList(key, b);
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i] !== right[i]) return false;
+  }
+  return true;
+}
+
+/**
+ * Remote fields after stripping keys the browser is still publishing locally.
+ *
+ * @param {object | null | undefined} message
+ * @param {Record<string, string[]> | null | undefined} pendingLocal
+ * @returns {Record<string, string[]>}
+ */
+export function pickEffectiveRemoteSidebarLayoutFields(message, pendingLocal) {
+  const fields = pickSidebarLayoutFields(message);
+  SIDEBAR_LAYOUT_KEYS.forEach((key) => {
+    if (pendingLocal && Object.prototype.hasOwnProperty.call(pendingLocal, key)) delete fields[key];
+  });
+  return fields;
+}
+
+/**
+ * Keep only layout keys whose normalized value differs from the local snapshot.
+ *
+ * @param {Record<string, string[]>} fields
+ * @param {object | null | undefined} localSnapshot
+ * @returns {Record<string, string[]>}
+ */
+export function filterChangedSidebarLayoutFields(fields, localSnapshot) {
+  /** @type {Record<string, string[]>} */
+  const changed = {};
+  SIDEBAR_LAYOUT_KEYS.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(fields, key)) return;
+    const localList = Array.isArray(localSnapshot?.[key]) ? localSnapshot[key] : [];
+    if (!sidebarLayoutListsEqual(key, fields[key], localList)) {
+      changed[key] = fields[key];
+    }
+  });
+  return changed;
 }
 
 /**
@@ -118,12 +223,27 @@ export function __resetSidebarLayoutSyncForTest() {
  */
 function applyLayout(layout) {
   if (typeof applyHandler !== 'function') return;
-  suppressPublish = true;
-  try {
-    applyHandler(layout);
-  } finally {
-    suppressPublish = false;
+  const applyNow = () => {
+    suppressPublish = true;
+    try {
+      applyHandler(layout);
+    } finally {
+      suppressPublish = false;
+    }
+  };
+  const counters = getUiFreezeCounters();
+  if (!counters) {
+    applyNow();
+    return;
   }
+  // Task 0.1: time the whole remote/local layout apply (including the forced
+  // sidebar rerender it triggers). The span lets a long-task report attribute
+  // the stall instead of only showing it after the task finished.
+  measureFreezeSpan(
+    'sidebar.layout.apply',
+    { fields: Object.keys(layout || {}).length },
+    applyNow
+  );
 }
 
 /**
@@ -176,14 +296,21 @@ export async function flushSidebarLayoutSync() {
  */
 export function applyRemoteSidebarLayout(message) {
   if (!message || message.type !== 'sidebarLayout') return;
+  const counters = getUiFreezeCounters();
+  if (counters) counters.bump('sidebar.layout.frames');
   const remoteUpdatedAt = typeof message.updatedAt === 'string' ? message.updatedAt : '';
-  if (remoteUpdatedAt && localUpdatedAt && remoteUpdatedAt < localUpdatedAt) return;
-  const fields = pickSidebarLayoutFields(message);
-  SIDEBAR_LAYOUT_KEYS.forEach((key) => {
-    if (pending && Object.prototype.hasOwnProperty.call(pending, key)) delete fields[key];
-  });
+  if (remoteUpdatedAt && localUpdatedAt && remoteUpdatedAt < localUpdatedAt) {
+    if (counters) counters.bump('sidebar.layout.stale');
+    return;
+  }
+  const localSnapshot = typeof readLocalHandler === 'function' ? readLocalHandler() : {};
+  let fields = pickEffectiveRemoteSidebarLayoutFields(message, pending);
+  fields = filterChangedSidebarLayoutFields(fields, localSnapshot);
   if (remoteUpdatedAt) localUpdatedAt = remoteUpdatedAt;
-  if (!Object.keys(fields).length) return;
+  if (!Object.keys(fields).length) {
+    if (counters) counters.bump('sidebar.layout.skipped');
+    return;
+  }
   applyLayout(fields);
 }
 

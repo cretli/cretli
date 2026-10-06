@@ -373,6 +373,9 @@ assert.equal(resolveReadOnlyGuardUserMessage('agent'), PLAN_GUARD_USER_MESSAGE);
 assert.ok(REVIEW_GUARD_USER_MESSAGE.includes('Review is read-only'));
 // The guard points the reviewer at the audited test runner instead of a shell.
 assert.match(REVIEW_GUARD_USER_MESSAGE, /scripts\/review-verify\.js/);
+// Unknown ids are a per-command deny, so the reviewer must not treat Bash as dead.
+assert.match(REVIEW_GUARD_USER_MESSAGE, /unknown catalog id/i);
+assert.match(REVIEW_GUARD_USER_MESSAGE, /other commands are not blocked/);
 // A denied interpreter must be explained, with a usable read-only alternative.
 assert.match(REVIEW_GUARD_USER_MESSAGE, /python3/);
 assert.match(REVIEW_GUARD_USER_MESSAGE, /`jq`/);

@@ -22,6 +22,76 @@ export function getChatUpdatedAtMs(chat) {
 }
 
 /**
+ * Ranking key for boot-cache cap and background selection: one RAM read per chat,
+ * then sort/compare without calling `getChatUpdatedAtMs` again in the comparator.
+ *
+ * @typedef {{ chat: object, updatedAtMs: number }} ChatRankingUpdatedAtEntry
+ */
+
+/**
+ * @param {object[]} chats
+ * @returns {ChatRankingUpdatedAtEntry[]}
+ */
+export function prepareChatRankingUpdatedAtMs(chats) {
+  if (!Array.isArray(chats) || chats.length === 0) return [];
+  const out = [];
+  for (const chat of chats) {
+    if (!chat || typeof chat !== 'object') continue;
+    out.push({ chat, updatedAtMs: getChatUpdatedAtMs(chat) });
+  }
+  return out;
+}
+
+/**
+ * @param {ChatRankingUpdatedAtEntry} left
+ * @param {ChatRankingUpdatedAtEntry} right
+ * @returns {number}
+ */
+export function comparePreparedRankingUpdatedAtMsDesc(left, right) {
+  const delta = right.updatedAtMs - left.updatedAtMs;
+  if (delta !== 0) return delta;
+  return String(left.chat?.id).localeCompare(String(right.chat?.id));
+}
+
+/**
+ * @param {ChatRankingUpdatedAtEntry[]} entries
+ * @returns {ChatRankingUpdatedAtEntry[]}
+ */
+export function sortPreparedRankingUpdatedAtMsDesc(entries) {
+  if (!Array.isArray(entries) || entries.length <= 1) return entries ? entries.slice() : [];
+  return entries.slice().sort(comparePreparedRankingUpdatedAtMsDesc);
+}
+
+/**
+ * @typedef {{ chat: object, activityAt: number }} ChatActivitySortEntry
+ */
+
+/**
+ * @param {object[]} chats
+ * @param {(chat: object) => number} getChatActivityAt
+ * @returns {ChatActivitySortEntry[]}
+ */
+export function prepareChatActivitySortKeys(chats, getChatActivityAt) {
+  const readActivity = typeof getChatActivityAt === 'function' ? getChatActivityAt : () => 0;
+  if (!Array.isArray(chats) || chats.length === 0) return [];
+  const out = [];
+  for (const chat of chats) {
+    if (!chat || typeof chat !== 'object') continue;
+    out.push({ chat, activityAt: readActivity(chat) });
+  }
+  return out;
+}
+
+/**
+ * @param {ChatActivitySortEntry} left
+ * @param {ChatActivitySortEntry} right
+ * @returns {number}
+ */
+export function comparePreparedActivityAtDesc(left, right) {
+  return right.activityAt - left.activityAt;
+}
+
+/**
  * @param {object | null | undefined} chat
  * @returns {number}
  */

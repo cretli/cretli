@@ -307,12 +307,11 @@ export function groupSettledChildren(treeItems, options = {}) {
 
   // Chats that must stay visible: the active chat, plus every ancestor of the
   // active chat or of a live chat (a settled chat with a live descendant).
+  // Ancestors are never settled, so the active chat is always reachable without
+  // forcing any group open — a group only hides settled siblings, never the
+  // active branch itself.
   /** @type {Set<string>} */
   const protectedChatIds = new Set();
-  // Only the active chat's ancestors force a group open. A live descendant
-  // protects its ancestors from folding but must not expand unrelated groups.
-  /** @type {Set<string>} */
-  const activeAncestorIds = new Set();
   const markAncestors = (startParentId, target) => {
     let parentId = readId(startParentId);
     const seen = new Set();
@@ -325,7 +324,6 @@ export function groupSettledChildren(treeItems, options = {}) {
   if (activeChatId) {
     protectedChatIds.add(activeChatId);
     markAncestors(byId.get(activeChatId)?.parentId, protectedChatIds);
-    markAncestors(byId.get(activeChatId)?.parentId, activeAncestorIds);
   }
   for (const item of list) {
     const id = readId(item?.chat?.id);
@@ -422,7 +420,7 @@ export function groupSettledChildren(treeItems, options = {}) {
     const parentItem = byId.get(parentId);
     const rawParentLevel = Number(parentItem?.level);
     const parentLevel = Number.isFinite(rawParentLevel) && rawParentLevel >= 0 ? rawParentLevel : 0;
-    const expanded = searching || isExpanded(parentId) || activeAncestorIds.has(parentId);
+    const expanded = searching || isExpanded(parentId);
     const childChats = grouped.map((item) => item.chat);
     const allChildIds = new Set();
     for (const item of grouped) {

@@ -317,7 +317,7 @@ try {
 
   const loadPromise = controller.loadChatsFromServer({});
   // The cache path is synchronous: the list and active chat exist before the server answers.
-  assert.deepEqual(chats.map((chat) => chat.id), ['chat-a', 'chat-b']);
+  assert.deepEqual(chats.map((chat) => chat.id), ['chat-b', 'chat-a'], 'sync bootstrap keeps active chat first');
   assert.equal(activeChatId, 'chat-b', 'the last active chat is restored from localStorage');
   assert.deepEqual(selected, ['chat-b'], 'the active pane is opened from the cache, before the network');
   assert.equal(rendered.length, 1, 'the list is rendered from the cache first');
@@ -496,8 +496,12 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => readFileSync(path.join(root, rel), 'utf8');
 
 const appSource = read('app_front/App.js');
-assert.match(appSource, /readChatLocalBootCache/);
-assert.match(appSource, /clearChatLocalBootCache/);
+assert.match(appSource, /readChatLocalBootCacheForColdStart/);
+assert.match(
+  read('app_front/features/chat/chatSessionBoundary.js'),
+  /clearChatLocalBootSync/,
+  'auth boundary clears the sync bootstrap key',
+);
 const seedCallAt = appSource.indexOf('seedWorkspacesListFromBootCache();');
 assert.ok(seedCallAt > -1, 'App boot must seed the workspace list from the snapshot');
 assert.ok(

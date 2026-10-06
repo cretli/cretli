@@ -78,6 +78,82 @@ export function selectDraggableChatRows(rows) {
  * }} input
  * @returns {{ parentId: string, rootLevel: number, levels: number[], indentLevels: number[] }}
  */
+/**
+ * @param {Element | null | undefined} node
+ * @returns {HTMLElement | null}
+ */
+export function resolveSidebarChatRowLiFromListNode(node) {
+  if (!(node instanceof HTMLElement)) return null;
+  if (node.classList.contains('sidebar-chat-item')) return node;
+  if (node.tagName === 'CR-SIDEBAR-CHAT-ROW') {
+    const li = node.querySelector('li.sidebar-chat-item');
+    return li instanceof HTMLElement ? li : null;
+  }
+  return null;
+}
+
+/**
+ * Collect nested chat rows for drag when list children are Lit hosts (`display:contents`).
+ *
+ * @param {HTMLElement} li
+ * @returns {HTMLElement[]}
+ */
+export function collectSidebarChatBlock(li) {
+  const nodes = [li];
+  const level = readNestLevel(li?.dataset?.nestLevel, li.classList.contains('is-child'));
+  let listSibling = li.closest('cr-sidebar-chat-row')?.nextElementSibling ?? li.nextElementSibling;
+  while (listSibling instanceof HTMLElement) {
+    const nextLi = resolveSidebarChatRowLiFromListNode(listSibling);
+    if (!nextLi) break;
+    if (nextLi.dataset.archived === '1' || nextLi.hidden || nextLi.classList.contains('is-subchat-hidden')) break;
+    if (readNestLevel(nextLi.dataset.nestLevel, nextLi.classList.contains('is-child')) <= level) break;
+    nodes.push(nextLi);
+    listSibling = listSibling.nextElementSibling;
+  }
+  return nodes;
+}
+
+/**
+ * List `<ul>` child for drag reorder: Lit host when present, else the row `<li>`.
+ *
+ * @param {HTMLElement} li
+ * @returns {HTMLElement}
+ */
+export function sidebarChatRowListHostOf(li) {
+  if (!(li instanceof HTMLElement)) return li;
+  const host = li.closest('cr-sidebar-chat-row');
+  return host instanceof HTMLElement ? host : li;
+}
+
+/**
+ * Live-reorder captured block rows by moving list hosts (not inner `<li>` nodes).
+ *
+ * @param {HTMLElement} list
+ * @param {HTMLElement[]} blockLis
+ * @param {HTMLElement | null} beforeLi row to insert before (from `drop.beforeId`), or null for end
+ * @returns {boolean} true when the list DOM was updated
+ */
+export function insertSidebarChatBlockAt(list, blockLis, beforeLi) {
+  if (!(list instanceof HTMLElement) || !Array.isArray(blockLis) || blockLis.length === 0) return false;
+  const beforeEl = beforeLi instanceof HTMLElement ? beforeLi : null;
+  const beforeHost = beforeEl ? sidebarChatRowListHostOf(beforeEl) : null;
+  const lastHost = sidebarChatRowListHostOf(blockLis[blockLis.length - 1]);
+  const alreadyPlaced = beforeHost
+    ? lastHost.nextElementSibling === beforeHost
+    : list.lastElementChild === lastHost;
+  if (alreadyPlaced) return false;
+  const frag = document.createDocumentFragment();
+  const seen = new Set();
+  for (const node of blockLis) {
+    const host = sidebarChatRowListHostOf(node);
+    if (seen.has(host)) continue;
+    seen.add(host);
+    frag.appendChild(host);
+  }
+  list.insertBefore(frag, beforeHost);
+  return true;
+}
+
 export function resolveBlockNest(input = {}) {
   const parentId = String(input.parentChatId || '').trim();
   const parentLevel = Number(input.parentLevel);

@@ -8,6 +8,11 @@ import {
 import {
   initUiFreezeTrace,
 } from './uiFreezeTrace.js';
+import {
+  flushUiFreezeCounters,
+  formatUiFreezeCountersSnapshot,
+  snapshotUiFreezeCounters,
+} from './uiFreezeCounters.js';
 
 const BLOCKING_MODAL_SELECTORS = [
   '#chat-reconnect-modal:not([hidden])',
@@ -247,6 +252,16 @@ export function initPageResumeCleanup(options = {}) {
     else scheduleResumeCleanup();
   });
   if (typeof window === 'undefined') return;
+  // Task 0.1: flush the last counter window before the page can be killed and
+  // expose a manual snapshot for the baseline run. Only while diagnostics are on.
+  if (isUiFreezeDiagnosticsEnabled()) {
+    window.__crUiFreeze = {
+      counters: snapshotUiFreezeCounters,
+      format: () => formatUiFreezeCountersSnapshot(snapshotUiFreezeCounters()),
+      flush: flushUiFreezeCounters,
+    };
+    window.addEventListener('pagehide', () => flushUiFreezeCounters(), { once: true });
+  }
   window.addEventListener('pageshow', scheduleResumeCleanup);
   window.addEventListener('focus', scheduleResumeCleanup);
   window.addEventListener('pagehide', onHide);

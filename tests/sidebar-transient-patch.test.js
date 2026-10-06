@@ -1,190 +1,184 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { createSidebarView } from '../app_front/features/sidebar/sidebarView.js';
+import { chromium } from 'playwright-core';
 
 const here = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(here, '..');
 const viewSource = readFileSync(resolve(here, '../app_front/features/sidebar/sidebarView.js'), 'utf8');
 
-function installLocalStorageStub() {
-  const map = new Map();
-  globalThis.localStorage = {
-    getItem: (key) => (map.has(key) ? map.get(key) : null),
-    setItem: (key, value) => map.set(key, String(value)),
-    removeItem: (key) => map.delete(key),
-  };
-  return map;
+function resolveChromiumExecutable() {
+  const fromEnv = String(process.env.CHAT_E2E_CHROMIUM_EXECUTABLE_PATH || '').trim();
+  if (fromEnv && existsSync(fromEnv)) return fromEnv;
+  const candidates = [
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+  ];
+  return candidates.find((file) => existsSync(file));
 }
 
-/** Minimal fake element supporting the attribute/class queries patchTransient uses. */
-function makeEl(tag) {
-  const attrs = new Map();
-  const classes = new Set();
-  const el = {
-    tag,
-    hidden: false,
-    textContent: '',
-    children: [],
-    dataset: {},
-    classList: {
-      add: (c) => classes.add(c),
-      remove: (c) => classes.delete(c),
-      contains: (c) => classes.has(c),
-      toggle: (c, force) => {
-        if (force === undefined) {
-          if (classes.has(c)) classes.delete(c); else classes.add(c);
-        } else if (force) classes.add(c); else classes.delete(c);
-      },
-    },
-    getAttribute: (n) => (attrs.has(n) ? attrs.get(n) : null),
-    setAttribute: (n, v) => attrs.set(n, String(v)),
-    toggleAttribute: (n, force) => { if (force) attrs.set(n, ''); else attrs.delete(n); },
-    addClass: (c) => classes.add(c),
-    _classes: classes,
-    _attrs: attrs,
-  };
-  return el;
-}
-
-function matchClasses(el, wanted) {
-  return wanted.every((c) => el._classes.has(c));
-}
-
-function walk(node, out) {
-  for (const child of node.children || []) {
-    out.push(child);
-    walk(child, out);
-  }
-  return out;
-}
-
-function queryAll(root, selector) {
-  // only simple `.a.b` and `.a[attr="v"]` selectors are used by patchTransient
-  const attrMatch = /\[data-([\w-]+)="([^"]+)"\]/.exec(selector);
-  const cls = selector.replace(/\[[^\]]*\]/g, '').split('.').filter(Boolean);
-  const all = walk(root, []);
-  return all.filter((el) => {
-    if (!matchClasses(el, cls)) return false;
-    if (attrMatch && el.getAttribute(`data-${attrMatch[1]}`) !== attrMatch[2]) return false;
-    return true;
+/**
+ * @param {(baseUrl: string) => Promise<void>} run
+ */
+async function withSidebarChatRowDomServer(run) {
+  const port = Number.parseInt(process.env.SIDEBAR_CHAT_ROW_DOM_PORT || '3398', 10);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const serverPath = resolve(repoRoot, 'tests/sidebar-chat-row-dom/server.mjs');
+  const child = spawn(process.execPath, [serverPath], {
+    cwd: repoRoot,
+    env: { ...process.env, SIDEBAR_CHAT_ROW_DOM_PORT: String(port) },
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
-}
-
-function makeBody() {
-  const body = makeEl('div');
-  body.classList.add('sidebar-body');
-  return body;
-}
-
-function addRow(body, chatId, { active = false, withChip = false } = {}) {
-  const li = makeEl('li');
-  li.classList.add('sidebar-chat-item');
-  if (active) li.classList.add('is-active');
-  li.dataset.chatId = chatId;
-  li.setAttribute('data-chat-id', chatId);
-  if (withChip) {
-    const chip = makeEl('span');
-    chip.classList.add('sidebar-chat-item-awaiting');
-    li.children.push(chip);
-    li._chip = chip;
-  }
-  body.children.push(li);
-  return li;
-}
-
-function makeView(activeId) {
-  return createSidebarView({
-    getWorkspaces: () => [],
-    getChats: () => [],
-    getActiveWorkspaceFile: () => '/w',
-    getActiveWorkspaceFolder: () => '/f',
-    getActiveChatId: () => activeId,
-    getArchivedCounts: () => ({}),
-    chatFavorites: { isFavorite: () => false },
-    resolveChatState: () => 'idle',
-    getTerminalStateMeta: () => ({ tone: 'idle', label: 'Idle' }),
-    escapeHtml: (v) => String(v ?? ''),
-    selectChat: () => {},
-    switchWorkspace: () => Promise.resolve(true),
+  await new Promise((resolvePromise, reject) => {
+    const timeout = setTimeout(() => reject(new Error('sidebar chat row dom server timeout')), 120_000);
+    const fail = (chunk) => {
+      const text = String(chunk || '');
+      if (/Error|missing bundle/i.test(text)) {
+        clearTimeout(timeout);
+        reject(new Error(text.trim()));
+      }
+    };
+    child.stderr.on('data', fail);
+    child.stdout.on('data', fail);
+    const poll = async () => {
+      try {
+        const res = await fetch(`${baseUrl}/health`);
+        if (res.ok) {
+          clearTimeout(timeout);
+          resolvePromise(undefined);
+          return;
+        }
+      } catch (_) {
+        // server still starting
+      }
+      setTimeout(poll, 200);
+    };
+    poll();
   });
-}
-
-function withFakeDocument(view, body) {
-  const aside = makeEl('aside');
-  aside.children.push(body);
-  body._classes.add('sidebar-body');
-  const original = globalThis.document;
-  globalThis.document = {
-    getElementById: (id) => (id === 'app-sidebar' ? aside : null),
-    querySelector: () => null,
-    querySelectorAll: () => [],
-  };
-  // wire the fake body's query methods
-  body.querySelectorAll = (sel) => queryAll(body, sel);
-  body.querySelector = (sel) => queryAll(body, sel)[0] || null;
-  aside.querySelector = (sel) => (sel === '.sidebar-body' ? body : body.querySelector(sel));
-  return () => {
-    if (original === undefined) delete globalThis.document;
-    else globalThis.document = original;
-  };
-}
-
-test('patchTransientVisualStates toggles the active row in place and preserves row + chip nodes', () => {
-  installLocalStorageStub();
-  const body = makeBody();
-  const rowA = addRow(body, 'c1', { active: true, withChip: true });
-  const rowB = addRow(body, 'c2', { active: false, withChip: true });
-  const chipA = rowA._chip;
-  const chipB = rowB._chip;
-  const view = makeView('c2');
-  const restore = withFakeDocument(view, body);
   try {
-    view.patchTransientVisualStates();
-    // selection moved from c1 to c2 without replacing any node object
-    assert.equal(rowA._classes.has('is-active'), false, 'old active row de-highlighted');
-    assert.equal(rowB._classes.has('is-active'), true, 'new active row highlighted');
-    assert.equal(rowB.getAttribute('aria-selected'), 'true');
-    assert.equal(rowA.getAttribute('aria-selected'), 'false');
-    assert.equal(rowA._chip, chipA, 'row A chip node identity preserved (no innerHTML rebuild)');
-    assert.equal(rowB._chip, chipB, 'row B chip node identity preserved');
-    assert.equal(body.children.length, 2, 'no rows added or removed by the patch');
+    await run(baseUrl);
   } finally {
-    restore();
+    child.kill('SIGTERM');
   }
+}
+
+test('mounted Lit rows toggle active state in place and preserve chip nodes', { timeout: 180_000 }, async () => {
+  const executablePath = resolveChromiumExecutable();
+  await withSidebarChatRowDomServer(async (baseUrl) => {
+    const browser = await chromium.launch({
+      headless: true,
+      ...(executablePath ? { executablePath } : {}),
+    });
+    try {
+      const page = await browser.newPage();
+      await page.goto(baseUrl, { waitUntil: 'load' });
+      await page.waitForFunction(() => typeof window.__runSidebarChatRowActiveIdentityHarness === 'function');
+      const result = await page.evaluate(async () => window.__runSidebarChatRowActiveIdentityHarness());
+      assert.equal(result.ok, true, result.reason || 'harness failed');
+      assert.equal(result.li1Same, true, 'row li node identity preserved');
+      assert.equal(result.li2Active, true, 'new active row highlighted');
+      assert.equal(result.chipPreserved, true, 'awaiting chip node identity preserved');
+      assert.equal(result.rowCount, 2, 'no extra rows from in-place patch');
+    } finally {
+      await browser.close();
+    }
+  });
 });
 
-test('full render emits the status-patch data attributes so the first patch is a no-op', () => {
-  // renderChatItem must emit every attribute applySidebarChatStatusEl compares on,
-  // otherwise the first patch after a rebuild would rewrite the chip (restart anim).
-  assert.match(viewSource, /data-status-tone=/, 'tone emitted');
-  assert.match(viewSource, /data-status-label=/, 'label emitted');
-  assert.match(viewSource, /data-activity-key=/, 'activity key emitted');
-  assert.match(viewSource, /data-status-outcome=/, 'outcome emitted');
-  assert.match(viewSource, /data-visual-key=/, 'row visual key emitted');
-  // chatListVisualKey is the exact key the chat.js patch path writes on the row.
-  assert.match(viewSource, /import \{[^}]*chatListVisualKey[^}]*\} from '\.\.\/chat\/chatListStateRefresh\.js'/);
+test('mounted cr-sidebar-chat-row paints status-patch data attributes on the li', { timeout: 180_000 }, async () => {
+  const executablePath = resolveChromiumExecutable();
+  await withSidebarChatRowDomServer(async (baseUrl) => {
+    const browser = await chromium.launch({
+      headless: true,
+      ...(executablePath ? { executablePath } : {}),
+    });
+    try {
+      const page = await browser.newPage();
+      await page.goto(baseUrl, { waitUntil: 'load' });
+      await page.waitForFunction(() => typeof window.__runSidebarChatRowStatusAttrsHarness === 'function');
+      const result = await page.evaluate(async () => window.__runSidebarChatRowStatusAttrsHarness());
+      assert.equal(result.liPresent, true);
+      assert.equal(result.hasContractClass, true);
+      assert.equal(result.tone, 'attention');
+      assert.equal(result.label, 'Needs action');
+      assert.equal(result.activityKey, 'act-1');
+      assert.equal(result.outcome, 'completed');
+      assert.ok(result.visualKey.length > 0, 'data-visual-key contract');
+    } finally {
+      await browser.close();
+    }
+  });
+});
+
+test('cr-sidebar-chat-row mount/unmount/re-render does not multiply status bus listeners', { timeout: 180_000 }, async () => {
+  const executablePath = resolveChromiumExecutable();
+  await withSidebarChatRowDomServer(async (baseUrl) => {
+    const browser = await chromium.launch({
+      headless: true,
+      ...(executablePath ? { executablePath } : {}),
+    });
+    try {
+      const page = await browser.newPage();
+      await page.goto(baseUrl, { waitUntil: 'load' });
+      await page.waitForFunction(() => typeof window.__runSidebarChatRowListenerHarness === 'function');
+      const result = await page.evaluate(async () => window.__runSidebarChatRowListenerHarness());
+      assert.equal(result.addedOnMount, 2, 'one bus listener per mounted row host');
+      assert.equal(result.sameAfterRerender, true, 'requestUpdate does not re-subscribe');
+      assert.equal(result.backToBaseline, true, 'disconnect removes listeners');
+    } finally {
+      await browser.close();
+    }
+  });
+});
+
+test('reopening the sidebar repaints the active row after it changed while hidden', { timeout: 180_000 }, async () => {
+  const executablePath = resolveChromiumExecutable();
+  await withSidebarChatRowDomServer(async (baseUrl) => {
+    const browser = await chromium.launch({
+      headless: true,
+      ...(executablePath ? { executablePath } : {}),
+    });
+    try {
+      const page = await browser.newPage();
+      await page.goto(baseUrl, { waitUntil: 'load' });
+      await page.waitForFunction(() => typeof window.__runSidebarActiveHighlightHarness === 'function');
+      const result = await page.evaluate(async () => window.__runSidebarActiveHighlightHarness());
+      assert.deepEqual(result.childActiveBefore, ['child-1'], 'the child starts active');
+      assert.deepEqual(result.parentActiveAfter, ['parent-1'], 'selecting the parent moves the highlight');
+      assert.deepEqual(
+        result.staleWhileHidden,
+        ['child-1'],
+        'the queued render cannot patch the highlight while the aside is hidden',
+      );
+      assert.deepEqual(
+        result.reopenedActive,
+        ['parent-1'],
+        'opening the drawer repaints the row that is actually active',
+      );
+    } finally {
+      await browser.close();
+    }
+  });
 });
 
 test('the inert 5s sidebar poll is gone and the status/active marker is out of the signature', () => {
   assert.doesNotMatch(viewSource, /function startPoll\s*\(/, 'startPoll removed');
   assert.doesNotMatch(viewSource, /function stopPoll\s*\(/, 'stopPoll removed');
   assert.doesNotMatch(viewSource, /setInterval\s*\([\s\S]*?,\s*5000\s*\)/, 'no 5s interval');
-  // renderSignature must not fold per-chat tone or the active marker into the sig.
   const start = viewSource.indexOf('function renderSignature(partsOut)');
   assert.ok(start >= 0, 'renderSignature located');
-  const end = viewSource.indexOf('function patchTransientVisualStates', start);
+  const end = viewSource.indexOf('function refreshLitWorkspaceHostsOnSignatureMatch', start);
   assert.ok(end > start, 'renderSignature body bounded by the next helper');
   const sigBody = viewSource.slice(start, end);
   assert.doesNotMatch(sigBody, /statusSig/, 'no status segment in the structural signature');
   assert.doesNotMatch(sigBody, /=== activeChatId \? 'A'/, "no 'A' active marker in the signature");
   assert.doesNotMatch(sigBody, /getTerminalStateMeta/, 'signature does not read chat tone');
 });
-
-// ── Scheduler / patcher scope: a per-chat status change must not walk the whole list ─
-// `app_front/chat.js` and `app_front/features/chat/chatTransport.js` are browser
-// bundles, so (matching the repo convention) the wiring is asserted by source scan.
 
 function sliceFunction(source, signature, nextSignature) {
   const start = source.indexOf(signature);
@@ -197,16 +191,15 @@ function sliceFunction(source, signature, nextSignature) {
 const chatSource = readFileSync(resolve(here, '../app_front/chat.js'), 'utf8');
 const transportSource = readFileSync(
   resolve(here, '../app_front/features/chat/chatTransport.js'),
-  'utf8'
+  'utf8',
 );
 
 test('scheduleChatListStateRefresh never marks the whole list dirty from ids', () => {
   const body = sliceFunction(
     chatSource,
     'function scheduleChatListStateRefresh(ids)',
-    'export function scheduleChatListStateRefreshAll'
+    'export function scheduleChatListStateRefreshAll',
   );
-  // No ids, an empty array, and an array without a valid id all bail before planning a frame.
   assert.match(body, /if \(!Array\.isArray\(ids\) \|\| ids\.length === 0\) return;/, 'no/empty array is a no-op');
   assert.match(body, /if \(!added\) return;\s*\n\s*chatListStateRefresh\.schedule\(\);/, 'no valid id => no rAF');
   assert.doesNotMatch(body, /add\('\*'\)/, 'the per-id scheduler never injects the wildcard');
@@ -216,17 +209,16 @@ test("the wildcard is produced only by scheduleChatListStateRefreshAll (drawer o
   const all = sliceFunction(
     chatSource,
     'export function scheduleChatListStateRefreshAll()',
-    '/** In-place chat status update'
+    '/** In-place chat status update',
   );
   assert.match(all, /pendingSidebarDirtyIds\.add\('\*'\);/, 'the wildcard lives in the All variant');
   assert.match(all, /chatListStateRefresh\.schedule\(\);/, 'and plans the frame');
   const occurrences = chatSource.match(/pendingSidebarDirtyIds\.add\('\*'\)/g) || [];
   assert.equal(occurrences.length, 1, 'exactly one place marks the whole list dirty');
-  // The drawer-open path (refreshStates -> refreshSidebarChatStates) is the All variant.
   assert.match(
     chatSource,
     /export function refreshSidebarChatStates\(\) \{[\s\S]{0,60}?scheduleChatListStateRefreshAll\(\);/,
-    'refreshSidebarChatStates triggers the full patch'
+    'refreshSidebarChatStates triggers the full patch',
   );
 });
 
@@ -234,7 +226,7 @@ test('updateSidebarChatStates ends an empty dirty set before querySelectorAll', 
   const body = sliceFunction(
     chatSource,
     'function updateSidebarChatStates(chatById = null)',
-    'export function refreshSidebarChatStates'
+    'export function refreshSidebarChatStates',
   );
   const bailIdx = body.indexOf('if (dirty.size === 0) return;');
   const walkIdx = body.indexOf("querySelectorAll('.sidebar-chat-item')");
@@ -244,19 +236,35 @@ test('updateSidebarChatStates ends an empty dirty set before querySelectorAll', 
   assert.match(body, /if \(dirty\.has\('\*'\)\)/, 'the full branch is driven only by the wildcard');
 });
 
+test('a status frame repaints the sidebar transient state even with the chat-list modal closed', () => {
+  const body = sliceFunction(
+    chatSource,
+    'function updateChatListModalStates()',
+    'const chatListStateRefresh = createRafDebouncer',
+  );
+  const hookIdx = body.indexOf('sidebarTransientPatchHook()');
+  const bailIdx = body.indexOf('if (!modal || modal.hidden || !listEl) return;');
+  assert.ok(hookIdx >= 0, 'the active-row/summary hook is wired');
+  assert.ok(bailIdx > hookIdx, 'the hook must run before the modal short-circuit');
+});
+
+test('opening the drawer repaints the transient active-row state', () => {
+  const body = sliceFunction(viewSource, 'function openSidebar()', 'function closeSidebar()');
+  assert.match(body, /applyVisibility\(\);/, 'the drawer becomes visible first');
+  assert.match(body, /patchTransientVisualStates\(\);/, 'and the stale active row is repainted before refreshStates');
+});
+
 test('no sidebar call-site still schedules a wildcard with bare parentheses', () => {
   assert.doesNotMatch(
     chatSource,
     /scheduleChatListStateRefresh\(\)/,
-    'every refresh is per-id; the only wildcard path is scheduleChatListStateRefreshAll()'
+    'every refresh is per-id; the only wildcard path is scheduleChatListStateRefreshAll()',
   );
 });
 
 test('renderChatTerminalState repaints the active chat own row, per-id', () => {
   const body = sliceFunction(chatSource, 'function renderChatTerminalState(chat', 'function renderChatList()');
-  // Early (no bar / not active) branch: per-id, not the wildcard.
   assert.match(body, /scheduleChatListStateRefresh\(chat\?\.id \? \[chat\.id\] : \[\]\);/, 'no-bar branch schedules [chat.id]');
-  // Active-with-bar branch now refreshes the row too (was: bar only).
   assert.match(body, /scheduleChatListStateRefresh\(\[chat\.id\]\);[\s\S]*?if \(isPendingHarnessSwitch/, 'active-with-bar schedules the row');
 });
 

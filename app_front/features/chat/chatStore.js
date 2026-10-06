@@ -3,63 +3,57 @@ import {
   removeStorageValueWithAlias,
   writeStorageValueWithAlias,
 } from '../../lib/storageKeyAlias.js';
-const CHAT_LAST_USED_KEY = 'cretli-chat-last-used';
-const CHAT_ACTIVITY_KEY = 'cretli-chat-activity';
+import { getChatActivityStore } from './chatActivityStore.js';
 const CHAT_DRAFT_LOCALSTORAGE_PREFIX = 'cretli-chat-draft-';
 const CHAT_DELETE_CONFIRM_SKIP_KEY = 'cretli-chat-delete-skip-confirm';
 
-function readObjectMap(key) {
-  if (typeof localStorage === 'undefined') return {};
-  try {
-    const raw = readStorageValueWithAlias(localStorage, key, '');
-    const parsed = raw ? JSON.parse(raw) : {};
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    return parsed;
-  } catch (_) {
-    return {};
-  }
-}
+/**
+ * Task 2.1: activity/last-used live in a RAM store (see chatActivityStore.js).
+ * These accessors are the compatibility surface used by the sorter, the
+ * background policy and the runtime; they never touch storage after the
+ * one-time legacy hydration, so the boot-cache comparator and the renderer stay
+ * storage-free.
+ */
 
 export function readChatLastUsedMap() {
-  return readObjectMap(CHAT_LAST_USED_KEY);
+  return getChatActivityStore().snapshotLastUsed();
 }
 
 export function getChatLastUsedAt(chatId) {
   if (!chatId) return 0;
-  const value = readChatLastUsedMap()[chatId];
-  return typeof value === 'number' && value > 0 ? value : 0;
+  return getChatActivityStore().getLastUsedAt(chatId);
 }
 
 export function recordChatLastUsed(chatId) {
-  if (!chatId || typeof localStorage === 'undefined') return;
-  try {
-    const map = readChatLastUsedMap();
-    map[chatId] = Date.now();
-    writeStorageValueWithAlias(localStorage, CHAT_LAST_USED_KEY, JSON.stringify(map));
-  } catch (_) {}
+  if (!chatId) return;
+  getChatActivityStore().recordLastUsed(chatId);
 }
 
 export function readChatActivityMap() {
-  return readObjectMap(CHAT_ACTIVITY_KEY);
+  return getChatActivityStore().snapshotActivity();
 }
 
 export function getChatActivityAt(chat, getChatLastUsedAtFn = getChatLastUsedAt) {
   if (!chat?.id) return 0;
-  const persisted = readChatActivityMap()[chat.id];
-  const persistedAt = typeof persisted === 'number' && persisted > 0 ? persisted : 0;
+  const persistedAt = getChatActivityStore().getActivityAt(chat.id);
   const usedAt = getChatLastUsedAtFn(chat.id);
   const outputAt = typeof chat._lastOutputAt === 'number' ? chat._lastOutputAt : 0;
   return Math.max(persistedAt, usedAt, outputAt);
 }
 
 export function recordChatActivity(chatId) {
-  if (!chatId || typeof localStorage === 'undefined') return;
-  try {
-    const map = readChatActivityMap();
-    map[chatId] = Date.now();
-    writeStorageValueWithAlias(localStorage, CHAT_ACTIVITY_KEY, JSON.stringify(map));
-  } catch (_) {}
+  if (!chatId) return;
+  getChatActivityStore().recordActivity(chatId);
 }
+
+export {
+  getChatActivityStore,
+  mergeChatActivity,
+  mergeChatLastUsed,
+  pruneChatActivityToKnownIds,
+  resetChatActivitySession,
+  subscribeChatActivity,
+} from './chatActivityStore.js';
 
 export function clearChatLocalData(id) {
   if (!id || typeof localStorage === 'undefined') return;

@@ -1,0 +1,936 @@
+{
+ "main": [
+  1981855,
+  1981855
+ ],
+ "base": 243211844502,
+ "marks": [
+  [
+   0.003,
+   "A-heavy-open"
+  ],
+  [
+   0.006,
+   "navigationStart"
+  ],
+  [
+   0.006,
+   "fetchStart"
+  ],
+  [
+   0.017,
+   "responseEnd"
+  ],
+  [
+   0.027,
+   "navigationStart"
+  ],
+  [
+   0.028,
+   "domLoading"
+  ],
+  [
+   0.028,
+   "responseEnd"
+  ],
+  [
+   0.028,
+   "domInteractive"
+  ],
+  [
+   0.028,
+   "domContentLoadedEventStart"
+  ],
+  [
+   0.028,
+   "domContentLoadedEventEnd"
+  ],
+  [
+   0.028,
+   "domComplete"
+  ],
+  [
+   0.031,
+   "unloadEventStart"
+  ],
+  [
+   0.031,
+   "unloadEventEnd"
+  ],
+  [
+   0.031,
+   "commitNavigationEnd"
+  ],
+  [
+   0.031,
+   "domLoading"
+  ],
+  [
+   0.336,
+   "domInteractive"
+  ],
+  [
+   0.336,
+   "domContentLoadedEventStart"
+  ],
+  [
+   0.341,
+   "domContentLoadedEventEnd"
+  ],
+  [
+   0.343,
+   "domComplete"
+  ],
+  [
+   0.343,
+   "loadEventStart"
+  ],
+  [
+   0.343,
+   "loadEventEnd"
+  ],
+  [
+   9.101,
+   "A-heavy-done"
+  ],
+  [
+   9.102,
+   "B-scroll"
+  ],
+  [
+   12.114,
+   "B-done"
+  ],
+  [
+   12.115,
+   "C-sidebar"
+  ],
+  [
+   12.196,
+   "navigationStart"
+  ],
+  [
+   12.196,
+   "domLoading"
+  ],
+  [
+   12.196,
+   "responseEnd"
+  ],
+  [
+   12.196,
+   "domInteractive"
+  ],
+  [
+   12.196,
+   "domContentLoadedEventStart"
+  ],
+  [
+   12.196,
+   "domContentLoadedEventEnd"
+  ],
+  [
+   12.196,
+   "domComplete"
+  ],
+  [
+   12.196,
+   "domLoading"
+  ],
+  [
+   12.197,
+   "domInteractive"
+  ],
+  [
+   12.197,
+   "domContentLoadedEventStart"
+  ],
+  [
+   12.197,
+   "domContentLoadedEventEnd"
+  ],
+  [
+   12.197,
+   "domComplete"
+  ],
+  [
+   12.197,
+   "loadEventStart"
+  ],
+  [
+   12.197,
+   "loadEventEnd"
+  ],
+  [
+   12.198,
+   "navigationStart"
+  ],
+  [
+   12.198,
+   "domLoading"
+  ],
+  [
+   12.199,
+   "responseEnd"
+  ],
+  [
+   12.199,
+   "domInteractive"
+  ],
+  [
+   12.199,
+   "domContentLoadedEventEnd"
+  ],
+  [
+   12.199,
+   "domContentLoadedEventStart"
+  ],
+  [
+   12.199,
+   "domComplete"
+  ],
+  [
+   12.199,
+   "domLoading"
+  ],
+  [
+   12.199,
+   "domInteractive"
+  ],
+  [
+   12.199,
+   "domContentLoadedEventStart"
+  ],
+  [
+   12.199,
+   "domContentLoadedEventEnd"
+  ],
+  [
+   12.199,
+   "domComplete"
+  ],
+  [
+   12.199,
+   "loadEventStart"
+  ],
+  [
+   12.199,
+   "loadEventEnd"
+  ],
+  [
+   12.199,
+   "navigationStart"
+  ],
+  [
+   12.199,
+   "domLoading"
+  ],
+  [
+   12.199,
+   "responseEnd"
+  ],
+  [
+   12.199,
+   "domInteractive"
+  ],
+  [
+   12.199,
+   "domContentLoadedEventEnd"
+  ],
+  [
+   12.199,
+   "domContentLoadedEventStart"
+  ],
+  [
+   12.199,
+   "domComplete"
+  ],
+  [
+   12.2,
+   "domLoading"
+  ],
+  [
+   12.2,
+   "domInteractive"
+  ],
+  [
+   12.2,
+   "domContentLoadedEventStart"
+  ],
+  [
+   12.2,
+   "domContentLoadedEventEnd"
+  ],
+  [
+   12.2,
+   "domComplete"
+  ],
+  [
+   12.2,
+   "loadEventStart"
+  ],
+  [
+   12.2,
+   "loadEventEnd"
+  ],
+  [
+   15.152,
+   "C-done"
+  ],
+  [
+   15.153,
+   "D-switch"
+  ],
+  [
+   18.338,
+   "D-done"
+  ],
+  [
+   18.339,
+   "E-panel"
+  ],
+  [
+   21.461,
+   "E-done"
+  ],
+  [
+   21.462,
+   "F-report"
+  ],
+  [
+   21.463,
+   "navigationStart"
+  ],
+  [
+   21.463,
+   "fetchStart"
+  ],
+  [
+   21.468,
+   "responseEnd"
+  ],
+  [
+   21.477,
+   "unloadEventStart"
+  ],
+  [
+   21.477,
+   "unloadEventEnd"
+  ],
+  [
+   21.478,
+   "commitNavigationEnd"
+  ],
+  [
+   21.479,
+   "domLoading"
+  ],
+  [
+   21.755,
+   "domInteractive"
+  ],
+  [
+   21.755,
+   "domContentLoadedEventStart"
+  ],
+  [
+   21.759,
+   "domContentLoadedEventEnd"
+  ],
+  [
+   21.761,
+   "domComplete"
+  ],
+  [
+   21.761,
+   "loadEventStart"
+  ],
+  [
+   21.761,
+   "loadEventEnd"
+  ],
+  [
+   22.222,
+   "navigationStart"
+  ],
+  [
+   22.222,
+   "domLoading"
+  ],
+  [
+   22.222,
+   "responseEnd"
+  ],
+  [
+   22.222,
+   "domInteractive"
+  ],
+  [
+   22.222,
+   "domContentLoadedEventStart"
+  ],
+  [
+   22.222,
+   "domContentLoadedEventEnd"
+  ],
+  [
+   22.222,
+   "domComplete"
+  ],
+  [
+   22.222,
+   "domLoading"
+  ],
+  [
+   22.222,
+   "domInteractive"
+  ],
+  [
+   22.222,
+   "domContentLoadedEventStart"
+  ],
+  [
+   22.222,
+   "domContentLoadedEventEnd"
+  ],
+  [
+   22.222,
+   "domComplete"
+  ],
+  [
+   22.222,
+   "loadEventStart"
+  ],
+  [
+   22.222,
+   "loadEventEnd"
+  ],
+  [
+   28.233,
+   "F-done"
+  ],
+  [
+   28.234,
+   "G-longturn"
+  ],
+  [
+   28.236,
+   "navigationStart"
+  ],
+  [
+   28.236,
+   "fetchStart"
+  ],
+  [
+   28.242,
+   "responseEnd"
+  ],
+  [
+   28.251,
+   "unloadEventStart"
+  ],
+  [
+   28.251,
+   "unloadEventEnd"
+  ],
+  [
+   28.252,
+   "commitNavigationEnd"
+  ],
+  [
+   28.253,
+   "domLoading"
+  ],
+  [
+   28.596,
+   "domInteractive"
+  ],
+  [
+   28.596,
+   "domContentLoadedEventStart"
+  ],
+  [
+   28.6,
+   "domContentLoadedEventEnd"
+  ],
+  [
+   28.602,
+   "domComplete"
+  ],
+  [
+   28.602,
+   "loadEventStart"
+  ],
+  [
+   28.602,
+   "loadEventEnd"
+  ],
+  [
+   36.107,
+   "G-done"
+  ],
+  [
+   36.108,
+   "H-archive"
+  ],
+  [
+   39.441,
+   "H-done"
+  ]
+ ],
+ "long_tasks": [
+  {
+   "t": 0.191,
+   "ms": 137.94,
+   "phase": "domLoading",
+   "sub": [
+    [
+     "EvaluateScript",
+     1,
+     137.81,
+     137.81
+    ],
+    [
+     "v8.run",
+     1,
+     133.39,
+     133.39
+    ],
+    [
+     "v8.compile",
+     1,
+     4.33,
+     4.33
+    ]
+   ]
+  },
+  {
+   "t": 0.953,
+   "ms": 57.34,
+   "phase": "loadEventEnd",
+   "sub": [
+    [
+     "ProxyMain::BeginMainFrame",
+     1,
+     57.3,
+     57.3
+    ],
+    [
+     "FireAnimationFrame",
+     4,
+     53.15,
+     38.38
+    ],
+    [
+     "v8.callFunction",
+     4,
+     53.08,
+     38.36
+    ],
+    [
+     "FunctionCall",
+     4,
+     38.77,
+     24.38
+    ],
+    [
+     "UpdateLayoutTree",
+     2,
+     4.87,
+     2.64
+    ],
+    [
+     "LocalFrameView::layout",
+     1,
+     3.0,
+     3.0
+    ],
+    [
+     "Layout",
+     1,
+     3.0,
+     3.0
+    ],
+    [
+     "LocalFrameView::performLayout",
+     1,
+     2.98,
+     2.98
+    ],
+    [
+     "LocalFrameView::RunStyleAndLayoutLifecyclePhases",
+     1,
+     2.72,
+     2.72
+    ]
+   ]
+  },
+  {
+   "t": 21.623,
+   "ms": 126.68,
+   "phase": "domLoading",
+   "sub": [
+    [
+     "EvaluateScript",
+     1,
+     126.51,
+     126.51
+    ],
+    [
+     "v8.run",
+     1,
+     122.93,
+     122.93
+    ],
+    [
+     "v8.compile",
+     1,
+     3.5,
+     3.5
+    ]
+   ]
+  },
+  {
+   "t": 22.091,
+   "ms": 100.89,
+   "phase": "loadEventEnd",
+   "sub": [
+    [
+     "ProxyMain::BeginMainFrame",
+     1,
+     100.17,
+     100.17
+    ],
+    [
+     "FireAnimationFrame",
+     5,
+     90.94,
+     59.25
+    ],
+    [
+     "v8.callFunction",
+     5,
+     90.81,
+     59.22
+    ],
+    [
+     "FunctionCall",
+     5,
+     57.97,
+     27.02
+    ],
+    [
+     "UpdateLayoutTree",
+     4,
+     11.35,
+     5.11
+    ],
+    [
+     "MinorGC",
+     4,
+     7.89,
+     4.22
+    ],
+    [
+     "V8.GCScavenger",
+     4,
+     7.81,
+     4.2
+    ],
+    [
+     "MajorGC",
+     1,
+     7.77,
+     7.77
+    ],
+    [
+     "V8.GCFinalizeMC",
+     1,
+     7.68,
+     7.68
+    ],
+    [
+     "V8.GC_MARK_COMPACTOR",
+     1,
+     7.67,
+     7.67
+    ]
+   ]
+  },
+  {
+   "t": 28.461,
+   "ms": 129.72,
+   "phase": "domLoading",
+   "sub": [
+    [
+     "EvaluateScript",
+     1,
+     129.58,
+     129.58
+    ],
+    [
+     "v8.run",
+     1,
+     124.06,
+     124.06
+    ],
+    [
+     "v8.compile",
+     1,
+     5.42,
+     5.42
+    ]
+   ]
+  },
+  {
+   "t": 28.798,
+   "ms": 82.19,
+   "phase": "loadEventEnd",
+   "sub": [
+    [
+     "ProxyMain::BeginMainFrame",
+     1,
+     81.45,
+     81.45
+    ],
+    [
+     "FireAnimationFrame",
+     4,
+     72.22,
+     58.12
+    ],
+    [
+     "v8.callFunction",
+     4,
+     72.15,
+     58.1
+    ],
+    [
+     "FunctionCall",
+     4,
+     38.97,
+     25.27
+    ],
+    [
+     "MajorGC",
+     1,
+     12.3,
+     12.3
+    ],
+    [
+     "V8.GCFinalizeMC",
+     1,
+     12.28,
+     12.28
+    ],
+    [
+     "V8.GC_MARK_COMPACTOR",
+     1,
+     12.27,
+     12.27
+    ],
+    [
+     "V8.GC_MC_MARK",
+     1,
+     9.3,
+     9.3
+    ],
+    [
+     "UpdateLayoutTree",
+     3,
+     9.13,
+     5.16
+    ],
+    [
+     "V8.GC_MC_MARK_FULL_CLOSURE_PARALLEL",
+     1,
+     9.11,
+     9.11
+    ]
+   ]
+  },
+  {
+   "t": 29.196,
+   "ms": 143.51,
+   "phase": "loadEventEnd",
+   "sub": [
+    [
+     "UpdateLayoutTree",
+     1,
+     2.17,
+     2.17
+    ],
+    [
+     "LocalFrameView::layout",
+     1,
+     1.12,
+     1.12
+    ],
+    [
+     "Layout",
+     1,
+     1.12,
+     1.12
+    ],
+    [
+     "LocalFrameView::performLayout",
+     1,
+     1.07,
+     1.07
+    ]
+   ]
+  }
+ ],
+ "intervals": [
+  {
+   "from": "A-heavy-open",
+   "window_s": [
+    0.003,
+    9.101
+   ],
+   "max_task_ms": 137.94,
+   "tasks_gt50": 2,
+   "total_task_ms": 1186.15
+  },
+  {
+   "from": "A-heavy-done",
+   "window_s": [
+    9.101,
+    9.102
+   ],
+   "max_task_ms": 0.25,
+   "tasks_gt50": 0,
+   "total_task_ms": 0.25
+  },
+  {
+   "from": "B-scroll",
+   "window_s": [
+    9.102,
+    12.114
+   ],
+   "max_task_ms": 6.98,
+   "tasks_gt50": 0,
+   "total_task_ms": 97.79
+  },
+  {
+   "from": "B-done",
+   "window_s": [
+    12.114,
+    12.115
+   ],
+   "max_task_ms": 0.3,
+   "tasks_gt50": 0,
+   "total_task_ms": 0.3
+  },
+  {
+   "from": "C-sidebar",
+   "window_s": [
+    12.115,
+    15.152
+   ],
+   "max_task_ms": 26.23,
+   "tasks_gt50": 0,
+   "total_task_ms": 301.67
+  },
+  {
+   "from": "C-done",
+   "window_s": [
+    15.152,
+    15.153
+   ],
+   "max_task_ms": 0.24,
+   "tasks_gt50": 0,
+   "total_task_ms": 0.24
+  },
+  {
+   "from": "D-switch",
+   "window_s": [
+    15.153,
+    18.338
+   ],
+   "max_task_ms": 37.27,
+   "tasks_gt50": 0,
+   "total_task_ms": 1113.21
+  },
+  {
+   "from": "D-done",
+   "window_s": [
+    18.338,
+    18.339
+   ],
+   "max_task_ms": 0.29,
+   "tasks_gt50": 0,
+   "total_task_ms": 0.29
+  },
+  {
+   "from": "E-panel",
+   "window_s": [
+    18.339,
+    21.461
+   ],
+   "max_task_ms": 34.2,
+   "tasks_gt50": 0,
+   "total_task_ms": 367.6
+  },
+  {
+   "from": "E-done",
+   "window_s": [
+    21.461,
+    21.462
+   ],
+   "max_task_ms": 0.19,
+   "tasks_gt50": 0,
+   "total_task_ms": 0.19
+  },
+  {
+   "from": "F-report",
+   "window_s": [
+    21.462,
+    28.233
+   ],
+   "max_task_ms": 126.68,
+   "tasks_gt50": 2,
+   "total_task_ms": 1928.38
+  },
+  {
+   "from": "F-done",
+   "window_s": [
+    28.233,
+    28.234
+   ],
+   "max_task_ms": 0.24,
+   "tasks_gt50": 0,
+   "total_task_ms": 0.24
+  },
+  {
+   "from": "G-longturn",
+   "window_s": [
+    28.234,
+    36.107
+   ],
+   "max_task_ms": 143.51,
+   "tasks_gt50": 3,
+   "total_task_ms": 1175.05
+  },
+  {
+   "from": "G-done",
+   "window_s": [
+    36.107,
+    36.108
+   ],
+   "max_task_ms": 0.2,
+   "tasks_gt50": 0,
+   "total_task_ms": 0.2
+  },
+  {
+   "from": "H-archive",
+   "window_s": [
+    36.108,
+    39.441
+   ],
+   "max_task_ms": 21.08,
+   "tasks_gt50": 0,
+   "total_task_ms": 216.61
+  }
+ ]
+}

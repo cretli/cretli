@@ -57,10 +57,12 @@ const streamedRoom = {};
 resetHarnessPlanCapture(streamedRoom);
 captureHarnessPlanFromSdkEvent(streamedRoom, {
   type: 'assistant',
+  streamTextMode: 'delta',
   message: { role: 'assistant', content: [{ type: 'text', text: 'Zaczynam od ' }] },
 });
 captureHarnessPlanFromSdkEvent(streamedRoom, {
   type: 'assistant',
+  streamTextMode: 'delta',
   message: { role: 'assistant', content: [{ type: 'text', text: 'lokalnego kodu.\n\n- punkt' }] },
 });
 assert.equal(streamedRoom._currentRunAssistantText, 'Zaczynam od lokalnego kodu.\n\n- punkt');

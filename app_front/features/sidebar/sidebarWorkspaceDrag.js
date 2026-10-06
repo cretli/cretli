@@ -16,6 +16,10 @@
  */
 
 import { collectWorkspaceKeysFromList, computeDropIndex } from './sidebarWorkspaceOrder.js';
+import {
+  collectWorkspaceHostsFromList,
+  resolveWorkspaceDragHostFromHeader,
+} from './sidebarWorkspaceDragBlock.js';
 
 const HOLD_MS = 250;
 const MOVE_CANCEL_PX = 8;
@@ -41,9 +45,9 @@ export function initSidebarWorkspaceDrag({
     return { isDragging: () => false };
   }
 
-  /** @type {{ li: HTMLElement, startX: number, startY: number, timer: number } | null} */
+  /** @type {{ host: HTMLElement, startX: number, startY: number, timer: number } | null} */
   let pending = null;
-  /** @type {{ li: HTMLElement, list: HTMLElement, lastY: number, raf: number, originalKeys: string[], moved: boolean } | null} */
+  /** @type {{ host: HTMLElement, list: HTMLElement, lastY: number, raf: number, originalKeys: string[], moved: boolean } | null} */
   let drag = null;
   let suppressClick = false;
 
@@ -54,22 +58,23 @@ export function initSidebarWorkspaceDrag({
   }
 
   function orderedWorkspaceItems(list) {
-    return Array.from(list.querySelectorAll(':scope > .sidebar-workspace'));
+    return collectWorkspaceHostsFromList(list);
   }
 
   function beginDrag(pending2) {
-    const list = pending2.li.parentElement;
+    const list = pending2.host.parentElement;
     if (!list) return;
     const originalKeys = collectWorkspaceKeysFromList(list);
     drag = {
-      li: pending2.li,
+      host: pending2.host,
       list,
       lastY: pending2.startY,
       raf: 0,
       originalKeys,
       moved: false,
     };
-    pending2.li.classList.add('is-dragging');
+    const visual = pending2.host.querySelector('.sidebar-workspace') || pending2.host;
+    if (visual instanceof HTMLElement) visual.classList.add('is-dragging');
     document.body?.classList.add('sidebar-workspace-drag-active');
     drag.raf = requestAnimationFrame(rafStep);
   }
@@ -81,19 +86,19 @@ export function initSidebarWorkspaceDrag({
    */
   function moveDraggedItem(y) {
     if (!drag) return;
-    const siblings = orderedWorkspaceItems(drag.list).filter((li) => li !== drag.li);
-    const centers = siblings.map((li) => {
-      const rect = li.getBoundingClientRect();
+    const siblings = orderedWorkspaceItems(drag.list).filter((host) => host !== drag.host);
+    const centers = siblings.map((host) => {
+      const rect = host.getBoundingClientRect();
       return rect.top + rect.height / 2;
     });
     const index = computeDropIndex(centers, y);
     const target = index < siblings.length ? siblings[index] : null;
     const isAtTarget = target
-      ? drag.li.nextElementSibling === target
-      : drag.list.lastElementChild === drag.li;
+      ? drag.host.nextElementSibling === target
+      : drag.list.lastElementChild === drag.host;
     if (isAtTarget) return;
     drag.moved = true;
-    drag.list.insertBefore(drag.li, target);
+    drag.list.insertBefore(drag.host, target);
   }
 
   function rafStep() {
@@ -113,7 +118,8 @@ export function initSidebarWorkspaceDrag({
     drag = null;
     if (!finished) return;
     cancelAnimationFrame(finished.raf);
-    finished.li.classList.remove('is-dragging');
+    const visual = finished.host.querySelector('.sidebar-workspace') || finished.host;
+    if (visual instanceof HTMLElement) visual.classList.remove('is-dragging');
     document.body?.classList.remove('sidebar-workspace-drag-active');
     try {
       if (!finished.moved) return;
@@ -144,12 +150,13 @@ export function initSidebarWorkspaceDrag({
     if (target.closest('.sidebar-workspace-new-btn')) return;
     const header = target.closest('.sidebar-workspace-header');
     if (!header) return;
-    const li = header.closest('.sidebar-workspace');
-    if (!li || !(li instanceof HTMLElement)) return;
-    const siblings = li.parentElement?.querySelectorAll(':scope > .sidebar-workspace');
-    if (!siblings || siblings.length < 2) return;
+    const host = resolveWorkspaceDragHostFromHeader(header);
+    if (!host) return;
+    const list = host.parentElement;
+    const siblings = list ? collectWorkspaceHostsFromList(list) : [];
+    if (siblings.length < 2) return;
     pending = {
-      li,
+      host,
       startX: ev.clientX,
       startY: ev.clientY,
       timer: window.setTimeout(() => {

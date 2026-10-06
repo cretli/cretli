@@ -12,6 +12,7 @@ import {
   resolveBackgroundMonitorMode,
   selectBackgroundWsChatIds,
   selectMonitoredChatIds,
+  selectMonitoredChatIdsAsync,
   selectHistoryHttpChatIds,
   shouldSkipBackgroundHistoryHttp,
   capHistoryHttpJobs,
@@ -21,6 +22,14 @@ import {
   resolveBackgroundHttpBatchDelayMs,
   resolveBackgroundHttpBatchSize,
 } from './chatWsReconnectPolicy.js';
+import { getUiFreezeCounters } from '../../lib/uiFreezeCounters.js';
+import {
+  beginPendingRemoteHistoryBatch,
+  configureChatPendingRemoteHistoryPublisher,
+  endPendingRemoteHistoryBatch,
+  flushPendingRemoteHistoryPublish,
+  setChatPendingRemoteHistoryFlag,
+} from './chatPendingRemoteHistoryFlag.js';
 import {
   ACTIVE_CHAT_HISTORY_POLL_WS_GRACE_MS,
   RESUME_POLL_DEFER_MOBILE_MS,
@@ -104,7 +113,7 @@ let presenceUncertaintyAt = 0;
  * @property {() => string | null} getActiveChatId
  * @property {(chat: object, context?: object) => Promise<{ status?: string } | void>} syncSdkHistoryOnResume
  * @property {{ log: (tag: string, message: string, payload?: object) => void }} appLogger
- * @property {() => void} [onPendingHistoryChange]
+ * @property {(changedChats: object[], meta?: { ids?: string[], addedIds?: string[], removedIds?: string[] }) => void} [onPendingHistoryChange]
  * @property {(ids?: string[]) => void} [onAgentStatesChange]
  * @property {(ids?: string[]) => void} [onAgentPresenceChange]
  * @property {() => 'local' | 'redis' | string} [getSdkRoomBusMode]
@@ -140,20 +149,6 @@ export function leaveChatHistoryRevisionPoll() {
   pollQueued = false;
   pollInFlight = false;
   return again;
-}
-
-/**
- * @param {object} chat
- * @param {boolean} pending
- */
-function setChatPendingRemoteHistory(chat, pending) {
-  if (!chat) return;
-  const next = pending === true;
-  if (chat._pendingRemoteHistory === next) return;
-  chat._pendingRemoteHistory = next;
-  if (typeof deps?.onPendingHistoryChange === 'function') {
-    deps.onPendingHistoryChange(chat);
-  }
 }
 
 function clearGapRecheck(chatId) {
@@ -406,7 +401,7 @@ async function pullBackgroundHistoryQueue(jobs) {
       ) {
         continue;
       }
-      setChatPendingRemoteHistory(chat, false);
+      setChatPendingRemoteHistoryFlag(chat, false);
       clearGapRecheck(chat.id);
       deps.appLogger.log('chat-history-poll', 'background history synced', {
         chatId: chat.id,
@@ -416,6 +411,7 @@ async function pullBackgroundHistoryQueue(jobs) {
         pageLimit: CHAT_HISTORY_BACKGROUND_PULL_LIMIT,
       });
     }
+    flushPendingRemoteHistoryPublish();
     if (isMobileLikeClient()) await waitMs(BACKGROUND_HISTORY_SYNC_GAP_MS);
   }
 }
@@ -522,12 +518,29 @@ export function __resetAgentPresenceSyncForTest() {
 }
 
 /**
- * One revision-poll pass. Exported so the blocked-chat exclusion can be regression-tested
- * without timers; production passes run through `pollChatHistoryRevisions`.
+ * Wrapper around one revision-poll pass. Pending UI publishes are batched only
+ * around synchronous flag updates inside the pass (not across awaits). With the
+ * freeze diagnostics flag off the counter calls are no-ops.
  *
  * @returns {Promise<void>}
  */
 export async function runChatHistoryRevisionPoll() {
+  const counters = getUiFreezeCounters();
+  if (counters) counters.beginPendingBatch();
+  try {
+    await runChatHistoryRevisionPollPass();
+  } finally {
+    if (counters) counters.endPendingBatch();
+  }
+}
+
+/**
+ * One revision-poll pass. Runs through `runChatHistoryRevisionPoll`; kept as a
+ * separate function so the batch wrapper can measure the whole pass.
+ *
+ * @returns {Promise<void>}
+ */
+async function runChatHistoryRevisionPollPass() {
   if (!deps || typeof document === 'undefined' || document.hidden) return;
   // Blocked persisted local chats are dropped before any agent-state/history HTTP so a
   // missing/disabled plugin can never drive SDK sync for that chat.
@@ -559,8 +572,31 @@ export async function runChatHistoryRevisionPoll() {
   );
   if (eligibleChats.length === 0) return;
   const activeChatId = deps.getActiveChatId();
+  // Task 0.1/3.1: while diagnostics are on, report the raw candidate reasons
+  // ("before") and the archive-gated result ("after") per chat, split by
+  // archivedAt. Production keeps the exact previous call.
+  const pollCounters = getUiFreezeCounters();
+  const classifiedOptions = pollCounters
+    ? {
+      onClassified: (chat, info) => {
+        for (const reason of info.candidateReasons) {
+          pollCounters.recordMonitoringCandidate({ reason, archived: info.archived });
+        }
+        for (const reason of info.reasons) {
+          pollCounters.recordMonitoringQualification({ reason, archived: info.archived });
+        }
+      },
+    }
+    : {};
+  const monitoredSet = await selectMonitoredChatIdsAsync(
+    eligibleChats,
+    deps.getActiveChatId,
+    getChatActivityAt,
+    Date.now(),
+    classifiedOptions,
+  );
   const monitoredChatIds = selectHistoryHttpChatIds(
-    selectMonitoredChatIds(eligibleChats, deps.getActiveChatId, getChatActivityAt),
+    monitoredSet,
     eligibleChats,
     {
       activeChatId,
@@ -569,6 +605,12 @@ export async function runChatHistoryRevisionPoll() {
   );
   const wsChatIds = selectBackgroundWsChatIds(eligibleChats, deps.getActiveChatId, getChatActivityAt, now);
   const monitoredChats = eligibleChats.filter((chat) => monitoredChatIds.has(chat.id));
+  if (pollCounters) {
+    pollCounters.bump('poll.passes');
+    pollCounters.bump('poll.eligibleChats', eligibleChats.length);
+    pollCounters.bump('poll.monitoredChats', monitoredChats.length);
+    pollCounters.bump('poll.visibleChats', getRenderedSidebarChatIds().size);
+  }
   if (monitoredChats.length === 0) return;
   try {
     const response = await getChatHistoryRevisions(monitoredChats.map((chat) => chat.id));
@@ -576,6 +618,8 @@ export async function runChatHistoryRevisionPoll() {
     const revisions = response.revisions && typeof response.revisions === 'object' ? response.revisions : {};
     /** @type {Array<{ chat: object, revision: object }>} */
     const backgroundHttpJobs = [];
+    beginPendingRemoteHistoryBatch();
+    try {
     for (const chat of monitoredChats) {
       // Re-check the live state after the revision request and immediately before any
       // active resume sync or background fetch/ingest: a chat that flipped to blocking
@@ -583,7 +627,7 @@ export async function runChatHistoryRevisionPoll() {
       if (isBlockingPersistedLocalChatHarnessState(chat)) continue;
       const revision = revisions[chat.id];
       if (!revision || typeof revision.headSeq !== 'number') {
-        setChatPendingRemoteHistory(chat, false);
+        setChatPendingRemoteHistoryFlag(chat, false);
         clearGapRecheck(chat.id);
         continue;
       }
@@ -592,11 +636,11 @@ export async function runChatHistoryRevisionPoll() {
       const storeLag = revision.headSeq > localAck;
       const viewLag = revision.headSeq > viewAppliedSeq;
       if (!storeLag && !viewLag) {
-        setChatPendingRemoteHistory(chat, false);
+        setChatPendingRemoteHistoryFlag(chat, false);
         clearGapRecheck(chat.id);
         continue;
       }
-      setChatPendingRemoteHistory(chat, true);
+      setChatPendingRemoteHistoryFlag(chat, true);
       if (!gapFirstSeenAt.has(chat.id)) gapFirstSeenAt.set(chat.id, now);
       const isActive = chat.id === activeChatId;
       const monitorMode = resolveBackgroundMonitorMode(
@@ -614,7 +658,7 @@ export async function runChatHistoryRevisionPoll() {
         })
       ) {
         if (!viewLag) {
-          setChatPendingRemoteHistory(chat, false);
+          setChatPendingRemoteHistoryFlag(chat, false);
           clearGapRecheck(chat.id);
         }
         continue;
@@ -636,7 +680,7 @@ export async function runChatHistoryRevisionPoll() {
           })
         ) {
           if (!viewLag) {
-            setChatPendingRemoteHistory(chat, false);
+            setChatPendingRemoteHistoryFlag(chat, false);
             clearGapRecheck(chat.id);
           } else {
             const graceLeft = ACTIVE_CHAT_HISTORY_POLL_WS_GRACE_MS - (now - gapObservedAt);
@@ -646,6 +690,8 @@ export async function runChatHistoryRevisionPoll() {
           }
           continue;
         }
+        // Close the sync batch and publish before the long resume fetch.
+        endPendingRemoteHistoryBatch();
         const result = await deps.syncSdkHistoryOnResume(chat, { reason: 'cross_device_poll' });
         const viewSeqAfter = getViewAppliedSeq(chat.id, chat);
         const followUp = resolveHistorySyncPollFollowUp({
@@ -657,7 +703,7 @@ export async function runChatHistoryRevisionPoll() {
         });
         if (followUp.canClearPending) {
           lastActiveHistorySyncAt.set(chat.id, Date.now());
-          setChatPendingRemoteHistory(chat, false);
+          setChatPendingRemoteHistoryFlag(chat, false);
           clearGapRecheck(chat.id);
           historySyncRetryAttempt.delete(chat.id);
         } else if (followUp.retryDelayMs > 0) {
@@ -674,12 +720,20 @@ export async function runChatHistoryRevisionPoll() {
         } else if (followUp.notifyReachable) {
           notifyChatBackendReachable(chat);
         }
+        flushPendingRemoteHistoryPublish();
+        beginPendingRemoteHistoryBatch();
         continue;
       }
       const backoffUntil = emptyPullBackoffUntil.get(chat.id) || 0;
       if (backoffUntil > now) continue;
       backgroundHttpJobs.push({ chat, revision });
     }
+    } finally {
+      endPendingRemoteHistoryBatch();
+    }
+    // Flush before the background batch HTTP: a long pull must not hold back
+    // the badges for the chats already marked in this pass.
+    flushPendingRemoteHistoryPublish();
     await pullBackgroundHistoryQueue(backgroundHttpJobs);
   } catch (err) {
     deps.appLogger.log('chat-history-poll', 'revision poll failed', {
@@ -747,6 +801,9 @@ function bindVisibilitySync() {
  */
 export function initChatHistorySyncPoll(dependencies) {
   deps = dependencies;
+  // All three pending writers (poll, push inbox, convergence run) publish UI
+  // changes through this single callback so one synchronous batch = one render.
+  configureChatPendingRemoteHistoryPublisher(deps?.onPendingHistoryChange);
   bindVisibilitySync();
   startPolling();
 }
@@ -754,6 +811,7 @@ export function initChatHistorySyncPoll(dependencies) {
 export function stopChatHistorySyncPoll() {
   stopPolling();
   deps = null;
+  configureChatPendingRemoteHistoryPublisher(null);
   pollInFlight = false;
   pollQueued = false;
   lastActiveHistorySyncAt.clear();

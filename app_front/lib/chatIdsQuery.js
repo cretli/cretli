@@ -10,6 +10,62 @@ export const MAX_CHAT_IDS_QUERY_LENGTH = 2048;
 /** Max chats in one POST /api/chats/history-batch body. Empty list is invalid, not "all". */
 export const MAX_CHAT_HISTORY_BATCH = 32;
 
+/** Max chat ids in one POST /api/chats/history-revisions-batch body. */
+export const MAX_CHAT_REVISIONS_BATCH = 32;
+
+/** Max sequential GET/POST parts when merging one explicit revision fetch. */
+export const MAX_CHAT_REVISIONS_FETCH_PARTS = 32;
+
+/**
+ * @param {unknown} [chatIds]
+ * @returns {string[]}
+ */
+export function normalizeExplicitChatIds(chatIds = []) {
+  if (!Array.isArray(chatIds)) return [];
+  return chatIds.map((id) => String(id || '').trim()).filter(Boolean);
+}
+
+/**
+ * @param {unknown} [chatIds]
+ * @returns {boolean}
+ */
+export function fitsChatIdsQuery(chatIds = []) {
+  const normalized = normalizeExplicitChatIds(chatIds);
+  if (normalized.length === 0) return true;
+  return normalized.join(',').length <= MAX_CHAT_IDS_QUERY_LENGTH;
+}
+
+/**
+ * Split an explicit id list into bounded chunks for revision HTTP.
+ *
+ * @param {unknown} [chatIds]
+ * @param {number} [maxChunkSize]
+ * @returns {string[][]}
+ */
+export function chunkExplicitChatIds(chatIds = [], maxChunkSize = MAX_CHAT_REVISIONS_BATCH) {
+  const normalized = normalizeExplicitChatIds(chatIds);
+  if (normalized.length === 0) return [];
+  const size = Math.max(1, Number(maxChunkSize) || MAX_CHAT_REVISIONS_BATCH);
+  /** @type {string[][]} */
+  const chunks = [];
+  for (let offset = 0; offset < normalized.length; offset += size) {
+    chunks.push(normalized.slice(offset, offset + size));
+  }
+  return chunks;
+}
+
+/**
+ * Explicit revisions-batch body. Returns null when there are no valid ids.
+ *
+ * @param {unknown} [chatIds]
+ * @returns {{ ids: string[] } | null}
+ */
+export function buildChatHistoryRevisionsBatchBody(chatIds = []) {
+  const normalized = normalizeExplicitChatIds(chatIds);
+  if (normalized.length === 0) return null;
+  return { ids: normalized.slice(0, MAX_CHAT_REVISIONS_BATCH) };
+}
+
 /**
  * Explicit history-batch body. Returns null when there are no valid ids
  * (caller must not POST — missing ids must never mean every chat).
@@ -43,11 +99,9 @@ export function buildChatHistoryBatchBody(requests = []) {
  * @returns {string} `ids=...` or empty
  */
 export function buildChatIdsQuery(chatIds = []) {
-  if (!Array.isArray(chatIds) || chatIds.length === 0) return '';
-  const joined = chatIds
-    .map((id) => String(id || '').trim())
-    .filter(Boolean)
-    .join(',');
-  if (!joined || joined.length > MAX_CHAT_IDS_QUERY_LENGTH) return '';
+  const normalized = normalizeExplicitChatIds(chatIds);
+  if (normalized.length === 0) return '';
+  const joined = normalized.join(',');
+  if (joined.length > MAX_CHAT_IDS_QUERY_LENGTH) return null;
   return new URLSearchParams({ ids: joined }).toString();
 }

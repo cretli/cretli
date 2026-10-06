@@ -37,6 +37,23 @@ export function isHarnessErrorAssistantText(text) {
 }
 
 /**
+ * A truly empty assistant payload (Codex turn/item lifecycle events) must not
+ * open an answer card.
+ *
+ * A whitespace-only payload is NOT empty: token-delta harnesses (DeepSeek,
+ * Qwen, Claude, CodeBuddy) stream newlines, indentation and spaces as their own
+ * deltas. Dropping those deltas glues lines together and leaves Markdown fences
+ * open, so the live answer renders as raw/plain text until the page reloads the
+ * server-persisted (whitespace-preserving) history.
+ *
+ * @param {unknown} text
+ * @returns {boolean}
+ */
+export function isEmptyAssistantStreamPayload(text) {
+  return (typeof text === 'string' ? text : '') === '';
+}
+
+/**
  * @param {object} chat
  * @param {string} accKey
  * @param {string} full

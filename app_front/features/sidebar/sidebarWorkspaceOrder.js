@@ -91,15 +91,62 @@ export function workspaceOrderIndex(workspace, order) {
 }
 
 /**
+ * Direct workspace list children (`<cr-sidebar-workspace>` hosts, or legacy `<li>`).
+ *
+ * @param {ParentNode | null | undefined} list
+ * @returns {HTMLElement[]}
+ */
+export function collectWorkspaceHostsFromList(list) {
+  if (!list || typeof list.querySelectorAll !== 'function') return [];
+  const hosts = Array.from(list.querySelectorAll(':scope > cr-sidebar-workspace')).filter(
+    (node) => node instanceof HTMLElement,
+  );
+  if (hosts.length) return hosts;
+  return Array.from(list.querySelectorAll(':scope > .sidebar-workspace')).filter(
+    (node) => node instanceof HTMLElement,
+  );
+}
+
+/**
+ * @param {Element | null | undefined} node
+ * @returns {string}
+ */
+export function readWorkspaceKeyFromListNode(node) {
+  if (!(node instanceof HTMLElement)) return '';
+  if (node.localName === 'cr-sidebar-workspace') {
+    return String(node.getAttribute('sidebar-key') || '').trim();
+  }
+  if (node.classList.contains('sidebar-workspace')) {
+    return String(node.dataset?.sidebarKey || '').trim();
+  }
+  const host = node.closest('cr-sidebar-workspace');
+  if (host instanceof HTMLElement) {
+    return String(host.getAttribute('sidebar-key') || '').trim();
+  }
+  return '';
+}
+
+/**
+ * List child used for drag reorder: Lit host when present, else the workspace `<li>`.
+ *
+ * @param {HTMLElement} workspaceLi
+ * @returns {HTMLElement}
+ */
+export function sidebarWorkspaceListHostOf(workspaceLi) {
+  if (!(workspaceLi instanceof HTMLElement)) return workspaceLi;
+  const host = workspaceLi.closest('cr-sidebar-workspace');
+  return host instanceof HTMLElement ? host : workspaceLi;
+}
+
+/**
  * `sidebarKey`s of workspace groups that are direct children of the list.
  *
  * @param {ParentNode | null | undefined} list
  * @returns {string[]}
  */
 export function collectWorkspaceKeysFromList(list) {
-  if (!list || typeof list.querySelectorAll !== 'function') return [];
-  return Array.from(list.querySelectorAll(':scope > .sidebar-workspace'))
-    .map((li) => (li.dataset && li.dataset.sidebarKey) || '')
+  return collectWorkspaceHostsFromList(list)
+    .map((node) => readWorkspaceKeyFromListNode(node))
     .filter((key) => key);
 }
 

@@ -5,6 +5,7 @@
 import {
   extractAssistantPlainText,
   isHarnessErrorAssistantText,
+  isEmptyAssistantStreamPayload,
   projectStreamAccumulator,
   resetSdkStreamState,
   takeStreamDelta,
@@ -56,7 +57,10 @@ import {
   registerRunItem,
   stopSdkBlockSpinners,
 } from '../../lib/sdk/sdk-run-block-registry.js';
-import { splitHistoryPageAtUserTurn } from '../../lib/sdk/sdk-history-turn-window.js';
+import {
+  isUserTurnBoundaryRecord,
+  splitHistoryPageAtUserTurn,
+} from '../../lib/sdk/sdk-history-turn-window.js';
 import {
   findReusableSdkAssistantBlockIndex,
   restoreSdkAssistantAccumulator,
@@ -74,7 +78,20 @@ import { parseContextSeedPayload } from './context-seed-payload.js';
 import { parseInheritedPrompt } from '../../lib/conversation-fork.js';
 import { registerPageResumeCleanupHook } from './pageResumeCleanup.js';
 import { isUiFreezeTraceActive } from './uiFreezeTrace.js';
-import { measureSpan } from './chatPerfBudget.js';
+import { measureSpan, monoNow } from './chatPerfBudget.js';
+import {
+  createHistoryReplayLifecycleForView,
+  HISTORY_REPLAY_SYNC_HEAD,
+} from './chatHistoryReplayLifecycle.js';
+import { runHistoryReplayAsyncTail } from './chatHistoryReplayAsyncLoop.js';
+import { runHistoryReplayApplySlices } from './chatHistoryReplayApplySlice.js';
+import { runHistoryReplayFinalizeSlices } from './chatHistoryReplayFinalizeSlice.js';
+import { createViewportAnchorBatchController } from './sdkRichViewViewportBatch.js';
+import { createChatHistoryReplayGenerationGate } from './chatHistoryReplayGenerationGate.js';
+import {
+  buildHistoryReplayResult,
+  emptyHistoryReplayResult,
+} from './chatHistoryReplayResult.js';
 import { getChatSpeaker } from '../features/voice/chatSpeaker.js';
 import { t } from '../i18n/index.js';
 import { resolveHarnessDisplayLabel } from '../features/chat/sdk-transport-labels.js';
@@ -101,6 +118,15 @@ import {
 } from '../../lib/delegation-rating-constants.js';
 import { parseRelatedChatPayload } from '../../lib/chat-relation-payload.js';
 import {
+  buildHistoryCardReportHostHtml,
+  wireHistoryCardReportControls,
+} from './delegationHistoryCardReport.js';
+import {
+  buildBoundedToolJsonPreview,
+  buildToolOutputResultSectionHtml,
+  extractPrimaryToolOutputText,
+} from './sdkToolCallOutputPreview.js';
+import {
   hasViewOrderKey,
   isSameViewOrderKey,
   resolveEventStreamId,
@@ -109,12 +135,34 @@ import {
   viewOrderIdentity,
 } from '../features/chat/chatHistoryViewOrder.js';
 import {
+  clearHistoryMountedParking,
+  getHistoryParkedNewerLocal,
+  prependHistoryOlderLocal,
+  prependHistoryParkedNewerLocal,
+  removeHistoryRecordFromMountedParking,
+  takeHistoryParkedNewerLocal,
+} from '../features/chat/chatHistoryMountedParking.js';
+import {
+  countMountedStreamCards,
+  createMountedDomNodeRegistry,
+  createMountedHistoryRecordRegistry,
+  createMountedViewResourceLedger,
+  isMountedHistoryRecordApplied,
+  isMountedViewOrderKeyApplied,
+  planMountedWindowEviction,
+  releaseEvictedMountedCard,
+  resolveMountedEvictionEdge,
+  resolveMountedRecordIdentity,
+} from './sdkHistoryMountedWindow.js';
+import { UI_FREEZE_CHAT_MOUNTED_RECORD_CAP } from './uiFreezeRenderBudgets.js';
+import {
   foldTimeoutProgressSeriesAtTail,
   isTimeoutProgressSeriesBlock,
   isTimeoutProgressSeriesSkipNode,
   TIMEOUT_PROGRESS_SERIES_CLASS,
   trimTimeoutProgressUpdates,
 } from '../features/chat/timeoutProgressSeries.js';
+import { planRelatedChatChildBackfill } from '../features/chat/relatedChatBackfill.js';
 
 /** @type {import('highlight.js').HLJSApi | null} */
 let hljsEngine = null;
@@ -764,7 +812,7 @@ function sdkEventsFromAgentRow(row) {
  * @param {object} chat
  * @param {HTMLElement} mountEl
    * @param {{ appendPlain: (s: string) => void, onHistoryRecord?: (rec: unknown) => void, loadOlderHistory?: () => Promise<{ records: unknown[], hasOlder: boolean } | null>, onAssistantText?: (text: string) => void, onAnswerEnd?: () => void, onForkFromPoint?: (point: { createdAt: string }) => void }} hooks
- * @returns {{ destroy: () => void, applyEvent: (ev: unknown) => void, onStreamReset: () => void, onHarnessBusy: () => void, onHarnessIdle: () => void, appendUserPrompt: (text: string, opts?: { silent?: boolean }) => void, appendBannerConnected: (opts?: { silent?: boolean }) => void, markUserPromptQueued: (text: string) => boolean, appendRunFinished: (status: string, opts?: { silent?: boolean }) => void, appendBusy: (message: string, opts?: { silent?: boolean }) => void, appendError: (message: string, opts?: { silent?: boolean }) => void, appendMetaNotice: (text: string, opts?: { silent?: boolean }) => void, appendRestoredPlainBuffer: (text: string, summaryLabel?: string) => void, applyAgentMessagesHistory: (rows: Array<{ type?: string, message?: unknown }>) => void, replayHistoryRecords: (records: unknown[]) => void, prependHistoryRecords: (records: unknown[]) => number, setOlderHistoryAvailable: (available: boolean) => void, scrollToBottom: () => void, getCopyText: () => string }}
+ * @returns {{ destroy: () => void, applyEvent: (ev: unknown) => void, onStreamReset: () => void, onHarnessBusy: () => void, onHarnessIdle: () => void, appendUserPrompt: (text: string, opts?: { silent?: boolean }) => void, appendBannerConnected: (opts?: { silent?: boolean }) => void, markUserPromptQueued: (text: string) => boolean, appendRunFinished: (status: string, opts?: { silent?: boolean }) => void, appendBusy: (message: string, opts?: { silent?: boolean }) => void, appendError: (message: string, opts?: { silent?: boolean }) => void, appendMetaNotice: (text: string, opts?: { silent?: boolean }) => void, appendRestoredPlainBuffer: (text: string, summaryLabel?: string) => void, applyAgentMessagesHistory: (rows: Array<{ type?: string, message?: unknown }>) => void, replayHistoryRecords: (records: unknown[], opts?: { instant?: boolean, source?: string }) => Promise<import('./chatHistoryReplayResult.js').HistoryReplayResult>, prependHistoryRecords: (records: unknown[]) => number, setOlderHistoryAvailable: (available: boolean) => void, scrollToBottom: () => void, getCopyText: () => string }}
  */
 export function createSdkRichView(chat, mountEl, hooks) {
   if (!mountEl || typeof hooks?.appendPlain !== 'function') {
@@ -790,6 +838,77 @@ export function createSdkRichView(chat, mountEl, hooks) {
   mountEl.appendChild(realStream);
   /** Render target — temporarily swapped to an offscreen node while paging older history in. */
   let stream = realStream;
+  const historyReplayLifecycle = createHistoryReplayLifecycleForView();
+  const historyReplayGenerationGate = createChatHistoryReplayGenerationGate();
+  const mountedHistoryRecordRegistry = createMountedHistoryRecordRegistry();
+  const mountedDomNodeRegistry = createMountedDomNodeRegistry();
+  const mountedViewResourceLedger = createMountedViewResourceLedger();
+  /** @type {string} Live remount of a parked record must survive the same-turn budget pass. */
+  let pendingLiveRemountProtectIdentity = '';
+
+  /** @type {Map<number, { total: number, applied: number, resolve: (result: import('./chatHistoryReplayResult.js').HistoryReplayResult) => void }>} */
+  const replayOutcomeByGeneration = new Map();
+
+  /**
+   * @param {number} generation
+   * @param {import('./chatHistoryReplayResult.js').HistoryReplayFinishReason} reason
+   */
+  function settleReplayOutcome(generation, reason) {
+    const gen = Math.round(Number(generation) || 0);
+    const entry = replayOutcomeByGeneration.get(gen);
+    if (!entry) return;
+    replayOutcomeByGeneration.delete(gen);
+    entry.resolve(
+      buildHistoryReplayResult({
+        generation: gen,
+        total: entry.total,
+        applied: entry.applied,
+        reason,
+      }),
+    );
+  }
+
+  /** @param {number} nextGeneration */
+  function supersedeOutstandingReplays(nextGeneration) {
+    const nextGen = Math.round(Number(nextGeneration) || 0);
+    for (const [gen, entry] of replayOutcomeByGeneration.entries()) {
+      if (gen >= nextGen) continue;
+      replayOutcomeByGeneration.delete(gen);
+      entry.resolve(
+        buildHistoryReplayResult({
+          generation: gen,
+          total: entry.total,
+          applied: entry.applied,
+          reason: 'superseded',
+        }),
+      );
+    }
+  }
+
+  /**
+   * @param {number} generation
+   * @param {number} total
+   * @returns {Promise<import('./chatHistoryReplayResult.js').HistoryReplayResult>}
+   */
+  function beginReplayOutcome(generation, total) {
+    supersedeOutstandingReplays(generation);
+    if (chat && typeof chat === 'object') {
+      chat._sdkActiveHistoryReplayGeneration = generation;
+    }
+    return new Promise((resolve) => {
+      replayOutcomeByGeneration.set(generation, { total, applied: 0, resolve });
+    });
+  }
+
+  /**
+   * @param {number} generation
+   * @param {number} applied
+   */
+  function noteReplayApplied(generation, applied) {
+    const entry = replayOutcomeByGeneration.get(generation);
+    if (!entry) return;
+    entry.applied = Math.max(entry.applied, Math.min(entry.total, Math.round(Number(applied) || 0)));
+  }
 
   /**
    * Times a render slice only while freeze diag is on.
@@ -912,6 +1031,15 @@ export function createSdkRichView(chat, mountEl, hooks) {
   let preserveViewportAnchor = false;
   /** @type {{ el: HTMLElement, top: number } | null} */
   let pendingViewportAnchor = null;
+  const viewportAnchorBatch = createViewportAnchorBatchController({
+    capture: () => {},
+    restore: () => {
+      if (!preserveViewportAnchor || !pendingViewportAnchor) return;
+      restoreInsertScroll();
+      pendingViewportAnchor = null;
+      preserveViewportAnchor = false;
+    },
+  });
   /** Last node passed through appendStreamChild — cards must not assume lastElementChild. */
   let lastStreamChild = null;
 
@@ -947,7 +1075,39 @@ export function createSdkRichView(chat, mountEl, hooks) {
   /** When true (rendering an older history page) — nothing may pull the viewport to the bottom. */
   let suppressAutoScroll = false;
 
+  function isHistoryHydrating() {
+    return !!(chat && typeof chat === 'object' && chat._sdkHistoryHydrating === true);
+  }
+
+  function noteForcedGeometryRead(kind) {
+    const probe = globalThis.__cretliUiFreezeGeometryProbe;
+    if (!probe || typeof probe !== 'object') return;
+    const key = String(kind || 'unknown');
+    probe[key] = (Number(probe[key]) || 0) + 1;
+  }
+
+  function beginViewportAnchorBatch() {
+    viewportAnchorBatch.begin();
+  }
+
+  function endViewportAnchorBatch() {
+    viewportAnchorBatch.end();
+  }
+
+  /**
+   * @param {unknown[]} records
+   * @param {number} startIndex
+   * @param {number} endIndexExclusive
+   * @param {(record: unknown, index: number) => void} applyFn
+   */
+  function applyHistoryRecordsInViewportBatches(records, startIndex, endIndexExclusive, applyFn) {
+    viewportAnchorBatch.forEachRecordInTimeBudget(startIndex, endIndexExclusive, (index) => {
+      applyFn(records[index], index);
+    });
+  }
+
   function isNearBottom() {
+    if (suppressHistoryPersist) return stickToBottom;
     const maxScroll = mountEl.scrollHeight - mountEl.clientHeight;
     if (maxScroll <= 0) return true;
     return mountEl.scrollTop >= maxScroll - SCROLL_STICK_THRESHOLD_PX;
@@ -961,6 +1121,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
    */
   function isScrollableNearBottom(el) {
     if (!el) return false;
+    if (isHistoryHydrating() || suppressHistoryPersist) return false;
+    noteForcedGeometryRead('scrollHeight');
     const maxScroll = el.scrollHeight - el.clientHeight;
     if (maxScroll <= 0) return true;
     return el.scrollTop >= maxScroll - SCROLL_STICK_THRESHOLD_PX;
@@ -974,9 +1136,11 @@ export function createSdkRichView(chat, mountEl, hooks) {
 
   function updateStickFromScroll() {
     if (suppressScrollStickUpdate) return;
+    const wasAtBottom = stickToBottom;
     stickToBottom = isNearBottom();
     const maxScroll = mountEl.scrollHeight - mountEl.clientHeight;
     scrollToBottomButton.hidden = maxScroll <= SCROLL_STICK_THRESHOLD_PX || stickToBottom;
+    if (!wasAtBottom && stickToBottom) void restoreParkedNewerTailIfNeeded();
   }
 
   /**
@@ -989,19 +1153,52 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (!force && (suppressAutoScroll || preserveViewportAnchor)) return;
     if (!force && !stickToBottom) return;
     if (force) stickToBottom = true;
-    requestAnimationFrame(() => {
-      try {
-        suppressScrollStickUpdate = true;
-        mountEl.scrollTop = mountEl.scrollHeight;
-      } catch (_) {
-        /* ignore */
-      } finally {
-        requestAnimationFrame(() => {
+    const scheduleFrame =
+      typeof requestAnimationFrame === 'function' ? requestAnimationFrame : undefined;
+    historyReplayGenerationGate.scheduleMergedFrameWork(
+      0,
+      () => {
+        try {
+          suppressScrollStickUpdate = true;
+          mountEl.scrollTop = mountEl.scrollHeight;
+        } catch (_) {
+          /* ignore */
+        } finally {
           suppressScrollStickUpdate = false;
           updateStickFromScroll();
-        });
-      }
-    });
+        }
+      },
+      scheduleFrame,
+    );
+  }
+
+  /**
+   * @param {number} replayGeneration
+   * @param {{ force?: boolean } | boolean} [opts]
+   */
+  function scrollToBottomForReplay(replayGeneration, opts) {
+    if (!historyReplayGenerationGate.isActive(replayGeneration)) return;
+    const force = opts === true || (opts && typeof opts === 'object' && opts.force === true);
+    if (!force && (suppressAutoScroll || preserveViewportAnchor)) return;
+    if (!force && !stickToBottom) return;
+    if (force) stickToBottom = true;
+    const scheduleFrame =
+      typeof requestAnimationFrame === 'function' ? requestAnimationFrame : undefined;
+    historyReplayGenerationGate.scheduleGuardedScroll(
+      replayGeneration,
+      () => {
+        try {
+          suppressScrollStickUpdate = true;
+          mountEl.scrollTop = mountEl.scrollHeight;
+        } catch (_) {
+          /* ignore */
+        } finally {
+          suppressScrollStickUpdate = false;
+          updateStickFromScroll();
+        }
+      },
+      scheduleFrame,
+    );
   }
 
   mountEl.addEventListener('scroll', updateStickFromScroll, { passive: true });
@@ -1137,24 +1334,31 @@ export function createSdkRichView(chat, mountEl, hooks) {
    */
   function scheduleMd(mdHost, raw) {
     mdHost.dataset.rawMd = raw;
+    if (mdRenderImmediate) {
+      flushMarkdown(mdHost, raw, { diagrams: false });
+      return;
+    }
     // One shared frame used to paint only the first host. A second Answer
     // created in the same turn kept an empty body.
     if (mdScheduledHost && mdScheduledHost !== mdHost) {
       const previous = mdScheduledHost;
       mdScheduledHost = null;
-      if (mdRaf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(mdRaf);
-      mdRaf = 0;
       flushMarkdown(previous, previous.dataset.rawMd || '', { diagrams: false });
     }
-    if (mdRaf) return;
+    if (mdScheduledHost === mdHost) return;
     mdScheduledHost = mdHost;
-    mdRaf = requestAnimationFrame(() => {
-      mdRaf = 0;
-      const host = mdScheduledHost;
-      mdScheduledHost = null;
-      if (!(host instanceof HTMLElement) || !host.isConnected) return;
-      flushMarkdown(host, host.dataset.rawMd || '', { diagrams: false });
-    });
+    const scheduleFrame =
+      typeof requestAnimationFrame === 'function' ? requestAnimationFrame : undefined;
+    historyReplayGenerationGate.scheduleMergedFrameWork(
+      0,
+      () => {
+        const host = mdScheduledHost;
+        mdScheduledHost = null;
+        if (!(host instanceof HTMLElement) || !host.isConnected) return;
+        flushMarkdown(host, host.dataset.rawMd || '', { diagrams: false });
+      },
+      scheduleFrame,
+    );
   }
 
   whenHljsReady(() => {
@@ -1381,11 +1585,14 @@ export function createSdkRichView(chat, mountEl, hooks) {
       || 0;
     const roomEventSeq = Number(el.dataset.roomEventSeq) || 0;
     const propCreatedAt = /** @type {{ createdAt?: unknown }} */ (el).createdAt;
-    const timeEl = el.querySelector?.('time');
-    const timeValue = timeEl instanceof HTMLTimeElement ? timeEl.dateTime : '';
-    const createdAt = typeof propCreatedAt === 'string' && propCreatedAt.trim()
-      ? propCreatedAt.trim()
-      : (el.dataset.createdAt || timeValue || '').trim();
+    const datasetCreatedAt =
+      typeof el.dataset.createdAt === 'string' ? el.dataset.createdAt.trim() : '';
+    const propTrimmed =
+      typeof propCreatedAt === 'string' && propCreatedAt.trim() ? propCreatedAt.trim() : '';
+    // View order uses durable timestamps only. Live room stamps get wall-clock
+    // block.createdAt for display; that must not reorder HTTP catch-up cards.
+    const createdAt = datasetCreatedAt
+      || (historySeq > 0 && propTrimmed ? propTrimmed : '');
     return {
       ...resolveViewOrderKey({
         historySeq,
@@ -1531,6 +1738,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
    */
   function captureInsertScroll(later) {
     if (!(later instanceof HTMLElement) || !(mountEl instanceof HTMLElement)) return;
+    noteForcedGeometryRead('getBoundingClientRect');
     pendingViewportAnchor = {
       el: later,
       top: later.getBoundingClientRect().top,
@@ -1538,12 +1746,27 @@ export function createSdkRichView(chat, mountEl, hooks) {
     preserveViewportAnchor = true;
   }
 
+  /**
+   * @param {HTMLElement | null} later
+   */
+  function noteInsertBeforeAnchor(later) {
+    if (!(later instanceof HTMLElement)) return;
+    viewportAnchorBatch.noteInsertBefore(
+      () => captureInsertScroll(later),
+      () => {
+        preserveViewportAnchor = true;
+      },
+    );
+  }
+
   function restoreInsertScroll() {
     const anchor = pendingViewportAnchor;
     if (!anchor?.el?.isConnected || !(mountEl instanceof HTMLElement)) return;
+    noteForcedGeometryRead('getBoundingClientRect');
     const delta = anchor.el.getBoundingClientRect().top - anchor.top;
     if (Math.abs(delta) < 0.5) return;
     mountEl.scrollTop += delta;
+    noteForcedGeometryRead('getBoundingClientRect');
     anchor.top = anchor.el.getBoundingClientRect().top;
   }
 
@@ -1567,10 +1790,13 @@ export function createSdkRichView(chat, mountEl, hooks) {
       : null;
     if (!before) {
       stream.appendChild(el);
-      return;
+    } else {
+      preserveViewportAnchor = true;
+      stream.insertBefore(el, before);
     }
-    preserveViewportAnchor = true;
-    stream.insertBefore(el, before);
+    if (stream === realStream) {
+      mountedDomNodeRegistry.trackSubtree(el);
+    }
   }
 
   /**
@@ -1946,6 +2172,72 @@ export function createSdkRichView(chat, mountEl, hooks) {
   }
 
   /**
+   * @param {number} replayGeneration
+   * @returns {Array<() => void>}
+   */
+  function buildHistoryReplayFinalizeSteps(replayGeneration) {
+    const steps = [];
+    for (const [key, st] of runStatusByRun.entries()) {
+      steps.push(() => {
+        if (!historyReplayGenerationGate.isActive(replayGeneration)) return;
+        finalizeRunPresentation(key, st);
+      });
+    }
+    steps.push(() => {
+      if (!historyReplayGenerationGate.isActive(replayGeneration)) return;
+      if (!shouldCloseLiveTurnAfterHistoryReplay(chat)) return;
+      closeLiveTurn();
+    });
+    steps.push(() => {
+      if (!historyReplayGenerationGate.isActive(replayGeneration)) return;
+      foldDuplicateOrderKeyCards();
+    });
+    steps.push(() => {
+      if (!historyReplayGenerationGate.isActive(replayGeneration)) return;
+      adoptTrailingTimeoutProgressSeries();
+    });
+    steps.push(() => {
+      scrollToBottomForReplay(replayGeneration, { force: true });
+    });
+    return steps;
+  }
+
+  /**
+   * @param {number} replayGeneration
+   * @returns {Promise<number>}
+   */
+  async function runHistoryReplayFinalizeForGeneration(replayGeneration) {
+    const scheduleFrame =
+      typeof requestAnimationFrame === 'function' ? requestAnimationFrame : undefined;
+    const result = await runHistoryReplayFinalizeSlices({
+      steps: buildHistoryReplayFinalizeSteps(replayGeneration),
+      replayGeneration,
+      isCancelled: () => !historyReplayGenerationGate.isActive(replayGeneration),
+      scheduleFrame,
+    });
+    return result.finalizeMs;
+  }
+
+  /**
+   * @param {number} replayGeneration
+   * @returns {boolean}
+   */
+  function beginHistoryReplayApplySlice(replayGeneration) {
+    const generation = Math.round(Number(replayGeneration) || 0);
+    if (generation > 0 && !historyReplayGenerationGate.isActive(generation)) return false;
+    suppressHooksPlain = true;
+    suppressHistoryPersist = true;
+    mdRenderImmediate = true;
+    return true;
+  }
+
+  function endHistoryReplayApplySlice() {
+    suppressHooksPlain = false;
+    suppressHistoryPersist = false;
+    mdRenderImmediate = false;
+  }
+
+  /**
    * @param {string} runKey
    */
   function syncThinkingBlockRunning(runKey) {
@@ -2023,19 +2315,61 @@ export function createSdkRichView(chat, mountEl, hooks) {
   function createToolBody(ev) {
     const name = typeof ev.name === 'string' ? ev.name : '';
     const nameLower = name.toLowerCase();
-    const argsStr = stringifySnippet(ev.args, 2400);
-    const resultStr = stringifySnippet(ev.result, 4800);
+    const argsPreview = buildBoundedToolJsonPreview(ev.args);
+    const primaryOutput = extractPrimaryToolOutputText(ev.result);
+    const resultPreview = primaryOutput != null
+      ? null
+      : buildBoundedToolJsonPreview(ev.result);
     const todoSummary = nameLower === 'updatetodos' ? extractTodoSummaryFromToolEvent(ev) : '';
     const searchQuery = parseToolSearchQuery(readToolSearchQuery(ev.args));
     const body = document.createElement('div');
-    const searchSummary = searchQuery
-      ? `<p class="sdk-rich-tool-summary">${escapeHtml(t('sdkView.toolSearchLookingFor', { query: searchQuery }))}</p>`
-      : '';
-    body.innerHTML = `
-  ${todoSummary ? `<pre class="sdk-rich-todos">${escapeHtml(todoSummary)}</pre>` : ''}
-  ${searchSummary}
-  ${argsStr ? `<details class="sdk-rich-nested"><summary>${escapeHtml(t('sdkView.arguments'))}</summary><pre class="sdk-rich-json">${escapeHtml(argsStr)}</pre></details>` : ''}
-  ${resultStr ? `<details class="sdk-rich-nested"${searchQuery ? ' open' : ''}><summary>${escapeHtml(t('sdkView.result'))}</summary><pre class="sdk-rich-json">${escapeHtml(resultStr)}</pre></details>` : ''}`;
+    if (todoSummary) {
+      const todoPre = document.createElement('pre');
+      todoPre.className = 'sdk-rich-todos';
+      todoPre.textContent = todoSummary;
+      body.appendChild(todoPre);
+    }
+    if (searchQuery) {
+      const summary = document.createElement('p');
+      summary.className = 'sdk-rich-tool-summary';
+      summary.textContent = t('sdkView.toolSearchLookingFor', { query: searchQuery });
+      body.appendChild(summary);
+    }
+    if (argsPreview.text) {
+      const argsDetails = document.createElement('details');
+      argsDetails.className = 'sdk-rich-nested';
+      const argsSummary = document.createElement('summary');
+      argsSummary.textContent = t('sdkView.arguments');
+      const argsPre = document.createElement('pre');
+      argsPre.className = 'sdk-rich-json';
+      argsPre.textContent = argsPreview.text;
+      argsDetails.append(argsSummary, argsPre);
+      body.appendChild(argsDetails);
+    }
+    if (primaryOutput != null && primaryOutput.length > 0) {
+      const resultHtml = buildToolOutputResultSectionHtml(primaryOutput, {
+        escapeHtml,
+        t,
+        buildReportHostHtml: (text) => buildHistoryCardReportHostHtml(text, historyCardReportDeps, {
+          preserveWhitespace: true,
+        }),
+      });
+      const resultWrap = document.createElement('div');
+      resultWrap.innerHTML = resultHtml;
+      while (resultWrap.firstChild) body.appendChild(resultWrap.firstChild);
+      decorateHistoryCardReports(body);
+    } else if (resultPreview?.text) {
+      const resultDetails = document.createElement('details');
+      resultDetails.className = 'sdk-rich-nested';
+      if (searchQuery) resultDetails.open = true;
+      const resultSummary = document.createElement('summary');
+      resultSummary.textContent = t('sdkView.result');
+      const resultPre = document.createElement('pre');
+      resultPre.className = 'sdk-rich-json';
+      resultPre.textContent = resultPreview.text;
+      resultDetails.append(resultSummary, resultPre);
+      body.appendChild(resultDetails);
+    }
     return body;
   }
 
@@ -2423,6 +2757,215 @@ export function createSdkRichView(chat, mountEl, hooks) {
     resumeThinkingAfterStreamReset = false;
     resumeAssistantAfterStreamReset = false;
     lastRenderedMode = '';
+  }
+
+  /**
+   * @param {unknown} record
+   * @returns {unknown}
+   */
+  function cloneHistoryRecordForParking(record) {
+    if (!record || typeof record !== 'object') return record;
+    try {
+      return structuredClone(record);
+    } catch {
+      return JSON.parse(JSON.stringify(record));
+    }
+  }
+
+  function purgeDisconnectedRunMaps() {
+    for (const [callId, block] of planByCallId) {
+      if (!(block instanceof HTMLElement) || !block.isConnected) planByCallId.delete(callId);
+    }
+    for (const [callId, record] of toolByCallId) {
+      const block = record?.fullBlock;
+      const tile = record?.tile;
+      const connected =
+        (block instanceof HTMLElement && block.isConnected)
+        || (tile instanceof HTMLElement && tile.isConnected);
+      if (!connected) toolByCallId.delete(callId);
+    }
+  }
+
+  /**
+   * @param {HTMLElement[]} cards
+   * @param {'head' | 'tail'} edge
+   * @param {number} evictCount
+   * @param {ReadonlySet<string>} [skipIdentities]
+   * @returns {HTMLElement[]}
+   */
+  function pickMountedStreamEvictionCards(cards, edge, evictCount, skipIdentities) {
+    const count = Math.max(0, Math.floor(Number(evictCount) || 0));
+    const skip = skipIdentities instanceof Set ? skipIdentities : new Set();
+    if (count <= 0 || cards.length === 0) return [];
+    /** @type {HTMLElement[]} */
+    const picked = [];
+    if (edge === 'head') {
+      for (const card of cards) {
+        if (picked.length >= count) break;
+        if (!(card instanceof HTMLElement)) continue;
+        const identity = viewOrderIdentity(readElementOrderKey(card));
+        if (identity && skip.has(identity)) continue;
+        picked.push(card);
+      }
+      return picked;
+    }
+    for (let index = cards.length - 1; index >= 0 && picked.length < count; index -= 1) {
+      const card = cards[index];
+      if (!(card instanceof HTMLElement)) continue;
+      const identity = viewOrderIdentity(readElementOrderKey(card));
+      if (identity && skip.has(identity)) continue;
+      picked.push(card);
+    }
+    picked.reverse();
+    return picked;
+  }
+
+  /**
+   * @param {'head' | 'tail'} edge
+   * @param {number} evictCount
+   * @param {ReadonlySet<string>} [skipIdentities]
+   * @returns {unknown[]}
+   */
+  function evictMountedStreamCards(edge, evictCount, skipIdentities) {
+    const count = Math.max(0, Math.floor(Number(evictCount) || 0));
+    if (count <= 0 || stream !== realStream) return [];
+    const cards = [...realStream.children].filter((child) => child instanceof HTMLElement);
+    if (cards.length === 0) return [];
+    const slice = pickMountedStreamEvictionCards(cards, edge, count, skipIdentities);
+    /** @type {unknown[]} */
+    const parked = [];
+    for (const el of slice) {
+      const identity = viewOrderIdentity(readElementOrderKey(el));
+      const record = identity ? mountedHistoryRecordRegistry.get(identity) : null;
+      if (record) parked.push(cloneHistoryRecordForParking(record));
+      if (identity) mountedHistoryRecordRegistry.markParked(identity);
+      releaseEvictedMountedCard(el, mountedViewResourceLedger, mountedDomNodeRegistry);
+    }
+    purgeDisconnectedRunMaps();
+    return parked;
+  }
+
+  /**
+   * @param {{ protectTailRemountIdentity?: string }} [opts]
+   */
+  function enforceMountedHistoryWindowBudget(opts = {}) {
+    if (stream !== realStream) return;
+    const mountedCount = countMountedStreamCards(realStream);
+    const edge = resolveMountedEvictionEdge({
+      stickToBottom,
+      isLoadingOlderHistory,
+    });
+    const { evictCount } = planMountedWindowEviction({
+      mountedCount,
+      cap: UI_FREEZE_CHAT_MOUNTED_RECORD_CAP,
+      evictFrom: edge,
+    });
+    if (evictCount <= 0) return;
+    const protectId = String(opts.protectTailRemountIdentity || '').trim();
+    const skipForTail = protectId ? new Set([protectId]) : undefined;
+    let parked = evictMountedStreamCards(edge, evictCount, edge === 'tail' ? skipForTail : undefined);
+    if (parked.length < evictCount && edge === 'tail' && protectId) {
+      const shortfall = evictCount - parked.length;
+      parked = [...parked, ...evictMountedStreamCards('head', shortfall)];
+    }
+    if (parked.length === 0) return;
+    if (edge === 'head') {
+      prependHistoryOlderLocal(chat, parked);
+      return;
+    }
+    prependHistoryParkedNewerLocal(chat, parked);
+  }
+
+  let restoringParkedNewerTail = false;
+
+  async function restoreParkedNewerTailIfNeeded() {
+    if (restoringParkedNewerTail || !stickToBottom) return;
+    const batch = takeHistoryParkedNewerLocal(chat, getHistoryParkedNewerLocal(chat).length);
+    if (batch.length === 0) return;
+    restoringParkedNewerTail = true;
+    try {
+      suppressAutoScroll = false;
+      await appendHistoryRecordsImpl(batch, { instant: true, forceScroll: true });
+      enforceMountedHistoryWindowBudget();
+    } finally {
+      restoringParkedNewerTail = false;
+    }
+  }
+
+  /**
+   * @param {unknown[]} records
+   * @param {{ instant?: boolean, forceScroll?: boolean }} [opts]
+   */
+  async function appendHistoryRecordsImpl(records, opts = {}) {
+    if (!Array.isArray(records) || records.length === 0) return;
+    const instant = opts.instant === true;
+    const forceScroll = opts.forceScroll !== false;
+    const replayGeneration = historyReplayGenerationGate.getActiveGeneration();
+    try {
+      const applyOne = (record) => {
+        applyHistoryRecord(record);
+      };
+      if (instant) {
+        beginViewportAnchorBatch();
+        beginHistoryReplayApplySlice(replayGeneration);
+        try {
+          for (let index = 0; index < records.length; index += 1) {
+            applyOne(records[index]);
+          }
+        } finally {
+          endHistoryReplayApplySlice();
+          endViewportAnchorBatch();
+        }
+      } else {
+        await runHistoryReplayApplySlices({
+          records,
+          startIndex: 0,
+          endIndexExclusive: records.length,
+          replayGeneration,
+          applyHistoryRecord: (record) => {
+            applyOne(record);
+          },
+          onSliceStart: () => {
+            beginViewportAnchorBatch();
+            beginHistoryReplayApplySlice(replayGeneration);
+          },
+          onSliceEnd: () => {
+            endHistoryReplayApplySlice();
+            if (viewportAnchorBatch.getDepth() > 0) endViewportAnchorBatch();
+          },
+          scheduleFrame:
+            typeof requestAnimationFrame === 'function' ? requestAnimationFrame : undefined,
+        });
+        endHistoryReplayApplySlice();
+      }
+    } finally {
+      endHistoryReplayApplySlice();
+      if (replayGeneration > 0 && historyReplayGenerationGate.isActive(replayGeneration)) {
+        await runHistoryReplayFinalizeForGeneration(replayGeneration);
+      } else {
+        finalizeAllTerminalRunPresentations();
+        foldDuplicateOrderKeyCards();
+      }
+    }
+    enforceMountedHistoryWindowBudget();
+    if (preserveViewportAnchor) {
+      preserveViewportAnchor = false;
+      if (forceScroll) {
+        pendingViewportAnchor = null;
+        scrollToBottom({ force: true });
+        return;
+      }
+      void mountEl.offsetHeight;
+      restoreInsertScroll();
+      if (typeof requestAnimationFrame === 'function') {
+        await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        restoreInsertScroll();
+      }
+      pendingViewportAnchor = null;
+      return;
+    }
+    pendingViewportAnchor = null;
+    scrollToBottom({ force: forceScroll });
   }
 
   /**
@@ -3133,8 +3676,11 @@ export function createSdkRichView(chat, mountEl, hooks) {
       const full = extractAssistantPlainText(ev);
       // Some Codex turn/item lifecycle events carry an empty assistant
       // payload. They must not create a visible answer card with only its
-      // header, especially after the final tool/usage event.
-      if (!full.trim() || isHarnessErrorAssistantText(full)) return;
+      // header, especially after the final tool/usage event. A whitespace-only
+      // payload is a real stream delta (newlines/spaces), not an empty event.
+      // The later `!display.trim()` check removes the card if the whole answer
+      // is still blank.
+      if (isEmptyAssistantStreamPayload(full) || isHarnessErrorAssistantText(full)) return;
       stopTimeoutProgressSeries();
       if (activeKind === 'thinking') {
         delete chat._sdkThinkingAcc;
@@ -3596,8 +4142,23 @@ export function createSdkRichView(chat, mountEl, hooks) {
       fn();
       return;
     }
+    const appliedRecord = {
+      historySeq: incomingKey.historySeq,
+      roomEventSeq: incomingKey.roomEventSeq,
+      eventStreamId: incomingKey.eventStreamId,
+    };
+    if (isMountedHistoryRecordApplied(appliedRecord, mountedHistoryRecordRegistry)) {
+      const identity = viewOrderIdentity(incomingKey);
+      if (identity && mountedHistoryRecordRegistry.isMounted(identity)) {
+        return;
+      }
+      removeHistoryRecordFromMountedParking(chat, incomingKey);
+      if (identity) pendingLiveRemountProtectIdentity = identity;
+    } else if (isMountedViewOrderKeyApplied(incomingKey, mountedHistoryRecordRegistry)) {
+      return;
+    }
     const later = stream === realStream ? findInsertBeforeChild(incomingKey) : null;
-    if (later) captureInsertScroll(later);
+    if (later) noteInsertBeforeAnchor(later);
     if (later) {
       withIsolatedRenderState(fn);
       return;
@@ -3624,8 +4185,11 @@ export function createSdkRichView(chat, mountEl, hooks) {
     renderedRecordHistorySeq = historySeq;
     renderedRecordRoomEventSeq = roomEventSeq;
     renderedRecordEventStreamId = eventStreamId;
+    const historyRecordSnapshot = cloneHistoryRecordForParking(record);
+    let didRenderHistoryRecord = false;
     try {
     runViewApplyWithOrder(resolveViewOrderKey({ historySeq, roomEventSeq, eventStreamId }), () => {
+    didRenderHistoryRecord = true;
     if (rec.kind === 'sdk' && rec.event != null && typeof rec.event === 'object') {
       applySdkEvent(rec.event, createdAt, historySeq);
       return;
@@ -3761,6 +4325,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
     }
     });
     } finally {
+      if (didRenderHistoryRecord && resolveMountedRecordIdentity(historyRecordSnapshot)) {
+        mountedHistoryRecordRegistry.note(historyRecordSnapshot);
+      }
       renderedRecordHistorySeq = previousSeq;
       renderedRecordRoomEventSeq = previousRoom;
       renderedRecordEventStreamId = previousStream;
@@ -3812,10 +4379,18 @@ export function createSdkRichView(chat, mountEl, hooks) {
    * @param {string} text
    * @returns {string}
    */
+  const historyCardReportDeps = {
+    escapeHtml,
+    t,
+    renderMarkdown: renderMarkdownSource,
+  };
+
+  /**
+   * @param {string} text
+   * @returns {string}
+   */
   function renderHistoryCardProse(text) {
-    const raw = String(text || '').trim();
-    if (!raw) return '';
-    return `<div class="sdk-md sdk-rich-md sdk-rich-delegation-report">${renderMarkdownSource(raw)}</div>`;
+    return buildHistoryCardReportHostHtml(text, historyCardReportDeps);
   }
 
   /**
@@ -3824,6 +4399,12 @@ export function createSdkRichView(chat, mountEl, hooks) {
   function decorateHistoryCardReports(content) {
     content.querySelectorAll('.sdk-rich-delegation-report').forEach((el) => {
       if (el instanceof HTMLElement) decorateCodeForCopy(el);
+    });
+    wireHistoryCardReportControls(content, {
+      t,
+      renderMarkdown: renderMarkdownSource,
+      writeTextToClipboard,
+      decorateCodeForCopy,
     });
   }
 
@@ -3846,7 +4427,12 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const historySeq = Number(renderedRecordHistorySeq) || 0;
     const previousHistorySeq = Number(card?.dataset.delegationHistorySeq) || 0;
     // A buffered live start may arrive after HTTP restored the finished card.
-    if (previousHistorySeq > 0 && historySeq <= previousHistorySeq) return;
+    if (previousHistorySeq > 0 && historySeq <= previousHistorySeq) {
+      if (card instanceof HTMLElement && childChatId) {
+        card.dataset.childChatId = relatedChatDomId(childChatId);
+      }
+      return;
+    }
     if (!(card instanceof HTMLElement)) {
       lineMeta('sdk-rich-delegation', '', createdAt);
       card = lastStreamChild;
@@ -3855,6 +4441,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (!(card instanceof HTMLElement)) return;
     frameHistoryCard(card, 'sdk-rich-delegation');
     card.dataset.delegationStatus = status;
+    if (childChatId) card.dataset.childChatId = relatedChatDomId(childChatId);
     if (historySeq > 0) card.dataset.delegationHistorySeq = String(historySeq);
     const content = card.querySelector('.sdk-rich-line__content');
     if (!(content instanceof HTMLElement)) return;
@@ -4232,7 +4819,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
   /**
    * @param {unknown} payload
    * @param {string} createdAt
-   * @param {{ prepend?: boolean }} [opts]
+   * @param {{ prepend?: boolean, insertBefore?: Element | null }} [opts]
    */
   function renderRelatedChatCard(payload, createdAt, opts = {}) {
     const data = parseRelatedChatPayload(payload);
@@ -4249,7 +4836,10 @@ export function createSdkRichView(chat, mountEl, hooks) {
       lineMeta('sdk-rich-line--notice sdk-rich-related-chat', '', createdAt);
       card = lastStreamChild;
       if (card instanceof HTMLElement) card.dataset.relatedChatId = safeId;
-      if (opts.prepend === true && card instanceof HTMLElement && stream.firstChild !== card) {
+      const anchor = opts.insertBefore;
+      if (card instanceof HTMLElement && anchor instanceof HTMLElement && anchor.parentNode === stream) {
+        stream.insertBefore(card, anchor);
+      } else if (opts.prepend === true && card instanceof HTMLElement && stream.firstChild !== card) {
         stream.insertBefore(card, stream.firstChild);
       }
     }
@@ -4278,7 +4868,25 @@ export function createSdkRichView(chat, mountEl, hooks) {
   }
 
   /**
+   * Find the delegation card that created a child chat, if it is mounted.
+   *
+   * @param {string} childChatId
+   * @returns {HTMLElement | null}
+   */
+  function findDelegationCardByChildChatId(childChatId) {
+    const safeId = relatedChatDomId(childChatId);
+    if (!safeId) return null;
+    const card = stream.querySelector(`[data-child-chat-id="${safeId}"]`);
+    return card instanceof HTMLElement ? card : null;
+  }
+
+  /**
    * Backfill missing parent/child links from chat metadata for older chats.
+   *
+   * Parent links stay a top navigation affordance. Child links are only placed
+   * next to the delegation card that created them: history already paints each
+   * link inline, and appending the rest at the tail dumped older children at the
+   * bottom of the stream after every resume.
    *
    * @param {{
    *   parent?: { chatId: string, title?: string, reason?: string } | null,
@@ -4304,16 +4912,20 @@ export function createSdkRichView(chat, mountEl, hooks) {
         }, '', { prepend: true });
       }
     }
-    for (const child of Array.isArray(input.children) ? input.children : []) {
-      if (!child?.chatId) continue;
-      const existing = stream.querySelector(`[data-related-chat-id="${relatedChatDomId(child.chatId)}"]`);
-      if (existing instanceof HTMLElement) continue;
+    const backfill = planRelatedChatChildBackfill({
+      children: input.children,
+      hasRelatedCard: (chatId) => (
+        stream.querySelector(`[data-related-chat-id="${relatedChatDomId(chatId)}"]`) instanceof HTMLElement
+      ),
+      findAnchor: (chatId) => findDelegationCardByChildChatId(chatId),
+    });
+    for (const { child, anchor } of backfill) {
       renderRelatedChatCard({
         role: 'child',
         chatId: child.chatId,
         title: child.title || '',
         reason: child.reason || '',
-      }, '');
+      }, '', { insertBefore: anchor });
     }
   }
 
@@ -4492,7 +5104,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
     suppressAutoScroll = true;
     try {
       withIsolatedRenderState(() => {
-        for (const record of records) applyHistoryRecord(record);
+        applyHistoryRecordsInViewportBatches(records, 0, records.length, (record) => {
+          applyHistoryRecord(record);
+        });
       });
     } finally {
       stream = previousStream;
@@ -4510,38 +5124,71 @@ export function createSdkRichView(chat, mountEl, hooks) {
       realStream.prepend(...Array.from(offscreen.childNodes));
       mountEl.scrollTop = scrollBefore + (mountEl.scrollHeight - heightBefore);
       adoptTrailingTimeoutProgressSeries();
+      enforceMountedHistoryWindowBudget();
     } finally {
-      requestAnimationFrame(() => {
-        suppressScrollStickUpdate = false;
-      });
+      const scheduleFrame =
+        typeof requestAnimationFrame === 'function' ? requestAnimationFrame : undefined;
+      historyReplayGenerationGate.scheduleMergedFrameWork(
+        0,
+        () => {
+          suppressScrollStickUpdate = false;
+        },
+        scheduleFrame,
+      );
     }
     return records.length;
   }
 
-  async function replayHistoryRecordsChunkedImpl(records, startIndex = 0) {
-    if (!Array.isArray(records) || records.length <= startIndex) return;
-    suppressHooksPlain = true;
-    suppressHistoryPersist = true;
-    mdRenderImmediate = true;
-    try {
-      for (let index = startIndex; index < records.length; index += 1) {
-        applyHistoryRecord(records[index]);
-        if ((index - startIndex + 1) % 8 === 0) {
-          await new Promise((resolve) => {
-            if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
-            else setTimeout(resolve, 0);
-          });
-        }
+  async function replayHistoryRecordsChunkedImpl(records, startIndex, replayGeneration) {
+    if (!historyReplayGenerationGate.isActive(replayGeneration)) {
+      if (replayOutcomeByGeneration.has(replayGeneration)) {
+        settleReplayOutcome(replayGeneration, 'cancelled');
       }
-    } finally {
-      suppressHooksPlain = false;
-      suppressHistoryPersist = false;
-      mdRenderImmediate = false;
-      finalizeAllTerminalRunPresentations();
-      foldDuplicateOrderKeyCards();
-      adoptTrailingTimeoutProgressSeries();
-      scrollToBottom({ force: true });
+      return;
     }
+    let appliedCount = Math.min(records.length, Math.max(0, startIndex));
+    endHistoryReplayApplySlice();
+    try {
+      await runHistoryReplayAsyncTail({
+        records,
+        startIndex,
+        replayGeneration,
+        lifecycle: historyReplayLifecycle,
+        isCancelled: () => !historyReplayGenerationGate.isActive(replayGeneration),
+        onSliceStart: () => {
+          if (historyReplayGenerationGate.isActive(replayGeneration)) beginViewportAnchorBatch();
+          beginHistoryReplayApplySlice(replayGeneration);
+        },
+        onSliceEnd: () => {
+          endHistoryReplayApplySlice();
+          if (viewportAnchorBatch.getDepth() > 0) endViewportAnchorBatch();
+        },
+        applyHistoryRecord: (record) => {
+          if (!historyReplayGenerationGate.isActive(replayGeneration)) return;
+          try {
+            applyHistoryRecord(record);
+            appliedCount += 1;
+            noteReplayApplied(replayGeneration, appliedCount);
+          } catch (err) {
+            endHistoryReplayApplySlice();
+            while (viewportAnchorBatch.getDepth() > 0) endViewportAnchorBatch();
+            throw err;
+          }
+        },
+        scheduleFrame: typeof requestAnimationFrame === 'function' ? requestAnimationFrame : undefined,
+        getFinalizeSteps: () => buildHistoryReplayFinalizeSteps(replayGeneration),
+        getAppliedMeta: () => ({
+          applied: appliedCount,
+          children: realStream.childElementCount,
+        }),
+      });
+    } finally {
+      endHistoryReplayApplySlice();
+      if (!historyReplayGenerationGate.isActive(replayGeneration)) return;
+    }
+    if (!replayOutcomeByGeneration.has(replayGeneration)) return;
+    const reason = historyReplayGenerationGate.isActive(replayGeneration) ? 'complete' : 'cancelled';
+    settleReplayOutcome(replayGeneration, reason);
   }
 
   let hasOlderHistory = false;
@@ -4550,6 +5197,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
   let historyTopObserver = null;
   /** Records trimmed off the oldest edge of a page so it starts on a user turn. */
   let bufferedOlderRecords = [];
+  /** @type {{ partIndex: number, partCount: number, includesTurnOpen: boolean } | null} */
+  let historyTurnSegment = null;
   /**
    * Bumped on every (dis)arming. A page fetched under an older token belongs to a paging
    * session that no longer exists — applying it would resurrect a dead sentinel state
@@ -4584,7 +5233,20 @@ export function createSdkRichView(chat, mountEl, hooks) {
     }
     const label = document.createElement('span');
     label.className = 'sdk-rich-history-top-label';
-    label.textContent = state === 'loading' ? t('sdkView.loadingOlder') : t('sdkView.historyStart');
+    if (state === 'loading') {
+      label.textContent = t('sdkView.loadingOlder');
+    } else if (
+      historyTurnSegment &&
+      historyTurnSegment.includesTurnOpen !== true &&
+      historyTurnSegment.partCount > 1
+    ) {
+      label.textContent = t('sdkView.historyTurnSegment', {
+        part: historyTurnSegment.partIndex,
+        total: historyTurnSegment.partCount,
+      });
+    } else {
+      label.textContent = t('sdkView.historyStart');
+    }
     historyTopEl.appendChild(label);
   }
 
@@ -4628,7 +5290,30 @@ export function createSdkRichView(chat, mountEl, hooks) {
    * @returns {{ buffered: unknown[], renderable: unknown[] }}
    */
   function splitPageAtUserTurn(records) {
-    return splitHistoryPageAtUserTurn(records);
+    const allowMidRunContinuation =
+      (historyTurnSegment !== null && historyTurnSegment.includesTurnOpen !== true) ||
+      bufferedOlderRecords.length > 0;
+    return splitHistoryPageAtUserTurn(records, { allowMidRunContinuation });
+  }
+
+  /**
+   * @param {{ partIndex: number, partCount: number, includesTurnOpen: boolean } | null} segment
+   */
+  function setHistoryTurnSegment(segment) {
+    if (
+      !segment ||
+      typeof segment !== 'object' ||
+      !Number.isFinite(segment.partIndex) ||
+      !Number.isFinite(segment.partCount)
+    ) {
+      historyTurnSegment = null;
+      return;
+    }
+    historyTurnSegment = {
+      partIndex: Math.max(1, Math.floor(Number(segment.partIndex))),
+      partCount: Math.max(1, Math.floor(Number(segment.partCount))),
+      includesTurnOpen: segment.includesTurnOpen === true,
+    };
   }
 
   function finishOlderHistory() {
@@ -4686,6 +5371,14 @@ export function createSdkRichView(chat, mountEl, hooks) {
         const split = splitPageAtUserTurn(batch);
         bufferedOlderRecords = split.buffered;
         prependHistoryRecordsImpl(split.renderable);
+        if (
+          historyTurnSegment &&
+          split.renderable.length > 0 &&
+          isUserTurnBoundaryRecord(split.renderable[0])
+        ) {
+          historyTurnSegment = { ...historyTurnSegment, includesTurnOpen: true };
+          if (chat && typeof chat === 'object') chat._sdkHistoryTurnSegment = historyTurnSegment;
+        }
       } else {
         prependHistoryRecordsImpl(batch);
       }
@@ -4715,6 +5408,15 @@ export function createSdkRichView(chat, mountEl, hooks) {
 
   return {
     destroy() {
+      for (const gen of [...replayOutcomeByGeneration.keys()]) {
+        settleReplayOutcome(gen, 'destroyed');
+      }
+      historyReplayGenerationGate.revoke();
+      historyReplayLifecycle.onViewDestroyed(realStream.childElementCount);
+      mountedHistoryRecordRegistry.clear();
+      mountedDomNodeRegistry.clear();
+      mountedViewResourceLedger.resetAll();
+      clearHistoryMountedParking(chat);
       mountEl.removeEventListener('scroll', updateStickFromScroll);
       scrollToBottomButton.remove();
       disconnectHistoryTopObserver();
@@ -4744,6 +5446,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
       ensureHistoryTopObserver();
     },
 
+    setHistoryTurnSegment,
+
     /**
      * @param {unknown[]} records
      * @returns {number}
@@ -4764,6 +5468,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
         listAssistantBlockEntries(),
         true
       ) >= 0;
+      flushPendingAssistantMarkdown();
       clearSegmentPointers();
       stopTimeoutProgressSeries();
     },
@@ -4963,6 +5668,10 @@ export function createSdkRichView(chat, mountEl, hooks) {
       const presented = presentSdkActivityTrayStatus({ status: st, lastErrorCode: errorCode });
       const display = resolveActivityTrayLabel(presented.datasetStatus) || st;
       if (!silent) hooks.appendPlain(`\n[run finished: ${display}]\n`);
+      // Paint the very last assistant delta before the turn closes; a pending
+      // rAF would otherwise leave a mid-stream (often fence-open) render on
+      // screen until the page is reloaded.
+      flushPendingAssistantMarkdown();
       closeLiveTurn();
       finalizeOpenToolCalls('', presented.terminalStatus || st);
       runningToolCallsByRun.clear();
@@ -5243,85 +5952,129 @@ export function createSdkRichView(chat, mountEl, hooks) {
      * @param {{ instant?: boolean }} [opts]
      */
     replayHistoryRecords(records, opts = {}) {
-      if (!Array.isArray(records) || records.length === 0) return;
+      if (!Array.isArray(records) || records.length === 0) {
+        return Promise.resolve(emptyHistoryReplayResult());
+      }
       resetSdkStreamState(chat);
       clearSegmentPointers();
       resetRenderedActivity();
+      mountedHistoryRecordRegistry.clear();
+      mountedDomNodeRegistry.clear();
+      mountedViewResourceLedger.resetAll();
+      clearHistoryMountedParking(chat);
       queuedUserBlocks.length = 0;
       lastHistoryErrorText = '';
       // A replay redefines the window, so any page fetched by scrolling up is gone with it.
       bufferedOlderRecords = [];
+      if (chat && typeof chat === 'object' && chat._sdkHistoryTurnSegment) {
+        setHistoryTurnSegment(chat._sdkHistoryTurnSegment);
+      } else {
+        setHistoryTurnSegment(null);
+      }
       clearOpenCodeInteractiveMaps();
-      const instant = opts.instant === true && records.length <= 20;
-      const syncCount = instant ? records.length : Math.min(records.length, 20);
-      measureRenderSpan('history.replay', { cards: syncCount }, () => {
-        suppressHooksPlain = true;
-        suppressHistoryPersist = true;
-        mdRenderImmediate = true;
-        stream.replaceChildren();
-        try {
-          for (let index = 0; index < syncCount; index += 1) {
-            applyHistoryRecord(records[index]);
-          }
-        } finally {
-          suppressHooksPlain = false;
-          suppressHistoryPersist = false;
-          mdRenderImmediate = false;
-          finalizeAllTerminalRunPresentations();
-          foldDuplicateOrderKeyCards();
-          scrollToBottom({ force: true });
-        }
+      const instant = opts.instant === true && records.length <= HISTORY_REPLAY_SYNC_HEAD;
+      const { generation: replayGeneration, syncHead, trackAsync } = historyReplayLifecycle.beginReplay({
+        source: opts.source,
+        totalRecords: records.length,
+        syncHead: instant ? records.length : HISTORY_REPLAY_SYNC_HEAD,
+        instant,
       });
-      if (instant || records.length <= 20) return;
-      void replayHistoryRecordsChunkedImpl(records, 20);
+      historyReplayGenerationGate.activate(replayGeneration);
+      const replayPromise = beginReplayOutcome(replayGeneration, records.length);
+      const syncCount = syncHead;
+      const scheduleFrame =
+        typeof requestAnimationFrame === 'function' ? requestAnimationFrame : undefined;
+      void (async () => {
+        let syncApplied = 0;
+        let syncFinalizeMs = 0;
+        try {
+          if (!historyReplayGenerationGate.isActive(replayGeneration)) return;
+          stream.replaceChildren();
+          if (instant) {
+            beginViewportAnchorBatch();
+            beginHistoryReplayApplySlice(replayGeneration);
+            try {
+              for (let index = 0; index < records.length; index += 1) {
+                if (!historyReplayGenerationGate.isActive(replayGeneration)) return;
+                applyHistoryRecord(records[index]);
+                syncApplied += 1;
+                noteReplayApplied(replayGeneration, syncApplied);
+              }
+            } finally {
+              endHistoryReplayApplySlice();
+              endViewportAnchorBatch();
+            }
+            syncFinalizeMs = await runHistoryReplayFinalizeForGeneration(replayGeneration);
+            if (isUiFreezeTraceActive()) {
+              historyReplayLifecycle.noteSyncApplied(replayGeneration, records.length);
+            }
+          } else {
+            await runHistoryReplayApplySlices({
+              records,
+              startIndex: 0,
+              endIndexExclusive: syncCount,
+              replayGeneration,
+              lifecycle: historyReplayLifecycle,
+              scheduleFrame,
+              isCancelled: () => !historyReplayGenerationGate.isActive(replayGeneration),
+              onSliceStart: () => {
+                beginViewportAnchorBatch();
+                beginHistoryReplayApplySlice(replayGeneration);
+              },
+              onSliceEnd: () => {
+                endHistoryReplayApplySlice();
+                if (viewportAnchorBatch.getDepth() > 0) endViewportAnchorBatch();
+              },
+              applyHistoryRecord: (record) => {
+                if (!historyReplayGenerationGate.isActive(replayGeneration)) return;
+                applyHistoryRecord(record);
+                syncApplied += 1;
+                noteReplayApplied(replayGeneration, syncApplied);
+              },
+            });
+            endHistoryReplayApplySlice();
+            if (isUiFreezeTraceActive()) {
+              historyReplayLifecycle.noteSyncApplied(replayGeneration, syncCount);
+            }
+            syncFinalizeMs = await runHistoryReplayFinalizeForGeneration(replayGeneration);
+          }
+        } catch (err) {
+          endHistoryReplayApplySlice();
+          throw err;
+        }
+        if (!historyReplayGenerationGate.isActive(replayGeneration)) return;
+        if (!trackAsync) {
+          historyReplayLifecycle.finishReplay(replayGeneration, {
+            reason: 'complete',
+            applied: records.length,
+            children: realStream.childElementCount,
+            finalizeMs: syncFinalizeMs,
+          });
+          settleReplayOutcome(replayGeneration, 'complete');
+          return;
+        }
+        await replayHistoryRecordsChunkedImpl(records, syncCount, replayGeneration);
+      })().catch((err) => {
+        // A throwing apply/finalize must still settle the replay outcome; otherwise
+        // the returned promise and waitForHistoryReplaySettled() hang forever and
+        // the fire-and-forget async tail becomes an unhandled rejection.
+        historyReplayLifecycle.finishReplay(replayGeneration, {
+          reason: 'error',
+          applied: 0,
+          children: realStream.childElementCount,
+          finalizeMs: 0,
+        });
+        settleReplayOutcome(replayGeneration, 'error');
+        appLogger.log('sdk-rich-history', 'history replay failed', {
+          generation: replayGeneration,
+          error: String(err?.message || err),
+        });
+      });
+      return replayPromise;
     },
 
     async appendHistoryRecords(records, opts = {}) {
-      if (!Array.isArray(records) || records.length === 0) return;
-      suppressHooksPlain = true;
-      suppressHistoryPersist = true;
-      mdRenderImmediate = true;
-      const instant = opts.instant === true;
-      const forceScroll = opts.forceScroll !== false;
-      try {
-        for (let index = 0; index < records.length; index += 1) {
-          applyHistoryRecord(records[index]);
-          if (
-            !instant &&
-            index > 0 &&
-            (index + 1) % 10 === 0
-          ) {
-            await new Promise((resolve) => {
-              if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
-              else setTimeout(resolve, 0);
-            });
-          }
-        }
-      } finally {
-        suppressHooksPlain = false;
-        suppressHistoryPersist = false;
-        mdRenderImmediate = false;
-        finalizeAllTerminalRunPresentations();
-        foldDuplicateOrderKeyCards();
-      }
-      if (preserveViewportAnchor) {
-        preserveViewportAnchor = false;
-        if (forceScroll) {
-          pendingViewportAnchor = null;
-          scrollToBottom({ force: true });
-          return;
-        }
-        void mountEl.offsetHeight;
-        restoreInsertScroll();
-        if (typeof requestAnimationFrame === 'function') {
-          await new Promise((resolve) => requestAnimationFrame(() => resolve()));
-          restoreInsertScroll();
-        }
-        pendingViewportAnchor = null;
-        return;
-      }
-      pendingViewportAnchor = null;
-      scrollToBottom({ force: forceScroll });
+      await appendHistoryRecordsImpl(records, opts);
     },
 
     applyEvent(event, meta = {}) {
@@ -5337,6 +6090,15 @@ export function createSdkRichView(chat, mountEl, hooks) {
           applySdkEvent(event, '', historySeq);
         });
       } finally {
+        if (historySeq > 0) {
+          mountedHistoryRecordRegistry.note({
+            kind: 'sdk',
+            historySeq,
+            roomEventSeq,
+            eventStreamId,
+            event,
+          });
+        }
         markCopyTextDirty();
         foldDuplicateOrderKeyCards();
         if (preserveViewportAnchor) {
@@ -5347,10 +6109,51 @@ export function createSdkRichView(chat, mountEl, hooks) {
         preserveViewportAnchor = false;
         renderedRecordRoomEventSeq = previousRoom;
         renderedRecordEventStreamId = previousStream;
+        const protectIdentity = pendingLiveRemountProtectIdentity;
+        pendingLiveRemountProtectIdentity = '';
+        enforceMountedHistoryWindowBudget({ protectTailRemountIdentity: protectIdentity });
       }
     },
 
     ensureRelatedChatLinks,
+
+    /**
+     * Stage 4.2 — production mounted-window harness for DOM tests (not app API).
+     */
+    mountedWindowHarness: {
+      enforceMountedHistoryWindowBudget,
+      /** @param {'head' | 'tail'} evictFrom */
+      enforceMountedHistoryWindowBudgetFromEdge(evictFrom) {
+        if (stream !== realStream) return;
+        const mountedCount = countMountedStreamCards(realStream);
+        const edge = evictFrom === 'head' ? 'head' : 'tail';
+        const { evictCount } = planMountedWindowEviction({
+          mountedCount,
+          cap: UI_FREEZE_CHAT_MOUNTED_RECORD_CAP,
+          evictFrom: edge,
+        });
+        if (evictCount <= 0) return;
+        const parked = evictMountedStreamCards(edge, evictCount);
+        if (parked.length === 0) return;
+        if (edge === 'head') {
+          prependHistoryOlderLocal(chat, parked);
+          return;
+        }
+        prependHistoryParkedNewerLocal(chat, parked);
+      },
+      restoreParkedNewerTailIfNeeded,
+      applyHistoryRecord,
+      countMountedStreamCards: () => countMountedStreamCards(realStream),
+      getMountedRecordRegistry: () => mountedHistoryRecordRegistry,
+      getMountedViewResourceLedger: () => mountedViewResourceLedger,
+      getMountedDomNodeRegistry: () => mountedDomNodeRegistry,
+      getHistoryParkedNewerLocal: () => getHistoryParkedNewerLocal(chat),
+      getRealStream: () => realStream,
+      getMountEl: () => mountEl,
+      setStickToBottom: (value) => {
+        stickToBottom = value === true;
+      },
+    },
   };
 }
 

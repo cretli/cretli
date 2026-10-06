@@ -5,12 +5,45 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BrowserError, BrowserSessionManager, mapPreviewPoint } from '../lib/browser/session-manager.js';
+import {
+  BrowserError,
+  BrowserSessionManager,
+  BROWSER_ELEMENTS_SELECTOR,
+  describePageElement,
+  mapPreviewPoint,
+} from '../lib/browser/session-manager.js';
 import { BROWSER_LIMITS } from '../lib/browser/constants.js';
 
 /** Scope used by every session in this file (one workspace per test). */
 const SCOPE = { workspaceFile: '/ws/a' };
 const OWNER = 'owner-a';
+
+/**
+ * Minimal Playwright locator stand-in. `_elements` entries carry the descriptor
+ * the page-side function would return; the manager only orchestrates them.
+ */
+function makeLocator(entries) {
+  const handle = (entry) => ({
+    async isVisible() { return entry.visible !== false; },
+    async boundingBox() { return entry.bounds === null ? null : (entry.bounds || { x: 1, y: 2, width: 30, height: 20 }); },
+    async evaluate() {
+      return entry.descriptor || {
+        tag: entry.tag || 'button',
+        role: entry.role,
+        name: entry.name,
+        text: entry.text || entry.name || '',
+        selector: entry.selector || '#el',
+      };
+    },
+    async click(options) { entry.clicked = true; entry.clickOptions = options; },
+    async fill(value, options) { entry.filled = value; entry.fillOptions = options; },
+  });
+  return {
+    async count() { return entries.length; },
+    nth(index) { return handle(entries[index]); },
+    first() { return handle(entries[0] || {}); },
+  };
+}
 
 /** Minimal in-memory Playwright stand-in. */
 function createFakeDriver() {
@@ -24,10 +57,34 @@ function createFakeDriver() {
       this._closed = false;
       this._handlers = new Map();
       this._viewport = { width: 390, height: 844 };
+      this._elements = [];
+      this.screenshotOptions = null;
+      this.locatorQueries = [];
       this.mouse = { move: async () => {}, down: async () => {}, up: async () => {}, click: async () => {}, wheel: async () => {} };
       this.keyboard = { type: async () => {}, down: async () => {}, up: async () => {}, press: async () => {} };
       this.touchscreen = { tap: async () => {} };
       this._touch = false;
+    }
+    locator(selector) {
+      this.locatorQueries.push(selector);
+      return makeLocator(this._elements);
+    }
+    getByRole(role, options = {}) {
+      this.locatorQueries.push(`role=${role}`);
+      return makeLocator(this._elements.filter((entry) => entry.role === role
+        && (!options.name || entry.name === options.name)));
+    }
+    getByText(value) {
+      this.locatorQueries.push(`text=${value}`);
+      return makeLocator(this._elements.filter((entry) => (entry.text || entry.name) === value));
+    }
+    getByLabel(value) {
+      this.locatorQueries.push(`label=${value}`);
+      return makeLocator(this._elements.filter((entry) => entry.label === value));
+    }
+    getByPlaceholder(value) {
+      this.locatorQueries.push(`placeholder=${value}`);
+      return makeLocator(this._elements.filter((entry) => entry.placeholder === value));
     }
     on(event, handler) {
       if (!this._handlers.has(event)) this._handlers.set(event, []);
@@ -66,7 +123,7 @@ function createFakeDriver() {
     context() { return this._context; }
     viewportSize() { return this._viewport; }
     async setViewportSize(v) { this._viewport = v; }
-    async screenshot() { return Buffer.from('fake-jpeg-bytes'); }
+    async screenshot(options) { this.screenshotOptions = options; return Buffer.from('fake-jpeg-bytes'); }
     async close() { this._closed = true; this.emit('close'); }
   }
 
@@ -158,6 +215,9 @@ test('creates a session with one initial tab and enforces per-owner session limi
   const { manager } = createManager();
   const session = await manager.createSession({ ownerSessionId: OWNER, ...SCOPE });
   assert.equal(session.tabs.length, 1);
+  for (let i = 1; i < BROWSER_LIMITS.MAX_SESSIONS_PER_OWNER; i += 1) {
+    await manager.createSession({ ownerSessionId: OWNER, ...SCOPE });
+  }
   await assert.rejects(
     () => manager.createSession({ ownerSessionId: OWNER, ...SCOPE }),
     (err) => err instanceof BrowserError && err.code === 'session-limit',
@@ -176,6 +236,9 @@ test('blocks Service Workers and pins DNS via launch args', async () => {
   const { manager, state } = createManager();
   await manager.createSession({ ownerSessionId: OWNER, ...SCOPE });
   assert.equal(state.contextOptions[0].serviceWorkers, 'block');
+  const localLogin = state.contextOptions[0].extraHTTPHeaders?.['x-cretli-local-login'];
+  assert.equal(typeof localLogin, 'string');
+  assert.equal(localLogin.length, 48);
   const args = state.launchOptions[0].args || [];
   assert.ok(
     args.some((arg) => arg.startsWith('--host-resolver-rules=') && arg.includes('MAP example.com 93.184.216.34')),
@@ -656,10 +719,162 @@ test('closeSession bounds a hanging CDP detach by the hard cleanup timeout', asy
 
 test('concurrent createSession calls cannot exceed the per-owner limit', async () => {
   const { manager } = createManager();
-  const results = await Promise.all([
-    manager.createSession({ ownerSessionId: OWNER, ...SCOPE }).then(() => 'ok', (err) => err?.code),
-    manager.createSession({ ownerSessionId: OWNER, ...SCOPE }).then(() => 'ok', (err) => err?.code),
-  ]);
-  assert.deepEqual(results.sort(), ['ok', 'session-limit']);
-  assert.equal(manager.sessions.size, 1);
+  const attempts = BROWSER_LIMITS.MAX_SESSIONS_PER_OWNER + 1;
+  const results = await Promise.all(
+    Array.from({ length: attempts }, () => (
+      manager.createSession({ ownerSessionId: OWNER, ...SCOPE }).then(() => 'ok', (err) => err?.code)
+    )),
+  );
+  const okCount = results.filter((result) => result === 'ok').length;
+  const limitedCount = results.filter((result) => result === 'session-limit').length;
+  assert.equal(okCount, BROWSER_LIMITS.MAX_SESSIONS_PER_OWNER);
+  assert.equal(limitedCount, 1);
+  assert.equal(manager.sessions.size, BROWSER_LIMITS.MAX_SESSIONS_PER_OWNER);
 });
+
+test('screenshot is captured in CSS pixels so image pixels match click coordinates', async () => {
+  const { manager } = createManager();
+  const session = await manager.createSession({
+    ownerSessionId: OWNER,
+    ...SCOPE,
+    viewport: { width: 390, height: 844, dpr: 2, hasTouch: true },
+  });
+  const [tabInfo] = manager.listTabs(session.browserSessionId, OWNER, SCOPE);
+  const { tab } = manager.requireTab(session.browserSessionId, tabInfo.browserTabId, OWNER, SCOPE);
+  const frame = await manager.screenshot(session.browserSessionId, tabInfo.browserTabId, OWNER, { ...SCOPE, force: true });
+  assert.equal(tab.page.screenshotOptions.scale, 'css');
+  assert.equal(frame.width, 390);
+  assert.equal(frame.height, 844);
+  assert.equal(frame.dpr, 2);
+});
+
+test('resize preserves deviceScaleFactor and touch instead of resetting them', async () => {
+  const { manager } = createManager();
+  const session = await manager.createSession({
+    ownerSessionId: OWNER,
+    ...SCOPE,
+    viewport: { width: 390, height: 844, dpr: 1, hasTouch: false },
+  });
+  const [tabInfo] = manager.listTabs(session.browserSessionId, OWNER, SCOPE);
+  await manager.dispatchInput(
+    session.browserSessionId,
+    tabInfo.browserTabId,
+    OWNER,
+    { kind: 'resize', viewport: { width: 800, height: 600 } },
+    SCOPE,
+  );
+  const state = await manager.getState(session.browserSessionId, tabInfo.browserTabId, OWNER, SCOPE);
+  assert.equal(state.viewport.width, 800);
+  assert.equal(state.viewport.height, 600);
+  assert.equal(state.dpr, 1);
+  assert.equal(state.hasTouch, false);
+});
+
+test('browser_input click and fill drive Playwright locators and fail closed without a target', async () => {
+  const { manager, setClock } = createManager();
+  const session = await manager.createSession({ ownerSessionId: OWNER, ...SCOPE });
+  const [tabInfo] = manager.listTabs(session.browserSessionId, OWNER, SCOPE);
+  const { tab } = manager.requireTab(session.browserSessionId, tabInfo.browserTabId, OWNER, SCOPE);
+  tab.page._elements = [{ role: 'button', name: 'Save', bounds: { x: 1, y: 2, width: 30, height: 20 } }];
+
+  const clicked = await manager.dispatchInput(
+    session.browserSessionId,
+    tabInfo.browserTabId,
+    OWNER,
+    { kind: 'click', selector: '#save' },
+    SCOPE,
+  );
+  assert.equal(clicked.kind, 'click');
+  assert.equal(tab.page._elements[0].clicked, true);
+  assert.equal(tab.page.locatorQueries[0], '#save');
+
+  setClock(1_000_000 + BROWSER_LIMITS.INPUT_MIN_INTERVAL_MS + 1);
+  const filled = await manager.dispatchInput(
+    session.browserSessionId,
+    tabInfo.browserTabId,
+    OWNER,
+    { kind: 'fill', role: 'button', name: 'Save', value: 'hello' },
+    SCOPE,
+  );
+  assert.equal(filled.kind, 'fill');
+  assert.equal(tab.page._elements[0].filled, 'hello');
+  assert.equal(tab.page.locatorQueries.at(-1), 'role=button');
+
+  setClock(1_000_000 + 2 * (BROWSER_LIMITS.INPUT_MIN_INTERVAL_MS + 1));
+  await assert.rejects(
+    () => manager.dispatchInput(session.browserSessionId, tabInfo.browserTabId, OWNER, { kind: 'click' }, SCOPE),
+    (err) => err instanceof BrowserError && err.code === 'locator-required' && err.status === 400,
+  );
+});
+
+test('getVisibleElements filters invisible/zero-size nodes and bounds the listing', async () => {
+  const { manager } = createManager();
+  const session = await manager.createSession({ ownerSessionId: OWNER, ...SCOPE });
+  const [tabInfo] = manager.listTabs(session.browserSessionId, OWNER, SCOPE);
+  const { tab } = manager.requireTab(session.browserSessionId, tabInfo.browserTabId, OWNER, SCOPE);
+  tab.page._elements = [
+    { role: 'button', name: 'Save', bounds: { x: 10, y: 20, width: 100, height: 40 } },
+    { role: 'link', name: 'Hidden', visible: false },
+    { role: 'textbox', name: 'Email', bounds: { x: 10, y: 80, width: 200, height: 30 } },
+    { role: 'button', name: 'Zero', bounds: { x: 0, y: 0, width: 0, height: 0 } },
+  ];
+  const result = await manager.getVisibleElements(session.browserSessionId, tabInfo.browserTabId, OWNER, { ...SCOPE, limit: 10 });
+  assert.equal(result.count, 2);
+  assert.deepEqual(result.elements.map((el) => el.name), ['Save', 'Email']);
+  assert.deepEqual(result.elements[0].bounds, { x: 10, y: 20, width: 100, height: 40 });
+  assert.ok(BROWSER_ELEMENTS_SELECTOR.includes('button'));
+  // The scan uses the shared interactive selector, which Playwright resolves
+  // across open shadow roots (Lit components).
+  assert.equal(tab.page.locatorQueries[0], BROWSER_ELEMENTS_SELECTOR);
+  assert.equal(result.truncated, false);
+
+  const capped = await manager.getVisibleElements(session.browserSessionId, tabInfo.browserTabId, OWNER, { ...SCOPE, limit: 1 });
+  assert.equal(capped.count, 1);
+  assert.equal(capped.truncated, true);
+});
+
+test('describePageElement reads role/name and builds a shadow-piercing selector', () => {
+  const documentRoot = {};
+  const outerParent = {
+    nodeType: 1,
+    tagName: 'DIV',
+    id: 'app',
+    parentElement: null,
+    children: [],
+    getAttribute: () => null,
+    getRootNode: () => documentRoot,
+  };
+  const shadowRoot = { host: null };
+  const host = {
+    nodeType: 1,
+    tagName: 'MY-BUTTON',
+    id: '',
+    parentElement: outerParent,
+    children: [],
+    getAttribute: (name) => (name === 'class' ? 'btn primary' : null),
+    getRootNode: () => documentRoot,
+  };
+  shadowRoot.host = host;
+  const button = {
+    nodeType: 1,
+    tagName: 'BUTTON',
+    id: 'save',
+    parentElement: null,
+    children: [],
+    innerText: 'Save',
+    textContent: 'Save',
+    disabled: false,
+    checked: undefined,
+    getAttribute: (name) => (name === 'aria-label' ? 'Save' : null),
+    getRootNode: () => shadowRoot,
+  };
+
+  const descriptor = describePageElement(button, 50);
+  assert.equal(descriptor.tag, 'button');
+  assert.equal(descriptor.role, 'button');
+  assert.equal(descriptor.name, 'Save');
+  assert.equal(descriptor.text, 'Save');
+  assert.match(descriptor.selector, /#save/);
+  assert.match(descriptor.selector, /my-button\.btn\.primary >> #save/);
+});
+

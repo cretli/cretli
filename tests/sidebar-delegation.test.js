@@ -57,6 +57,9 @@ test('chat rows still emit the data attributes and action classes the delegated 
   assert.match(viewSource, /function onSidebarBodyClick\(/);
   assert.match(viewSource, /function onSidebarBodyKeydown\(/);
   assert.match(viewSource, /function onSidebarBodyPointerDown\(/);
+  // The settled-subchat group toggles from anywhere on its row, so the dead
+  // columns of the wide (grid) layout still activate it.
+  assert.match(functionBody('onSidebarBodyClick'), /closest\('\.sidebar-subchat-group-header'\)/);
 });
 
 test('keyboard navigation is handled by the delegated keydown listener', () => {

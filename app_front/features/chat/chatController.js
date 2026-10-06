@@ -7,13 +7,37 @@ import { readStorageValueWithAlias, writeStorageValueWithAlias } from '../../lib
 import { t } from '../../i18n/index.js';
 import { escapeHtml } from './chatHtmlUtils.js';
 import { pickNewChatWorkspaceFile, workspaceListEntryKey } from './newChatWorkspacePick.js';
-import { buildChatsListApiQuery, mergeChatListLoadQuery } from '../../../lib/chat-list-payload.js';
 import {
+  buildChatsListApiQuery,
+  mergeChatListLoadQuery,
+  shouldPruneChatActivityFromListResponse,
+} from '../../../lib/chat-list-payload.js';
+import {
+  CHAT_LOCAL_BOOT_CACHE_KEY,
+  parseChatLocalBootCache,
   readChatLocalBootCache,
   shouldHydrateChatListFromBootCache,
   writeChatLocalBootCache,
 } from './chatLocalBootCache.js';
+import { readChatLocalBootCacheForColdStart } from './chatLocalBootSync.js';
+import {
+  getChatBootListHydrationController,
+  selectBootRowsMissingFromRuntime,
+} from './chatLocalBootAsyncHydrate.js';
 import { hydrateChat as hydratePresenceChat } from './agentPresenceStore.js';
+import { getUiFreezeCounters, measureFreezeSpan } from '../../lib/uiFreezeCounters.js';
+import { pruneChatActivityToKnownIds } from './chatActivityStore.js';
+import {
+  buildChatListLoadApplyToken,
+  buildChatListLoadScopeKey,
+  buildChatListLoadSuccessSnapshot,
+  decideChatListNetworkLoad,
+  isChatListLoadApplyTokenFresh,
+  normalizeChatListLoadQuery,
+  trimPendingChatListLoadQuery,
+} from './chatListLoadFreshness.js';
+import { reconcileServerChatsInTimeSlices } from './chatListServerReconcile.js';
+import { scheduleDomWrite } from '../../lib/schedulerYield.js';
 
 function normalizePath(pathValue) {
   if (!pathValue || typeof pathValue !== 'string') return '';
@@ -100,14 +124,26 @@ export function createChatController(deps) {
     onAfterBootHydrate,
     onAfterChatsLoad,
     onPresenceHydrate,
+    scheduleBootCachePersist,
+    getBootMetadataAdapter,
+    getBootIdbEpoch,
+    getBootActivitySession,
+    onArchiveCatalogHydrate,
+    invalidateArchiveCatalog,
   } = deps;
   let chatsLoadPromise = null;
   /** @type {object | null} */
   let pendingLoadQuery = null;
+  /** Scope key for the in-flight GET /api/chats (see chatListLoadFreshness.js). */
+  let inFlightLoadScopeKey = null;
+  /** @type {import('./chatListLoadFreshness.js').ChatListLoadSuccessSnapshot | null} */
+  let lastSuccessfulListLoad = null;
   /** @type {Record<string, number>} */
   let archivedCounts = Object.create(null);
   /** Whether the cold-start local snapshot was already considered this page life. */
   let chatBootCacheHydrated = false;
+  /** Whether async boot hydration is already scheduled or finished for this page life. */
+  let chatBootAsyncHydrateStarted = false;
   /** Last workspace context seen in the boot snapshot (used when the settings fetch is slow). */
   let rememberedWorkspaceContext = { workspaceFile: '', workspaceFolder: '' };
 
@@ -170,7 +206,7 @@ export function createChatController(deps) {
     const skipCache = query.skipCache === true;
     const cached = skipCache
       ? null
-      : readChatLocalBootCache(typeof localStorage !== 'undefined' ? localStorage : null);
+      : readChatLocalBootCacheForColdStart(typeof localStorage !== 'undefined' ? localStorage : null);
     const shouldHydrate = shouldHydrateChatListFromBootCache({
       alreadyHydrated: chatBootCacheHydrated,
       skipCache,
@@ -227,7 +263,92 @@ export function createChatController(deps) {
     updateChatBarSelect();
     const skipAutoSelect = query.skipAutoSelect === true || isEmbedModeActive();
     if (!skipAutoSelect && getActiveChatId()) selectChat(getActiveChatId());
+    scheduleAsyncBootCacheHydration();
     return true;
+  }
+
+  function readLocalStorageRef() {
+    return typeof localStorage !== 'undefined' ? localStorage : null;
+  }
+
+  function syncBootHydrationControllerScope() {
+    const hydration = getChatBootListHydrationController();
+    if (typeof getBootActivitySession === 'function') {
+      hydration.setSessionScope(getBootActivitySession());
+    }
+    if (typeof getBootIdbEpoch === 'function') {
+      hydration.setIdbEpoch(getBootIdbEpoch());
+    }
+  }
+
+  /**
+   * @param {{ forceIdb?: boolean }} [options]
+   */
+  async function hydrateMissingBootRowsFromAdapter(options = {}) {
+    syncBootHydrationControllerScope();
+    const hydration = getChatBootListHydrationController();
+    const bootGuard = hydration.captureGuard();
+    const isRunActive = hydration.captureRunEpoch();
+    const storage = readLocalStorageRef();
+    let fullDoc = readChatLocalBootCache(storage);
+    const adapter = typeof getBootMetadataAdapter === 'function' ? getBootMetadataAdapter() : null;
+    const shouldReadIdb = options.forceIdb === true
+      || !fullDoc
+      || fullDoc.chats.length <= getChats().length;
+    if (shouldReadIdb && adapter) {
+      try {
+        if (options.forceIdb === true && typeof adapter.refreshMetaKeyFromIdb === 'function') {
+          await adapter.refreshMetaKeyFromIdb(CHAT_LOCAL_BOOT_CACHE_KEY);
+        } else if (typeof adapter.ensurePrime === 'function') {
+          await adapter.ensurePrime();
+        }
+      } catch (_) {}
+      if (!isRunActive() || !hydration.isGuardFresh(bootGuard)) return false;
+      const raw = typeof adapter.read === 'function' ? adapter.read(CHAT_LOCAL_BOOT_CACHE_KEY) : null;
+      const fromIdb = parseChatLocalBootCache(raw);
+      if (fromIdb && (!fullDoc || fromIdb.chats.length > fullDoc.chats.length)) {
+        fullDoc = fromIdb;
+      }
+    }
+    if (!isRunActive() || !hydration.isGuardFresh(bootGuard)) return false;
+    if (!fullDoc) return false;
+    const runtimeChats = getChats();
+    const existingIds = new Set(runtimeChats.map((chat) => chat?.id).filter(Boolean));
+    const missing = selectBootRowsMissingFromRuntime(fullDoc, existingIds);
+    if (missing.length === 0) return false;
+    let appliedCount = 0;
+    const result = await hydration.hydrateRows(missing, (row) => {
+      row._fromBootCache = true;
+      if (hydratePresenceChat(row)) {
+        if (typeof onPresenceHydrate === 'function') onPresenceHydrate([row.id]);
+      }
+      runtimeChats.push(row);
+      appliedCount += 1;
+    }, undefined, { guard: bootGuard, isRunActive });
+    if (appliedCount > 0 && !result.cancelled && hydration.isGuardFresh(bootGuard) && isRunActive()) {
+      setActiveChatIdsForEviction(runtimeChats.map((chat) => chat.id));
+      const paint = () => {
+        renderChatList();
+        updateChatBarSelect();
+      };
+      if (scheduleDomWrite(paint) == null) paint();
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Hydrate remaining boot rows after the synchronous bootstrap (IDB or legacy LS).
+   */
+  function scheduleAsyncBootCacheHydration() {
+    if (chatBootAsyncHydrateStarted) return;
+    chatBootAsyncHydrateStarted = true;
+    void hydrateMissingBootRowsFromAdapter();
+  }
+
+  /** Peer tab wrote a newer boot snapshot — merge missing rows without durable echo. */
+  function applyPeerBootCacheRevision() {
+    void hydrateMissingBootRowsFromAdapter({ forceIdb: true });
   }
 
   function teardownUnconfirmedBootCacheChat(chat) {
@@ -240,9 +361,8 @@ export function createChatController(deps) {
     }
   }
 
-  /** Snapshot the freshly reconciled list for the next cold start. Best effort. */
-  function persistChatListBootCache() {
-    if (typeof localStorage === 'undefined') return false;
+  /** Collect boot-cache input from current runtime state (no storage writes). */
+  function collectChatListBootCacheInput() {
     const headerContext = readHeaderWorkspaceContext();
     const workspaceContext = headerContext.workspaceFile || headerContext.workspaceFolder
       ? headerContext
@@ -253,12 +373,22 @@ export function createChatController(deps) {
         workspaceFolder: workspaceContext.workspaceFolder || '',
       };
     }
-    return writeChatLocalBootCache(localStorage, {
+    return {
       chats: getChats(),
       workspaces: getWorkspaces(),
       activeChatId: getActiveChatId() || readLastActiveChatId(),
       workspaceContext,
-    });
+    };
+  }
+
+  /** Snapshot the freshly reconciled list for the next cold start. Best effort. */
+  function persistChatListBootCache() {
+    if (typeof scheduleBootCachePersist === 'function') {
+      scheduleBootCachePersist();
+      return true;
+    }
+    if (typeof localStorage === 'undefined') return false;
+    return writeChatLocalBootCache(localStorage, collectChatListBootCacheInput());
   }
 
   function renderWorkspacesSelects() {
@@ -325,39 +455,139 @@ export function createChatController(deps) {
     });
   }
 
+  /** Scope key of the most recently settled GET /api/chats (for pending trim). */
+  let lastCompletedListLoadScopeKey = null;
+
+  /**
+   * Client-only effects when the freshness policy skips a network reload.
+   *
+   * @param {{ skipAutoSelect: boolean, preferChatId: string, includeArchived: boolean }} opts
+   */
+  function applyListLoadClientEffects(opts) {
+    const chats = getChats();
+    const visibleChats = chats.filter((chat) => !chat.archivedAt);
+    if (opts.preferChatId && chats.some((chat) => chat.id === opts.preferChatId)) {
+      setActiveChatId(opts.preferChatId);
+    } else if (!opts.skipAutoSelect) {
+      const lastId = typeof localStorage !== 'undefined'
+        ? readStorageValueWithAlias(localStorage, LAST_CHAT_ID_KEY, '')
+        : null;
+      const validLast = lastId && visibleChats.some((chat) => chat.id === lastId);
+      const autoSelectChats = visibleChats.filter((chat) => chat?.watcherPinned !== true);
+      if (validLast) {
+        setActiveChatId(lastId);
+      } else if (autoSelectChats.length > 0 && !autoSelectChats.some((chat) => chat.id === getActiveChatId())) {
+        setActiveChatId(autoSelectChats[0].id);
+      }
+    }
+    updateChatBarSelect();
+    if (!opts.skipAutoSelect && getActiveChatId()) selectChat(getActiveChatId());
+    if (opts.includeArchived && typeof onArchiveCatalogHydrate === 'function') {
+      void onArchiveCatalogHydrate();
+    }
+  }
+
+  function invalidateListLoadFreshness() {
+    lastSuccessfulListLoad = null;
+    lastCompletedListLoadScopeKey = null;
+    if (typeof invalidateArchiveCatalog === 'function') {
+      try {
+        invalidateArchiveCatalog();
+      } catch (_) {}
+    }
+  }
+
+  /**
+   * Runs a queued follow-up load after an in-flight GET finishes (actual request scope, not merged).
+   *
+   * @param {string} completedScopeKey
+   */
+  function drainPendingChatListLoadAfterComplete(completedScopeKey) {
+    lastCompletedListLoadScopeKey = completedScopeKey;
+    const next = pendingLoadQuery;
+    pendingLoadQuery = null;
+    if (!next) return;
+    const trimmed = trimPendingChatListLoadQuery(completedScopeKey, next);
+    if (!trimmed) return;
+    void loadChatsFromServer(trimmed);
+  }
+
   function loadChatsFromServer(query = {}) {
     // Render the cached list (and open the last active chat from IndexedDB) before any
     // network wait; the request below only reconciles it.
-    hydrateChatListFromLocalBootCache(query);
+    // Task 0.1: time the synchronous hydrate separately from the poll and the
+    // full archive render. No-op while the freeze diagnostics flag is off.
+    const hydrateCounters = getUiFreezeCounters();
+    if (!hydrateCounters) {
+      hydrateChatListFromLocalBootCache(query);
+    } else {
+      hydrateCounters.bump('boot-cache.hydrate.attempts');
+      const hydrated = measureFreezeSpan('boot-cache.hydrate', {}, () =>
+        hydrateChatListFromLocalBootCache(query)
+      );
+      if (hydrated) hydrateCounters.bump('boot-cache.hydrates');
+    }
     if (typeof onAfterBootHydrate === 'function') {
       try {
         onAfterBootHydrate();
       } catch (_) {}
     }
-    if (query.skipIfInFlight === true && chatsLoadPromise) {
-      return chatsLoadPromise;
-    }
-    const skipAutoSelect = query.skipAutoSelect === true
+    const normalized = normalizeChatListLoadQuery(query);
+    const skipAutoSelect = normalized.skipAutoSelect
       || (typeof document !== 'undefined' && document.body?.classList.contains('embed-mode'));
-    const includeArchived = query.includeArchived === true;
+    const includeArchived = normalized.includeArchived;
     const apiQuery = buildChatsListApiQuery({
       includeArchived,
-      pinnedTo: query.pinnedTo,
+      pinnedTo: normalized.pinnedTo,
     });
-    const preferChatId = typeof query.preferChatId === 'string' ? query.preferChatId.trim() : '';
+    const preferChatId = normalized.preferChatId;
+    const hydrationCtrl = getChatBootListHydrationController();
+    const session = typeof getBootActivitySession === 'function' ? getBootActivitySession() : {};
+    const networkDecision = decideChatListNetworkLoad({
+      nowMs: Date.now(),
+      normalized,
+      hasInFlight: chatsLoadPromise != null,
+      inFlightScopeKey: inFlightLoadScopeKey,
+      lastSuccess: lastSuccessfulListLoad,
+      session,
+      listRevision: hydrationCtrl.getListRevision(),
+    });
+    if (networkDecision === 'skip-fresh') {
+      applyListLoadClientEffects({ skipAutoSelect, preferChatId, includeArchived });
+      return Promise.resolve();
+    }
+    if (networkDecision === 'join-in-flight') {
+      pendingLoadQuery = mergeChatListLoadQuery(pendingLoadQuery || {}, query);
+      return chatsLoadPromise;
+    }
     if (chatsLoadPromise) {
       pendingLoadQuery = mergeChatListLoadQuery(pendingLoadQuery || {}, query);
-      const inFlight = chatsLoadPromise;
-      return inFlight.then(() => {
-        if (chatsLoadPromise) return chatsLoadPromise;
-        const next = pendingLoadQuery;
-        pendingLoadQuery = null;
-        if (!next) return;
-        return loadChatsFromServer(next);
-      });
+      return chatsLoadPromise;
     }
-    chatsLoadPromise = api.getChats(apiQuery).then((data) => {
+    const startedScopeKey = buildChatListLoadScopeKey(normalized);
+    inFlightLoadScopeKey = startedScopeKey;
+    const hydrationCtrlAtStart = getChatBootListHydrationController();
+    hydrationCtrlAtStart.bumpListRevision();
+    const listRevisionAtLoadStart = hydrationCtrlAtStart.getListRevision();
+    const loadApplyToken = buildChatListLoadApplyToken(session, listRevisionAtLoadStart);
+    chatsLoadPromise = api.getChats(apiQuery).then(async (data) => {
+      const hydrationCtrl = getChatBootListHydrationController();
+      const applySession = typeof getBootActivitySession === 'function' ? getBootActivitySession() : {};
+      if (!isChatListLoadApplyTokenFresh(loadApplyToken, applySession, hydrationCtrl.getListRevision())) {
+        return;
+      }
       if (!data.ok || !Array.isArray(data.chats)) return;
+      hydrationCtrl.bumpListRevision();
+      const listRevisionAfterResponseBump = hydrationCtrl.getListRevision();
+      const loadApplyTokenForReconcile = buildChatListLoadApplyToken(
+        applySession,
+        listRevisionAfterResponseBump,
+      );
+      if (typeof invalidateArchiveCatalog === 'function') {
+        try {
+          invalidateArchiveCatalog();
+        } catch (_) {}
+      }
       const chats = getChats();
       const repaintBefore = chatListRepaintSignature(chats, archivedCounts);
       archivedCounts =
@@ -379,156 +609,42 @@ export function createChatController(deps) {
         serverChats = [...serverChats, data.linkedChat];
       }
       const serverChatIds = new Set(serverChats.map((chat) => chat.id));
+      // Task 2.1: only a full, authoritative index (server `fullIndex: true`)
+      // may drop activity for chats that are genuinely gone. Boot snapshots,
+      // widget-scoped lists and pinned lookups must not prune.
+      if (shouldPruneChatActivityFromListResponse(data)) {
+        pruneChatActivityToKnownIds(serverChatIds, { authoritative: true });
+      }
       const staleBootCacheChats = chats.filter(
         (chat) => chat?._fromBootCache === true && chat.id && !serverChatIds.has(chat.id)
       );
       for (const chat of staleBootCacheChats) {
         teardownUnconfirmedBootCacheChat(chat);
       }
-      const nextChats = serverChats.map((serverChat) => {
-        const existing = runtimeById.get(serverChat.id);
-        if (existing) {
-          delete existing._fromBootCache;
-          const wasBlocked = isBlockingPersistedLocalChatHarnessState(existing);
-          existing.title = serverChat.title;
-          if (typeof serverChat.titleSource === 'string' && serverChat.titleSource) {
-            existing.titleSource = serverChat.titleSource;
-          } else {
-            delete existing.titleSource;
-          }
-          existing.cursorSessionId = serverChat.cursorSessionId;
-          existing.model = serverChat.model;
-          existing.workspaceFile = serverChat.workspaceFile;
-          existing.workspaceFolder = serverChat.workspaceFolder;
-          existing.createdAt = serverChat.createdAt;
-          existing.updatedAt = serverChat.updatedAt;
-          existing.summaries = Array.isArray(serverChat.summaries)
-            ? serverChat.summaries
-            : (Array.isArray(existing.summaries) ? existing.summaries : []);
-          existing.agentTransport = resolvePersistedLocalChatTransport(serverChat);
-          existing.sdkMode = normalizeSdkMode(serverChat.sdkMode);
-          existing.sdkUiMode = normalizeSdkUiMode(serverChat.sdkUiMode);
-          existing.autoContextCompressionEnabled = serverChat.autoContextCompressionEnabled === true;
-          existing.autoContextCompressionThreshold = Number.isFinite(
-            Number(serverChat.autoContextCompressionThreshold)
-          )
-            ? Number(serverChat.autoContextCompressionThreshold)
-            : 80;
-          existing.autoContextCompressionReset = serverChat.autoContextCompressionReset !== false;
-          if (serverChat.harnessState && typeof serverChat.harnessState === 'object') {
-            existing.harnessState = serverChat.harnessState;
-          } else {
-            delete existing.harnessState;
-          }
-          if (!wasBlocked && isBlockingPersistedLocalChatHarnessState(existing)) {
-            blockedTransitions.push(existing);
-          } else if (wasBlocked && !isBlockingPersistedLocalChatHarnessState(existing)) {
-            restoredTransitions.push(existing);
-          }
-          if (typeof serverChat.sdkAgentId === 'string' && serverChat.sdkAgentId.trim()) {
-            existing.sdkAgentId = serverChat.sdkAgentId.trim();
-          } else {
-            delete existing.sdkAgentId;
-          }
-          if (typeof serverChat.todoId === 'string' && serverChat.todoId.trim()) {
-            existing.todoId = serverChat.todoId.trim();
-          } else {
-            delete existing.todoId;
-          }
-          if (serverChat.isTemporary === true) {
-            existing.isTemporary = true;
-          } else {
-            delete existing.isTemporary;
-          }
-          // Durable Workspace Watcher chat marker: drives pinned-mode UI and the
-          // dedicated sidebar section instead of the normal chat list.
-          if (serverChat.watcherPinned === true) {
-            existing.watcherPinned = true;
-          } else {
-            delete existing.watcherPinned;
-          }
-          if (typeof serverChat.forkParentChatId === 'string' && serverChat.forkParentChatId.trim()) {
-            existing.forkParentChatId = serverChat.forkParentChatId.trim();
-          } else {
-            delete existing.forkParentChatId;
-          }
-          if (typeof serverChat.forkKind === 'string' && serverChat.forkKind.trim()) {
-            existing.forkKind = serverChat.forkKind.trim();
-          } else {
-            delete existing.forkKind;
-          }
-          if (typeof serverChat.widgetPinnedUrl === 'string' && serverChat.widgetPinnedUrl.trim()) {
-            existing.widgetPinnedUrl = serverChat.widgetPinnedUrl.trim();
-          } else {
-            delete existing.widgetPinnedUrl;
-          }
-          if (typeof serverChat.archivedAt === 'string' && serverChat.archivedAt.trim()) {
-            existing.archivedAt = serverChat.archivedAt.trim();
-          } else {
-            delete existing.archivedAt;
-          }
-          if (!existing._buffer) {
-            const saved = readChatBufferForChatRestore(serverChat.id, true);
-            if (saved && saved.length > 0) existing._buffer = saved.slice(-CHAT_BUFFER_MAX);
-          }
-          return existing;
-        }
-        const created = {
-          id: serverChat.id,
-          title: serverChat.title,
-          titleSource: typeof serverChat.titleSource === 'string' ? serverChat.titleSource : undefined,
-          cursorSessionId: serverChat.cursorSessionId,
-          model: serverChat.model,
-          workspaceFile: serverChat.workspaceFile,
-          workspaceFolder: serverChat.workspaceFolder,
-          createdAt: serverChat.createdAt,
-          updatedAt: serverChat.updatedAt,
-          summaries: Array.isArray(serverChat.summaries) ? serverChat.summaries : [],
-          agentTransport: resolvePersistedLocalChatTransport(serverChat),
-          sdkMode: normalizeSdkMode(serverChat.sdkMode),
-          sdkUiMode: normalizeSdkUiMode(serverChat.sdkUiMode),
-          autoContextCompressionEnabled: serverChat.autoContextCompressionEnabled === true,
-          autoContextCompressionThreshold: Number.isFinite(
-            Number(serverChat.autoContextCompressionThreshold)
-          )
-            ? Number(serverChat.autoContextCompressionThreshold)
-            : 80,
-          autoContextCompressionReset: serverChat.autoContextCompressionReset !== false,
-        };
-        if (serverChat.harnessState && typeof serverChat.harnessState === 'object') {
-          created.harnessState = serverChat.harnessState;
-        }
-        if (typeof serverChat.sdkAgentId === 'string' && serverChat.sdkAgentId.trim()) {
-          created.sdkAgentId = serverChat.sdkAgentId.trim();
-        }
-        if (typeof serverChat.todoId === 'string' && serverChat.todoId.trim()) {
-          created.todoId = serverChat.todoId.trim();
-        }
-        if (serverChat.isTemporary === true) {
-          created.isTemporary = true;
-        }
-        if (serverChat.watcherPinned === true) {
-          created.watcherPinned = true;
-        }
-        if (typeof serverChat.forkParentChatId === 'string' && serverChat.forkParentChatId.trim()) {
-          created.forkParentChatId = serverChat.forkParentChatId.trim();
-        }
-        if (typeof serverChat.forkKind === 'string' && serverChat.forkKind.trim()) {
-          created.forkKind = serverChat.forkKind.trim();
-        }
-        if (typeof serverChat.widgetPinnedUrl === 'string' && serverChat.widgetPinnedUrl.trim()) {
-          created.widgetPinnedUrl = serverChat.widgetPinnedUrl.trim();
-        }
-        if (typeof serverChat.archivedAt === 'string' && serverChat.archivedAt.trim()) {
-          created.archivedAt = serverChat.archivedAt.trim();
-        }
-        const saved = readChatBufferForChatRestore(created.id, true);
-        if (saved && saved.length > 0) created._buffer = saved.slice(-CHAT_BUFFER_MAX);
-        // A row this client just learned about starts without presence, and the server only
-        // re-sends a row when its fingerprint changes. Paint what the store already knows.
-        if (hydratePresenceChat(created)) presenceDirtyIds.push(created.id);
-        return created;
-      });
+      const reconcileCtx = {
+        readChatBufferForChatRestore,
+        chatBufferMax: CHAT_BUFFER_MAX,
+        blockedTransitions,
+        restoredTransitions,
+        hydratePresenceChat,
+        presenceDirtyIds,
+      };
+      const isApplyFresh = () => {
+        const sessionNow = typeof getBootActivitySession === 'function' ? getBootActivitySession() : {};
+        return isChatListLoadApplyTokenFresh(
+          loadApplyTokenForReconcile,
+          sessionNow,
+          hydrationCtrl.getListRevision(),
+        );
+      };
+      const reconciled = await reconcileServerChatsInTimeSlices(
+        serverChats,
+        runtimeById,
+        reconcileCtx,
+        { isApplyFresh },
+      );
+      if (reconciled.cancelled || !isApplyFresh()) return;
+      const nextChats = reconciled.rows;
       const liveOrphans = chats.filter((chat) => {
         if (!chat?.id) return false;
         if (chat._fromBootCache === true) return false;
@@ -548,7 +664,10 @@ export function createChatController(deps) {
       // An idempotent reconcile (a live frame for state the list already shows, a title the
       // live sync already patched in place) must not rebuild the list modal. `updateChatBarSelect`
       // and the boot-cache write below stay unconditional: the active chat can change anyway.
-      if (repaintNeeded) renderChatList();
+      if (repaintNeeded) {
+        const paint = () => renderChatList();
+        if (scheduleDomWrite(paint) == null) paint();
+      }
       // `chatListRepaintSignature` deliberately ignores runtime fields, so a hydrated
       // presence row can land on a list that is otherwise unchanged and skip the repaint.
       // The in-place sidebar refresh is what makes that status visible anyway.
@@ -621,10 +740,18 @@ export function createChatController(deps) {
       bindChatVisibilityAndReconnect();
       startChatBackgroundMonitor();
       startGlobalChatPingLoop();
+      lastSuccessfulListLoad = buildChatListLoadSuccessSnapshot(
+        startedScopeKey,
+        Date.now(),
+        applySession,
+        hydrationCtrl.getListRevision(),
+      );
     }).catch((err) => {
       console.warn('[chat] list load failed:', err?.message || err);
     }).finally(() => {
+      inFlightLoadScopeKey = null;
       chatsLoadPromise = null;
+      drainPendingChatListLoadAfterComplete(startedScopeKey);
       // A push-inbox record for a chat that was not in the (often boot-cache
       // seeded) list must be replayed once the server list has reconciled, so the
       // chat row exists and the record is not lost.
@@ -684,6 +811,7 @@ export function createChatController(deps) {
       .forEach((p) => p.classList.toggle('active', p.dataset.chatId === id));
     updateChatBarSelect();
     setChatStatus(chat ? chat._connectionStatus || 'disconnected' : 'disconnected');
+    persistChatListBootCache();
   }
 
   function refreshChatListForWorkspace(options = {}) {
@@ -737,5 +865,8 @@ export function createChatController(deps) {
     refreshChatListForWorkspace,
     initChatPanelBridge,
     persistChatListBootCache,
+    getBootCachePersistInput: collectChatListBootCacheInput,
+    applyPeerBootCacheRevision,
+    invalidateListLoadFreshness,
   };
 }

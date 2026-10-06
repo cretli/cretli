@@ -99,6 +99,13 @@ const widgetHistoryBatch = await runGate({
 });
 assert.equal(widgetHistoryBatch.next, true);
 
+const widgetRevisionsBatch = await runGate({
+  method: 'POST',
+  path: '/api/chats/history-revisions-batch',
+  widgetAccess: access,
+});
+assert.equal(widgetRevisionsBatch.next, true);
+
 // Global delegation statistics are host-only; `/:id` stays available.
 const widgetDelegationStats = await runGate({
   method: 'GET',

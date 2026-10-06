@@ -7,8 +7,10 @@ import {
   captureViewApplyToken,
   isViewApplyTokenCurrent,
   noteViewAppliedRecords,
+  replaceViewAppliedRecords,
   sortRecordsForViewApply,
 } from './chatHistoryConvergence.js';
+import { emptyHistoryReplayResult } from '../../lib/chatHistoryReplayResult.js';
 import {
   selectMissingSdkHistoryRecords,
   selectRoomCoveredSdkHistoryRecords,
@@ -18,6 +20,7 @@ import {
   partitionRecordsByWindowStart,
   rememberHistoryWindowStart,
 } from './chatHistoryWindowOrder.js';
+import { trackHistoryReplayPromise } from './chatHistoryHydrationLive.js';
 
 /**
  * @param {unknown} record
@@ -58,6 +61,46 @@ function isCatchUpRecordVisibleInView(view, record) {
 function selectVisibleCatchUpRecords(view, records) {
   if (!Array.isArray(records)) return [];
   return records.filter((record) => isCatchUpRecordVisibleInView(view, record));
+}
+
+/**
+ * View coverage for a replay: only the applied prefix counts as rendered.
+ *
+ * @param {string} chatId
+ * @param {object | null | undefined} chat
+ * @param {unknown[]} records
+ * @param {number} appliedCount
+ * @returns {number}
+ */
+export function applyReplayViewCoverage(chatId, chat, records, appliedCount) {
+  const list = Array.isArray(records) ? records : [];
+  const count = Math.min(list.length, Math.max(0, Math.round(Number(appliedCount) || 0)));
+  return replaceViewAppliedRecords(chatId, chat, list.slice(0, count));
+}
+
+/**
+ * @param {object | null | undefined} chat
+ * @param {unknown[]} records
+ * @param {{ instant?: boolean, source?: string }} [opts]
+ * @returns {Promise<import('../../lib/chatHistoryReplayResult.js').HistoryReplayResult>}
+ */
+export async function replaySdkRichViewHistory(chat, records, opts = {}) {
+  const view = chat?._sdkRichView;
+  if (!view || typeof view.replayHistoryRecords !== 'function') {
+    return emptyHistoryReplayResult();
+  }
+  if (!Array.isArray(records) || records.length === 0) {
+    return emptyHistoryReplayResult();
+  }
+  const token = captureViewApplyToken(chat);
+  const replayPromise = view.replayHistoryRecords(records, opts);
+  trackHistoryReplayPromise(chat, replayPromise);
+  const result = await replayPromise;
+  if (!isViewApplyTokenCurrent(chat, token)) return result;
+  const activeGen = Math.round(Number(chat._sdkActiveHistoryReplayGeneration) || 0);
+  if (activeGen !== result.generation) return result;
+  applyReplayViewCoverage(chat.id, chat, records, result.applied);
+  return result;
 }
 
 /**

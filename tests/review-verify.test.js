@@ -6,6 +6,7 @@ import {
   isOpaqueExecPayload,
   isReviewVerifyInvocation,
   parseReviewVerifyNodeArgs,
+  resolveReviewVerifyIdsForPath,
   runReviewVerify,
   runReviewVerifyCli,
   REVIEW_VERIFY_CATALOG,
@@ -110,5 +111,70 @@ assert.match(watcherStatsRun.output, /workspace-watcher-stats/);
 assert.match(watcherStatsRun.output, /workspace-watcher-dashboard-ui/);
 assert.equal(fs.existsSync(path.join(watcherStatsRun.dataDir, 'review-verify-pwned.txt')), false);
 fs.rmSync(watcherStatsRun.dataDir, { recursive: true, force: true });
+
+const pathIds = resolveReviewVerifyIdsForPath('app_front/features/chat/chatMetadataIdb.js');
+assert.equal(pathIds.length, 3);
+assert.ok(pathIds.includes('chat-metadata-idb'));
+assert.ok(pathIds.includes('chat-metadata-cross-tab'));
+assert.ok(pathIds.includes('chat-session-boundary'));
+
+const legacyMigrationIds = resolveReviewVerifyIdsForPath(
+  'app_front/features/chat/chatLocalBootLegacyMigration.js'
+);
+assert.ok(legacyMigrationIds.includes('chat-local-boot-sync'));
+
+const archiveFocusIds = resolveReviewVerifyIdsForPath(
+  'app_front/features/sidebar/sidebarArchiveVirtualFocus.js'
+);
+assert.ok(archiveFocusIds.includes('sidebar-archive-virtual-a11y'));
+assert.ok(archiveFocusIds.includes('sidebar-archive-virtualizer'));
+
+// Integration 8.2 — metadata IDB, offline boot, poll races, archive sidebar.
+const integration82Ids = [
+  'chat-list-load-scope-guard',
+  'chat-local-boot-sync',
+  'chat-metadata-cross-tab',
+  'chat-metadata-idb',
+  'chat-pending-remote-history',
+  'chat-session-boundary',
+  'monitoring-archive-qualification',
+  'sidebar-archive-virtualizer',
+  'sidebar-lit-migration-contract',
+];
+for (const id of integration82Ids) {
+  assert.equal(REVIEW_VERIFY_CATALOG[id], `tests/${id}.test.js`);
+}
+const integration82Run = await runReviewVerify({
+  ids: integration82Ids,
+  projectRoot,
+  catalog: REVIEW_VERIFY_CATALOG,
+});
+assert.equal(integration82Run.ok, true, integration82Run.error);
+for (const id of integration82Ids) {
+  assert.match(integration82Run.output, new RegExp(id));
+}
+assert.equal(fs.existsSync(path.join(integration82Run.dataDir, 'review-verify-pwned.txt')), false);
+fs.rmSync(integration82Run.dataDir, { recursive: true, force: true });
+
+const integration82FixIds = [
+  'sidebar-archive-virtual-a11y',
+  'sidebar-swipe',
+  'chat-resume-policy',
+  'chat-list-resume-sync',
+  'sidebar-chat-drag-block',
+];
+for (const id of integration82FixIds) {
+  assert.equal(REVIEW_VERIFY_CATALOG[id], `tests/${id}.test.js`);
+}
+const integration82FixRun = await runReviewVerify({
+  ids: integration82FixIds,
+  projectRoot,
+  catalog: REVIEW_VERIFY_CATALOG,
+});
+assert.equal(integration82FixRun.ok, true, integration82FixRun.error);
+for (const id of integration82FixIds) {
+  assert.match(integration82FixRun.output, new RegExp(id));
+}
+fs.rmSync(integration82FixRun.dataDir, { recursive: true, force: true });
 
 console.log('review-verify.test.js OK');

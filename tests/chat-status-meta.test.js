@@ -50,7 +50,7 @@ assert.equal(actualAttentionBeatsLive.tone, 'attention');
 const inputWaitingBeatsLive = {
   connection: 'connected',
   agent: 'active',
-  serverRunState: { state: 'waiting', waitingAgentCount: 2 },
+  serverRunState: { state: 'waiting', waitingAgentCount: 2, inFlightChildCount: 2 },
 };
 const actualWaitingBeatsLive = resolveHarnessChatStateMeta(inputWaitingBeatsLive);
 assert.equal(actualWaitingBeatsLive.tone, 'awaiting');
@@ -216,7 +216,7 @@ assert.equal(actualServerWaiting.label, 'Needs action');
 const actualServerWaitingAgents = resolveHarnessChatStateMeta({
   connection: 'disconnected',
   agent: 'idle',
-  serverRunState: { state: 'waiting', waitingAgentCount: 2 },
+  serverRunState: { state: 'waiting', waitingAgentCount: 2, inFlightChildCount: 2 },
 });
 assert.equal(actualServerWaitingAgents.label, 'Waiting for 2 agents');
 
@@ -316,6 +316,23 @@ assert.equal(
     serverRunState: { state: 'busy', activityKey: 'grep', activityArg: 'x' },
   }).tone,
   'active'
+);
+
+const inputSidebarStaleWaiting = {
+  surface: 'sidebar',
+  connection: 'disconnected',
+  agent: 'idle',
+  socketExpected: false,
+  serverRunState: { state: 'waiting' },
+};
+assert.equal(resolveHarnessChatStateMeta(inputSidebarStaleWaiting).tone, 'idle');
+assert.equal(resolveHarnessChatStateMeta(inputSidebarStaleWaiting).label, 'Ready');
+assert.equal(
+  resolveHarnessChatStateMeta({
+    ...inputSidebarStaleWaiting,
+    serverRunState: { state: 'waiting', waitingAgentCount: 2, inFlightChildCount: 2 },
+  }).tone,
+  'awaiting',
 );
 
 // --- Hysteresis: a short busy -> idle -> busy blip keeps the row working. ---

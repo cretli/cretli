@@ -27,10 +27,27 @@ assert.equal(readSdkHistoryStreamKind({ kind: 'sdk', event: { type: 'tool_call' 
 assert.equal(readSdkHistoryStreamText(assistantRec('Hej')), 'Hej');
 assert.equal(mergeSdkHistoryStreamText('Hej', 'Hej!'), 'Hej!');
 assert.equal(mergeSdkHistoryStreamText('Hej', ' då'), 'Hej då');
+assert.equal(mergeSdkHistoryStreamText('a', 'a', 'delta'), 'aa');
+assert.equal(mergeSdkHistoryStreamText('aa', 'a', 'delta'), 'aaa');
+assert.equal(mergeSdkHistoryStreamText('Hello wor', 'ld', 'delta'), 'Hello world');
+assert.equal(mergeSdkHistoryStreamText('ab', 'a', 'delta'), 'aba');
+assert.equal(mergeSdkHistoryStreamText('R', 'Ra', 'snapshot'), 'Ra');
+assert.equal(mergeSdkHistoryStreamText('Ra', 'Rap', 'snapshot'), 'Rap');
+
+function assistantDeltaRec(text) {
+  return {
+    kind: 'sdk',
+    event: {
+      type: 'assistant',
+      streamTextMode: 'delta',
+      message: { role: 'assistant', content: [{ type: 'text', text }] },
+    },
+  };
+}
 
 const coalesced = coalesceSdkHistoryItems([
-  { rec: assistantRec('Tak, ') },
-  { rec: assistantRec('widzę') },
+  { rec: assistantDeltaRec('Tak, ') },
+  { rec: assistantDeltaRec('widzę') },
   { rec: { kind: 'sdk', event: { type: 'tool_call', name: 'bash' } } },
   { rec: assistantRec('Koniec.') },
 ]);

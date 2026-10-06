@@ -36,12 +36,41 @@ test('live Chromium: navigate, redact console, screenshot, block metadata, clean
       '<!doctype html><html><head><title>Live Browser</title></head><body>',
       '<h1 id="x">ok</h1>',
       '<img src="http://169.254.169.254/latest/meta-data/x.png" alt="">',
-      '<script>console.log("token=live-secret-value");</script>',
+      '<my-widget></my-widget>',
+      '<input id="name" placeholder="Your name">',
+      '<script>',
+      'console.log("token=live-secret-value");',
+      'class MyWidget extends HTMLElement {',
+      '  connectedCallback() {',
+      '    const root = this.attachShadow({ mode: "open" });',
+      '    root.innerHTML = \'<button id="shadow-save" aria-label="Shadow Save">Save shadow</button>\';',
+      '    root.querySelector("#shadow-save").addEventListener("click", () => console.log("shadow-clicked"));',
+      '  }',
+      '}',
+      'customElements.define("my-widget", MyWidget);',
+      'document.querySelector("#name").addEventListener("input", () => console.log("name-filled"));',
+      '</script>',
       '</body></html>',
     ].join(''));
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
+
+  /** Reads the SOF0/SOF2 dimensions out of a JPEG buffer. */
+  function jpegSize(buffer) {
+    let i = 2;
+    while (i < buffer.length - 9) {
+      if (buffer[i] !== 0xFF) { i += 1; continue; }
+      const marker = buffer[i + 1];
+      const length = buffer.readUInt16BE(i + 2);
+      const isSof = marker >= 0xC0 && marker <= 0xCF
+        && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC;
+      if (isSof) return { height: buffer.readUInt16BE(i + 5), width: buffer.readUInt16BE(i + 7) };
+      if (marker === 0xD8 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)) { i += 2; continue; }
+      i += 2 + length;
+    }
+    return null;
+  }
 
   const manager = new BrowserSessionManager({
     driver: runtime.driver,
@@ -72,6 +101,45 @@ test('live Chromium: navigate, redact console, screenshot, block metadata, clean
     assert.ok(frame.bytes > 0);
     assert.ok(frame.bytes <= BROWSER_LIMITS.MAX_SCREENSHOT_BYTES);
     assert.equal(frame.mimeType, 'image/jpeg');
+    // `scale: 'css'`: one image pixel per CSS pixel even at DPR 2, so the frame
+    // lines up with the viewport coordinates clicks use.
+    assert.deepEqual(jpegSize(Buffer.from(frame.data, 'base64')), { width: 390, height: 844 });
+
+    // Elements inside an open shadow root (a Lit-style custom element) must be
+    // listed, and the generated selector must actually drive a click.
+    const elements = await manager.getVisibleElements(session.browserSessionId, tab.browserTabId, 'live-owner', scope);
+    const shadowSave = elements.elements.find((el) => el.name === 'Shadow Save');
+    assert.ok(shadowSave, JSON.stringify(elements.elements));
+    assert.equal(shadowSave.role, 'button');
+    assert.match(shadowSave.selector, />>/, shadowSave.selector);
+    const nameInput = elements.elements.find((el) => el.name === 'Your name');
+    assert.ok(nameInput, JSON.stringify(elements.elements));
+
+    await manager.dispatchInput(
+      session.browserSessionId,
+      tab.browserTabId,
+      'live-owner',
+      { kind: 'fill', placeholder: 'Your name', value: 'Ala' },
+      scope,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await manager.dispatchInput(
+      session.browserSessionId,
+      tab.browserTabId,
+      'live-owner',
+      { kind: 'click', selector: shadowSave.selector },
+      scope,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const interactionPull = manager.pullConsole(session.browserSessionId, tab.browserTabId, 'live-owner', {}, scope);
+    assert.ok(
+      interactionPull.entries.some((entry) => entry.text.includes('name-filled')),
+      JSON.stringify(interactionPull.entries),
+    );
+    assert.ok(
+      interactionPull.entries.some((entry) => entry.text.includes('shadow-clicked')),
+      JSON.stringify(interactionPull.entries),
+    );
 
     const networkPull = manager.pullNetwork(session.browserSessionId, tab.browserTabId, 'live-owner', {}, scope);
     assert.ok(

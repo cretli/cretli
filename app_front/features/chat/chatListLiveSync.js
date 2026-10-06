@@ -20,6 +20,7 @@ const LIVE_SYNC_MAX_WAIT_MS = 600;
  *   onWatcherChanged?: () => unknown,
  *   onChatsChangedFrame?: (info: { reason?: string, chatId?: string | null }) => unknown,
  *   shouldSuppressChatsChanged?: (frame: { reason?: string, chatId?: string | null }) => boolean,
+ *   onBeforeListReload?: () => void,
  *   setTimeoutFn?: typeof setTimeout,
  *   clearTimeoutFn?: typeof clearTimeout,
  *   nowFn?: () => number,
@@ -40,6 +41,7 @@ export function createChatListLiveSync({
   // `isUiFreezeTraceActive()`, so production does no work here.
   onChatsChangedFrame = () => {},
   shouldSuppressChatsChanged = () => false,
+  onBeforeListReload = () => {},
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
   nowFn = () => Date.now(),
@@ -52,7 +54,12 @@ export function createChatListLiveSync({
 
   function schedule() {
     const now = nowFn();
-    if (windowStartedAt == null) windowStartedAt = now;
+    if (windowStartedAt == null) {
+      windowStartedAt = now;
+      try {
+        onBeforeListReload();
+      } catch (_) {}
+    }
     // Trailing debounce, capped: the reload always lands within `maxWaitMs` of the first
     // event, so a bulk archive or a chatty watcher cycle cannot starve the list.
     const remaining = windowStartedAt + maxWaitMs - now;

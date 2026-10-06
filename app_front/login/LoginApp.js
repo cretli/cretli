@@ -147,6 +147,10 @@ class CrLoginApp extends LitElement {
         this.mode = 'setup';
         return;
       }
+      if (data.localLogin === true && !this._isWidgetAuth()) {
+        const loggedIn = await this._loginWithoutPassword();
+        if (loggedIn) return;
+      }
       if (data.authRequired === false) {
         if (this._isWidgetAuth()) {
           const ok = await this._completeWidgetAuth();
@@ -160,6 +164,33 @@ class CrLoginApp extends LitElement {
     } catch {
       this.mode = 'login';
     }
+  }
+
+  /**
+   * Built-in Browser only. The session token rides on the request header
+   * injected by the server-side Chromium context, not in this body.
+   * @returns {Promise<boolean>}
+   */
+  async _loginWithoutPassword() {
+    this.submitting = true;
+    this.error = '';
+    try {
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept-Language': getCurrentLang() },
+        credentials: 'include',
+        body: JSON.stringify({ local: true }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 200 && data && data.ok) {
+        window.location.replace(this._next);
+        return true;
+      }
+    } catch {
+      // Fall through to the password form.
+    }
+    this.submitting = false;
+    return false;
   }
 
   _readFieldValue(selector) {

@@ -37,6 +37,7 @@ export function agentRunStateDedupeKey(row) {
     String(row.waitingAgentCount || 0),
     row.activityKey || '',
     row.activityArg || '',
+    String(row.inFlightChildCount ?? 0),
   ].join(':');
 }
 

@@ -260,9 +260,11 @@ Front hot fallback   → /ws-front-build → watch events (CRETLI_FRONT_HOT_FALL
   client skips the HTTP `agent-states` GET while that feed is fresh (~10 s) and
   `sdkRoomBus` is not `redis`. Codex / Qwen / DeepSeek / CodeBuddy / PTY still
   rely on delegations + HTTP; live tool names are SDK/OpenCode/OpenRouter only.
-  `GET /api/chats/history-revisions` still sends `ids` when the list is
-  short; if `ids` is omitted (overflow), the server returns the widget/main
-  allowlist, not the unscoped in-memory index. `hasPendingDelegation` on a revision forces the
+  `GET /api/chats/history-revisions` sends `ids` when the list fits the query
+  budget; longer explicit lists use chunked GET and/or
+  `POST /api/chats/history-revisions-batch` (empty body is 400 — never “every
+  chat”). Omitting `ids` on GET still returns the widget/main allowlist, not
+  the unscoped in-memory index. `hasPendingDelegation` on a revision forces the
   open parent chat to pull a new delegation card even when the WebSocket is up.
 - Multi-instance deployments: set `CRETLI_REDIS_URL` (+ optional `redis` package).
   See **`docs/MULTI-INSTANCE.md`** for sticky routing, registry lease, and failover.
@@ -302,6 +304,10 @@ Model windows come from a static prefix table in `lib/sdk/sdk-context-advisory.j
   `?tab=` remain aliases for PWA shortcuts and push deep links.
 - WebSocket connections check the session cookie at handshake and close with `4401` if
   unauthenticated; the frontend redirects to `/login` on that code.
+- The built-in Browser sends an in-memory token (`x-cretli-local-login`) and can
+  open a session with `POST /api/login` `{ "local": true }` without the password.
+  Other clients still need the password, including LAN traffic forwarded onto
+  localhost. The token is not stored and is redacted in Browser network output.
 
 ## HTTP API (selection)
 
@@ -352,6 +358,7 @@ Model windows come from a static prefix table in `lib/sdk/sdk-context-advisory.j
 | PATCH | `/api/chats/:id` | Update chat fields (`archived`, `title`, `model`, ...; CSRF header required) |
 | DELETE | `/api/chats/:id` | Delete chat + history (runs disposable-room cleanup first) |
 | GET | `/api/chats/history-revisions` | Lightweight `headSeq` revision index (`?ids=` optional; omit = all allowed chats, widget scoped; never the unscoped index) |
+| POST | `/api/chats/history-revisions-batch` | Explicit revision index slice (`{ ids: [...] }`). Empty `ids` is 400 — never “every chat”. Widget scoped. |
 | POST | `/api/chats/history-batch` | Explicit multi-chat history delta (`{ chats: [{ id, since, limit? }] }`). Empty `chats` is 400 — never “every chat”. Widget scoped. |
 | GET | `/api/chats/:id/history` | Pull SDK history log (`?since=&limit=`) |
 | POST | `/api/chats/:id/dispose-sdk-room` | Reset in-memory SDK room (stuck chat recovery) |
@@ -588,6 +595,10 @@ a hidden session is never invisible.
   server (`/__webpack_hmr`). Production build: `npm run build:front:prod`.
 - Mobile: `visualViewport` keyboard offset, fixed send bar with safe-area insets, radial
   Kib gesture, special-char bar, screenshot/dictation support.
+- Chat list metadata persistence (IndexedDB stage 5): isolation contract and SDK vs
+  metadata lifecycle in [chat-metadata-idb-isolation.md](chat-metadata-idb-isolation.md);
+  schema helpers in `app_front/features/chat/chatMetadataIdbSchema.js` and runtime
+  access in `chatMetadataIdb.js`. Auth boundaries use `chatSessionBoundary.js`.
 
 ### Sidebar live chat status
 
@@ -629,6 +640,11 @@ A sidebar row status moves through four stages, and only the last one touches th
    deliberately **not** part of `renderSignature`, so no presence or time-based status
    change can rebuild the list; a full render happens only for structure, layout, group
    composition, or watcher changes.
+
+**Lit migration (stage 6):** The sidebar will move to Lit components in **light DOM**
+only (no Shadow DOM on rows). DOM/event/CSS contracts, mount boundaries, consumer
+inventory, and stage 6.3–6.5 scope are documented in
+[sidebar-lit-migration-contracts.md](sidebar-lit-migration-contracts.md).
 
 `chatsChanged` frames take a separate, cheaper path
 (`app_front/features/chat/chatListLiveSync.js`): a watcher frame only refreshes

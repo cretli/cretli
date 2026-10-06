@@ -14,7 +14,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -133,7 +133,17 @@ class FakeManager {
   async screenshot(sessionId, tabId, ownerSessionId, options = {}) {
     this.requireTab(sessionId, tabId, ownerSessionId, options);
     this.calls.push({ method: 'screenshot', sessionId, tabId, options });
-    return { dataUrl: 'data:image/jpeg;base64,AAAA', bytes: 3 };
+    return {
+      browserSessionId: sessionId,
+      browserTabId: tabId,
+      mimeType: 'image/jpeg',
+      bytes: 3,
+      width: 390,
+      height: 844,
+      dpr: 2,
+      data: Buffer.from('jpeg').toString('base64'),
+      at: 1,
+    };
   }
 
   pullConsole(sessionId, tabId, ownerSessionId, options = {}, scope = {}) {
@@ -152,6 +162,21 @@ class FakeManager {
     this.requireTab(sessionId, tabId, ownerSessionId, scope);
     this.calls.push({ method: 'getDom', sessionId, tabId, scope });
     return { browserSessionId: sessionId, browserTabId: tabId, html: '<html></html>', truncated: false, bytes: 13 };
+  }
+
+  async getVisibleElements(sessionId, tabId, ownerSessionId, scope = {}) {
+    this.requireTab(sessionId, tabId, ownerSessionId, scope);
+    this.calls.push({ method: 'getVisibleElements', sessionId, tabId, scope });
+    return {
+      browserSessionId: sessionId,
+      browserTabId: tabId,
+      channel: 'elements',
+      elements: [{ index: 0, role: 'button', name: 'Save', text: 'Save', selector: '#save' }],
+      count: 1,
+      scanned: 1,
+      total: 1,
+      truncated: false,
+    };
   }
 
   async createSession(input) {
@@ -385,3 +410,56 @@ test('server.js registers the runtime and the SDK merges the browser tools', () 
   assert.match(sdk, /buildBrowserAgentTools\(/);
   assert.match(sdk, /\.\.\.browserTools/);
 });
+
+test('browser_elements is a read tool bounded by the caller limit', async () => {
+  const manager = new FakeManager();
+  manager.addSession({ id: 'session-A', chatId: CHAT });
+  const plan = toolsFor(manager, { mode: 'plan' });
+  assert.ok(plan.browser_elements, 'browser_elements must be available in plan mode');
+  assert.equal(toolsFor(manager, { mode: 'agent', assignment: 'review' }).browser_elements !== undefined, true);
+
+  const result = await plan.browser_elements.execute({ browserSessionId: 'session-A', browserTabId: 'tab-1', limit: 25 });
+  assert.equal(result.ok, true);
+  assert.equal(result.count, 1);
+  assert.equal(result.elements[0].name, 'Save');
+  const call = manager.calls.find((entry) => entry.method === 'getVisibleElements');
+  assert.equal(call.scope.limit, 25);
+  await assert.rejects(
+    () => plan.browser_elements.execute({ browserSessionId: 'session-A' }),
+    (err) => err.code === 'explicit-target-required',
+  );
+});
+
+test('browser_screenshot returns a temp file path instead of inline base64', async () => {
+  const manager = new FakeManager();
+  manager.addSession({ id: 'session-A', chatId: CHAT });
+  const tools = toolsFor(manager);
+  const shot = await tools.browser_screenshot.execute({ browserSessionId: 'session-A', browserTabId: 'tab-1' });
+  assert.equal(shot.ok, true);
+  assert.equal(shot.frame.data, undefined);
+  assert.equal(shot.frame.width, 390);
+  assert.match(shot.frame.path, /\.jpg$/);
+  try {
+    assert.equal(readFileSync(shot.frame.path, 'utf8'), 'jpeg');
+  } finally {
+    rmSync(path.dirname(shot.frame.path), { recursive: true, force: true });
+  }
+});
+
+test('browser_input forwards click and fill locator events to the manager', async () => {
+  const manager = new FakeManager();
+  manager.addSession({ id: 'session-A', chatId: CHAT });
+  const tools = toolsFor(manager);
+  const event = { kind: 'click', role: 'button', name: 'Save' };
+  const result = await tools.browser_input.execute({
+    browserSessionId: 'session-A',
+    browserTabId: 'tab-1',
+    confirm: true,
+    event,
+  });
+  assert.equal(result.ok, true);
+  const call = manager.calls.find((entry) => entry.method === 'dispatchInput');
+  assert.deepEqual(call.event, event);
+  assert.match(tools.browser_input.inputSchema.properties.event.description, /click\|fill/);
+});
+

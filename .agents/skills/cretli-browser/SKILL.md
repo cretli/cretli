@@ -22,9 +22,18 @@ whatever they did there (a sign-in, a filled form, an opened dialog) is still in
    other tool.
 3. Inspect:
    - `browser_screenshot` — saves a JPEG and returns its **file path**; open the file.
+     Image pixels are CSS pixels, so screenshot coordinates match `browser_input`
+     pointer coordinates (no DPR scaling).
+   - `browser_elements` — visible interactive elements (links, buttons, inputs,
+     ARIA roles) **including inside Lit shadow roots**, with `role`/`name`/`text`
+     and a usable `selector`. Prefer this to guessing from screenshot pixels.
    - `browser_dom` — bounded, redacted HTML (`maxBytes` to get more).
    - `browser_console` / `browser_network` — pull with `since` / `nextSince`.
 4. Act (agent mode only): `browser_navigate`, `browser_input` (needs `confirm: true`).
+   For `browser_input`, prefer `{ kind: "click" }` / `{ kind: "fill", value }` with a
+   target from `browser_elements`: `selector`, or `role` (+`name`) / `text` / `label`
+   / `placeholder`. These locators pierce open shadow roots. Raw `pointer` events use
+   viewport coordinates only when there is no usable locator.
 
 Plan, ask and review runs get the read tools only.
 

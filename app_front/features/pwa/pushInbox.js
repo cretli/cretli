@@ -12,6 +12,7 @@ import {
   shouldSyncChatHistoryFromPushInbox,
 } from '../../../lib/push-inbox-logic.js';
 import { agentRunStateDedupeKey } from '../chat/chatHistorySyncPoll.js';
+import { setChatPendingRemoteHistoryFlag } from '../chat/chatPendingRemoteHistoryFlag.js';
 
 export { PUSH_INBOX_DB_NAME, shouldSyncChatHistoryFromPushInbox };
 
@@ -278,7 +279,8 @@ export function applyPushInboxRecordsToChats(chats, records, getLastAckedSeq = (
     const headSeq = Number(record?.headSeq);
     const shouldSyncHeadSeq = shouldSyncChatHistoryFromPushInbox(headSeq, getLastAckedSeq(chatId));
     if (shouldSyncHeadSeq) {
-      chat._pendingRemoteHistory = true;
+      // Task 0.1: count only real true/false transitions (same rule as poll setter).
+      setChatPendingRemoteHistoryFlag(chat, true);
       syncChatIds.push(chatId);
     }
     if (expired) {

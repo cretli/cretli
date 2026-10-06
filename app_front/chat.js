@@ -97,6 +97,7 @@ import {
 import { parseTerminalInteraction, resolveTerminalState } from '../lib/status-parser.js';
 import {
   hasActiveAgentRun,
+  hasConfirmedAgentRun,
   hasKeepAliveHarnessWork,
   hasLiveHarnessWork,
   hasProtocolAgentRun,
@@ -119,6 +120,8 @@ import {
   createRafDebouncer,
   shouldSkipChatListItemWrite,
 } from './features/chat/chatListStateRefresh.js';
+import { dispatchSidebarChatRowStatusPatch } from './features/sidebar/sidebarChatRowRefreshBus.js';
+import { patchSidebarChatRowVisualState } from './features/sidebar/sidebarChatRowVisualPatch.js';
 import { normalizeSdkMode } from '../lib/sdk/sdk-mode.js';
 import { maybeRecoverMissedSdkRunOutcome } from './features/chat/sdkRunOutcomeRecovery.js';
 import { normalizeSdkUiMode } from '../lib/sdk/sdk-ui-mode.js';
@@ -133,6 +136,7 @@ import {
 } from './features/chat/chatServerRecovery.js';
 import { registerPageResumeCleanupHook } from './lib/pageResumeCleanup.js';
 import { isUiFreezeTraceActive, traceUiFreeze } from './lib/uiFreezeTrace.js';
+import { getUiFreezeCounters } from './lib/uiFreezeCounters.js';
 import { getUiFreezeMetrics } from './features/sidebar/sidebarRenderMetrics.js';
 import {
   armContextCompressionWatchdog,
@@ -173,7 +177,10 @@ import {
   syncViewAppliedSessionKey,
 } from './features/chat/chatHistoryConvergence.js';
 import { markPageResumeStage } from './features/chat/pageResumeTrace.js';
-import { applyCatchUpSdkHistoryRecords } from './features/chat/chatHistoryViewApply.js';
+import {
+  applyCatchUpSdkHistoryRecords,
+  replaySdkRichViewHistory,
+} from './features/chat/chatHistoryViewApply.js';
 import { runSdkHistoryConvergence as executeSdkHistoryConvergence } from './features/chat/chatHistoryConvergenceRun.js';
 import { isMobileLikeClient } from './lib/mobileClient.js';
 import { getLastBackgroundDurationMs } from './lib/pageBackgroundGrace.js';
@@ -182,13 +189,19 @@ import {
   beginSdkOpenTerminalHydration,
   clearSdkOpenTerminalHydrating,
   isSdkOpenTerminalHydrating,
-  hasSdkHistoryRoomWatermarks,
 } from './features/chat/sdkEventReplayGuard.js';
+import { waitForHistoryReplaySettled } from './features/chat/chatHistoryHydrationLive.js';
+import {
+  captureHydrationHttpBoundary,
+  isHydrationHttpBoundaryCurrent,
+  mergeServerSdkHistoryIntoRichView,
+} from './features/chat/chatHistoryHttpMerge.js';
 import {
   rememberHistoryWindowStart,
   sortRecordsByCreatedAt,
 } from './features/chat/chatHistoryWindowOrder.js';
-import { selectTurnAlignedHistoryWindow } from '../lib/sdk/sdk-history-turn-window.js';
+import { resolveTurnAlignedHistoryWindow } from '../lib/sdk/sdk-history-turn-window.js';
+import { UI_FREEZE_CHAT_MOUNTED_RECORD_CAP } from './lib/uiFreezeRenderBudgets.js';
 import { createSdkRichView } from './lib/sdk-rich-view.js';
 import { getChatSpeaker } from './features/voice/chatSpeaker.js';
 import { createVoiceReadOptions } from './features/voice/voiceReadControls.js';
@@ -213,6 +226,25 @@ import {
 } from './lib/sdk-chat-history-store.js';
 import { createChatView } from './features/chat/chatView.js';
 import { createChatController } from './features/chat/chatController.js';
+import { createChatArchiveCatalog } from './features/chat/chatArchiveCatalog.js';
+import { registerChatSessionBoundaryListFreshnessHook } from './features/chat/chatSessionBoundary.js';
+import { createChatMetadataIdbPersistenceAdapter } from './features/chat/chatPersistenceIdbAdapter.js';
+import { getChatMetadataIdbOperationEpoch } from './features/chat/chatMetadataIdb.js';
+import {
+  getChatActivityStore,
+  installChatActivityStore,
+  setChatActivityPersistenceSink,
+  subscribeChatActivity,
+} from './features/chat/chatActivityStore.js';
+import {
+  getChatPersistenceQueue,
+  installChatPersistenceQueue,
+  invalidateChatPersistenceQueue,
+} from './features/chat/chatPersistenceQueue.js';
+import { installChatMetadataCrossTabSync } from './features/chat/chatMetadataCrossTab.js';
+import { setChatMetadataIdbSessionScope } from './features/chat/chatMetadataIdb.js';
+import { getChatBootListHydrationController } from './features/chat/chatLocalBootAsyncHydrate.js';
+import { migrateLegacyLocalBootCacheToIdb } from './features/chat/chatLocalBootLegacyMigration.js';
 import {
   chatBelongsToWorkspaceGroup,
   resolveWorkspaceTargetForChat,
@@ -250,7 +282,6 @@ import {
   getSdkVerboseLogsEnabled,
 } from './features/chat/chatSettingsPrefs.js';
 import { escapeHtml } from './features/chat/chatHtmlUtils.js';
-import { applySidebarChatStatusEl } from './features/sidebar/sidebarChatStatus.js';
 import {
   createSidebarStatusStabilizer,
 } from './features/sidebar/sidebarChatStatusStability.js';
@@ -3045,8 +3076,11 @@ initChatHistorySyncPoll({
   appLogger,
   getSdkRoomBusMode: () => sdkRoomBusMode,
   hasOpenHarnessWs: () => chats.some((chat) => chat?.ws && chat.ws.readyState === 1),
-  onPendingHistoryChange: () => {
-    renderChatList();
+  onPendingHistoryChange: (changedChats, meta) => {
+    // Task 1.2: patch the open modal's pending badges in place. No renderChatList,
+    // so a pending batch builds/writes no boot cache and refreshes no model labels,
+    // and untouched rows keep their DOM identity. A closed modal is a no-op here.
+    chatView.applyChatListPendingBadges(changedChats, meta);
   },
   onAgentStatesChange: (dirtyIds) => {
     scheduleChatListStateRefresh(dirtyIds);
@@ -3137,6 +3171,14 @@ chatListLiveSyncApi = createChatListLiveSync({
     }
   },
   shouldSuppressChatsChanged: (frame) => chatListExplicitReloadGuard.shouldSuppressChatsChanged(frame),
+  onBeforeListReload: () => getChatBootListHydrationController().bumpListRevision(),
+});
+
+const chatArchiveCatalog = createChatArchiveCatalog({
+  getChats: () => chats,
+  getSession: () => getChatActivityStore().getSession(),
+  getIdbEpoch: () => getChatMetadataIdbOperationEpoch(),
+  onHydrated: () => renderChatList(),
 });
 
 const chatController = createChatController({
@@ -3185,7 +3227,81 @@ const chatController = createChatController({
   onAfterBootHydrate: consumePushInboxFromStore,
   onAfterChatsLoad: consumePushInboxFromStore,
   onPresenceHydrate: (dirtyIds) => scheduleChatListStateRefresh(dirtyIds),
+  scheduleBootCachePersist: () => {
+    getChatPersistenceQueue()?.markBootCacheDirty();
+  },
+  getBootMetadataAdapter: () => chatMetadataPersistenceAdapter,
+  getBootIdbEpoch: () => getChatMetadataIdbOperationEpoch(),
+  getBootActivitySession: () => getChatActivityStore().getSession(),
+  onArchiveCatalogHydrate: () => chatArchiveCatalog.hydrateMissingArchiveIntoRuntime(),
+  invalidateArchiveCatalog: () => chatArchiveCatalog.invalidateIdbCache(),
 });
+
+registerChatSessionBoundaryListFreshnessHook(() => chatController.invalidateListLoadFreshness());
+
+const chatMetadataPersistenceAdapter = createChatMetadataIdbPersistenceAdapter({
+  getSession: () => getChatActivityStore().getSession(),
+});
+installChatActivityStore({ adapter: chatMetadataPersistenceAdapter });
+/** @type {ReturnType<typeof installChatMetadataCrossTabSync> | null} */
+let chatMetadataCrossTabSync = null;
+installChatPersistenceQueue({
+  adapter: chatMetadataPersistenceAdapter,
+  getIdbEpoch: () => getChatMetadataIdbOperationEpoch(),
+  getSession: () => getChatActivityStore().getSession(),
+  getBootCacheInput: () => chatController.getBootCachePersistInput?.() || null,
+  getActivitySnapshots: () => {
+    const store = getChatActivityStore();
+    return {
+      activity: store.snapshotActivity(),
+      lastUsed: store.snapshotLastUsed(),
+    };
+  },
+  onDurableFlush: (detail) => {
+    chatMetadataCrossTabSync?.publishFlush(detail);
+  },
+});
+chatMetadataCrossTabSync = installChatMetadataCrossTabSync({
+  getSession: () => getChatActivityStore().getSession(),
+  getIdbEpoch: () => getChatMetadataIdbOperationEpoch(),
+  getAdapter: () => chatMetadataPersistenceAdapter,
+  getActivityStore: () => getChatActivityStore(),
+  getBootRevision: () => getChatPersistenceQueue()?.getBootRevision?.() || '',
+  onBootRevision: () => {
+    chatController.applyPeerBootCacheRevision?.();
+  },
+});
+chatMetadataCrossTabSync.installStorageListener();
+setChatActivityPersistenceSink((detail) => {
+  getChatPersistenceQueue()?.markActivityDirty(detail);
+});
+subscribeChatActivity((event) => {
+  if (event?.type === 'reset') {
+    getChatBootListHydrationController().cancel();
+    invalidateChatPersistenceQueue({ clearBootRevision: true });
+    if (event.sessionId) {
+      setChatMetadataIdbSessionScope({
+        sessionId: String(event.sessionId),
+        generation: Number(event.generation) || 1,
+      });
+    }
+  }
+});
+setChatMetadataIdbSessionScope(getChatActivityStore().peekSessionScope());
+void chatMetadataPersistenceAdapter.ensurePrime().then(async () => {
+  const session = getChatActivityStore().getSession();
+  setChatMetadataIdbSessionScope(session);
+  getChatBootListHydrationController().setSessionScope(session);
+  getChatBootListHydrationController().setIdbEpoch(getChatMetadataIdbOperationEpoch());
+  await migrateLegacyLocalBootCacheToIdb({
+    adapter: chatMetadataPersistenceAdapter,
+    getIdbEpoch: () => getChatMetadataIdbOperationEpoch(),
+  });
+  void chatMetadataPersistenceAdapter.persistPendingSessionMarker({
+    epoch: getChatMetadataIdbOperationEpoch(),
+  });
+}).catch(() => {});
+getChatPersistenceQueue()?.installLifecycleFlushHooks();
 
 /** Chats assigned to the current header workspace. Older chats (no workspaceFile) are hidden. */
 function getWorkspaceContextForChat() {
@@ -3333,6 +3449,10 @@ function chatExpectsLiveSocket(chat) {
   if (chat.id === activeChatId) return true;
   const mode = chat._backgroundMonitorMode;
   if (mode === 'ws' || mode === 'ws-active') return true;
+  // Task 3.1: an archived row that is not actually running does not expect a
+  // socket; sidebar meta maps stale waiting/attention to idle (see resolver).
+  const archived = Boolean(String(chat.archivedAt || '').trim());
+  if (archived && !hasConfirmedAgentRun(chat)) return false;
   return hasLiveHarnessWork(chat);
 }
 
@@ -3591,9 +3711,9 @@ function applyChatListItemVisualState(li, chat, kind) {
   const meta = chat ? getSidebarChatStateMeta(chat) : disconnectedMeta;
   const state = chat ? resolveChatListDotState(meta.tone) : 'disconnected';
   const nextKey = chatListVisualKey(state, meta.tone, meta.label);
-  if (shouldSkipChatListItemWrite(li.dataset.visualKey, nextKey)) return;
-  li.dataset.visualKey = nextKey;
   if (kind === 'modal') {
+    if (shouldSkipChatListItemWrite(li.dataset.visualKey, nextKey)) return;
+    li.dataset.visualKey = nextKey;
     const indicator = li.querySelector('.chat-list-item-state');
     if (indicator) {
       indicator.className = 'chat-list-item-state chat-list-item-state--' + state;
@@ -3609,28 +3729,23 @@ function applyChatListItemVisualState(li, chat, kind) {
     }
     return;
   }
-  // Wider fixed chip column while the row is working so the activity label never
-  // squeezes the title (see .sidebar-chat-item.has-activity-status in app.scss).
-  if (li.classList && typeof li.classList.toggle === 'function') {
-    li.classList.toggle('has-activity-status', meta.tone === 'active');
-  }
-  const indicator = li.querySelector('.sidebar-chat-item-state');
-  if (indicator) {
-    indicator.className = 'sidebar-chat-item-state sidebar-chat-item-state--' + state;
-    indicator.setAttribute('title', meta.label);
-  }
-  const awaitingEl = li.querySelector('.sidebar-chat-item-awaiting');
-  if (awaitingEl) {
-    applySidebarChatStatusEl(awaitingEl, meta, {
-      escapeHtml,
-      title: t('sidebar.stateTitle', { label: meta.label }),
-    });
-  }
+  patchSidebarChatRowVisualState(li, chat, {
+    t,
+    escapeHtml,
+    getSidebarChatStateMeta,
+  });
 }
 
 function updateChatListModalStates() {
   const byId = buildChatByIdMap(chats);
   updateSidebarChatStates(byId);
+  // Settled-group summaries + the active-row highlight live outside the sidebar
+  // signature, so a status/refresh frame must repaint them here (the row chips
+  // above are the hot path; this is a bounded extra walk, guarded for a hidden
+  // drawer). This must run even when the chat-list modal is closed: otherwise a
+  // stale active row survives until the next structural render — the "reopen the
+  // drawer and the previously active (settled) child is still highlighted" bug.
+  if (sidebarTransientPatchHook) sidebarTransientPatchHook();
   const modal = document.getElementById('chat-list-modal');
   const listEl = document.getElementById('chat-list-items');
   if (!modal || modal.hidden || !listEl) return;
@@ -3638,10 +3753,6 @@ function updateChatListModalStates() {
     const id = li.dataset.chatId;
     applyChatListItemVisualState(li, id ? byId.get(id) : null, 'modal');
   });
-  // Settled-group summaries + the active-row highlight live outside the sidebar
-  // signature, so a status-only frame must repaint them here (the row chips above
-  // are the hot path; this is a bounded extra walk, guarded for a hidden drawer).
-  if (sidebarTransientPatchHook) sidebarTransientPatchHook();
 }
 
 const chatListStateRefresh = createRafDebouncer(() => {
@@ -3693,6 +3804,12 @@ function updateSidebarChatStates(chatById = null) {
   pendingSidebarDirtyIds = new Set();
   // A coalesced frame with nothing dirty emits no patch at all — bail before the walk.
   if (dirty.size === 0) return;
+  dispatchSidebarChatRowStatusPatch({
+    dirty,
+    all: dirty.has('*'),
+    chatById: byId,
+    getSidebarChatStateMeta,
+  });
   if (dirty.has('*')) {
     const items = body.querySelectorAll('.sidebar-chat-item');
     items.forEach((li) => {
@@ -3898,9 +4015,11 @@ function renderChatTerminalState(chat, metaOverride = null) {
 }
 
 function renderChatList() {
+  // Task 0.1: count full list refreshes. The poll-apply span in
+  // chatHistorySyncPoll measures how long the synchronous ones take.
+  getUiFreezeCounters()?.bump('ui.renders');
   chatView.renderChatList();
   notifySidebar();
-  chatController?.persistChatListBootCache?.();
 }
 
 function updateChatBarSelect() {
@@ -4058,11 +4177,19 @@ function takeSdkHistoryWindow(chat, records) {
   const list = Array.isArray(records) ? records : [];
   // A bare tail cut can land mid-run and drop the run's leading Thinking block, which
   // splits its Activity tray on replay. Expand the window to the user turn that opens
-  // the run so the renderer rebuilds the same group as the live stream.
-  const windowed = selectTurnAlignedHistoryWindow(list, CHAT_HISTORY_INITIAL_TAIL);
-  const cut = list.length - windowed.length;
-  chat._historyOlderLocal = cut > 0 ? list.slice(0, cut) : [];
-  return windowed;
+  // the run so the renderer rebuilds the same group as the live stream. Cap the
+  // mounted slice so one long run cannot blow past UI freeze budgets (stage 4).
+  const resolved = resolveTurnAlignedHistoryWindow(
+    list,
+    CHAT_HISTORY_INITIAL_TAIL,
+    UI_FREEZE_CHAT_MOUNTED_RECORD_CAP,
+  );
+  chat._historyOlderLocal = resolved.parked;
+  chat._sdkHistoryTurnSegment = resolved.turnSegment;
+  if (typeof chat._sdkRichView?.setHistoryTurnSegment === 'function') {
+    chat._sdkRichView.setHistoryTurnSegment(resolved.turnSegment);
+  }
+  return resolved.records;
 }
 
 /**
@@ -4091,42 +4218,10 @@ async function hydrateSdkRichViewFromLocalCache(chat, localState, sessionKey) {
   const chronological = sortRecordsByCreatedAt(localState.events);
   const windowed = takeSdkHistoryWindow(chat, chronological);
   rememberHistoryWindowStart(chat, windowed, { reset: true });
-  chat._sdkRichView.replayHistoryRecords(windowed, { instant: true });
   syncViewAppliedSessionKey(chat.id, chat, sessionKey);
-  replaceViewAppliedRecords(chat.id, chat, windowed);
+  await replaySdkRichViewHistory(chat, windowed, { instant: true, source: 'local' });
   syncRichViewPlainBuffer(chat);
   return { hydratedRecords: chronological, structuredReplayDone: true };
-}
-
-/**
- * @param {object} chat
- * @param {unknown[]} serverEvents
- * @param {string} sessionKey
- * @param {boolean} structuredReplayDone
- * @returns {Promise<{ hydratedRecords: unknown[], structuredReplayDone: boolean }>}
- */
-async function mergeServerSdkHistoryIntoRichView(chat, serverEvents, sessionKey, structuredReplayDone) {
-  if (!chat?._sdkRichView || !Array.isArray(serverEvents) || serverEvents.length === 0) {
-    return { hydratedRecords: serverEvents || [], structuredReplayDone };
-  }
-  const resolvedSessionKey = sessionKey || '';
-  if (structuredReplayDone && hasSdkHistoryRoomWatermarks(chat)) {
-    const applied = await applyCatchUpSdkHistoryRecords(chat, serverEvents);
-    if (applied > 0) syncRichViewPlainBuffer(chat);
-    if (resolvedSessionKey) {
-      await replaceSdkChatHistoryRecords(chat.id, resolvedSessionKey, serverEvents);
-    }
-    return { hydratedRecords: serverEvents, structuredReplayDone: true };
-  }
-  if (resolvedSessionKey) {
-    await replaceSdkChatHistoryRecords(chat.id, resolvedSessionKey, serverEvents);
-  }
-  rememberHistoryWindowStart(chat, serverEvents, { reset: true });
-  chat._sdkRichView.replayHistoryRecords(serverEvents, { instant: true });
-  syncViewAppliedSessionKey(chat.id, chat, resolvedSessionKey);
-  replaceViewAppliedRecords(chat.id, chat, serverEvents);
-  syncRichViewPlainBuffer(chat);
-  return { hydratedRecords: serverEvents, structuredReplayDone: true };
 }
 
 /**
@@ -4800,28 +4895,40 @@ function openTerminal(chat) {
 
       // --- 1. SYNC WITH BACKEND: pull the log from the server (source of truth) ---
       try {
+        const httpBoundary = captureHydrationHttpBoundary(chat, sessionKey);
         const serverState = await pullChatHistoryFromServer(chat.id, {
           tail: CHAT_HISTORY_INITIAL_TAIL,
         });
+        const httpStillOwned = isHydrationHttpBoundaryCurrent(chat, httpBoundary);
         // A tail pull redefines the cache window, so the server cursor — not the leftover
         // local prefix — owns paging back from here on.
-        if (serverState && typeof serverState.oldestLoadedSeq === 'number') {
+        if (httpStillOwned && serverState && typeof serverState.oldestLoadedSeq === 'number') {
           chat._historyOldestSeq = serverState.hasOlder ? serverState.oldestLoadedSeq : 0;
           chat._historyOlderLocal = [];
+          chat._historyParkedNewerLocal = [];
         }
-        if (serverState && Array.isArray(serverState.events) && serverState.events.length > 0) {
+        if (
+          httpStillOwned &&
+          serverState &&
+          Array.isArray(serverState.events) &&
+          serverState.events.length > 0
+        ) {
           const events = takeSdkHistoryWindow(chat, serverState.events);
           const merged = await mergeServerSdkHistoryIntoRichView(
             chat,
             events,
             sessionKey || serverState.cursorSessionId || '',
-            structuredReplayDone
+            structuredReplayDone,
+            httpBoundary,
+            syncRichViewPlainBuffer,
           );
-          hydratedRecords = merged.hydratedRecords;
-          structuredReplayDone = merged.structuredReplayDone;
+          if (!merged.staleHttp) {
+            hydratedRecords = merged.hydratedRecords;
+            structuredReplayDone = merged.structuredReplayDone;
+          }
           // After pull, also try to flush a pending push (if the offline queue had events).
           void flushPendingPush(chat.id, sessionKey).catch(() => {});
-        } else if (serverState && serverState.headSeq === 0) {
+        } else if (httpStillOwned && serverState && serverState.headSeq === 0) {
           // Empty server: do NOT backfill from local IDB — old local logs can be
           // corrupted (thinking fragments stored as deltas instead of snapshots).
           // Fallback: Cursor SDK API (Agent.messages.list) — the client only renders;
@@ -4854,8 +4961,7 @@ function openTerminal(chat) {
               if (merged.length > records.length) {
                 const windowed = takeSdkHistoryWindow(chat, sortRecordsByCreatedAt(merged));
                 rememberHistoryWindowStart(chat, windowed, { reset: true });
-                chat._sdkRichView.replayHistoryRecords(windowed, { instant: true });
-                replaceViewAppliedRecords(chat.id, chat, windowed);
+                await replaySdkRichViewHistory(chat, windowed, { instant: true, source: 'sdk-api' });
               } else {
                 rememberHistoryWindowStart(chat, records, { reset: true });
                 chat._sdkRichView.applyAgentMessagesHistory(sdkHistoryRows);
@@ -4884,8 +4990,7 @@ function openTerminal(chat) {
             hydratedRecords = chronological;
             const windowed = takeSdkHistoryWindow(chat, chronological);
             rememberHistoryWindowStart(chat, windowed, { reset: true });
-            chat._sdkRichView.replayHistoryRecords(windowed, { instant: true });
-            replaceViewAppliedRecords(chat.id, chat, windowed);
+            await replaySdkRichViewHistory(chat, windowed, { instant: true, source: 'local' });
             structuredReplayDone = true;
             syncRichViewPlainBuffer(chat);
           } else {
@@ -4918,6 +5023,7 @@ function openTerminal(chat) {
       }
 
       } finally {
+        await waitForHistoryReplaySettled(chat);
         if (cachedSyncIndicatorArmed) {
           setChatHistorySyncInFlight(chat, false, renderChatTerminalState);
         }
@@ -5076,6 +5182,7 @@ async function requestArchiveChatInner(chatId, options) {
   renderChatList();
   await loadChatsFromServer({
     includeArchived: true,
+    forceRefresh: true,
     preferChatId: switchToChatId || undefined,
     skipAutoSelect: !switchToChatId,
   });
@@ -5160,6 +5267,7 @@ async function requestArchiveSettledChatsInner(ids, options) {
   renderChatList();
   await loadChatsFromServer({
     includeArchived: true,
+    forceRefresh: true,
     preferChatId: switchToChatId || undefined,
     skipAutoSelect: !switchToChatId,
   });
@@ -5212,6 +5320,7 @@ export async function requestRestoreChat(chatId) {
     }
     await loadChatsFromServer({
       includeArchived: true,
+      forceRefresh: true,
       preferChatId: chatId,
       skipAutoSelect: false,
     });
@@ -5887,6 +5996,24 @@ export function loadChatsFromServer(query = {}) {
 
 export function getArchivedCounts() {
   return chatController.getArchivedCounts();
+}
+
+/**
+ * Sidebar search: hydrate archived rows from IDB and refresh when freshness allows.
+ */
+export function notifySidebarSearchHydration() {
+  void chatArchiveCatalog.ensureIdbArchivedRows();
+  void chatArchiveCatalog.hydrateMissingArchiveIntoRuntime();
+  void loadChatsFromServer({ includeArchived: true, skipAutoSelect: true });
+}
+
+/**
+ * @param {object[]} workspaceChats
+ * @param {string} workspaceKey
+ * @returns {object[]}
+ */
+export function expandSidebarWorkspaceSearchPool(workspaceChats, workspaceKey) {
+  return chatArchiveCatalog.buildSearchPoolForWorkspace(workspaceChats, workspaceKey);
 }
 
 let embedChatCreationPromise = null;

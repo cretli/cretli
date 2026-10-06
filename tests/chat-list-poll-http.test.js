@@ -96,6 +96,19 @@ const widgetLeakAttempt = await getJson(
 assert.equal(widgetLeakAttempt.body.revisions[foreignChat.id], undefined);
 assert.equal(widgetLeakAttempt.body.revisions[ownChat.id].headSeq, 3);
 
+const emptyRevisionsBatch = await postJson('/api/chats/history-revisions-batch', {}, { 'x-test-widget': '1' });
+assert.equal(emptyRevisionsBatch.status, 400);
+assert.equal(emptyRevisionsBatch.body.ok, false);
+
+const widgetRevisionsBatch = await postJson(
+  '/api/chats/history-revisions-batch',
+  { ids: [ownChat.id, foreignChat.id] },
+  { 'x-test-widget': '1' },
+);
+assert.equal(widgetRevisionsBatch.status, 200);
+assert.equal(widgetRevisionsBatch.body.revisions[ownChat.id].headSeq, 3);
+assert.equal(widgetRevisionsBatch.body.revisions[foreignChat.id], undefined);
+
 const mainOmit = await getJson('/api/chats/history-revisions');
 assert.equal(mainOmit.body.revisions[ownChat.id].headSeq, 3);
 assert.equal(mainOmit.body.revisions[foreignChat.id].headSeq, 9);
@@ -156,6 +169,12 @@ assert.equal(listSlim.body.chats.find((row) => row.id === ownChat.id)?.summaries
 assert.equal(typeof listSlim.body.archivedCounts, 'object');
 const listFull = await getJson('/api/chats?includeSummaries=1');
 assert.equal(listFull.body.chats.find((row) => row.id === ownChat.id)?.summaries?.length, 1);
+
+assert.equal(listSlim.body.fullIndex, false, 'boot list is not an authoritative full index');
+const mainArchive = await getJson('/api/chats?includeArchived=1');
+assert.equal(mainArchive.body.fullIndex, true, 'main app archive load is full index');
+const widgetArchive = await getJson('/api/chats?includeArchived=1', { 'x-test-widget': '1' });
+assert.equal(widgetArchive.body.fullIndex, false, 'widget-scoped list is never full index');
 
 await new Promise((resolve) => server.close(resolve));
 clearChatHistoryRevision(ownChat.id);

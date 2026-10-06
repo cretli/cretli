@@ -24,7 +24,8 @@ All notable changes to this project are documented here. The format is based on
 
 - Built-in Browser for every harness: the `browser_*` tools (`browser_open`,
   `browser_sessions`, `browser_tabs`, `browser_screenshot`, `browser_dom`,
-  `browser_console`, `browser_network`, `browser_navigate`, `browser_input`) are
+  `browser_elements`, `browser_console`, `browser_network`, `browser_navigate`,
+  `browser_input`) are
   now part of the builtin Cretli MCP catalog, so Codex, Claude, Qwen, OpenCode,
   DeepSeek, CodeBuddy and OpenRouter chats preview a page in the Browser panel
   instead of launching their own Chromium. A call acts for the login session
@@ -33,6 +34,17 @@ All notable changes to this project are documented here. The format is based on
   adopts the unbound session the user opened in the panel, and
   `browser_screenshot` returns a private temp file path. New `cretli-browser`
   skill and always-apply rule describe the workflow.
+
+- Browser control is easier for agents: `browser_screenshot` captures in CSS
+  pixels (`scale: 'css'`), so image pixels match the viewport coordinates
+  `browser_input` clicks use instead of being scaled by DPR. A new
+  `browser_elements` read lists visible interactive controls — including inside
+  Lit/open shadow roots — with role/name/text and a usable selector, and
+  `browser_input` gained `click`/`fill` targets by `selector` or
+  `role`+`name` / `text` / `label` / `placeholder`. A `browser_input` resize now
+  keeps the session's DPR and touch flags (Playwright cannot change them after
+  the context is created). Screenshot files are written by one shared helper for
+  both SDK and MCP harnesses.
 
 - Settings → Workspace Watcher → Scout: daily scan budget (`scoutMaxPerDay`,
   UTC day, `0` disables). The field was policy-only before; the form now reads,
@@ -178,6 +190,49 @@ All notable changes to this project are documented here. The format is based on
   CLI can refresh.
 
 ### Fixed
+
+- Codex review no longer dies when one shell command is denied. `codex exec`
+  still cannot reject a single call, so that turn stops, then the same review
+  continues from a follow-up prompt (twice at most) instead of closing the
+  delegation. The chat no longer shows the generic "run was cancelled" notice
+  for that stop. Ask mode still ends the turn.
+
+- Opening a parent chat no longer leaves the previously active subchat
+  highlighted in the sidebar. The active-row highlight lives outside the
+  structural render signature and is repainted by a transient patch, but that
+  patch was unreachable while the chat-list modal was closed and skipped when
+  the mobile drawer was hidden — exactly the state a chat tap produces before
+  the drawer closes. The status/refresh frame now runs the transient patch
+  regardless of the modal, and opening the drawer repaints the active row as
+  soon as it becomes visible.
+
+- Finished-subchat groups can be collapsed again. A group was force-expanded
+  whenever the active chat was a sibling of its folded children (i.e. shared the
+  group's parent), so clicking the chevron flipped the stored flag but the row
+  stayed open. The active chat and its ancestors are never folded in the first
+  place, so the group now opens only while searching or after an explicit expand.
+  The whole group row also toggles on click, so the count/summary columns of the
+  wide sidebar layout no longer act as dead zones.
+
+- Returning to a chat no longer dumps every child-chat link at the bottom of
+  the stream. The metadata backfill appended each child whose creation record sat
+  outside the mounted history window, so after a PWA resume the tail filled with
+  "Child chat" rows. A backfilled child link now attaches only next to the
+  delegation card that created it and is skipped otherwise; its own history
+  record already paints inline when the window reaches it.
+
+- A review Bash denial now says the block is this command only, and that an
+  unknown `review-verify` catalog id is rejected. Reviewers were retrying the
+  same id and treating the whole shell as dead.
+
+- Live answer Markdown no longer collapses mid-stream: the chat view discarded
+  every whitespace-only assistant delta (`!full.trim()`), so the newlines between
+  headings, list items and code-fence lines vanished. Lines glued together and an
+  unterminated fence swallowed the rest of the answer as raw text until a reload
+  re-read the server-persisted (whitespace-preserving) history. Only a truly
+  empty Codex lifecycle payload is skipped now, and `appendRunFinished` /
+  `onStreamReset` flush a pending Markdown paint so the last delta is never left
+  unrendered.
 
 - Archiving a chat in the sidebar now moves the whole fork subtree (the parent and
   every child) into the Archive together, without ever flashing the children as

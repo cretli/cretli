@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   __resetAgentPresenceStoreForTest,
+  agentRunStateDedupeKey,
   applyDelta,
   applySnapshot,
   forget,
@@ -224,6 +225,57 @@ test('the WS producers write through the store before touching chat objects', ()
   const stale = { id: 'unknown-child', _serverRunState: WS_BUSY };
   assert.equal(hydrateChat(stale), true);
   assert.equal(stale._serverRunState, null);
+});
+
+test('applyAgentStatesToChats updates inFlightChildCount when state and waitingAgentCount are unchanged', () => {
+  __resetAgentPresenceStoreForTest();
+  const waitingBase = { state: 'waiting', waitingAgentCount: 1 };
+  const chats = [{
+    id: 'archived-parent',
+    _serverRunState: { ...waitingBase, inFlightChildCount: 1 },
+  }];
+  const dropChild = applyAgentStatesToChats(chats, {
+    'archived-parent': { ...waitingBase, inFlightChildCount: 0 },
+  });
+  assert.equal(dropChild.changed, true);
+  assert.deepEqual(dropChild.dirtyIds, ['archived-parent']);
+  assert.equal(chats[0]._serverRunState.inFlightChildCount, 0);
+
+  const addChild = applyAgentStatesToChats(chats, {
+    'archived-parent': { ...waitingBase, inFlightChildCount: 1 },
+  });
+  assert.equal(addChild.changed, true);
+  assert.deepEqual(addChild.dirtyIds, ['archived-parent']);
+  assert.equal(chats[0]._serverRunState.inFlightChildCount, 1);
+});
+
+test('agentRunStateDedupeKey treats inFlightChildCount as part of visible identity', () => {
+  const base = { state: 'waiting', waitingAgentCount: 1, inFlightChildCount: 1 };
+  assert.equal(
+    agentRunStateDedupeKey(base),
+    agentRunStateDedupeKey({ ...base, inFlightChildCount: 1 }),
+    'identical counters must dedupe'
+  );
+  assert.notEqual(
+    agentRunStateDedupeKey(base),
+    agentRunStateDedupeKey({ ...base, inFlightChildCount: 0 }),
+    'inFlightChildCount alone must change the key'
+  );
+});
+
+test('hydrateChat applies inFlightChildCount when only that counter changes', () => {
+  __resetAgentPresenceStoreForTest();
+  const waitingBase = { state: 'waiting', waitingAgentCount: 1 };
+  applyDelta({
+    parent: { ...waitingBase, inFlightChildCount: 0 },
+  }, [], 1000);
+  const chat = {
+    id: 'parent',
+    _serverRunState: { ...waitingBase, inFlightChildCount: 1 },
+    _serverRunStateAt: 0,
+  };
+  assert.equal(hydrateChat(chat), true);
+  assert.equal(chat._serverRunState.inFlightChildCount, 0);
 });
 
 test('the HTTP agent-states map replaces the store like a snapshot', () => {

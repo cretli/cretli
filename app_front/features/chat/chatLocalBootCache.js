@@ -21,7 +21,17 @@ import {
   removeStorageValueWithAlias,
   writeStorageValueWithAlias,
 } from '../../lib/storageKeyAlias.js';
-import { getChatUpdatedAtMs } from './chatListSort.js';
+import { createStoragePersistenceAdapter } from './chatPersistenceAdapter.js';
+import { writeChatLocalBootSync } from './chatLocalBootSync.js';
+import { getUiFreezeCounters, measureFreezeSpan } from '../../lib/uiFreezeCounters.js';
+import {
+  comparePreparedRankingUpdatedAtMsDesc,
+  prepareChatRankingUpdatedAtMs,
+} from './chatListSort.js';
+import {
+  createSliceSession,
+  forEachInTimeSlices,
+} from '../../lib/schedulerYield.js';
 
 /** localStorage key holding the boot snapshot. */
 export const CHAT_LOCAL_BOOT_CACHE_KEY = 'cretli-chat-boot-cache-v1';
@@ -31,6 +41,9 @@ export const CHAT_LOCAL_BOOT_CACHE_VERSION = 1;
 
 /** Upper bound on cached chat rows (the server list is normally far smaller). */
 export const CHAT_LOCAL_BOOT_CACHE_MAX_CHATS = 300;
+
+/** Sanitize/build with yields when the runtime list exceeds the boot cap (task 8.1). */
+export const CHAT_BOOT_CACHE_BUILD_SLICE_THRESHOLD = CHAT_LOCAL_BOOT_CACHE_MAX_CHATS;
 
 /** Upper bound on cached workspaces. */
 export const CHAT_LOCAL_BOOT_CACHE_MAX_WORKSPACES = 50;
@@ -229,13 +242,9 @@ function selectChatsForBootCache(chats, activeChatId) {
     rest.push(row);
   }
   if (rows.length <= CHAT_LOCAL_BOOT_CACHE_MAX_CHATS) return rows;
-  rest.sort((left, right) => {
-    const delta = getChatUpdatedAtMs(right) - getChatUpdatedAtMs(left);
-    if (delta !== 0) return delta;
-    return String(left.id).localeCompare(String(right.id));
-  });
+  const rankedRest = prepareChatRankingUpdatedAtMs(rest).sort(comparePreparedRankingUpdatedAtMsDesc);
   const selected = required.slice();
-  for (const row of rest) {
+  for (const { chat: row } of rankedRest) {
     if (selected.length >= CHAT_LOCAL_BOOT_CACHE_MAX_CHATS) break;
     if (kept.has(row.id)) continue;
     selected.push(row);
@@ -244,7 +253,41 @@ function selectChatsForBootCache(chats, activeChatId) {
   return selected;
 }
 
-export function buildChatLocalBootCache(input = {}) {
+/**
+ * @param {Parameters<typeof buildChatLocalBootCache>[0]} input
+ * @param {{
+ *   deps?: import('../../lib/schedulerYield.js').SchedulerYieldDeps,
+ *   budgetMs?: number,
+ *   session?: ReturnType<typeof createSliceSession>,
+ * }} [options]
+ * @returns {Promise<{ doc: ReturnType<typeof buildChatLocalBootCacheDoc>, cancelled: boolean }>}
+ */
+export async function buildChatLocalBootCacheDocAsync(input = {}, options = {}) {
+  const rawChats = Array.isArray(input.chats) ? input.chats : [];
+  if (rawChats.length <= CHAT_BOOT_CACHE_BUILD_SLICE_THRESHOLD) {
+    return { doc: buildChatLocalBootCacheDoc(input), cancelled: false };
+  }
+  const isApplyFresh = typeof options.isApplyFresh === 'function' ? options.isApplyFresh : () => true;
+  if (!isApplyFresh()) return { doc: buildChatLocalBootCacheDoc(input), cancelled: true };
+  /** @type {object[]} */
+  const sanitized = [];
+  const result = await forEachInTimeSlices(rawChats, {
+    session: options.session || createSliceSession(),
+    deps: options.deps,
+    budgetMs: options.budgetMs,
+    onItem: (chat) => {
+      if (!isApplyFresh()) return;
+      const row = sanitizeChatRowForBootCache(chat);
+      if (row) sanitized.push(row);
+    },
+  });
+  if (result.cancelled || !isApplyFresh()) {
+    return { doc: buildChatLocalBootCacheDoc(input), cancelled: true };
+  }
+  return { doc: buildChatLocalBootCacheDoc({ ...input, chats: sanitized }), cancelled: false };
+}
+
+function buildChatLocalBootCacheDoc(input = {}) {
   const chats = selectChatsForBootCache(input.chats, input.activeChatId);
   const workspaces = (Array.isArray(input.workspaces) ? input.workspaces : [])
     .map(sanitizeWorkspaceForBootCache)
@@ -264,6 +307,32 @@ export function buildChatLocalBootCache(input = {}) {
     workspaces,
     chats,
   };
+}
+
+/**
+ * Build the serializable boot document.
+ *
+ * Task 0.1 adds the `boot-cache.build` span around this call. The span covers
+ * the whole build (sanitizing, the >300 sort and the activity-map reads it
+ * triggers), so the baseline can separate it from the poll and the layout.
+ *
+ * @param {{
+ *   chats?: unknown[],
+ *   workspaces?: unknown[],
+ *   activeChatId?: unknown,
+ *   workspaceContext?: { workspaceFile?: unknown, workspaceFolder?: unknown } | null,
+ *   now?: number,
+ * }} input
+ * @returns {{ v: number, savedAt: number, activeChatId: string, workspaceContext: { workspaceFile: string, workspaceFolder: string }, workspaces: object[], chats: object[] }}
+ */
+export function buildChatLocalBootCache(input = {}) {
+  const counters = getUiFreezeCounters();
+  if (!counters) return buildChatLocalBootCacheDoc(input);
+  counters.bump('cache.builds');
+  const sourceChats = Array.isArray(input?.chats) ? input.chats.length : 0;
+  return measureFreezeSpan('boot-cache.build', { sourceChats }, () =>
+    buildChatLocalBootCacheDoc(input)
+  );
 }
 
 /**
@@ -331,6 +400,11 @@ export function shouldHydrateChatListFromBootCache(input = {}) {
  */
 export function readChatLocalBootCache(storage) {
   if (!storage || typeof storage.getItem !== 'function') return null;
+  const counters = getUiFreezeCounters();
+  if (counters) {
+    counters.bump('cache.reads');
+    counters.bump('storage.reads');
+  }
   try {
     return parseChatLocalBootCache(readStorageValueWithAlias(storage, CHAT_LOCAL_BOOT_CACHE_KEY, ''));
   } catch (_) {
@@ -356,11 +430,230 @@ function chatBootCacheSignature(doc) {
 }
 
 /**
+ * @param {ReturnType<typeof buildChatLocalBootCacheDoc>} doc
+ * @returns {string}
+ */
+export function chatLocalBootCacheContentSignature(doc) {
+  if (!doc || typeof doc !== 'object') return '';
+  return chatBootCacheSignature(doc);
+}
+
+/**
+ * True when `candidate` should replace `incumbent` in IDB (strictly newer snapshot).
+ *
+ * @param {ReturnType<typeof parseChatLocalBootCache>} incumbent
+ * @param {ReturnType<typeof parseChatLocalBootCache>} candidate
+ * @returns {boolean}
+ */
+export function shouldReplaceChatLocalBootCacheDoc(incumbent, candidate) {
+  if (!candidate) return false;
+  if (!incumbent) return true;
+  const candidateAt = Number(candidate.savedAt) || 0;
+  const incumbentAt = Number(incumbent.savedAt) || 0;
+  if (candidateAt !== incumbentAt) return candidateAt > incumbentAt;
+  return chatBootCacheSignature(candidate) !== chatBootCacheSignature(incumbent);
+}
+
+/**
  * Last written fingerprint per storage object. Only this module writes the key, so a match
  * means the stored document already holds exactly this content.
- * @type {WeakMap< object, string >}
+ * @type {WeakMap<object, { lastSignature: string }>}
  */
-const lastWrittenSignatures = new WeakMap();
+const lastWrittenRevisionStates = new WeakMap();
+
+/**
+ * @param {import('./chatPersistenceAdapter.js').ChatPersistenceAdapter | null | undefined} adapter
+ * @param {Parameters<typeof buildChatLocalBootCache>[0]} input
+ * @returns {ReturnType<typeof buildChatLocalBootCacheDoc> | null}
+ */
+/**
+ * @param {import('./chatPersistenceAdapter.js').ChatPersistenceAdapter | null | undefined} adapter
+ * @param {Parameters<typeof buildChatLocalBootCache>[0]} input
+ * @param {Parameters<typeof buildChatLocalBootCacheDocAsync>[1]} [sliceOptions]
+ * @returns {Promise<{ doc: ReturnType<typeof buildChatLocalBootCacheDoc> | null, cancelled: boolean }>}
+ */
+export async function resolveBootCacheDocForPersistAsync(adapter, input, sliceOptions = {}) {
+  const built = await buildChatLocalBootCacheDocAsync(input, sliceOptions);
+  if (built.cancelled) return { doc: null, cancelled: true };
+  const doc = built.doc;
+  if (!doc || doc.chats.length === 0) return { doc: null, cancelled: false };
+  if (doc.workspaces.length === 0 && adapter && typeof adapter.read === 'function') {
+    const previous = parseChatLocalBootCache(adapter.read(CHAT_LOCAL_BOOT_CACHE_KEY));
+    if (previous && previous.workspaces.length > 0) {
+      return { doc: { ...doc, workspaces: previous.workspaces }, cancelled: false };
+    }
+  }
+  return { doc, cancelled: false };
+}
+
+function resolveBootCacheDocForPersist(adapter, input) {
+  const doc = buildChatLocalBootCacheDoc(input);
+  if (doc.chats.length === 0) return null;
+  if (doc.workspaces.length === 0 && adapter && typeof adapter.read === 'function') {
+    const previous = parseChatLocalBootCache(adapter.read(CHAT_LOCAL_BOOT_CACHE_KEY));
+    if (previous && previous.workspaces.length > 0) {
+      return { ...doc, workspaces: previous.workspaces };
+    }
+  }
+  return doc;
+}
+
+/**
+ * Content fingerprint for a boot-cache input without bumping freeze counters.
+ *
+ * @param {Parameters<typeof buildChatLocalBootCache>[0]} input
+ * @param {import('./chatPersistenceAdapter.js').ChatPersistenceAdapter | null | undefined} [adapter]
+ * @returns {string}
+ */
+export function computeChatLocalBootCacheSignature(input, adapter = null) {
+  const doc = resolveBootCacheDocForPersist(adapter, input);
+  if (!doc) return '';
+  return chatBootCacheSignature(doc);
+}
+
+/**
+ * @typedef {{ lastSignature?: string }} ChatBootCacheRevisionState
+ * @typedef {{ written: boolean, built: boolean, signature: string, cancelled?: boolean, doc?: ReturnType<typeof buildChatLocalBootCacheDoc> | null }} ChatBootCacheWriteResult
+ */
+
+/**
+ * Persist boot cache through the shared persistence adapter. Checks revision before building
+ * the snapshot so repeated renders with unchanged data never bump `cache.builds`.
+ *
+ * @param {import('./chatPersistenceAdapter.js').ChatPersistenceAdapter} adapter
+ * @param {Parameters<typeof buildChatLocalBootCache>[0]} input
+ * @param {ChatBootCacheRevisionState} [revisionState]
+ * @returns {ChatBootCacheWriteResult}
+ */
+export function writeChatLocalBootCacheToAdapter(adapter, input, revisionState = {}) {
+  if (!adapter || typeof adapter.write !== 'function') {
+    return { written: false, built: false, signature: '' };
+  }
+  const doc = resolveBootCacheDocForPersist(adapter, input);
+  if (!doc) return { written: false, built: false, signature: '' };
+  const signature = chatBootCacheSignature(doc);
+  const lastSignature = typeof revisionState.lastSignature === 'string' ? revisionState.lastSignature : '';
+  if (signature === lastSignature) {
+    return { written: false, built: false, signature };
+  }
+  const counters = getUiFreezeCounters();
+  if (counters) counters.bump('cache.builds');
+  const sourceChats = Array.isArray(input?.chats) ? input.chats.length : 0;
+  const writePayload = () => {
+    try {
+      if (!adapter.write(CHAT_LOCAL_BOOT_CACHE_KEY, JSON.stringify(doc))) {
+        return false;
+      }
+      revisionState.lastSignature = signature;
+      counters?.bump('cache.writes');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  };
+  const written = counters
+    ? measureFreezeSpan('boot-cache.build', { sourceChats }, writePayload)
+    : writePayload();
+  return { written, built: true, signature, doc };
+}
+
+/**
+ * Async persist with time-sliced sanitization for large runtime lists (task 8.1).
+ *
+ * @param {import('./chatPersistenceAdapter.js').ChatPersistenceAdapter} adapter
+ * @param {Parameters<typeof buildChatLocalBootCache>[0]} input
+ * @param {ChatBootCacheRevisionState} [revisionState]
+ * @param {Parameters<typeof buildChatLocalBootCacheDocAsync>[1]} [sliceOptions]
+ * @returns {Promise<ChatBootCacheWriteResult>}
+ */
+export async function writeChatLocalBootCacheToAdapterAsync(
+  adapter,
+  input,
+  revisionState = {},
+  sliceOptions = {},
+) {
+  if (!adapter || typeof adapter.write !== 'function') {
+    return { written: false, built: false, signature: '' };
+  }
+  const canPersist = typeof sliceOptions.canPersist === 'function' ? sliceOptions.canPersist : () => true;
+  const rawCount = Array.isArray(input?.chats) ? input.chats.length : 0;
+  let doc = null;
+  if (rawCount > CHAT_BOOT_CACHE_BUILD_SLICE_THRESHOLD) {
+    const resolved = await resolveBootCacheDocForPersistAsync(adapter, input, sliceOptions);
+    if (resolved.cancelled) {
+      return { written: false, built: false, signature: '', cancelled: true };
+    }
+    doc = resolved.doc;
+  } else {
+    doc = resolveBootCacheDocForPersist(adapter, input);
+  }
+  if (!doc) return { written: false, built: false, signature: '' };
+  if (!canPersist()) {
+    return { written: false, built: false, signature: '', cancelled: true };
+  }
+  const signature = chatBootCacheSignature(doc);
+  const lastSignature = typeof revisionState.lastSignature === 'string' ? revisionState.lastSignature : '';
+  if (signature === lastSignature) {
+    return { written: false, built: false, signature };
+  }
+  const counters = getUiFreezeCounters();
+  if (counters) counters.bump('cache.builds');
+  const sourceChats = rawCount;
+  const writePayload = () => {
+    if (!canPersist()) return false;
+    try {
+      if (!adapter.write(CHAT_LOCAL_BOOT_CACHE_KEY, JSON.stringify(doc))) {
+        return false;
+      }
+      if (!canPersist()) return false;
+      revisionState.lastSignature = signature;
+      counters?.bump('cache.writes');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  };
+  const written = counters
+    ? measureFreezeSpan('boot-cache.build', { sourceChats }, writePayload)
+    : writePayload();
+  if (!written && !canPersist()) {
+    return { written: false, built: true, signature: '', cancelled: true, doc: null };
+  }
+  return { written, built: true, signature, doc };
+}
+
+/**
+ * Write the synchronous localStorage bootstrap for a built full snapshot.
+ *
+ * @param {Storage | null | undefined} storage
+ * @param {ReturnType<typeof buildChatLocalBootCacheDoc>} doc
+ * @param {string} [fullSignature]
+ * @returns {boolean}
+ */
+export function writeChatLocalBootSyncFromFullDoc(storage, doc, fullSignature = '') {
+  if (!doc) return false;
+  return writeChatLocalBootSync(storage, {
+    savedAt: doc.savedAt,
+    activeChatId: doc.activeChatId,
+    workspaceContext: doc.workspaceContext,
+    workspaces: doc.workspaces,
+    chats: doc.chats,
+  }, { fullSignature: fullSignature || chatBootCacheSignature(doc) });
+}
+
+/**
+ * @param {Storage | null | undefined} storage
+ * @returns {ChatBootCacheRevisionState}
+ */
+function revisionStateForStorage(storage) {
+  if (!storage) return { lastSignature: '' };
+  let state = lastWrittenRevisionStates.get(storage);
+  if (!state) {
+    state = { lastSignature: '' };
+    lastWrittenRevisionStates.set(storage, state);
+  }
+  return state;
+}
 
 /**
  * Persist the snapshot, swallowing quota/private-mode errors. Returns whether the stored
@@ -372,23 +665,23 @@ const lastWrittenSignatures = new WeakMap();
  */
 export function writeChatLocalBootCache(storage, input) {
   if (!storage || typeof storage.setItem !== 'function') return false;
-  const doc = buildChatLocalBootCache(input);
-  if (doc.chats.length === 0) return false;
-  // The workspace fetch can resolve after the first chat list; never replace a usable
-  // cached workspace list with an empty one, or the next offline cold start loses grouping.
-  if (doc.workspaces.length === 0) {
-    const previous = readChatLocalBootCache(storage);
-    if (previous && previous.workspaces.length > 0) doc.workspaces = previous.workspaces;
+  const adapter = createStoragePersistenceAdapter(() => storage);
+  const revision = revisionStateForStorage(storage);
+  const result = writeChatLocalBootCacheToAdapter(adapter, input, revision);
+  if (result.doc) {
+    writeChatLocalBootSyncFromFullDoc(storage, result.doc, result.signature);
   }
-  const signature = chatBootCacheSignature(doc);
-  if (lastWrittenSignatures.get(storage) === signature) return true;
-  try {
-    writeStorageValueWithAlias(storage, CHAT_LOCAL_BOOT_CACHE_KEY, JSON.stringify(doc));
-    lastWrittenSignatures.set(storage, signature);
-    return true;
-  } catch (_) {
-    return false;
-  }
+  return result.written || (!result.built && Boolean(result.signature));
+}
+
+/**
+ * Drop the in-memory revision marker for a storage object (tests and session invalidation).
+ *
+ * @param {Storage | null | undefined} storage
+ */
+export function resetChatLocalBootCacheRevision(storage) {
+  if (!storage) return;
+  lastWrittenRevisionStates.delete(storage);
 }
 
 /**
@@ -398,7 +691,7 @@ export function writeChatLocalBootCache(storage, input) {
  */
 export function clearChatLocalBootCache(storage) {
   if (!storage || typeof storage.removeItem !== 'function') return;
-  lastWrittenSignatures.delete(storage);
+  lastWrittenRevisionStates.delete(storage);
   try {
     removeStorageValueWithAlias(storage, CHAT_LOCAL_BOOT_CACHE_KEY);
   } catch (_) {}

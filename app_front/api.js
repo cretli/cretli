@@ -2,7 +2,7 @@
 import { appLogger } from './logger.js';
 import { getCurrentLang } from './i18n/index.js';
 import { readStorageValueWithAlias } from './lib/storageKeyAlias.js';
-import { clearChatLocalBootCache } from './features/chat/chatLocalBootCache.js';
+import { applyChatAuthSessionBoundary } from './features/chat/chatSessionBoundary.js';
 import { clearPushInboxCache } from './features/pwa/pushInbox.js';
 import {
   applyCsrfFromAuthPayload,
@@ -13,7 +13,13 @@ import {
   setCsrfToken,
   setWidgetAccessToken,
 } from './lib/cretliApiRequest.js';
-import { buildChatIdsQuery } from './lib/chatIdsQuery.js';
+import {
+  buildChatIdsQuery,
+  chunkExplicitChatIds,
+  fitsChatIdsQuery,
+  MAX_CHAT_REVISIONS_FETCH_PARTS,
+  normalizeExplicitChatIds,
+} from './lib/chatIdsQuery.js';
 
 export {
   applyCsrfFromAuthPayload,
@@ -103,10 +109,11 @@ async function json(r) {
 function redirectLogin() {
   if (typeof window === 'undefined') return;
   if (window.location.pathname === '/login') return;
-  clearChatLocalBootCache(typeof localStorage !== 'undefined' ? localStorage : null);
-  void clearPushInboxCache();
-  const next = encodeURIComponent(window.location.pathname + window.location.search);
-  window.location.replace(`/login?next=${next}`);
+  void applyChatAuthSessionBoundary({ reason: '401' }).finally(() => {
+    void clearPushInboxCache();
+    const next = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.replace(`/login?next=${next}`);
+  });
 }
 
 async function apiFetchJson(url, init, label, fetchOptions = {}) {
@@ -248,7 +255,9 @@ export async function getLanUrl() {
 /** Logs out the current session and clears the server-side cookie. */
 export async function logout() {
   try {
-    return await apiFetchJson('/api/logout', { method: 'POST' }, 'logout');
+    const result = await apiFetchJson('/api/logout', { method: 'POST' }, 'logout');
+    await applyChatAuthSessionBoundary({ reason: 'logout' });
+    return result;
   } finally {
     applyCsrfFromAuthPayload(null);
   }
@@ -357,15 +366,65 @@ export async function getChatHistory(id, query = {}) {
 }
 
 /**
+ * POST explicit revision index slice (widget scoped on server).
+ * @param {string[]} ids
+ */
+export async function postChatHistoryRevisionsBatch(ids) {
+  const normalized = normalizeExplicitChatIds(ids);
+  return apiFetchJson('/api/chats/history-revisions-batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: normalized }),
+  }, 'postChatHistoryRevisionsBatch');
+}
+
+/**
+ * @param {string[]} ids
+ * @returns {Promise<{ ok?: boolean, revisions?: Record<string, unknown> }>}
+ */
+async function fetchChatHistoryRevisionsPart(ids) {
+  const normalized = normalizeExplicitChatIds(ids);
+  if (normalized.length === 0) {
+    return apiFetchJson('/api/chats/history-revisions', undefined, 'getChatHistoryRevisions');
+  }
+  if (fitsChatIdsQuery(normalized)) {
+    const qs = buildChatIdsQuery(normalized);
+    const path = `/api/chats/history-revisions${qs ? `?${qs}` : ''}`;
+    return apiFetchJson(path, undefined, 'getChatHistoryRevisions');
+  }
+  return postChatHistoryRevisionsBatch(normalized);
+}
+
+/**
  * Lightweight server-side history revision index for cross-device pull sync.
- * Omits `ids` when the list is empty or too long (server returns all allowed chats,
- * widget scoped — not the unscoped in-memory index).
+ * Empty `chatIds` omits `ids` (all allowed chats, widget scoped). A non-empty list
+ * is always scoped to those ids via GET chunks and/or POST batch — never widened
+ * to the full allowlist when the query string would overflow.
  * @param {string[]} [chatIds]
  */
 export async function getChatHistoryRevisions(chatIds = []) {
-  const qs = buildChatIdsQuery(chatIds);
-  const path = `/api/chats/history-revisions${qs ? `?${qs}` : ''}`;
-  return apiFetchJson(path, undefined, 'getChatHistoryRevisions');
+  const normalized = normalizeExplicitChatIds(chatIds);
+  if (normalized.length === 0) {
+    return fetchChatHistoryRevisionsPart([]);
+  }
+  const chunks = chunkExplicitChatIds(normalized);
+  if (chunks.length > MAX_CHAT_REVISIONS_FETCH_PARTS) {
+    return { ok: false, revisions: {}, error: 'too_many_revision_parts' };
+  }
+  /** @type {Record<string, unknown>} */
+  const revisions = {};
+  let ok = true;
+  for (const chunk of chunks) {
+    const response = await fetchChatHistoryRevisionsPart(chunk);
+    if (!response?.ok) {
+      ok = false;
+      continue;
+    }
+    if (response.revisions && typeof response.revisions === 'object') {
+      Object.assign(revisions, response.revisions);
+    }
+  }
+  return { ok, revisions };
 }
 
 /**
@@ -374,8 +433,11 @@ export async function getChatHistoryRevisions(chatIds = []) {
  * @param {string[]} [chatIds]
  */
 export async function getChatAgentStates(chatIds = []) {
-  const qs = buildChatIdsQuery(chatIds);
-  const path = `/api/chats/agent-states${qs ? `?${qs}` : ''}`;
+  const normalized = normalizeExplicitChatIds(chatIds);
+  const qs = normalized.length === 0 ? '' : buildChatIdsQuery(normalized);
+  const path = qs === null
+    ? '/api/chats/agent-states'
+    : `/api/chats/agent-states${qs ? `?${qs}` : ''}`;
   return apiFetchJson(path, undefined, 'getChatAgentStates');
 }
 

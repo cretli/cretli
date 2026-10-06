@@ -1,0 +1,280 @@
+{
+ "scenario": "mobile",
+ "baseUrl": "https://127.0.0.1:3011",
+ "startedAt": "2026-10-06T16:40:20.715Z",
+ "viewport": {
+  "width": 390,
+  "height": 844
+ },
+ "steps": [
+  {
+   "name": "trace-start",
+   "atMs": 121
+  },
+  {
+   "name": "A-heavy-open",
+   "atMs": 130,
+   "chat": "f9f6294e-5491-474b-9f07-518ce257cf80"
+  },
+  {
+   "name": "C-sidebar-open",
+   "atMs": 8200
+  },
+  {
+   "name": "E-panel-switch",
+   "atMs": 19206
+  },
+  {
+   "name": "F-report-open",
+   "atMs": 34214,
+   "chat": "95deac11-2e52-4eaa-8049-e83fa0efe522"
+  },
+  {
+   "name": "trace-stop",
+   "atMs": 40309
+  }
+ ],
+ "samples": [
+  {
+   "label": "A-after-heavy",
+   "atMs": 8198,
+   "metrics": {
+    "Nodes": 18913,
+    "Documents": 2,
+    "JSEventListeners": 2605,
+    "LayoutObjects": 870,
+    "JSHeapUsedSize": 55950036,
+    "LayoutCount": 42,
+    "RecalcStyleCount": 561,
+    "LayoutDuration": 0.076286,
+    "RecalcStyleDuration": 0.074621,
+    "ScriptDuration": 0.23037,
+    "TaskDuration": 1.065787
+   },
+   "cards": 25,
+   "elements": 4153,
+   "activeChat": "f9f6294e-5491-474b-9f07-518ce257cf80",
+   "sidebarVisible": false,
+   "archiveRows": 0,
+   "archiveHeaders": 2,
+   "counters": {
+    "windowMs": 1000,
+    "epoch": 1791304824,
+    "counters": {},
+    "spans": {},
+    "mountedRows": {
+     "last": 0,
+     "max": 0
+    },
+    "pending": {
+     "batches": 1,
+     "setTrue": 0,
+     "setFalse": 0,
+     "net": 0,
+     "lastBatchNet": 205
+    },
+    "monitoring": {},
+    "monitoringCandidates": {}
+   }
+  },
+  {
+   "label": "C-after-sidebar-pin",
+   "atMs": 19204,
+   "metrics": {
+    "Nodes": 17529,
+    "Documents": 7,
+    "JSEventListeners": 1704,
+    "LayoutObjects": 1286,
+    "JSHeapUsedSize": 47122112,
+    "LayoutCount": 47,
+    "RecalcStyleCount": 1228,
+    "LayoutDuration": 0.095791,
+    "RecalcStyleDuration": 0.206007,
+    "ScriptDuration": 0.392931,
+    "TaskDuration": 1.844878
+   },
+   "cards": 25,
+   "elements": 4152,
+   "activeChat": "f9f6294e-5491-474b-9f07-518ce257cf80",
+   "sidebarVisible": true,
+   "archiveRows": 0,
+   "archiveHeaders": 2,
+   "counters": {
+    "windowMs": 1000,
+    "epoch": 1791304837,
+    "counters": {},
+    "spans": {},
+    "mountedRows": {
+     "last": 0,
+     "max": 0
+    },
+    "pending": {
+     "batches": 1,
+     "setTrue": 0,
+     "setFalse": 0,
+     "net": 0,
+     "lastBatchNet": 0
+    },
+    "monitoring": {},
+    "monitoringCandidates": {}
+   }
+  },
+  {
+   "label": "E-after-panel",
+   "atMs": 34212,
+   "metrics": {
+    "Nodes": 17731,
+    "Documents": 7,
+    "JSEventListeners": 1731,
+    "LayoutObjects": 1296,
+    "JSHeapUsedSize": 56401560,
+    "LayoutCount": 50,
+    "RecalcStyleCount": 2131,
+    "LayoutDuration": 0.101001,
+    "RecalcStyleDuration": 0.389557,
+    "ScriptDuration": 0.543993,
+    "TaskDuration": 2.798299
+   },
+   "cards": 25,
+   "elements": 4152,
+   "activeChat": "f9f6294e-5491-474b-9f07-518ce257cf80",
+   "sidebarVisible": true,
+   "archiveRows": 0,
+   "archiveHeaders": 2,
+   "counters": {
+    "windowMs": 1000,
+    "epoch": 1791304852,
+    "counters": {},
+    "spans": {},
+    "mountedRows": {
+     "last": 0,
+     "max": 0
+    },
+    "pending": {
+     "batches": 1,
+     "setTrue": 0,
+     "setFalse": 0,
+     "net": 0,
+     "lastBatchNet": 0
+    },
+    "monitoring": {},
+    "monitoringCandidates": {}
+   }
+  },
+  {
+   "label": "F-after-report",
+   "atMs": 39707,
+   "metrics": {
+    "Nodes": 17816,
+    "Documents": 2,
+    "JSEventListeners": 1776,
+    "LayoutObjects": 816,
+    "JSHeapUsedSize": 48602608,
+    "LayoutCount": 79,
+    "RecalcStyleCount": 2272,
+    "LayoutDuration": 0.13506,
+    "RecalcStyleDuration": 0.445092,
+    "ScriptDuration": 1.059005,
+    "TaskDuration": 4.077749
+   },
+   "cards": 33,
+   "elements": 4287,
+   "activeChat": "95deac11-2e52-4eaa-8049-e83fa0efe522",
+   "sidebarVisible": false,
+   "archiveRows": 0,
+   "archiveHeaders": 2,
+   "counters": {
+    "windowMs": 1000,
+    "epoch": 1791304858,
+    "counters": {},
+    "spans": {},
+    "mountedRows": {
+     "last": 0,
+     "max": 0
+    },
+    "pending": {
+     "batches": 1,
+     "setTrue": 0,
+     "setFalse": 0,
+     "net": 0,
+     "lastBatchNet": 205
+    },
+    "monitoring": {},
+    "monitoringCandidates": {}
+   }
+  }
+ ],
+ "longTasks": [
+  {
+   "start": 187,
+   "duration": 91
+  }
+ ],
+ "errors": [
+  {
+   "kind": "pageerror",
+   "text": "TypeError: Cannot read properties of undefined (reading 'catch')",
+   "atMs": 482
+  },
+  {
+   "kind": "pin",
+   "text": "TimeoutError: locator.click: Timeout 8000ms exceeded.\nCall log:\n  - waiting for locator('#sidebar-pin-btn').first()\n    - locator resolved to <button type=\"butt",
+   "atMs": 17999
+  },
+  {
+   "kind": "panel",
+   "text": "TimeoutError: locator.click: Timeout 6000ms exceeded.\nCall log:\n  - waiting for locator('.tab[data-panel=\"terminal\"]')\n    - locator resolved to <button class=\"",
+   "atMs": 25207
+  },
+  {
+   "kind": "panel-back",
+   "text": "TimeoutError: locator.click: Timeout 6000ms exceeded.\nCall log:\n  - waiting for locator('.tab[data-panel=\"chat\"]')\n    - locator resolved to <button type=\"butto",
+   "atMs": 32609
+  },
+  {
+   "kind": "pageerror",
+   "text": "TypeError: Cannot read properties of undefined (reading 'catch')",
+   "atMs": 34506
+  }
+ ],
+ "marks": [
+  {
+   "name": "start",
+   "atMs": 117
+  },
+  {
+   "name": "A-heavy-open",
+   "atMs": 127
+  },
+  {
+   "name": "A-done",
+   "atMs": 8198
+  },
+  {
+   "name": "C-sidebar",
+   "atMs": 8199
+  },
+  {
+   "name": "C-done",
+   "atMs": 19204
+  },
+  {
+   "name": "E-panel",
+   "atMs": 19205
+  },
+  {
+   "name": "E-done",
+   "atMs": 34212
+  },
+  {
+   "name": "F-report",
+   "atMs": 34213
+  },
+  {
+   "name": "F-done",
+   "atMs": 39707
+  }
+ ],
+ "endMarkMs": 43577,
+ "offline": false
+}
