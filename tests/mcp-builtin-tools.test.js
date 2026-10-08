@@ -74,10 +74,10 @@ for (const name of [
   'chat_list', 'chat_show', 'chat_history', 'chat_event',
   'todo_list', 'todo_show', 'todo_create', 'todo_update',
   'chat_plan_show', 'delegation_list', 'delegation_show', 'delegation_verify', 'delegation_wait', 'delegation_start', 'delegation_cancel',
-  'delegation_reply', 'delegation_inbox', 'delegation_workflow_show', 'delegation_workflow_update',
-  'delegation_rate',
-  'workspace_watcher_show', 'workspace_watcher_update',
-  'watcher_status', 'watcher_set', 'watcher_report', 'watcher_claim_next', 'watcher_scout_findings',
+  'delegation_reply', 'delegation_inbox', 'workflow_show', 'workflow_update',
+  'delegation_rate', 'delegation_ack',
+  'watcher_show', 'watcher_update',
+  'watcher_status', 'watcher_set', 'watcher_report', 'watcher_claim_next', 'scout_findings',
   'task_list', 'task_run_list', 'agent_list', 'agent_run_list', 'harness_list', 'model_list', 'model_pick',
 ]) {
   assert.ok(names.includes(name), name);
@@ -92,17 +92,18 @@ assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_verify'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_reply'));
 assert.ok(BUILTIN_MCP_READ_TOOLS.includes('delegation_inbox'));
 assert.ok(BUILTIN_MCP_READ_TOOLS.includes('delegation_wait'));
-assert.ok(BUILTIN_MCP_READ_TOOLS.includes('delegation_workflow_show'));
-assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_workflow_update'));
+assert.ok(BUILTIN_MCP_READ_TOOLS.includes('workflow_show'));
+assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('workflow_update'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_rate'));
+assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_ack'));
 assert.ok(BUILTIN_MCP_READ_TOOLS.includes('model_pick'));
-assert.ok(BUILTIN_MCP_READ_TOOLS.includes('workspace_watcher_show'));
-assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('workspace_watcher_update'));
+assert.ok(BUILTIN_MCP_READ_TOOLS.includes('watcher_show'));
+assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('watcher_update'));
 assert.ok(BUILTIN_MCP_READ_TOOLS.includes('watcher_status'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('watcher_set'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('watcher_report'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('watcher_claim_next'));
-assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('watcher_scout_findings'));
+assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('scout_findings'));
 assert.equal(CRETILI_MCP_TOOL_DEFS.find((tool) => tool.name === 'todo_list')?.annotations.readOnlyHint, true);
 
 const builtin = createBuiltinCretliServer();
@@ -183,7 +184,7 @@ assert.equal(updated.isError, false);
 assert.equal(updated.structuredContent.item.title, 'Ship MCP v2');
 assert.equal(updated.structuredContent.item.status, 'doing');
 
-const watchShow = await handlersA.workspace_watcher_show({});
+const watchShow = await handlersA.watcher_show({});
 assert.equal(watchShow.isError, false);
 assert.equal(watchShow.structuredContent.watcher.mode, 'off');
 
@@ -195,7 +196,7 @@ assert.match(watcherStatus.content[0].text, /recent_decisions:/);
 // State writes are orchestrator-only. Make chatA the cycle orchestrator first.
 mutateWorkspaceWatcherRow(workspaceA, () => ({ orchestratorChatId: chatA.id }), { dataDir: resolveDataPath() });
 
-const watchUpdate = await handlersA.workspace_watcher_update({ mode: 'observe' });
+const watchUpdate = await handlersA.watcher_update({ mode: 'observe' });
 assert.equal(watchUpdate.isError, false);
 assert.equal(watchUpdate.structuredContent.watcher.mode, 'observe');
 
@@ -214,7 +215,7 @@ assert.equal(foreignSet.isError, true);
 assert.match(foreignSet.content[0].text, /OUT_OF_SCOPE/);
 assert.equal((await handlersA.watcher_status({})).structuredContent.watcher.mode, 'observe');
 
-const watchAfter = await handlersA.workspace_watcher_show({});
+const watchAfter = await handlersA.watcher_show({});
 assert.equal(watchAfter.structuredContent.watcher.mode, 'observe');
 assert.match(watchAfter.content[0].text, /mode: observe/);
 
@@ -237,7 +238,7 @@ const approvalDenied = await handlersA.todo_update({
 assert.equal(approvalDenied.isError, true);
 assert.match(approvalDenied.content[0].text, /only include markdown/);
 
-const watchBadMode = await handlersA.workspace_watcher_update({ mode: 'turbo' });
+const watchBadMode = await handlersA.watcher_update({ mode: 'turbo' });
 assert.equal(watchBadMode.isError, true);
 assert.match(watchBadMode.content[0].text, /VALIDATION_ERROR/);
 
@@ -326,7 +327,7 @@ assert.equal(nestedStart.isError, true);
 assert.match(nestedStart.content[0].text, /CONFLICT/);
 assert.match(nestedStart.content[0].text, /Child chats cannot start another delegation/);
 
-const parentWorkflow = await handlersA.delegation_workflow_update({
+const parentWorkflow = await handlersA.workflow_update({
   round: 1,
   last_verdict: 'FAIL',
   findings_text: 'same finding',
@@ -334,7 +335,7 @@ const parentWorkflow = await handlersA.delegation_workflow_update({
 });
 assert.equal(parentWorkflow.isError, false);
 assert.equal(parentWorkflow.structuredContent.workflow.consecutiveSameFail, 1);
-const parentReplay = await handlersA.delegation_workflow_update({
+const parentReplay = await handlersA.workflow_update({
   round: 1,
   last_verdict: 'FAIL',
   findings_text: 'same finding',
@@ -342,14 +343,14 @@ const parentReplay = await handlersA.delegation_workflow_update({
 });
 assert.equal(parentReplay.structuredContent.replayed, true);
 assert.equal(parentReplay.structuredContent.workflow.consecutiveSameFail, 1);
-const parentMaterial = await handlersA.delegation_workflow_update({
+const parentMaterial = await handlersA.workflow_update({
   material_revision: 'src-2',
   idempotency_key: 'wf-material-bump',
 });
 assert.equal(parentMaterial.isError, false);
 assert.equal(parentMaterial.structuredContent.workflow.consecutiveSameFail, 1);
 assert.equal(parentMaterial.structuredContent.workflow.reviewEventCount, 1);
-const parentAfterBump = await handlersA.delegation_workflow_update({
+const parentAfterBump = await handlersA.workflow_update({
   last_verdict: 'FAIL',
   findings_text: 'same finding',
   idempotency_key: 'wf-review-after-material',
@@ -357,7 +358,7 @@ const parentAfterBump = await handlersA.delegation_workflow_update({
 assert.equal(parentAfterBump.isError, false);
 assert.equal(parentAfterBump.structuredContent.workflow.consecutiveSameFail, 1);
 assert.equal(parentAfterBump.structuredContent.workflow.stopReason, '');
-const childSpoof = await handlersChild.delegation_workflow_update({
+const childSpoof = await handlersChild.workflow_update({
   chat_id: chatA.id,
   round: 9,
   last_verdict: 'FAIL',
@@ -365,7 +366,7 @@ const childSpoof = await handlersChild.delegation_workflow_update({
 });
 assert.equal(childSpoof.isError, true);
 assert.match(childSpoof.content[0].text, /CONFLICT/);
-const afterSpoof = await handlersA.delegation_workflow_show({});
+const afterSpoof = await handlersA.workflow_show({});
 assert.equal(afterSpoof.structuredContent.workflow.round, 1);
 
 const childBridge = await callTool(
@@ -377,7 +378,7 @@ const childBridge = await callTool(
     builtinClient: childClient,
   },
   builtin,
-  'delegation_workflow_update',
+  'workflow_update',
   {
     chat_id: chatA.id,
     round: 9,
@@ -415,7 +416,7 @@ try {
   childOwnCode = err?.code || '';
 }
 assert.equal(childOwnCode, 'CONFLICT');
-const afterChildDirect = await handlersA.delegation_workflow_show({});
+const afterChildDirect = await handlersA.workflow_show({});
 assert.equal(afterChildDirect.structuredContent.workflow.round, 1);
 
 const replayDel = await handlersA.delegation_start({
@@ -721,7 +722,7 @@ const planReplyDenied = await callTool(
 assert.equal(planReplyDenied.denied, true);
 
 await handlersA.todo_create({ title: 'Claim lease via MCP', status: 'ready', idempotency_key: 'claim-ttl' });
-const leasedClaim = await handlersA.workspace_watcher_update({ action: 'claim_next', ttl_ms: 1000 });
+const leasedClaim = await handlersA.watcher_update({ action: 'claim_next', ttl_ms: 1000 });
 assert.equal(leasedClaim.isError, false);
 assert.equal(leasedClaim.structuredContent.claimed, true);
 const claimedItem = leasedClaim.structuredContent.item;
@@ -754,7 +755,7 @@ mutateWorkspaceWatcherRow(workspaceA, () => ({
     submitToken: 'mcp-scout-token',
   },
 }), { dataDir: resolveDataPath() });
-const scoutSubmitted = await handlersA.watcher_scout_findings({
+const scoutSubmitted = await handlersA.scout_findings({
   action: 'submit',
   scan_id: 'mcp-scout-scan',
   submit_token: 'mcp-scout-token',
@@ -762,17 +763,17 @@ const scoutSubmitted = await handlersA.watcher_scout_findings({
 });
 assert.equal(scoutSubmitted.isError, false);
 assert.equal(scoutSubmitted.structuredContent.added, 1);
-const scoutListed = await handlersA.watcher_scout_findings({ action: 'list' });
+const scoutListed = await handlersA.scout_findings({ action: 'list' });
 const scoutTarget = scoutListed.structuredContent.findings.find((finding) => finding.title === 'MCP scout finding');
 assert.ok(scoutTarget, 'the submitted finding is listed');
-const scoutAccepted = await handlersA.watcher_scout_findings({ action: 'accept', ids: [scoutTarget.id] });
+const scoutAccepted = await handlersA.scout_findings({ action: 'accept', ids: [scoutTarget.id] });
 assert.equal(scoutAccepted.structuredContent.changed, 1);
 assert.equal(scoutAccepted.structuredContent.createdTodos.length, 0, 'scoutAutoCreate defaults to false');
 
 // Finding 1: a real review finding recorded through MCP keeps its summary text,
 // not only the opaque hash, so the Scout can dedupe against prior reviews.
 mutateWorkspaceWatcherRow(workspaceA, () => ({ orchestratorChatId: chatA.id }), { dataDir: resolveDataPath() });
-const recordFindings = await handlersA.workspace_watcher_update({
+const recordFindings = await handlersA.watcher_update({
   action: 'record_findings',
   todo_id: 'mcp-review-todo',
   findings_hash: 'mcp-review-hash-1',
@@ -797,7 +798,7 @@ mutateWorkspaceWatcherRow(workspaceA, () => ({
     submitToken: 'mcp-scout-auto-token',
   },
 }), { dataDir: resolveDataPath() });
-const recommendedSubmit = await handlersA.watcher_scout_findings({
+const recommendedSubmit = await handlersA.scout_findings({
   action: 'submit',
   findings: [{ title: 'Recommended MCP submit', category: 'security', files: ['y.js'] }],
 });
@@ -821,7 +822,7 @@ const scoutForeignHandlers = createCretliMcpToolHandlers(client, {
   harness: 'opencode',
   mode: 'agent',
 });
-const foreignSubmit = await scoutForeignHandlers.watcher_scout_findings({
+const foreignSubmit = await scoutForeignHandlers.scout_findings({
   action: 'submit',
   findings: [{ title: 'Foreign submit', category: 'bug' }],
 });
@@ -843,14 +844,14 @@ mutateWorkspaceWatcherRow(workspaceA, () => ({
     submitToken: 'plan-scout-token',
   },
 }), { dataDir: resolveDataPath() });
-const planSubmit = await planScoutHandlers.watcher_scout_findings({
+const planSubmit = await planScoutHandlers.scout_findings({
   action: 'submit',
   scan_id: 'plan-scout-scan',
   submit_token: 'plan-scout-token',
   findings: [{ title: 'Plan-mode scout finding', category: 'improvement' }],
 });
 assert.equal(planSubmit.isError, false, 'Scout submit is allowed in Plan mode');
-const planAccept = await planScoutHandlers.watcher_scout_findings({ action: 'accept', ids: [scoutTarget.id] });
+const planAccept = await planScoutHandlers.scout_findings({ action: 'accept', ids: [scoutTarget.id] });
 assert.equal(planAccept.isError, true, 'accept stays Agent-only');
 assert.equal(planAccept.structuredContent.code, 'PLAN_MODE_DENIED');
 
@@ -872,7 +873,7 @@ const foreignHandlers = createCretliMcpToolHandlers(client, {
   harness: 'opencode',
   mode: 'agent',
 });
-const foreignReport = await foreignHandlers.workspace_watcher_update({
+const foreignReport = await foreignHandlers.watcher_update({
   action: 'report', outcome: 'success', cycle_id: 'mcp-cycle',
 });
 assert.equal(foreignReport.isError, false);
@@ -880,13 +881,13 @@ assert.equal(foreignReport.structuredContent.ok, false);
 assert.equal(foreignReport.structuredContent.reason, 'not_orchestrator');
 assert.ok(getWorkspaceWatcher(workspaceA, { dataDir: resolveDataPath() }).activeCycle, 'foreign report cannot close');
 
-const ownReport = await handlersA.workspace_watcher_update({
+const ownReport = await handlersA.watcher_update({
   action: 'report', outcome: 'success', cycle_id: 'mcp-cycle', report_id: 'mcp-report', todo_ids: [],
 });
 assert.equal(ownReport.isError, false);
 assert.equal(ownReport.structuredContent.closed, true);
 assert.equal(getWorkspaceWatcher(workspaceA, { dataDir: resolveDataPath() }).activeCycle, null);
-const ownReplay = await handlersA.workspace_watcher_update({
+const ownReplay = await handlersA.watcher_update({
   action: 'report', outcome: 'failure', cycle_id: 'mcp-cycle', report_id: 'mcp-report',
 });
 assert.equal(ownReplay.structuredContent.replayed, true);

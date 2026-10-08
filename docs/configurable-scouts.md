@@ -26,7 +26,7 @@ Pola:
 - templateId/templateVersion — opcjonalne pochodzenie;
 - objective — cel zadania;
 - instructions — własne instrukcje, przykłady dobrych wyników i kryteria odrzucenia;
-- scope: include/exclude globs względem workspace; tryb analizy „zmiany względem wskazanej bazy Git” albo „wskazany obszar workspace”; domyślnie main z obecnym fallbackiem HEAD;
+- scope: include/exclude globs względem workspace; tryb analizy „zmiany względem wskazanej bazy Git” albo „wskazany obszar workspace”; domyślnie main bez fallbacku dla jawnej bazy; tylko wartość auto wybiera kolejno main, master, HEAD, z widoczną diagnostyką;
 - sources: diff, historia Git, markery TODO/FIXME, zapisane wyniki testów, logi; istniejące TODO, poprzednie findings i Workspace Memory pozostają obowiązkowym kontekstem deduplikacji;
 - categories — niepusta lista z obecnych sześciu kategorii; własna nazwa zadania nie wymaga nowej kategorii;
 - executor: automatyczny wybór albo jawny harness/model oraz opcjonalne zawężenie dozwolonych harnessów;
@@ -69,7 +69,7 @@ Zakres plików stosować przy zbieraniu kontekstu i walidacji wyników; wykluczo
 ### 6. Dane, API i zgodność
 Rozszerzyć istniejący store Watchera o wersjonowaną kolekcję scoutProfiles i stan/historię per profil; wspólny budżet oraz pendingScoutFindings pozostają na poziomie workspace. Active scans muszą przechowywać profil, snapshot i dotychczasowy cykl życia/tokeny/archiwizację chatów.
 
-API/UI/MCP: lista i odczyt profili, CRUD/duplikacja/archiwizacja, podgląd konfiguracji, uruchomienie po scoutId, historia i filtrowanie findings. Konfiguracja profili korzysta z obecnych uprawnień ustawień Watchera; agent skanu nadal ma tylko dozwolone list/submit. Aktualizacje konfiguracji wymagają kontroli revision/CAS. Istniejące endpointy /api/workspace-watcher/scout i watcher_scout_findings rozszerzyć bez łamania dotychczasowych klientów.
+API/UI/MCP: lista i odczyt profili, CRUD/duplikacja/archiwizacja, podgląd konfiguracji, uruchomienie po scoutId, historia i filtrowanie findings. Konfiguracja profili korzysta z obecnych uprawnień ustawień Watchera; agent skanu nadal ma tylko dozwolone list/submit. Aktualizacje konfiguracji wymagają kontroli revision/CAS. Istniejące endpointy /api/workspace-watcher/scout i narzędzie MCP `scout_findings` (dawniej `watcher_scout_findings`) rozszerzyć bez łamania dotychczasowych klientów.
 
 Migracja idempotentna: z istniejącej konfiguracji powstaje JEDEN profil „Scout ogólny” odwzorowujący dotychczasowy prompt, kategorie, źródła, harmonogram, limity i harnessy. Zachować stan włączenia, zużyte budżety, aktywny skan, propozycje i ich statusy; stare dane bez scoutId przypisać do profilu ogólnego. Nie tworzyć automatycznie sześciu działających skanów. Legacy run bez scoutId kieruje do profilu ogólnego; historyczne pola konfiguracyjne obsługiwać przez jawny adapter, bez dwóch niezależnych źródeł prawdy. Nowe workspace dostają wyłączony profil ogólny i dostęp do szablonów.
 
@@ -178,3 +178,43 @@ Zachować `agent` dla zgodności startu, usunąć fałszywe stwierdzenie „runn
 - Aktualny test bazowy ma FAIL w `tests/workspace-watcher-scout.test.js:465`: kod working tree automatycznie przechwytuje wyniki przy autoCreate już w `recordScoutFindings`, a test oczekuje utworzenia TODO po późniejszym accept. Krok 4 ma zachować aktualną semantykę opt-in i uzgodnić parser/plan szkicu/grupowanie/fixture'y; krok 6 nie może uznać starego historycznego PASS za bieżący wynik. Nie poprawiano kodu ani testu w ramach recenzji planu.
 
 Projekt zapisany do backlogu; implementacja jest osobnym zadaniem.
+
+## Status odbioru (krok 6)
+
+Kroki 1–5 są zaimplementowane w drzewie `next/2026-09-28`; schemat store podniesiono
+do `WORKSPACE_WATCHERS_SCHEMA_VERSION = 2` (leniwa normalizacja v1→v2: kolekcja
+`scoutProfiles` z jednym profilem ogólnym z migracji, `activeScoutScans` per `scanId`,
+mapa `scoutSchedules`, log `scoutScanHistory`). Bramka wieloprofilowości w produkcji
+jest otwarta po ukończeniu kroku 4; nowy profil domyślnie `schedule=manual` i
+`enabled=false`, więc wdrożenie nie uruchamia samoczynnie nowych profili ani realizacji
+TODO.
+
+Uwaga: wcześniejszy akapit „Projekt zapisany do backlogu” oraz wskazany FAIL w
+`tests/workspace-watcher-scout.test.js:465` dotyczą stanu przed etapami. Baseline
+autoCreate został uzgodniony w kroku 4 i ponownie sprawdzony w kroku 6 — test `:440`
+teraz asserts aktualną semantykę opt-in (`record` przechwytuje wynik jako `accepted` i
+tworzy TODO `idea` z niezatwierdzonym planem tylko przy `scoutAutoCreate=true`; przy
+`false` wynik pozostaje `pending` bez samoczynnego TODO).
+
+Tabela rozliczeń (refundów) w sekcji „Doprecyzowania po recenzji Grok 4.7” istnieje i
+jest zgodna z kodem: normalne `started=false` (brak orkiestratora / odmowa utworzenia
+chatu) zachowuje rezerwację i konsumuje licznik dnia profilu+workspace, zwalniając
+wyłącznie slot równoległy (`lib/workspace-watcher-scout.js`, gałąź `else` przy
+`job.started === false`); `global_starts_disabled` oraz throw z potwierdzonym
+nieprzyjęciem refundują raz. Pokrycie:
+`tests/workspace-scout-schedule.test.js` (m.in. „a normal started=false consumes the
+profile and workspace daily budget (refund table)”, „failed start A refunds its own
+profile counter and never touches a successful B”, „crash before handoff … refunds
+exactly once”).
+
+Jedyna pozostała niezgodność (nie blokuje odbioru): martwy helper `buildScoutPrompt`
+(`lib/workspace-watcher-scout.js:1268`) nadal zawiera linię „You are running in PLAN
+mode”. Nie jest ona używana w produkcji — runner profili korzysta z
+`buildScoutPromptForProfile`, który zgodnie z §5 stwierdza „Read-only contract
+(enforced by the host, not by this prompt)” i nie twierdzi, że transport jest w Plan
+mode. Wyrzucenie martwego helpera i zaktualizowanie powiązanego assertionu
+`tests/workspace-watcher-scout.test.js:234` (`/PLAN mode/`) wymaga zmian w `lib/**` i
+jest poza zakresem tego leafa — zgłoszone jako finding w
+`docs/configurable-scouts-acceptance.md`.
+
+Pełny raport pokrycia kryteriów: [`configurable-scouts-acceptance.md`](./configurable-scouts-acceptance.md).

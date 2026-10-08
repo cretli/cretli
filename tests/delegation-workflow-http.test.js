@@ -163,22 +163,59 @@ try {
     workspaceFolder: workspace,
     mode: 'agent',
   });
-  const viaHttp = await handlers.delegation_workflow_update({
+  const viaHttp = await handlers.workflow_update({
     round: 1,
     last_verdict: 'FAIL',
     findings_text: 'same finding',
     idempotency_key: 'stdio-review-1',
   });
   assert.equal(viaHttp.isError, false);
-  const viaHttpReplay = await handlers.delegation_workflow_update({
+  const viaHttpReplay = await handlers.workflow_update({
     round: 1,
     last_verdict: 'FAIL',
     findings_text: 'same finding',
     idempotency_key: 'stdio-review-1',
   });
   assert.equal(viaHttpReplay.structuredContent.replayed, true);
-  const shown = await handlers.delegation_workflow_show({});
+  const shown = await handlers.workflow_show({});
+  assert.equal(shown.isError, false);
   assert.equal(shown.structuredContent.workflow.round, 1);
+  assert.ok(Array.isArray(shown.structuredContent.loop), 'workflow_show exposes loop read-model rows');
+
+  const clientWithoutListDelegations = {
+    async getChat({ chatId }) {
+      if (chatId === parent.id) return parent;
+      return null;
+    },
+    async getDelegationWorkflow(opts) {
+      return apiClient.getDelegationWorkflow(opts);
+    },
+  };
+  const handlersNoList = createCretliMcpToolHandlers(clientWithoutListDelegations, {
+    chatId: parent.id,
+    workspaceFolder: workspace,
+    mode: 'agent',
+  });
+  const shownNoList = await handlersNoList.workflow_show({});
+  assert.equal(shownNoList.isError, false);
+  assert.equal(shownNoList.structuredContent.workflow.round, 1);
+  assert.deepEqual(shownNoList.structuredContent.loop, []);
+
+  const clientListThrows = {
+    ...clientWithoutListDelegations,
+    async listDelegations() {
+      throw new Error('listDelegations transport failed');
+    },
+  };
+  const handlersListError = createCretliMcpToolHandlers(clientListThrows, {
+    chatId: parent.id,
+    workspaceFolder: workspace,
+    mode: 'agent',
+  });
+  const shownListError = await handlersListError.workflow_show({});
+  assert.equal(shownListError.isError, false);
+  assert.equal(shownListError.structuredContent.workflow.round, 1);
+  assert.deepEqual(shownListError.structuredContent.loop, []);
 } finally {
   server.close();
 }
@@ -193,7 +230,7 @@ const local = createCretliMcpToolHandlers(localClient, {
   workspaceFolder: workspace,
   mode: 'agent',
 });
-const localUpdate = await local.delegation_workflow_update({
+const localUpdate = await local.workflow_update({
   round: 2,
   last_verdict: 'FAIL',
   findings_text: 'same finding',

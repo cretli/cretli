@@ -63,8 +63,11 @@ mcp__cretli_bridge__mcp__cretli_builtincretl__browser_dom / browser_console / br
   którą użytkownik już otworzył w panelu; `browser_screenshot` zwraca ścieżkę pliku.
 - Nie uruchamiaj własnego Playwrighta/Chromium do podglądu i nie szukaj portu
   debugowania ani innego profilu przeglądarki.
-- Gdy strona pokazuje logowanie, poproś użytkownika o zalogowanie się w panelu
-  Browser tego chatu. Nie szukaj haseł, ciasteczek ani tokenów w `.env` i `data/`.
+- Gdy strona pokazuje logowanie: własny origin Cretli (dostępny tylko przy
+  włączonej opcji debugowania `allowSelfOrigin`) loguje się sam przez logowanie
+  lokalne bez hasła — nie pytaj użytkownika o dane Cretli; w każdym innym
+  przypadku poproś użytkownika o zalogowanie się w panelu Browser tego chatu. Nie
+  szukaj haseł, ciasteczek ani tokenów w `.env` i `data/`.
 - Błąd `browser_*` mówi, co ma zrobić użytkownik (otworzyć chat w UI, zwolnić
   sesję, dopuścić origin) — przekaż go zamiast obchodzić.
 
@@ -87,7 +90,7 @@ agenta. Domyślnie `maxParallel = 1`, więc cykle są sekwencyjne.
 - **Rodzic cyklu (chat-orkiestrator) wykonuje pętlę plan / implement / review /
   fix** przez `model_pick` + `delegation_start`. To tani rodzic — sam nie
   implementuje pracy, tylko deleguje ją na inne harnessy. Kończy cykl
-  wywołaniem **`watcher_report`** (`workspace_watcher_update` action `report`)
+  wywołaniem **`watcher_report`** (`watcher_update` action `report`)
   z wynikiem `success | blocked | failure`; raport jest idempotentny i przyjmowany
   tylko od orkiestratora danego cyklu. Gdy żyją cykle, autoryzuje wyłącznie
   `chatId` z `activeCycles` — `orchestratorChatId` to tylko „ostatni znany”
@@ -101,7 +104,7 @@ agenta. Domyślnie `maxParallel = 1`, więc cykle są sekwencyjne.
   planem zapisuje szkic i kończy się; `plan.approvedAt` ustawia wyłącznie
   człowiek. Zatwierdzenie planu na przodku (w tym na korzeniu) odblokowuje
   całe poddrzewo — bliższy niezatwierdzony szkic nie trzyma liścia w bramce.
-- Sterowanie i podgląd: `workspace_watcher_show` / `workspace_watcher_update`
+- Sterowanie i podgląd: `watcher_show` / `watcher_update`
   (MCP) oraz Settings → Workspace Watcher. Debugowanie decyzji: `GET
   /api/workspace-watcher/decisions` albo „Why?" w zakładce Todo — pełny opis w
   `docs/workspace-watcher.md`.

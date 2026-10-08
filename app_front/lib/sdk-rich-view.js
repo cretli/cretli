@@ -12,6 +12,7 @@ import {
   textsOverlap,
 } from './sdk-chat-format.js';
 import { writeTextToClipboard } from './clipboard.js';
+import { formatChatTimestamp } from './chat-timestamp.js';
 import {
   splitSdkFormattedConversation,
 } from '../../lib/sdk/sdk-chat-history.js';
@@ -125,6 +126,8 @@ import {
   buildBoundedToolJsonPreview,
   buildToolOutputResultSectionHtml,
   extractPrimaryToolOutputText,
+  extractToolResultMeta,
+  formatToolResultMetaLine,
 } from './sdkToolCallOutputPreview.js';
 import {
   hasViewOrderKey,
@@ -2347,6 +2350,14 @@ export function createSdkRichView(chat, mountEl, hooks) {
       body.appendChild(argsDetails);
     }
     if (primaryOutput != null && primaryOutput.length > 0) {
+      const resultMeta = extractToolResultMeta(ev.result);
+      const metaLine = resultMeta ? formatToolResultMetaLine(resultMeta) : '';
+      if (metaLine) {
+        const metaP = document.createElement('p');
+        metaP.className = 'sdk-rich-tool-meta';
+        metaP.textContent = metaLine;
+        body.appendChild(metaP);
+      }
       const resultHtml = buildToolOutputResultSectionHtml(primaryOutput, {
         escapeHtml,
         t,
@@ -3021,12 +3032,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     time.className = 'sdk-rich-line__timestamp';
     time.dateTime = normalizedCreatedAt;
     time.title = normalizedCreatedAt;
-    time.textContent = validDate.toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
+    time.textContent = formatChatTimestamp(validDate, t('sdkBlock.yesterday'));
     div.appendChild(time);
 
     if (compactHidden) {
@@ -4716,7 +4722,13 @@ export function createSdkRichView(chat, mountEl, hooks) {
             delete card.dataset.ratingDraft;
             delete card.dataset.ratingError;
           } else {
-            card.dataset.ratingError = String(res?.error || t('chat.delegationRateFailed'));
+            const ratingCode = String(res?.code || '').trim();
+            const ratingServerError = String(res?.error || '').trim();
+            if (ratingCode === 'contradictory_rating' && ratingServerError) {
+              card.dataset.ratingError = stringifySnippet(ratingServerError, MAX_DELEGATION_RATING_NOTE_LENGTH);
+            } else {
+              card.dataset.ratingError = String(res?.error || t('chat.delegationRateFailed'));
+            }
           }
         })
         .catch(() => {
@@ -5479,6 +5491,19 @@ export function createSdkRichView(chat, mountEl, hooks) {
 
     onHarnessIdle() {
       closeLiveTurn();
+      mountEl.removeAttribute('data-sdk-background-outstanding');
+      mountEl.removeAttribute('title');
+    },
+
+    setBackgroundWorkOutstanding(count) {
+      const outstanding = Math.max(0, Number(count) || 0);
+      if (outstanding > 0) {
+        mountEl.dataset.sdkBackgroundOutstanding = String(outstanding);
+        mountEl.title = t('chat.sdkBackgroundWorkRunning', { count: outstanding });
+      } else {
+        delete mountEl.dataset.sdkBackgroundOutstanding;
+        mountEl.removeAttribute('title');
+      }
     },
 
     setUiMode(mode) {

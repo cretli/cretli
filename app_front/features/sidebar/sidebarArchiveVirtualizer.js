@@ -207,6 +207,26 @@ export function computeArchiveListScrollTopForAnchor(
 }
 
 /**
+ * Build a `chatId -> logical index` map in a single O(n) pass. The archive group
+ * used to run `rows.findIndex(...)` once per mounted host on every sync, i.e.
+ * O(n · mountedRows) rescans of a ~1.8k row tree; the mounted slice is at most
+ * ~31 rows, so this is a bounded but avoidable cost on the virtual-scroll hot
+ * path. Blank ids are skipped; duplicate ids keep the first occurrence.
+ *
+ * @param {Array<{ chat?: { id?: string } }>} rows
+ * @returns {Map<string, number>}
+ */
+export function buildArchiveRowIndexById(rows) {
+  const map = new Map();
+  const list = Array.isArray(rows) ? rows : [];
+  for (let i = 0; i < list.length; i += 1) {
+    const id = String(list[i]?.chat?.id || '').trim();
+    if (id && !map.has(id)) map.set(id, i);
+  }
+  return map;
+}
+
+/**
  * @param {{ startIndex: number, endIndex: number }} window
  * @param {Array<{ chat?: { id?: string } }>} archiveTree
  * @returns {string[]}

@@ -350,6 +350,20 @@ export function readTodoRowMark(items, item) {
 }
 
 /**
+ * Classify a blocked row as requiring an operator action or waiting on its tree.
+ * A blocker stored directly on the todo is actionable; inherited tree gates are dependencies.
+ *
+ * @param {object[] | null | undefined} items
+ * @param {object | null | undefined} item
+ * @returns {'action' | 'dependency' | ''}
+ */
+export function readTodoRowBlockKind(items, item) {
+  if (!item?.id) return '';
+  if (String(item.blockedReason || '').trim()) return 'action';
+  return isTodoBranchBlocked(Array.isArray(items) ? items : [], item) ? 'dependency' : '';
+}
+
+/**
  * @param {object[]} items
  * @param {string} parentId
  * @param {string} draggedId

@@ -3,11 +3,13 @@
  */
 
 import { resolveChatListDotState } from '../chat/chatStatusMeta.js';
+import { getChatAutoArchiveConfig } from '../chat/chatAutoArchiveConfig.js';
 import {
   chatListVisualKey,
   shouldSkipChatListItemWrite,
 } from '../chat/chatListStateRefresh.js';
 import { applySidebarChatStatusEl } from './sidebarChatStatus.js';
+import { resolveChatArchiveCountdown } from './sidebarChatArchiveCountdown.js';
 
 /**
  * @param {Element} li
@@ -28,7 +30,20 @@ export function patchSidebarChatRowVisualState(li, chat, ctx) {
       : null;
   const meta = chat && getMeta ? getMeta(chat) : disconnectedMeta;
   const state = chat ? resolveChatListDotState(meta.tone) : 'disconnected';
-  const nextKey = chatListVisualKey(state, meta.tone, meta.label);
+  // The countdown only replaces an idle-looking status chip; a live run, a
+  // queued turn or a pending question keeps priority (and the server sweeps
+  // only confirmed-idle chats anyway).
+  const countdown = chat
+    ? resolveChatArchiveCountdown(chat, {
+      now: Date.now(),
+      config: getChatAutoArchiveConfig(),
+      state,
+    })
+    : null;
+  const statusMeta = countdown
+    ? { tone: countdown.tone, label: countdown.label }
+    : meta;
+  const nextKey = chatListVisualKey(state, statusMeta.tone, statusMeta.label);
   const dataset = li.dataset || {};
   if (shouldSkipChatListItemWrite(dataset.visualKey, nextKey)) return;
   dataset.visualKey = nextKey;
@@ -42,9 +57,11 @@ export function patchSidebarChatRowVisualState(li, chat, ctx) {
   }
   const awaitingEl = li.querySelector('.sidebar-chat-item-awaiting');
   if (awaitingEl) {
-    applySidebarChatStatusEl(awaitingEl, meta, {
+    applySidebarChatStatusEl(awaitingEl, statusMeta, {
       escapeHtml,
-      title: t('sidebar.stateTitle', { label: meta.label }),
+      title: countdown
+        ? t('sidebar.archiveCountdownTitle', { time: countdown.label })
+        : t('sidebar.stateTitle', { label: meta.label }),
     });
   }
 }

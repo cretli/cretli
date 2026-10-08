@@ -25,6 +25,7 @@ import {
 } from '../lib/persist/workspace-watchers-persist.js';
 import {
   buildWorkspaceWatcherCyclePrompt,
+  collectWorkspaceWatcherPromptTodoIds,
   reconcileWorkspaceWatcherCycle,
   reportWorkspaceWatcherCycle,
   stampCycleOrchestratorOnTodoTree,
@@ -36,6 +37,16 @@ import {
   isWorkspaceWatcherOrchestratorModelUsageLimited,
   resolveWorkspaceWatcherOrchestrator,
 } from '../lib/workspace-watcher-orchestrator.js';
+import {
+  MCP_CAPABILITY_DENIED,
+  ORCHESTRATOR_MCP_CONTRACT_TOOLS,
+  createMcpCapabilityProbe,
+  hasWorkspaceWatcherOrchestratorMcpTools,
+  missingWorkspaceWatcherOrchestratorMcpTools,
+} from '../lib/mcp/mcp-orchestrator-contract.js';
+import { listBuiltinCretliCatalogToolNames } from '../lib/mcp/mcp-orchestrator-contract.js';
+import { clearMcpBridgeToolsListed, markMcpBridgeToolsListed, waitForMcpBridgeToolsListed } from '../lib/mcp/mcp-bridge-ready.js';
+import { installCodeBuddyMcpReadyGate } from '../lib/codebuddy/codebuddy-live-session.js';
 import { reconcileWorkspaceWatchersOnBoot } from '../lib/workspace-watcher.js';
 import {
   getMockChatRun,
@@ -100,7 +111,7 @@ function setAutopilot(cwd, dataDir, policy = {}) {
 /**
  * Fabricate an active cycle that points at a real todo (no chat run needed).
  */
-function seedActiveCycle(cwd, dataDir, { cycleId, chatId, todoId, planOnly = false, todoIds }) {
+function seedActiveCycle(cwd, dataDir, { cycleId, chatId, todoId, planOnly = false, todoIds, planTargetId }) {
   mutateWorkspaceWatcherRow(cwd, ({ row }) => ({
     activeCycle: {
       cycleId,
@@ -110,6 +121,7 @@ function seedActiveCycle(cwd, dataDir, { cycleId, chatId, todoId, planOnly = fal
       runId: 'run-seed',
       phase: 'running',
       planOnly,
+      ...(planTargetId ? { planTargetId } : {}),
     },
     lease: acquireWorkspaceWatcherLease(row, { token: 'seed-token', ttlMs: 60_000, now: T0 }).lease,
   }), { dataDir });
@@ -134,7 +146,7 @@ runCase('cycle prompt encodes snapshot/ref, CAS plan, delegations, report and no
     chatId: 'chat-1',
   });
   assert.match(planPrompt, /cretli-ref todo=t1/);
-  assert.match(planPrompt, /workspace_watcher_show/);
+  assert.match(planPrompt, /watcher_show/);
   assert.match(planPrompt, /action "save_plan"/);
   assert.match(planPrompt, /expected_updated_at/);
   assert.match(planPrompt, /NEVER set plan\.approvedAt/);
@@ -156,6 +168,9 @@ runCase('cycle prompt encodes snapshot/ref, CAS plan, delegations, report and no
     chatId: 'chat-2',
   });
   assert.match(implementPrompt, /delegation_start/);
+  assert.match(implementPrompt, /MCP contract \(blocking precondition\)/);
+  assert.match(implementPrompt, /do NOT implement the work yourself/);
+  assert.match(implementPrompt, /never touch files under `data\/`/);
   assert.doesNotMatch(implementPrompt, /NEVER set plan\.approvedAt/);
   assert.match(implementPrompt, /Do not commit or push/);
   assert.match(implementPrompt, /mark this todo done/);
@@ -200,12 +215,16 @@ runCase('plan draft is a real CAS write and never approves', () => {
 
 runCase('previous chats block is empty-safe and newest-first', () => {
   assert.equal(buildWorkspaceWatcherPreviousChatsBlock([]), '');
+  // Deliberately unsorted input: the builder must sort by close time `at`, not
+  // rely on the append order of `cycleChats`.
   const block = buildWorkspaceWatcherPreviousChatsBlock([
-    { id: 'c-new', todoIds: ['b'], outcome: 'success' },
-    { id: 'c-old', todoIds: ['a'], outcome: 'failure' },
-  ]);
+    { id: 'c-old', todoIds: ['a'], outcome: 'failure', at: '2026-01-01T00:00:00.000Z' },
+    { id: 'c-new', todoIds: ['b'], outcome: 'success', at: '2026-02-01T00:00:00.000Z' },
+  ], { todoIds: ['b'] });
   assert.ok(block.indexOf('c-new') < block.indexOf('c-old'));
   assert.match(block, /chat_show/);
+  assert.match(block, /- \[relevance\] c-new/);
+  assert.doesNotMatch(block, /- \[relevance\] c-old/);
 });
 
 runCase('orchestrator resolution honors explicit policy, allow-list and usage limits', async () => {
@@ -218,14 +237,14 @@ runCase('orchestrator resolution honors explicit policy, allow-list and usage li
   });
   const explicit = await resolveWorkspaceWatcherOrchestrator({
     watcher: { policy: { orchestrator: { harness: 'mock', model: 'cheap' } } },
-    deps: { listHarnessCatalog: async () => catalog, listHarnessModels: models },
+    deps: { listHarnessCatalog: async () => catalog, listHarnessModels: models, mcpCapabilityProbe: () => ({ ok: true }) },
   });
   assert.deepEqual({ ok: explicit.ok, harness: explicit.harness, model: explicit.model, source: explicit.source },
     { ok: true, harness: 'mock', model: 'cheap', source: 'policy' });
 
   const notAllowed = await resolveWorkspaceWatcherOrchestrator({
     watcher: { policy: { allowedHarnesses: ['mock'], orchestrator: { harness: 'blocked-harness', model: 'other' } } },
-    deps: { listHarnessCatalog: async () => catalog, listHarnessModels: models },
+    deps: { listHarnessCatalog: async () => catalog, listHarnessModels: models, mcpCapabilityProbe: () => ({ ok: true }) },
   });
   assert.equal(notAllowed.ok, false);
   assert.equal(notAllowed.reason, 'orchestrator_harness_not_allowed');
@@ -245,9 +264,477 @@ runCase('orchestrator resolution honors explicit policy, allow-list and usage li
     deps: {
       listHarnessCatalog: async () => catalog,
       listHarnessModels: models,
+      mcpCapabilityProbe: () => ({ ok: true }),
     },
   });
   assert.equal(picked.ok, false, 'a fully limited favorite must not be picked');
+});
+
+runCase('executor selection skips a harness that cannot deliver the MCP contract', async () => {
+  const catalog = [
+    { id: 'with-mcp', enabled: true, ready: true, can_delegate: true },
+    { id: 'without-mcp', enabled: true, ready: true, can_delegate: true },
+  ];
+  const models = async ({ harness }) => ({ favorites_configured: true, items: [{ id: `${harness}-cheap`, roles: ['implement'] }] });
+  const probe = ({ harness }) => (harness === 'with-mcp'
+    ? { ok: true }
+    : { ok: false, reason: MCP_CAPABILITY_DENIED.TOOLS });
+
+  const picked = await resolveWorkspaceWatcherOrchestrator({
+    watcher: { policy: {} },
+    deps: { listHarnessCatalog: async () => catalog, listHarnessModels: models, mcpCapabilityProbe: probe },
+  });
+  assert.equal(picked.ok, true, picked.reason);
+  assert.equal(picked.harness, 'with-mcp', 'a harness without MCP tools is never picked automatically');
+
+  const explicit = await resolveWorkspaceWatcherOrchestrator({
+    watcher: { policy: { orchestrator: { harness: 'without-mcp', model: 'without-mcp-cheap' } } },
+    deps: { listHarnessCatalog: async () => catalog, listHarnessModels: models, mcpCapabilityProbe: probe },
+  });
+  assert.equal(explicit.ok, false);
+  assert.equal(explicit.reason, MCP_CAPABILITY_DENIED.TOOLS, 'explicit policy is refused with the MCP reason');
+  assert.equal(explicit.source, 'policy');
+
+  const none = await resolveWorkspaceWatcherOrchestrator({
+    watcher: { policy: { allowedHarnesses: ['without-mcp'] } },
+    deps: { listHarnessCatalog: async () => catalog, listHarnessModels: models, mcpCapabilityProbe: probe },
+  });
+  assert.equal(none.ok, false);
+  assert.equal(none.reason, MCP_CAPABILITY_DENIED.TOOLS);
+  assert.deepEqual(none.mcpDeniedHarnesses, [{ harness: 'without-mcp', reason: MCP_CAPABILITY_DENIED.TOOLS }]);
+
+  // Scout shares the resolver but neither delegates nor reports, so it does not
+  // need the orchestrator contract and must keep its previous selection.
+  const scout = await resolveWorkspaceWatcherOrchestrator({
+    watcher: { policy: { allowedHarnesses: ['without-mcp'] } },
+    purpose: 'scout',
+    deps: {
+      listHarnessCatalog: async () => catalog,
+      listHarnessModels: models,
+      mcpCapabilityProbe: () => ({ ok: false, reason: MCP_CAPABILITY_DENIED.TOOLS }),
+      selectModelPick: () => ({ ok: true, pick: { harness: 'without-mcp', model: 'without-mcp-cheap' } }),
+    },
+  });
+  assert.equal(scout.ok, true, 'a scout run is not held to the orchestrator MCP contract');
+  assert.equal(scout.harness, 'without-mcp');
+});
+
+runCase('capability probe distinguishes no adapter, no bridge and missing tools', () => {
+  const fullCatalog = listBuiltinCretliCatalogToolNames();
+  const builtin = [{ id: 'builtin-cretli', kind: 'builtin-cretli' }];
+  assert.equal(
+    createMcpCapabilityProbe()({ harness: 'definitely-not-a-harness' }).reason,
+    MCP_CAPABILITY_DENIED.ADAPTER,
+  );
+  assert.equal(
+    createMcpCapabilityProbe({ listServers: () => [], catalogToolNames: () => fullCatalog })({ harness: 'codebuddy' }).reason,
+    MCP_CAPABILITY_DENIED.CONFIG,
+    'no builtin Cretli server is a configuration/scope failure',
+  );
+  const missing = createMcpCapabilityProbe({
+    listServers: () => builtin,
+    catalogToolNames: () => ['todo_show'],
+  })({ harness: 'codebuddy' });
+  assert.equal(missing.reason, MCP_CAPABILITY_DENIED.TOOLS);
+  assert.ok(missing.missing.includes('watcher_update'));
+  assert.equal(createMcpCapabilityProbe({
+    listServers: () => builtin,
+    catalogToolNames: () => fullCatalog,
+  })({ harness: 'codebuddy' }).ok, true);
+});
+
+runCase('orchestrator contract resolves encoded and legacy tool names, rejects foreign ones', () => {
+  const encoded = ORCHESTRATOR_MCP_CONTRACT_TOOLS.map((name) => `mcp__cretli_builtincretl__${name}`);
+  assert.equal(hasWorkspaceWatcherOrchestratorMcpTools(encoded), true);
+  assert.equal(hasWorkspaceWatcherOrchestratorMcpTools([...ORCHESTRATOR_MCP_CONTRACT_TOOLS, 'mcp__cretli_builtincretl__workspace_watcher_show']), true, 'legacy names map to canonical ones');
+  assert.equal(hasWorkspaceWatcherOrchestratorMcpTools([]), false);
+  assert.ok(missingWorkspaceWatcherOrchestratorMcpTools(['todo_show']).includes('watcher_update'));
+  assert.equal(hasWorkspaceWatcherOrchestratorMcpTools(['mcp__github__todo_show', 'mcp__github__watcher_update']), false, 'a foreign server never satisfies the contract');
+});
+
+/**
+ * @returns {{ session: object, sent: object[], handled: object[] }}
+ */
+function createMcpGateFixture() {
+  /** @type {object[]} */
+  const sent = [];
+  /** @type {object[]} */
+  const handled = [];
+  const session = {
+    initialized: false,
+    transport: {
+      options: {},
+      sendControlRequest: async (payload) => {
+        sent.push(payload);
+        return {};
+      },
+      sendControlResponse: (requestId, payload) => {
+        sent.push({ requestId, payload });
+      },
+    },
+    initialize: async () => {
+      throw new Error('the stock initialize must be replaced');
+    },
+    handleControlRequest: async (request) => {
+      handled.push(request);
+    },
+  };
+  return { session, sent, handled };
+}
+
+/**
+ * @param {ReturnType<typeof createMcpGateFixture>} fixture
+ * @returns {Promise<object>}
+ */
+async function firstHookRequest(fixture) {
+  await fixture.session.initialize();
+  const callbackId = fixture.sent[0].hooks.UserPromptSubmit[0].hookCallbackIds[0];
+  return { request_id: 'hook-1', request: { subtype: 'hook_callback', callback_id: callbackId } };
+}
+
+runCase('MCP readiness gate blocks an orchestrator without the full tool catalog', async () => {
+  // Bridge marks are per chat and a stale mark must not release a fresh run.
+  clearMcpBridgeToolsListed('gate-stale');
+  markMcpBridgeToolsListed('gate-stale', { now: 100, toolNames: ORCHESTRATOR_MCP_CONTRACT_TOOLS });
+  assert.equal(await waitForMcpBridgeToolsListed('', { since: 0, timeoutMs: 0 }), null);
+  assert.equal((await waitForMcpBridgeToolsListed('gate-stale', { since: 0, timeoutMs: 0 }))?.at, 100);
+  assert.equal(await waitForMcpBridgeToolsListed('gate-stale', { since: 101, timeoutMs: 5 }), null, 'an older mark does not count');
+
+  // No wait function -> no hook installed.
+  assert.equal(
+    installCodeBuddyMcpReadyGate(createMcpGateFixture().session, undefined, { contractTools: ORCHESTRATOR_MCP_CONTRACT_TOOLS }),
+    false,
+  );
+  // No response channel -> an orchestrator session is unusable.
+  assert.equal(
+    installCodeBuddyMcpReadyGate({ transport: { sendControlRequest: async () => ({}) } }, async () => null, { contractTools: ORCHESTRATOR_MCP_CONTRACT_TOOLS }),
+    false,
+  );
+
+  // A full contract catalog releases the first prompt.
+  const valid = createMcpGateFixture();
+  clearMcpBridgeToolsListed('gate-valid');
+  markMcpBridgeToolsListed('gate-valid', { now: Date.now(), toolNames: ORCHESTRATOR_MCP_CONTRACT_TOOLS });
+  let blocked = null;
+  assert.equal(installCodeBuddyMcpReadyGate(
+    valid.session,
+    () => waitForMcpBridgeToolsListed('gate-valid', { since: 0 }),
+    { contractTools: ORCHESTRATOR_MCP_CONTRACT_TOOLS, onBlock: (info) => { blocked = info; } },
+  ), true);
+  const validHook = await firstHookRequest(valid);
+  await valid.session.handleControlRequest(validHook);
+  assert.equal(valid.handled.length, 1, 'a ready bridge with every contract tool lets the prompt through');
+  assert.equal(blocked, null);
+
+  // A short catalog blocks the prompt outright.
+  const short = createMcpGateFixture();
+  clearMcpBridgeToolsListed('gate-short');
+  markMcpBridgeToolsListed('gate-short', { now: Date.now(), toolNames: ['todo_show'] });
+  blocked = null;
+  installCodeBuddyMcpReadyGate(
+    short.session,
+    () => waitForMcpBridgeToolsListed('gate-short', { since: 0 }),
+    { contractTools: ORCHESTRATOR_MCP_CONTRACT_TOOLS, onBlock: (info) => { blocked = info; } },
+  );
+  const shortHook = await firstHookRequest(short);
+  await short.session.handleControlRequest(shortHook);
+  assert.equal(short.handled.length, 0, 'a short catalog never releases the prompt');
+  assert.equal(blocked.code, 'mcp_tools_missing');
+  assert.ok(blocked.missing.includes('watcher_update'));
+
+  // A wait that rejects is a not-ready block, never a silent pass.
+  const thrown = createMcpGateFixture();
+  blocked = null;
+  installCodeBuddyMcpReadyGate(
+    thrown.session,
+    async () => { throw new Error('bridge down'); },
+    { contractTools: ORCHESTRATOR_MCP_CONTRACT_TOOLS, onBlock: (info) => { blocked = info; } },
+  );
+  const thrownHook = await firstHookRequest(thrown);
+  await thrown.session.handleControlRequest(thrownHook);
+  assert.equal(thrown.handled.length, 0);
+  assert.equal(blocked.code, 'mcp_not_ready');
+
+  // A timeout (no catalog at all) is a readiness block, never a missing-tools one.
+  const timedOut = createMcpGateFixture();
+  clearMcpBridgeToolsListed('gate-timeout');
+  blocked = null;
+  installCodeBuddyMcpReadyGate(
+    timedOut.session,
+    () => waitForMcpBridgeToolsListed('gate-timeout', { since: 0, timeoutMs: 0 }),
+    { contractTools: ORCHESTRATOR_MCP_CONTRACT_TOOLS, onBlock: (info) => { blocked = info; } },
+  );
+  const timeoutHook = await firstHookRequest(timedOut);
+  await timedOut.session.handleControlRequest(timeoutHook);
+  assert.equal(timedOut.handled.length, 0);
+  assert.equal(blocked.code, 'mcp_not_ready');
+
+  // An ordinary chat keeps the previous behaviour: wait, then never block.
+  const ordinary = createMcpGateFixture();
+  installCodeBuddyMcpReadyGate(ordinary.session, async () => null, {});
+  const ordinaryHook = await firstHookRequest(ordinary);
+  await ordinary.session.handleControlRequest(ordinaryHook);
+  assert.equal(ordinary.handled.length, 1, 'an ordinary chat is never refused');
+});
+
+runCase('missing report closes as failure even when the todo is done', () => {
+  const dataDir = freshDataDir('close-missing-done');
+  const cwd = makeWorkspace('close-missing-done');
+  const todo = addReadyTodo(dataDir, cwd, 'done without report');
+  updateTodo(dataDir, cwd, todo.id, { status: 'doing', claimedByChatId: 'orch-mr', expectedUpdatedAt: getTodoById(dataDir, cwd, todo.id).updatedAt });
+  setAutopilot(cwd, dataDir);
+  seedActiveCycle(cwd, dataDir, { cycleId: 'c-mr', chatId: 'orch-mr', todoId: todo.id });
+  updateTodo(dataDir, cwd, todo.id, { status: 'done', expectedUpdatedAt: getTodoById(dataDir, cwd, todo.id).updatedAt });
+
+  const closed = reconcileWorkspaceWatcherCycle({
+    workspaceFolder: cwd,
+    dataDir,
+    now: T0 + 1000,
+    deps: {
+      probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'idle' }),
+      loadDelegations: () => [],
+      notify: () => false,
+    },
+  });
+  assert.equal(closed.closed, true, closed.reason);
+  const row = getWorkspaceWatcher(cwd, { dataDir });
+  assert.equal(row.cycleChats[0].outcome, 'failure');
+  assert.equal(row.failures[todo.id], 1, 'a missing report counts a failure even on a done todo');
+  assert.ok(row.backoffUntil, 'a missing report arms the backoff');
+  assert.equal(row.decisions.at(-1).reason, 'missing_report');
+});
+
+runCase('missing report on an unfinished or absent todo is failure/missing_report', () => {
+  const dataDir = freshDataDir('close-missing-doing');
+  const cwd = makeWorkspace('close-missing-doing');
+  const todo = addReadyTodo(dataDir, cwd, 'still doing');
+  updateTodo(dataDir, cwd, todo.id, { status: 'doing', claimedByChatId: 'orch-doing', expectedUpdatedAt: getTodoById(dataDir, cwd, todo.id).updatedAt });
+  setAutopilot(cwd, dataDir);
+  seedActiveCycle(cwd, dataDir, { cycleId: 'c-doing', chatId: 'orch-doing', todoId: todo.id });
+  const closed = reconcileWorkspaceWatcherCycle({
+    workspaceFolder: cwd,
+    dataDir,
+    now: T0 + 1000,
+    deps: {
+      probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'idle' }),
+      loadDelegations: () => [],
+      notify: () => false,
+    },
+  });
+  assert.equal(closed.closed, true, closed.reason);
+  const row = getWorkspaceWatcher(cwd, { dataDir });
+  assert.equal(row.failures[todo.id], 1);
+  assert.equal(row.decisions.at(-1).reason, 'missing_report');
+  assert.equal(getTodoById(dataDir, cwd, todo.id).status, 'ready', 'the failed cycle releases the doing claim');
+
+  // A cycle whose primary todo vanished still closes as failure/missing_report.
+  const ghostDir = freshDataDir('close-missing-ghost');
+  const ghostCwd = makeWorkspace('close-missing-ghost');
+  setAutopilot(ghostCwd, ghostDir);
+  seedActiveCycle(ghostCwd, ghostDir, { cycleId: 'c-ghost', chatId: 'orch-ghost', todoId: 'ghost-todo' });
+  const ghost = reconcileWorkspaceWatcherCycle({
+    workspaceFolder: ghostCwd,
+    dataDir: ghostDir,
+    now: T0 + 1000,
+    deps: {
+      probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'idle' }),
+      loadDelegations: () => [],
+      notify: () => false,
+    },
+  });
+  assert.equal(ghost.closed, true, ghost.reason);
+  assert.equal(getWorkspaceWatcher(ghostCwd, { dataDir: ghostDir }).decisions.at(-1).reason, 'missing_report');
+});
+
+runCase('missing report waits for active children and prefers a concrete MCP error', () => {
+  const dataDir = freshDataDir('close-children');
+  const cwd = makeWorkspace('close-children');
+  const todo = addReadyTodo(dataDir, cwd, 'live child');
+  updateTodo(dataDir, cwd, todo.id, { status: 'doing', claimedByChatId: 'orch-child', expectedUpdatedAt: getTodoById(dataDir, cwd, todo.id).updatedAt });
+  setAutopilot(cwd, dataDir);
+  seedActiveCycle(cwd, dataDir, { cycleId: 'c-child', chatId: 'orch-child', todoId: todo.id });
+  const held = reconcileWorkspaceWatcherCycle({
+    workspaceFolder: cwd,
+    dataDir,
+    now: T0 + 1000,
+    deps: {
+      probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'idle' }),
+      loadDelegations: () => [{ id: 'child-1', parentChatId: 'orch-child', status: 'running' }],
+      notify: () => false,
+    },
+  });
+  assert.equal(held.closed, false);
+  assert.equal(held.reason, 'cycle_children_active');
+  assert.ok(getWorkspaceWatcher(cwd, { dataDir }).activeCycle, 'a live child keeps the cycle open');
+
+  // The MCP gate failure of the finished run outranks the generic missing_report.
+  const mcpDir = freshDataDir('close-mcp-error');
+  const mcpCwd = makeWorkspace('close-mcp-error');
+  const mcpTodo = addReadyTodo(mcpDir, mcpCwd, 'mcp blocked');
+  updateTodo(mcpDir, mcpCwd, mcpTodo.id, { status: 'doing', claimedByChatId: 'orch-mcp', expectedUpdatedAt: getTodoById(mcpDir, mcpCwd, mcpTodo.id).updatedAt });
+  setAutopilot(mcpCwd, mcpDir);
+  seedActiveCycle(mcpCwd, mcpDir, { cycleId: 'c-mcp', chatId: 'orch-mcp', todoId: mcpTodo.id });
+  const mcpClosed = reconcileWorkspaceWatcherCycle({
+    workspaceFolder: mcpCwd,
+    dataDir: mcpDir,
+    now: T0 + 1000,
+    deps: {
+      probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'idle', errorCode: 'mcp_not_ready' }),
+      loadDelegations: () => [],
+      notify: () => false,
+    },
+  });
+  assert.equal(mcpClosed.closed, true, mcpClosed.reason);
+  const mcpRow = getWorkspaceWatcher(mcpCwd, { dataDir: mcpDir });
+  assert.equal(mcpRow.decisions.at(-1).reason, 'mcp_not_ready');
+  assert.equal(mcpRow.failures[mcpTodo.id], 1);
+});
+
+runCase('plan-only without report is failure/missing_report and keeps only a pending draft', () => {
+  const dataDir = freshDataDir('close-plan-draft');
+  const cwd = makeWorkspace('close-plan-draft');
+  const todo = addReadyTodo(dataDir, cwd, 'plan draft');
+  updateTodo(dataDir, cwd, todo.id, { status: 'doing', claimedByChatId: 'orch-plan', expectedUpdatedAt: getTodoById(dataDir, cwd, todo.id).updatedAt });
+  setAutopilot(cwd, dataDir);
+  seedActiveCycle(cwd, dataDir, { cycleId: 'c-plan', chatId: 'orch-plan', todoId: todo.id, planOnly: true });
+  mutateWorkspaceWatcherRow(cwd, ({ row }) => ({ planRequests: { ...(row.planRequests || {}), [todo.id]: new Date(T0).toISOString() } }), { dataDir });
+  const before = getTodoById(dataDir, cwd, todo.id);
+  saveWorkspaceWatcherTodoPlanDraft({
+    dataDir,
+    workspaceFolder: cwd,
+    todoId: todo.id,
+    expectedUpdatedAt: before.updatedAt,
+    planMarkdown: '# Pending draft',
+    sourceChatId: 'orch-plan',
+  });
+
+  const closed = reconcileWorkspaceWatcherCycle({
+    workspaceFolder: cwd,
+    dataDir,
+    now: T0 + 1000,
+    deps: {
+      probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'idle' }),
+      loadDelegations: () => [],
+      notify: () => false,
+    },
+  });
+  assert.equal(closed.closed, true, closed.reason);
+  const row = getWorkspaceWatcher(cwd, { dataDir });
+  assert.equal(row.failures[todo.id], 1, 'a plan-only cycle without a report counts a failure');
+  assert.equal(row.decisions.at(-1).reason, 'missing_report');
+  assert.equal(row.planRequests[todo.id], new Date(T0).toISOString(), 'a pending draft keeps its plan request');
+  assert.equal(getTodoById(dataDir, cwd, todo.id).plan.markdown, '# Pending draft');
+
+  // No draft: the failed plan cycle clears its pending request like before.
+  const emptyDir = freshDataDir('close-plan-empty');
+  const emptyCwd = makeWorkspace('close-plan-empty');
+  const emptyTodo = addReadyTodo(emptyDir, emptyCwd, 'plan empty');
+  updateTodo(emptyDir, emptyCwd, emptyTodo.id, { status: 'doing', claimedByChatId: 'orch-plan-empty', expectedUpdatedAt: getTodoById(emptyDir, emptyCwd, emptyTodo.id).updatedAt });
+  setAutopilot(emptyCwd, emptyDir);
+  seedActiveCycle(emptyCwd, emptyDir, { cycleId: 'c-plan-empty', chatId: 'orch-plan-empty', todoId: emptyTodo.id, planOnly: true });
+  mutateWorkspaceWatcherRow(emptyCwd, ({ row }) => ({ planRequests: { ...(row.planRequests || {}), [emptyTodo.id]: new Date(T0).toISOString() } }), { dataDir: emptyDir });
+  const emptyClosed = reconcileWorkspaceWatcherCycle({
+    workspaceFolder: emptyCwd,
+    dataDir: emptyDir,
+    now: T0 + 1000,
+    deps: {
+      probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'idle' }),
+      loadDelegations: () => [],
+      notify: () => false,
+    },
+  });
+  assert.equal(emptyClosed.closed, true, emptyClosed.reason);
+  assert.equal(getWorkspaceWatcher(emptyCwd, { dataDir: emptyDir }).planRequests[emptyTodo.id], undefined);
+  assert.equal(getWorkspaceWatcher(emptyCwd, { dataDir: emptyDir }).failures[emptyTodo.id], 1);
+});
+
+runCase('plan-only failure keeps planRequests when draft lives on planTargetId root', () => {
+  const dataDir = freshDataDir('close-plan-root');
+  const cwd = makeWorkspace('close-plan-root');
+  const root = addTodo(dataDir, cwd, { title: 'root plan', status: 'ready' }).item;
+  const leaf = addTodo(dataDir, cwd, { title: 'leaf work', status: 'ready', parentId: root.id }).item;
+  updateTodo(dataDir, cwd, leaf.id, { status: 'doing', claimedByChatId: 'orch-root', expectedUpdatedAt: getTodoById(dataDir, cwd, leaf.id).updatedAt });
+  setAutopilot(cwd, dataDir);
+  seedActiveCycle(cwd, dataDir, {
+    cycleId: 'c-plan-root',
+    chatId: 'orch-root',
+    todoId: leaf.id,
+    planOnly: true,
+    planTargetId: root.id,
+  });
+  mutateWorkspaceWatcherRow(cwd, ({ row }) => ({
+    planRequests: { ...(row.planRequests || {}), [root.id]: new Date(T0).toISOString() },
+  }), { dataDir });
+  saveWorkspaceWatcherTodoPlanDraft({
+    dataDir,
+    workspaceFolder: cwd,
+    todoId: root.id,
+    expectedUpdatedAt: getTodoById(dataDir, cwd, root.id).updatedAt,
+    planMarkdown: '# Root draft',
+    sourceChatId: 'orch-root',
+  });
+  const closed = reconcileWorkspaceWatcherCycle({
+    workspaceFolder: cwd,
+    dataDir,
+    now: T0 + 1000,
+    deps: {
+      probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'idle' }),
+      loadDelegations: () => [],
+      notify: () => false,
+    },
+  });
+  assert.equal(closed.closed, true, closed.reason);
+  const row = getWorkspaceWatcher(cwd, { dataDir });
+  assert.equal(row.decisions.at(-1).reason, 'missing_report');
+  assert.equal(row.planRequests[root.id], new Date(T0).toISOString(), 'draft on root keeps planRequests under planTargetId');
+  assert.equal(row.planRequests[leaf.id], undefined);
+  assert.equal(getTodoById(dataDir, cwd, root.id).plan.markdown, '# Root draft');
+});
+
+runCase('boot reconcile prefers mcp_not_ready over a generic missing_report probe', () => {
+  const dataDir = freshDataDir('boot-mcp-not-ready');
+  const cwd = makeWorkspace('boot-mcp-not-ready');
+  const todo = addReadyTodo(dataDir, cwd, 'boot mcp');
+  updateTodo(dataDir, cwd, todo.id, { status: 'doing', claimedByChatId: 'orch-boot-mcp', expectedUpdatedAt: getTodoById(dataDir, cwd, todo.id).updatedAt });
+  setAutopilot(cwd, dataDir);
+  seedActiveCycle(cwd, dataDir, { cycleId: 'c-boot-mcp', chatId: 'orch-boot-mcp', todoId: todo.id });
+  const boot = reconcileWorkspaceWatchersOnBoot({
+    dataDir,
+    now: T0 + 1000,
+    probeChatRunLiveness: () => ({
+      known: true,
+      busy: false,
+      reason: 'idle',
+      errorCode: 'mcp_tools_missing',
+    }),
+    loadDelegations: () => [],
+  });
+  assert.equal(boot.reconciled, 1);
+  const row = getWorkspaceWatcher(cwd, { dataDir });
+  assert.equal(row.decisions.at(-1).reason, 'mcp_tools_missing');
+  assert.notEqual(row.decisions.at(-1).reason, 'missing_report');
+});
+
+runCase('boot reconcile ignores foreign errorCode for missing_report close reason', () => {
+  const dataDir = freshDataDir('boot-foreign-error');
+  const cwd = makeWorkspace('boot-foreign-error');
+  const todo = addReadyTodo(dataDir, cwd, 'foreign err');
+  updateTodo(dataDir, cwd, todo.id, { status: 'doing', claimedByChatId: 'orch-foreign', expectedUpdatedAt: getTodoById(dataDir, cwd, todo.id).updatedAt });
+  setAutopilot(cwd, dataDir);
+  seedActiveCycle(cwd, dataDir, { cycleId: 'c-foreign', chatId: 'orch-foreign', todoId: todo.id });
+  const boot = reconcileWorkspaceWatchersOnBoot({
+    dataDir,
+    now: T0 + 1000,
+    probeChatRunLiveness: () => ({
+      known: true,
+      busy: false,
+      reason: 'idle',
+      errorCode: 'codex_error',
+    }),
+    loadDelegations: () => [],
+  });
+  assert.equal(boot.reconciled, 1);
+  assert.equal(getWorkspaceWatcher(cwd, { dataDir }).decisions.at(-1).reason, 'missing_report');
 });
 
 runCase('start cycle goes through the real chat-run service and the mock adapter', async () => {
@@ -701,6 +1188,115 @@ runCase('reports and cycle chats normalize defensively', () => {
   assert.equal(row.cycleChats.length, 1);
   assert.equal(row.cycleChats[0].id, 'chat-1');
   assert.equal(row.cycleChats[0].outcome, '');
+});
+
+runCase('collectWorkspaceWatcherPromptTodoIds walks ancestors, plan target and survives broken links', () => {
+  const items = [
+    { id: 'leaf', parentId: 'mid' },
+    { id: 'mid', parentId: 'root' },
+    { id: 'root' },
+    { id: 'plan', parentId: 'planparent' },
+    { id: 'planparent' },
+    { id: 'cycle-a', parentId: 'cycle-b' },
+    { id: 'cycle-b', parentId: 'cycle-a' },
+  ];
+  assert.deepEqual(
+    collectWorkspaceWatcherPromptTodoIds({ todoId: 'leaf', planTargetId: 'plan', items }),
+    ['leaf', 'mid', 'root', 'plan', 'planparent'],
+  );
+  assert.deepEqual(
+    collectWorkspaceWatcherPromptTodoIds({ todoId: 'ghost', planTargetId: '', items }),
+    ['ghost'],
+    'a missing record ends the walk instead of throwing',
+  );
+  assert.deepEqual(
+    collectWorkspaceWatcherPromptTodoIds({ todoId: 'cycle-a', items }),
+    ['cycle-a', 'cycle-b'],
+    'a parent cycle does not loop',
+  );
+  assert.deepEqual(collectWorkspaceWatcherPromptTodoIds({ todoId: '', items }), []);
+});
+
+runCase('startWorkspaceWatcherCycle: prompt_too_long refuses before the adapter and rolls back cleanly', async () => {
+  const dataDir = freshDataDir('cycle-prompt-too-long');
+  const cwd = makeWorkspace('cycle-prompt-too-long');
+  const todo = addReadyTodo(dataDir, cwd, 'long contract');
+  setAutopilot(cwd, dataDir, { requirePlanApproval: false, cooldownMs: 0, maxCyclesPerDay: 5 });
+  let adapterCalls = 0;
+  let chatCalls = 0;
+  const deps = {
+    promptCharBudget: 100,
+    resolveWorkspaceWatcherOrchestrator: async () => ({ ok: true, harness: 'mock', model: 'cheap', source: 'policy' }),
+    startStartingLeaseRenewal: () => () => {},
+    addChat: (_s, title, _wf, _folder, _m, extras) => { chatCalls += 1; return { id: extras.id, title }; },
+    startChatRun: async () => { adapterCalls += 1; return { runId: 'never', accepted: true }; },
+    probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'chat_missing' }),
+    notify: () => false,
+  };
+  const before = getWorkspaceWatcher(cwd, { dataDir });
+  const tick = {
+    watcher: before,
+    decision: { kind: 'start_cycle', planOnly: false, nextTodoId: todo.id },
+    snapshot: { readyLeaves: [{ id: todo.id, updatedAt: getTodoById(dataDir, cwd, todo.id).updatedAt, title: todo.title }] },
+  };
+  const result = await startWorkspaceWatcherCycle({ workspaceFolder: cwd, dataDir, now: T0, tick, token: 'too-long', deps });
+  assert.equal(result.started, false);
+  assert.equal(result.reason, 'prompt_too_long');
+  assert.equal(result.error.code, 'prompt_too_long');
+  assert.equal(adapterCalls, 0, 'the adapter is never called');
+  assert.equal(chatCalls, 0, 'no orchestrator chat is created');
+  const row = getWorkspaceWatcher(cwd, { dataDir });
+  assert.equal(row.activeCycles.length, 0, 'the cycle reservation is rolled back');
+  assert.equal(row.activeCycle, null);
+  assert.equal(row.failures[todo.id], undefined, 'no failure is counted');
+  assert.ok(!row.backoffUntil, 'no backoff is armed');
+  assert.equal(row.cycles.count, before.cycles.count, 'the daily budget is rolled back');
+  assert.ok(!row.lease || !row.lease.token, 'the workspace lease is released');
+  const reloaded = getTodoById(dataDir, cwd, todo.id);
+  assert.equal(reloaded.status, 'ready');
+  assert.ok(!reloaded.claimedByChatId, 'the todo claim is released');
+  assert.ok(row.decisions.some((decision) => decision.kind === 'prompt_too_long'), 'the refusal reason is durable');
+});
+
+runCase('startWorkspaceWatcherCycle: prompt_too_long keeps the plan draft and drops only the reservation', async () => {
+  const dataDir = freshDataDir('cycle-too-long-plan');
+  const cwd = makeWorkspace('cycle-too-long-plan');
+  const todo = addReadyTodo(dataDir, cwd, 'planned');
+  updateTodo(dataDir, cwd, todo.id, {
+    plan: { markdown: '# Existing draft' },
+    expectedUpdatedAt: getTodoById(dataDir, cwd, todo.id).updatedAt,
+  });
+  setAutopilot(cwd, dataDir, { requirePlanApproval: true, cooldownMs: 0, maxCyclesPerDay: 5 });
+  const deps = {
+    promptCharBudget: 100,
+    resolveWorkspaceWatcherOrchestrator: async () => ({ ok: true, harness: 'mock', model: 'cheap', source: 'policy' }),
+    startStartingLeaseRenewal: () => () => {},
+    addChat: () => { throw new Error('no chat may be created'); },
+    startChatRun: async () => { throw new Error('no adapter may be called'); },
+    probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'chat_missing' }),
+    notify: () => false,
+  };
+  const tick = {
+    watcher: getWorkspaceWatcher(cwd, { dataDir }),
+    decision: { kind: 'plan_gate', planOnly: true, nextTodoId: todo.id },
+    snapshot: {
+      readyLeaves: [{
+        id: todo.id,
+        updatedAt: getTodoById(dataDir, cwd, todo.id).updatedAt,
+        title: todo.title,
+        plan: { markdown: '# Existing draft' },
+      }],
+    },
+  };
+  const result = await startWorkspaceWatcherCycle({ workspaceFolder: cwd, dataDir, now: T0, tick, token: 'too-long-plan', deps });
+  assert.equal(result.reason, 'prompt_too_long');
+  const row = getWorkspaceWatcher(cwd, { dataDir });
+  assert.equal(row.planRequests[todo.id], undefined, 'the plan reservation is rolled back, not left pending');
+  assert.equal(
+    getTodoById(dataDir, cwd, todo.id).plan.markdown,
+    '# Existing draft',
+    'the existing plan draft is preserved',
+  );
 });
 
 for (const run of cases) {

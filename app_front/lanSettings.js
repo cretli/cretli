@@ -7,12 +7,17 @@ import * as api from './core/api/index.js';
 import { restartServer } from './app/serverRestartCoordinator.js';
 import { t } from './i18n/index.js';
 import { openFsPicker } from './components/ui/cr-fs-picker.js';
+import {
+  applySdkCustomSystemPromptSettings,
+  initSdkCustomSystemPromptSettings,
+} from './features/settings/sdkCustomSystemPromptSettings.js';
 
 /**
  * Initializes the LAN settings block: loads settings, wires the Save button (PATCH) and, when the
  * URL carries a session, refreshes the sync link and QR code after saving.
  */
 export function initLanSettings() {
+  initSdkCustomSystemPromptSettings();
   const lanInput = document.getElementById('lan-host-input');
   const lanStatusEl = document.getElementById('lan-save-status');
   const frontHmrCheckbox = document.getElementById('front-hmr-enabled-checkbox');
@@ -504,6 +509,7 @@ export function initLanSettings() {
         ? t('lanSettings.sdkAutoRecoveryForcedByEnv')
         : '';
     }
+    applySdkCustomSystemPromptSettings(data);
     if (additionalCursorDirsInput && Array.isArray(data.additionalCursorContextDirs)) {
       additionalCursorDirsInput.value = data.additionalCursorContextDirs.join('\n');
     }

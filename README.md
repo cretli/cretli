@@ -56,6 +56,17 @@ Codex, DeepSeek, CodeBuddy, and Cursor SDK are first-class alternatives.
 No cloud workspace. The server runs on your machine. Default bind is localhost;
 LAN is opt-in. Read [SECURITY.md](SECURITY.md) before exposing it.
 
+### Built-in browser
+
+A server-side Chromium the user watches live in the **Browser** panel of the same
+chat. An agent drives it with the `browser_*` MCP tools: `browser_open` starts or
+adopts a session, the read tools (`browser_screenshot`, `browser_elements`,
+`browser_dom`, `browser_console`, `browser_network`) inspect the page, and in agent
+mode `browser_input` and `browser_navigate` act on it. Origins are **default-deny**
+under the workspace Browser policy, and screenshots come back as a temp file path to
+open instead of inline base64. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+the `cretli-browser` skill (`.agents/skills/cretli-browser/SKILL.md`).
+
 ## How it works
 
 - Workspaces are **self-config first**: a workspace is its own list of folders in
@@ -111,6 +122,7 @@ docker compose up --build
 ```
 
 See [docs/INSTALL.md](docs/INSTALL.md) for Linux, macOS, WSL2, Termux (server on the phone), and LAN/HTTPS.
+If the page does not connect, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
 ## Chat backends
 
@@ -240,7 +252,7 @@ Runtime data lives in `data/` (gitignored).
 - **Backend** — Node.js, Express, `node-pty`, `ws`, optional Cursor / Qwen / Codex / DeepSeek / CodeBuddy SDKs.
 - **Frontend** — SPA in `app_front/` (webpack → `public/dist/`).
 
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/MULTI-INSTANCE.md](docs/MULTI-INSTANCE.md)
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/MULTI-INSTANCE.md](docs/MULTI-INSTANCE.md) · [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 
 ## Contributing
 

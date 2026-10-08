@@ -19,6 +19,8 @@ import {
   buildBoundedToolJsonPreview,
   buildToolOutputResultSectionHtml,
   extractPrimaryToolOutputText,
+  extractToolResultMeta,
+  formatToolResultMetaLine,
   resolveToolOutputPreviewModel,
   shallowTruncateStringsForJson,
 } from '../app_front/lib/sdkToolCallOutputPreview.js';
@@ -49,6 +51,27 @@ test('extractPrimaryToolOutputText reads nested value.stdout', () => {
   const stdout = 'hello stdout';
   assert.equal(extractPrimaryToolOutputText({ value: { stdout } }), stdout);
   assert.equal(extractPrimaryToolOutputText({ stdout }), stdout);
+});
+
+test('extractToolResultMeta collects exitCode alongside stdout without stringify', () => {
+  const stdout = 'line\n';
+  const meta = extractToolResultMeta({ exitCode: 1, value: { stdout, code: 2 } });
+  assert.equal(meta?.exitCode, 1);
+  assert.equal(meta?.code, 2);
+  assert.equal(formatToolResultMetaLine(meta), 'exitCode=1 · code=2');
+  const preview = buildBoundedToolJsonPreview({ exitCode: 0, value: { stdout } });
+  assert.ok(preview.text.includes('line'));
+  assert.ok(!preview.text.includes('exitCode'));
+});
+
+test('formatToolResultMetaLine stays UTF-8 bounded', () => {
+  const meta = extractToolResultMeta({ error: 'x'.repeat(500), stdout: 'out' });
+  assert.equal(meta, null);
+  const longMeta = extractToolResultMeta({ error: 'e'.repeat(300) });
+  assert.equal(longMeta, null);
+  const partialMeta = extractToolResultMeta({ exitCode: 0, error: 'e'.repeat(300) });
+  assert.equal(partialMeta?.exitCode, 0);
+  assert.equal(partialMeta?.error, undefined);
 });
 
 test('buildBoundedToolJsonPreview avoids full stringify on ~1 MiB stdout', () => {
@@ -96,6 +119,7 @@ test('sdk-rich-view createToolBody uses bounded tool output helpers', () => {
   assert.match(richViewSource, /buildBoundedToolJsonPreview/);
   assert.match(richViewSource, /buildToolOutputResultSectionHtml/);
   assert.match(richViewSource, /extractPrimaryToolOutputText/);
+  assert.match(richViewSource, /extractToolResultMeta/);
   assert.doesNotMatch(richViewSource, /stringifySnippet\(ev\.result, 4800\)/);
 });
 

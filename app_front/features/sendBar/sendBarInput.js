@@ -9,10 +9,11 @@ const MULTILINE_STORAGE_KEY = 'cretli-sendbar-multiline';
  * input cannot hold a newline, so it is replaced with a textarea first.
  * Dedicated multiline mode still uses Enter for a newline and Ctrl/Cmd+Enter to send.
  * @param {{ key?: string, shiftKey?: boolean, ctrlKey?: boolean, metaKey?: boolean, isComposing?: boolean, keyCode?: number }} event
- * @param {{ isTextarea?: boolean, isMultilineMode?: boolean }} field
+ * @param {{ isTextarea?: boolean, isMultilineMode?: boolean, isReadOnly?: boolean }} field
  * @returns {'send' | 'newline' | 'expand-newline' | 'ignore'}
  */
 export function resolveSendBarEnterAction(event, field = {}) {
+  if (field.isReadOnly) return 'ignore';
   if (event?.key !== 'Enter') return 'ignore';
   if (event.isComposing || event.keyCode === 229) return 'ignore';
   if (event.shiftKey) return field.isTextarea ? 'newline' : 'expand-newline';
@@ -102,6 +103,7 @@ export function createSendBarInput(options) {
       const action = resolveSendBarEnterAction(e, {
         isTextarea: el.tagName === 'TEXTAREA',
         isMultilineMode: multiline,
+        isReadOnly: el.readOnly || el.disabled,
       });
       if (action === 'ignore' || action === 'newline') return;
       if (action === 'expand-newline') {

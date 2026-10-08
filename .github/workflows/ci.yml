@@ -21,7 +21,21 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ripgrep
       - name: Lint
         run: npm run lint
+      # tests/browser-live.test.js runs only when detectBrowserRuntime() finds a
+      # Chromium binary. Install at the DEFAULT cache path (~/.cache/ms-playwright),
+      # no PLAYWRIGHT_BROWSERS_PATH override, so the plain `npm test` step below
+      # resolves playwright.chromium.executablePath() to this same install. Use the
+      # playwright-core CLI (the runtime dependency), NOT the `playwright` CLI:
+      # @playwright/test pins 1.62.1, whose installer fetches a Chromium revision
+      # that playwright-core 1.63.0 never looks for, and the test would keep
+      # silently skipping on a green CI.
+      - name: Install Chromium for the live browser test
+        run: npx playwright-core install --with-deps chromium
       - name: Run tests
+        env:
+          # Turn the graceful "browser-unavailable" skip into a hard failure: CI
+          # must never go green while this test skipped. Local runs leave it unset.
+          CRETLI_REQUIRE_BROWSER_LIVE: "1"
         run: npm test
       - name: Build frontend (prod)
         run: npm run prod -w cretli-front

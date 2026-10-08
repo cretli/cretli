@@ -108,7 +108,7 @@ test('the form validates client-side and surfaces errors in a dedicated node', (
   assert.match(source, /function validateWatcherForm\(root\)/);
   assert.match(source, /id="watcher-form-error"/);
   assert.match(source, /t\('settings\.watcherValidationMaxParallel'\)/);
-  assert.match(source, /maxParallel < 1 \|\| maxParallel > 5/, 'maxParallel bounded 1..5 in the client too');
+  assert.match(source, /maxParallel < 1 \|\| maxParallel > 10/, 'maxParallel bounded 1..10 in the client too');
   // Save blocks on validation before the round-trip.
   assert.match(source, /const errors = validateWatcherForm\(root\);[\s\S]*?if \(errors\.length\) \{\s*showFormError\(root, errors\);\s*return;/);
 });
@@ -133,7 +133,7 @@ test('CRITICAL: maxParallel is capped in the backend normalizer, not only in HTM
     /maxParallel: Math\.min\(WORKSPACE_WATCHER_MAX_PARALLEL, Math\.max\(1, normalizeCount\(source\.maxParallel, 1\)\)\)/,
     'the store clamps maxParallel to [1, WORKSPACE_WATCHER_MAX_PARALLEL]',
   );
-  assert.match(persistSource, /WORKSPACE_WATCHER_MAX_PARALLEL = 5/);
+  assert.match(persistSource, /WORKSPACE_WATCHER_MAX_PARALLEL = 10/);
 });
 
 test('every new editor label exists in both en and pl', () => {

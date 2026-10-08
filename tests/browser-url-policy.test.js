@@ -12,6 +12,7 @@ import {
   isLoopbackHostname,
   isPrivateHostname,
   normalizeHostname,
+  normalizeNavigationUrl,
   normalizeOrigin,
   parseHttpUrl,
 } from '../lib/browser/url-policy.js';
@@ -295,4 +296,64 @@ test('policy store persists per-workspace policy', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('normalizeNavigationUrl gives a bare host the scheme the allowlist already assumes', () => {
+  assert.equal(normalizeNavigationUrl('example.com'), 'https://example.com/');
+  assert.equal(normalizeNavigationUrl('  example.com  '), 'https://example.com/');
+  assert.equal(normalizeNavigationUrl('example.com/a?b=1#f'), 'https://example.com/a?b=1#f');
+  // A host:port pair is a bare target, not a scheme — the common thing to type.
+  assert.equal(normalizeNavigationUrl('127.0.0.1:3011/path'), 'https://127.0.0.1:3011/path');
+  assert.equal(normalizeNavigationUrl(''), '');
+  assert.equal(normalizeNavigationUrl(null), '');
+  assert.equal(normalizeNavigationUrl(undefined), '');
+});
+
+test('normalizeNavigationUrl keeps an absolute target and only rewrites the missing scheme', () => {
+  for (const url of [
+    'https://example.com/a?b=1',
+    'http://example.com/',
+    'https://example.com:8443/x',
+    'file:///etc/passwd',
+    'chrome://settings',
+  ]) {
+    assert.equal(normalizeNavigationUrl(url), parseHttpUrl(url)?.href ?? url, url);
+  }
+});
+
+test('the normalized navigation target and the allowlist agree on one origin', () => {
+  // The invariant behind the fix: policy and `page.goto` must judge and fetch
+  // the same string, so whatever origin the allowlist matches is the origin
+  // Chromium is handed.
+  for (const raw of ['example.com', 'https://example.com/a', 'EXAMPLE.com', '//example.com/']) {
+    const normalized = normalizeNavigationUrl(raw);
+    assert.equal(parseHttpUrl(normalized).origin, normalizeOrigin(raw), raw);
+  }
+});
+
+test('normalizeNavigationUrl never turns a blocked scheme into a reachable URL', async () => {
+  for (const raw of [
+    'file:///etc/passwd',
+    'data:text/html,hi',
+    'javascript:alert(1)',
+    'chrome://settings',
+    'view-source:https://example.com',
+    'ftp://example.com',
+  ]) {
+    const normalized = normalizeNavigationUrl(raw);
+    const decision = await evaluateUrlPolicy({
+      url: normalized,
+      policy: { allowedOrigins: ['https://example.com'] },
+      lookup: publicLookup,
+    });
+    assert.equal(decision.allowed, false, `${raw} -> ${normalized} must stay denied`);
+  }
+  // The bare-host case the panel actually sends.
+  const allowed = await evaluateUrlPolicy({
+    url: normalizeNavigationUrl('example.com'),
+    policy: { allowedOrigins: ['https://example.com'] },
+    lookup: publicLookup,
+  });
+  assert.equal(allowed.allowed, true);
+  assert.equal(allowed.href, 'https://example.com/');
 });

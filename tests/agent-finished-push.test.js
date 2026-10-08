@@ -77,6 +77,27 @@ function makeDeps(overrides = {}) {
   assert.match(broadcasts[0].body, /Room title/);
 }
 
+// The run id becomes data.eventId (used by the SW for renotify dedupe); a
+// missing or non-string run id leaves the field out.
+{
+  const { broadcasts, deps } = makeDeps();
+  assert.equal(
+    notifyAgentFinished({ status: 'completed', runId: 'run-42', chatId: 'c1' }, deps),
+    true
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(broadcasts[0].data.eventId, 'run-42');
+}
+{
+  const { broadcasts, deps } = makeDeps();
+  assert.equal(
+    notifyAgentFinished({ status: 'error', runId: 123, chatId: 'c1' }, deps),
+    true
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal('eventId' in broadcasts[0].data, false);
+}
+
 // Two finish paths observing one run push exactly once; a new run resets.
 {
   const { broadcasts, deps } = makeDeps();

@@ -28,6 +28,14 @@ assert.equal(actualPayload.lastRunStatus, 'error');
 assert.equal(actualPayload.queuedCount, 1);
 assert.equal(actualPayload.clientCount, 2);
 assert.equal(actualPayload.busy, true);
+assert.equal(actualPayload.steerSupported, false);
+assert.equal(actualPayload.backgroundOutstanding, 0);
+
+const steerRoom = {
+  ...inputRoom,
+  currentRun: { id: 'run-1', steer() {} },
+};
+assert.equal(buildSdkRoomStatePayload(steerRoom).steerSupported, true);
 
 const openCodeRoom = {
   ...inputRoom,

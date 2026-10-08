@@ -49,9 +49,20 @@ When asked to start Cretli:
 - Example: `npm start` in the project root with those options (HTTPS on
   `https://localhost:3011` by default).
 
-If LAN dies after a WSL crash: refresh WSL IP (`wsl.exe hostname -I`), fix
-Windows `netsh interface portproxy` for 3011, then restart the server **inside
-WSL**.
+If the page does not load, follow [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+before touching webpack. Short version:
+
+- Nothing on `127.0.0.1:3011` inside WSL → the process is dead (`SIGTERM` or
+  exit 137). Start it again outside the sandbox. That is not a compile error.
+- WSL `curl` to `127.0.0.1:3011` returns 200, but Windows `curl.exe` gets
+  `ERR_CONNECTION_RESET` → `netsh interface portproxy` sends 3011 to the WSL
+  eth address, and `npm start` only binds `127.0.0.1`. Either `npm run
+  start:lan`, or `socat` on the WSL IP forwarding to `127.0.0.1:3011`.
+- A cached shell plus “server is unavailable” is the same network break. The
+  service worker painted the page; `/api/health` never connected.
+- After a WSL restart, refresh the WSL IP (`wsl.exe hostname -I`), re-run
+  `scripts/wsl-port-forward.ps1`, and restart the forwarder. Restart the Node
+  process **inside WSL**.
 
 ## Frontend build
 

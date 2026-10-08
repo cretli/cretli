@@ -19,14 +19,27 @@ import { planWorkspaceRebuild } from '../app_front/features/sidebar/sidebarView.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const viewSource = readFileSync(resolve(here, '../app_front/features/sidebar/sidebarView.js'), 'utf8');
+const archiveFocusSource = readFileSync(
+  resolve(here, '../app_front/features/sidebar/sidebarArchiveSidebarFocus.js'),
+  'utf8',
+);
+
+/**
+ * Slice the body of a function declaration out of a source string. Works both
+ * for the two-space-indented methods in sidebarView.js and for the top-level
+ * `export function` declarations in the archive-focus module.
+ */
+function sourceFunctionBody(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `${name} located`);
+  // Next function declaration (top level or two-space indented) or module end.
+  const rest = source.slice(start + 1);
+  const next = rest.search(/\n(?:export )?(?: {2})?function /);
+  return next >= 0 ? rest.slice(0, next) : rest;
+}
 
 function functionBody(name) {
-  const start = viewSource.indexOf(`function ${name}(`);
-  assert.ok(start >= 0, `${name} located`);
-  // Next top-level `\n  function ` or the end of the module.
-  const rest = viewSource.slice(start + 1);
-  const next = rest.indexOf('\n  function ');
-  return next >= 0 ? rest.slice(0, next) : rest;
+  return sourceFunctionBody(viewSource, name);
 }
 
 test('row action buttons are emitted as HTML, not built with per-row listeners', () => {
@@ -50,6 +63,7 @@ test('chat rows still emit the data attributes and action classes the delegated 
     'sidebar-chat-archive-btn',
     'sidebar-chat-restore-btn',
     'sidebar-chat-fav-btn',
+    'sidebar-chat-mute-btn',
     'sidebar-chat-action-first',
   ]) {
     assert.match(viewSource, new RegExp(marker), `${marker} emitted from HTML`);
@@ -90,11 +104,20 @@ test('a workspace structure change rebuilds only the changed <li>, not the whole
 });
 
 test('partial rebuild preserves scroll position and keyboard focus', () => {
+  // renderPassBody captures the focus/scroll snapshot, then asks the scheduler
+  // to restore it once the Lit hosts have committed (unsafeHTML is a microtask).
   const renderBody = functionBody('renderPassBody');
   assert.match(renderBody, /const scrollTop = /);
-  assert.match(renderBody, /body\.scrollTop = scrollTop/);
-  assert.match(renderBody, /restoreSidebarFocus\(body, focusInfo\)/);
-  const restore = functionBody('restoreSidebarFocus');
+  assert.match(renderBody, /captureSidebarFocusInfo\(body\)/);
+  assert.match(renderBody, /scheduleSidebarFocusAndScrollRestore\(body, focusInfo, scrollTop\)/);
+
+  const schedule = functionBody('scheduleSidebarFocusAndScrollRestore');
+  assert.match(schedule, /waitForSidebarLitHostsCommit\(body\)/);
+  assert.match(schedule, /body\.scrollTop = scrollTop/);
+  assert.match(schedule, /restoreSidebarFocus\(body, info\)/);
+
+  // restoreSidebarFocus now lives in the shared archive-focus module.
+  const restore = sourceFunctionBody(archiveFocusSource, 'restoreSidebarFocus');
   assert.match(restore, /data-chat-id=/);
   assert.match(restore, /preventScroll: true/);
 });

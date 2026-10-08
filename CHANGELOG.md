@@ -8,6 +8,135 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Claude harness lists **Claude Haiku 5.5** (`claude-haiku-5-5`, with the usual
+  effort variants). The model is overlaid on every catalog source, so it stays
+  selectable while the bundled Claude Code CLI still resolves the `haiku` alias
+  to an older release. Usage estimates include its lower Haiku 5.5 rates and the
+  context meter reports 200k tokens for the Claude 5 generation.
+
+- Workspace Watcher classifies every `doing` todo as `active`, `dependency`,
+  `user_action`, `recoverable` or `unknown` with its evidence
+  (`snapshot.doingStates` / `snapshot.recovery`). The existing claim reconcile
+  now also releases an unclaimed `doing` leaf in autopilot when its executor
+  chat is confirmed gone or idle and archived; unknown liveness, a missing
+  execution identity or an expired claim lease never auto-recovers. Claims
+  store a durable `execution` identity (attempt/fencing id, cycle id, todo
+  revision), a replayed claim is idempotent, and a late release from an older
+  attempt can no longer free a newer one. Unknown rows escalate to the operator
+  in `observe` and `autopilot` after six heartbeat observations (~30s); `off`
+  does not escalate on heartbeat; `paused`/`stopReason` suppress notify while
+  quiet hours and cycle budget do not. Observe reports only; unclaimed release
+  stays autopilot-only. Manual and autopilot recovery share
+  `POST /api/workspace-watcher/todos/:id/recover` / MCP `watcher_recover_todo`.
+  `policy.recoverIdleOpenChat` optionally treats idle open executor chats as
+  recoverable; Todo **Why?** and the task editor show recovery state and evidence.
+
+- Browser `required` network boundary now gates on a working proxy instead of a
+  configured URL: before creating a session the server runs a bounded TCP
+  reachability probe against `CRETLI_BROWSER_PROXY_SERVER` and refuses to start
+  (`browser-unavailable`, naming the proxy and reason) when it does not answer.
+  `proxy` only records a warning and still starts, `mvp-defense-in-depth` never
+  probes, and the last result is exposed as
+  `runtime.networkBoundary.proxyHealth` on `/api/browser/status`.
+
+- Cursor SDK (`@cursor/sdk` ≥ 1.0.37): **steer** injects user text into a live
+  local run (`Run.steer`, WS `steer` / `sdkSteerAck` / `sdkSteerError`); busy
+  sends try steer first, then queue. **Background subagents** keep the room on
+  the same run until follow-up work settles (`sdkBackgroundWork`). **MCP tool
+  annotations** (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
+  `openWorldHint`) on page, chat-host and browser custom tools. **Custom system
+  prompt** (Settings + per-chat override, local agents only): `systemPrompt` on
+  create/resume with project `settingSources`; unauthorized accounts get a
+  one-time drop + retry without mutating saved settings. `confirm_steering` is
+  folded into `revert_to_followup`.
+
+- Notifications now include a separate **New chat created** event. A push (and
+  the optional in-app signal) is emitted from the single chat-creation path, so
+  a chat started by a user, a delegation, a todo/Scout run or the watcher
+  notifies the other devices. It has its own toggle in
+  Settings → App → Notifications → Events and follows the chat/subchat profiles;
+  temporary internal fork chats (title/summary) stay silent.
+
+- `browser_input` can now drive the common page controls, not just clicks and
+  typing: new kinds `select` (`value` / `optionLabel` / `optionIndex`), `check`,
+  `uncheck`, `hover`, `drag` (a separate `toSelector` / `toRole`+`toName` /
+  `toText` / `toLabel` / `toPlaceholder` destination — a missing one is a 400,
+  never a drop onto the source), `upload` (server-side paths that must stay
+  inside the workspace root after realpath, so `..`, outside paths and symlink
+  escapes are rejected) and a bounded `wait` (`selector`+`state`, `text`,
+  `loadState` including network-idle, or `url`; no script evaluation). Every
+  locator kind accepts `nth` (alias `index`, matching what `browser_elements`
+  returns) to act on one specific match instead of always the first, `key`
+  typing takes a clamped `delay`, `browser_navigate` takes an optional
+  `waitUntil`, and the MCP `browser_input` `event` schema now lists every kind
+  and field so schema-driven harnesses can discover them.
+
+- Notifications now have separate chat and subchat profiles with independent
+  in-app sound, volume, vibration patterns and push vibration, available in
+  Settings → App → Notifications. Each profile can
+  be previewed; existing shared preferences are preserved on upgrade. Custom
+  sounds play in the open app, while background push uses the system sound.
+
+- Automatic chat archiving is configurable in Settings → Chat & agents →
+  General: an opt-in toggle plus an idle window as a number and unit
+  (minutes / hours / days; default 30 days, range one minute to 365 days). The
+  server sweeps idle chats every minute through the shared `canArchive` gate,
+  so pinned chats, chats with a live run and chats with a running delegated
+  child are never archived; a family is archived children-before-parent and can
+  be restored from the sidebar.
+
+- The sidebar chat row now shows an animated auto-archive countdown once an idle
+  chat enters the last part of its archive window: a pulsing clock and the
+  remaining time (`2d4h`, `45m`) replace the idle status chip, switch to the
+  warning tone for the final stretch, and a tooltip names the deadline. The
+  countdown is an estimate (the server re-checks pins and liveness at sweep
+  time) and is hidden for pinned chats, chats with a live run and chats in the
+  archive.
+
+- Workspace Watcher failure backoff can be released in one click from where it
+  blocks: the Monitoring alert and the cycle-schedule card's blocked line
+  (Settings tab) now carry a "Clear backoff and failures" action, alongside the
+  existing button in the Actions tab. It sends the same
+  `{ failures: {}, backoffUntil: '' }` PATCH.
+
+- Recovery registry (leaf R3) gains a durable, cross-process owner lease with
+  generation fencing: `lib/recovery/recovery-owner-lease.js` provides
+  `acquireRecoveryOwnerLease` (create / renew / takeover / `owner_held`),
+  `renewRecoveryOwnerLease`, `getRecoveryOwnerLease`,
+  `checkRecoveryOwnerFence` (rejects callbacks from before a takeover) and
+  `releaseRecoveryOwnerLease` (a stale token cannot remove or steal the lease).
+  The recovery SQLite store migrates to schema version 2 with the singleton
+  `recovery_owner_lease` table. `serverInstanceToken` is explicitly not a lock
+  or a fencing token. No runtime wiring and no recovery policy in this leaf.
+
+- Recovery registry (leaf R5) gains a launch/finish lifecycle layer on the R2–R4
+  primitives: `lib/recovery/recovery-lifecycle.js` provides `beginRunLaunch`
+  (persists the run intent — and durably queues an approved prompt — *before* the
+  caller may start an executor, blocking the launch with `launch_blocked` on any
+  persistence failure), `recordExecutorAck` (an `accepted` state only from an
+  executor `source`, via a CAS `starting → running`), `markAcceptanceUnconfirmed`
+  (an explicit `unconfirmed` state that keeps the run `starting`), `finishRun`
+  (a terminal state only with a terminal `proof`, else `terminal_proof_required`,
+  with the server outranking the agent report), `canAutoRelaunch` (the gate that
+  denies any automatic relaunch without an acceptance proof, whatever the adapter
+  decision), plus `attachHistoryRef` and the pure `buildUsageIdentity` mapper that
+  feeds `buildLogicalUsageIdentity` a `durable_sequence` identity. Acceptance,
+  terminal proof and the history reference are stored on the run JSON via
+  `transitionRun(..., patch)`, so there are no new tables and no store schema
+  bump. No runtime wiring in this leaf.
+
+- Chat message headers and status timestamps show "yesterday" for the previous
+  local calendar day and a `DD-MM-YYYY` date for other days, alongside the time.
+
+- Workspace Watcher shows a cycle schedule like Scout: `GET
+  /api/workspace-watcher` now carries a derived `schedule` block
+  (`lastCycleAt`, `nextCycleAt`, today's cycle budget, running slots and the
+  live `blockedReason`), computed by `computeWatcherSchedule()` from the same
+  gates the heartbeat applies (cooldown, failure backoff, quiet hours, daily
+  budget). Settings → Workspace Watcher → Settings opens with a per-second
+  countdown to the next cycle, the last cycle and the current blocker, and the
+  Status card gains a matching "next cycle" line.
+
 - Archiving a chat now opens a confirmation dialog first: it shows how many
   chats the cascade will archive together with the clicked chat's related
   subchats and offers a "Don't ask again" checkbox that suppresses later
@@ -166,7 +295,106 @@ All notable changes to this project are documented here. The format is based on
   `GET/POST /api/workspace-watcher/scout`. Fresh proposals also land in the
   pinned workspace chat. See `docs/workspace-watcher.md`.
 
+- Configurable Workspace Scout profiles (MVP — `docs/configurable-scouts.md`
+  steps 1–5). A workspace now stores a versioned `scoutProfiles` collection; the
+  watcher store schema is raised from v1 to `WORKSPACE_WATCHERS_SCHEMA_VERSION = 2`
+  and a v1 row is normalized in place on first read (single writer; see the
+  rollout/backup/restore procedure in `docs/workspace-watcher.md`). The legacy
+  single Scout migrates to exactly one general profile preserving the prompt,
+  categories, sources, schedule, limits and harnesses plus the active-scan token,
+  spent budget and proposals; re-reading is idempotent and never duplicates the
+  profile or its scans, and an empty workspace reads a virtual, disabled general
+  profile without writing. A new profile defaults to `schedule=manual` and
+  `enabled=false`, so an upgrade starts no new profile and no TODO on its own.
+  Per-profile state (`scoutSchedules` UTC-day counters and `lastRunAt`/`nextRunAt`,
+  `activeScoutScans` with at most one unsettled scan per profile, and a bounded
+  `scoutScanHistory` of the last 100 per profile / up to 1000 per workspace that
+  never trims active or `uncertain` records) lives on the shared row; the workspace
+  `scoutScans` budget and `pendingScoutFindings` are unchanged. The heartbeat
+  selects due enabled profiles in oldest-`lastRunAt` order so a frequent profile
+  cannot starve others, the profile and workspace limits both apply, the reservation
+  and both counters are bumped atomically under the store lock, and a failed start
+  releases only its own slot (a normal `started=false` keeps the day counter so the
+  heartbeat cannot retry-loop a missing model). Adds a versioned template catalog
+  (general / bug / security / refactor / documentation / performance) with
+  restore-diff / restore, area and Git scope with source toggles, and an executor
+  precedence where an explicit profile harness/model overrides the inherited
+  orchestrator but is still gated by the allow-list, readiness and favorites (an
+  empty intersection blocks the start with a reason). The read-only contract is
+  enforced by the host tool policy regardless of the `agent` transport mode.
+  Findings dedupe across profiles into one proposal carrying multiple `sources[]`
+  with server-owned attribution; a foreign chat/token submit is rejected and the
+  201st unique finding is rejected with `capacity_exceeded` without dropping the
+  oldest pending. New REST surface under
+  `/api/workspace-watcher/scout/{profiles,templates,history}` (profile CRUD,
+  `duplicate`/`archive`/`preview`/`run`/`restore-diff`/`restore`,
+  `from-template`/`preview-draft`) and the MCP `scout_profiles` tool, while the
+  legacy `GET/POST /api/workspace-watcher/scout`, the `activeScoutScan` mirror view
+  and the remote `workspaceWatcherScout` client stay backward compatible. Settings
+  → Workspace Watcher → Scout gains the profile list and actions, the editor with
+  templates and an effective-config/file preview, per-profile scan history and a
+  shared proposals inbox (PL/EN). Acceptance map:
+  `docs/configurable-scouts-acceptance.md`.
+
+- Builtin MCP `delegation_ack` and `POST /api/chats/:id/delegation-ack` let the
+  parent mark a finished report as read and clear the terminal `unverified` flag
+  (`acknowledgedAt` / `acknowledgedReason`; `reason` `reviewed` or `accepted`).
+
+- Per-leaf multi-harness loop read-model (`lib/delegation-loop-report.js`) is
+  exposed on `GET /api/delegations/stats` as `loop.leaves`, on MCP
+  `workflow_show` as `loop`, and as a "loop per leaf" table in Settings → Usage
+  (delegation stats).
+
+- The built-in Browser can sign itself in to Cretli's own origin without a
+  password. A loopback request to `POST /api/login` with `{ "local": true }` is
+  accepted only when it presents the in-memory `x-cretli-local-login` token
+  (48 hex characters generated per process, never written to disk or returned by
+  the API); `GET /api/auth-status` reports it as `localLogin` and the login page
+  completes the sign-in on its own. The token is attached per request and only
+  toward Cretli's own origins — never to an allowlisted third-party site or a
+  foreign redirect hop — and it is redacted in Browser network output.
+
 ### Changed
+
+- Workspace Watcher now accepts up to **10** parallel cycles per workspace
+  (previously 5): both the `policy.maxParallel` / `scoutMaxParallel` ceiling and
+  the store's `activeCycles` cap are raised to 10. The default stays 1, so
+  nothing changes until a workspace opts in.
+
+- Delegation rating calibration: tag `caught_bug`, contradictory tag/score pairs
+  are rejected (`contradictory_rating`), and parent ratings no longer raise
+  observed model quality in `model_pick` — ranking uses only user ratings
+  (`rating_avg_scored` / `rating_n_scored`).
+
+- Nine built-in MCP tools now carry short names so their bridge-encoded form
+  fits the 64-character harness function-name cap: `workflow_update`,
+  `workflow_show`, `watcher_update`, `watcher_show`, `wmem_add`, `wmem_list`,
+  `wmem_delete`, `scout_findings`, `scout_profiles`. The former long names
+  (`delegation_workflow_update`, `delegation_workflow_show`,
+  `workspace_watcher_update`, `workspace_watcher_show`, `workspace_memory_add`,
+  `workspace_memory_list`, `workspace_memory_delete`, `watcher_scout_findings`,
+  `watcher_scout_profiles`) still reach the same handler and are classified
+  exactly like the new name by every host gate (Plan, review, Scout), but they
+  are no longer advertised in `tools/list`. Each renamed tool opens its
+  description with the canonical name and the alias it replaced. Alias
+  resolution inside those gates is limited to chains the built-in catalog owns,
+  so an external server that reuses a built-in basename (`mcp__github__todo_list`,
+  `mcp.acme.todo_list`) is no longer mistaken for a Cretli read tool; harnesses
+  that rewrite the middle of a long name still resolve.
+
+- Host-owned review verify is now enforced for reviewers that cannot run tests:
+  a review child started on a harness whose effective `review_can_run_tests` is
+  false (static prior or observed from real reports) is persisted with
+  `verifyRequired`, `model_pick` surfaces `review_requires_verify`, and a PASS
+  review without a passed `delegation_verify` no longer closes the cycle. The
+  persisted `verifyResult` now carries the review `verdict` and `exitCode`, and
+  `delegation_show` prints them.
+
+- The review-verify catalog is generated from audited directories at call time
+  instead of a frozen constant. A `tests/<id>.test.js` added during a flow is a
+  valid id without a server restart; the curated catalog still wins id
+  collisions, and the generated manifest is written under the OS temp dir, never
+  the project `data/` tree.
 
 - Accepting a Scout finding with `scoutAutoCreate` creates an `idea` todo whose
   plan draft is the finding rationale. `approvedAt` stays empty until a human
@@ -208,7 +436,43 @@ All notable changes to this project are documented here. The format is based on
   chats still use the live account list from `models_cache.json`, which this
   CLI can refresh.
 
+- The per-user Browser session cap `MAX_SESSIONS_PER_OWNER` is raised from 1 to
+  **3** concurrent sessions. The `session-limit` error hint already names the
+  per-user cap and points the caller at `browser_close`.
+
+- Browser diagnostic redaction now also covers the `x-cretli-local-login`
+  header, so the passwordless token cannot leak through Console or Network
+  output, WebSocket frames or agent exports.
+
 ### Fixed
+
+- CodeBuddy chats now get the Cretli MCP tools. The CLI rejected the bridge
+  entry because it had no explicit `type: "stdio"` and started with no MCP
+  servers, so no CodeBuddy chat could call `delegation_start`, `todo_show` or
+  `watcher_update`. The first prompt is also held (at most 5 seconds) until
+  the bridge is connected, because the CLI builds the first model request
+  without waiting for MCP servers.
+- A model id the provider no longer serves (CodeBuddy `400 model [x] service
+  info not found`) now locks that one model out of automatic picks for 24 hours,
+  so the Workspace Watcher stops starting orchestrator cycles on it. The chat
+  shows what happened and where to change the model instead of the raw 400.
+- External stdio MCP servers are now closed when their chat room shuts down.
+  Room teardown looked the connection up by an isolation key that omitted the
+  workspace file, so one server process per chat session stayed alive until the
+  Cretli server restarted.
+
+- Archived chats are read-only: the composer keeps its draft and disables
+  sending until the chat is restored. Server-side prompt starts, WebSocket sends
+  and forced queue sends reject archived chats with `chat_archived`.
+
+- Archived chats cannot create new child chats or start/retry delegations.
+  Delegation starts return `parent_archived` until the parent is restored, and
+  the chat store rejects late child creation and nesting under archived parents.
+
+- Automatic watcher and Scout archiving revisits archived parents with children
+  created later, including descendants under archived forks. Once the whole
+  family is idle and eligible, its remaining chats move into the archive without
+  rewriting existing archive timestamps.
 
 - Scout and review chats that store only a workspace folder now appear in the
   matching sidebar clone, including its archive, instead of disappearing from

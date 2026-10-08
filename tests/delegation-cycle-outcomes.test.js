@@ -349,6 +349,64 @@ test('requireVerify policy: no verify blocks acceptance; passed verify accepts; 
   assert.equal(accepted(failedVerify, false), false, 'a verify that ran and failed blocks regardless of policy');
 });
 
+test('a tests=no review with no host verify cannot close the leaf', () => {
+  const implement = row({ id: 'impl-vreq', createdAt: '2026-10-02T12:00:00.000Z' });
+  const required = review({
+    id: 'rev-vreq-bare',
+    report: 'VERDICT: PASS',
+    createdAt: '2026-10-02T12:05:00.000Z',
+    verifyRequired: true,
+  });
+  const [blocked] = buildDelegationQualityCycles({ rows: [implement, required], parentChatId: PARENT });
+  assert.equal(blocked.acceptedByReview, false, 'a required verify with no result blocks acceptance');
+  assert.equal(blocked.verifyPassed, false);
+
+  const implement2 = row({ id: 'impl-vreq2', createdAt: '2026-10-02T12:10:00.000Z' });
+  const verified = review({
+    id: 'rev-vreq-ok',
+    report: 'VERDICT: PASS',
+    createdAt: '2026-10-02T12:15:00.000Z',
+    verifyRequired: true,
+    verifyResult: { status: 'passed' },
+  });
+  const [accepted] = buildDelegationQualityCycles({ rows: [implement2, verified], parentChatId: PARENT });
+  assert.equal(accepted.acceptedByReview, true, 'a required verify that passed accepts');
+  assert.equal(accepted.verifyPassed, true);
+
+  const implement3 = row({ id: 'impl-vreq3', createdAt: '2026-10-02T12:20:00.000Z' });
+  const failed = review({
+    id: 'rev-vreq-bad',
+    report: 'VERDICT: PASS',
+    createdAt: '2026-10-02T12:25:00.000Z',
+    verifyRequired: true,
+    verifyResult: { status: 'failed' },
+  });
+  const [rejected] = buildDelegationQualityCycles({ rows: [implement3, failed], parentChatId: PARENT });
+  assert.equal(rejected.acceptedByReview, false, 'a required verify that failed still blocks');
+});
+
+test('reviewCanRunTests:false implies verify required even without the explicit flag', () => {
+  const implement = row({ id: 'impl-vtrait', createdAt: '2026-10-02T13:00:00.000Z' });
+  const cannot = review({
+    id: 'rev-vtrait-no',
+    report: 'VERDICT: PASS',
+    createdAt: '2026-10-02T13:05:00.000Z',
+    reviewCanRunTests: false,
+  });
+  const [blocked] = buildDelegationQualityCycles({ rows: [implement, cannot], parentChatId: PARENT });
+  assert.equal(blocked.acceptedByReview, false);
+
+  const implement2 = row({ id: 'impl-vtrait2', createdAt: '2026-10-02T13:10:00.000Z' });
+  const can = review({
+    id: 'rev-vtrait-yes',
+    report: 'VERDICT: PASS',
+    createdAt: '2026-10-02T13:15:00.000Z',
+    reviewCanRunTests: true,
+  });
+  const [accepted] = buildDelegationQualityCycles({ rows: [implement2, can], parentChatId: PARENT });
+  assert.equal(accepted.acceptedByReview, true, 'a self-running reviewer needs no separate verify');
+});
+
 test('manualAccepted needs an explicit accept, not any ack (reviewed/open_child/failed)', () => {
   for (const [reason, status] of [['reviewed', 'completed'], ['open_child', 'completed'], ['accepted', 'failed']]) {
     const implement = row({

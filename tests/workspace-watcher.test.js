@@ -47,10 +47,12 @@ import {
   tickWorkspaceWatcher,
 } from '../lib/workspace-watcher.js';
 import {
+  computeWatcherSchedule,
   computeWorkspaceWatcherBackoffUntil,
   evaluateWorkspaceWatcherGuardrails,
   evaluateWorkspaceWatcherLoop,
   isWorkspaceWatcherQuietHours,
+  nextWorkspaceWatcherQuietHoursEndMs,
   workspaceWatcherUtcDayKey,
 } from '../lib/workspace-watcher-guardrails.js';
 import {
@@ -69,6 +71,11 @@ import {
   resolveWorkspaceWatcherOrchestrator as resolveOrchestratorDirect,
 } from '../lib/workspace-watcher-orchestrator.js';
 import { runWorkspaceWatcherTick, resolveWatcherClaimOwner } from '../lib/workspace-watcher-control.js';
+import { addChat } from '../lib/persist/chats-persist.js';
+import { registerKernelChatRunAdapter } from '../lib/chat-run/kernel-adapter.js';
+import { unregisterChatRunAdapter } from '../lib/chat-run-service.js';
+import { openRecoveryStore, closeRecoveryStore } from '../lib/recovery/recovery-store.js';
+import { beginRunLaunch, recordExecutorAck } from '../lib/recovery/recovery-lifecycle.js';
 import { addTodo, getTodoById, updateTodo, loadTodosData } from '../lib/persist/todos-persist.js';
 import { listReadyTodoLeaves } from '../lib/todo-tree.js';
 import {
@@ -287,7 +294,7 @@ runCase('upsert + load round-trip keyed by normalized workspace folder', () => {
   assert.equal(loadWorkspaceWatchers({ dataDir }).length, 1);
 
   const doc = JSON.parse(fs.readFileSync(getWorkspaceWatchersDataPath({ dataDir }), 'utf8'));
-  assert.equal(doc.v, 1);
+  assert.equal(doc.v, 2);
   assert.ok(doc.items[workspaceA], 'row is keyed by the normalized folder');
 });
 
@@ -370,7 +377,8 @@ runCase('reconcile clears dead activeCycle, releases lease and closes with share
   assert.equal(row.activeCycle, null);
   assert.equal(row.cycleCount, 1);
   assert.deepEqual(row.lease, { ownerPid: 0, token: '', expiresAt: '' });
-  assert.equal(row.decisions.at(-1).kind, 'cycle_completed');
+  assert.equal(row.decisions.at(-1).kind, 'cycle_failed');
+  assert.equal(row.decisions.at(-1).reason, 'missing_report');
 });
 
 runCase('reconcile keeps activeCycle when chat liveness is unknown', () => {
@@ -404,6 +412,74 @@ runCase('reconcile isolates a corrupt watcher store and never rewrites it', () =
   assert.equal(fs.readFileSync(file, 'utf8'), corrupt, 'corrupt bytes stay untouched');
 });
 
+runCase('snapshot exposes a recovery state and its evidence for every doing todo', () => {
+  const dataDir = freshDataDir('snapshot-recovery');
+  const probes = {
+    'busy-chat': { known: true, busy: true, reason: 'busy' },
+    'cold-chat': { known: false, busy: false, reason: 'state_missing' },
+    'closed-chat': { known: true, busy: false, reason: 'idle' },
+  };
+  const snapshot = snapshotWorkspaceWatcher({
+    workspaceFolder: workspaceA,
+    dataDir,
+    now: Date.parse('2026-01-01T00:00:00.000Z'),
+    deps: {
+      loadTodosData: () => ({
+        items: [
+          { id: 'parent', status: 'doing', updatedAt: 'r0' },
+          { id: 'running', status: 'doing', parentId: 'parent', claimedByChatId: 'busy-chat', updatedAt: 'r1' },
+          { id: 'cold', status: 'doing', parentId: 'parent', claimedByChatId: 'cold-chat', updatedAt: 'r2' },
+          { id: 'closed', status: 'doing', orchestratorChatId: 'closed-chat', updatedAt: 'r3' },
+          { id: 'manual', status: 'doing', linkedChatIds: ['busy-chat'], updatedAt: 'r4' },
+          { id: 'flagged', status: 'doing', blockedReason: 'Needs a decision', updatedAt: 'r5' },
+          { id: 'waiting', status: 'ready', updatedAt: 'r6' },
+        ],
+      }),
+      loadDelegations: () => [],
+      listWorkspaceChatIds: () => [],
+      probeChatRunLiveness: (input) => probes[input.chatId] || { known: false, busy: false, reason: 'chat_missing' },
+      getChat: () => ({ archived: true }),
+    },
+  });
+  const byId = Object.fromEntries(snapshot.doingStates.map((row) => [row.todoId, row]));
+  assert.deepEqual(Object.keys(byId).sort(), ['closed', 'cold', 'flagged', 'manual', 'parent', 'running'], 'only doing rows are classified');
+  assert.deepEqual([byId.parent.state, byId.parent.evidence], ['dependency', 'children']);
+  assert.deepEqual([byId.running.state, byId.running.source, byId.running.chatId], ['active', 'watcher_claim', 'busy-chat']);
+  assert.deepEqual([byId.cold.state, byId.cold.reason], ['unknown', 'state_missing']);
+  assert.deepEqual([byId.closed.state, byId.closed.reason, byId.closed.source], ['recoverable', 'idle_archived_chat', 'orchestrator_chat']);
+  assert.deepEqual([byId.manual.state, byId.manual.reason, byId.manual.chatId], ['unknown', 'missing_identity', ''], 'a linked chat is not an executor');
+  assert.deepEqual([byId.flagged.state, byId.flagged.evidence], ['user_action', 'blockedReason']);
+  assert.deepEqual(snapshot.recovery, { active: 1, dependency: 1, user_action: 1, recoverable: 1, unknown: 2 });
+  assert.equal(snapshot.doingTodoCount, 6, 'the durable status list is unchanged');
+});
+
+runCase('boot reconcile resumes an unclaimed doing leaf only in autopilot and only on proof', () => {
+  const dataDir = freshDataDir('reconcile-unclaimed');
+  const autoCwd = makeWorkspace('reconcile-unclaimed-auto');
+  const observeCwd = makeWorkspace('reconcile-unclaimed-observe');
+  const seed = (cwd, chatId) => {
+    const item = addTodo(dataDir, cwd, { title: `owned by ${chatId}`, status: 'ready', orchestratorChatId: chatId }).item;
+    updateTodo(dataDir, cwd, item.id, { status: 'doing' });
+    return item.id;
+  };
+  upsertWorkspaceWatcher(autoCwd, { mode: 'autopilot' }, { dataDir });
+  upsertWorkspaceWatcher(observeCwd, { mode: 'observe' }, { dataDir });
+  const goneId = seed(autoCwd, 'deleted-chat');
+  const coldId = seed(autoCwd, 'cold-chat');
+  const erroredId = seed(autoCwd, 'errored-chat');
+  const observedId = seed(observeCwd, 'deleted-chat');
+  const reasons = { 'deleted-chat': 'chat_missing', 'cold-chat': 'state_missing', 'errored-chat': 'adapter_error' };
+  const result = reconcileWorkspaceWatchersOnBoot({
+    dataDir,
+    probeChatRunLiveness: (input) => ({ known: false, busy: false, reason: reasons[input.chatId] || 'adapter_missing' }),
+  });
+  assert.deepEqual(result.errors, []);
+  assert.equal(getTodoById(dataDir, autoCwd, goneId).status, 'ready', 'a deleted executor chat frees the leaf on the first pass');
+  assert.equal(getTodoById(dataDir, autoCwd, coldId).status, 'doing', 'state_missing after a restart is not proof');
+  assert.equal(getTodoById(dataDir, autoCwd, erroredId).status, 'doing', 'an adapter error is not proof');
+  assert.equal(getTodoById(dataDir, observeCwd, observedId).status, 'doing', 'observe never changes a todo');
+});
+
 runCase('reconcile clears an activeCycle without chatId without probing', () => {
   const dataDir = freshDataDir('reconcile-no-chat');
   const t0 = Date.parse('2026-01-01T00:00:00.000Z');
@@ -428,7 +504,8 @@ runCase('reconcile clears an activeCycle without chatId without probing', () => 
   assert.equal(row.activeCycle, null);
   assert.equal(row.cycleCount, 1);
   assert.deepEqual(row.lease, { ownerPid: 0, token: '', expiresAt: '' });
-  assert.equal(row.decisions.at(-1).kind, 'cycle_completed');
+  assert.equal(row.decisions.at(-1).kind, 'cycle_failed');
+  assert.equal(row.decisions.at(-1).reason, 'missing_report');
 });
 
 runCase('boot bulk archive routes a closed orchestrator through the shared canArchive gate', () => {
@@ -492,6 +569,166 @@ runCase('boot bulk archive routes a closed orchestrator through the shared canAr
     },
   });
   assert.deepEqual(refused, [], 'a slot-holding child blocks the closed orchestrator from being hidden');
+});
+
+/**
+ * Archive-gate deps for the live sweep tests: fake chat/delegation stores that
+ * only record `updateChat` calls, so each case opts into exactly the signal it
+ * asserts on.
+ *
+ * @param {{ chats?: object[], rows?: Record<string, object[]>, archived: string[] }} input
+ * @param {object} [extra]
+ * @returns {object}
+ */
+function sweepArchiveDeps(input, extra = {}) {
+  const chats = input.chats || [];
+  const rows = input.rows || {};
+  return {
+    loadChats: () => chats,
+    updateChat: (id) => { input.archived.push(String(id)); },
+    listDelegationsForParent: (parentId) => rows[String(parentId)] || [],
+    isChatRunConfirmedIdle: () => true,
+    isDelegationSlotOccupied: () => false,
+    hasActiveWorkspaceWatcherCycleChildren: () => false,
+    ...extra,
+  };
+}
+
+runCase('live autopilot sweep archives a closed orchestrator family past the grace', async () => {
+  const dataDir = freshDataDir('autopilot-archive-sweep');
+  const cwd = makeWorkspace('autopilot-archive-sweep');
+  const t0 = Date.parse('2026-03-03T12:00:00.000Z');
+  const oldAt = new Date(t0 - 60 * 60_000).toISOString();
+  upsertWorkspaceWatcher(cwd, {
+    mode: 'autopilot',
+    policy: { requirePlanApproval: false, cooldownMs: 0, maxCyclesPerDay: 10, maxParallel: 5 },
+    cycleChats: [{ id: 'orch-sweep', cycleId: 'c-sweep', at: oldAt, outcome: 'success' }],
+  }, { dataDir });
+  const archived = [];
+  await runWorkspaceWatcherAutopilot({
+    dataDir,
+    now: t0,
+    token: 'sweep',
+    deps: {
+      resolveWorkspaceWatcherOrchestrator: async () => ({ ok: true, harness: 'mock', model: 'cheap' }),
+      addChat: (_s, _t, _wf, _folder, _m, extras) => ({ id: extras.id }),
+      startChatRun: async () => ({ accepted: true, runId: 'sweep-run' }),
+      probeChatRunLiveness: () => ({ known: true, busy: true, reason: 'busy' }),
+    },
+    orchestratorArchiveDeps: sweepArchiveDeps({
+      chats: [
+        { id: 'orch-sweep', updatedAt: oldAt },
+        { id: 'orch-sweep-child', updatedAt: oldAt, pickPurpose: 'implement' },
+      ],
+      rows: {
+        'orch-sweep': [{ parentChatId: 'orch-sweep', childChatId: 'orch-sweep-child', status: 'completed' }],
+      },
+      archived,
+    }),
+  });
+  assert.deepEqual(archived, ['orch-sweep-child', 'orch-sweep'],
+    'the periodic pass archives the terminal child before the closed orchestrator');
+  const afterRow = getWorkspaceWatcher(cwd, { dataDir });
+  assert.equal((afterRow.activeCycles || []).length, 0, 'the sweep never opens a cycle slot');
+  assert.equal(afterRow.cycles?.count || 0, 0, 'the sweep never consumes the daily cycle budget');
+});
+
+runCase('live autopilot sweep keeps a family inside the grace, pinned or slot-held', async () => {
+  const t0 = Date.parse('2026-03-03T12:00:00.000Z');
+  const childRow = {
+    'orch-sweep': [{ parentChatId: 'orch-sweep', childChatId: 'orch-sweep-child', status: 'completed' }],
+  };
+  const childChats = (orchUpdatedAt, extra = {}) => [
+    { id: 'orch-sweep', updatedAt: orchUpdatedAt, ...extra },
+    { id: 'orch-sweep-child', updatedAt: new Date(t0 - 60 * 60_000).toISOString(), pickPurpose: 'implement' },
+  ];
+
+  // (a) orchestrator still inside the 15-minute idle grace.
+  const graceDir = freshDataDir('autopilot-sweep-grace');
+  const graceCwd = makeWorkspace('autopilot-sweep-grace');
+  const graceAt = new Date(t0 - 60_000).toISOString();
+  upsertWorkspaceWatcher(graceCwd, {
+    mode: 'autopilot',
+    cycleChats: [{ id: 'orch-sweep', cycleId: 'c-grace', at: graceAt, outcome: 'success' }],
+  }, { dataDir: graceDir });
+  const graceArchived = [];
+  await runWorkspaceWatcherAutopilot({
+    dataDir: graceDir,
+    now: t0,
+    token: 'sweep-grace',
+    deps: { probeChatRunLiveness: () => ({ known: true, busy: true, reason: 'busy' }) },
+    orchestratorArchiveDeps: sweepArchiveDeps({
+      chats: childChats(graceAt),
+      rows: childRow,
+      archived: graceArchived,
+    }),
+  });
+  assert.deepEqual(graceArchived, [], 'a freshly closed cycle is not archived before the grace');
+
+  // (b) orchestrator is pinned.
+  const pinDir = freshDataDir('autopilot-sweep-pinned');
+  const pinCwd = makeWorkspace('autopilot-sweep-pinned');
+  const oldAt = new Date(t0 - 60 * 60_000).toISOString();
+  upsertWorkspaceWatcher(pinCwd, {
+    mode: 'autopilot',
+    cycleChats: [{ id: 'orch-sweep', cycleId: 'c-pin', at: oldAt, outcome: 'success' }],
+  }, { dataDir: pinDir });
+  const pinArchived = [];
+  await runWorkspaceWatcherAutopilot({
+    dataDir: pinDir,
+    now: t0,
+    token: 'sweep-pin',
+    deps: { probeChatRunLiveness: () => ({ known: true, busy: true, reason: 'busy' }) },
+    orchestratorArchiveDeps: sweepArchiveDeps({
+      chats: childChats(oldAt, { watcherPinned: true }),
+      rows: childRow,
+      archived: pinArchived,
+    }),
+  });
+  assert.deepEqual(pinArchived, [], 'a pinned orchestrator keeps its whole family visible');
+
+  // (c) the delegated child still holds a run slot.
+  const slotDir = freshDataDir('autopilot-sweep-slot');
+  const slotCwd = makeWorkspace('autopilot-sweep-slot');
+  upsertWorkspaceWatcher(slotCwd, {
+    mode: 'autopilot',
+    cycleChats: [{ id: 'orch-sweep', cycleId: 'c-slot', at: oldAt, outcome: 'success' }],
+  }, { dataDir: slotDir });
+  const slotArchived = [];
+  await runWorkspaceWatcherAutopilot({
+    dataDir: slotDir,
+    now: t0,
+    token: 'sweep-slot',
+    deps: { probeChatRunLiveness: () => ({ known: true, busy: true, reason: 'busy' }) },
+    orchestratorArchiveDeps: sweepArchiveDeps({
+      chats: childChats(oldAt),
+      rows: childRow,
+      archived: slotArchived,
+    }, { isDelegationSlotOccupied: () => true }),
+  });
+  assert.deepEqual(slotArchived, [], 'a slot-holding child blocks the live sweep too');
+
+  // (d) the entry still orchestrates a live cycle, so the sweep must skip it.
+  const liveDir = freshDataDir('autopilot-sweep-live');
+  const liveCwd = makeWorkspace('autopilot-sweep-live');
+  upsertWorkspaceWatcher(liveCwd, {
+    mode: 'autopilot',
+    activeCycle: { cycleId: 'c-live', chatId: 'orch-sweep', todoIds: ['todo-live'], startedAt: oldAt, phase: 'running' },
+    cycleChats: [{ id: 'orch-sweep', cycleId: 'c-live', at: oldAt, outcome: 'success' }],
+  }, { dataDir: liveDir });
+  const liveArchived = [];
+  await runWorkspaceWatcherAutopilot({
+    dataDir: liveDir,
+    now: t0,
+    token: 'sweep-live',
+    deps: { probeChatRunLiveness: () => ({ known: true, busy: true, reason: 'busy' }) },
+    orchestratorArchiveDeps: sweepArchiveDeps({
+      chats: childChats(oldAt),
+      rows: childRow,
+      archived: liveArchived,
+    }),
+  });
+  assert.deepEqual(liveArchived, [], 'a chat with a live cycle slot on any row is never swept');
 });
 
 runCase('reconcile leaves a newer cycle that replaced the probed one', () => {
@@ -619,22 +856,22 @@ runCase('boot reconcile drops only the dead slot and keeps a live sibling with i
   assert.equal(row.lease.token, 'sibling-lease', 'a live sibling keeps the shared row lease');
 });
 
-runCase('policy normalization caps maxParallel at 5 (99 -> 5)', () => {
+runCase('policy normalization caps maxParallel at 10 (99 -> 10)', () => {
   const normalized = normalizeWorkspaceWatcherRow({
     workspaceFolder: workspaceA,
     policy: { maxParallel: 99 },
   });
-  assert.equal(normalized.policy.maxParallel, 5);
+  assert.equal(normalized.policy.maxParallel, 10);
   const dataDir = freshDataDir('max-parallel-cap');
   const saved = upsertWorkspaceWatcher(workspaceA, { policy: { maxParallel: 99 } }, { dataDir });
   assert.equal(saved.policy.maxParallel, WORKSPACE_WATCHER_MAX_PARALLEL);
-  assert.equal(getWorkspaceWatcher(workspaceA, { dataDir }).policy.maxParallel, 5);
+  assert.equal(getWorkspaceWatcher(workspaceA, { dataDir }).policy.maxParallel, 10);
   assert.equal(defaultWorkspaceWatcherPolicy().scoutMaxParallel, 1);
   assert.equal(normalizeWorkspaceWatcherRow({
     workspaceFolder: workspaceA,
     policy: { scoutMaxParallel: 99 },
-  }).policy.scoutMaxParallel, 5);
-  assert.equal(WORKSPACE_WATCHER_MAX_ACTIVE_CYCLES, 5);
+  }).policy.scoutMaxParallel, 10);
+  assert.equal(WORKSPACE_WATCHER_MAX_ACTIVE_CYCLES, 10);
 });
 
 runCase('cooldown default is 30s end-to-end and an explicit 60s row is preserved', () => {
@@ -2241,6 +2478,86 @@ runCase('guardrails: budget, cooldown, backoff, same findings and the plan gate'
   );
 });
 
+runCase('computeWatcherSchedule reports the last/next cycle and the live blocker', () => {
+  const now = Date.parse('2026-02-02T12:00:00.000Z');
+  const policy = {
+    maxParallel: 1,
+    maxCyclesPerDay: 4,
+    cooldownMs: 60_000,
+    quietHours: { start: '', end: '' },
+    allowedHarnesses: [],
+  };
+  const base = { mode: 'autopilot', policy, lastCycleAt: '', backoffUntil: '', cycles: { day: '', count: 0 } };
+
+  // Autopilot off → no schedule at all.
+  const off = computeWatcherSchedule({ watcher: { ...base, mode: 'off' }, now });
+  assert.equal(off.enabled, false);
+  assert.equal(off.nextCycleAt, 0);
+  assert.equal(off.blockedReason, 'mode_not_active');
+  assert.equal(off.due, false);
+
+  // Never run → due now.
+  const due = computeWatcherSchedule({ watcher: base, now });
+  assert.equal(due.enabled, true);
+  assert.equal(due.nextCycleAt, now);
+  assert.equal(due.due, true);
+  assert.equal(due.remainingToday, 4);
+  assert.equal(due.allowed, true);
+
+  // Cooldown pushes the next cycle out.
+  const cooled = computeWatcherSchedule({
+    watcher: { ...base, lastCycleAt: new Date(now - 10_000).toISOString() },
+    now,
+  });
+  assert.equal(cooled.nextCycleAt, now - 10_000 + 60_000);
+  assert.equal(cooled.blockedReason, 'cooldown');
+
+  // A spent daily budget pushes the next cycle to the UTC-day rollover.
+  const spent = computeWatcherSchedule({
+    watcher: { ...base, cycles: { day: '2026-02-02', count: 4 } },
+    now,
+  });
+  assert.equal(spent.remainingToday, 0);
+  assert.equal(spent.nextCycleAt, Date.parse('2026-02-03T00:00:00.000Z'));
+  assert.equal(spent.blockedReason, 'daily_budget');
+
+  // Quiet hours win over a shorter cooldown; the next cycle lands at the end.
+  const quiet = computeWatcherSchedule({
+    watcher: {
+      ...base,
+      lastCycleAt: new Date(now - 10_000).toISOString(),
+      policy: { ...policy, quietHours: { start: '11:00', end: '14:00' } },
+    },
+    now,
+  });
+  assert.equal(quiet.blockedReason, 'quiet_hours');
+  assert.equal(quiet.nextCycleAt, Date.parse('2026-02-02T14:00:00.000Z'));
+
+  // A live parallel blocker is reported without inventing an ETA.
+  const busy = computeWatcherSchedule({ watcher: base, now, activeCycleCount: 1 });
+  assert.equal(busy.running, 1);
+  assert.equal(busy.blockedReason, 'max_parallel');
+  assert.equal(busy.nextCycleAt, now);
+
+  // Paused/stopped is a deliberate halt: no next cycle.
+  const paused = computeWatcherSchedule({ watcher: { ...base, paused: true }, now });
+  assert.equal(paused.nextCycleAt, 0);
+  assert.equal(paused.blockedReason, 'paused');
+  const stopped = computeWatcherSchedule({ watcher: { ...base, stopReason: 'loop_no_eligible_work' }, now });
+  assert.equal(stopped.nextCycleAt, 0);
+  assert.equal(stopped.blockedReason, 'stop_reason');
+});
+
+runCase('nextWorkspaceWatcherQuietHoursEndMs mirrors the active quiet window', () => {
+  const now = Date.parse('2026-02-02T23:30:00.000Z');
+  assert.equal(
+    nextWorkspaceWatcherQuietHoursEndMs({ start: '22:00', end: '06:00' }, now),
+    Date.parse('2026-02-03T06:00:00.000Z'),
+  );
+  assert.equal(nextWorkspaceWatcherQuietHoursEndMs({ start: '22:00', end: '06:00' }, Date.parse('2026-02-02T12:00:00.000Z')), null);
+  assert.equal(nextWorkspaceWatcherQuietHoursEndMs({ start: '', end: '' }, now), null);
+});
+
 runCase('guardrails: backoff grows exponentially and is capped', () => {
   const now = T0;
   const one = Date.parse(computeWorkspaceWatcherBackoffUntil({ failures: { a: 1 }, now, baseMs: 1000, capMs: 100_000 }));
@@ -2335,6 +2652,7 @@ runCase('orchestrator resolution: explicit policy wins, otherwise implement pick
       listHarnessCatalog: async () => [{ id: 'mock', enabled: true, ready: true, can_delegate: true }],
       listHarnessModels: async () => ({ items: [{ id: 'cheap' }] }),
       selectModelPick: () => ({ ok: true, pick: { harness: 'mock', model: 'cheap' } }),
+      mcpCapabilityProbe: () => ({ ok: true }),
     },
   });
   assert.equal(picked.ok, true);
@@ -2658,10 +2976,10 @@ runCase('reconcile closes a vanished room after grace when the todo is done', ()
   const row = getWorkspaceWatcher(cwd, { dataDir });
   assert.equal(row.activeCycle, null);
   assert.deepEqual(row.lease, { ownerPid: 0, token: '', expiresAt: '' });
-  assert.equal(row.failures[todo.id], undefined);
-  assert.equal(row.cycleChats.at(-1).outcome, 'success');
-  assert.equal(row.decisions.at(-1).reason, 'cycle_room_gone');
-  assert.ok(notices.some((text) => text.includes('cycle_room_gone')));
+  assert.equal(row.failures[todo.id], 1);
+  assert.equal(row.cycleChats.at(-1).outcome, 'failure');
+  assert.equal(row.decisions.at(-1).reason, 'missing_report');
+  assert.ok(notices.some((text) => text.includes('ended without progress')));
 });
 
 runCase('reconcile closes a vanished room as failure when the todo is still doing', () => {
@@ -2691,7 +3009,7 @@ runCase('reconcile closes a vanished room as failure when the todo is still doin
   assert.equal(row.failures[todo.id], 1);
   assert.equal(row.cycleChats.at(-1).outcome, 'failure');
   assert.equal(row.decisions.at(-1).kind, 'cycle_failed');
-  assert.equal(row.decisions.at(-1).reason, 'cycle_room_gone');
+  assert.equal(row.decisions.at(-1).reason, 'missing_report');
   const released = getTodoById(dataDir, cwd, todo.id);
   assert.equal(released.status, 'ready');
   assert.equal(released.claimedByChatId, undefined);
@@ -2721,8 +3039,8 @@ runCase('reconcile closes a vanished room on adapter_missing after grace', () =>
   assert.equal(closed.closed, true);
   const row = getWorkspaceWatcher(cwd, { dataDir });
   assert.equal(row.activeCycle, null);
-  assert.equal(row.failures[todo.id], undefined);
-  assert.equal(row.decisions.at(-1).reason, 'cycle_room_gone');
+  assert.equal(row.failures[todo.id], 1);
+  assert.equal(row.decisions.at(-1).reason, 'missing_report');
 });
 
 runCase('reconcile keeps a cycle when only the run-scoped probe misses the room', () => {
@@ -3026,6 +3344,7 @@ runCase('runWorkspaceWatcherTick: manual tick starts a cycle with shared deps', 
     listHarnessCatalog: async () => [{ id: 'mock', enabled: true, ready: true, can_delegate: true }],
     listHarnessModels: async () => ({ items: [{ id: 'cheap' }] }),
     selectModelPick: () => ({ ok: true, pick: { harness: 'mock', model: 'cheap' } }),
+    mcpCapabilityProbe: () => ({ ok: true }),
     probeChatRunLiveness: () => ({ known: true, busy: true, reason: 'busy' }),
   };
   const result = await runWorkspaceWatcherTick({ dataDir, workspaceFolder: cwd, now: T0, deps });
@@ -3058,6 +3377,7 @@ runCase('orchestrator resolution: one limited favorite leaves the other model', 
     deps: {
       listHarnessCatalog: async () => [{ id: 'mock', enabled: true, ready: true, can_delegate: true }],
       listHarnessModels: async () => ({ items: [{ id: 'cheap' }, { id: 'premium' }] }),
+      mcpCapabilityProbe: () => ({ ok: true }),
     },
   });
   assert.equal(picked.ok, true);
@@ -3073,6 +3393,66 @@ runCase('activeCycle: starting with runId probes idle instead of staying alive f
     runId: 'run-finished',
   }, () => ({ known: true, busy: false, reason: 'idle' }), T0);
   assert.equal(idle, false);
+});
+
+runCase('activeCycle: accepted with empty runId still probes after start deadline', () => {
+  const store = openRecoveryStore({ dataDir: ISOLATED_DATA_DIR });
+  try {
+    const chat = addChat('sess-ww-alive', 'Watcher alive probe', null, '/tmp', 'm', {
+      agentTransport: 'codex',
+      sdkMode: 'agent',
+    });
+    const launch = beginRunLaunch({
+      family: 'chat',
+      owner: 'chat-run-service',
+      chatId: chat.id,
+      harness: 'codex',
+    }, store);
+    recordExecutorAck({
+      logicalRunId: launch.ids.logicalRunId,
+      expectedRevision: launch.run.revision,
+      source: 'adapter_ack',
+      adapterRunId: '',
+    }, store);
+    registerKernelChatRunAdapter({
+      transport: 'codex',
+      rooms: new Map(),
+      ensureRoom: async () => ({ room: {}, chat }),
+      recoveryStore: store,
+    });
+    const cycleId = launch.ids.requestId;
+    let probeCalls = 0;
+    const probe = () => {
+      probeCalls += 1;
+      return { known: true, busy: true, reason: 'busy' };
+    };
+    const alive = isWorkspaceWatcherActiveCycleChatAlive({
+      chatId: chat.id,
+      cycleId,
+      phase: 'starting',
+      startDeadlineAt: new Date(T0 - 60_000).toISOString(),
+      runId: '',
+    }, probe, T0);
+    assert.equal(alive, true);
+    assert.ok(probeCalls >= 1, 'chat-scoped probe must run when adapterRunId is empty');
+    probeCalls = 0;
+    const idleProbe = () => {
+      probeCalls += 1;
+      return { known: true, busy: false, reason: 'idle' };
+    };
+    const idle = isWorkspaceWatcherActiveCycleChatAlive({
+      chatId: chat.id,
+      cycleId,
+      phase: 'starting',
+      startDeadlineAt: new Date(T0 - 60_000).toISOString(),
+      runId: '',
+    }, idleProbe, T0);
+    assert.equal(idle, false);
+    assert.ok(probeCalls >= 1);
+  } finally {
+    closeRecoveryStore(store);
+    unregisterChatRunAdapter('codex');
+  }
 });
 
 runCase('startWorkspaceWatcherCycle: deferred resolver aborts when watcher disables mid-flight', async () => {

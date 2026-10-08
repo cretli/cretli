@@ -207,9 +207,71 @@ export function formatWatcherDecisionReasonText(decision = {}) {
     .map((token) => String(token ?? '').trim())
     .filter(Boolean)
     .join('; ');
-  const chatPart = [unknownPart, slotPart, holderPart].filter(Boolean).join('; ');
+  const selection = decision?.modelSelection && typeof decision.modelSelection === 'object'
+    ? decision.modelSelection
+    : null;
+  const selected = selection?.selected || {};
+  const selectedPart = selected.model
+    ? `selected ${selected.harness}/${selected.model}${selected.favorite ? ' (favorite)' : ''}${selected.score != null && Number.isFinite(Number(selected.score)) ? ` score ${Number(selected.score).toFixed(3)}` : ''}${selected.reason ? `: ${selected.reason}` : ''}`
+    : '';
+  const candidatePart = (Array.isArray(selection?.candidates) ? selection.candidates : [])
+    .slice(0, 4)
+    .map((candidate) => `${candidate.rank}. ${candidate.harness}/${candidate.model} (${candidate.score ?? 'n/a'})${candidate.reason ? ` ${candidate.reason}` : ''}`)
+    .join('; ');
+  const excludedPart = (Array.isArray(selection?.excludedHarnesses) ? selection.excludedHarnesses : [])
+    .map((candidate) => `${candidate.harness}: ${candidate.reason}`)
+    .join('; ');
+  const chatPart = [unknownPart, slotPart, holderPart, selectedPart, candidatePart && `candidates: ${candidatePart}`, excludedPart && `excluded: ${excludedPart}`]
+    .filter(Boolean)
+    .join('; ');
   if (!chatPart) return reason;
   return reason ? `${reason} — ${chatPart}` : chatPart;
+}
+
+/**
+ * @param {object[]} decisions
+ * @returns {string}
+ */
+/**
+ * @param {object | null | undefined} view
+ * @param {{ getTodoTitle?: (id: string) => string }} [options]
+ * @returns {string}
+ */
+export function renderWatcherDoingRecoveryHtml(view, options = {}) {
+  const getTodoTitle = typeof options.getTodoTitle === 'function' ? options.getTodoTitle : () => '';
+  const rows = Array.isArray(view?.snapshot?.doingStates) ? view.snapshot.doingStates : [];
+  if (!rows.length) {
+    return `<p class="todo-watcher-why-empty">${escapeWatcherHtml(t('todo.recoveryDoingEmpty'))}</p>`;
+  }
+  const body = rows.map((row) => {
+    const todoId = String(row?.todoId || '').trim();
+    const title = (todoId && getTodoTitle(todoId)) || todoId.slice(0, 8);
+    const stateKey = String(row?.displayState || row?.state || 'unknown');
+    const stateLabel = t(`todo.recoveryState_${stateKey}`);
+    const detail = [
+      String(row?.evidence || '').trim() && t('todo.recoveryEvidence', { evidence: row.evidence }),
+      String(row?.reason || '').trim() && t('todo.recoveryReason', { reason: row.reason }),
+      String(row?.lastConfirmedAt || '').trim() && t('todo.recoveryLastConfirmed', { at: row.lastConfirmedAt }),
+    ].filter(Boolean).join(' · ');
+    const unknownHint = stateKey === 'unknown'
+      ? t('todo.recoveryUnknownHint', { reason: String(row?.reason || 'unknown') })
+      : '';
+    return ''
+      + '<tr>'
+      + `<td class="todo-watcher-why-kind">${escapeWatcherHtml(title)}</td>`
+      + `<td class="todo-watcher-why-kind">${escapeWatcherHtml(stateLabel)}</td>`
+      + `<td class="todo-watcher-why-reason">${escapeWatcherHtml(detail)}${unknownHint ? `<br>${escapeWatcherHtml(unknownHint)}` : ''}</td>`
+      + '</tr>';
+  }).join('');
+  return ''
+    + `<p class="todo-watcher-why-heading">${escapeWatcherHtml(t('todo.recoveryDoingHeading'))}</p>`
+    + '<table class="todo-watcher-why-table"><thead><tr>'
+    + `<th>${escapeWatcherHtml(t('todo.recoveryColTodo'))}</th>`
+    + `<th>${escapeWatcherHtml(t('todo.recoveryColState'))}</th>`
+    + `<th>${escapeWatcherHtml(t('todo.recoveryColDetail'))}</th>`
+    + '</tr></thead><tbody>'
+    + body
+    + '</tbody></table>';
 }
 
 /**

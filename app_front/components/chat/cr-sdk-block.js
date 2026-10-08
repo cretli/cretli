@@ -2,6 +2,7 @@ import { LitElement, css, html } from 'lit';
 import { writeTextToClipboard } from '../../lib/clipboard.js';
 import { writeChatMessageRef } from '../../../lib/chat-message-ref.js';
 import { t } from '../../i18n/index.js';
+import { formatChatTimestamp } from '../../lib/chat-timestamp.js';
 
 /**
  * Collapsible SDK event block (assistant reply, thinking, tool_call, raw event).
@@ -492,12 +493,7 @@ class CrSdkBlock extends LitElement {
     const date = new Date(raw);
     if (!Number.isFinite(date.getTime())) return null;
     return {
-      label: date.toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-      }),
+      label: formatChatTimestamp(date, t('sdkBlock.yesterday')),
       title: date.toISOString(),
     };
   }

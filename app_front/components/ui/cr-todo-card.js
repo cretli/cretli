@@ -9,6 +9,12 @@ import {
   formatTodoShortId,
   resolveTodoStartHarness,
 } from '../../features/todo/todoTreeView.js';
+import {
+  canManualRecoverWorkspaceTodo,
+  todoRecoveryDetailText,
+  todoRecoveryStateLabel,
+  todoRecoveryUnknownHint,
+} from '../../features/todo/todoRecoveryView.js';
 import { renderMarkdownHtml } from '../../lib/render-markdown.js';
 import './cr-bar-select.js';
 import './cr-bar-input.js';
@@ -43,6 +49,7 @@ class CrTodoCard extends LitElement {
     bodyPreview: { type: Boolean },
     newChatHarness: { type: String },
     activeTab: { type: String },
+    recoveryState: { type: Object },
   };
 
   constructor() {
@@ -53,6 +60,7 @@ class CrTodoCard extends LitElement {
     this.bodyPreview = false;
     this.newChatHarness = '';
     this.activeTab = 'description';
+    this.recoveryState = null;
   }
 
   createRenderRoot() {
@@ -118,6 +126,19 @@ class CrTodoCard extends LitElement {
     const id = this.item?.id ? String(this.item.id) : '';
     if (!id) return;
     this._emit('todo-start-agent', { id });
+  }
+
+  _onRetryBlocked() {
+    const id = this.item?.id ? String(this.item.id) : '';
+    if (!id) return;
+    this._emit('todo-retry-blocked', { id });
+  }
+
+  _onRecover() {
+    const id = this.item?.id ? String(this.item.id) : '';
+    const revision = this.item?.updatedAt ? String(this.item.updatedAt) : '';
+    if (!id || !revision) return;
+    this._emit('todo-recover', { id, revision });
   }
 
   _onContinueNewChat() {
@@ -831,6 +852,27 @@ class CrTodoCard extends LitElement {
           ></cr-bar-textarea>
         </div>
         ${this.hasChildren ? html`<p>${t('todo.statusFromChildren')}</p>` : nothing}
+        <p class="todo-action-feedback" role="status" aria-live="polite" hidden></p>
+        ${String(item.blockedReason || '').trim() ? html`
+          <section class="todo-blocked-alert" role="alert" aria-live="polite">
+            <div><strong>${t('todo.blocked')}</strong><p>${String(item.blockedReason)}</p></div>
+            ${String(item.blockedReason).includes('Workspace Watcher failure ceiling') ? html`
+              <cr-bar-button class="todo-blocked-retry" data-id=${id} @click=${this._onRetryBlocked}>${t('todo.retryBlocked')}</cr-bar-button>
+            ` : nothing}
+          </section>
+        ` : nothing}
+        ${status === 'doing' && this.recoveryState ? html`
+          <section class="todo-recovery-alert" role="status" aria-live="polite">
+            <div><strong>${todoRecoveryStateLabel(this.recoveryState)}</strong>
+              <p>${todoRecoveryDetailText(this.recoveryState)}</p>
+              ${todoRecoveryUnknownHint(this.recoveryState) ? html`<p class="cr-hint">${todoRecoveryUnknownHint(this.recoveryState)}</p>` : nothing}
+            </div>
+            ${canManualRecoverWorkspaceTodo(this.recoveryState) ? html`
+              <p class="cr-hint">${t('todo.recoveryResumeNewRun')}</p>
+              <cr-bar-button class="todo-recovery-resume" data-id=${id} @click=${this._onRecover}>${t('todo.recoveryResume')}</cr-bar-button>
+            ` : nothing}
+          </section>
+        ` : nothing}
         ${this._renderIdBar(item)} ${this._renderMeta(item)} ${this._renderTabs()}
         <div class="todo-editor-panels">
           ${this._renderDescriptionPanel(item)} ${this._renderChatsPanel(item)}

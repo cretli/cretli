@@ -60,12 +60,25 @@ function readTrimmed(value) {
  * @param {number} maxRows
  * @returns {object[]}
  */
-export function selectChatsForSyncBootstrap(chats, activeChatId, maxRows = CHAT_LOCAL_BOOT_SYNC_MAX_ROWS) {
+export function selectChatsForSyncBootstrap(
+  chats,
+  activeChatId,
+  maxRows = CHAT_LOCAL_BOOT_SYNC_MAX_ROWS,
+  options = {},
+) {
   const cap = Number.isFinite(Number(maxRows)) ? Math.max(1, Number(maxRows)) : CHAT_LOCAL_BOOT_SYNC_MAX_ROWS;
   const rows = (Array.isArray(chats) ? chats : [])
     .map(sanitizeChatRowForBootCache)
     .filter(Boolean);
   const activeId = readTrimmed(activeChatId);
+  /** @type {Set<string>} */
+  const pinnedIds = new Set();
+  const preferId = readTrimmed(options.preferChatId);
+  if (preferId) pinnedIds.add(preferId);
+  for (const rawId of Array.isArray(options.requiredChatIds) ? options.requiredChatIds : []) {
+    const id = readTrimmed(rawId);
+    if (id) pinnedIds.add(id);
+  }
   const kept = new Set();
   /** @type {object[]} */
   const required = [];
@@ -73,7 +86,7 @@ export function selectChatsForSyncBootstrap(chats, activeChatId, maxRows = CHAT_
   const rest = [];
   for (const row of rows) {
     if (kept.has(row.id)) continue;
-    if (row.watcherPinned === true || (activeId && row.id === activeId)) {
+    if (row.watcherPinned === true || (activeId && row.id === activeId) || pinnedIds.has(row.id)) {
       required.push(row);
       kept.add(row.id);
       continue;
@@ -100,7 +113,7 @@ export function selectChatsForSyncBootstrap(chats, activeChatId, maxRows = CHAT_
       activeRow = row;
       continue;
     }
-    if (row.watcherPinned === true) pinnedRows.push(row);
+    if (row.watcherPinned === true || pinnedIds.has(row.id)) pinnedRows.push(row);
     else otherRequired.push(row);
   }
   const rankedPinned = prepareChatRankingUpdatedAtMs(pinnedRows)
@@ -139,8 +152,10 @@ export function selectChatsForSyncBootstrap(chats, activeChatId, maxRows = CHAT_
 export function trimSyncBootstrapToByteBudget(doc) {
   if (!doc || typeof doc !== 'object') return doc;
   const activeId = readTrimmed(doc.activeChatId);
+  const preferId = readTrimmed(doc.preferChatId);
   /** @type {Set<string>} */
   const requiredIds = new Set();
+  if (preferId) requiredIds.add(preferId);
   for (const row of Array.isArray(doc.chats) ? doc.chats : []) {
     if (!row || typeof row !== 'object') continue;
     const id = readTrimmed(row.id);
@@ -183,31 +198,46 @@ export function buildChatLocalBootSyncDoc(input = {}, options = {}) {
   const workspaceContext = input.workspaceContext && typeof input.workspaceContext === 'object'
     ? input.workspaceContext
     : {};
-  const chats = selectChatsForSyncBootstrap(input.chats, input.activeChatId);
+  const syncSelectOptions = {
+    preferChatId: readTrimmed(input.preferChatId),
+    requiredChatIds: Array.isArray(input.requiredChatIds) ? input.requiredChatIds : [],
+  };
+  const chats = selectChatsForSyncBootstrap(input.chats, input.activeChatId, CHAT_LOCAL_BOOT_SYNC_MAX_ROWS, syncSelectOptions);
   const workspaces = (Array.isArray(input.workspaces) ? input.workspaces : [])
     .map(sanitizeWorkspaceForBootCache)
     .filter(Boolean)
     .slice(0, CHAT_LOCAL_BOOT_SYNC_MAX_WORKSPACES);
-  const doc = {
+  const preferChatId = readTrimmed(input.preferChatId);
+  const baseDoc = {
     v: CHAT_LOCAL_BOOT_SYNC_VERSION,
     savedAt: Number.isFinite(Number(input.savedAt))
       ? Number(input.savedAt)
       : (Number.isFinite(Number(input.now)) ? Number(input.now) : Date.now()),
     activeChatId: readTrimmed(input.activeChatId),
+    preferChatId,
     workspaceContext: {
       workspaceFile: readTrimmed(workspaceContext.workspaceFile),
       workspaceFolder: readTrimmed(workspaceContext.workspaceFolder),
     },
     workspaces,
     chats,
-    fullSignature: typeof options.fullSignature === 'string' ? options.fullSignature : readTrimmed(input.fullSignature),
   };
-  if (doc.chats.length === 0) return null;
-  const trimmed = trimSyncBootstrapToByteBudget(doc);
+  if (baseDoc.chats.length === 0) return null;
+  // Trim the chat rows against the byte budget *without* the full-document signature.
+  // That signature serializes every chat row (tens of KB), and embedding it whole used
+  // to push the document past 64 KB and reject the write, leaving cold start with no
+  // localStorage bootstrap at all. It is revision metadata only, so it is attached
+  // afterwards and dropped when it would not fit.
+  const trimmed = trimSyncBootstrapToByteBudget(baseDoc);
   if (!trimmed || trimmed.chats.length > CHAT_LOCAL_BOOT_SYNC_MAX_ROWS) return null;
-  const serialized = JSON.stringify(trimmed);
-  if (serialized.length > CHAT_LOCAL_BOOT_SYNC_MAX_BYTES) return null;
-  return trimmed;
+  if (JSON.stringify(trimmed).length > CHAT_LOCAL_BOOT_SYNC_MAX_BYTES) return null;
+  const fullSignature = typeof options.fullSignature === 'string'
+    ? options.fullSignature
+    : readTrimmed(input.fullSignature);
+  if (!fullSignature) return trimmed;
+  const withSignature = { ...trimmed, fullSignature };
+  if (JSON.stringify(withSignature).length > CHAT_LOCAL_BOOT_SYNC_MAX_BYTES) return trimmed;
+  return withSignature;
 }
 
 /**
@@ -355,4 +385,16 @@ export function readChatLocalBootCacheForColdStart(storage) {
   } catch (_) {
     return null;
   }
+}
+
+/**
+ * Whether the cold-start snapshot holds at least one chat row worth hydrating.
+ * Used by the offline boot decision so an empty cache does not boot an empty shell.
+ *
+ * @param {Storage | null | undefined} storage
+ * @returns {boolean}
+ */
+export function hasLocalChatBootCacheForColdStart(storage) {
+  const cached = readChatLocalBootCacheForColdStart(storage);
+  return !!(cached && Array.isArray(cached.chats) && cached.chats.length > 0);
 }

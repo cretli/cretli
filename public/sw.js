@@ -4,14 +4,15 @@
 //   - icons, manifest, screenshots, fonts: cache-first (stable names)
 //   - navigations (document): network-first with timeout, fallback offline.html
 //   - /api/* and /ws: always bypassed (live server)
-// push + notificationclick: agent-finished and agent-needs-input notifications.
+// push + notificationclick: agent-finished, agent-needs-input and new-chat
+// notifications.
 //
 // Bundles are requested with a ?v=<asset version> query. Cache fallbacks must
 // therefore ignore the search part: after a version bump the exact URL is not in
 // the cache, and a strict match would serve Response.error() for the app bundle,
 // leaving the cached HTML shell without any JavaScript.
 
-const CACHE_NAME = 'cretli-v26';
+const CACHE_NAME = 'cretli-v29';
 const OFFLINE_URL = '/offline.html';
 
 // Pure notificationclick decision logic, shared with the unit test. Kept in a
@@ -23,6 +24,61 @@ try {
 try {
   importScripts('/sw-push-inbox.js');
 } catch (_) {}
+try {
+  importScripts('/sw-push-options.js');
+} catch (_) {}
+try {
+  importScripts('/sw-in-app-signal.js');
+} catch (_) {}
+try {
+  importScripts('/sw-quiet-hours.js');
+} catch (_) {}
+
+const PREF_DB_NAME = 'cretli-preferences';
+const PREF_STORE_NAME = 'kv';
+const PREF_QUIET_KEY = 'push-quiet-hours';
+const PREF_MUTED_CHATS_KEY = 'push-muted-chats';
+
+/**
+ * Best-effort read of a device preference from IndexedDB (fail-open).
+ *
+ * @param {string} key
+ * @returns {Promise<unknown>}
+ */
+function readDevicePreference(key) {
+  if (!self.indexedDB || !key) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let request;
+    try {
+      request = self.indexedDB.open(PREF_DB_NAME, 1);
+    } catch (_) {
+      resolve(null);
+      return;
+    }
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(PREF_STORE_NAME)) {
+        db.createObjectStore(PREF_STORE_NAME);
+      }
+    };
+    request.onerror = () => resolve(null);
+    request.onsuccess = () => {
+      const db = request.result;
+      let tx;
+      try {
+        tx = db.transaction(PREF_STORE_NAME, 'readonly');
+      } catch (_) {
+        resolve(null);
+        return;
+      }
+      const getReq = tx.objectStore(PREF_STORE_NAME).get(key);
+      getReq.onsuccess = () => {
+        resolve(getReq.result === undefined ? null : getReq.result);
+      };
+      getReq.onerror = () => resolve(null);
+    };
+  });
+}
 
 const SHELL_ASSETS = [
   '/',
@@ -231,11 +287,24 @@ function isWidgetNavigation(url) {
   return false;
 }
 
+// Browser preview frames must never enter the offline cache: a screencast blob
+// or a fallback screenshot is the live content of somebody's browsing session,
+// and an exact URL is not even stable (the live channel is /ws-browser, the pull
+// frames are per-session files under /api/browser/). Named explicitly so a future
+// widening of the generic `/api/` and `/ws` bypass below cannot silently start
+// caching page content.
+function isBrowserFramePath(pathname) {
+  const text = String(pathname || '');
+  if (text === '/ws-browser' || text.startsWith('/ws-browser/')) return true;
+  return text.startsWith('/api/browser/');
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  if (isBrowserFramePath(url.pathname)) return;
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws')) return;
   // HMR EventSource and hot-update chunks must not go through cache/timeout —
   // a PWA worker would otherwise swallow webpack rebuilds.
@@ -254,6 +323,32 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(networkFirstAsset(req));
 });
 
+// Ask a visible page to handle the in-app signal and reply whether it actually
+// did. Only a `handled: true` reply may suppress the notification vibration; a
+// timeout or a page that stayed silent keeps the normal OS vibration.
+function requestClientSignalHandled(client, message) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(false), 400);
+    try {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = (reply) => {
+        clearTimeout(timer);
+        finish(!!(reply && reply.data && reply.data.handled === true));
+      };
+      client.postMessage(message, [channel.port2]);
+    } catch (_) {
+      clearTimeout(timer);
+      finish(false);
+    }
+  });
+}
+
 // --- Push notifications ---
 self.addEventListener('push', (event) => {
   let payload = {};
@@ -267,24 +362,111 @@ self.addEventListener('push', (event) => {
     }
   }
   const title = String(payload.title || 'Cretli');
-  const options = {
-    body: String(payload.body || ''),
-    icon: '/icons/icon-192.png',
-    badge: '/icons/monochrome-512.png',
-    tag: String(payload.tag || 'cretli'),
-    renotify: true,
-    data: payload.data || {},
-    vibrate: [80, 40, 80],
-  };
+  const tag = String(payload.tag || 'cretli');
+  const optionsPolicy = self.cretliPushOptions;
   const persistInbox = (async () => {
     if (!self.cretliPushInbox) return;
+    // A fire-test notification is not a real event and must not touch the inbox.
+    if (optionsPolicy && !optionsPolicy.shouldPersistPushPayload(payload)) return;
     // Persist unconditionally: the write is cheap and the app-side freshness
     // watermark (never the SW) decides whether the record is still relevant.
     await self.cretliPushInbox.persistPushPayload(payload).catch(() => undefined);
   })();
-  event.waitUntil(
-    Promise.all([self.registration.showNotification(title, options), persistInbox])
-  );
+  // When a Cretli window is visible it plays the in-app signal itself, so the
+  // SW delegates the event and suppresses the OS notification vibration. This
+  // keeps a single event from producing two vibrations (app + notification).
+  const delegateToVisibleClient = (async () => {
+    const signalPolicy = self.cretliInAppSignal;
+    if (!signalPolicy || !self.clients) return null;
+    try {
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const decision = signalPolicy.resolveClientSignal({
+        payload,
+        clients: windows.map((client) => ({
+          url: client.url,
+          visibilityState: client.visibilityState,
+          focused: client.focused,
+        })),
+      });
+      if (!decision.post) return decision;
+      const client = windows[decision.clientIndex];
+      if (!client || typeof client.postMessage !== 'function') {
+        return { ...decision, post: false, suppressVibrate: false, reason: 'no-postable-client' };
+      }
+      const handled = await requestClientSignalHandled(
+        client,
+        signalPolicy.buildClientMessage(payload)
+      );
+      // Keep the OS vibration unless the page confirmed it played the signal.
+      return { ...decision, suppressVibrate: !!handled, handled: !!handled };
+    } catch (_) {
+      return null;
+    }
+  })();
+  const showNotification = (async () => {
+    const quietPolicy = self.cretliQuietHours;
+    let suppressDeviceVibrate = false;
+    if (quietPolicy) {
+      try {
+        const quietRaw = await readDevicePreference(PREF_QUIET_KEY);
+        const muteRaw = await readDevicePreference(PREF_MUTED_CHATS_KEY);
+        const quietActive = quietPolicy.isQuietHoursActive(new Date(), quietRaw);
+        const data = payload && payload.data && typeof payload.data === 'object' ? payload.data : {};
+        const pushChatId = typeof data.chatId === 'string' ? data.chatId.trim() : '';
+        const chatMuted = pushChatId && quietPolicy.isChatMuted(muteRaw, pushChatId);
+        suppressDeviceVibrate = !!(quietActive || chatMuted);
+      } catch (_) {
+        suppressDeviceVibrate = false;
+      }
+    }
+    // renotify only when `data.eventId` is new. Without an eventId keep the
+    // historical always-renotify behaviour.
+    let renotify = true;
+    if (optionsPolicy && optionsPolicy.hasPushEventId(payload)) {
+      try {
+        const existing = await self.registration.getNotifications({ tag });
+        renotify = optionsPolicy.resolvePushRenotify(payload, existing);
+      } catch (_) {
+        renotify = true;
+      }
+    }
+    const options = {
+      body: String(payload.body || ''),
+      icon: '/icons/icon-192.png',
+      badge: '/icons/monochrome-512.png',
+      tag,
+      renotify,
+      data: payload.data || {},
+    };
+    if (optionsPolicy) {
+      const clientSignal = await delegateToVisibleClient;
+      if (clientSignal && clientSignal.suppressVibrate) {
+        // The visible page will signal; keep the notification silent.
+        options.silent = true;
+      } else if (optionsPolicy.resolvePushSilent(payload)) {
+        // silent: true => no vibration at all.
+        options.silent = true;
+      } else if (suppressDeviceVibrate) {
+        // Device quiet hours / muted chat: the notification stays visible (we
+        // still call showNotification), but both vibration and the OS sound are
+        // suppressed. `silent` is a NotificationOption here, not an invisible
+        // push.
+        options.silent = true;
+      } else {
+        const vibrate = optionsPolicy.resolvePushVibrate(payload);
+        // An empty pattern (explicit `vibrate: []`) means "do not vibrate".
+        if (Array.isArray(vibrate) && vibrate.length > 0) options.vibrate = vibrate;
+      }
+    } else {
+      // Helper script failed to load. Keep the historical pattern unless the
+      // device is in quiet hours / the chat is muted, in which case stay visible
+      // but silent.
+      if (suppressDeviceVibrate) options.silent = true;
+      else options.vibrate = [80, 40, 80];
+    }
+    await self.registration.showNotification(title, options);
+  })();
+  event.waitUntil(Promise.all([showNotification, persistInbox]));
 });
 
 // A notification click must not reload an already-open PWA: postMessage lets the

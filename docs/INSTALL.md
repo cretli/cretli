@@ -45,6 +45,11 @@ cd \\wsl$\Debian\home\<you>\path\to\cretli\scripts
 After a WSL restart the WSL IP may change — re-run the script. Set `CRETLI_LAN_HOST`
 to the **Windows** LAN IP so the in-app QR is correct.
 
+`npm start` listens on `127.0.0.1` only. The portproxy rule above connects to
+the WSL eth address, so a Windows browser gets `ERR_CONNECTION_RESET` until
+you either `npm run start:lan` or forward that address to `127.0.0.1`.
+Decision tree: [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
 ## Termux (Android) — server on the phone
 
 Termux is **not** glibc Linux: Node reports `android-arm64`, so native `sharp`

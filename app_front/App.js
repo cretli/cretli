@@ -48,7 +48,9 @@ import {
   expandSidebarWorkspaceSearchPool,
 } from './chat.js';
 import { deriveWorkspaceKey } from './features/chat/chatMetadataIdbSchema.js';
-import { readChatLocalBootCacheForColdStart } from './features/chat/chatLocalBootSync.js';
+import { hasLocalChatBootCacheForColdStart, readChatLocalBootCacheForColdStart } from './features/chat/chatLocalBootSync.js';
+import { seedLocalBootSyncFromIdbBootCache } from './features/chat/chatOfflineBootSeed.js';
+import { resolveBootOnAuthStatusFailure } from './features/chat/chatBootDecision.js';
 import { installChatActivityStorageListener } from './features/chat/chatActivityStore.js';
 import { applyChatAuthSessionBoundary } from './features/chat/chatSessionBoundary.js';
 import { clearPushInboxCache } from './features/pwa/pushInbox.js';
@@ -136,6 +138,8 @@ import { initPageBackgroundGrace } from './lib/pageBackgroundGrace.js';
 import { isMobileLikeClient } from './lib/mobileClient.js';
 import { initPageResumeCleanup, registerPageResumeCleanupHook } from './lib/pageResumeCleanup.js';
 import { initPushSettingsToggle } from './features/pwa/pushSubscription.js';
+import { getChatMuteStore } from './features/pwa/chatMuteStore.js';
+import { getInAppSignalController, initInAppSignals } from './features/pwa/inAppSignals.js';
 import { initServiceWorkerMessages, readNotificationBootInfo } from './features/pwa/swMessages.js';
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from './lib/storageKeyAlias.js';
 import './components/ui/index.js';
@@ -368,6 +372,7 @@ const workspaceContext = createWorkspaceContext({
     ensurePanelReady('github').then(() => callLoadedPanel('github', 'updateGithubTabVisibility')),
   refreshGithubPanel: () => callLoadedPanel('github', 'refreshGithubPanel'),
   refreshTodoList,
+  refreshBrowserPanel: () => callLoadedPanel('browser', 'refreshBrowserPanel'),
   onWorkspaceLabelChanged: () => headerContextTitle.refresh(),
 });
 
@@ -535,7 +540,11 @@ const sidebarView = createSidebarView({
     return true;
   },
   requestNewChat: (workspaceContext) => openNewChatModal(workspaceContext),
-  requestLoadArchivedChats: () => loadChatsFromServer({ includeArchived: true, skipAutoSelect: true }),
+  requestLoadArchivedChats: (workspaceFile) => loadChatsFromServer({
+    includeArchived: true,
+    skipAutoSelect: true,
+    archiveWorkspace: typeof workspaceFile === 'string' ? workspaceFile : '',
+  }),
   expandWorkspaceChatsForSearch: (workspace, list) => {
     const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
     const groupFolder = getSidebarWorkspaceFolder(sidebarKey);
@@ -1896,10 +1905,37 @@ function ensureAuthenticatedThenBoot() {
       bootApp();
     })
     .catch(() => {
-      // Without a backend response booting the SPA would render an empty or broken UI,
-      // so show a notice instead and retry the check shortly.
-      showBackendUnavailableOverlay(() => ensureAuthenticatedThenBoot());
+      void resolveBootAfterAuthStatusFailure();
     });
+}
+
+/**
+ * Offline cold start: the auth-status probe rejected. Boot the SPA when this client is
+ * offline and has local chat data to hydrate; otherwise keep the "backend unavailable"
+ * overlay. The online auth gate in `ensureAuthenticatedThenBoot().then` is unchanged.
+ */
+async function resolveBootAfterAuthStatusFailure() {
+  const online = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
+  const storage = typeof localStorage !== 'undefined' ? localStorage : null;
+  let hasLocalBootCache = hasLocalChatBootCacheForColdStart(storage);
+  if (!online && !hasLocalBootCache) {
+    // The full snapshot is often only in IndexedDB (localStorage sync doc missing);
+    // seed the sync doc from it so the cached chat list renders on this boot.
+    try {
+      hasLocalBootCache = await seedLocalBootSyncFromIdbBootCache({
+        storage,
+        preferChatId: readRequestedChatId(),
+      });
+    } catch (_) {
+      hasLocalBootCache = false;
+    }
+  }
+  const decision = resolveBootOnAuthStatusFailure({ online, hasLocalBootCache });
+  if (decision === 'boot') {
+    bootApp();
+    return;
+  }
+  showBackendUnavailableOverlay(() => ensureAuthenticatedThenBoot());
 }
 
 /** "Backend unavailable" overlay with a retry, shown instead of silently booting the SPA. */
@@ -2054,6 +2090,10 @@ function bootApp() {
     measureStartupStep('initServiceWorkerMessages', () =>
       initServiceWorkerMessages({ onOpenChat: openChatFromNotification, logger: appLogger })
     );
+    measureStartupStep('initInAppSignals', () => initInAppSignals({
+      logger: appLogger,
+      chatMuteStore: getChatMuteStore(),
+    }));
     measureStartupStep('initWorkspacePopover', () => initWorkspacePopover() || Promise.resolve());
     measureStartupStep('initSettingsWorkspacePicker', () => initSettingsWorkspacePicker() || Promise.resolve());
     measureStartupStep('initChatActivityStore', () => installChatActivityStorageListener());

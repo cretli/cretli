@@ -27,6 +27,7 @@ export const CHAT_LIST_FULL_INDEX_FRESH_MS = 30_000;
  * @property {boolean} includeArchived
  * @property {string} preferChatId
  * @property {string} pinnedTo
+ * @property {string} archiveWorkspace
  * @property {boolean} skipCache
  */
 
@@ -51,8 +52,22 @@ export function normalizeChatListLoadQuery(query = {}) {
     includeArchived: query.includeArchived === true,
     preferChatId: typeof query.preferChatId === 'string' ? query.preferChatId.trim() : '',
     pinnedTo: typeof query.pinnedTo === 'string' ? query.pinnedTo.trim() : '',
+    archiveWorkspace: normalizeChatWorkspaceScopeForListLoad(
+      typeof query.archiveWorkspace === 'string' ? query.archiveWorkspace : '',
+    ),
     skipCache: query.skipCache === true,
   };
+}
+
+/**
+ * Match server `normalizeChatWorkspaceScope` (lib/routes/chats-routes.js).
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function normalizeChatWorkspaceScopeForListLoad(value) {
+  if (typeof value !== 'string') return '';
+  return value.replace(/\\/g, '/').replace(/\/+$/, '').trim();
 }
 
 /**
@@ -61,7 +76,11 @@ export function normalizeChatListLoadQuery(query = {}) {
  */
 export function buildChatListLoadScopeKey(normalized) {
   if (normalized.pinnedTo) return `pinned:${normalized.pinnedTo}`;
-  if (normalized.includeArchived) return 'full';
+  if (normalized.includeArchived) {
+    const workspaceKey = normalizeChatWorkspaceScopeForListLoad(normalized.archiveWorkspace);
+    if (workspaceKey) return `full:${workspaceKey}`;
+    return 'full';
+  }
   return 'live';
 }
 
@@ -81,6 +100,10 @@ export function mergeChatListInFlightScopeKey(currentKey, nextKey) {
     return current === next ? current : next;
   }
   if (current === 'full' || next === 'full') return 'full';
+  const currentScoped = current.startsWith('full:');
+  const nextScoped = next.startsWith('full:');
+  if (currentScoped && nextScoped) return current === next ? current : next;
+  if (currentScoped || nextScoped) return currentScoped ? current : next;
   return 'live';
 }
 
@@ -92,7 +115,10 @@ export function mergeChatListInFlightScopeKey(currentKey, nextKey) {
 export function chatListInFlightScopeCoversQuery(inFlightScopeKey, normalized) {
   const needKey = buildChatListLoadScopeKey(normalized);
   if (inFlightScopeKey === needKey) return true;
-  if (inFlightScopeKey === 'full' && needKey === 'live') return true;
+  if (needKey === 'live' && (inFlightScopeKey === 'full' || inFlightScopeKey.startsWith('full:'))) {
+    return true;
+  }
+  if (inFlightScopeKey === 'full' && needKey.startsWith('full:')) return true;
   return false;
 }
 
@@ -110,7 +136,7 @@ export function chatListCompletedScopeCoversQuery(completedScopeKey, normalized)
  * @returns {number}
  */
 export function chatListFreshTtlMsForScopeKey(scopeKey) {
-  if (scopeKey === 'full') return CHAT_LIST_FULL_INDEX_FRESH_MS;
+  if (scopeKey === 'full' || scopeKey.startsWith('full:')) return CHAT_LIST_FULL_INDEX_FRESH_MS;
   if (scopeKey.startsWith('pinned:')) return CHAT_LIST_LIVE_INDEX_FRESH_MS;
   return CHAT_LIST_LIVE_INDEX_FRESH_MS;
 }
@@ -164,7 +190,7 @@ export function decideChatListNetworkLoad(input) {
         return 'skip-fresh';
       }
     }
-    if (needKey === 'full' && freshScopeKey === 'live') {
+    if (needKey !== 'live' && freshScopeKey === 'live') {
       return 'fetch';
     }
   }

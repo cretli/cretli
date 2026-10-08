@@ -193,3 +193,37 @@ test('rejects oversized and invalid messages', async () => {
   await tick();
   assert.ok(ws.sent.some((m) => m.code === 'message-too-large'));
 });
+
+test('registers a live WS subscriber after ready and releases it on close', async () => {
+  const { manager, session, tab } = await setup();
+  const ws = connect(manager, session, tab);
+  assert.equal(ws.sent[0].type, 'ready');
+  // The handler must hold one live subscriber so sweepIdle() keeps the session
+  // the panel/agent is watching. Before this wiring the count was always 0.
+  assert.equal(manager.hasLiveWsSubscriber(session.browserSessionId), true);
+
+  // close releases the subscriber (the idempotent release fn, not a manual
+  // removeWsSubscriber call) so an abandoned tab can be swept again.
+  ws.emit('close');
+  assert.equal(manager.hasLiveWsSubscriber(session.browserSessionId), false);
+});
+
+test('ping touches the session and replies with an unchanged pong frame', async () => {
+  const { manager, session, tab } = await setup();
+  const ws = connect(manager, session, tab);
+  const sessionId = session.browserSessionId;
+  // Push the activity stamp into the past so only a real touch can move it.
+  manager.sessions.get(sessionId).lastActivityAt = 0;
+
+  ws.emit('message', JSON.stringify({ type: 'ping' }));
+  await tick();
+
+  const pong = ws.sent.find((m) => m.type === 'pong');
+  assert.ok(pong, 'ping must still be answered with a pong');
+  // The reply frame keeps its exact shape: no new fields ride along with the touch.
+  assert.deepEqual(Object.keys(pong).sort(), ['at', 'type']);
+  assert.equal(typeof pong.at, 'number');
+
+  // The keepalive refreshes lastActivityAt through touchSessionById; pre-fix it stayed 0.
+  assert.ok(manager.sessions.get(sessionId).lastActivityAt > 0, 'ping must touch the session');
+});

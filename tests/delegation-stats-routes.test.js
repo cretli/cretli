@@ -79,6 +79,9 @@ assert.equal(body.unused_14d_error, false, 'a successful catalog read is not an 
 assert.equal(typeof body.generated_at, 'string');
 assert.equal(body.min_jobs, 1);
 assert.ok(body.roles && body.roles.implement && body.roles.review);
+assert.ok(body.loop && Array.isArray(body.loop.leaves), 'loop.leaves is present');
+assert.equal(typeof body.loop.generated_at, 'string');
+assert.ok(body.loop.leaves.length >= 1, 'at least one leaf row for the parent jobs');
 
 const implementRow = body.list.find((row) => row.role === 'implement' && row.harness === 'opencode');
 assert.ok(implementRow, 'implement outcome present');

@@ -17,7 +17,7 @@ Subscription mode is an explicit local setting and uses a separate `data/claude-
 
 1. Confirm Settings → Harness shows Claude as ready (package + plan login, or an API key).
 2. New chat → harness **Claude**.
-3. Default model is `claude-sonnet-4-6` (override with `CLAUDE_DEFAULT_MODEL` or the chat picker). With an API key, Settings loads the live Anthropic `GET /v1/models` list. If that request fails, the picker uses the fallback: `claude-opus-4-8`, `claude-opus-4-6`, `claude-opus-4-5`, `claude-sonnet-4-6`, `claude-sonnet-4-5`, `claude-haiku-4`.
+3. Default model is `sonnet` (override with `CLAUDE_DEFAULT_MODEL` or the chat picker). The picker prefers `query.supportedModels()` from a live session, then the Anthropic `GET /v1/models` list when an API key is configured, and otherwise falls back to the Claude Code aliases `default`, `opus`, `sonnet`, `haiku`. Every source is overlaid with the newest numbered ids the bundled CLI may not advertise yet, currently `claude-haiku-5-5` (Claude Haiku 5.5), so a just-released model is selectable right away.
 4. Permission modes:
    - **Agent** uses the SDK `permissionMode: acceptEdits`. `bypassPermissions` is never used.
    - **Plan** uses the native `plan` mode.

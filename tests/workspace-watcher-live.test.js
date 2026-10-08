@@ -16,6 +16,8 @@ import {
   workspaceWatcherPresenceRows,
   workspaceWatcherPresenceKey,
 } from '../lib/workspace-watcher-live.js';
+import { isWorkspaceWatcherActiveCycleChatAlive } from '../lib/workspace-watcher.js';
+import { classifyWorkspaceDoingTodos, summarizeWorkspaceTodoRecovery } from '../lib/workspace-watcher-recovery.js';
 
 function socket() {
   const messages = [];
@@ -90,5 +92,44 @@ const multi = workspaceWatcherPresenceRows([{
 }]);
 assert.equal(multi[0].activeCycleCount, 2);
 assert.deepEqual(multi[0].activeCycleChatIds, ['orch-a', 'orch-b']);
+
+// Recovery read model: liveness evidence maps to one state per `doing` row, and
+// an unconfirmed probe is never read as "the run ended".
+const classify = (probe, extra = {}) => classifyWorkspaceDoingTodos({
+  items: [{ id: 'leaf', status: 'doing', claimedByChatId: 'orch', updatedAt: 'rev-1', execution: { attemptId: 'att-1', cycleId: 'cyc-1' } }],
+  delegations: [],
+  cycles: [{ cycleId: 'cyc-1', chatId: 'orch', runId: 'run-1', phase: 'running' }],
+  probe,
+  isCycleChatAlive: isWorkspaceWatcherActiveCycleChatAlive,
+  now: Date.parse('2026-03-01T10:00:00.000Z'),
+  ...extra,
+})[0];
+const liveBusy = classify(() => ({ known: true, busy: true, reason: 'busy' }));
+assert.deepEqual(
+  [liveBusy.state, liveBusy.reason, liveBusy.evidence, liveBusy.source, liveBusy.runId, liveBusy.cycleId, liveBusy.attemptId, liveBusy.revision],
+  ['active', 'busy', 'chat_run_probe', 'watcher_claim', 'run-1', 'cyc-1', 'att-1', 'rev-1'],
+);
+assert.equal(classify(() => ({ known: true, busy: false, reason: 'idle' }), { getChat: () => ({ archived: true }) }).state, 'recoverable');
+assert.equal(classify(() => ({ known: true, busy: false, reason: 'idle' }), { getChat: () => ({ archived: false }) }).state, 'user_action');
+assert.equal(classify(() => ({ known: false, busy: false, reason: 'chat_missing' })).state, 'recoverable');
+for (const reason of ['state_missing', 'adapter_missing', 'adapter_error']) {
+  const unknown = classify(() => ({ known: false, busy: false, reason }));
+  assert.deepEqual([unknown.state, unknown.reason], ['unknown', reason], `${reason} is unknown, not dead`);
+}
+const occupied = classify(() => ({ known: true, busy: false, reason: 'idle' }), {
+  delegations: [{ id: 'job-1', parentChatId: 'orch', status: 'completed', runId: 'child-run', runStoppingAt: '2026-03-01T09:59:30.000Z' }],
+});
+assert.deepEqual([occupied.state, occupied.reason, occupied.delegationId], ['active', 'run_stopping', 'job-1']);
+const starting = classify(() => ({ known: false, busy: false, reason: 'chat_missing' }), {
+  cycles: [{ cycleId: 'cyc-1', chatId: 'orch', phase: 'starting', startDeadlineAt: '2026-03-01T10:01:00.000Z' }],
+});
+assert.deepEqual([starting.state, starting.reason], ['active', 'starting'], 'a reserved start is not a dead run');
+const pastStartUnknown = classify(() => ({ known: false, busy: false, reason: 'state_missing' }), {
+  cycles: [{ cycleId: 'cyc-1', chatId: 'orch', phase: 'starting', startDeadlineAt: '2026-03-01T09:00:00.000Z' }],
+});
+assert.deepEqual([pastStartUnknown.state, pastStartUnknown.reason], ['unknown', 'state_missing'], 'starting past deadline with unknown probe is not active');
+assert.deepEqual(summarizeWorkspaceTodoRecovery([liveBusy, occupied, { state: 'unknown' }, { state: 'bogus' }]), {
+  active: 2, dependency: 0, user_action: 0, recoverable: 0, unknown: 1,
+});
 
 console.log('workspace-watcher-live.test.js OK');

@@ -228,7 +228,7 @@ runCase('a failed delegation read is fail-closed', () => {
   assert.equal(out.reason, 'cycle_children_active');
 });
 
-runCase('a store write failure leaves the chat in place and never throws', () => {
+runCase('a store write failure on a child blocks the parent and never throws', () => {
   const archived = [];
   const deps = makeDeps({
     chats: [
@@ -245,8 +245,56 @@ runCase('a store write failure leaves the chat in place and never throws', () =>
     },
   });
   const out = archiveChatFamily('orchestrator', { now: NOW, deps });
-  assert.deepEqual(archived, ['orchestrator'], 'the failing child is skipped, the parent still archives');
+  // A delegation child is a real fork child, so archiving the parent would
+  // cascade `archived` over the child that the direct write just failed to
+  // reach. The failed child must leave the whole family in place.
+  assert.deepEqual(archived, [], 'a failed child write blocks the parent from hiding it');
   assert.equal(out.skipped, 1, 'the write failure counts as a skip, not a throw');
+  assert.equal(out.reason, 'nothing_to_archive');
+});
+
+runCase('repairs an archived parent with a later live descendant through archived forks', () => {
+  const archived = [];
+  const deps = makeDeps({
+    chats: [
+      chat({ id: 'orchestrator', archivedAt: OLD_AT }),
+      chat({ id: 'child', forkParentChatId: 'orchestrator', archivedAt: OLD_AT }),
+      chat({ id: 'grandchild', forkParentChatId: 'child' }),
+    ],
+    rows: {
+      orchestrator: [{ childChatId: 'child', status: 'completed' }],
+      child: [{ childChatId: 'grandchild', status: 'completed' }],
+    },
+    archived,
+  });
+  const out = archiveChatFamily('orchestrator', { now: NOW, deps });
+  assert.deepEqual(archived, ['grandchild'], 'only the unarchived descendant needs a write');
+  assert.deepEqual(out.archived, ['grandchild']);
+});
+
+runCase('an archived parent cannot hide a busy, pinned, fresh or slot-holding later child', () => {
+  for (const blocked of ['busy', 'pinned', 'fresh', 'slot', 'parent-busy']) {
+    const archived = [];
+    const deps = makeDeps({
+      chats: [
+        chat({ id: 'orchestrator', archivedAt: OLD_AT }),
+        chat({
+          id: 'child',
+          forkParentChatId: 'orchestrator',
+          watcherPinned: blocked === 'pinned',
+          updatedAt: blocked === 'fresh' ? new Date(NOW - 1000).toISOString() : OLD_AT,
+        }),
+      ],
+      rows: { orchestrator: [{ childChatId: 'child', status: 'completed' }] },
+      archived,
+    }, {
+      isChatRunConfirmedIdle: ({ chatId }) => !((blocked === 'busy' && chatId === 'child')
+        || (blocked === 'parent-busy' && chatId === 'orchestrator')),
+      isDelegationSlotOccupied: () => blocked === 'slot',
+    });
+    archiveChatFamily('orchestrator', { now: NOW, deps });
+    assert.deepEqual(archived, [], `${blocked} blocks the repair`);
+  }
 });
 
 runCase('an empty or unknown root id is a no-op', () => {

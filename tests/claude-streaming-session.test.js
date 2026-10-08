@@ -36,6 +36,8 @@ const {
   isClaudeSessionModelCatalogFresh,
   listClaudeModels,
 } = await import('../lib/claude/claude-models.js');
+const { clearMcpBridgeToolsListed, markMcpBridgeToolsListed } = await import('../lib/mcp/mcp-bridge-ready.js');
+const { ORCHESTRATOR_MCP_CONTRACT_TOOLS } = await import('../lib/mcp/mcp-orchestrator-contract.js');
 
 const SDK_SESSION_ID = 'sess-1';
 
@@ -112,6 +114,9 @@ function createFakeClaudeSdk(config = {}) {
       },
     };
     calls.push(call);
+    // Test hook: simulate work the CLI does when its process starts (for
+    // example connecting MCP servers) without touching the shared fake.
+    if (typeof config.onQuery === 'function') config.onQuery({ call, prompt, options });
 
     /** @type {Array<{ value?: unknown, error?: Error }>} */
     const pending = [];
@@ -445,6 +450,59 @@ try {
     assert.equal(room.claudeSessionId, SDK_SESSION_ID);
   }
 
+  // --- orchestrator gate runs after the Query process starts, before the prompt ---
+  {
+    const chatId = 'claude-gate-order';
+    clearMcpBridgeToolsListed(chatId);
+    const fake = createFakeClaudeSdk({
+      // The fake CLI lists the bridge catalog when its process starts, which is
+      // exactly what the orchestrator gate waits for.
+      onQuery: () => markMcpBridgeToolsListed(chatId, {
+        now: Date.now(),
+        toolNames: ORCHESTRATOR_MCP_CONTRACT_TOOLS,
+      }),
+    });
+    const room = createRoom({ chatId, watcherOrchestrator: true });
+    const events = [];
+    const runner = createClaudePromptRunner({
+      room,
+      hooks: {
+        broadcast: (payload) => events.push(payload),
+        sendRoomState: () => {},
+        persistRoomEvent: () => {},
+        flushPersist: () => {},
+        loadSdk: async () => fake.sdk,
+        buildEnv: () => ({ ANTHROPIC_API_KEY: 'test-key', CLAUDE_CONFIG_DIR: tempDir }),
+        getAuthMode: () => 'api-key',
+        // A managed bridge whose endpoint is dead: only the session's own mark
+        // can release the first prompt, so this fails if the gate runs early.
+        prepareMcp: () => ({
+          mcpContext: { chatId },
+          mcpPrep: {
+            revision: 1,
+            servers: [],
+            bridge: { command: 'node', args: [], env: { CRETLI_URL: 'https://127.0.0.1:1', CRETLI_MCP_TOKEN: 'tok' } },
+          },
+          claudeMcp: {},
+        }),
+        markMcpApplied: () => {},
+        resolveModel: (model) => model,
+        persistModel: () => {},
+        streamingEnabled: () => true,
+        sessionIdleMs: () => 60_000,
+      },
+    });
+    await runner.startPrompt('hello');
+    assert.equal(fake.calls.length, 1);
+    assert.equal(
+      fake.calls[0].messages.length,
+      1,
+      'the first prompt is pushed only after the session bridge listed its catalog',
+    );
+    assert.equal(finishedEvents(events).at(-1)?.status, 'completed');
+    clearMcpBridgeToolsListed(chatId);
+  }
+
   // --- model change uses setModel, no restart ---
   {
     const fake = createFakeClaudeSdk();
@@ -722,7 +780,7 @@ try {
       await waitFor(() => isClaudeSessionModelCatalogFresh(), { timeoutMs: 500 });
       const listed = await listClaudeModels();
       assert.equal(listed.modelsSource, 'session');
-      assert.deepEqual(listed.models.map((row) => row.id), ['opus', 'sonnet']);
+      assert.deepEqual(listed.models.map((row) => row.id), ['opus', 'sonnet', 'claude-haiku-5-5']);
     } finally {
       if (typeof previousKey === 'string') process.env.ANTHROPIC_API_KEY = previousKey;
       else delete process.env.ANTHROPIC_API_KEY;

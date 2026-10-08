@@ -3,7 +3,8 @@
  *
  * Uses the real Playwright/Chromium when the runtime is available and skips
  * (without failing) when it is not — matching the plan's browser-unavailable
- * fallback requirement.
+ * fallback requirement. CI sets CRETLI_REQUIRE_BROWSER_LIVE=1 to turn that
+ * skip into a hard failure, so a green CI run proves the live path executed.
  */
 
 import test from 'node:test';
@@ -20,6 +21,11 @@ test('live Chromium: navigate, redact console, screenshot, block metadata, clean
   }
   const runtime = await detectBrowserRuntime();
   if (!runtime.available) {
+    // Without the opt-in this stays a graceful skip so local/dev `npm test`
+    // never fails the whole suite just because Chromium is absent.
+    if (process.env.CRETLI_REQUIRE_BROWSER_LIVE === '1') {
+      assert.fail(`browser-unavailable: ${runtime.reason} (CRETLI_REQUIRE_BROWSER_LIVE=1 forbids skipping this test)`);
+    }
     t.skip(`browser-unavailable: ${runtime.reason}`);
     return;
   }

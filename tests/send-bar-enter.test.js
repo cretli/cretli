@@ -3,6 +3,14 @@ import test from 'node:test';
 
 import { resolveSendBarEnterAction } from '../app_front/features/sendBar/sendBarInput.js';
 
+test('read-only drafts cannot be sent or expanded by Enter shortcuts', () => {
+  for (const field of [{ isTextarea: false }, { isTextarea: true }, { isTextarea: true, isMultilineMode: true }]) {
+    for (const modifier of [{}, { shiftKey: true }, { ctrlKey: true }, { metaKey: true }]) {
+      assert.equal(resolveSendBarEnterAction({ key: 'Enter', ...modifier }, { ...field, isReadOnly: true }), 'ignore');
+    }
+  }
+});
+
 test('Enter in a single-line field sends', () => {
   assert.equal(resolveSendBarEnterAction({ key: 'Enter' }, { isTextarea: false }), 'send');
 });

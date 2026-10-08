@@ -1113,7 +1113,10 @@ export function createSidebarView(deps) {
       count,
       activeChatId,
       archiveTree: openSection ? archiveTree : [],
-      deps: { t, escapeHtml },
+      // The archive virtualiser re-registers its mounted slice with these deps
+      // (`registerArchiveChatRowSliceDirect`), so they must be the full chat-row
+      // deps — otherwise expanded archive rows lose their harness icon and actions.
+      deps: sidebarChatRowDeps(),
     });
     return true;
   }
@@ -1500,7 +1503,7 @@ export function createSidebarView(deps) {
       normalizePath(workspace.workspaceFile) === normalizePath(getActiveWorkspaceFile()) &&
       normalizePath(preferredFolder) === normalizePath(getActiveWorkspaceFolder());
     const isCollapsed = !searching && isWorkspaceCollapsed(sidebarKey);
-    const { live, grouped } = workspaceModel(workspace);
+    const { live, archived, grouped } = workspaceModel(workspace);
     const serializeList = shouldSerializeWorkspaceChatList(isCollapsed, searching);
     const capped = serializeList
       ? capSidebarVisibleTreeChats(grouped.items, {
@@ -1520,6 +1523,19 @@ export function createSidebarView(deps) {
       ? grouped.groups
         .map((group) => group.parentId + ':' + [...(group.childIds || [])].sort().join(','))
         .join(',')
+      : '';
+    // The mounted archive window is bounded, but its content is only registered
+    // when this workspace subtree is rebuilt. Without the archive membership in
+    // the signature, the async `includeArchived` load (which replaces the empty
+    // hint-only archive tree) would be skipped as "unchanged" and the expanded
+    // archive list would stay empty. Keep it scroll-independent (length + edges)
+    // so virtual scrolling does not force workspace rebuilds.
+    const archiveMembershipSig = serializeList && (searching || isArchiveSectionOpen(sidebarKey))
+      ? [
+        String(archived.length),
+        String(archived[0]?.id || ''),
+        String(archived.length > 0 ? archived[archived.length - 1]?.id || '' : ''),
+      ].join(':')
       : '';
     return [
       workspace.name || '',
@@ -1544,6 +1560,7 @@ export function createSidebarView(deps) {
         )
         .join(','),
       String(archivedCountForWorkspace(workspace)),
+      archiveMembershipSig,
       rows,
       groups,
     ].join('#');
@@ -2197,7 +2214,14 @@ export function createSidebarView(deps) {
     if (!key) return;
     setArchiveSectionOpen(key, !isArchiveSectionOpen(key));
     if (isArchiveSectionOpen(key)) {
-      Promise.resolve(requestLoadArchivedChats()).catch(() => {});
+      // Scope the archived load to this workspace's file only: expanding one
+      // group must not pull every archived row in the index. Clone groups share
+      // a workspaceFile, so resolve it from the sidebar key (the route windows by
+      // chat.workspaceFile, which covers every folder/clone of that file).
+      const scopeWorkspaceFile = getWorkspaces().find(
+        (workspace) => (workspace.sidebarKey || workspace.workspaceFile || '') === key,
+      )?.workspaceFile || key;
+      Promise.resolve(requestLoadArchivedChats(scopeWorkspaceFile)).catch(() => {});
     }
     render();
   }

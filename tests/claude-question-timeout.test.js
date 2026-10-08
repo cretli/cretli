@@ -5,6 +5,7 @@ import {
   createRoomClaudeCanUseTool,
   handleClaudeOpenCodeQuestionReply,
   resolveClaudeQuestionTimeoutMs,
+  sendPendingClaudeQuestionsToClient,
 } from '../lib/claude/claude-agent-ws.js';
 import {
   armClaudeSessionIdleTimer,
@@ -111,4 +112,36 @@ test('late opencodeQuestionReply yields questionReplyRejected', () => {
     requestId: 'missing',
     reason: 'expired',
   }]);
+});
+
+test('replayed pending question is tagged replay:true and keeps event intact', () => {
+  const event = {
+    type: 'opencode_question',
+    requestId: 'q-1',
+    questions: [{ question: 'Pick one' }],
+  };
+  const room = mkRoom({
+    _pendingQuestions: new Map([['q-1', event]]),
+  });
+  const sent = [];
+  const ws = {
+    readyState: 1,
+    send: (raw) => sent.push(JSON.parse(String(raw))),
+  };
+  sendPendingClaudeQuestionsToClient(room, ws);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].type, 'sdkEvent');
+  assert.equal(sent[0].replay, true);
+  assert.deepEqual(sent[0].event, event);
+});
+
+test('sendPendingClaudeQuestionsToClient is a no-op without pending questions', () => {
+  const room = mkRoom({ _pendingQuestions: new Map() });
+  const sent = [];
+  const ws = {
+    readyState: 1,
+    send: (raw) => sent.push(JSON.parse(String(raw))),
+  };
+  sendPendingClaudeQuestionsToClient(room, ws);
+  assert.deepEqual(sent, []);
 });

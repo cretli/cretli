@@ -1,6 +1,6 @@
 {
   "name": "cretli",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Remote vibe coding from your phone. Self-hosted mobile client and widgets for Cursor SDK, OpenRouter, OpenCode, and AI agents.",
   "type": "module",
   "main": "server.js",
@@ -112,6 +112,10 @@
     "test:sdk-prompt-images": "node tests/sdk-prompt-images.test.js",
     "test:sdk-thinking-state": "node tests/sdk-thinking-state.test.js",
     "test:sdk-run-idle-guard": "node tests/sdk-run-idle-guard.test.js",
+    "test:sdk-run-steer": "node tests/sdk-run-steer.test.js",
+    "test:sdk-run-background": "node tests/sdk-run-background.test.js",
+    "test:sdk-system-prompt": "node tests/sdk-system-prompt.test.js",
+    "test:sdk-tool-annotations": "node tests/sdk-tool-annotations.test.js",
     "test:sdk-context-reset": "node tests/sdk-context-reset.test.js",
     "test:sdk-model-change": "node tests/sdk-model-change.test.js",
     "test:sdk-ws-transport": "node tests/sdk-ws-transport.test.js",
@@ -190,12 +194,13 @@
     "jsonc-parser": "^3.3.1",
     "node-pty": "^1.0.0",
     "playwright-core": "^1.63.0",
+    "source-map-js": "^1.2.1",
     "sharp": "^0.35.4",
     "web-push": "^3.6.7",
     "ws": "^8.21.3"
   },
   "optionalDependencies": {
-    "@cursor/sdk": "^1.0.32",
+    "@cursor/sdk": "^1.0.37",
     "@deepseek-ai/dsh": "0.1.2-alpha.5",
     "@deepseek-ai/dsh-sdk-client": "0.1.2-alpha.5",
     "@img/sharp-wasm32": "^0.35.4",

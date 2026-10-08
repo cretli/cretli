@@ -15,10 +15,43 @@ import {
   renderWatcherStatsHtml,
   renderWatcherDecisionsHtml,
   renderWatcherAlertsHtml,
+  renderWatcherScheduleHtml,
+  scheduleNextValueHtml,
   formatCountdown,
   formatDuration,
 } from '../watcher/watcherDashboard.js';
 import { renderWatcherTimelineHtml, WATCHER_TIMELINE_RANGES } from '../watcher/watcherTimeline.js';
+import {
+  SCOUT_PROFILE_ACTIONS,
+  nextScoutProfileName,
+  renderScoutProfilesHtml,
+  scoutReasonText,
+  scoutRunResultText,
+} from '../watcher/scoutProfilesView.js';
+import {
+  SCOUT_EDITOR_ACTIONS,
+  applyDraftEdit,
+  draftFromProfile,
+  draftFromTemplate,
+  renderScoutEditorHtml,
+  renderScoutPreviewHtml,
+  renderScoutRestoreHtml,
+  renderScoutTemplatesHtml,
+  scoutEditorAdvancedFieldError,
+  scoutEditorFieldErrors,
+} from '../watcher/scoutProfileEditorView.js';
+import {
+  SCOUT_HISTORY_ACTIONS,
+  SCOUT_HISTORY_PAGE_SIZE,
+  renderScoutHistoryHtml,
+  scoutScanCapacityExceeded,
+} from '../watcher/scoutHistoryView.js';
+import {
+  SCOUT_INBOX_ACTIONS,
+  SCOUT_INBOX_PAGE_SIZE,
+  SCOUT_INBOX_SOURCE_PAGE_SIZE,
+  renderScoutInboxHtml,
+} from '../watcher/scoutFindingsInboxView.js';
 import {
   getWatcherWorkspaceFolder,
   scopeWatcherRequestToWorkspace,
@@ -31,6 +64,8 @@ const PICK_ROLES = ['plan', 'implement', 'review'];
 /** Scout categories — must match `WORKSPACE_SCOUT_CATEGORIES` on the server so
  *  the checkboxes and the closed-set allow-list never drift. */
 const SCOUT_CATEGORIES = ['bug', 'improvement', 'refactor', 'security', 'opportunity', 'documentation'];
+/** Mirror of `WORKSPACE_WATCHER_MAX_PENDING_SCOUT_FINDINGS` on the server. */
+const SCOUT_PENDING_FINDINGS_CAPACITY = 200;
 /** Cooldown slider bounds in ms. The persisted default is 30s (see below), so
  *  the slider spans a practical 0–15 min band in 30s steps. */
 const COOLDOWN_MIN_MS = 0;
@@ -113,6 +148,77 @@ let refreshSeq = 0;
  *  save). An optimistic-save rollback only restores its snapshot while the
  *  cache still holds that same generation, so a newer refresh always wins. */
 let viewSeq = 0;
+/** Scout profile list state (stage 5.1). Kept module-scoped so a management
+ *  action can repaint only the list, never the editable policy form. */
+const EMPTY_SCOUT_PROFILES_STATE = {
+  loading: true,
+  error: '',
+  profiles: [],
+  busy: false,
+  busyId: '',
+  busyAction: '',
+  confirmArchiveId: '',
+  message: '',
+  messageTone: 'ok',
+};
+let scoutProfilesState = { ...EMPTY_SCOUT_PROFILES_STATE };
+/** Scout scan history (stage 5.3). Repainted independently of the policy form. */
+const EMPTY_SCOUT_HISTORY_STATE = {
+  loading: true,
+  error: '',
+  history: [],
+  total: 0,
+  scoutId: '',
+  max: SCOUT_HISTORY_PAGE_SIZE,
+  busy: false,
+  message: '',
+  messageTone: 'ok',
+};
+let scoutHistoryState = { ...EMPTY_SCOUT_HISTORY_STATE };
+/** Shared Scout proposal inbox (stage 5.3). */
+const EMPTY_SCOUT_INBOX_STATE = {
+  loading: true,
+  error: '',
+  findings: [],
+  total: 0,
+  scoutId: '',
+  category: '',
+  status: '',
+  max: SCOUT_INBOX_PAGE_SIZE,
+  busy: false,
+  busyId: '',
+  expandedSources: {},
+  capacityExceeded: false,
+  message: '',
+  messageTone: 'ok',
+};
+let scoutInboxState = { ...EMPTY_SCOUT_INBOX_STATE };
+/** Scout profile editor state (stage 5.2). Module-scoped and completely separate
+ *  from the list state: a live refresh may repaint the list without ever
+ *  overwriting an unsaved draft when `dirty === true`. */
+const EMPTY_SCOUT_EDITOR_STATE = {
+  mode: null,
+  draft: null,
+  originalProfile: null,
+  templates: [],
+  preview: null,
+  previewError: '',
+  restoreDiff: null,
+  restoreMeta: null,
+  restoreError: '',
+  fieldErrors: {},
+  casConflict: false,
+  busy: false,
+  dirty: false,
+  error: '',
+  selectedId: '',
+  /** Kept here, not in the DOM: a repaint rebuilds the `<details>` element. */
+  advancedOpen: false,
+};
+let scoutEditorState = { ...EMPTY_SCOUT_EDITOR_STATE };
+/** Index of the glob row a pending `remove-include`/`remove-exclude` click
+ *  targets. Set by the delegated click binder right before dispatch. */
+let scoutEditorRemoveIndex = -1;
 
 /**
  * @param {string} id
@@ -207,7 +313,12 @@ export function initWorkspaceWatcherSettingsPanel() {
     if (!panel || panel.dataset.bound !== 'true') return;
     paintWatcherDashboard(panel);
     paintWatcherRuntimeControl(panel);
+    paintScoutProfiles(panel);
+    paintScoutHistory(panel);
+    paintScoutInbox(panel);
+    paintScoutEditorLive(panel);
     paintScoutSchedule(panel);
+    paintWatcherSchedule(panel);
   });
   // The per-second ticker is pure background work while the document is hidden;
   // stop it and let the next visible refresh rebind it.
@@ -229,13 +340,36 @@ export async function refreshWorkspaceWatcherSettingsPanel(options = {}) {
     || root.dataset.rendered !== 'true'
     || watcherWorkspaceScopeChanged(renderedWorkspaceFolder);
   const seq = ++refreshSeq;
-  if (full) root.innerHTML = `<p class="settings-hint">${escapeHtml(t('settings.watcherLoading'))}</p>`;
+  if (full) {
+    root.innerHTML = `<p class="settings-hint">${escapeHtml(t('settings.watcherLoading'))}</p>`;
+    // A full render is a fresh start for the list: drop a stale confirmation and
+    // show the loading state until the fetch resolves.
+    scoutProfilesState = { ...EMPTY_SCOUT_PROFILES_STATE };
+    scoutHistoryState = { ...EMPTY_SCOUT_HISTORY_STATE };
+    scoutInboxState = { ...EMPTY_SCOUT_INBOX_STATE };
+    // A workspace switch must not leave the previous workspace's profile draft
+    // on screen; within one workspace the draft survives a full render.
+    if (watcherWorkspaceScopeChanged(renderedWorkspaceFolder)) {
+      scoutEditorState = { ...EMPTY_SCOUT_EDITOR_STATE };
+    }
+  }
+  const scoutHistoryPath = full
+    ? `/api/workspace-watcher/scout/history?max=${SCOUT_HISTORY_PAGE_SIZE}`
+    : null;
+  const scoutInboxPath = full
+    ? `/api/workspace-watcher/scout?max=${SCOUT_INBOX_PAGE_SIZE}`
+    : null;
   // The harness catalog is only needed to build the form (full path); fetch it
-  // alongside the watcher view so the checkbox list renders synchronously.
-  const [res, catalog, runtime] = await Promise.all([
+  // alongside the watcher view so the checkbox list renders synchronously. The
+  // profile list is additive: a failure degrades to an error card, it must never
+  // reject the whole refresh and blank the rest of the panel.
+  const [res, catalog, runtime, profilesRes, historyRes, inboxRes] = await Promise.all([
     watcherApi('/api/workspace-watcher'),
     full ? watcherApi('/api/harness-catalog/harnesses') : Promise.resolve(null),
     watcherApi('/api/workspace-watcher/runtime-control'),
+    full ? watcherApi('/api/workspace-watcher/scout/profiles').catch(() => null) : Promise.resolve(null),
+    full && scoutHistoryPath ? watcherApi(scoutHistoryPath).catch(() => null) : Promise.resolve(null),
+    full && scoutInboxPath ? watcherApi(scoutInboxPath).catch(() => null) : Promise.resolve(null),
   ]);
   // A newer refresh (a save, or another live event) already owns the paint.
   if (seq !== refreshSeq) return;
@@ -243,6 +377,11 @@ export async function refreshWorkspaceWatcherSettingsPanel(options = {}) {
     harnessOptions = catalog.json.items
       .map((row) => ({ id: String(row?.id ?? '').trim(), label: String(row?.label ?? row?.id ?? '').trim() }))
       .filter((row) => row.id);
+  }
+  if (full) {
+    applyScoutProfilesResponse(profilesRes);
+    applyScoutHistoryResponse(historyRes);
+    applyScoutInboxResponse(inboxRes, res.json?.scout);
   }
   if (!res.json?.ok) {
     if (full) root.innerHTML = `<p class="message" data-tone="error">${escapeHtml(res.json?.error || t('settings.watcherLoadError'))}</p>`;
@@ -361,26 +500,12 @@ function renderWatcherStatusCardHtml(data) {
     </div>
     <p class="cr-hint">${escapeHtml(t('settings.watcherCyclesToday'))}: ${Number(data.guardrails?.usedToday) || 0} / ${Number(data.guardrails?.maxCyclesPerDay) || 0} · ${escapeHtml(t('settings.watcherCyclesTotal'))}: ${Number(watcher.cycleCount) || 0}</p>
     <p class="cr-hint">${escapeHtml(t('settings.watcherLastTick'))}: ${escapeHtml(watcher.lastTickAt || '-')} · ${escapeHtml(t('settings.watcherLastCycle'))}: ${escapeHtml(watcher.lastCycleAt || '-')}</p>
+    <p class="cr-hint">${escapeHtml(t('settings.watcherScheduleNext'))}: ${scheduleNextValueHtml(data.schedule, Date.now())}</p>
     <p class="cr-hint">${escapeHtml(t('settings.watcherSnapshot'))}: ready=${Number(data.snapshot?.readyTodoCount) || 0} active=${Number(data.snapshot?.activeAgentCount) || 0} scout=${Number(data.snapshot?.scoutAgentCount) || 0} unknown=${Number(data.snapshot?.unknownAgentCount) || 0}</p>
     <p class="cr-hint">${escapeHtml(t('settings.watcherStopReason'))}: ${escapeHtml(watcher.stopReason || '-')} · ${escapeHtml(t('settings.watcherBackoff'))}: ${escapeHtml(watcher.backoffUntil || '-')}</p>
     <p class="cr-hint">${escapeHtml(t('settings.watcherActiveCycles'))}: ${escapeHtml(formatActiveCyclesSummary(watcher))}</p>
     <p class="cr-hint">${escapeHtml(t('settings.watcherFindings'))}: hash=${escapeHtml(watcher.findings?.hash || '-')} streak=${Number(watcher.findings?.streak) || 0}</p>
   `;
-}
-
-/**
- * Human label for a Scout block reason (`scan_interval`, `daily_budget`, …).
- * Falls back to the raw server reason when the dictionary has no entry yet.
- *
- * @param {unknown} reason
- * @returns {string}
- */
-function scoutReasonText(reason) {
-  const key = String(reason || '').trim();
-  if (!key) return '';
-  const i18nKey = `settings.watcherScoutReason_${key}`;
-  const text = t(i18nKey);
-  return text === i18nKey ? key : text;
 }
 
 /**
@@ -429,6 +554,1180 @@ function paintScoutSchedule(root) {
   const node = root.querySelector('#watcher-scout-schedule-info');
   if (!node || !lastView) return;
   node.innerHTML = renderScoutScheduleHtml(lastView.scout || {}, Date.now());
+}
+
+/**
+ * Store one profiles response as the new server truth. Busy/confirmation state
+ * is always cleared here: the list is authoritative again.
+ *
+ * @param {{ status?: number, json?: object | null } | null} res
+ */
+function applyScoutProfilesResponse(res) {
+  const next = { ...scoutProfilesState, loading: false, busy: false, busyId: '', busyAction: '' };
+  if (res?.json?.ok === true && Array.isArray(res.json.profiles)) {
+    scoutProfilesState = { ...next, error: '', profiles: res.json.profiles };
+    return;
+  }
+  scoutProfilesState = {
+    ...next,
+    error: res?.json?.error || t('settings.watcherScoutProfilesError'),
+    profiles: [],
+  };
+}
+
+/** @param {HTMLElement} root */
+function paintScoutProfiles(root) {
+  const node = root.querySelector('#watcher-scout-profiles');
+  if (!node) return;
+  node.innerHTML = renderScoutProfilesHtml({ ...scoutProfilesState, now: Date.now() });
+}
+
+/**
+ * Re-read the profile list and repaint only that card. Used after every mutation
+ * so the UI reflects server truth (revision, counters, archived flag) instead of
+ * an optimistic guess, and the editable policy form is never rebuilt.
+ *
+ * @param {HTMLElement | null} [root]
+ */
+async function reloadScoutProfiles(root = null) {
+  const panel = root || document.getElementById('settings-watcher-root');
+  scoutProfilesState = {
+    ...scoutProfilesState,
+    loading: true,
+    error: '',
+    busy: false,
+    busyId: '',
+    busyAction: '',
+  };
+  if (panel) paintScoutProfiles(panel);
+  let res;
+  try {
+    res = await watcherApi('/api/workspace-watcher/scout/profiles');
+  } catch {
+    res = null;
+  }
+  applyScoutProfilesResponse(res);
+  if (panel) paintScoutProfiles(panel);
+}
+
+/**
+ * @param {string} text
+ * @param {'ok' | 'error'} [tone]
+ */
+function setScoutProfilesMessage(text, tone = 'ok') {
+  scoutProfilesState = {
+    ...scoutProfilesState,
+    message: String(text ?? '').trim(),
+    messageTone: tone === 'error' ? 'error' : 'ok',
+  };
+}
+
+/**
+ * Strip server-owned fields and the additive `state` before an update PATCH, so
+ * the payload carries exactly the user-editable configuration.
+ *
+ * @param {object | null | undefined} profile
+ * @returns {object}
+ */
+function stripScoutProfileState(profile) {
+  const body = { ...(profile && typeof profile === 'object' ? profile : {}) };
+  for (const field of ['state', 'id', 'revision', 'createdAt', 'updatedAt']) delete body[field];
+  return body;
+}
+
+/**
+ * @param {string} action
+ * @returns {string}
+ */
+function scoutProfileSuccessMessage(action) {
+  if (action === 'create') return t('settings.watcherScoutCreated');
+  if (action === 'duplicate') return t('settings.watcherScoutDuplicated');
+  if (action === 'archive-confirm') return t('settings.watcherScoutArchived');
+  return t('settings.watcherScoutUpdated');
+}
+
+/**
+ * Perform the API call behind one list action.
+ *
+ * @param {string} action
+ * @param {object | null} profile
+ * @param {string} scoutId
+ * @returns {Promise<{ status?: number, json?: object | null }>}
+ */
+async function scoutProfileMutation(action, profile, scoutId) {
+  const encoded = encodeURIComponent(scoutId);
+  if (action === 'create') {
+    return watcherApi('/api/workspace-watcher/scout/profiles', {
+      method: 'POST',
+      body: {
+        profile: {
+          name: nextScoutProfileName(scoutProfilesState.profiles.map((row) => row?.name)),
+          objective: t('settings.watcherScoutNewDefaultObjective'),
+          enabled: false,
+          schedule: { mode: 'manual' },
+          categories: [...SCOUT_CATEGORIES],
+        },
+      },
+    });
+  }
+  if (action === 'duplicate') {
+    return watcherApi(`/api/workspace-watcher/scout/profiles/${encoded}/duplicate`, {
+      method: 'POST',
+      body: {},
+    });
+  }
+  if (action === 'archive-confirm') {
+    return watcherApi(`/api/workspace-watcher/scout/profiles/${encoded}/archive`, {
+      method: 'POST',
+      body: {},
+    });
+  }
+  if (action === 'run') {
+    return watcherApi(`/api/workspace-watcher/scout/profiles/${encoded}/run`, {
+      method: 'POST',
+      body: {},
+    });
+  }
+  if (action === 'toggle') {
+    const nextProfile = stripScoutProfileState(profile);
+    nextProfile.enabled = profile?.enabled !== true;
+    return watcherApi(`/api/workspace-watcher/scout/profiles/${encoded}`, {
+      method: 'PATCH',
+      body: {
+        expectedRevision: Math.max(1, Math.floor(Number(profile?.revision) || 1)),
+        profile: nextProfile,
+      },
+    });
+  }
+  return { status: 400, json: { ok: false, error: t('settings.watcherActionError') } };
+}
+
+/**
+ * Dispatch one management action from the profile list. A mutation marks the
+ * row busy, calls the API, reports a readable message (including the 409 CAS
+ * conflict) and then re-reads the list from the server. The editable policy form
+ * is only ever repainted through `#watcher-scout-profiles`.
+ *
+ * @param {HTMLElement} root
+ * @param {string} action
+ * @param {string} scoutId
+ */
+async function runScoutProfileAction(root, action, scoutId) {
+  // The editor surface has its own action namespace; route it to the editor
+  // dispatcher so a rendered editor button is never treated as a list action.
+  if (SCOUT_EDITOR_ACTIONS.includes(action)) {
+    await runScoutEditorAction(root, action, scoutId);
+    return;
+  }
+  if (action === 'archive') {
+    scoutProfilesState = { ...scoutProfilesState, confirmArchiveId: scoutId, message: '', messageTone: 'ok' };
+    paintScoutProfiles(root);
+    return;
+  }
+  if (action === 'archive-cancel') {
+    scoutProfilesState = { ...scoutProfilesState, confirmArchiveId: '' };
+    paintScoutProfiles(root);
+    return;
+  }
+  if (action === 'reload') {
+    await reloadScoutProfiles(root);
+    return;
+  }
+  const profile = scoutProfilesState.profiles.find((row) => String(row?.id ?? '') === scoutId) || null;
+  if (action !== 'create' && !profile) return;
+  scoutProfilesState = {
+    ...scoutProfilesState,
+    busy: true,
+    busyId: scoutId,
+    busyAction: action,
+    confirmArchiveId: '',
+    message: '',
+    messageTone: 'ok',
+  };
+  paintScoutProfiles(root);
+  let res;
+  try {
+    res = await scoutProfileMutation(action, profile, scoutId);
+  } catch {
+    res = { status: 0, json: null };
+  }
+  const conflict = res?.status === 409;
+  if (action === 'run') {
+    // A blocked manual run answers HTTP 200 with ok:false and a reason.
+    const started = res?.json?.ok === true && res?.json?.scanned !== false;
+    if (started) {
+      setScoutProfilesMessage(
+        t('settings.watcherScoutRunStarted', { n: Number(res.json.added) || 0 }),
+        'ok',
+      );
+    } else {
+      setScoutProfilesMessage(
+        scoutRunResultText(res?.json),
+        res?.json?.reason === 'no_files_in_scope' ? 'ok' : 'error',
+      );
+    }
+  } else if (res?.json?.ok === true) {
+    setScoutProfilesMessage(scoutProfileSuccessMessage(action), 'ok');
+  } else {
+    setScoutProfilesMessage(
+      conflict ? t('settings.watcherScoutCasConflict') : (res?.json?.error || t('settings.watcherActionError')),
+      'error',
+    );
+  }
+  // Always re-read: it resolves a stale revision (409) and reflects the real
+  // counters after a manual run.
+  await reloadScoutProfiles(root);
+  if (action === 'run' && res?.json?.ok === true && res?.json?.scanned !== false) {
+    await refreshScoutHistoryAndInbox(root, res.json?.scout);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Scout scan history + shared inbox (stage 5.3)                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * @param {object | null | undefined} scoutMeta
+ * @param {object[] | undefined} history
+ * @returns {boolean}
+ */
+function scoutInboxCapacityFlag(scoutMeta, history) {
+  if (Array.isArray(history) && history.some((entry) => scoutScanCapacityExceeded(entry))) return true;
+  return Number(scoutMeta?.pendingFindings) >= SCOUT_PENDING_FINDINGS_CAPACITY;
+}
+
+/**
+ * @param {{ status?: number, json?: object | null } | null} res
+ */
+function applyScoutHistoryResponse(res) {
+  const next = { ...scoutHistoryState, loading: false, busy: false };
+  if (res?.json?.ok === true && Array.isArray(res.json.history)) {
+    scoutHistoryState = {
+      ...next,
+      error: '',
+      history: res.json.history,
+      total: Number(res.json.total) || res.json.history.length,
+    };
+    scoutInboxState = {
+      ...scoutInboxState,
+      capacityExceeded: scoutInboxCapacityFlag(lastView?.scout, scoutHistoryState.history),
+    };
+    return;
+  }
+  scoutHistoryState = {
+    ...next,
+    error: res?.json?.error || t('settings.watcherScoutHistoryError'),
+    history: [],
+    total: 0,
+  };
+}
+
+/**
+ * @param {{ status?: number, json?: object | null } | null} res
+ * @param {object | null | undefined} [scoutMeta]
+ */
+function applyScoutInboxResponse(res, scoutMeta) {
+  const next = { ...scoutInboxState, loading: false, busy: false, busyId: '' };
+  if (res?.json?.ok === true && Array.isArray(res.json.findings)) {
+    scoutInboxState = {
+      ...next,
+      error: '',
+      findings: res.json.findings,
+      total: Number(res.json.total) || res.json.findings.length,
+      capacityExceeded: scoutInboxCapacityFlag(scoutMeta ?? lastView?.scout, scoutHistoryState.history),
+    };
+    return;
+  }
+  scoutInboxState = {
+    ...next,
+    error: res?.json?.error || t('settings.watcherScoutInboxError'),
+    findings: [],
+    total: 0,
+  };
+}
+
+/**
+ * @returns {string}
+ */
+function scoutHistoryFetchPath() {
+  const params = new URLSearchParams();
+  const scoutId = String(scoutHistoryState.scoutId || '').trim();
+  if (scoutId) params.set('scoutId', scoutId);
+  const max = Math.max(SCOUT_HISTORY_PAGE_SIZE, Math.floor(Number(scoutHistoryState.max) || SCOUT_HISTORY_PAGE_SIZE));
+  params.set('max', String(max));
+  const query = params.toString();
+  return query
+    ? `/api/workspace-watcher/scout/history?${query}`
+    : `/api/workspace-watcher/scout/history?max=${max}`;
+}
+
+/**
+ * @returns {string}
+ */
+function scoutInboxFetchPath() {
+  const params = new URLSearchParams();
+  const scoutId = String(scoutInboxState.scoutId || '').trim();
+  const category = String(scoutInboxState.category || '').trim();
+  const status = String(scoutInboxState.status || '').trim();
+  if (scoutId) params.set('scoutId', scoutId);
+  if (category) params.set('category', category);
+  if (status) params.set('status', status);
+  const max = Math.max(SCOUT_INBOX_PAGE_SIZE, Math.floor(Number(scoutInboxState.max) || SCOUT_INBOX_PAGE_SIZE));
+  params.set('max', String(max));
+  return `/api/workspace-watcher/scout?${params.toString()}`;
+}
+
+/** @param {HTMLElement} root */
+function paintScoutHistory(root) {
+  const node = root.querySelector('#watcher-scout-history');
+  if (!node) return;
+  node.innerHTML = renderScoutHistoryHtml({
+    ...scoutHistoryState,
+    profiles: scoutProfilesState.profiles,
+  });
+}
+
+/** @param {HTMLElement} root */
+function paintScoutInbox(root) {
+  const node = root.querySelector('#watcher-scout-inbox');
+  if (!node) return;
+  const policy = lastView?.policy || {};
+  node.innerHTML = renderScoutInboxHtml({
+    ...scoutInboxState,
+    profiles: scoutProfilesState.profiles,
+    autoCreate: policy.scoutAutoCreate === true,
+    getTodoTitle,
+  });
+}
+
+/**
+ * @param {HTMLElement | null} [root]
+ */
+async function reloadScoutHistory(root = null) {
+  const panel = root || document.getElementById('settings-watcher-root');
+  scoutHistoryState = { ...scoutHistoryState, loading: true, error: '', busy: false };
+  if (panel) paintScoutHistory(panel);
+  let res;
+  try {
+    res = await watcherApi(scoutHistoryFetchPath());
+  } catch {
+    res = null;
+  }
+  applyScoutHistoryResponse(res);
+  if (panel) {
+    paintScoutHistory(panel);
+    paintScoutInbox(panel);
+  }
+}
+
+/**
+ * @param {HTMLElement | null} [root]
+ * @param {object | null | undefined} [scoutMeta]
+ */
+async function reloadScoutInbox(root = null, scoutMeta) {
+  const panel = root || document.getElementById('settings-watcher-root');
+  scoutInboxState = { ...scoutInboxState, loading: true, error: '', busy: false, busyId: '' };
+  if (panel) paintScoutInbox(panel);
+  let res;
+  try {
+    res = await watcherApi(scoutInboxFetchPath());
+  } catch {
+    res = null;
+  }
+  applyScoutInboxResponse(res, scoutMeta);
+  if (panel) paintScoutInbox(panel);
+}
+
+/**
+ * @param {HTMLElement} root
+ * @param {object | null | undefined} [scoutMeta]
+ */
+async function refreshScoutHistoryAndInbox(root, scoutMeta) {
+  await Promise.all([reloadScoutHistory(root), reloadScoutInbox(root, scoutMeta)]);
+}
+
+/**
+ * @param {HTMLElement} root
+ * @param {string} action
+ */
+async function runScoutHistoryAction(root, action) {
+  if (action === 'history-reload') {
+    scoutHistoryState = { ...scoutHistoryState, max: SCOUT_HISTORY_PAGE_SIZE, message: '', messageTone: 'ok' };
+    await reloadScoutHistory(root);
+    return;
+  }
+  if (action !== 'history-more') return;
+  const base = Math.max(SCOUT_HISTORY_PAGE_SIZE, Math.floor(Number(scoutHistoryState.max) || SCOUT_HISTORY_PAGE_SIZE));
+  scoutHistoryState = { ...scoutHistoryState, max: base + SCOUT_HISTORY_PAGE_SIZE, busy: true, message: '', messageTone: 'ok' };
+  paintScoutHistory(root);
+  await reloadScoutHistory(root);
+}
+
+/**
+ * @param {string} todoId
+ */
+function openScoutLinkedTodo(todoId) {
+  const id = String(todoId || '').trim();
+  if (!id) return;
+  document.dispatchEvent(new CustomEvent('cretli-open-todo', { detail: { todoId: id }, bubbles: true }));
+}
+
+/**
+ * @param {HTMLElement} root
+ * @param {string} action
+ * @param {string} [findingId]
+ * @param {string} [todoId]
+ */
+async function runScoutInboxAction(root, action, findingId = '', todoId = '') {
+  if (action === 'inbox-reload') {
+    scoutInboxState = {
+      ...scoutInboxState,
+      max: SCOUT_INBOX_PAGE_SIZE,
+      expandedSources: {},
+      message: '',
+      messageTone: 'ok',
+    };
+    await reloadScoutInbox(root);
+    return;
+  }
+  if (action === 'open-todo') {
+    openScoutLinkedTodo(todoId);
+    return;
+  }
+  if (action === 'inbox-sources-more') {
+    const id = String(findingId || '').trim();
+    if (!id) return;
+    const prev = scoutInboxState.expandedSources[id] || SCOUT_INBOX_SOURCE_PAGE_SIZE;
+    scoutInboxState = {
+      ...scoutInboxState,
+      expandedSources: { ...scoutInboxState.expandedSources, [id]: prev + SCOUT_INBOX_SOURCE_PAGE_SIZE },
+    };
+    paintScoutInbox(root);
+    return;
+  }
+  if (action === 'inbox-more') {
+    const base = Math.max(SCOUT_INBOX_PAGE_SIZE, Math.floor(Number(scoutInboxState.max) || SCOUT_INBOX_PAGE_SIZE));
+    scoutInboxState = { ...scoutInboxState, max: base + SCOUT_INBOX_PAGE_SIZE, busy: true, message: '', messageTone: 'ok' };
+    paintScoutInbox(root);
+    await reloadScoutInbox(root);
+    return;
+  }
+  if (action !== 'inbox-accept' && action !== 'inbox-reject') return;
+  const id = String(findingId || '').trim();
+  if (!id) return;
+  scoutInboxState = { ...scoutInboxState, busy: true, busyId: id, message: '', messageTone: 'ok' };
+  paintScoutInbox(root);
+  let res;
+  try {
+    res = await watcherApi('/api/workspace-watcher/scout', {
+      method: 'POST',
+      body: { action: action === 'inbox-accept' ? 'accept' : 'reject', ids: [id] },
+    });
+  } catch {
+    res = { status: 0, json: null };
+  }
+  if (res?.json?.ok === true) {
+    scoutInboxState = {
+      ...scoutInboxState,
+      message: action === 'inbox-accept'
+        ? t('settings.watcherScoutInboxAccepted')
+        : t('settings.watcherScoutInboxRejected'),
+      messageTone: 'ok',
+    };
+  } else {
+    scoutInboxState = {
+      ...scoutInboxState,
+      message: res?.json?.error || t('settings.watcherActionError'),
+      messageTone: 'error',
+    };
+  }
+  await reloadScoutInbox(root);
+  await reloadScoutProfiles(root);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Scout profile editor (stage 5.2)                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Strip server-owned fields and the additive `state` before an editor save.
+ *
+ * @param {object | null | undefined} draft
+ * @returns {object}
+ */
+function stripScoutEditorDraft(draft) {
+  const body = { ...(draft && typeof draft === 'object' ? draft : {}) };
+  for (const field of ['state', 'id', 'revision', 'createdAt', 'updatedAt']) delete body[field];
+  return body;
+}
+
+/**
+ * Overrides sent with `from-template`: everything the user edited except the
+ * server-owned identity, the template link and the automation invariant
+ * (`enabled`/`schedule` are forced by the control layer).
+ *
+ * @param {object} draft
+ * @returns {object}
+ */
+function templateOverridesFromDraft(draft) {
+  const body = stripScoutEditorDraft(draft);
+  delete body.templateId;
+  delete body.templateVersion;
+  delete body.enabled;
+  delete body.schedule;
+  return body;
+}
+
+/**
+ * @param {object | null | undefined} profile
+ * @param {string} scoutId
+ * @returns {object | null}
+ */
+function findScoutProfile(profile, scoutId) {
+  if (profile && String(profile.id ?? '') === scoutId) return profile;
+  return scoutProfilesState.profiles.find((row) => String(row?.id ?? '') === scoutId) || null;
+}
+
+/**
+ * @param {string} templateId
+ * @returns {string}
+ */
+function scoutTemplateName(templateId) {
+  const id = String(templateId || '').trim();
+  if (!id) return '';
+  const template = scoutEditorState.templates.find((row) => String(row?.id ?? '') === id);
+  return String(template?.name ?? '').trim();
+}
+
+/**
+ * @param {HTMLElement} root
+ * @returns {object}
+ */
+function restoreView() {
+  const meta = scoutEditorState.restoreMeta || {};
+  return {
+    diff: scoutEditorState.restoreDiff,
+    templateId: meta.templateId || '',
+    templateVersion: meta.templateVersion || '',
+    templateName: meta.templateName || '',
+    scoutId: String(meta.scoutId || scoutEditorState.selectedId || '').trim(),
+    error: scoutEditorState.restoreError,
+    busy: scoutEditorState.busy,
+  };
+}
+
+/**
+ * Repaint the editor card, the template grid, the preview and the restore card
+ * from the module state. The containers are replaced on every full render, so
+ * the delegated listeners can never accumulate.
+ *
+ * @param {HTMLElement} root
+ */
+function paintScoutEditor(root) {
+  const editorNode = root.querySelector('#watcher-scout-editor');
+  if (editorNode) {
+    editorNode.innerHTML = renderScoutEditorHtml({
+      ...scoutEditorState,
+      profiles: scoutProfilesState.profiles,
+      now: Date.now(),
+    });
+  }
+  const templatesNode = root.querySelector('#watcher-scout-templates');
+  if (templatesNode) {
+    templatesNode.innerHTML = renderScoutTemplatesHtml({
+      templates: scoutEditorState.templates,
+      busy: scoutEditorState.busy,
+    });
+  }
+  const previewNode = root.querySelector('#watcher-scout-preview');
+  if (previewNode) {
+    previewNode.innerHTML = renderScoutPreviewHtml({
+      preview: scoutEditorState.preview,
+      error: scoutEditorState.previewError,
+    });
+  }
+  const restoreNode = root.querySelector('#watcher-scout-restore');
+  if (restoreNode) restoreNode.innerHTML = renderScoutRestoreHtml(restoreView());
+}
+
+/**
+ * Live repaint rule: while a draft is dirty only the list card is repainted; the
+ * editor form is left untouched so an unsaved edit survives a watcher change.
+ *
+ * @param {HTMLElement} root
+ */
+function paintScoutEditorLive(root) {
+  if (scoutEditorState.dirty === true) {
+    paintScoutProfiles(root);
+    return;
+  }
+  paintScoutEditor(root);
+}
+
+/**
+ * Read one editor input back into the draft. The draft is replaced immutably so
+ * the original profile (and any template) is never mutated.
+ *
+ * @param {HTMLElement} root
+ * @param {string} path
+ * @param {unknown} rawValue
+ */
+function applyScoutEditorField(root, path, rawValue) {
+  if (!scoutEditorState.draft) return;
+  const numeric = path === 'schedule.intervalHours' || path.startsWith('limits.');
+  const value = numeric ? (rawValue === '' ? '' : Number(rawValue)) : rawValue;
+  let draft = applyDraftEdit(scoutEditorState.draft, path, value);
+  // Typing an explicit harness/model is a mode switch: an explicit executor and
+  // automatic selection are mutually exclusive, so a non-empty value leaves auto.
+  if ((path === 'executor.harness' || path === 'executor.model') && String(value ?? '').trim() !== '') {
+    draft = applyDraftEdit(draft, 'executor.auto', false);
+    // Reflect the switch in the DOM without rebuilding the form, so focus and
+    // caret stay where the operator is typing.
+    const autoToggle = root.querySelector('#watcher-scout-editor [data-scout-editor-toggle="executor.auto"]');
+    if (autoToggle instanceof HTMLInputElement) autoToggle.checked = false;
+  }
+  const fieldErrors = { ...scoutEditorState.fieldErrors };
+  delete fieldErrors[path];
+  scoutEditorState = {
+    ...scoutEditorState,
+    draft,
+    fieldErrors,
+    dirty: true,
+    error: '',
+  };
+  const node = root.querySelector(`#watcher-scout-editor [data-scout-field-error="${path}"]`);
+  if (node) node.remove();
+}
+
+/**
+ * Rebuild one include/exclude list from all of its visible inputs.
+ *
+ * @param {HTMLElement} root
+ * @param {string} listPath
+ */
+function applyScoutEditorListField(root, listPath) {
+  if (!scoutEditorState.draft) return;
+  const inputs = [...root.querySelectorAll(`#watcher-scout-editor [data-scout-editor-list-field="${listPath}"]`)];
+  if (inputs.length === 0) return;
+  const values = inputs.map((node) => String(node.value ?? ''));
+  scoutEditorState = {
+    ...scoutEditorState,
+    draft: applyDraftEdit(scoutEditorState.draft, listPath, values),
+    dirty: true,
+    error: '',
+  };
+}
+
+/**
+ * Toggle one checkbox group or boolean flag in the draft. Categories are forced
+ * non-empty: unchecking the last one keeps it and shows the inline error.
+ *
+ * @param {HTMLElement} root
+ * @param {string} toggle
+ * @param {string} value
+ * @param {boolean} checked
+ */
+function applyScoutEditorToggle(root, toggle, value, checked) {
+  const draft = scoutEditorState.draft;
+  if (!draft) return;
+  if (toggle === 'enabled' || toggle === 'executor.auto') {
+    let nextDraft = applyDraftEdit(draft, toggle, checked);
+    // Re-checking automatic selection clears the explicit executor the runner
+    // would ignore, so a stored profile can never carry a stale value.
+    if (toggle === 'executor.auto' && checked) {
+      nextDraft = applyDraftEdit(nextDraft, 'executor.harness', '');
+      nextDraft = applyDraftEdit(nextDraft, 'executor.model', '');
+    }
+    scoutEditorState = {
+      ...scoutEditorState,
+      draft: nextDraft,
+      dirty: true,
+      error: '',
+    };
+    // The explicit inputs enable or disable with the mode, so the DOM repaints.
+    if (toggle === 'executor.auto') paintScoutEditor(root);
+    return;
+  }
+  const path = toggle === 'executor.allowedHarnesses' ? 'executor.allowedHarnesses' : toggle;
+  const current = toggle === 'executor.allowedHarnesses'
+    ? [...(draft.executor?.allowedHarnesses || [])]
+    : [...(toggle === 'sources' ? draft.sources : draft.categories)];
+  const next = checked
+    ? [...new Set([...current, value])]
+    : current.filter((entry) => String(entry) !== String(value));
+  if (toggle === 'categories' && next.length === 0) {
+    scoutEditorState = {
+      ...scoutEditorState,
+      fieldErrors: {
+        ...scoutEditorState.fieldErrors,
+        categories: t('settings.watcherScoutFieldErrors_categoriesRequired'),
+      },
+      // The inline error lives inside the Advanced section; keep it visible.
+      advancedOpen: true,
+    };
+    paintScoutEditor(root);
+    return;
+  }
+  const fieldErrors = { ...scoutEditorState.fieldErrors };
+  if (toggle === 'categories') delete fieldErrors.categories;
+  scoutEditorState = {
+    ...scoutEditorState,
+    draft: applyDraftEdit(draft, path, next),
+    fieldErrors,
+    dirty: true,
+    error: '',
+  };
+  paintScoutEditor(root);
+}
+
+/**
+ * One editor action. Every branch keeps the draft on screen on a validation
+ * error, and only clears it after the server confirmed a save.
+ *
+ * @param {HTMLElement} root
+ * @param {string} action
+ * @param {string} scoutId
+ */
+async function runScoutEditorAction(root, action, scoutId) {
+  const selectedId = String(scoutId || scoutEditorState.selectedId || '').trim();
+  const profile = findScoutProfile(scoutEditorState.originalProfile, selectedId);
+  const removeIndex = scoutEditorRemoveIndex;
+  scoutEditorRemoveIndex = -1;
+
+  if (action === 'new-profile') {
+    scoutEditorState = {
+      ...EMPTY_SCOUT_EDITOR_STATE,
+      templates: scoutEditorState.templates,
+      selectedId,
+      mode: 'create',
+      draft: applyDraftEdit(draftFromProfile(null), 'name',
+        nextScoutProfileName(scoutProfilesState.profiles.map((row) => row?.name))),
+      dirty: false,
+    };
+    scoutEditorState.draft = applyDraftEdit(
+      scoutEditorState.draft,
+      'objective',
+      t('settings.watcherScoutNewDefaultObjective'),
+    );
+    paintScoutEditor(root);
+    return;
+  }
+  if (action === 'edit') {
+    if (!profile) return;
+    scoutEditorState = {
+      ...EMPTY_SCOUT_EDITOR_STATE,
+      templates: scoutEditorState.templates,
+      selectedId,
+      mode: 'edit',
+      draft: draftFromProfile(profile),
+      originalProfile: profile,
+    };
+    paintScoutEditor(root);
+    return;
+  }
+  if (action === 'from-template') {
+    scoutEditorState = { ...scoutEditorState, busy: true, error: '' };
+    paintScoutEditor(root);
+    let templates = scoutEditorState.templates;
+    if (templates.length === 0) {
+      const res = await watcherApi('/api/workspace-watcher/scout/templates').catch(() => null);
+      if (res?.json?.ok && Array.isArray(res.json.templates)) {
+        templates = res.json.templates;
+        scoutEditorState = { ...scoutEditorState, templates, busy: false, error: '' };
+      } else {
+        scoutEditorState = {
+          ...scoutEditorState,
+          busy: false,
+          error: res?.json?.error || t('settings.watcherScoutEditorFromTemplateError'),
+        };
+      }
+    } else {
+      scoutEditorState = { ...scoutEditorState, busy: false };
+    }
+    paintScoutEditor(root);
+    return;
+  }
+  if (action === 'template-pick') {
+    const template = scoutEditorState.templates.find((row) => String(row?.id ?? '') === selectedId) || null;
+    if (!template) return;
+    scoutEditorState = {
+      ...EMPTY_SCOUT_EDITOR_STATE,
+      templates: scoutEditorState.templates,
+      selectedId,
+      mode: 'from-template',
+      draft: draftFromTemplate(template),
+    };
+    paintScoutEditor(root);
+    return;
+  }
+  if (action === 'cancel' || action === 'close') {
+    scoutEditorState = {
+      ...EMPTY_SCOUT_EDITOR_STATE,
+      templates: scoutEditorState.templates,
+      selectedId,
+    };
+    paintScoutEditor(root);
+    return;
+  }
+  if (action === 'add-include' || action === 'add-exclude') {
+    const listPath = action === 'add-include' ? 'scope.include' : 'scope.exclude';
+    const current = action === 'add-include'
+      ? [...(scoutEditorState.draft?.scope?.include || [])]
+      : [...(scoutEditorState.draft?.scope?.exclude || [])];
+    current.push('');
+    scoutEditorState = {
+      ...scoutEditorState,
+      draft: applyDraftEdit(scoutEditorState.draft, listPath, current),
+      dirty: true,
+      error: '',
+    };
+    paintScoutEditor(root);
+    return;
+  }
+  if (action === 'remove-include' || action === 'remove-exclude') {
+    const listPath = action === 'remove-include' ? 'scope.include' : 'scope.exclude';
+    const index = Math.max(0, Math.floor(Number(removeIndex) || 0));
+    const current = action === 'remove-include'
+      ? [...(scoutEditorState.draft?.scope?.include || [])]
+      : [...(scoutEditorState.draft?.scope?.exclude || [])];
+    current.splice(index, 1);
+    scoutEditorState = {
+      ...scoutEditorState,
+      draft: applyDraftEdit(scoutEditorState.draft, listPath, current),
+      dirty: true,
+      error: '',
+    };
+    paintScoutEditor(root);
+    return;
+  }
+  if (action === 'preview') {
+    const draft = scoutEditorState.draft;
+    let res;
+    if (draft) {
+      res = await watcherApi('/api/workspace-watcher/scout/profiles/preview-draft', {
+        method: 'POST',
+        body: { profile: stripScoutEditorDraft(draft) },
+      }).catch(() => null);
+    } else {
+      if (!selectedId) return;
+      res = await watcherApi(`/api/workspace-watcher/scout/profiles/${encodeURIComponent(selectedId)}/preview`)
+        .catch(() => null);
+    }
+    if (res?.json?.ok) {
+      scoutEditorState = { ...scoutEditorState, preview: res.json, previewError: '' };
+    } else {
+      scoutEditorState = {
+        ...scoutEditorState,
+        preview: null,
+        previewError: res?.json?.error || t('settings.watcherScoutEditorPreviewError'),
+      };
+    }
+    paintScoutEditor(root);
+    return;
+  }
+  if (action === 'restore-diff') {
+    if (!selectedId) {
+      scoutEditorState = { ...scoutEditorState, restoreError: t('settings.watcherScoutEditorNoRestoreTemplate') };
+      paintScoutEditor(root);
+      return;
+    }
+    const target = findScoutProfile(scoutEditorState.originalProfile, selectedId);
+    if (!target || !String(target.templateId || '').trim()) {
+      scoutEditorState = { ...scoutEditorState, restoreError: t('settings.watcherScoutEditorNoRestoreTemplate') };
+      paintScoutEditor(root);
+      return;
+    }
+    scoutEditorState = { ...scoutEditorState, busy: true, restoreError: '' };
+    paintScoutEditor(root);
+    const res = await watcherApi(
+      `/api/workspace-watcher/scout/profiles/${encodeURIComponent(selectedId)}/restore-diff`,
+    ).catch(() => null);
+    if (res?.json?.ok) {
+      const templateId = String(res.json.templateId || target.templateId || '').trim();
+      scoutEditorState = {
+        ...scoutEditorState,
+        busy: false,
+        restoreError: '',
+        restoreDiff: Array.isArray(res.json.diff) ? res.json.diff : [],
+        restoreMeta: {
+          templateId,
+          templateVersion: String(res.json.templateVersion || ''),
+          templateName: scoutTemplateName(templateId) || templateId,
+          scoutId: selectedId,
+        },
+      };
+    } else {
+      scoutEditorState = {
+        ...scoutEditorState,
+        busy: false,
+        restoreDiff: null,
+        restoreMeta: null,
+        restoreError: res?.json?.error || t('settings.watcherScoutEditorRestoreDiffError'),
+      };
+    }
+    paintScoutEditor(root);
+    return;
+  }
+  if (action === 'restore-cancel') {
+    scoutEditorState = {
+      ...scoutEditorState,
+      restoreDiff: null,
+      restoreMeta: null,
+      restoreError: '',
+    };
+    paintScoutEditor(root);
+    return;
+  }
+  if (action === 'restore-confirm') {
+    if (!profile) return;
+    scoutEditorState = { ...scoutEditorState, busy: true, restoreError: '' };
+    paintScoutEditor(root);
+    const res = await watcherApi(
+      `/api/workspace-watcher/scout/profiles/${encodeURIComponent(selectedId)}/restore`,
+      {
+        method: 'POST',
+        body: {
+          expectedRevision: Math.max(1, Math.floor(Number(profile.revision) || 1)),
+          confirm: true,
+        },
+      },
+    ).catch(() => null);
+    if (res?.json?.ok) {
+      setScoutProfilesMessage(t('settings.watcherScoutEditorRestoreApplied'), 'ok');
+      scoutEditorState = {
+        ...scoutEditorState,
+        busy: false,
+        restoreDiff: null,
+        restoreMeta: null,
+        restoreError: '',
+        casConflict: false,
+        dirty: false,
+        draft: scoutEditorState.draft ? draftFromProfile(res.json.profile) : scoutEditorState.draft,
+        originalProfile: res.json.profile || scoutEditorState.originalProfile,
+      };
+      await reloadScoutProfiles(root);
+    } else if (res?.status === 409) {
+      scoutEditorState = {
+        ...scoutEditorState,
+        busy: false,
+        restoreError: t('settings.watcherScoutEditorCasConflict'),
+      };
+    } else {
+      scoutEditorState = {
+        ...scoutEditorState,
+        busy: false,
+        restoreError: res?.json?.error || t('settings.watcherScoutEditorRestoreError'),
+      };
+    }
+    paintScoutEditor(root);
+    return;
+  }
+  if (action === 'reload-profile') {
+    if (!selectedId) return;
+    scoutEditorState = { ...scoutEditorState, busy: true, error: '' };
+    paintScoutEditor(root);
+    const res = await watcherApi(`/api/workspace-watcher/scout/profiles/${encodeURIComponent(selectedId)}`)
+      .catch(() => null);
+    if (res?.json?.ok && res.json.profile) {
+      scoutEditorState = {
+        ...scoutEditorState,
+        busy: false,
+        casConflict: false,
+        error: '',
+        dirty: false,
+        fieldErrors: {},
+        mode: 'edit',
+        originalProfile: res.json.profile,
+        draft: draftFromProfile(res.json.profile),
+      };
+    } else {
+      scoutEditorState = {
+        ...scoutEditorState,
+        busy: false,
+        casConflict: false,
+        error: res?.json?.error || t('settings.watcherScoutEditorProfileError'),
+      };
+    }
+    paintScoutEditor(root);
+    return;
+  }
+  if (action === 'overwrite') {
+    const draft = scoutEditorState.draft;
+    if (!draft || !selectedId) return;
+    scoutEditorState = { ...scoutEditorState, busy: true, error: '' };
+    paintScoutEditor(root);
+    const fresh = await watcherApi(`/api/workspace-watcher/scout/profiles/${encodeURIComponent(selectedId)}`)
+      .catch(() => null);
+    if (!(fresh?.json?.ok && fresh.json.profile)) {
+      scoutEditorState = {
+        ...scoutEditorState,
+        busy: false,
+        error: fresh?.json?.error || t('settings.watcherScoutEditorProfileError'),
+      };
+      paintScoutEditor(root);
+      return;
+    }
+    const revision = Math.max(1, Math.floor(Number(fresh.json.profile.revision) || 1));
+    const res = await watcherApi(
+      `/api/workspace-watcher/scout/profiles/${encodeURIComponent(selectedId)}`,
+      {
+        method: 'PATCH',
+        body: { expectedRevision: revision, profile: stripScoutEditorDraft({ ...draft, revision }) },
+      },
+    ).catch(() => null);
+    if (res?.json?.ok) {
+      setScoutProfilesMessage(t('settings.watcherScoutEditorSaved'), 'ok');
+      scoutEditorState = {
+        ...EMPTY_SCOUT_EDITOR_STATE,
+        templates: scoutEditorState.templates,
+        selectedId,
+      };
+      await reloadScoutProfiles(root);
+      if (res.json.profile) {
+        scoutEditorState = {
+          ...scoutEditorState,
+          mode: 'edit',
+          originalProfile: res.json.profile,
+          draft: draftFromProfile(res.json.profile),
+        };
+      }
+    } else if (res?.status === 409) {
+      scoutEditorState = { ...scoutEditorState, busy: false, casConflict: true, error: '' };
+    } else {
+      scoutEditorState = {
+        ...scoutEditorState,
+        busy: false,
+        error: res?.json?.error || t('settings.watcherScoutEditorOverwriteError'),
+      };
+    }
+    paintScoutEditor(root);
+    return;
+  }
+  if (action === 'save') {
+    const draft = scoutEditorState.draft;
+    if (!draft) return;
+    const fieldErrors = scoutEditorFieldErrors(draft);
+    if (Object.keys(fieldErrors).length > 0) {
+      scoutEditorState = {
+        ...scoutEditorState,
+        fieldErrors,
+        error: '',
+        casConflict: false,
+        dirty: true,
+        // A rejected Advanced field must reveal the section that owns it.
+        advancedOpen: scoutEditorAdvancedFieldError(fieldErrors) || scoutEditorState.advancedOpen === true,
+      };
+      paintScoutEditor(root);
+      return;
+    }
+    const mode = scoutEditorState.mode;
+    scoutEditorState = { ...scoutEditorState, busy: true, error: '', fieldErrors: {}, casConflict: false };
+    paintScoutEditor(root);
+    let res;
+    if (mode === 'from-template') {
+      res = await watcherApi('/api/workspace-watcher/scout/profiles/from-template', {
+        method: 'POST',
+        body: { templateId: draft.templateId, overrides: templateOverridesFromDraft(draft) },
+      }).catch(() => null);
+    } else if (mode === 'create') {
+      res = await watcherApi('/api/workspace-watcher/scout/profiles', {
+        method: 'POST',
+        body: { profile: stripScoutEditorDraft(draft) },
+      }).catch(() => null);
+    } else {
+      const id = String(draft.id || scoutEditorState.originalProfile?.id || '').trim();
+      res = await watcherApi(`/api/workspace-watcher/scout/profiles/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: {
+          expectedRevision: Math.max(1, Math.floor(Number(draft.revision) || 1)),
+          profile: stripScoutEditorDraft(draft),
+        },
+      }).catch(() => null);
+    }
+    if (res?.status === 409) {
+      scoutEditorState = { ...scoutEditorState, busy: false, casConflict: true, error: '' };
+      paintScoutEditor(root);
+      return;
+    }
+    if (res?.json?.ok === true) {
+      setScoutProfilesMessage(t('settings.watcherScoutEditorSaved'), 'ok');
+      scoutEditorState = {
+        ...EMPTY_SCOUT_EDITOR_STATE,
+        templates: scoutEditorState.templates,
+        selectedId,
+      };
+      await reloadScoutProfiles(root);
+      paintScoutEditor(root);
+      return;
+    }
+    scoutEditorState = {
+      ...scoutEditorState,
+      busy: false,
+      error: res?.json?.error || t('settings.watcherActionError'),
+    };
+    paintScoutEditor(root);
+  }
+}
+
+/**
+ * Bind the editor's input/change delegation. The editor container is replaced on
+ * every full render, so the listeners never accumulate; a draft edit never
+ * rebuilds the form, so typing cannot lose focus.
+ *
+ * @param {HTMLElement} root
+ */
+function bindScoutEditor(root) {
+  const container = root.querySelector('#watcher-scout-editor');
+  if (!container) return;
+  container.addEventListener('input', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const path = target.getAttribute('data-scout-editor-field');
+    if (path) {
+      applyScoutEditorField(root, path, target.value);
+      return;
+    }
+    const listPath = target.getAttribute('data-scout-editor-list-field');
+    if (listPath) applyScoutEditorListField(root, listPath);
+  });
+  container.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.matches('[data-scout-editor-select]')) {
+      scoutEditorState = { ...scoutEditorState, selectedId: String(target.value || '').trim() };
+      paintScoutEditor(root);
+      return;
+    }
+    const path = target.getAttribute('data-scout-editor-field');
+    if (path) {
+      applyScoutEditorField(root, path, target.value);
+      return;
+    }
+    const toggle = target.getAttribute('data-scout-editor-toggle');
+    if (toggle) applyScoutEditorToggle(root, toggle, target.value, target.checked === true);
+  });
+  // `<details>` fires `toggle`, but the event does not bubble; a capture-phase
+  // listener on the container is the only way to record the open state before a
+  // repaint rebuilds the element.
+  container.addEventListener('toggle', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.matches('details.watcher-scout-editor-advanced')) {
+      scoutEditorState = { ...scoutEditorState, advancedOpen: target.open === true };
+    }
+  }, true);
+}
+
+/**
+ * Repaint only the cycle schedule card from the cached view. No-op on the paths
+ * where the Settings tab was never rendered.
+ *
+ * @param {HTMLElement} root
+ */
+function paintWatcherSchedule(root) {
+  const node = root.querySelector('#watcher-schedule-info');
+  if (!node || !lastView) return;
+  node.innerHTML = renderWatcherScheduleHtml(lastView.schedule || {}, Date.now());
 }
 
 /** @param {object} runtime */
@@ -536,9 +1835,9 @@ function applyWatcherTab(root) {
   }
   const savebar = root.querySelector('#watcher-savebar');
   if (savebar) savebar.hidden = tab !== 'settings' && tab !== 'scout';
-  // Both the monitoring dashboard and the Scout schedule card render a live
-  // countdown, so the per-second ticker follows either of them.
-  if (tab === 'monitor' || tab === 'scout') {
+  // The monitoring dashboard, the Scout schedule card and the cycle schedule
+  // card all render a live countdown, so the per-second ticker follows them.
+  if (tab === 'monitor' || tab === 'scout' || tab === 'status') {
     ensureWatcherTicker(root);
     tickWatcherTimes(root);
   } else {
@@ -643,6 +1942,11 @@ function renderWatcherPanel(root, data) {
     </div>
 
     <div ${watcherPanelAttrs('settings')}>
+    <div class="cr-card watcher-status-card">
+      <h4 class="watcher-section-title">${escapeHtml(t('settings.watcherScheduleTitle'))}</h4>
+      <p class="cr-hint">${escapeHtml(t('settings.watcherScheduleHint'))}</p>
+      <div id="watcher-schedule-info">${renderWatcherScheduleHtml(data.schedule || {}, Date.now())}</div>
+    </div>
     <div class="cr-card watcher-form">
       <section class="watcher-section">
         <h4 class="watcher-section-title">${escapeHtml(t('settings.watcherGeneral'))}</h4>
@@ -660,7 +1964,7 @@ function renderWatcherPanel(root, data) {
         <h4 class="watcher-section-title">${escapeHtml(t('settings.watcherLimits'))}</h4>
         <div class="watcher-grid">
           <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherMaxCyclesPerDay'))}</span><input id="watcher-max-cycles" type="number" min="0" value="${Number(policy.maxCyclesPerDay) || 0}"></label>
-          <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherMaxParallel'))}</span><input id="watcher-max-parallel" type="number" min="1" max="5" value="${Number(policy.maxParallel) || 1}"></label>
+          <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherMaxParallel'))}</span><input id="watcher-max-parallel" type="number" min="1" max="10" value="${Number(policy.maxParallel) || 1}"></label>
           <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherMaxFailures'))}</span><input id="watcher-max-failures" type="number" min="0" value="${Number(policy.maxConsecutiveFailures) || 0}"></label>
           <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherMaxSameFindings'))}</span><input id="watcher-max-findings" type="number" min="0" value="${Number(policy.maxSameFindings) || 0}"></label>
           <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherBackoffBaseMs'))}</span><input id="watcher-backoff-base" type="number" min="0" value="${Number(policy.backoffBaseMs) || 0}"></label>
@@ -710,6 +2014,18 @@ function renderWatcherPanel(root, data) {
     </div>
 
     <div ${watcherPanelAttrs('scout')}>
+    <div id="watcher-scout-editor">${renderScoutEditorHtml({ ...scoutEditorState, profiles: scoutProfilesState.profiles, now: Date.now() })}</div>
+    <div id="watcher-scout-templates">${renderScoutTemplatesHtml({ templates: scoutEditorState.templates, busy: scoutEditorState.busy })}</div>
+    <div id="watcher-scout-profiles">${renderScoutProfilesHtml({ ...scoutProfilesState, now: Date.now() })}</div>
+    <div id="watcher-scout-history">${renderScoutHistoryHtml({ ...scoutHistoryState, profiles: scoutProfilesState.profiles })}</div>
+    <div id="watcher-scout-inbox">${renderScoutInboxHtml({
+      ...scoutInboxState,
+      profiles: scoutProfilesState.profiles,
+      autoCreate: policy.scoutAutoCreate === true,
+      getTodoTitle,
+    })}</div>
+    <div id="watcher-scout-preview">${renderScoutPreviewHtml({ preview: scoutEditorState.preview, error: scoutEditorState.previewError })}</div>
+    <div id="watcher-scout-restore">${renderScoutRestoreHtml(restoreView())}</div>
     <div class="cr-card watcher-form">
       <section class="watcher-section">
         <h4 class="watcher-section-title">${escapeHtml(t('settings.watcherScoutScheduleTitle'))}</h4>
@@ -724,7 +2040,7 @@ function renderWatcherPanel(root, data) {
       <section class="watcher-section">
         <h4 class="watcher-section-title">${escapeHtml(t('settings.watcherScoutSection'))}</h4>
         <label class="cr-check"><input type="checkbox" id="watcher-scout-enabled"${policy.scoutEnabled === true ? ' checked' : ''}> ${escapeHtml(t('settings.watcherScoutEnabled'))}</label>
-        <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherScoutMaxParallel'))}</span><input id="watcher-scout-max-parallel" type="number" min="1" max="5" value="${Number(policy.scoutMaxParallel) || 1}"></label>
+        <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherScoutMaxParallel'))}</span><input id="watcher-scout-max-parallel" type="number" min="1" max="10" value="${Number(policy.scoutMaxParallel) || 1}"></label>
         <p class="cr-hint">${escapeHtml(t('settings.watcherScoutMaxParallelHint'))}</p>
         <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherScoutMaxPerDay'))}</span><input id="watcher-scout-max-per-day" type="number" min="0" step="1" value="${Number.isFinite(Number(policy.scoutMaxPerDay)) ? Math.floor(Number(policy.scoutMaxPerDay)) : DEFAULT_POLICY.scoutMaxPerDay}"></label>
         <p class="cr-hint">${escapeHtml(t('settings.watcherScoutMaxPerDayHint'))}</p>
@@ -815,12 +2131,16 @@ function renderWatcherPanel(root, data) {
   // One-click global pause: keeps failures/backoff/findings and any active cycle, so resume continues.
   root.querySelector('#watcher-pause')?.addEventListener('click', () => saveWatcher(root, { paused: watcher.paused !== true }));
   root.querySelector('#watcher-stop')?.addEventListener('click', () => saveWatcher(root, { stopReason: t('settings.watcherStoppedReason') }));
-  root.querySelector('#watcher-clear-stop')?.addEventListener('click', () => saveWatcher(root, { stopReason: '' }));
+  // Clear-stop is a real loop-stop reset (wipes failures/backoff/unblocks parked
+  // todos) on the server, not a plain PATCH that only clears stopReason — route
+  // it to the dedicated endpoint so a human resume does not immediately re-stop.
+  root.querySelector('#watcher-clear-stop')?.addEventListener('click', () => watcherAction(root, 'clear_stop'));
   root.querySelector('#watcher-clear-backoff')?.addEventListener('click', () => saveWatcher(root, { failures: {}, backoffUntil: '' }));
   root.querySelector('#watcher-claim')?.addEventListener('click', () => watcherAction(root, 'claim_next'));
   root.querySelector('#watcher-reset-plan')?.addEventListener('click', () => watcherAction(root, 'reset_plan_requests'));
   root.querySelector('#watcher-record-findings')?.addEventListener('click', () => watcherAction(root, 'record_findings'));
   root.querySelector('#watcher-scout-run')?.addEventListener('click', () => runScoutNow(root));
+  bindScoutProfiles(root);
   bindWatcherDashboard(root);
   applyWatcherTab(root);
 }
@@ -894,7 +2214,7 @@ function showFormError(root, messages) {
 /**
  * Client-side guardrails that mirror the server normalization, so an obviously
  * invalid edit is reported before a PATCH round-trip. Bounds here match what
- * `normalizeWorkspaceWatcherPolicy` clamps to (maxParallel 1..5).
+ * `normalizeWorkspaceWatcherPolicy` clamps to (maxParallel 1..10).
  *
  * @param {HTMLElement} root
  * @returns {string[]}
@@ -902,7 +2222,7 @@ function showFormError(root, messages) {
 function validateWatcherForm(root) {
   const errors = [];
   const maxParallel = Number(root.querySelector('#watcher-max-parallel')?.value);
-  if (!Number.isInteger(maxParallel) || maxParallel < 1 || maxParallel > 5) {
+  if (!Number.isInteger(maxParallel) || maxParallel < 1 || maxParallel > 10) {
     errors.push(t('settings.watcherValidationMaxParallel'));
   }
   if (root.querySelector('#watcher-quiet-enabled')?.checked === true) {
@@ -914,7 +2234,7 @@ function validateWatcherForm(root) {
   }
   if (root.querySelector('#watcher-scout-enabled')?.checked === true) {
     const scoutMaxParallel = Number(root.querySelector('#watcher-scout-max-parallel')?.value);
-    if (!Number.isInteger(scoutMaxParallel) || scoutMaxParallel < 1 || scoutMaxParallel > 5) {
+    if (!Number.isInteger(scoutMaxParallel) || scoutMaxParallel < 1 || scoutMaxParallel > 10) {
       errors.push(t('settings.watcherValidationMaxParallel'));
     }
     const interval = Number(root.querySelector('#watcher-scout-interval')?.value);
@@ -991,6 +2311,7 @@ const ACTION_ENDPOINTS = {
   claim_next: '/api/workspace-watcher/claim-next',
   reset_plan_requests: '/api/workspace-watcher/reset-plan-requests',
   record_findings: '/api/workspace-watcher/findings',
+  clear_stop: '/api/workspace-watcher/clear-stop',
 };
 
 /**
@@ -1113,7 +2434,7 @@ async function runScoutNow(root) {
     if (button) button.removeAttribute('disabled');
   }
   const json = res.json || null;
-  const blockedReason = scoutReasonText(json?.reason);
+  const blockedReason = scoutRunResultText(json);
   if (!json?.ok || json.scanned === false) {
     // Refresh first: the schedule card may show a spent budget or a blocker.
     await refreshWorkspaceWatcherSettingsPanel({ full: false });
@@ -1124,6 +2445,7 @@ async function runScoutNow(root) {
   }
   await refreshWorkspaceWatcherSettingsPanel({ full: false });
   paintScoutSchedule(root);
+  await refreshScoutHistoryAndInbox(root, json?.scout);
   // A full re-render (workspace switch) replaces the node, so re-query it.
   const liveStatus = root.querySelector('#watcher-scout-run-status');
   if (liveStatus) liveStatus.textContent = t('settings.watcherScoutRunStarted', { n: Number(json.added) || 0 });
@@ -1143,6 +2465,7 @@ function paintWatcherDashboard(root) {
   // view, so repaint it here too — used by both the live path and optimistic
   // saves. This never touches the editable form.
   paintWatcherStatusCard(root);
+  paintWatcherSchedule(root);
   const view = lastView || { watcher: {} };
   const stats = lastStats || {};
   const now = Date.now();
@@ -1205,9 +2528,15 @@ function stopWatcherTicker() {
 function tickWatcherTimes(root) {
   const container = root.querySelector('#watcher-dashboard');
   const scoutSchedule = root.querySelector('#watcher-scout-schedule-info');
-  // Either countdown surface keeps the ticker alive; when neither is on screen
+  const statusCard = root.querySelector('#watcher-status-card');
+  const scheduleInfo = root.querySelector('#watcher-schedule-info');
+  const scoutProfiles = root.querySelector('#watcher-scout-profiles');
+  // Any countdown surface keeps the ticker alive; when none is on screen
   // (a hidden tab, a detached panel) the ticker stops instead of spinning.
-  if (!dashboardIsVisible(container) && !dashboardIsVisible(scoutSchedule)) {
+  if (!dashboardIsVisible(container) && !dashboardIsVisible(scoutSchedule)
+    && !dashboardIsVisible(statusCard)
+    && !dashboardIsVisible(scoutProfiles)
+    && !dashboardIsVisible(scheduleInfo)) {
     stopWatcherTicker();
     return;
   }
@@ -1223,6 +2552,102 @@ function tickWatcherTimes(root) {
     if (!Number.isFinite(started) || started <= 0) continue;
     node.textContent = formatDuration(now - started);
   }
+}
+
+/**
+ * Bind one delegated click handler onto the Scout profile list container. The
+ * container is replaced on every full render, so listeners never accumulate.
+ * Every rendered action (see `SCOUT_PROFILE_ACTIONS`) is dispatched here, so a
+ * button in the list is never a dead action.
+ *
+ * @param {HTMLElement} root
+ */
+function bindScoutProfiles(root) {
+  // One delegated click listener per swapped container: the main profile list
+  // (SCOUT_PROFILE_ACTIONS) plus the stage-5.2 editor surfaces
+  // (SCOUT_EDITOR_ACTIONS). Every rendered action is declared in one of the two
+  // sets, so a button can never be a dead action.
+  const containers = [
+    root.querySelector('#watcher-scout-profiles'),
+    root.querySelector('#watcher-scout-history'),
+    root.querySelector('#watcher-scout-inbox'),
+    root.querySelector('#watcher-scout-editor'),
+    root.querySelector('#watcher-scout-templates'),
+    root.querySelector('#watcher-scout-restore'),
+  ].filter(Boolean);
+  for (const container of containers) {
+    container.addEventListener('click', (event) => {
+      const target = event.target instanceof Element
+        ? event.target.closest('[data-scout-action],[data-scout-editor-action],[data-scout-history-action],[data-scout-inbox-action]')
+        : null;
+      if (!target || target.disabled === true) return;
+      const historyAction = String(target.getAttribute('data-scout-history-action') || '').trim();
+      if (historyAction) {
+        if (!SCOUT_HISTORY_ACTIONS.includes(historyAction)) return;
+        void runScoutHistoryAction(root, historyAction);
+        return;
+      }
+      const inboxAction = String(target.getAttribute('data-scout-inbox-action') || '').trim();
+      if (inboxAction) {
+        if (!SCOUT_INBOX_ACTIONS.includes(inboxAction)) return;
+        void runScoutInboxAction(
+          root,
+          inboxAction,
+          String(target.getAttribute('data-scout-finding-id') || '').trim(),
+          String(target.getAttribute('data-scout-todo-id') || '').trim(),
+        );
+        return;
+      }
+      const editorAction = String(target.getAttribute('data-scout-editor-action') || '').trim();
+      if (editorAction) {
+        if (!SCOUT_EDITOR_ACTIONS.includes(editorAction)) return;
+        scoutEditorRemoveIndex = Number(target.getAttribute('data-scout-editor-index'));
+        void runScoutProfileAction(root, editorAction, String(target.getAttribute('data-scout-id') || '').trim());
+        return;
+      }
+      const action = String(target.getAttribute('data-scout-action') || '').trim();
+      if (!SCOUT_PROFILE_ACTIONS.includes(action)) return;
+      const scoutId = String(target.getAttribute('data-scout-id') || '').trim();
+      void runScoutProfileAction(root, action, scoutId);
+    });
+  }
+  bindScoutHistoryInboxFilters(root);
+  bindScoutEditor(root);
+}
+
+/**
+ * Server-side filter changes for history and inbox (native `<select>` controls).
+ *
+ * @param {HTMLElement} root
+ */
+function bindScoutHistoryInboxFilters(root) {
+  root.querySelector('#watcher-scout-history')?.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.getAttribute('data-scout-history-filter') !== 'scoutId') return;
+    scoutHistoryState = {
+      ...scoutHistoryState,
+      scoutId: String(target.value || '').trim(),
+      max: SCOUT_HISTORY_PAGE_SIZE,
+      message: '',
+      messageTone: 'ok',
+    };
+    void reloadScoutHistory(root);
+  });
+  root.querySelector('#watcher-scout-inbox')?.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const filter = String(target.getAttribute('data-scout-inbox-filter') || '').trim();
+    if (!filter || !['scoutId', 'category', 'status'].includes(filter)) return;
+    scoutInboxState = {
+      ...scoutInboxState,
+      [filter]: String(target.value || '').trim(),
+      max: SCOUT_INBOX_PAGE_SIZE,
+      message: '',
+      messageTone: 'ok',
+    };
+    void reloadScoutInbox(root);
+  });
 }
 
 /**
@@ -1257,8 +2682,20 @@ function bindWatcherDashboard(root) {
       return;
     }
     if (String(target.getAttribute('data-watcher-action') || '') === 'clear-stop') {
-      void saveWatcher(root, { stopReason: '' });
+      void watcherAction(root, 'clear_stop');
+      return;
     }
+    if (String(target.getAttribute('data-watcher-action') || '') === 'clear-backoff') {
+      // Same reset the Actions tab button performs: drop the failure counts and
+      // release the backoff timer in one PATCH.
+      void saveWatcher(root, { failures: {}, backoffUntil: '' });
+    }
+  });
+  // The cycle-schedule card (Settings tab) sits outside the dashboard container,
+  // so its inline clear-backoff button needs its own delegated listener.
+  root.querySelector('#watcher-schedule-info')?.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target.closest('[data-watcher-action="clear-backoff"]') : null;
+    if (target) void saveWatcher(root, { failures: {}, backoffUntil: '' });
   });
   container.addEventListener('change', (event) => {
     const target = event.target instanceof Element ? event.target.closest('[data-watcher-decisions-filter]') : null;

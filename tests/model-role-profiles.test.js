@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { createCretliMcpToolHandlers } from '../lib/mcp/mcp-builtin-tools.js';
 import {
+  buildModelPickEligibilityCohort,
+  buildModelPickFavoriteDiagnosis,
   listRolesForModel,
   loadModelRoleProfiles,
   loadRoleScoreWeights,
@@ -533,6 +535,48 @@ assert.match(actualFanoutMcp.content[0].text, /claude-sonnet-5/);
 assert.equal(actualFanoutMcp.content[0].text.split('\n').length, 2, 'one short line per pick');
 assert.match(actualFanoutMcp.content[0].text, /tests=no/);
 assert.match(actualFanoutMcp.content[0].text, /reason=/);
+
+assert.match(buildModelPickEligibilityCohort(), /alias-policy-2026-10-08\+role-policy-2026-10-08/);
+
+const auditTable = buildModelPickFavoriteDiagnosis({
+  role: 'review',
+  harnesses: fanoutHarnesses,
+  modelsByHarness: fanoutModels,
+  checkReviewAdapter: true,
+}, { checkReviewAdapter: true });
+assert.ok(auditTable.rows.length >= 3);
+assert.ok(auditTable.rows.every((row) => Array.isArray(row.roles) && Array.isArray(row.filter_reasons)));
+
+const noFavoriteDiagnosis = selectModelPick({
+  role: 'implement',
+  harnesses: [readySdk],
+  modelsByHarness: { sdk: { favorites_configured: false, items: [{ id: 'x', roles: ['implement'] }] } },
+});
+assert.equal(noFavoriteDiagnosis.ok, false);
+assert.deepEqual(
+  noFavoriteDiagnosis.diagnosis.rows.find((row) => row.harness === 'sdk').filter_reasons,
+  ['no-favorites'],
+);
+
+const onlyUncertifiedReviewMcp = await createPickHandlers({
+  async listHarnessCatalog() {
+    return [{ id: 'codex', enabled: true, ready: true, can_delegate: true }];
+  },
+  async listHarnessModels() {
+    return {
+      favorites_configured: true,
+      items: [{ id: 'glm-5.3', label: 'GLM', roles: ['review'], cost_tier: 2, quality_tier: 4, speed_tier: 4 }],
+    };
+  },
+}).model_pick({ role: 'review' });
+assert.equal(onlyUncertifiedReviewMcp.isError, true);
+assert.match(onlyUncertifiedReviewMcp.content[0].text, /MODEL_UNAVAILABLE/);
+assert.match(onlyUncertifiedReviewMcp.content[0].text, /review adapter guarantee/);
+assert.ok(onlyUncertifiedReviewMcp.structuredContent.diagnosis);
+assert.deepEqual(
+  onlyUncertifiedReviewMcp.structuredContent.diagnosis.rows.find((row) => row.harness === 'codex').filter_reasons,
+  ['review-adapter-blocked'],
+);
 
 removeIsolatedDataDir();
 console.log('model-role-profiles.test.js OK');

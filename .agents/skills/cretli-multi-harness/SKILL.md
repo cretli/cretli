@@ -26,7 +26,7 @@ If the user names a harness and/or model (for example “DeepSeek 4.1 Flash”):
 
 1. Resolve the id with `harness_list` and `model_list`. Prefer
    `enabled_only=true`. **Do not** call `model_pick`. **Do not** start a
-   plan/implement/review loop, fanout, or `delegation_workflow_update`.
+   plan/implement/review loop, fanout, or `workflow_update`.
 2. If `enabled_only=true` is empty, stop. Tell the user to add that model as a
    Settings favorite. Catalog rows without `enabled_only` are **not**
    start-eligible.
@@ -216,10 +216,13 @@ return the existing job. An infra retry **must** use a new key (same key
 returns the failed/cancelled job).
 
 Set `assignment` to `review` or `implement` (plan/fix are mapped). In `loop`
-or `fanout-review`, persist loop state with `delegation_workflow_update` (role,
+or `fanout-review`, persist loop state with `workflow_update` (role,
 round, last implementer, last reviewer, findings, deadline, `material_revision`,
 and `idempotency_key` unique per review event) so a parent restart does not
-reset the round cap. Skip workflow tools in `named` mode.
+reset the round cap. `role` is this step (`plan|implement|review|fix`); `round`
+is the 1-based number of the current implement/fix cycle — start at 1 for a fresh
+leaf and increment before every new implement or fix; a review PASS resets it.
+Skip workflow tools in `named` mode.
 Replaying any previously applied key with the same parameters is a no-op; the
 same key with different parameters is `CONFLICT`.
 
@@ -228,7 +231,7 @@ same key with different parameters is `CONFLICT`.
 fingerprint). Snapshot it before review and after implement/fix.
 
 After **every** report, persist the outcome before picking the next role: call
-`delegation_workflow_update` with `last_verdict` (or `fanout_verdicts` for a
+`workflow_update` with `last_verdict` (or `fanout_verdicts` for a
 fanout), `report_text`, and the fresh `material_revision` from
 `readDelegationMaterialRevision(cwd)`, under a stable per-review
 `idempotency_key`. A parent restart must not lose the last verdict or the
@@ -255,6 +258,13 @@ A job is not free while `run_stopping=true` or `slot_occupied=true`, even if
 `status=completed`. Do not start the next **implement** / **fix** until every
 watched implement job has `slot_occupied` false. There is no `finished`
 status.
+
+After you read each terminal report (via `delegation_show` / `delegation_inbox`),
+call `delegation_ack({ delegation_id })` from the parent chat so `unverified`
+clears and `acknowledgedAt` / `acknowledgedReason` are set; use
+`reason: "accepted"` only when you explicitly accept the cycle by hand
+(`reviewed` is the default). Otherwise every finished job keeps
+`unverified: true`.
 
 `delegation_wait` returns per-id `status`, `slot_occupied`, `run_stopping`,
 `task_outcome`, `interrupt_code`, `verdict`, and a short summary — not the
@@ -285,8 +295,13 @@ reviews beyond the cap wait until a slot frees.
 - After a child **PASS** on implement/fix, independently reproduce 1–2 claims
   (test or minimal repo). Child PASS without that evidence is `unspecified`.
   If the reviewer's `traits.review_can_run_tests` is `false` (no native shell or
-  a read-only hook), the **parent MUST** call `delegation_verify` for that job.
-  Read the stored `verify_result` from `delegation_show` separately from `VERDICT`; a failed
+  a read-only hook), `model_pick` returns `review_requires_verify: true` and the
+  job is persisted with `verify_required: true`; the **parent MUST** call
+  `delegation_verify` for that job. The server gate is hard: a PASS review with
+  `verify_required` and no passed verify never counts as accepted, so the leaf
+  does not close on the child's word alone. Read the stored `verify_result`
+  (now with `verdict` and `exitCode`) from `delegation_show` separately from
+  `VERDICT`; a failed
   review-verify is a hard failure even when the child says PASS. Findings are
   defects to fix, not a map for further exploration.
 - **`waiting_for_input`** (OpenCode question/permission or SDK Ask on
@@ -327,9 +342,20 @@ delegation_rate({ delegation_id, score, tags?, note? })
 ```
 
 `score` is an integer **1–5** (5 = best). `tags` are optional telemetry only —
-allow-list `missed_bug`, `false_positive`, `scope_creep`, `too_slow`, `great`
-(max 5, de-duplicated); they never move the speed/cost axes. `note` is an
-optional short line (max 500 chars).
+allow-list `missed_bug`, `false_positive`, `scope_creep`, `too_slow`, `great`,
+`caught_bug` (max 5, de-duplicated); they never move the speed/cost axes. `note`
+is an optional short line (max 500 chars).
+
+Tag rubric (the server rejects a contradictory payload with
+`contradictory_rating`):
+
+- a critical tag (`missed_bug`, `false_positive`, `scope_creep`, `too_slow`)
+  is accepted only at score **1–3**;
+- `great` is accepted only at score **4–5**;
+- a review whose **FAIL was real** (the cycle proved it: FAIL → fix → PASS) is
+  score **5** with `caught_bug` — **never** `missed_bug` at 5;
+- your own rating is telemetry: model ranking blends **`user` ratings only**, so
+  a parent cannot inflate the models it picked for itself.
 
 Rules (the server enforces them; do not work around them):
 
@@ -347,18 +373,20 @@ Rules (the server enforces them; do not work around them):
 **Required** — call `delegation_rate` in these two cases, do not skip it:
 
 1. after a review cycle **FAIL → fix → PASS**: rate the review job that issued
-   the FAIL (the cycle proved its findings were real);
+   the FAIL **score 5 + `caught_bug`** (the cycle proved its findings were real);
 2. when you **reject a report** — `conflict`, an empty/thinking-dump body, or a
    report you discard instead of acting on: rate that job down and tag why
    (typically `missed_bug` / `false_positive`).
 
 Every other rating (a PASS review, an implement/fix job, an infra failure you
-had to route around) is optional. Ratings feed `model_pick` quality for **all**
-roles, including `review`.
+had to route around) is optional. Only **`user`** ratings (UI or
+`POST /api/delegations/:id/rate`) update `rating_avg_scored` / `rating_n_scored`
+and blend into `model_pick` observed quality; parent `delegation_rate` rows are
+telemetry and do not raise observed quality.
 
 ## Caps and tie-break
 
-Store round/findings on `delegation_workflow_update` with a stable
+Store round/findings on `workflow_update` with a stable
 `idempotency_key` per review event (for example `mh-workflow-r<n>-review`).
 The server keeps every applied key→fingerprint, not only the last patch.
 Replaying any previously applied key with the same parameters is a no-op (the
@@ -383,7 +411,11 @@ UUIDs, stop reason, next role. Do not start a second implement/fix.
 
 Report files, tests, leftover gaps. In `fanout-review`, optionally
 `todo_create` a synthesis plan when the user will implement later. The parent
-still does not commit or push.
+still does not commit or push. A loop is not closed until finished reports are
+acknowledged (`delegation_ack`) and, where the rubric requires it, rated
+(`delegation_rate`); read the per-leaf loop read-model via `workflow_show`
+(returns `loop` — rounds, models per role, verdicts, verify, stop reason,
+wall/cost per leaf).
 
 ## Workspace Watcher autopilot cycles
 
@@ -398,7 +430,7 @@ loop. It is a separate server-side actor, not a mode of this skill:
   plan / implement / review / fix (a cheap parent; it does not implement the
   work itself), marks the todo done only after an independent review PASS, and
   ends. It must not start a second cycle — the watcher starts the next one.
-- **End the cycle with `watcher_report`** (`workspace_watcher_update` action
+- **End the cycle with `watcher_report`** (`watcher_update` action
   `report`) with outcome `success | blocked | failure`, the `cycle_id` and a
   one-line message. The report is idempotent and is accepted only from the
   cycle's own orchestrator chat; the watcher reads it back to update
@@ -416,5 +448,5 @@ loop. It is a separate server-side actor, not a mode of this skill:
   delegations**. The orchestrator is the only chat that calls
   `delegation_start`.
 - Control/inspection: `watcher_status` / `watcher_set` / `watcher_report` /
-  `watcher_claim_next` and `workspace_watcher_show` / `workspace_watcher_update`
+  `watcher_claim_next` and `watcher_show` / `watcher_update`
   MCP tools (or Settings → Workspace Watcher).

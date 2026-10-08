@@ -32,6 +32,7 @@ import {
   normalizeDelegationRatingPayload,
   normalizeDelegationRatingRater,
   summarizeDelegationRatings,
+  summarizeDelegationRatingsForScoring,
 } from '../lib/delegation-ratings.js';
 import {
   appendDelegationRating,
@@ -97,15 +98,35 @@ updateDelegationRecord(running.id, { status: 'running' });
 // --- 1. Pure kernel: validation, fingerprint, weighted mean ------------------
 const valid = normalizeDelegationRatingPayload({
   score: 5,
-  tags: ['Great', 'great', 'missed_bug'],
+  tags: ['Great', 'great', 'caught_bug'],
   note: '  solid work  ',
 });
 assert.equal(valid.ok, true);
 assert.deepEqual(valid.value, {
   score: 5,
-  tags: ['great', 'missed_bug'],
+  tags: ['great', 'caught_bug'],
   note: 'solid work',
 });
+const contradictoryCases = [
+  [{ score: 5, tags: ['missed_bug'] }, 'missed_bug'],
+  [{ score: 4, tags: ['too_slow'] }, 'too_slow'],
+  [{ score: 5, tags: ['false_positive'] }, 'false_positive'],
+  [{ score: 5, tags: ['scope_creep'] }, 'scope_creep'],
+  [{ score: 2, tags: ['great'] }, 'great'],
+];
+for (const [payload] of contradictoryCases) {
+  const rejected = normalizeDelegationRatingPayload(payload);
+  assert.equal(rejected.ok, false, JSON.stringify(payload));
+  assert.equal(rejected.code, 'contradictory_rating');
+}
+for (const payload of [
+  { score: 5, tags: ['caught_bug'] },
+  { score: 2, tags: ['missed_bug'] },
+  { score: 5, tags: ['great'] },
+]) {
+  const accepted = normalizeDelegationRatingPayload(payload);
+  assert.equal(accepted.ok, true, JSON.stringify(payload));
+}
 for (const score of [0, 6, 4.5, '4', null, undefined, NaN]) {
   const result = normalizeDelegationRatingPayload({ score });
   assert.equal(result.ok, false, `score ${String(score)} must be rejected`);
@@ -159,6 +180,73 @@ assert.equal(
   0,
   'an incomplete record is not counted',
 );
+const mixedRaters = [
+  { delegationId: 'd1', rater: 'user', score: 4, tags: [], note: '', ts: minutesAgo(1) },
+  { delegationId: 'd2', rater: 'user', score: 5, tags: [], note: '', ts: minutesAgo(1) },
+  { delegationId: 'd3', rater: 'parent', score: 5, tags: [], note: '', ts: minutesAgo(1) },
+];
+assert.equal(summarizeDelegationRatings(mixedRaters).rating_n, 3);
+assert.equal(summarizeDelegationRatingsForScoring(mixedRaters).rating_n, 2);
+assert.equal(summarizeDelegationRatingsForScoring(mixedRaters).rating_avg, 4.5);
+const parentOnlyFiveStars = [
+  { delegationId: 'p1', rater: 'parent', score: 5, tags: ['caught_bug'], note: '', ts: minutesAgo(1) },
+  { delegationId: 'p2', rater: 'parent', score: 5, tags: ['caught_bug'], note: '', ts: minutesAgo(1) },
+  { delegationId: 'p3', rater: 'parent', score: 5, tags: ['caught_bug'], note: '', ts: minutesAgo(1) },
+];
+assert.equal(summarizeDelegationRatings(parentOnlyFiveStars).rating_avg, 5);
+assert.equal(summarizeDelegationRatingsForScoring(parentOnlyFiveStars).rating_avg, null);
+assert.equal(summarizeDelegationRatingsForScoring(parentOnlyFiveStars).rating_n, 0);
+const harnessesCalib = [
+  { id: 'ha', enabled: true, ready: true, can_delegate: true },
+];
+const modelsCalib = {
+  ha: { favorites_configured: true, items: [{ id: 'model-a', roles: ['implement'], cost_tier: 2, quality_tier: 4, speed_tier: 3 }] },
+};
+const observedBase = {
+  'ha/model-a': { n: 10, pass_rate: 1, infra_fail_rate: 0, median_min: 4, quality: 5, rating_avg: null, rating_n: 0, rating_avg_scored: null, rating_n_scored: 0 },
+};
+const pickNoStars = selectModelPick({
+  role: 'implement',
+  harnesses: harnessesCalib,
+  modelsByHarness: modelsCalib,
+  history: { observed: observedBase },
+});
+const pickParentInflated = selectModelPick({
+  role: 'implement',
+  harnesses: harnessesCalib,
+  modelsByHarness: modelsCalib,
+  history: {
+    observed: {
+      'ha/model-a': {
+        ...observedBase['ha/model-a'],
+        rating_avg: 5,
+        rating_n: 3,
+        rating_avg_scored: null,
+        rating_n_scored: 0,
+      },
+    },
+  },
+});
+assert.equal(pickNoStars.candidates[0].score, pickParentInflated.candidates[0].score);
+assert.equal(pickParentInflated.candidates[0].rating_applied, false);
+const pickUserStars = selectModelPick({
+  role: 'implement',
+  harnesses: harnessesCalib,
+  modelsByHarness: modelsCalib,
+  history: {
+    observed: {
+      'ha/model-a': {
+        ...observedBase['ha/model-a'],
+        rating_avg: 5,
+        rating_n: 1,
+        rating_avg_scored: 5,
+        rating_n_scored: 1,
+      },
+    },
+  },
+});
+assert.equal(pickUserStars.candidates[0].rating_applied, true);
+assert.ok(pickUserStars.candidates[0].score > pickNoStars.candidates[0].score);
 
 // --- 2. Persistence: append, corruption tolerance, rotation, no report -------
 const tempFile = path.join(workspace, 'ratings-rotation.jsonl');
@@ -229,7 +317,7 @@ async function invokeRoute(method, route, req = {}) {
   return { status, body };
 }
 
-const userPayload = { score: 5, tags: ['missed_bug', 'great'], note: 'ship it' };
+const userPayload = { score: 5, tags: ['great'], note: 'ship it' };
 const userFirst = await invokeRoute('POST', '/api/delegations/:id/rate', {
   params: { id: jobUser.id },
   body: { ...userPayload, rater: 'parent' },
@@ -250,14 +338,21 @@ assert.equal(userReplay.body.replayed, true);
 
 const userReplayReordered = await invokeRoute('POST', '/api/delegations/:id/rate', {
   params: { id: jobUser.id },
-  body: { score: 5, tags: ['great', 'missed_bug'], note: 'ship it' },
+  body: { score: 5, tags: ['great'], note: 'ship it' },
 });
 assert.equal(userReplayReordered.status, 200, 'tags are order-insensitive in the fingerprint');
 assert.equal(userReplayReordered.body.replayed, true);
 
+const userContradictory = await invokeRoute('POST', '/api/delegations/:id/rate', {
+  params: { id: jobStats.id },
+  body: { score: 5, tags: ['missed_bug'] },
+});
+assert.equal(userContradictory.status, 400);
+assert.equal(userContradictory.body.code, 'contradictory_rating');
+
 const userConflict = await invokeRoute('POST', '/api/delegations/:id/rate', {
   params: { id: jobUser.id },
-  body: { score: 1, tags: ['great'], note: 'ship it' },
+  body: { score: 1, note: 'ship it' },
 });
 assert.equal(userConflict.status, 409);
 assert.equal(userConflict.body.code, 'idempotency_conflict');
@@ -311,7 +406,7 @@ const ratedPayloads = parentEvents
 assert.ok(ratedPayloads.length > 0, 'the card payload carries the persisted user rating');
 const lastRated = ratedPayloads[ratedPayloads.length - 1];
 assert.equal(lastRated.userRating.score, 5);
-assert.deepEqual(lastRated.userRating.tags, ['missed_bug', 'great']);
+assert.deepEqual(lastRated.userRating.tags, ['great']);
 const ratedCard = buildDelegationCardModel(lastRated);
 assert.equal(ratedCard.canRate, false, 'a rated card is read-only');
 assert.equal(ratedCard.userRating.score, 5);
@@ -324,15 +419,15 @@ assert.equal(
 // --- 4. HTTP parent channel (MCP over the remote transport) -----------------
 const parentFirst = await invokeRoute('POST', '/api/chats/:id/delegation-rate', {
   params: { id: parent.id },
-  body: { delegationId: jobParent.id, workspaceFolder: workspace, score: 4, tags: ['missed_bug'] },
+  body: { delegationId: jobParent.id, workspaceFolder: workspace, score: 3, tags: ['missed_bug'] },
 });
 assert.equal(parentFirst.status, 200);
 assert.equal(parentFirst.body.rating.rater, 'parent');
-assert.equal(findDelegationRating(jobParent.id, 'parent').score, 4);
+assert.equal(findDelegationRating(jobParent.id, 'parent').score, 3);
 
 const parentReplay = await invokeRoute('POST', '/api/chats/:id/delegation-rate', {
   params: { id: parent.id },
-  body: { delegationId: jobParent.id, score: 4, tags: ['missed_bug'] },
+  body: { delegationId: jobParent.id, score: 3, tags: ['missed_bug'] },
 });
 assert.equal(parentReplay.body.replayed, true);
 
@@ -376,7 +471,7 @@ const ratings = [
     model: 'zai-coding-plan/glm-5.3',
     role: 'implement',
     rater: 'parent',
-    score: 4,
+    score: 3,
     tags: [],
     note: '',
     ts: minutesAgo(3),
@@ -428,7 +523,7 @@ const aggregated = summarizeDelegationOutcomes({ rows: aggregationRows, ratings,
 const implementRow = aggregated.roles.implement['opencode/zai-coding-plan/glm-5.3'];
 assert.ok(implementRow, 'the rated job key exists');
 assert.equal(implementRow.rating_n, 2, 'out-of-window ratings do not count');
-assert.equal(implementRow.rating_avg, 4.67, 'user weight 2, parent weight 1 → 14/3 rounded');
+assert.equal(implementRow.rating_avg, 4.33, 'user weight 2, parent weight 1 → 13/3 rounded');
 assert.equal(
   aggregated.list.some((row) => row.harness === 'ghost'),
   false,
@@ -439,7 +534,7 @@ assert.equal(
 const viaLoader = buildDelegationOutcomes({ rows: aggregationRows, ratings, now });
 assert.equal(
   viaLoader.roles.implement['opencode/zai-coding-plan/glm-5.3'].rating_avg,
-  4.67,
+  4.33,
 );
 
 // Stats endpoint exposes rating_avg / rating_n.
@@ -450,7 +545,7 @@ const statsRow = stats.body.list.find(
 );
 assert.ok(statsRow, 'the implement row is in the stats feed');
 assert.equal(statsRow.rating_n, 2, 'the two stored ratings reach the stats feed');
-assert.equal(statsRow.rating_avg, 4.67, 'the feed reports the weighted mean (user 2, parent 1)');
+assert.equal(statsRow.rating_avg, 4.33, 'the feed reports the weighted mean (user 2, parent 1)');
 
 // --- 6. model_pick blending --------------------------------------------------
 const harnesses = [
@@ -502,8 +597,20 @@ const ratedPick = selectModelPick({
   modelsByHarness,
   history: {
     observed: {
-      'ha/model-a': { ...sharedObserved['ha/model-a'], rating_avg: 1, rating_n: 5 },
-      'hb/model-b': { ...sharedObserved['hb/model-b'], rating_avg: 5, rating_n: 5 },
+      'ha/model-a': {
+        ...sharedObserved['ha/model-a'],
+        rating_avg: 1,
+        rating_n: 5,
+        rating_avg_scored: 1,
+        rating_n_scored: 5,
+      },
+      'hb/model-b': {
+        ...sharedObserved['hb/model-b'],
+        rating_avg: 5,
+        rating_n: 5,
+        rating_avg_scored: 5,
+        rating_n_scored: 5,
+      },
     },
   },
 });
@@ -544,8 +651,26 @@ const reviewRated = selectModelPick({
   history: {
     prior: { infra_fail_rate: 0, role: 'review' },
     observed: {
-      'ha/model-a': { n: 10, pass_rate: 1, infra_fail_rate: 0, quality: 5, rating_avg: 5, rating_n: 5 },
-      'hb/model-b': { n: 10, pass_rate: 1, infra_fail_rate: 0, quality: 5, rating_avg: 1, rating_n: 5 },
+      'ha/model-a': {
+        n: 10,
+        pass_rate: 1,
+        infra_fail_rate: 0,
+        quality: 5,
+        rating_avg: 5,
+        rating_n: 5,
+        rating_avg_scored: 5,
+        rating_n_scored: 5,
+      },
+      'hb/model-b': {
+        n: 10,
+        pass_rate: 1,
+        infra_fail_rate: 0,
+        quality: 5,
+        rating_avg: 1,
+        rating_n: 5,
+        rating_avg_scored: 1,
+        rating_n_scored: 5,
+      },
     },
   },
 });
@@ -726,12 +851,12 @@ try {
   const jobRemote = terminalJob();
   const remoteOk = await remoteHandlers.delegation_rate({
     delegation_id: jobRemote.id,
-    score: 4,
+    score: 3,
     tags: ['false_positive'],
   });
   assert.equal(remoteOk.isError, false, `remote rate failed: ${remoteOk.content?.[0]?.text}`);
   assert.equal(remoteOk.structuredContent.rater, 'parent');
-  assert.equal(findDelegationRating(jobRemote.id, 'parent').score, 4);
+  assert.equal(findDelegationRating(jobRemote.id, 'parent').score, 3);
 
   const remoteConflict = await remoteHandlers.delegation_rate({
     delegation_id: jobRemote.id,

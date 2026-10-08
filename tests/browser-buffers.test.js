@@ -48,6 +48,63 @@ test('NetworkBuffer records metadata only and redacts the URL', () => {
   assert.equal('body' in entry, false);
 });
 
+test('pull delivers a response that updated an already-pulled request', () => {
+  const buf = new NetworkBuffer();
+  const { requestId } = buf.recordRequest({ method: 'GET', url: 'https://example.com/a', at: 1 });
+
+  const first = buf.pull({ since: 0 });
+  assert.equal(first.entries.length, 1);
+  assert.equal(first.entries[0].requestId, requestId);
+  assert.equal(first.entries[0].status, null);
+  const pendingCursor = first.nextSince;
+
+  buf.recordResponse(requestId, { status: 200, ok: true, at: 2 });
+  const second = buf.pull({ since: pendingCursor });
+  // The mutation must reach a cursor that already passed the pending row.
+  assert.equal(second.entries.length, 1);
+  assert.equal(second.entries[0].requestId, requestId);
+  assert.equal(second.entries[0].seq, first.entries[0].seq);
+  assert.equal(second.entries[0].status, 200);
+  assert.equal(second.entries[0].ok, true);
+  assert.equal(second.entries[0].finishedAt, 2);
+  assert.ok(second.nextSince > pendingCursor);
+  // Delivery is single-shot: the resolved row is not re-sent behind its cursor.
+  assert.deepEqual(buf.pull({ since: second.nextSince }).entries, []);
+});
+
+test('pull delivers a failure that updated an already-pulled request', () => {
+  const buf = new NetworkBuffer();
+  const { requestId } = buf.recordRequest({ method: 'GET', url: 'https://example.com/b', at: 1 });
+  const first = buf.pull({ since: 0 });
+
+  buf.recordFailure(requestId, { errorText: 'net::ERR_CONNECTION_RESET', at: 2 });
+  const second = buf.pull({ since: first.nextSince });
+  assert.equal(second.entries.length, 1);
+  assert.equal(second.entries[0].requestId, requestId);
+  assert.equal(second.entries[0].failure, 'net::ERR_CONNECTION_RESET');
+  assert.equal(second.entries[0].finishedAt, 2);
+  assert.ok(second.nextSince > first.nextSince);
+});
+
+test('a limited pull never strands an updated entry behind the cut', () => {
+  const buf = new NetworkBuffer();
+  buf.recordRequest({ requestId: 'a', url: 'https://example.com/a' });
+  buf.recordRequest({ requestId: 'b', url: 'https://example.com/b' });
+  const seen = buf.pull({ since: 0, limit: 5 });
+  assert.deepEqual(seen.entries.map((entry) => entry.requestId), ['a', 'b']);
+
+  // 'a' keeps its array position but gets the newest revision, so a page of
+  // one must still surface it rather than skipping to a later seq.
+  buf.recordResponse('a', { status: 200, ok: true });
+  const page = buf.pull({ since: seen.nextSince, limit: 1 });
+  assert.equal(page.entries.length, 1);
+  assert.equal(page.entries[0].requestId, 'a');
+  assert.equal(page.entries[0].status, 200);
+  // rev 1 = request a, 2 = request b, 3 = the response update on a.
+  assert.equal(Number(page.entries[0].rev), 3);
+  assert.equal(page.nextSince, 3);
+});
+
 test('clear resets entries and counters', () => {
   const buf = new ConsoleBuffer();
   buf.pushConsole({ text: 'a' });

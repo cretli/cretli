@@ -12,17 +12,23 @@ sees the same tab in the **Browser** panel.
    session the user already opened in the panel).
 2. `browser_screenshot` (returns a file path; image pixels are CSS pixels, matching
    click coordinates), `browser_elements` (visible controls, including inside Lit
-   shadow roots), `browser_dom`, `browser_console`, `browser_network`; in Agent
-   mode also `browser_navigate` and `browser_input` (`click`/`fill` by `selector`
-   or `role`+`name` / `text` / `label` / `placeholder`).
+   shadow roots; each row has an `index` you can pass back), `browser_dom`,
+   `browser_console`, `browser_network`; in Agent mode also `browser_navigate`
+   (optional `waitUntil`: `domcontentloaded`|`load`|`networkidle`|`commit`) and
+   `browser_input` with kinds `pointer`, `scroll`, `key`, `click`, `fill`,
+   `resize`, `select`, `check`, `uncheck`, `hover`, `drag`, `upload`, `wait`.
+   Locator kinds take `selector` or `role`+`name` / `text` / `label` /
+   `placeholder`, and `nth` (alias `index`) picks one match instead of the first.
 
 Rules:
 
 - Do **not** launch your own Playwright/Chromium for a preview, and do not probe
   for a debug port or another browser profile.
-- If the page shows a sign-in, ask the user to sign in in the Browser panel of
-  this chat. Never look for credentials, cookies or session tokens in `.env` or
-  `data/`.
+- If the page shows a sign-in: Cretli's own origin (reachable only with the
+  `allowSelfOrigin` debug policy) logs itself in with passwordless local login —
+  do not ask the user for Cretli credentials; for any other app, ask the user to
+  sign in in the Browser panel of this chat. Never look for credentials, cookies
+  or session tokens in `.env` or `data/`.
 - When a `browser_*` call fails, report the error code; it says what the user has
   to do (open the chat in the UI, free the session, allow the origin).
 

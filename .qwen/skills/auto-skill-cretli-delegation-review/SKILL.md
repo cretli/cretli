@@ -1,8 +1,8 @@
 ---
 name: cretli-delegation-review
-description: Act as the read-only reviewer/auditor of a Cretli delegated assignment — verify every claim in [TASK] against the repo, then send a final_report via delegation_reply with the live attempt_id/run_id and the exact TASK/VERDICT terminator.
+description: Act as the read-only reviewer/auditor of a Cretli delegated assignment — verify every claim in [TASK] against the repo (including regression-gate re-review rounds, where the fix itself is the prime suspect), then send a final_report via delegation_reply with the live attempt_id/run_id and the exact TASK/VERDICT terminator.
 source: auto-skill
-extracted_at: '2026-09-20T20:48:46.292Z'
+extracted_at: '2026-10-07T17:23:27.089Z'
 ---
 
 # Cretli delegated review / audit (read-only)
@@ -57,8 +57,40 @@ holds incident unit tests. So:
 - Then state which area is *not* covered by the catalog (e.g. chat sync poll / background policy /
   client-instance commands / HTTP routes) and push full-suite verification to the parent or CI.
   Do not imply that review-verify validated the change under audit.
+- **The catalog is a flat `id → test file` map — grep it to pick your own ids.** `rg 'workspace-watcher'
+  lib/sdk/sdk-review-verify.js` lists every area that exists (`:91-101` gave 10 watcher ids). An
+  assignment usually pins 2-3 ids, but claims often hinge on other files; run the extra areas too and
+  record it as a deviation. A suite **missing** from that map (e.g.
+  `tests/workspace-watcher-settings-ui.test.js`, `…-settings-regressions.test.js`) is not runnable as an
+  id — run it plainly (`node --test tests/<file>.test.js`) instead of reporting it as untestable.
 - Cursor SDK review has native shell for read-only explorers and `review-verify`.
   Do not run arbitrary tests. Mutating shell aborts the turn.
+
+### The bare catalog run's stdout gets cut by the capture buffer — that is not a partial run
+`node scripts/review-verify.js` prints every id's output in one stream; the shell tool truncates the
+capture (observed 2026-10-07: saved output stopped at **1392 lines**, mid `workspace-watcher-dashboard-ui`,
+leaving ~6 tail ids uncaptured) while the process itself **exited 0**. Do not report that as a hang,
+a timeout, or "the catalog did not finish".
+- `scripts/review-verify.js` ends in `if (!result.ok) { …; process.exit(1) }`, so **exit 0 alone
+  already proves every id passed**. Say that explicitly — read the runner before trusting or
+  doubting an exit code.
+- To still paste per-id evidence (assignments often demand it), re-run only the **uncaptured tail**
+  ids individually: `node scripts/review-verify.js <id>`. Small output, no truncation, and each
+  invocation stays the standalone form the assignment pins (no pipes/flags/combining).
+- Plain suites outside the catalog run as `node tests/<file>.test.js`; capture the **real** exit code
+  (`cmd > /tmp/out.txt 2>&1; code=$?`) — `cmd | tail` reports tail's status, not node's, so a silent
+  failure would read as green.
+- **When the assignment forbids redirects** ("an optional pipe only to head or tail", "no other node
+  flags"), use `set -o pipefail` instead — a shell option, not a node flag, so it stays inside the
+  pinned form: `set -o pipefail; node tests/x.test.js 2>&1 | tail -n 20; echo "exit=$?"`. `pipefail`
+  makes `$?` the rightmost non-zero status, i.e. node's. Verified 2026-10-07 across 8 suites.
+- **Per-suite evidence looks different per style** (see the test-convention bullet in Step 4):
+  `node:test` prints a machine summary `# tests N / # pass N / # fail N` — quote it verbatim. Plain
+  assertion scripts print one `OK: <case name>` line per case plus a final `… tests passed`; get the
+  count statically with `grep -c "^runCase("` / `grep -c "^test("` rather than a pipe the assignment
+  may forbid. To prove one *specific* regression case actually ran, widen the tail
+  (`tail -n 75 | head -n 60`) instead of grepping the stream — `head`/`tail` are usually the only
+  pipes allowed.
 
 ### A catalog FAIL is usually environment, not regression — prove it before reporting it
 The frozen tests read process env, so a red id can be pure shell state. Observed live:
@@ -94,6 +126,30 @@ For each named constant, interval, file and behavior in the prompt, find file:li
 - **Fallback semantics that break a proposed contract**: e.g. query-length budgets (`chatIdsQuery`)
   where overflow silently degrades to "omit ids ⇒ server returns everything". Flag contract
   collisions the requirement list does not resolve.
+- **Never grade a scope/coverage predicate from its shape — read what the endpoint actually returns.**
+  A `covers('full:<wsA>', liveNeed) === true` rule *looks* like a cross-scope leak, but
+  `GET /api/chats?includeArchived=1&archiveWorkspace=A` builds `[...liveRows(allChats), ...archivedOf(A)]`
+  (`lib/routes/chats-routes.js:276-291`) — i.e. every live row of every workspace — so covering a
+  live-only need is correct. Open the response construction before calling it a defect; the same
+  reading also tells you which invariants are safe (there `archivedCounts` stays global, so collapsed
+  groups of other workspaces keep correct counts, and `fullIndex = … && !archiveWorkspace` so a scoped
+  load can never trigger activity pruning).
+- **Claimed client/server parity must be compared character by character, including operation order.**
+  `normalizeChatWorkspaceScopeForListLoad` (`chatListLoadFreshness.js:70`) and server
+  `normalizeChatWorkspaceScope` (`chats-routes.js:182-185`) were byte-identical
+  (`replace(/\\/g,'/').replace(/\/+$/,'').trim()`). Also check the parity holds on *both* sides of the
+  comparison (the server matches on `chat.workspaceFile`, so must the client merge) and that the value
+  reaching the wire is already normalized (`buildChatsListApiQuery` only `.trim()`s — safe because
+  `normalizeChatListLoadQuery` ran first).
+- **Exported helper with no production caller**: `mergeChatListInFlightScopeKey` was made consistent
+  with the new key shape yet is only reachable from tests, because the controller serializes loads
+  (`if (chatsLoadPromise) { pendingLoadQuery = merge(…); return chatsLoadPromise }`) so in-flight keys
+  never actually merge. Grep for callers before crediting a helper with fixing a race — and report it
+  as dead-but-consistent, not as a defect.
+- **Races: check which variable the completion path reads.** The scoped-load fix was safe because
+  completion used the locally captured `startedScopeKey` for both the freshness snapshot and the
+  pending drain, never the mutable `inFlightLoadScopeKey`. A shared mutable key would corrupt scope
+  on overlap; a local const makes the overlap unrepresentable.
 - **Scope asymmetry between sibling routes**: compare a handler using a scoping helper
   (`listScopedChatIds`) with neighbours that only check existence; `requireAuth` admits bearer/
   widget tokens to all `/api/` paths, so per-route scoping is the enforcement point.
@@ -106,8 +162,10 @@ For each named constant, interval, file and behavior in the prompt, find file:li
   (e.g. `harness-status.test.js`) **and** real `node:test` suites using `import test from 'node:test'`
   with `assert/strict` (e.g. `harness-plugin-loader.test.js`, `theme.test.js`, widget tests). Read the
   file first: the former runs as `node tests/x.test.js`, the latter as `node --test tests/x.test.js`.
-  Note some `node:test` suites are not wired into `scripts/run-unit-tests.mjs`, so `npm test` passing
-  does not mean they ran.
+  **Wiring:** `scripts/run-unit-tests.mjs` does `readdir(testsDir).filter(n => n.endsWith('.test.js'))`
+  (verified 2026-10-07, lines 30-31), so any new suite dropped in `tests/` as `*.test.js` **is** picked
+  up by `npm test` automatically — do not report a "CI gap" for it. The real gap is the frozen
+  `review-verify` catalog, which needs a human audit to gain an id; say that instead.
 
 Grep hygiene: exclude `public/**` (built bundles embed full source maps → giant garbage hits) and
 `data/`; scope to `app_front`/`lib` and `--include=*.js`.

@@ -24,7 +24,7 @@ test('the watcher panel exposes a one-click global pause and clear-stop control'
   assert.match(source, /id="watcher-pause"/);
   assert.match(source, /saveWatcher\(root, \{ paused: watcher\.paused !== true \}\)/);
   assert.match(source, /id="watcher-clear-stop"/);
-  assert.match(source, /saveWatcher\(root, \{ stopReason: '' \}\)/);
+  assert.match(source, /watcherAction\(root, 'clear_stop'\)/, 'clear-stop routes to the dedicated clear-stop endpoint, not a plain PATCH');
   assert.doesNotMatch(source, /#watcher-resume/, 'the old stop-only resume button is gone');
   for (const [lang, dict] of [['en', en], ['pl', pl]]) {
     assert.ok(dict.settings?.watcherPause, `${lang}.settings.watcherPause is missing`);
@@ -94,6 +94,7 @@ test('the settings panel renders the monitoring dashboard from the stats endpoin
   assert.match(source, /data-watcher-tl-select/);
   assert.match(source, /data-watcher-decisions-filter/);
   assert.match(source, /clear-stop/);
+  assert.match(source, /clear-backoff/);
   assert.match(source, /data-watcher-open-chat/);
   // A per-second ticker repaints only the time-driven fields (no refetch).
   assert.match(source, /setInterval\(/);
@@ -135,14 +136,45 @@ test('the dashboard ticker stops when the panel is hidden or detached', () => {
   assert.match(source, /function stopWatcherTicker\(\)/, 'an explicit ticker teardown helper exists');
   assert.match(source, /clearInterval\(dashTimer\)/, 'the interval is actually cleared');
   assert.match(source, /container\.offsetParent !== null/, 'visibility is detected via offsetParent');
-  // The monitoring dashboard and the Scout schedule card both mount a live
-  // countdown, so the tick self-cleans only once neither is on screen.
+  // The monitoring dashboard, the Scout schedule card and the cycle schedule
+  // card all mount a live countdown, so the tick self-cleans only once none is
+  // on screen.
   assert.match(
     source,
-    /function tickWatcherTimes\(root\) \{[\s\S]*?if \(!dashboardIsVisible\(container\) && !dashboardIsVisible\(scoutSchedule\)\) \{[\s\S]*?stopWatcherTicker\(\);/,
-    'the tick self-cleans while both countdown surfaces are hidden',
+    /function tickWatcherTimes\(root\) \{[\s\S]*?if \(!dashboardIsVisible\(container\) && !dashboardIsVisible\(scoutSchedule\)[\s\S]*?!dashboardIsVisible\(statusCard\)[\s\S]*?!dashboardIsVisible\(scheduleInfo\)\) \{[\s\S]*?stopWatcherTicker\(\);/,
+    'the tick self-cleans only once every countdown surface is hidden',
   );
   assert.match(source, /visibilitychange/, 'backgrounding the browser tab stops the ticker');
+});
+
+test('the Scout editor mounts its containers and never overwrites a dirty draft', () => {
+  // The pure editor module is imported and mounted next to the profile list.
+  assert.match(source, /from '\.\.\/watcher\/scoutProfileEditorView\.js'/);
+  for (const id of ['watcher-scout-editor', 'watcher-scout-templates', 'watcher-scout-preview', 'watcher-scout-restore']) {
+    assert.ok(source.includes(`id="${id}"`), `missing #${id}`);
+  }
+  assert.match(source, /let scoutEditorState = \{/);
+  assert.match(source, /dirty: false/);
+  assert.match(source, /function paintScoutEditor\(root\)/);
+  assert.match(source, /renderScoutEditorHtml\(/);
+  assert.match(source, /renderScoutTemplatesHtml\(/);
+  assert.match(source, /renderScoutPreviewHtml\(/);
+  assert.match(source, /renderScoutRestoreHtml\(/);
+  // A dirty draft repaints only the list; the editor form is left untouched.
+  assert.match(
+    source,
+    /function paintScoutEditorLive\(root\) \{[\s\S]*?if \(scoutEditorState\.dirty === true\) \{[\s\S]*?paintScoutProfiles\(root\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?paintScoutEditor\(root\);/,
+    'a dirty draft must only repaint the list card',
+  );
+  // The editor actions are declared and dispatched through the shared dispatcher.
+  assert.match(source, /SCOUT_EDITOR_ACTIONS\.includes\(action\)/);
+  assert.match(source, /function bindScoutEditor\(root\)/);
+  assert.match(source, /scoutEditorFieldErrors\(draft\)/);
+  assert.match(source, /\/profiles\/preview-draft/);
+  assert.match(source, /\/restore-diff/);
+  assert.match(source, /\/restore`/);
+  assert.match(source, /watcherScoutEditorCasConflict/);
+  assert.match(source, /watcherScoutEditorSaved/);
 });
 
 test('the Scout tab shows the next scan and a manual run trigger', () => {
@@ -161,7 +193,10 @@ test('the Scout tab shows the next scan and a manual run trigger', () => {
   // The Scout tab also drives the per-second countdown ticker.
   assert.match(source, /tab === 'monitor' \|\| tab === 'scout'/);
   // A blocked answer is surfaced as a translated reason, not a generic error.
-  assert.match(source, /function scoutReasonText\(/);
+  // The helper is shared with the profile list (scoutProfilesView) so the row
+  // and the run message cannot drift.
+  assert.match(source, /import \{[\s\S]*?scoutReasonText,[\s\S]*?\} from '\.\.\/watcher\/scoutProfilesView\.js'/);
+  assert.match(source, /scoutRunResultText\(/);
   for (const [lang, dict] of [['en', en], ['pl', pl]]) {
     for (const key of [
       'watcherScoutScheduleTitle',
@@ -181,6 +216,48 @@ test('the Scout tab shows the next scan and a manual run trigger', () => {
       'watcherScoutReason_scan_interval',
       'watcherScoutReason_daily_budget',
       'watcherScoutReason_scout_parallel',
+    ]) {
+      assert.ok(dict.settings?.[key], `${lang}.settings.${key} is missing`);
+    }
+  }
+});
+
+test('the watcher settings panel shows the cycle schedule like Scout', () => {
+  // The schedule card is rendered from the server-computed `schedule` view field,
+  // with the pure renderer reused from the dashboard module.
+  assert.match(source, /id="watcher-schedule-info"/);
+  assert.match(source, /renderWatcherScheduleHtml\(data\.schedule \|\| \{\}, Date\.now\(\)\)/);
+  assert.match(source, /scheduleNextValueHtml\(data\.schedule, Date\.now\(\)\)/);
+  assert.match(source, /renderWatcherScheduleHtml,/);
+  assert.match(source, /scheduleNextValueHtml,/);
+  assert.match(source, /function paintWatcherSchedule\(root\)/);
+  // The card repaints from the cached view on the live path and on language change.
+  assert.match(source, /paintWatcherSchedule\(root\)/);
+  assert.match(source, /paintWatcherSchedule\(panel\)/);
+  // The status tab keeps the per-second countdown ticker alive.
+  assert.match(source, /tab === 'monitor' \|\| tab === 'scout' \|\| tab === 'status'/);
+  for (const [lang, dict] of [['en', en], ['pl', pl]]) {
+    for (const key of [
+      'watcherScheduleTitle',
+      'watcherScheduleHint',
+      'watcherScheduleNext',
+      'watcherScheduleLast',
+      'watcherScheduleCyclesToday',
+      'watcherScheduleRemaining',
+      'watcherScheduleUnlimited',
+      'watcherScheduleRunning',
+      'watcherScheduleNotScheduled',
+      'watcherScheduleDueNow',
+      'watcherScheduleBlocked',
+      'watcherScheduleReason_mode_not_active',
+      'watcherScheduleReason_paused',
+      'watcherScheduleReason_stop_reason',
+      'watcherScheduleReason_max_parallel',
+      'watcherScheduleReason_quiet_hours',
+      'watcherScheduleReason_daily_budget',
+      'watcherScheduleReason_cooldown',
+      'watcherScheduleReason_failure_backoff',
+      'watcherScheduleReason_harness_usage_limited',
     ]) {
       assert.ok(dict.settings?.[key], `${lang}.settings.${key} is missing`);
     }

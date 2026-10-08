@@ -12,6 +12,7 @@
  * - server.js registers the runtime and the SDK merges the tools.
  */
 
+import './helpers/isolated-data-dir.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, rmSync } from 'node:fs';
@@ -26,7 +27,13 @@ import {
   configureBrowserAgentRuntime,
   getBrowserAgentRuntime,
 } from '../lib/browser/agent-tools.js';
-import { BrowserError } from '../lib/browser/session-manager.js';
+import {
+  BrowserError,
+  BROWSER_INPUT_KINDS,
+  BROWSER_NAVIGATION_WAIT_UNTIL,
+} from '../lib/browser/session-manager.js';
+import { BROWSER_LIMITS } from '../lib/browser/constants.js';
+import { saveChats } from '../lib/persist/chats-persist.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => readFileSync(path.join(root, rel), 'utf8');
@@ -117,6 +124,27 @@ class FakeManager {
     return { browserSessionId: id, chatId };
   }
 
+  clearChatBinding(chatId, sessionId = '') {
+    const id = String(chatId || '').trim();
+    if (!id) return false;
+    const pointer = this.chatBindings.get(id);
+    if (!pointer) return false;
+    if (sessionId && pointer !== String(sessionId)) return false;
+    this.chatBindings.delete(id);
+    const session = this.sessions.get(pointer);
+    if (session && session.chatId === id) session.chatId = '';
+    this.calls.push({ method: 'clearChatBinding', chatId: id, sessionId: pointer });
+    return true;
+  }
+
+  async closeSession(sessionId, ownerSessionId, options = {}) {
+    const session = this.requireSession(sessionId, ownerSessionId, options.scope || {});
+    this.sessions.delete(sessionId);
+    if (session.chatId) this.chatBindings.delete(session.chatId);
+    this.calls.push({ method: 'closeSession', sessionId, reason: options.reason });
+    return { closed: true, reason: options.reason || 'closed' };
+  }
+
   listSessions(ownerSessionId, scope = {}) {
     const reqKey = scope.workspaceFile || scope.cwd || '';
     if (!reqKey) return [];
@@ -196,10 +224,10 @@ class FakeManager {
     return { browserTabId: tabId };
   }
 
-  async navigate(sessionId, tabId, url, ownerSessionId, scope = {}) {
+  async navigate(sessionId, tabId, url, ownerSessionId, scope = {}, options = {}) {
     const { tab } = this.requireTab(sessionId, tabId, ownerSessionId, scope);
     tab.url = url;
-    this.calls.push({ method: 'navigate', sessionId, tabId, url, scope });
+    this.calls.push({ method: 'navigate', sessionId, tabId, url, scope, options });
     return { browserSessionId: sessionId, browserTabId: tabId, url };
   }
 
@@ -326,14 +354,21 @@ test('another owner/workspace never sees the session', async () => {
   );
 });
 
-test('browser_sessions only lists sessions bound to the calling chat', async () => {
+test('browser_sessions lists own and unbound sessions, not foreign chats', async () => {
   const manager = new FakeManager();
   manager.addSession({ id: 'session-A', chatId: CHAT });
   manager.addSession({ id: 'session-B', chatId: 'chat-other' });
   manager.addSession({ id: 'session-C', chatId: '' });
   const tools = toolsFor(manager);
   const result = await tools.browser_sessions.execute();
-  assert.deepEqual(result.browserSessions.map((session) => session.browserSessionId), ['session-A']);
+  assert.deepEqual(
+    result.browserSessions.map((session) => session.browserSessionId).sort(),
+    ['session-A', 'session-C'],
+  );
+  const own = result.browserSessions.find((session) => session.browserSessionId === 'session-A');
+  const unbound = result.browserSessions.find((session) => session.browserSessionId === 'session-C');
+  assert.equal(own.binding, 'own');
+  assert.equal(unbound.binding, 'unbound');
 });
 
 test('console/network pulls are bounded and cursor-based', async () => {
@@ -393,6 +428,64 @@ test('browser_open reuses the chat binding and creates a session only when neede
   assert.equal(navigation.url, 'https://example.test/b');
 });
 
+test('browser_open clears a stale chat binding instead of dead-ending on an unusable session', async () => {
+  const manager = new FakeManager();
+  // The chat points at a session the calling owner can no longer use: it is
+  // still live but belongs to another Cretli session, so requireSession throws.
+  // Pre-fix browser_open surfaced that 403 as a dead-end; it must drop the
+  // pointer and fall through to the normal adopt-or-create path.
+  manager.addSession({ id: 'session-foreign', ownerSessionId: 'owner-2', chatId: CHAT });
+  const tools = toolsFor(manager);
+
+  const result = await tools.browser_open.execute({ url: 'https://example.test/stale-binding' });
+
+  assert.equal(result.ok, true);
+  assert.notEqual(result.browserSessionId, 'session-foreign');
+  assert.equal(
+    manager.calls.some((call) => call.method === 'clearChatBinding' && call.sessionId === 'session-foreign'),
+    true,
+    'the stale pointer must be cleared before continuing',
+  );
+  // The binding now resolves to the fresh, usable session the tool just created.
+  assert.equal(manager.resolveChatBinding(CHAT)?.browserSessionId, result.browserSessionId);
+  assert.equal(manager.calls.some((call) => call.method === 'createSession'), true);
+  // Scope never widened: the foreign session was neither adopted nor reused, only unbound.
+  assert.equal(manager.sessions.get('session-foreign').chatId, '');
+});
+
+test('browser_open does not clear an ancestor binding when that session is forbidden to the child', async () => {
+  const ancestorChatId = 'chat-ancestor';
+  const childChatId = 'chat-child';
+  saveChats([
+    { id: childChatId, forkParentChatId: ancestorChatId },
+    { id: ancestorChatId },
+  ]);
+  const manager = new FakeManager();
+  manager.addSession({
+    id: 'session-foreign',
+    ownerSessionId: 'owner-2',
+    chatId: ancestorChatId,
+  });
+  const tools = toolsFor(manager, { chatId: childChatId });
+
+  const result = await tools.browser_open.execute({ url: 'https://example.test/child-adopt' });
+
+  assert.equal(result.ok, true);
+  assert.notEqual(result.browserSessionId, 'session-foreign');
+  assert.equal(
+    manager.resolveChatBinding(ancestorChatId)?.browserSessionId,
+    'session-foreign',
+    'ancestor chat binding must remain untouched',
+  );
+  assert.equal(manager.sessions.get('session-foreign').chatId, ancestorChatId);
+  assert.equal(
+    manager.calls.some((call) => call.method === 'clearChatBinding' && call.chatId === ancestorChatId),
+    false,
+    'must not clear another chat pointer',
+  );
+  assert.equal(manager.calls.some((call) => call.method === 'createSession'), true);
+});
+
 test('runtime registration round-trips and clears', () => {
   const manager = new FakeManager();
   configureBrowserAgentRuntime({ manager });
@@ -446,6 +539,23 @@ test('browser_screenshot returns a temp file path instead of inline base64', asy
   }
 });
 
+test('browser_close tears down an accessible session', async () => {
+  const manager = new FakeManager();
+  manager.addSession({ id: 'session-A', chatId: CHAT });
+  const tools = toolsFor(manager);
+  const result = await tools.browser_close.execute({ browserSessionId: 'session-A' });
+  assert.equal(result.ok, true);
+  assert.equal(result.closed, true);
+  assert.equal(manager.sessions.has('session-A'), false);
+  assert.equal(manager.calls.some((call) => call.method === 'closeSession'), true);
+});
+
+test('browser_close is not exposed in plan or review mode', () => {
+  const manager = new FakeManager();
+  assert.equal(toolsFor(manager, { mode: 'plan' }).browser_close, undefined);
+  assert.equal(toolsFor(manager, { mode: 'agent', assignment: 'review' }).browser_close, undefined);
+});
+
 test('browser_input forwards click and fill locator events to the manager', async () => {
   const manager = new FakeManager();
   manager.addSession({ id: 'session-A', chatId: CHAT });
@@ -461,5 +571,81 @@ test('browser_input forwards click and fill locator events to the manager', asyn
   const call = manager.calls.find((entry) => entry.method === 'dispatchInput');
   assert.deepEqual(call.event, event);
   assert.match(tools.browser_input.inputSchema.properties.event.description, /click\|fill/);
+});
+
+test('browser_input declares every kind and its fields on the event schema', () => {
+  const manager = new FakeManager();
+  manager.addSession({ id: 'session-A', chatId: CHAT });
+  const event = toolsFor(manager).browser_input.inputSchema.properties.event;
+
+  // A schema-driven harness must be able to discover the shape without reading code.
+  assert.equal(event.type, 'object');
+  assert.ok(event.properties && typeof event.properties === 'object', 'event needs properties');
+  assert.deepEqual([...event.properties.kind.enum], [...BROWSER_INPUT_KINDS]);
+  for (const kind of ['pointer', 'scroll', 'key', 'resize', 'click', 'fill', 'select', 'check',
+    'uncheck', 'hover', 'drag', 'upload', 'wait']) {
+    assert.ok(event.properties.kind.enum.includes(kind), `kind ${kind} is enumerated`);
+  }
+
+  const fields = Object.keys(event.properties);
+  for (const field of [
+    'selector', 'role', 'name', 'text', 'label', 'placeholder', 'nth', 'index',
+    'action', 'key', 'value', 'delay', 'point', 'preview', 'viewport', 'button', 'clickCount',
+    'deltaX', 'deltaY',
+    'optionLabel', 'optionIndex',
+    'toSelector', 'toRole', 'toName', 'toText', 'toLabel', 'toPlaceholder', 'toNth',
+    'files',
+    'state', 'loadState', 'url', 'timeout',
+  ]) {
+    assert.ok(fields.includes(field), `event field ${field} is documented`);
+  }
+
+  // The option label is a separate field because `label` already names a locator.
+  assert.notEqual(event.properties.optionLabel, undefined);
+  assert.match(event.properties.label.description, /optionLabel/);
+  // The documented caps come from the shared constants, not from prose.
+  assert.match(event.properties.files.description, new RegExp(String(BROWSER_LIMITS.MAX_UPLOAD_FILES)));
+  assert.match(event.properties.timeout.description, new RegExp(String(BROWSER_LIMITS.MAX_WAIT_TIMEOUT_MS)));
+  assert.match(event.properties.delay.description, new RegExp(String(BROWSER_LIMITS.MAX_INPUT_DELAY_MS)));
+  assert.match(event.properties.state.enum.join('|'), /attached\|detached\|visible\|hidden/);
+  assert.match(event.properties.loadState.enum.join('|'), /load\|domcontentloaded\|networkidle/);
+  // There is no field that would evaluate script.
+  assert.equal(event.properties.expression, undefined);
+  assert.equal(event.properties.function, undefined);
+  assert.equal(event.properties.eval, undefined);
+
+  // `index` is the alias `browser_elements` hands back, so it must be documented.
+  assert.match(event.properties.index.description, /browser_elements/);
+
+  // The tool description names the new kinds too.
+  const description = toolsFor(manager).browser_input.description;
+  for (const kind of ['select', 'check', 'uncheck', 'hover', 'drag', 'upload', 'wait']) {
+    assert.match(description, new RegExp(kind));
+  }
+  assert.match(description, /pointer, scroll, key/);
+});
+
+test('browser_navigate exposes and forwards the closed waitUntil allowlist', async () => {
+  const manager = new FakeManager();
+  manager.addSession({ id: 'session-A', chatId: CHAT });
+  const tools = toolsFor(manager);
+  const waitUntil = tools.browser_navigate.inputSchema.properties.waitUntil;
+  assert.equal(waitUntil.type, 'string');
+  assert.deepEqual([...waitUntil.enum], [...BROWSER_NAVIGATION_WAIT_UNTIL]);
+  assert.ok(!tools.browser_navigate.inputSchema.required.includes('waitUntil'), 'waitUntil is optional');
+
+  await tools.browser_navigate.execute({
+    browserSessionId: 'session-A',
+    browserTabId: 'tab-1',
+    url: 'https://example.test/done',
+    waitUntil: 'networkidle',
+  });
+  const call = manager.calls.find((entry) => entry.method === 'navigate');
+  assert.deepEqual(call.options, { waitUntil: 'networkidle' });
+
+  // Omitted: the manager keeps its default, so nothing extra is forwarded.
+  await tools.browser_navigate.execute({ browserSessionId: 'session-A', browserTabId: 'tab-1', url: 'https://example.test/x' });
+  const second = manager.calls.filter((entry) => entry.method === 'navigate').at(-1);
+  assert.deepEqual(second.options, { waitUntil: undefined });
 });
 

@@ -83,6 +83,11 @@ runCase('GET returns an off default without creating a row', withApp(async (invo
   assert.equal(res.body.scout.enabled, false);
   assert.equal(res.body.scout.nextScanAt, 0);
   assert.equal(res.body.scout.usedToday, 0);
+  // The additive cycle schedule: off mode, so no next cycle and no ETA.
+  assert.ok(res.body.schedule, 'the HTTP view carries the cycle schedule');
+  assert.equal(res.body.schedule.enabled, false);
+  assert.equal(res.body.schedule.nextCycleAt, 0);
+  assert.equal(res.body.schedule.blockedReason, 'mode_not_active');
   assert.equal(getWorkspaceWatcher(cwd, { dataDir }), null, 'a read must not persist a row');
 }));
 
@@ -299,6 +304,17 @@ runCase('report accepts only the active cycle orchestrator and replays idempoten
   assert.equal(replay.status, 200);
   assert.equal(replay.body.replayed, true);
   assert.equal(replay.body.closed, undefined);
+}));
+
+runCase('POST todos/:id/recover returns conflict on stale revision', withApp(async (invoke) => {
+  const todo = addTodo(dataDir, cwd, { title: 'Recover route', status: 'ready' }).item;
+  updateTodo(dataDir, cwd, todo.id, { status: 'doing', orchestratorChatId: 'missing-orch' });
+  const res = await invoke('POST', '/api/workspace-watcher/todos/:id/recover', {
+    params: { id: todo.id },
+    body: { expectedUpdatedAt: 'stale-revision' },
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.outcome, 'conflict');
 }));
 
 runCase('DELETE removes the watcher row', withApp(async (invoke) => {

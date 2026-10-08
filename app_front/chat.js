@@ -33,6 +33,7 @@ import { appendTodoRef, parseTodoMention, removeTodoMention, resolveTodoContinue
 import { buildTodoContinueNote } from '../lib/todo-execution-prompt.js';
 import { initModal } from './lib/modal.js';
 import { initAutoTitleSettings } from './features/settings/autoTitleSettings.js';
+import { initChatAutoArchiveSettings } from './features/settings/chatAutoArchiveSettings.js';
 import { showChoiceDialog } from './lib/choiceDialog.js';
 import {
   buildHarnessHandoffPrompt,
@@ -126,6 +127,7 @@ import {
 } from './features/chat/chatListStateRefresh.js';
 import { dispatchSidebarChatRowStatusPatch } from './features/sidebar/sidebarChatRowRefreshBus.js';
 import { patchSidebarChatRowVisualState } from './features/sidebar/sidebarChatRowVisualPatch.js';
+import { setSidebarArchiveCountdownListener } from './features/sidebar/sidebarArchiveCountdownClock.js';
 import { normalizeSdkMode } from '../lib/sdk/sdk-mode.js';
 import { maybeRecoverMissedSdkRunOutcome } from './features/chat/sdkRunOutcomeRecovery.js';
 import { normalizeSdkUiMode } from '../lib/sdk/sdk-ui-mode.js';
@@ -616,6 +618,10 @@ export function readChatBufferForChatRestore(chatId, isSdk) {
 /** Initialize Chat checkboxes in the Settings panel. */
 export function initAutoNameChatSetting() {
   initAutoTitleSettings();
+  initChatAutoArchiveSettings();
+  // Keep the sidebar auto-archive countdown ticking while the setting is enabled
+  // (the clock itself is a no-op when disabled).
+  setSidebarArchiveCountdownListener(() => scheduleChatListStateRefreshAll());
   const cb = document.getElementById('auto-name-chat-checkbox');
   if (cb) {
     cb.checked = getAutoNameChatEnabled();
@@ -2415,6 +2421,10 @@ function onChatSdkModeChange(chat, mode) {
 }
 
 function sendTextToAgent(chat, text, opts = {}) {
+  if (isChatArchived(chat)) {
+    chat._sdkRichView?.appendMetaNotice?.(t('chat.archivedReadOnly'));
+    return false;
+  }
   const sdkMode = normalizeSdkMode(opts.sdkMode ?? chat?.sdkMode);
   const internal = opts.internal === true;
   const rawText = text == null ? '' : String(text);
@@ -2425,10 +2435,17 @@ function sendTextToAgent(chat, text, opts = {}) {
     delete chat._contextSeedSummary;
     payloadText = buildContextSeedPayload(pendingSeedSummary, rawText);
   }
+  const sdkOutboundType =
+    chat?.agentTransport === 'sdk' &&
+    chat._sdkSteerSupported === true &&
+    chat._sdkServerBusy === true
+      ? 'steer'
+      : 'send';
   sendTextWithEnterToTerminalState(chat, payloadText, {
     sendEnterDelayMs: SEND_ENTER_DELAY_MS,
     enterFocusDelayMs: ENTER_FOCUS_DELAY_MS,
     sdkMode,
+    sdkOutboundType,
     displayText: opts.displayText,
     onBeforeSend: () => {
       if (chat.id) recordChatActivity(chat.id);
@@ -2513,6 +2530,7 @@ function applyPinnedChatModeUi(chat) {
 export function sendKeySequenceToActiveChat(sequence) {
   if (!sequence) return false;
   const chat = activeChatId ? chats.find((c) => c.id === activeChatId) : null;
+  if (isChatArchived(chat)) return false;
   return sendSequenceToTerminalState(chat, sequence, {
     onBeforeSend: () => {
       if (chat?.id) recordChatActivity(chat.id);
@@ -4043,6 +4061,7 @@ function renderChatList() {
   // chatHistorySyncPoll measures how long the synchronous ones take.
   getUiFreezeCounters()?.bump('ui.renders');
   chatView.renderChatList();
+  chats.forEach(syncArchivedChatSendUi);
   notifySidebar();
 }
 
@@ -4558,6 +4577,7 @@ function openTerminal(chat) {
   pane.appendChild(viewportWrap);
 
   function sendKeyToAgent(sequence) {
+    if (isChatArchived(chat)) return;
     const focusDelayMs = sequence === '\r' ? ENTER_FOCUS_DELAY_MS : 0;
     sendSequenceToTerminalState(chat, sequence, {
       focusDelayMs,
@@ -4568,6 +4588,10 @@ function openTerminal(chat) {
   }
 
   function chatOnSend(text, meta = {}) {
+    if (isChatArchived(chat)) {
+      chat._sdkRichView?.appendMetaNotice?.(t('chat.archivedReadOnly'));
+      return false;
+    }
     chat._awaitingInput = false;
     const rawText = typeof meta.rawText === 'string' ? meta.rawText : text || '';
     const trimmed = (text || '').trim();
@@ -4736,6 +4760,7 @@ function openTerminal(chat) {
   chat._connectionStatus = 'connecting';
   if (chat.id === activeChatId) setChatStatus('connecting');
   chat.pane = pane;
+  syncArchivedChatSendUi(chat);
 
   chat._sdkRichView = createSdkRichView(chat, container, {
     appendPlain: (s) => {
@@ -5377,7 +5402,22 @@ async function requestArchiveSettledChatsInner(ids, options) {
   return { ok: failed === 0, archived: ids.length - failed, failed };
 }
 
+/**
+ * Keep the composer read-only when archive state changes on another client.
+ * @param {object | null | undefined} chat
+ * @returns {void}
+ */
+function syncArchivedChatSendUi(chat) {
+  const sendBar = chat?.pane?._sendBar;
+  if (!sendBar) return;
+  const archived = isChatArchived(chat);
+  sendBar.setReadOnly(archived);
+  sendBar.setPlaceholder(archived ? t('chat.archivedReadOnly')
+    : (isWatcherPinnedChat(chat) ? t('watcherPinned.placeholder') : t('chat.commandPlaceholder')));
+}
+
 function syncArchiveMenuUi(chat = null) {
+  syncArchivedChatSendUi(chat);
   const btn = document.getElementById('chat-archive-menu-btn');
   if (!btn) return;
   const archived = Boolean(String(chat?.archivedAt || '').trim());
@@ -6057,6 +6097,7 @@ function performSelectChat(id) {
     syncChatSdkModeUi(chat);
     renderChatTerminalState(chat);
     applyPinnedChatModeUi(chat);
+    syncArchivedChatSendUi(chat);
     chatDiagnosticsApi.startChatContextUsageSync(chat);
     if (chat._sdkRichView && !reselectingActive) {
       setTimeout(() => chat._sdkRichView.scrollToBottom(), 50);
@@ -8999,6 +9040,7 @@ function openChatSettingsModal() {
   const showDiagCheckbox = document.getElementById('chat-settings-show-diag');
   const sdkVerboseLogsCheckbox = document.getElementById('chat-settings-sdk-verbose-logs');
   const sdkUiModeSelect = document.getElementById('chat-settings-sdk-ui-mode');
+  const sdkSystemPromptInput = document.getElementById('chat-settings-sdk-system-prompt');
   const autoContextCompressionEnabledCheckbox = document.getElementById(
     'chat-settings-auto-context-compression-enabled'
   );
@@ -9029,6 +9071,21 @@ function openChatSettingsModal() {
   }
   if (sdkUiModeSelect) {
     sdkUiModeSelect.value = normalizeSdkUiMode(chat.sdkUiMode);
+  }
+  if (sdkSystemPromptInput) {
+    sdkSystemPromptInput.value = typeof chat.sdkSystemPrompt === 'string' ? chat.sdkSystemPrompt : '';
+    const sdkPromptRow = sdkSystemPromptInput.closest('.chat-settings-form');
+    if (sdkPromptRow) {
+      sdkSystemPromptInput.hidden = chat.agentTransport !== 'sdk';
+      const label = sdkPromptRow.querySelector('[for="chat-settings-sdk-system-prompt"]');
+      if (label) label.hidden = chat.agentTransport !== 'sdk';
+      const hint = label?.nextElementSibling?.classList?.contains('chat-settings-hint-inline')
+        ? label.nextElementSibling
+        : sdkSystemPromptInput.nextElementSibling;
+      if (hint?.classList?.contains('chat-settings-hint-inline')) {
+        hint.hidden = chat.agentTransport !== 'sdk';
+      }
+    }
   }
   if (autoContextCompressionEnabledCheckbox) {
     autoContextCompressionEnabledCheckbox.checked = isAutoContextCompressionEnabled(chat);
@@ -9294,6 +9351,18 @@ function saveChatSettings() {
   if (nextSdkUiMode !== normalizeSdkUiMode(chat.sdkUiMode)) {
     payload.sdkUiMode = nextSdkUiMode;
   }
+  const sdkSystemPromptInput = document.getElementById('chat-settings-sdk-system-prompt');
+  if (
+    sdkSystemPromptInput
+    && chat.agentTransport === 'sdk'
+    && isChatSettingsControlOnVisibleTab(sdkSystemPromptInput)
+  ) {
+    const nextPrompt = sdkSystemPromptInput.value.trim();
+    const prevPrompt = typeof chat.sdkSystemPrompt === 'string' ? chat.sdkSystemPrompt.trim() : '';
+    if (nextPrompt !== prevPrompt) {
+      payload.sdkSystemPrompt = nextPrompt || null;
+    }
+  }
   const showSendFieldCheckbox = document.getElementById('chat-settings-show-send-field');
   const autoUpdateTitleCheckbox = document.getElementById('chat-settings-auto-update-title');
   if (showSendFieldCheckbox && isChatSettingsControlOnVisibleTab(showSendFieldCheckbox)) {
@@ -9396,6 +9465,10 @@ function saveChatSettings() {
     if (payload.sdkUiMode !== undefined) {
       chat.sdkUiMode = nextSdkUiMode;
       chat._sdkRichView?.setUiMode?.(nextSdkUiMode);
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'sdkSystemPrompt')) {
+      if (payload.sdkSystemPrompt) chat.sdkSystemPrompt = payload.sdkSystemPrompt;
+      else delete chat.sdkSystemPrompt;
     }
     if (payload.autoContextCompressionEnabled !== undefined) {
       chat.autoContextCompressionEnabled = payload.autoContextCompressionEnabled;

@@ -105,15 +105,19 @@ function releaseJob(resultOrRow) {
   const first = await start(p);
   assert.equal(first.ok, true);
   const blocked = await start(p, 'Should not start');
-  assert.equal(blocked.ok, false);
-  assert.equal(blocked.code, 'active_delegation_exists');
-  assert.ok(
-    ['job_in_progress', 'unknown', 'run_stopping', 'stale_running'].includes(blocked.reason),
-    blocked.reason,
-  );
-  assert.equal(blocked.delegationId, first.delegation.id);
-  assert.equal(blocked.attemptId, first.delegation.attemptId);
+  assert.equal(blocked.ok, true);
+  assert.equal(blocked.status, 202);
+  assert.equal(blocked.queued, true);
+  assert.equal(blocked.queueConflict.code, 'active_delegation_exists');
+  assert.equal(blocked.delegation.status, 'queued');
+  // Release the running job, then drain the parent queue FIFO: the parked job
+  // starts. Nothing lingers to occupy the shared workspace for later blocks.
   releaseJob(first);
+  const drained = await service.drainQueue({ parentChatId: p.id });
+  assert.equal(drained.started.includes(blocked.delegation.id), true);
+  const startedFromQueue = getDelegationById(blocked.delegation.id);
+  assert.equal(startedFromQueue.status !== 'queued', true, startedFromQueue.status);
+  releaseJob(startedFromQueue);
 }
 
 {

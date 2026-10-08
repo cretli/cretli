@@ -455,6 +455,87 @@ export function shouldReplaceChatLocalBootCacheDoc(incumbent, candidate) {
 }
 
 /**
+ * True when `candidate` is a strict subset of `incumbent` chat ids (partial runtime list).
+ *
+ * This is deliberately only a *shape* test — it does NOT decide whether a write is skipped.
+ * A server-confirmed list may legitimately be smaller than the durable snapshot (chat
+ * deleted), so the caller must gate this on an explicit "this runtime list is an unconfirmed
+ * boot-cache slice" signal (`input.source === 'boot-cache'`), never on a row-count threshold.
+ * The old `incumbent > 40 && candidate <= 40` heuristic froze every server deletion that
+ * crossed that boundary (41 -> 40) and left ghosts in IDB forever.
+ *
+ * @param {ReturnType<typeof parseChatLocalBootCache>} incumbent
+ * @param {ReturnType<typeof parseChatLocalBootCache>} candidate
+ * @returns {boolean}
+ */
+export function isPartialBootCacheSubsetShrink(incumbent, candidate) {
+  if (!incumbent || !candidate) return false;
+  const incumbentChats = Array.isArray(incumbent.chats) ? incumbent.chats : [];
+  const candidateChats = Array.isArray(candidate.chats) ? candidate.chats : [];
+  if (candidateChats.length === 0) return false;
+  if (candidateChats.length >= incumbentChats.length) return false;
+  const incumbentIds = new Set(
+    incumbentChats.map((row) => (row && typeof row === 'object' ? row.id : '')).filter(Boolean),
+  );
+  for (const row of candidateChats) {
+    const id = row && typeof row === 'object' ? row.id : '';
+    if (id && !incumbentIds.has(id)) return false;
+  }
+  return true;
+}
+
+/**
+ * Whether a persist input carries an *unconfirmed boot-cache slice* — a list hydrated from
+ * the local snapshot that the server has not reconciled yet. Only that explicit source may
+ * skip a subset-shrink write. A server-confirmed list (`source: 'server'` or absent) always
+ * writes, even when it is smaller than the durable snapshot.
+ *
+ * @param {unknown} input
+ * @returns {boolean}
+ */
+export function isUnconfirmedBootCacheSource(input) {
+  return !!input && typeof input === 'object' && input.source === 'boot-cache';
+}
+
+/**
+ * Make sure the adapter's in-memory mirror holds the durable boot snapshot before the
+ * subset-shrink guard reads it. The IDB adapter's synchronous `read()` only serves its
+ * in-memory cache, and on an offline cold start `ensurePrime()` is often never called
+ * (the legacy localStorage snapshot short-circuits the IDB hydration), so without this the
+ * incumbent reads as `null` and a 40-row boot slice would overwrite the full snapshot (F1).
+ *
+ * @param {{ refreshMetaKeyFromIdb?: (key: string) => Promise<boolean>, ensurePrime?: () => Promise<void> } | null | undefined} adapter
+ * @returns {Promise<void>}
+ */
+async function primeIncumbentBootCacheDoc(adapter) {
+  if (!adapter) return;
+  if (typeof adapter.refreshMetaKeyFromIdb === 'function') {
+    try {
+      await adapter.refreshMetaKeyFromIdb(CHAT_LOCAL_BOOT_CACHE_KEY);
+      return;
+    } catch (_) {}
+  }
+  if (typeof adapter.ensurePrime === 'function') {
+    try {
+      await adapter.ensurePrime();
+    } catch (_) {}
+  }
+}
+
+/**
+ * @param {import('./chatPersistenceAdapter.js').ChatPersistenceAdapter | null | undefined} adapter
+ * @returns {ReturnType<typeof parseChatLocalBootCache> | null}
+ */
+function readIncumbentBootCacheDoc(adapter) {
+  if (!adapter || typeof adapter.read !== 'function') return null;
+  try {
+    return parseChatLocalBootCache(adapter.read(CHAT_LOCAL_BOOT_CACHE_KEY));
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
  * Last written fingerprint per storage object. Only this module writes the key, so a match
  * means the stored document already holds exactly this content.
  * @type {WeakMap<object, { lastSignature: string }>}
@@ -536,6 +617,10 @@ export function writeChatLocalBootCacheToAdapter(adapter, input, revisionState =
   if (signature === lastSignature) {
     return { written: false, built: false, signature };
   }
+  const incumbent = readIncumbentBootCacheDoc(adapter);
+  if (isUnconfirmedBootCacheSource(input) && isPartialBootCacheSubsetShrink(incumbent, doc)) {
+    return { written: false, built: false, signature, skippedSubsetShrink: true };
+  }
   const counters = getUiFreezeCounters();
   if (counters) counters.bump('cache.builds');
   const sourceChats = Array.isArray(input?.chats) ? input.chats.length : 0;
@@ -595,6 +680,15 @@ export async function writeChatLocalBootCacheToAdapterAsync(
   const lastSignature = typeof revisionState.lastSignature === 'string' ? revisionState.lastSignature : '';
   if (signature === lastSignature) {
     return { written: false, built: false, signature };
+  }
+  // The unconfirmed-boot-cache guard compares against the durable snapshot, so make sure
+  // the adapter mirror actually holds it before reading (see primeIncumbentBootCacheDoc).
+  if (isUnconfirmedBootCacheSource(input)) {
+    await primeIncumbentBootCacheDoc(adapter);
+  }
+  const incumbent = readIncumbentBootCacheDoc(adapter);
+  if (isUnconfirmedBootCacheSource(input) && isPartialBootCacheSubsetShrink(incumbent, doc)) {
+    return { written: false, built: false, signature, skippedSubsetShrink: true };
   }
   const counters = getUiFreezeCounters();
   if (counters) counters.bump('cache.builds');

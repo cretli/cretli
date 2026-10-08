@@ -13,6 +13,7 @@ import { createInProcessMcpClient } from '../lib/mcp/mcp-inprocess-client.js';
 import { createCretliMcpToolHandlers } from '../lib/mcp/mcp-builtin-tools.js';
 import { registerMockChatRunAdapter, resetMockChatRuns } from '../lib/chat-run/mock-adapter.js';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
+import { classifyWorkspaceDoingTodos } from '../lib/workspace-watcher-recovery.js';
 
 resetMockChatRuns();
 registerMockChatRunAdapter('opencode');
@@ -100,5 +101,27 @@ assert.equal(waitHeld.structuredContent.items[0].run_stopping, true);
 updateDelegationRecord(completedHeld.id, { runStoppingAt: '' });
 const waitFree = await handlers.delegation_wait({ ids: [completedHeld.id], timeout_ms: 0 });
 assert.equal(waitFree.structuredContent.status, 'done');
+
+// Recovery contract: the watcher reads a `doing` todo through the delegation
+// slot. An occupied slot (active job or unconfirmed stop) is active work; a
+// terminal `blocked` report needs a human and is never resumed automatically.
+const recoveryParent = 'recovery-contract-parent';
+const recoveryLeaf = '11111111-2222-4333-8444-555555555555';
+const recoveryJob = createDelegationRecord({ parentChatId: recoveryParent, workspaceFolder: ISOLATED_DATA_DIR, status: 'running', leafId: recoveryLeaf });
+const classifyLeaf = () => classifyWorkspaceDoingTodos({
+  items: [{ id: recoveryLeaf, status: 'doing', updatedAt: 'rev' }],
+  delegations: [getDelegationById(recoveryJob.id)],
+  cycles: [],
+  probe: () => ({ known: true, busy: false, reason: 'idle' }),
+  isCycleChatAlive: () => false,
+  getChat: () => ({ archived: true }),
+})[0];
+assert.deepEqual([classifyLeaf().state, classifyLeaf().source, classifyLeaf().chatId], ['active', 'delegation_leaf', recoveryParent]);
+updateDelegationRecord(recoveryJob.id, { status: 'completed', taskOutcome: 'blocked', runStoppingAt: new Date().toISOString() });
+assert.deepEqual([classifyLeaf().state, classifyLeaf().reason], ['active', 'run_stopping']);
+updateDelegationRecord(recoveryJob.id, { runStoppingAt: '' });
+assert.deepEqual([classifyLeaf().state, classifyLeaf().reason, classifyLeaf().delegationId], ['user_action', 'delegation_blocked', recoveryJob.id]);
+updateDelegationRecord(recoveryJob.id, { taskOutcome: 'success' });
+assert.deepEqual([classifyLeaf().state, classifyLeaf().reason], ['recoverable', 'idle_archived_chat']);
 
 console.log('delegation-contract.test.js OK');

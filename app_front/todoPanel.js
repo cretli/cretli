@@ -16,6 +16,7 @@ import {
   serializeTodoRootStatusFilter,
   TODO_ITEM_STATUSES,
   readTodoRowMark,
+  readTodoRowBlockKind,
   readTodoRowMeta,
   resolveTodoChatCountKey,
   resolveTodoDrop,
@@ -29,9 +30,11 @@ import './components/ui/cr-bar-button.js';
 import './components/ui/cr-checkbox.js';
 import './components/ui/cr-dialog.js';
 import './components/ui/cr-todo-card.js';
+import { findTodoRecoveryState } from './features/todo/todoRecoveryView.js';
 import {
   initWatcherPanel,
   refreshWatcherPanel,
+  getWatcherView,
   isWatcherAutopilot,
 } from './features/watcher/watcherPanel.js';
 
@@ -398,6 +401,8 @@ function disposeAllRowMenus() {
 
 function bindCardHandlers(card) {
   card.addEventListener('todo-status-change', onStatusChange);
+  card.addEventListener('todo-retry-blocked', onRetryBlockedTodo);
+  card.addEventListener('todo-recover', onRecoverTodo);
   card.addEventListener('todo-title-save', onTitleBlur);
   card.addEventListener('todo-body-save', onBodyBlur);
   card.addEventListener('todo-delete', onDelete);
@@ -427,6 +432,76 @@ async function onCardCopy(e) {
   }
   if (kind === 'markdown') {
     await copyTodoText(buildTodoMarkdown(item), t('todo.copiedMarkdown'));
+  }
+}
+
+async function onRecoverTodo(e) {
+  const detail = /** @type {any} */ (e)?.detail || {};
+  const id = String(detail.id || '').trim();
+  const revision = String(detail.revision || '').trim();
+  const ctx = getWorkspaceContext();
+  if (!id || !revision || !ctx.workspaceFolder) return;
+  const card = e.currentTarget instanceof HTMLElement ? e.currentTarget : null;
+  const feedback = card?.querySelector('.todo-action-feedback');
+  const showFeedback = (message, isError = false) => {
+    if (!(feedback instanceof HTMLElement)) return;
+    feedback.hidden = !message;
+    feedback.textContent = message;
+    feedback.dataset.tone = isError ? 'error' : 'status';
+  };
+  showFeedback(t('todo.recoveryResume'));
+  setStatus(t('todo.recoveryResume'));
+  try {
+    const result = await api.recoverWorkspaceWatcherTodo(id, ctx.workspaceFolder, revision);
+    if (!result?.ok) {
+      const outcome = String(result?.outcome || '');
+      const message = outcome === 'conflict'
+        ? t('todo.recoveryResumeConflict')
+        : t('todo.recoveryResumeFailed', { outcome: outcome || result?.error || 'error' });
+      showFeedback(message, true);
+      setStatus(message, true);
+      return;
+    }
+    await refreshTodoList();
+    await refreshWatcherPanel();
+    openEditor(id);
+    showFeedback(t('todo.recoveryResumeSuccess'));
+    setStatus(t('todo.recoveryResumeSuccess'));
+  } catch {
+    showFeedback(t('todo.recoveryResumeFailed', { outcome: 'network' }), true);
+    setStatus(t('todo.networkError'), true);
+  }
+}
+
+async function onRetryBlockedTodo(e) {
+  const detail = /** @type {any} */ (e)?.detail || {};
+  const id = String(detail.id || '').trim();
+  const ctx = getWorkspaceContext();
+  if (!id || !ctx.workspaceFolder) return;
+  const card = e.currentTarget instanceof HTMLElement ? e.currentTarget : null;
+  const feedback = card?.querySelector('.todo-action-feedback');
+  const showFeedback = (message, isError = false) => {
+    if (!(feedback instanceof HTMLElement)) return;
+    feedback.hidden = !message;
+    feedback.textContent = message;
+    feedback.dataset.tone = isError ? 'error' : 'status';
+  };
+  showFeedback(t('todo.retryingBlocked'));
+  setStatus(t('todo.retryingBlocked'));
+  try {
+    const result = await api.retryWorkspaceWatcherTodo(id, ctx.workspaceFolder);
+    if (!result?.ok) {
+      showFeedback(result?.error || t('todo.retryBlockedFailed'), true);
+      setStatus(result?.error || t('todo.retryBlockedFailed'), true);
+      return;
+    }
+    await refreshTodoList();
+    openEditor(id);
+    showFeedback(t('todo.retryBlockedSuccess'));
+    setStatus(t('todo.retryBlockedSuccess'));
+  } catch {
+    showFeedback(t('todo.retryBlockedFailed'), true);
+    setStatus(t('todo.networkError'), true);
   }
 }
 
@@ -923,8 +998,24 @@ function paintTodoRow(el, row) {
   const markKind = readTodoRowMark(latestItems, row.item);
   if (mark instanceof HTMLElement) {
     mark.hidden = !markKind;
-    mark.textContent = markKind === 'blocked' ? t('todo.blocked') : t('todo.ready');
-    mark.dataset.mark = markKind;
+    const blockKind = markKind === 'blocked' ? readTodoRowBlockKind(latestItems, row.item) : '';
+    mark.textContent = blockKind === 'action'
+      ? t('todo.blockedAction')
+      : blockKind === 'dependency'
+        ? t('todo.blockedDependency')
+        : markKind === 'blocked' ? t('todo.blocked') : t('todo.ready');
+    mark.dataset.mark = blockKind ? `blocked-${blockKind}` : markKind;
+    const blockedReason = String(row.item?.blockedReason || '').trim();
+    const blockDetail = blockKind === 'action'
+      ? blockedReason
+      : blockKind === 'dependency' ? t('todo.blockedDependencyHint') : '';
+    if (blockDetail) {
+      mark.title = blockDetail;
+      mark.setAttribute('aria-label', `${mark.textContent}: ${blockDetail}`);
+    } else {
+      mark.removeAttribute('title');
+      mark.removeAttribute('aria-label');
+    }
   }
   if (add instanceof HTMLButtonElement) {
     const allowed = canAddTodoChild(latestItems, id);
@@ -1080,6 +1171,7 @@ function openEditor(id) {
   editorTodoId = id;
   editorDialog.heading = t('todo.editTask');
   editorCard.item = item;
+  editorCard.recoveryState = findTodoRecoveryState(getWatcherView(), id);
   editorCard.hasChildren = latestItems.some((row) => row.parentId === item.id);
   editorCard.newChatHarness = '';
   editorCard.bodyPreview = false;

@@ -5,6 +5,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  BROWSER_ENV_DENYLIST,
+  BROWSER_PROXY_ENV_DENYLIST,
   BROWSER_RUNTIME_STATUS,
   CHROMIUM_BASE_ARGS,
   buildChromiumProcessEnv,
@@ -129,6 +131,40 @@ test('buildChromiumProcessEnv drops only the Codex identity deny-list', () => {
     CODEX_THREAD_ID: 'thread',
   });
   assert.deepEqual(env, { PATH: '/bin' });
+});
+
+test('Chromium env strips HTTP_PROXY/NO_PROXY so env cannot widen egress', () => {
+  for (const key of BROWSER_PROXY_ENV_DENYLIST) {
+    assert.ok(!BROWSER_ENV_DENYLIST.includes(key));
+  }
+  const env = buildChromiumProcessEnv({
+    PATH: '/bin',
+    HTTP_PROXY: 'http://evil:8080',
+    HTTPS_PROXY: 'http://evil:8080',
+    ALL_PROXY: 'socks5://evil:1080',
+    NO_PROXY: '*',
+  });
+  assert.equal(env.HTTP_PROXY, undefined);
+  assert.equal(env.NO_PROXY, undefined);
+  assert.deepEqual(env, { PATH: '/bin' });
+});
+
+test('Playwright proxy config uses explicit server without bypass widening', async () => {
+  const fake = { chromium: { executablePath: () => '/usr/bin/chromium', launch: async () => ({}) } };
+  const result = await detectBrowserRuntime({
+    platform: 'linux',
+    env: {
+      CRETLI_BROWSER_NETWORK_BOUNDARY: 'proxy',
+      CRETLI_BROWSER_PROXY_SERVER: 'http://127.0.0.1:3129',
+    },
+    importModule: async () => fake,
+    fileExists: () => true,
+    getuid: () => 1000,
+  });
+  let launchOptions = null;
+  fake.chromium.launch = async (options) => { launchOptions = options; return {}; };
+  await result.driver.launch();
+  assert.deepEqual(launchOptions.proxy, { server: 'http://127.0.0.1:3129', bypass: '' });
 });
 
 test('Chromium launch env strips CODEX_SESSION_ID/CODEX_THREAD_ID', async () => {

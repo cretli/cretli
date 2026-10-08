@@ -10,7 +10,9 @@ const agentFinishedSource = readFileSync(path.join(root, 'lib', 'agent-finished-
 
 assert.match(pushSource, /TTL: 3600/);
 assert.match(pushSource, /urgency: 'high'/);
-assert.match(pushSource, /sendNotification\(sub, notificationPayload, sendOptions\)/);
+assert.match(pushSource, /stripPushPreferences\(sub\)/);
+assert.match(pushSource, /sendNotification\(webPushSub, notificationPayload, sendOptions\)/);
+assert.doesNotMatch(pushSource, /sendNotification\(sub,/);
 assert.match(pushSource, /trimWebPushNotificationPayload/);
 // The agent-finished payload is built by the shared module used by every harness.
 assert.match(agentFinishedSource, /buildAgentFinishedPushData/);

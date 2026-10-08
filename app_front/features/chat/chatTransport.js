@@ -32,6 +32,7 @@ import {
 } from './sdkRunOutcomeRecovery.js';
 import { getWidgetAccessToken } from '../../api.js';
 import { clearPushInboxCache } from '../pwa/pushInbox.js';
+import { noteLiveInAppSignal } from '../pwa/inAppSignals.js';
 import { applyChatAuthSessionBoundary } from './chatSessionBoundary.js';
 import { getClientInstanceId } from '../../lib/clientInstance.js';
 import { t } from '../../i18n/index.js';
@@ -143,6 +144,26 @@ function resolveSdkRunFailureNotice(msg) {
   return failureDetail;
 }
 
+/**
+ * Emit an in-app signal only for a genuinely live transport frame. The
+ * `replayBatch` branch re-delivers room history through this same handler with
+ * `replay: true`, so a replayed finished/question/permission must stay silent.
+ *
+ * @param {any} msg
+ * @param {'finished'|'question'|'permission'} eventType
+ * @param {unknown} eventId
+ * @param {object} chat owning chat, including ancestry for the notification profile
+ */
+function noteInAppSignalIfLive(msg, eventType, eventId, chat) {
+  if (!msg || msg.replay === true) return;
+  noteLiveInAppSignal({
+    eventType,
+    eventId: typeof eventId === 'string' ? eventId : '',
+    chatId: chat?.id || '',
+    notificationScope: chat?.delegationParentChatId || chat?.forkParentChatId ? 'subchat' : 'chat',
+  });
+}
+
 export function createChatTransport(deps) {
   const {
     WS_PATH_AGENT_SDK,
@@ -190,6 +211,29 @@ export function createChatTransport(deps) {
   function syncSdkModeToServer(chat) {
     if (!chat?.ws || chat.ws.readyState !== WebSocket.OPEN) return;
     chat.ws.send(JSON.stringify({ type: 'setSdkMode', mode: normalizeSdkMode(chat.sdkMode) }));
+  }
+
+  function syncSdkSteerComposerUi(chat) {
+    if (!chat || chat.agentTransport !== 'sdk') return;
+    const sendBar = chat.pane?._sendBar;
+    if (!sendBar || typeof sendBar.setPlaceholder !== 'function') return;
+    if (chat._sdkSteerSupported === true && chat._sdkServerBusy === true) {
+      sendBar.setPlaceholder(t('chat.sdkSteerPlaceholder'));
+      return;
+    }
+    sendBar.setPlaceholder(t('chat.commandPlaceholder'));
+  }
+
+  function applySdkRoomCapabilityFields(chat, message) {
+    if (!chat || !message || typeof message !== 'object') return;
+    if (typeof message.steerSupported === 'boolean') {
+      chat._sdkSteerSupported = message.steerSupported;
+    }
+    if (Number.isFinite(Number(message.backgroundOutstanding))) {
+      chat._sdkBackgroundOutstanding = Math.max(0, Number(message.backgroundOutstanding));
+    }
+    chat._sdkRichView?.setBackgroundWorkOutstanding?.(chat._sdkBackgroundOutstanding);
+    syncSdkSteerComposerUi(chat);
   }
 
   function requestActiveSdkWarmup(chat) {
@@ -1082,6 +1126,7 @@ export function createChatTransport(deps) {
           }
           chat._sdkServerBusy = msg.busy === true;
           chat._sdkServerQueuedCount = Math.max(0, Number(msg.queuedCount) || 0);
+          applySdkRoomCapabilityFields(chat, msg);
           if (chat._sdkServerBusy) chat._sdkRichView?.onHarnessBusy?.();
           else chat._sdkRichView?.onHarnessIdle?.();
           const pendingQuestionCount = Math.max(0, Number(msg.pendingQuestionCount) || 0);
@@ -1125,6 +1170,7 @@ export function createChatTransport(deps) {
           chat._sdkReplayTagged = msg.replayTagged === true;
           chat._sdkServerBusy = msg.busy === true;
           chat._sdkServerQueuedCount = Array.isArray(msg.queuedPrompts) ? msg.queuedPrompts.length : 0;
+          applySdkRoomCapabilityFields(chat, msg);
           chat._sdkOptimisticSentNow = [];
           chat._sdkOptimisticSentQueued = [];
           sdkStreamReset(chat);
@@ -1172,6 +1218,36 @@ export function createChatTransport(deps) {
         if (bufferLiveEventDuringHistoryReplay(chat, msg)) return;
         if (bufferSdkRoomEventDuringHydration(chat, msg)) return;
         if (!shouldApplySdkRoomEvent(chat, msg)) return;
+        if (msg.type === 'sdkSteerAck') {
+          const outcome = typeof msg.outcome === 'string' ? msg.outcome : '';
+          if (outcome === 'complete_delivered') {
+            chat._sdkRichView?.appendMetaNotice?.(t('chat.sdkSteerDelivered'));
+          } else {
+            chat._sdkRichView?.appendMetaNotice?.(t('chat.sdkSteerReverted'));
+          }
+          return;
+        }
+        if (msg.type === 'sdkSteerError') {
+          const steerMessage = typeof msg.message === 'string' ? msg.message.trim() : '';
+          chat._sdkRichView?.appendMetaNotice?.(
+            t('chat.sdkSteerFailed', { message: steerMessage || String(msg.code || '') })
+          );
+          return;
+        }
+        if (msg.type === 'sdkBackgroundWork') {
+          const outstanding = Math.max(0, Number(msg.outstanding) || 0);
+          chat._sdkBackgroundOutstanding = outstanding;
+          chat._sdkRichView?.setBackgroundWorkOutstanding?.(outstanding);
+          const phase = typeof msg.phase === 'string' ? msg.phase : '';
+          if (phase === 'budget_exceeded') {
+            chat._sdkRichView?.appendMetaNotice?.(t('chat.sdkBackgroundWorkBudget'));
+          } else if (outstanding > 0) {
+            chat._sdkRichView?.appendMetaNotice?.(
+              t('chat.sdkBackgroundWorkRunning', { count: outstanding })
+            );
+          }
+          return;
+        }
         if (msg.type === 'sdkTtft') {
           const clientSentAt = Number(msg.clientSentAt);
           const clientReceivedAt = Number(msg.clientReceivedAt);
@@ -1328,6 +1404,7 @@ export function createChatTransport(deps) {
               awaiting: true,
             };
             renderChatTerminalState(chat);
+            noteInAppSignalIfLive(msg, 'question', msg.event.requestId, chat);
           }
           if (msg.event && typeof msg.event === 'object' && msg.event.type === 'opencode_permission') {
             chat._opencodePendingPermission = msg.event;
@@ -1338,6 +1415,7 @@ export function createChatTransport(deps) {
               awaiting: true,
             };
             renderChatTerminalState(chat);
+            noteInAppSignalIfLive(msg, 'permission', msg.event.requestId, chat);
           }
           if (msg.event && typeof msg.event === 'object' && msg.event.type === 'usage') {
             const usage = msg.event.usage && typeof msg.event.usage === 'object' ? msg.event.usage : null;
@@ -1391,6 +1469,7 @@ export function createChatTransport(deps) {
             status: runStatus || null,
             hasFailureDetail: !!failureDetail,
           });
+          noteInAppSignalIfLive(msg, 'finished', msg.runId, chat);
           if (chat._sdkRichView) {
             chat._sdkRichView.appendRunFinished(runStatus, {
               ...readSdkViewOrderMeta(msg),

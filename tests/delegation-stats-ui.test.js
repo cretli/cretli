@@ -30,6 +30,10 @@ import {
   renderDelegationStatsMetaHtml,
   renderDelegationStatsRowsHtml,
   renderDelegationUnusedHtml,
+  delegationLoopLeaves,
+  delegationLoopViewState,
+  renderDelegationLoopHeadHtml,
+  renderDelegationLoopRowsHtml,
 } from '../app_front/features/usage/delegationStatsView.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -251,6 +255,10 @@ test('delegationStats i18n keys exist and match in en + pl', () => {
     'colHarness', 'colModel', 'colRole', 'colN', 'colPassRate', 'colInfraFail',
     'colMedian', 'colQuality', 'colLastUsed',
     'rolePlan', 'roleImplement', 'roleReview',
+    'loopTitle', 'loopHint', 'loopEmpty',
+    'loopColLeaf', 'loopColRounds', 'loopColModels', 'loopColVerdicts',
+    'loopColVerify', 'loopColStop', 'loopColWall', 'loopColCost',
+    'loopVerifyPassed', 'loopVerifyRequired', 'loopVerifyFailed', 'loopVerifyNone',
   ];
   for (const key of keys) {
     assert.equal(typeof lookup(en, `delegationStats.${key}`), 'string', `en missing ${key}`);
@@ -261,6 +269,31 @@ test('delegationStats i18n keys exist and match in en + pl', () => {
     Object.keys(pl.delegationStats).sort(),
     'en/pl delegationStats key sets differ',
   );
+});
+
+test('loop leaf table renders from payload.loop.leaves', () => {
+  const payload = {
+    ok: true,
+    loop: {
+      leaves: [{
+        leafId: 'todo-1',
+        rounds: 2,
+        verdicts: ['PASS', 'FAIL', 'PASS'],
+        stopReason: '',
+        roles: { implement: [{ model: 'glm-5', harness: 'opencode' }], review: [], plan: [], fix: [] },
+        verify: { required: true, recorded: true, passed: true },
+        cost: { wallTimeMs: 30 * 60 * 1000, costUsd: 0.42, costKnown: true },
+      }],
+    },
+  };
+  assert.equal(delegationLoopViewState(payload), 'ready');
+  assert.equal(delegationLoopLeaves(payload).length, 1);
+  const head = renderDelegationLoopHeadHtml(tf);
+  assert.match(head, /delegationStats\.loopColLeaf/);
+  const body = renderDelegationLoopRowsHtml(delegationLoopLeaves(payload), tf, 'en');
+  assert.match(body, /todo-1/);
+  assert.match(body, /delegationStats\.loopVerifyPassed/);
+  assert.match(body, /0\.42/);
 });
 
 test('usage section wires the delegation panel ids and states', () => {
@@ -280,6 +313,11 @@ test('usage section wires the delegation panel ids and states', () => {
     'delegation-stats-cards',
     'delegation-stats-empty',
     'delegation-stats-unused-list',
+    'delegation-loop-table',
+    'delegation-loop-head',
+    'delegation-loop-body',
+    'delegation-loop-cards',
+    'delegation-loop-empty',
   ]) {
     assert.match(section, new RegExp(`id="${id}"`), `missing #${id}`);
   }
@@ -315,6 +353,8 @@ test('usage module + api client wire the stats endpoint and refresh/retry', () =
   assert.match(usageSettingsSource, /setDelegationStatsView\('loading'\)/);
   assert.match(usageSettingsSource, /setDelegationStatsView\('error'\)/);
   assert.match(usageSettingsSource, /delegationStatsViewState/);
+  assert.match(usageSettingsSource, /delegationLoopLeaves/);
+  assert.match(usageSettingsSource, /renderDelegationLoopRowsHtml/);
 });
 
 test('stats client forwards the active workspace scope and the panel reloads on switch', () => {

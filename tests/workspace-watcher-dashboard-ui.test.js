@@ -19,6 +19,9 @@ import {
   renderWatcherStatsHtml,
   renderWatcherDecisionsHtml,
   renderWatcherAlertsHtml,
+  renderWatcherScheduleHtml,
+  scheduleNextValueHtml,
+  scheduleReasonText,
   quietHoursStatus,
   formatDuration,
   formatPercent,
@@ -123,6 +126,7 @@ test('alerts show stop reason with clear action, a backoff countdown, and quiet 
   assert.match(stopped, /data-watcher-action="clear-stop"/);
   const backoff = renderWatcherAlertsHtml({ watcher: { backoffUntil: iso(NOW + 90_000), policy: {} } }, { now: NOW });
   assert.match(backoff, /data-watcher-countdown="[\d.]+"/);
+  assert.match(backoff, /data-watcher-action="clear-backoff"/, 'the backoff alert offers a one-click release');
   // 23:00 UTC sits inside a 22:00–06:00 wrap window → active quiet alert with a countdown.
   const quietNow = Date.parse('2026-10-04T23:00:00.000Z');
   const quiet = renderWatcherAlertsHtml({ watcher: { policy: { quietHours: { start: '22:00', end: '06:00' } } } }, { now: quietNow });
@@ -130,6 +134,51 @@ test('alerts show stop reason with clear action, a backoff countdown, and quiet 
   assert.match(quiet, /data-watcher-countdown="[\d.]+"/);
   const none = renderWatcherAlertsHtml({ watcher: { policy: {} } }, { now: NOW });
   assert.match(none, /watcher-dash-empty/);
+});
+
+test('cycle schedule renders the next countdown, last run, budget and blocker', () => {
+  const schedule = {
+    enabled: true,
+    paused: false,
+    stopped: false,
+    nextCycleAt: NOW + 90_000,
+    lastCycleAt: iso(NOW - 600_000),
+    cyclesToday: 2,
+    maxCyclesPerDay: 4,
+    remainingToday: 2,
+    running: 0,
+    maxParallel: 2,
+    allowed: false,
+    blockedReason: 'cooldown',
+  };
+  const html = renderWatcherScheduleHtml(schedule, NOW);
+  assert.match(html, /data-watcher-countdown="\d+"/, 'the next cycle is a live countdown');
+  assert.match(html, /2 \/ 4/, 'today budget numerator/denominator');
+  assert.match(html, /0 \/ 2/, 'running slots');
+  assert.match(html, new RegExp(iso(NOW - 600_000)), 'the last cycle instant is shown');
+  assert.match(html, /watcher-badge/, 'the blocker carries the blocked badge');
+  assert.ok(html.includes(scheduleReasonText('cooldown')), 'the blocker is translated, not the raw key');
+  // Only the failure backoff has a one-click release; a cooldown/budget blocker
+  // resolves on its own and must not offer a misleading reset.
+  assert.doesNotMatch(html, /data-watcher-action="clear-backoff"/);
+  const backedOff = renderWatcherScheduleHtml({ ...schedule, blockedReason: 'failure_backoff' }, NOW);
+  assert.match(backedOff, /data-watcher-action="clear-backoff"/, 'the backoff blocker offers a one-click release');
+
+  // The reason helper translates known keys and degrades to the raw value.
+  assert.notEqual(scheduleReasonText('cooldown'), 'cooldown');
+  assert.equal(scheduleReasonText('not_a_real_reason'), 'not_a_real_reason');
+  assert.equal(scheduleReasonText(''), '');
+
+  // "Next cycle" value: not scheduled / halted / due now / future.
+  assert.doesNotMatch(scheduleNextValueHtml({ enabled: false }, NOW), /data-watcher-countdown/);
+  assert.equal(scheduleNextValueHtml({ enabled: true, paused: true }, NOW), '—');
+  assert.doesNotMatch(scheduleNextValueHtml({ enabled: true, nextCycleAt: NOW - 1 }, NOW), /data-watcher-countdown/);
+  assert.match(scheduleNextValueHtml({ enabled: true, nextCycleAt: NOW + 5000 }, NOW), /data-watcher-countdown="\d+"/);
+
+  // An unlimited budget (0) reads as "no limit", not a spent 0/0.
+  const unlimited = renderWatcherScheduleHtml({ enabled: true, maxCyclesPerDay: 0, cyclesToday: 3, nextCycleAt: NOW }, NOW);
+  assert.match(unlimited, /3/);
+  assert.doesNotMatch(unlimited, /0 \/ 0/);
 });
 
 test('quietHoursStatus reports active window and next UTC end across midnight', () => {

@@ -21,6 +21,22 @@ export {
   UI_FREEZE_TOOL_CALL_PREVIEW_UTF8_BYTES,
 };
 
+/** Keys surfaced above stdout preview (never stdout/stderr/output). */
+const TOOL_RESULT_META_KEYS = Object.freeze([
+  'exitCode',
+  'code',
+  'signal',
+  'durationMs',
+  'duration',
+  'success',
+  'ok',
+  'error',
+  'status',
+]);
+
+const TOOL_RESULT_META_MAX_STRING_CHARS = 200;
+const TOOL_RESULT_META_LINE_UTF8_BYTES = 512;
+
 /** @typedef {{ text: string, truncated: boolean, utf8Bytes: number }} ToolFieldPreview */
 
 /**
@@ -43,6 +59,67 @@ export function extractPrimaryToolOutputText(result) {
     if (typeof nested.output === 'string' && nested.output.length > 0) return nested.output;
   }
   return null;
+}
+
+/**
+ * @param {Record<string, unknown>} source
+ * @param {Record<string, string | number | boolean>} into
+ * @param {Set<string>} seenKeys
+ */
+function collectToolResultMetaFromObject(source, into, seenKeys) {
+  for (const key of TOOL_RESULT_META_KEYS) {
+    if (seenKeys.has(key) || !Object.prototype.hasOwnProperty.call(source, key)) continue;
+    const raw = source[key];
+    if (raw === undefined || raw === null) continue;
+    if (typeof raw === 'boolean' || typeof raw === 'number') {
+      into[key] = raw;
+      seenKeys.add(key);
+      continue;
+    }
+    if (typeof raw === 'string') {
+      const trimmed = raw.trim();
+      if (!trimmed || trimmed.length > TOOL_RESULT_META_MAX_STRING_CHARS) continue;
+      into[key] = trimmed;
+      seenKeys.add(key);
+    }
+  }
+}
+
+/**
+ * Structural fields kept in the report store but omitted from the stdout preview path.
+ *
+ * @param {unknown} result
+ * @returns {Record<string, string | number | boolean> | null}
+ */
+export function extractToolResultMeta(result) {
+  if (result == null || typeof result !== 'object' || Array.isArray(result)) return null;
+  const root = /** @type {Record<string, unknown>} */ (result);
+  const meta = Object.create(null);
+  const seenKeys = new Set();
+  collectToolResultMetaFromObject(root, meta, seenKeys);
+  const nested = root.value;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    collectToolResultMetaFromObject(/** @type {Record<string, unknown>} */ (nested), meta, seenKeys);
+  }
+  return Object.keys(meta).length > 0 ? meta : null;
+}
+
+/**
+ * @param {Record<string, string | number | boolean>} meta
+ * @param {number} [maxUtf8Bytes]
+ * @returns {string}
+ */
+export function formatToolResultMetaLine(meta, maxUtf8Bytes = TOOL_RESULT_META_LINE_UTF8_BYTES) {
+  const parts = [];
+  for (const key of TOOL_RESULT_META_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(meta, key)) continue;
+    const value = meta[key];
+    parts.push(`${key}=${typeof value === 'string' ? value : String(value)}`);
+  }
+  const line = parts.join(' · ');
+  if (!line) return '';
+  const slice = truncateUtf8Text(line, maxUtf8Bytes);
+  return slice.truncated ? `${slice.text}…` : slice.text;
 }
 
 /**

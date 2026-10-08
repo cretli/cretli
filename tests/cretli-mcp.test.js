@@ -319,4 +319,33 @@ const planEvent = await planHandle({
 });
 assert.equal(planEvent.result.isError, false);
 
+// Bridge mode fetches the catalog right after the handshake (the server uses
+// that request as its "harness connected" signal) and reuses it for tools/list.
+let bridgeListCalls = 0;
+const bridgeHandle = createMcpHandler({
+  listBridgeTools: async () => {
+    bridgeListCalls += 1;
+    return [{ name: `tool_${bridgeListCalls}` }];
+  },
+});
+assert.equal(await bridgeHandle({ jsonrpc: '2.0', method: 'notifications/initialized' }), null);
+assert.equal(bridgeListCalls, 1);
+const bridgeFirstList = await bridgeHandle({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
+assert.deepEqual(bridgeFirstList.result.tools, [{ name: 'tool_1' }]);
+assert.equal(bridgeListCalls, 1, 'the prefetched catalog serves the first tools/list');
+const bridgeSecondList = await bridgeHandle({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
+assert.deepEqual(bridgeSecondList.result.tools, [{ name: 'tool_2' }]);
+
+let failingListCalls = 0;
+const failingBridgeHandle = createMcpHandler({
+  listBridgeTools: async () => {
+    failingListCalls += 1;
+    if (failingListCalls === 1) throw new Error('server not ready');
+    return [{ name: 'recovered' }];
+  },
+});
+await failingBridgeHandle({ jsonrpc: '2.0', method: 'notifications/initialized' });
+const recoveredList = await failingBridgeHandle({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
+assert.deepEqual(recoveredList.result.tools, [{ name: 'recovered' }], 'a failed prefetch is retried');
+
 console.log('cretli-mcp.test.js OK');

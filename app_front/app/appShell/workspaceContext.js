@@ -24,6 +24,7 @@ export function createWorkspaceContext(deps = {}) {
     updateGithubTabVisibility = () => Promise.resolve(),
     refreshGithubPanel = () => {},
     refreshTodoList = () => {},
+    refreshBrowserPanel = () => {},
     onWorkspaceLabelChanged = () => {},
   } = deps;
 
@@ -331,6 +332,13 @@ export function createWorkspaceContext(deps = {}) {
     const todoPanel = document.getElementById('todo-panel');
     if (todoPanel?.classList.contains('active')) {
       refreshTodoList();
+    }
+
+    // The Browser channel is scoped to the workspace on the server, so a panel
+    // that is currently visible must rebuild its session list and live socket.
+    const browserPanel = document.getElementById('browser-panel');
+    if (browserPanel?.classList.contains('active')) {
+      refreshBrowserPanel();
     }
   }
 

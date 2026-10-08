@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   buildSharedAlwaysApplyRulesPrompt,
+  buildWorkspaceAlwaysApplyRulesPrompt,
   mergeNamedContextEntries,
   normalizeAdditionalCursorContextDirs,
   resolveSdkCwdList,
@@ -45,6 +46,37 @@ test('resolveSdkCwdList puts project first and skips duplicate shared root', () 
   assert.deepEqual(resolveSdkCwdList(project, [shared, project]), [project, bundledShare, shared]);
   assert.deepEqual(resolveSdkCwdList(project, []), [project, bundledShare]);
   assert.equal(resolveSdkCwdList(project, []).includes(cretliRoot), false);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('buildWorkspaceAlwaysApplyRulesPrompt includes only alwaysApply bodies from cwd', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cr-workspace-rules-'));
+  const rulesDir = path.join(root, '.cursor', 'rules');
+  fs.mkdirSync(rulesDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(rulesDir, 'browser.mdc'),
+    [
+      '---',
+      'alwaysApply: true',
+      '---',
+      'Use browser_* MCP tools, not private Playwright.',
+      '',
+    ].join('\n'),
+  );
+  fs.writeFileSync(
+    path.join(rulesDir, 'manual.mdc'),
+    [
+      '---',
+      'alwaysApply: false',
+      '---',
+      'Manual only.',
+      '',
+    ].join('\n'),
+  );
+  const prompt = buildWorkspaceAlwaysApplyRulesPrompt(root);
+  assert.match(prompt, /WORKSPACE CURSOR RULES/);
+  assert.match(prompt, /browser_\* MCP tools/);
+  assert.equal(prompt.includes('Manual only'), false);
   fs.rmSync(root, { recursive: true, force: true });
 });
 

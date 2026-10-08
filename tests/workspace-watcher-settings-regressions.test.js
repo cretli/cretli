@@ -105,9 +105,13 @@ test('buildWatcherPatchBody sends only the override keys for targeted actions', 
   );
 });
 
-test('stop / clear-stop actions are wired to a stopReason-only override', () => {
+test('stop / clear-stop actions are wired correctly', () => {
+  // The stop button keeps the stopReason override (plain PATCH), while clear-stop
+  // now routes to the dedicated clear-stop endpoint so loop stops are fully reset.
   assert.match(source, /saveWatcher\(root, \{ stopReason: t\('settings\.watcherStoppedReason'\) \}\)/);
-  assert.match(source, /saveWatcher\(root, \{ stopReason: '' \}\)/);
+  assert.match(source, /watcherAction\(root, 'clear_stop'\)/);
+  assert.match(source, /clear_stop: '\/api\/workspace-watcher\/clear-stop'/);
+  assert.doesNotMatch(source, /saveWatcher\(root, \{ stopReason: '' \}\)/, 'clear-stop must not be a plain PATCH');
   // The form is no longer read for an override, and the old mode-commit line is
   // gone for good.
   assert.match(source, /const form = override \? null : readWatcherForm\(root\);/);

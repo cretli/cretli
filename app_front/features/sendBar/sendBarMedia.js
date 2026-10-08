@@ -55,6 +55,7 @@ export function createSendBarMedia(options) {
   let recognition = null;
   /** Server-side dictation, used only where Web Speech is missing. */
   let micRecorder = null;
+  let isTranscribing = false;
   let micListening = false;
   let userRequestedStop = false;
   let skipFlushToInput = false;
@@ -64,7 +65,7 @@ export function createSendBarMedia(options) {
 
   function updateLiveInput(interimTranscript) {
     const el = getInputElement();
-    if (!el) return;
+    if (!el || el.readOnly) return;
     const base = dictationPrefix + (dictationPrefix ? ' ' : '') + accumulatedTranscript.join(' ');
     const interim = (interimTranscript && interimTranscript.trim()) ? interimTranscript.trim() : '';
     el.value = base + (interim ? ' ' + interim : '');
@@ -76,7 +77,7 @@ export function createSendBarMedia(options) {
   function appendDictatedText(text) {
     const el = getInputElement();
     const addition = String(text || '').trim();
-    if (!el || !addition) return;
+    if (!el || el.readOnly || !addition) return;
     const prefix = el.value ? `${el.value.trimEnd()} ` : '';
     el.value = prefix + addition;
     if (el.tagName === 'TEXTAREA') el.scrollTop = el.scrollHeight;
@@ -86,13 +87,15 @@ export function createSendBarMedia(options) {
 
   async function finishServerDictation() {
     if (!micRecorder || !micRecorder.isRecording()) return;
+    isTranscribing = true;
     if (micBtn) {
       micBtn.disabled = true;
       micBtn.title = t('voice.transcribing');
     }
     const result = await micRecorder.stop();
+    isTranscribing = false;
     if (micBtn) {
-      micBtn.disabled = false;
+      syncMicDisabledState();
       micBtn.title = t('voice.dictateServerTitle');
     }
     if (!result.ok) {
@@ -111,6 +114,7 @@ export function createSendBarMedia(options) {
   }
 
   function startDictation() {
+    if (getInputElement()?.readOnly) return;
     if (micListening) return;
     if (!recognition) {
       // Server-side path: recording is driven by the mic button, not by send.
@@ -268,7 +272,12 @@ export function createSendBarMedia(options) {
     });
   }
 
+  function syncMicDisabledState() {
+    if (micBtn) micBtn.disabled = !!getInputElement()?.readOnly || isTranscribing || (!recognition && !micRecorder);
+  }
+
   return {
+    syncMicDisabledState,
     stopDictation,
     startDictation,
     shouldResumeAfterSend,
@@ -317,7 +326,7 @@ function initScreenshotControls(options) {
     if (attachLoadingCount < 0) attachLoadingCount = 0;
     const isLoading = attachLoadingCount > 0;
     attachBtn.classList.toggle('is-loading', isLoading);
-    attachBtn.disabled = isLoading;
+    attachBtn.disabled = isLoading || !!getInputElement()?.readOnly;
     attachBtn.setAttribute('aria-busy', isLoading ? 'true' : 'false');
   };
 

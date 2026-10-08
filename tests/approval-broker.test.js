@@ -104,16 +104,32 @@ assert.equal(
   }).reply,
   'once',
 );
-assert.equal(
-  resolveOpenCodeApprovalAction({
+// A review child may also run plain `node [--test] tests/*.test.js` to verify
+// the change, so the review guard allows that read-only invocation.
+const reviewTestRun = resolveOpenCodeApprovalAction({
+  mode: 'local_reads',
+  sdkMode: 'agent',
+  permissionEvent: { action: 'bash', metadata: { command: 'node tests/conversation-fork.test.js' } },
+  assignment: 'review',
+  workspaceFolder: brokerWorkspace,
+});
+assert.equal(reviewTestRun.decision, 'allow');
+assert.equal(reviewTestRun.reply, 'once');
+assert.equal(reviewTestRun.reason, 'delegation_read_once');
+
+// Any other node invocation stays denied for a review child (no `tests/*.test.js`).
+for (const command of ['node scripts/evil.js', 'node -e "process.exit(0)"']) {
+  const denied = resolveOpenCodeApprovalAction({
     mode: 'local_reads',
     sdkMode: 'agent',
-    permissionEvent: { action: 'bash', metadata: { command: 'node tests/conversation-fork.test.js' } },
+    permissionEvent: { action: 'bash', metadata: { command } },
     assignment: 'review',
     workspaceFolder: brokerWorkspace,
-  }).decision,
-  'deny',
-);
+  });
+  assert.equal(denied.decision, 'deny', `${command} must be denied`);
+  assert.equal(denied.reply, 'reject', `${command} must be rejected`);
+  assert.equal(denied.reason, 'plan_or_review_guard');
+}
 
 // --- audit -----------------------------------------------------------------
 

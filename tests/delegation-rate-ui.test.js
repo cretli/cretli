@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { postDelegationRate } from '../app_front/api.js';
 import { en } from '../app_front/i18n/en.js';
 import { pl } from '../app_front/i18n/pl.js';
+import { DELEGATION_RATING_TAGS } from '../lib/delegation-rating-constants.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
@@ -105,6 +106,7 @@ test('the delegation card renders a rating block with safe states', () => {
   // Busy (loading), error and read-only-after-rating branches.
   assert.match(richViewSource, /card\.dataset\.ratingBusy = '1'/);
   assert.match(richViewSource, /card\.dataset\.ratingError/);
+  assert.match(richViewSource, /ratingCode === 'contradictory_rating'/);
   assert.match(richViewSource, /submit\.disabled = busy \|\| !draft\.score/);
   assert.match(richViewSource, /if \(!model\.canRate && !model\.userRating\) return;/);
   // Only the allow-listed tags are offered.
@@ -122,14 +124,20 @@ test('rating i18n keys exist in both dictionaries', () => {
     'delegationRateFailed',
     'delegationRatedLabel',
   ];
-  const tags = ['missed_bug', 'false_positive', 'scope_creep', 'too_slow', 'great'];
   for (const key of keys) {
     assert.ok(en.chat?.[key], `en.chat.${key} is missing`);
     assert.ok(pl.chat?.[key], `pl.chat.${key} is missing`);
   }
-  for (const tag of tags) {
-    assert.ok(en.chat?.delegationRateTags?.[tag], `en.chat.delegationRateTags.${tag} is missing`);
-    assert.ok(pl.chat?.delegationRateTags?.[tag], `pl.chat.delegationRateTags.${tag} is missing`);
+  for (const tag of DELEGATION_RATING_TAGS) {
+    const enLabel = en.chat?.delegationRateTags?.[tag];
+    const plLabel = pl.chat?.delegationRateTags?.[tag];
+    const missingKey = `chat.delegationRateTags.${tag}`;
+    assert.ok(enLabel, `en.${missingKey} is missing`);
+    assert.ok(plLabel, `pl.${missingKey} is missing`);
+    assert.notEqual(String(enLabel).trim(), missingKey, `en.${missingKey} falls back to the raw key`);
+    assert.notEqual(String(plLabel).trim(), missingKey, `pl.${missingKey} falls back to the raw key`);
+    assert.notEqual(String(enLabel).trim(), tag, `en.${missingKey} must not echo the tag slug`);
+    assert.notEqual(String(plLabel).trim(), tag, `pl.${missingKey} must not echo the tag slug`);
   }
   // The note placeholder advertises the same cap the server enforces.
   assert.match(String(en.chat.delegationRateNotePlaceholder), /500/);

@@ -4,8 +4,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
+  isModelUnavailableMessage,
   isUsageLimitMessage,
   noteHarnessUsageLimit,
+  noteUnclassifiedRunError,
   getHarnessUsageLimit,
   readHarnessUsageLimitHistory,
   clearHarnessUsageLimit,
@@ -33,6 +35,53 @@ const realHistoryBefore = readIfExists(realHistoryFile);
 assert.equal(isUsageLimitMessage('Usage limit reached for 5 hour.'), true);
 assert.equal(isUsageLimitMessage('429 quota has been exhausted'), true);
 assert.equal(isUsageLimitMessage('permission denied'), false);
+
+// A rejected model id is not a quota problem, but it must lock that one model
+// out of automatic picks (CodeBuddy `400 model [x] service info not found`).
+{
+  const unavailableText = '400 model [hy3-preview] service info not found (8dad662a/373a8938)';
+  assert.equal(isModelUnavailableMessage(unavailableText), true);
+  assert.equal(isModelUnavailableMessage('The model `x` does not exist: model_not_found'), true);
+  assert.equal(isModelUnavailableMessage('file not found'), false);
+  assert.equal(isModelUnavailableMessage('Your current subscription plan does not yet include access to GLM-5.3-Highspeed'), true);
+  assert.equal(isModelUnavailableMessage("The 'auto' model is not supported when using Codex with a ChatGPT account."), true);
+  assert.equal(isModelUnavailableMessage('Tool workspace_watcher_show not found in agent cli.'), false);
+  assert.equal(isModelUnavailableMessage('MCP service info not found'), false, 'needs the model in the message');
+  assert.equal(
+    isModelUnavailableMessage('429 rate limit: model [x] is not available right now'),
+    false,
+    'usage-limit wording is classified as a limit, never as an unavailable model',
+  );
+  assert.equal(isUsageLimitMessage(unavailableText), false);
+  const unavailableDir = mkdtempSync(path.join(tmpdir(), 'cretli-model-unavailable-'));
+  try {
+    assert.equal(noteHarnessUsageLimit({ harness: 'codebuddy', message: unavailableText, dataDir: unavailableDir }), false,
+      'no model id: must not lock the whole harness');
+    assert.equal(getHarnessUsageLimit({ harness: 'codebuddy', model: 'hy3', dataDir: unavailableDir }), null);
+    assert.equal(
+      noteUnclassifiedRunError({ harness: 'codebuddy', message: unavailableText, dataDir: unavailableDir }),
+      true,
+      'without a model id the rejection stays visible in the unclassified log',
+    );
+    assert.equal(
+      noteUnclassifiedRunError({ harness: 'codebuddy', model: 'hy3-preview', message: unavailableText, dataDir: unavailableDir }),
+      false,
+      'with a model id the lockout is the record',
+    );
+    assert.equal(noteHarnessUsageLimit({
+      harness: 'codebuddy', model: 'hy3-preview', message: unavailableText, dataDir: unavailableDir,
+    }), true);
+    const locked = getHarnessUsageLimit({ harness: 'codebuddy', model: 'hy3-preview', dataDir: unavailableDir });
+    assert.equal(locked?.code, 'model_unavailable');
+    assert.ok(new Date(locked.resetAt).getTime() - Date.now() > 23 * 60 * 60 * 1000);
+    assert.equal(getHarnessUsageLimit({ harness: 'codebuddy', model: 'hy3', dataDir: unavailableDir }), null,
+      'sibling models stay pickable');
+    assert.equal(existsSync(path.join(unavailableDir, 'usage', 'plan-limits.jsonl')), false,
+      'a rejected model id is not a plan-limit reading');
+  } finally {
+    rmSync(unavailableDir, { recursive: true, force: true });
+  }
+}
 
 const model = `test-usage-limit-${process.pid}`;
 assert.equal(noteHarnessUsageLimit({

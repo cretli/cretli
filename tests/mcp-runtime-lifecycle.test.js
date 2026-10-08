@@ -9,6 +9,7 @@ import {
   callTool,
   disposeConnection,
   disposeContext,
+  disposeSessionConnections,
   listTools,
   mcpConnectionKey,
   resetMcpRuntimeForTests,
@@ -149,6 +150,36 @@ const abort = new AbortController();
 abort.abort();
 const cancelled = await callTool(contextA, server, 'ping_read', { token: 'x' }, abort.signal);
 assert.equal(cancelled.ok, false);
+
+// Room teardown passes only the session key and cwd. A connection keyed with a
+// workspace file must still be closed, or its stdio child outlives the room.
+{
+  const keyedContext = { ...contextA, sessionId: 'sess-leak', workspaceFile: '/tmp/mcp-a/app.code-workspace', workspaceId: 'ws-1' };
+  await listTools(keyedContext, server);
+  const teardownContext = { sessionId: 'sess-leak', workspaceFolder: '/tmp/mcp-a' };
+  await disposeContext(teardownContext, [server]);
+  assert.ok(
+    listMcpStatuses({ sessionId: 'sess-leak' }).some((row) => row.connectionState === 'connected'),
+    'exact isolation match does not see the keyed connection',
+  );
+  assert.equal(await disposeSessionConnections('sess-leak'), 1);
+  assert.equal(await disposeSessionConnections('sess-leak'), 0);
+  assert.equal(await disposeSessionConnections(''), 0);
+}
+
+// Teardown racing a connect: the client is not in the pool yet, so the connect
+// itself must notice the cancellation and close instead of registering.
+{
+  const racingContext = { ...contextA, sessionId: 'sess-race' };
+  const racing = listTools(racingContext, server).then(() => 'connected', () => 'rejected');
+  assert.equal(await disposeSessionConnections('sess-race'), 1);
+  assert.equal(await racing, 'rejected');
+  assert.ok(
+    !listMcpStatuses({ sessionId: 'sess-race' }).some((row) => row.connectionState === 'connected'),
+    'a cancelled connect must not leave a pooled client behind',
+  );
+  assert.equal(await disposeSessionConnections('sess-race'), 0);
+}
 
 await disposeContext(liveContext, [delayedServer]);
 await disposeContext(unknownContext, [unknownServer]);

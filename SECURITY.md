@@ -46,8 +46,13 @@ Cretli host, so it is an SSRF-sensitive feature. Its guarantees are:
 The active boundary is reported by `/api/browser/status` as `runtime.networkBoundary`.
 The default `mvp-defense-in-depth` mode is deliberately not an egress proxy and does
 not claim complete DNS/SSRF isolation. `proxy` and `required` modes require the
-operator to set `CRETLI_BROWSER_PROXY_SERVER`; this MVP passes that proxy to
-Playwright but does not implement or audit the proxy itself.
+operator to set `CRETLI_BROWSER_PROXY_SERVER`. Cretli ships an optional egress
+proxy (`node scripts/egress-proxy.js`, see `docs/browser-egress-proxy.md`) that
+reuses `url-policy.js`; any other proxy is unaudited. `required` refuses to
+start a session when the configured proxy does not answer a bounded TCP
+reachability probe (the result is reported as
+`runtime.networkBoundary.proxyHealth`), while `proxy` only records a warning and
+still starts.
 
 - **Default-deny origins.** A workspace must explicitly allowlist each `http(s)://host`
   before Chromium can reach it. `allowLocalhost` opens loopback only and
@@ -57,9 +62,15 @@ Playwright but does not implement or audit the proxy itself.
   when allowlisted. IPv4-mapped, NAT64 (`64:ff9b::/96`), 6to4 (`2002::/16`) and Teredo
   (`2001::/32`) forms are decoded or blocked so an address cannot be smuggled through a
   transition prefix. URLs containing `user:pass@` are rejected.
-- **Self-origin block.** Cretli's configured `CRETLI_PUBLIC_ORIGIN` (and the direct
-  loopback URL) are always denied, even if allowlisted, so the browser cannot reach the
-  Cretli control plane through a reverse proxy.
+- **Self-origin block (default-deny).** Cretli's configured `CRETLI_PUBLIC_ORIGIN`
+  (and the direct loopback URL) are denied by default, even if allowlisted, so the
+  browser cannot reach the Cretli control plane through a reverse proxy unless an
+  operator opens it explicitly. The only switch is the `allowSelfOrigin` debug opt-in
+  (Settings → App → Storage → "Allow Browser to open Cretli's own origin (debug)"); it is
+  persisted per workspace and stays off unless someone turns it on deliberately. When
+  it is on, the Browser signs itself in with the in-memory local-login token, and that
+  token is attached per request only toward Cretli's own-origin hops — it never leaves
+  toward a third-party origin or a foreign redirect.
 - **Redirects are re-checked.** Playwright does not expose server redirects to route
   handlers, so every request is fetched with `maxRedirects: 0` and each redirect hop is
   re-evaluated by the URL policy (navigation *and* subresources). Service workers stay
@@ -70,13 +81,17 @@ Playwright but does not implement or audit the proxy itself.
 - **Residual risk.** Chromium resolves hostnames in its own network stack, so Node's policy
   check and Chromium's connection are separate resolutions. Chromium is launched with a
   default-deny `--host-resolver-rules` map (`MAP * ~NOTFOUND` plus validated IPv4 pins) as
-  defense in depth, but this is not a hard IP-level guarantee: IP-literal requests and a
-  configured proxy remain outside it. WebRTC is restricted with
-  `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`, so without a proxy Chromium
-  cannot gather direct UDP candidates for a hostile page. WebSocket handshakes are not
-  visible to Playwright's `route` API, so they are covered only by the same default-deny
-  resolver and the always-blocked address list, not by per-request policy. Do not treat the
-  Browser as a network boundary.
+  defense in depth. On current Chromium the catch-all also blocks IP-literal connects, so
+  the resolver deny is stricter than a hostname-only map would suggest; this is still not a
+  hard IP-level guarantee. A configured upstream proxy is a separate channel:
+  `context.route()` cannot inspect traffic inside CONNECT/HTTPS tunnels. The main
+  route-invisible hole is a resolver-pinned allowlisted hostname whose page opens a
+  WebSocket to a **different**, non-allowlisted port — the handshake never reaches
+  `route`, while the equivalent HTTP fetch is blocked. WebRTC uses
+  `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` (no direct UDP candidates
+  without a proxy; Cretli does not configure TURN/STUN), but a page can still use its own
+  TURN relay over TCP. WebSocket panel navigations and the always-blocked address list
+  cover other cases; do not treat the Browser as a network boundary.
 - **Resource limits.** Screenshots are capped per tab (2 fps; the client `force` flag does
   not bypass the cap), input events are rate limited and serialized per tab, and the WS
   queue is bounded.
@@ -87,9 +102,10 @@ Playwright but does not implement or audit the proxy itself.
   widen the scope. Plan/ask modes and `review` delegations receive the read-only subset
   only (the executor re-checks the guard on every mutation), `browser_input` requires an
   explicit `confirm: true`, and Console/Network pulls expose bounded, redacted metadata via
-  a `since` cursor without response bodies or HAR. `browser_evaluate`, the CDP debugger,
-  WebRTC streaming and persistent cookies/`storageState` are intentionally not part of this
-  namespace.
+  a `since` cursor without response bodies or HAR. CDP debugger mutations require
+  `confirm: true` like `browser_input`; scope/watch/stack payloads are redacted and
+  bounded. `browser_evaluate`, WebRTC streaming and persistent cookies/`storageState` are
+  intentionally not part of this namespace.
 
 ## Hardening checklist
 

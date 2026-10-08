@@ -67,7 +67,7 @@ export function sendSequenceToTerminalState(state, sequence, options = {}) {
  * Sends text, then Enter after a delay.
  * @param {{ term?: import('@xterm/xterm').Terminal | null, ws?: WebSocket | null }} state
  * @param {string} text
- * @param {{ focus?: boolean, focusDelayMs?: number, enterFocusDelayMs?: number, onBeforeSend?: () => void, sendEnterDelayMs?: number, onAfterSdkSend?: (t: string) => void, sdkMode?: string, displayText?: string }} [options]
+ * @param {{ focus?: boolean, focusDelayMs?: number, enterFocusDelayMs?: number, onBeforeSend?: () => void, sendEnterDelayMs?: number, onAfterSdkSend?: (t: string) => void, sdkMode?: string, displayText?: string, sdkOutboundType?: 'send' | 'steer' }} [options]
  * @returns {boolean}
  */
 export function sendTextWithEnterToTerminalState(state, text, options = {}) {
@@ -82,9 +82,10 @@ export function sendTextWithEnterToTerminalState(state, text, options = {}) {
       const wsNow = getOpenWs(state);
       if (!wsNow) return;
       if (typeof options.onBeforeSend === 'function') options.onBeforeSend();
+      const outboundType = options.sdkOutboundType === 'steer' ? 'steer' : 'send';
       wsNow.send(
         JSON.stringify({
-          type: 'send',
+          type: outboundType,
           text: payloadText,
           clientSentAt: Date.now(),
           ...(options.sdkMode ? { mode: options.sdkMode } : {}),

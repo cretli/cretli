@@ -11,6 +11,7 @@ import { createDelegationService, finishDelegation } from '../lib/delegation-ser
 import {
   listActiveDelegationsForParent,
   listDelegationsForParent,
+  updateDelegationRecord,
 } from '../lib/persist/delegations-persist.js';
 import { readDelegationReviewFanout } from '../lib/delegation-width.js';
 import { toCretliMcpToolError, MCP_BUILTIN_ERROR_CODES } from '../lib/mcp/builtin/errors.js';
@@ -93,12 +94,17 @@ try {
   const flagOneParent = createParent('Fanout one');
   const firstReview = await startReview(flagOneParent, 'fanout-1-a');
   assert.equal(firstReview.ok, true);
+  // fanout=1: a second review on the same parent is queued, not rejected.
   const secondReviewBlocked = await startReview(flagOneParent, 'fanout-1-b');
-  assert.equal(secondReviewBlocked.ok, false);
-  assert.equal(secondReviewBlocked.code, 'active_delegation_exists');
+  assert.equal(secondReviewBlocked.ok, true);
+  assert.equal(secondReviewBlocked.status, 202);
+  assert.equal(secondReviewBlocked.queued, true);
+  assert.equal(secondReviewBlocked.queueConflict.code, 'active_delegation_exists');
+  assert.equal(secondReviewBlocked.delegation.status, 'queued');
   const replaySame = await startReview(flagOneParent, 'fanout-1-a');
   assert.equal(replaySame.ok, true);
   assert.equal(replaySame.delegation.id, firstReview.delegation.id);
+  updateDelegationRecord(secondReviewBlocked.delegation.id, { status: 'cancelled' });
 
   process.env.CRETLI_DELEGATION_REVIEW_FANOUT = '2';
   const flagTwoParent = createParent('Fanout two');
@@ -110,22 +116,31 @@ try {
   assert.equal(listActiveDelegationsForParent(flagTwoParent.id).length, 2);
 
   const reviewFull = await startReview(flagTwoParent, 'fanout-2-c');
-  assert.equal(reviewFull.ok, false);
-  assert.equal(reviewFull.code, 'review_fanout_full');
+  assert.equal(reviewFull.ok, true);
+  assert.equal(reviewFull.queued, true);
+  assert.equal(reviewFull.queueConflict.code, 'review_fanout_full');
+  assert.equal(reviewFull.delegation.status, 'queued');
+  updateDelegationRecord(reviewFull.delegation.id, { status: 'cancelled' });
 
   const mixedParent = createParent('Fanout mixed');
   const mixedReview = await startReview(mixedParent, 'fanout-mix-r');
   assert.equal(mixedReview.ok, true);
   const mixedImplement = await startImplement(mixedParent, 'fanout-mix-i');
-  assert.equal(mixedImplement.ok, false);
-  assert.equal(mixedImplement.code, 'active_delegation_exists');
+  assert.equal(mixedImplement.ok, true);
+  assert.equal(mixedImplement.queued, true);
+  assert.equal(mixedImplement.queueConflict.code, 'active_delegation_exists');
+  assert.equal(mixedImplement.delegation.status, 'queued');
+  // A parked implement holds the shared workspace for other parents, so clear
+  // it before the `implementFirst` parent below starts its own implement job.
+  updateDelegationRecord(mixedImplement.delegation.id, { status: 'cancelled' });
 
   const implementFirst = createParent('Fanout implement first');
   const implJob = await startImplement(implementFirst, 'fanout-impl');
   assert.equal(implJob.ok, true);
   const reviewAfterImpl = await startReview(implementFirst, 'fanout-impl-r');
-  assert.equal(reviewAfterImpl.ok, false);
-  assert.equal(reviewAfterImpl.code, 'active_delegation_exists');
+  assert.equal(reviewAfterImpl.ok, true);
+  assert.equal(reviewAfterImpl.queued, true);
+  assert.equal(reviewAfterImpl.queueConflict.code, 'active_delegation_exists');
 
   const nestedParent = createParent('Fanout nested parent');
   const childChat = addChat('sess-nested-child', 'Child', null, project, 'opencode/test', {
@@ -196,8 +211,10 @@ try {
   assert.equal(defaultA.ok, true);
   assert.equal(defaultB.ok, true);
   const defaultFull = await startReview(defaultParent, 'fanout-default-c');
-  assert.equal(defaultFull.ok, false);
-  assert.equal(defaultFull.code, 'review_fanout_full');
+  assert.equal(defaultFull.ok, true);
+  assert.equal(defaultFull.queued, true);
+  assert.equal(defaultFull.queueConflict.code, 'review_fanout_full');
+  assert.equal(defaultFull.delegation.status, 'queued');
 } finally {
   restoreFanout();
 }

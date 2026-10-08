@@ -24,6 +24,7 @@ import {
   WATCHER_MODES,
   renderWatcherBarHtml,
   renderWatcherDecisionsHtml,
+  renderWatcherDoingRecoveryHtml,
   escapeWatcherHtml,
 } from './watcherStatus.js';
 import './watcher-panel.scss';
@@ -92,7 +93,9 @@ function paintWhy(view) {
   const decisions = Array.isArray(view?.watcher?.decisions)
     ? view.watcher.decisions.slice(-40).reverse()
     : [];
-  why.innerHTML = renderWatcherDecisionsHtml(decisions);
+  const recoveryHtml = renderWatcherDoingRecoveryHtml(view, { getTodoTitle: getTodoTitleFn });
+  const decisionsHtml = renderWatcherDecisionsHtml(decisions);
+  why.innerHTML = `${recoveryHtml}${decisionsHtml}`;
 }
 
 /**

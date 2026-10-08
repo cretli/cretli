@@ -37,7 +37,7 @@ import { escapeHtml } from './features/chat/chatHtmlUtils.js';
  *   sendActions?: Array<{ id: string, label: string, icon?: string, onSelect: (text: string, meta: { rawText: string, hasText: boolean, hasTrimmedText: boolean, attachmentPaths: string[] }) => boolean | Promise<boolean> }>,
  *   keepInputFocus?: boolean,
  * }} options
- * @returns {{ root: HTMLElement, input: HTMLInputElement|HTMLTextAreaElement, focusInput: () => void, submit: () => void, setPlaceholder: (s: string) => void, stopDictation: () => void, startDictation: () => void, setMultiline: (bool: boolean) => void, isMultiline: () => boolean, addExtraBar: (element: HTMLElement) => void }}
+ * @returns {{ root: HTMLElement, input: HTMLInputElement|HTMLTextAreaElement, focusInput: () => void, submit: () => void, setPlaceholder: (s: string) => void, setReadOnly: (bool: boolean) => void, stopDictation: () => void, startDictation: () => void, setMultiline: (bool: boolean) => void, isMultiline: () => boolean, addExtraBar: (element: HTMLElement) => void }}
  */
 export function createSendBar(options) {
   const {
@@ -66,6 +66,7 @@ export function createSendBar(options) {
   } = options;
 
   if (typeof onSend !== 'function') throw new Error('sendBar: onSend is required');
+  let isReadOnly = false;
 
   const root = document.createElement('div');
   root.className = 'chat-pane-toolbar chat-send-bar';
@@ -173,6 +174,7 @@ export function createSendBar(options) {
     sendBtn,
     getInputElement: () => inputController.getInputElement(),
     getBasePlaceholder: () => inputController.getBasePlaceholder(),
+    isReadOnly: () => isReadOnly,
     onVisibilityChange: syncContextStack,
   });
   inputController.updateInputPlaceholder();
@@ -195,6 +197,7 @@ export function createSendBar(options) {
   });
 
   function resumeDictationAfterSendIfNeeded() {
+    if (isReadOnly) return;
     if (!mediaController.shouldResumeAfterSend()) return;
     mediaController.clearResumeAfterSend();
     mediaController.startDictation();
@@ -233,8 +236,27 @@ export function createSendBar(options) {
 
   let sendActionRunning = false;
 
+  function applyReadOnlyState() {
+    const input = inputController.getInputElement();
+    if (input) input.readOnly = isReadOnly;
+    root.querySelectorAll('.send-keys-attach-btn, .send-keys-toggle-extra-btn, input[type="file"]').forEach(control => {
+      control.disabled = isReadOnly || control.classList.contains('is-loading');
+    });
+    mediaController.syncMicDisabledState();
+    attachmentsController.updateSendButtonState();
+  }
+
+  function setReadOnly(value) {
+    isReadOnly = value === true;
+    if (isReadOnly) {
+      mediaController.stopDictation();
+      sendMenu?.close();
+    }
+    applyReadOnlyState();
+  }
+
   function doSend() {
-    if (sendActionRunning) return;
+    if (isReadOnly || sendActionRunning) return;
     const payload = getSendPayload();
     mediaController.stopDictation();
     const accepted = onSend(payload.text || '', payload.meta);
@@ -247,7 +269,7 @@ export function createSendBar(options) {
   }
 
   async function runSendAction(actionId) {
-    if (sendActionRunning) return;
+    if (isReadOnly || sendActionRunning) return;
     const action = sendActions.find((item) => item.id === actionId);
     if (!action || typeof action.onSelect !== 'function') return;
     const payload = getSendPayload();
@@ -391,9 +413,10 @@ export function createSendBar(options) {
     /** Sends whatever is in the input, as if the Send button was clicked. */
     submit: () => doSend(),
     setPlaceholder: (s) => inputController.setPlaceholder(s),
+    setReadOnly,
     stopDictation: () => mediaController.stopDictation(),
-    startDictation: () => mediaController.startDictation(),
-    setMultiline: (enable) => inputController.setMultiline(enable),
+    startDictation: () => { if (!isReadOnly) mediaController.startDictation(); },
+    setMultiline: (enable) => { inputController.setMultiline(enable); applyReadOnlyState(); },
     isMultiline: () => inputController.isMultiline(),
     closeSendMenu: () => sendMenu?.close(),
     destroy: () => sendMenu?.destroy(),

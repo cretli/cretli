@@ -70,6 +70,7 @@ import { setModelScoreRows } from './lib/model-catalog-meta.js';
 import { loadModelScoreRows } from './lib/model-score-heuristics-fs.js';
 import { detectBrowserRuntime } from './lib/browser/runtime-detect.js';
 import { BrowserSessionManager } from './lib/browser/session-manager.js';
+import { purgeBrowserScreenshotRoot } from './lib/browser/screenshot-file.js';
 import { getWorkspacePolicy } from './lib/browser/policy-store.js';
 import { configureBrowserAgentRuntime } from './lib/browser/agent-tools.js';
 
@@ -295,6 +296,9 @@ const browserManager = new BrowserSessionManager({
   blockedPorts: readInternalBrowserPorts(),
   selfOrigins: browserSelfOrigins,
 });
+// Screenshots from a previous process may still hold sensitive page content;
+// clear the whole temp root before any new session writes into it.
+purgeBrowserScreenshotRoot();
 browserManager.startSweep();
 // Make the browser_* agent tools available to SDK runs for this process. Without
 // this the SDK room builder sees no runtime and (fail-closed) exposes no tools.

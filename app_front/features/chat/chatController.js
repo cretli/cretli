@@ -37,6 +37,7 @@ import {
   trimPendingChatListLoadQuery,
 } from './chatListLoadFreshness.js';
 import { reconcileServerChatsInTimeSlices } from './chatListServerReconcile.js';
+import { mergeRuntimeChatListAfterScopedArchiveLoad } from './chatListScopedArchiveMerge.js';
 import { scheduleDomWrite } from '../../lib/schedulerYield.js';
 
 function normalizePath(pathValue) {
@@ -76,6 +77,7 @@ function chatListRepaintSignature(list, archivedCounts) {
       chat.agentTransport || '',
       chat.sdkMode || '',
       chat.sdkUiMode || '',
+      chat.sdkSystemPrompt || '',
       chat.harnessState?.code || '',
       chat.isTemporary === true ? '1' : '0',
       chat.watcherPinned === true ? '1' : '0',
@@ -142,6 +144,13 @@ export function createChatController(deps) {
   let archivedCounts = Object.create(null);
   /** Whether the cold-start local snapshot was already considered this page life. */
   let chatBootCacheHydrated = false;
+  /**
+   * True while the runtime list is still an unconfirmed boot-cache slice — i.e. it was
+   * hydrated from the local snapshot and no `GET /api/chats` response has reconciled it yet.
+   * Only this state is allowed to skip a subset-shrink persist (F1); a server-confirmed list
+   * always persists, so a real deletion (41 -> 40) removes the ghost rows from IDB.
+   */
+  let chatBootCacheUnconfirmed = false;
   /** Whether async boot hydration is already scheduled or finished for this page life. */
   let chatBootAsyncHydrateStarted = false;
   /** Last workspace context seen in the boot snapshot (used when the settings fetch is slow). */
@@ -215,6 +224,9 @@ export function createChatController(deps) {
     });
     chatBootCacheHydrated = true;
     if (!shouldHydrate || !cached) return false;
+    // The rows below come straight from the local snapshot; until `GET /api/chats`
+    // reconciles them the runtime list is an unconfirmed slice and must not shrink IDB.
+    chatBootCacheUnconfirmed = true;
     if (getWorkspaces().length === 0 && cached.workspaces.length > 0) {
       setWorkspaces(cached.workspaces);
     }
@@ -247,6 +259,30 @@ export function createChatController(deps) {
     }
     const preferChatId = typeof query.preferChatId === 'string' ? query.preferChatId.trim() : '';
     if (preferChatId && !runtimeChats.some((chat) => chat.id === preferChatId)) {
+      if (!chatBootAsyncHydrateStarted) {
+        chatBootAsyncHydrateStarted = true;
+        const activeBeforeHydrate = getActiveChatId();
+        // Defer one microtask: `loadChatsFromServer` bumps the list revision later in this
+        // same synchronous pass, which would immediately invalidate a guard captured now and
+        // silently drop the IDB read. Deferring lets the hydration guard be captured after
+        // that bump, so `?chat=` outside the sync window is really hydrated (F2).
+        Promise.resolve()
+          .then(() => hydrateMissingBootRowsFromAdapter({ forceIdb: true }))
+          .then(() => {
+            if (!getChats().some((chat) => chat.id === preferChatId)) return;
+            const activeNow = getActiveChatId();
+            // The IDB read is async: if the user (or another restore path) already selected a
+            // chat in the meantime, never override that explicit choice with `?chat=`.
+            if (activeNow && activeNow !== activeBeforeHydrate) return;
+            setActiveChatId(preferChatId);
+            updateChatBarSelect();
+            const skipAutoSelect = query.skipAutoSelect === true || isEmbedModeActive();
+            if (!skipAutoSelect) selectChat(preferChatId);
+          })
+          .catch((err) => {
+            console.warn('[chat] boot hydrate for ?chat= failed:', err?.message || err);
+          });
+      }
       updateChatBarSelect();
       return true;
     }
@@ -378,6 +414,10 @@ export function createChatController(deps) {
       workspaces: getWorkspaces(),
       activeChatId: getActiveChatId() || readLastActiveChatId(),
       workspaceContext,
+      // Explicit provenance for the persist guard: only an unconfirmed boot-cache slice may
+      // skip a subset-shrink write. After a server response reconciles the list this flips
+      // to 'server', so a real deletion still prunes IDB (F1).
+      source: chatBootCacheUnconfirmed ? 'boot-cache' : 'server',
     };
   }
 
@@ -539,6 +579,7 @@ export function createChatController(deps) {
     const apiQuery = buildChatsListApiQuery({
       includeArchived,
       pinnedTo: normalized.pinnedTo,
+      archiveWorkspace: normalized.archiveWorkspace,
     });
     const preferChatId = normalized.preferChatId;
     const hydrationCtrl = getChatBootListHydrationController();
@@ -564,6 +605,7 @@ export function createChatController(deps) {
       pendingLoadQuery = mergeChatListLoadQuery(pendingLoadQuery || {}, query);
       return chatsLoadPromise;
     }
+    const loadArchiveWorkspace = normalized.archiveWorkspace;
     const startedScopeKey = buildChatListLoadScopeKey(normalized);
     inFlightLoadScopeKey = startedScopeKey;
     const hydrationCtrlAtStart = getChatBootListHydrationController();
@@ -656,11 +698,17 @@ export function createChatController(deps) {
       if (liveOrphans.length > 0) {
         nextChats.push(...liveOrphans);
       }
+      const mergedRows = loadArchiveWorkspace
+        ? mergeRuntimeChatListAfterScopedArchiveLoad(chats, nextChats, loadArchiveWorkspace)
+        : nextChats;
       chats.length = 0;
-      nextChats.forEach((chat) => chats.push(chat));
+      mergedRows.forEach((chat) => chats.push(chat));
+      // The runtime list is now server-reconciled: from here on a persist may honestly
+      // shrink IDB (real deletions), so the subset-shrink guard must no longer apply (F1).
+      chatBootCacheUnconfirmed = false;
       const repaintNeeded = chatListRepaintSignature(chats, archivedCounts) !== repaintBefore;
-      setActiveChatIdsForEviction(nextChats.map((c) => c.id));
-      void migrateChatStorageOutOfLocalStorage(nextChats.map((c) => c.id));
+      setActiveChatIdsForEviction(mergedRows.map((c) => c.id));
+      void migrateChatStorageOutOfLocalStorage(mergedRows.map((c) => c.id));
       // An idempotent reconcile (a live frame for state the list already shows, a title the
       // live sync already patched in place) must not rebuild the list modal. `updateChatBarSelect`
       // and the boot-cache write below stay unconditional: the active chat can change anyway.
@@ -674,7 +722,7 @@ export function createChatController(deps) {
       if (presenceDirtyIds.length > 0 && typeof onPresenceHydrate === 'function') {
         onPresenceHydrate(presenceDirtyIds);
       }
-      const visibleChats = nextChats.filter((chat) => !chat.archivedAt);
+      const visibleChats = mergedRows.filter((chat) => !chat.archivedAt);
       const activeIdBeforeSelect = getActiveChatId();
       if (
         activeIdBeforeSelect
@@ -692,7 +740,7 @@ export function createChatController(deps) {
           setActiveChatId(null);
         }
       }
-      if (preferChatId && nextChats.some((chat) => chat.id === preferChatId)) {
+      if (preferChatId && mergedRows.some((chat) => chat.id === preferChatId)) {
         setActiveChatId(preferChatId);
       } else if (!skipAutoSelect) {
         const lastId = typeof localStorage !== 'undefined'

@@ -12,7 +12,10 @@ import {
   redactTextCapped,
   redactUrl,
   redactValue,
+  SENSITIVE_HEADERS,
 } from '../lib/browser/redaction.js';
+import { redactDebuggerPayload } from '../lib/browser/debugger.js';
+import { BROWSER_LIMITS } from '../lib/browser/constants.js';
 
 test('redacts sensitive headers but keeps safe ones', () => {
   const out = redactHeaders({
@@ -95,4 +98,186 @@ test('redacts sensitive params in the URL fragment (OAuth implicit flow)', () =>
 test('leaves a plain anchor fragment untouched', () => {
   const out = redactUrl('https://app.test/docs#section-two');
   assert.equal(out, 'https://app.test/docs#section-two');
+});
+
+test('redactValue masks CDP RemoteObject description for sensitive pin and bigint', () => {
+  const pinShape = {
+    name: 'pin',
+    value: { type: 'number', value: 1234, description: '1234' },
+    writable: true,
+    configurable: true,
+    enumerable: true,
+  };
+  const bigintShape = {
+    name: 'apiSecret',
+    value: { type: 'bigint', unserializableValue: '99887766n', description: '99887766n' },
+    writable: true,
+    configurable: true,
+    enumerable: true,
+  };
+  const out = redactValue([pinShape, bigintShape], { maxDepth: 5, maxItems: 40 });
+  const text = JSON.stringify(out);
+  assert.doesNotMatch(text, /1234/);
+  assert.doesNotMatch(text, /99887766n/);
+  assert.match(text, /\[redacted\]/);
+});
+
+test('redactValue masks plain object keys with isSensitiveVariableName (watch returnByValue)', () => {
+  const out = redactValue({
+    type: 'object',
+    value: {
+      accessToken: 'LEAK_AT',
+      refreshToken: 'LEAK_RT',
+      clientSecret: 'LEAK_CS',
+      userPassword: 'LEAK_PW',
+      sessionId: 'LEAK_SID',
+      count: 42,
+      safeLabel: 'visible',
+    },
+  });
+  assert.equal(out.value.accessToken, '[redacted]');
+  assert.equal(out.value.refreshToken, '[redacted]');
+  assert.equal(out.value.clientSecret, '[redacted]');
+  assert.equal(out.value.userPassword, '[redacted]');
+  assert.equal(out.value.sessionId, '[redacted]');
+  assert.equal(out.value.count, 42);
+  assert.equal(out.value.safeLabel, 'visible');
+});
+
+test('redactDebuggerPayload masks watch Runtime.evaluate RemoteObject returnByValue (real CDP shape)', () => {
+  const payload = redactDebuggerPayload({
+    result: {
+      type: 'object',
+      value: {
+        accessToken: 'LEAK_AT',
+        userPassword: 'LEAK_PW',
+        sessionId: 'LEAK_SID',
+        count: 42,
+      },
+    },
+  }, BROWSER_LIMITS);
+  const text = JSON.stringify(payload.value);
+  assert.doesNotMatch(text, /LEAK_AT/);
+  assert.doesNotMatch(text, /LEAK_PW/);
+  assert.doesNotMatch(text, /LEAK_SID/);
+  assert.match(text, /\[redacted\]/);
+  assert.match(text, /"count":42|"count": 42/);
+});
+
+test('redactDebuggerPayload masks returnByValue array of objects on RemoteObject.value (A-2a)', () => {
+  const payload = redactDebuggerPayload({
+    result: {
+      type: 'object',
+      value: [{ accessToken: 'LEAK_AT' }, { count: 1 }],
+    },
+  }, BROWSER_LIMITS);
+  const text = JSON.stringify(payload.value);
+  assert.doesNotMatch(text, /LEAK_AT/);
+  assert.match(text, /\[redacted\]/);
+  assert.match(text, /"count":1|"count": 1/);
+});
+
+test('redactDebuggerPayload masks nested returnByValue arrays on RemoteObject.value (A-2c)', () => {
+  const payload = redactDebuggerPayload({
+    result: {
+      type: 'object',
+      value: [[{ accessToken: 'LEAK_AT' }], [{ note: 'ok', count: 1 }]],
+    },
+  }, BROWSER_LIMITS);
+  const text = JSON.stringify(payload.value);
+  assert.doesNotMatch(text, /LEAK_AT/);
+  assert.match(text, /\[redacted\]/);
+  assert.match(text, /ok/);
+  assert.match(text, /"count":1|"count": 1/);
+});
+
+test('redactDebuggerPayload masks sensitive sibling keys on RemoteObject (A-2b)', () => {
+  const payload = redactDebuggerPayload({
+    result: {
+      type: 'object',
+      accessToken: 'LEAK_AT',
+      note: 'ok',
+    },
+  }, BROWSER_LIMITS);
+  const text = JSON.stringify(payload.value);
+  assert.doesNotMatch(text, /LEAK_AT/);
+  assert.match(text, /\[redacted\]/);
+  assert.match(text, /ok/);
+});
+
+test('redactValue masks ObjectPreview properties by variable name (real CDP shape)', () => {
+  const out = redactValue({
+    type: 'object',
+    preview: {
+      type: 'object',
+      properties: [
+        { name: 'clientSecret', type: 'string', value: 'LEAK_CS' },
+        { name: 'count', type: 'number', value: '42' },
+      ],
+    },
+  });
+  const text = JSON.stringify(out);
+  assert.doesNotMatch(text, /LEAK_CS/);
+  assert.match(text, /\[redacted\]/);
+  assert.match(text, /42/);
+});
+
+/** Builds a nested CDP RemoteObject chain via `value` (returnByValue-style). */
+function buildNestedRemoteObjectChain(depth) {
+  let node = { type: 'string', value: 'leaf' };
+  for (let i = 0; i < depth; i += 1) {
+    node = { type: 'object', value: node };
+  }
+  return node;
+}
+
+test('redactDebuggerPayload caps wide root returnByValue array (cost boundary)', () => {
+  const wide = Array.from({ length: 5000 }, (_, i) => ({ k: i }));
+  const payload = redactDebuggerPayload({
+    result: { type: 'object', value: wide },
+  }, BROWSER_LIMITS);
+  const arr = payload.value.result.value;
+  assert.ok(Array.isArray(arr));
+  assert.ok(arr.length <= BROWSER_LIMITS.DEBUGGER_REDACT_MAX_ITEMS);
+});
+
+test('redactDebuggerPayload survives deep RemoteObject chain without RangeError', () => {
+  const chain = buildNestedRemoteObjectChain(15000);
+  let payload;
+  assert.doesNotThrow(() => {
+    payload = redactDebuggerPayload({ result: chain }, BROWSER_LIMITS);
+  });
+  const text = JSON.stringify(payload.value);
+  assert.match(text, /\[truncated\]/);
+  assert.doesNotMatch(text, /LEAK_SHALLOW/);
+});
+
+test('redactDebuggerPayload redacts shallow sensitive key beside deep RemoteObject value', () => {
+  const inner = buildNestedRemoteObjectChain(200);
+  const payload = redactDebuggerPayload({
+    result: {
+      type: 'object',
+      accessToken: 'LEAK_SHALLOW',
+      note: 'ok',
+      value: inner.value,
+    },
+  }, BROWSER_LIMITS);
+  const text = JSON.stringify(payload.value);
+  assert.doesNotMatch(text, /LEAK_SHALLOW/);
+  assert.match(text, /\[redacted\]/);
+  assert.match(text, /ok/);
+});
+
+test('treats the Browser local-login token as a sensitive header', () => {
+  // `x-cretli-local-login` is a passwordless credential, so it is both redacted
+  // in diagnostics and cleared by the cross-origin header strip. Removing it
+  // from the sensitive list would silently re-open both leaks.
+  assert.equal(isSensitiveHeaderName('x-cretli-local-login'), true);
+  assert.equal(isSensitiveHeaderName('X-Cretli-Local-Login'), true);
+  assert.equal(SENSITIVE_HEADERS.includes('x-cretli-local-login'), true);
+  // A stand-in value, never the live token: a failing assert would echo it.
+  const out = redactHeaders({ 'x-cretli-local-login': 'a'.repeat(48), Accept: 'text/html' });
+  assert.equal(out['x-cretli-local-login'], '[redacted]');
+  assert.doesNotMatch(JSON.stringify(out), /aaaa/);
+  assert.equal(out.Accept, 'text/html');
 });

@@ -322,8 +322,9 @@ export function renderWatcherDecisionsHtml(decisions, options = {}) {
 
 /**
  * Alerts section: active stop_reason with a clear action, the failure backoff
- * countdown, and the quiet-hours window end. Each time-sensitive value carries a
- * `data-watcher-*` hook so the panel repaints it every second without refetching.
+ * countdown with a one-click release, and the quiet-hours window end. Each
+ * time-sensitive value carries a `data-watcher-*` hook so the panel repaints it
+ * every second without refetching.
  *
  * @param {object | null | undefined} view
  * @param {{ now?: number }} [options]
@@ -348,6 +349,7 @@ export function renderWatcherAlertsHtml(view, options = {}) {
     alerts.push('<div class="watcher-dash-alert" data-tone="backoff">'
       + `<span class="watcher-dash-alert-label">${escapeWatcherHtml(t('settings.watcherBackoff'))}</span>`
       + `<span class="watcher-dash-countdown" data-watcher-countdown="${escapeWatcherAttr(String(backoffMs))}">${escapeWatcherHtml(formatCountdown(backoffMs, now))}</span>`
+      + `<button type="button" class="watcher-dash-alert-clear" data-watcher-action="clear-backoff">${escapeWatcherHtml(t('settings.watcherClearBackoff'))}</button>`
       + '</div>');
   }
   const quiet = quietHoursStatus(policy.quietHours, now);
@@ -374,4 +376,72 @@ export function renderWatcherAlertsHtml(view, options = {}) {
     + `<h4>${escapeWatcherHtml(t('settings.watcherDashAlerts'))}</h4>`
     + body
     + '</div>';
+}
+
+/**
+ * Human label for a cycle-schedule block reason (`cooldown`, `daily_budget`, …).
+ * Falls back to the raw server reason when the dictionary has no entry yet.
+ *
+ * @param {unknown} reason
+ * @returns {string}
+ */
+export function scheduleReasonText(reason) {
+  const key = String(reason || '').trim();
+  if (!key) return '';
+  const i18nKey = `settings.watcherScheduleReason_${key}`;
+  const text = t(i18nKey);
+  return text === i18nKey ? key : text;
+}
+
+/**
+ * The "next cycle" value shared by the Status card and the schedule card.
+ * `data-watcher-countdown` lets the per-second ticker repaint it without a
+ * refetch. Returns escaped HTML.
+ *
+ * @param {object} schedule
+ * @param {number} now
+ * @returns {string}
+ */
+export function scheduleNextValueHtml(schedule = {}, now = Date.now()) {
+  if (schedule.enabled !== true) return escapeWatcherHtml(t('settings.watcherScheduleNotScheduled'));
+  if (schedule.paused === true || schedule.stopped === true) return '—';
+  const nextCycleAt = Number(schedule.nextCycleAt) || 0;
+  if (nextCycleAt > now) {
+    return `<span data-watcher-countdown="${nextCycleAt}">${escapeWatcherHtml(formatCountdown(nextCycleAt, now))}</span>`
+      + ` <span class="watcher-scout-abs">${escapeWatcherHtml(new Date(nextCycleAt).toLocaleString())}</span>`;
+  }
+  return escapeWatcherHtml(t('settings.watcherScheduleDueNow'));
+}
+
+/**
+ * Cycle schedule card for the Settings tab: when the watcher last ran, when the
+ * next autopilot cycle may start, today's budget and the live blocker. Mirrors
+ * the Scout schedule card. `nextCycleAt` is computed server-side from the same
+ * gate the heartbeat applies, so the countdown cannot drift; the countdown node
+ * is repainted per second by `tickWatcherTimes` while the tab is visible.
+ *
+ * @param {object} schedule
+ * @param {number} now
+ * @returns {string}
+ */
+export function renderWatcherScheduleHtml(schedule = {}, now = Date.now()) {
+  const maxPerDay = Number(schedule.maxCyclesPerDay) || 0;
+  const budgetText = maxPerDay > 0
+    ? `${Number(schedule.cyclesToday) || 0} / ${maxPerDay} · ${escapeWatcherHtml(t('settings.watcherScheduleRemaining'))}: ${Number(schedule.remainingToday) || 0}`
+    : `${Number(schedule.cyclesToday) || 0} · ${escapeWatcherHtml(t('settings.watcherScheduleUnlimited'))}`;
+  const blockedReason = schedule.allowed === false ? String(schedule.blockedReason || '').trim() : '';
+  // Only the failure backoff has a one-click release: cooldown, the daily budget
+  // and quiet hours clear on their own, so a reset button there would be a lie.
+  const releaseBackoffHtml = blockedReason === 'failure_backoff'
+    ? ` <button type="button" class="watcher-dash-alert-clear watcher-schedule-clear" data-watcher-action="clear-backoff">${escapeWatcherHtml(t('settings.watcherClearBackoff'))}</button>`
+    : '';
+  const blockedHtml = blockedReason
+    ? `<p class="cr-hint"><span class="watcher-badge" data-mode="paused">${escapeWatcherHtml(t('settings.watcherScheduleBlocked'))}</span> ${escapeWatcherHtml(scheduleReasonText(blockedReason))}${releaseBackoffHtml}</p>`
+    : '';
+  return ''
+    + `<p class="cr-hint"><strong>${escapeWatcherHtml(t('settings.watcherScheduleNext'))}:</strong> ${scheduleNextValueHtml(schedule, now)}</p>`
+    + `<p class="cr-hint">${escapeWatcherHtml(t('settings.watcherScheduleLast'))}: ${escapeWatcherHtml(schedule.lastCycleAt || '-')}</p>`
+    + `<p class="cr-hint">${escapeWatcherHtml(t('settings.watcherScheduleCyclesToday'))}: ${budgetText}</p>`
+    + `<p class="cr-hint">${escapeWatcherHtml(t('settings.watcherScheduleRunning'))}: ${Number(schedule.running) || 0} / ${Number(schedule.maxParallel) || 1}</p>`
+    + blockedHtml;
 }

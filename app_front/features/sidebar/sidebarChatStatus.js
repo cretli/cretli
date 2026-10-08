@@ -5,14 +5,28 @@
  * The active chip has a fixed geometry: the spinning icon is always present and
  * the tool label lives in a fixed-width, ellipsised element. Updating the label
  * only writes `textContent`, so the icon node (and its animation) survives.
+ * The auto-archive countdown reuses that icon+label geometry (see
+ * `sidebarChatArchiveCountdown.js`).
  */
+
+import {
+  ARCHIVE_COUNTDOWN_IMMINENT_TONE,
+  ARCHIVE_COUNTDOWN_SOON_TONE,
+} from './sidebarChatArchiveCountdown.js';
 
 const DISCONNECTED_ICON_HTML = '<span class="mdi mdi-link-variant-off" aria-hidden="true"></span>';
 const CONNECTING_ICON_HTML = '<span class="mdi mdi-loading mdi-spin" aria-hidden="true"></span>';
 const SYNCING_ICON_HTML = '<span class="mdi mdi-sync mdi-spin" aria-hidden="true"></span>';
 const WORKING_ICON_HTML = '<span class="mdi mdi-cog-outline mdi-spin" aria-hidden="true"></span>';
 const NEEDS_ACTION_ICON_HTML = '<span class="mdi mdi-alert-circle-outline" aria-hidden="true"></span>';
+const ARCHIVE_ICON_HTML = '<span class="mdi mdi-progress-clock" aria-hidden="true"></span>';
 export const ACTIVITY_LABEL_CLASS = 'sidebar-chat-item-activity-label';
+
+/** Tones that render as [icon][countdown label] in the active-chip geometry. */
+const ARCHIVE_TONES = new Set([
+  ARCHIVE_COUNTDOWN_SOON_TONE,
+  ARCHIVE_COUNTDOWN_IMMINENT_TONE,
+]);
 const SETTLED_STATUS_ICONS = {
   completed: '<span class="mdi mdi-check-circle-outline" aria-hidden="true"></span>',
   failed: '<span class="mdi mdi-alert-circle-outline" aria-hidden="true"></span>',
@@ -45,12 +59,13 @@ export function isIconOnlySidebarStatus(tone, meta = null) {
 /**
  * @param {string} label
  * @param {(value: string) => string} escape
+ * @param {string} [iconHtml]
  * @returns {string}
  */
-function renderActiveChipHtml(label, escape) {
+function renderActiveChipHtml(label, escape, iconHtml = WORKING_ICON_HTML) {
   // The label element is always rendered (empty when there is no tool) so the
   // chip keeps the same width and the title next to it never reflows.
-  return WORKING_ICON_HTML +
+  return iconHtml +
     '<span class="' + ACTIVITY_LABEL_CLASS + '">' + escape(label) + '</span>';
 }
 
@@ -69,6 +84,7 @@ export function renderSidebarChatStatusHtml(meta, escapeHtml) {
   if (tone === 'active') {
     return renderActiveChipHtml(meta?.activityKey ? label : '', escape);
   }
+  if (ARCHIVE_TONES.has(tone)) return renderActiveChipHtml(label, escape, ARCHIVE_ICON_HTML);
   if (tone === 'attention' && SETTLED_STATUS_ICONS[meta?.status]) return SETTLED_STATUS_ICONS[meta.status];
   if (NEEDS_ACTION_TONES.has(tone)) return NEEDS_ACTION_ICON_HTML;
   return escape(label);
@@ -113,12 +129,14 @@ export function applySidebarChatStatusEl(el, meta, options = {}) {
     return true;
   }
   if (!contentChanged) return false;
-  if (tone === 'active') {
+  if (tone === 'active' || ARCHIVE_TONES.has(tone)) {
     const labelEl = typeof el.querySelector === 'function'
       ? el.querySelector('.' + ACTIVITY_LABEL_CLASS)
       : null;
     if (labelEl) {
-      const nextText = activityKey ? label : '';
+      // The working chip hides its label until a tool key exists; the countdown
+      // label is the payload itself and must always show.
+      const nextText = tone === 'active' ? (activityKey ? label : '') : label;
       if (labelEl.textContent !== nextText) labelEl.textContent = nextText;
       return true;
     }
@@ -127,7 +145,7 @@ export function applySidebarChatStatusEl(el, meta, options = {}) {
     if (typeof el.appendChild === 'function' && el.ownerDocument?.createElement) {
       const span = el.ownerDocument.createElement('span');
       span.className = ACTIVITY_LABEL_CLASS;
-      span.textContent = activityKey ? label : '';
+      span.textContent = tone === 'active' ? (activityKey ? label : '') : label;
       el.appendChild(span);
       return true;
     }

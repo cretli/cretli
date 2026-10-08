@@ -51,10 +51,19 @@ export function createMcpHandler(client, session = {}) {
     error: { code, message },
   });
 
+  /** @type {Promise<object[]> | null} */
+  let prefetchedTools = null;
+
   return async function handleMessage(message) {
     if (!message || typeof message !== 'object') return null;
     const id = typeof message.id === 'string' || typeof message.id === 'number' ? message.id : null;
     if (typeof message.method !== 'string') return null;
+    if (message.method === 'notifications/initialized' && typeof client.listBridgeTools === 'function') {
+      // Fetch the catalog as soon as the handshake ends: the request tells the
+      // server this harness is connected, so it can release a held first prompt.
+      prefetchedTools = client.listBridgeTools();
+      prefetchedTools.catch(() => {});
+    }
     if (message.method.startsWith('notifications/')) return null;
 
     try {
@@ -74,8 +83,10 @@ export function createMcpHandler(client, session = {}) {
         return { jsonrpc: '2.0', id, result: {} };
       }
       if (message.method === 'tools/list') {
+        const prefetched = prefetchedTools;
+        prefetchedTools = null;
         const tools = typeof client.listBridgeTools === 'function'
-          ? await client.listBridgeTools()
+          ? await (prefetched ? prefetched.catch(() => client.listBridgeTools()) : client.listBridgeTools())
           : CRETILI_MCP_TOOL_DEFS;
         return { jsonrpc: '2.0', id, result: { tools } };
       }

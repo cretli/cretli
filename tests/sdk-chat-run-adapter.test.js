@@ -24,13 +24,16 @@ const expectedTransports = [
   'codex',
 ];
 const actualTransports = listChatRunAdapterTransports();
+// CodeBuddy has a built-in native default catalog, so its synthetic
+// `<transport>/test` id is not available; use a real default id instead.
+const modelByTransport = { sdk: 'auto', codebuddy: 'hy3' };
 for (const transport of expectedTransports) {
   assert.equal(hasChatRunAdapter(transport), true, `missing adapter ${transport}`);
   assert.equal(actualTransports.includes(transport), true, `missing list entry ${transport}`);
   assert.equal(
     isDelegationModelAvailable({
       transport,
-      model: transport === 'sdk' ? 'auto' : `${transport}/test`,
+      model: modelByTransport[transport] || `${transport}/test`,
       settings: {},
     }),
     true,

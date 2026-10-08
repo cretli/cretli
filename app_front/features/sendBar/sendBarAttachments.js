@@ -7,6 +7,7 @@ export function createSendBarAttachments(options) {
     getInputElement,
     getBasePlaceholder,
     onVisibilityChange = () => {},
+    isReadOnly = () => false,
   } = options;
 
   if (!(attachmentsBar instanceof HTMLElement)) {
@@ -21,6 +22,7 @@ export function createSendBarAttachments(options) {
   }
 
   function getAttachmentPlaceholder() {
+    if (isReadOnly()) return getBasePlaceholder();
     const count = pendingAttachments.length;
     const hasPageSelection = pendingAttachments.some((attachment) => attachment.kind === 'page-selection');
     if (count <= 0) return getBasePlaceholder();
@@ -42,7 +44,7 @@ export function createSendBarAttachments(options) {
   function updateSendButtonState() {
     if (!sendBtn) return;
     const uploading = hasUploadingAttachments();
-    sendBtn.disabled = uploading;
+    sendBtn.disabled = uploading || isReadOnly();
     sendBtn.setAttribute('aria-busy', uploading ? 'true' : 'false');
     sendBtn.title = uploading ? t('sendBar.uploadingImage') : '';
   }
@@ -200,6 +202,7 @@ export function createSendBarAttachments(options) {
     getPageSelectionContext,
     setPageSelectionAttachment,
     updateInputPlaceholder,
+    updateSendButtonState,
   };
 }
 

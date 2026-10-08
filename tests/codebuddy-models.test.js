@@ -3,6 +3,7 @@ import {
   DEFAULT_CODEBUDDY_MODEL,
   catalogEntriesFromCodeBuddyRows,
   catalogEntryFromCodeBuddyRow,
+  describeUnavailableCodeBuddyModel,
   inferCodeBuddyProvider,
   listFallbackCodeBuddyModels,
   parseAccountModelsFromCodeBuddyError,
@@ -78,11 +79,19 @@ const parsedCommaList = parseAccountModelsFromCodeBuddyError(
 assert.deepEqual(parsedCommaList, ['default-model', 'fast-model', 'gpt-5.6-sol', 'glm-5.2']);
 assert.deepEqual(parseAccountModelsFromCodeBuddyError('no list here'), []);
 
+const describedUnavailable = describeUnavailableCodeBuddyModel(
+  'hy3-preview',
+  '400 model [hy3-preview] service info not found (abc/def)',
+);
+assert.match(describedUnavailable, /does not serve model "hy3-preview"/);
+assert.match(describedUnavailable, /service info not found/);
+
 const fallback = listFallbackCodeBuddyModels();
 assert.ok(fallback.length > 0);
 assert.ok(fallback.some((row) => row.value === 'hy4-preview-f'));
 assert.ok(fallback.some((row) => row.value === 'hy3'));
-assert.ok(fallback.some((row) => row.value === 'hy3-preview'));
+// Retired by the provider (`service info not found`); must not be offered by default.
+assert.ok(!fallback.some((row) => row.value === 'hy3-preview'));
 assert.ok(!fallback.some((row) => row.value === 'glm-5.2'));
 assert.ok(!fallback.some((row) => row.value === 'gpt-5.1'));
 const bundledCli = resolveBundledCodeBuddyCli();

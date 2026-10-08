@@ -119,9 +119,14 @@ const activeConflict = await service.createAndStart({
   executionMode: 'agent',
   idempotencyKey: 'msg-other-key',
 });
-assert.equal(activeConflict.ok, false);
-assert.equal(activeConflict.code, 'active_delegation_exists');
-assert.equal(activeConflict.id, started.delegation.id);
+assert.equal(activeConflict.ok, true);
+assert.equal(activeConflict.status, 202);
+assert.equal(activeConflict.queued, true);
+assert.equal(activeConflict.queueConflict.code, 'active_delegation_exists');
+assert.equal(activeConflict.delegation.status, 'queued');
+// A parked implement holds the shared workspace for other parents, so clear it
+// here to keep the later blocks in this file starting normally.
+updateDelegationRecord(activeConflict.delegation.id, { status: 'cancelled' });
 
 const snapshotOnly = await service.createAndStart({
   parentChatId: parent.id,

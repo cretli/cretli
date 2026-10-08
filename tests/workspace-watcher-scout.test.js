@@ -90,7 +90,13 @@ function freshWorkspace(name) {
   return { cwd, dataDir };
 }
 
-const quietGit = () => '';
+// Lifecycle tests need a non-empty scope before a model may start.
+const scopedGit = (args) => {
+  if (args[0] === 'rev-parse') return 'a'.repeat(40);
+  if (args[0] === 'diff' && args.includes('--name-only')) return 'lib/a.js';
+  if (args[0] === 'ls-files' && args.includes('--cached')) return 'lib/a.js';
+  return '';
+};
 
 /* ------------------------------------------------------------------ policy */
 
@@ -189,7 +195,8 @@ runCase('collectScoutSignals gathers git/markers/todos/memory read-only', () => 
   addWorkspaceMemory(cwd, { type: 'context', key: 'ctx', value: 'a note' }, { dataDir });
   const signals = collectScoutSignals({ workspaceFolder: cwd, dataDir }, {
     execGit: (args) => {
-      if (args[0] === 'diff' && args[1] === 'main') return 'diff --git a/a.js b/a.js\n+TODO: fix';
+      if (args[0] === 'rev-parse') return 'a'.repeat(40);
+      if (args[0] === 'diff' && !args.includes('--name-only')) return 'diff --git a/a.js b/a.js\n+TODO: fix';
       if (args[0] === 'diff' && args[1] === '--name-only') return 'a.js';
       if (args[0] === 'log') return 'abc123 commit';
       return '';
@@ -227,7 +234,7 @@ runCase('buildScoutPrompt is read-only and carries categories + signals', () => 
   assert.match(prompt, /PLAN mode/);
   assert.match(prompt, /bug, security/);
   assert.match(prompt, /at most 3/);
-  assert.match(prompt, /watcher_scout_findings/);
+  assert.match(prompt, /scout_findings/);
   assert.match(prompt, /existing todos/);
   assert.match(prompt, /UNTRUSTED DATA/);
 });
@@ -456,26 +463,49 @@ runCase('record/accept/reject proposals; only scoutAutoCreate creates a todo', a
   assert.equal(after.findings.find((finding) => finding.id === bug.id).status, 'accepted');
   assert.equal(after.findings.find((finding) => finding.id === docs.id).status, 'rejected');
 
-  // Enable autoCreate and accept a fresh finding: one idea todo appears.
-  upsertWorkspaceWatcher(cwd, { policy: { scoutAutoCreate: true } }, { dataDir });
+  // Enable autoCreate (upsert replaces the whole policy object, so re-state
+  // scoutEnabled) and record a fresh finding: record itself already authorizes
+  // capture, so the finding lands `accepted` and an idea todo appears without a
+  // separate accept call.
+  upsertWorkspaceWatcher(cwd, {
+    policy: { scoutEnabled: true, scoutAutoCreate: true },
+  }, { dataDir });
   recordScoutFindings(cwd, [{ title: 'Auto create me', category: 'opportunity' }], { dataDir });
   const auto = runWorkspaceWatcherScoutAction({ dataDir, workspaceFolder: cwd, action: 'list' });
   const target = auto.findings.find((finding) => finding.title === 'Auto create me');
-  const autoAccepted = acceptScoutFindings(cwd, [target.id], { dataDir });
-  assert.equal(autoAccepted.createdTodos.length, 1);
+  assert.ok(target);
+  assert.equal(target.status, 'accepted', 'record auto-accepts when scoutAutoCreate is on');
+
   const todoDoc = loadTodosData(dataDir, cwd);
-  const created = todoDoc.items.find((item) => item.id === autoAccepted.createdTodos[0].id);
-  assert.ok(created);
+  assert.equal(todoDoc.items.length, 1, 'auto-create produced exactly one todo');
+  const created = todoDoc.items.find((item) => item.title === '[Scout] Auto create me');
+  assert.ok(created, 'auto-created todo exists');
   assert.equal(created.status, 'idea');
   assert.match(created.title, /Auto create me/);
   assert.match(created.plan.markdown, /\(no rationale\)/);
   assert.match(created.plan.markdown, new RegExp(target.id));
   assert.equal(created.plan.approvedAt, undefined);
 
+  // Accepting the already-accepted finding is idempotent: no state change and
+  // no duplicate todo.
+  const autoAccepted = acceptScoutFindings(cwd, [target.id], { dataDir });
+  assert.equal(autoAccepted.changed, 0);
+  assert.equal(autoAccepted.createdTodos.length, 0);
+  assert.equal(loadTodosData(dataDir, cwd).items.length, 1);
+
   // A replayed create must not call updateTodo, so a human-edited plan survives CAS retry.
+  // Record the finding with autoCreate off so it stays pending for the explicit accept.
+  upsertWorkspaceWatcher(cwd, {
+    policy: { scoutEnabled: true, scoutAutoCreate: false },
+  }, { dataDir });
   recordScoutFindings(cwd, [{ title: 'Replay me', category: 'bug', rationale: 'keep the human plan' }], { dataDir });
   const replayList = runWorkspaceWatcherScoutAction({ dataDir, workspaceFolder: cwd, action: 'list' });
   const replayTarget = replayList.findings.find((finding) => finding.title === 'Replay me');
+  assert.ok(replayTarget);
+  assert.equal(replayTarget.status, 'pending');
+  upsertWorkspaceWatcher(cwd, {
+    policy: { scoutEnabled: true, scoutAutoCreate: true },
+  }, { dataDir });
   let planWrites = 0;
   const replayed = acceptScoutFindings(cwd, [replayTarget.id], {
     dataDir,
@@ -507,7 +537,7 @@ runCase('runWorkspaceWatcherScout stamps its own schedule and never touches cycl
     dataDir,
     now: base,
     deps: {
-      execGit: quietGit,
+      execGit: scopedGit,
       runScout: async () => ({ started: true, findings: [{ title: 'New bug', category: 'bug' }] }),
     },
   });
@@ -528,7 +558,7 @@ runCase('runWorkspaceWatcherScout stamps its own schedule and never touches cycl
     workspaceFolder: cwd,
     dataDir,
     now: base + 60_000,
-    deps: { execGit: quietGit, runScout: async () => ({ started: true, findings: [] }) },
+    deps: { execGit: scopedGit, runScout: async () => ({ started: true, findings: [] }) },
   });
   assert.equal(second.scanned, false);
   assert.equal(second.reason, 'scan_interval');
@@ -537,7 +567,7 @@ runCase('runWorkspaceWatcherScout stamps its own schedule and never touches cycl
     workspaceFolder: cwd,
     dataDir,
     now: base + 120_000,
-    deps: { execGit: quietGit, runScout: async () => ({ started: true, findings: [] }) },
+    deps: { execGit: scopedGit, runScout: async () => ({ started: true, findings: [] }) },
   });
   assert.equal(forced.scanned, true, 'manual run bypasses scan_interval');
 
@@ -548,7 +578,7 @@ runCase('runWorkspaceWatcherScout stamps its own schedule and never touches cycl
     dataDir,
     now: later,
     deps: {
-      execGit: quietGit,
+      execGit: scopedGit,
       runScout: async () => ({ started: true, findings: [{ title: 'New bug', category: 'bug' }] }),
     },
   });
@@ -567,7 +597,7 @@ runCase('runWorkspaceWatcherScout rolls back its stamp when the scan throws', as
     workspaceFolder: cwd,
     dataDir,
     deps: {
-      execGit: quietGit,
+      execGit: scopedGit,
       runScout: async () => {
         throw new Error('model exploded');
       },
@@ -591,7 +621,7 @@ runCase('runWorkspaceWatcherScoutPass scans only opted-in observe/autopilot rows
   const result = await runWorkspaceWatcherScoutPass({
     dataDir,
     deps: {
-      execGit: quietGit,
+      execGit: scopedGit,
       runScout: async () => ({ started: true, findings: [{ title: 'Pass finding', category: 'bug' }] }),
     },
   });
@@ -609,7 +639,7 @@ runCase('runWorkspaceWatcherScout starts a running scan when mode is autopilot t
   const result = await runWorkspaceWatcherScout({
     workspaceFolder: cwd,
     dataDir,
-    deps: { execGit: quietGit, runScout: async () => ({ started: true, findings: [] }) },
+    deps: { execGit: scopedGit, runScout: async () => ({ started: true, findings: [] }) },
   });
   assert.equal(result.scanned, true);
 });
@@ -621,7 +651,7 @@ runCase('runWorkspaceWatcherScout parses findings from a returned text block', a
     workspaceFolder: cwd,
     dataDir,
     deps: {
-      execGit: quietGit,
+      execGit: scopedGit,
       runScout: async () => ({
         started: true,
         text: 'Done.\n```json\n[{"title":"From text","category":"security","files":["s.js"]}]\n```',
@@ -788,14 +818,17 @@ runCase('active Scout scan expires and cannot submit afterward', () => {
   );
 });
 
-runCase('runWorkspaceWatcherScout clears active scan when startChatRun throws', async () => {
+runCase('runWorkspaceWatcherScout marks scan uncertain when startChatRun throws after launchIssued', async () => {
+  // Finding 2: a throw after markScoutScanLaunchIssued is NOT proof the run
+  // was refused — the handoff may have happened. The slot must stay occupied
+  // and the scan must be marked `uncertain`, not cleared.
   const { cwd, dataDir } = freshWorkspace('run-fail');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
   await runWorkspaceWatcherScout({
     workspaceFolder: cwd,
     dataDir,
     deps: {
-      execGit: quietGit,
+      execGit: scopedGit,
       resolveWorkspaceWatcherOrchestrator: async () => ({
         ok: true,
         harness: 'test',
@@ -808,7 +841,8 @@ runCase('runWorkspaceWatcherScout clears active scan when startChatRun throws', 
     },
   });
   const active = getWorkspaceWatcher(cwd, { dataDir }).activeScoutScan;
-  assert.equal(active.scanId, '');
+  assert.notEqual(active.scanId, '', 'slot must remain occupied (uncertain)');
+  assert.equal(active.status, 'uncertain', 'scan is uncertain, not cleared');
 });
 
 runCase('runWorkspaceWatcherScoutAction validates action and ids', () => {
@@ -869,7 +903,7 @@ runCase('review finding text recorded via REST is persisted and dedupes a Scout 
   assert.match(row.findings.byTodo[todo.id].summary || '', /intermittently fails on token refresh/);
 
   // Signals fed to Scout carry the summary — no manually preconstructed array.
-  const signals = collectScoutSignals({ workspaceFolder: cwd, dataDir, watcher: row }, { execGit: quietGit });
+  const signals = collectScoutSignals({ workspaceFolder: cwd, dataDir, watcher: row }, { execGit: scopedGit });
   const prior = signals.priorFindings.find((r) => r.todoId === todo.id);
   assert.ok(prior, 'prior finding references the reviewed todo');
   assert.match(prior.summary, /intermittently fails/);
@@ -886,7 +920,9 @@ runCase('review finding text recorded via REST is persisted and dedupes a Scout 
 
 /* ------------------------------- Finding 2/6: chat + active-scan cleanup    */
 
-runCase('defaultStartScoutJob deletes the orphan chat when startChatRun throws', async () => {
+runCase('defaultStartScoutJob keeps slot occupied and does NOT delete the chat when startChatRun throws', async () => {
+  // Finding 2: after launchIssued the handoff may have happened, so the chat
+  // must NOT be deleted and the slot must remain as `uncertain`.
   const { cwd, dataDir } = freshWorkspace('orphan-chat');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
   /** @type {string[]} */
@@ -895,15 +931,17 @@ runCase('defaultStartScoutJob deletes the orphan chat when startChatRun throws',
     workspaceFolder: cwd,
     dataDir,
     deps: {
-      execGit: quietGit,
+      execGit: scopedGit,
       resolveWorkspaceWatcherOrchestrator: async () => ({ ok: true, harness: 'test', model: 'test-model' }),
       addChat: () => ({ id: 'orphan-chat-1' }),
       startChatRun: async () => { throw new Error('boom'); },
       deleteScoutChat: (id) => { deleted.push(id); },
     },
   });
-  assert.deepEqual(deleted, ['orphan-chat-1'], 'the orphan chat is removed after run failure');
-  assert.equal(getWorkspaceWatcher(cwd, { dataDir }).activeScoutScan.scanId, '');
+  assert.deepEqual(deleted, [], 'uncertain scan: chat must NOT be deleted');
+  const active = getWorkspaceWatcher(cwd, { dataDir }).activeScoutScan;
+  assert.notEqual(active.scanId, '', 'slot must remain occupied');
+  assert.equal(active.status, 'uncertain', 'scan is uncertain');
 });
 
 runCase('runWorkspaceWatcherScout clears the active scan when the runner throws after setting it', async () => {
@@ -914,7 +952,7 @@ runCase('runWorkspaceWatcherScout clears the active scan when the runner throws 
     workspaceFolder: cwd,
     dataDir,
     deps: {
-      execGit: quietGit,
+      execGit: scopedGit,
       runScout: async ({ scanId }) => {
         mutateWorkspaceWatcherRow(cwd, () => ({
           activeScoutScan: {
@@ -941,7 +979,7 @@ runCase('an accepted async scan keeps its active credentials and consumes the st
     workspaceFolder: cwd,
     dataDir,
     deps: {
-      execGit: quietGit,
+      execGit: scopedGit,
       runScout: async ({ scanId }) => {
         mutateWorkspaceWatcherRow(cwd, () => ({
           activeScoutScan: {
@@ -990,7 +1028,7 @@ runCase('test probe is OFF by default: no exec, unavailable marker surfaced', ()
   let execCalls = 0;
   const signals = collectScoutSignals(
     { workspaceFolder: cwd, dataDir, watcher: getWorkspaceWatcher(cwd, { dataDir }) },
-    { execGit: quietGit, execTestProbe: () => { execCalls += 1; return 'should not run'; } },
+    { execGit: scopedGit, execTestProbe: () => { execCalls += 1; return 'should not run'; } },
   );
   assert.equal(execCalls, 0, 'no probe runs unless policy enables it');
   assert.match(signals.failingTests, /unavailable/i);
@@ -1003,7 +1041,7 @@ runCase('enabled bounded probe runs argv (no shell) with the probe timeout', () 
   const signals = collectScoutSignals(
     { workspaceFolder: cwd, dataDir, watcher: getWorkspaceWatcher(cwd, { dataDir }) },
     {
-      execGit: quietGit,
+      execGit: scopedGit,
       execTestProbe: (argv, opts) => {
         seen.argv = argv;
         seen.timeout = opts && opts.timeout;
@@ -1022,7 +1060,7 @@ runCase('probe rejects a shell string command and reports misconfiguration witho
   let execCalls = 0;
   const signals = collectScoutSignals(
     { workspaceFolder: cwd, dataDir, watcher: getWorkspaceWatcher(cwd, { dataDir }) },
-    { execGit: quietGit, execTestProbe: () => { execCalls += 1; return 'ran'; } },
+    { execGit: scopedGit, execTestProbe: () => { execCalls += 1; return 'ran'; } },
   );
   assert.equal(execCalls, 0, 'an unsafe non-argv command never executes');
   assert.match(signals.failingTests, /misconfigured|unavailable/i);
@@ -1137,7 +1175,7 @@ runCase('heartbeat pass clears an expired scan AND archives only past-grace idle
     dataDir,
     now,
     deps: {
-      execGit: quietGit,
+      execGit: scopedGit,
       runScout: async () => ({ started: true, findings: [] }),
       scoutArchive: {
         loadChats: () => [
@@ -1156,6 +1194,72 @@ runCase('heartbeat pass clears an expired scan AND archives only past-grace idle
   assert.equal(result.started, 0, 'interval blocks a fresh scan; expire cleared the row');
   assert.deepEqual(result.archived, ['scout-old'], 'only the past-grace idle chat is archived');
   assert.deepEqual(archivedIds, ['scout-old']);
+});
+
+runCase('scout pass sweeps closed-cycle families past the grace and leaves pinned / in-grace / live ones', async () => {
+  const { cwd, dataDir } = freshWorkspace('sweep-cycle-pass');
+  const now = Date.parse('2026-02-02T12:00:00.000Z');
+  const oldAt = new Date(now - 20 * 60_000).toISOString();
+  const graceAt = new Date(now - 60_000).toISOString();
+  // scoutIntervalHours + a fresh lastScoutAt deny the scan, so the pass only
+  // does housekeeping. The expired active scan must be cleared BEFORE the sweep
+  // and must not stop it; the live cycle chat stays even with an old updatedAt.
+  upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true, scoutIntervalHours: 6 } }, { dataDir });
+  mutateWorkspaceWatcherRow(cwd, () => ({
+    lastScoutAt: new Date(now).toISOString(),
+    activeScoutScan: {
+      scanId: 'scan-sweep',
+      chatId: 'scout-old',
+      startedAt: new Date(now - 120_000).toISOString(),
+      expiresAt: new Date(now - 1).toISOString(),
+      submitToken: 'tok-sweep',
+    },
+    activeCycle: { cycleId: 'c-live', chatId: 'sweep-live', todoIds: ['t-live'], startedAt: oldAt, phase: 'running' },
+    cycleChats: [
+      { id: 'sweep-old', cycleId: 'c1', at: oldAt, outcome: 'success' },
+      { id: 'sweep-pinned', cycleId: 'c2', at: oldAt, outcome: 'success' },
+      { id: 'sweep-grace', cycleId: 'c3', at: graceAt, outcome: 'success' },
+      { id: 'sweep-live', cycleId: 'c-live', at: oldAt, outcome: 'success' },
+    ],
+  }), { dataDir });
+
+  const archived = [];
+  const archiveDeps = {
+    loadChats: () => [
+      { id: 'sweep-old', workspaceFolder: cwd, updatedAt: oldAt },
+      { id: 'sweep-old-child', workspaceFolder: cwd, updatedAt: oldAt, pickPurpose: 'implement' },
+      { id: 'sweep-pinned', workspaceFolder: cwd, updatedAt: oldAt, watcherPinned: true },
+      { id: 'sweep-grace', workspaceFolder: cwd, updatedAt: graceAt },
+      { id: 'sweep-live', workspaceFolder: cwd, updatedAt: oldAt },
+    ],
+    updateChat: (id) => { archived.push(String(id)); },
+    listDelegationsForParent: (parentId) => (parentId === 'sweep-old'
+      ? [{ parentChatId: 'sweep-old', childChatId: 'sweep-old-child', status: 'completed' }]
+      : []),
+    isChatRunConfirmedIdle: () => true,
+    isDelegationSlotOccupied: () => false,
+    hasActiveWorkspaceWatcherCycleChildren: () => false,
+  };
+  const result = await runWorkspaceWatcherScoutPass({
+    dataDir,
+    now,
+    deps: {
+      execGit: scopedGit,
+      runScout: async () => ({ started: true, findings: [] }),
+      scoutArchive: archiveDeps,
+      orchestratorArchive: archiveDeps,
+    },
+  });
+  assert.equal(getWorkspaceWatcher(cwd, { dataDir }).activeScoutScan.scanId, '', 'expired scan cleared before the sweep');
+  assert.deepEqual(
+    result.archived,
+    ['sweep-old-child', 'sweep-old'],
+    'the closed-cycle family past the grace is swept on the scout heartbeat',
+  );
+  assert.deepEqual(archived, ['sweep-old-child', 'sweep-old']);
+  assert.ok(!result.archived.includes('sweep-pinned'), 'a pinned closed-cycle chat stays');
+  assert.ok(!result.archived.includes('sweep-grace'), 'a closed-cycle chat inside the grace stays');
+  assert.ok(!result.archived.includes('sweep-live'), 'a chat with a live cycle slot stays');
 });
 
 runCase('archive sweep keeps pinned, non-idle, unknown and human [Scout]-titled chats', () => {
@@ -1257,6 +1361,30 @@ runCase('archive sweep keeps a scout child that holds a slot and refuses its par
   // Once the slot is freed, the child is archived before the parent.
   const freed = scout.archiveIdleScoutChats(cwd, { now, deps: { ...deps, isDelegationSlotOccupied: () => false } });
   assert.deepEqual(freed.archived, ['child', 'parent'], 'children first, then the parent');
+});
+
+runCase('archive sweep repairs an archived Scout family with later children', () => {
+  const { cwd } = freshWorkspace('archive-scout-late-child');
+  const now = Date.parse('2026-02-02T12:00:00.000Z');
+  const oldAt = new Date(now - scout.WORKSPACE_SCOUT_ARCHIVE_GRACE_MS - 1000).toISOString();
+  const parent = scoutChat({ id: 'late-scout', workspaceFolder: cwd, updatedAt: oldAt, archivedAt: oldAt });
+  const child = scoutChat({
+    id: 'late-scout-child', workspaceFolder: cwd, updatedAt: oldAt,
+    pickPurpose: 'review', forkParentChatId: parent.id,
+  });
+  const archived = [];
+  const out = scout.archiveIdleScoutChats(cwd, {
+    now,
+    deps: {
+      loadChats: () => [parent, child],
+      updateChat: (id) => { archived.push(id); },
+      listDelegationsForParent: (id) => (id === parent.id ? [{ childChatId: child.id, status: 'completed' }] : []),
+      isChatRunConfirmedIdle: () => true,
+      isDelegationSlotOccupied: () => false,
+    },
+  });
+  assert.deepEqual(out.archived, [child.id]);
+  assert.deepEqual(archived, [child.id], 'the parent is not rewritten during family repair');
 });
 
 runCase('archive sweep refuses a parent whose fork descendant is still busy', () => {

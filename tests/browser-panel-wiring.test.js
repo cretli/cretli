@@ -199,3 +199,278 @@ test('browser panel consumes nextSince and real history state', () => {
   assert.match(panel, /canGoForward/);
   assert.match(panel, /applyHistoryState/);
 });
+
+test('browser panel supports mobile gestures, viewport toggle and clears stale frames', () => {
+  const panel = read('app_front/features/browser/browserPanel.js');
+  const html = read('public/index.html');
+  const enKeys = Object.keys(en.browser);
+  const plKeys = Object.keys(pl.browser);
+
+  // Touch/mouse input is unified under Pointer Events (one path for drag-scroll
+  // and tap), not the old click-only handler.
+  assert.match(panel, /addEventListener\('pointerdown'/);
+  assert.match(panel, /addEventListener\('pointermove'/);
+  assert.match(panel, /addEventListener\('pointerup'/);
+  assert.match(panel, /addEventListener\('wheel'/);
+  // No leftover click-only frame handler.
+  assert.doesNotMatch(panel, /'click', \(event\) => void sendPointerClick/);
+
+  // A drag becomes a scroll input; tap becomes a real tap (touch) or click.
+  assert.match(panel, /kind: 'scroll'/);
+  assert.match(panel, /hasTouch/);
+  assert.match(panel, /kind: 'pointer', action: 'tap'/);
+  assert.match(panel, /kind: 'pointer', action: 'click'/);
+
+  // The mobile/desktop viewport toggle posts a resize input and the button exists.
+  assert.match(panel, /kind: 'resize', viewport: target/);
+  assert.match(html, /id="browser-mobile-btn"/);
+
+  // A stale frame is cleared before a new screenshot loads on navigation, tab
+  // switch and history actions so the previous view never lingers.
+  assert.match(panel, /function clearFrame\(\)/);
+  assert.match(panel, /clearFrame\(\);\s*\n\s*await refreshTabState\(\);/);
+
+  // Translations for the viewport toggle.
+  for (const key of ['mobileTitle', 'desktopTitle']) {
+    assert.ok(enKeys.includes(key), `en.browser missing ${key}`);
+    assert.ok(plKeys.includes(key), `pl.browser missing ${key}`);
+  }
+});
+
+test('scroll input coalesces deltas and ignores input-rate-limited; tap/key still error', async (t) => {
+  const {
+    __testEnqueueScrollInput,
+    __testResetScrollInputState,
+    __testSendKeyInput,
+    __testSendTapOrClick,
+    __testSetApiImpl,
+  } = await import('../app_front/features/browser/browserPanel.js');
+
+  const statusEl = {
+    textContent: '',
+    classList: {
+      /** @type {Set<string>} */
+      _classes: new Set(),
+      add(name) { this._classes.add(name); },
+      remove(name) { this._classes.delete(name); },
+    },
+  };
+  globalThis.document = {
+    /** @param {string} id */
+    getElementById(id) {
+      if (id === 'browser-status') return statusEl;
+      return null;
+    },
+  };
+
+  /** @type {Array<{ path: string, body: Record<string, unknown> }>} */
+  const scrollPosts = [];
+
+  /**
+   * @param {string} code
+   * @returns {never}
+   */
+  const rejectInput = (code) => {
+    const err = new Error(code);
+    err.code = code;
+    throw err;
+  };
+
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+
+  try {
+    __testResetScrollInputState('sess-scroll', 'tab-scroll');
+    __testSetApiImpl(async (path, init) => {
+      if (path.includes('/input') && init.method === 'POST') {
+        const body = JSON.parse(String(init.body));
+        if (body?.event?.kind === 'scroll') {
+          scrollPosts.push({ path, body: body.event });
+          return { ok: true };
+        }
+        rejectInput('input-rate-limited');
+      }
+      return { ok: true, frame: null };
+    });
+
+    const point = { x: 10, y: 20 };
+    __testEnqueueScrollInput(0, 1, point);
+    __testEnqueueScrollInput(0, 2, point);
+    __testEnqueueScrollInput(0, 3, point);
+    t.mock.timers.tick(0);
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(scrollPosts.length, 1, 'sync burst must produce one scroll POST');
+    assert.equal(scrollPosts[0].body.deltaY, 6, 'deltas must sum, not replace');
+    assert.equal(scrollPosts[0].body.deltaX, 0);
+
+    scrollPosts.length = 0;
+    statusEl.textContent = '';
+    statusEl.classList._classes.clear();
+    __testResetScrollInputState('sess-scroll', 'tab-scroll');
+    __testSetApiImpl(async (path, init) => {
+      if (path.includes('/input') && init.method === 'POST') {
+        const body = JSON.parse(String(init.body));
+        if (body?.event?.kind === 'scroll') rejectInput('input-rate-limited');
+      }
+      return { ok: true, frame: null };
+    });
+    __testEnqueueScrollInput(0, 5, point);
+    t.mock.timers.tick(0);
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(statusEl.classList._classes.has('browser-status--error'), false);
+    assert.equal(statusEl.textContent, '');
+
+    statusEl.textContent = '';
+    statusEl.classList._classes.clear();
+    __testResetScrollInputState('sess-scroll', 'tab-scroll');
+    __testSetApiImpl(async (path, init) => {
+      if (path.includes('/input') && init.method === 'POST') {
+        rejectInput('input-rate-limited');
+      }
+      return { ok: true, frame: null };
+    });
+    await __testSendTapOrClick({ x: 1, y: 2 }, null);
+    assert.equal(statusEl.classList._classes.has('browser-status--error'), true);
+
+    statusEl.textContent = '';
+    statusEl.classList._classes.clear();
+    __testResetScrollInputState('sess-scroll', 'tab-scroll');
+    await __testSendKeyInput({ kind: 'press', key: 'Enter' });
+    assert.equal(statusEl.classList._classes.has('browser-status--error'), true);
+  } finally {
+    t.mock.timers.reset();
+    __testSetApiImpl(null);
+    delete globalThis.document;
+  }
+});
+
+test('scroll coalescing drops stale targets and cancels on view changes', async (t) => {
+  const {
+    SCROLL_INPUT_MIN_INTERVAL_MS,
+    __testCloseSession,
+    __testEnqueueScrollInput,
+    __testNavigate,
+    __testResetScrollInputState,
+    __testSelectTab,
+    __testSetApiImpl,
+    __testSetPanelLists,
+  } = await import('../app_front/features/browser/browserPanel.js');
+
+  const statusEl = {
+    textContent: '',
+    classList: {
+      /** @type {Set<string>} */
+      _classes: new Set(),
+      add(name) { this._classes.add(name); },
+      remove(name) { this._classes.delete(name); },
+    },
+  };
+  const stubEl = {
+    innerHTML: '',
+    hidden: false,
+    value: '',
+    disabled: false,
+    querySelectorAll: () => [],
+    removeAttribute: () => {},
+  };
+  globalThis.document = {
+    activeElement: null,
+    /** @param {string} id */
+    getElementById(id) {
+      if (id === 'browser-status') return statusEl;
+      if (id === 'browser-panel') return { classList: { contains: () => false } };
+      if (id === 'browser-frame') return { ...stubEl, hidden: true };
+      if (id === 'browser-frame-empty') return stubEl;
+      if (id === 'browser-sessions' || id === 'browser-tabs') return stubEl;
+      if (id === 'browser-url-input') return stubEl;
+      if (id === 'browser-back-btn' || id === 'browser-forward-btn') return stubEl;
+      if (id === 'browser-console-list' || id === 'browser-network-list') {
+        return { ...stubEl, _crEntries: [] };
+      }
+      return null;
+    },
+  };
+  globalThis.window = {
+    confirm: () => true,
+  };
+
+  /** @type {Array<{ path: string, body: Record<string, unknown> }>} */
+  const scrollPosts = [];
+
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+
+  try {
+    __testResetScrollInputState('sess-coalesce', 'tab-a');
+    __testSetPanelLists({
+      sessions: [{ browserSessionId: 'sess-coalesce', tabs: [{ browserTabId: 'tab-a' }, { browserTabId: 'tab-b' }] }],
+      tabs: [{ browserTabId: 'tab-a', title: 'A' }, { browserTabId: 'tab-b', title: 'B' }],
+    });
+    __testSetApiImpl(async (path, init) => {
+      if (path.includes('/input') && init.method === 'POST') {
+        const body = JSON.parse(String(init.body));
+        if (body?.event?.kind === 'scroll') {
+          scrollPosts.push({ path, body: body.event });
+          return { ok: true };
+        }
+      }
+      return { ok: true, frame: null, state: null };
+    });
+
+    const point = { x: 5, y: 5 };
+    __testEnqueueScrollInput(0, 50, point);
+    await __testSelectTab('tab-b');
+    t.mock.timers.tick(SCROLL_INPUT_MIN_INTERVAL_MS);
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(scrollPosts.length, 0, 'selectTab must cancel pending scroll for the previous tab');
+
+    scrollPosts.length = 0;
+    __testResetScrollInputState('sess-coalesce', 'tab-a');
+    __testEnqueueScrollInput(0, 50, point);
+    await __testNavigate('https://example.com/page');
+    t.mock.timers.tick(SCROLL_INPUT_MIN_INTERVAL_MS);
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(scrollPosts.length, 0, 'navigate must cancel pending scroll timer');
+
+    scrollPosts.length = 0;
+    __testResetScrollInputState('sess-coalesce', 'tab-a');
+    __testSetPanelLists({
+      sessions: [{ browserSessionId: 'sess-coalesce', tabs: [{ browserTabId: 'tab-a' }] }],
+      tabs: [{ browserTabId: 'tab-a', title: 'A' }],
+    });
+    __testEnqueueScrollInput(0, 50, point);
+    await __testCloseSession();
+    t.mock.timers.tick(SCROLL_INPUT_MIN_INTERVAL_MS);
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(scrollPosts.length, 0, 'closeSession must cancel pending scroll timer');
+
+    scrollPosts.length = 0;
+    __testResetScrollInputState('sess-coalesce', 'tab-a');
+    __testEnqueueScrollInput(0, 1, point);
+    __testEnqueueScrollInput(0, 2, point);
+    __testEnqueueScrollInput(0, 3, point);
+    t.mock.timers.tick(0);
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    assert.equal(scrollPosts.length, 1, 'first burst sends once');
+    assert.equal(scrollPosts[0].body.deltaY, 6);
+
+    __testEnqueueScrollInput(0, 4, point);
+    __testEnqueueScrollInput(0, 5, point);
+    t.mock.timers.tick(SCROLL_INPUT_MIN_INTERVAL_MS - 1);
+    for (let i = 0; i < 4; i += 1) await Promise.resolve();
+    assert.equal(scrollPosts.length, 1, 'second burst must wait out the min interval');
+    t.mock.timers.tick(1);
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    assert.equal(scrollPosts.length, 2, 'second burst delivers after the interval');
+    assert.equal(scrollPosts[1].body.deltaY, 9, 'second burst sums deltas');
+  } finally {
+    t.mock.timers.reset();
+    __testSetApiImpl(null);
+    delete globalThis.document;
+    delete globalThis.window;
+  }
+});
+

@@ -50,7 +50,7 @@ startWorkspaceWatcherCycle()    lib/workspace-watcher-cycle.js
 one short-lived orchestrator chat  (the parent of one multi-harness loop)
         │  model_pick + delegation_start → implement / review / fix
         ▼
-workspace_watcher_update action "report"  (tool: watcher_report)
+watcher_update action "report"  (tool: watcher_report)
         │
         ▼
 close cycle → release claim + lease → next tick may start the next cycle
@@ -129,7 +129,7 @@ explicitly.
    marks the todo done only after an independent review PASS, and **never**
    commits, pushes, merges or starts the next cycle.
 9. **Report** — the orchestrator ends with `watcher_report` (or
-   `workspace_watcher_update` action `report`) carrying
+   `watcher_update` action `report`) carrying
    `success | blocked | failure`. The report is idempotent: replaying the same
    `report_id`/`reportId` is a no-op. A foreign chat cannot close the cycle.
 10. **Close** — `cycleCount` and `failures` are updated once, the claim is
@@ -233,6 +233,76 @@ an otherwise `ready` todo, not as a fifth status. A manual status update clears
 them. Blocked leaves are not picked, so one stuck todo cannot crowd out fresh
 work.
 
+### Orphaned `doing` todos (recovery states)
+
+`releaseStaleWorkspaceTodoClaims` — the same reconcile that runs on boot, on
+every autopilot pass and before `claim_next` — classifies every `doing` row
+(`lib/workspace-watcher-recovery.js`). The state is computed, never stored, and
+is returned as `snapshot.doingStates` / `snapshot.recovery` by `watcher_status`
+and `GET /api/workspace-watcher`:
+
+| State | Meaning | Evidence (`evidence` / `reason`) |
+| --- | --- | --- |
+| `active` | a run or delegation slot holds the work | busy probe, occupied slot (`delegation_in_progress`, `run_stopping`), a cycle still `starting` |
+| `dependency` | the row aggregates children; its status follows them | `children` |
+| `user_action` | a human has to decide | `blockedReason`, last delegation reported `blocked`, executor chat idle but still open |
+| `recoverable` | executor confirmed finished or gone, no occupied slot | confirmed idle claim owner, deleted chat, idle **archived** chat |
+| `unknown` | liveness or identity cannot be confirmed | `state_missing`, `adapter_missing`, `adapter_error`, `run_mismatch`, `missing_identity` |
+
+Only `recoverable` is released (`doing` → `ready`, claim cleared) and it then
+starts through the normal cycle path. `unknown` never becomes `recoverable`
+because of age, a transport error or an expired `claimLeaseUntil` — the lease is
+written at claim time and never renewed, so it is not a liveness signal. A
+`doing` row without a claim is released only by an unpaused, unstopped
+autopilot; `off` and `observe` report it. The executor of an unclaimed row is
+resolved from a delegation `leafId`, the todo `chatId`, its `orchestratorChatId`
+or the nearest ancestor's; `linkedChatIds` never identifies an executor.
+
+#### Lease, unknown escalation and policy
+
+`claimLeaseUntil` is written once at claim time and **never renewed**; an expired
+lease alone never releases work. Liveness comes only from executor probes and
+cycle rules (`WORKSPACE_WATCHER_ROOM_GONE_GRACE_MS` applies only to the
+room-gone reconcile path in `workspace-watcher-cycle.js`, not to
+`state_missing` / `adapter_missing`).
+
+`unknown` rows stay `unknown` until probes can classify them. In **`observe`**
+and **`autopilot`**, after `policy.unknownEscalationObservations` consecutive
+heartbeat observations (default **6**, one per delegation-runtime tick ≈ **5s** →
+about **30s**), the operator gets a **deduplicated** push when the
+`(state, reason, evidence)` signature changes; signatures live in
+`watcher.unknownTodoEscalations`. The observe heartbeat only detects and
+reports — it does not claim, release, or restart. **`off`** performs no
+automatic escalation on heartbeat. **`paused`** or a non-empty **`stopReason`**
+suppresses escalation notify; quiet hours, daily cycle budget and the plan gate
+do **not** gate escalation reports (they only gate starting new cycles).
+Automatic **release** of recoverable rows (including unclaimed leaves) remains
+**autopilot-only**; there is no `allowUnclaimed` bypass.
+
+`policy.recoverIdleOpenChat` (default **false**) keeps the deliberate default:
+executor chat confirmed idle but still **open** stays `user_action`. When **true**,
+that case classifies as `recoverable` and may release through the same fenced
+path (still leaf-only, autopilot gates for unclaimed rows, CAS + revalidation).
+The flag never promotes `unknown` to `recoverable`.
+
+Automatic release and manual **Wznów** both call
+`recoverWorkspaceWatcherTodo` (`POST /api/workspace-watcher/todos/:id/recover`,
+MCP `watcher_recover_todo`). Responses distinguish `released`, `conflict`,
+`already-active`, `unknown`, `user-action` and `blocked`. A successful manual
+recover sets the todo to `ready` and **starts a new execution** on the next
+claim. Recovery CAS failures do **not** increment `watcher.failures`; only
+finished cycles with outcome `failure` do (same `maxConsecutiveFailures` ceiling
+and backoff as before).
+
+The release is fenced. Each claim stores `execution` on the todo (`attemptId`,
+`key`, `todoRevision`, `source`, `chatId`, `cycleId`, `phase`, plus one
+`previous` attempt); the run id lives on the cycle row joined by `cycleId`. The
+decision is re-validated under the store lock against the todo revision, the
+attempt id, the delegation slots and the probe. A claim replayed by the same
+cycle returns the existing attempt, and a release from an older cycle cannot
+free a newer attempt. A corrupt watcher store is unknown state: nothing is
+released and the file is left untouched.
+
 ## Workspace Memory
 
 Every orchestrator cycle starts with a clean context, so `Workspace Memory` is
@@ -243,24 +313,50 @@ todos use (no separate `workspaceId`).
 
 Each entry has a `type` (`decision`, `pattern`, `finding`, `blocker`,
 `context`), a short `key`, a `value`, and an optional `expiresAt` stamped from
-`ttl_ms`. Entries without a TTL are permanent; expired entries are hidden lazily
-on every read. The store is bounded (500 entries, oldest evicted) and every write
-runs under the shared cross-process file lock with a document CAS, so parallel
-cycles cannot lose each other's facts.
+`ttl_ms`. Omission of a TTL is not always permanence: a recognized transient
+blocker key defaults to 24 h, `permanent: true` forces a permanent entry (and
+conflicts with an explicit TTL), and every other entry without a TTL stays
+permanent. Expired entries are hidden lazily on every read.
+
+A write is an **upsert on `type` + normalized `key`**: re-adding the same key
+updates that entry in place (new `value`, `source` and `expiresAt`; same `id`
+and `createdAt`, fresh `updatedAt`) and drops older historical duplicates of the
+same identity, while distinct blocker causes of one todo stay separate. The
+store is bounded (500 entries; the least recently updated record leaves, using
+`createdAt` as fallback and the id as a stable tie-break) and every write runs
+under the shared cross-process file lock with a document CAS, so parallel cycles
+cannot lose each other's facts.
 
 `buildWorkspaceWatcherCyclePrompt` renders the facts as a `WORKSPACE MEMORY`
-section (ordered blocker → decision → finding → pattern → context, newest first)
-capped at 3000 tokens; entries beyond the budget are dropped and summarized with
-a pointer to the list tool. The prompt also instructs the orchestrator to write
-the cycle's decisions, findings and blockers back with `workspace_memory_add`
-before it reports. A Scout scan reads the same store with
-`workspace_memory_list` before re-scanning a workspace.
+section capped at 8 entries and 3000 characters in total (header, separators and
+the omitted-count footer included). Relevance wins over age: facts that
+reference the cycle's todo, its ancestors or the plan target (`todoIds`, collected
+at cycle start) come first, then the newest global harness/model blocker per
+harness+model, then the remaining facts by type (blocker → decision → finding →
+pattern → context) and recency. Duplicate topics collapse to the newest
+`updatedAt` (falling back to `createdAt`), while distinct causes of the same todo
+stay separate. Long values are cut at a sentence (or word) boundary and marked
+with an ellipsis; entries beyond the budget are summarized with a pointer to the
+list tool. The optional previous-cycles section gets at most 1000 characters and
+the whole prompt is capped at 7000; a fixed contract that cannot fit that budget
+is refused at start with `prompt_too_long` instead of being shortened. The prompt
+also instructs the orchestrator to write the cycle's decisions, findings and
+blockers back with `wmem_add` before it reports. A Scout scan reads the same store
+with `wmem_list` before re-scanning a workspace.
 
 MCP tools (`lib/mcp/builtin/memory-tools.js`):
 
-- `workspace_memory_add` — append one typed fact (`ttl_ms` optional)
-- `workspace_memory_list` — paginated live facts (`types` filter, `cursor`)
-- `workspace_memory_delete` — remove one fact by id
+- `wmem_add` — upsert one typed fact (`ttl_ms` / `permanent` optional)
+- `wmem_list` — paginated live facts, most recently updated first (`types` filter, `cursor`)
+- `wmem_delete` — remove one fact by id
+
+Blocker keys follow one shared convention (`lib/workspace-memory-key.js`):
+`blocker:todo:<uuid>:<cause>` or `blocker:harness:<harness>:<model-or-*>:<cause>`
+(the model is percent-encoded). Transient causes are `quota`, `rate_limit`,
+`slot_busy` and `model_unavailable`; they default to a 24 h TTL unless an
+explicit `ttl_ms` or `permanent: true` is given. Any other cause (and any legacy
+free-form key) stays permanent. Readers parse the convention for relevance and
+deduplication but never rewrite older, free-form keys.
 
 ## Scout
 
@@ -286,16 +382,45 @@ A scan:
    not paused/stopped, outside quiet hours, `scoutIntervalHours` elapsed,
    `scoutMaxPerDay` not exhausted;
 2. stamps `lastScoutAt`/`scoutScans` under the store lock (a failed start rolls
-   the stamp back) and gathers read-only signals: `git diff main`,
+   the stamp back) and gathers read-only signals: a diff against the resolved
+   profile base,
    `git log --oneline -20`, TODO/FIXME/HACK markers in changed files, optional
    test results and error logs, existing todos, prior review findings and
    Workspace Memory;
-3. starts one `plan`-mode chat (`[Scout] <workspace>`) and asks it to submit
-   findings through `watcher_scout_findings` (or a fenced JSON block the runner
+3. starts one host-enforced read-only `agent`-mode chat (`[Scout] <workspace>`) and asks it to submit
+   findings through `scout_findings` (or a fenced JSON block the runner
    parses);
 4. dedupes the proposals against existing todos, pending/resolved findings and
    Workspace Memory entries that mark an area as already explored, then stores
    them as `pendingScoutFindings` and appends a notice to the pinned chat.
+
+### Git scope and diagnostics
+
+Changes scope combines tracked paths from `git diff` with new untracked paths
+from `git ls-files --others --exclude-standard`. Both pass through the same
+include/exclude matcher and existing file cap. The tracked diff contains only
+those matched paths and retains the existing signal-size cap. Untracked files
+are identified in the prompt so the read-only agent can inspect them directly.
+
+The default base remains `main`. Every explicit branch, tag or commit must
+resolve to a commit; an invalid explicit base blocks the scan. In a repository
+with `master` and no `main`, select `master` or explicitly choose `auto`.
+Only `auto` permits fallback, in the fixed order `main`, `master`, `HEAD`.
+Preview, prompts and scan history show the resolved name and commit. File
+listing and diff use that same pinned commit, even if the branch moves later.
+
+Git trusts only the repository containing the selected workspace via an exact,
+per-command `safe.directory`. It never writes global/repository configuration
+or uses `safe.directory=*`. Optional index locks, filesystem-monitor hooks,
+lazy fetching, external diff helpers and text conversion are disabled for these
+reads. Ownership errors, missing repositories/bases/executables, timeouts and
+other command failures retain diagnostics; they never become an empty result.
+
+Manual starts and scheduler starts both stop before launching a model when
+scope collection fails or genuinely matches no files. Their reservations and
+workspace/profile budgets are refunded. History records `failed` with a Git
+diagnostic for a scope error, or `skipped` for an empty scope. Preview exposes a
+scope error as a blocker and suppresses the misleading “no files” message.
 
 Categories: `bug`, `improvement`, `refactor`, `security`, `opportunity`,
 `documentation`. The `refactor` rubric carries extra heuristics (oversized
@@ -306,8 +431,9 @@ A finding is `{ id, title, category, rationale, plan_markdown, files[], status }
 When `policy.scoutAutoCreate` is true, submitting a finding immediately creates
 an `idea` todo (idempotent on the finding id) with its proposed plan as an
 unapproved draft. Otherwise, `accept` creates the TODO. `approvedAt` stays empty
-until a human approves the draft in the UI. A read-only scan runs in Plan mode; the
-`watcher_scout_findings` `list`/`submit` actions are the only mutating builtin
+until a human approves the draft in the UI. A read-only scan runs in agent mode
+under the host's read-only tool policy; the
+`scout_findings` `list`/`submit` actions are the only mutating builtin
 MCP calls allowed there (accept/reject stay Agent-only).
 
 Settings → Workspace Watcher → Scout shows the schedule the heartbeat will use:
@@ -322,6 +448,155 @@ per-second countdown and a **Run scan now** button; that button calls
 `runWorkspaceWatcherScoutNow()` through `POST /api/workspace-watcher/scout`
 `{ action: 'run' }`, which bypasses the interval for the explicit run but still
 respects mode, quiet hours and the per-day budget.
+
+Settings → Workspace Watcher → Settings opens with the same "when / when next"
+view for the watcher itself: `computeWatcherSchedule()`
+(`lib/workspace-watcher-guardrails.js`) exposes the additive `schedule` field on
+`GET /api/workspace-watcher` (`lastCycleAt`, `nextCycleAt`, `cyclesToday` /
+`maxCyclesPerDay` / `remainingToday`, `running` / `maxParallel`, and the live
+`blockedReason`). `nextCycleAt` is the latest of the applicable gates — cooldown
+end, failure backoff, quiet-hours end and, when the daily budget is spent, the
+next UTC midnight — so the countdown reflects the earliest instant a cycle may
+start. Autopilot `off`/`observe`, a global pause and a loop `stopReason` have no
+ETA (`nextCycleAt = 0`). The panel renders it as a per-second countdown plus a
+one-line `next cycle` in the Status card; a reached parallel cap is reported as a
+blocker without inventing an ETA.
+
+### Scout profiles, migration and history
+
+A workspace now holds a **versioned `scoutProfiles` collection** instead of the
+old single implicit profile. The store schema was raised from v1 to
+`WORKSPACE_WATCHERS_SCHEMA_VERSION = 2`
+(`lib/persist/workspace-watchers-persist.js`); loading a v1 row lazily
+normalizes it into v2 in place.
+
+- **Migration** turns the previous configuration into exactly **one** general
+  profile (id `SCOUT_GENERAL_PROFILE_ID`, name "Scout ogólny"), preserving the
+  old prompt, categories, sources, schedule, limits and harnesses. A row that
+  already carries a `scoutProfiles` key (even `[]`) is never synthesized again,
+  so re-reading is idempotent and never duplicates the profile or its scans. New
+  workspaces read a **virtual, disabled** general profile and write nothing until
+  they are explicitly configured.
+- A **new profile defaults to `schedule=manual` and `enabled=false`** (the UI
+  toggle reads "Automated scans"). "Run now" still works on a non-archived
+  profile with `enabled=false` as long as the global workspace gates allow it, so
+  nothing auto-starts on its own.
+- **Per-profile state lives on the same row**: a `scoutSchedules` map
+  (`scoutId → { lastRunAt, nextRunAt, day, count }`, UTC-day counter), the
+  `activeScoutScans` collection (one record per `scanId`; MVP keeps at most one
+  unsettled scan per profile) and a bounded `scoutScanHistory` log (terminal
+  details kept for the last 100 scans per profile and up to 1000 per workspace;
+  active and `uncertain` records are never trimmed). The **shared** UTC-day budget
+  (`scoutScans` + `scoutMaxPerDay`) and `pendingScoutFindings` stay at the
+  workspace level, so a scan satisfies both the profile and the workspace limit.
+- **Fair scheduler**: the heartbeat selects the due enabled profiles in
+  oldest-`lastRunAt` order so a frequently-run profile cannot starve the others,
+  up to `scoutMaxParallel`. The reservation and both counters are bumped
+  atomically under the store lock; a failed start releases only its own
+  reservation.
+- **Dedup between profiles**: the same problem found by two profiles merges into
+  one proposal carrying two `sources[]`. Attribution (`scoutId`, `scoutRevision`,
+  `scanId`, `chatId`, `runId`, executor, time) is server-assigned from the active
+  scan, never from the model; a foreign chat/token submit is rejected and scan B's
+  attribution never leaks to scan A.
+- **Read-only**: the profile prompt states that the read-only contract is
+  *enforced by the host, not by this prompt*. The transport still starts the chat
+  in `agent` mode for harness compatibility, but the host tool policy blocks file
+  writes/edits, mutating shell, delegations, todo/configuration changes and every
+  other mutating MCP call **before** they run; only authenticated `submit` to the
+  scan's own record and read tools are allowed.
+
+### Backward compatibility for REST / MCP / remote clients
+
+Legacy clients keep working without knowing about profiles:
+
+- `GET/POST /api/workspace-watcher/scout` keep their existing shape; the optional
+  `scoutId` / `scout_id` is forwarded. `GET /scout` can filter findings by
+  `scoutId` without changing the legacy response.
+- The `activeScoutScan` singleton view is still mirrored for older servers that
+  read only that field, but `getActiveScoutScans` stops honoring it the moment the
+  `activeScoutScans` key exists (even when empty) — there is never a second
+  writer.
+- MCP `scout_findings` and `scout_profiles` (and their former long names
+  `watcher_scout_findings` / `watcher_scout_profiles`) route to the same handler
+  and are classified identically by every host gate (Plan, review, Scout).
+- The remote client (`lib/remote-api-client.js`) keeps `workspaceWatcherScout`
+  (legacy `GET`/`POST` plus submit token) and adds `workspaceWatcherScoutProfiles`
+  for the new profile surface.
+
+### Rollout, backup and restore (schema v1 → v2)
+
+Client **read** compatibility across versions is supported; **concurrent store
+writes by an old and a new server are not**. The migration is a one-way,
+in-place, lazy normalization of a shared file, so it must run under a single
+writer. There is **no safe downgrade** of a v2 store to a v1 writer and **no
+mixed-version operation**: v1 cannot read `scoutProfiles`/`activeScoutScans`, and
+the single `activeScoutScan` mirror cannot represent multiple concurrent scans.
+
+1. **Stop writers.** Set the watcher mode to `off` (or pause) and/or stop the
+   server so no heartbeat, autopilot pass or Scout pass can mutate the row, and
+   so no new scan starts.
+2. **Back up the data.** Copy the watcher store and its cross-process lock db
+   plus the related `data/workspace-memory/<workspaceKey>.json` and the todos
+   file. This copy is the **only** rollback path — record the timestamp.
+3. **Start exactly one v2 server.** The first read normalizes v1→v2 in place (one
+   general profile, `activeScoutScans`, schedules, history). **Verify the legacy
+   flow end to end** before enabling anything new: `GET /api/workspace-watcher`
+   shows the migrated general profile and its preserved state;
+   `POST /api/workspace-watcher/scout { action: 'run' }` starts a scan on the
+   migrated token, and a scan that was reserved **before** the migration can still
+   submit afterward.
+4. **Only then create/enable additional profiles.** Because a new profile is
+   manual + disabled, enabling multi-profile operation is an explicit operator
+   action, never an automatic side effect of the upgrade.
+
+**Restore / rollback:** to return to v1, stop the v2 server and restore the
+pre-migration copy from step 2. Do not attempt to "convert" a v2 store back to
+v1, and never run a v1 and a v2 writer against the same data directory at the
+same time.
+
+### Scout troubleshooting
+
+- **A profile will not start.** Check, in order: profile `enabled` / `archivedAt`
+  (an archived profile never starts, automatic or manual); the global gates
+  (mode `observe`/`autopilot`, not paused, no `stopReason`, outside quiet hours,
+  workspace `scoutMaxPerDay` and `scoutMaxParallel` headroom); an unsettled
+  active scan for that profile (MVP allows one per profile, reported as
+  `profile_scan_active`); an empty executor/harness intersection
+  (`executor_not_allowed`, or `read_only_unsupported_harness` when the chosen
+  harness cannot enforce read-only — that harness is excluded with a reason rather
+  than run unprotected); or a scope that matches no files (`skipped`, both the
+  profile and workspace budgets refunded).
+- **The daily counter is consumed but no findings landed.** A normal
+  `started=false` (no orchestrator / chat creation refused) **keeps** the
+  reservation stamp on purpose, so a missing model cannot make every heartbeat
+  retry the same scan. Only `global_starts_disabled` and a throw with a confirmed
+  non-acceptance **refund** it once. See the settlement table in
+  [`configurable-scouts.md`](./configurable-scouts.md).
+- **A slot stays occupied after a crash.** `reconcileScoutScans` runs on boot and
+  on every heartbeat — including while starts are off or the row is paused, so a
+  drain can finish. A crash before handoff refunds once; a launched or
+  `uncertain` scan stays occupied until liveness is confirmed idle and its review
+  ends. `readyForRestart` requires starts disabled plus no reservations,
+  in-flight, `unknown`, live scans or reviews and a readable store — it is never
+  inferred from `expiresAt` alone.
+
+### Machine-chat archive sweep
+
+Finished Scout and Watcher-cycle chats are hidden by a shared sweep that runs on
+**boot** (`reconcileWorkspaceWatchersOnBoot`) and on the **heartbeat** — both the
+autopilot pass (`runWorkspaceWatcherAutopilot`) and the Scout pass
+(`runWorkspaceWatcherScoutPass`), after the per-row `expireStaleActiveScoutScan`
+so an expired scan can never keep a stale chat around. Candidates are chats with
+`pickPurpose === 'scout'`, their delegation children (followed through
+`delegationParentChatId`) and the orchestrator chats recorded in a closed
+`cycleChats` window; every one goes through the shared `canArchive` gate
+(`lib/chat-archive-policy.js`), never a title match. The idle grace is 15 minutes
+from `updatedAt`, and a pinned chat, a chat with a live/unknown run, a chat still
+holding a delegation slot, or one inside the grace window is left visible
+(fail-closed). A chat that merely carries the `[Scout]` title is never a
+candidate. The sweep is best-effort: it never opens a cycle slot, never spends
+the daily budget and never breaks a tick.
 
 ## Notifications
 
@@ -344,7 +619,7 @@ Defaults from `defaultWorkspaceWatcherPolicy()`:
 
 | Field | Default | Meaning |
 |-------|---------|---------|
-| `maxParallel` | `1` | Maximum busy agents before a new cycle waits |
+| `maxParallel` | `1` | Maximum busy agents before a new cycle waits (1-10) |
 | `maxCyclesPerDay` | `20` | UTC-day cycle budget |
 | `maxConsecutiveFailures` | `3` | Failure ceiling before a todo is parked; `0` disables |
 | `maxSameFindings` | `2` | Identical review findings in a row before a stop; `0` disables |
@@ -366,7 +641,8 @@ Defaults from `defaultWorkspaceWatcherPolicy()`:
 
 REST (`lib/routes/workspace-watcher-routes.js`):
 
-- `GET /api/workspace-watcher` — state + live snapshot (never creates a row)
+- `GET /api/workspace-watcher` — state + live snapshot (never creates a row);
+  the HTTP view adds the derived `guardrails`, `scout` and `schedule` blocks
 - `PATCH /api/workspace-watcher` — mode/policy/pause/stop patch
 - `GET /api/workspace-watcher/decisions?limit=50` — recent decision log
 - `GET /api/workspace-watcher/stats` — aggregated monitoring stats (throughput,
@@ -374,23 +650,41 @@ REST (`lib/routes/workspace-watcher-routes.js`):
   and verified pass rate) for the Settings dashboard; never creates a row
 - `DELETE /api/workspace-watcher` — remove the row
 - `POST /api/workspace-watcher/{pause,resume,clear-stop,tick,run-cycle,claim-next,reset-plan-requests,findings,report,save-plan}`
-- `GET /api/workspace-watcher/scout` — Scout proposals (`status`/`category`/`max`)
+- `GET /api/workspace-watcher/scout` — Scout proposals (`status`/`category`/`max`,
+  and the optional `scoutId` filter for per-profile findings)
 - `POST /api/workspace-watcher/scout` — `action=run` (default) starts a scan;
-  `list`/`accept`/`reject`/`submit` manage proposals
+  `list`/`accept`/`reject`/`submit` manage proposals; the legacy shape is kept and
+  an optional `scoutId` is forwarded so old clients are unaffected
+- Profile surface (same auth as the Watcher settings; agent scan keeps only the
+  allowed `list`/`submit`):
+  `GET/POST /api/workspace-watcher/scout/profiles`,
+  `GET/PATCH /api/workspace-watcher/scout/profiles/:id` (PATCH requires the profile
+  `revision` — CAS, stale returns 409 and changes nothing),
+  `POST /api/workspace-watcher/scout/profiles/:id/{duplicate,archive,preview,run,restore-diff,restore}`,
+  `POST /api/workspace-watcher/scout/profiles/{from-template,preview-draft}`,
+  `GET /api/workspace-watcher/scout/templates` and
+  `GET /api/workspace-watcher/scout/history` (newest-first, filtered by `scoutId`,
+  never exposes `submitToken`)
 
 MCP (`lib/mcp/builtin/watcher-tools.js`):
 
-- `watcher_status` / `workspace_watcher_show` (read-only)
-- `watcher_set` / `workspace_watcher_update` (actions: `configure`, `tick`,
+- `watcher_status` / `watcher_show` (read-only)
+- `watcher_set` / `watcher_update` (actions: `configure`, `tick`,
   `run_cycle`, `claim_next`, `reset_plan_requests`, `record_findings`,
   `save_plan`, `report`)
 - `watcher_report` (outcome `success|blocked|failure`, idempotent)
 - `watcher_claim_next`
-- `watcher_scout_findings` (actions: `list`, `accept`, `reject`, `submit`;
-  `list`/`submit` allowed in Plan mode for the read-only scan)
+- `scout_findings` (actions: `list`, `accept`, `reject`, `submit`). The read-only
+  scan starts in `agent` mode; `list`/`submit` are the only builtin MCP calls the
+  host allows a Scout chat (`accept`/`reject` stay operator-only), and `submit`
+  auto-fills `scan_id` + `submit_token` from the scan's own chat, never another
+  chat's
+- `scout_profiles` (actions: `list`, `get`, `create`, `update`, `duplicate`,
+  `archive`, `preview`, `history`, `run`, `templates`, `from_template`,
+  `restore_preview`, `restore`)
 
-Workspace Memory is exposed through `workspace_memory_add` /
-`workspace_memory_list` / `workspace_memory_delete`
+Workspace Memory is exposed through `wmem_add` /
+`wmem_list` / `wmem_delete`
 (`lib/mcp/builtin/memory-tools.js`).
 
 Settings → Workspace Watcher and the Todo top bar drive the same control layer
@@ -434,8 +728,11 @@ the two reads above:
 - **Decisions** — the decision log with a filter-by-kind dropdown; the same data
   powers the **Why?** button in the Todo tab top bar.
 - **Alerts** — an active `stopReason` with a **Clear stop** action, the
-  `backoffUntil` countdown and the quiet-hours end (UTC), all repainted once per
-  second client-side.
+  `backoffUntil` countdown with a **Clear backoff and failures** action that
+  releases the failure backoff in one click, and the quiet-hours end (UTC), all
+  repainted once per second client-side. The same reset is on the cycle-schedule
+  card's blocker line (Settings tab) and in the **Actions** tab, so an operator
+  does not have to hunt for it while the watcher is parked.
 
 `cycleChats` entries were extended with `startedAt` (mirrored from the live slot
 by `buildWorkspaceWatcherCycleClosePatch`) so a closed cycle has a real
@@ -461,7 +758,7 @@ Read it with:
 
 - UI: Todo tab top bar → **Why?**
 - REST: `GET /api/workspace-watcher/decisions?limit=50`
-- MCP: `workspace_watcher_show` (recent decisions) or `watcher_status`
+- MCP: `watcher_show` (recent decisions) or `watcher_status`
 
 Each line has `at`, `kind`, `reason`, `readyTodoCount`, `activeAgentCount`,
 `shouldNotify` and `nextTodoId`. A `wait_active` / `max_parallel` line also
@@ -537,7 +834,31 @@ node tests/watcher-pinned-chat-ui.test.js
 node --test tests/workspace-watcher-stats.test.js
 node --test tests/workspace-watcher-dashboard-ui.test.js
 node tests/workspace-watcher-settings-ui.test.js
+node tests/workspace-watcher-archive-sweep.test.js
 ```
+
+Scout (configurable profiles — stages 1–6) runs with its own suites; note the
+mixed runners (`node --test` for the `node:test` suites, plain `node` for the
+custom tally suites):
+
+```
+node tests/workspace-watcher-scout.test.js
+node tests/workspace-scout-profiles.test.js
+node tests/workspace-scout-profiles-api.test.js
+node tests/workspace-scout-scans.test.js
+node tests/workspace-scout-schedule.test.js
+node tests/workspace-scout-templates-scope.test.js
+node --test tests/workspace-scout-git-scope.test.js
+node --test tests/workspace-scout-scan-usage.test.js
+node --test tests/workspace-scout-profiles-ui.test.js
+node --test tests/workspace-scout-editor-ui.test.js
+node --test tests/workspace-scout-history-ui.test.js
+node --test tests/workspace-scout-inbox-ui.test.js
+```
+
+The full acceptance map for these suites against the spec criteria is in
+[`configurable-scouts-acceptance.md`](./configurable-scouts-acceptance.md); the
+profile feature spec is [`configurable-scouts.md`](./configurable-scouts.md).
 
 The durable per-workspace transcript (`pinnedChatId`), its persisted
 `variant: 'watcher'` notices and the pinned-mode command shell are documented in

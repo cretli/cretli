@@ -21,6 +21,11 @@ import {
   renderDelegationStatsMetaHtml,
   renderDelegationStatsRowsHtml,
   renderDelegationUnusedHtml,
+  delegationLoopLeaves,
+  delegationLoopViewState,
+  renderDelegationLoopCardsHtml,
+  renderDelegationLoopHeadHtml,
+  renderDelegationLoopRowsHtml,
 } from './delegationStatsView.js';
 import {
   addDaysIso,
@@ -541,6 +546,19 @@ function renderDelegationStats(result) {
   if (cards) cards.hidden = !hasRows;
   const emptyEl = byId('delegation-stats-empty');
   if (emptyEl) emptyEl.hidden = hasRows;
+  const loopLeaves = delegationLoopLeaves(payload);
+  const hasLoop = delegationLoopViewState(payload) === 'ready';
+  const loopHead = byId('delegation-loop-head');
+  if (loopHead) loopHead.innerHTML = renderDelegationLoopHeadHtml(t);
+  const loopBody = byId('delegation-loop-body');
+  if (loopBody) loopBody.innerHTML = renderDelegationLoopRowsHtml(loopLeaves, t, lang);
+  const loopCards = byId('delegation-loop-cards');
+  if (loopCards) loopCards.innerHTML = renderDelegationLoopCardsHtml(loopLeaves, t, lang);
+  const loopTable = byId('delegation-loop-table');
+  if (loopTable) loopTable.hidden = !hasLoop;
+  if (loopCards) loopCards.hidden = !hasLoop;
+  const loopEmpty = byId('delegation-loop-empty');
+  if (loopEmpty) loopEmpty.hidden = hasLoop;
   setDelegationStatsView('ready');
 }
 

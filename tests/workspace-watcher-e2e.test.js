@@ -486,6 +486,42 @@ runCase('E2E: a vanished orchestrator room closes after grace and the next todo 
   assert.equal(getWorkspaceWatcher(cwd, { dataDir }).failures[claimedId], undefined);
 });
 
+runCase('E2E: an orphaned doing leaf is recovered and started exactly once', async () => {
+  startMockAdapters();
+  const dataDir = freshDataDir('e2e-orphan');
+  const cwd = makeWorkspace('e2e-orphan');
+  setAutopilot(cwd, dataDir);
+  // `orphan` was started by a chat that no longer exists (confirmed gone);
+  // `legacy` is a manual `doing` row with no execution identity at all.
+  const orphan = addReadyTodo(dataDir, cwd, 'orphaned leaf', { orchestratorChatId: 'e2e-deleted-executor' });
+  updateTodo(dataDir, cwd, orphan.id, { status: 'doing' });
+  const legacy = addReadyTodo(dataDir, cwd, 'legacy manual doing');
+  updateTodo(dataDir, cwd, legacy.id, { status: 'doing' });
+  const deps = orchestratorDeps();
+  const recovered = await runWorkspaceWatcherAutopilot({ dataDir, now: T0, token: 'e2e-orphan', deps });
+  assert.equal((recovered.errors || []).length, 0, `no errors: ${JSON.stringify(recovered.errors || [])}`);
+  const released = getTodoById(dataDir, cwd, orphan.id);
+  assert.equal(released.status, 'ready', 'the confirmed-gone executor frees the leaf in the first pass');
+  assert.equal(String(released.claimedByChatId || ''), '');
+  assert.equal(getTodoById(dataDir, cwd, legacy.id).status, 'doing', 'a row without identity is never taken over');
+  const started = await runWorkspaceWatcherAutopilot({ dataDir, now: T0 + 120_000, token: 'e2e-orphan', deps });
+  assert.equal(started.started, 1, `the recovered leaf starts through the normal cycle: ${JSON.stringify(started.errors || [])}`);
+  const cycle = started.cycles[0];
+  assert.deepEqual(cycle.todoIds, [orphan.id]);
+  const claimed = getTodoById(dataDir, cwd, orphan.id);
+  assert.equal(claimed.status, 'doing');
+  assert.equal(claimed.claimedByChatId, cycle.chatId);
+  assert.equal(claimed.execution.cycleId, cycle.cycleId, 'the attempt is keyed by the cycle that started it');
+  assert.equal(claimed.execution.key, `${orphan.id}:${cycle.cycleId}`);
+  assert.equal(getMockChatRunStartCount(), 1);
+  const again = await runWorkspaceWatcherAutopilot({ dataDir, now: T0 + 121_000, token: 'e2e-orphan', deps });
+  assert.equal(again.started, 0, 'a live attempt is never duplicated');
+  assert.equal(getMockChatRunStartCount(), 1, 'exactly one run for one recovery key');
+  assert.equal(getTodoById(dataDir, cwd, orphan.id).execution.attemptId, claimed.execution.attemptId);
+  assert.equal(getTodoById(dataDir, cwd, legacy.id).status, 'doing');
+  assert.notEqual(getTodoById(dataDir, cwd, orphan.id).status, 'done', 'recovery never completes a todo');
+});
+
 for (const run of cases) {
   // eslint-disable-next-line no-await-in-loop -- cases share the isolated chat store
   await run();

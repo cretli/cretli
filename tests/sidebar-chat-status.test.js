@@ -233,3 +233,31 @@ test('attention status is icon-only when it represents a settled delegation outc
   assert.equal(isIconOnlySidebarStatus('attention', { status: 'failed' }), true);
   assert.equal(isIconOnlySidebarStatus('attention', { label: 'Needs attention' }), false);
 });
+
+test('renderSidebarChatStatusHtml shows the archive countdown with a clock icon', () => {
+  const soon = renderSidebarChatStatusHtml({ tone: 'archive-soon', label: '2d' }, (v) => v);
+  assert.match(soon, /mdi-progress-clock/);
+  assert.match(soon, /sidebar-chat-item-activity-label/);
+  assert.match(soon, />2d</);
+  const imminent = renderSidebarChatStatusHtml({ tone: 'archive-imminent', label: '30m' }, (v) => v);
+  assert.match(imminent, /mdi-progress-clock/);
+  assert.match(imminent, />30m</);
+});
+
+test('applySidebarChatStatusEl updates the countdown label without rebuilding the icon', () => {
+  const el = makeChipEl({ tone: 'archive-soon', activityKey: '', label: '2d' });
+  const iconNode = el._iconNode;
+  const rewritten = applySidebarChatStatusEl(
+    el,
+    { tone: 'archive-soon', label: '1d' },
+    { escapeHtml: (value) => value }
+  );
+  assert.equal(rewritten, true);
+  assert.equal(el._iconNode, iconNode, 'icon node identity preserved (animation keeps running)');
+  assert.equal(el._labelNode.textContent, '1d');
+  assert.equal(el.innerHTML, '', 'markup was not rewritten');
+  assert.equal(el.getAttribute('data-status-label'), '1d');
+  assert.equal(isIconOnlySidebarStatus('archive-soon'), false);
+  assert.equal(isIconOnlySidebarStatus('archive-imminent'), false);
+});
+

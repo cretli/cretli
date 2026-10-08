@@ -3015,8 +3015,49 @@ body.files-preview-resizing {
   color: var(--cr-text-muted);
 }
 
-.todo-row-mark[data-mark='blocked'] {
+.todo-row-mark[data-mark='blocked-action'] {
   color: var(--cr-error);
+}
+
+.todo-row-mark[data-mark='blocked-dependency'] {
+  color: var(--cr-warn);
+}
+
+.todo-blocked-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cr-space-3);
+  margin: var(--cr-space-3) 0;
+  padding: var(--cr-space-3);
+  border: 1px solid color-mix(in srgb, var(--cr-error) 45%, transparent);
+  border-radius: var(--cr-radius-sm);
+  background: color-mix(in srgb, var(--cr-error) 8%, var(--cr-surface));
+  color: var(--cr-text);
+}
+
+.todo-blocked-alert strong {
+  color: var(--cr-error);
+}
+
+.todo-action-feedback {
+  margin: var(--cr-space-2) 0;
+  color: var(--cr-success);
+  overflow-wrap: anywhere;
+}
+
+.todo-action-feedback[data-tone='error'] {
+  color: var(--cr-error);
+}
+
+.todo-blocked-alert p {
+  margin: var(--cr-space-1) 0 0;
+  color: var(--cr-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.todo-blocked-retry {
+  flex-shrink: 0;
 }
 
 .todo-row-mark[data-mark='ready'] {
@@ -4394,16 +4435,28 @@ cr-todo-card.todo-card {
   min-height: 0;
   overflow: auto;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   background: var(--cr-bg, #1e1e1e);
 }
 
 .browser-frame {
+  // Fit the whole screenshot inside the wrap on both axes: a 390x844 phone
+  // frame would otherwise run past a short panel, since only the width was
+  // capped before. Both bounds keep the element box identical to the painted
+  // pixels, which is what the tap/scroll mapping needs — it translates points
+  // taken from getBoundingClientRect(). `object-fit: contain` on a stretched
+  // box would letterbox the image inside a larger rect and silently offset
+  // every gesture, so the sizing stays intrinsic (`width/height: auto`).
   max-width: 100%;
+  max-height: 100%;
+  width: auto;
   height: auto;
   cursor: crosshair;
   user-select: none;
+  // The panel translates touch gestures into page scroll/tap; stop the browser
+  // from claiming them for native pan/zoom so the preview stays interactive.
+  touch-action: none;
 }
 
 .browser-frame-empty {
@@ -5733,6 +5786,15 @@ cr-todo-card.todo-card {
   color: var(--cr-text);
   font-size: 0.85rem;
   line-height: 1.35;
+}
+
+.sdk-rich-tool-meta {
+  margin: 0 0 0.35rem;
+  color: var(--cr-text-muted);
+  font-family: var(--cr-font-mono);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  word-break: break-word;
 }
 
 .chat-settings-actions {
@@ -9156,6 +9218,111 @@ body.sdk-image-lightbox-open {
   margin-top: 0.2rem;
 }
 
+.chat-auto-archive-value,
+.chat-auto-archive-unit {
+  min-height: var(--cr-control-height);
+  padding: 0 var(--cr-space-1);
+  color: var(--cr-text);
+  background: var(--cr-input-bg, var(--cr-bg));
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.chat-auto-archive-value {
+  width: 5.5rem;
+}
+
+.chat-auto-archive-value:disabled,
+.chat-auto-archive-unit:disabled {
+  opacity: 0.5;
+}
+
+#chat-auto-archive-status.is-error {
+  color: var(--cr-error);
+}
+
+/* Settings → App → Notifications */
+.settings-notifications {
+  .settings-subgroup {
+    margin: var(--cr-space-3) 0 0;
+    padding: var(--cr-space-2) 0 0;
+    border: 0;
+    border-top: 1px solid var(--cr-border);
+    min-width: 0;
+  }
+
+  .settings-subgroup-title {
+    padding: 0;
+    margin: 0 0 var(--cr-space-1);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--cr-text);
+  }
+
+  .settings-notifications-toggle {
+    margin-top: var(--cr-space-2);
+  }
+
+  cr-checkbox {
+    display: flex;
+    margin-top: var(--cr-space-1);
+  }
+
+  .settings-notifications-vibrate,
+  .settings-notifications-volume {
+    margin-top: var(--cr-space-2);
+
+    cr-bar-select {
+      width: 100%;
+      max-width: none;
+    }
+  }
+
+  .settings-notifications-volume-row {
+    display: flex;
+    align-items: center;
+    gap: var(--cr-space-2);
+
+    input[type='range'] {
+      flex: 1 1 auto;
+      min-width: 0;
+      accent-color: var(--cr-accent);
+    }
+  }
+
+  .settings-notifications-volume-value {
+    flex: 0 0 auto;
+    min-width: 2.75rem;
+    text-align: end;
+    font-size: 0.8rem;
+    color: var(--cr-text-muted);
+  }
+
+  .settings-notifications-actions {
+    flex-wrap: wrap;
+    gap: var(--cr-space-2);
+    margin-top: var(--cr-space-1);
+
+    cr-bar-button {
+      flex: 1 1 auto;
+      min-width: 9rem;
+    }
+  }
+
+  .settings-notifications-test {
+    margin-top: var(--cr-space-3);
+  }
+}
+
+@media (max-width: 540px) {
+  .settings-notifications .settings-notifications-actions cr-bar-button {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+}
+
 .chat-model-settings-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -11713,6 +11880,8 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   &[data-status-outcome='interrupted'] { color: var(--cr-warn); }
 
   &--active,
+  &--archive-soon,
+  &--archive-imminent,
   &--attention,
   &--disconnected,
   &--connecting,
@@ -11770,6 +11939,39 @@ body.theme-light .sidebar-chat-item-harness--codex img {
     }
   }
 
+  // Auto-archive countdown: same [label][icon] geometry as the working chip,
+  // but the countdown text is the payload, so the width tracks the label.
+  &--archive-soon,
+  &--archive-imminent {
+    width: auto;
+    max-width: 5.5rem;
+    gap: 0.2rem;
+    flex-direction: row-reverse;
+    justify-content: flex-start;
+
+    .sidebar-chat-item-activity-label {
+      display: inline-block;
+      min-width: 1.6rem;
+      overflow: hidden;
+      font-size: 0.62rem;
+      font-weight: 600;
+      line-height: 1;
+      text-align: right;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  &--archive-soon {
+    color: var(--cr-text-muted);
+    animation: sidebar-status-archive-soon 2.4s ease-in-out infinite;
+  }
+
+  &--archive-imminent {
+    color: var(--cr-warn);
+    animation: sidebar-status-archive-imminent 1.1s ease-in-out infinite;
+  }
+
   &--disconnected {
     color: var(--cr-text-muted);
     opacity: 0.55;
@@ -11808,6 +12010,26 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   0%,
   100% {
     opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes sidebar-status-archive-soon {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes sidebar-status-archive-imminent {
+  0%,
+  100% {
+    opacity: 0.45;
   }
   50% {
     opacity: 1;

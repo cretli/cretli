@@ -4,6 +4,7 @@ import { getSidebarArchiveGroupRegistration } from './sidebarArchiveGroupPass.js
 import { stashSidebarChatRowPayloadOnHost } from './sidebarChatRowMount.js';
 import {
   applyArchiveScrollAnchor,
+  buildArchiveRowIndexById,
   computeArchiveListScrollTopForAnchor,
   computeSidebarArchiveMountedRowLimit,
   selectArchiveVisibleWindow,
@@ -220,7 +221,7 @@ class CrSidebarArchiveGroup extends LitElement {
     const listEl = this.querySelector('.sidebar-archive-list');
     const container = resolveArchiveScrollContainer(listEl);
     if (!listEl || !container) return false;
-    this._measureMountedRowHeights(rows);
+    this._measureMountedRowHeights(rows, buildArchiveRowIndexById(rows));
     const viewportHeightPx = Math.max(1, container.clientHeight || 400);
     const scrollTopPx = computeArchiveListScrollTopForAnchor(
       total,
@@ -281,7 +282,8 @@ class CrSidebarArchiveGroup extends LitElement {
     const listEl = this.querySelector('.sidebar-archive-list');
     const container = resolveArchiveScrollContainer(listEl);
     if (!listEl || !container) return;
-    this._measureMountedRowHeights(rows);
+    const indexById = buildArchiveRowIndexById(rows);
+    this._measureMountedRowHeights(rows, indexById);
     const viewportHeightPx = Math.max(1, container.clientHeight || 400);
     let scrollTopPx = forceDefault
       ? 0
@@ -293,7 +295,8 @@ class CrSidebarArchiveGroup extends LitElement {
     let anchorIndex = explicitAnchor;
     const activeId = String(reg.activeChatId || '').trim();
     if (anchorIndex < 0 && forceDefault && activeId) {
-      anchorIndex = rows.findIndex((item) => item?.chat?.id === activeId);
+      const activeIndex = indexById.get(activeId);
+      anchorIndex = activeIndex === undefined ? -1 : activeIndex;
     }
     const useAnchor = (forceDefault && anchorIndex >= 0) || explicitAnchor >= 0;
     if (useAnchor) {
@@ -375,8 +378,10 @@ class CrSidebarArchiveGroup extends LitElement {
 
   /**
    * @param {Array<{ chat?: { id?: string } }>} rows
+   * @param {Map<string, number>} [indexById] built once per sync by the caller;
+   *   avoids one `rows.findIndex` per mounted host (was O(n · mountedRows)).
    */
-  _measureMountedRowHeights(rows) {
+  _measureMountedRowHeights(rows, indexById) {
     const total = rows.length;
     if (!this._rowHeightsPx.length) {
       this._rowHeightsPx = Array.from({ length: total }, () => SIDEBAR_ARCHIVE_DEFAULT_ROW_HEIGHT_PX);
@@ -387,12 +392,13 @@ class CrSidebarArchiveGroup extends LitElement {
       );
       this._rowHeightsPx = this._rowHeightsPx.concat(pad);
     }
+    const lookup = indexById || buildArchiveRowIndexById(rows);
     const hosts = this.querySelectorAll('cr-sidebar-chat-row');
     hosts.forEach((host) => {
       const chatId = String(host.getAttribute('chat-id') || '').trim();
       if (!chatId) return;
-      const index = rows.findIndex((item) => item?.chat?.id === chatId);
-      if (index < 0) return;
+      const index = lookup.get(chatId);
+      if (index === undefined || index < 0) return;
       const li = host.querySelector('.sidebar-chat-item');
       const measured = li ? Math.round(li.getBoundingClientRect().height) : 0;
       if (measured > 0) this._rowHeightsPx[index] = measured;

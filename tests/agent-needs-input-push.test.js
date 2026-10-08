@@ -44,6 +44,7 @@ assert.equal(permissionPayload.data.chatId, 'chat-1');
 assert.equal(permissionPayload.data.type, 'agent-needs-input');
 assert.equal(typeof permissionPayload.data.at, 'number');
 assert.equal(permissionPayload.data.url, '/?source=pwa&panel=chat&chat=chat-1');
+assert.equal(permissionPayload.data.eventId, 'per_1');
 
 const questionPayload = buildAgentNeedsInputPushPayload({
   chatId: 'chat-2',
@@ -57,6 +58,11 @@ assert.match(questionPayload.body, /Pick a color/);
 assert.equal(questionPayload.data.kind, 'question');
 assert.equal(questionPayload.data.chatId, 'chat-2');
 assert.equal(typeof questionPayload.data.at, 'number');
+assert.equal(questionPayload.data.eventId, 'que_1');
+
+// Without a requestId there is no eventId.
+const noRequestId = buildAgentNeedsInputPushPayload({ kind: 'question', chatId: 'c' });
+assert.equal('eventId' in noRequestId.data, false);
 
 const longDetail = 'x'.repeat(200);
 const clipped = buildAgentNeedsInputPushPayload({

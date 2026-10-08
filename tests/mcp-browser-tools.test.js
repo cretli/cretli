@@ -9,13 +9,15 @@
  * - without an owner or a runtime the call fails closed;
  * - plan mode and review assignments cannot mutate;
  * - browser_open adopts the unbound session the user opened in the panel;
- * - screenshots come back as a file path, not as base64 text.
+ * - browser_elements passes the numbered scan through, limit included;
+ * - screenshots come back as a file path, not as base64 text, and one capture
+ *   never writes two files.
  */
 
 import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 import test, { after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,18 +33,28 @@ import {
   resetBrowserChatOwnersForTests,
   resolveBrowserChatOwner,
 } from '../lib/browser/agent-tools.js';
-import { BrowserError } from '../lib/browser/session-manager.js';
+import {
+  BROWSER_ELEMENTS_SELECTOR,
+  BrowserError,
+} from '../lib/browser/session-manager.js';
+import { BROWSER_LIMITS } from '../lib/browser/constants.js';
+import { browserScreenshotDir } from '../lib/browser/screenshot-file.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workspace = mkdtempSync(path.join(os.tmpdir(), 'mcp-browser-ws-'));
 const OWNER = 'login-session-1';
 
-/** Minimal stand-in for BrowserSessionManager (same signatures the tools use). */
+/**
+ * Minimal stand-in for BrowserSessionManager (same signatures the tools use).
+ * The session cap is read from `BROWSER_LIMITS` instead of a hardcoded number,
+ * so this fake cannot silently diverge from production.
+ */
 class FakeManager {
   constructor() {
     this.sessions = new Map();
     this.chatBindings = new Map();
     this.calls = [];
+    this.elements = [];
   }
 
   addSession({ id, ownerSessionId = OWNER, chatId = '' }) {
@@ -95,8 +107,13 @@ class FakeManager {
 
   async createSession(input) {
     this.calls.push({ method: 'createSession', input });
-    if ([...this.sessions.values()].some((session) => session.ownerSessionId === input.ownerSessionId)) {
-      throw new BrowserError('session-limit', 'Maximum 1 active Browser session per user/instance', 409);
+    const owned = [...this.sessions.values()].filter((session) => session.ownerSessionId === input.ownerSessionId).length;
+    if (owned >= BROWSER_LIMITS.MAX_SESSIONS_PER_OWNER) {
+      throw new BrowserError(
+        'session-limit',
+        `Maximum ${BROWSER_LIMITS.MAX_SESSIONS_PER_OWNER} active Browser sessions per user/instance`,
+        409,
+      );
     }
     const id = `session-${this.sessions.size + 1}`;
     this.addSession({ id, ownerSessionId: input.ownerSessionId });
@@ -119,6 +136,28 @@ class FakeManager {
     this.requireTab(sessionId, tabId, ownerSessionId, scope);
     this.calls.push({ method: 'getDom', scope });
     return { html: '<html></html>', truncated: false, bytes: 13 };
+  }
+
+  /**
+   * Mirrors the shape of the real single-pass scan: `index` numbering for
+   * `browser_input`, the shared interactive selector as the query, and the
+   * `scope` it was called with so a test can see what the tool layer forwarded.
+   */
+  async getVisibleElements(sessionId, tabId, ownerSessionId, scope = {}) {
+    this.requireTab(sessionId, tabId, ownerSessionId, scope);
+    this.calls.push({ method: 'getVisibleElements', scope });
+    const elements = this.elements.map((element, index) => ({ index, ...element }));
+    return {
+      browserSessionId: sessionId,
+      browserTabId: tabId,
+      channel: 'elements',
+      elements,
+      count: elements.length,
+      scanned: elements.length,
+      total: elements.length,
+      truncated: false,
+      selectorQueries: [BROWSER_ELEMENTS_SELECTOR],
+    };
   }
 
   async screenshot(sessionId, tabId, ownerSessionId, options = {}) {
@@ -175,16 +214,55 @@ after(() => {
 });
 
 test('catalog lists every browser_* tool with the read-only split of the Browser module', () => {
-  const names = CRETILI_MCP_TOOL_DEFS.map((tool) => tool.name);
-  for (const name of [...BROWSER_AGENT_READ_TOOLS, ...BROWSER_AGENT_MUTATION_TOOLS]) {
-    assert.ok(names.includes(name), name);
-  }
+  const browserDefs = CRETILI_MCP_TOOL_DEFS.filter((tool) => tool.name.startsWith('browser_'));
+  const names = browserDefs.map((tool) => tool.name);
+  assert.deepEqual(
+    [...names].sort(),
+    [...BROWSER_AGENT_READ_TOOLS, ...BROWSER_AGENT_MUTATION_TOOLS].sort(),
+    'the catalog holds exactly the Browser module tool set, with no extras and none missing',
+  );
+  assert.equal(new Set(names).size, names.length, 'no tool is registered twice');
+
   for (const name of BROWSER_AGENT_READ_TOOLS) assert.ok(getBuiltinMcpReadTools().includes(name), name);
   for (const name of BROWSER_AGENT_MUTATION_TOOLS) assert.ok(getBuiltinMcpMutatingTools().includes(name), name);
+  // The split must stay exclusive: a mutating tool can never be advertised as
+  // readable, or a plan/ask run would be allowed to drive the page.
+  for (const name of BROWSER_AGENT_READ_TOOLS) assert.equal(getBuiltinMcpMutatingTools().includes(name), false, name);
+  for (const name of BROWSER_AGENT_MUTATION_TOOLS) assert.equal(getBuiltinMcpReadTools().includes(name), false, name);
+
+  for (const tool of browserDefs) {
+    const isRead = BROWSER_AGENT_READ_TOOLS.includes(tool.name);
+    // The public def carries the split as an MCP annotation, not a bare flag.
+    assert.equal(tool.annotations.readOnlyHint, isRead, `${tool.name} readOnly hint`);
+    assert.equal(tool.annotations.destructiveHint, false, tool.name);
+    assert.match(tool.description, /Cretli built-in Browser/, tool.name);
+    const schema = tool.inputSchema;
+    assert.equal(schema.type, 'object', tool.name);
+    assert.equal(schema.additionalProperties, false, `${tool.name} rejects unknown fields`);
+    // `browser_sessions` takes no argument, so a missing `required` is valid.
+    const required = schema.required || [];
+    assert.ok(Array.isArray(required), tool.name);
+    assert.deepEqual(required.filter((key) => !(key in schema.properties)), [], `${tool.name} required keys exist`);
+  }
+
+  // Every listed tool is actually callable through the handler map.
+  const callChat = newChat();
+  const handlers = handlersFor(callChat);
+  for (const tool of browserDefs) {
+    assert.equal(typeof handlers[tool.name], 'function', tool.name);
+  }
+
   const open = CRETILI_MCP_TOOL_DEFS.find((tool) => tool.name === 'browser_open');
-  assert.match(open.description, /Cretli built-in Browser/);
   assert.match(open.description, /instead of launching your own Playwright/);
   assert.deepEqual(open.inputSchema.required, ['url']);
+  // Every tab read needs an explicit target, so a chat can never drift onto
+  // another chat's session by omitting it.
+  for (const name of ['browser_elements', 'browser_screenshot', 'browser_dom', 'browser_console', 'browser_network']) {
+    const tool = CRETILI_MCP_TOOL_DEFS.find((entry) => entry.name === name);
+    assert.deepEqual(tool.inputSchema.required, ['browserSessionId', 'browserTabId'], name);
+  }
+  const elements = CRETILI_MCP_TOOL_DEFS.find((tool) => tool.name === 'browser_elements');
+  assert.deepEqual(Object.keys(elements.inputSchema.properties).sort(), ['browserSessionId', 'browserTabId', 'limit']);
 });
 
 test('the login session attached to the chat is the browser owner; the newest attach wins', () => {
@@ -240,16 +318,21 @@ test('browser_open adopts the unbound panel session instead of hitting the sessi
 test('a session bound to another chat is not adopted and the limit error explains why', async () => {
   const chat = newChat();
   rememberBrowserChatOwner(chat.id, OWNER);
-  manager.addSession({ id: 'other-chat-session', chatId: 'another-chat' });
+  // Every session the owner holds is bound to a different chat, so there is
+  // nothing left to adopt and the real per-user cap is what stops the open.
+  for (let index = 0; index < BROWSER_LIMITS.MAX_SESSIONS_PER_OWNER; index += 1) {
+    manager.addSession({ id: `session-${index}`, chatId: `other-chat-${index}` });
+  }
+  assert.equal(BROWSER_LIMITS.MAX_SESSIONS_PER_OWNER, 3, 'the fake follows the production cap');
 
   const opened = await handlersFor(chat).browser_open({ url: 'https://example.test/' });
   assert.equal(opened.isError, true);
   assert.equal(opened.structuredContent.code, 'CONFLICT');
   assert.match(opened.structuredContent.error, /^session-limit: /);
-  assert.match(opened.structuredContent.error, /bound to another chat/);
-  assert.equal(manager.sessions.get('other-chat-session').chatId, 'another-chat');
+  assert.match(opened.structuredContent.error, /per-user Browser session cap/);
+  assert.equal(manager.sessions.get('session-0').chatId, 'other-chat-0');
 
-  const foreign = await handlersFor(chat).browser_tabs({ browserSessionId: 'other-chat-session' });
+  const foreign = await handlersFor(chat).browser_tabs({ browserSessionId: 'session-0' });
   assert.equal(foreign.isError, true);
   assert.equal(foreign.structuredContent.code, 'OUT_OF_SCOPE');
   assert.match(foreign.structuredContent.error, /^forbidden-chat: /);
@@ -286,6 +369,20 @@ test('a delegated child acts for the owner of its fork parent', async () => {
   assert.equal(created.input.chatId, child.id);
 });
 
+test('a delegated child reuses a Browser session bound to its fork parent', async () => {
+  const parent = newChat();
+  const child = newChat({ forkParentChatId: parent.id, forkKind: 'delegation' });
+  rememberBrowserChatOwner(parent.id, OWNER);
+  manager.addSession({ id: 'parent-session', chatId: parent.id });
+  manager.calls.length = 0;
+
+  const opened = await handlersFor(child).browser_open({ url: 'https://example.test/reuse' });
+  assert.equal(opened.isError, false, opened.content[0].text);
+  assert.equal(manager.calls.some((call) => call.method === 'createSession'), false);
+  const navigate = manager.calls.find((call) => call.method === 'navigate');
+  assert.equal(navigate.url, 'https://example.test/reuse');
+});
+
 test('browser_screenshot returns a private file path instead of base64 text', async () => {
   const chat = newChat();
   rememberBrowserChatOwner(chat.id, OWNER);
@@ -303,4 +400,104 @@ test('browser_screenshot returns a private file path instead of base64 text', as
   } finally {
     rmSync(path.dirname(file), { recursive: true, force: true });
   }
+});
+
+test('browser_screenshot persists exactly one frame per capture and reuses that path', async () => {
+  const chat = newChat();
+  rememberBrowserChatOwner(chat.id, OWNER);
+  manager.addSession({ id: 'persist-session', chatId: chat.id });
+  const dir = browserScreenshotDir(chat.id);
+  const frames = () => (existsSync(dir) ? readdirSync(dir).filter((name) => name.endsWith('.jpg')) : []);
+
+  try {
+    assert.deepEqual(frames(), [], 'this chat has no saved frames yet');
+    const first = await handlersFor(chat).browser_screenshot({
+      browserSessionId: 'persist-session',
+      browserTabId: 'tab-1',
+    });
+    assert.equal(first.isError, false, first.content[0].text);
+    // The tool layer already persisted the frame, so the MCP layer must pass
+    // that path through instead of writing the image a second time.
+    assert.deepEqual(frames(), [path.basename(first.structuredContent.frame.path)]);
+    assert.equal(existsSync(first.structuredContent.frame.path), true);
+    assert.ok(
+      first.content[0].text.startsWith(`Screenshot saved to ${first.structuredContent.frame.path} (`),
+      `the text names the saved file: ${first.content[0].text}`,
+    );
+
+    const second = await handlersFor(chat).browser_screenshot({
+      browserSessionId: 'persist-session',
+      browserTabId: 'tab-1',
+    });
+    const saved = second.structuredContent.frame;
+    assert.equal(saved.data, undefined, 'no inline base64 survives into the payload');
+    assert.equal(saved.width, 800);
+    assert.equal(saved.height, 600);
+    assert.equal(saved.mimeType, 'image/jpeg');
+    assert.equal(frames().length, 2, 'each capture adds its own file');
+    assert.notEqual(saved.path, first.structuredContent.frame.path);
+
+    // The structured part mirrors the text part for harnesses that read it.
+    assert.equal(second.structuredContent.frame.path, saved.path);
+    assert.equal(second.structuredContent.ok, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('browser_elements reaches the agent through the MCP surface', async () => {
+  const chat = newChat();
+  rememberBrowserChatOwner(chat.id, OWNER);
+  manager.addSession({ id: 'elements-session', chatId: chat.id });
+  manager.elements = [
+    { tag: 'button', role: 'button', name: 'Save', selector: '#save' },
+    { tag: 'a', role: 'link', name: 'Docs', selector: 'a.docs' },
+    { tag: 'input', role: 'textbox', name: 'Email', selector: '#email' },
+  ];
+
+  const listed = await handlersFor(chat).browser_elements({
+    browserSessionId: 'elements-session',
+    browserTabId: 'tab-1',
+    limit: 3,
+  });
+  assert.equal(listed.isError, false, listed.content[0].text);
+  assert.equal(listed.structuredContent.channel, 'elements');
+  assert.equal(listed.structuredContent.count, 3);
+  assert.deepEqual(
+    listed.structuredContent.elements.map((row) => row.index),
+    [0, 1, 2],
+    'rows are numbered from zero so `index` can be passed back to browser_input',
+  );
+  assert.deepEqual(listed.structuredContent.elements.map((row) => row.name), ['Save', 'Docs', 'Email']);
+  assert.deepEqual(listed.structuredContent.selectorQueries, [BROWSER_ELEMENTS_SELECTOR],
+    'the scan runs on the shared interactive selector, never a caller-chosen one');
+  assert.equal(manager.calls.at(-1).method, 'getVisibleElements');
+  assert.equal(manager.calls.at(-1).scope.limit, 3, 'the requested limit is forwarded to the scan');
+  // Bridges forward the text part only, so it has to carry the whole listing.
+  assert.match(listed.content[0].text, /"channel":"elements"/);
+  assert.match(listed.content[0].text, /"name":"Save"/);
+
+  await handlersFor(chat).browser_elements({ browserSessionId: 'elements-session', browserTabId: 'tab-1' });
+  assert.equal(manager.calls.at(-1).scope.limit, undefined, 'no limit must not become a bogus value');
+
+  // It is a read tool: available to a plan run, and still scoped to this chat.
+  const planList = await handlersFor(chat, 'plan').browser_elements({
+    browserSessionId: 'elements-session',
+    browserTabId: 'tab-1',
+  });
+  assert.equal(planList.isError, false, planList.content[0].text);
+
+  const otherChat = newChat();
+  rememberBrowserChatOwner(otherChat.id, OWNER);
+  const foreign = await handlersFor(otherChat).browser_elements({
+    browserSessionId: 'elements-session',
+    browserTabId: 'tab-1',
+  });
+  assert.equal(foreign.isError, true);
+  assert.match(foreign.structuredContent.error, /^forbidden-chat: /);
+
+  const noTarget = await handlersFor(chat).browser_elements({ browserSessionId: 'elements-session' });
+  assert.equal(noTarget.isError, true);
+  assert.equal(noTarget.structuredContent.code, 'VALIDATION_ERROR');
+  assert.match(noTarget.structuredContent.error, /^explicit-target-required: /);
 });

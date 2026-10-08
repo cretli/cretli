@@ -394,6 +394,7 @@
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-interface-tabs" id="settings-interface-tabs" role="tablist" hidden data-i18n-aria="settings.tabsInterface" aria-label="App">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="interface" role="tab" aria-selected="false" data-i18n="settings.tabsInterfaceAppearance">Appearance</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="interface-notifications" role="tab" aria-selected="false" data-i18n="settings.tabsInterfaceNotifications">Notifications</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="interface-terminal" role="tab" aria-selected="false" data-i18n="settings.tabsInterfaceTerminal">Terminal</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="interface-voice" role="tab" aria-selected="false" data-i18n="settings.tabsInterfaceVoice">Voice</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="interface-browser" role="tab" aria-selected="false" data-i18n="settings.tabsInterfaceStorage">Storage</button>
@@ -868,6 +869,22 @@
           </cr-checkbox>
           <span id="sdk-auto-recovery-save-status" class="cr-status"></span>
         </div>
+        <p class="settings-hint" data-i18n="settings.sdkCustomSystemPromptHint">
+          Optional replacement for the Cursor SDK harness system prompt on local agents only. Project rules, skills, and tool schemas still load. Requires account entitlement.
+        </p>
+        <div class="cr-field">
+          <cr-checkbox id="sdk-custom-system-prompt-enabled">
+            <span data-i18n="settings.sdkCustomSystemPromptEnabled">Use custom SDK system prompt</span>
+          </cr-checkbox>
+        </div>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.sdkCustomSystemPromptText">Default system prompt</label>
+          <cr-bar-textarea id="sdk-custom-system-prompt-text" rows="6" disabled></cr-bar-textarea>
+          <div class="cr-row">
+            <cr-bar-button variant="primary" id="sdk-custom-system-prompt-save-btn" data-i18n="settings.save">Save</cr-bar-button>
+            <span id="sdk-custom-system-prompt-save-status" class="cr-status"></span>
+          </div>
+        </div>
       </section>
       <section class="settings-section" data-settings-tab="harness-openrouter-keys" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessOpenRouterTitle">OpenRouter API</h3>
@@ -917,21 +934,140 @@
           <span data-i18n="settings.pinActiveWorkspace">Move the active workspace to the top of the sidebar</span>
         </cr-checkbox>
       </section>
+      <section class="settings-section settings-notifications" data-settings-tab="interface-notifications" role="tabpanel">
+        <h3 class="settings-section-title" data-i18n="settings.notifications">Notifications</h3>
+        <p class="settings-hint" data-i18n="settings.notificationsHint">Notifications are configured for this device only. The browser asks for permission, and on iPhone Web Push requires adding Cretli to the Home Screen.</p>
+        <div class="auto-name-chat-row settings-notifications-toggle">
+          <input type="checkbox" id="pwa-push-checkbox" class="auto-name-chat-checkbox" />
+          <label for="pwa-push-checkbox" data-i18n="settings.enablePush">Enable notifications on this device</label>
+        </div>
+        <p id="pwa-push-state" class="settings-hint" aria-live="polite"></p>
+        <p id="pwa-push-status" class="settings-hint" aria-live="polite"></p>
+
+        <fieldset class="settings-subgroup" id="pwa-push-options">
+          <legend class="settings-subgroup-title" data-i18n="settings.notificationsEventsTitle">Events</legend>
+          <p class="settings-hint" data-i18n="settings.notificationsEventsHint">Choose which agent events may notify you on this device.</p>
+          <cr-checkbox id="pwa-push-event-finished">
+            <span data-i18n="settings.notificationsEventFinished">Agent run finished</span>
+          </cr-checkbox>
+          <cr-checkbox id="pwa-push-event-question">
+            <span data-i18n="settings.notificationsEventQuestion">Agent asked a question</span>
+          </cr-checkbox>
+          <cr-checkbox id="pwa-push-event-permission">
+            <span data-i18n="settings.notificationsEventPermission">Agent needs a permission</span>
+          </cr-checkbox>
+          <cr-checkbox id="pwa-push-event-new-chat">
+            <span data-i18n="settings.notificationsEventNewChat">New chat created</span>
+          </cr-checkbox>
+        </fieldset>
+
+        <fieldset class="settings-subgroup" id="pwa-quiet-options">
+          <legend class="settings-subgroup-title" data-i18n="settings.notificationsQuietTitle">Quiet hours</legend>
+          <p class="settings-hint" data-i18n="settings.notificationsQuietHint">On this device only: notifications stay visible, but vibration and sound are suppressed during the window.</p>
+          <cr-checkbox id="pwa-quiet-enabled-checkbox">
+            <span data-i18n="settings.notificationsQuietEnabled">Enable quiet hours</span>
+          </cr-checkbox>
+          <div class="cr-field">
+            <label class="cr-field-label" for="pwa-quiet-start" data-i18n="settings.notificationsQuietStart">From</label>
+            <input type="time" id="pwa-quiet-start" value="22:00" />
+          </div>
+          <div class="cr-field">
+            <label class="cr-field-label" for="pwa-quiet-end" data-i18n="settings.notificationsQuietEnd">Until</label>
+            <input type="time" id="pwa-quiet-end" value="07:00" />
+          </div>
+          <p id="pwa-quiet-status" class="settings-hint" aria-live="polite"></p>
+        </fieldset>
+
+        <fieldset class="settings-subgroup" id="pwa-inapp-options">
+          <legend class="settings-subgroup-title" data-i18n="settings.notificationsChats">Chats</legend>
+          <p class="settings-hint" data-i18n="settings.notificationsInAppHint">Vibration and sound while the app is open. Both are off by default; the browser may require a tap before sound can play.</p>
+          <div class="cr-field settings-notifications-vibrate">
+            <label class="cr-field-label" for="pwa-push-vibrate-select" data-i18n="settings.notificationsVibrate">Push vibration</label>
+            <cr-bar-select id="pwa-push-vibrate-select"></cr-bar-select>
+          </div>
+          <cr-checkbox id="pwa-inapp-vibrate-checkbox">
+            <span data-i18n="settings.notificationsInAppVibrate">Vibrate the device</span>
+          </cr-checkbox>
+          <cr-checkbox id="pwa-inapp-sound-checkbox">
+            <span data-i18n="settings.notificationsInAppSound">Play a sound</span>
+          </cr-checkbox>
+          <div class="cr-field settings-notifications-vibrate">
+            <label class="cr-field-label" for="pwa-inapp-vibrate-select" data-i18n="settings.notificationsVibrationPattern">In-app vibration pattern</label>
+            <cr-bar-select id="pwa-inapp-vibrate-select"></cr-bar-select>
+          </div>
+          <div class="cr-field settings-notifications-vibrate">
+            <label class="cr-field-label" for="pwa-inapp-sound-select" data-i18n="settings.notificationsSound">In-app sound</label>
+            <cr-bar-select id="pwa-inapp-sound-select"></cr-bar-select>
+          </div>
+          <p class="settings-hint" data-i18n="settings.notificationsSoundHint">Selected sounds play while the app is open. Background push notifications use the system sound.</p>
+          <div class="cr-field settings-notifications-volume">
+            <label class="cr-field-label" for="pwa-inapp-volume-range" data-i18n="settings.notificationsInAppVolume">Volume</label>
+            <div class="settings-notifications-volume-row">
+              <input type="range" id="pwa-inapp-volume-range" min="0" max="100" step="5" value="60" />
+              <span id="pwa-inapp-volume-value" class="settings-notifications-volume-value">60%</span>
+            </div>
+          </div>
+          <div class="cr-row settings-notifications-actions">
+            <cr-bar-button id="pwa-push-vibrate-test-btn" data-i18n="settings.notificationsTestVibrate">Test vibration</cr-bar-button>
+            <cr-bar-button id="pwa-push-sound-preview-btn" data-i18n="settings.notificationsTestSound">Preview sound</cr-bar-button>
+          </div>
+          <p id="pwa-chat-test-status" class="settings-hint" aria-live="polite"></p>
+        </fieldset>
+
+        <fieldset class="settings-subgroup" id="pwa-subchat-options">
+          <legend class="settings-subgroup-title" data-i18n="settings.notificationsSubchats">Subchats</legend>
+          <p class="settings-hint" data-i18n="settings.notificationsInAppHint">Vibration and sound while the app is open. Both are off by default; the browser may require a tap before sound can play.</p>
+          <div class="cr-field settings-notifications-vibrate">
+            <label class="cr-field-label" for="pwa-subchat-push-vibrate-select" data-i18n="settings.notificationsVibrate">Push vibration</label>
+            <cr-bar-select id="pwa-subchat-push-vibrate-select"></cr-bar-select>
+          </div>
+          <cr-checkbox id="pwa-subchat-vibrate-checkbox">
+            <span data-i18n="settings.notificationsInAppVibrate">Vibrate the device</span>
+          </cr-checkbox>
+          <cr-checkbox id="pwa-subchat-sound-checkbox">
+            <span data-i18n="settings.notificationsInAppSound">Play a sound</span>
+          </cr-checkbox>
+          <div class="cr-field settings-notifications-vibrate">
+            <label class="cr-field-label" for="pwa-subchat-vibrate-select" data-i18n="settings.notificationsVibrationPattern">In-app vibration pattern</label>
+            <cr-bar-select id="pwa-subchat-vibrate-select"></cr-bar-select>
+          </div>
+          <div class="cr-field settings-notifications-vibrate">
+            <label class="cr-field-label" for="pwa-subchat-sound-select" data-i18n="settings.notificationsSound">In-app sound</label>
+            <cr-bar-select id="pwa-subchat-sound-select"></cr-bar-select>
+          </div>
+          <div class="cr-field settings-notifications-volume">
+            <label class="cr-field-label" for="pwa-subchat-volume-range" data-i18n="settings.notificationsInAppVolume">Volume</label>
+            <div class="settings-notifications-volume-row">
+              <input type="range" id="pwa-subchat-volume-range" min="0" max="100" step="5" value="60" />
+              <span id="pwa-subchat-volume-value" class="settings-notifications-volume-value">60%</span>
+            </div>
+          </div>
+          <div class="cr-row settings-notifications-actions">
+            <cr-bar-button id="pwa-subchat-vibrate-test-btn" data-i18n="settings.notificationsTestVibrate">Test vibration</cr-bar-button>
+            <cr-bar-button id="pwa-subchat-sound-preview-btn" data-i18n="settings.notificationsTestSound">Preview sound</cr-bar-button>
+          </div>
+          <p id="pwa-subchat-test-status" class="settings-hint" aria-live="polite"></p>
+        </fieldset>
+
+        <div class="settings-subgroup settings-notifications-test">
+          <p class="settings-subgroup-title" data-i18n="settings.notificationsTestTitle">Test on this device</p>
+          <div class="cr-row settings-notifications-actions">
+            <cr-bar-button id="pwa-push-test-btn" data-i18n="settings.notificationsTestPush">Send test push</cr-bar-button>
+          </div>
+          <p id="pwa-push-test-status" class="settings-hint" aria-live="polite"></p>
+          <p class="settings-hint" data-i18n="settings.notificationsTestHint">The test push goes only to this device's subscription, stays out of the chat inbox and does not change chat state.</p>
+        </div>
+
+        <p class="settings-hint" data-i18n="settings.notificationsConsentHint">Notifications need the browser permission granted for this site.</p>
+        <p class="settings-hint" data-i18n="settings.notificationsIosHint">On iPhone and iPad, Web Push works only after adding Cretli to the Home Screen (Share, then Add to Home Screen).</p>
+        <p class="settings-hint" data-i18n="settings.notificationsSystemHint">Vibration and sound also depend on the system settings, Do Not Disturb and the device volume.</p>
+      </section>
       <section class="settings-section" data-settings-tab="interface" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.language">Language</h3>
         <p class="settings-hint" data-i18n="settings.languageHint">Interface language. English by default.</p>
         <div class="cr-field">
           <cr-bar-select id="lang-select"></cr-bar-select>
         </div>
-      </section>
-      <section class="settings-section" data-settings-tab="interface" role="tabpanel">
-        <h3 class="settings-section-title" data-i18n="settings.notifications">Notifications</h3>
-        <p class="settings-hint" data-i18n="settings.notificationsHint">Notify on this device when an agent run finishes. Requires installable PWA + granted permission. The server keeps your push subscription in data/push-subscriptions.json.</p>
-        <div class="auto-name-chat-row">
-          <input type="checkbox" id="pwa-push-checkbox" class="auto-name-chat-checkbox" />
-          <label for="pwa-push-checkbox" data-i18n="settings.enablePush">Enable agent-finished push notifications</label>
-        </div>
-        <p id="pwa-push-status" class="settings-hint" aria-live="polite"></p>
       </section>
       <section class="settings-section" data-settings-tab="interface-terminal" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.terminalTitle">Terminal</h3>
@@ -1029,6 +1165,21 @@
           <input type="checkbox" id="skip-catchup-on-resume-checkbox" class="auto-name-chat-checkbox" />
           <label for="skip-catchup-on-resume-checkbox" data-i18n="settings.noHistoryReplayHint">Do not replay history when resuming a chat (avoid re-showing the plan at the bottom)</label>
         </div>
+        <div class="auto-name-chat-row">
+          <input type="checkbox" id="chat-auto-archive-checkbox" class="auto-name-chat-checkbox" />
+          <label for="chat-auto-archive-checkbox" data-i18n="settings.autoArchiveChats">Automatically archive idle chats</label>
+        </div>
+        <div class="auto-name-chat-row">
+          <label for="chat-auto-archive-value" data-i18n="settings.autoArchiveChatsIdleAfter">Archive after</label>
+          <input type="number" id="chat-auto-archive-value" class="chat-auto-archive-value" min="1" step="1" inputmode="numeric" value="30" />
+          <select id="chat-auto-archive-unit" class="chat-auto-archive-unit">
+            <option value="minutes" data-i18n="settings.autoArchiveChatsUnitMinutes">minutes</option>
+            <option value="hours" data-i18n="settings.autoArchiveChatsUnitHours">hours</option>
+            <option value="days" data-i18n="settings.autoArchiveChatsUnitDays" selected>days</option>
+          </select>
+          <span id="chat-auto-archive-status" class="quick-commands-save-status" role="status" aria-live="polite"></span>
+        </div>
+        <p class="settings-hint" data-i18n="settings.autoArchiveChatsHint">Pinned chats, chats with a live run and chats with a running subchat are never archived. Archived chats can be restored from the sidebar.</p>
         <div class="auto-name-chat-row">
           <input type="checkbox" id="maintain-sessions-checkbox" class="auto-name-chat-checkbox" checked disabled />
           <label for="maintain-sessions-checkbox" data-i18n="settings.maintainSessionsHint">Session maintenance is always on (activity monitor + ping + background reconnect).</label>
@@ -1575,6 +1726,18 @@
             <div id="delegation-stats-cards" class="settings-usage-cards" hidden></div>
             <p id="delegation-stats-empty" class="settings-hint" data-i18n="delegationStats.empty" hidden>No delegation results in this window.</p>
             <div class="settings-usage-table-head">
+              <h5 class="settings-usage-subtitle" data-i18n="delegationStats.loopTitle">Loop leaves</h5>
+            </div>
+            <p class="settings-hint" data-i18n="delegationStats.loopHint">Per-leaf rounds, verdicts, verify and wall time from the same stats window.</p>
+            <div class="settings-usage-table-scroll">
+              <table id="delegation-loop-table" class="settings-usage-table settings-usage-breakdown" hidden>
+                <thead id="delegation-loop-head"></thead>
+                <tbody id="delegation-loop-body"></tbody>
+              </table>
+            </div>
+            <div id="delegation-loop-cards" class="settings-usage-cards" hidden></div>
+            <p id="delegation-loop-empty" class="settings-hint" data-i18n="delegationStats.loopEmpty" hidden>No loop leaves in this window.</p>
+            <div class="settings-usage-table-head">
               <h5 class="settings-usage-subtitle" data-i18n="delegationStats.unusedTitle">Unused for 14 days</h5>
             </div>
             <p class="settings-hint" data-i18n="delegationStats.unusedHint">Enabled harnesses without a delegated job in the last 14 days.</p>
@@ -1775,6 +1938,9 @@
             <cr-icon-button id="browser-reload-btn" title="Reload" data-i18n-title="browser.reload" aria-label="Reload" data-i18n-aria="browser.reload">
               <span class="mdi mdi-refresh" aria-hidden="true"></span>
             </cr-icon-button>
+            <cr-icon-button id="browser-mobile-btn" title="Switch to desktop viewport" data-i18n-title="browser.desktopTitle" aria-label="Switch to desktop viewport" data-i18n-aria="browser.desktopTitle">
+              <span class="mdi mdi-cellphone" aria-hidden="true"></span>
+            </cr-icon-button>
             <cr-bar-input id="browser-url-input" class="browser-url-input" type="url" placeholder="URL (https://…)" data-i18n-placeholder="browser.urlPlaceholder" aria-label="Page URL"></cr-bar-input>
             <cr-bar-button variant="primary" id="browser-go-btn" data-i18n="browser.go">Go</cr-bar-button>
           </div>
@@ -1786,6 +1952,8 @@
             <cr-bar-input id="browser-key-input" class="browser-key-input" placeholder="Text to type on the page" data-i18n-placeholder="browser.typePlaceholder" aria-label="Text to type on the page"></cr-bar-input>
             <cr-bar-button id="browser-type-btn" data-i18n="browser.type">Type</cr-bar-button>
             <cr-bar-button id="browser-enter-btn" data-i18n="browser.pressEnter">Enter</cr-bar-button>
+            <cr-bar-button id="browser-pageup-btn" data-i18n="browser.pageUp">PageUp</cr-bar-button>
+            <cr-bar-button id="browser-pagedown-btn" data-i18n="browser.pageDown">PageDown</cr-bar-button>
           </div>
           <div class="browser-pulls">
             <section class="browser-pull">
@@ -2163,6 +2331,11 @@
               <option value="full" data-i18n="chat.sdkUiModeFull">Full</option>
               <option value="compact" data-i18n="chat.sdkUiModeCompact">Kompaktowe kafelki</option>
             </select>
+            <label for="chat-settings-sdk-system-prompt" data-i18n="chat.sdkSystemPromptOverride">Custom system prompt (this chat)</label>
+            <textarea id="chat-settings-sdk-system-prompt" class="chat-settings-input" rows="5"></textarea>
+            <p class="chat-settings-hint-inline" data-i18n="chat.sdkSystemPromptOverrideHint">
+              Overrides the Settings default for this SDK chat only. Leave empty to use the account default.
+            </p>
             <div class="chat-settings-update-title-row">
               <button type="button" id="chat-settings-update-title-btn" class="chat-settings-btn-secondary" data-i18n="chat.updateName">Update chat name</button>
               <button type="button" id="chat-settings-title-from-fork-btn" class="chat-settings-btn-secondary" title="A temporary agent will read the buffer and return a JSON with the title" data-i18n-title="chat.generateNameTitle" data-i18n="chat.generateName">Generate name from content</button>

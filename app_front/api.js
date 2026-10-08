@@ -324,6 +324,9 @@ export async function getChats(query = {}) {
   if (query.includeArchived === true) {
     params.set('includeArchived', '1');
   }
+  if (typeof query.archiveWorkspace === 'string' && query.archiveWorkspace.trim()) {
+    params.set('archiveWorkspace', query.archiveWorkspace.trim());
+  }
   if (query.includeSummaries === true) {
     params.set('includeSummaries', '1');
   }
@@ -948,6 +951,56 @@ export async function patchTodo(id, payload) {
     },
     'patchTodo'
   );
+}
+
+export async function recoverWorkspaceWatcherTodo(todoId, workspaceFolder, expectedUpdatedAt, idempotencyKey = '') {
+  const id = String(todoId || '').trim();
+  const folder = String(workspaceFolder || '').trim();
+  const revision = String(expectedUpdatedAt || '').trim();
+  if (!id || !folder || !revision) return { ok: false, error: 'Missing task, workspace or revision' };
+  return apiFetchJson(
+    `/api/workspace-watcher/todos/${encodeURIComponent(id)}/recover`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspaceFolder: folder,
+        expectedUpdatedAt: revision,
+        idempotencyKey: String(idempotencyKey || '').trim() || `ui-recover-${id}-${revision}`,
+      }),
+    },
+    'recoverWorkspaceWatcherTodo',
+  );
+}
+
+export async function retryWorkspaceWatcherTodo(todoId, workspaceFolder) {
+  const id = String(todoId || '').trim();
+  const folder = String(workspaceFolder || '').trim();
+  if (!id || !folder) return { ok: false, error: 'Missing task or workspace' };
+  const todoData = await getTodos(folder);
+  if (!todoData?.ok) return todoData;
+  const todo = (Array.isArray(todoData.items) ? todoData.items : []).find((row) => String(row?.id || '') === id);
+  if (!todo) return { ok: false, error: 'Task not found' };
+  if (!String(todo.blockedReason || '').includes('Workspace Watcher failure ceiling')) {
+    return { ok: false, error: 'This task is no longer blocked by the Workspace Watcher failure ceiling.' };
+  }
+  if (todo.status === 'doing' || todo.status === 'done') return { ok: false, error: 'This task is no longer retryable.' };
+  const query = `?workspaceFolder=${encodeURIComponent(folder)}`;
+  const watcherData = await apiFetchJson(`/api/workspace-watcher${query}`, undefined, 'getWorkspaceWatcherForTodoRetry');
+  if (!watcherData?.ok) return watcherData;
+  const failures = { ...(watcherData.watcher?.failures || {}) };
+  delete failures[id];
+  const watcherUpdate = await apiFetchJson('/api/workspace-watcher', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspaceFolder: folder, failures, backoffUntil: '' }),
+  }, 'clearWorkspaceWatcherTodoFailure');
+  if (!watcherUpdate?.ok) return watcherUpdate;
+  return patchTodo(id, {
+    status: todo.status,
+    blockedReason: '',
+    expectedUpdatedAt: todo.updatedAt,
+  });
 }
 
 export async function deleteTodo(id, workspaceFolder) {
