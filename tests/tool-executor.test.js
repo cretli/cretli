@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { executeTool } from '../lib/agent-harness/tool-executor.js';
+import { findForeignRepoGitTarget } from '../lib/agent-harness/foreign-repo-guard.js';
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cr-tool-exec-'));
 const sampleFile = path.join(tmpRoot, 'hello.txt');
@@ -97,3 +98,33 @@ assert.equal(fs.existsSync(path.join(tmpRoot, 'ask.txt')), false);
 
 fs.rmSync(tmpRoot, { recursive: true, force: true });
 console.log('tool-executor.test.js OK');
+
+// Git mutations aimed at a repository outside the workspace are refused before spawn.
+const scopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cr-tool-scope-'));
+const workspaceRepo = path.join(scopeRoot, 'my-app');
+const foreignRepo = path.join(scopeRoot, 'acme');
+const plainDir = path.join(scopeRoot, 'notes');
+for (const dir of [path.join(workspaceRepo, '.git'), path.join(workspaceRepo, 'src'), path.join(foreignRepo, '.git'), plainDir]) {
+  fs.mkdirSync(dir, { recursive: true });
+}
+const scopeCtx = { cwd: workspaceRepo, mode: 'agent' };
+const foreignCommands = [
+  `git -C ${foreignRepo} commit -m "x"`,
+  `cd ../acme && git add -A && git push origin master`,
+  `/opt/scripts/git-as-user.sh "${foreignRepo}" push origin master`,
+];
+for (const command of foreignCommands) {
+  const result = await executeTool('run_terminal_command', { command }, scopeCtx);
+  assert.equal(result.ok, false, command);
+  assert.match(String(result.error), /different repository/);
+  assert.equal(String(result.error).includes(fs.realpathSync(foreignRepo)), true);
+}
+assert.equal(findForeignRepoGitTarget(`git -C ${foreignRepo} status --short`, workspaceRepo), '');
+assert.equal(findForeignRepoGitTarget(`git -C ${workspaceRepo} commit -m "x"`, workspaceRepo), '');
+assert.equal(findForeignRepoGitTarget('cd src && git add -A && git commit -m "x"', workspaceRepo), '');
+assert.equal(findForeignRepoGitTarget(`git add ${plainDir}`, workspaceRepo), '');
+assert.equal(findForeignRepoGitTarget(`ls ${foreignRepo} && echo commit`, workspaceRepo), '');
+process.env.CRETLI_ALLOW_FOREIGN_REPO_GIT = '1';
+assert.equal(findForeignRepoGitTarget(`git -C ${foreignRepo} commit -m "x"`, workspaceRepo), '');
+delete process.env.CRETLI_ALLOW_FOREIGN_REPO_GIT;
+fs.rmSync(scopeRoot, { recursive: true, force: true });

@@ -22,6 +22,7 @@ import { t } from '../../i18n/index.js';
 import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 import { initDropdown } from '../../lib/dropdown.js';
 import { noteNotificationCenterSignal } from '../pwa/inAppSignals.js';
+import { confirmNotificationAction } from './notificationConfirm.js';
 import {
   NOTIFICATION_CENTER_CATEGORIES,
   createNotificationStore,
@@ -162,6 +163,8 @@ export function initNotificationCenter(options = {}) {
   const listEl = el('notifications-list');
   const emptyEl = el('notifications-empty');
   const markAllBtn = el('notifications-mark-all-btn');
+  const clearReadBtn = el('notifications-clear-read-btn');
+  const clearAllBtn = el('notifications-clear-all-btn');
   const settingsBtn = el('notifications-settings-btn');
 
   const presetSelect = el('notification-center-preset');
@@ -191,7 +194,7 @@ export function initNotificationCenter(options = {}) {
       renderBadge(state);
       if (dropdownApi?.isOpen?.()) renderList(state);
       if (!savingSettings) renderPreferences(state.preferences, state);
-      renderMarkAllState(state);
+      renderBulkActionsState(state);
     },
   });
   setNotificationStore(store);
@@ -212,7 +215,7 @@ export function initNotificationCenter(options = {}) {
     optionSelector: 'button:not([disabled])',
     onOpen: () => {
       renderList();
-      renderMarkAllState(store.getState());
+      renderBulkActionsState(store.getState());
       requestAnimationFrame(() => panel.focus());
       // Opening the panel is an explicit user refresh: force a full GET so a
       // server-side revision reset (or a missed frame) cannot leave it stale.
@@ -335,10 +338,13 @@ export function initNotificationCenter(options = {}) {
   /**
    * @param {object} state
    */
-  function renderMarkAllState(state) {
+  function renderBulkActionsState(state) {
     const hasUnread = hasUnreadNotificationItems(state);
+    const rows = Array.isArray(state?.items) ? state.items : [];
     if (markAllBtn) markAllBtn.disabled = !hasUnread;
     if (settingsMarkAllBtn) settingsMarkAllBtn.disabled = !hasUnread;
+    if (clearReadBtn) clearReadBtn.disabled = !rows.some((row) => row.readAt);
+    if (clearAllBtn) clearAllBtn.disabled = rows.length === 0;
   }
 
   function fillPresetOptions() {
@@ -448,6 +454,13 @@ export function initNotificationCenter(options = {}) {
   soundToggle?.addEventListener('change', () => void savePreferences(readPreferencesFromUi()));
 
   async function runMarkAll() {
+    const confirmed = await confirmNotificationAction({
+      heading: t('notifications.confirmMarkAllHeading'),
+      body: t('notifications.confirmMarkAllBody'),
+      confirmLabel: t('notifications.confirmMarkAllAction'),
+      cancelLabel: t('notifications.confirmCancel'),
+    });
+    if (!confirmed) return;
     const result = await store.markAllRead();
     if (result && result.ok === false) {
       setSettingsStatus(t('settings.notificationCenterSaveFailed', { detail: result.error || '' }), true);
@@ -455,6 +468,27 @@ export function initNotificationCenter(options = {}) {
   }
   markAllBtn?.addEventListener('click', () => void runMarkAll());
   settingsMarkAllBtn?.addEventListener('click', () => void runMarkAll());
+
+  /**
+   * @param {{ readOnly?: boolean }} options
+   */
+  async function runDismissAll(options) {
+    const readOnly = options.readOnly === true;
+    const confirmed = await confirmNotificationAction({
+      heading: t(readOnly ? 'notifications.confirmClearReadHeading' : 'notifications.confirmClearAllHeading'),
+      body: t(readOnly ? 'notifications.confirmClearReadBody' : 'notifications.confirmClearAllBody'),
+      confirmLabel: t('notifications.confirmClearAction'),
+      cancelLabel: t('notifications.confirmCancel'),
+      danger: true,
+    });
+    if (!confirmed) return;
+    const result = await store.dismissAll(options);
+    if (result && result.ok === false) {
+      setSettingsStatus(t('settings.notificationCenterSaveFailed', { detail: result.error || '' }), true);
+    }
+  }
+  clearReadBtn?.addEventListener('click', () => void runDismissAll({ readOnly: true }));
+  clearAllBtn?.addEventListener('click', () => void runDismissAll({ readOnly: false }));
 
   if (settingsBtn) {
     settingsBtn.addEventListener('click', () => {
@@ -525,7 +559,7 @@ export function initNotificationCenter(options = {}) {
   renderPreferences(store.getState().preferences);
   renderBadge(store.getState());
   renderList(store.getState());
-  renderMarkAllState(store.getState());
+  renderBulkActionsState(store.getState());
   void store.fetchNow({ reason: 'init' }).catch((err) => {
     logger?.log?.('notifications', 'initial load failed', { error: String(err?.message || err) });
   });

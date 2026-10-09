@@ -49,6 +49,7 @@ const {
   disposeMistralRoom,
   ensureMistralRoom,
   getMistralRoomDiag,
+  handleMistralAgentWebSocket,
   startMistralChatRun,
 } = await import('../lib/mistral/mistral-agent-ws.js');
 const fake = await import(FAKE_URL);
@@ -84,6 +85,42 @@ async function waitForEvent(sent, type, timeoutMs = 3000) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`timed out waiting for ${type}; saw ${sent.map((row) => row.type).join(',')}`);
+}
+
+/**
+ * @param {string} sessionKey
+ * @returns {Promise<{ sent: Array<Record<string, any>>, ws: { emit: (event: string, data: object) => void } }>}
+ */
+async function openSocket(sessionKey) {
+  addChat(sessionKey, 'Mistral queue', null, process.cwd(), 'mistral-medium-latest', {
+    agentTransport: 'mistral',
+    sdkMode: 'agent',
+  });
+  const sent = [];
+  const handlers = {};
+  const ws = {
+    readyState: 1,
+    send: (raw) => sent.push(JSON.parse(raw)),
+    close() {},
+    on(event, handler) { handlers[event] = handler; },
+    once(event, handler) { handlers[event] = handler; },
+    emit(event, data) { handlers[event]?.(Buffer.from(JSON.stringify(data))); },
+  };
+  await handleMistralAgentWebSocket(ws, sessionKey, deps);
+  return { sent, ws };
+}
+
+/**
+ * @param {() => boolean} predicate
+ * @param {number} [timeoutMs]
+ */
+async function waitUntil(predicate, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error('timed out waiting for condition');
 }
 
 test('adapter is registered for the mistral transport', () => {
@@ -129,4 +166,36 @@ test('cancel aborts a hanging stream and reports a cancelled run', async () => {
   assert.equal(finished.status, 'cancelled');
   assert.equal(adapter.getState({ chat }).busy, false);
   disposeMistralRoom('mistral-flow-cancel');
+});
+
+test('force-send cancels the running prompt and then runs the queued one', async () => {
+  fake.script.mode = 'hang';
+  const { sent, ws } = await openSocket('mistral-flow-force');
+  ws.emit('message', { type: 'send', text: 'first' });
+  await waitForEvent(sent, 'sdkPromptStarted');
+  ws.emit('message', { type: 'send', text: 'second' });
+  await waitForEvent(sent, 'sdkQueued');
+  fake.script.mode = 'text';
+  ws.emit('message', { type: 'queueForceSend', text: 'second' });
+  await waitUntil(() => sent.filter((row) => row.type === 'sdkRunFinished').length === 2);
+  const statuses = sent.filter((row) => row.type === 'sdkRunFinished').map((row) => row.status);
+  assert.deepEqual(statuses, ['cancelled', 'completed']);
+  assert.match(JSON.stringify(fake.script.requests.at(-1)), /second/);
+  disposeMistralRoom('mistral-flow-force');
+});
+
+test('a queued prompt can be removed before the running prompt finishes', async () => {
+  fake.script.mode = 'hang';
+  const { sent, ws } = await openSocket('mistral-flow-remove');
+  ws.emit('message', { type: 'send', text: 'first' });
+  await waitForEvent(sent, 'sdkPromptStarted');
+  ws.emit('message', { type: 'send', text: 'later' });
+  await waitForEvent(sent, 'sdkQueued');
+  ws.emit('message', { type: 'queueRemove', text: 'later' });
+  await waitForEvent(sent, 'sdkQueueRemoved');
+  ws.emit('message', { type: 'cancel' });
+  await waitForEvent(sent, 'sdkRunFinished');
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(sent.filter((row) => row.type === 'sdkPromptStarted').length, 1);
+  disposeMistralRoom('mistral-flow-remove');
 });

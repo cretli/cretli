@@ -106,6 +106,7 @@ test('buildSharedAlwaysApplyRulesPrompt includes only alwaysApply bodies', () =>
   );
   const prompt = buildSharedAlwaysApplyRulesPrompt([root]);
   assert.match(prompt, /SHARED CURSOR RULES/);
+  assert.match(prompt, /not part of this workspace/);
   assert.match(prompt, /Use compact list styling/);
   assert.equal(prompt.includes('Ignore this rule'), false);
   fs.rmSync(root, { recursive: true, force: true });

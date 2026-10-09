@@ -63,6 +63,15 @@ assert.equal(typeof favSdk.items[0].speed_tier, 'number');
 assert.ok(Array.isArray(favSdk.items[0].roles));
 assert.ok(favSdk.items.some((row) => row.roles.includes('plan')));
 
+// Mistral favorites come from the live catalog; they must stay listable
+// without a catalog snapshot even though the static fallback lacks their ids.
+saveSettings({ mistralChatEnabledModels: ['mistral-large-4'] });
+const favMistral = listHarnessModels({ harness: 'mistral', enabledOnly: true });
+assert.deepEqual(favMistral.items.map((row) => row.id), ['mistral-large-4']);
+assert.equal(favMistral.favorites_configured, true);
+assert.ok(listHarnessModels({ harness: 'mistral' }).items.some((row) => row.id === 'mistral-medium-latest'));
+saveSettings({ mistralChatEnabledModels: [] });
+
 const previousEmptyPolicy = process.env.CRETLI_DELEGATION_EMPTY_FAVORITES;
 process.env.CRETLI_DELEGATION_EMPTY_FAVORITES = 'deny';
 saveSettings({ deepseekChatEnabledModels: [] });

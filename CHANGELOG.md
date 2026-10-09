@@ -78,6 +78,23 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- **Mistral favorites are start-eligible for delegation.** `model_list("mistral",
+  enabled_only=true)` returned nothing when the enabled models came from the
+  live vendor catalog (ids absent from the static fallback) and no catalog
+  snapshot existed, so `model_pick` and `delegation_start` could never choose
+  Mistral. Enabled ids are now merged into the catalog, as for Claude. Covered
+  by `tests/harness-catalog.test.js`.
+
+- **Built-in tool loop no longer commits other repositories.** A Mistral chat asked
+  to commit "all local changes" walked sibling checkouts by absolute path and
+  committed and pushed them, because nothing tied the request to the chat
+  workspace. The system prompt now names the workspace root and scopes
+  commit/push requests to it, shared Cursor rules are framed as conventions
+  whose projects are not part of the workspace, and the shell tool refuses git
+  mutations aimed at a repository outside the workspace
+  (`lib/agent-harness/foreign-repo-guard.js`; opt out with
+  `CRETLI_ALLOW_FOREIGN_REPO_GIT=1`). Covered by `tests/tool-executor.test.js`.
+
 - **No harness, MCP or PTY child is left behind after a server kill.** Beyond
   OpenCode, the server now owns every long-lived child in a single registry
   (`data/child-processes.json`): PTY sessions (terminal, task runs, agent runs,

@@ -601,6 +601,48 @@ export function createNotificationStore(deps = {}) {
   }
 
   /**
+   * Dismiss every row the list shows (only the read ones when `readOnly`) in one request.
+   *
+   * @param {{ readOnly?: boolean }} [options]
+   * @returns {Promise<{ ok: true, changed: boolean } | { ok: false, error: string }>}
+   */
+  async function dismissAll(options = {}) {
+    const readOnly = options.readOnly === true;
+    const targets = items.filter((row) => !readOnly || row.readAt);
+    if (targets.length === 0) return { ok: true, changed: false };
+    const token = ++overlayTokenSeq;
+    /** @type {Map<string, object | null>} */
+    const previousEntries = new Map();
+    for (const row of targets) {
+      previousEntries.set(row.id, hiddenOverlay.get(row.id) || null);
+      const source = serverItems.find((item) => item.id === row.id) || row;
+      hiddenOverlay.set(row.id, { row: { ...source }, token });
+    }
+    refreshItems();
+    emitChange();
+    try {
+      const response = await api.dismiss({ all: true, readOnly });
+      if (Number.isFinite(Number(response?.revision))) revision = Math.max(revision, Math.floor(Number(response.revision)));
+      error = '';
+      emitChange();
+      void fetchNow({ reason: 'dismiss-all-confirm' });
+      return { ok: true, changed: response?.changed !== false };
+    } catch (err) {
+      for (const [id, previous] of previousEntries) {
+        const current = hiddenOverlay.get(id);
+        if (!current || current.token !== token) continue;
+        if (previous) hiddenOverlay.set(id, previous);
+        else hiddenOverlay.delete(id);
+      }
+      error = String(err?.message || err);
+      refreshItems();
+      emitChange();
+      void fetchNow({ reason: 'dismiss-all-failed' });
+      return { ok: false, error };
+    }
+  }
+
+  /**
    * Update local preferences (after a successful settings save) and refetch, because
    * the server filters items/unread by preference. This is an explicit user action,
    * so the refetch forces and may replace a lower server revision.
@@ -634,6 +676,7 @@ export function createNotificationStore(deps = {}) {
     markRead,
     markAllRead,
     dismiss,
+    dismissAll,
     applyPreferences,
   };
 }

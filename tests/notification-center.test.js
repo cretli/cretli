@@ -481,6 +481,37 @@ test('dismiss removes the item optimistically and restores it on failure', async
   assert.equal(store.getUnreadCount(), 2);
 });
 
+test('dismissAll clears the visible rows optimistically, sends the scope and rolls back on failure', async () => {
+  const api = makeFakeApi();
+  api.snapshots.push(snapshot({
+    revision: 2,
+    unreadCount: 1,
+    items: [
+      notificationItem({ id: 'a', readAt: '2026-01-01T00:01:00.000Z' }),
+      notificationItem({ id: 'b' }),
+    ],
+  }));
+  api.dismissImpl = async () => { throw new Error('network down'); };
+  const store = createNotificationStore({ api });
+  await store.fetchNow();
+
+  const pendingReadOnly = store.dismissAll({ readOnly: true });
+  assert.deepEqual(store.getItems().map((row) => row.id), ['b'], 'only the read row is cleared optimistically');
+  assert.deepEqual(api.calls.dismiss.at(-1), { all: true, readOnly: true });
+
+  const failed = await pendingReadOnly;
+  assert.equal(failed.ok, false);
+  assert.deepEqual(store.getItems().map((row) => row.id), ['a', 'b'], 'rollback restores both rows');
+  assert.equal(store.getUnreadCount(), 1);
+
+  api.dismissImpl = async () => ({ ok: true, revision: 3, changed: true });
+  const pendingAll = store.dismissAll({ readOnly: false });
+  assert.deepEqual(store.getItems(), [], 'clear-all empties the visible list optimistically');
+  assert.deepEqual(api.calls.dismiss.at(-1), { all: true, readOnly: false });
+  const done = await pendingAll;
+  assert.equal(done.ok, true);
+});
+
 test('a stale GET started before a dismiss cannot resurrect the dismissed row', async () => {
   const api = makeFakeApi();
   api.snapshots.push(snapshot({
@@ -704,6 +735,19 @@ test('pl and en dictionaries expose the same notification-centre keys', () => {
   assert.deepEqual(enSettingsKeys, plSettingsKeys);
 });
 
+test('mark-all and both clear actions ask for confirmation before touching the store', () => {
+  const centerSource = fs.readFileSync(
+    path.join(root, 'app_front', 'features', 'notifications', 'notificationCenter.js'),
+    'utf8',
+  );
+  const confirmCalls = [...centerSource.matchAll(/await confirmNotificationAction\(/g)].map((match) => match.index);
+  const markAllCall = centerSource.indexOf('store.markAllRead()');
+  const dismissAllCall = centerSource.indexOf('store.dismissAll(options)');
+  assert.equal(confirmCalls.length, 2, 'mark-all and clear each ask once');
+  assert.ok(confirmCalls[0] < markAllCall, 'mark-all confirms before markAllRead');
+  assert.ok(confirmCalls[1] < dismissAllCall && confirmCalls[1] > markAllCall, 'clear confirms before dismissAll');
+});
+
 test('index.html places the bell before the settings button with a badge and a panel', () => {
   const bellIndex = indexHtml.indexOf('id="header-notifications-btn"');
   const settingsIndex = indexHtml.indexOf('id="header-settings-btn"');
@@ -721,8 +765,12 @@ test('index.html places the bell before the settings button with a badge and a p
   assert.ok(indexHtml.includes('id="header-notifications-panel"'), 'the dropdown panel exists');
   assert.ok(indexHtml.includes('id="notifications-list"'));
   assert.ok(indexHtml.includes('id="notifications-empty"'));
-  assert.ok(indexHtml.includes('id="notifications-mark-all-btn"'));
-  assert.ok(indexHtml.includes('id="notifications-settings-btn"'));
+  for (const headButtonId of ['notifications-mark-all-btn', 'notifications-clear-read-btn', 'notifications-clear-all-btn', 'notifications-settings-btn']) {
+    const buttonMarkup = indexHtml.match(new RegExp(`<button[^>]*id="${headButtonId}"[^>]*>.*?</button>`))?.[0] || '';
+    assert.match(buttonMarkup, /class="notifications-head-btn"/, `${headButtonId} is an icon button`);
+    assert.match(buttonMarkup, /<span class="mdi mdi-[a-z-]+"/, `${headButtonId} carries an MDI glyph`);
+    assert.match(buttonMarkup, /data-i18n-aria="notifications\./, `${headButtonId} has a translated accessible name`);
+  }
   assert.match(indexHtml, /id="header-notifications-panel"[^>]*role="region"/);
 });
 

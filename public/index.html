@@ -226,8 +226,10 @@
       <div class="notifications-panel-head">
         <span class="notifications-panel-title" data-i18n="notifications.panelTitle">Notifications</span>
         <div class="notifications-panel-head-actions">
-          <button type="button" id="notifications-mark-all-btn" class="notifications-link-btn" data-i18n="notifications.markAll">Mark all as read</button>
-          <button type="button" id="notifications-settings-btn" class="notifications-link-btn" data-i18n="notifications.settingsLink">Notification settings</button>
+          <button type="button" id="notifications-mark-all-btn" class="notifications-head-btn" title="Mark all as read" data-i18n-title="notifications.markAll" aria-label="Mark all as read" data-i18n-aria="notifications.markAll"><span class="mdi mdi-email-check-outline" aria-hidden="true"></span></button>
+          <button type="button" id="notifications-clear-read-btn" class="notifications-head-btn" title="Clear read" data-i18n-title="notifications.clearRead" aria-label="Clear read" data-i18n-aria="notifications.clearRead"><span class="mdi mdi-playlist-remove" aria-hidden="true"></span></button>
+          <button type="button" id="notifications-clear-all-btn" class="notifications-head-btn" title="Clear all" data-i18n-title="notifications.clearAll" aria-label="Clear all" data-i18n-aria="notifications.clearAll"><span class="mdi mdi-trash-can-outline" aria-hidden="true"></span></button>
+          <button type="button" id="notifications-settings-btn" class="notifications-head-btn" title="Notification settings" data-i18n-title="notifications.settingsLink" aria-label="Notification settings" data-i18n-aria="notifications.settingsLink"><span class="mdi mdi-cog-outline" aria-hidden="true"></span></button>
         </div>
       </div>
       <ul id="notifications-list" class="notifications-list" role="list"></ul>

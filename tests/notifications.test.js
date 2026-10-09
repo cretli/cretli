@@ -473,6 +473,47 @@ test('sanitisation strips secrets, home paths and URLs', () => {
   assert.ok(cleaned.includes('[url]') || cleaned.includes('[redacted]'));
 });
 
+test('bulk dismiss clears only listed rows, optionally just the read ones', async () => {
+  resetStoreFile();
+  const preferences = {
+    preset: 'custom',
+    categories: { chat: true, models: false, cli: true, system: true },
+    showBadge: true,
+    sound: true,
+  };
+  const publish = (overrides) => publishNotification({
+    category: 'chat',
+    severity: 'info',
+    title: 'Bulk row',
+    body: '',
+    actionUrl: '/?panel=chat',
+    fingerprint: overrides.fingerprint,
+    ...overrides,
+  }, { storePath, broadcast: false });
+  const chatRead = await publish({ fingerprint: 'chat:bulk:read' });
+  await publish({ fingerprint: 'chat:bulk:unread' });
+  await publish({ category: 'models', fingerprint: 'models:bulk:hidden' });
+  await markNotificationsRead({ id: chatRead.id }, { storePath });
+
+  const readOnly = await dismissNotifications({ all: true, readOnly: true }, { storePath, preferences });
+  assert.equal(readOnly.changed, true);
+  const afterReadOnly = readNotificationStoreSync({ storePath }).items.filter((row) => !row.dismissedAt);
+  assert.deepEqual(
+    afterReadOnly.map((row) => row.fingerprint).sort(),
+    ['chat:bulk:unread', 'models:bulk:hidden'],
+    'only the listed read row was cleared',
+  );
+
+  const all = await dismissNotifications({ all: true }, { storePath, preferences });
+  assert.equal(all.changed, true);
+  const afterAll = readNotificationStoreSync({ storePath }).items.filter((row) => !row.dismissedAt);
+  assert.deepEqual(
+    afterAll.map((row) => row.fingerprint),
+    ['models:bulk:hidden'],
+    'clear-all leaves the row hidden by the category filter',
+  );
+});
+
 test('HTTP routes list, read, dismiss, validation and widget rejection', async () => {
   resetStoreFile();
   const created = await publishNotification({
