@@ -75,9 +75,10 @@ test('descriptor registry exposes the existing openrouter transport id', () => {
   assert.equal(getBuiltinHarnessProvider(null), null);
 
   const list = listBuiltinHarnessProviders();
-  assert.equal(list.length, 2);
+  assert.equal(list.length, 3);
   assert.equal(list[0], OPENROUTER_HARNESS_PROVIDER);
-  assert.equal(list[1], CLAUDE_HARNESS_PROVIDER);
+  assert.equal(list[1].id, 'mistral');
+  assert.equal(list[2], CLAUDE_HARNESS_PROVIDER);
 
   // The static import of the handler must keep registering the chat-run
   // adapter exactly as before (no dynamic import).

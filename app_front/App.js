@@ -62,6 +62,7 @@ import { initOpenRouterModelSettings, refreshOpenRouterModelSettingsPanel } from
 import { initOpenCodeModelSettings, refreshOpenCodeModelSettingsPanel } from './opencodeModelSettings.js';
 import { initCodeBuddyModelSettings, refreshCodeBuddyModelSettingsPanel } from './codebuddyModelSettings.js';
 import { initDeepSeekModelSettings, refreshDeepSeekModelSettingsPanel } from './deepseekModelSettings.js';
+import { initMistralModelSettings, refreshMistralModelSettingsPanel } from './mistralModelSettings.js';
 import { initQwenModelSettings, refreshQwenModelSettingsPanel } from './qwenModelSettings.js';
 import { initClaudeModelSettings, refreshClaudeModelSettingsPanel } from './claudeModelSettings.js';
 import { initCodexModelSettings, refreshCodexModelSettingsPanel } from './codexModelSettings.js';
@@ -445,6 +446,7 @@ function ensureSettingsHeavyModules() {
   initOpenCodeModelSettings();
   initCodeBuddyModelSettings();
   initDeepSeekModelSettings();
+  initMistralModelSettings();
   initQwenModelSettings();
   initClaudeModelSettings();
   initCodexModelSettings();
@@ -1159,6 +1161,7 @@ function refreshSettingsTabPanels(tabId) {
   if (isHarnessModelSubtab(tabId, 'opencode')) refreshOpenCodeModelSettingsPanel();
   if (isHarnessModelSubtab(tabId, 'codebuddy')) refreshCodeBuddyModelSettingsPanel();
   if (isHarnessModelSubtab(tabId, 'deepseek')) refreshDeepSeekModelSettingsPanel();
+  if (isHarnessModelSubtab(tabId, 'mistral')) refreshMistralModelSettingsPanel();
   if (isHarnessModelSubtab(tabId, 'qwen')) refreshQwenModelSettingsPanel();
   if (isHarnessModelSubtab(tabId, 'claude')) refreshClaudeModelSettingsPanel();
   if (isHarnessModelSubtab(tabId, 'codex')) refreshCodexModelSettingsPanel();

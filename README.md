@@ -10,7 +10,7 @@ Official website: [cretli.com](https://cretli.com)
 with **AI agents**. Use it from your phone: terminal, prompts, diffs, and interactive
 widgets — talking to your own PC over HTTPS.
 
-Backends: **OpenCode**, **OpenRouter**, **Cursor SDK**, **CodeBuddy**, **DeepSeek**,
+Backends: **OpenCode**, **OpenRouter**, **Mistral**, **Cursor SDK**, **CodeBuddy**, **DeepSeek**,
 **Qwen Code**, and **Codex**. Multiple devices can share the same session live.
 
 > **Status:** early/experimental (`v0.4.0`). The server exposes a full shell — read
@@ -44,11 +44,11 @@ your phone; the live terminal and chat stay on your PC.
 ### Remote Cursor and agent control
 
 Trigger prompts, review tool calls and diffs, and manage sessions over a
-lightweight web UI — seven pluggable harnesses on one WebSocket protocol.
+lightweight web UI — nine pluggable harnesses on one WebSocket protocol.
 
 ### OpenRouter integration
 
-Bring your own API keys for Claude, GPT, or open-source models. OpenCode, Qwen Code,
+Bring your own API keys for Claude, GPT, or open-source models. OpenCode, Mistral, Qwen Code,
 Codex, DeepSeek, CodeBuddy, and Cursor SDK are first-class alternatives.
 
 ### Self-hosted developer tools
@@ -84,6 +84,7 @@ the `cretli-browser` skill (`.agents/skills/cretli-browser/SKILL.md`).
   markdown, plan/agent mode). Choose one harness per chat:
   - **OpenCode** — local `opencode serve` + Zen (or Z.AI)
   - **OpenRouter** — OpenRouter API + server-side workspace tools
+  - **Mistral** — optional `@mistralai/mistralai` plus a Mistral API key; Cretli runs the tool loop
   - **Cursor SDK** — optional `@cursor/sdk` (Cursor API key + Cursor ToS)
   - **CodeBuddy** — optional `@tencent-ai/agent-sdk` plus the `codebuddy` CLI
   - **DeepSeek Harness** — optional `@deepseek-ai/dsh-sdk-client` plus `@deepseek-ai/dsh`
@@ -140,6 +141,15 @@ Details: [docs/opencode/SETUP.md](docs/opencode/SETUP.md).
 
 1. Set `OPENROUTER_API_KEY` (or paste it in Settings → Harness).
 2. Create a chat with harness **OpenRouter**.
+
+### B2. Mistral (optional)
+
+1. `npm install` tries to install optional `@mistralai/mistralai`; otherwise
+   `npm install @mistralai/mistralai@^2.7.0`.
+2. Set `MISTRAL_API_KEY` (or paste it in Settings → Harness).
+3. Create a chat with harness **Mistral** (default model `mistral-medium-latest`).
+
+Details: [docs/mistral/SETUP.md](docs/mistral/SETUP.md).
 
 ### C. Cursor SDK (optional)
 
@@ -224,6 +234,7 @@ loads it automatically (Node's native `--env-file`). Highlights:
 | `CRETLI_LAN_HOST` | auto | Host used in the in-app link/QR |
 | `OPENCODE_API_KEY` | — | OpenCode Zen key |
 | `OPENROUTER_API_KEY` | — | OpenRouter chat |
+| `MISTRAL_API_KEY` | — | Mistral chat. Optional `MISTRAL_BASE_URL`, `MISTRAL_DEFAULT_MODEL` |
 | `CURSOR_API_KEY` | — | Cursor SDK chat |
 | `CODEBUDDY_API_KEY` | — | CodeBuddy chat |
 | `DEEPSEEK_API_KEY` | — | DeepSeek Harness chat |

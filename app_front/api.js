@@ -539,6 +539,16 @@ export async function getCodeBuddyModels(params = {}) {
   });
 }
 
+/** Mistral Harness status (SDK + API key). */
+export async function getMistralStatus() {
+  return dedupeGetJson('/api/mistral/status', 'getMistralStatus');
+}
+
+/** Mistral Harness model catalog. */
+export async function getMistralModels() {
+  return dedupeGetJson('/api/mistral/models', 'getMistralModels');
+}
+
 /** DeepSeek Harness status (SDK + CLI + API key). */
 export async function getDeepSeekStatus() {
   return dedupeGetJson('/api/deepseek/status', 'getDeepSeekStatus');
@@ -1030,6 +1040,32 @@ export async function integrateTodo(todoId, workspaceFolder, action, expectedUpd
   );
 }
 
+/**
+ * Smart merge: the server prepares the worktree diff and creates an agent chat
+ * (chosen harness/model) in the logical workspace; the caller opens it with the
+ * returned `initialPrompt`.
+ */
+export async function smartMergeTodo(todoId, workspaceFolder, options = {}) {
+  const id = String(todoId || '').trim();
+  const folder = String(workspaceFolder || '').trim();
+  if (!id || !folder) return { ok: false, error: 'Missing task or workspace' };
+  return apiFetchJson(
+    `/api/todos/${encodeURIComponent(id)}/smart-merge`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspaceFolder: folder,
+        workspaceFile: options.workspaceFile || '',
+        agentTransport: options.agentTransport || '',
+        model: options.model || '',
+        conflicts: Array.isArray(options.conflicts) ? options.conflicts : [],
+      }),
+    },
+    'smartMergeTodo',
+  );
+}
+
 export async function deleteTodo(id, workspaceFolder) {
   if (!id) return { ok: false, error: 'Missing id' };
   return apiFetchJson(`/api/todos/${encodeURIComponent(id)}${todoWorkspaceQuery(workspaceFolder)}`, { method: 'DELETE' }, 'deleteTodo');
@@ -1507,6 +1543,15 @@ export async function getHarnessVersions(query = {}) {
   if (query.check) params.set('check', '1');
   const suffix = params.toString() ? `?${params.toString()}` : '';
   return apiFetchJson(`/api/harness/versions${suffix}`, undefined, 'getHarnessVersions');
+}
+
+/** Install the optional Mistral SDK in the Cretli project. */
+export async function installMistralSdk() {
+  return apiFetchJson('/api/harness/mistral/install', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  }, 'installMistralSdk', { timeoutMs: 180000 });
 }
 
 /**

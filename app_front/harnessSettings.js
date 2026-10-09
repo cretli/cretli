@@ -22,7 +22,7 @@ import { initHarnessDiagnostics, refreshHarnessDiagnosticsPanel } from './featur
 import { initHarnessModelRoleConfig, refreshHarnessModelRoleConfigPanel } from './features/harness-health/harnessModelRoleConfig.js';
 import { initHarnessVersionCards } from './features/settings/harnessVersionCard.js';
 
-/** @typedef {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen' | 'claude'} NewChatHarness */
+/** @typedef {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'mistral' | 'codex' | 'qwen' | 'claude'} NewChatHarness */
 
 /** @type {NewChatHarness} */
 let cachedDefaultHarness = 'sdk';
@@ -46,6 +46,7 @@ function normalizeDefaultHarness(value) {
   if (raw === 'opencode') return 'opencode';
   if (raw === 'codebuddy') return 'codebuddy';
   if (raw === 'deepseek') return 'deepseek';
+  if (raw === 'mistral') return 'mistral';
   if (raw === 'codex') return 'codex';
   if (raw === 'qwen') return 'qwen';
   if (raw === 'claude') return 'claude';
@@ -118,6 +119,7 @@ function harnessCatalog() {
     { id: 'sdk', tab: 'harness-sdk', label: t('settings.harnessSdk') },
     { id: 'codebuddy', tab: 'harness-codebuddy', label: t('settings.harnessCodeBuddy') },
     { id: 'deepseek', tab: 'harness-deepseek', label: t('settings.harnessDeepSeek') },
+    { id: 'mistral', tab: 'harness-mistral', label: t('settings.harnessMistral') },
     { id: 'qwen', tab: 'harness-qwen', label: t('settings.harnessQwen') },
     { id: 'claude', tab: 'harness-claude', label: t('settings.harnessClaude') },
     { id: 'codex', tab: 'harness-codex', label: t('settings.harnessCodex') },
@@ -210,6 +212,7 @@ function renderHarnessSetupStatus(data) {
     const missingSdk = row.id === 'sdk' && backend && backend.available === false;
     const missingCodeBuddy = row.id === 'codebuddy' && backend && backend.available === false;
     const missingDeepSeek = row.id === 'deepseek' && backend && backend.available === false;
+    const missingMistral = row.id === 'mistral' && backend && backend.available === false;
     const missingQwen = row.id === 'qwen' && backend && backend.available === false;
     const missingClaude = row.id === 'claude' && backend && backend.available === false;
     const missingCodex = row.id === 'codex' && backend && backend.available === false;
@@ -221,7 +224,9 @@ function renderHarnessSetupStatus(data) {
           ? t('settings.harnessStatusCodeBuddyMissing')
           : missingDeepSeek
             ? t('settings.harnessStatusDeepSeekMissing')
-            : missingQwen
+            : missingMistral
+              ? t('settings.harnessStatusMistralMissing')
+              : missingQwen
               ? t('settings.harnessStatusQwenMissing')
               : missingClaude
                 ? t('settings.harnessStatusClaudeMissing')
@@ -401,6 +406,7 @@ export function initHarnessSettings() {
     'cretli-opencode-models-changed',
     'cretli-codebuddy-models-changed',
     'cretli-deepseek-models-changed',
+    'cretli-mistral-models-changed',
     'cretli-qwen-models-changed',
     'cretli-claude-models-changed',
     'cretli-codex-models-changed',

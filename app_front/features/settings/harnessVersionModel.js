@@ -8,6 +8,7 @@ import { escapeHtml } from '../usage/usageCharts.js';
 export const HARNESS_VERSION_CARD_IDS = Object.freeze([
   'sdk',
   'openrouter',
+  'mistral',
   'opencode',
   'codebuddy',
   'deepseek',
@@ -203,7 +204,7 @@ export function buildOverviewVersionModel(payload, options = {}) {
 
 /**
  * @param {object} model
- * @param {{ t: (key: string, vars?: object) => string, harnessLabel?: string, modelsRefreshNote?: string, modelsRefreshResult?: object|null, busy?: string, error?: string }} options
+ * @param {{ t: (key: string, vars?: object) => string, harnessLabel?: string, modelsRefreshNote?: string, modelsRefreshResult?: object|null, busy?: string, error?: string, installNotice?: string }} options
  * @returns {string}
  */
 export function renderHarnessVersionCardHtml(model, options) {
@@ -278,6 +279,13 @@ export function renderHarnessVersionCardHtml(model, options) {
     parts.push(`<p class="harness-version-meta">${escapeHtml(metaParts.join(' · '))}</p>`);
   }
   parts.push('<div class="harness-version-actions">');
+  const mistralSdk = model.kind === 'single' && model.harnessId === 'mistral'
+    ? model.packages.find((pkg) => pkg.name === '@mistralai/mistralai')
+    : null;
+  const canInstallMistral = !model.updateEnvironment?.docker && !model.updateEnvironment?.termux;
+  if (model.kind === 'single' && model.harnessId === 'mistral' && canInstallMistral && (!mistralSdk || mistralSdk.status === 'missing')) {
+    parts.push(`<button type="button" class="harness-version-check-btn" data-action="install-mistral"${busy === 'install' ? ' disabled' : ''}>${escapeHtml(busy === 'install' ? t('harnessVersion.installing') : t('harnessVersion.installMistral'))}</button>`);
+  }
   parts.push(`<button type="button" class="harness-version-check-btn" data-action="check-updates"${busy === 'check' ? ' disabled' : ''}>${escapeHtml(t('harnessVersion.checkForUpdates'))}</button>`);
   const refreshDisabled = busy === 'refresh'
     || model.kind === 'overview'
@@ -292,6 +300,9 @@ export function renderHarnessVersionCardHtml(model, options) {
   }
   if (options.modelsRefreshNote) {
     parts.push(`<p class="harness-version-hint">${escapeHtml(options.modelsRefreshNote)}</p>`);
+  }
+  if (options.installNotice) {
+    parts.push(`<p class="harness-version-hint">${escapeHtml(options.installNotice)}</p>`);
   }
   if (refreshResult) {
     const source = String(refreshResult.source || '').trim();

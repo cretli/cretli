@@ -70,6 +70,12 @@ All notable changes to this project are documented here. The format is based on
   dev middlewares stay for a trial period before removal. Covered by
   `tests/front-hmr-mode.test.js` and `tests/front-hmr-default-off.test.js`.
 
+- **Mistral harness** (`agentTransport: mistral`): chats through the Mistral API via the
+  optional `@mistralai/mistralai` SDK with the shared host tool loop, Plan/Ask/Review
+  tool gating, `GET /api/mistral/status` and `/api/mistral/models`, key and base URL
+  from `MISTRAL_API_KEY` / `MISTRAL_BASE_URL` or Settings, default model
+  `mistral-medium-latest`. Setup: `docs/mistral/SETUP.md`.
+
 ### Fixed
 
 - **No harness, MCP or PTY child is left behind after a server kill.** Beyond

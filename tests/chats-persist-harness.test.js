@@ -149,3 +149,5 @@ assert.equal(usesHarnessWebSocket({}), false);
 assert.equal(usesHarnessWebSocket({ id: 't-1', title: 'Terminal 1', ws: {} }), false);
 
 console.log('chats-persist-harness.test.js OK');
+
+assert.equal(normalizeAgentTransport('mistral'), 'mistral');

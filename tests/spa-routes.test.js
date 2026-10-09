@@ -146,6 +146,7 @@ test('remapSettingsTab maps legacy harness tabs to the Keys sub-tab', () => {
   for (const harnessId of [
     'sdk',
     'openrouter',
+    'mistral',
     'opencode',
     'codebuddy',
     'deepseek',
@@ -292,7 +293,7 @@ test('buildSpaLocation drops panel/tab aliases and keeps other query params', ()
 
 
 test('each harness statistics tab has a round-trip direct link', () => {
-  for (const harness of ['sdk', 'openrouter', 'opencode', 'codebuddy', 'deepseek', 'qwen', 'claude', 'codex']) {
+  for (const harness of ['sdk', 'openrouter', 'mistral', 'opencode', 'codebuddy', 'deepseek', 'qwen', 'claude', 'codex']) {
     const settingsTab = `harness-${harness}-stats`;
     const url = buildSpaPath({ panel: 'settings', settingsTab });
     assert.equal(url, `/settings/${settingsTab}`);

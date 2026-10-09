@@ -834,7 +834,10 @@ function renderRowMenuItems(row, list) {
     // Only offered when the item's tree really owns an un-integrated worktree;
     // a permanently disabled row on every other task would be noise.
     ...(canIntegrateWorktree(item)
-      ? [{ id: 'integrate', icon: 'mdi-source-merge', label: t('todo.integrationMerge') }]
+      ? [
+        { id: 'integrate', icon: 'mdi-source-merge', label: t('todo.integrationMerge') },
+        { id: 'smartMerge', icon: 'mdi-robot-outline', label: t('todo.smartMerge') },
+      ]
       : []),
     { id: 'delete', icon: 'mdi-delete-outline', label: t('todo.delete'), danger: true },
   ];
@@ -964,6 +967,10 @@ async function runRowMenuAction(action, item) {
     await mergeTodoWithWorkspace(item);
     return;
   }
+  if (action === 'smartMerge') {
+    openSmartMergePicker(item, []);
+    return;
+  }
   if (action === 'delete') {
     await deleteTodoWithConfirm(id);
   }
@@ -1009,12 +1016,64 @@ async function mergeTodoWithWorkspace(item) {
           ? t('todo.integrationMergeConflict', { paths: conflicts.join(', ') || '—' })
           : t('todo.integrationMergeFailed');
       setStatus(message, true);
+      // A conflicting worktree is handed to an agent instead of dead-ending.
+      if (error === 'integration_conflict' && confirmAction(t('todo.smartMergeOffer', { paths: conflicts.join(', ') || '—' }))) {
+        openSmartMergePicker(item, conflicts);
+      }
       return;
     }
     await refreshTodoList();
     await refreshWatcherPanel();
     openEditor(ownerTodoId);
     setStatus(result.alreadyApplied ? t('todo.integrationMergedAlready') : t('todo.integrationMerged'));
+  } catch {
+    setStatus(t('todo.networkError'), true);
+  }
+}
+
+/**
+ * Smart merge: pick an agent (harness + model) that merges the worktree result
+ * into the workspace by hand. The chat runs in the logical workspace, not in the
+ * worktree, and nothing is committed.
+ *
+ * @param {object} item
+ * @param {string[]} conflicts
+ */
+function openSmartMergePicker(item, conflicts) {
+  const id = String(item?.id || '').trim();
+  if (!id) return;
+  openTodoAgentStartModal({
+    harness: resolveTodoStartHarness(item),
+    onStart: ({ harness, model }) => runSmartMerge(id, { harness, model, conflicts }),
+  });
+}
+
+/**
+ * @param {string} todoId
+ * @param {{ harness: string, model: string, conflicts: string[] }} options
+ */
+async function runSmartMerge(todoId, options) {
+  const ctx = getWorkspaceContext();
+  if (!ctx.workspaceFile || !ctx.workspaceFolder) {
+    setStatus(t('todo.selectWorkspace'), true);
+    return;
+  }
+  setStatus(t('todo.smartMergeStarting'));
+  try {
+    const data = await api.smartMergeTodo(todoId, ctx.workspaceFolder, {
+      workspaceFile: ctx.workspaceFile,
+      agentTransport: options.harness,
+      model: String(options.model || 'auto'),
+      conflicts: options.conflicts,
+    });
+    if (!data?.ok || !data.chat) {
+      setStatus(data?.error === 'no_worktree' ? t('todo.integrationNoWorktree') : t('todo.smartMergeFailed'), true);
+      return;
+    }
+    await refreshTodoList();
+    openTodoAgentChat(data.chat, { initialPrompt: data.initialPrompt });
+    showPanelFn('chat');
+    setStatus(t('todo.smartMergeStarted'));
   } catch {
     setStatus(t('todo.networkError'), true);
   }
@@ -1148,11 +1207,17 @@ function paintTodoRow(el, row) {
   const isClaimed = !!claimedBy;
   const isQueued = !isClaimed && status === 'ready' && isWatcherAutopilot();
   const isIntegrationReady = isTodoAwaitingIntegration(row.item);
+  // Merged into the workspace (apply or smart merge); only the human confirmation is left.
+  const isIntegrationMerged = isIntegrationReady && !!String(row.item?.integration?.appliedAt || '').trim();
+  const isSmartMerging = isIntegrationReady && String(row.item?.integration?.reason || '') === 'smart_merge_running';
+  const integrationLabel = isSmartMerging
+    ? t('todo.smartMergeRunningBadge')
+    : isIntegrationMerged ? t('todo.integrationMergedBadge') : t('todo.integrationReady');
   const assigneeBadge = formatTodoAssigneeBadge(row.item);
   let badgeFull = '';
   let badgeKind = '';
   if (isIntegrationReady) {
-    badgeFull = t('todo.integrationReady');
+    badgeFull = integrationLabel;
     badgeKind = 'integration';
   } else if (isClaimed) {
     badgeFull = t('todo.claimedBy', { chat: claimedBy.slice(0, 8) });
@@ -1183,7 +1248,7 @@ function paintTodoRow(el, row) {
     mark.hidden = !markKind;
     const blockKind = markKind === 'blocked' ? readTodoRowBlockKind(latestItems, row.item) : '';
     mark.textContent = markKind === 'integration'
-      ? t('todo.integrationReady')
+      ? integrationLabel
       : blockKind === 'action'
         ? t('todo.blockedAction')
         : blockKind === 'dependency'
@@ -1192,7 +1257,7 @@ function paintTodoRow(el, row) {
     mark.dataset.mark = markKind === 'integration' ? 'integration' : (blockKind ? `blocked-${blockKind}` : markKind);
     const blockedReason = String(row.item?.blockedReason || '').trim();
     const blockDetail = markKind === 'integration'
-      ? t('todo.integrationReadyHint')
+      ? (isSmartMerging ? t('todo.smartMergeRunningHint') : isIntegrationMerged ? t('todo.integrationMergedBadgeHint') : t('todo.integrationReadyHint'))
       : blockKind === 'action'
         ? blockedReason
         : blockKind === 'dependency' ? t('todo.blockedDependencyHint') : '';

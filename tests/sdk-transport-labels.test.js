@@ -8,6 +8,7 @@ import {
 
 assert.equal(normalizeHarnessTransport('sdk'), 'sdk');
 assert.equal(normalizeHarnessTransport('openrouter'), 'openrouter');
+assert.equal(normalizeHarnessTransport('mistral'), 'mistral');
 assert.equal(normalizeHarnessTransport('opencode'), 'opencode');
 assert.equal(normalizeHarnessTransport('codebuddy'), 'codebuddy');
 assert.equal(normalizeHarnessTransport('deepseek'), 'deepseek');
@@ -18,6 +19,7 @@ assert.equal(normalizeHarnessTransport('unknown'), 'sdk');
 
 assert.equal(resolveHarnessDisplayLabel('sdk'), 'SDK');
 assert.equal(resolveHarnessDisplayLabel('openrouter'), 'OpenRouter');
+assert.equal(resolveHarnessDisplayLabel('mistral'), 'Mistral');
 assert.equal(resolveHarnessDisplayLabel('opencode'), 'OpenCode');
 assert.equal(resolveHarnessDisplayLabel('codebuddy'), 'CodeBuddy');
 assert.equal(resolveHarnessDisplayLabel('deepseek'), 'DeepSeek');

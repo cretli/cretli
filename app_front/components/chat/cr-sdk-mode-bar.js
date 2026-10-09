@@ -399,7 +399,7 @@ class CrSdkModeBar extends LitElement {
 
   normalizeBarHarness(value, fallback = '') {
     const raw = String(value || '').trim().toLowerCase();
-    if (raw === 'openrouter' || raw === 'opencode' || raw === 'codebuddy' || raw === 'deepseek' || raw === 'codex' || raw === 'qwen' || raw === 'claude') return raw;
+    if (raw === 'openrouter' || raw === 'opencode' || raw === 'codebuddy' || raw === 'deepseek' || raw === 'mistral' || raw === 'codex' || raw === 'qwen' || raw === 'claude') return raw;
     if (raw === 'sdk') return 'sdk';
     return fallback;
   }
@@ -791,6 +791,7 @@ class CrSdkModeBar extends LitElement {
       { value: 'opencode', label: 'OpenCode' },
       { value: 'codebuddy', label: 'CodeBuddy' },
       { value: 'deepseek', label: 'DeepSeek' },
+      { value: 'mistral', label: 'Mistral' },
       { value: 'qwen', label: 'Qwen' },
       { value: 'codex', label: 'Codex' },
       { value: 'claude', label: 'Claude' },

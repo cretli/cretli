@@ -165,7 +165,7 @@ does not change totals/rates in this stage.
 
 `tests/usage-contract.test.js` covers:
 
-- all eight harnesses present with shape, granularity, cache and reasoning
+- all nine harnesses present with shape, granularity, cache and reasoning
   declarations, sources and safe examples;
 - `schemaVersion`/`normalizationVersion` present on the first new event;
 - provenance `reported` / `estimated` / `unknown`;

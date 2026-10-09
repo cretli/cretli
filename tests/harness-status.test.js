@@ -22,6 +22,8 @@ try {
   assert.equal(typeof status.codebuddy.configured, 'boolean');
   assert.equal(typeof status.deepseek.available, 'boolean');
   assert.equal(typeof status.deepseek.configured, 'boolean');
+  assert.equal(typeof status.mistral.available, 'boolean');
+  assert.equal(typeof status.mistral.configured, 'boolean');
   assert.equal(typeof status.codex.available, 'boolean');
   assert.equal(typeof status.codex.configured, 'boolean');
   assert.equal(typeof status.qwen.available, 'boolean');
@@ -33,6 +35,7 @@ try {
       || status.openrouter.configured
       || status.codebuddy.configured
       || status.deepseek.configured
+      || status.mistral.configured
       || status.codex.configured
       || status.qwen.configured,
   );

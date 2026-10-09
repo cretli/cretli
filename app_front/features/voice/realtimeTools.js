@@ -434,7 +434,7 @@ const handlers = {
     if (!harness) {
       return {
         ok: false,
-        error: 'Unknown harness. Try cursor, opencode, openrouter, codebuddy, deepseek, codex, qwen, claude.',
+        error: 'Unknown harness. Try cursor, opencode, openrouter, codebuddy, deepseek, mistral, codex, qwen, claude.',
       };
     }
     const chatModule = await loadChatModule();
@@ -457,7 +457,7 @@ const handlers = {
       if (!harness) {
         return {
           ok: false,
-          error: 'Unknown harness. Try cursor, opencode, openrouter, codebuddy, deepseek, codex, qwen, claude.',
+          error: 'Unknown harness. Try cursor, opencode, openrouter, codebuddy, deepseek, mistral, codex, qwen, claude.',
         };
       }
     }

@@ -3,7 +3,7 @@
  * Unknown values stay empty — unlike normalizeAgentTransport, which maps them to sdk.
  *
  * @param {unknown} value
- * @returns {'sdk'|'openrouter'|'opencode'|'codebuddy'|'deepseek'|'codex'|'qwen'|'claude'|''}
+ * @returns {'sdk'|'openrouter'|'opencode'|'codebuddy'|'deepseek'|'mistral'|'codex'|'qwen'|'claude'|''}
  */
 export function resolveVoiceHarness(value) {
   const raw = String(value || '')
@@ -17,6 +17,7 @@ export function resolveVoiceHarness(value) {
   if (/\bopen\s*code\b/.test(raw) || /\bopencode\b/.test(raw)) return 'opencode';
   if (/\bcode\s*buddy\b/.test(raw) || /\bcodebuddy\b/.test(raw)) return 'codebuddy';
   if (/\bdeep\s*seek\b/.test(raw) || /\bdeepseek\b/.test(raw)) return 'deepseek';
+  if (/\bmistral\b/.test(raw)) return 'mistral';
   if (/\bcodex\b/.test(raw)) return 'codex';
   if (/\bqwen\b/.test(raw) || /\bkwen\b/.test(raw)) return 'qwen';
   if (/\bclaude\b/.test(raw)) return 'claude';

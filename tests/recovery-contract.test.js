@@ -495,7 +495,7 @@ test('MVP adapters cover six harnesses and defer the rest', () => {
     assert.equal(resolveRecoveryAdapter(harness), entry);
   }
 
-  assert.deepEqual([...RECOVERY_DEFERRED_ADAPTERS], ['codebuddy', 'openrouter']);
+  assert.deepEqual([...RECOVERY_DEFERRED_ADAPTERS], ['codebuddy', 'openrouter', 'mistral']);
   assert.equal(RECOVERY_MVP_ADAPTERS.codebuddy, undefined);
   assert.equal(RECOVERY_MVP_ADAPTERS.openrouter, undefined);
   assert.ok(RECOVERY_DEFERRED_ADAPTER_REASONS.codebuddy);

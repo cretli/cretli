@@ -59,6 +59,7 @@ test('matrix covers all eight harnesses with the required contract fields', () =
     'codebuddy',
     'codex',
     'deepseek',
+    'mistral',
     'opencode',
     'openrouter',
     'qwen',

@@ -29,7 +29,7 @@ import { createSession, requireAuth, setPassword } from '../lib/auth.js';
 import { saveSettings } from '../lib/persist/settings.js';
 import { ISOLATED_DATA_DIR, removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 
-const HARNESS_IDS = ['sdk', 'openrouter', 'opencode', 'codebuddy', 'deepseek', 'codex', 'qwen', 'claude'];
+const HARNESS_IDS = ['sdk', 'openrouter', 'mistral', 'opencode', 'codebuddy', 'deepseek', 'codex', 'qwen', 'claude'];
 
 /** Versions only this suite knows about — the fixture is the source of truth. */
 const FIXTURE_VERSIONS = {

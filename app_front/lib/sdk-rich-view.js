@@ -5835,12 +5835,11 @@ export function createSdkRichView(chat, mountEl, hooks) {
       const remainingMs = Number.isFinite(progress.remainingMs) ? Number(progress.remainingMs) : null;
       const timeoutMs = Number.isFinite(progress.timeoutMs) ? Number(progress.timeoutMs) : null;
       const transport = typeof progress.transport === 'string' ? progress.transport : 'sdk';
-      const label =
-        transport === 'openrouter' ? 'OpenRouter' : transport === 'opencode' ? 'OpenCode' : 'SDK';
+      const label = resolveHarnessDisplayLabel(transport);
       if (phase === 'notice' || phase === 'retry') {
         const message = typeof progress.message === 'string' ? progress.message.trim() : '';
         if (!message) return;
-        const notice = `[${transport === 'claude' ? 'Claude' : label}] ${message}`;
+        const notice = `[${label}] ${message}`;
         if (!silent) hooks.appendPlain(`\n${notice}\n`);
         if (!silent && typeof hooks.onHistoryRecord === 'function' && !suppressHistoryPersist) {
           hooks.onHistoryRecord({

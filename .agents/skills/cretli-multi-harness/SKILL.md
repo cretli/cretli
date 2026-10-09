@@ -147,7 +147,7 @@ Each `review` candidate carries `traits`: `review_can_run_tests` and its source
 `review_can_run_tests_source`, plus short `known_failure_modes` tags (for example
 `codex: usage_limit`, `opencode: adapter_incomplete`, `qwen: slow_read_loop`).
 `review_can_run_tests` is a **prior** by default: `true` for `claude`,
-`openrouter`, `opencode`, `codebuddy`, `qwen`, `codex`; `false` for `sdk` and
+`openrouter`, `mistral`, `opencode`, `codebuddy`, `qwen`, `codex`; `false` for `sdk` and
 `deepseek` (deepseek's read-only dsh sandbox is unconfirmed until observed). The
 server refines the prior per harness from the last 30 days of review reports:
 at least **2** reports with a successful `node scripts/review-verify.js` trace

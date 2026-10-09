@@ -226,6 +226,28 @@ export function initLanSettings() {
     hint.textContent = t('lanSettings.deepseekKeyMissing');
   }
 
+  function applyMistralApiKeyHint(data) {
+    const hint = document.getElementById('mistral-api-key-source-hint');
+    const keyInput = document.getElementById('mistral-api-key-input');
+    const keyStatus = document.getElementById('mistral-api-key-save-status');
+    if (keyInput) keyInput.value = '';
+    if (keyStatus) keyStatus.textContent = '';
+    if (!hint) return;
+    if (!data?.ok) {
+      hint.textContent = '';
+      return;
+    }
+    if (data.mistralApiKeyFromEnv) {
+      hint.textContent = t('lanSettings.mistralKeyFromEnv');
+      return;
+    }
+    if (data.mistralApiKeyStoredInSettings && data.mistralApiKeyEffective) {
+      hint.textContent = t('lanSettings.mistralKeyStored');
+      return;
+    }
+    hint.textContent = t('lanSettings.mistralKeyMissing');
+  }
+
   function applyQwenEndpointSelect(data) {
     const selectEl = document.getElementById('qwen-endpoint-select');
     const customField = document.getElementById('qwen-base-url-field');
@@ -479,6 +501,7 @@ export function initLanSettings() {
     applyOpenCodeMimoApiKeyHint(data);
     applyCodeBuddyApiKeyHint(data);
     applyDeepSeekApiKeyHint(data);
+    applyMistralApiKeyHint(data);
     applyQwenApiKeyHint(data);
     applyClaudeAuthModeSelect(data);
     applyClaudeApiKeyHint(data);
@@ -757,6 +780,56 @@ export function initLanSettings() {
         })
         .catch(() => {
           if (deepseekApiKeyStatusEl) deepseekApiKeyStatusEl.textContent = t('lanSettings.connectionError');
+        });
+    });
+  }
+
+  const mistralApiKeyInput = document.getElementById('mistral-api-key-input');
+  const mistralApiKeySaveBtn = document.getElementById('mistral-api-key-save-btn');
+  const mistralApiKeyClearBtn = document.getElementById('mistral-api-key-clear-btn');
+  const mistralApiKeyStatusEl = document.getElementById('mistral-api-key-save-status');
+
+  if (mistralApiKeySaveBtn && mistralApiKeyInput) {
+    mistralApiKeySaveBtn.addEventListener('click', () => {
+      const v = (mistralApiKeyInput.value || '').trim();
+      if (!v) {
+        if (mistralApiKeyStatusEl) mistralApiKeyStatusEl.textContent = t('lanSettings.pasteKeyFirst');
+        return;
+      }
+      if (mistralApiKeyStatusEl) mistralApiKeyStatusEl.textContent = t('common.saving');
+      api
+        .patchSettings({ mistralApiKey: v })
+        .then((data) => {
+          if (!data?.ok) {
+            if (mistralApiKeyStatusEl) mistralApiKeyStatusEl.textContent = data?.error || t('lanSettings.saveError');
+            return;
+          }
+          applyMistralApiKeyHint(data);
+          if (mistralApiKeyStatusEl) mistralApiKeyStatusEl.textContent = t('common.saved');
+          window.dispatchEvent(new CustomEvent('cretli-mistral-key-changed'));
+        })
+        .catch(() => {
+          if (mistralApiKeyStatusEl) mistralApiKeyStatusEl.textContent = t('lanSettings.connectionError');
+        });
+    });
+  }
+
+  if (mistralApiKeyClearBtn) {
+    mistralApiKeyClearBtn.addEventListener('click', () => {
+      if (mistralApiKeyStatusEl) mistralApiKeyStatusEl.textContent = t('common.removing');
+      api
+        .patchSettings({ clearMistralApiKey: true })
+        .then((data) => {
+          if (!data?.ok) {
+            if (mistralApiKeyStatusEl) mistralApiKeyStatusEl.textContent = data?.error || t('lanSettings.error');
+            return;
+          }
+          applyMistralApiKeyHint(data);
+          if (mistralApiKeyStatusEl) mistralApiKeyStatusEl.textContent = t('common.removed');
+          window.dispatchEvent(new CustomEvent('cretli-mistral-key-changed'));
+        })
+        .catch(() => {
+          if (mistralApiKeyStatusEl) mistralApiKeyStatusEl.textContent = t('lanSettings.connectionError');
         });
     });
   }

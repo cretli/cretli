@@ -122,14 +122,14 @@ function launchAndAck(store, harness) {
   return { ids, run: ack.run };
 }
 
-test('validation matrix covers exactly six MVP harnesses plus two deferred', () => {
+test('validation matrix covers exactly six MVP harnesses plus three deferred', () => {
   const subjects = listRecoveryAdapterValidationSubjects();
   assert.deepEqual([...subjects].sort(), [
     ...MVP_HARNESSES,
     ...RECOVERY_DEFERRED_ADAPTERS,
   ].sort());
   const matrix = getRecoveryAdapterValidationMatrix();
-  assert.equal(Object.keys(matrix).length, 8);
+  assert.equal(Object.keys(matrix).length, 9);
   for (const harness of MVP_HARNESSES) {
     assert.equal(matrix[harness].scope, 'mvp');
     assert.equal(matrix[harness].overallStatus, 'pending');
@@ -206,10 +206,10 @@ test('deferred and unknown harnesses never reach validated overall status', () =
     assert.equal(view.validation, '');
     assert.equal(view.adapterValidation.overallStatus, 'unsupported');
   }
-  const unknown = buildRecoveryAdapterValidationRecord({ harness: 'mistral' });
+  const unknown = buildRecoveryAdapterValidationRecord({ harness: 'no-such-harness' });
   assert.equal(unknown.overallStatus, 'no_validation');
   assert.notEqual(unknown.overallStatus, 'validated');
-  const unknownView = describeRecoveryAdapterContract('mistral');
+  const unknownView = describeRecoveryAdapterContract('no-such-harness');
   assert.equal(unknownView.adapterValidation.overallStatus, 'no_validation');
 });
 

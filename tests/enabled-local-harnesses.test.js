@@ -29,7 +29,7 @@ test('isValidLocalHarnessId accepts plugin ids and rejects builtins/reserved', (
   for (const id of ['has space', 'UPPER_CASE', '-leading', 'trailing-', '1starts-with-digit', 'dot.name', null, 42, {}]) {
     assert.equal(isValidLocalHarnessId(id), false, `expected malformed: ${JSON.stringify(id)}`);
   }
-  assert.deepEqual([...HARNESS_RESERVED_IDS].sort(), ['codebuddy', 'codex', 'cursor', 'deepseek', 'claude', 'openrouter', 'opencode', 'qwen', 'sdk'].sort());
+  assert.deepEqual([...HARNESS_RESERVED_IDS].sort(), ['codebuddy', 'codex', 'cursor', 'deepseek', 'claude', 'mistral', 'openrouter', 'opencode', 'qwen', 'sdk'].sort());
 });
 
 test('normalize trims, lowercases, dedupes and preserves first-seen order', () => {

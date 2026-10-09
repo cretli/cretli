@@ -16,7 +16,7 @@
  *   local `capabilities.chat` plugin ids that must survive normalization. A local
  *   id is only preserved while it is in this set; anything else still collapses to
  *   `sdk` (the pre-plugin behavior).
- * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen' | 'claude' | string}
+ * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'mistral' | 'codex' | 'qwen' | 'claude' | string}
  */
 export function normalizeNewChatHarnessId(value, options = {}) {
   const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -24,6 +24,7 @@ export function normalizeNewChatHarnessId(value, options = {}) {
   if (raw === 'opencode') return 'opencode';
   if (raw === 'codebuddy') return 'codebuddy';
   if (raw === 'deepseek') return 'deepseek';
+  if (raw === 'mistral') return 'mistral';
   if (raw === 'codex') return 'codex';
   if (raw === 'qwen') return 'qwen';
   if (raw === 'claude') return 'claude';

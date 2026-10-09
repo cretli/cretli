@@ -2,7 +2,7 @@
  * Settings → Harness: read-only version inventory and explicit model refresh.
  */
 
-import { getHarnessVersions, refreshHarnessModelsCatalog } from '../../api.js';
+import { getHarnessVersions, installMistralSdk, refreshHarnessModelsCatalog } from '../../api.js';
 import { t, getCurrentLang } from '../../i18n/index.js';
 import { isHarnessSubtabOf } from '../../../lib/spa-routes.js';
 import {
@@ -15,7 +15,7 @@ import {
 
 /** @type {object|null} */
 let cachedVersionsPayload = null;
-/** @type {Map<string, { hosts: HTMLElement[], harnessId: string, modelsRefreshResult: object|null, busy: string, error: string }>} */
+/** @type {Map<string, { hosts: HTMLElement[], harnessId: string, modelsRefreshResult: object|null, busy: string, error: string, installNotice: string }>} */
 const controllers = new Map();
 let wired = false;
 
@@ -27,6 +27,7 @@ function harnessLabel(harnessId) {
   const keyById = {
     sdk: 'settings.harnessSdk',
     openrouter: 'settings.harnessOpenRouter',
+    mistral: 'settings.harnessMistral',
     opencode: 'settings.harnessOpenCode',
     codebuddy: 'settings.harnessCodeBuddy',
     deepseek: 'settings.harnessDeepSeek',
@@ -54,6 +55,7 @@ function paintRecord(record) {
     modelsRefreshResult: record.harnessId === 'overview' ? null : record.modelsRefreshResult,
     busy: record.busy,
     error: record.error,
+    installNotice: record.installNotice,
   });
   for (const host of record.hosts) {
     host.innerHTML = html;
@@ -67,6 +69,10 @@ function paintRecord(record) {
  * @returns {void}
  */
 function wireHostActions(host, record) {
+  const installBtn = host.querySelector('[data-action="install-mistral"]');
+  if (installBtn instanceof HTMLButtonElement) {
+    installBtn.onclick = () => { void runMistralInstall(record.harnessId); };
+  }
   const checkBtn = host.querySelector('[data-action="check-updates"]');
   if (checkBtn instanceof HTMLButtonElement) {
     checkBtn.onclick = () => {
@@ -79,6 +85,28 @@ function wireHostActions(host, record) {
       if (record.harnessId === 'overview') return;
       void runRefreshModels(record.harnessId);
     };
+  }
+}
+
+async function runMistralInstall(harnessId) {
+  const record = controllers.get(harnessId);
+  if (!record || record.busy || harnessId !== 'mistral') return;
+  record.busy = 'install';
+  record.error = '';
+  paintRecord(record);
+  try {
+    const result = await installMistralSdk();
+    if (!result?.ok) {
+      record.error = result?.error || t('harnessVersion.installFailed');
+      return;
+    }
+    cachedVersionsPayload = null;
+    record.installNotice = t('harnessVersion.installRestartRequired');
+  } catch (error) {
+    record.error = error?.message || t('harnessVersion.installFailed');
+  } finally {
+    record.busy = '';
+    paintRecord(record);
   }
 }
 
@@ -144,6 +172,7 @@ async function runRefreshModels(harnessId) {
     const eventByHarness = {
       sdk: 'cretli-chat-models-changed',
       openrouter: 'cretli-openrouter-models-changed',
+      mistral: 'cretli-mistral-models-changed',
       opencode: 'cretli-opencode-models-changed',
       codebuddy: 'cretli-codebuddy-models-changed',
       deepseek: 'cretli-deepseek-models-changed',
@@ -216,6 +245,7 @@ export function initHarnessVersionCards() {
         modelsRefreshResult: null,
         busy: '',
         error: '',
+        installNotice: '',
       };
       controllers.set(harnessId, record);
     }

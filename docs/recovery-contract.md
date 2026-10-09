@@ -236,13 +236,15 @@ Widok kontraktu nie otwiera SQLite. Macierz sama nie zastępuje crash suite.
 Tylko `opencode` potrafi `reattach` do żywego wykonawcy; pozostałe po śmierci
 procesu wznawiają zachowaną sesję.
 
-Poza MVP (`RECOVERY_DEFERRED_ADAPTERS`): `codebuddy` i `openrouter`, z
+Poza MVP (`RECOVERY_DEFERRED_ADAPTERS`): `codebuddy`, `openrouter` i `mistral`, z
 uzasadnieniem w `RECOVERY_DEFERRED_ADAPTER_REASONS`:
 
 - `codebuddy` — runner po utracie procesu tworzy świeżą live session bez
   wznowienia zapisanego ID; pełny tool recovery wymaga osobnej pracy.
 - `openrouter` — odtwarza tylko tekst user/assistant, bez pełnej pętli
   tool-call/tool-result; nie kwalifikuje się do auto-resume.
+- `mistral` — jak `openrouter`: odtwarza tylko tekst user/assistant, bez pełnej
+  pętli tool-call/tool-result hosta; nie kwalifikuje się do auto-resume.
 
 `resolveRecoveryAdapter(harness)` zwraca wpis MVP albo
 `{ supported: false, harness, scope: 'unsupported' }` dla nieznanego harnessu.
@@ -263,7 +265,7 @@ transportu bez kontraktu — `decision: 'unsupported'` i `infraOutcome:
 'unsupported'` (te same tokeny co `RUN_RECOVERY_DECISIONS` i
 `RUN_INFRA_OUTCOMES`; `unsupported` nie jest definiowane ponownie).
 
-Transport poza MVP (`codebuddy`, `openrouter`) albo nieznany nigdy nie jest
+Transport poza MVP (`codebuddy`, `openrouter`, `mistral`) albo nieznany nigdy nie jest
 zwracany jako ciche `false`, które wołający mógłby odczytać jako „run się
 skończył”. Dostaje jawny `unsupported`.
 

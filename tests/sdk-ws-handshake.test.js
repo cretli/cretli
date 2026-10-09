@@ -51,6 +51,7 @@ const deepSeekHello = buildAgentHelloPayload({
   sdkMode: 'agent',
 });
 assert.equal(deepSeekHello.transport, 'deepseek');
+assert.equal(buildAgentHelloPayload({ transport: 'mistral', modelId: 'mistral-medium-latest' }).transport, 'mistral');
 
 const codexHello = buildAgentHelloPayload({
   sessionKey: 'session-cx',

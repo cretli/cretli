@@ -1721,6 +1721,13 @@ function refreshPendingHarnessModelCatalog(harness) {
       return syncLoadedModelsToModeBar();
     }).catch(() => {});
   }
+  if (nextHarness === 'mistral') {
+    return api.getMistralModels().then((data) => {
+      if (data?.ok) chatModelSelectApi.applyAvailableModelsFromMistral(data);
+      chatModelSelectApi.refreshModelSelectLabels();
+      return syncLoadedModelsToModeBar();
+    }).catch(() => {});
+  }
   if (nextHarness === 'qwen') {
     return api.getQwenModels().then((data) => {
       if (data?.ok) chatModelSelectApi.applyAvailableModelsFromQwen(data);
@@ -3455,6 +3462,11 @@ export function applyCodeBuddyEnabledModels(enabledKeys) {
 
 export function applyDeepSeekEnabledModels(enabledKeys) {
   chatModelSelectApi?.applyDeepSeekEnabledModels(enabledKeys);
+}
+
+/** @param {unknown} enabledKeys */
+export function applyMistralEnabledModels(enabledKeys) {
+  chatModelSelectApi?.applyMistralEnabledModels(enabledKeys);
 }
 
 export function applyQwenEnabledModels(enabledKeys) {
@@ -6405,6 +6417,7 @@ let cachedOpenRouterReady = null;
 let cachedOpenCodeReady = null;
 let cachedCodeBuddyReady = null;
 let cachedDeepSeekReady = null;
+let cachedMistralReady = null;
 let cachedQwenReady = null;
 let cachedClaudeReady = null;
 let cachedCodexReady = null;
@@ -6447,6 +6460,7 @@ function getNewChatHarnessReadiness(harness) {
   }
   if (harness === 'codebuddy') return cachedCodeBuddyReady;
   if (harness === 'deepseek') return cachedDeepSeekReady;
+  if (harness === 'mistral') return cachedMistralReady;
   if (harness === 'qwen') return cachedQwenReady;
   if (harness === 'claude') return cachedClaudeReady;
   if (harness === 'codex') return cachedCodexReady;
@@ -6463,6 +6477,7 @@ function setNewChatHarnessReadyCache(harness, ready) {
   else if (harness === 'opencode') cachedOpenCodeReady = ready;
   else if (harness === 'codebuddy') cachedCodeBuddyReady = ready;
   else if (harness === 'deepseek') cachedDeepSeekReady = ready;
+  else if (harness === 'mistral') cachedMistralReady = ready;
   else if (harness === 'qwen') cachedQwenReady = ready;
   else if (harness === 'claude') cachedClaudeReady = ready;
   else if (harness === 'codex') cachedCodexReady = ready;
@@ -6520,7 +6535,7 @@ function setNewChatCreateBusy(busy) {
 
 /**
  * @param {unknown} value
- * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen' | 'claude'}
+ * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'mistral' | 'codex' | 'qwen' | 'claude'}
  */
 function normalizeNewChatHarness(value) {
   return normalizeNewChatHarnessId(value, { localIds: localChatHarnessIds });
@@ -6579,6 +6594,7 @@ function getNewChatHarnessError(harness) {
   if (harness === 'opencode') return t('chat.harnessErrorOpencode');
   if (harness === 'codebuddy') return t('chat.harnessErrorCodeBuddy');
   if (harness === 'deepseek') return t('chat.harnessErrorDeepSeek');
+  if (harness === 'mistral') return t('chat.harnessErrorMistral');
   if (harness === 'qwen') return t('chat.harnessErrorQwen');
   if (harness === 'claude') return t('chat.harnessErrorClaude');
   if (harness === 'codex') return t('chat.harnessErrorCodex');
@@ -6853,6 +6869,35 @@ function refreshNewChatDeepSeekStatus(token) {
     });
 }
 
+function refreshNewChatMistralStatus(token) {
+  return api
+    .getMistralStatus()
+    .then((status) => {
+      if (token && !isNewChatHarnessStatusLatest(token)) return null;
+      const ready = !!(status && status.ready);
+      applyNewChatHarnessStatus(
+        'mistral',
+        ready,
+        status?.error || (!status?.sdkAvailable ? t('chat.mistralSdkMissing') : undefined),
+        token,
+      );
+      if (!status?.mistralApiKeyEffective) return null;
+      return newChatCatalogCache
+        .fetchDeduped('mistral', () => api.getMistralModels())
+        .then((models) => {
+          if (token && !isNewChatHarnessStatusLatest(token)) return;
+          if (models?.ok) chatModelSelectApi.applyAvailableModelsFromMistral(models);
+          if (getSelectedNewChatHarness() === 'mistral') {
+            chatModelSelectApi.refreshNewChatModelPicker('mistral');
+          }
+        });
+    })
+    .catch(() => {
+      if (token && !isNewChatHarnessStatusLatest(token)) return;
+      applyNewChatHarnessStatus('mistral', false, t('chat.mistralStatusFailed'), token);
+    });
+}
+
 function refreshNewChatQwenStatus(token) {
   return api
     .getQwenStatus()
@@ -6996,6 +7041,8 @@ function runNewChatHarnessStatusCheck(harness, options = {}) {
     refreshPromise = refreshNewChatCodeBuddyStatus(token);
   } else if (resolvedHarness === 'deepseek') {
     refreshPromise = refreshNewChatDeepSeekStatus(token);
+  } else if (resolvedHarness === 'mistral') {
+    refreshPromise = refreshNewChatMistralStatus(token);
   } else if (resolvedHarness === 'qwen') {
     refreshPromise = refreshNewChatQwenStatus(token);
   } else if (resolvedHarness === 'claude') {
@@ -7041,6 +7088,7 @@ const NEW_CHAT_HARNESS_LABEL_KEYS = {
   opencode: 'settings.harnessOpenCode',
   codebuddy: 'settings.harnessCodeBuddy',
   deepseek: 'settings.harnessDeepSeek',
+  mistral: 'settings.harnessMistral',
   qwen: 'settings.harnessQwen',
   claude: 'settings.harnessClaude',
   codex: 'settings.harnessCodex',
@@ -7959,6 +8007,7 @@ function isVoiceHarnessUsable(harness) {
   if (harness === 'opencode') return cachedOpenCodeReady !== false;
   if (harness === 'codebuddy') return cachedCodeBuddyReady !== false;
   if (harness === 'deepseek') return cachedDeepSeekReady !== false;
+  if (harness === 'mistral') return cachedMistralReady !== false;
   if (harness === 'qwen') return cachedQwenReady !== false;
   if (harness === 'claude') return cachedClaudeReady !== false;
   if (harness === 'codex') return cachedCodexReady !== false;
@@ -8106,7 +8155,7 @@ export async function switchVoiceHarness(options = {}) {
   if (!AGENT_TRANSPORTS.includes(nextHarness)) {
     return {
       ok: false,
-      error: 'Unknown harness. Try cursor, opencode, openrouter, codebuddy, deepseek, codex, qwen, claude.',
+      error: 'Unknown harness. Try cursor, opencode, openrouter, codebuddy, deepseek, mistral, codex, qwen, claude.',
       harnesses: listReadyVoiceHarnesses(),
     };
   }
@@ -8355,6 +8404,8 @@ function createChatFromModal() {
             ? t('chat.codebuddyDisabled')
             : harness === 'deepseek'
               ? t('chat.deepseekDisabled')
+              : harness === 'mistral'
+                ? t('chat.mistralDisabled')
               : harness === 'qwen'
                 ? t('chat.qwenDisabled')
               : harness === 'claude'
@@ -8916,6 +8967,7 @@ function resolveContextDetailsTransportLabel(transport) {
   if (normalized === 'openrouter') return t('chat.contextDetailsTransportOpenrouter');
   if (normalized === 'codebuddy') return t('chat.contextDetailsTransportCodeBuddy');
   if (normalized === 'deepseek') return t('chat.contextDetailsTransportDeepSeek');
+  if (normalized === 'mistral') return t('chat.contextDetailsTransportMistral');
   if (normalized === 'qwen') return t('chat.contextDetailsTransportQwen');
   if (normalized === 'claude') return t('chat.contextDetailsTransportClaude');
   if (normalized === 'codex') return t('chat.contextDetailsTransportCodex');
@@ -9740,6 +9792,7 @@ export function initChatPanel() {
     applyOpenCodeEnabledModels(data.opencodeChatEnabledModels || []);
     applyCodeBuddyEnabledModels(data.codebuddyChatEnabledModels || []);
     applyDeepSeekEnabledModels(data.deepseekChatEnabledModels || []);
+    applyMistralEnabledModels(data.mistralChatEnabledModels || []);
     applyQwenEnabledModels(data.qwenChatEnabledModels || []);
     applyClaudeEnabledModels(data.claudeChatEnabledModels || []);
     applyCodexEnabledModels(data.codexChatEnabledModels || []);
@@ -9779,6 +9832,10 @@ export function initChatPanel() {
       const detail = event?.detail;
       applyDeepSeekEnabledModels(detail?.deepseekChatEnabledModels || []);
     });
+    window.addEventListener('cretli-mistral-models-changed', (event) => {
+      const detail = event?.detail;
+      applyMistralEnabledModels(detail?.mistralChatEnabledModels || []);
+    });
     window.addEventListener('cretli-qwen-models-changed', (event) => {
       const detail = event?.detail;
       applyQwenEnabledModels(detail?.qwenChatEnabledModels || []);
@@ -9817,6 +9874,11 @@ export function initChatPanel() {
       newChatCatalogCache.clear('deepseek');
       newChatHarnessStatusTracker.invalidate('deepseek');
       void runNewChatHarnessStatusCheck('deepseek');
+    });
+    window.addEventListener('cretli-mistral-key-changed', () => {
+      newChatCatalogCache.clear('mistral');
+      newChatHarnessStatusTracker.invalidate('mistral');
+      void runNewChatHarnessStatusCheck('mistral');
     });
     window.addEventListener('cretli-qwen-key-changed', () => {
       newChatCatalogCache.clear('qwen');

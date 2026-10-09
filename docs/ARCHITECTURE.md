@@ -1,7 +1,7 @@
 # Architecture
 
 Cretli is a Node.js (Express + WebSocket) server that exposes a **terminal** and
-**agent chat** (OpenCode, OpenRouter, DeepSeek Harness, Qwen Code, Claude Code, Codex SDK, or optional Cursor SDK) for your workspace
+**agent chat** (OpenCode, OpenRouter, Mistral, DeepSeek Harness, Qwen Code, Claude Code, Codex SDK, or optional Cursor SDK) for your workspace
 to a browser (typically on a phone). The frontend is a webpack SPA in `app_front/`
 built to `public/dist/`.
 
@@ -10,7 +10,7 @@ built to `public/dist/`.
 | Path | Role |
 |------|------|
 | `server.js` | Composition root: bind, HTTPS, middleware, listen. Workspace/widget/HMR live in `lib/` |
-| `lib/` | Domain modules: top-level app services plus `sdk/`, `opencode/`, `openrouter/`, `codebuddy/`, `deepseek/`, `qwen/`, `claude/`, `codex/`, `persist/`, `widget/`, `routes/`, `ws/`, `agent-harness/` |
+| `lib/` | Domain modules: top-level app services plus `sdk/`, `opencode/`, `openrouter/`, `mistral/`, `codebuddy/`, `deepseek/`, `qwen/`, `claude/`, `codex/`, `persist/`, `widget/`, `routes/`, `ws/`, `agent-harness/` |
 | `app_front/` | SPA source (webpack → `public/dist/`) |
 | `public/` | Static assets served by Express, including `login.html` |
 | `data/` | Runtime data (gitignored): `auth.json`, `config.json`, `mcp.json`, `mcp-secrets.json`, `mcp-tx.json`, `chats.json`, `todos/`, `uploads/`, `dsh-home/`, `qwen-home/`, `claude-home/`, `codex-home/`, TLS certs |
@@ -56,6 +56,9 @@ built to `public/dist/`.
 | `sdk/cursor-api-key.js` | Cursor API key resolution (env/config) |
 | `openrouter/openrouter-api-key.js` | OpenRouter API key resolution (env/config) |
 | `openrouter/openrouter-agent-ws.js` | `/ws-agent-sdk` rooms for `agentTransport: openrouter` — tool loop + SDK-compatible WS events |
+| `mistral/mistral-api-key.js` | Mistral API key / base URL resolution (env/config) |
+| `mistral/mistral-agent-ws.js` | `/ws-agent-sdk` rooms for `agentTransport: mistral` — `@mistralai/mistralai` chat + host tool loop, SDK-compatible WS events |
+| `mistral/mistral-models.js` | Mistral model catalog (live `models.list()`, static fallback) |
 | `opencode/opencode-server-manager.js` | Lazy `@opencode-ai/sdk` server per workspace folder (health, providers) |
 | `opencode/opencode-zai-api-key.js` | Z.AI key for OpenCode (`zai-coding-plan` / `zai`); Zen stays in `opencode-api-key.js` |
 | `opencode/opencode-spawn-path.js` | Resolve `opencode` CLI and drop unreadable PATH dirs before `opencode serve` spawn |
@@ -72,12 +75,13 @@ built to `public/dist/`.
 
 ## Agent harnesses
 
-Each chat stores `agentTransport`: `sdk` (default), `openrouter`, `opencode`, `codebuddy`, `deepseek`, `qwen`, `claude`, or `codex`. Changing harness from the toolbar creates a **new** chat with the chosen harness (same workspace/folder) and then optionally archives, deletes, or keeps the previous one. You can also pass the previous transcript as a handoff prompt so the new agent continues the work. In widget mode the new chat is also pinned to the host page URL.
+Each chat stores `agentTransport`: `sdk` (default), `openrouter`, `mistral`, `opencode`, `codebuddy`, `deepseek`, `qwen`, `claude`, or `codex`. Changing harness from the toolbar creates a **new** chat with the chosen harness (same workspace/folder) and then optionally archives, deletes, or keeps the previous one. You can also pass the previous transcript as a handoff prompt so the new agent continues the work. In widget mode the new chat is also pinned to the host page URL.
 
 | Harness | Backend | Auth / config |
 |---------|---------|---------------|
 | `sdk` | `@cursor/sdk` via `cursor-agent-sdk-ws.js` | `CURSOR_API_KEY` / Settings |
 | `openrouter` | OpenRouter `/v1/chat/completions` + server-side tools | `OPENROUTER_API_KEY` / Settings |
+| `mistral` | `@mistralai/mistralai` via `mistral-agent-ws.js` + host LLM tool loop (`lib/agent-harness`) | `MISTRAL_API_KEY` / Settings; optional `MISTRAL_BASE_URL` |
 | `opencode` | `@opencode-ai/sdk` (`opencode serve` per workspace) + OpenCode tool loop | Zen (`OPENCODE_API_KEY`) **or** Z.AI (`ZAI_API_KEY` / Settings → OpenCode) |
 | `codebuddy` | `@tencent-ai/agent-sdk` via `codebuddy-agent-ws.js` + `codebuddy` CLI | `CODEBUDDY_API_KEY` / Settings; optional `CODEBUDDY_CODE_PATH` |
 | `deepseek` | `@deepseek-ai/dsh-sdk-client` via `deepseek-agent-ws.js` + `dsh --profile sdk` | `DEEPSEEK_API_KEY` / Settings; optional `DSH_BIN` |
@@ -87,7 +91,7 @@ Each chat stores `agentTransport`: `sdk` (default), `openrouter`, `opencode`, `c
 
 A parent agent that needs a **sub-chat on another harness** (for example Cursor SDK asking DeepSeek to review a plan) uses builtin MCP `delegation_start` with a Settings-enabled model from `model_list(harness, enabled_only=true)`. Cursor's built-in `Task` tool only lists Cursor-local models and is not the Cretli catalog. `model_list` rows include heuristic `cost_tier`, `quality_tier`, and `speed_tier` plus profile `roles`. `model_pick({ role, exclude_model?, exclude_harness? })` chooses one favorite on a harness that is **enabled**, **ready**, and **can_delegate**, ranking role axes (implement: cheaper first) after eligibility matchers. Review never picks `*flash*` model ids. After a usage-limit or dead-harness fail, exclude that model/harness and pick the next candidate. Empty Settings favorites for a harness are unset: no pick, and by default no `delegation_start` (`model_list(..., enabled_only=true)` is empty; catalog rows without that flag are not start-eligible). `CRETLI_DELEGATION_EMPTY_FAVORITES=all` restores the previous start-with-any-id behavior. Default `CRETLI_DELEGATION_REVIEW_FANOUT` is two concurrent **review** jobs on one parent (`=1` opts out); implement/fix stay exclusive — this is not the D10/M12 executor pool. Review requires a hard pre-exec or sandbox read-only guarantee; Codex is excluded unless `CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED=1`. DeepSeek review is certified via a generated DSH cordis patch (`sandbox-policy: read-only`, `approval: never`) applied when `assignment=review`. Mutating jobs from two parents in the same workspace return `workspace_busy`. Optional `CRETLI_DELEGATION_GLOBAL_LIMIT` caps occupied slots process-wide. The plan/implement/review/fix loop is the parent skill (`.agents/skills/cretli-multi-harness`) plus durable `delegation_workflow_*` state, not a server sequencer. Terminal statuses are `completed` / `failed` / `cancelled` / `interrupted`. Builtin MCP `delegation_wait` long-polls those jobs for the calling parent (`timeout_ms` default 20s, max 25s, below the 30s bridge HTTP timeout; `until` all|any; retry on `pending`). Wait until `slot_occupied` is false before the next start. A review run that ends without a `VERDICT` report (one-liner or compacted thinking dump) is `failed` with `adapter_incomplete`, not a successful `completed`, unless the child is still in `waiting_for_input` (OpenCode question/permission or SDK Ask on implement/fix). OpenCode **review** jobs auto-allow non-mutating permissions server-side (mutating stays rejected). Parent MCP `delegation_wait` treats `waiting_for_input` as an occupied slot, not an infra retry. OpenCode first-event timeout defaults to 180s (`OPENCODE_FIRST_EVENT_TIMEOUT_MS`). Idle auto-recovery does not cancel while native tools are in flight. Finished jobs can be rated: MCP `delegation_rate` (parent only, terminal only, anti-bias against the parent's own base model, immutable per job+rater) and `POST /api/delegations/:id/rate` (user, same workspace/widget scope as ack/cancel). Ratings are metadata-only JSONL (`data/delegation-ratings.jsonl`, 2 MB rotation, no report text). Display aggregates combine ratings (user weight 2×, parent 1×) into `rating_avg` / `rating_n`, but `model_pick` observed quality (`applyObservedOutcome`) uses only `rating_avg_scored` / `rating_n_scored` computed from **user** ratings — parent ratings are telemetry and do not raise observed quality (max share `0.25 * n/(n+5)` on the scored pair; without user ratings the ranking is unchanged). The parent also has an ack channel: MCP `delegation_ack` (terminal jobs only, parent chat only; `reason` is `reviewed` or `accepted`) and `POST /api/chats/:id/delegation-ack` with the same parent scope as `delegation-rate`.
 
-All eight harnesses share the same WebSocket path (`/ws-agent-sdk`), protocol (`sdkEvent`, replay batches), rich view, and history persist format. OpenRouter, OpenCode, CodeBuddy, DeepSeek, Qwen, Claude, and Codex events are normalized to SDK-shaped payloads before broadcast. Archive, restore, delete, and sidebar nesting persist a `chatsChanged` frame to every attached agent socket so the live sidebar reloads without waiting for a page resume. If the chat row is gone (deleted on another device), the server sends `sdkError` with code `chat_not_found` and the client stops reconnecting instead of treating it as a recoverable `invalid_session`.
+All nine harnesses share the same WebSocket path (`/ws-agent-sdk`), protocol (`sdkEvent`, replay batches), rich view, and history persist format. OpenRouter, Mistral, OpenCode, CodeBuddy, DeepSeek, Qwen, Claude, and Codex events are normalized to SDK-shaped payloads before broadcast. Archive, restore, delete, and sidebar nesting persist a `chatsChanged` frame to every attached agent socket so the live sidebar reloads without waiting for a page resume. If the chat row is gone (deleted on another device), the server sends `sdkError` with code `chat_not_found` and the client stops reconnecting instead of treating it as a recoverable `invalid_session`.
 
 Skills use `.agents/skills/<name>/SKILL.md` as the cross-harness convention.
 Project, Cretli-bundled, user (`~/.agents/skills`), and configured shared roots are
@@ -116,14 +120,14 @@ the sidebar immediately.
 
 ### Shared room kernel (harness chats)
 
-OpenRouter, DeepSeek, Qwen, Claude, CodeBuddy, Codex, and OpenCode rooms use
+OpenRouter, Mistral, DeepSeek, Qwen, Claude, CodeBuddy, Codex, and OpenCode rooms use
 `lib/agent-harness/room-kernel.js` for broadcast, event log, persist buffer,
 replay cancel, heartbeat, and empty-room grace shutdown. Each harness still
 owns transport-specific abort (Codex abort signal, OpenCode instance lease,
 Qwen questions, CodeBuddy live session, Claude `canUseTool`). `cursor-agent-sdk-ws.js` keeps its
 own room map.
 
-`lib/opencode/opencode-agent-ws.js`, `lib/openrouter/openrouter-agent-ws.js`,
+`lib/opencode/opencode-agent-ws.js`, `lib/openrouter/openrouter-agent-ws.js`, `lib/mistral/mistral-agent-ws.js`,
 `lib/codebuddy/codebuddy-agent-ws.js`, `lib/deepseek/deepseek-agent-ws.js`, `lib/qwen/qwen-agent-ws.js`, `lib/claude/claude-agent-ws.js`, and `lib/codex/codex-agent-ws.js` still own prompt
 runs and vendor clients. Behaviour parity between harnesses is maintained by
 the E2E suite — check `tests/e2e/chat-live-harnesses.spec.js` when you change one of them.
@@ -211,6 +215,7 @@ Playwright setup details:
 ```
 Chat (SDK)           → /ws-agent-sdk   → @cursor/sdk (Agent.create/resume, run.stream)
 Chat (OpenRouter)    → /ws-agent-sdk   → OpenRouter API + lib/agent-harness tool loop
+Chat (Mistral)       → /ws-agent-sdk   → Mistral API (@mistralai/mistralai) + lib/agent-harness tool loop
 Chat (OpenCode)      → /ws-agent-sdk   → @opencode-ai/sdk (session.prompt_async + event.subscribe)
 Chat (CodeBuddy)     → /ws-agent-sdk   → @tencent-ai/agent-sdk (query + codebuddy CLI)
 Chat (DeepSeek)      → /ws-agent-sdk   → @deepseek-ai/dsh-sdk-client (dsh --profile sdk JSON-RPC)
@@ -348,6 +353,8 @@ Model windows come from a static prefix table in `lib/sdk/sdk-context-advisory.j
 | GET | `/api/codebuddy/models` | CodeBuddy model catalog (live account probe, then international-site catalog) |
 | GET | `/api/deepseek/status` | DeepSeek Harness package + CLI + API key readiness |
 | GET | `/api/deepseek/models` | DeepSeek Harness model catalog (live `GET /models` when a key is set; fallback `deepseek-flash` / `deepseek-v4-pro`) |
+| GET | `/api/mistral/status` | Mistral SDK package + API key readiness |
+| GET | `/api/mistral/models` | Mistral model catalog (live `models.list()` when a key is set; otherwise static fallback) |
 | GET | `/api/qwen/status` | Qwen Code SDK + Qwen Cloud API key readiness (CLI optional) |
 | GET | `/api/qwen/models` | Qwen Cloud model catalog (live `{baseUrl}/models` when a key is set; otherwise plan fallback) |
 | GET | `/api/claude/status` | Claude Agent SDK package + Anthropic API key readiness |

@@ -1,5 +1,5 @@
 /**
- * When to pull the seven harness model catalogs (slow CodeBuddy / OpenCode / SDK).
+ * When to pull the eight harness model catalogs (slow CodeBuddy / OpenCode / SDK).
  *
  * @param {'boot' | 'settings' | 'new-chat' | 'models-changed' | 'lang'} reason
  * @returns {boolean}

@@ -188,3 +188,15 @@ test('maps legacy providers to harnesses and falls back to unknown', () => {
   assert.equal(mapProviderToHarness('anthropic'), 'unknown');
   assert.equal(mapProviderToHarness(''), 'unknown');
 });
+
+test('fromMistralUsage splits cached tokens out of prompt_tokens', async () => {
+  const { fromMistralUsage } = await import('../lib/usage/usage-normalize.js');
+  const tokens = fromMistralUsage({
+    prompt_tokens: 100,
+    completion_tokens: 20,
+    prompt_tokens_details: { cached_tokens: 30 },
+  });
+  assert.equal(tokens.cachedInput, 30);
+  assert.equal(tokens.textInput, 70);
+  assert.equal(tokens.textOutput, 20);
+});

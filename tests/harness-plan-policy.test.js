@@ -30,6 +30,11 @@ assert.equal(inputOpenRouterPolicy.denyMutatingTools, true);
 assert.equal(inputOpenRouterPolicy.abortOnMutation, false);
 assert.equal(inputOpenRouterPolicy.promptHint, false);
 
+const inputMistralPolicy = resolveHarnessPlanPolicy('mistral');
+assert.equal(inputMistralPolicy.nativeMode, false);
+assert.equal(inputMistralPolicy.denyMutatingTools, true);
+assert.equal(inputMistralPolicy.abortOnMutation, false);
+
 const inputCodeBuddyPolicy = resolveHarnessPlanPolicy('codebuddy');
 assert.equal(inputCodeBuddyPolicy.nativeMode, true);
 assert.equal(inputCodeBuddyPolicy.denyMutatingTools, true);

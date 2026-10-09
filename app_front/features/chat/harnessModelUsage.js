@@ -50,6 +50,7 @@ export async function loadHarnessModelUsage(settings) {
     api.getQwenModels(),
     api.getClaudeModels(),
     api.getCodexModels(),
+    api.getMistralModels(),
   ]);
   const sdk = readSettledPayload(settled[0]);
   const openrouter = readSettledPayload(settled[1]);
@@ -59,6 +60,7 @@ export async function loadHarnessModelUsage(settings) {
   const qwen = readSettledPayload(settled[5]);
   const claude = readSettledPayload(settled[6]);
   const codex = readSettledPayload(settled[7]);
+  const mistral = readSettledPayload(settled[8]);
   return {
     sdk: countCatalogEnabledModels(catalogFromModelsPayload(sdk), settings?.chatEnabledModels),
     openrouter: countCatalogEnabledModels(
@@ -80,5 +82,9 @@ export async function loadHarnessModelUsage(settings) {
     qwen: countCatalogEnabledModels(catalogFromModelsPayload(qwen), settings?.qwenChatEnabledModels),
     claude: countCatalogEnabledModels(catalogFromModelsPayload(claude), settings?.claudeChatEnabledModels),
     codex: countCatalogEnabledModels(catalogFromModelsPayload(codex), settings?.codexChatEnabledModels),
+    mistral: countCatalogEnabledModels(
+      catalogFromModelsPayload(mistral),
+      settings?.mistralChatEnabledModels,
+    ),
   };
 }

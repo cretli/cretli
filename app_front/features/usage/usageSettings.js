@@ -72,6 +72,7 @@ const METRIC_LABEL_KEYS = {
 const HARNESS_LABEL_KEYS = {
   sdk: 'usage.harnessSdk',
   claude: 'usage.harnessClaude',
+  mistral: 'usage.harnessMistral',
   codex: 'usage.harnessCodex',
   opencode: 'usage.harnessOpencode',
   codebuddy: 'usage.harnessCodebuddy',

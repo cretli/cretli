@@ -76,6 +76,7 @@ export const SCOUT_EDITOR_HARNESSES = Object.freeze([
   'opencode',
   'codebuddy',
   'deepseek',
+  'mistral',
   'codex',
   'qwen',
   'claude',

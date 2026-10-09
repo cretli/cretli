@@ -4,7 +4,9 @@ Dokument roboczy: dodanie nowego, wbudowanego harnessu `mistral` do Cretli.
 Risercz: oficjalny SDK Mistral AI + aktualny stan API. Plan: dokładne miejsca w
 kodzie, kontrakty, fazy wdrożenia, testy i ryzyka.
 
-> Status: **plan** (nie zaimplementowano). Data riserczu: 2026-10-07.
+> Status: **ZREALIZOWANY** (fazy 1–6 wdrożone, 2026-10-09). Dokument zostaje jako
+> zapis decyzji; instrukcja użytkownika: [SETUP.md](mistral/SETUP.md).
+> Data riserczu: 2026-10-07.
 
 ---
 

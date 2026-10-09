@@ -9,6 +9,7 @@ const HELLO_TRANSPORTS = new Set([
   'opencode',
   'codebuddy',
   'deepseek',
+  'mistral',
   'codex',
   'qwen',
   'claude',

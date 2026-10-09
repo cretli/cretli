@@ -98,6 +98,7 @@ const SHELL_ASSETS = [
   '/harness-icons/codex.svg',
   '/harness-icons/cursor.svg',
   '/harness-icons/deepseek.svg',
+  '/harness-icons/mistral.svg',
   '/harness-icons/opencode.svg',
   '/harness-icons/openrouter.svg',
   '/harness-icons/qwen.svg',

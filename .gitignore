@@ -1,5 +1,9 @@
 # Dependencies
 node_modules/
+# npm cache/logs and throwaway SDK spikes created by agents inside a worktree;
+# untracked files end up in the worktree result patch otherwise
+.npm-cache/
+.spike/
 app_front/node_modules/
 
 # Runtime data (secrets, sessions, chats, certs, uploads,

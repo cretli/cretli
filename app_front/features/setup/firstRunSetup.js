@@ -10,7 +10,7 @@ import '../../components/ui/index.js';
 import { openFsPicker } from '../../components/ui/cr-fs-picker.js';
 import './first-run-setup.scss';
 
-/** @typedef {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen' | 'claude'} FirstRunHarness */
+/** @typedef {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'mistral' | 'codex' | 'qwen' | 'claude'} FirstRunHarness */
 
 const HARNESS_KEY_FIELD = {
   sdk: 'cursorApiKey',
@@ -18,6 +18,7 @@ const HARNESS_KEY_FIELD = {
   opencode: 'opencodeApiKey',
   codebuddy: 'codebuddyApiKey',
   deepseek: 'deepseekApiKey',
+  mistral: 'mistralApiKey',
   qwen: 'qwenApiKey',
   claude: 'claudeApiKey',
   codex: 'codexApiKey',
@@ -29,6 +30,7 @@ const HARNESS_HINT_KEY = {
   opencode: 'firstRun.hintOpenCode',
   codebuddy: 'firstRun.hintCodeBuddy',
   deepseek: 'firstRun.hintDeepSeek',
+  mistral: 'firstRun.hintMistral',
   qwen: 'firstRun.hintQwen',
   claude: 'firstRun.hintClaude',
   codex: 'firstRun.hintCodex',
@@ -40,7 +42,7 @@ const HARNESS_HINT_KEY = {
  */
 function normalizeHarness(value) {
   const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (raw === 'sdk' || raw === 'opencode' || raw === 'codebuddy' || raw === 'deepseek' || raw === 'qwen' || raw === 'claude' || raw === 'codex') return raw;
+  if (raw === 'sdk' || raw === 'opencode' || raw === 'codebuddy' || raw === 'deepseek' || raw === 'mistral' || raw === 'qwen' || raw === 'claude' || raw === 'codex') return raw;
   return 'openrouter';
 }
 
@@ -55,6 +57,7 @@ function listAvailableHarnesses(status) {
     { value: 'sdk', label: t('settings.harnessSdk'), available: status?.sdk?.available !== false },
     { value: 'codebuddy', label: t('settings.harnessCodeBuddy'), available: status?.codebuddy?.available === true },
     { value: 'deepseek', label: t('settings.harnessDeepSeek'), available: status?.deepseek?.available === true },
+    { value: 'mistral', label: t('settings.harnessMistral'), available: status?.mistral?.available === true },
     { value: 'qwen', label: t('settings.harnessQwen'), available: status?.qwen?.available === true },
     { value: 'claude', label: t('settings.harnessClaude'), available: status?.claude?.available === true },
     { value: 'codex', label: t('settings.harnessCodex'), available: status?.codex?.available === true },

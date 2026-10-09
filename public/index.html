@@ -352,6 +352,7 @@
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-opencode" data-harness-tab="opencode" role="tab" aria-selected="false" data-i18n="settings.harnessOpenCode">OpenCode</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codebuddy" data-harness-tab="codebuddy" role="tab" aria-selected="false" data-i18n="settings.harnessCodeBuddy">CodeBuddy</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-deepseek" data-harness-tab="deepseek" role="tab" aria-selected="false" data-i18n="settings.harnessDeepSeek">DeepSeek</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mistral" data-harness-tab="mistral" role="tab" aria-selected="false" data-i18n="settings.harnessMistral">Mistral</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-qwen" data-harness-tab="qwen" role="tab" aria-selected="false" data-i18n="settings.harnessQwen">Qwen</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-claude" data-harness-tab="claude" role="tab" aria-selected="false" data-i18n="settings.harnessClaude">Claude</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codex" data-harness-tab="codex" role="tab" aria-selected="false" data-i18n="settings.harnessCodex">Codex</button>
@@ -381,6 +382,11 @@
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-deepseek-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-deepseek-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-deepseek-stats" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabStats">Statistics</button>
+    </div>
+    <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-mistral" data-harness-id="mistral" role="tablist" hidden data-i18n-aria="settings.harnessMistral" aria-label="Mistral">
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mistral-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mistral-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mistral-stats" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabStats">Statistics</button>
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-qwen" data-harness-id="qwen" role="tablist" hidden data-i18n-aria="settings.harnessQwen" aria-label="Qwen">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-qwen-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
@@ -732,6 +738,32 @@
           </div>
         </div>
         <p id="deepseek-harness-status" class="settings-hint" aria-live="polite"></p>
+      </section>
+      <section class="settings-section" data-settings-tab="harness-mistral-keys" id="mistral-api-settings" role="tabpanel">
+        <div class="harness-version-card-host" data-harness-version-host="mistral"></div>
+        <h3 class="settings-section-title" data-i18n="settings.harnessMistralApiTitle">Mistral API</h3>
+        <p class="settings-hint">
+          <span data-i18n="settings.harnessMistralHintPrefix">Key from</span>
+          <a href="https://console.mistral.ai/api-keys" target="_blank" rel="noopener noreferrer">console.mistral.ai/api-keys</a>.
+          <span data-i18n="settings.harnessMistralHintSuffix">Required for Mistral chats. The MISTRAL_API_KEY env variable takes precedence. The @mistralai/mistralai package must also be installed.</span>
+        </p>
+        <p id="mistral-api-key-source-hint" class="settings-hint" aria-live="polite"></p>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.harnessMistralApiKeyLabel">New API key</label>
+          <cr-bar-input
+            id="mistral-api-key-input"
+            type="password"
+            autocomplete="new-password"
+            placeholder="Paste your Mistral API key and click Save"
+            data-i18n-placeholder="settings.harnessMistralApiKeyPlaceholder"
+          ></cr-bar-input>
+          <div class="cr-row">
+            <cr-bar-button variant="primary" id="mistral-api-key-save-btn" data-i18n="settings.harnessMistralApiKeySave">Save key</cr-bar-button>
+            <cr-bar-button id="mistral-api-key-clear-btn" data-i18n="settings.harnessMistralApiKeyClear">Remove from settings</cr-bar-button>
+            <span id="mistral-api-key-save-status" class="cr-status"></span>
+          </div>
+        </div>
+        <p id="mistral-harness-status" class="settings-hint" aria-live="polite"></p>
       </section>
       <section class="settings-section" data-settings-tab="harness-qwen-keys" id="qwen-api-settings" role="tabpanel">
         <div class="harness-version-card-host" data-harness-version-host="qwen"></div>
@@ -1468,6 +1500,34 @@
           <span id="deepseek-model-settings-status" class="cr-status" aria-live="polite"></span>
         </div>
       </section>
+      <section class="settings-section" data-settings-tab="harness-mistral-models" role="tabpanel">
+        <h3 class="settings-section-title" data-i18n="settings.harnessMistralModelsTitle">Mistral — chat models</h3>
+        <p class="settings-hint" data-i18n="settings.harnessMistralModelsHint">
+          Models from the Mistral API. Check entries for the chat model picker when harness is Mistral.
+        </p>
+        <p id="mistral-model-settings-summary" class="settings-hint" aria-live="polite"></p>
+        <div class="chat-model-settings-toolbar">
+          <cr-bar-input
+            type="search"
+            id="mistral-model-settings-search"
+            class="chat-model-settings-search"
+            placeholder="Search models…"
+            data-i18n-placeholder="settings.chatModelsSearchPlaceholder"
+            autocomplete="off"
+          ></cr-bar-input>
+          <label class="chat-model-settings-sort-wrap">
+            <span class="chat-model-settings-sort-label" data-i18n="settings.chatModelsSortLabel">Sort</span>
+            <cr-bar-select id="mistral-model-settings-sort" class="chat-model-settings-sort" aria-label="Sort models"></cr-bar-select>
+          </label>
+          <cr-bar-button id="mistral-model-settings-toggle-all-btn" data-i18n="settings.chatModelsToggleAll">Select / deselect all</cr-bar-button>
+          <cr-bar-button id="mistral-model-settings-clear-btn" data-i18n="settings.chatModelsClear">Show all in chat</cr-bar-button>
+        </div>
+        <div id="mistral-model-settings-list" class="chat-model-settings-list" role="group" aria-labelledby="mistral-model-settings-summary"></div>
+        <div class="cr-row">
+          <cr-bar-button variant="primary" id="mistral-model-settings-save-btn" data-i18n="settings.chatModelsSave">Save model list</cr-bar-button>
+          <span id="mistral-model-settings-status" class="cr-status" aria-live="polite"></span>
+        </div>
+      </section>
       <section class="settings-section" data-settings-tab="harness-qwen-models" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessQwenModelsTitle">Qwen — chat models</h3>
         <p class="settings-hint" data-i18n="settings.harnessQwenModelsHint">
@@ -1548,6 +1608,11 @@
         <h3 class="settings-section-title"><span data-i18n="settings.harnessDeepSeek">deepseek</span> — <span data-i18n="settings.harnessSubtabStats">Statistics</span></h3>
         <p class="settings-hint" data-i18n="harnessHealth.statsRange">Runs and errors from the last 7 days. Plan limits show the latest harness reading.</p>
         <div class="harness-health-card" data-role="harness-statistics" data-harness-id="deepseek" aria-live="polite"></div>
+      </section>
+      <section class="settings-section" data-settings-tab="harness-mistral-stats" role="tabpanel" hidden>
+        <h3 class="settings-section-title"><span data-i18n="settings.harnessMistral">mistral</span> — <span data-i18n="settings.harnessSubtabStats">Statistics</span></h3>
+        <p class="settings-hint" data-i18n="harnessHealth.statsRange">Runs and errors from the last 7 days. Plan limits show the latest harness reading.</p>
+        <div class="harness-health-card" data-role="harness-statistics" data-harness-id="mistral" aria-live="polite"></div>
       </section>
       <section class="settings-section" data-settings-tab="harness-qwen-stats" role="tabpanel" hidden>
         <h3 class="settings-section-title"><span data-i18n="settings.harnessQwen">qwen</span> — <span data-i18n="settings.harnessSubtabStats">Statistics</span></h3>
@@ -2665,6 +2730,7 @@
                 <option value="opencode">OpenCode</option>
                 <option value="codebuddy">CodeBuddy</option>
                 <option value="deepseek">DeepSeek</option>
+                <option value="mistral">Mistral</option>
                 <option value="qwen">Qwen</option>
                 <option value="claude">Claude</option>
                 <option value="codex">Codex</option>
