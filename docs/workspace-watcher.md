@@ -950,6 +950,13 @@ right branch visible.
   `package-lock.json`, `composer.lock`, `go.sum`, `requirements.txt`, or a plain
   `npm install` for a `package.json` without one). A saved value always wins over
   the suggestion.
+- A start that resolves to `worktree` with an **incomplete layout derives and
+  persists the same suggestion** before creating the worktree, via
+  `ensureWorktreeLayoutForStart` (used by the manual Todo start and the autopilot
+  cycle). This keeps the per-workspace settings form an optional override instead
+  of a hard gate the operator must find first. `prepareCommand` is still never
+  invented; run the install from the settings form when the worktree needs it.
+  A workspace without a Git repository has no suggestion and stays fail-closed.
 - A leaf may override the default with its own `executionMode`:
   `inherit` | `worktree` | `project`. The choice is visible in the TODO list and
   in the task card settings tab.
@@ -969,10 +976,11 @@ right branch visible.
    shell string is refused) and mark the record `active`;
 4. for `project`, keep the logical workspace.
 
-Fail-closed rules: a missing worktree layout, a dirty logical tree, a
-foreign/orphaned worktree and a failed prepare all refuse the start. There is no
-silent fallback to `project` and no automatic secret or `data/` copy. Restart and
-retry reconcile the registry against Git instead of creating a second worktree.
+Fail-closed rules: a missing worktree layout that cannot be derived (no Git
+repository), a dirty logical tree, a foreign/orphaned worktree and a failed
+prepare all refuse the start. There is no silent fallback to `project` and no
+automatic secret or `data/` copy. Restart and retry reconcile the registry
+against Git instead of creating a second worktree.
 
 ### 2a. Manual starts (Todo panel)
 

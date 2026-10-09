@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- A worktree-mode start no longer dead-ends when the worktree layout was never
+  configured. Both the manual Todo start and the autopilot cycle now **derive the
+  layout from the workspace suggestion and persist it** before creating the
+  worktree (`ensureWorktreeLayoutForStart`), so the per-workspace settings form
+  is an optional override instead of a gate the operator has to find first. A
+  workspace without a Git repository has no suggestion and keeps the existing
+  fail-closed refusal. `prepareCommand` is still never invented. Covered by
+  `tests/workspace-watcher-worktree.test.js`,
+  `tests/todo-manual-worktree.test.js` and
+  `tests/execution-settings-suggest.test.js`.
+
 ### Added
 
 - Workspace Watcher **worktree layout settings**: Settings → Workspace Watcher →

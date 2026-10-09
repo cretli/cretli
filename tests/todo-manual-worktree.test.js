@@ -225,9 +225,13 @@ test('a dirty main tree refuses the start with a translated message and no chat'
   assert.equal(getWorktreeRecord(root.id, { dataDir: suite.dataDir }), null);
 });
 
-test('worktree mode without a layout refuses with a 422 and no chat', async (t) => {
+test('worktree mode without a layout derives and persists the layout, then starts', async (t) => {
   const suite = makeSuite('nolayout');
   t.after(suite.cleanup);
+  // The repo lives directly in os.tmpdir(), so the derived root is shared; clean
+  // up this repo's namespace so the test leaves nothing behind.
+  const derivedRoot = path.join(path.dirname(suite.repo), '.cretli-worktrees');
+  t.after(() => fs.rmSync(path.join(derivedRoot, path.basename(suite.repo)), { recursive: true, force: true }));
   clearManualStartJobs();
   clearWorktreePrepareLocks();
   upsertWorkspaceWatcher(suite.repo, {
@@ -239,8 +243,15 @@ test('worktree mode without a layout refuses with a 422 and no chat', async (t) 
   const root = addTodo(suite.dataDir, suite.repo, { title: 'nolayout', status: 'ready', executionMode: 'worktree' }).item;
 
   const result = await startAndSettle(app, root.id, suite.repo);
-  assert.equal(result.status, 422, JSON.stringify(result.body));
-  assert.equal(getTodoById(suite.dataDir, suite.repo, root.id).chatId, undefined);
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  const record = getWorktreeRecord(root.id, { dataDir: suite.dataDir });
+  assert.ok(record, 'the derived worktree record exists');
+  assert.equal(result.body.chat.executionFolder, record.worktreePath);
+  // The derivation is persisted, so the per-workspace settings panel shows it.
+  const layout = getWorkspaceWatcher(suite.repo, { dataDir: suite.dataDir }).policy.worktree;
+  assert.equal(layout.root, derivedRoot);
+  assert.equal(layout.namespace, path.basename(suite.repo));
+  assert.equal(layout.branchPrefix, `${path.basename(suite.repo)}/todo/`);
 });
 
 test('D1: a live descendant record blocks a manual root start with 409', async (t) => {

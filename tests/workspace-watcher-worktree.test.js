@@ -21,7 +21,7 @@ import {
   prepareWorkspaceWatcherExecution,
   resolveWorkspaceWatcherExecutionMode,
 } from '../lib/workspace-watcher-worktree.js';
-import { createTempRepo, tempDir, worktreeConfig } from './helpers/temp-git-repo.js';
+import { createTempRepo, git, tempDir, worktreeConfig } from './helpers/temp-git-repo.js';
 
 const T0 = Date.parse('2026-05-01T10:00:00.000Z');
 
@@ -266,6 +266,73 @@ test('worktree mode without a layout fails closed instead of using the project f
     }),
     (error) => error instanceof WorktreeError && error.code === WORKTREE_ERROR_CODES.CONFIG_INVALID,
   );
+});
+
+test('allowSuggestedLayout derives the workspace suggestion, persists it and prepares the worktree', async (t) => {
+  const suite = makeSuite('autoderive');
+  t.after(suite.cleanup);
+  // The repo sits inside its own parent so the suggested root is cleaned up and
+  // never lands in the shared os.tmpdir().
+  const parent = tempDir('cretli-wtw-autoderive-');
+  const repo = path.join(parent, 'my-app');
+  fs.mkdirSync(repo);
+  git(repo, ['init', '-q', '-b', 'main']);
+  fs.writeFileSync(path.join(repo, 'package-lock.json'), '{}\n');
+  git(repo, ['add', 'package-lock.json']);
+  git(repo, ['commit', '-qm', 'init']);
+  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+
+  const todoId = 'abababab-abab-abab-abab-abababababab';
+  const prepared = await prepareWorkspaceWatcherExecution({
+    todoId,
+    workspaceFolder: repo,
+    todo: { executionMode: 'worktree' },
+    policy: {
+      executionMode: 'project',
+      worktree: { root: '', namespace: '', branchPrefix: '', directoryPrefix: '', prepareCommand: [] },
+    },
+    dataDir: suite.dataDir,
+    allowSuggestedLayout: true,
+  });
+
+  const expectedRoot = path.join(parent, '.cretli-worktrees');
+  assert.equal(prepared.mode, 'worktree');
+  assert.equal(
+    prepared.executionFolder,
+    path.join(expectedRoot, 'my-app', `t-${todoId}`),
+  );
+  // Persisted so the settings panel and every later start agree on the layout.
+  const row = getWorkspaceWatcher(repo, { dataDir: suite.dataDir });
+  assert.equal(row.policy.worktree.root, expectedRoot);
+  assert.equal(row.policy.worktree.namespace, 'my-app');
+  assert.equal(row.policy.worktree.branchPrefix, 'my-app/todo/');
+  assert.equal(row.policy.worktree.directoryPrefix, 't-');
+  // The layout is derived; running an install stays the operator's decision.
+  assert.deepEqual(row.policy.worktree.prepareCommand, []);
+});
+
+test('allowSuggestedLayout still fails closed when the workspace is not a Git repository', async (t) => {
+  const suite = makeSuite('autoderive-nogit');
+  t.after(suite.cleanup);
+  const plain = tempDir('cretli-wtw-nogit-');
+  t.after(() => fs.rmSync(plain, { recursive: true, force: true }));
+
+  await assert.rejects(
+    () => prepareWorkspaceWatcherExecution({
+      todoId: 'cdcdcdcd-cdcd-cdcd-cdcd-cdcdcdcdcdcd',
+      workspaceFolder: plain,
+      todo: { executionMode: 'worktree' },
+      policy: {
+        executionMode: 'worktree',
+        worktree: { root: '', namespace: '', branchPrefix: '', directoryPrefix: '', prepareCommand: [] },
+      },
+      dataDir: suite.dataDir,
+      allowSuggestedLayout: true,
+    }),
+    (error) => error instanceof WorktreeError && error.code === WORKTREE_ERROR_CODES.CONFIG_INVALID,
+  );
+  const row = getWorkspaceWatcher(plain, { dataDir: suite.dataDir });
+  assert.equal(row?.policy?.worktree?.root ?? '', '', 'a non-Git workspace keeps an empty layout');
 });
 
 test('startWorkspaceWatcherCycle: maxParallel=2 starts two worktree cycles with distinct execution folders', async (t) => {

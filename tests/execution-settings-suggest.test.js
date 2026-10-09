@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { suggestExecutionSettings } from '../lib/execution-settings-suggest.js';
+import { suggestExecutionSettings, backfillWorktreeLayout, isWorktreeLayoutComplete } from '../lib/execution-settings-suggest.js';
 import { createTempRepo, git, tempDir } from './helpers/temp-git-repo.js';
 
 test('a non-Git folder yields no suggestion instead of throwing', (t) => {
@@ -98,4 +98,46 @@ test('a namespace that is not a safe path segment is sanitized', (t) => {
   const suggestion = suggestExecutionSettings(repoDir);
   assert.equal(suggestion.worktree.namespace, 'my-project');
   assert.equal(suggestion.worktree.branchPrefix, 'my-project/todo/');
+});
+
+test('isWorktreeLayoutComplete requires all four naming inputs', () => {
+  assert.equal(isWorktreeLayoutComplete({ root: '/x', namespace: 'ws', branchPrefix: 'ws/todo/', directoryPrefix: 't-' }), true);
+  assert.equal(isWorktreeLayoutComplete({ root: '/x', namespace: 'ws', branchPrefix: '', directoryPrefix: 't-' }), false);
+  assert.equal(isWorktreeLayoutComplete({}), false);
+  assert.equal(isWorktreeLayoutComplete(null), false);
+});
+
+test('backfillWorktreeLayout fills only the gaps and never invents prepareCommand', (t) => {
+  const { dir } = createTempRepo();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'package-lock.json'), '{}\n');
+
+  const { policy, changed } = backfillWorktreeLayout(
+    { executionMode: 'worktree', worktree: { root: '/custom/worktrees', namespace: 'mine', prepareCommand: ['npm', 'ci'] } },
+    dir,
+  );
+  assert.equal(changed, true);
+  assert.equal(policy.worktree.root, '/custom/worktrees', 'a stored value wins');
+  assert.equal(policy.worktree.namespace, 'mine');
+  assert.equal(policy.worktree.branchPrefix, 'mine/todo/', 'the prefix follows the effective namespace');
+  assert.equal(policy.worktree.directoryPrefix, 't-');
+  assert.deepEqual(policy.worktree.prepareCommand, ['npm', 'ci'], 'prepareCommand is never invented');
+});
+
+test('backfillWorktreeLayout leaves a complete layout and a non-Git workspace untouched', (t) => {
+  const repo = createTempRepo();
+  t.after(() => fs.rmSync(repo.dir, { recursive: true, force: true }));
+  const complete = {
+    executionMode: 'worktree',
+    worktree: { root: '/x', namespace: 'ws', branchPrefix: 'ws/todo/', directoryPrefix: 't-' },
+  };
+  const kept = backfillWorktreeLayout(complete, repo.dir);
+  assert.equal(kept.changed, false);
+  assert.equal(kept.policy, complete, 'a complete layout is returned unchanged');
+
+  const plain = tempDir('cretli-suggest-backfill-nogit-');
+  t.after(() => fs.rmSync(plain, { recursive: true, force: true }));
+  const noRepo = backfillWorktreeLayout({ executionMode: 'worktree', worktree: {} }, plain);
+  assert.equal(noRepo.changed, false);
+  assert.equal(noRepo.policy.worktree.root, undefined, 'nothing is invented without a Git repo');
 });
