@@ -448,6 +448,37 @@ assert.equal(
 assert.equal(noteLiveInAppSignal({ eventType: 'finished', eventId: 'r-live' }).emit, true);
 resetInAppSignals();
 
+// --- notification-centre sound: cross-card claim is authoritative ------------
+const ncStorage = fakeStorage();
+const ncPlayerA = fakePlayer();
+const ncPlayerB = fakePlayer();
+const ncPosts = [];
+const ncChannel = { postMessage: (msg) => ncPosts.push(msg), addEventListener: () => {} };
+const ncCardA = createInAppSignalController({
+  broadcastChannel: ncChannel,
+  player: ncPlayerA,
+  storage: ncStorage,
+  preferences: {},
+});
+const ncCardB = createInAppSignalController({
+  broadcastChannel: null,
+  player: ncPlayerB,
+  storage: ncStorage,
+  preferences: {},
+});
+const ncFirst = ncCardA.handleNotificationItems({ ids: ['item-1'], soundEnabled: true });
+assert.equal(ncFirst.emit, true);
+assert.equal(ncPosts.length, 1);
+assert.equal(ncPosts[0].type, 'claimed');
+assert.match(ncPosts[0].eventId, /^notification-center:item-1$/);
+await flush();
+const ncSecond = ncCardB.handleNotificationItems({ ids: ['item-1'], soundEnabled: true });
+assert.equal(ncSecond.emit, false);
+assert.equal(ncSecond.reason, 'duplicate');
+assert.deepEqual(ncSecond.ids, []);
+assert.equal(ncPlayerA.calls.sound.length, 1);
+assert.equal(ncPlayerB.calls.sound.length, 0, 'losing claim must not play notification sound');
+
 // --- chatTransport only signals live frames (replay: true is rejected) -------
 const transportSource = readFileSync(
   new URL('../app_front/features/chat/chatTransport.js', import.meta.url),

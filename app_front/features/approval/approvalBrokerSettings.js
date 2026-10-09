@@ -41,6 +41,7 @@ const MODE_SELECT_ID = 'approval-broker-mode-select';
 const MODE_STATUS_ID = 'approval-broker-mode-status';
 const ADVISOR_ENABLED_ID = 'approval-advisor-enabled-checkbox';
 const ADVISOR_PROTOCOL_ID = 'approval-advisor-protocol-select';
+const ADVISOR_RISK_SCOPE_ID = 'approval-advisor-risk-scope-select';
 const ADVISOR_ENDPOINT_ID = 'approval-advisor-endpoint-input';
 const ADVISOR_ENDPOINT_FIELD_ID = 'approval-advisor-endpoint-field';
 const ADVISOR_ENDPOINT_STATUS_ID = 'approval-advisor-endpoint-status';
@@ -106,6 +107,17 @@ export function normalizeAdvisorProtocol(value) {
   return APPROVAL_ADVISOR_PROTOCOLS.includes(protocol) ? protocol : ADVISOR_DEFAULT_PROTOCOL;
 }
 
+const ADVISOR_RISK_SCOPES = ['low_only', 'advisor_assessed'];
+
+/**
+ * @param {unknown} value
+ * @returns {'low_only' | 'advisor_assessed'}
+ */
+export function normalizeAdvisorRiskScope(value) {
+  const scope = String(value || '').trim();
+  return ADVISOR_RISK_SCOPES.includes(scope) ? scope : 'low_only';
+}
+
 /**
  * @param {unknown} value
  * @returns {'off' | 'shadow' | 'local_reads'}
@@ -139,6 +151,7 @@ export function normalizeApprovalBrokerFormState(settings) {
     minProbability: clampAdvisorMinProbability(advisor.minProbability),
     timeoutMs: clampAdvisorTimeoutMs(advisor.timeoutMs),
     dailyQuota: clampAdvisorDailyQuota(advisor.dailyQuota),
+    riskScope: normalizeAdvisorRiskScope(advisor.riskScope),
   };
 }
 
@@ -184,6 +197,7 @@ export function buildApprovalAdvisorPatch(formState) {
         minProbability: clampAdvisorMinProbability(formState?.minProbability),
         timeoutMs: clampAdvisorTimeoutMs(formState?.timeoutMs),
         dailyQuota: clampAdvisorDailyQuota(formState?.dailyQuota),
+        riskScope: normalizeAdvisorRiskScope(formState?.riskScope),
       },
     },
   };
@@ -311,6 +325,19 @@ function fillModeOptions(selectEl) {
 }
 
 /**
+ * Fill the advisor risk-scope dropdown.
+ *
+ * @param {any} selectEl
+ */
+function fillRiskScopeOptions(selectEl) {
+  if (!selectEl) return;
+  selectEl.options = ADVISOR_RISK_SCOPES.map((scope) => ({
+    value: scope,
+    label: t(`settings.approvalAdvisorRiskScope_${scope}`),
+  }));
+}
+
+/**
  * Fill the advisor protocol dropdown.
  *
  * @param {any} selectEl
@@ -333,6 +360,7 @@ function updateAdvisorControls(mode) {
   const enabled = isAdvisorFieldsetEnabled(mode);
   setDisabled(byId(ADVISOR_ENABLED_ID), !enabled);
   setDisabled(byId(ADVISOR_PROTOCOL_ID), !enabled);
+  setDisabled(byId(ADVISOR_RISK_SCOPE_ID), !enabled);
   setDisabled(byId(ADVISOR_ENDPOINT_ID), !enabled);
   setDisabled(byId(ADVISOR_MODEL_ID), !enabled);
   setDisabled(byId(ADVISOR_MIN_PROBABILITY_ID), !enabled);
@@ -418,6 +446,7 @@ function readForm() {
     mode: readMode(byId(MODE_SELECT_ID)),
     enabled: Boolean(enabledEl && 'checked' in enabledEl && enabledEl.checked),
     protocol: readProtocol(byId(ADVISOR_PROTOCOL_ID)),
+    riskScope: normalizeAdvisorRiskScope(byId(ADVISOR_RISK_SCOPE_ID)?.value),
     baseUrl: endpointEl && 'value' in endpointEl ? String(endpointEl.value || '') : '',
     model: modelEl && 'value' in modelEl ? String(modelEl.value || '') : '',
     minProbability: minProbabilityEl && 'value' in minProbabilityEl
@@ -443,6 +472,9 @@ function applySettingsSnapshot(settings) {
   const protocolSelect = byId(ADVISOR_PROTOCOL_ID);
   fillProtocolOptions(protocolSelect);
   if (protocolSelect && 'value' in protocolSelect) protocolSelect.value = form.protocol;
+  const riskScopeSelect = byId(ADVISOR_RISK_SCOPE_ID);
+  fillRiskScopeOptions(riskScopeSelect);
+  if (riskScopeSelect && 'value' in riskScopeSelect) riskScopeSelect.value = form.riskScope;
   const endpointEl = byId(ADVISOR_ENDPOINT_ID);
   if (endpointEl && 'value' in endpointEl) endpointEl.value = form.baseUrl;
   const modelEl = byId(ADVISOR_MODEL_ID);

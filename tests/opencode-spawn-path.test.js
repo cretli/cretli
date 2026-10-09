@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   buildOpenCodeSpawnPath,
   resolveOpenCodeExecutable,
+  resolveOpenCodeHomeDirs,
   sanitizeSpawnPath,
 } from '../lib/opencode/opencode-spawn-path.js';
 
@@ -65,6 +66,11 @@ assert.equal(
     isExecutable: () => true,
   }),
   '',
+);
+
+assert.deepEqual(
+  resolveOpenCodeHomeDirs({ envHome: '/env/home', passwdHome: '/passwd/home' }),
+  ['/env/home', '/passwd/home'],
 );
 
 console.log('opencode-spawn-path.test.js OK');

@@ -89,3 +89,14 @@ Then:
 That is the same break as step 2, not a bad bundle. After the port works,
 reload. **Clear cache and reload** only if the shell is stale and health
 already returns `200`.
+
+## 4. Find why the process stopped
+
+Inspect `data/server-diagnostics-YYYY-MM-DD.jsonl` for memory and swap samples
+before the outage. The authenticated `GET /api/diagnostics/server` endpoint
+returns the current snapshot and recent records. An abrupt gap without a
+`process-exit` event is consistent with a forced kill or host interruption,
+but can also mean diagnostics could not be written or the daily file reached
+its 4 MiB cap. Error events are rate-limited to one record per minute. Use the
+process manager journal to distinguish those cases. See
+[Server diagnostics and automatic restart](server-diagnostics.md) for setup.

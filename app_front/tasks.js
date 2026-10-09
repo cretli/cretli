@@ -85,6 +85,8 @@ const taskRunEngine = createRunPanelEngine({
     const protocol = typeof location !== 'undefined' && location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = typeof location !== 'undefined' ? location.host : '';
     let wsPath = '/ws-task?task=' + encodeURIComponent(run.taskLabel);
+    const workspaceFile = readCurrentWorkspaceScope().workspaceFile;
+    if (workspaceFile) wsPath += '&workspaceFile=' + encodeURIComponent(workspaceFile);
     if (run.runId) wsPath += '&run=' + encodeURIComponent(run.runId);
     tasksDebugLog('Opening ws-task connection', {
       taskLabel: run.taskLabel,
@@ -988,6 +990,8 @@ function buildTaskRunSocket(run) {
   const protocol = typeof location !== 'undefined' && location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = typeof location !== 'undefined' ? location.host : '';
   let wsPath = '/ws-task?task=' + encodeURIComponent(run.taskLabel);
+  const workspaceFile = readCurrentWorkspaceScope().workspaceFile;
+  if (workspaceFile) wsPath += '&workspaceFile=' + encodeURIComponent(workspaceFile);
   if (run.runId) wsPath += '&run=' + encodeURIComponent(run.runId);
   return new WebSocket(protocol + '//' + host + wsPath);
 }

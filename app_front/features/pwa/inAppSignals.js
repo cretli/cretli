@@ -62,6 +62,9 @@ export const IN_APP_SIGNAL_CHANNEL = 'cretli-in-app-signals';
 /** Cross-tab claim key prefix (localStorage). */
 export const IN_APP_SIGNAL_CLAIM_PREFIX = 'cretli-in-app-signal:';
 
+/** Claim key namespace for notification-centre items (kept apart from run events). */
+export const NOTIFICATION_SIGNAL_CLAIM_PREFIX = 'notification-center:';
+
 /** How long an eventId stays claimed (one event never signals twice). */
 export const IN_APP_SIGNAL_CLAIM_TTL_MS = 60 * 1000;
 
@@ -654,6 +657,53 @@ export function createInAppSignalController(deps = {}) {
   }
 
   /**
+   * Play the signal for genuinely new notification-centre items.
+   *
+   * A new notification item is a presentation-layer event, not a run event: it has
+   * its own gate (`soundEnabled`, from the notification-centre preferences) and its
+   * own dedupe-key namespace, but it reuses the single device player, the device
+   * volume and the quiet-hours window.
+   *
+   * @param {{ ids?: unknown, soundEnabled?: unknown }} input
+   * @returns {{ emit: boolean, sound: boolean, reason: string, ids: string[] }}
+   */
+  function handleNotificationItems(input = {}) {
+    const ids = Array.isArray(input.ids)
+      ? input.ids.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    if (input.soundEnabled !== true) return { emit: false, sound: false, reason: 'disabled', ids: [] };
+    if (ids.length === 0) return { emit: false, sound: false, reason: 'empty', ids: [] };
+    if (isQuietActive()) return { emit: false, sound: false, reason: 'quiet-hours', ids: [] };
+    if (!player.isSoundSupported()) return { emit: false, sound: false, reason: 'unsupported', ids: [] };
+    const claimed = [];
+    for (const id of ids) {
+      const key = `${NOTIFICATION_SIGNAL_CLAIM_PREFIX}${id}`;
+      if (claimStore.isClaimed(key)) continue;
+      if (!claimStore.claim(key)) continue;
+      claimed.push({ id, key });
+    }
+    if (claimed.length === 0) return { emit: false, sound: false, reason: 'duplicate', ids: [] };
+    const profile = resolveNotificationProfile(preferences, {});
+    try {
+      void Promise.resolve(player.playSound({
+        soundPreset: profile.soundPreset,
+        gain: (profile.volume ?? volume) * IN_APP_SIGNAL_TONE.gain,
+      })).catch(() => {});
+    } catch (err) {
+      logger?.log?.('pwa', 'notification centre sound failed', { error: String(err?.message || err) });
+      return { emit: false, sound: false, reason: 'error', ids: [] };
+    }
+    if (channel && typeof channel.postMessage === 'function') {
+      for (const entry of claimed) {
+        try {
+          channel.postMessage({ type: 'claimed', eventId: entry.key });
+        } catch (_) {}
+      }
+    }
+    return { emit: true, sound: true, reason: '', ids: claimed.map((entry) => entry.id) };
+  }
+
+  /**
    * @param {unknown} data message payload from the Service Worker
    * @param {unknown} [ports] MessageChannel ports; when present the page replies
    *   whether it actually handled the signal so the SW can keep the OS vibration
@@ -723,6 +773,7 @@ export function createInAppSignalController(deps = {}) {
 
   return {
     handleEvent,
+    handleNotificationItems,
     handleServiceWorkerMessage,
     noteUserGesture,
     setPreferences,
@@ -904,6 +955,22 @@ export function noteLiveInAppSignal(input = {}) {
     return defaultController.handleEvent(payload);
   } catch (_) {
     return { emit: false, vibrate: false, sound: false, reason: 'error' };
+  }
+}
+
+/**
+ * Fire-and-forget hook for genuinely new notification-centre items.
+ * A no-op (reason `not-initialized`) before `initInAppSignals()` runs.
+ *
+ * @param {{ ids?: unknown, soundEnabled?: unknown }} input
+ * @returns {{ emit: boolean, sound: boolean, reason: string, ids: string[] }}
+ */
+export function noteNotificationCenterSignal(input = {}) {
+  if (!defaultController) return { emit: false, sound: false, reason: 'not-initialized', ids: [] };
+  try {
+    return defaultController.handleNotificationItems(input);
+  } catch (_) {
+    return { emit: false, sound: false, reason: 'error', ids: [] };
   }
 }
 

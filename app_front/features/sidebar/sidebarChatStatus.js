@@ -18,7 +18,8 @@ const DISCONNECTED_ICON_HTML = '<span class="mdi mdi-link-variant-off" aria-hidd
 const CONNECTING_ICON_HTML = '<span class="mdi mdi-loading mdi-spin" aria-hidden="true"></span>';
 const SYNCING_ICON_HTML = '<span class="mdi mdi-sync mdi-spin" aria-hidden="true"></span>';
 const WORKING_ICON_HTML = '<span class="mdi mdi-cog-outline mdi-spin" aria-hidden="true"></span>';
-const NEEDS_ACTION_ICON_HTML = '<span class="mdi mdi-alert-circle-outline" aria-hidden="true"></span>';
+const NEEDS_ACTION_ICON_HTML = '<span class="mdi mdi-help-circle-outline" aria-hidden="true"></span>';
+const WAITING_ICON_HTML = '<span class="mdi mdi-timer-sand" aria-hidden="true"></span>';
 const ARCHIVE_ICON_HTML = '<span class="mdi mdi-progress-clock" aria-hidden="true"></span>';
 export const ACTIVITY_LABEL_CLASS = 'sidebar-chat-item-activity-label';
 
@@ -29,7 +30,7 @@ const ARCHIVE_TONES = new Set([
 ]);
 const SETTLED_STATUS_ICONS = {
   completed: '<span class="mdi mdi-check-circle-outline" aria-hidden="true"></span>',
-  failed: '<span class="mdi mdi-alert-circle-outline" aria-hidden="true"></span>',
+  failed: '<span class="mdi mdi-alert-outline" aria-hidden="true"></span>',
   interrupted: '<span class="mdi mdi-pause-circle-outline" aria-hidden="true"></span>',
   cancelled: '<span class="mdi mdi-close-circle-outline" aria-hidden="true"></span>',
 };
@@ -41,6 +42,7 @@ const NEEDS_ACTION_TONES = new Set([
   'textarea',
   'choice',
 ]);
+const WAITING_TONES = new Set(['waiting']);
 
 /**
  * @param {string} tone
@@ -53,7 +55,8 @@ export function isIconOnlySidebarStatus(tone, meta = null) {
     || tone === 'connecting'
     || tone === 'syncing'
     || tone === 'active'
-    || NEEDS_ACTION_TONES.has(tone);
+    || NEEDS_ACTION_TONES.has(tone)
+    || WAITING_TONES.has(tone);
 }
 
 /**
@@ -84,6 +87,7 @@ export function renderSidebarChatStatusHtml(meta, escapeHtml) {
   if (tone === 'active') {
     return renderActiveChipHtml(meta?.activityKey ? label : '', escape);
   }
+  if (WAITING_TONES.has(tone)) return WAITING_ICON_HTML;
   if (ARCHIVE_TONES.has(tone)) return renderActiveChipHtml(label, escape, ARCHIVE_ICON_HTML);
   if (tone === 'attention' && SETTLED_STATUS_ICONS[meta?.status]) return SETTLED_STATUS_ICONS[meta.status];
   if (NEEDS_ACTION_TONES.has(tone)) return NEEDS_ACTION_ICON_HTML;
@@ -162,4 +166,3 @@ export function applySidebarChatStatusEl(el, meta, options = {}) {
   el.innerHTML = renderSidebarChatStatusHtml(meta, options.escapeHtml);
   return true;
 }
-

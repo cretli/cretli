@@ -114,3 +114,16 @@ test('usage section uses per-row p95 and drops the range-level note', () => {
   // 24h is the current UTC day, so the label must say so instead of "24 h".
   assert.match(section, /data-i18n="usage\.range24h"/);
 });
+
+test('usage section exposes subject and accounting-scope filters wired into every query', () => {
+  const section = usageSection();
+  assert.match(section, /id="usage-subject-select"/);
+  assert.match(section, /id="usage-scope-select"/);
+  assert.match(section, /value="internal"/);
+  assert.match(section, /value="consolidated"/);
+  // Both controls are wired into the module and travel in the shared query.
+  assert.match(settingsSource, /byId\('usage-subject-select'\)/);
+  assert.match(settingsSource, /byId\('usage-scope-select'\)/);
+  assert.match(settingsSource, /subject: state\.subject/);
+  assert.match(settingsSource, /scope: state\.scope/);
+});

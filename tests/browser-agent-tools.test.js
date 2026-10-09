@@ -502,6 +502,10 @@ test('server.js registers the runtime and the SDK merges the browser tools', () 
   const sdk = read('lib/sdk/cursor-agent-sdk-ws.js');
   assert.match(sdk, /buildBrowserAgentTools\(/);
   assert.match(sdk, /\.\.\.browserTools/);
+  // A room with no live user must act as the system owner, not as the last
+  // login session that attached to the chat.
+  assert.match(sdk, /resolveBrowserChatOwner\(browserChatId, runtime\?\.manager\)/);
+  assert.match(sdk, /chat\?\.widgetInstallationId \? '' : BROWSER_SYSTEM_OWNER_ID/);
 });
 
 test('browser_elements is a read tool bounded by the caller limit', async () => {

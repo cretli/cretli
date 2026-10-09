@@ -2689,6 +2689,9 @@ runCase('startWorkspaceWatcherCycle: maxParallel 2 allows two concurrent cycles'
       return { id: extras.id, title };
     },
     startChatRun: async () => ({ runId: `run-${chatSeq}`, accepted: true }),
+    // Deterministic orchestrator seam: the ambient harness catalog / usage
+    // ledger must not decide whether this cycle can start.
+    resolveWorkspaceWatcherOrchestrator: async () => ({ ok: true, harness: 'mock', model: 'cheap', source: 'policy' }),
     selectModelPick: () => ({ ok: true, pick: { harness: 'mock', model: 'cheap' } }),
     probeChatRunLiveness: () => ({ known: true, busy: true, reason: 'busy' }),
   };
@@ -2733,6 +2736,9 @@ runCase('startWorkspaceWatcherCycle: claims a ready todo once and blocks a dupli
       runCalls.push(input);
       return { runId: 'run-1', accepted: true };
     },
+    // Deterministic orchestrator seam: the ambient harness catalog / usage
+    // ledger must not decide whether this cycle can start.
+    resolveWorkspaceWatcherOrchestrator: async () => ({ ok: true, harness: 'mock', model: 'cheap', source: 'policy' }),
     selectModelPick: () => ({ ok: true, pick: { harness: 'mock', model: 'cheap' } }),
     probeChatRunLiveness: () => ({ known: true, busy: true, reason: 'busy' }),
   };
@@ -2785,6 +2791,7 @@ runCase('startWorkspaceWatcherCycle: omitted dataDir still finds the todo in the
     deps: {
       addChat: (_session, title, _wf, _folder, _model, extras) => ({ id: extras.id, title }),
       startChatRun: async () => ({ runId: 'run-default-dir', accepted: true }),
+      resolveWorkspaceWatcherOrchestrator: async () => ({ ok: true, harness: 'mock', model: 'cheap', source: 'policy' }),
       selectModelPick: () => ({ ok: true, pick: { harness: 'mock', model: 'cheap' } }),
       probeChatRunLiveness: () => ({ known: true, busy: true, reason: 'busy' }),
     },
@@ -2809,6 +2816,7 @@ runCase('startWorkspaceWatcherCycle: a failed start rolls back the cycle and rel
       error.code = 'adapter_unavailable';
       throw error;
     },
+    resolveWorkspaceWatcherOrchestrator: async () => ({ ok: true, harness: 'mock', model: 'cheap', source: 'policy' }),
     selectModelPick: () => ({ ok: true, pick: { harness: 'mock', model: 'cheap' } }),
     probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'chat_missing' }),
     notify: () => false,
@@ -3579,6 +3587,9 @@ runCase('runWorkspaceWatcherAutopilot: starts exactly one cycle per workspace ti
       runCalls.push(input);
       return { runId: 'auto-run', accepted: true };
     },
+    // Deterministic orchestrator seam: the ambient harness catalog / usage
+    // ledger must not decide whether this cycle can start.
+    resolveWorkspaceWatcherOrchestrator: async () => ({ ok: true, harness: 'mock', model: 'cheap', source: 'policy' }),
     selectModelPick: () => ({ ok: true, pick: { harness: 'mock', model: 'cheap' } }),
     probeChatRunLiveness: () => ({ known: true, busy: true, reason: 'busy' }),
   };

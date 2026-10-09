@@ -122,6 +122,37 @@ Error code when sending on a stub while another instance owns the run:
 
 - `code: "remote_room_stub"`
 
+## Browser session ownership
+
+Browser is **explicitly single-instance** when multi-instance routing is
+enabled (Redis URL set). Live Chromium contexts, tabs, buffers, and chat
+bindings exist only in the Node process that created them. They cannot be
+migrated, replicated, or fail over to another instance. Sticky routing only
+steers HTTP/WebSocket traffic to the same instance; it does **not** share
+Browser session state between processes.
+
+When `CRETLI_REDIS_URL` (or legacy `CURSOR_REMOTE_REDIS_URL`) is configured
+and `CRETLI_BROWSER_ALLOW_MULTI_INSTANCE` is **not** `1`, **creating a new
+Browser session is rejected** with HTTP **503** and code
+`browser-multi-instance-unsupported`. The message explains that Browser must
+run on one Node, or that the operator may set
+`CRETLI_BROWSER_ALLOW_MULTI_INSTANCE=1` to **opt in** to process-local Browser
+sessions in a multi-instance deployment—with **no** cross-instance sharing and
+**no** failover if that Node dies.
+
+With Redis unset (single Node), or with the opt-in flag, behavior is unchanged:
+ownership remains process-local, like SDK room ownership for in-flight state:
+
+- The live-owner registry and the Browser session map live only on the instance
+  that served the WebSocket. A chat moved to another instance has no live owner
+  there.
+- A run with no live owner falls back to the reserved **system owner**
+  (`BROWSER_SYSTEM_OWNER_ID`), which gets its own Chromium context on that
+  instance. It never adopts a login session from another instance.
+- System sessions are not shared across instances: a call routed to a different
+  instance creates a new system session there. A run that needs the *same*
+  prepared page state must stay on one instance (sticky routing).
+
 ## Limitations
 
 - In-flight run state is lost when the owner process dies (history on disk remains).

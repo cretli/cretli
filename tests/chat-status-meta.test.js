@@ -24,6 +24,20 @@ const actualIdle = resolveHarnessChatStateMeta(inputIdle);
 assert.equal(actualIdle.tone, 'idle');
 assert.equal(actualIdle.label, 'Ready');
 
+const actualFailedRun = resolveHarnessChatStateMeta({
+  ...inputIdle,
+  lastRunStatus: 'run_failed',
+});
+assert.equal(actualFailedRun.tone, 'attention');
+assert.equal(actualFailedRun.status, 'failed');
+assert.equal(actualFailedRun.label, 'Run failed');
+
+const actualCancelledRun = resolveHarnessChatStateMeta({
+  ...inputIdle,
+  lastRunStatus: 'cancelled',
+});
+assert.equal(actualCancelledRun.tone, 'idle');
+
 const inputAwaitingFromBufferHeuristic = {
   connection: 'connected',
   agent: 'idle',

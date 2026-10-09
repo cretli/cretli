@@ -10,6 +10,9 @@ import {
   COLD_START_BONUS,
   DEFAULT_ROTATION_CONFIG,
   PLAN_LIMIT_PENALTY,
+  PLAN_LIMIT_PENALTY_MAX,
+  PLAN_LIMIT_UTILIZATION,
+  PLAN_LIMIT_WARN_UTILIZATION,
   normalizeRotationConfig,
   loadRotationConfig,
   selectModelPick,
@@ -260,15 +263,88 @@ const freshLimit = selectModelPick({
 assert.equal(freshLimit.pick.harness, 'b');
 assert.ok(freshLimit.candidates.find((row) => row.harness === 'a').plan_limit_penalty > 0);
 
+// --- Plan-limit penalty: proportional, not a 90% cliff -----------------------
 // The shared plan contract is percent, including small fractional percentages.
-for (const utilization of [0.8, 1, 12, 89.9, 90, 100]) {
-  const result = selectModelPick({ role: 'implement', harnesses: exploreHarnesses,
-    modelsByHarness: exploreModels, rotation: 'balanced', explore: false,
-    history: { planLimits: [{ harness: 'a', utilization, resetsAt: '2099-01-01T00:00:00Z' }] },
-  });
-  assert.equal(result.candidates.find((row) => row.harness === 'a').plan_limit_penalty,
-    utilization >= 90 ? PLAN_LIMIT_PENALTY : 0);
+// A row without a forecast keeps today's no-data behavior: 0 below 90 and the
+// PLAN_LIMIT_PENALTY floor at/above it.
+const planPenaltyFor = (planLimits) => selectModelPick({
+  role: 'implement',
+  harnesses: exploreHarnesses,
+  modelsByHarness: exploreModels,
+  rotation: 'balanced',
+  explore: false,
+  history: { planLimits },
+}).candidates.find((row) => row.harness === 'a').plan_limit_penalty;
+
+for (const utilization of [0.8, 1, 12, 70, 89.9, 90, 100]) {
+  assert.equal(
+    planPenaltyFor([{ harness: 'a', utilization, resetsAt: '2099-01-01T00:00:00Z' }]),
+    utilization >= 90 ? PLAN_LIMIT_PENALTY : 0,
+    `no forecast: utilization ${utilization} keeps today's ${utilization >= 90 ? 'floor' : 'no-data'} penalty`,
+  );
 }
+
+// A projection that exhausts before its reset penalises a window below 90%.
+const nearExhaustionRow = {
+  harness: 'a',
+  utilization: 72,
+  resetsAt: '2099-01-01T00:00:00Z',
+  confidence: 'high',
+  forecast: {
+    exhaustsAt: '2099-01-01T00:00:00Z',
+    beforeReset: true,
+    percentPerHour: 40,
+    remainingMs: 60_000,
+  },
+};
+const nearExhaustionPenalty = planPenaltyFor([nearExhaustionRow]);
+assert.ok(nearExhaustionPenalty > 0, 'a near-exhaustion forecast penalises below 90%');
+assert.ok(
+  nearExhaustionPenalty >= PLAN_LIMIT_PENALTY
+  && nearExhaustionPenalty <= PLAN_LIMIT_PENALTY_MAX,
+  'the proportional penalty stays within [PLAN_LIMIT_PENALTY, PLAN_LIMIT_PENALTY_MAX]',
+);
+
+// A healthy window with a real forecast is free; a stale row never penalises.
+assert.equal(planPenaltyFor([{
+  harness: 'a',
+  utilization: 20,
+  resetsAt: '2099-01-01T00:00:00Z',
+  confidence: 'high',
+  forecast: { exhaustsAt: '2099-01-01T00:00:00Z', beforeReset: false, percentPerHour: 2, remainingMs: 6 * 60 * 60 * 1000 },
+}]), 0, 'a healthy window is not penalised');
+assert.equal(planPenaltyFor([{ ...nearExhaustionRow, stale: true }]), 0, 'a stale plan row keeps the no-data penalty');
+
+// The forecast signal is what carries the penalty when utilization is low:
+// harness A (near exhaustion) must lose to the same-quality harness B (healthy).
+const forecastTie = selectModelPick({
+  role: 'implement',
+  harnesses: exploreHarnesses,
+  modelsByHarness: exploreModels,
+  rotation: 'balanced',
+  explore: false,
+  history: {
+    planLimits: [
+      nearExhaustionRow,
+      {
+        harness: 'b',
+        utilization: 15,
+        resetsAt: '2099-01-01T00:00:00Z',
+        confidence: 'high',
+        forecast: { exhaustsAt: '2099-01-01T00:00:00Z', beforeReset: false, percentPerHour: 1, remainingMs: 6 * 60 * 60 * 1000 },
+      },
+    ],
+  },
+});
+assert.equal(forecastTie.pick.harness, 'b', 'the near-exhausted forecast loses to a healthy window');
+assert.ok(forecastTie.candidates.find((row) => row.harness === 'a').plan_limit_penalty > 0);
+assert.equal(forecastTie.candidates.find((row) => row.harness === 'b').plan_limit_penalty, 0);
+assert.match(forecastTie.candidates.find((row) => row.harness === 'a').reason, /plan-limit-penalty=/,
+  'the candidate reason keeps the plan-limit-penalty marker');
+
+// Sanity: the warning threshold is where the proportional utilization ramp starts.
+assert.ok(PLAN_LIMIT_WARN_UTILIZATION < PLAN_LIMIT_UTILIZATION);
+
 // --- Review auto-excludes the last implementer and last reviewer ---
 createDelegationRecord({
   parentChatId: 'review-chat',

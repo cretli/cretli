@@ -223,7 +223,7 @@ test('renderSidebarChatStatusHtml uses outcome icons for settled delegation stat
   );
   assert.match(actual, /mdi-check-circle-outline/);
   assert.equal(actual.includes('Completed'), false);
-  assert.match(renderSidebarChatStatusHtml({ tone: 'attention', status: 'failed' }), /mdi-alert-circle-outline/);
+  assert.match(renderSidebarChatStatusHtml({ tone: 'attention', status: 'failed' }), /mdi-alert-outline/);
   assert.match(renderSidebarChatStatusHtml({ tone: 'attention', status: 'interrupted' }), /mdi-pause-circle-outline/);
   assert.match(renderSidebarChatStatusHtml({ tone: 'attention', status: 'cancelled' }), /mdi-close-circle-outline/);
 });
@@ -260,4 +260,3 @@ test('applySidebarChatStatusEl updates the countdown label without rebuilding th
   assert.equal(isIconOnlySidebarStatus('archive-soon'), false);
   assert.equal(isIconOnlySidebarStatus('archive-imminent'), false);
 });
-

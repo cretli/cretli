@@ -70,9 +70,12 @@ import { setModelScoreRows } from './lib/model-catalog-meta.js';
 import { loadModelScoreRows } from './lib/model-score-heuristics-fs.js';
 import { detectBrowserRuntime } from './lib/browser/runtime-detect.js';
 import { BrowserSessionManager } from './lib/browser/session-manager.js';
+import { assertBrowserSingleInstance } from './lib/browser/multi-instance.js';
+import { createRespawnController, resolveLifecycleLimits } from './lib/browser/lifecycle.js';
 import { purgeBrowserScreenshotRoot } from './lib/browser/screenshot-file.js';
 import { getWorkspacePolicy } from './lib/browser/policy-store.js';
 import { configureBrowserAgentRuntime } from './lib/browser/agent-tools.js';
+import { createServerDiagnostics } from './lib/server-diagnostics.js';
 
 setModelScoreRows(loadModelScoreRows());
 
@@ -114,6 +117,35 @@ const AGENT_MODEL = process.env.CURSOR_AGENT_MODEL ?? 'auto';
 const AGENT_CALLBACK_TOKEN = process.env.AGENT_CALLBACK_TOKEN || '';
 const SERVER_INSTANCE_TOKEN = randomUUID();
 const SERVER_STARTED_AT = Date.now();
+const serverDiagnostics = createServerDiagnostics({
+  dataDir: resolveDataPath(),
+  serverInstanceToken: SERVER_INSTANCE_TOKEN,
+  serverStartedAt: SERVER_STARTED_AT,
+});
+const IS_PROD = process.env.NODE_ENV === 'production';
+process.on('uncaughtException', (err) => {
+  console.error('[fatal] uncaughtException:', err?.stack || err?.message || err);
+  serverDiagnostics.record('uncaught-exception', {
+    errorName: String(err?.name || 'Error').slice(0, 80),
+    message: err?.message || String(err),
+  }, { fatal: IS_PROD });
+  if (IS_PROD) {
+    console.error('[fatal] Terminating process (production) — restart via a process manager.');
+    process.exit(1);
+  }
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[fatal] unhandledRejection:', reason?.stack || reason?.message || reason);
+  serverDiagnostics.record('unhandled-rejection', {
+    errorName: String(reason?.name || 'UnhandledRejection').slice(0, 80),
+    message: reason?.message || String(reason),
+  }, { fatal: IS_PROD });
+  if (IS_PROD) {
+    console.error('[fatal] Terminating process (production).');
+    process.exit(1);
+  }
+});
+serverDiagnostics.start();
 let serverRestartScheduled = false;
 const FRONT_HMR_ENV_RAW = readEnvAlias({
   current: 'CRETLI_FRONT_HMR',
@@ -288,6 +320,42 @@ const browserSelfOrigins = [
   `http://localhost:${PORT}`,
   `https://localhost:${PORT}`,
 ].filter(Boolean);
+// Respawn/backoff for a crashed Chromium. The P2c controller owns the real
+// relaunch, so `schedule()` is the single gate (bounded window + exponential
+// backoff). No separate `relaunch` callback is passed to the manager, so
+// `handleDriverCrash` cannot relaunch a second time. Limits come from the
+// RESPAWN_* env overrides via resolveLifecycleLimits; the controller never
+// throws, it only resolves false, so a crash cannot take the server down.
+const browserLifecycleLimits = resolveLifecycleLimits(process.env);
+const browserRespawnController = createRespawnController({
+  maxAttempts: browserLifecycleLimits.respawnMaxAttempts,
+  baseDelayMs: browserLifecycleLimits.respawnBaseDelayMs,
+  maxDelayMs: browserLifecycleLimits.respawnMaxDelayMs,
+  windowMs: browserLifecycleLimits.respawnWindowMs,
+  // The real relaunch: re-detect the runtime and swap the manager's driver. A
+  // rejection is the controller's `fail` signal and counts against the window.
+  launch: async () => {
+    const next = await detectBrowserRuntime({ env: process.env });
+    if (!next?.available) {
+      throw new Error(`Browser runtime unavailable: ${next?.reason || next?.status || 'unknown'}`);
+    }
+    if (!browserManager.setDriver(next)) {
+      throw new Error('Browser runtime re-detected but setDriver rejected it');
+    }
+    return true;
+  },
+  onEvent: (event) => {
+    try {
+      const type = String(event?.type || '');
+      if (type !== 'attempt' && type !== 'fail' && type !== 'exhausted') return;
+      const attempt = Number.isInteger(event?.attempt) ? ` attempt=${event.attempt}` : '';
+      const reason = event?.reason ? ` reason=${event.reason}` : '';
+      console.error(`[cretli] Browser respawn ${type}${attempt}${reason}`);
+    } catch {
+      // Observability must never break the respawn controller.
+    }
+  },
+});
 const browserManager = new BrowserSessionManager({
   driver: browserRuntime.driver,
   driverStatus: browserRuntime,
@@ -295,17 +363,44 @@ const browserManager = new BrowserSessionManager({
   resolvePolicy: (workspaceKey) => getWorkspacePolicy(dataDir, workspaceKey),
   blockedPorts: readInternalBrowserPorts(),
   selfOrigins: browserSelfOrigins,
+  // Persistent per-workspace cookies/localStorage are opt-in. The secret comes
+  // from CRETLI_BROWSER_STORAGE_KEY or dataDir/browser-storage.key; without one
+  // the manager reports a key-missing status and never writes plaintext.
+  storageState: {
+    dataDir,
+    secret: process.env.CRETLI_BROWSER_STORAGE_KEY || undefined,
+  },
+  // HAR archives are an explicit per-session/workspace opt-in. This only wires
+  // the data dir; no recorder exists until a session opts in, and every archive
+  // is redacted and size-bounded before it is written.
+  har: {
+    dataDir,
+    maxBytes: Number(process.env.CRETLI_BROWSER_HAR_MAX_BYTES) || undefined,
+  },
+  // A crashed Chromium is re-detected in-process and the driver is swapped
+  // without a server restart; the controller above is the only launcher.
+  respawn: browserRespawnController,
+  multiInstanceGuard: () => assertBrowserSingleInstance(process.env),
 });
 // Screenshots from a previous process may still hold sensitive page content;
 // clear the whole temp root before any new session writes into it.
 purgeBrowserScreenshotRoot();
 browserManager.startSweep();
+// Kill Chromium processes a previous Cretli process left behind (crash/restart).
+try {
+  await browserManager.startupSweep();
+} catch (err) {
+  console.error(`[cretli] Browser startup sweep failed: ${err?.message || err}`);
+}
+// Drop persisted storageState entries past their TTL before serving any session.
+browserManager.sweepStorageState();
 // Make the browser_* agent tools available to SDK runs for this process. Without
 // this the SDK room builder sees no runtime and (fail-closed) exposes no tools.
 configureBrowserAgentRuntime({ manager: browserManager });
 
 registerAppRoutes(app, {
   dataDir,
+  serverDiagnostics,
   uploadsDir,
   browserManager,
   appendClientDebugLogFile: clientDebugLog.appendClientDebugLogFile,
@@ -381,22 +476,6 @@ const wsRouterCtx = {
 };
 attachWebSocketHandlers(wss, wsRouterCtx);
 
-const IS_PROD = process.env.NODE_ENV === 'production';
-process.on('uncaughtException', (err) => {
-  console.error('[fatal] uncaughtException:', err?.stack || err?.message || err);
-  if (IS_PROD) {
-    console.error('[fatal] Terminating process (production) — restart via a process manager.');
-    process.exit(1);
-  }
-});
-process.on('unhandledRejection', (reason) => {
-  console.error('[fatal] unhandledRejection:', reason?.stack || reason?.message || reason);
-  if (IS_PROD) {
-    console.error('[fatal] Terminating process (production).');
-    process.exit(1);
-  }
-});
-
 await installFrontHmrMiddleware({ app, projectRoot: __dirname, enabled: FRONT_HMR_ENABLED });
 registerDevAndUpdateRoutes(app, {
   taskRuns,
@@ -443,10 +522,13 @@ let delegationShutdownStarted = false;
 async function shutdownDelegationAndExit(signal) {
   if (delegationShutdownStarted) return;
   delegationShutdownStarted = true;
+  serverDiagnostics.record('shutdown-signal', { signal });
   // Browser sessions are ephemeral: close Chromium before exiting.
   try {
     browserManager.stopSweep();
     await browserManager.closeAll(`shutdown:${signal}`);
+    // Sweep any Chromium that outlived its closed session.
+    await browserManager.startupSweep();
   } catch (err) {
     console.error(`[cretli] ${signal}: browser shutdown error: ${err?.message || err}`);
   }
@@ -461,7 +543,16 @@ process.on('SIGTERM', () => {
 process.on('SIGINT', () => {
   void shutdownDelegationAndExit('SIGINT');
 });
+server.on('error', (err) => {
+  console.error('[fatal] HTTP server error:', err?.stack || err?.message || err);
+  serverDiagnostics.record('server-error', {
+    errorName: String(err?.name || 'Error').slice(0, 80),
+    message: err?.message || String(err),
+  }, { fatal: !server.listening });
+  if (!server.listening) process.exit(1);
+});
 server.listen(PORT, BIND_HOST, () => {
+  serverDiagnostics.record('server-listen');
   installServerLogCapture();
   if (FRONT_HOT_FALLBACK_ENABLED) installFrontBuildWatcher(__dirname, SERVER_INSTANCE_TOKEN);
   setInterval(() => runAgentsScheduler(wsRouterCtx), AGENTS_SCHEDULER_INTERVAL_MS);

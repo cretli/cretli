@@ -13,6 +13,12 @@ the Cretli UI. Every harness reaches it through the builtin Cretli MCP tools
 Use it whenever the task is "look at the page": the user watches the same tab, and
 whatever they did there (a sign-in, a filled form, an opened dialog) is still in it.
 
+When nobody has the chat open in the UI (a Watcher/autopilot cycle, a delegated run,
+or a chat right after a server restart), the run gets a **private system session**
+instead: its own Chromium context with no user cookies, not shown in the user's
+Browser panel. Never ask the user to "open the chat" just to make the tools appear.
+A widget-only chat without a Cretli login session is still denied.
+
 ## Workflow
 
 1. `browser_sessions` — sessions this chat may use (bound here, bound to a fork
@@ -79,7 +85,7 @@ sign-in page. Then:
 
 | Error | Meaning | Do |
 |-------|---------|----|
-| `OUT_OF_SCOPE: No signed-in Cretli user is attached to this chat` | Nobody has this chat open in the UI, so there is no user to act for. | Ask the user to open the chat, then retry. |
+| `OUT_OF_SCOPE: No signed-in Cretli user is attached to this chat` | A widget-only chat has no Cretli login session, and the system fallback deliberately does not apply. | Report it; a login in the Cretli UI is the only way to attach a user. |
 | `session-limit` | The per-user Browser session cap is full. | `browser_close` on a session you may access, or ask the user to close one in the panel. |
 | `forbidden-chat` | That session id belongs to a chat outside this fork tree. | Call `browser_open` in this chat. |
 | `HARNESS_UNAVAILABLE` | No Browser runtime in this process (standalone stdio, or Chromium missing on the server). | Report it; do not substitute another browser silently. |

@@ -133,6 +133,7 @@ test('PATCH persists broker mode and advisor config without a key', async () => 
     minProbability: 0.75,
     timeoutMs: 6000,
     dailyQuota: 50,
+    riskScope: 'low_only',
   });
   assert.equal(patched.body.approvalAdvisorEnabled, true);
   assert.equal(patched.body.approvalAdvisorEndpointConfigured, true);
@@ -147,6 +148,7 @@ test('PATCH persists broker mode and advisor config without a key', async () => 
     minProbability: 0.75,
     timeoutMs: 6000,
     dailyQuota: 50,
+    riskScope: 'low_only',
   });
 });
 

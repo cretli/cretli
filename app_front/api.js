@@ -5,6 +5,7 @@ import { readStorageValueWithAlias } from './lib/storageKeyAlias.js';
 import { applyChatAuthSessionBoundary } from './features/chat/chatSessionBoundary.js';
 import { clearPushInboxCache } from './features/pwa/pushInbox.js';
 import { scopeTodoPayload, todoWorkspaceQuery } from './features/todo/todoWorkspaceScope.js';
+import { isWorkspaceWatcherRetryableBlockedTodo } from '../lib/workspace-watcher-blocked-reason.js';
 import {
   applyCsrfFromAuthPayload,
   buildCretliApiHeaders,
@@ -973,18 +974,16 @@ export async function recoverWorkspaceWatcherTodo(todoId, workspaceFolder, expec
   );
 }
 
-export async function retryWorkspaceWatcherTodo(todoId, workspaceFolder) {
-  const id = String(todoId || '').trim();
+export async function retryWorkspaceWatcherTodo(todoId, workspaceFolder) {  const id = String(todoId || '').trim();
   const folder = String(workspaceFolder || '').trim();
   if (!id || !folder) return { ok: false, error: 'Missing task or workspace' };
   const todoData = await getTodos(folder);
   if (!todoData?.ok) return todoData;
   const todo = (Array.isArray(todoData.items) ? todoData.items : []).find((row) => String(row?.id || '') === id);
   if (!todo) return { ok: false, error: 'Task not found' };
-  if (!String(todo.blockedReason || '').includes('Workspace Watcher failure ceiling')) {
-    return { ok: false, error: 'This task is no longer blocked by the Workspace Watcher failure ceiling.' };
+  if (!isWorkspaceWatcherRetryableBlockedTodo(todo)) {
+    return { ok: false, error: 'This task is no longer blocked by the Workspace Watcher.' };
   }
-  if (todo.status === 'doing' || todo.status === 'done') return { ok: false, error: 'This task is no longer retryable.' };
   const query = `?workspaceFolder=${encodeURIComponent(folder)}`;
   const watcherData = await apiFetchJson(`/api/workspace-watcher${query}`, undefined, 'getWorkspaceWatcherForTodoRetry');
   if (!watcherData?.ok) return watcherData;
@@ -1001,6 +1000,32 @@ export async function retryWorkspaceWatcherTodo(todoId, workspaceFolder) {
     blockedReason: '',
     expectedUpdatedAt: todo.updatedAt,
   });
+}
+
+/**
+ * Human integration of a worktree result. `confirm` marks the todo done and
+ * unblocks its sequential siblings; `reject` returns it to ready with a reason.
+ * The worktree is always preserved; nothing is merged automatically.
+ */
+export async function integrateTodo(todoId, workspaceFolder, action, expectedUpdatedAt, reason = '') {
+  const id = String(todoId || '').trim();
+  const folder = String(workspaceFolder || '').trim();
+  const mode = ['confirm', 'reject', 'prepare'].includes(action) ? action : 'confirm';
+  if (!id || !folder) return { ok: false, error: 'Missing task or workspace' };
+  return apiFetchJson(
+    `/api/todos/${encodeURIComponent(id)}/integration`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: mode,
+        workspaceFolder: folder,
+        expectedUpdatedAt: String(expectedUpdatedAt || '').trim(),
+        reason: String(reason || '').trim(),
+      }),
+    },
+    'integrateTodo',
+  );
 }
 
 export async function deleteTodo(id, workspaceFolder) {
@@ -1026,46 +1051,106 @@ export async function postTodoStartAgent(id, payload = {}) {
   );
 }
 
+/**
+ * Poll a two-phase manual start. A worktree prepare may take minutes, so the
+ * POST answers 202 and the UI polls until the chat is created (or fails).
+ */
+export async function getTodoStartAgentStatus(id, workspaceFolder = '', forceNew = false) {
+  if (!id) return { ok: false, error: 'Missing id' };
+  const params = new URLSearchParams();
+  const folder = String(workspaceFolder || '').trim();
+  if (folder) params.set('workspaceFolder', folder);
+  if (forceNew) params.set('forceNew', 'true');
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return apiFetchJson(
+    `/api/todos/${encodeURIComponent(id)}/start-agent/status${query}`,
+    undefined,
+    'getTodoStartAgentStatus'
+  );
+}
+
 export async function getCursorContext(workspaceFolder = '') {
   const query = workspaceFolder ? `?workspaceFolder=${encodeURIComponent(workspaceFolder)}` : '';
   return dedupeGetJson(`/api/cursor-context${query}`, 'getCursorContext');
 }
 
-export async function getGitInfo() {
-  return cretliApiFetch('/api/git/info', {}, { acceptLanguage: getCurrentLang() }).then(json);
+/**
+ * Chat/TODO scope forwarded to the Git routes. Only ids and the logical
+ * workspace are sent; the server resolves the authorized execution folder from
+ * its own records (see lib/git-context.js).
+ *
+ * @param {{ chatId?: string, todoId?: string, workspaceFolder?: string } | null | undefined} scope
+ * @returns {URLSearchParams}
+ */
+function buildGitScopeParams(scope) {
+  const params = new URLSearchParams();
+  const chatId = String(scope?.chatId || '').trim();
+  const todoId = String(scope?.todoId || '').trim();
+  const workspaceFolder = String(scope?.workspaceFolder || '').trim();
+  if (chatId) params.set('chatId', chatId);
+  if (todoId) params.set('todoId', todoId);
+  if (workspaceFolder) params.set('workspaceFolder', workspaceFolder);
+  return params;
 }
 
-/** Diff of a single file against HEAD; path is relative to the workspace root. */
-export async function getGitFileDiff(filePath) {
-  return cretliApiFetch(`/api/git/file-diff?path=${encodeURIComponent(filePath)}`, {}, { acceptLanguage: getCurrentLang() }).then(json);
+/**
+ * @param {string} basePath
+ * @param {URLSearchParams} params
+ * @returns {string}
+ */
+function withQuery(basePath, params) {
+  const query = params.toString();
+  return query ? `${basePath}?${query}` : basePath;
 }
 
-export async function postGitAction(payload) {
+export async function getGitInfo(scope = null) {
+  return cretliApiFetch(withQuery('/api/git/info', buildGitScopeParams(scope)), {}, { acceptLanguage: getCurrentLang() }).then(json);
+}
+
+/** Diff of a single file against HEAD; path is relative to the execution folder. */
+export async function getGitFileDiff(filePath, scope = null) {
+  const params = buildGitScopeParams(scope);
+  params.set('path', String(filePath));
+  return cretliApiFetch(withQuery('/api/git/file-diff', params), {}, { acceptLanguage: getCurrentLang() }).then(json);
+}
+
+export async function postGitAction(payload, scope = null) {
+  const body = { ...(payload || {}) };
+  for (const [key, value] of buildGitScopeParams(scope)) body[key] = value;
   return cretliApiFetch('/api/git/run', {
     method: 'POST',
     headers: crHeaders({ 'Content-Type': 'application/json' }, '/api/git/run'),
-    body: JSON.stringify(payload || {}),
+    body: JSON.stringify(body),
   }, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
-export async function getGithubInfo() {
-  return cretliApiFetch('/api/github/info', {}, { acceptLanguage: getCurrentLang() }).then(json);
+export async function getGithubInfo(scope = null) {
+  return cretliApiFetch(withQuery('/api/github/info', buildGitScopeParams(scope)), {}, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 export async function getGithubWorkflowRuns(options = {}) {
-  const params = new URLSearchParams();
+  const params = buildGitScopeParams(options.scope);
   if (options.perPage) params.set('per_page', String(options.perPage));
   if (options.page) params.set('page', String(options.page));
-  const query = params.toString();
-  return cretliApiFetch(`/api/github/actions/runs${query ? `?${query}` : ''}`, {}, { acceptLanguage: getCurrentLang() }).then(json);
+  return cretliApiFetch(withQuery('/api/github/actions/runs', params), {}, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
-export async function getGithubWorkflowRunJobs(runId) {
-  return cretliApiFetch(`/api/github/actions/runs/${encodeURIComponent(String(runId))}/jobs`, {}, { acceptLanguage: getCurrentLang() }).then(json);
+export async function getGithubWorkflowRunJobs(runId, options = {}) {
+  const params = buildGitScopeParams(options.scope);
+  return cretliApiFetch(
+    withQuery(`/api/github/actions/runs/${encodeURIComponent(String(runId))}/jobs`, params),
+    {},
+    { acceptLanguage: getCurrentLang() },
+  ).then(json);
 }
 
-export async function getGithubWorkflowJobLogs(jobId) {
-  return cretliApiFetch(`/api/github/actions/jobs/${encodeURIComponent(String(jobId))}/logs`, {}, { acceptLanguage: getCurrentLang() }).then(json);
+export async function getGithubWorkflowJobLogs(jobId, options = {}) {
+  const params = buildGitScopeParams(options.scope);
+  return cretliApiFetch(
+    withQuery(`/api/github/actions/jobs/${encodeURIComponent(String(jobId))}/logs`, params),
+    {},
+    { acceptLanguage: getCurrentLang() },
+  ).then(json);
 }
 
 /**
@@ -1209,10 +1294,30 @@ export async function getUsagePlanLimits() {
   return dedupeGetJson('/api/usage/plan-limits', 'getUsagePlanLimits');
 }
 
-export async function getUsageSummary(query = {}) {
+/**
+ * Shared query builder for the stage-8 usage read endpoints, so the summary,
+ * chart, table and insights always carry the same window and filters.
+ *
+ * @param {object} [query]
+ * @returns {URLSearchParams}
+ */
+function buildUsageQueryParams(query = {}) {
   const params = new URLSearchParams();
-  if (query.from) params.set('from', String(query.from));
-  if (query.to) params.set('to', String(query.to));
+  for (const key of ['from', 'to', 'tz', 'range', 'role', 'harness', 'origin', 'scope', 'subject']) {
+    if (query[key]) params.set(key, String(query[key]));
+  }
+  if (query.purpose) params.set('purpose', String(query.purpose));
+  if (query.workspaceFile || query.workspace) params.set('workspaceFile', String(query.workspaceFile || query.workspace));
+  if (query.chatId || query.chat) params.set('chatId', String(query.chatId || query.chat));
+  if (query.bucket) params.set('bucket', String(query.bucket));
+  if (query.groupBy) params.set('groupBy', String(query.groupBy));
+  if (query.metric) params.set('metric', String(query.metric));
+  if (query.limit) params.set('limit', String(query.limit));
+  return params;
+}
+
+export async function getUsageSummary(query = {}) {
+  const params = buildUsageQueryParams(query);
   const suffix = params.toString() ? `?${params}` : '';
   return dedupeGetJson(`/api/usage/summary${suffix}`, 'getUsageSummary');
 }
@@ -1220,16 +1325,11 @@ export async function getUsageSummary(query = {}) {
 /**
  * Bucketed usage from GET /api/usage/timeseries.
  *
- * @param {{ from?: string, to?: string, bucket?: 'hour'|'day', groupBy?: 'model'|'harness'|'feature', metric?: 'usd'|'tokens'|'events'|'runs' }} [query]
- * @returns {Promise<{ ok: boolean, from?: string, to?: string, bucket?: string, groupBy?: string, metric?: string, buckets?: string[], series?: Array<{ group: string, values: number[] }>, error?: string }>}
+ * @param {{ from?: string, to?: string, tz?: string, range?: string, bucket?: 'hour'|'day', groupBy?: 'model'|'harness'|'feature', metric?: 'usd'|'tokens'|'events'|'runs', role?: string, scope?: 'own'|'consolidated' }} [query]
+ * @returns {Promise<{ ok: boolean, from?: string, to?: string, tz?: string, bucket?: string, groupBy?: string, metric?: string, buckets?: string[], series?: Array<{ group: string, values: number[] }>, error?: string }>}
  */
 export async function getUsageTimeseries(query = {}) {
-  const params = new URLSearchParams();
-  if (query.from) params.set('from', String(query.from));
-  if (query.to) params.set('to', String(query.to));
-  if (query.bucket) params.set('bucket', String(query.bucket));
-  if (query.groupBy) params.set('groupBy', String(query.groupBy));
-  if (query.metric) params.set('metric', String(query.metric));
+  const params = buildUsageQueryParams(query);
   const suffix = params.toString() ? `?${params}` : '';
   return dedupeGetJson(`/api/usage/timeseries${suffix}`, 'getUsageTimeseries');
 }
@@ -1237,17 +1337,27 @@ export async function getUsageTimeseries(query = {}) {
 /**
  * Ranked per-model usage from GET /api/usage/models.
  *
- * @param {{ from?: string, to?: string, metric?: 'tokens'|'usd'|'events'|'runs', limit?: number }} [query]
- * @returns {Promise<{ ok: boolean, from?: string, to?: string, metric?: string, models?: object[], error?: string }>}
+ * @param {{ from?: string, to?: string, tz?: string, range?: string, metric?: 'tokens'|'usd'|'events'|'runs', limit?: number, role?: string, scope?: 'own'|'consolidated' }} [query]
+ * @returns {Promise<{ ok: boolean, from?: string, to?: string, tz?: string, metric?: string, models?: object[], error?: string }>}
  */
 export async function getUsageModels(query = {}) {
-  const params = new URLSearchParams();
-  if (query.from) params.set('from', String(query.from));
-  if (query.to) params.set('to', String(query.to));
-  if (query.metric) params.set('metric', String(query.metric));
-  if (query.limit) params.set('limit', String(query.limit));
+  const params = buildUsageQueryParams(query);
   const suffix = params.toString() ? `?${params}` : '';
   return dedupeGetJson(`/api/usage/models${suffix}`, 'getUsageModels');
+}
+
+/**
+ * Single filter-consistent stage-8 payload from GET /api/usage/insights:
+ * disjoint token buckets, coverage, executed choices, acceptance signals and
+ * cost provenance. The chart/table/CSV read their numbers from here.
+ *
+ * @param {{ from?: string, to?: string, tz?: string, range?: string, role?: string, harness?: string, origin?: 'auto'|'manual'|'unknown', scope?: 'own'|'consolidated', workspaceFile?: string, subject?: 'chat'|'delegation'|'internal', chatId?: string }} [query]
+ * @returns {Promise<{ ok: boolean, from?: string, to?: string, tz?: string, window?: object, insights?: object, error?: string }>}
+ */
+export async function getUsageInsights(query = {}) {
+  const params = buildUsageQueryParams(query);
+  const suffix = params.toString() ? `?${params}` : '';
+  return dedupeGetJson(`/api/usage/insights${suffix}`, 'getUsageInsights');
 }
 
 /**
@@ -1292,6 +1402,81 @@ export async function getHarnessHealth(query = {}) {
 }
 
 /**
+ * Read-only model diagnostics for Settings → Harness (GET /api/harness-diagnostics).
+ *
+ * The endpoint reproduces the picker for the current catalog snapshot and
+ * returns eligibility, availability, stats and the candidate order. Opening the
+ * panel starts no inference; the call only reads server-side catalogs and
+ * aggregates.
+ *
+ * @param {{ role?: string, from?: string, to?: string, fresh?: boolean }} [query]
+ * @returns {Promise<object>}
+ */
+export async function getHarnessDiagnostics(query = {}) {
+  const params = new URLSearchParams();
+  if (query.role) params.set('role', String(query.role));
+  if (query.from) params.set('from', String(query.from));
+  if (query.to) params.set('to', String(query.to));
+  const suffix = params.toString() ? `?${params}` : '';
+  const url = `/api/harness-diagnostics${suffix}`;
+  if (query.fresh) return apiFetchJson(url, undefined, 'getHarnessDiagnostics');
+  return dedupeGetJson(url, 'getHarnessDiagnostics');
+}
+
+/**
+ * Audited model-role config for Settings → Harness. Returns the editable view,
+ * the effective weights/rotation/adaptive values and the content ETag.
+ *
+ * @returns {Promise<object>}
+ */
+export async function getHarnessModelRoleConfig() {
+  return dedupeGetJson('/api/harness-model-role-config', 'getHarnessModelRoleConfig');
+}
+
+/**
+ * Preview a model-role delta without writing (`PUT ...?dryRun=1`).
+ *
+ * @param {object} delta
+ * @returns {Promise<object>}
+ */
+export async function previewHarnessModelRoleConfig(delta) {
+  return apiFetchJson('/api/harness-model-role-config?dryRun=1', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(delta || {}),
+  }, 'previewHarnessModelRoleConfig');
+}
+
+/**
+ * Write a model-role delta guarded by the current content ETag (`If-Match`).
+ *
+ * @param {object} delta
+ * @param {string} etag
+ * @returns {Promise<object>}
+ */
+export async function putHarnessModelRoleConfig(delta, etag) {
+  return apiFetchJson('/api/harness-model-role-config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'If-Match': String(etag || '') },
+    body: JSON.stringify(delta || {}),
+  }, 'putHarnessModelRoleConfig');
+}
+
+/**
+ * Back up and reset the operator model-role config to the built-in defaults.
+ *
+ * @param {string} [etag]
+ * @returns {Promise<object>}
+ */
+export async function resetHarnessModelRoleConfig(etag) {
+  const headers = etag ? { 'If-Match': String(etag) } : {};
+  return apiFetchJson('/api/harness-model-role-config/reset', {
+    method: 'POST',
+    headers,
+  }, 'resetHarnessModelRoleConfig');
+}
+
+/**
  * Manually clears a cached lockout for one harness (optionally one model).
  *
  * @param {string} harness
@@ -1306,6 +1491,35 @@ export async function clearHarnessUsageLimit(harness, payload = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(model ? { model } : {}),
   }, 'clearHarnessUsageLimit', { timeoutMs: 8000 });
+}
+
+/**
+ * Read-only harness CLI/SDK version inventory (optional registry check).
+ *
+ * @param {{ check?: boolean, persist?: boolean }} [query]
+ * @returns {Promise<object>}
+ */
+export async function getHarnessVersions(query = {}) {
+  const params = new URLSearchParams();
+  if (query.persist === false) params.set('persist', '0');
+  if (query.check) params.set('check', '1');
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  return apiFetchJson(`/api/harness/versions${suffix}`, undefined, 'getHarnessVersions');
+}
+
+/**
+ * Explicit model catalog refresh for one harness (Settings action).
+ *
+ * @param {string} harness
+ * @returns {Promise<object>}
+ */
+export async function refreshHarnessModelsCatalog(harness) {
+  const id = String(harness || '').trim().toLowerCase();
+  return apiFetchJson('/api/harness/models/refresh', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ harness: id }),
+  }, 'refreshHarnessModelsCatalog', { timeoutMs: 120000 });
 }
 
 /**

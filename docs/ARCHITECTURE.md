@@ -429,7 +429,10 @@ prefix or unique title substring).
 - **MCP** — `node scripts/cretli-mcp.js` (stdio, newline-delimited JSON-RPC):
   shared catalog in `lib/mcp/builtin/` (chats, TODOs, saved plans, delegations
   plus mailbox reply/inbox, task/agent catalogs, harnesses/models, and the `browser_*` tools of the
-  built-in Browser — `lib/mcp/builtin/browser-tools.js`, server process only). Tools are scoped to the calling chat
+  built-in Browser — `lib/mcp/builtin/browser-tools.js`, server process only). A `browser_*` call
+  acts for the login session currently attached to the chat (or its fork parent); a run with no
+  open UI, such as a Watcher/autopilot cycle or a delegation, uses the reserved system owner and a
+  private Chromium context that is not shown in the Browser panel. Tools are scoped to the calling chat
   workspace, not the UI global folder. `chat_list` / `chat_show` / `chat_history` / `chat_event`
   default to that workspace; pass `scope=all` to reach another workspace by id.
   `chat_history` pages events by seq (optional tool payloads). `chat_event` reads a UTF-16

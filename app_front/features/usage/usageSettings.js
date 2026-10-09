@@ -6,8 +6,14 @@
  * `usageCharts.js` so they can be unit-tested without a DOM.
  */
 
-import { getUsagePlanLimits, getUsageSummary, getUsageTimeseries, getUsageModels, getDelegationStats } from '../../api.js';
+import { getUsagePlanLimits, getUsageSummary, getUsageTimeseries, getUsageModels, getDelegationStats, getUsageInsights } from '../../api.js';
 import { renderPlanLimitsHtml } from './planLimitsView.js';
+import {
+  renderChoicesHtml,
+  renderCoverageHtml,
+  renderSignalsHtml,
+  renderTokenBucketsHtml,
+} from './usageInsightsView.js';
 import { t, getCurrentLang } from '../../i18n/index.js';
 import { formatUsd } from '../../../lib/usage/usage-rates.js';
 import {
@@ -32,7 +38,9 @@ import {
   buildChartModel,
   buildCsv,
   buildSharePercent,
+  buildShareOfTotalPercent,
   escapeHtml,
+  exportMetaRows,
   formatChartValue,
   formatCompactNumber,
   formatInteger,
@@ -48,9 +56,11 @@ import {
 } from './usageCharts.js';
 
 const RANGE_LABEL_KEYS = {
+  today: 'usage.rangeToday',
   '24h': 'usage.range24h',
   '7d': 'usage.range7d',
   '30d': 'usage.range30d',
+  month: 'usage.rangeMonth',
 };
 
 const METRIC_LABEL_KEYS = {
@@ -89,9 +99,28 @@ function harnessLabel(harness) {
   return key ? t(key) : String(harness || '');
 }
 
-/** @returns {string} UTC day, matching the backend default. */
+/** @returns {string} UTC day; fallback only when Intl is unavailable. */
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Calendar day in the selected IANA zone (`YYYY-MM-DD`).
+ *
+ * @param {Date} [date]
+ * @returns {string}
+ */
+function zoneDayKey(date = new Date()) {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: state.tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
 }
 
 /**
@@ -102,15 +131,63 @@ function monthStartIso(iso) {
   return `${String(iso || '').slice(0, 7)}-01`;
 }
 
+/**
+ * Browser zone when it is a valid IANA name; otherwise UTC.
+ *
+ * @returns {string}
+ */
+function resolvedZone() {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (zone) return zone;
+  } catch {
+    /* fall through to UTC */
+  }
+  return 'UTC';
+}
+
+/**
+ * Zones offered by the time-zone select. Uses the platform list when present
+ * and always includes the active zone.
+ *
+ * @returns {string[]}
+ */
+function timeZoneOptions() {
+  try {
+    if (typeof Intl.supportedValuesOf === 'function') {
+      const zones = Intl.supportedValuesOf('timeZone');
+      if (Array.isArray(zones) && zones.length > 0) {
+        return zones.includes(state.tz) ? zones : [state.tz, ...zones];
+      }
+    }
+  } catch {
+    /* fall through to a small fixed list */
+  }
+  const fallback = ['UTC', 'Europe/Warsaw', 'America/New_York', 'Asia/Tokyo'];
+  return fallback.includes(state.tz) ? fallback : [state.tz, ...fallback];
+}
+
 const state = {
   range: '7d',
   metric: 'tokens',
   groupBy: 'model',
   sortKey: 'tokens',
   sortDir: 'desc',
+  tz: resolvedZone(),
+  role: '',
+  origin: '',
+  // Accounting scope is alternative, never additive: `own` is this instance,
+  // `consolidated` adds child/cycle usage.
+  scope: 'own',
+  // Display subject taxonomy: chat | delegation | internal ('' = all).
+  subject: '',
+  // Empty means instance-wide; otherwise the active header workspace file.
+  workspaceFile: '',
   rows: [],
   sortedRows: [],
   summary: null,
+  insights: null,
+  window: null,
 };
 
 let requestToken = 0;
@@ -142,22 +219,33 @@ function getActiveWorkspaceScope() {
 }
 
 /**
- * @param {'24h'|'7d'|'30d'} range
- * @returns {{ from: string, to: string }}
+ * The single filter object every read endpoint receives, so the chart, table,
+ * tooltips and CSV cannot diverge.
+ *
+ * @returns {object}
  */
-function rangeQuery(range) {
-  const to = todayIso();
-  if (range === '24h') return { from: to, to };
-  if (range === '30d') return { from: addDaysIso(to, -29), to };
-  return { from: addDaysIso(to, -6), to };
+function filterQuery() {
+  return {
+    tz: state.tz,
+    role: state.role,
+    origin: state.origin,
+    scope: state.scope,
+    subject: state.subject,
+    ...(state.workspaceFile ? { workspaceFile: state.workspaceFile } : {}),
+  };
 }
 
-/** Range that still contains both the calendar month and the 7-day window. */
+/**
+ * @param {'today'|'24h'|'7d'|'30d'|'month'} range
+ * @returns {object}
+ */
+function rangeQuery(range) {
+  return { ...filterQuery(), range };
+}
+
+/** Wide enough for both the calendar month and the last 7 days in the zone. */
 function kpiQuery() {
-  const to = todayIso();
-  const monthStart = monthStartIso(to);
-  const weekStart = addDaysIso(to, -6);
-  return { from: monthStart < weekStart ? monthStart : weekStart, to };
+  return { ...filterQuery(), range: 'month7d' };
 }
 
 /**
@@ -207,11 +295,14 @@ function paintKpi(id, data, lang) {
  */
 function renderKpis(summary) {
   const lang = getCurrentLang();
-  const today = todayIso();
-  const byDay = summary?.byDay || {};
-  paintKpi('today', sumDayWindow(byDay, today, today), lang);
-  paintKpi('week', sumDayWindow(byDay, addDaysIso(today, -6), today), lang);
-  paintKpi('month', sumDayWindow(byDay, monthStartIso(today), today), lang);
+  const today = zoneDayKey();
+  const days = summary?.byZoneDay || summary?.byDay || {};
+  const kpi = summary?.kpi || {};
+  // The API resolves today/week/month in the selected zone; the local fallback
+  // keeps the cards useful against an older server.
+  paintKpi('today', kpi.today || sumDayWindow(days, today, today), lang);
+  paintKpi('week', kpi.week || sumDayWindow(days, addDaysIso(today, -6), today), lang);
+  paintKpi('month', kpi.month || sumDayWindow(days, monthStartIso(today), today), lang);
   const totalTokens = sumTokens(summary?.tokens);
   const hasAny =
     totalTokens > 0 ||
@@ -352,13 +443,28 @@ function maxShare(rows) {
 }
 
 /**
+ * Cohort total of the active metric; the share text is a percentage of this,
+ * so every row's share adds up to 100% of the selected cohort.
+ *
+ * @param {object[]} rows
+ * @returns {number}
+ */
+function shareTotal(rows) {
+  return rows.reduce((sum, row) => sum + shareValue(row), 0);
+}
+
+/**
  * @param {object} row
- * @param {number} max
+ * @param {number} max leader value, only used for the bar length
+ * @param {number} total cohort total used for the visible percentage
  * @returns {string}
  */
-function shareCell(row, max) {
+function shareCell(row, max, total) {
   const percent = buildSharePercent(shareValue(row), max);
-  return `<div class="settings-usage-share" title="${percent}%"><span class="settings-usage-share-fill" style="width:${percent}%"></span></div><span class="settings-usage-share-text">${percent}%</span>`;
+  const shareOfTotal = buildShareOfTotalPercent(shareValue(row), total);
+  const text = shareOfTotal == null ? '—' : `${shareOfTotal}%`;
+  const title = t('usage.shareTitle', { percent: text, leader: `${percent}%` });
+  return `<div class="settings-usage-share" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"><span class="settings-usage-share-fill" style="width:${percent}%"></span></div><span class="settings-usage-share-text">${escapeHtml(text)}</span>`;
 }
 
 /**
@@ -406,10 +512,11 @@ function renderTableHead() {
 /**
  * @param {object[]} rows
  * @param {number} max
+ * @param {number} total
  * @param {string} lang
  * @returns {string}
  */
-function tableRowsHtml(rows, max, lang) {
+function tableRowsHtml(rows, max, total, lang) {
   return rows
     .map((row) => {
       const runsTitle = t('usage.runsTitle', {
@@ -425,7 +532,7 @@ function tableRowsHtml(rows, max, lang) {
         <td title="${escapeHtml(runsTitle)}">${escapeHtml(formatInteger(row.runs, lang))}</td>
         <td>${escapeHtml(formatPercent(row.successRate, lang))}</td>
         <td>${escapeHtml(p95)}</td>
-        <td>${shareCell(row, max)}</td>
+        <td>${shareCell(row, max, total)}</td>
       </tr>`;
     })
     .join('');
@@ -436,10 +543,11 @@ function tableRowsHtml(rows, max, lang) {
  *
  * @param {object[]} rows
  * @param {number} max
+ * @param {number} total
  * @param {string} lang
  * @returns {string}
  */
-function tableCardsHtml(rows, max, lang) {
+function tableCardsHtml(rows, max, total, lang) {
   return rows
     .map((row) => {
       const runsTitle = t('usage.runsTitle', {
@@ -457,7 +565,7 @@ function tableCardsHtml(rows, max, lang) {
           <div><dt>${escapeHtml(t('usage.colSuccess'))}</dt><dd>${escapeHtml(formatPercent(row.successRate, lang))}</dd></div>
           <div><dt>${escapeHtml(t('usage.colP95'))}</dt><dd>${escapeHtml(p95)}</dd></div>
         </dl>
-        <div class="settings-usage-card-share">${shareCell(row, max)}</div>
+        <div class="settings-usage-card-share">${shareCell(row, max, total)}</div>
       </article>`;
     })
     .join('');
@@ -481,8 +589,9 @@ function renderTable(rows) {
   const emptyEl = byId('usage-breakdown-empty');
   const table = byId('usage-breakdown');
   const max = maxShare(sorted);
-  if (body) body.innerHTML = tableRowsHtml(sorted, max, lang);
-  if (cards) cards.innerHTML = tableCardsHtml(sorted, max, lang);
+  const total = shareTotal(sorted);
+  if (body) body.innerHTML = tableRowsHtml(sorted, max, total, lang);
+  if (cards) cards.innerHTML = tableCardsHtml(sorted, max, total, lang);
   const hasRows = sorted.length > 0;
   if (table) table.hidden = !hasRows;
   if (cards) cards.hidden = !hasRows;
@@ -627,6 +736,36 @@ function setSectionError(id, message) {
 }
 
 /**
+ * Paints the disjoint buckets, coverage, executed choices and outcome signals
+ * from the single filter-consistent /api/usage/insights payload.
+ *
+ * @param {object} insights
+ * @returns {void}
+ */
+function renderInsights(insights) {
+  const lang = getCurrentLang();
+  const bucketsEl = byId('usage-buckets');
+  if (bucketsEl) bucketsEl.innerHTML = renderTokenBucketsHtml(insights?.tokens, { t, lang });
+  const coverageEl = byId('usage-coverage');
+  if (coverageEl) coverageEl.innerHTML = renderCoverageHtml(insights?.coverage, { t, lang });
+  const choicesEl = byId('usage-choices');
+  if (choicesEl) choicesEl.innerHTML = renderChoicesHtml(insights?.choices, { t, lang });
+  const signalsEl = byId('usage-signals');
+  if (signalsEl) signalsEl.innerHTML = renderSignalsHtml(insights?.signals, { t, lang });
+}
+
+/**
+ * @returns {void}
+ */
+function renderInsightsError() {
+  const message = t('usage.sectionLoadFailed');
+  for (const id of ['usage-buckets', 'usage-coverage', 'usage-choices', 'usage-signals']) {
+    const el = byId(id);
+    if (el) el.innerHTML = `<p class="settings-hint">${escapeHtml(message)}</p>`;
+  }
+}
+
+/**
  * Reloads the ledger and repaints the Usage tab.
  * Uses Promise.allSettled so a single failing request only hides that section,
  * not the whole view. The global error banner appears only when all three fail.
@@ -647,17 +786,18 @@ export async function refreshUsageSettings() {
   if (planEl) planEl.textContent = t('usage.loading');
   const query = rangeQuery(state.range);
 
-  const [summaryResult, chartResult, tableResult, delegationStatsResult, planResult] = await Promise.allSettled([
+  const [summaryResult, chartResult, tableResult, insightsResult, delegationStatsResult, planResult] = await Promise.allSettled([
     getUsageSummary(kpiQuery()),
     getUsageTimeseries({
       ...query,
-      bucket: state.range === '24h' ? 'hour' : 'day',
+      bucket: state.range === '24h' || state.range === 'today' ? 'hour' : 'day',
       groupBy: state.groupBy,
       metric: state.metric,
     }),
     state.groupBy === 'harness'
       ? getUsageSummary(query)
       : getUsageModels({ ...query, metric: 'tokens' }),
+    getUsageInsights(query),
     getDelegationStats(getActiveWorkspaceScope()),
     getUsagePlanLimits(),
   ]);
@@ -687,10 +827,16 @@ export async function refreshUsageSettings() {
 
   const periodEl = byId('usage-summary-period');
   if (periodEl) {
-    periodEl.textContent = t('usage.period', {
-      from: String(query.from || '').slice(0, 10),
-      to: String(query.to || '').slice(0, 10),
-    });
+    const win = summaryResult.status === 'fulfilled' && summaryResult.value?.window
+      ? summaryResult.value.window
+      : (insightsResult.status === 'fulfilled' ? insightsResult.value?.window : null);
+    periodEl.textContent = win
+      ? t('usage.periodZone', {
+        from: String(win.from_day || win.from || ''),
+        to: String(win.to_day || win.to || ''),
+        tz: String(win.tz || state.tz),
+      })
+      : '';
   }
 
   // KPI summary
@@ -737,6 +883,22 @@ export async function refreshUsageSettings() {
     setSectionError('usage-table-section-error', t('usage.sectionLoadFailed'));
   }
 
+  // New stage-8 panels: buckets, coverage, executed choices and signals.
+  if (insightsResult.status === 'fulfilled' && insightsResult.value?.ok && insightsResult.value.insights) {
+    state.insights = insightsResult.value.insights;
+    state.window = insightsResult.value.window || null;
+    renderInsights(state.insights);
+    setSectionError('usage-choices-error', null);
+  } else {
+    const reason =
+      insightsResult.status === 'rejected'
+        ? insightsResult.reason?.message || String(insightsResult.reason)
+        : (insightsResult.value?.error || 'insights request failed');
+    console.warn('[usage] insights failed:', reason);
+    renderInsightsError();
+    setSectionError('usage-choices-error', t('usage.sectionLoadFailed'));
+  }
+
   // The delegation panel was already painted above (independent endpoint and
   // scope), before the all-failed early return.
   setView('ready');
@@ -757,12 +919,13 @@ function exportCsv() {
     t('usage.colP95'),
     t('usage.colShare'),
   ];
-  const max = maxShare(rows);
+  const total = shareTotal(rows);
   const data = rows.map((row) => {
     const reason = unpricedReason(row);
     const cost = reason
       ? t(reason === 'subscription' ? 'usage.subscription' : 'usage.unpriced')
       : (Number.isFinite(Number(row.usd)) && Number(row.usd) > 0 ? Number(row.usd).toFixed(6) : '0');
+    const share = buildShareOfTotalPercent(shareValue(row), total);
     return [
       rowLabel(row),
       cost,
@@ -771,10 +934,24 @@ function exportCsv() {
       row.runs,
       row.successRate == null ? '' : `${Math.round(row.successRate * 1000) / 10}%`,
       row.p95LatencyMs == null ? '' : row.p95LatencyMs,
-      `${buildSharePercent(shareValue(row), max)}%`,
+      share == null ? '' : `${share}%`,
     ];
   });
-  const csv = buildCsv(header, data);
+  // Scope, zone, filters, coverage and versions travel with the numbers so an
+  // exported file can never be read without its coverage context.
+  const meta = exportMetaRows({
+    window: state.window || {},
+    filters: {
+      scope: state.scope,
+      subject: state.subject,
+      role: state.role,
+      origin: state.origin,
+      workspaceFile: state.workspaceFile,
+    },
+    coverage: state.insights?.coverage,
+    version: state.insights,
+  });
+  const csv = buildCsv(header, [...meta, [], ...data]);
   const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -818,6 +995,62 @@ export function initUsageSettings() {
     groupSelect.value = state.groupBy;
     groupSelect.addEventListener('change', () => {
       state.groupBy = groupSelect.value;
+      void refreshUsageSettings();
+    });
+  }
+  const tzSelect = byId('usage-tz-select');
+  if (tzSelect) {
+    tzSelect.innerHTML = timeZoneOptions()
+      .map((zone) => `<option value="${escapeHtml(zone)}">${escapeHtml(zone)}</option>`)
+      .join('');
+    tzSelect.value = state.tz;
+    tzSelect.addEventListener('change', () => {
+      state.tz = tzSelect.value || 'UTC';
+      void refreshUsageSettings();
+    });
+  }
+  const roleSelect = byId('usage-role-select');
+  if (roleSelect) {
+    roleSelect.value = state.role;
+    roleSelect.addEventListener('change', () => {
+      state.role = roleSelect.value;
+      void refreshUsageSettings();
+    });
+  }
+  const originSelect = byId('usage-origin-select');
+  if (originSelect) {
+    originSelect.value = state.origin;
+    originSelect.addEventListener('change', () => {
+      state.origin = originSelect.value;
+      void refreshUsageSettings();
+    });
+  }
+  const scopeSelect = byId('usage-scope-select');
+  if (scopeSelect) {
+    scopeSelect.value = state.scope;
+    scopeSelect.addEventListener('change', () => {
+      state.scope = scopeSelect.value === 'consolidated' ? 'consolidated' : 'own';
+      void refreshUsageSettings();
+    });
+  }
+  const subjectSelect = byId('usage-subject-select');
+  if (subjectSelect) {
+    subjectSelect.value = state.subject;
+    subjectSelect.addEventListener('change', () => {
+      state.subject = subjectSelect.value;
+      void refreshUsageSettings();
+    });
+  }
+  const workspaceSelect = byId('usage-workspace-select');
+  if (workspaceSelect) {
+    const activeOption = workspaceSelect.querySelector('option[value="__active__"]');
+    const scope = getActiveWorkspaceScope();
+    if (activeOption && scope.workspaceFile) activeOption.textContent = scope.workspaceFile;
+    workspaceSelect.value = state.workspaceFile ? '__active__' : '';
+    workspaceSelect.addEventListener('change', () => {
+      state.workspaceFile = workspaceSelect.value === '__active__'
+        ? getActiveWorkspaceScope().workspaceFile
+        : '';
       void refreshUsageSettings();
     });
   }

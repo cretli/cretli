@@ -1,3 +1,5 @@
+import { normalizeSdkRunStatus } from '../../../lib/sdk/sdk-run-outcome.js';
+
 /**
  * Harness chat status badge (SDK / OpenCode / OpenRouter).
  * Uses protocol signals only — not PTY buffer heuristics.
@@ -39,6 +41,7 @@ const FALLBACK_LABELS = {
   'chat.delegationStatus.completed': 'Completed',
   'chat.delegationStatus.failed': 'Failed',
   'chat.delegationStatus.interrupted': 'Interrupted',
+  'chat.runFailed': 'Run failed',
   'chat.delegationWaitingForAgents': 'Waiting for {n} agents',
   'chat.presenceActivity.read': 'Read {arg}',
   'chat.presenceActivity.grep': 'Grep {arg}',
@@ -256,13 +259,14 @@ export function resolveChatStatusWithHistorySync(isInFlight, fallbackMeta, trans
 
 /**
  * @param {string} tone
- * @returns {'disconnected' | 'idle' | 'awaiting' | 'active'}
+ * @returns {'disconnected' | 'idle' | 'awaiting' | 'waiting' | 'active'}
  */
 export function resolveChatListDotState(tone) {
   if (tone === 'disconnected') return 'disconnected';
   if (tone === 'idle') return 'idle';
   if (
     tone === 'awaiting'
+    || tone === 'waiting'
     || tone === 'attention'
     || tone === 'approval'
     || tone === 'question'
@@ -302,7 +306,7 @@ function resolveServerRunStateMeta(serverRunState, translate) {
   if (state === 'waiting') {
     const waitingCount = Number(serverRunState.waitingAgentCount) || 0;
     if (waitingCount > 0) {
-      return { tone: 'awaiting', label: translate('chat.delegationWaitingForAgents', { n: String(waitingCount) }) };
+      return { tone: 'waiting', label: translate('chat.delegationWaitingForAgents', { n: String(waitingCount) }) };
     }
     return { tone: 'awaiting', label: translate('status.needsAction') };
   }
@@ -370,6 +374,14 @@ export function resolveHarnessChatStateMeta(input = {}) {
     if (!staleArchivedSidebar) return serverMeta;
   } else if (serverMeta) {
     return serverMeta;
+  }
+
+  if (normalizeSdkRunStatus(input.lastRunStatus) === 'error') {
+    return {
+      tone: 'attention',
+      label: translate('chat.runFailed'),
+      status: 'failed',
+    };
   }
 
   // 4. Local queue count only when the server is not reporting busy work.

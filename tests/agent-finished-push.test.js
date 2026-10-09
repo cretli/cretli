@@ -2,6 +2,7 @@
  * Behavior tests for the shared "agent finished" push used by the Cursor SDK
  * path and by room-kernel harnesses.
  */
+import './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import {
   AGENT_FINISHED_SKIPPED_STATUSES,

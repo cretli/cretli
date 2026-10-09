@@ -123,8 +123,9 @@ try {
 
 const pagingOnly = formatMcpToolResult({
   content: [{ type: 'text', text: '1  user  hello' }],
-  structuredContent: { next_from_seq: 9, next_before_seq: null },
+  structuredContent: { pickId: 'pick-123', next_from_seq: 9, next_before_seq: null },
 });
+assert.match(pagingOnly, /pickId: pick-123/);
 assert.match(pagingOnly, /next_from_seq: 9/);
 
 const localClient = createInProcessMcpClient({

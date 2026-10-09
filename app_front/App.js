@@ -47,6 +47,7 @@ import {
   notifySidebarSearchHydration,
   expandSidebarWorkspaceSearchPool,
 } from './chat.js';
+import { initGitContextBadge } from './gitContextBadge.js';
 import { deriveWorkspaceKey } from './features/chat/chatMetadataIdbSchema.js';
 import { hasLocalChatBootCacheForColdStart, readChatLocalBootCacheForColdStart } from './features/chat/chatLocalBootSync.js';
 import { seedLocalBootSyncFromIdbBootCache } from './features/chat/chatOfflineBootSeed.js';
@@ -66,6 +67,7 @@ import { initClaudeModelSettings, refreshClaudeModelSettingsPanel } from './clau
 import { initCodexModelSettings, refreshCodexModelSettingsPanel } from './codexModelSettings.js';
 import { showHarnessStatistics } from './features/harness-health/harnessHealthCard.js';
 import { initHarnessSettings, refreshHarnessSettingsPanel } from './harnessSettings.js';
+import { refreshHarnessVersionCardsForTab } from './features/settings/harnessVersionCard.js';
 import { maybeShowFirstRunSetup } from './features/setup/firstRunSetup.js';
 import { initAppUpdateSettings } from './features/settings/appUpdateSettings.js';
 import { safeFit } from './terminalViewport.js';
@@ -141,6 +143,8 @@ import { initPushSettingsToggle } from './features/pwa/pushSubscription.js';
 import { getChatMuteStore } from './features/pwa/chatMuteStore.js';
 import { getInAppSignalController, initInAppSignals } from './features/pwa/inAppSignals.js';
 import { initServiceWorkerMessages, readNotificationBootInfo } from './features/pwa/swMessages.js';
+import { initNotificationCenter } from './features/notifications/notificationCenter.js';
+import { resolveNotificationActionUrl } from './features/notifications/notificationStore.js';
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from './lib/storageKeyAlias.js';
 import './components/ui/index.js';
 import './components/ui/cr-storage-donut.js';
@@ -382,6 +386,18 @@ const headerContextTitle = createHeaderContextTitle({
 });
 
 const { isPanelAllowed, resolveInitialPanel, showPanel, initTabs } = panelRouter;
+
+// Compact branch/worktree chip in the header. The Git panel itself is a lazy
+// chunk; the chip only writes the scope, then asks the router to open it.
+const gitContextBadge = initGitContextBadge({
+  getActiveChat: () => {
+    const id = getActiveChatIdValue();
+    if (!id) return null;
+    return getChatsList().find((chat) => chat.id === id) || null;
+  },
+  getActiveWorkspaceFolder: getActiveWorkspaceFolderFromHeader,
+});
+window.addEventListener('cretli-git-open', () => showPanel('git'));
 const {
   applyEmbedWorkspaceContext,
   initWorkspaceHeader,
@@ -932,6 +948,43 @@ function initMobileKeyboardOffsetSync() {
   scheduleUpdate();
 }
 
+/**
+ * Navigate to a notification's `actionUrl` inside the SPA. The URL is validated
+ * again here (defence in depth): only same-origin relative paths are followed.
+ *
+ * @param {string} url
+ */
+function openNotificationActionUrl(url) {
+  const safe = resolveNotificationActionUrl(url);
+  if (!safe || typeof window === 'undefined') return;
+  let parsed = null;
+  try {
+    parsed = new URL(safe, window.location.origin);
+  } catch {
+    return;
+  }
+  if (document.body?.classList.contains('chat-fullscreen-active')) {
+    document.body.classList.remove('chat-fullscreen-active');
+  }
+  const panel = parsed.searchParams.get('panel') || '';
+  const chatId = parsed.searchParams.get('chat') || '';
+  if (chatId) {
+    openChatFromNotification({ chatId });
+    return;
+  }
+  if (panel === 'settings') {
+    showPanel('settings');
+    const tab = parsed.searchParams.get('tab') || '';
+    if (tab) applySettingsTab(tab);
+    return;
+  }
+  if (panel) {
+    showPanel(panel);
+    return;
+  }
+  window.location.assign(`${parsed.pathname || '/'}${parsed.search || ''}`);
+}
+
 function initHeaderSettings() {
   const resetChatFullscreenMode = () => {
     if (!document.body.classList.contains('chat-fullscreen-active')) return;
@@ -1099,6 +1152,7 @@ function refreshSettingsTabPanels(tabId) {
   if (!settingsPanel?.classList.contains('active')) return;
   ensureSettingsHeavyModules();
   if (tabId === 'harness') refreshHarnessSettingsPanel();
+  refreshHarnessVersionCardsForTab(tabId);
   if (tabId.endsWith('-stats')) void showHarnessStatistics(getHarnessIdFromSettingsTab(tabId));
   if (isHarnessModelSubtab(tabId, 'sdk')) refreshModelSettingsPanel();
   if (isHarnessModelSubtab(tabId, 'openrouter')) refreshOpenRouterModelSettingsPanel();
@@ -2094,6 +2148,10 @@ function bootApp() {
       logger: appLogger,
       chatMuteStore: getChatMuteStore(),
     }));
+    measureStartupStep('initNotificationCenter', () => initNotificationCenter({
+      logger: appLogger,
+      onNavigate: openNotificationActionUrl,
+    }));
     measureStartupStep('initWorkspacePopover', () => initWorkspacePopover() || Promise.resolve());
     measureStartupStep('initSettingsWorkspacePicker', () => initSettingsWorkspacePicker() || Promise.resolve());
     measureStartupStep('initChatActivityStore', () => installChatActivityStorageListener());
@@ -2101,6 +2159,7 @@ function bootApp() {
       setSidebarRenderHook(() => {
         sidebarView.render();
         headerContextTitle.refresh();
+        void gitContextBadge.refresh();
       });
       setSidebarTransientPatchHook(() => sidebarView.patchTransientVisualStates());
       setSidebarOpenHook(() => sidebarView.open());

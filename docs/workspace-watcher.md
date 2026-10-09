@@ -20,6 +20,7 @@ guarantees, the notification behavior and a practical `decisionLog` guide.
 - [Guarantees](#guarantees)
 - [Workspace Memory](#workspace-memory)
 - [Scout](#scout)
+- [Worktree execution, Git context and integration](#worktree-execution-git-context-and-integration)
 - [Notifications](#notifications)
 - [Policy reference](#policy-reference)
 - [Control surfaces](#control-surfaces)
@@ -84,12 +85,89 @@ singleton `lease`, up to `policy.maxParallel` entries in `activeCycles`,
 `findings`, `planRequests`, `cycles` (`{ day, count }`) `lastCycleAt`,
 `backoffUntil`, `notified` and the bounded `decisions` log. Each cycle record
 is `{ cycleId, todoIds, startedAt, chatId, runId, phase,
-planDeadline/startDeadlineAt, planOnly, reportedOutcome, reportedAt, reportId
-}`. `activeCycle` mirrors slot 0 for older servers that still read the v1
-field only.
+startDeadlineAt, planOnly, mode, requestedHarness, requestedModel,
+requestedSource, reportedOutcome, reportedAt, reportId }`. `activeCycle`
+mirrors slot 0 for older servers that still read the v1 field only.
 
 `cycleId` is reserved **before** the adapter is asked to start and is reused as
 the chat-run `requestId`, so a retry replays instead of duplicating.
+
+`cycleCount` is a **monotonic row counter** incremented once per cycle closed
+through `buildWorkspaceWatcherCycleClosePatch` (a real report or reconcile). It
+does **not** count reservations rolled back before running, it is not per todo,
+and it is not a time window. Do not use it as a denominator for success or
+coverage rates; use the bounded `cycleChats` window for the dashboard display
+and the durable metrics store (below) for ratios.
+
+### Durable cycle-metrics store
+
+Comparing orchestrator models needs more history than the 20-slot `cycleChats`
+window, and it needs the cycles that never reached `running`. A separate file,
+`data/workspace-watcher-cycles.json`, keeps one record per `cycleId`:
+
+```
+{
+  v: 1,
+  collectionStartedAt,        // when the store was first written
+  updatedAt,
+  retention: { ms, maxRecords },
+  errors: { count, lastAt, lastCode, lastMessage, lastOperation } | null,
+  records: { "<cycleId>": record }
+}
+```
+
+A record carries `mode` (`plan`/`implement`), `orchestratorChatId`,
+`orchestratorRunId`, `todoIds`, the requested pair
+(`requestedHarness`/`requestedModel`/`requestedSource`), the confirmed
+`harness`, `startedAt`/`closedAt`, `phase`, `reachedRunning`,
+`closeSource` (`report`/`reconcile`/`abort`), `closeReason`, `reportedOutcome`,
+`closeOutcome` and `todoStatusAtClose`. **Unknown is `null`, never guessed**:
+a legacy cycle without a stored model keeps `requestedModel: null`, and the
+confirmed `model` stays `null` until usage telemetry provides it (a later
+work). The record is created at reservation, so a start that ends in `starting`
+is still counted; requests/run id are stamped as they resolve.
+
+#### Cycle results and TODO-leaf outcomes
+
+One Watcher cycle is one orchestrator attempt; a retry is a later cycle for the
+same claimed TODO (the durable identity is `cycleId`, and the claim is a separate
+field on the todo). A record therefore keeps the **claimed** and **reported** ids
+apart:
+
+- `claimedTodoIds` come from the Watcher claim (`todoIds` is kept as the same
+  claimed set for backward compatibility),
+- `reportedTodoIds` are only the report's ids that the workspace confirms exist,
+- `unknownReportedTodoIds` are reported ids that do not resolve in the workspace
+  — they are recorded but never counted as completed,
+- `todoOutcomes` is a per-leaf snapshot (`attempted`/`completed`/`blocked`/
+  `unknown`) taken from the TODO state at close, and `completedTodoIds` lists the
+  verified completions. A missing TODO or an unreadable store is `unknown`, not
+  a success.
+
+`reportedOutcome` is the model's claim and `closeOutcome` is the verified result;
+they stay separate fields on purpose. Plan-only cycles are a separate population
+(`planOnly: true`): their verified success is a **saved plan** (`planSaved`), not
+a `done` TODO, so their time/cost is never pooled with implementation cycles.
+Blocked reasons are derived only from structured fields (`planOnly`, the close
+decision reason, the Watcher stop reason, the per-leaf snapshot) and stored as
+`blockedReasonCode`; the free-text report message is never parsed. A
+multi-leaf cycle's cost stays at the cycle level and is not divided per leaf.
+
+Idempotency is by `cycleId` (the map key): a duplicate close returns the first
+record unchanged and never appends a second one. Retention is explicit in the
+document: `retention.ms` (default 30 days, matching the usage ledger) drops
+settled records by age and `retention.maxRecords` (2000) caps the file; live
+records (no `closedAt`) are never dropped by the cap. A metrics write is
+**telemetry**: a failure is recorded in `errors` and the event log but never
+interrupts a start, a rollback or a close.
+
+Usage correlation deliberately does **not** add a `cycleId` field to usage
+events in this step. The record already carries `orchestratorChatId` and
+`orchestratorRunId`, which are the natural join keys for the run-scoped usage
+ledger; a later leaf can derive workspace scope from the cycle and correlate by
+run key without a usage-event schema change. If that proves insufficient, adding
+`cycleId` to new usage events stays an explicit follow-up, not a silent
+inference.
 
 ## Modes
 
@@ -119,11 +197,13 @@ explicitly.
    startable `start_cycle` / `plan_gate`, or a wait.
 5. **Reserve** — inside the cross-process lock: acquire the lease, append to
    `activeCycles` with `phase: 'starting'` (and mirror slot 0 to `activeCycle`),
-   bump the UTC-day budget.
+   bump the UTC-day budget, and create the durable cycle-metrics record (so a
+   start that never reaches `running` is still counted).
 6. **Claim** — CAS `ready → doing` with `claimedByChatId`; a failure rolls the
    reserve back and releases the claim.
-7. **Start** — create the orchestrator chat and start its run with the cycle id
-   as the request id. The lease is renewed while `starting`.
+7. **Start** — resolve the orchestrator pair, stamp it on the metrics record and
+   the live slot, then create the orchestrator chat and start its run with the
+   cycle id as the request id. The lease is renewed while `starting`.
 8. **Run** — the orchestrator is the parent of exactly one multi-harness loop:
    it uses `model_pick` + `delegation_start` for plan/implement/review/fix,
    marks the todo done only after an independent review PASS, and **never**
@@ -736,10 +816,22 @@ the two reads above:
 
 `cycleChats` entries were extended with `startedAt` (mirrored from the live slot
 by `buildWorkspaceWatcherCycleClosePatch`) so a closed cycle has a real
-duration; `at` remains the close instant. The list is still bounded by
+duration; `at` remains the close instant. The same bounded entry now also
+carries `mode`, the requested pair (`requestedHarness`/`requestedModel`/
+`requestedSource`) and `closeSource`, so the existing API keeps the orchestrator
+identity without a schema break. The list is still bounded by
 `WORKSPACE_WATCHER_MAX_CYCLE_CHATS` (20), so the dashboard shows the most recent
 20 cycles and a legacy entry without `startedAt` falls back to a point bar with
 no duration instead of a fake zero.
+
+The unbounded orchestrator-model history lives in the separate
+`data/workspace-watcher-cycles.json` store (see **Durable cycle-metrics store**):
+one record per `cycleId`, created at reservation and closed by
+`report`/`reconcile`/`abort`. It is the source for the per-model comparison and
+keeps starts that never reached `running`; `cycleChats` stays the bounded
+timeline feed. `readWorkspaceWatcherCycleMetricsStatus` exposes the store range
+(`collectionStartedAt`, oldest/newest start, counts) and the last telemetry
+error for the API/Settings leaves.
 
 Live updates reuse the existing chat-list WebSocket: the server emits
 `chatsChanged` with reason `workspace-watcher`, `chatListLiveSync` forwards it,
@@ -820,6 +912,158 @@ Common syndromes:
 Other useful views: `cycleCount`, `reports` (last 20), `cycleChats` (last 20,
 each with its outcome) and `lease` (who currently owns the workspace).
 
+## Worktree execution, Git context and integration
+
+This section describes the end-to-end flow from a leaf's execution-mode choice
+to the human integration decision, and the Git context indicator that makes the
+right branch visible.
+
+### Logical workspace vs execution folder
+
+- `workspaceFolder` is the **logical project identity**. Todos, claims, memory,
+  watcher policy, the plan gate and limits always live there.
+- `executionFolder` is where a runner, the write lock, the material revision and
+  test verification actually operate. For a chat it is stored on the chat record
+  (`executionFolder`, falling back to `workspaceFolder`); for a leaf it is frozen
+  in the worktree registry.
+- Worktrees live **outside** the project tree. Nothing here commits, merges or
+  pushes; integration is manual and the branch is preserved until a human
+  decides.
+
+### 1. Mode selection
+
+- Watcher policy holds the default: `policy.executionMode` (`project` for
+  backwards compatibility) plus the `policy.worktree` layout block (location,
+  branch scheme, `prepareCommand` argv).
+- The layout is edited in **Settings → Workspace Watcher → Settings → Execution
+  folder (worktree)**: the default mode, an absolute root outside the repository,
+  a single-segment namespace, the branch and directory prefixes, and the prepare
+  argv (one argument per line — a shell string is refused). Saving is fail-closed:
+  a `worktree` default or a partially filled layout refuses to save until the
+  four path/naming fields are complete and safe. The same block can be written
+  through the `watcher_set` MCP policy patch.
+- Empty fields are **prefilled from a server suggestion** computed from the
+  workspace (`GET /api/workspace-watcher?suggest=1`, `lib/execution-settings-suggest.js`):
+  the root is `<parent-of-repo>/.cretli-worktrees` (always outside the repository),
+  the namespace is the sanitized repository folder name, and `prepareCommand` is
+  detected from the lockfile present (`pnpm-lock.yaml`, `yarn.lock`,
+  `package-lock.json`, `composer.lock`, `go.sum`, `requirements.txt`, or a plain
+  `npm install` for a `package.json` without one). A saved value always wins over
+  the suggestion.
+- A leaf may override the default with its own `executionMode`:
+  `inherit` | `worktree` | `project`. The choice is visible in the TODO list and
+  in the task card settings tab.
+- `resolveWorkspaceWatcherExecutionMode` resolves leaf-over-policy. A plan-only
+  cycle never creates a worktree: it keeps the logical workspace.
+- A worktree that already exists is **frozen**: later policy or override changes
+  do not move an in-flight or retried leaf to another directory.
+
+### 2. Execution
+
+`prepareWorkspaceWatcherExecution` turns a claimed leaf into an execution folder:
+
+1. resolve the mode (leaf override, else policy default);
+2. for `worktree`, create or re-verify the persistent worktree at its frozen
+   base commit and register it in `data/worktree-registry.json`;
+3. run the declared `prepareCommand` **inside** the worktree (argv only — a
+   shell string is refused) and mark the record `active`;
+4. for `project`, keep the logical workspace.
+
+Fail-closed rules: a missing worktree layout, a dirty logical tree, a
+foreign/orphaned worktree and a failed prepare all refuse the start. There is no
+silent fallback to `project` and no automatic secret or `data/` copy. Restart and
+retry reconcile the registry against Git instead of creating a second worktree.
+
+### 2a. Manual starts (Todo panel)
+
+A todo started by hand from the Todo panel (`POST /api/todos/:id/start-agent`)
+uses a **root-keyed** worktree:
+
+- the tree root is found by walking `parentId`; the root's `worktree`/`project`
+  override (else the policy default) decides the mode, and the requested leaf's
+  own `executionMode` is ignored for manual starts;
+- the root worktree is created/reused once and frozen as `executionFolder` on
+  every chat of the tree, so delegated implement/fix children inherit it and the
+  per-folder write lock does not collide with another tree in the main folder;
+- the Watcher keying is unchanged (it still keys by the claimed leaf). Mixing
+  the two is refused with HTTP 409 when the same direct line already has a live
+  record under a different id;
+- a long prepare answers `202 {state:'preparing'}` and the UI polls
+  `GET /api/todos/:id/start-agent/status`; a live frozen record or `project`
+  mode stays synchronous.
+
+Integration for a manually started tree is explicit on the root:
+`POST /api/todos/:id/integration` with `action=prepare` builds the root-level
+diff (all leaf siblings), records it with honest manual evidence and sets
+`integration.state=ready` while `status` stays `doing`; `confirm`/`reject` then
+behave exactly as in §4.
+
+### 3. Review
+
+Implement, review and fix share the **same** worktree for one leaf, so review
+sees exactly the material the implementer produced. A review PASS closes the
+execution cycle but does not make the change available to the next sequential
+sibling:
+
+- the execution folder is marked `execution_closed`;
+- the integration diff (tracked and untracked files, including new files) is
+  written as a patch outside the worktree;
+- a per-cycle result record is stored in the worktree registry (base commit,
+  head, branch, diff stat, changed files, review/test outcomes, patch hash);
+- the TODO gets an `integration` pointer with `state = ready` while its `status`
+  stays `doing`, so the scheduler cannot pick it up again.
+
+### 4. Integration (manual)
+
+A human confirms or rejects through `POST /api/todos/:id/integration`
+(`action = prepare | confirm | reject`), exposed as the buttons on the task card
+(`prepare` is offered for a manually started worktree root):
+
+- **confirm** → `status = done`, `integration.state = integrated`; the sequential
+  sibling becomes ready. The worktree is still not removed automatically.
+- **reject** → `status = ready`, `integration.state = rejected` with a reason;
+  the worktree and patch are preserved so a retry reuses the frozen work.
+
+### 5. Git context indicator and panel
+
+The existing Git panel (`app_front/gitPanel.js`, `/api/git/*`, `/api/github/*`)
+is context-aware instead of relying only on the global `getCurrentCwd()`:
+
+- `GET /api/git/info?chatId=…` (or `?todoId=…&workspaceFolder=…`) resolves the
+  **authorized** execution folder from durable server records
+  (`lib/git-context.js`): a chat's stored `executionFolder`, or a leaf's worktree
+  registry entry; a cleaned/missing record falls back to the logical workspace.
+  A client-supplied execution folder is never trusted.
+- `file-diff`, `run` and the GitHub reads use the same resolved folder. A
+  `file-diff` path is validated against that folder (same real-path rule as
+  before), so a request cannot read or write outside the authorized repo/worktree.
+- A compact chip in the header (chat context) and on a task card (worktree
+  context) shows the branch and opens the panel; the panel then shows the
+  context (main project vs task worktree), branch, base commit, change count,
+  related task and integration state.
+- The scope lives in `app_front/features/git/gitScope.js` with a monotonic
+  revision. Every fetch captures the revision and the scope key and drops its
+  answer when either changed, so a late response for a previous chat/workspace
+  never overwrites the newer context.
+
+### Scenario: two independent TODOs
+
+With `policy.maxParallel = 2` (the default stays `1`), two ready leaves in the
+same workspace run independently:
+
+1. leaves A and B both resolve to `worktree` mode, each with its own frozen base;
+2. the watcher creates/reuses two worktrees and marks both records `active` — the
+   write lock serializes on the **execution folder**, so A and B do not block
+   each other, while a third parent in the same folder still does;
+3. the header chip follows the chat context, and each task card's Git chip opens
+   the panel scoped to that leaf's worktree, so their branches and diffs are never
+   confused;
+4. A's review passes and marks A `integration.state = ready` without exposing the
+   change to B; B continues in its own worktree;
+5. a human confirms A (A → `done`) and rejects B (B → `ready`, worktree kept);
+6. TODO, memory, policy and plan gates still live in the shared logical
+   workspace, so both leaves see the same task tree and the same human approvals.
+
 ## Tests
 
 Run the focused suites:
@@ -835,7 +1079,17 @@ node --test tests/workspace-watcher-stats.test.js
 node --test tests/workspace-watcher-dashboard-ui.test.js
 node tests/workspace-watcher-settings-ui.test.js
 node tests/workspace-watcher-archive-sweep.test.js
+node --test tests/git-context.test.js
+node --test tests/git-routes-scope.test.js
+node --test tests/git-scope-ui.test.js
 ```
+
+`tests/git-context.test.js` covers authorized scope resolution (chat, task,
+worktree, fallbacks, conflicts) and path authorization.
+`tests/git-routes-scope.test.js` asserts the routes run in the resolved folder
+and reject a path outside it. `tests/git-scope-ui.test.js` covers the scope
+revision/stale-answer guard, the context view helpers and the UI wiring
+(header chip, panel chip, task chip).
 
 Scout (configurable profiles — stages 1–6) runs with its own suites; note the
 mixed runners (`node --test` for the `node:test` suites, plain `node` for the

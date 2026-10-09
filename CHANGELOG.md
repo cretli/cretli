@@ -8,6 +8,120 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Workspace Watcher **worktree layout settings**: Settings → Workspace Watcher →
+  Settings → *Execution folder (worktree)* now exposes the policy default
+  (`executionMode`), the absolute worktree root, namespace, branch/directory
+  prefixes and the prepare argv (one argument per line; a shell string is
+  refused). The form mirrors the server fail-closed validation, so a `worktree`
+  default or a partially filled layout cannot be saved until it is complete and
+  safe. Empty fields are prefilled with a **server-computed suggestion** derived
+  from the workspace itself (`GET /api/workspace-watcher?suggest=1`): an absolute
+  root outside the Git repository (`<parent>/.cretli-worktrees`), a namespace
+  from the repository folder name, the matching branch/directory prefixes and a
+  prepare argv from the lockfile that is actually present (`pnpm-lock.yaml`,
+  `yarn.lock`, `package-lock.json`, …); a stored value always wins over the
+  suggestion. The server also **backfills a missing layout on save** when the
+  patch turns worktree mode on, so enabling it is a one-click action instead of
+  inventing paths (`prepareCommand` is never invented and stays as sent).
+  Previously the layout was only writable through the `watcher_set`
+  MCP policy patch, so choosing `worktree` on a todo failed with
+  "Watcher policy has no worktree layout" with no in-product way to fix it.
+  Covered by `tests/execution-settings-suggest.test.js` and
+  `tests/workspace-watcher-settings-ui.test.js`; documented in
+  `docs/workspace-watcher.md`.
+
+- Manual TODO runs in **worktree** mode: starting a todo tree by hand from the
+  Todo panel now creates/reuses ONE worktree keyed by the tree **root** and
+  freezes it as `executionFolder` on every chat of the tree, so delegated
+  implement/fix children inherit it and the per-folder write lock no longer
+  collides with another tree in the main folder. The requested leaf's
+  `executionMode` is ignored for manual starts (root override, else policy
+  default); the Watcher keeps its leaf keying and mixing the two is refused with
+  HTTP 409. A long prepare answers `202 {state:'preparing'}` and the UI polls
+  `GET /api/todos/:id/start-agent/status`. Manual root integration adds an
+  explicit `action=prepare` (honest `manual` evidence) beside `confirm`/`reject`.
+  Covered by `tests/todo-manual-worktree.test.js`; documented in
+  `docs/todo-worktree-contract.md` and `docs/workspace-watcher.md`.
+
+- Browser for runs with no open chat UI: a Watcher/autopilot cycle, a
+  delegation, or a chat after a restart now uses a reserved **system owner**
+  (`BROWSER_SYSTEM_OWNER_ID`) with its own Chromium context instead of failing
+  with `OUT_OF_SCOPE` or borrowing the last login session. The owner is live
+  only — attached signed-in sockets register and release it on connect/close —
+  so a UI-less run never inherits a user's cookies or session, and the system
+  session stays invisible and unreachable from every login session. Documented
+  in `SECURITY.md` and `docs/MULTI-INSTANCE.md`, covered by
+  `tests/mcp-browser-tools.test.js`.
+
+- TODO status icons match the sidebar: a cog spins only for live agent work,
+  including descendants; input waits show a pause and idle tasks keep static icons.
+
+- Shared **scoring/usage fact schema** (`lib/model-facts/`): a versioned fact
+  record (`actual`/`estimate`/`plan_usage`/`benchmark`, `source`,
+  `source_class`, `source_version`, `observed_at`/`fetched_at`, `confidence`),
+  the `api_metered`/`subscription_quota`/`local`/`unknown` billing classes and an
+  exact `(harness, model, variant) → provider endpoint + external model id`
+  identity registry. Only an exact alias match is ranking-eligible; an unmatched
+  or conflicting alias is dropped before precedence, the same model on two
+  harnesses stays two pairs, and Settings favorites remain the candidate gate.
+  Cost precedence is provider actual > ledger estimate > endpoint catalog
+  (`api_metered` only) > heuristic; `plan_usage` is never converted to USD.
+  Documented in `docs/model-scoring-facts.md`, contract test
+  `tests/model-fact-schema.test.js`.
+
+- Local **model+harness telemetry** (`lib/model-facts/telemetry.js`, stage 2 of
+  the same plan): disjoint cache read/write token facts (no double counting with
+  uncached input), a USD fact that carries only a value the ledger already
+  produced and only for a matched `api_metered` pair (subscription/local/unknown
+  get no USD, not USD 0; OpenRouter endpoint prices never charge a subscription),
+  a `plan_usage` fact plus an explicit `limit_ref` back to the plan-limit /
+  lockout reading, and a quality record that keeps infra/quota failures out of
+  the quality denominator. The existing `n/(n+10)` shrink weight (with `n` the
+  full task counter, infra/quota failures included, exactly `row.n` in
+  `lib/model-role-profiles.js`), the infra prior and the implement stats for fix
+  are preserved (parity-tested), and review quality stays out of ranking.
+  Documented in `docs/model-scoring-facts.md`, contract test
+  `tests/model-fact-telemetry.test.js`.
+
+- OpenRouter **endpoint pricing cache** (`lib/openrouter/openrouter-pricing-cache.js`,
+  stage 3 of the same plan): the existing `GET /api/v1/models` fetcher (still the
+  only OpenRouter HTTP client) keeps the published per-model `pricing` object and
+  persists the last good catalog under `data/`. A live 429/5xx/timeout, a network
+  error or an empty list serves that last good copy with an explicit `stale: true`
+  marker and a warning instead of an empty list, and a hanging refresh is bounded
+  by the request timeout. After the in-memory TTL the stale copy is served
+  immediately while revalidation runs in the background (stale-while-revalidate).
+  `model_pick` reads prices locally and synchronously through
+  `getOpenRouterEndpointPricing(exactModelId, { dataDir })` — no network, no await,
+  exact case-sensitive OpenRouter id match, no substring/fuzzy join. Every value
+  carries `source: openrouter-catalog`, `source_class: endpoint_catalog`,
+  `kind: estimate`, `billing_class: api_metered`, `source_version`,
+  `fetched_at`/`observed_at` and an attribution note stating these are endpoint
+  prices, not a direct provider API price or a subscription charge. Artificial
+  Analysis and SWE-rebench/Terminal-Bench/SWE-bench snapshots stay deferred.
+  Covered by `tests/openrouter-pricing-cache.test.js`; documented in
+  `docs/model-scoring-facts.md`.
+
+- Explainable **shadow scoring** for `model_pick` (`lib/model-pick-shadow.js` +
+  `lib/model-pick-shadow-gates.js`, stage 4 of the same plan): every pick now
+  also produces `shadow_top`, a per-candidate `explanation` (identity
+  `alias_status`/`provider`/`external_model_id`, price `kind`/`source`/
+  `source_class`/`billing_class`/`fetched_at` and age, and each cost/time nudge)
+  and an `agreement` record. The observer is **additive only**: it consumes the
+  exact candidate set and the already-blended local observed statistics, makes
+  zero network requests, and never changes `pick`/`picks`/`candidates`. An
+  unmatched identity is neutral; an API price may move a cost score only for a
+  fresh `api_metered` pair (subscription/local/unknown never do); review quality
+  never uses the verdict pass rate. Comparisons persist to
+  `data/model-pick-shadow-comparisons.json` with per-role agreement counters and
+  stop flags (review agreement below 70% or a review pass-rate influence in the
+  score). The rollout gate (Wilson lower bound of the pass-rate difference,
+  infra-fail and USD/success thresholds, minimum 14 days / 200 calls / 20 decided
+  cycles) is implemented and tested but **dormant**: `promotion` defaults to
+  `false`, so the observed selection is unchanged. Covered by
+  `tests/model-pick-shadow.test.js`; documented in `docs/model-scoring-facts.md`
+  §11.
+
 - Claude harness lists **Claude Haiku 5.5** (`claude-haiku-5-5`, with the usual
   effort variants). The model is overlaid on every catalog source, so it stays
   selectable while the bundled Claude Code CLI still resolves the `haiku` alias
@@ -446,6 +560,24 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- A Cursor registry rejection that surfaces during a run (`agent.send()` or a
+  streamed `status=ERROR`) now quarantines the rejected favorite and falls back
+  to Auto, exactly like a rejection during agent create/resume. Before this, only
+  the create/resume path handled `Invalid parameters for registry model`, so an
+  advertised-but-invalid variant (for example a `grok-4.7` 500K context preset)
+  stayed in Settings and failed every later turn. A strict `fast=true` request
+  still refuses the silent switch, but the favorite is removed and the chat moves
+  to Auto so the next turn is safe. The `context=` variant parameter is also read
+  as the context window (`context=500k` → 500000 tokens) instead of falling back
+  to the model-prefix default. Covered by
+  `tests/sdk-registry-model-recovery.test.js`.
+
+- An OpenCode run that Cretli or the user stops now ends as `cancelled`
+  instead of `error`, so it no longer shows a red error or an error
+  notification. A delegation child stopped after its `final_report` was
+  accepted is not re-finished, and one stopped without a final report finishes
+  `cancelled`, not `failed`. A plan-guard stop of an OpenCode run ends as
+  `plan_guard_cancelled`.
 - CodeBuddy chats now get the Cretli MCP tools. The CLI rejected the bridge
   entry because it had no explicit `type: "stdio"` and started with no MCP
   servers, so no CodeBuddy chat could call `delegation_start`, `todo_show` or
@@ -548,11 +680,13 @@ All notable changes to this project are documented here. The format is based on
   top-level chats. Previously `closeChat` removed the parent row locally, so
   `flattenChatsTree` treated the orphaned children as new roots — they popped to
   level 0 in the live list and again in an open Archive section until a later
-  server reload folded them back. `requestArchiveChat`, `requestArchiveSettledChats`
-  and `requestRestoreChat` now stamp `archivedAt` on the whole subtree in place
-  (new pure helper `markForkSubtreeArchived` in `lib/chat-tree.js`), keep every row
-  so `partitionChatsByArchive` moves parent and children together, and `closeChat`
+  server reload folded them back. `requestArchiveChat` and
+  `requestArchiveSettledChats` now stamp `archivedAt` on the whole subtree in place
+  (new pure helper `markForkSubtreeArchived` in `lib/chat-tree.js`) and keep every row
+  so `partitionChatsByArchive` moves parent and children together, while `closeChat`
   runs as a runtime teardown (`keepRow`) rather than the branch-moving mechanism.
+  `requestRestoreChat` uses the server's matching restore cascade and then one forced
+  authoritative list reload, so it never splices the parent row out either.
   The archive button's busy state is computed once per render pass
   (`buildForkArchiveBlockedIds`, an O(chats) walk) instead of `isForkSubtreeBusy`
   per visible row, removing the sidebar and chat-modal stutter on large lists. A

@@ -980,6 +980,39 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (id) badge.title = t('sdkView.openCodePermissionAdvisorTooltip', { requestId: id });
   }
 
+  function markOpenCodePermissionAdvisorStatus(block, requestId, meta = {}) {
+    if (!(block instanceof HTMLElement)) return;
+    const status = String(meta.status || '').trim();
+    const decision = String(meta.advisorDecision || '').trim();
+    const finalDecision = String(meta.finalDecision || '').trim();
+    const reason = String(meta.reason || '').trim();
+    const label = t(`sdkView.openCodePermissionAdvisorStatus.${status || 'unknown'}`, {
+      decision,
+      finalDecision,
+      reason,
+    });
+    let badge = block.querySelector('.sdk-rich-opencode-permission-advisor');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'sdk-rich-badge sdk-rich-badge--ok sdk-rich-opencode-permission-advisor';
+      const body = block.querySelector('.sdk-rich-opencode-permission-body');
+      if (!body) return;
+      body.insertBefore(badge, body.firstChild);
+    }
+    badge.textContent = label;
+    badge.classList.remove('sdk-rich-badge--ok', 'sdk-rich-badge--run', 'sdk-rich-badge--warn', 'sdk-rich-badge--err', 'sdk-rich-badge--muted');
+    const tone = status === 'checking'
+      ? 'run'
+      : status === 'error'
+        ? 'err'
+        : status === 'skipped' || decision === 'ask_user' || finalDecision === 'ask_user'
+          ? 'warn'
+          : 'ok';
+    badge.classList.add(`sdk-rich-badge--${tone}`);
+    const id = String(requestId || '').trim().slice(0, 64);
+    if (id) badge.title = t('sdkView.openCodePermissionAdvisorTooltip', { requestId: id });
+  }
+
   function clearOpenCodeInteractiveMaps() {
     openCodeQuestionByRequestId.clear();
     openCodePermissionByRequestId.clear();
@@ -5577,6 +5610,13 @@ export function createSdkRichView(chat, mountEl, hooks) {
       if (endsAt > Date.now()) {
         openCodeAdvisorPickTimers.set(id, setInterval(tick, 250));
       }
+    },
+
+    showOpenCodePermissionAdvisorStatus(requestId, meta = {}) {
+      const id = String(requestId || '').trim();
+      const block = openCodePermissionByRequestId.get(id);
+      if (!id || !block) return;
+      markOpenCodePermissionAdvisorStatus(block, id, meta);
     },
 
     appendBannerConnected(opts = {}) {

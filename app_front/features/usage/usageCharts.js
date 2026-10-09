@@ -467,3 +467,289 @@ export function addDaysIso(iso, deltaDays) {
   base.setUTCDate(base.getUTCDate() + Number(deltaDays || 0));
   return base.toISOString().slice(0, 10);
 }
+
+/**
+ * Disjoint token buckets with their i18n label keys, in additive order. Cache
+ * read is a label of its own: it is context, not newly generated text.
+ */
+export const TOKEN_BUCKET_FIELDS = Object.freeze([
+  Object.freeze({ key: 'inputWithoutCache', labelKey: 'usage.bucketInput' }),
+  Object.freeze({ key: 'cacheRead', labelKey: 'usage.bucketCacheRead' }),
+  Object.freeze({ key: 'cacheWrite', labelKey: 'usage.bucketCacheWrite' }),
+  Object.freeze({ key: 'outputWithoutReasoning', labelKey: 'usage.bucketOutput' }),
+  Object.freeze({ key: 'reasoning', labelKey: 'usage.bucketReasoning' }),
+  Object.freeze({ key: 'audioInput', labelKey: 'usage.bucketAudioInput' }),
+  Object.freeze({ key: 'audioOutput', labelKey: 'usage.bucketAudioOutput' }),
+]);
+
+/**
+ * @param {unknown} value
+ * @returns {number}
+ */
+function nonNegative(value) {
+  const num = Number(value);
+  return Number.isFinite(num) && num > 0 ? num : 0;
+}
+
+/**
+ * Percentage of a cohort total (0..100). Returns `null` when there is no total,
+ * so a missing denominator never becomes a confident 0%.
+ *
+ * @param {number} value
+ * @param {number} total
+ * @returns {number|null}
+ */
+export function buildShareOfTotalPercent(value, total) {
+  const v = nonNegative(value);
+  const t = Number(total);
+  if (!Number.isFinite(t) || t <= 0) return null;
+  return Number(((v / t) * 100).toFixed(2));
+}
+
+/**
+ * Rows for the disjoint token breakdown. `share_ratio` sums to 1 across the
+ * returned rows and is always relative to the disjoint total, so a caller can
+ * never see shares that disagree with the API total.
+ *
+ * Diagnostic reasoning (`reasoningRelation === 'unknown'`, e.g. qwen) is
+ * already inside output. It is returned in `diagnosticRows` and never added to
+ * `totalTokens` or to a row share; a producer that leaked it into `reasoning`
+ * cannot inflate the total.
+ *
+ * @param {object} [buckets] `summary.buckets` / `insights.tokens`
+ * @returns {{ rows: object[], diagnosticRows: object[], totalTokens: number, cacheTokens: number, reasoningDiagnosticTokens: number }}
+ */
+export function tokenBucketRows(buckets = {}) {
+  const diagnosticTokens = nonNegative(buckets?.reasoningDiagnosticTokens);
+  const rawReasoning = nonNegative(buckets?.reasoning);
+  const otherFields = TOKEN_BUCKET_FIELDS
+    .filter((field) => field.key !== 'reasoning')
+    .reduce((sum, field) => sum + nonNegative(buckets?.[field.key]), 0);
+  // The API's disjoint total is authoritative. Without it, derive the total
+  // from the additive fields and never add diagnostic reasoning again.
+  const explicitTotal = Number(buckets?.totalTokens);
+  const totalTokens = Number.isFinite(explicitTotal) && explicitTotal >= 0
+    ? explicitTotal
+    : (diagnosticTokens > 0 ? otherFields : otherFields + rawReasoning);
+  const reasoningAdditive = Math.max(0, totalTokens - otherFields);
+  const rows = TOKEN_BUCKET_FIELDS.map((field) => ({
+    key: field.key,
+    labelKey: field.labelKey,
+    value: field.key === 'reasoning' ? reasoningAdditive : nonNegative(buckets?.[field.key]),
+  }));
+  const diagnosticRows = diagnosticTokens > 0
+    ? [{ key: 'reasoningDiagnostic', labelKey: 'usage.bucketReasoningDiagnostic', value: diagnosticTokens }]
+    : [];
+  return {
+    rows: rows.map((row) => ({
+      ...row,
+      share_ratio: totalTokens > 0 ? Number((row.value / totalTokens).toFixed(6)) : null,
+      share_percent: buildShareOfTotalPercent(row.value, totalTokens),
+    })),
+    diagnosticRows,
+    totalTokens,
+    cacheTokens: nonNegative(buckets?.cacheRead) + nonNegative(buckets?.cacheWrite),
+    // Reasoning already inside output when its relation is unknown.
+    reasoningDiagnosticTokens: diagnosticTokens,
+  };
+}
+
+/**
+ * The two coverage ratios, each with its explicit denominator and n.
+ *
+ * @param {object} [coverage]
+ * @returns {object[]}
+ */
+export function coverageViewRows(coverage = {}) {
+  const row = (key, labelKey) => {
+    const entry = coverage?.[key] || {};
+    const denominator = entry.denominator == null ? null : Number(entry.denominator);
+    return {
+      key,
+      labelKey,
+      n: entry.n == null ? null : Number(entry.n),
+      denominator,
+      ratio: entry.ratio == null ? null : Number(entry.ratio),
+    };
+  };
+  return [
+    row('endedWithUsage', 'usage.coverageEndedWithUsage'),
+    row('endedComplete', 'usage.coverageEndedComplete'),
+  ];
+}
+
+/**
+ * Completeness/lifecycle counts shown separately from the ratios.
+ *
+ * @param {object} [coverage]
+ * @returns {object[]}
+ */
+export function coverageBreakdownRows(coverage = {}) {
+  const by = coverage?.byCompleteness && typeof coverage.byCompleteness === 'object' ? coverage.byCompleteness : {};
+  const rows = ['complete', 'partial', 'missing', 'unsupported', 'unknown'].map((key) => ({
+    key,
+    labelKey: `usage.coverage_${key}`,
+    n: Number(by[key]) || 0,
+  }));
+  rows.push({ key: 'active', labelKey: 'usage.coverage_active', n: Number(coverage?.runs?.active) || 0 });
+  rows.push({ key: 'legacy', labelKey: 'usage.coverage_legacy', n: Number(coverage?.legacy?.inferredWithoutRunStart) || 0 });
+  rows.push({ key: 'estimated', labelKey: 'usage.coverage_estimated', n: Number(coverage?.estimated?.runs) || 0 });
+  rows.push({ key: 'reportedZero', labelKey: 'usage.coverage_reportedZero', n: Number(coverage?.reportedZero?.runs) || 0 });
+  return rows;
+}
+
+/** Origin detail -> product-language label key. */
+export const ORIGIN_DETAIL_LABEL_KEYS = Object.freeze({
+  selected: 'usage.originSelected',
+  alternate: 'usage.originAlternate',
+  fanout: 'usage.originFanout',
+  fallback: 'usage.originFallback',
+  explore: 'usage.originExplore',
+  none: 'usage.originUnknown',
+});
+
+/** Link status -> label key; legacy/none are the "unknown link" states. */
+export const LINK_STATUS_LABEL_KEYS = Object.freeze({
+  linked: 'usage.linkLinked',
+  'rejected-link': 'usage.linkRejected',
+  legacy: 'usage.linkLegacy',
+  none: 'usage.linkNone',
+});
+
+/**
+ * Executed automatic choices. Proposals and diagnostic picks are returned
+ * beside `executed`, never added to it.
+ *
+ * @param {object} [choices]
+ * @returns {object}
+ */
+export function choicesView(choices = {}) {
+  const executed = Number(choices?.executed) || 0;
+  const originRows = ['auto', 'manual', 'unknown'].map((key) => {
+    const value = Number(choices?.[key]) || 0;
+    return {
+      key,
+      labelKey: `usage.choices_${key}`,
+      value,
+      share_percent: buildShareOfTotalPercent(value, executed),
+    };
+  });
+  const originDetails = Object.entries(choices?.originDetails && typeof choices.originDetails === 'object' ? choices.originDetails : {})
+    .map(([key, value]) => ({
+      key,
+      labelKey: ORIGIN_DETAIL_LABEL_KEYS[key] || '',
+      value: Number(value) || 0,
+    }))
+    .sort((left, right) => right.value - left.value || left.key.localeCompare(right.key));
+  const linkStatuses = Object.entries(choices?.linkStatuses && typeof choices.linkStatuses === 'object' ? choices.linkStatuses : {})
+    .map(([key, value]) => ({
+      key,
+      labelKey: LINK_STATUS_LABEL_KEYS[key] || '',
+      value: Number(value) || 0,
+    }))
+    .sort((left, right) => right.value - left.value || left.key.localeCompare(right.key));
+  return {
+    executed,
+    auto: Number(choices?.auto) || 0,
+    manual: Number(choices?.manual) || 0,
+    unknown: Number(choices?.unknown) || 0,
+    proposals: choices?.proposals == null ? null : Number(choices.proposals),
+    diagnosticPicks: choices?.diagnosticPicks == null ? null : Number(choices.diagnosticPicks),
+    originRows,
+    originDetails,
+    linkStatuses,
+    groups: Array.isArray(choices?.groups) ? choices.groups : [],
+  };
+}
+
+/**
+ * Model rows for the executed-choices table, richest first.
+ *
+ * @param {object[]} groups
+ * @returns {object[]}
+ */
+export function choiceGroupRows(groups) {
+  return (Array.isArray(groups) ? groups : []).map((group) => ({
+    key: String(group?.key || ''),
+    harness: String(group?.harness || ''),
+    model: String(group?.model || ''),
+    executed: Number(group?.executed) || 0,
+    auto: Number(group?.auto) || 0,
+    manual: Number(group?.manual) || 0,
+    unknown: Number(group?.unknown) || 0,
+    originDetails: group?.originDetails && typeof group.originDetails === 'object' ? group.originDetails : {},
+    linkStatuses: group?.linkStatuses && typeof group.linkStatuses === 'object' ? group.linkStatuses : {},
+    technicalSuccess: Number(group?.technicalSuccess) || 0,
+    technicalOutcomeKnown: Number(group?.technicalOutcomeKnown) || 0,
+    technicalSuccessRate: group?.technicalSuccessRate == null ? null : Number(group.technicalSuccessRate),
+  }));
+}
+
+/**
+ * Separation/acceptance signals with explicit denominators. Nothing here is a
+ * single blended "quality" number.
+ *
+ * @param {object} [signals]
+ * @returns {object[]}
+ */
+export function signalRows(signals = {}) {
+  const pct = (entry) => (entry?.denominator > 0 && entry?.n != null ? entry.n / entry.denominator : null);
+  return [
+    { key: 'technicalSuccess', labelKey: 'usage.signalTechnical', n: Number(signals?.technicalSuccess?.n) || 0, denominator: Number(signals?.technicalSuccess?.denominator) || 0, ratio: pct(signals?.technicalSuccess) },
+    { key: 'acceptedByReview', labelKey: 'usage.signalAccepted', n: Number(signals?.acceptedByReview?.n) || 0, denominator: Number(signals?.acceptedByReview?.denominator) || 0, ratio: pct(signals?.acceptedByReview) },
+    { key: 'manualAccepted', labelKey: 'usage.signalManualAccepted', n: Number(signals?.manualAccepted?.n) || 0, denominator: Number(signals?.manualAccepted?.denominator) || 0, ratio: pct(signals?.manualAccepted) },
+    { key: 'rejectedByReview', labelKey: 'usage.signalRejected', n: Number(signals?.rejectedByReview?.n) || 0, denominator: Number(signals?.rejectedByReview?.denominator) || 0, ratio: pct(signals?.rejectedByReview) },
+  ];
+}
+
+/**
+ * Cost provenance rows. `partial` is repeated so the UI can mark the total.
+ *
+ * @param {object} [cost]
+ * @returns {object}
+ */
+export function costProvenanceView(cost = {}) {
+  return {
+    actualUsd: Number(cost?.actualUsd) || 0,
+    estimatedUsd: Number(cost?.estimatedUsd) || 0,
+    subscriptionEvents: Number(cost?.subscriptionEvents) || 0,
+    unpricedEvents: Number(cost?.unpricedEvents) || 0,
+    pricedEvents: Number(cost?.pricedEvents) || 0,
+    totalEvents: Number(cost?.totalEvents) || 0,
+    partial: cost?.partial === true,
+  };
+}
+
+/**
+ * Leading metadata rows for the CSV export: scope, range, zone, filters,
+ * coverage and versions travel with the numbers.
+ *
+ * @param {{ window?: object, filters?: object, coverage?: object, version?: object }} [input]
+ * @returns {Array<[string, string]>}
+ */
+export function exportMetaRows(input = {}) {
+  const window = input.window || {};
+  const filters = input.filters || {};
+  const coverage = input.coverage || {};
+  const version = input.version || {};
+  const ratio = (entry) => (entry && entry.denominator != null
+    ? `${entry.n ?? ''}/${entry.denominator}`
+    : '');
+  return [
+    ['scope', String(filters.scope || 'own')],
+    ['tz', String(window.tz || '')],
+    ['range', String(window.range || '')],
+    ['from', String(window.from || '')],
+    ['to', String(window.to || '')],
+    ['role', String(filters.role || '')],
+    ['harness', String(filters.harness || '')],
+    ['origin', String(filters.origin || '')],
+    ['workspace', String(filters.workspaceFile || '')],
+    ['subject', String(filters.subject || '')],
+    ['coverage_ended_with_usage', ratio(coverage.endedWithUsage)],
+    ['coverage_ended_complete', ratio(coverage.endedComplete)],
+    ['schema_version', String(version.schemaVersion ?? '')],
+    ['normalization_version', String(version.normalizationVersion ?? '')],
+    ['contract_revision', String(version.contractRevision ?? '')],
+  ];
+}

@@ -1,3 +1,4 @@
+import { resolveTodoStatusIcon } from '../../features/todo/todoStatusIcon.js';
 import { LitElement, html, nothing } from 'lit';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { t } from '../../i18n/index.js';
@@ -16,6 +17,8 @@ import {
   todoRecoveryUnknownHint,
 } from '../../features/todo/todoRecoveryView.js';
 import { renderMarkdownHtml } from '../../lib/render-markdown.js';
+import { isWorkspaceWatcherRetryableBlockedTodo } from '../../../lib/workspace-watcher-blocked-reason.js';
+import { isTodoAwaitingIntegration } from '../../../lib/todo-integration-state.js';
 import './cr-bar-select.js';
 import './cr-bar-input.js';
 import './cr-bar-textarea.js';
@@ -50,6 +53,7 @@ class CrTodoCard extends LitElement {
     newChatHarness: { type: String },
     activeTab: { type: String },
     recoveryState: { type: Object },
+    statusIcon: { type: Object },
   };
 
   constructor() {
@@ -61,6 +65,7 @@ class CrTodoCard extends LitElement {
     this.newChatHarness = '';
     this.activeTab = 'description';
     this.recoveryState = null;
+    this.statusIcon = null;
   }
 
   createRenderRoot() {
@@ -139,6 +144,33 @@ class CrTodoCard extends LitElement {
     const revision = this.item?.updatedAt ? String(this.item.updatedAt) : '';
     if (!id || !revision) return;
     this._emit('todo-recover', { id, revision });
+  }
+
+  _onIntegrationDecision(action) {
+    const id = this.item?.id ? String(this.item.id) : '';
+    const revision = this.item?.updatedAt ? String(this.item.updatedAt) : '';
+    if (!id || !revision) return;
+    this._emit('todo-integration', { id, revision, action });
+  }
+
+  /**
+   * A manually started worktree tree is integrated from its ROOT: the root owns
+   * the worktree, so only it can prepare the diff for a human decision.
+   *
+   * @param {object | null | undefined} item
+   * @returns {boolean}
+   */
+  _canPrepareManualIntegration(item) {
+    if (!item || item.parentId) return false;
+    if (String(item.status || '') !== 'doing') return false;
+    return String(item.executionMode || '').trim() === 'worktree';
+  }
+
+  _onOpenGit(event) {
+    event?.preventDefault?.();
+    const id = this.item?.id ? String(this.item.id) : '';
+    if (!id) return;
+    this._emit('todo-open-git', { id });
   }
 
   _onContinueNewChat() {
@@ -342,6 +374,14 @@ class CrTodoCard extends LitElement {
     this._emit('todo-runmode-change', { id, runMode });
   }
 
+  _onExecutionModeChange(e) {
+    const id = this.item?.id ? String(this.item.id) : '';
+    if (!id) return;
+    const raw = String(e?.detail?.value || '').trim();
+    const executionMode = raw === 'worktree' || raw === 'project' ? raw : 'inherit';
+    this._emit('todo-executionmode-change', { id, executionMode });
+  }
+
   /* ---------------------------------------------------------- render */
 
   _formatChangelogKind(kind) {
@@ -421,10 +461,42 @@ class CrTodoCard extends LitElement {
     if (created) chips.push(html`<span>${t('todo.created')}: ${created}</span>`);
     if (updated) chips.push(html`<span>${t('todo.updated')}: ${updated}</span>`);
     if (creatorTitle) chips.push(html`<span>${t('todo.creator')}: ${creatorTitle}</span>`);
+    if (item?.executionMode === 'worktree' || item?.executionMode === 'project') {
+      const modeKey = item.executionMode === 'worktree' ? 'todo.executionWorktree' : 'todo.executionProject';
+      chips.push(html`<span class="todo-item-execution-chip">${t('todo.executionMode')}: ${t(modeKey)}</span>`);
+    }
+    const gitBranch = String(item?.integration?.branch || '').trim();
+    if (item?.executionMode === 'worktree' || gitBranch) {
+      chips.push(html`<button
+        type="button"
+        class="todo-item-git-chip"
+        title=${t('todo.gitBadgeTitle')}
+        aria-label=${t('todo.gitBadgeTitle')}
+        @click=${this._onOpenGit}
+      ><span class="mdi mdi-source-branch" aria-hidden="true"></span><span>${gitBranch || t('todo.gitBadgeGeneric')}</span></button>`);
+    }
+    if (isTodoAwaitingIntegration(item)) {
+      chips.push(html`<span class="todo-item-integration-chip">${t('todo.integrationReady')}</span>`);
+    }
     if (!chips.length) return '';
     return html`<div class="todo-item-meta-line">${chips.map((chip, index) => html`
       ${index > 0 ? html`<span class="todo-item-meta-sep" aria-hidden="true">·</span>` : ''}${chip}
     `)}</div>`;
+  }
+
+  /**
+   * Manual starts resolve the execution mode from the tree root; a subtask's
+   * own mode is ignored. Surface that so the field is not mistaken for an
+   * effective override.
+   *
+   * @param {object | null | undefined} item
+   * @returns {import('lit').TemplateResult | typeof nothing}
+   */
+  _renderManualModeHint(item) {
+    if (!item || !item.parentId) return nothing;
+    const mode = String(item.executionMode || '').trim();
+    if (mode !== 'worktree' && mode !== 'project') return nothing;
+    return html`<p class="cr-hint todo-manual-mode-hint">${t('todo.worktreeLeafModeIgnored')}</p>`;
   }
 
   /** Chats section: every chat that touched the todo, with roles. */
@@ -740,6 +812,11 @@ class CrTodoCard extends LitElement {
       { value: 'parallel', label: t('todo.runParallel') },
       { value: 'sequential', label: t('todo.runSequential') },
     ];
+    const executionOptions = [
+      { value: 'inherit', label: t('todo.executionInherit') },
+      { value: 'worktree', label: t('todo.executionWorktree') },
+      { value: 'project', label: t('todo.executionProject') },
+    ];
     return html`
       <section
         class="todo-item-tabpanel todo-item-tabpanel--settings"
@@ -795,6 +872,17 @@ class CrTodoCard extends LitElement {
                 @cr-change=${this._onRunModeChange}
               ></cr-bar-select>
             </label>
+            <label class="cr-field">
+              <span class="cr-field-label">${t('todo.executionMode')}</span>
+              <cr-bar-select
+                class="todo-editor-execution"
+                size="md"
+                aria-label=${t('todo.executionMode')}
+                .value=${item?.executionMode === 'worktree' || item?.executionMode === 'project' ? item.executionMode : 'inherit'}
+                .options=${executionOptions}
+                @cr-change=${this._onExecutionModeChange}
+              ></cr-bar-select>
+            </label>
           </div>
         </div>
         <div class="todo-item-settings-actions">
@@ -817,6 +905,7 @@ class CrTodoCard extends LitElement {
     const id = item.id ? String(item.id) : '';
     const title = item.title ? String(item.title) : '';
     const status = item.status ? String(item.status) : 'idea';
+    const statusIcon = this.statusIcon || resolveTodoStatusIcon(item);
     const statusLocked = this.hasChildren && (status === 'doing' || status === 'done');
     const statusOptions = this.hasChildren
       ? getTodoStatusOptions().filter((option) => option.value === 'idea' || option.value === 'ready')
@@ -826,7 +915,7 @@ class CrTodoCard extends LitElement {
       <article class="todo-item todo-item--${status}" data-id=${id} data-status=${status}>
         <div class="todo-item-head">
           <div class="todo-item-status-wrap">
-            <span class="todo-item-status-dot" aria-hidden="true"></span>
+            <span class="todo-item-status-icon mdi ${statusIcon.icon}${statusIcon.spinning ? ' mdi-spin' : ''}" title=${t(statusIcon.labelKey, { title: statusIcon.title })} aria-hidden="true"></span>
             <cr-bar-select
               class="todo-item-status-select"
               size="md"
@@ -856,7 +945,7 @@ class CrTodoCard extends LitElement {
         ${String(item.blockedReason || '').trim() ? html`
           <section class="todo-blocked-alert" role="alert" aria-live="polite">
             <div><strong>${t('todo.blocked')}</strong><p>${String(item.blockedReason)}</p></div>
-            ${String(item.blockedReason).includes('Workspace Watcher failure ceiling') ? html`
+            ${isWorkspaceWatcherRetryableBlockedTodo(item) ? html`
               <cr-bar-button class="todo-blocked-retry" data-id=${id} @click=${this._onRetryBlocked}>${t('todo.retryBlocked')}</cr-bar-button>
             ` : nothing}
           </section>
@@ -873,7 +962,30 @@ class CrTodoCard extends LitElement {
             ` : nothing}
           </section>
         ` : nothing}
-        ${this._renderIdBar(item)} ${this._renderMeta(item)} ${this._renderTabs()}
+        ${isTodoAwaitingIntegration(item) ? html`
+          <section class="todo-integration-alert" role="status" aria-live="polite">
+            <div>
+              <strong>${t('todo.integrationReady')}</strong>
+              <p>${t('todo.integrationReadyHint')}</p>
+              ${String(item.integration?.resultPath || '').trim() ? html`
+                <p class="cr-hint">${t('todo.integrationResult')}: ${String(item.integration.resultPath)}</p>
+              ` : nothing}
+            </div>
+            <cr-bar-button class="todo-integration-confirm" data-id=${id} @click=${() => this._onIntegrationDecision('confirm')}>${t('todo.integrationConfirm')}</cr-bar-button>
+            <cr-bar-button class="todo-integration-reject" data-id=${id} @click=${() => this._onIntegrationDecision('reject')}>${t('todo.integrationReject')}</cr-bar-button>
+          </section>
+        ` : nothing}
+        ${!isTodoAwaitingIntegration(item) && this._canPrepareManualIntegration(item) ? html`
+          <section class="todo-integration-alert todo-integration-prepare" role="status" aria-live="polite">
+            <div>
+              <strong>${t('todo.worktreeBadge')}</strong>
+              <p>${t('todo.integrationPrepareHint')}</p>
+              <p class="cr-hint">${t('todo.worktreeActiveHint')}</p>
+            </div>
+            <cr-bar-button class="todo-integration-prepare" data-id=${id} @click=${() => this._onIntegrationDecision('prepare')}>${t('todo.integrationPrepare')}</cr-bar-button>
+          </section>
+        ` : nothing}
+        ${this._renderIdBar(item)} ${this._renderMeta(item)} ${this._renderManualModeHint(item)} ${this._renderTabs()}
         <div class="todo-editor-panels">
           ${this._renderDescriptionPanel(item)} ${this._renderChatsPanel(item)}
           ${this._renderHistoryPanel(item)} ${this._renderSettingsPanel(item)}

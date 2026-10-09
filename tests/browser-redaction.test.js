@@ -252,6 +252,127 @@ test('redactDebuggerPayload survives deep RemoteObject chain without RangeError'
   assert.doesNotMatch(text, /LEAK_SHALLOW/);
 });
 
+/** Builds a nested CDP RemoteObject chain via `value: [next]` (mixed array path). */
+function buildNestedRemoteObjectArrayChain(depth, leafValue = 'LEAF_SECRET') {
+  let node = { type: 'string', value: leafValue };
+  for (let i = 0; i < depth; i += 1) {
+    node = { type: 'object', value: [node] };
+  }
+  return node;
+}
+
+/** Builds a nested CDP RemoteObject chain via `properties` (mixed scope path). */
+function buildNestedRemoteObjectPropertiesChain(depth, leafValue = 'LEAF_SECRET') {
+  let node = { type: 'string', value: leafValue };
+  for (let i = 0; i < depth; i += 1) {
+    node = { type: 'object', properties: [{ name: 'child', value: node }] };
+  }
+  return node;
+}
+
+/** Builds a nested chain via property descriptors that expose only `get` (accessor path). */
+function buildNestedRemoteObjectGetterChain(depth, leafValue = 'LEAF') {
+  let node = { type: 'string', value: leafValue };
+  for (let i = 0; i < depth; i += 1) {
+    node = { type: 'object', properties: [{ name: 'child', get: node }] };
+  }
+  return node;
+}
+
+/** Descriptor with shallow `value` and deep `get` chain (CDP accessor + data). */
+function buildGetBesideValueChain(depth, leafValue = 'DEEP_LEAF') {
+  let getNode = { type: 'string', value: leafValue };
+  for (let i = 0; i < depth; i += 1) {
+    getNode = {
+      type: 'object',
+      properties: [{
+        name: 'x',
+        value: { type: 'string', value: 'v' },
+        get: getNode,
+      }],
+    };
+  }
+  return getNode;
+}
+
+test('redactDebuggerPayload survives 20k RemoteObject chain via value array without RangeError (mixed depth)', () => {
+  const chain = buildNestedRemoteObjectArrayChain(20000);
+  let payload;
+  assert.doesNotThrow(() => {
+    payload = redactDebuggerPayload({ result: chain }, BROWSER_LIMITS);
+  });
+  const text = JSON.stringify(payload.value);
+  assert.match(text, /\[truncated\]/);
+  assert.doesNotMatch(text, /LEAF_SECRET/);
+});
+
+test('redactDebuggerPayload survives 20k RemoteObject chain via properties without RangeError (mixed depth)', () => {
+  const chain = buildNestedRemoteObjectPropertiesChain(20000);
+  let payload;
+  assert.doesNotThrow(() => {
+    payload = redactDebuggerPayload({ result: chain }, BROWSER_LIMITS);
+  });
+  const text = JSON.stringify(payload.value);
+  assert.match(text, /\[truncated\]/);
+  assert.doesNotMatch(text, /LEAF_SECRET/);
+});
+
+test('redactDebuggerPayload survives 20k getter-only property chain without RangeError', () => {
+  const chain = buildNestedRemoteObjectGetterChain(20000);
+  let payload;
+  assert.doesNotThrow(() => {
+    payload = redactDebuggerPayload({ result: chain }, BROWSER_LIMITS);
+  });
+  const text = JSON.stringify(payload.value);
+  assert.match(text, /\[truncated\]/);
+  assert.doesNotMatch(text, /LEAF/);
+});
+
+test('redactDebuggerPayload survives 20k get beside value property chain without RangeError', () => {
+  const chain = buildGetBesideValueChain(20000);
+  let payload;
+  assert.doesNotThrow(() => {
+    payload = redactDebuggerPayload({ result: chain }, BROWSER_LIMITS);
+  });
+  const text = JSON.stringify(payload.value);
+  assert.match(text, /\[truncated\]/);
+  assert.doesNotMatch(text, /DEEP_LEAF/);
+});
+
+test('redactDebuggerPayload regresses nested returnByValue secret and wide array cap (r9)', () => {
+  const nestedSecret = redactDebuggerPayload({
+    result: {
+      type: 'object',
+      value: [[{ accessToken: 'LEAK_AT' }], [{ note: 'ok', count: 42 }]],
+    },
+  }, BROWSER_LIMITS);
+  const nestedText = JSON.stringify(nestedSecret.value);
+  assert.doesNotMatch(nestedText, /LEAK_AT/);
+  assert.match(nestedText, /\[redacted\]/);
+  assert.match(nestedText, /"count":42|"count": 42/);
+  const wide = Array.from({ length: 5000 }, (_, i) => ({ k: i }));
+  const widePayload = redactDebuggerPayload({
+    result: { type: 'object', value: wide },
+  }, BROWSER_LIMITS);
+  const arr = widePayload.value.result.value;
+  assert.ok(Array.isArray(arr));
+  assert.equal(arr.length, BROWSER_LIMITS.DEBUGGER_REDACT_MAX_ITEMS);
+});
+
+test('redactDebuggerPayload redacts shallow secret on mixed value-array path (depth budget)', () => {
+  const payload = redactDebuggerPayload({
+    result: {
+      type: 'object',
+      value: [{ accessToken: 'LEAK_AT', note: 'ok', count: 42 }],
+    },
+  }, BROWSER_LIMITS);
+  const text = JSON.stringify(payload.value);
+  assert.doesNotMatch(text, /LEAK_AT/);
+  assert.match(text, /\[redacted\]/);
+  assert.match(text, /"count":42|"count": 42/);
+  assert.match(text, /ok/);
+});
+
 test('redactDebuggerPayload redacts shallow sensitive key beside deep RemoteObject value', () => {
   const inner = buildNestedRemoteObjectChain(200);
   const payload = redactDebuggerPayload({

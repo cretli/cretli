@@ -106,6 +106,16 @@ still starts.
   `confirm: true` like `browser_input`; scope/watch/stack payloads are redacted and
   bounded. `browser_evaluate`, WebRTC streaming and persistent cookies/`storageState` are
   intentionally not part of this namespace.
+  A run with no signed-in UI attached (a Watcher/autopilot cycle, a delegation, or a chat
+  after a restart before the UI reconnects) acts as a reserved **system owner**
+  (`BROWSER_SYSTEM_OWNER_ID`, `lib/browser/agent-tools.js`), never as the last login
+  session seen on the chat. The system owner is not a Cretli login session id, so
+  `requireSession` makes its sessions unreachable from any user session and vice versa;
+  `/api/browser/sessions` lists by the real login session id and therefore never shows a
+  system session in the Browser panel. A system session is a fresh Chromium context: it
+  starts with no cookies and never reads or copies a user's cookie jar, tokens or login
+  session. A widget-only chat (no Cretli login session) stays fail-closed and never gets a
+  system owner, so the fallback does not widen widget integrations.
 
 ## Hardening checklist
 

@@ -1,11 +1,15 @@
 import * as api from './core/api/index.js';
-import { openTodoAgentChat } from './chat.js';
+import { openTodoAgentChat, openTodoAgentStartModal, getChatsList, getTerminalStateMetaPublic } from './chat.js';
+import { resolveTodoStatusIcon } from './features/todo/todoStatusIcon.js';
+import { isTodoAwaitingIntegration } from '../lib/todo-integration-state.js';
+import { subscribeSidebarChatRowStatusPatch } from './features/sidebar/sidebarChatRowRefreshBus.js';
 import { getCurrentLang, t } from './i18n/index.js';
 import { formatTodoRef } from '../lib/todo-ref.js';
 import { writeTextToClipboard } from './lib/clipboard.js';
 import { initDropdown, closeAllOpenDropdowns } from './lib/dropdown.js';
 import { preloadMarkdown } from './lib/render-markdown.js';
 import { getTodoWorkspaceFolder, todoWorkspaceMatches } from './features/todo/todoWorkspaceScope.js';
+import { setGitScope } from './features/git/gitScope.js';
 import {
   buildTodoMarkdown,
   canAddTodoChild,
@@ -69,7 +73,7 @@ let dragState = null;
 /** @type {() => void} */
 let openNewTodoModal = () => {};
 
-/** @type {Map<HTMLElement, { api: { destroy: () => void }, panel: HTMLElement }>} */
+/** @type {Map<HTMLElement, { api: ReturnType<typeof initDropdown>, panel: HTMLElement, destroying: boolean }>} */
 const rowMenus = new Map();
 
 /** Todo ids with a start-agent request in flight (row menu and card share it). */
@@ -386,13 +390,15 @@ async function copyTodoText(text, okMessage) {
 function disposeRowMenu(row) {
   const entry = rowMenus.get(row);
   if (!entry) return;
+  // Mark before destroy(): destroy() may emit onClose, which must not re-enter.
+  entry.destroying = true;
+  rowMenus.delete(row);
   try {
     entry.api.destroy();
   } catch {
     // A detached dropdown must never break the next render.
   }
   entry.panel.remove();
-  rowMenus.delete(row);
 }
 
 function disposeAllRowMenus() {
@@ -403,14 +409,17 @@ function bindCardHandlers(card) {
   card.addEventListener('todo-status-change', onStatusChange);
   card.addEventListener('todo-retry-blocked', onRetryBlockedTodo);
   card.addEventListener('todo-recover', onRecoverTodo);
+  card.addEventListener('todo-integration', onIntegrationDecision);
   card.addEventListener('todo-title-save', onTitleBlur);
   card.addEventListener('todo-body-save', onBodyBlur);
   card.addEventListener('todo-delete', onDelete);
   card.addEventListener('todo-start-agent', onStartAgent);
   card.addEventListener('todo-open-chat', onOpenChat);
+  card.addEventListener('todo-open-git', onOpenGit);
   card.addEventListener('todo-copy', onCardCopy);
   card.addEventListener('todo-assignee-change', onEditorAssigneeChange);
   card.addEventListener('todo-runmode-change', onEditorRunModeChange);
+  card.addEventListener('todo-executionmode-change', onEditorExecutionModeChange);
   card.addEventListener('todo-plan-approve', onPlanApprove);
 }
 
@@ -469,6 +478,59 @@ async function onRecoverTodo(e) {
     setStatus(t('todo.recoveryResumeSuccess'));
   } catch {
     showFeedback(t('todo.recoveryResumeFailed', { outcome: 'network' }), true);
+    setStatus(t('todo.networkError'), true);
+  }
+}
+
+/**
+ * Human integration decision from the editor card: confirm marks the todo done
+ * (unblocking siblings), reject returns it to the pool with the worktree kept.
+ *
+ * @param {Event} e
+ */
+async function onIntegrationDecision(e) {
+  const detail = /** @type {any} */ (e)?.detail || {};
+  const id = String(detail.id || '').trim();
+  const revision = String(detail.revision || '').trim();
+  const requested = String(detail.action || '').trim();
+  const action = ['prepare', 'reject', 'confirm'].includes(requested) ? requested : 'confirm';
+  const ctx = getWorkspaceContext();
+  if (!id || !revision || !ctx.workspaceFolder) return;
+  const card = e.currentTarget instanceof HTMLElement ? e.currentTarget : null;
+  const feedback = card?.querySelector('.todo-action-feedback');
+  const showFeedback = (message, isError = false) => {
+    if (!(feedback instanceof HTMLElement)) return;
+    feedback.hidden = !message;
+    feedback.textContent = message;
+    feedback.dataset.tone = isError ? 'error' : 'status';
+  };
+  const busyMessage = action === 'prepare' ? t('todo.integrationPreparing') : t('todo.integrationSaving');
+  showFeedback(busyMessage);
+  setStatus(busyMessage);
+  try {
+    const result = await api.integrateTodo(id, ctx.workspaceFolder, action, revision);
+    if (!result?.ok) {
+      const message = action === 'prepare'
+        ? t('todo.integrationPrepareFailed')
+        : String(result?.error || '') === 'conflict'
+          ? t('todo.integrationConflict')
+          : t('todo.integrationFailed');
+      showFeedback(message, true);
+      setStatus(message, true);
+      return;
+    }
+    await refreshTodoList();
+    await refreshWatcherPanel();
+    openEditor(id);
+    const success = action === 'prepare'
+      ? t('todo.integrationPrepared')
+      : action === 'reject'
+        ? t('todo.integrationRejected')
+        : t('todo.integrationConfirmed');
+    showFeedback(success);
+    setStatus(success);
+  } catch {
+    showFeedback(t('todo.integrationFailed'), true);
     setStatus(t('todo.networkError'), true);
   }
 }
@@ -592,6 +654,7 @@ function syncEditorItem() {
     return;
   }
   editorCard.item = item;
+  editorCard.statusIcon = resolveTodoStatusIcon(item, latestItems, getChatsList(), getTerminalStateMetaPublic);
   editorCard.hasChildren = latestItems.some((row) => row.parentId === item.id);
 }
 
@@ -667,7 +730,7 @@ function createTodoRow() {
     '<span class="mdi mdi-drag-vertical" aria-hidden="true"></span></button>' +
     '<button type="button" class="todo-row-toggle" hidden></button>' +
     '<button type="button" class="todo-row-main">' +
-    '<span class="todo-item-status-dot" aria-hidden="true"></span>' +
+    '<span class="todo-item-status-icon" aria-hidden="true"></span>' +
     '<span class="todo-row-text">' +
     '<span class="todo-row-title"></span>' +
     '<span class="todo-row-meta" hidden></span>' +
@@ -677,7 +740,7 @@ function createTodoRow() {
     '</button>' +
     '<button type="button" class="todo-row-add">' +
     '<span class="mdi mdi-plus" aria-hidden="true"></span></button>' +
-    '<button type="button" class="todo-row-menu" aria-haspopup="menu">' +
+    '<button type="button" class="todo-row-menu" aria-haspopup="menu" aria-expanded="false">' +
     '<span class="mdi mdi-dots-vertical" aria-hidden="true"></span></button>';
   const grip = row.querySelector('.todo-row-grip');
   const toggle = row.querySelector('.todo-row-toggle');
@@ -692,20 +755,23 @@ function createTodoRow() {
   main?.addEventListener('click', onRowOpen);
   add?.addEventListener('click', onAddChildClick);
   menu?.addEventListener('click', onRowMenuClick);
-  ensureRowMenu(row);
   return row;
 }
 
 /**
- * Lazily creates the row action menu (portal to <body>, like other Cretli
- * dropdowns) and wires the shared dropdown controller for keyboard support.
+ * Creates the row action menu on first open (portal to <body>, like other
+ * Cretli dropdowns) and wires the shared dropdown controller for keyboard
+ * support. The instance is destroyed again when it closes, so rows never
+ * accumulate document-level listeners while idle.
  *
  * @param {HTMLElement} row
+ * @returns {{ api: ReturnType<typeof initDropdown>, panel: HTMLElement, destroying: boolean } | null}
  */
 function ensureRowMenu(row) {
-  if (rowMenus.has(row)) return;
+  const existing = rowMenus.get(row);
+  if (existing) return existing;
   const trigger = row.querySelector('.todo-row-menu');
-  if (!(trigger instanceof HTMLButtonElement)) return;
+  if (!(trigger instanceof HTMLButtonElement)) return null;
   const panel = document.createElement('div');
   panel.className = 'chat-list-modal todo-row-menu-panel';
   panel.hidden = true;
@@ -715,20 +781,28 @@ function ensureRowMenu(row) {
   list.addEventListener('click', (event) => onRowMenuSelect(event, row));
   panel.appendChild(list);
   document.body.appendChild(panel);
-  const api = initDropdown({
-    triggerEl: trigger,
-    floatingEl: panel,
-    compact: true,
-    placement: 'bottom-end',
-    minWidthPx: 210,
-    maxHeightPx: 280,
-    onOpen: () => renderRowMenuItems(row, list),
-    // Escape must not strand focus inside the now-hidden panel.
-    onClose: (reason) => {
-      if (reason === 'escape') trigger.focus();
-    },
-  });
-  rowMenus.set(row, { api, panel });
+  /** @type {{ api: ReturnType<typeof initDropdown>, panel: HTMLElement, destroying: boolean }} */
+  const entry = {
+    api: initDropdown({
+      triggerEl: trigger,
+      floatingEl: panel,
+      compact: true,
+      placement: 'bottom-end',
+      minWidthPx: 210,
+      maxHeightPx: 280,
+      onOpen: () => renderRowMenuItems(row, list),
+      // Escape must not strand focus inside the now-hidden panel.
+      onClose: (reason) => {
+        if (reason === 'escape') trigger.focus();
+        // Lazy instance: drop it (and its document listeners) once closed.
+        if (!entry.destroying) disposeRowMenu(row);
+      },
+    }),
+    panel,
+    destroying: false,
+  };
+  rowMenus.set(row, entry);
+  return entry;
 }
 
 /**
@@ -789,13 +863,43 @@ function renderRowMenuItems(row, list) {
 /** @param {MouseEvent} event */
 function onRowMenuClick(event) {
   const row = event.currentTarget instanceof Element ? event.currentTarget.closest('.todo-row') : null;
-  const entry = row instanceof HTMLElement ? rowMenus.get(row) : null;
-  if (!entry) return;
+  if (!(row instanceof HTMLElement)) return;
   event.preventDefault();
   event.stopPropagation();
+  const entry = ensureRowMenu(row);
+  if (!entry) return;
   // Only one row menu at a time; toggle keeps the common open/close behavior.
   if (!entry.api.isOpen()) closeAllOpenDropdowns();
   entry.api.toggle();
+}
+
+/**
+ * Opens the row action menu with ArrowDown. The dropdown instance is created
+ * lazily on first open, so this single delegated listener on the list covers
+ * the very first key press before any per-row controller exists. Once the
+ * panel is open, navigation runs through the dropdown's own keydown handling.
+ *
+ * @param {KeyboardEvent} event
+ */
+function onRowMenuTriggerKeydown(event) {
+  if (event.key !== 'ArrowDown') return;
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const trigger = target.closest('.todo-row-menu');
+  if (!(trigger instanceof HTMLButtonElement)) return;
+  const row = trigger.closest('.todo-row');
+  if (!(row instanceof HTMLElement)) return;
+  // The live instance handles its own trigger once it exists.
+  if (rowMenus.get(row)?.api.isOpen()) return;
+  event.preventDefault();
+  const entry = ensureRowMenu(row);
+  if (!entry) return;
+  entry.api.open();
+  // Mirror the dropdown's ArrowDown-on-trigger behavior: enter at the top.
+  requestAnimationFrame(() => {
+    const first = entry.panel.querySelector('[role="menuitem"]:not([disabled])');
+    if (first instanceof HTMLElement) first.focus();
+  });
 }
 
 /**
@@ -846,7 +950,7 @@ async function runRowMenuAction(action, item) {
     return;
   }
   if (action === 'newChat') {
-    await startTodoAgent(id, { forceNew: true });
+    openTodoStartPicker(item);
     return;
   }
   if (action === 'delete') {
@@ -926,6 +1030,17 @@ export function repaintTodoRowBadges() {
   });
 }
 
+/** Update only the icon so live events preserve row controls and animation. */
+function paintTodoStatusIcon(el, item) {
+  const statusIcon = resolveTodoStatusIcon(item, latestItems, getChatsList(), getTerminalStateMetaPublic);
+  const iconEl = el.querySelector('.todo-item-status-icon');
+  if (iconEl) {
+    const iconClass = `todo-item-status-icon mdi ${statusIcon.icon}${statusIcon.spinning ? ' mdi-spin' : ''}`;
+    if (iconEl.className !== iconClass) iconEl.className = iconClass;
+    iconEl.title = t(statusIcon.labelKey, { title: statusIcon.title });
+  }
+}
+
 function paintTodoRow(el, row) {
   const id = String(row.item.id || '');
   const status = String(row.item.status || 'idea');
@@ -943,6 +1058,7 @@ function paintTodoRow(el, row) {
   const add = el.querySelector('.todo-row-add');
   const menu = el.querySelector('.todo-row-menu');
   const main = el.querySelector('.todo-row-main');
+  paintTodoStatusIcon(el, row.item);
   if (title) title.textContent = String(row.item.title || '');
   if (grip instanceof HTMLElement) grip.setAttribute('aria-label', t('todo.dragHandle'));
   if (main instanceof HTMLElement) main.setAttribute('aria-label', t('todo.editTask'));
@@ -969,10 +1085,14 @@ function paintTodoRow(el, row) {
   const claimedBy = String(row.item?.claimedByChatId || '').trim();
   const isClaimed = !!claimedBy;
   const isQueued = !isClaimed && status === 'ready' && isWatcherAutopilot();
+  const isIntegrationReady = isTodoAwaitingIntegration(row.item);
   const assigneeBadge = formatTodoAssigneeBadge(row.item);
   let badgeFull = '';
   let badgeKind = '';
-  if (isClaimed) {
+  if (isIntegrationReady) {
+    badgeFull = t('todo.integrationReady');
+    badgeKind = 'integration';
+  } else if (isClaimed) {
     badgeFull = t('todo.claimedBy', { chat: claimedBy.slice(0, 8) });
     badgeKind = 'claimed';
   } else if (isQueued) {
@@ -985,7 +1105,7 @@ function paintTodoRow(el, row) {
     const narrow = typeof window !== 'undefined'
       && typeof window.matchMedia === 'function'
       && window.matchMedia('(max-width: 640px)').matches;
-    const badgeText = narrow && !isClaimed && !isQueued
+    const badgeText = narrow && !isClaimed && !isQueued && !isIntegrationReady
       ? String(row.item?.assignee?.harness || '').trim()
       : badgeFull;
     badge.hidden = !badgeText;
@@ -995,20 +1115,25 @@ function paintTodoRow(el, row) {
     else if (badgeFull) badge.title = badgeFull;
     else badge.removeAttribute('title');
   }
-  const markKind = readTodoRowMark(latestItems, row.item);
+  let markKind = readTodoRowMark(latestItems, row.item);
+  if (isIntegrationReady) markKind = 'integration';
   if (mark instanceof HTMLElement) {
     mark.hidden = !markKind;
     const blockKind = markKind === 'blocked' ? readTodoRowBlockKind(latestItems, row.item) : '';
-    mark.textContent = blockKind === 'action'
-      ? t('todo.blockedAction')
-      : blockKind === 'dependency'
-        ? t('todo.blockedDependency')
-        : markKind === 'blocked' ? t('todo.blocked') : t('todo.ready');
-    mark.dataset.mark = blockKind ? `blocked-${blockKind}` : markKind;
+    mark.textContent = markKind === 'integration'
+      ? t('todo.integrationReady')
+      : blockKind === 'action'
+        ? t('todo.blockedAction')
+        : blockKind === 'dependency'
+          ? t('todo.blockedDependency')
+          : markKind === 'blocked' ? t('todo.blocked') : t('todo.ready');
+    mark.dataset.mark = markKind === 'integration' ? 'integration' : (blockKind ? `blocked-${blockKind}` : markKind);
     const blockedReason = String(row.item?.blockedReason || '').trim();
-    const blockDetail = blockKind === 'action'
-      ? blockedReason
-      : blockKind === 'dependency' ? t('todo.blockedDependencyHint') : '';
+    const blockDetail = markKind === 'integration'
+      ? t('todo.integrationReadyHint')
+      : blockKind === 'action'
+        ? blockedReason
+        : blockKind === 'dependency' ? t('todo.blockedDependencyHint') : '';
     if (blockDetail) {
       mark.title = blockDetail;
       mark.setAttribute('aria-label', `${mark.textContent}: ${blockDetail}`);
@@ -1171,6 +1296,7 @@ function openEditor(id) {
   editorTodoId = id;
   editorDialog.heading = t('todo.editTask');
   editorCard.item = item;
+  editorCard.statusIcon = resolveTodoStatusIcon(item, latestItems, getChatsList(), getTerminalStateMetaPublic);
   editorCard.recoveryState = findTodoRecoveryState(getWatcherView(), id);
   editorCard.hasChildren = latestItems.some((row) => row.parentId === item.id);
   editorCard.newChatHarness = '';
@@ -1288,6 +1414,42 @@ function onEditorRunModeChange(e) {
   void saveEditorRunMode(e?.detail?.runMode);
 }
 
+/** @param {string} executionMode */
+function saveEditorExecutionMode(executionMode) {
+  const todoId = editorTodoId;
+  if (!todoId) return Promise.resolve();
+  return queueEditorSave(() => patchEditorExecutionMode(todoId, executionMode));
+}
+
+/**
+ * @param {string} todoId
+ * @param {string} executionMode
+ */
+async function patchEditorExecutionMode(todoId, executionMode) {
+  const allowed = ['inherit', 'worktree', 'project'];
+  const next = allowed.includes(executionMode) ? executionMode : 'inherit';
+  const current = ['worktree', 'project'].includes(findItem(todoId)?.executionMode)
+    ? findItem(todoId).executionMode
+    : 'inherit';
+  if (current === next) return;
+  try {
+    const data = await api.patchTodo(todoId, { executionMode: next });
+    if (!data?.ok) {
+      setStatus(data?.error || t('todo.saveError'), true);
+      return;
+    }
+    setStatus(t('todo.saved'));
+    renderList(data);
+  } catch {
+    setStatus(t('todo.networkError'), true);
+  }
+}
+
+/** @param {Event} e */
+function onEditorExecutionModeChange(e) {
+  void saveEditorExecutionMode(e?.detail?.executionMode);
+}
+
 /** @param {Event} e */
 function onOpenChat(e) {
   const chatId = String(e?.detail?.chatId || '').trim();
@@ -1304,11 +1466,23 @@ function onOpenChat(e) {
   setStatus(t('todo.openedLinkedChat'));
 }
 
+/** Opens the Git panel scoped to the worktree of one task. */
+function onOpenGit(e) {
+  const id = String(e?.detail?.id || '').trim();
+  if (!id) return;
+  setGitScope({ todoId: id, workspaceFolder: getTodoWorkspaceFolder() }, { lock: true });
+  showPanelFn('git');
+}
+
 /** @param {Event} e */
 async function onStartAgent(e) {
   const id = e?.detail?.id;
   if (!id) return;
   const forceNew = e?.detail?.forceNew === true;
+  if (forceNew) {
+    openTodoStartPicker(e.target instanceof Element ? e.target.closest('cr-todo-card')?.item || findItem(String(id)) : findItem(String(id)));
+    return;
+  }
   const agentTransport = String(e?.detail?.agentTransport || '').trim();
   const cardEl = e.target instanceof Element ? e.target.closest('cr-todo-card') : null;
   const btnEl = cardEl?.querySelector(forceNew ? '.todo-item-newchat' : '.todo-item-agent');
@@ -1327,12 +1501,27 @@ async function onStartAgent(e) {
   }
 }
 
+/** Open the shared harness and model picker before creating a fresh TODO chat. */
+function openTodoStartPicker(item) {
+  if (!item?.id) return;
+  const harness = resolveTodoStartHarness(item);
+  openTodoAgentStartModal({
+    harness,
+    onStart: ({ harness: selectedHarness, model }) => startTodoAgent(String(item.id), {
+      forceNew: true,
+      agentTransport: selectedHarness,
+      model,
+      item,
+    }),
+  });
+}
+
 /**
  * Opens the linked chat or creates one. `forceNew` always creates a fresh chat
  * and keeps the previous one in the todo history.
  *
  * @param {string} id
- * @param {{ forceNew?: boolean, agentTransport?: string, item?: object | null }} [options]
+ * @param {{ forceNew?: boolean, agentTransport?: string, model?: string, item?: object | null }} [options]
  */
 async function startTodoAgent(id, options = {}) {
   const todoId = String(id || '').trim();
@@ -1350,7 +1539,7 @@ async function startTodoAgent(id, options = {}) {
 
 /**
  * @param {string} todoId
- * @param {{ forceNew?: boolean, agentTransport?: string, item?: object | null }} [options]
+ * @param {{ forceNew?: boolean, agentTransport?: string, model?: string, item?: object | null }} [options]
  */
 async function startTodoAgentOnce(todoId, options = {}) {
   const forceNew = options.forceNew === true;
@@ -1374,12 +1563,18 @@ async function startTodoAgentOnce(todoId, options = {}) {
   const payload = {
     workspaceFile: ctx.workspaceFile,
     workspaceFolder: ctx.workspaceFolder,
-    model: 'auto',
+    model: String(options.model || 'auto'),
     agentTransport: harness,
   };
   if (forceNew) payload.forceNew = true;
   try {
-    const data = await api.postTodoStartAgent(todoId, payload);
+    let data = await api.postTodoStartAgent(todoId, payload);
+    if (data?.ok && data.state === 'preparing') {
+      // Worktree prepare can take minutes; the server answered 202 and the UI
+      // polls until the chat exists (D4).
+      setStatus(t('todo.worktreePreparing'));
+      data = await pollTodoStartAgentStatus(todoId, ctx.workspaceFolder, forceNew);
+    }
     if (!data?.ok || !data.chat) {
       setStatus(data?.error || t('todo.startAgentFailed'), true);
       return;
@@ -1394,6 +1589,33 @@ async function startTodoAgentOnce(todoId, options = {}) {
   } catch {
     setStatus(t('todo.networkError'), true);
   }
+}
+
+/** How long the UI waits for a 202 worktree prepare before giving up. */
+const TODO_START_POLL_TIMEOUT_MS = 11 * 60 * 1000;
+const TODO_START_POLL_INTERVAL_MS = 2000;
+
+/**
+ * @param {string} todoId
+ * @param {string} workspaceFolder
+ * @param {boolean} forceNew
+ * @returns {Promise<object>}
+ */
+async function pollTodoStartAgentStatus(todoId, workspaceFolder, forceNew) {
+  const deadline = Date.now() + TODO_START_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, TODO_START_POLL_INTERVAL_MS));
+    let status;
+    try {
+      status = await api.getTodoStartAgentStatus(todoId, workspaceFolder, forceNew);
+    } catch {
+      continue;
+    }
+    if (!status || status.state === 'preparing') continue;
+    if (status.state === 'idle') return { ok: false, error: t('todo.startAgentFailed') };
+    return status;
+  }
+  return { ok: false, error: t('todo.startAgentFailed') };
 }
 
 /** @param {Event} e */
@@ -1564,9 +1786,19 @@ export function initTodoPanel(options = {}) {
     showPanelFn = options.showPanel;
   }
   listEl = document.getElementById('todo-list');
+  // One delegated handler for all rows: row menus are lazy, so this opens the
+  // first ArrowDown before any per-row dropdown instance exists.
+  listEl?.addEventListener('keydown', onRowMenuTriggerKeydown);
   statusEl = document.getElementById('todo-status');
   hintEl = document.getElementById('todo-cwd-hint');
   window.addEventListener('cretli-active-workspace-changed', onTodoWorkspaceChange);
+  subscribeSidebarChatRowStatusPatch(() => {
+    listEl?.querySelectorAll('.todo-row').forEach((el) => {
+      const item = findItem(el.dataset.id);
+      if (item) paintTodoStatusIcon(el, item);
+    });
+    syncEditorItem();
+  });
   ensureStatusFilterUi(document.querySelector('#todo-panel .todo-toolbar'));
   initWatcherPanel({
     getTodoTitle: (id) => String(findItem(id)?.title || ''),

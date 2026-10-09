@@ -38,7 +38,7 @@ assert.equal(isMcpPlanCallDenied({
 assert.equal(isMcpPlanCallDenied({
   mode: 'plan',
   toolName: 'chat_show',
-  server: { kind: 'builtin-cretli' },
+  server: { id: 'builtin-cretli', kind: 'builtin-cretli' },
 }), false);
 assert.equal(isMcpPlanCallDenied({
   mode: 'plan',
@@ -53,17 +53,17 @@ assert.equal(isMcpPlanCallDenied({
 assert.equal(isMcpPlanCallDenied({
   mode: 'ask',
   toolName: 'chat_show',
-  server: { kind: 'builtin-cretli' },
+  server: { id: 'builtin-cretli', kind: 'builtin-cretli' },
 }), false);
 assert.equal(isMcpPlanCallDenied({
   mode: 'ask',
   toolName: 'chat_delete',
-  server: { kind: 'builtin-cretli' },
+  server: { id: 'builtin-cretli', kind: 'builtin-cretli' },
 }), true);
 assert.equal(isMcpPlanCallDenied({
   mode: 'agent',
   toolName: 'chat_delete',
-  server: { kind: 'builtin-cretli' },
+  server: { id: 'builtin-cretli', kind: 'builtin-cretli' },
 }), false);
 
 assert.equal(
@@ -75,7 +75,7 @@ assert.equal(
 assert.equal(isMcpPlanCallDenied({
   mode: 'plan',
   toolName: 'delegation_wait',
-  server: { kind: 'builtin-cretli' },
+  server: { id: 'builtin-cretli', kind: 'builtin-cretli' },
 }), false);
 assert.equal(isReadOnlyBuiltinMcpToolName('mcp__cretli_builtincretl__delegation_wait'), true);
 assert.equal(isReviewProtocolMcpToolName('mcp__cretli_builtincretl__delegation_reply'), true);

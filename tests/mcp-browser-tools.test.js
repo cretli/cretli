@@ -6,7 +6,10 @@
  * - the tools are listed with the right read-only / mutating split;
  * - the caller is resolved from the login session attached to the chat, and a
  *   delegated child inherits it from its fork parent;
- * - without an owner or a runtime the call fails closed;
+ * - a run with no attached UI gets the dedicated system owner, which is
+ *   isolated from every login session, while a widget-only chat stays
+ *   fail-closed;
+ * - without a runtime the call fails closed;
  * - plan mode and review assignments cannot mutate;
  * - browser_open adopts the unbound session the user opened in the panel;
  * - browser_elements passes the numbered scan through, limit included;
@@ -28,7 +31,9 @@ import { getBuiltinMcpMutatingTools, getBuiltinMcpReadTools } from '../lib/mcp/m
 import {
   BROWSER_AGENT_MUTATION_TOOLS,
   BROWSER_AGENT_READ_TOOLS,
+  BROWSER_SYSTEM_OWNER_ID,
   configureBrowserAgentRuntime,
+  forgetBrowserChatOwner,
   rememberBrowserChatOwner,
   resetBrowserChatOwnersForTests,
   resolveBrowserChatOwner,
@@ -265,36 +270,118 @@ test('catalog lists every browser_* tool with the read-only split of the Browser
   assert.deepEqual(Object.keys(elements.inputSchema.properties).sort(), ['browserSessionId', 'browserTabId', 'limit']);
 });
 
-test('the login session attached to the chat is the browser owner; the newest attach wins', () => {
+test('the live login session attached to the chat is the browser owner; the newest attach wins', () => {
   rememberBrowserChatOwner('chat-x', 'login-a');
   rememberBrowserChatOwner('chat-x', 'login-b');
   rememberBrowserChatOwner('', 'login-c');
   rememberBrowserChatOwner('chat-y', '');
   assert.equal(resolveBrowserChatOwner('chat-x', manager), 'login-b');
   assert.equal(resolveBrowserChatOwner('chat-y', manager), '');
-  // A session already bound to the chat keeps its own owner (other device).
+  // A stale user binding must not outrank the live UI attachment on the same chat.
   manager.addSession({ id: 'session-bound', ownerSessionId: 'login-a', chatId: 'chat-x' });
-  assert.equal(resolveBrowserChatOwner('chat-x', manager), 'login-a');
+  assert.equal(resolveBrowserChatOwner('chat-x', manager), 'login-b');
 });
 
-test('ws-router remembers the owner only for an authenticated, non-widget socket', () => {
+test('a user browser binding without live UI does not resurrect that login owner', () => {
+  manager.addSession({ id: 'session-stale', ownerSessionId: 'login-a', chatId: 'chat-stale-binding' });
+  assert.equal(resolveBrowserChatOwner('chat-stale-binding', manager), '');
+  rememberBrowserChatOwner('chat-stale-binding', 'login-a');
+  assert.equal(resolveBrowserChatOwner('chat-stale-binding', manager), 'login-a');
+});
+
+test('disconnecting the last UI socket stops the chat from being user-owned', () => {
+  rememberBrowserChatOwner('chat-live', 'login-a');
+  rememberBrowserChatOwner('chat-live', 'login-b');
+  forgetBrowserChatOwner('chat-live', 'login-a');
+  assert.equal(resolveBrowserChatOwner('chat-live', manager), 'login-b');
+  forgetBrowserChatOwner('chat-live', 'login-b');
+  assert.equal(resolveBrowserChatOwner('chat-live', manager), '');
+  // An over-forget never invents an owner and never throws.
+  forgetBrowserChatOwner('chat-live', 'login-b');
+  assert.equal(resolveBrowserChatOwner('chat-live', manager), '');
+});
+
+test('a live user outranks a system session left bound to the same chat', () => {
+  manager.addSession({ id: 'system-bound', ownerSessionId: BROWSER_SYSTEM_OWNER_ID, chatId: 'chat-reopened' });
+  // A user-owned binding would win even without a live socket; a system one
+  // must not, so reopening the chat in the UI returns to the user's session.
+  assert.equal(resolveBrowserChatOwner('chat-reopened', manager), BROWSER_SYSTEM_OWNER_ID);
+  rememberBrowserChatOwner('chat-reopened', 'login-a');
+  assert.equal(resolveBrowserChatOwner('chat-reopened', manager), 'login-a');
+  forgetBrowserChatOwner('chat-reopened', 'login-a');
+  assert.equal(resolveBrowserChatOwner('chat-reopened', manager), BROWSER_SYSTEM_OWNER_ID);
+});
+
+test('ws-router marks the owner live for authenticated, non-widget sockets and forgets it on close', () => {
   const router = readFileSync(path.join(root, 'lib/ws/ws-router.js'), 'utf8');
   assert.match(router, /const sessionId = widgetAccess \? null : getSessionIdFromRequest\(req\);/);
-  assert.match(router, /if \(sessionId && routedChat\?\.id\) rememberBrowserChatOwner\(routedChat\.id, sessionId\);/);
+  assert.match(router, /rememberBrowserChatOwner\(routedChat\.id, sessionId\);/);
+  assert.match(router, /ws\.on\('close', \(\) => forgetBrowserChatOwner\(routedChat\.id, sessionId\)\)/);
 });
 
-test('calls fail closed without an owner or without the runtime', async () => {
+test('a run with no attached UI acts as the dedicated system owner', async () => {
   const chat = newChat();
-  const noOwner = await handlersFor(chat).browser_sessions({});
-  assert.equal(noOwner.isError, true);
-  assert.equal(noOwner.structuredContent.code, 'OUT_OF_SCOPE');
-  assert.match(noOwner.structuredContent.error, /open this chat in the Cretli UI/);
+  const listed = await handlersFor(chat).browser_sessions({});
+  assert.equal(listed.isError, false, listed.content[0].text);
+  assert.deepEqual(listed.structuredContent.browserSessions, []);
 
-  rememberBrowserChatOwner(chat.id, OWNER);
+  const opened = await handlersFor(chat).browser_open({ url: 'https://example.test/system' });
+  assert.equal(opened.isError, false, opened.content[0].text);
+  const created = manager.calls.find((call) => call.method === 'createSession');
+  assert.equal(created.input.ownerSessionId, BROWSER_SYSTEM_OWNER_ID);
+  assert.notEqual(created.input.ownerSessionId, OWNER);
+  assert.equal(
+    manager.sessions.get(opened.structuredContent.browserSessionId).ownerSessionId,
+    BROWSER_SYSTEM_OWNER_ID,
+  );
+
   configureBrowserAgentRuntime(null);
   const noRuntime = await handlersFor(chat).browser_sessions({});
   assert.equal(noRuntime.isError, true);
   assert.equal(noRuntime.structuredContent.code, 'HARNESS_UNAVAILABLE');
+});
+
+test('a widget-only chat stays fail-closed instead of borrowing the system owner', async () => {
+  const chat = newChat({ widgetInstallationId: 'widget-1' });
+  const listed = await handlersFor(chat).browser_sessions({});
+  assert.equal(listed.isError, true);
+  assert.equal(listed.structuredContent.code, 'OUT_OF_SCOPE');
+  assert.match(listed.structuredContent.error, /open this chat in the Cretli UI/);
+  assert.equal(manager.calls.some((call) => call.method === 'createSession'), false);
+});
+
+test('the system owner and a signed-in user cannot reach each other sessions', async () => {
+  const uiChat = newChat();
+  const systemChat = newChat();
+  rememberBrowserChatOwner(uiChat.id, OWNER);
+  manager.addSession({ id: 'user-session', ownerSessionId: OWNER, chatId: uiChat.id });
+
+  const opened = await handlersFor(systemChat).browser_open({ url: 'https://example.test/private' });
+  assert.equal(opened.isError, false, opened.content[0].text);
+  const systemSessionId = opened.structuredContent.browserSessionId;
+
+  // A signed-in user must not address the system session, even by id.
+  const foreign = await handlersFor(uiChat).browser_tabs({ browserSessionId: systemSessionId });
+  assert.equal(foreign.isError, true);
+  assert.equal(foreign.structuredContent.code, 'OUT_OF_SCOPE');
+  assert.match(foreign.structuredContent.error, /^forbidden-owner: /);
+
+  // And the reverse: the system-owned chat cannot read the user's session.
+  const reverse = await handlersFor(systemChat).browser_screenshot({
+    browserSessionId: 'user-session',
+    browserTabId: 'tab-1',
+  });
+  assert.equal(reverse.isError, true);
+  assert.equal(reverse.structuredContent.code, 'OUT_OF_SCOPE');
+  assert.match(reverse.structuredContent.error, /^forbidden-owner: /);
+
+  // The system session stays usable for its own chat.
+  const own = await handlersFor(systemChat).browser_sessions({});
+  assert.equal(own.isError, false, own.content[0].text);
+  assert.deepEqual(
+    own.structuredContent.browserSessions.map((row) => row.browserSessionId),
+    [systemSessionId],
+  );
 });
 
 test('browser_open adopts the unbound panel session instead of hitting the session limit', async () => {
@@ -381,6 +468,18 @@ test('a delegated child reuses a Browser session bound to its fork parent', asyn
   assert.equal(manager.calls.some((call) => call.method === 'createSession'), false);
   const navigate = manager.calls.find((call) => call.method === 'navigate');
   assert.equal(navigate.url, 'https://example.test/reuse');
+});
+
+test('a delegated child without a UI owner falls through to the system owner', async () => {
+  const parent = newChat();
+  const child = newChat({ forkParentChatId: parent.id, forkKind: 'delegation' });
+  // Nobody has this chat open: the fork walk finds no user and must not stop
+  // at an empty result.
+  const opened = await handlersFor(child).browser_open({ url: 'https://example.test/child-system' });
+  assert.equal(opened.isError, false, opened.content[0].text);
+  const created = manager.calls.find((call) => call.method === 'createSession');
+  assert.equal(created.input.ownerSessionId, BROWSER_SYSTEM_OWNER_ID);
+  assert.equal(created.input.chatId, child.id);
 });
 
 test('browser_screenshot returns a private file path instead of base64 text', async () => {

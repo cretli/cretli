@@ -115,6 +115,7 @@ assert.deepEqual(readApprovalAdvisorSettings({}), {
   minProbability: 0.9,
   timeoutMs: 5000,
   dailyQuota: 100,
+  riskScope: 'low_only',
 });
 
 // --- advisor protocol + minProbability normalization ------------------------
@@ -970,6 +971,22 @@ resetApprovalAdvisorQuota();
   assert.equal(line.includes('Authorization'), false);
   assert.equal(readApprovalAuditEntries({ file })[0].requestId, 'perm_read_1');
 
+  const systemOneAttempt = recordApprovalAdvisorAudit({
+    room: { chatId: 'chat_jev' },
+    permissionEvent: { requestId: 'perm_jev', action: 'bash' },
+    approvalAction: { ...lowRiskReadAction, command: 'git diff HEAD --name-only -- data/' },
+    plan: resolveApprovalAdvisorPlan(systemOneSettings(), lowRiskReadAction),
+    result: { advisorDecision: 'ask_user', error: 'timeout', protocol: 'systemone', model: 'jev-latest' },
+    finalDecision: 'ask_user',
+    now: Date.UTC(2026, 0, 2, 3, 4, 8),
+  }, { file });
+  assert.equal(systemOneAttempt.kind, 'advisor');
+  assert.equal(systemOneAttempt.protocol, 'systemone');
+  assert.equal(systemOneAttempt.error, 'timeout');
+  assert.equal(systemOneAttempt.finalDecision, 'ask_user');
+  assert.equal(systemOneAttempt.chatId, 'chat_jev');
+  assert.equal(systemOneAttempt.model, 'jev-latest');
+
   // A System One plan records its own protocol.
   const systemOneEntry = recordApprovalAdvisorAudit({
     room: { chatId: 'chat_1' },
@@ -1062,6 +1079,17 @@ resetApprovalAdvisorQuota();
   const rows = readApprovalAuditEntries({ file });
   assert.equal(rows.filter((row) => row.kind === 'advisor').length, 0, 'a skip never writes an advisor row');
   assert.equal(rows.filter((row) => row.kind === 'advisor_skip').length, 4);
+  const exceptionEntry = recordApprovalAdvisorAudit({
+    room: { chatId: 'chat_jev' },
+    permissionEvent: { requestId: 'perm_jev_exception' },
+    approvalAction: lowRiskReadAction,
+    plan: resolveApprovalAdvisorPlan(advisorSettings(), lowRiskReadAction),
+    result: { advisorDecision: 'ask_user', error: 'advisor_run_exception' },
+    finalDecision: 'ask_user',
+  }, { file });
+  assert.equal(exceptionEntry.kind, 'advisor');
+  assert.equal(exceptionEntry.error, 'advisor_run_exception');
+  assert.equal(readApprovalAuditEntries({ file })[4].requestId, 'perm_jev_exception');
   clearEnvKey();
 }
 
@@ -1096,6 +1124,27 @@ resetApprovalAdvisorQuota();
   assert.equal(action.risk, 'low');
   assert.equal(action.shadow, false);
   assert.equal(resolveApprovalAdvisorPlan(advisorSettings(), action).eligible, true);
+}
+
+// advisor_assessed scope: the advisor judges medium risk, never high/dangerous.
+{
+  const scoped = advisorSettings();
+  applyApprovalBrokerSettingsPatch(scoped, { mode: 'local_reads', advisor: { riskScope: 'advisor_assessed' } });
+  const medium = {
+    mode: 'local_reads',
+    decision: 'ask_user',
+    risk: 'medium',
+    categories: ['mutation'],
+    command: "python3 -c \"print(1)\"",
+    shadow: false,
+  };
+  assert.equal(resolveApprovalAdvisorPlan(scoped, medium).eligible, true);
+  assert.equal(resolveApprovalAdvisorPlan(advisorSettings(), medium).reason, 'not_low_risk', 'default stays low_only');
+  assert.equal(resolveApprovalAdvisorPlan(scoped, { ...medium, risk: 'high' }).reason, 'not_low_risk');
+  assert.equal(
+    resolveApprovalAdvisorPlan(scoped, { ...medium, categories: ['mutation', 'network'] }).reason,
+    'unsafe_category',
+  );
 }
 
 clearEnvKey();

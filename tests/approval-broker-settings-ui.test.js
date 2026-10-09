@@ -47,6 +47,7 @@ assert.deepEqual(normalizeApprovalBrokerFormState(null), {
   minProbability: ADVISOR_DEFAULT_MIN_PROBABILITY,
   timeoutMs: ADVISOR_DEFAULT_TIMEOUT_MS,
   dailyQuota: ADVISOR_DEFAULT_DAILY_QUOTA,
+  riskScope: 'low_only',
 });
 assert.deepEqual(normalizeApprovalBrokerFormState({}), {
   mode: 'off',
@@ -57,6 +58,7 @@ assert.deepEqual(normalizeApprovalBrokerFormState({}), {
   minProbability: ADVISOR_DEFAULT_MIN_PROBABILITY,
   timeoutMs: ADVISOR_DEFAULT_TIMEOUT_MS,
   dailyQuota: ADVISOR_DEFAULT_DAILY_QUOTA,
+  riskScope: 'low_only',
 });
 assert.equal(normalizeApprovalBrokerFormState({ approvalBroker: { mode: 'yolo' } }).mode, 'off');
 assert.equal(
@@ -159,6 +161,7 @@ assert.deepEqual(advisorPatch, {
       minProbability: 0.8,
       timeoutMs: ADVISOR_MAX_TIMEOUT_MS,
       dailyQuota: 123,
+      riskScope: 'low_only',
     },
   },
 });
@@ -299,6 +302,22 @@ for (const id of [
 assert.match(indexHtml, /id="approval-advisor-min-probability-input"[^>]*min="0.5"[^>]*max="0.99"/);
 assert.match(indexHtml, /id="approval-advisor-timeout-input"[^>]*min="3000"[^>]*max="8000"/);
 assert.match(indexHtml, /id="approval-advisor-quota-input"[^>]*min="0"[^>]*max="10000"/);
+
+const richViewPath = path.join(projectRoot, 'app_front/lib/sdk-rich-view.js');
+const richView = fs.readFileSync(richViewPath, 'utf8');
+assert.match(richView, /showOpenCodePermissionAdvisorStatus\(requestId, meta = \{\}\)/);
+assert.match(richView, /markOpenCodePermissionAdvisorStatus\(block, id, meta\)/);
+for (const locale of ['en', 'pl']) {
+  const dictionary = fs.readFileSync(path.join(projectRoot, `app_front/i18n/${locale}.js`), 'utf8');
+  assert.match(dictionary, /openCodePermissionAdvisorStatus:\s*\{/);
+  assert.match(dictionary, /checking: .*Jev advisor|checking: .*Advisor JEV/);
+  assert.match(dictionary, /skipped: .*not consulted|skipped: .*nie wywołano/);
+}
+
+const permissionHandler = fs.readFileSync(path.join(projectRoot, 'lib/opencode/opencode-agent-ws.js'), 'utf8');
+assert.match(permissionHandler, /type: 'opencodePermissionAdvisorStatus'[\s\S]{0,120}status: 'checking'/);
+assert.match(permissionHandler, /recordApprovalAdvisorAudit\(\{/);
+assert.match(permissionHandler, /const error = 'advisor_run_exception'/);
 assert.match(
   indexHtml,
   /data-i18n="settings\.approvalAdvisorProtocolHint"[^>]*>[^<]*api\.typesafe\.ai\/v1\/systemone/,

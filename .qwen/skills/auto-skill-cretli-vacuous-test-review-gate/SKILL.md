@@ -1,6 +1,6 @@
 ---
 name: cretli-vacuous-test-review-gate
-description: As the Cretli parent, a child's "N/N tests pass + VERDICT PASS" proves nothing about whether each acceptance clause is covered — write review briefs that hunt test-theater (deny-only tests, `code === 'a' || 'b'`, denies produced by an unrelated gate, fake peers that answer without inspecting the request), demand per-assertion "which line flips RED if the fix is removed" proof, and run the multi-round fix-loop bookkeeping (distinct findings_hash per round, content-sensitive material_revision, resume_rounds at the soft cap, mandatory 5+caught_bug ratings) that closes a security-shaped leaf.
+description: As the Cretli parent, a child's "N/N tests pass + VERDICT PASS" proves nothing about whether each acceptance clause is covered — write review briefs that hunt test-theater (deny-only tests, `code === 'a' || 'b'`, denies produced by an unrelated gate, fake peers that answer without inspecting the request), demand per-assertion "which line flips RED if the fix is removed" proof, probe every producer payload SHAPE and every recursion BUDGET edge of a redactor (leak axis + function axis + cost/DoS axis), and run the multi-round fix-loop bookkeeping (distinct findings_hash per round, content-sensitive material_revision, resume_rounds at the soft cap, INFRA-vs-verdict + early cancel of stalled fanout reviewers, mandatory 5+caught_bug ratings) that closes a security-shaped leaf.
 source: auto-skill
 extracted_at: '2026-10-08T04:37:15.167Z'
 ---
@@ -145,7 +145,14 @@ shapes (these exact patterns were all found in one leaf):
       non-reserved key whose name is sensitive, keep benign (`note`);
     - **`ObjectPreview.properties[]`** `{type:'object', properties:[{name:'clientSecret', value:'…'}]}` —
       walk `properties` through the descriptor matcher;
-    - `description`/`unserializableValue`/`preview` on a numeric/bigint RemoteObject (#10).
+    - `description`/`unserializableValue`/`preview` on a numeric/bigint RemoteObject (#10);
+    - **accessor descriptors** `{name:'x', get:<RemoteObject>}` and `{name:'x', value:…, set:<RemoteObject>}`
+      — the round-9 residual on THIS leaf: the descriptor *recognizer* demanded a `value` key, so a
+      getter-only descriptor fell into the redactor's **fallback**, which re-entered recursion with a
+      *fresh* budget (`redactValue(..., maxDepth: 8)` always starting `depth = 0`) and leaked/reset at
+      every hop. CDP accessor descriptors are real — `get`/`set`/`symbol` slots are RemoteObjects.
+      **A shape the recognizer does NOT admit is precisely where guards get bypassed**: audit the
+      `else`/fallback branches, not only the matched ones.
     Rule: when the leaf is "redact/mask/allowlist a producer payload", write the acceptance list as a
     **shape matrix** (one row per carrier shape the producer's own serialization mode can emit — here
     `returnByValue:true` yields plain objects AND RemoteObject envelopes AND arrays), require a

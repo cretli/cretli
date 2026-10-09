@@ -194,6 +194,7 @@
       <span class="mdi mdi-menu" aria-hidden="true"></span>
     </button>
     <span id="header-context-title" class="header-context-title" aria-live="polite" data-i18n-title="header.contextTitle" title="Active workspace and chat"></span>
+    <button type="button" id="header-git-badge" class="header-git-badge" hidden aria-label="Git context" data-i18n-aria="git.contextBadgeAria" title="Git context"></button>
     <button type="button" id="embed-chat-switcher" class="embed-chat-switcher" hidden aria-haspopup="listbox" aria-expanded="false" aria-label="Select chat" data-i18n-aria="chat.selectChat" title="Select chat" data-i18n-title="chat.selectChat">
       <span class="embed-chat-switcher-label" id="embed-chat-switcher-label">—</span>
       <span class="mdi mdi-chevron-down embed-chat-switcher-arrow" aria-hidden="true"></span>
@@ -215,7 +216,22 @@
       <button type="button" id="header-voice-mode-btn" class="header-settings-btn header-voice-mode-btn" title="Talk to the agent" aria-label="Voice mode"><span class="mdi mdi-account-voice" aria-hidden="true"></span></button>
       <button type="button" id="header-pwa-install-btn" class="header-settings-btn header-pwa-install-btn" hidden title="Install app" data-i18n-title="pwa.install" aria-label="Install app" data-i18n-aria="pwa.install"><span class="mdi mdi-download" aria-hidden="true"></span></button>
       <button type="button" id="header-app-fullscreen-btn" class="header-settings-btn" title="App fullscreen" data-i18n-title="header.fullscreenTitle" aria-label="App fullscreen" data-i18n-aria="header.fullscreenAria" data-fullscreen="off"><span class="mdi mdi-fullscreen" aria-hidden="true"></span></button>
+      <button type="button" id="header-notifications-btn" class="header-settings-btn header-notifications-btn" title="Notifications" data-i18n-title="notifications.bellTitle" aria-label="Notifications" data-i18n-aria="notifications.bellAria" aria-haspopup="true" aria-expanded="false" aria-controls="header-notifications-panel"><span class="mdi mdi-bell-outline" aria-hidden="true"></span><span id="header-notifications-badge" class="header-notifications-badge" hidden aria-hidden="true">0</span></button>
       <button type="button" id="header-settings-btn" class="header-settings-btn" title="Settings" data-i18n-title="header.settingsTitle" aria-label="Settings" data-i18n-aria="header.settingsAria"><span class="mdi mdi-cog" aria-hidden="true"></span></button>
+    </div>
+  </div>
+
+  <div id="header-notifications-panel" class="chat-list-modal notifications-panel" hidden role="region" aria-label="Notifications" data-i18n-aria="notifications.panelAria" tabindex="-1">
+    <div class="chat-list-panel notifications-panel-body">
+      <div class="notifications-panel-head">
+        <span class="notifications-panel-title" data-i18n="notifications.panelTitle">Notifications</span>
+        <div class="notifications-panel-head-actions">
+          <button type="button" id="notifications-mark-all-btn" class="notifications-link-btn" data-i18n="notifications.markAll">Mark all as read</button>
+          <button type="button" id="notifications-settings-btn" class="notifications-link-btn" data-i18n="notifications.settingsLink">Notification settings</button>
+        </div>
+      </div>
+      <ul id="notifications-list" class="notifications-list" role="list"></ul>
+      <p id="notifications-empty" class="notifications-empty" data-i18n="notifications.empty" hidden>No notifications.</p>
     </div>
   </div>
 
@@ -487,7 +503,35 @@
           </div>
         </div>
       </section>
+      <section class="settings-section" data-settings-tab="harness" id="harness-versions-overview-section" role="tabpanel">
+        <h3 class="settings-section-title" data-i18n="harnessVersion.overviewTitle">Package versions</h3>
+        <p class="settings-hint" data-i18n="harnessVersion.overviewHint">Read-only CLI and SDK versions. Package updates ship with Cretli releases — nothing is installed from here.</p>
+        <div class="harness-version-card-host" data-harness-version-host="overview"></div>
+      </section>
+      <section class="settings-section" data-settings-tab="harness" id="harness-diagnostics-section" role="tabpanel">
+        <h3 class="settings-section-title" data-i18n="harnessDiagnostics.title">Model diagnostics (read-only)</h3>
+        <p class="settings-hint" data-i18n="harnessDiagnostics.hint">Diagnostics reproduce the picker for the current catalog: roles and matcher sources, eligibility, availability, last use, delegation stats and cost. They never start an agent or change the selection.</p>
+        <div class="cr-row">
+          <cr-bar-select id="harness-diagnostics-role" data-i18n-aria="harnessDiagnostics.colRole"></cr-bar-select>
+          <cr-bar-button id="harness-diagnostics-refresh" data-i18n="harnessDiagnostics.refresh">Refresh</cr-bar-button>
+          <span id="harness-diagnostics-status" class="cr-status" aria-live="polite"></span>
+        </div>
+        <div id="harness-diagnostics-output" data-role="harness-diagnostics" aria-live="polite"></div>
+      </section>
+      <section class="settings-section" data-settings-tab="harness" id="harness-model-role-config-section" role="tabpanel">
+        <h3 class="settings-section-title" data-i18n="harnessModelRole.title">Model roles and agent selection (audited)</h3>
+        <p class="settings-hint" data-i18n="harnessModelRole.hint">Edit only verified alias rules. Advanced matchers, unknown matcher fields and unknown top-level keys are preserved and shown read-only. A save is atomic and guarded by the content ETag; reset makes a backup first.</p>
+        <div class="cr-row">
+          <cr-bar-button id="harness-model-role-config-preview" data-i18n="harnessModelRole.preview">Preview diff</cr-bar-button>
+          <cr-bar-button variant="primary" id="harness-model-role-config-save" data-i18n="harnessModelRole.save">Save</cr-bar-button>
+          <cr-bar-button id="harness-model-role-config-reset" data-i18n="harnessModelRole.reset">Reset to defaults</cr-bar-button>
+          <span id="harness-model-role-config-status" class="cr-status" aria-live="polite"></span>
+        </div>
+        <div id="harness-model-role-config-output" aria-live="polite"></div>
+        <div id="harness-model-role-config-diff" class="harness-model-role-diff-host" aria-live="polite"></div>
+      </section>
       <section class="settings-section" data-settings-tab="harness-opencode-keys" id="opencode-api-settings" role="tabpanel">
+        <div class="harness-version-card-host" data-harness-version-host="opencode"></div>
         <h3 class="settings-section-title" data-i18n="settings.harnessOpenCodeApiTitle">OpenCode API (Zen)</h3>
         <p class="settings-hint">
           <span data-i18n="settings.harnessOpenCodeHintPrefix">Key from</span>
@@ -590,6 +634,11 @@
           <cr-bar-select id="approval-advisor-protocol-select" data-i18n-aria="settings.approvalAdvisorProtocolLabel"></cr-bar-select>
           <p class="settings-hint" data-i18n="settings.approvalAdvisorProtocolHint">openai_chat — an OpenAI-compatible /chat/completions API. systemone — the System One protocol used by Jev/Laya (for example https://api.typesafe.ai/v1/systemone with model jev-latest).</p>
         </div>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.approvalAdvisorRiskScopeLabel">Risk scope</label>
+          <cr-bar-select id="approval-advisor-risk-scope-select" data-i18n-aria="settings.approvalAdvisorRiskScopeLabel"></cr-bar-select>
+          <p class="settings-hint" data-i18n="settings.approvalAdvisorRiskScopeHint">low_only — the advisor only sees low-risk reads. advisor_assessed — the advisor also judges medium-risk commands itself (for example a short read-only script). High risk, network, secrets, privilege and destructive actions always stay with you.</p>
+        </div>
         <div class="cr-field" id="approval-advisor-endpoint-field">
           <label class="cr-field-label" data-i18n="settings.approvalAdvisorEndpointLabel">HTTPS endpoint</label>
           <cr-bar-input id="approval-advisor-endpoint-input" type="url" autocomplete="off" placeholder="https://provider.example/v1/chat/completions" data-i18n-placeholder="settings.approvalAdvisorEndpointPlaceholder" data-i18n-aria="settings.approvalAdvisorEndpointLabel"></cr-bar-input>
@@ -633,6 +682,7 @@
         <p class="settings-hint" data-i18n="settings.approvalAdvisorEnvHint">CRETLI_APPROVAL_ADVISOR_API_KEY always takes precedence over a stored key; Clear removes only the stored key.</p>
       </section>
       <section class="settings-section" data-settings-tab="harness-codebuddy-keys" id="codebuddy-api-settings" role="tabpanel">
+        <div class="harness-version-card-host" data-harness-version-host="codebuddy"></div>
         <h3 class="settings-section-title" data-i18n="settings.harnessCodeBuddyApiTitle">CodeBuddy API</h3>
         <p class="settings-hint">
           <span data-i18n="settings.harnessCodeBuddyHintPrefix">Key from</span>
@@ -658,6 +708,7 @@
         <p id="codebuddy-harness-status" class="settings-hint" aria-live="polite"></p>
       </section>
       <section class="settings-section" data-settings-tab="harness-deepseek-keys" id="deepseek-api-settings" role="tabpanel">
+        <div class="harness-version-card-host" data-harness-version-host="deepseek"></div>
         <h3 class="settings-section-title" data-i18n="settings.harnessDeepSeekApiTitle">DeepSeek API</h3>
         <p class="settings-hint">
           <span data-i18n="settings.harnessDeepSeekHintPrefix">Key from</span>
@@ -683,6 +734,7 @@
         <p id="deepseek-harness-status" class="settings-hint" aria-live="polite"></p>
       </section>
       <section class="settings-section" data-settings-tab="harness-qwen-keys" id="qwen-api-settings" role="tabpanel">
+        <div class="harness-version-card-host" data-harness-version-host="qwen"></div>
         <h3 class="settings-section-title" data-i18n="settings.harnessQwenApiTitle">Qwen Cloud API</h3>
         <p class="settings-hint">
           <span data-i18n="settings.harnessQwenHintPrefix">Key from</span>
@@ -724,6 +776,7 @@
         <p id="qwen-harness-status" class="settings-hint" aria-live="polite"></p>
       </section>
       <section class="settings-section" data-settings-tab="harness-claude-keys" id="claude-api-settings" role="tabpanel">
+        <div class="harness-version-card-host" data-harness-version-host="claude"></div>
         <h3 class="settings-section-title" data-i18n="settings.harnessClaudeBillingTitle">Claude billing</h3>
         <p class="settings-hint" data-i18n="settings.harnessClaudeBillingHint">Choose Claude Code plan login on this machine or Anthropic API billing.</p>
         <div class="cr-field">
@@ -775,6 +828,7 @@
         <p id="claude-harness-status" class="settings-hint" aria-live="polite"></p>
       </section>
       <section class="settings-section" data-settings-tab="harness-codex-keys" id="codex-api-settings" role="tabpanel">
+        <div class="harness-version-card-host" data-harness-version-host="codex"></div>
         <h3 class="settings-section-title" data-i18n="settings.harnessCodexBillingTitle">Codex billing</h3>
         <p class="settings-hint">
           <span data-i18n="settings.harnessCodexBillingHint">ChatGPT plan uses Go/Plus/Pro limits (</span>
@@ -827,6 +881,7 @@
         <p id="codex-harness-status" class="settings-hint" aria-live="polite"></p>
       </section>
       <section class="settings-section" data-settings-tab="harness-sdk-keys" role="tabpanel">
+        <div class="harness-version-card-host" data-harness-version-host="sdk"></div>
         <h3 class="settings-section-title" data-i18n="settings.harnessSdkTitle">Cursor API (SDK)</h3>
         <p class="settings-hint">
           Key from
@@ -887,6 +942,7 @@
         </div>
       </section>
       <section class="settings-section" data-settings-tab="harness-openrouter-keys" role="tabpanel">
+        <div class="harness-version-card-host" data-harness-version-host="openrouter"></div>
         <h3 class="settings-section-title" data-i18n="settings.harnessOpenRouterTitle">OpenRouter API</h3>
         <p class="settings-hint">
           <span data-i18n="settings.harnessOpenRouterHintPrefix">Key from</span>
@@ -943,6 +999,38 @@
         </div>
         <p id="pwa-push-state" class="settings-hint" aria-live="polite"></p>
         <p id="pwa-push-status" class="settings-hint" aria-live="polite"></p>
+
+        <fieldset class="settings-subgroup" id="notification-center-options">
+          <legend class="settings-subgroup-title" data-i18n="settings.notificationCenterTitle">Notification center</legend>
+          <p class="settings-hint" data-i18n="settings.notificationCenterHint">The header bell always shows in-app notifications, even when push is off. These filters apply to the bell list and its unread badge.</p>
+          <div class="cr-field settings-notifications-vibrate">
+            <label class="cr-field-label" for="notification-center-preset" data-i18n="settings.notificationCenterPreset">Show</label>
+            <cr-bar-select id="notification-center-preset" data-i18n-aria="settings.notificationCenterPresetAria" aria-label="Notification filter"></cr-bar-select>
+          </div>
+          <cr-checkbox id="notification-center-category-chat">
+            <span data-i18n="settings.notificationCenterCategoryChat">Chats &amp; runs</span>
+          </cr-checkbox>
+          <cr-checkbox id="notification-center-category-models">
+            <span data-i18n="settings.notificationCenterCategoryModels">Models</span>
+          </cr-checkbox>
+          <cr-checkbox id="notification-center-category-cli">
+            <span data-i18n="settings.notificationCenterCategoryCli">CLI &amp; app updates</span>
+          </cr-checkbox>
+          <cr-checkbox id="notification-center-category-system">
+            <span data-i18n="settings.notificationCenterCategorySystem">System</span>
+          </cr-checkbox>
+          <cr-checkbox id="notification-center-badge">
+            <span data-i18n="settings.notificationCenterBadge">Show unread badge on the bell</span>
+          </cr-checkbox>
+          <cr-checkbox id="notification-center-sound">
+            <span data-i18n="settings.notificationCenterSound">Sound for new items</span>
+          </cr-checkbox>
+          <p class="settings-hint" data-i18n="settings.notificationCenterSoundHint">The sound respects quiet hours and never plays for the initial load, marking as read or dismissing.</p>
+          <div class="cr-row settings-notifications-actions">
+            <cr-bar-button id="notification-center-mark-all-btn" data-i18n="settings.notificationCenterMarkAll">Mark all as read</cr-bar-button>
+          </div>
+          <p id="notification-center-status" class="settings-hint" aria-live="polite"></p>
+        </fieldset>
 
         <fieldset class="settings-subgroup" id="pwa-push-options">
           <legend class="settings-subgroup-title" data-i18n="settings.notificationsEventsTitle">Events</legend>
@@ -1617,9 +1705,58 @@
           <div class="settings-usage-control">
             <label class="settings-usage-control-label" for="usage-range-select" data-i18n="usage.rangeLabel">Range</label>
             <select id="usage-range-select" class="settings-usage-select">
-              <option value="24h" data-i18n="usage.range24h">Today (UTC)</option>
+              <option value="today" data-i18n="usage.rangeToday">Today (local zone)</option>
+              <option value="24h" data-i18n="usage.range24h">Last 24 hours</option>
               <option value="7d" data-i18n="usage.range7d">7 days</option>
               <option value="30d" data-i18n="usage.range30d">30 days</option>
+              <option value="month" data-i18n="usage.rangeMonth">This month (local zone)</option>
+            </select>
+          </div>
+          <div class="settings-usage-control">
+            <label class="settings-usage-control-label" for="usage-tz-select" data-i18n="usage.tzLabel">Time zone</label>
+            <select id="usage-tz-select" class="settings-usage-select"></select>
+          </div>
+          <div class="settings-usage-control">
+            <label class="settings-usage-control-label" for="usage-role-select" data-i18n="usage.roleLabel">Role</label>
+            <select id="usage-role-select" class="settings-usage-select">
+              <option value="" data-i18n="usage.roleAll">All roles</option>
+              <option value="plan" data-i18n="usage.rolePlan">Plan</option>
+              <option value="implement" data-i18n="usage.roleImplement">Implement</option>
+              <option value="review" data-i18n="usage.roleReview">Review</option>
+              <option value="fix" data-i18n="usage.roleFix">Fix</option>
+              <option value="chat" data-i18n="usage.roleChat">Chat</option>
+            </select>
+          </div>
+          <div class="settings-usage-control">
+            <label class="settings-usage-control-label" for="usage-origin-select" data-i18n="usage.originLabel">Choice origin</label>
+            <select id="usage-origin-select" class="settings-usage-select">
+              <option value="" data-i18n="usage.originAll">All origins</option>
+              <option value="auto" data-i18n="usage.choices_auto">Automatic</option>
+              <option value="manual" data-i18n="usage.choices_manual">Manual</option>
+              <option value="unknown" data-i18n="usage.choices_unknown">Unknown</option>
+            </select>
+          </div>
+          <div class="settings-usage-control">
+            <label class="settings-usage-control-label" for="usage-subject-select" data-i18n="usage.subjectLabel">Subject</label>
+            <select id="usage-subject-select" class="settings-usage-select">
+              <option value="" data-i18n="usage.subjectAll">All subjects</option>
+              <option value="chat" data-i18n="usage.subjectChat">Chat</option>
+              <option value="delegation" data-i18n="usage.subjectDelegation">Delegation</option>
+              <option value="internal" data-i18n="usage.subjectInternal">Internal</option>
+            </select>
+          </div>
+          <div class="settings-usage-control">
+            <label class="settings-usage-control-label" for="usage-scope-select" data-i18n="usage.scopeLabel">Accounting scope</label>
+            <select id="usage-scope-select" class="settings-usage-select">
+              <option value="own" data-i18n="usage.scopeOwn">Own (this instance)</option>
+              <option value="consolidated" data-i18n="usage.scopeConsolidated">Consolidated (with children)</option>
+            </select>
+          </div>
+          <div class="settings-usage-control">
+            <label class="settings-usage-control-label" for="usage-workspace-select" data-i18n="usage.workspaceLabel">Workspace</label>
+            <select id="usage-workspace-select" class="settings-usage-select">
+              <option value="" data-i18n="usage.workspaceAll">All (instance)</option>
+              <option value="__active__" data-i18n="usage.workspaceActive">This workspace</option>
             </select>
           </div>
           <div class="settings-usage-control">
@@ -1672,6 +1809,16 @@
               <span class="settings-usage-kpi-meta" id="usage-kpi-month-meta">—</span>
             </div>
           </div>
+          <div role="region" class="settings-usage-panel" aria-labelledby="usage-buckets-title">
+            <h4 class="settings-usage-subtitle" id="usage-buckets-title" data-i18n="usage.bucketsTitle">Token breakdown</h4>
+            <p class="settings-hint" data-i18n="usage.bucketsHint">Disjoint buckets. Cache read is context, not newly generated text; it is not added to input.</p>
+            <div id="usage-buckets" aria-live="polite"></div>
+          </div>
+          <div role="region" class="settings-usage-panel" aria-labelledby="usage-coverage-title">
+            <h4 class="settings-usage-subtitle" id="usage-coverage-title" data-i18n="usage.coverageTitle">Data completeness</h4>
+            <p class="settings-hint" data-i18n="usage.coverageHint">Two separate ratios: ended runs with any reported usage, and ended runs with a complete coverage proof.</p>
+            <div id="usage-coverage" aria-live="polite"></div>
+          </div>
           <figure class="settings-usage-chart-figure">
             <figcaption class="settings-usage-subtitle" id="usage-chart-title" data-i18n="usage.chartTitle">Usage over time</figcaption>
             <div class="settings-usage-chart-scroll">
@@ -1703,6 +1850,19 @@
           </div>
           <div id="usage-breakdown-cards" class="settings-usage-cards" hidden></div>
           <p id="usage-breakdown-empty" class="settings-hint" data-i18n="usage.noRows" hidden>No usage in this range.</p>
+          <div role="region" class="settings-usage-panel" aria-labelledby="usage-choices-title">
+            <div class="settings-usage-table-head">
+              <h4 class="settings-usage-subtitle" id="usage-choices-title" data-i18n="usage.choicesTitle">Executed automatic choices</h4>
+            </div>
+            <p class="settings-hint" data-i18n="usage.choicesHint">Delegations that actually started, split by how the executor was chosen. A proposal is not an execution; a diagnostic pick is not a start.</p>
+            <p id="usage-choices-error" class="settings-usage-section-error" hidden></p>
+            <div id="usage-choices" aria-live="polite"></div>
+          </div>
+          <div role="region" class="settings-usage-panel" aria-labelledby="usage-signals-title">
+            <h4 class="settings-usage-subtitle" id="usage-signals-title" data-i18n="usage.signalsTitle">Outcomes and cost signals</h4>
+            <p class="settings-hint" data-i18n="usage.signalsHint">Technical success, review acceptance, manual acceptance and review verdict are separate signals with their own denominators.</p>
+            <div id="usage-signals" aria-live="polite"></div>
+          </div>
         </div>
         <div class="settings-usage-delegation-stats">
           <div class="settings-usage-table-head">
@@ -2034,6 +2194,7 @@
       <div class="git-toolbar panel-toolbar">
         <div class="git-toolbar-actions">
           <cr-bar-button id="git-refresh-btn" title="Refresh info" data-i18n-title="git.refreshTitle" data-i18n="git.refresh">Refresh</cr-bar-button>
+          <span id="git-context-chip" class="git-context-chip" hidden></span>
           <span id="git-status-badge" class="git-status-badge">—</span>
         </div>
       </div>
@@ -2060,6 +2221,7 @@
             <span id="git-info-head" class="git-info-value">—</span>
           </div>
         </div>
+        <div id="git-info-details" class="git-info git-info--context"></div>
         <div class="git-actions">
           <div class="git-actions-row">
             <cr-bar-button class="git-action-btn" data-action="status">Status</cr-bar-button>

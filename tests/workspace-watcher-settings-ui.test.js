@@ -222,6 +222,55 @@ test('the Scout tab shows the next scan and a manual run trigger', () => {
   }
 });
 
+test('the watcher settings panel exposes the worktree layout', () => {
+  for (const id of [
+    'watcher-worktree-root',
+    'watcher-worktree-namespace',
+    'watcher-worktree-branch-prefix',
+    'watcher-worktree-directory-prefix',
+    'watcher-worktree-prepare',
+  ]) {
+    assert.ok(source.includes(`id="${id}"`), `missing ${id}`);
+  }
+  assert.match(source, /name="watcher-execution-mode"/);
+  // The form reads and writes both the default mode and the layout block.
+  assert.match(source, /executionMode: root\.querySelector\('input\[name="watcher-execution-mode"\]:checked'\)/);
+  assert.match(source, /worktree: \{[\s\S]*?prepareCommand: readPrepareCommandLines\(root\),/);
+  // A shell string is never built: one argv argument per textarea line.
+  assert.match(source, /function prepareCommandLines\(value\)/);
+  assert.match(source, /\.split\('\\n'\)/);
+  // The server suggestion prefills empty fields; the form asks for it only on
+  // the form-building (full) fetch.
+  assert.match(source, /executionSuggest/);
+  assert.match(source, /\/api\/workspace-watcher\?suggest=1/);
+  assert.match(source, /settings\.watcherWorktreeSuggestedHint/);
+  // Fail-closed validation mirrors the server refusal.
+  assert.match(source, /watcherValidationWorktree/);
+  assert.match(source, /watcherValidationWorktreeRoot/);
+  assert.match(source, /watcherValidationWorktreeNamespace/);
+  for (const [lang, dict] of [['en', en], ['pl', pl]]) {
+    for (const key of [
+      'watcherWorktree',
+      'watcherWorktreeHint',
+      'watcherWorktreeSuggestedHint',
+      'watcherExecutionMode',
+      'watcherExecutionModeProject',
+      'watcherExecutionModeWorktree',
+      'watcherWorktreeRoot',
+      'watcherWorktreeNamespace',
+      'watcherWorktreeBranchPrefix',
+      'watcherWorktreeDirectoryPrefix',
+      'watcherWorktreePrepare',
+      'watcherWorktreePrepareHint',
+      'watcherValidationWorktree',
+      'watcherValidationWorktreeRoot',
+      'watcherValidationWorktreeNamespace',
+    ]) {
+      assert.ok(dict.settings?.[key], `${lang}.settings.${key} is missing`);
+    }
+  }
+});
+
 test('the watcher settings panel shows the cycle schedule like Scout', () => {
   // The schedule card is rendered from the server-computed `schedule` view field,
   // with the pure renderer reused from the dashboard module.

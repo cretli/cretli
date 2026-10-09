@@ -59,12 +59,35 @@ function setDisabled(el, disabled) {
 }
 
 /**
+ * @param {string} gateError
+ * @returns {string}
+ */
+function summaryForGateError(gateError) {
+  const key = String(gateError || '').trim();
+  if (!key) return '';
+  switch (key) {
+    case 'update.activeRuns':
+      return t('settings.appUpdateBlockedRuns');
+    case 'update.restartInProgress':
+      return t('settings.appUpdateBlockedRestart');
+    case 'update.activeRunsUnknown':
+      return t('settings.appUpdateBlockedUnknown');
+    case 'update.busy':
+      return t('settings.appUpdateBlockedBusy');
+    default:
+      return '';
+  }
+}
+
+/**
  * @param {object|null} data
  * @returns {string}
  */
 function summaryFor(data) {
   if (!data?.isRepo) return t('settings.appUpdateNoRepo');
   if (data.busy) return t('settings.appUpdateBusy');
+  const gateSummary = summaryForGateError(data?.gateError);
+  if (gateSummary) return gateSummary;
   if (data.phase === 'done' && data.canRestart === false) return t('settings.appUpdateDoneManual');
   if (data.phase === 'done') return t('settings.appUpdateDone');
   if (data.phase === 'error' || data.error) return data.error || t('settings.appUpdateError');

@@ -19,6 +19,7 @@ import {
   readHarnessPlanLimits,
 } from '../lib/usage/harness-health.js';
 import { readHarnessPlanLimitHistory } from '../lib/usage/plan-limit-history.js';
+import { forecastPlanWindows } from '../lib/usage/plan-window-forecast.js';
 import { resolveHarnessPlanLimitSnapshot } from '../lib/usage/harness-usage.js';
 import {
   buildHarnessHealthMap,
@@ -593,6 +594,157 @@ test('plan-limit history does not disturb the last snapshot or the health card',
     assert.equal(health.planLimits[0].utilization, 70);
     assert.equal(health.planLimitHistory.count, 2);
     assert.equal(health.planLimitHistory.lastAt, '2026-10-01T11:00:00.000Z');
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('pure forecast keeps harnesses, window types and reset windows apart', () => {
+  const T0 = Date.parse('2026-10-05T00:00:00Z');
+  const at = (min) => new Date(T0 + min * 60_000).toISOString();
+  const fiveHour = new Date(T0 + 5 * 3_600_000).toISOString();
+  const sevenDay = new Date(T0 + 7 * 86_400_000).toISOString();
+  const otherReset = new Date(T0 + 10 * 3_600_000).toISOString();
+  const readings = [
+    { harness: 'alpha', rateLimitType: 'five_hour', resetsAt: fiveHour, utilization: 20, observedAt: at(0) },
+    { harness: 'alpha', rateLimitType: 'five_hour', resetsAt: fiveHour, utilization: 40, observedAt: at(60) },
+    { harness: 'beta', rateLimitType: 'five_hour', resetsAt: fiveHour, utilization: 10, observedAt: at(0) },
+    { harness: 'beta', rateLimitType: 'five_hour', resetsAt: fiveHour, utilization: 30, observedAt: at(120) },
+    { harness: 'alpha', rateLimitType: 'seven_day', resetsAt: sevenDay, utilization: 5, observedAt: at(60) },
+    { harness: 'alpha', rateLimitType: 'five_hour', resetsAt: otherReset, utilization: 15, observedAt: at(60) },
+  ];
+  const windows = forecastPlanWindows({ readings, now: T0 + 2 * 3_600_000 });
+  assert.equal(windows.length, 4);
+  const pick = (harness, rateLimitType, resetsAt) =>
+    windows.find((row) => row.harness === harness
+      && row.rateLimitType === rateLimitType && row.resetsAt === resetsAt);
+
+  const alphaFive = pick('alpha', 'five_hour', fiveHour);
+  assert.equal(alphaFive.utilization, 40);
+  assert.equal(alphaFive.remainingPercent, 60);
+  assert.equal(alphaFive.forecast.percentPerHour, 20);
+  assert.equal(alphaFive.forecast.exhaustsAt, at(240));
+  assert.equal(alphaFive.forecast.beforeReset, true);
+  assert.equal(alphaFive.confidence, 'low');
+
+  // A different harness in the same moment has its own rate and reset verdict.
+  const betaFive = pick('beta', 'five_hour', fiveHour);
+  assert.equal(betaFive.utilization, 30);
+  assert.equal(betaFive.forecast.percentPerHour, 10);
+  assert.equal(betaFive.forecast.beforeReset, false);
+  assert.equal(betaFive.confidence, 'low');
+
+  // Same harness, another window type or another reset: separate and no forecast.
+  const alphaSeven = pick('alpha', 'seven_day', sevenDay);
+  assert.equal(alphaSeven.utilization, 5);
+  assert.equal(alphaSeven.forecast, null);
+  assert.equal(alphaSeven.confidence, 'none');
+  const alphaOtherReset = pick('alpha', 'five_hour', otherReset);
+  assert.equal(alphaOtherReset.utilization, 15);
+  assert.equal(alphaOtherReset.forecast, null);
+  assert.equal(alphaOtherReset.confidence, 'none');
+});
+
+test('token samples never invent a percentage or a forecast without utilization', () => {
+  const T0 = Date.parse('2026-10-05T00:00:00Z');
+  const at = (min) => new Date(T0 + min * 60_000).toISOString();
+  const fiveHour = new Date(T0 + 5 * 3_600_000).toISOString();
+  const readings = [
+    { harness: 'gamma', rateLimitType: 'five_hour', status: 'allowed_warning', resetsAt: fiveHour, observedAt: at(0) },
+    { harness: 'gamma', rateLimitType: 'five_hour', status: 'rejected', resetsAt: fiveHour, observedAt: at(60) },
+  ];
+  const tokenSamples = [
+    { harness: 'gamma', at: at(30), totalTokens: 1234 },
+    { harness: 'gamma', at: at(45), tokens: { textInput: 10, textOutput: 5 } },
+    { harness: 'gamma', at: at(-30), totalTokens: 9999 }, // before the first reading
+    { harness: 'delta', at: at(45), totalTokens: 777 }, // another harness
+  ];
+  const withTokens = forecastPlanWindows({ readings, tokenSamples, now: T0 + 3_600_000 })[0];
+  const withoutTokens = forecastPlanWindows({ readings, now: T0 + 3_600_000 })[0];
+  assert.equal(withTokens.utilization, null);
+  assert.equal(withTokens.remainingPercent, null);
+  assert.equal(withTokens.forecast, null);
+  assert.equal(withTokens.confidence, 'none');
+  assert.equal(withTokens.resetInMs, 4 * 3_600_000);
+  assert.equal(withTokens.tokensInWindow, 1249); // 1234 + (10 + 5)
+  assert.equal(withoutTokens.tokensInWindow, null);
+  assert.deepEqual(
+    { utilization: withTokens.utilization, remainingPercent: withTokens.remainingPercent, forecast: withTokens.forecast },
+    { utilization: withoutTokens.utilization, remainingPercent: withoutTokens.remainingPercent, forecast: withoutTokens.forecast },
+  );
+});
+
+test('confidence distinguishes no forecast, thin and well supported windows', () => {
+  const T0 = Date.parse('2026-10-05T00:00:00Z');
+  const at = (min) => new Date(T0 + min * 60_000).toISOString();
+  const fiveHour = new Date(T0 + 5 * 3_600_000).toISOString();
+  const readings = [];
+  for (const harness of ['one']) readings.push({ harness, rateLimitType: 'w', resetsAt: fiveHour, utilization: 10, observedAt: at(0) });
+  for (const [index, value] of [10, 30].entries()) readings.push({ harness: 'two', rateLimitType: 'w', resetsAt: fiveHour, utilization: value, observedAt: at(index * 60) });
+  for (const [index, value] of [10, 20, 30].entries()) readings.push({ harness: 'three', rateLimitType: 'w', resetsAt: fiveHour, utilization: value, observedAt: at(index * 20) });
+  for (const [index, value] of [10, 20, 30].entries()) readings.push({ harness: 'brief', rateLimitType: 'w', resetsAt: fiveHour, utilization: value, observedAt: at(index) });
+  const windows = forecastPlanWindows({ readings, now: T0 + 3_600_000 });
+  const confidence = (harness) => windows.find((row) => row.harness === harness).confidence;
+  assert.equal(confidence('one'), 'none');
+  assert.equal(confidence('two'), 'low');
+  assert.equal(confidence('three'), 'high');
+  assert.equal(confidence('brief'), 'low'); // three points, but the span is too short
+});
+
+test('a utilization drop or an expired window yields no forecast', () => {
+  const T0 = Date.parse('2026-10-05T00:00:00Z');
+  const at = (min) => new Date(T0 + min * 60_000).toISOString();
+  const fiveHour = new Date(T0 + 5 * 3_600_000).toISOString();
+  const drop = forecastPlanWindows({ now: T0 + 3_600_000, readings: [
+    { harness: 'drop', rateLimitType: 'w', resetsAt: fiveHour, utilization: 40, observedAt: at(0) },
+    { harness: 'drop', rateLimitType: 'w', resetsAt: fiveHour, utilization: 10, observedAt: at(60) },
+  ] })[0];
+  assert.equal(drop.utilization, 10);
+  assert.equal(drop.remainingPercent, 90);
+  assert.equal(drop.forecast, null);
+  assert.equal(drop.confidence, 'none');
+
+  const expired = forecastPlanWindows({ now: T0 + 6 * 3_600_000, readings: [
+    { harness: 'exp', rateLimitType: 'w', resetsAt: fiveHour, utilization: 40, observedAt: at(0) },
+    { harness: 'exp', rateLimitType: 'w', resetsAt: fiveHour, utilization: 60, observedAt: at(60) },
+  ] })[0];
+  assert.equal(expired.expired, true);
+  assert.equal(expired.remainingPercent, null);
+  assert.equal(expired.forecast, null);
+});
+
+test('readHarnessPlanLimits delegates to the pure forecast and stays compatible', () => {
+  const dataDir = tempDataDir();
+  const T0 = Date.parse('2026-10-05T00:00:00Z');
+  const at = (min) => new Date(T0 + min * 60_000).toISOString();
+  const fiveHour = new Date(T0 + 5 * 3_600_000).toISOString();
+  try {
+    noteHarnessPlanLimit({ harness: 'alpha', rateLimitType: 'five_hour', utilization: 20, observedAt: at(0), resetsAt: fiveHour, dataDir });
+    noteHarnessPlanLimit({ harness: 'alpha', rateLimitType: 'five_hour', utilization: 40, observedAt: at(60), resetsAt: fiveHour, dataDir });
+    noteHarnessPlanLimit({ harness: 'beta', rateLimitType: 'five_hour', status: 'allowed', utilization: 10, observedAt: at(0), resetsAt: fiveHour, dataDir });
+
+    const rows = readHarnessPlanLimits('', {
+      dataDir,
+      now: T0 + 3_600_000,
+      tokenSamples: [{ harness: 'alpha', at: at(30), totalTokens: 500 }],
+    });
+    const alpha = rows.find((row) => row.harness === 'alpha');
+    assert.equal(alpha.utilization, 40);
+    assert.equal(alpha.remainingPercent, 60);
+    assert.equal(alpha.forecast.percentPerHour, 20);
+    assert.equal(alpha.forecast.exhaustsAt, at(240));
+    assert.equal(alpha.confidence, 'low');
+    assert.equal(alpha.tokensInWindow, 500);
+    assert.equal(alpha.stale, false);
+    assert.equal(alpha.expired, false);
+    assert.equal(alpha.resetInMs, 4 * 3_600_000);
+    assert.equal('samples' in alpha, false);
+
+    const beta = rows.find((row) => row.harness === 'beta');
+    assert.equal(beta.utilization, 10);
+    assert.equal(beta.forecast, null);
+    assert.equal(beta.confidence, 'none');
+    assert.equal(beta.tokensInWindow, null);
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }

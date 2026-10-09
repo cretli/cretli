@@ -38,6 +38,7 @@ const WORK_TONES = new Set([
  */
 const ACTION_TONES = new Set([
   'awaiting',
+  'waiting',
   'attention',
   'approval',
   'question',

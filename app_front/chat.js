@@ -170,6 +170,7 @@ import {
 } from './features/pwa/pushInbox.js';
 import { createChatListLiveSync } from './features/chat/chatListLiveSync.js';
 import { createChatListExplicitReloadGuard } from './features/chat/chatListExplicitReload.js';
+import { getNotificationStore } from './features/notifications/notificationStore.js';
 import { isSidebarArchiveSectionOpen } from './features/sidebar/sidebarVisibleChats.js';
 import { applyRemoteSidebarLayout } from './features/sidebar/sidebarLayoutSync.js';
 import { getResumeHistorySyncDeferMs } from './features/chat/chatResumePolicy.js';
@@ -3049,6 +3050,12 @@ const chatTransport = createChatTransport({
       }).catch(() => {});
     }
   },
+  onNotificationsChanged: (msg) => {
+    // The notification store is created by initNotificationCenter (App boot); a
+    // frame before that resolves is simply dropped and the store's first GET
+    // catches up.
+    void getNotificationStore()?.handleChangedFrame(msg);
+  },
 });
 
 function appendChatRecoveryNotice(chat, text, _tone = 'warn') {
@@ -3834,9 +3841,7 @@ export function scheduleChatListStateRefreshAll() {
 /** In-place chat status update in the sidebar (no full re-render). */
 function updateSidebarChatStates(chatById = null) {
   const aside = document.getElementById('app-sidebar');
-  if (!aside || aside.hidden) return;
-  const body = aside.querySelector('.sidebar-body');
-  if (!body) return;
+  const body = aside?.querySelector('.sidebar-body');
   // Requirement 3b: rows rewritten per call, split patchAll vs per-dirty. Guarded at
   // the callsite so an inactive trace allocates/counts nothing (patchAll reads the
   // already-built NodeList length; per-dirty increments only while tracing).
@@ -3852,6 +3857,7 @@ function updateSidebarChatStates(chatById = null) {
     chatById: byId,
     getSidebarChatStateMeta,
   });
+  if (!aside || aside.hidden || !body) return;
   if (dirty.has('*')) {
     const items = body.querySelectorAll('.sidebar-chat-item');
     items.forEach((li) => {
@@ -4001,6 +4007,7 @@ function resolveSdkChatStateMeta(chat, surface = 'bar') {
     hasPendingPermission: pending.hasPendingPermission,
     queuedCount,
     serverRunState: chat._serverRunState || null,
+    lastRunStatus: chat._sdkLastRunStatus || '',
     translate: t,
   };
   if (surface === 'sidebar') {
@@ -6412,6 +6419,7 @@ let newChatHarnessExplicitChoice = false;
 let newChatModelUserTouched = false;
 /** True once a favorite preset applied its model in an open new-chat modal — async loads must not override it. */
 let newChatModelPresetApplied = false;
+let todoAgentModalSubmit = null;
 
 /**
  * Enabled local `capabilities.chat` plugin ids, refreshed from the harness
@@ -7468,7 +7476,20 @@ export function openNewChatModal(options = {}) {
   }
 }
 
+/** Open the shared harness/model picker for starting a TODO agent. */
+export function openTodoAgentStartModal({ harness = '', onStart } = {}) {
+  if (typeof onStart !== 'function') return;
+  if (!chatNewModalApi) {
+    const modal = document.getElementById('chat-new-modal');
+    if (!(modal instanceof HTMLElement)) return;
+    chatNewModalApi = initModal(modal, { backdropSelector: '.chat-settings-backdrop' });
+  }
+  todoAgentModalSubmit = onStart;
+  openNewChatModal({ harness });
+}
+
 function closeNewChatModal() {
+  todoAgentModalSubmit = null;
   chatNewFolderDropdownApi?.close?.();
   chatNewModelDropdownApi?.close?.();
   chatNewFavoritePresetDropdownApi?.close?.();
@@ -8348,6 +8369,13 @@ function createChatFromModal() {
   selectedHarness = normalizeNewChatHarness(harness);
   saveLastSelectedModel(chosenModel);
   saveLastSelectedHarness(selectedHarness);
+  if (todoAgentModalSubmit) {
+    const submit = todoAgentModalSubmit;
+    todoAgentModalSubmit = null;
+    closeNewChatModal();
+    void submit({ harness: selectedHarness, model: chosenModel });
+    return;
+  }
   ensureEmbedNewChatFolderSelect();
   const createCtx = resolveChatCreationWorkspaceContext();
   if (!createCtx.workspaceFile) {
@@ -9503,6 +9531,10 @@ function saveChatSettings() {
  * Initialize the chat panel: bar (chat, +, settings, fullscreen), modals (new chat, settings).
  */
 export function initChatPanel() {
+  const newChatModal = document.getElementById('chat-new-modal');
+  if (newChatModal && newChatModal.parentElement !== document.body) {
+    document.body.appendChild(newChatModal);
+  }
   initAgentWakeLock();
   initChatModelSelectApi();
   initChatDiagnosticsApi();

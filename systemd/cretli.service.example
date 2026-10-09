@@ -1,0 +1,21 @@
+[Unit]
+Description=Cretli server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/path/to/cretli
+ExecStart=/usr/bin/npm start
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+KillMode=control-group
+TimeoutStopSec=20
+StandardOutput=journal
+StandardError=journal
+UMask=0077
+
+[Install]
+WantedBy=default.target

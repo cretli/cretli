@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { createMcpServer, listMcpServers, updateMcpServer } from '../lib/mcp/mcp-service.js';
 import { McpRevisionConflictError, loadMcpDocument } from '../lib/persist/mcp-persist.js';
 import { getMcpSecrets } from '../lib/mcp/mcp-secrets.js';
-import { resolveMcpServersForContext } from '../lib/mcp/mcp-config.js';
+import { MCP_KINDS, normalizeMcpServer, resolveMcpServersForContext } from '../lib/mcp/mcp-config.js';
 import { isMcpPlanCallDenied } from '../lib/mcp/mcp-policy.js';
 import { callTool } from '../lib/mcp/mcp-runtime.js';
-import { encodeMcpToolName, decodeMcpToolName } from '../lib/mcp/mcp-tool-names.js';
+import { encodeMcpToolName, decodeMcpToolName, MCP_BUILTIN_SERVER_KIND } from '../lib/mcp/mcp-tool-names.js';
 import { installWidgetApiGate } from '../lib/widget/widget-http.js';
 
 const created = await createMcpServer({
@@ -77,22 +77,22 @@ assert.equal(isMcpPlanCallDenied({
 assert.equal(isMcpPlanCallDenied({
   mode: 'plan',
   toolName: 'chat_list',
-  server: { kind: 'builtin-cretli' },
+  server: { id: 'builtin-cretli', kind: 'builtin-cretli' },
 }), false);
 assert.equal(isMcpPlanCallDenied({
   mode: 'plan',
   toolName: 'chat_delete',
-  server: { kind: 'builtin-cretli' },
+  server: { id: 'builtin-cretli', kind: 'builtin-cretli' },
 }), true);
 assert.equal(isMcpPlanCallDenied({
   mode: 'ask',
   toolName: 'chat_delete',
-  server: { kind: 'builtin-cretli' },
+  server: { id: 'builtin-cretli', kind: 'builtin-cretli' },
 }), true);
 assert.equal(isMcpPlanCallDenied({
   mode: 'ask',
   toolName: 'chat_list',
-  server: { kind: 'builtin-cretli' },
+  server: { id: 'builtin-cretli', kind: 'builtin-cretli' },
 }), false);
 
 let deleteCalled = false;
@@ -138,6 +138,12 @@ const widgetMcp = await runGate({
 });
 assert.equal(widgetMcp.next, false);
 assert.equal(widgetMcp.statusCode, 403);
+
+assert.equal(MCP_BUILTIN_SERVER_KIND, MCP_KINDS.find((kind) => kind === 'builtin-cretli'));
+const spoofed = normalizeMcpServer({ id: 'mynotionserv', kind: 'builtin-cretli', transport: 'stdio', connection: { command: 'node' } });
+assert.ok(spoofed);
+assert.equal(spoofed.kind, 'external');
+assert.equal(spoofed.id, 'mynotionserv');
 
 removeIsolatedDataDir();
 console.log('mcp-config.test.js OK');

@@ -3,9 +3,11 @@
  * canceling unrelated live-sync work; one user action stays one GET /api/chats.
  */
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createChatListExplicitReloadGuard } from '../app_front/features/chat/chatListExplicitReload.js';
 import { createChatListLiveSync } from '../app_front/features/chat/chatListLiveSync.js';
 import { createChatController } from '../app_front/features/chat/chatController.js';
+import { getChatBootListHydrationController } from '../app_front/features/chat/chatLocalBootAsyncHydrate.js';
 
 {
   const guard = createChatListExplicitReloadGuard({ nowFn: () => 1000, ttlMs: 5000 });
@@ -196,6 +198,11 @@ function makeReloadHarness(chats, serverSnapshot, reloadGuard) {
     refresh: (query) => controller.loadChatsFromServer(query),
     shouldIncludeArchived: () => false,
     shouldSuppressChatsChanged: (frame) => reloadGuard.shouldSuppressChatsChanged(frame),
+    // Production wiring parity (app_front/chat.js: `onBeforeListReload` bumps the boot-list
+    // revision). A server `chatsChanged` frame is authoritative, so it must not be swallowed by
+    // the 15s chat-list freshness window; without this seam the harness measures its own missing
+    // wiring instead of the guard's contract.
+    onBeforeListReload: () => getChatBootListHydrationController().bumpListRevision(),
     setTimeoutFn: (fn) => { fn(); return 1; },
     clearTimeoutFn: () => {},
     debounceMs: 0,
@@ -271,6 +278,22 @@ function makeReloadHarness(chats, serverSnapshot, reloadGuard) {
   h.sync.onChatsChanged({ reason: 'archive', chatId: 'g2' });
   await h.flush();
   assert.equal(h.getChatsCalls(), 2, 'one independent same-id change still reloads once');
+}
+
+{
+  // Canary for the seam this suite depends on. The guard only honors a `chatsChanged`
+  // frame when the caller invalidates the chat-list freshness window before reloading, so
+  // the wiring must stay in place in production. Asserted inside the argument region of
+  // `createChatListLiveSync({ … })` itself, not "somewhere in chat.js".
+  const src = readFileSync(new URL('../app_front/chat.js', import.meta.url), 'utf8');
+  const start = src.indexOf('createChatListLiveSync({');
+  assert.notEqual(start, -1, 'chat.js still builds the chat-list live sync');
+  const region = src.slice(start, src.indexOf('\n});', start));
+  assert.ok(region.length > 0, 'chat-list live sync wiring region found');
+  assert.match(region, /\bonBeforeListReload\b/,
+    'chat.js live-sync wiring still passes onBeforeListReload');
+  assert.match(region, /bumpListRevision\(\)/,
+    'onBeforeListReload still bumps the boot-list revision so a server restore frame is not swallowed by the 15s freshness window');
 }
 
 console.log('chat-list-explicit-reload.test.js OK');

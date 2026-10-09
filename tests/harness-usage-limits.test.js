@@ -11,6 +11,7 @@ import {
   getHarnessUsageLimit,
   readHarnessUsageLimitHistory,
   clearHarnessUsageLimit,
+  selectUsageLimitMessage,
 } from '../lib/harness-usage-limits.js';
 import { selectModelPick } from '../lib/model-role-profiles.js';
 import { resolveDataPath, resolveProjectPath } from '../lib/runtime-paths.js';
@@ -142,6 +143,69 @@ assert.equal(noteHarnessUsageLimit({
   resetAt: '2099-01-01T00:00:00.000Z',
 }), false);
 assert.equal(readHarnessUsageLimitHistory({ harness: 'claude' }).length, 1);
+
+// --- Regression: the message with a reset clock wins over the clock-less one ---
+// A real Claude run surfaced both `Claude rate limit reached. Try again later.`
+// (generic) and `You've hit your session limit · resets 1:50am (Europe/Warsaw)`
+// (provider prose). The lockout must use 1:50 Europe/Warsaw, never the 1h TTL.
+{
+  const resetDir = mkdtempSync(path.join(tmpdir(), 'cretli-limits-reset-clock-'));
+  try {
+    const withoutClock = 'Claude rate limit reached. Try again later.';
+    const withClock = "You've hit your session limit · resets 1:50am (Europe/Warsaw)";
+    assert.equal(
+      selectUsageLimitMessage([withoutClock, withClock]),
+      withClock,
+      'the candidate carrying a parseable reset clock must win',
+    );
+    assert.equal(selectUsageLimitMessage([withoutClock]), withoutClock, 'no clock: the first candidate stays');
+    assert.equal(
+      selectUsageLimitMessage([withClock, withoutClock]),
+      withClock,
+      'candidate order must not hide the clock',
+    );
+    assert.equal(
+      selectUsageLimitMessage(['quota exhausted', 'quota exhausted · resets 9:05pm (America/New_York)']),
+      'quota exhausted · resets 9:05pm (America/New_York)',
+      'the selection stays harness-agnostic',
+    );
+
+    const clockModel = `test-reset-clock-${process.pid}`;
+    assert.equal(noteHarnessUsageLimit({
+      harness: 'claude',
+      model: clockModel,
+      message: withoutClock,
+      messages: [withoutClock, withClock],
+      dataDir: resetDir,
+    }), true);
+    const locked = getHarnessUsageLimit({ harness: 'claude', model: clockModel, dataDir: resetDir });
+    assert.ok(locked, 'the run must lock the claude model');
+    const clockParts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Warsaw', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date(locked.resetAt));
+    const clock = Object.fromEntries(clockParts.map(({ type, value }) => [type, value]));
+    assert.equal(
+      `${clock.hour}:${clock.minute}`,
+      '01:50',
+      'resetAt must be the stated 1:50am Europe/Warsaw, not the TTL fallback',
+    );
+
+    // No candidate states a clock: the conservative TTL fallback stays.
+    const ttlModel = `test-reset-ttl-${process.pid}`;
+    const beforeTtl = Date.now();
+    assert.equal(noteHarnessUsageLimit({
+      harness: 'claude',
+      model: ttlModel,
+      message: withoutClock,
+      dataDir: resetDir,
+    }), true);
+    const ttlLock = getHarnessUsageLimit({ harness: 'claude', model: ttlModel, dataDir: resetDir });
+    const ttlDelta = new Date(ttlLock.resetAt).getTime() - beforeTtl;
+    assert.ok(ttlDelta > 59 * 60 * 1000 && ttlDelta <= 61 * 60 * 1000, 'clock-less keeps the 1h TTL');
+  } finally {
+    rmSync(resetDir, { recursive: true, force: true });
+  }
+}
 
 // --- Manual unlock ---
 assert.ok(getHarnessUsageLimit({ harness: 'opencode', model }));

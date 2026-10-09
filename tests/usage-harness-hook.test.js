@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { createAgentRoomKernel } from '../lib/agent-harness/room-kernel.js';
 import { runOpenRouterAgentLoop } from '../lib/agent-harness/openrouter-agent-loop.js';
 import { normalizeClaudeMessage } from '../lib/agent-harness/claude-event-normalizer.js';
 import { buildClaudeUsageSdkEvent } from '../lib/claude/claude-agent-ws.js';
 import { createUsageEvent } from '../lib/usage/usage-event.js';
+import { getHarnessUsageLimit } from '../lib/harness-usage-limits.js';
 import {
   buildHarnessRunUsage,
   recordHarnessUsageDelta,
@@ -258,6 +262,41 @@ test('run events classify errors and aborts', () => {
   assert.equal(records[0].outcome, 'error');
   assert.equal(records[0].errorCode, 'codex_error');
   assert.equal(records[1].outcome, 'aborted');
+});
+
+test('room-kernel forwards every error variant so the reset clock wins the lockout', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'cretli-kernel-reset-clock-'));
+  try {
+    const kernel = createAgentRoomKernel({
+      transport: 'claude',
+      persistHistory: () => {},
+      recordUsage: () => {},
+      usageDataDir: dir,
+    });
+    const room = kernel.createRoomState({
+      sessionKey: 'clock-sess',
+      chatId: 'clock-chat',
+      modelId: 'claude-sonnet-4-5',
+    });
+    const withoutClock = 'Claude rate limit reached. Try again later.';
+    const withClock = "You've hit your session limit · resets 1:50am (Europe/Warsaw)";
+    kernel.broadcastRoom(room, {
+      type: 'sdkRunFinished',
+      runId: 'run-clock',
+      status: 'error',
+      lastErrorMessage: withoutClock,
+      lastErrorMessages: [withoutClock, withClock],
+    });
+    const locked = getHarnessUsageLimit({ harness: 'claude', model: 'claude-sonnet-4-5', dataDir: dir });
+    assert.ok(locked, 'the failed run must lock the claude model');
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Warsaw', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date(locked.resetAt));
+    const clock = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+    assert.equal(`${clock.hour}:${clock.minute}`, '01:50', 'the kernel must lock until the stated clock');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('duplicate sdkRunFinished records a run once', () => {

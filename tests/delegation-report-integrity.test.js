@@ -17,6 +17,7 @@ import {
   resolveDelegationRecordVerdict,
 } from '../lib/delegation-verdict.js';
 import { noteDelegationRoomEvent } from '../lib/delegation-run-bridge.js';
+import { DELEGATION_FINAL_REPORT_ERROR_CODE } from '../lib/sdk/sdk-run-outcome.js';
 import { sendDelegationReply } from '../lib/delegation-mailbox.js';
 import { registerMockChatRunAdapter, resetMockChatRuns } from '../lib/chat-run/mock-adapter.js';
 import { createInProcessMcpClient } from '../lib/mcp/mcp-inprocess-client.js';
@@ -244,6 +245,34 @@ assert.equal(isIncompleteDelegationReport('VERDICT: PASS\nVERDICT: FAIL'), true)
   assert.equal((second.errors || []).some((entry) => entry?.code === 'adapter_after_terminal'), false);
   assert.equal(second.afterTerminalCount, 1);
   assert.equal(second.lastAfterTerminalCode, 'adapter_after_terminal');
+}
+
+// 5b) A leftover quiet stop after an accepted final_report only releases the server hold.
+{
+  const started = await startReview('accepted-report-quiet-stop');
+  updateDelegationRecord(started.delegation.id, {
+    status: 'completed',
+    finalReportAcceptedAt: '2026-10-09T00:00:00.000Z',
+    finalReportRunId: started.delegation.runId,
+  });
+  const room = {
+    chatId: started.delegation.childChatId,
+    delegationId: started.delegation.id,
+    delegationAttemptId: started.delegation.attemptId,
+    _currentRunAssistantText: '',
+    serverHold: true,
+  };
+  await noteDelegationRoomEvent(room, {
+    type: 'sdkRunFinished',
+    status: 'completed',
+    lastErrorCode: DELEGATION_FINAL_REPORT_ERROR_CODE,
+    runId: started.delegation.runId,
+  });
+  const row = getDelegationById(started.delegation.id);
+  assert.equal(row.status, 'completed');
+  assert.equal(row.afterTerminalCount || 0, 0);
+  assert.deepEqual(row.errors || [], []);
+  assert.equal(room.serverHold, false);
 }
 
 // 6) `implement` self-verdict semantics are unchanged: a long implement report

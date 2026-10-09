@@ -59,8 +59,16 @@
 }
 
 .watcher-grid input,
+.watcher-grid select,
+.watcher-grid textarea,
 .watcher-actions input {
   width: 100%;
+}
+
+.watcher-form textarea {
+  min-height: 3.5rem;
+  resize: vertical;
+  font-family: var(--cr-font-mono, monospace);
 }
 
 .watcher-role-list {

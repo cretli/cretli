@@ -74,6 +74,21 @@ assert.match(modelPickIncident.output, /model-pick-rotation/);
 assert.match(modelPickIncident.output, /model-pick-observed/);
 fs.rmSync(modelPickIncident.dataDir, { recursive: true, force: true });
 
+// Canonical model stats and their read-only diagnostics UI contract are audited
+// ids, so a review child can verify the denominators without touching live data.
+assert.equal(REVIEW_VERIFY_CATALOG['model-stats'], 'tests/model-stats.test.js');
+assert.equal(REVIEW_VERIFY_CATALOG['harness-diagnostics-ui'], 'tests/harness-diagnostics-ui.test.js');
+const canonicalStatsRun = await runReviewVerify({
+  ids: ['model-stats', 'harness-diagnostics-ui'],
+  projectRoot,
+  catalog: REVIEW_VERIFY_CATALOG,
+});
+assert.equal(canonicalStatsRun.ok, true, canonicalStatsRun.error);
+assert.match(canonicalStatsRun.output, /model-stats/);
+assert.match(canonicalStatsRun.output, /harness-diagnostics-ui/);
+assert.equal(fs.existsSync(path.join(canonicalStatsRun.dataDir, 'review-verify-pwned.txt')), false);
+fs.rmSync(canonicalStatsRun.dataDir, { recursive: true, force: true });
+
 // Workspace Memory is an audited catalog id, so a review child can verify the
 // suite without writing onto the live project data dir.
 assert.equal(REVIEW_VERIFY_CATALOG['workspace-memory'], 'tests/workspace-memory.test.js');

@@ -582,6 +582,33 @@ try {
     assert.equal(finishedEvents(events).at(-1).status, 'completed');
   }
 
+  // --- rate limit: the clock-bearing result text survives to the finish payload ---
+  {
+    const fake = createFakeClaudeSdk({ autoResult: false });
+    const room = createRoom();
+    const { runner, events } = createRunner({ room, sdk: fake.sdk });
+    const withoutClock = 'Claude rate limit reached. Try again later.';
+    const withClock = "You've hit your session limit · resets 1:50am (Europe/Warsaw)";
+    const started = runner.startPrompt('one');
+    await waitFor(() => fake.calls.length === 1 && fake.calls[0].pendingResult);
+    // The assistant-level error and the result prose can both belong to one run.
+    fake.calls[0].emit({
+      type: 'assistant',
+      session_id: SDK_SESSION_ID,
+      error: 'rate_limit',
+      message: { role: 'assistant', content: [] },
+    });
+    fake.calls[0].completeTurn({ is_error: true, errors: [withoutClock], result: withClock });
+    await started;
+    const failed = finishedEvents(events).at(-1);
+    assert.equal(failed.status, 'error');
+    assert.match(String(failed.lastErrorMessage), /rate limit/i);
+    const candidates = failed.lastErrorMessages;
+    assert.ok(Array.isArray(candidates), 'the finish payload carries every error variant');
+    assert.ok(candidates.includes(withClock), 'the clock-bearing result text must be kept');
+    assert.ok(candidates.includes(withoutClock), 'the generic message must be kept too');
+  }
+
   // --- auth/env signature change restarts with resume ---
   {
     const fake = createFakeClaudeSdk();

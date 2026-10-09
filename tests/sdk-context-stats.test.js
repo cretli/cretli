@@ -14,10 +14,20 @@ import {
   shouldSuggestContextMaintenance,
 } from '../lib/sdk/sdk-context-stats.js';
 import { inferProbeSignals } from '../lib/sdk/sdk-agent-probe.js';
+import { getModelContextParamWindowTokens } from '../lib/sdk/sdk-context-advisory.js';
 
 assert.equal(getModelContextWindowTokens('composer-2.5'), 272000);
 assert.equal(getModelContextWindowTokens('grok-4.6::effort=high,fast=true'), 500000);
 assert.equal(getModelContextWindowTokens('grok-4'), 256000);
+// Cursor variants carry the window in `context=`; it wins over the prefix default.
+assert.equal(getModelContextWindowTokens('grok-4.7::context=500k,fast=false'), 500000);
+assert.equal(getModelContextWindowTokens('grok-4.7::context=256k,fast=false'), 256000);
+assert.equal(getModelContextWindowTokens('claude-opus-4-8::context=300k,effort=high'), 300000);
+assert.equal(getModelContextWindowTokens('composer-2::context=1m'), 1000000);
+assert.equal(getModelContextParamWindowTokens('grok-4.7::context=500k,fast=false'), 500000);
+assert.equal(getModelContextParamWindowTokens('grok-4.7::fast=false'), null);
+assert.equal(getModelContextParamWindowTokens('grok-4.7'), null);
+assert.equal(getModelContextParamWindowTokens('grok-4.7::context=wide'), null);
 assert.equal(formatContextTokenCount(null), '—');
 assert.equal(formatContextTokenCount(undefined), '—');
 assert.equal(formatContextTokenCount(''), '—');

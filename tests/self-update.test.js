@@ -43,7 +43,7 @@ assert.deepEqual(actualNoRepoGate, { allowed: false, status: 400, errorKey: 'upd
 const actualBusyGate = resolveUpdateApplyGate({ isRepo: true, busy: true });
 assert.deepEqual(actualBusyGate, { allowed: false, status: 409, errorKey: 'update.busy' });
 
-const actualAllowedGate = resolveUpdateApplyGate({ isRepo: true, busy: false });
+const actualAllowedGate = resolveUpdateApplyGate({ isRepo: true, busy: false, activeRuns: 0 });
 assert.deepEqual(actualAllowedGate, { allowed: true, status: 202 });
 
 const actualNoRepo = buildUpdateStatusPayload({

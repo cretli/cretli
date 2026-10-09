@@ -1,7 +1,22 @@
 import * as api from './core/api/index.js';
 import { t } from './i18n/index.js';
+import {
+  buildGitScopeKey,
+  getGitScope,
+  getGitScopeRevision,
+  setGitScope,
+  subscribeGitScope,
+} from './features/git/gitScope.js';
+import {
+  buildGitDetailRows,
+  deriveGitContextBadge,
+  resolveGitBranch,
+} from './features/git/gitContextView.js';
 
 const ACTION_NEEDS_ARG = new Set(['switch', 'switch-new', 'merge', 'rebase']);
+
+/** Monotonic request id: a newer refresh drops every older in-flight answer. */
+let refreshRequestId = 0;
 
 function setText(id, value) {
   const el = document.getElementById(id);
@@ -25,7 +40,64 @@ function formatBranchLabel(info) {
   return `${info.branch} → ${info.upstream}${aheadBehind}`;
 }
 
+/**
+ * Compact context chip in the toolbar: which chat/task the panel is showing.
+ *
+ * @param {object | null} info
+ */
+function renderContextChip(info) {
+  const chip = document.getElementById('git-context-chip');
+  if (!chip) return;
+  if (!info || (!info.chatId && !info.todoId && !info.isWorktree)) {
+    chip.hidden = true;
+    chip.textContent = '';
+    chip.className = 'git-context-chip';
+    return;
+  }
+  const badge = deriveGitContextBadge(info, t);
+  chip.hidden = false;
+  chip.textContent = badge.branch ? `${badge.label} · ${badge.branch}` : badge.label;
+  chip.title = badge.title;
+  chip.dataset.kind = badge.kind;
+  chip.className = `git-context-chip git-context-chip--${badge.tone}`;
+}
+
+/**
+ * Context-specific detail rows (project, base commit, changes, task, integration).
+ *
+ * @param {object | null} info
+ */
+function renderDetailRows(info) {
+  const host = document.getElementById('git-info-details');
+  if (!host) return;
+  host.replaceChildren();
+  const rows = buildGitDetailRows(info, t);
+  for (const row of rows) {
+    const wrap = document.createElement('div');
+    wrap.className = 'git-info-row';
+    wrap.dataset.detail = row.key;
+    const label = document.createElement('span');
+    label.className = 'git-info-label';
+    label.textContent = row.label;
+    const value = document.createElement('span');
+    value.className = 'git-info-value';
+    value.textContent = row.value;
+    if (row.tone) value.dataset.tone = row.tone;
+    wrap.append(label, value);
+    host.append(wrap);
+  }
+}
+
+function renderOutput(text) {
+  const out = document.getElementById('git-output');
+  if (!out) return;
+  out.textContent = text || '';
+  out.scrollTop = out.scrollHeight;
+}
+
 function renderInfo(info) {
+  renderContextChip(info);
+  renderDetailRows(info);
   if (!info) {
     setBadge(t('git.noData'), 'error');
     setText('git-info-cwd', '—');
@@ -46,24 +118,33 @@ function renderInfo(info) {
   }
   setBadge(t('git.repoActive'), 'ok');
   setText('git-info-repo', info.topLevel || '—');
-  setText('git-info-branch', formatBranchLabel(info));
+  setText('git-info-branch', resolveGitBranch(info) ? formatBranchLabel(info) : '—');
   setText('git-info-upstream', info.upstream || '—');
   setText('git-info-head', info.head || '—');
 }
 
-function renderOutput(text) {
-  const out = document.getElementById('git-output');
-  if (!out) return;
-  out.textContent = text || '';
-  out.scrollTop = out.scrollHeight;
-}
-
+/**
+ * Fetch Git info for the active scope and repaint the panel. The captured
+ * request id and scope key make a late answer for a previous chat/workspace a
+ * no-op instead of overwriting the newer context.
+ *
+ * @returns {Promise<object | null>}
+ */
 export function refreshGitInfo() {
-  return api.getGitInfo().then((data) => {
+  const requestId = ++refreshRequestId;
+  const scope = getGitScope();
+  const scopeKey = buildGitScopeKey(scope);
+  const revision = getGitScopeRevision();
+  const isCurrent = () =>
+    requestId === refreshRequestId
+    && revision === getGitScopeRevision()
+    && scopeKey === buildGitScopeKey(getGitScope());
+  return api.getGitInfo(scope).then((data) => {
+    if (!isCurrent()) return null;
     if (!data?.ok) {
       renderInfo(null);
       renderOutput(data?.error ? t('git.errorDetail', { detail: data.error }) : t('git.fetchError'));
-      return;
+      return null;
     }
     renderInfo(data);
     if (Array.isArray(data.statusShort) && data.statusShort.length) {
@@ -72,10 +153,35 @@ export function refreshGitInfo() {
       renderOutput('');
     }
     window.dispatchEvent(new CustomEvent('cretli-git-changed', { detail: data }));
+    return data;
   }).catch(() => {
+    if (!isCurrent()) return null;
     renderInfo(null);
     renderOutput(t('git.fetchError'));
+    return null;
   });
+}
+
+/**
+ * Point the panel (and the compact indicator) at a chat or task and refresh.
+ * A null scope resets to the legacy global cwd.
+ *
+ * @param {object | null} scope
+ * @returns {number} the new scope revision
+ */
+export function setGitPanelScope(scope) {
+  const revision = setGitScope(scope || null);
+  if (document.getElementById('git-panel')?.classList.contains('active')) {
+    void refreshGitInfo();
+  }
+  return revision;
+}
+
+/**
+ * @returns {{ chatId: string, todoId: string, workspaceFolder: string }}
+ */
+export function getGitPanelScope() {
+  return getGitScope();
 }
 
 function runAction(action, arg) {
@@ -85,7 +191,11 @@ function runAction(action, arg) {
     return;
   }
   renderOutput(t('git.running'));
-  api.postGitAction({ action, arg }).then((data) => {
+  const scope = getGitScope();
+  const scopeKey = buildGitScopeKey(scope);
+  const requestId = ++refreshRequestId;
+  api.postGitAction({ action, arg }, scope).then((data) => {
+    if (requestId !== refreshRequestId || scopeKey !== buildGitScopeKey(getGitScope())) return;
     if (!data?.ok) {
       renderOutput(data?.error ? t('git.errorDetail', { detail: data.error }) : t('git.runFailed'));
       return;
@@ -94,6 +204,7 @@ function runAction(action, arg) {
     renderOutput(header + (data.output || ''));
     refreshGitInfo();
   }).catch(() => {
+    if (requestId !== refreshRequestId || scopeKey !== buildGitScopeKey(getGitScope())) return;
     renderOutput(t('git.runFailed'));
   });
 }
@@ -156,4 +267,10 @@ export function initGitPanel() {
   }
   initQuickButtons();
   initActionForm();
+  // A scope switch while the panel is open must repaint immediately.
+  subscribeGitScope(() => {
+    if (document.getElementById('git-panel')?.classList.contains('active')) {
+      void refreshGitInfo();
+    }
+  });
 }

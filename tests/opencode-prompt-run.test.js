@@ -3,7 +3,9 @@ import {
   formatOpenCodeSessionError,
   normalizeOpenCodeEvent,
 } from '../lib/agent-harness/opencode-event-normalizer.js';
+import { createDelegationAdapterTimeoutError } from '../lib/delegation-adapter-error.js';
 import {
+  buildOpenCodeRunErrorEvents,
   createOpenCodePromptRunWaiter,
   bumpOpenCodePromptRunActivity,
   notifyOpenCodePromptRunEnd,
@@ -171,5 +173,60 @@ await new Promise((r) => setTimeout(r, 120));
 notifyOpenCodePromptRunEnd(room4, { status: 'completed' });
 const bumpedResult = await firstEventBumpedWaiter;
 assert.equal(bumpedResult.status, 'completed');
+
+assert.deepEqual(
+  buildOpenCodeRunErrorEvents({
+    runId: 'run-aborted',
+    message: 'Aborted',
+    err: new Error('Aborted'),
+    cancelled: true,
+    remaining: 0,
+  }),
+  [{ type: 'sdkRunFinished', runId: 'run-aborted', status: 'cancelled', lastErrorMessage: '', remaining: 0 }],
+);
+assert.deepEqual(
+  buildOpenCodeRunErrorEvents({
+    runId: 'run-plan-guard',
+    message: 'Aborted',
+    cancelled: true,
+    planGuardTriggered: true,
+    remaining: 2,
+  }),
+  [{ type: 'sdkRunFinished', runId: 'run-plan-guard', status: 'plan_guard_cancelled', lastErrorMessage: '', remaining: 2 }],
+);
+assert.deepEqual(
+  buildOpenCodeRunErrorEvents({ runId: 'run-error', message: 'No payment method', remaining: 0 }),
+  [
+    { type: 'sdkError', code: 'opencode_error', message: 'No payment method' },
+    {
+      type: 'sdkRunFinished',
+      runId: 'run-error',
+      status: 'error',
+      lastErrorCode: 'opencode_error',
+      lastErrorMessage: 'No payment method',
+      remaining: 0,
+    },
+  ],
+);
+const timeoutMessage = 'OpenCode prompt timed out';
+assert.deepEqual(
+  buildOpenCodeRunErrorEvents({
+    runId: 'run-timeout',
+    message: timeoutMessage,
+    err: createDelegationAdapterTimeoutError(timeoutMessage),
+    remaining: 0,
+  }),
+  [
+    { type: 'sdkError', code: 'adapter_timeout', message: `[adapter_timeout] ${timeoutMessage}` },
+    {
+      type: 'sdkRunFinished',
+      runId: 'run-timeout',
+      status: 'error',
+      lastErrorCode: 'adapter_timeout',
+      lastErrorMessage: `[adapter_timeout] ${timeoutMessage}`,
+      remaining: 0,
+    },
+  ],
+);
 
 console.log('opencode-prompt-run.test.js OK');

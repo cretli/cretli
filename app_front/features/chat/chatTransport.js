@@ -202,6 +202,7 @@ export function createChatTransport(deps) {
     onChatsChanged = null,
     onSidebarLayout = null,
     onAgentPresence = null,
+    onNotificationsChanged = null,
     onBackgroundSyncComplete = null,
   } = deps;
 
@@ -1053,6 +1054,12 @@ export function createChatTransport(deps) {
           if (typeof onAgentPresence === 'function') onAgentPresence(msg);
           return;
         }
+        if (msg.type === 'notificationsChanged') {
+          // The frame carries only { revision, reason }: the notification store
+          // ignores a stale revision and otherwise does a full GET.
+          if (typeof onNotificationsChanged === 'function') onNotificationsChanged(msg);
+          return;
+        }
         if (msg.type === 'sdkHistoryChanged') {
           // Keep metadata through initial history hydration, even when live
           // model frames are allowed through. The view may still be replaced.
@@ -1126,6 +1133,9 @@ export function createChatTransport(deps) {
           }
           chat._sdkServerBusy = msg.busy === true;
           chat._sdkServerQueuedCount = Math.max(0, Number(msg.queuedCount) || 0);
+          if (Object.prototype.hasOwnProperty.call(msg, 'lastRunStatus')) {
+            chat._sdkLastRunStatus = typeof msg.lastRunStatus === 'string' ? msg.lastRunStatus : '';
+          }
           applySdkRoomCapabilityFields(chat, msg);
           if (chat._sdkServerBusy) chat._sdkRichView?.onHarnessBusy?.();
           else chat._sdkRichView?.onHarnessIdle?.();
@@ -1374,6 +1384,19 @@ export function createChatTransport(deps) {
           });
           return;
         }
+        if (msg.type === 'opencodePermissionAdvisorStatus') {
+          const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
+          const status = typeof msg.status === 'string' ? msg.status : '';
+          const advisorDecision = typeof msg.advisorDecision === 'string' ? msg.advisorDecision : '';
+          const reason = typeof msg.reason === 'string' ? msg.reason : '';
+          chat._sdkRichView?.showOpenCodePermissionAdvisorStatus?.(requestId, {
+            status,
+            advisorDecision,
+            finalDecision: typeof msg.finalDecision === 'string' ? msg.finalDecision : '',
+            reason,
+          });
+          return;
+        }
         if (msg.type === 'opencodePermissionResolved') {
           const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
           chat._sdkRichView?.resolveOpenCodePermission?.(requestId);
@@ -1432,6 +1455,7 @@ export function createChatTransport(deps) {
             renderChatTerminalState(chat);
           }
           setAgentState(chat, 'active');
+          delete chat._sdkLastRunStatus;
           if (chat._sdkRichView) {
             chat._sdkRichView.applyEvent(msg.event, readSdkViewOrderMeta(msg));
             noteRenderedSdkRoomEvent(chat, msg);
@@ -1452,6 +1476,7 @@ export function createChatTransport(deps) {
             return;
           }
           chat._sdkLastLiveEventAt = Date.now();
+          chat._sdkLastRunStatus = typeof msg.status === 'string' ? msg.status : '';
           const remaining = Math.max(
             0,
             Number(msg.remaining) || 0,
@@ -1513,6 +1538,7 @@ export function createChatTransport(deps) {
         if (msg.type === 'sdkBusy') {
           chat._sdkLastLiveEventAt = Date.now();
           chat._sdkServerBusy = msg.busy === true;
+          if (msg.busy === true) delete chat._sdkLastRunStatus;
           const busyState = resolveAgentStateFromMessage(chat._agentState || 'idle', msg);
           if (busyState) setAgentState(chat, busyState);
           if (msg.busy === false) {
@@ -1533,6 +1559,7 @@ export function createChatTransport(deps) {
         }
         if (msg.type === 'sdkQueued') {
           chat._sdkLastLiveEventAt = Date.now();
+          delete chat._sdkLastRunStatus;
           chat._sdkServerBusy = true;
           chat._sdkServerQueuedCount = Math.max(
             Number(chat._sdkServerQueuedCount) || 0,

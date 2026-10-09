@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
 import {
   applyCodeBuddyTransportOptions,
   createCodeBuddyLiveSession,
@@ -70,6 +71,29 @@ const planCreated = createCodeBuddyLiveSession({
   permissionMode: 'plan',
 });
 assert.equal(planCreated.transport.options.permissionMode, 'plan');
+
+// Exercise the actual SDK permission callback with an absolute workspace test.
+let reviewCanUseTool;
+createCodeBuddyLiveSession({
+  sdk: {
+    unstable_v2_createSession: (options) => {
+      reviewCanUseTool = options.canUseTool;
+      return { transport: { options: {} } };
+    },
+  },
+  model: 'default-model',
+  pathToCodebuddyCode: '/opt/codebuddy-launcher.sh',
+  env: {},
+  cwd: fileURLToPath(new URL('..', import.meta.url)),
+  permissionMode: 'bypassPermissions',
+  assignment: 'review',
+});
+const absoluteTest = fileURLToPath(new URL('./codebuddy-live-session.test.js', import.meta.url));
+assert.equal((await reviewCanUseTool('Bash', { command: `node --test ${absoluteTest}` })).behavior, 'allow');
+assert.equal((await reviewCanUseTool('Bash', { command: 'node --test /tmp/outside.test.js' })).behavior, 'deny');
+assert.equal((await reviewCanUseTool('Bash', { command: 'node scripts/review-lint.js lib/codebuddy/codebuddy-live-session.js' })).behavior, 'allow');
+assert.equal((await reviewCanUseTool('Bash', { command: 'node scripts/review-lint.js --fix lib/codebuddy/codebuddy-live-session.js' })).behavior, 'deny');
+assert.equal((await reviewCanUseTool('Edit', { file_path: absoluteTest })).behavior, 'deny');
 
 // The CLI drops every MCP server when one entry has no explicit transport type.
 assert.deepEqual(

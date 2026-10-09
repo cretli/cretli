@@ -2,6 +2,7 @@
  * Behavior tests for the shared "new chat created" push and for the single
  * `addChat` hook that fires it (temporary fork chats must stay silent).
  */
+import './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

@@ -14,6 +14,7 @@ import path from 'node:path';
 import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
 import { getWorkspaceWatcher, mutateWorkspaceWatcherRow } from '../lib/persist/workspace-watchers-persist.js';
 import { registerWorkspaceWatcherRoutes } from '../lib/routes/workspace-watcher-routes.js';
+import { WORKSPACE_WATCHER_PARKED_REASON } from '../lib/workspace-watcher-blocked-reason.js';
 import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 
 let failed = 0;
@@ -89,6 +90,18 @@ runCase('GET returns an off default without creating a row', withApp(async (invo
   assert.equal(res.body.schedule.nextCycleAt, 0);
   assert.equal(res.body.schedule.blockedReason, 'mode_not_active');
   assert.equal(getWorkspaceWatcher(cwd, { dataDir }), null, 'a read must not persist a row');
+}));
+
+runCase('GET only computes the worktree suggestion when asked', withApp(async (invoke) => {
+  const plain = await invoke('GET', '/api/workspace-watcher');
+  assert.equal(plain.body.executionSuggest, undefined, 'the live poll must not pay for git');
+  const asked = await invoke('GET', '/api/workspace-watcher', { query: { suggest: '1' } });
+  assert.equal(asked.status, 200);
+  assert.ok(asked.body.executionSuggest, 'the form fetch returns a suggestion');
+  // The temp cwd is not a Git repository, so the suggestion stays empty and the
+  // fail-closed validation is what refuses a worktree start.
+  assert.equal(asked.body.executionSuggest.available, false);
+  assert.equal(asked.body.executionSuggest.worktree.root, '');
 }));
 
 runCase('GET omits todo documents and keeps ready counts', withApp(async (invoke) => {
@@ -218,6 +231,35 @@ runCase('POST pause/resume/clear-stop and GET decisions expose the control surfa
     assert.ok(row.kind);
     assert.ok('reason' in row);
   }
+}));
+
+runCase('POST clear-stop unblocks a todo parked only by the findings loop', withApp(async (invoke) => {
+  // Reproduce the findings loop end state: the watcher stops with
+  // `loop_same_findings`, the findings memory is already cleared, and the todo
+  // carries the watcher park marker WITHOUT a `failures` entry. A plain
+  // stopReason clear would leave it blocked forever.
+  await invoke('PATCH', '/api/workspace-watcher', { body: { mode: 'autopilot' } });
+  const todo = addTodo(dataDir, cwd, { title: 'Findings parked route', status: 'ready' }).item;
+  updateTodo(dataDir, cwd, todo.id, { blockedReason: WORKSPACE_WATCHER_PARKED_REASON });
+  mutateWorkspaceWatcherRow(cwd, () => ({
+    stopReason: 'loop_same_findings',
+    failures: {},
+    backoffUntil: '',
+    findings: { byTodo: {} },
+  }), { dataDir });
+
+  const cleared = await invoke('POST', '/api/workspace-watcher/clear-stop', { body: {} });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.watcher.stopReason, '');
+  assert.ok(
+    cleared.body.unblockedTodoIds.includes(todo.id),
+    'clear-stop reports the findings-parked todo as unblocked',
+  );
+  const unblocked = getTodoById(dataDir, cwd, todo.id);
+  assert.equal(unblocked.blockedReason, undefined, 'the findings park marker is cleared');
+  assert.equal(unblocked.status, 'ready', 'the todo returns to the claimable state');
+  // Leave the shared row clean for the later cases.
+  updateTodo(dataDir, cwd, todo.id, { status: 'done' });
 }));
 
 runCase('claim-next refuses with no ready work and succeeds with a ready todo', withApp(async (invoke) => {

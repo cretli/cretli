@@ -1,6 +1,7 @@
 import * as api from './core/api/index.js';
 import { t } from './i18n/index.js';
 import { escapeHtml } from './features/chat/chatHtmlUtils.js';
+import { getGitScope } from './features/git/gitScope.js';
 
 let githubTabVisible = false;
 let expandedRunId = null;
@@ -210,7 +211,7 @@ function toggleRunDetails(runId) {
 
 function loadRunJobs(runId) {
   renderRunJobs(runId, [], '');
-  api.getGithubWorkflowRunJobs(runId).then((data) => {
+  api.getGithubWorkflowRunJobs(runId, { scope: getGitScope() }).then((data) => {
     if (!data?.ok) {
       renderRunJobs(runId, [], data?.error || t('github.loadJobsFailed'));
       return;
@@ -226,7 +227,7 @@ function loadJobLogs(jobId) {
   if (!pre) return;
   pre.hidden = false;
   pre.textContent = t('github.loadingLogs');
-  api.getGithubWorkflowJobLogs(jobId).then((data) => {
+  api.getGithubWorkflowJobLogs(jobId, { scope: getGitScope() }).then((data) => {
     if (!data?.ok) {
       pre.textContent = data?.error || t('github.loadLogsFailed');
       return;
@@ -246,7 +247,7 @@ export function setGithubPanelRouter(showPanel) {
 }
 
 export function updateGithubTabVisibility() {
-  return api.getGithubInfo().then((info) => {
+  return api.getGithubInfo(getGitScope()).then((info) => {
     githubTabVisible = !!(info?.ok && info?.isGithub);
     const tabBtn = document.querySelector('.tab[data-panel="github"]');
     if (tabBtn) tabBtn.hidden = !githubTabVisible;
@@ -272,7 +273,7 @@ export function refreshGithubPanel() {
       renderRunsError(t('github.noGithubRemote'));
       return;
     }
-    return api.getGithubWorkflowRuns().then((data) => {
+    return api.getGithubWorkflowRuns({ scope: getGitScope() }).then((data) => {
       if (!data?.ok) {
         renderRunsError(data?.error || t('github.loadRunsFailed'));
         return;

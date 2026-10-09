@@ -18,6 +18,9 @@ import { shouldLoadHarnessModelCatalogs, resolveHarnessSelectValue } from './fea
 import { favoriteStarHtml, hasFavoriteHarness, subscribeToFavoriteModelChanges } from './features/chat/modelFavoriteMarker.js';
 import { initLocalHarnessPlugins, refreshLocalHarnessPlugins } from './features/settings/localHarnessPlugins.js';
 import { attachHarnessHealthRow } from './features/harness-health/harnessHealthCard.js';
+import { initHarnessDiagnostics, refreshHarnessDiagnosticsPanel } from './features/harness-health/harnessDiagnostics.js';
+import { initHarnessModelRoleConfig, refreshHarnessModelRoleConfigPanel } from './features/harness-health/harnessModelRoleConfig.js';
+import { initHarnessVersionCards } from './features/settings/harnessVersionCard.js';
 
 /** @typedef {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'codex' | 'qwen' | 'claude'} NewChatHarness */
 
@@ -378,7 +381,10 @@ export function ensureHarnessDefaultsLoaded() {
  * Initializes harness defaults UI (Settings → Harness).
  */
 export function initHarnessSettings() {
+  initHarnessVersionCards();
   initLocalHarnessPlugins();
+  initHarnessDiagnostics();
+  initHarnessModelRoleConfig();
   const selectEl = document.getElementById('default-new-chat-harness-select');
   const saveBtn = document.getElementById('default-new-chat-harness-save-btn');
   const statusEl = document.getElementById('default-new-chat-harness-save-status');
@@ -439,4 +445,6 @@ export function initHarnessSettings() {
 export function refreshHarnessSettingsPanel() {
   void loadDefaultHarnessFromServer({ includeModelUsage: shouldLoadHarnessModelCatalogs('settings') });
   void refreshLocalHarnessPlugins();
+  refreshHarnessDiagnosticsPanel();
+  refreshHarnessModelRoleConfigPanel();
 }
