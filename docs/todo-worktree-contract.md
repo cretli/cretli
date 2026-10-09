@@ -167,8 +167,10 @@ frozen record) stays synchronous.
 Manual integration is explicit: `POST /api/todos/:id/integration` with
 `action=prepare` builds the root-level diff and moves the root to
 `integration.state=ready` (evidence is honest: `outcome:'manual'`,
-`review.verified:false`, `test.outcome:'unknown'`); `confirm`/`reject` keep
-their meaning. The diff accumulates over all sibling leaves of the tree.
+`review.verified:false`, `test.outcome:'unknown'`); `action=merge` performs
+prepare plus the guarded three-way apply in one human step; `confirm`/`reject`
+keep their meaning. The diff accumulates over all sibling leaves of the tree.
+Any node of the tree may be named: the action resolves the worktree owner.
 
 ### 4.4 Freeze on start and retry — SETTLED
 
@@ -206,27 +208,42 @@ the plan gate stops a leaf. Not settled.
 
 ### 5.2 Dirty logical tree — SETTLED
 
-- If the logical workspace tree has uncommitted changes at start, `worktree`
-  mode **blocks the start by default**. The claim is rolled back, the leaf
-  returns to the pool with a readable reason, and nothing is silently stashed or
-  checked out.
+- The explicit start choice accepts `block | head | snapshot`; no choice
+  defaults to `block`. A saved setting never silently opts a run into `head` or
+  `snapshot`.
+- `block` refuses a dirty start and reports non-ignored changed paths. No state
+  is stashed, staged, checked out or committed.
+- `head` starts at the current HEAD. The record stores `baseKind: head` and the
+  paths omitted from the execution as `skippedPaths`.
+- `snapshot` starts at a commit representing the current index plus working
+  tree, including untracked non-ignored files. The commit is built with a
+  temporary index and retained under `refs/cretli/snapshots/<todo-id>`; the
+  record stores `baseKind: snapshot`, `snapshotOfHead` and `snapshotRef`.
+- Neither choice changes the user's worktree, index, stash or branches. The
+  selected base and path list are frozen in the worktree record across retries.
+  Cleanup removes the Cretli snapshot ref after the worktree is removed.
 - The same clean-tree precondition gates a sequential sibling that must take its
   base after an earlier sibling has been integrated: first-version integration is
   patch-based and commits nothing (S14/S15), so the logical tree stays dirty until
   something commits the integrated result. The mechanism that produces the clean
   tree (for example a human committing the integrated result in the logical repo)
   is **OPEN (O5)** and is not decided here; see §12.2 step 5.
-- The block is a preflight failure, not an execution failure: it does not count
-  toward the failure ceiling by itself `OPEN (O6)`.
+- The block is a preflight failure, not an execution failure, and does not
+  count toward the failure ceiling.
 - `project` mode keeps today's behavior (it runs in the existing folder; a dirty
   tree there is the current status quo).
 
-### 5.3 Working from HEAD — OPEN (O6)
+### 5.3 Working from HEAD or a snapshot — SETTLED (O6)
 
-Whether a `worktree` start may optionally proceed from HEAD despite a dirty
-logical tree (with an explicit list of the changes that are skipped) is not
-settled. If it is ever offered, it must be an explicit human choice that shows
-the skipped paths, must never stash, and must never become the default.
+The start dialog presents the dirty paths and requires the operator to choose
+manual commit, `head` (skip those changes) or `snapshot` (include them). Ignored
+files are not included. Both automated starts and retries without an existing
+frozen record continue to use the safe `block` default. A snapshot-based result
+is diffed against its snapshot base. The explicit **Apply patch to workspace**
+action performs a three-way merge against a temporary index containing the
+current logical-tree contents, then applies the merged delta to the worktree
+only. A conflict is reported before changing files; the user's index is not
+written. The operator reviews the result and separately confirms integration.
 
 ## 6. Worktree location, naming and branches
 
@@ -544,11 +561,25 @@ version as follows.
   never re-picked and is reported as `user_action` (reason `integration_ready`)
   rather than `recoverable`.
 - Manual actions: `POST /api/todos/:id/integration` with `action=prepare`
-  (manual starts only: builds the root diff and marks `integration.state=ready`,
-  keeping `status=doing`), `action=confirm` (CAS `expectedUpdatedAt`, sets
-  `status=done` and unblocks siblings) or `action=reject` (sets `status=ready`
-  with a rejection reason; the worktree and its patch are preserved). No
-  automatic merge/rebase/cherry-pick exists.
+  (builds the diff and marks `integration.state=ready`, keeping `status=doing`),
+  `action=merge` (explicit human "integrate with workspace": prepare when needed,
+  then apply the guarded three-way merge to the logical working tree),
+  `action=apply`, `action=confirm` (CAS `expectedUpdatedAt`, sets `status=done`
+  and unblocks siblings) or `action=reject` (sets `status=ready` with a rejection
+  reason; the worktree and its patch are preserved). No automatic
+  merge/rebase/cherry-pick exists: every one of these runs only on an explicit
+  human request, commits nothing and reports conflicts before touching a file.
+- Any node of a tree may name the todo: the action resolves the worktree OWNER by
+  walking from the requested node up to the root and taking the first node with a
+  live record. A Watcher cycle keys the claimed LEAF, a manual Todo start keys the
+  tree ROOT, and a tree that was closed as `done` without integration is still
+  integrable. A `done` container whose children are all `done` is re-derived to
+  `done` by `synchronizeTodoParentStatuses`, so `integration.state=ready` — not a
+  forced `doing` — is what keeps the result awaiting a human decision.
+- `GET /api/todos` carries a per-item `worktree` summary
+  (`{ live, ownerTodoId, branch, worktreePath, baseCommit, executionState,
+  integrationState }`) for every node of a tree that has a live worktree, so the
+  Todo panel can offer integration from a subtask row.
 
 ## 9. Result persistence
 
@@ -729,7 +760,6 @@ is neither auto-released to `ready` nor re-executed; S2 stays blocked.
 | O3 | Exact worktree base path, per-workspace namespace, branch/directory naming schema. | Candidate: `<data-root>/worktrees/<workspace-key>/<todo-id>`. |
 | O4 | Handling of existing/foreign branches, orphaned branches, and a registered worktree missing on disk. | Settled constraints: no force removal, no adoption on name, no silent recreation; the choice is open. |
 | O5 | Are local commits ever allowed, and under what explicit policy? | Analyses are not consent; no commits until agreed. Also patch format/storage details. |
-| O6 | Is a "work from HEAD despite dirty tree" option offered, and does the dirty-tree block count toward the failure ceiling? | Must list skipped changes and stay non-default. |
 | O7 | Do plan-only cycles create a worktree eagerly or only once execution starts? | Affects the freeze guarantee and empty-worktree cleanup. |
 | O8 | Who confirms integration and rejection, and does rejection auto-retry or wait for a human? | Default assumption: human, manual integration. Exact action open. |
 | O9 | Retry/normalization after rejection or integration failure: reuse the old worktree/branch or start a fresh one? | Must not lose unaccepted work. |

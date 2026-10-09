@@ -1,0 +1,33 @@
+# Cretli memory/orphan safety-net monitor.
+#
+# Copy to ~/.config/systemd/user/cretli-memory-monitor.service (or /etc/systemd/system/
+# for a system service) and adjust WorkingDirectory / ExecStart for your install.
+#
+# The monitor is read-only: it never signals a process. It appends alarms to
+# data/memory-monitor-alerts-YYYY-MM-DD.jsonl and keeps data/memory-monitor-state.json
+# so one alert per episode is written. Run it as the SAME user that runs Cretli so
+# it can read data/opencode-ports.json and the earlyoom journal.
+#
+# Exit code 1 means "a threshold is exceeded". SuccessExitStatus maps that to a
+# successful unit so systemd does not mark the unit failed on every episode; the
+# alarm itself is delivered through the JSONL file and the Cretli notification
+# centre. Remove "1" from SuccessExitStatus if you prefer `systemctl status` to
+# show the breach.
+
+[Unit]
+Description=Cretli memory/orphan monitor (one-shot)
+Documentation=file:/path/to/cretli/docs/server-diagnostics.md
+
+[Service]
+Type=oneshot
+WorkingDirectory=/path/to/cretli
+ExecStart=/usr/bin/node /path/to/cretli/scripts/memory-orphan-monitor.js
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# Optional threshold overrides (see docs/server-diagnostics.md):
+# Environment=CRETLI_MEMORY_MONITOR_MEM_CRITICAL_MB=4096
+# Environment=CRETLI_MEMORY_MONITOR_MEM_WARN_MB=6144
+# Environment=CRETLI_MEMORY_MONITOR_SWAP_USED_RATIO=0.5
+# Environment=CRETLI_MEMORY_MONITOR_MAX_OPENCODE=10
+SuccessExitStatus=0 1
+UMask=0077

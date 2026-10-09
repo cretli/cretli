@@ -103,7 +103,9 @@ export function buildSidebarChatRowHtml(chat, activeChatId, opts, deps) {
     + '</span>'
     + '<span class="sidebar-chat-item-main">'
     + '<span class="sidebar-chat-item-title">'
+    + '<span class="sidebar-chat-item-title-text">'
     + escapeHtml(chat.title)
+    + '</span>'
     + (archived
       ? '<span class="sidebar-chat-item-temp-badge" title="'
         + escapeHtml(t('chatUi.archivedChat'))
@@ -117,6 +119,13 @@ export function buildSidebarChatRowHtml(chat, activeChatId, opts, deps) {
       : '')
     + (chat.todoId
       ? '<span class="sidebar-chat-item-todo-badge" title="' + escapeHtml(t('sidebar.todoTitle')) + '">Todo</span>'
+      : '')
+    + (chat.onWorktree
+      ? '<span class="sidebar-chat-item-worktree-badge" role="img" title="'
+        + escapeHtml(t('sidebar.worktreeTitle'))
+        + '" aria-label="'
+        + escapeHtml(t('sidebar.worktreeTitle'))
+        + '"><span class="mdi mdi-source-branch" aria-hidden="true"></span></span>'
       : '')
     + (chat.widgetPinnedUrl
       ? '<span class="sidebar-chat-item-pin-badge" title="' + escapeHtml(t('sidebar.pinnedUrlTitle')) + '">URL</span>'

@@ -27,6 +27,17 @@ For Token Plan, paste its `tp-...` or `ttp-...` key and the exact OpenAI-compati
 
 Each workspace folder gets its own OpenCode server instance and port. Cretli attaches to an existing serve when health checks pass.
 
+## Instance limit (opt-in)
+
+By default Cretli starts one `opencode serve` process per OpenCode chat and sets no cap — the historical behaviour is unchanged. Because every instance costs roughly 250 MB, an operator can set a hard cap:
+
+- `CRETLI_OPENCODE_MAX_INSTANCES` (environment), or
+- `opencodeMaxInstances` (Settings API / `data/config.json`).
+
+An empty, `0`, or invalid value means **no limit**. When a new instance would exceed the cap, Cretli first closes the least-recently-used **idle** instance (`refCount === 0`, no active run). If every live instance is busy, the new chat is refused with the error code `opencode_instance_limit`; no active run is killed and nothing hangs. Instances are never shared between chats — the per-chat `session:<workspace>\0<sessionKey>` isolation is preserved. `GET /api/diagnostics/server` reports the current counts as `opencode: { live, pending, limit }`.
+
+Delegation-child instances can optionally use a shorter idle-shutdown window with `CRETLI_OPENCODE_DELEGATION_IDLE_MS` (ms) or `opencodeDelegationIdleMs`; empty/`0` keeps the shared 90 s default for all chats.
+
 ## Interactive skills in the UI
 
 | Skill | UI | Action |
@@ -58,6 +69,7 @@ The chat shows **“Needs action”** while a question or permission is pending.
 |---------|-------------|
 | Prompt times out | Increase **SDK run idle timeout** in Settings (`sdkRunIdleTimeoutSeconds`) |
 | “OpenCode client unavailable” | Check `opencode` binary path; inspect server logs for serve startup |
+| `opencode_instance_limit` | All OpenCode instances are busy and a cap is set. Close an idle OpenCode chat, or raise `CRETLI_OPENCODE_MAX_INSTANCES` / `opencodeMaxInstances` |
 | `spawn opencode EACCES` | Cretli is not root but PATH still includes `/root/...` (typical Cursor remote). Restart after this fix — unreadable PATH dirs are dropped and a found CLI (`opencodeBin`, bundled `opencode-*`, or `~/.opencode/bin`) is prepended |
 | Stale serve / wrong port | Stop orphan `opencode serve` processes; restart Cretli |
 | `Permission still in terminal` / `Permission request not found` | Restart Cretli after this harness fix; replies now send workspace `directory` (and fall back to `/permission/{id}/reply`). Upgrade OpenCode if the prompt still never appears. |

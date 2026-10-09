@@ -26,8 +26,8 @@ import { recoverWorkspaceWatcherTodo } from '../lib/workspace-watcher-todo-recov
 import { startWorkspaceWatcherCycle, reportWorkspaceWatcherCycle } from '../lib/workspace-watcher-cycle.js';
 import { releaseWorkspaceWatcherCycleTodoClaim } from '../lib/workspace-watcher-cycle-close.js';
 import { prepareWorkspaceWatcherExecution } from '../lib/workspace-watcher-worktree.js';
-import { collectWorktreeExecutionDiff } from '../lib/worktree/git-worktree.js';
-import { removeWorktree } from '../lib/worktree-manager.js';
+import { applyWorktreeExecutionPatch, collectWorktreeExecutionDiff } from '../lib/worktree/git-worktree.js';
+import { ensureWorktree, removeWorktree } from '../lib/worktree-manager.js';
 import { buildWorkspaceWatcherCyclePromptPlan } from '../lib/workspace-watcher-prompt.js';
 import {
   confirmWorkspaceTodoIntegration,
@@ -36,7 +36,7 @@ import {
   rejectWorkspaceTodoIntegration,
 } from '../lib/workspace-watcher-integration.js';
 import { WORKTREE_ERROR_CODES, WorktreeError } from '../lib/worktree/worktree-errors.js';
-import { createTempRepo, tempDir, worktreeConfig } from './helpers/temp-git-repo.js';
+import { createTempRepo, git, tempDir, worktreeConfig } from './helpers/temp-git-repo.js';
 
 const T0 = Date.parse('2026-06-01T10:00:00.000Z');
 
@@ -193,6 +193,42 @@ test('collectWorktreeExecutionDiff includes tracked changes and new files', asyn
   assert.deepEqual(paths, ['README.md', 'new-file.txt']);
   assert.match(diff.patch, /new file mode/);
   assert.match(diff.patch, /new-file\.txt/);
+});
+
+test('snapshot integration applies a reviewed patch without changing the user index', (t) => {
+  const suite = makeSuite('snapshot-apply');
+  t.after(suite.cleanup);
+  fs.appendFileSync(path.join(suite.repo, 'README.md'), 'local change\n');
+  const created = ensureWorktree({ todoId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', workspaceFolder: suite.repo, mode: 'worktree', config: worktreeConfig(suite.baseDir), registryOptions: { dataDir: suite.dataDir }, dirtyPolicy: 'snapshot' });
+  fs.writeFileSync(path.join(created.record.worktreePath, 'README.md'), '# agent result\n');
+  const diff = collectWorktreeExecutionDiff({ worktreePath: created.record.worktreePath, baseCommit: created.record.baseCommit });
+  const patchPath = path.join(suite.dataDir, 'snapshot.patch');
+  fs.writeFileSync(patchPath, diff.patch);
+  const indexBefore = git(suite.repo, ['write-tree']).trim();
+  const applied = applyWorktreeExecutionPatch({ workspaceFolder: suite.repo, baseCommit: created.record.baseCommit, patchPath });
+  assert.equal(applied.applied, true);
+  assert.equal(fs.readFileSync(path.join(suite.repo, 'README.md'), 'utf8'), '# agent result\n');
+  assert.equal(git(suite.repo, ['write-tree']).trim(), indexBefore);
+});
+
+test('snapshot integration refuses a same-path conflict without changing the workspace', (t) => {
+  const suite = makeSuite('snapshot-conflict');
+  t.after(suite.cleanup);
+  fs.appendFileSync(path.join(suite.repo, 'README.md'), 'snapshot line\n');
+  const created = ensureWorktree({ todoId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', workspaceFolder: suite.repo, mode: 'worktree', config: worktreeConfig(suite.baseDir), registryOptions: { dataDir: suite.dataDir }, dirtyPolicy: 'snapshot' });
+  fs.writeFileSync(path.join(created.record.worktreePath, 'README.md'), '# agent result\n');
+  const diff = collectWorktreeExecutionDiff({ worktreePath: created.record.worktreePath, baseCommit: created.record.baseCommit });
+  const patchPath = path.join(suite.dataDir, 'snapshot.patch');
+  fs.writeFileSync(patchPath, diff.patch);
+  fs.writeFileSync(path.join(suite.repo, 'README.md'), '# user changed the same file\n');
+  const before = fs.readFileSync(path.join(suite.repo, 'README.md'), 'utf8');
+  assert.throws(
+    () => applyWorktreeExecutionPatch({ workspaceFolder: suite.repo, baseCommit: created.record.baseCommit, patchPath }),
+    (error) => error.code === WORKTREE_ERROR_CODES.INTEGRATION_CONFLICT
+      && Array.isArray(error.details?.conflicts)
+      && error.details.conflicts.includes('README.md'),
+  );
+  assert.equal(fs.readFileSync(path.join(suite.repo, 'README.md'), 'utf8'), before);
 });
 
 test('a worktree PASS records the result, keeps the todo doing and is replay-safe', async (t) => {

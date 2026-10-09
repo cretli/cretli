@@ -90,12 +90,6 @@ export async function refreshGitContextBadge(options = {}) {
     return;
   }
   const seq = ++requestSeq;
-  // The badge is only meaningful for a real chat/task context; a bare global
-  // workspace has no task-specific branch to show.
-  if (!scope.chatId) {
-    hideBadge();
-    return;
-  }
   let info = null;
   try {
     info = await api.getGitInfo(scope);
@@ -104,8 +98,23 @@ export async function refreshGitContextBadge(options = {}) {
     return;
   }
   if (seq !== requestSeq) return;
-  if (!info?.ok || !shouldShowGitContextBadge(info)) {
+  if (!info?.ok || (scope.chatId && !shouldShowGitContextBadge(info))) {
     hideBadge();
+    return;
+  }
+  if (!scope.chatId) {
+    const branch = String(info.worktree?.branch || info.branch || '').trim();
+    if (!branch) {
+      hideBadge();
+      return;
+    }
+    const label = t('git.contextGlobal');
+    lastState = { scope };
+    el.hidden = false;
+    el.textContent = branch;
+    el.title = `${label}: ${branch}`;
+    el.dataset.kind = 'workspace';
+    el.setAttribute('aria-label', `${label}: ${branch}`);
     return;
   }
   const badge = deriveGitContextBadge(info, t);

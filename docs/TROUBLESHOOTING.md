@@ -100,3 +100,90 @@ but can also mean diagnostics could not be written or the daily file reached
 its 4 MiB cap. Error events are rate-limited to one record per minute. Use the
 process manager journal to distinguish those cases. See
 [Server diagnostics and automatic restart](server-diagnostics.md) for setup.
+
+## 5. Memory pressure: earlyoom killed the server
+
+A machine-level safety net runs before the killer does: the read-only
+`scripts/memory-orphan-monitor.js` (systemd timer or cron, ~1 minute) alarms on
+low `MemAvailable`, swap pressure, orphaned OpenCode processes and other
+thresholds, and the server surfaces those alarms in the notification centre.
+Set it up from `systemd/cretli-memory-monitor.*.example`; see
+[Server diagnostics](server-diagnostics.md#memory-and-orphan-monitor-machine-level-safety-net).
+
+When the host runs [`earlyoom`](https://github.com/rfjakob/earlyoom), the server
+can be the first victim. A Node process is often one of the largest RSS
+consumers, and a `--prefer` regex such as the default `^(node|...)` gives it a
+large score bonus, so the killer picks the server over short-lived children. The
+result looks like step 4: the process dies without a `process-exit` event.
+
+**Generic guidance (not machine-specific).** On a host that runs agent
+harnesses and a frontend watcher, prefer the short-lived children over the
+long-running server:
+
+```text
+--prefer ^(node|opencode|chrom|webpack|claude|codex|dsh|qwen|codebuddy|cretli-mcp)
+```
+
+`claude`, `codex`, `dsh` (DeepSeek), `qwen` and `codebuddy` are the harness CLI
+names the server currently spawns; `chrom` covers Chromium. The server also owns
+every long-lived child in `data/child-processes.json` and reclaims orphans on the
+next start (see §6), so a hard kill of one of them is recoverable.
+
+Keep the memory threshold at its normal value (`10%` for the default
+two-threshold setup) and keep `--avoid` for the processes that must never be
+killed. **Do not add `cretli` to `--avoid`** — the server renames its own
+process early (`process.title = 'cretli'` in `server.js`), so `/proc/<pid>/comm`
+is `cretli` and no longer matches `^(node|...)`. Renaming is the mechanism that
+takes the server out of the preference match; `--avoid` is not needed.
+
+**Conscious cost of this choice.** A preferred regex can kill an active agent
+harness before the server. That is intended: a killed harness ends its run with
+a visible error and the chat can be resumed by sending the prompt again, while a
+killed server drops every connected session at once. If killing a harness run is
+unacceptable, prefer only the disposable watchers (`webpack`) and leave harnesses
+out — at the price of the server being a likelier victim under pressure.
+
+The earlyoom flags live outside this repository. Apply them to the host service
+(for example `earlyoom` flags in `/etc/default/earlyoom` on Debian/Ubuntu) and
+restart that service. Cretli does not manage or restart it.
+
+## 6. Shutdown order: OpenCode and owned children are stopped first
+
+`SIGTERM`/`SIGINT` (and the production fatal paths, plus an HTTP server error
+before `listen`) run the shutdown handler in two phases:
+
+1. **Synchronous phase, never awaited.** Stop admitting work — new chat runs and
+   delegations are refused (`beginServerShutdown`, `beginDelegationShutdown`) —
+   then adopt the classified harness descendants and block/SIGTERM every owned
+   process: OpenCode instances and booting children (`beginOpenCodeShutdown`) plus
+   PTYs, MCP stdio, review-verify runners and harness CLI children from the child
+   registry (`registerServerDescendants` + `beginChildProcessShutdown`). The
+   detached restart helper is never signalled.
+2. **Bounded phase.** Wait up to ~1.2 s for the OpenCode SIGTERMs and ~0.8 s for
+   the child registry, escalate the survivors to SIGKILL, wait ~0.4 s each to
+   confirm and persist the result (`finishOpenCodeShutdown`,
+   `finishChildProcessShutdown`). Only then is the browser closed and the
+   delegation runtime flushed.
+
+If the handler never runs (`SIGKILL`, earlyoom's hard kill), the next start
+reclaims the orphans: `data/opencode-ports.json` for OpenCode and
+`data/child-processes.json` for everything else. Both sweeps only signal PIDs
+recorded with a live owner check and a `/proc/<pid>/stat` start-time match, so a
+recycled PID is never killed; the restart helper is skipped by cmdline.
+
+**Conscious cost.** Signalling OpenCode first cuts chats and delegations that are
+in flight. That is intended: under earlyoom or a restart those runs cannot finish
+anyway, and the useful outcomes are freeing ~250 MB per instance immediately and
+recording the runs as interrupted, not draining them. The deliberate exception is
+developer quality of life in dev: a non-production `uncaughtException` /
+`unhandledRejection` only logs and records, it does not run this cleanup, so one
+rejected promise never kills live chats.
+
+`scripts/task-restart-server.sh` kills the old server and waits 5 s before a hard
+`kill -9`. That window is kept above the worst-case OpenCode escalation budget
+(booting child: 1.2 s pending wait + 1.2 s SIGTERM grace + 0.4 s SIGKILL confirm)
+plus the child-process phase (0.8 s SIGTERM grace + 0.4 s SIGKILL confirm = 1.2 s),
+about 4.0 s in total, so both phases and their escalations always finish before the
+hard kill. Lowering the `sleep` there without lowering the manager constants, or
+the reverse, would silently orphan OpenCode and harness/PTY processes.
+

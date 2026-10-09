@@ -222,7 +222,7 @@ Tasks (.vscode)      → /ws-task        → node-pty
 Scheduled agents     → /ws-agent-run   → node-pty (Cursor CLI)
 Agent run (legacy)   → /ws-agent       → node-pty (rejected for harness chats)
 Server log viewer    → /ws-server-logs → in-memory log buffer
-Front hot fallback   → /ws-front-build → watch events (CRETLI_FRONT_HOT_FALLBACK=1)
+Front hot fallback   → /ws-front-build → dist watch events (default on; CRETLI_FRONT_HOT_FALLBACK=0 disables)
 ```
 
 ## Shared sessions
@@ -617,8 +617,19 @@ a hidden session is never invisible.
   `cr-icon-button`, `cr-dialog`). Settings Workspace is the visual reference.
   Do not override control height on a scrolling container; keep save footers
   as siblings of the scroll body. Agent rule: `.cursor/rules/cretli-ui.mdc`.
-- HMR in dev via `webpack-dev-middleware` + `webpack-hot-middleware` on the same Express
-  server (`/__webpack_hmr`). Production build: `npm run build:front:prod`.
+- Frontend dev build: the default path is the **external CLI watcher**
+  (`npm run watch:front` / VS Code task `Cretli: build front (watch)`) using
+  `app_front/scripts/webpack-cli-watch.mjs` with an exclusive lock in `data/`; it
+  writes `public/dist/app/` and never loads webpack into `server.js`. The browser
+  picks the new bundle up through the PWA update banner
+  (`app_front/features/pwa/pwaUpdatePrompt.js` polls `/api/health`
+  `frontAssetVersion`). HMR in the server process
+  (`webpack-dev-middleware` + `webpack-hot-middleware`, `/__webpack_hmr`) is
+  **opt-in only**: `CRETLI_FRONT_HMR=1` (legacy `CURSOR_REMOTE_FRONT_HMR=1`).
+  One-shot dev compile: `npm run build:front`. Production build:
+  `npm run build:front:prod`. HMR (`lib/front-hmr.js` and its two dev
+  dependencies) is slated for removal; `lib/ws/front-build-ws.js` still watches
+  `public/dist/app` (`/ws-front-build`), but no client consumes it yet.
 - Mobile: `visualViewport` keyboard offset, fixed send bar with safe-area insets, radial
   Kib gesture, special-char bar, screenshot/dictation support.
 - Chat list metadata persistence (IndexedDB stage 5): isolation contract and SDK vs
@@ -883,6 +894,77 @@ LLM) plus a short-lived LLM orchestrator started only when a cycle is needed.
   (`lib/workspace-watcher-live.js`, `lib/agent-presence-bus.js`), so no extra
   socket is opened. Todo rows show a "claimed by chat" / "queued" badge from the
   claim fields.
+
+## Child process lifecycle
+
+The server is a process parent for more than OpenCode. `lib/child-process-registry.js`
+is the single ownership registry for every long-lived child it must not leak
+(`data/child-processes.json`), mirroring the OpenCode ownership registry:
+
+- **Runtime registration.** `trackChildProcess(ptyOrChild, { type, label })` records
+  `{ pid, type, label, startedAt, owner server pid/start/token }` and releases the
+  entry on exit. `installChildProcessSpawnTracking()` wraps `child_process.spawn`
+  so harness CLI and long-lived tool-shell (`bash -lc`) children are written to the
+  registry immediately; a debounced descendant scan runs right after each new entry.
+  `startChildProcessDiscovery()` (every 20 s, plus once at boot) still adopts any
+  classified **descendants** the SDK spawned without going through a tracked site.
+- **Graceful shutdown.** Phase 1 `beginChildProcessShutdown()` synchronously
+  SIGTERMs each registered process group once and is idempotent; phase 2
+  `finishChildProcessShutdown()` waits, escalates survivors to SIGKILL, confirms
+  exit and drops the registry entries. Both run inside
+  `shutdownDelegationAndExit` between the OpenCode phases and the browser teardown.
+- **`SIGKILL` / earlyoom.** Nothing runs in the dying process, so the next start
+  calls `reconcileChildProcessRegistry()`, which kills only entries whose owner
+  server is dead and whose recorded `/proc/<pid>/stat` start time still matches
+  (a recycled PID is never signalled). The sweep is bounded by
+  `CHILD_PROCESS_SWEEP_TOTAL_BUDGET_MS` so boot does not stall on many orphans.
+- **Never touched.** Chromium is owned by `browserManager`, `opencode serve` by
+  `opencode-server-manager`, and the deliberately detached restart helper
+  (`scripts/restart-server-helper.js`) is excluded by `isRestartHelperCmdline`. The
+  sweep only ever signals PIDs present in the registry file, never a process the
+  user started independently.
+
+**Why this mechanism.** `PR_SET_PDEATHSIG` needs a native addon or a per-child
+wrapper (more memory per harness), and a cgroup/systemd supervisor needs host
+configuration outside the repository. The ownership registry plus a synchronous
+first-phase group kill and a startup sweep needs no new infrastructure, reuses
+the proven OpenCode lifecycle and is the only option that also covers a
+`SIGKILL`ed server once it is restarted; the harness CLI children whose PID the
+SDK hides are adopted by periodic descendant discovery.
+
+### Spawn inventory
+
+`Survives?` is about the parent dying by `SIGKILL` (a graceful shutdown signals
+the registry). “PTY” children are session leaders; closing the PTY master sends
+`SIGHUP`, but a harness that ignores it or detaches grandchildren can leak.
+On Linux, a plain `spawn` with piped stdio also survives (`stdin: 'ignore'`
+leaks even on stdin EOF) — verified 2026-10-09 with a Node child reparented to a
+subreaper. `node-pty` could not be exercised in that sandbox (`forkpty(3)`
+denied), so PTY rows are reasoned, not observed.
+
+| Spawn site | Type | Survives `SIGKILL`? | Mechanism |
+|-----------|------|---------------------|-----------|
+| `lib/ws/pty-ws-handler.js` `pty.spawn` | terminal / agent PTY | SIGHUP normally; can survive if ignored | `trackChildProcess` registry, phase 1/2, startup sweep |
+| `lib/ws/task-ws-handler.js` `pty.spawn` (shell and exec) | task run | as above | registry |
+| `lib/ws/agent-run-ws-handler.js` `pty.spawn` (interactive and scheduler) | agent run | as above | registry |
+| `lib/dev-build.js` `pty.spawn` | front-build watch | as above | registry |
+| `lib/mcp/mcp-runtime.js` `StdioClientTransport` | MCP stdio bridge | usually stdin EOF, not guaranteed | `registerChildProcess` + `closeTransport`, phase 1/2, sweep |
+| `lib/sdk/sdk-review-verify.js` `spawn(process.execPath, [test])` | review-verify test runner | **yes** (`stdin: 'ignore'`) | `trackChildProcess`, phase 1/2, sweep |
+| `lib/{claude,codex,deepseek,qwen,codebuddy}/…-agent-ws.js` + `lib/sdk/cursor-agent-sdk-ws.js` SDK CLI children | harness CLI | library-dependent; pipe EOF usually, can linger | periodic descendant discovery, phase 1/2, sweep |
+| `lib/chat-title-plan-runners.js`, `lib/fork-title.js`, `lib/codex/codex-device-login.js`, `lib/codebuddy/codebuddy-models.js`, `lib/codex/codex-models-refresh.js`, `lib/harness-versions.js` | one-shot harness helper CLI | short-lived | descendant discovery |
+| `lib/opencode/opencode-server-manager.js` `spawn(..., { detached: true })` | `opencode serve` (+ its group) | yes | OpenCode ownership registry, `begin/finishOpenCodeShutdown`, OpenCode startup sweep |
+| `lib/browser/session-manager.js` (Playwright) | Chromium | yes | `browserManager.closeAll` + `startupSweep` |
+| `lib/agent-harness/tool-executor.js` (`bash -lc`; `rg` stays transient) | tool shell | can outlive a prompt | spawn hook + `trackChildProcess`, phase 1/2, sweep |
+| `lib/self-update.js` `spawn('bash', [script])` | self-update | yes, and must finish | intentionally not registered |
+| `lib/routes/dev-actions-routes.js` `spawn(helper, { detached: true })` | restart helper | yes, by design | never registered; excluded by `isRestartHelperCmdline` |
+| `spawnSync` / `execFileSync` helpers (`git-cli`, `secret-scan`, `workspace-scout-git`, `worktree/git-worktree`, `delegation-metrics`, `github-token`, `sdk-history-isolation-probe`, …) | one-shot synchronous | no (done before the call returns) | not needed |
+
+`killChildProcessTree` reuses `killProcessTree`/`createOpenCodeProcessProbes`
+from `lib/opencode/opencode-port-registry.js` and adds a recursive descendant
+walk, so a child that shares the server's process group (MCP stdio, review-verify)
+cannot leak its grandchildren. `scripts/task-restart-server.sh` keeps a 5 s
+window above the combined escalation budget
+(`OPENCODE_SHUTDOWN_TOTAL_MS + CHILD_PROCESS_SHUTDOWN_TOTAL_MS`).
 
 ## Known limitations
 

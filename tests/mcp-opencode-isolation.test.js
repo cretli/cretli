@@ -20,8 +20,7 @@ const collisionA = await chooseOpenCodeListenPort({
   span: 2000,
   preferredOffset: 10,
   occupied: new Map(),
-  ownerOf: () => null,
-  isHealthy: () => false,
+  isOccupied: () => false,
 });
 const collisionB = await chooseOpenCodeListenPort({
   instanceKey: 'session-b',
@@ -29,24 +28,21 @@ const collisionB = await chooseOpenCodeListenPort({
   span: 2000,
   preferredOffset: 10,
   occupied: new Map([[collisionA.port, 'session-a']]),
-  ownerOf: (port) => (port === collisionA.port ? 'session-a' : null),
-  isHealthy: (port) => port === collisionA.port,
+  isOccupied: (port) => port === collisionA.port,
 });
 assert.equal(collisionA.port, 4106);
-assert.equal(collisionA.attach, false);
 assert.equal(collisionB.port, 4107);
-assert.equal(collisionB.attach, false);
-const reattachA = await chooseOpenCodeListenPort({
+// A busy port is never attached to: even the same instance key takes the next
+// free port so this server only ever owns what it spawned itself.
+const busyOwnPort = await chooseOpenCodeListenPort({
   instanceKey: 'session-a',
   portBase: 4096,
   span: 2000,
   preferredOffset: 10,
-  occupied: new Map([[collisionA.port, 'session-a']]),
-  ownerOf: (port) => (port === collisionA.port ? 'session-a' : null),
-  isHealthy: (port) => port === collisionA.port,
+  occupied: new Map(),
+  isOccupied: (port) => port === collisionA.port,
 });
-assert.equal(reattachA.port, collisionA.port);
-assert.equal(reattachA.attach, true);
+assert.equal(busyOwnPort.port, 4107);
 
 const raceOccupied = new Map();
 const waitMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -58,8 +54,7 @@ const [raceA, raceB] = await Promise.all([
     preferredOffset: 10,
     occupied: raceOccupied,
     reserve: false,
-    ownerOf: () => null,
-    isHealthy: async () => {
+    isOccupied: async () => {
       await waitMs(40);
       return false;
     },
@@ -71,8 +66,7 @@ const [raceA, raceB] = await Promise.all([
     preferredOffset: 10,
     occupied: raceOccupied,
     reserve: false,
-    ownerOf: () => null,
-    isHealthy: async () => {
+    isOccupied: async () => {
       await waitMs(40);
       return false;
     },

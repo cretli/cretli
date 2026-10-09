@@ -493,7 +493,7 @@ async function onIntegrationDecision(e) {
   const id = String(detail.id || '').trim();
   const revision = String(detail.revision || '').trim();
   const requested = String(detail.action || '').trim();
-  const action = ['prepare', 'reject', 'confirm'].includes(requested) ? requested : 'confirm';
+  const action = ['prepare', 'apply', 'reject', 'confirm'].includes(requested) ? requested : 'confirm';
   const ctx = getWorkspaceContext();
   if (!id || !revision || !ctx.workspaceFolder) return;
   const card = e.currentTarget instanceof HTMLElement ? e.currentTarget : null;
@@ -504,7 +504,7 @@ async function onIntegrationDecision(e) {
     feedback.textContent = message;
     feedback.dataset.tone = isError ? 'error' : 'status';
   };
-  const busyMessage = action === 'prepare' ? t('todo.integrationPreparing') : t('todo.integrationSaving');
+  const busyMessage = action === 'prepare' ? t('todo.integrationPreparing') : action === 'apply' ? t('todo.integrationApplying') : t('todo.integrationSaving');
   showFeedback(busyMessage);
   setStatus(busyMessage);
   try {
@@ -512,7 +512,7 @@ async function onIntegrationDecision(e) {
     if (!result?.ok) {
       const message = action === 'prepare'
         ? t('todo.integrationPrepareFailed')
-        : String(result?.error || '') === 'conflict'
+        : ['conflict', 'integration_conflict'].includes(String(result?.error || ''))
           ? t('todo.integrationConflict')
           : t('todo.integrationFailed');
       showFeedback(message, true);
@@ -524,7 +524,9 @@ async function onIntegrationDecision(e) {
     openEditor(id);
     const success = action === 'prepare'
       ? t('todo.integrationPrepared')
-      : action === 'reject'
+      : action === 'apply'
+        ? t('todo.integrationApplied')
+        : action === 'reject'
         ? t('todo.integrationRejected')
         : t('todo.integrationConfirmed');
     showFeedback(success);
@@ -829,6 +831,11 @@ function renderRowMenuItems(row, list) {
       disabled: chats.length === 0 && !item.chatId && !item.sourceChat?.id,
     },
     { id: 'newChat', icon: 'mdi-robot-outline', label: t('todo.continueNewChat') },
+    // Only offered when the item's tree really owns an un-integrated worktree;
+    // a permanently disabled row on every other task would be noise.
+    ...(canIntegrateWorktree(item)
+      ? [{ id: 'integrate', icon: 'mdi-source-merge', label: t('todo.integrationMerge') }]
+      : []),
     { id: 'delete', icon: 'mdi-delete-outline', label: t('todo.delete'), danger: true },
   ];
   list.textContent = '';
@@ -953,8 +960,63 @@ async function runRowMenuAction(action, item) {
     openTodoStartPicker(item);
     return;
   }
+  if (action === 'integrate') {
+    await mergeTodoWithWorkspace(item);
+    return;
+  }
   if (action === 'delete') {
     await deleteTodoWithConfirm(id);
+  }
+}
+
+/**
+ * The tree owns a live worktree (the server summary is keyed by the tree ROOT,
+ * so every node of the tree reports it) and its result is not integrated yet.
+ *
+ * @param {object} item
+ * @returns {boolean}
+ */
+function canIntegrateWorktree(item) {
+  const summary = item?.worktree;
+  if (summary?.live !== true) return false;
+  return String(summary.integrationState || '') !== 'integrated';
+}
+
+/**
+ * Explicit human integration from the row menu: apply the worktree result to the
+ * logical workspace through the server's guarded three-way merge. The task stays
+ * `doing` with `integration.state = ready`, so the card still offers
+ * confirm/reject.
+ *
+ * @param {object} item
+ */
+async function mergeTodoWithWorkspace(item) {
+  const id = String(item?.id || '').trim();
+  const ctx = getWorkspaceContext();
+  if (!id || !ctx.workspaceFolder) return;
+  const ownerTodoId = String(item?.worktree?.ownerTodoId || id).trim();
+  const branch = String(item?.worktree?.branch || '').trim() || t('todo.gitBadgeGeneric');
+  if (!confirmAction(t('todo.integrationMergeConfirm', { branch }))) return;
+  setStatus(t('todo.integrationMerging'));
+  try {
+    const result = await api.integrateTodo(id, ctx.workspaceFolder, 'merge', '');
+    if (!result?.ok) {
+      const conflicts = Array.isArray(result?.conflicts) ? result.conflicts.filter(Boolean) : [];
+      const error = String(result?.error || '');
+      const message = error === 'no_worktree'
+        ? t('todo.integrationNoWorktree')
+        : error === 'integration_conflict'
+          ? t('todo.integrationMergeConflict', { paths: conflicts.join(', ') || '—' })
+          : t('todo.integrationMergeFailed');
+      setStatus(message, true);
+      return;
+    }
+    await refreshTodoList();
+    await refreshWatcherPanel();
+    openEditor(ownerTodoId);
+    setStatus(result.alreadyApplied ? t('todo.integrationMergedAlready') : t('todo.integrationMerged'));
+  } catch {
+    setStatus(t('todo.networkError'), true);
   }
 }
 
@@ -1565,6 +1627,7 @@ async function startTodoAgentOnce(todoId, options = {}) {
     workspaceFolder: ctx.workspaceFolder,
     model: String(options.model || 'auto'),
     agentTransport: harness,
+    ...(options.dirtyPolicy ? { dirtyPolicy: options.dirtyPolicy } : {}),
   };
   if (forceNew) payload.forceNew = true;
   try {
@@ -1576,6 +1639,10 @@ async function startTodoAgentOnce(todoId, options = {}) {
       data = await pollTodoStartAgentStatus(todoId, ctx.workspaceFolder, forceNew);
     }
     if (!data?.ok || !data.chat) {
+      if (data?.code === 'WORKTREE_DIRTY' && Array.isArray(data.details?.dirtyPaths)) {
+        const choice = await chooseDirtyWorktreePolicy(data.details.dirtyPaths);
+        if (choice) return startTodoAgentOnce(todoId, { ...options, dirtyPolicy: choice });
+      }
       setStatus(data?.error || t('todo.startAgentFailed'), true);
       return;
     }
@@ -1589,6 +1656,38 @@ async function startTodoAgentOnce(todoId, options = {}) {
   } catch {
     setStatus(t('todo.networkError'), true);
   }
+}
+
+/** Ask the operator how to handle a dirty logical worktree before retrying. */
+function chooseDirtyWorktreePolicy(paths) {
+  return new Promise((resolve) => {
+    const dialog = document.createElement('cr-dialog');
+    dialog.heading = t('todo.worktreeDirtyChoiceTitle');
+    dialog.style.setProperty('--cr-dialog-max-width', '42rem');
+    const content = document.createElement('div');
+    const description = document.createElement('p');
+    description.textContent = t('todo.worktreeDirtyChoiceHint');
+    const list = document.createElement('pre');
+    list.textContent = paths.map((file) => String(file)).join('\n');
+    list.style.cssText = 'max-height: 12rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;';
+    content.append(description, list);
+    dialog.appendChild(content);
+    const actions = document.createElement('div');
+    actions.setAttribute('slot', 'actions');
+    const addAction = (label, value) => {
+      const button = document.createElement('cr-bar-button');
+      button.textContent = label;
+      button.addEventListener('click', () => { dialog.remove(); resolve(value); }, { once: true });
+      actions.appendChild(button);
+    };
+    addAction(t('todo.worktreeDirtyCommit'), null);
+    addAction(t('todo.worktreeDirtyHead'), 'head');
+    addAction(t('todo.worktreeDirtySnapshot'), 'snapshot');
+    dialog.appendChild(actions);
+    dialog.addEventListener('cr-dialog-close', () => { dialog.remove(); resolve(null); }, { once: true });
+    document.body.appendChild(dialog);
+    dialog.show();
+  });
 }
 
 /** How long the UI waits for a 202 worktree prepare before giving up. */

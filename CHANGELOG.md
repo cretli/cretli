@@ -6,7 +6,97 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- **Opt-in cap on live OpenCode instances.** `CRETLI_OPENCODE_MAX_INSTANCES` or
+  the `opencodeMaxInstances` setting caps simultaneously live `opencode serve`
+  processes. Empty/`0`/invalid means no limit, so the default behaviour is
+  unchanged. At the cap Cretli first closes the least-recently-used idle
+  instance (`refCount === 0`); when every instance is busy the new chat is
+  refused with the readable `opencode_instance_limit` code instead of killing
+  active work, and the per-chat instance isolation is untouched. Delegation
+  children can opt into a shorter idle window with
+  `CRETLI_OPENCODE_DELEGATION_IDLE_MS`. `GET /api/diagnostics/server` reports
+  `opencode: { live, pending, limit }`. Covered by
+  `tests/opencode-instance-limit.test.js` and
+  `tests/health-opencode-stats.test.js`.
+
+- **Integrate a worktree from the Todo row menu.** The `⋮` menu of any node of a
+  worktree tree now offers *Integrate with workspace*: it prepares the diff when
+  needed and applies it to the logical working tree through the same guarded
+  three-way merge the integration panel uses. Nothing is committed, pushed or
+  merged at the Git level, a conflict is reported with the exact conflicting paths
+  before any file is touched, and the task keeps its confirm/reject decision.
+  `POST /api/todos/:id/integration` accepts `action=merge`, and every integration
+  action now resolves the worktree owner from any node of the tree (Watcher keys
+  the claimed leaf, manual starts key the root), so a tree closed as `done`
+  without integration is no longer stranded. `GET /api/todos` reports a per-item
+  `worktree` summary. Covered by `tests/todo-manual-worktree.test.js`.
+
+- **Explicit worktree starts from dirty workspaces.** `block` remains the
+  default; manual Todo starts can choose HEAD (with skipped paths shown) or a
+  snapshot of tracked and untracked non-ignored changes. Snapshots use a
+  temporary Git index, are pinned to a Cretli ref, and retain their base across
+  retries. The integration panel can apply the reviewed patch with a guarded
+  three-way merge that keeps the user's index unchanged. Cleanup removes the
+  snapshot ref. Covered by `tests/worktree-manager.test.js` and
+  `tests/workspace-watcher-integration.test.js`.
+
+- **Machine-level memory and orphan safety net.** `scripts/memory-orphan-monitor.js`
+  (run by a systemd timer or cron, about once a minute, outside the server so it
+  survives a server kill) is read-only — it never signals a process. It alarms on
+  low `MemAvailable` (critical/warning thresholds), swap pressure (used over half
+  or a fast rise), orphaned `opencode serve` processes whose registry owner PID
+  **and** `/proc` start time are dead (never `PPID == 1`, so WSL Relay
+  re-parenting is handled), a high total OpenCode count, duplicate webpack
+  watchers per project + config realpath, and new earlyoom kill events read with
+  a journald cursor. Alarms go to `data/memory-monitor-alerts-YYYY-MM-DD.jsonl`;
+  one alarm per episode is written and the server publishes them into the
+  notification centre on start and every minute, so an alarm written while the
+  server was down is visible after the next start. Thresholds are configurable
+  through `CRETLI_MEMORY_MONITOR_*` variables; example units live next to
+  `systemd/cretli.service.example`. Covered by `tests/memory-monitor.test.js`.
+
+### Changed
+
+- **In-process webpack HMR is opt-in.** `npm start` no longer mounts the
+  `webpack-dev-middleware` compiler inside `server.js`; the default dev path is
+  the external `npm run watch:front` CLI watcher plus the PWA update banner
+  (which polls `/api/health` `frontAssetVersion`). Enable HMR only with
+  `CRETLI_FRONT_HMR=1` (legacy `CURSOR_REMOTE_FRONT_HMR`, or `npm run start:hmr`).
+  A 5-minute isolated measurement showed server RSS at ~164 MB with HMR off vs
+  ~696 MB with HMR on. The dist watcher behind `/ws-front-build` is now on by
+  default (`CRETLI_FRONT_HOT_FALLBACK=0` disables). `lib/front-hmr.js` and the two
+  dev middlewares stay for a trial period before removal. Covered by
+  `tests/front-hmr-mode.test.js` and `tests/front-hmr-default-off.test.js`.
+
 ### Fixed
+
+- **No harness, MCP or PTY child is left behind after a server kill.** Beyond
+  OpenCode, the server now owns every long-lived child in a single registry
+  (`data/child-processes.json`): PTY sessions (terminal, task runs, agent runs,
+  the front-build watch), MCP stdio bridges, review-verify test runners and the
+  harness CLI children discovered under the server. Phase 1 of the shutdown
+  handler SIGTERMs them synchronously and phase 2 escalates survivors to SIGKILL;
+  after a `SIGKILL`/earlyoom the next start sweeps the registry and kills only
+  orphans whose recorded owner is dead and whose `/proc/<pid>/stat` start time
+  still matches, so a recycled PID is never touched. The deliberately detached
+  restart helper is excluded by cmdline. Harness CLI and long-lived tool-shell
+  children are registered at `spawn` time (not only on the 20 s discovery tick);
+  phase 2 no longer sends a second SIGTERM after phase 1; orphan sweeps respect a
+  total time budget. Verified in `tests/child-process-registry.test.js`; the spawn
+  inventory lives in `docs/ARCHITECTURE.md` § Child process lifecycle.
+
+- **OpenCode is stopped at the start of shutdown.** `kill <pid>` now SIGTERMs
+  every owned `opencode serve` process group from the first, synchronous step of
+  the `SIGTERM`/`SIGINT` handler (and from the production fatal paths), without
+  waiting for the browser/delegation teardown that used to run first. A bounded
+  second phase waits ~1.2 s, escalates survivors to SIGKILL and persists the
+  result; a start still in flight closes the instance it spawned instead of
+  publishing it after the map was drained. New chat runs and delegations are
+  refused from the same first step. `scripts/task-restart-server.sh` now waits
+  5 s before `kill -9`, above the worst-case escalation budget, so a dev restart
+  no longer orphans OpenCode. Documented in `docs/TROUBLESHOOTING.md` §6.
 
 - A worktree-mode start no longer dead-ends when the worktree layout was never
   configured. Both the manual Todo start and the autopilot cycle now **derive the
@@ -20,6 +110,14 @@ All notable changes to this project are documented here. The format is based on
   `tests/execution-settings-suggest.test.js`.
 
 ### Added
+
+- **Worktree marker in the sidebar**: chats whose task tree currently owns a live
+  worktree show a compact `Worktree` badge next to the `Todo` badge, so it is
+  obvious which conversations run in an isolated directory. `GET /api/chats`
+  reads the worktree registry once and annotates those rows (`onWorktree`), the
+  runtime list reconcile and the cold-start boot cache preserve the flag, and the
+  sidebar/repaint signatures react to it, so the badge clears as soon as the
+  worktree is cleaned. Covered by `tests/chat-list-worktree-badge.test.js`.
 
 - Workspace Watcher **worktree layout settings**: Settings → Workspace Watcher →
   Settings → *Execution folder (worktree)* now exposes the policy default

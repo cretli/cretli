@@ -6,6 +6,14 @@
  * restores the view.
  */
 
+// Rename the process as early as this module runs so `/proc/<pid>/comm` (set via
+// libuv's prctl(PR_SET_NAME)) no longer reads `node`. ESM evaluates static
+// imports before this line, but the title is still set before `listen()` and
+// long-lived harness work. This keeps the server out of the earlyoom
+// `--prefer ^(node|...)` match, so under memory pressure the killer targets a
+// child (OpenCode, webpack, a harness) instead of the server.
+process.title = 'cretli';
+
 import express from 'express';
 import compression from 'compression';
 import { resolveServerTransport, exitOnTlsFailure } from './lib/server-tls.js';
@@ -45,9 +53,20 @@ import { createVersionedHtmlSender } from './lib/versioned-html.js';
 import { createWorkspaceContext, isTaskRunInScope } from './lib/workspace-context.js';
 import { createClientDebugLog } from './lib/client-debug-log.js';
 import { installFrontHmrMiddleware } from './lib/front-hmr.js';
+import { resolveFrontHmrEnabled, resolveFrontHmrEnabledFromSettings } from './lib/front-hmr-mode.js';
 import { buildInteractivePtyEnv as buildPtyEnv } from './lib/pty-env.js';
 import { registerAppRoutes, registerDevAndUpdateRoutes } from './lib/register-app-routes.js';
-import { bootDelegationRuntime, shutdownDelegationRuntime, installDelegationTestAdapters } from './lib/delegation-runtime-boot.js';
+import { bootDelegationRuntime, shutdownDelegationRuntime, installDelegationTestAdapters, beginDelegationShutdown } from './lib/delegation-runtime-boot.js';
+import { beginServerShutdown } from './lib/update-gate.js';
+import { createFatalProcessEventHandler } from './lib/process-fatal.js';
+import {
+  beginChildProcessShutdown,
+  finishChildProcessShutdown,
+  installChildProcessSpawnTracking,
+  reconcileChildProcessRegistry,
+  registerServerDescendants,
+  startChildProcessDiscovery,
+} from './lib/child-process-registry.js';
 import { logServerReady } from './lib/boot-log.js';
 import { isHttpTimingEnabled } from './lib/routes/settings-routes.js';
 import {
@@ -76,6 +95,7 @@ import { purgeBrowserScreenshotRoot } from './lib/browser/screenshot-file.js';
 import { getWorkspacePolicy } from './lib/browser/policy-store.js';
 import { configureBrowserAgentRuntime } from './lib/browser/agent-tools.js';
 import { createServerDiagnostics } from './lib/server-diagnostics.js';
+import { publishMemoryMonitorAlerts } from './lib/notifications/memory-monitor-producer.js';
 
 setModelScoreRows(loadModelScoreRows());
 
@@ -123,27 +143,41 @@ const serverDiagnostics = createServerDiagnostics({
   serverStartedAt: SERVER_STARTED_AT,
 });
 const IS_PROD = process.env.NODE_ENV === 'production';
+/**
+ * Late-bound shutdown hook. A fatal event during boot (before the async
+ * shutdown handler exists) exits directly; once booted, the hook runs the full
+ * cleanup, whose first phase is synchronous.
+ */
+let fatalProcessShutdown = () => {
+  process.exit(1);
+};
+const handleFatalProcessEvent = createFatalProcessEventHandler({
+  isProd: IS_PROD,
+  record: (kind, error) => {
+    serverDiagnostics.record(kind, {
+      errorName: String(error?.name || (kind === 'unhandled-rejection' ? 'UnhandledRejection' : 'Error')).slice(0, 80),
+      message: error?.message || String(error),
+    }, { fatal: IS_PROD });
+  },
+  shutdown: (kind) => {
+    fatalProcessShutdown(kind);
+  },
+});
 process.on('uncaughtException', (err) => {
   console.error('[fatal] uncaughtException:', err?.stack || err?.message || err);
-  serverDiagnostics.record('uncaught-exception', {
-    errorName: String(err?.name || 'Error').slice(0, 80),
-    message: err?.message || String(err),
-  }, { fatal: IS_PROD });
-  if (IS_PROD) {
+  const outcome = handleFatalProcessEvent({ kind: 'uncaught-exception', error: err });
+  if (outcome.terminate) {
     console.error('[fatal] Terminating process (production) — restart via a process manager.');
-    process.exit(1);
   }
+  if (outcome.terminate && !outcome.shutdownCalled) process.exit(1);
 });
 process.on('unhandledRejection', (reason) => {
   console.error('[fatal] unhandledRejection:', reason?.stack || reason?.message || reason);
-  serverDiagnostics.record('unhandled-rejection', {
-    errorName: String(reason?.name || 'UnhandledRejection').slice(0, 80),
-    message: reason?.message || String(reason),
-  }, { fatal: IS_PROD });
-  if (IS_PROD) {
+  const outcome = handleFatalProcessEvent({ kind: 'unhandled-rejection', error: reason });
+  if (outcome.terminate) {
     console.error('[fatal] Terminating process (production).');
-    process.exit(1);
   }
+  if (outcome.terminate && !outcome.shutdownCalled) process.exit(1);
 });
 serverDiagnostics.start();
 let serverRestartScheduled = false;
@@ -151,24 +185,23 @@ const FRONT_HMR_ENV_RAW = readEnvAlias({
   current: 'CRETLI_FRONT_HMR',
   legacy: 'CURSOR_REMOTE_FRONT_HMR',
 });
-const FRONT_HMR_FORCED_BY_ENV = typeof FRONT_HMR_ENV_RAW !== 'undefined' && FRONT_HMR_ENV_RAW !== '';
-function resolveFrontHmrEnabledFromSettings(settings) {
-  if (settings && typeof settings.frontHmrEnabled === 'boolean') return settings.frontHmrEnabled;
-  return true;
-}
-const FRONT_HMR_ENABLED =
-  process.env.NODE_ENV !== 'production' &&
-  (
-    FRONT_HMR_FORCED_BY_ENV
-      ? (FRONT_HMR_ENV_RAW !== '0' && FRONT_HMR_ENV_RAW !== 'false')
-      : resolveFrontHmrEnabledFromSettings(loadSettings())
-  );
+const FRONT_HMR_FORCED_BY_ENV = FRONT_HMR_ENV_RAW !== '';
+// HMR in the server process is opt-in: a truthy env value is the only switch.
+// The external `watch:front` CLI watcher is the default dev path, so a plain
+// `npm start` must never load webpack into this process. `settings.frontHmrEnabled`
+// only feeds the Settings UI and the restart helper (which re-launches the
+// server with the explicit env value).
+const FRONT_HMR_ENABLED = resolveFrontHmrEnabled({
+  nodeEnv: process.env.NODE_ENV,
+  envRaw: FRONT_HMR_ENV_RAW,
+});
 const FRONT_HOT_FALLBACK_ENV = readEnvAlias({
   current: 'CRETLI_FRONT_HOT_FALLBACK',
   legacy: 'CURSOR_REMOTE_FRONT_HOT_FALLBACK',
 });
+// The dist watcher replaced HMR as the default, so it is on unless explicitly off.
 const FRONT_HOT_FALLBACK_ENABLED =
-  FRONT_HOT_FALLBACK_ENV === '1' || FRONT_HOT_FALLBACK_ENV === 'true';
+  FRONT_HOT_FALLBACK_ENV !== '0' && FRONT_HOT_FALLBACK_ENV !== 'false';
 
 const app = express();
 const PUBLIC_DIR = String(process.env.CRETLI_PUBLIC_DIR || '').trim() || path.join(__dirname, 'public');
@@ -407,6 +440,8 @@ registerAppRoutes(app, {
   serverInstanceToken: SERVER_INSTANCE_TOKEN,
   serverStartedAt: SERVER_STARTED_AT,
   getFrontAssetVersion: currentFrontAssetVersion,
+  // Resolved lazily: the OpenCode manager is imported after routes register.
+  getOpenCodeInstanceStats: () => openCodeManager?.getOpenCodeInstanceStats?.() || null,
   useHttps,
   port: PORT,
   frontHmrEnabled: FRONT_HMR_ENABLED,
@@ -519,10 +554,86 @@ if (!lanSetupGuard.ok) {
 await installDelegationTestAdapters();
 void bootDelegationRuntime();
 let delegationShutdownStarted = false;
-async function shutdownDelegationAndExit(signal) {
+/**
+ * OpenCode manager module, preloaded next to the startup sweep so the first
+ * shutdown phase can call `beginOpenCodeShutdown()` synchronously. Null only
+ * during early boot, when no OpenCode instance can exist yet.
+ *
+ * @type {typeof import('./lib/opencode/opencode-server-manager.js') | null}
+ */
+let openCodeManager = null;
+
+/**
+ * @param {string} signal
+ * @param {{ exitCode?: number }} [options]
+ */
+async function shutdownDelegationAndExit(signal, options = {}) {
   if (delegationShutdownStarted) return;
   delegationShutdownStarted = true;
+  const forcedExitCode = Number.isInteger(options.exitCode) ? options.exitCode : null;
   serverDiagnostics.record('shutdown-signal', { signal });
+
+  // Phase 1 — synchronous, never awaited. Refuse new chats/delegations, block
+  // new OpenCode instances and SIGTERM every OpenCode process group. This is a
+  // deliberate first step: under earlyoom or a restart those runs cannot finish
+  // anyway, so freeing their memory and marking them interrupted is worth more
+  // than a graceful drain. See docs/TROUBLESHOOTING.md §6.
+  beginServerShutdown();
+  beginDelegationShutdown();
+  let openCodePhaseOne = null;
+  try {
+    openCodePhaseOne = openCodeManager?.beginOpenCodeShutdown?.() || null;
+  } catch (err) {
+    console.error(`[cretli] ${signal}: OpenCode phase-1 signal error: ${err?.message || err}`);
+  }
+  // Phase 1 for every other owned child: adopt SDK-managed harness CLI
+  // descendants first, then SIGTERM the whole registry synchronously. The
+  // detached restart helper is excluded by the registry.
+  let childPhaseOne = null;
+  try {
+    registerServerDescendants();
+  } catch (err) {
+    console.error(`[cretli] ${signal}: child-process descendant discovery error: ${err?.message || err}`);
+  }
+  try {
+    childPhaseOne = beginChildProcessShutdown();
+  } catch (err) {
+    console.error(`[cretli] ${signal}: child-process phase-1 signal error: ${err?.message || err}`);
+  }
+
+  // Phase 2 — bounded wait, SIGKILL escalation and state persistence. Only
+  // after this do the slow browser and delegation teardowns run.
+  let openCodeResult = null;
+  try {
+    openCodeResult = openCodeManager?.finishOpenCodeShutdown
+      ? await openCodeManager.finishOpenCodeShutdown()
+      : null;
+  } catch (err) {
+    console.error(`[cretli] ${signal}: OpenCode shutdown phase error: ${err?.message || err}`);
+  }
+  serverDiagnostics.record('shutdown-opencode', {
+    signal,
+    ...(openCodePhaseOne || {}),
+    ...(openCodeResult || {}),
+  });
+  if (openCodeResult && !openCodeResult.ok) {
+    console.error(`[cretli] ${signal}: OpenCode shutdown incomplete; ${openCodeResult.remaining.length} process(es) survived SIGKILL`);
+  }
+  let childResult = null;
+  try {
+    childResult = await finishChildProcessShutdown();
+  } catch (err) {
+    console.error(`[cretli] ${signal}: child-process shutdown phase error: ${err?.message || err}`);
+  }
+  serverDiagnostics.record('shutdown-child-processes', {
+    signal,
+    ...(childPhaseOne || {}),
+    ...(childResult || {}),
+  });
+  if (childResult && !childResult.ok) {
+    console.error(`[cretli] ${signal}: child-process shutdown incomplete; ${childResult.remaining.length} process(es) survived SIGKILL`);
+  }
+
   // Browser sessions are ephemeral: close Chromium before exiting.
   try {
     browserManager.stopSweep();
@@ -532,11 +643,25 @@ async function shutdownDelegationAndExit(signal) {
   } catch (err) {
     console.error(`[cretli] ${signal}: browser shutdown error: ${err?.message || err}`);
   }
-  const result = await shutdownDelegationRuntime({ timeoutMs: 8000 });
-  const code = result.ok ? 0 : 1;
+  let result = { ok: false, timedOut: true };
+  try {
+    result = await shutdownDelegationRuntime({ timeoutMs: 8000 });
+  } catch (err) {
+    console.error(`[cretli] ${signal}: delegation shutdown error: ${err?.message || err}`);
+  }
+  const code = forcedExitCode !== null ? forcedExitCode : (result.ok ? 0 : 1);
   console.error(`[cretli] ${signal}: delegation shutdown ${result.ok ? 'complete' : 'timed out'}`);
   process.exit(code);
 }
+// Fatal paths that really end the process must run the same cleanup as a
+// signal. Dev never reaches this: the fatal handler does not terminate in dev.
+fatalProcessShutdown = (kind) => {
+  // Best-effort fallback so a wedged async cleanup cannot hang the process
+  // forever; phase 1 has already signalled OpenCode synchronously.
+  const fallbackTimer = setTimeout(() => process.exit(1), 15000);
+  if (typeof fallbackTimer.unref === 'function') fallbackTimer.unref();
+  void shutdownDelegationAndExit(kind, { exitCode: 1 });
+};
 process.on('SIGTERM', () => {
   void shutdownDelegationAndExit('SIGTERM');
 });
@@ -549,11 +674,65 @@ server.on('error', (err) => {
     errorName: String(err?.name || 'Error').slice(0, 80),
     message: err?.message || String(err),
   }, { fatal: !server.listening });
-  if (!server.listening) process.exit(1);
+  if (!server.listening) void shutdownDelegationAndExit('server-error', { exitCode: 1 });
 });
+// A SIGKILL/earlyoom never reaches shutdownDelegationAndExit, so any OpenCode
+// process owned by the previous Cretli server is an orphan. Reclaim them from
+// the ownership registry before the first instance of this process exists.
+try {
+  openCodeManager = await import('./lib/opencode/opencode-server-manager.js');
+  const sweep = await openCodeManager.reconcileOpenCodePortRegistry();
+  const summary = [
+    sweep.killed.length ? `stopped ${sweep.killed.length}` : '',
+    sweep.removed.length ? `removed ${sweep.removed.length}` : '',
+    sweep.kept.length ? `kept ${sweep.kept.length}` : '',
+  ].filter(Boolean).join(', ');
+  if (summary) console.log(`[cretli] OpenCode startup sweep: ${summary}`);
+} catch (err) {
+  console.warn('[cretli] OpenCode startup sweep failed:', err?.message || err);
+}
+// Same reclaim for the other owned children (PTY, MCP stdio, review-verify,
+// harness CLI). A graceful shutdown already stopped them; this is the SIGKILL /
+// earlyoom path. The detached restart helper is never signalled.
+try {
+  const childSweep = await reconcileChildProcessRegistry();
+  const childSummary = [
+    childSweep.killed.length ? `stopped ${childSweep.killed.length}` : '',
+    childSweep.removed.length ? `removed ${childSweep.removed.length}` : '',
+    childSweep.kept.length ? `kept ${childSweep.kept.length}` : '',
+  ].filter(Boolean).join(', ');
+  if (childSummary) console.log(`[cretli] child-process startup sweep: ${childSummary}`);
+} catch (err) {
+  console.warn('[cretli] child-process startup sweep failed:', err?.message || err);
+}
+try {
+  const { killExternalBuildProcesses } = await import('./lib/dev-build.js');
+  killExternalBuildProcesses();
+} catch (err) {
+  console.warn('[cretli] webpack CLI watch startup sweep failed:', err?.message || err);
+}
+// Register harness CLI children at spawn time and keep periodic discovery as a
+// backstop for SDK subprocesses that bypass our spawn sites.
+installChildProcessSpawnTracking();
+startChildProcessDiscovery();
 server.listen(PORT, BIND_HOST, () => {
   serverDiagnostics.record('server-listen');
   installServerLogCapture();
+  // Surface memory/orphan alarms the machine-level monitor wrote while this
+  // server was down, then keep polling so alarms written while it is up show up
+  // without a restart. The notification store dedupes by fingerprint.
+  const refreshMemoryMonitorAlerts = () => {
+    void publishMemoryMonitorAlerts({ dataDir })
+      .then((summary) => {
+        if (summary.published > 0) {
+          console.log(`[cretli] memory monitor: published ${summary.published} alert(s) to the notification centre`);
+        }
+      })
+      .catch((err) => console.warn('[cretli] memory monitor alert publish failed:', err?.message || err));
+  };
+  refreshMemoryMonitorAlerts();
+  const memoryMonitorAlertTimer = setInterval(refreshMemoryMonitorAlerts, 60_000);
+  memoryMonitorAlertTimer.unref?.();
   if (FRONT_HOT_FALLBACK_ENABLED) installFrontBuildWatcher(__dirname, SERVER_INSTANCE_TOKEN);
   setInterval(() => runAgentsScheduler(wsRouterCtx), AGENTS_SCHEDULER_INTERVAL_MS);
   logServerReady({

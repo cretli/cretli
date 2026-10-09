@@ -66,18 +66,25 @@ before touching webpack. Short version:
 
 ## Frontend build
 
-The front is usually built in the background by the VS Code/Cursor task
-`Cretli: build front (watch)`.
+The front is usually rebuilt in the background by the VS Code/Cursor task
+`Cretli: build front (watch)` (`npm run watch:front` — one exclusive CLI
+webpack watcher per config; lock files live under `data/`).
 
 - Do **not** ask the user to run a build.
-- Do **not** run `npm run build:front` / `npm run build:front:prod` after every
+- Do **not** run `npm run watch:front` / `npm run build:front:prod` after every
   `app_front/` change — assume the watcher updates `public/dist/`.
-- Manual build only if the user asks or the watcher is clearly down.
+- `npm run build:front` is a **one-shot** dev build (`--no-watch`); use it when
+  the watcher is down or the user wants a single compile.
+- Manual watch restart only if the user asks or the watcher is clearly down.
 
-Default dev mode is **HMR on the same Express server**
-(`webpack-dev-middleware` + `webpack-hot-middleware`, `__webpack_hmr`).
-`CRETLI_FRONT_HMR=0` disables it. `CURSOR_REMOTE_FRONT_HOT_FALLBACK=1`
-enables the old watch + `/ws-front-build` path. Leave HMR as the default.
+Default dev mode is the **external CLI watcher** (`npm run watch:front`, VS Code
+task `Cretli: build front (watch)`) writing `public/dist/app/`; the browser picks
+it up through the PWA update banner (`/api/health` `frontAssetVersion`). HMR in
+the server process is **opt-in only** — `CRETLI_FRONT_HMR=1` (legacy
+`CURSOR_REMOTE_FRONT_HMR=1`, or `npm run start:hmr`). A plain `npm start` must
+never load webpack into `server.js`. `CURSOR_REMOTE_FRONT_HOT_FALLBACK=0`
+disables the dist watcher (on by default). `lib/front-hmr.js` and
+`webpack-dev-middleware`/`webpack-hot-middleware` are slated for removal.
 
 ## Server restart vs brief disconnect
 

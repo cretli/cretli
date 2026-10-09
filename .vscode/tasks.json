@@ -4,19 +4,23 @@
     {
       "label": "Cretli: build front (watch)",
       "type": "shell",
-      "command": "npm run dev",
+      "command": "npm run watch:front",
       "options": { "cwd": "${workspaceFolder}/app_front" },
       "isBackground": true,
       "problemMatcher": {
         "pattern": { "regexp": "^.*$", "file": 1, "location": 2, "message": 3 },
-        "background": { "activeOnStart": true, "beginsPattern": ".", "endsPattern": "webpack compiled" }
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "webpack compiled"
+        }
       },
       "presentation": { "reveal": "always", "panel": "dedicated" }
     },
     {
       "label": "Cretli: build widget (watch)",
       "type": "shell",
-      "command": "npm run dev:widget",
+      "command": "npm run watch:widget",
       "options": { "cwd": "${workspaceFolder}/app_front" },
       "isBackground": true,
       "problemMatcher": {
@@ -37,6 +41,18 @@
       "type": "shell",
       "command": "bash -c 'echo \"Starting server...\"; export USE_HTTPS=1; export CURSOR_REMOTE_BIND=0.0.0.0; exec npm start'",
       "options": { "cwd": "${workspaceFolder}", "env": { "USE_HTTPS": "1", "CURSOR_REMOTE_BIND": "0.0.0.0" } },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "^.*$", "file": 1, "location": 2, "message": 3 },
+        "background": { "activeOnStart": true, "beginsPattern": ".", "endsPattern": "Cretli: https?://localhost:\\d+" }
+      },
+      "presentation": { "reveal": "always", "panel": "dedicated", "focus": false }
+    },
+    {
+      "label": "Cretli: start server (HMR)",
+      "type": "shell",
+      "command": "bash -c 'echo \"Starting server with in-process HMR (opt-in)...\"; export USE_HTTPS=1; export CURSOR_REMOTE_BIND=0.0.0.0; export CRETLI_FRONT_HMR=1; exec npm start'",
+      "options": { "cwd": "${workspaceFolder}", "env": { "USE_HTTPS": "1", "CURSOR_REMOTE_BIND": "0.0.0.0", "CRETLI_FRONT_HMR": "1" } },
       "isBackground": true,
       "problemMatcher": {
         "pattern": { "regexp": "^.*$", "file": 1, "location": 2, "message": 3 },

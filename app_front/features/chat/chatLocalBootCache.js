@@ -150,6 +150,7 @@ export function sanitizeChatRowForBootCache(chat) {
   if (compressionReset !== undefined) row.autoContextCompressionReset = compressionReset;
   if (/** @type {{ isTemporary?: unknown }} */ (chat).isTemporary === true) row.isTemporary = true;
   if (/** @type {{ watcherPinned?: unknown }} */ (chat).watcherPinned === true) row.watcherPinned = true;
+  if (/** @type {{ onWorktree?: unknown }} */ (chat).onWorktree === true) row.onWorktree = true;
   const harnessState = /** @type {{ harnessState?: unknown }} */ (chat).harnessState;
   if (harnessState && typeof harnessState === 'object') {
     const code = readTrimmed(/** @type {{ code?: unknown }} */ (harnessState).code);

@@ -12260,10 +12260,19 @@ body.theme-light .sidebar-chat-item-harness--codex img {
 
 .sidebar-chat-item-title {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  font-size: 0.85rem;
+}
+
+.sidebar-chat-item-title-text {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.85rem;
 }
 
 // Title + transient push-inbox preview stacked so the preview reads as a
@@ -12299,7 +12308,9 @@ body.theme-light .sidebar-chat-item-harness--codex img {
 
 .sidebar-chat-item-temp-badge,
 .sidebar-chat-item-todo-badge,
+.sidebar-chat-item-worktree-badge,
 .sidebar-chat-item-pin-badge {
+  flex: 0 0 auto;
   display: inline-block;
   margin-left: 0.25rem;
   padding: 0 0.25rem;
@@ -12323,6 +12334,17 @@ body.theme-light .sidebar-chat-item-harness--codex img {
 .sidebar-chat-item-todo-badge {
   background: var(--cr-success-bg);
   color: var(--cr-success);
+}
+
+.sidebar-chat-item-worktree-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  color: var(--cr-accent);
+  font-size: 0.68rem;
+  line-height: 1;
 }
 
 // Parent-row summary of the settled subchats folded away underneath it.

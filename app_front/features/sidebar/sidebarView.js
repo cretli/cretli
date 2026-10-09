@@ -1555,6 +1555,7 @@ export function createSidebarView(deps) {
             chatFavorites.isFavorite(c.id) ? '1' : '0',
             c.forkParentChatId || '',
             c.todoId ? 'D' : '',
+            c.onWorktree ? 'W' : '',
             c.widgetPinnedUrl || '',
           ].join(':'),
         )
@@ -1601,6 +1602,7 @@ export function createSidebarView(deps) {
                   chatFavorites.isFavorite(c.id) ? '1' : '0',
                   c.forkParentChatId || '',
                   c.todoId ? 'D' : '',
+                  c.onWorktree ? 'W' : '',
                   c.widgetPinnedUrl || '',
                 ].join(':'),
               )

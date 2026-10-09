@@ -1003,14 +1003,16 @@ export async function retryWorkspaceWatcherTodo(todoId, workspaceFolder) {  cons
 }
 
 /**
- * Human integration of a worktree result. `confirm` marks the todo done and
- * unblocks its sequential siblings; `reject` returns it to ready with a reason.
- * The worktree is always preserved; nothing is merged automatically.
+ * Human integration of a worktree result. `merge` prepares the diff when needed
+ * and applies it to the logical workspace through a guarded three-way merge;
+ * `confirm` marks the todo done and unblocks its sequential siblings; `reject`
+ * returns it to ready with a reason. The worktree is always preserved and
+ * nothing is committed, pushed or merged at the Git level.
  */
 export async function integrateTodo(todoId, workspaceFolder, action, expectedUpdatedAt, reason = '') {
   const id = String(todoId || '').trim();
   const folder = String(workspaceFolder || '').trim();
-  const mode = ['confirm', 'reject', 'prepare'].includes(action) ? action : 'confirm';
+  const mode = ['confirm', 'reject', 'prepare', 'apply', 'merge'].includes(action) ? action : 'confirm';
   if (!id || !folder) return { ok: false, error: 'Missing task or workspace' };
   return apiFetchJson(
     `/api/todos/${encodeURIComponent(id)}/integration`,

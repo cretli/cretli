@@ -7,6 +7,10 @@ const baseUrl = process.env.CHAT_E2E_BASE_URL || `http://127.0.0.1:${resolvedPor
 const isMobileViewport = process.env.CHAT_E2E_MOBILE === '1';
 const e2eAuthDir = process.env.CHAT_E2E_AUTH_DIR || path.resolve('.tmp/e2e-auth');
 const e2eHomeDir = process.env.CHAT_E2E_HOME_DIR || path.resolve('.tmp/e2e-home');
+// The e2e server must not share data/ with a running dev server: the OpenCode
+// ownership registry (opencode-ports.json) would otherwise let the e2e startup
+// sweep touch instances that belong to the developer's server.
+const e2eDataDir = process.env.CHAT_E2E_DATA_DIR || path.resolve('.tmp/e2e-data');
 const chromiumExecutablePath = process.env.CHAT_E2E_CHROMIUM_EXECUTABLE_PATH || undefined;
 const enableVideo = process.env.CHAT_E2E_VIDEO === '1';
 
@@ -37,7 +41,7 @@ export default defineConfig({
   },
   outputDir: 'test-results/playwright',
   webServer: {
-    command: `HOME="${e2eHomeDir}" CURSOR_RIPGREP_PATH=./node_modules/.bin/rg USE_HTTPS=0 PORT=${resolvedPort} CURSOR_REMOTE_TEST_DATA_DIR="${e2eAuthDir}" bash ./scripts/start-server-node22.sh`,
+    command: `mkdir -p "${e2eDataDir}" && HOME="${e2eHomeDir}" CURSOR_RIPGREP_PATH=./node_modules/.bin/rg USE_HTTPS=0 PORT=${resolvedPort} CRETLI_DATA_DIR="${e2eDataDir}" CURSOR_REMOTE_DATA_DIR="${e2eDataDir}" CURSOR_REMOTE_TEST_DATA_DIR="${e2eAuthDir}" bash ./scripts/start-server-node22.sh`,
     url: `${baseUrl}/api/health`,
     timeout: 180_000,
     reuseExistingServer: !process.env.CI,

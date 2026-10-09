@@ -79,6 +79,43 @@ test('dirty logical tree blocks a new worktree (S6)', (t) => {
   );
 });
 
+test('explicit head start freezes skipped paths and leaves the dirty tree untouched', (t) => {
+  const { repo, config, registryOptions } = setup(t);
+  fs.appendFileSync(path.join(repo, 'README.md'), 'local edit\n');
+  fs.writeFileSync(path.join(repo, 'untracked.txt'), 'local file\n');
+  const before = git(repo, ['status', '--porcelain', '-z']);
+  const result = ensureWorktree({ todoId: TODO_A, workspaceFolder: repo, mode: 'worktree', config, registryOptions, dirtyPolicy: 'head' });
+  assert.equal(result.record.baseKind, 'head');
+  assert.deepEqual(new Set(result.record.skippedPaths), new Set(['README.md', 'untracked.txt']));
+  assert.equal(git(repo, ['status', '--porcelain', '-z']), before);
+  assert.equal(fs.existsSync(path.join(result.record.worktreePath, 'untracked.txt')), false);
+});
+
+test('snapshot start includes dirty and untracked files without changing user Git state', (t) => {
+  const { repo, config, registryOptions } = setup(t);
+  fs.appendFileSync(path.join(repo, 'README.md'), 'local edit\n');
+  fs.writeFileSync(path.join(repo, 'untracked.txt'), 'local file\n');
+  fs.writeFileSync(path.join(repo, '.gitignore'), 'ignored.txt\n', { flag: 'a' });
+  fs.writeFileSync(path.join(repo, 'ignored.txt'), 'ignored\n');
+  const statusBefore = git(repo, ['status', '--porcelain', '-z']);
+  const indexBefore = git(repo, ['write-tree']).trim();
+  const stashBefore = git(repo, ['stash', 'list']);
+  const result = ensureWorktree({ todoId: TODO_A, workspaceFolder: repo, mode: 'worktree', config, registryOptions, dirtyPolicy: 'snapshot' });
+  assert.equal(result.record.baseKind, 'snapshot');
+  assert.equal(result.record.snapshotOfHead, git(repo, ['rev-parse', 'HEAD']).trim());
+  assert.equal(git(repo, ['status', '--porcelain', '-z']), statusBefore);
+  assert.equal(git(repo, ['write-tree']).trim(), indexBefore);
+  assert.equal(git(repo, ['stash', 'list']), stashBefore);
+  assert.equal(fs.readFileSync(path.join(result.record.worktreePath, 'README.md'), 'utf8').endsWith('local edit\n'), true);
+  assert.equal(fs.readFileSync(path.join(result.record.worktreePath, 'untracked.txt'), 'utf8'), 'local file\n');
+  assert.equal(fs.existsSync(path.join(result.record.worktreePath, 'ignored.txt')), false);
+  const frozenBase = result.record.baseCommit;
+  const retried = ensureWorktree({ todoId: TODO_A, workspaceFolder: repo, mode: 'worktree', config, registryOptions, dirtyPolicy: 'head' });
+  assert.equal(retried.record.baseCommit, frozenBase);
+  assert.equal(retried.record.baseKind, 'snapshot');
+  assert.equal(verifyWorktreeRecord(retried.record).ok, true);
+});
+
 test('non-Git workspace, unknown base and non-worktree mode give clear errors', (t) => {
   const { repo, config, registryOptions } = setup(t);
   const plain = tempDir('cretli-wt-plain-');
@@ -274,6 +311,17 @@ test('cleanup refuses active, unaccepted and unverifiable state; integrated clea
   assert.match(git(repo, ['show-ref', '--verify', `refs/heads/${branch}`]), /refs\/heads/);
   assert.ok(removed.record.cleanedAt);
   assert.equal(removeWorktree({ todoId: TODO_A, registryOptions, hasActiveAgent: () => false }).alreadyCleaned, true);
+});
+
+test('integrated snapshot cleanup removes its retained snapshot ref', (t) => {
+  const { repo, config, registryOptions } = setup(t);
+  fs.appendFileSync(path.join(repo, 'README.md'), 'snapshot content\n');
+  const created = ensureWorktree({ todoId: TODO_A, workspaceFolder: repo, mode: 'worktree', config, registryOptions, dirtyPolicy: 'snapshot' });
+  const snapshotRef = created.record.snapshotRef;
+  assert.ok(git(repo, ['show-ref', '--verify', snapshotRef]));
+  updateWorktreeState({ todoId: TODO_A, registryOptions, executionState: 'execution_closed', integrationState: 'integrated' });
+  removeWorktree({ todoId: TODO_A, registryOptions, hasActiveAgent: () => false });
+  assert.equal(git(repo, ['show-ref', '--verify', snapshotRef], { allowFailure: true }), '');
 });
 
 test('explicit discard confirmation is required to force a rejected dirty worktree; integrated never auto-forces', (t) => {

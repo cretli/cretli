@@ -12,6 +12,7 @@ Helper scripts for running, configuring, and testing Cretli.
 | `start-server-sdk.sh` | Convenience launcher for the server with SDK defaults. |
 | `start-termux.sh` | Termux phone-as-server launcher (`npm run start:termux`). Wake-lock + HTTPS. |
 | `self-update.sh` | Settings → Account updater: fetch + `reset --hard` + npm + `node-pty` rebuild + prod front. |
+| `memory-orphan-monitor.js` | Read-only memory/orphan safety net run by a machine-level timer/cron (~1 min). Writes alarms to `data/memory-monitor-alerts-*.jsonl`; exits 1 on a threshold. See `systemd/cretli-memory-monitor.*.example` and [docs/server-diagnostics.md](../docs/server-diagnostics.md). |
 
 ## Developer / testing
 

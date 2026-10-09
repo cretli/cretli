@@ -24,8 +24,11 @@
     "mermaid": "^11.16.0"
   },
   "scripts": {
-    "dev": "webpack --config webpack.dev.js",
-    "dev:widget": "webpack --config webpack.widget.dev.js",
+    "build": "webpack --config webpack.dev.js --no-watch",
+    "watch:front": "node scripts/webpack-cli-watch.mjs --config webpack.dev.js",
+    "watch:widget": "node scripts/webpack-cli-watch.mjs --config webpack.widget.dev.js",
+    "dev": "npm run watch:front",
+    "dev:widget": "npm run watch:widget",
     "build:widget": "webpack --config webpack.widget.dev.js --no-watch",
     "prod": "webpack --config webpack.prod.js"
   }

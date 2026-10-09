@@ -155,15 +155,16 @@ class CrTodoCard extends LitElement {
 
   /**
    * A manually started worktree tree is integrated from its ROOT: the root owns
-   * the worktree, so only it can prepare the diff for a human decision.
+   * the worktree, so only the root card shows the diff/prepare section. The
+   * server reports a live worktree regardless of the task status, so a tree that
+   * was closed as `done` without integration still exposes the section.
    *
    * @param {object | null | undefined} item
    * @returns {boolean}
    */
   _canPrepareManualIntegration(item) {
     if (!item || item.parentId) return false;
-    if (String(item.status || '') !== 'doing') return false;
-    return String(item.executionMode || '').trim() === 'worktree';
+    return item.worktree?.live === true;
   }
 
   _onOpenGit(event) {
@@ -972,7 +973,10 @@ class CrTodoCard extends LitElement {
               ` : nothing}
             </div>
             <cr-bar-button class="todo-integration-confirm" data-id=${id} @click=${() => this._onIntegrationDecision('confirm')}>${t('todo.integrationConfirm')}</cr-bar-button>
-            <cr-bar-button class="todo-integration-reject" data-id=${id} @click=${() => this._onIntegrationDecision('reject')}>${t('todo.integrationReject')}</cr-bar-button>
+            ${!String(item.integration?.appliedAt || '').trim() ? html`
+              <cr-bar-button class="todo-integration-apply" data-id=${id} @click=${() => this._onIntegrationDecision('apply')}>${t('todo.integrationApplyPatch')}</cr-bar-button>
+              <cr-bar-button class="todo-integration-reject" data-id=${id} @click=${() => this._onIntegrationDecision('reject')}>${t('todo.integrationReject')}</cr-bar-button>
+            ` : nothing}
           </section>
         ` : nothing}
         ${!isTodoAwaitingIntegration(item) && this._canPrepareManualIntegration(item) ? html`

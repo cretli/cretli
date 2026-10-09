@@ -81,6 +81,7 @@ function chatListRepaintSignature(list, archivedCounts) {
       chat.harnessState?.code || '',
       chat.isTemporary === true ? '1' : '0',
       chat.watcherPinned === true ? '1' : '0',
+      chat.onWorktree === true ? '1' : '0',
       Array.isArray(chat.summaries) ? chat.summaries.length : 0,
     ].join('\u0000'));
   }

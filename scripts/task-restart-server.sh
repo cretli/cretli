@@ -32,7 +32,10 @@ nohup bash -lc '
     if [ -n "${OLD_PID}" ]; then
       echo "[launcher] kill OLD_PID: ${OLD_PID}"
       kill ${OLD_PID} 2>/dev/null || true
-      sleep 2
+      # Give the synchronous OpenCode phase (SIGTERM + bounded escalation to
+      # SIGKILL, at most ~2.8 s worst case with a booting child) time to finish
+      # before the hard kill. Keep this >= the OpenCode escalation budget.
+      sleep 5
     fi
 
     if lsof -ti:3011 >/dev/null 2>&1; then

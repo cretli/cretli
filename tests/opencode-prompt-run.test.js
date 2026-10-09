@@ -208,6 +208,29 @@ assert.deepEqual(
     },
   ],
 );
+assert.deepEqual(
+  buildOpenCodeRunErrorEvents({
+    runId: 'run-instance-limit',
+    message: 'OpenCode instance limit reached (2). Close an idle OpenCode chat.',
+    err: Object.assign(new Error('limit'), { code: 'opencode_instance_limit' }),
+    remaining: 0,
+  }),
+  [
+    {
+      type: 'sdkError',
+      code: 'opencode_instance_limit',
+      message: 'OpenCode instance limit reached (2). Close an idle OpenCode chat.',
+    },
+    {
+      type: 'sdkRunFinished',
+      runId: 'run-instance-limit',
+      status: 'error',
+      lastErrorCode: 'opencode_instance_limit',
+      lastErrorMessage: 'OpenCode instance limit reached (2). Close an idle OpenCode chat.',
+      remaining: 0,
+    },
+  ],
+);
 const timeoutMessage = 'OpenCode prompt timed out';
 assert.deepEqual(
   buildOpenCodeRunErrorEvents({

@@ -75,6 +75,11 @@ export function mergeExistingChatFromServerRow(existing, serverChat, ctx) {
   } else {
     delete existing.todoId;
   }
+  if (serverChat.onWorktree === true) {
+    existing.onWorktree = true;
+  } else {
+    delete existing.onWorktree;
+  }
   if (serverChat.isTemporary === true) {
     existing.isTemporary = true;
   } else {
@@ -153,6 +158,9 @@ export function createRuntimeChatFromServerRow(serverChat, ctx) {
   }
   if (typeof serverChat.todoId === 'string' && serverChat.todoId.trim()) {
     created.todoId = serverChat.todoId.trim();
+  }
+  if (serverChat.onWorktree === true) {
+    created.onWorktree = true;
   }
   if (serverChat.isTemporary === true) {
     created.isTemporary = true;

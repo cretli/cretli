@@ -225,6 +225,23 @@ test('a dirty main tree refuses the start with a translated message and no chat'
   assert.equal(getWorktreeRecord(root.id, { dataDir: suite.dataDir }), null);
 });
 
+test('an explicit snapshot choice reaches manual start and preserves dirty files for the agent', async (t) => {
+  const suite = makeSuite('dirty-snapshot');
+  t.after(suite.cleanup);
+  clearManualStartJobs();
+  clearWorktreePrepareLocks();
+  setWorktreePolicy(suite.dataDir, suite.repo, suite.baseDir);
+  const loadPolicy = (folder) => getWorkspaceWatcher(folder, { dataDir: suite.dataDir });
+  const app = makeApp(loadPolicy, { dataDir: suite.dataDir, repo: suite.repo });
+  const root = addTodo(suite.dataDir, suite.repo, { title: 'snapshot', status: 'ready', executionMode: 'worktree' }).item;
+  fs.writeFileSync(path.join(suite.repo, 'uncommitted.txt'), 'local work\n');
+  const result = await startAndSettle(app, root.id, suite.repo, { dirtyPolicy: 'snapshot' });
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  const record = getWorktreeRecord(root.id, { dataDir: suite.dataDir });
+  assert.equal(record.baseKind, 'snapshot');
+  assert.equal(fs.readFileSync(path.join(record.worktreePath, 'uncommitted.txt'), 'utf8'), 'local work\n');
+});
+
 test('worktree mode without a layout derives and persists the layout, then starts', async (t) => {
   const suite = makeSuite('nolayout');
   t.after(suite.cleanup);
@@ -379,16 +396,23 @@ test('manual integration prepare/confirm works on the ROOT and reject keeps doin
   const cycleId = Object.keys(stored.results)[0];
   assert.match(cycleId, /^manual-/);
 
+  const applied = await app.invoke('POST', '/api/todos/:id/integration', {
+    params: { id: root.id },
+    body: { action: 'apply', workspaceFolder: suite.repo },
+  });
+  assert.equal(applied.status, 200, JSON.stringify(applied.body));
+  assert.equal(fs.readFileSync(path.join(suite.repo, 'feature.js'), 'utf8'), 'export const x = 1;\n');
+
   const confirmed = await app.invoke('POST', '/api/todos/:id/integration', {
     params: { id: root.id },
-    body: { action: 'confirm', workspaceFolder: suite.repo, expectedUpdatedAt: item.updatedAt },
+    body: { action: 'confirm', workspaceFolder: suite.repo, expectedUpdatedAt: applied.body.item.updatedAt },
   });
   assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
   assert.equal(getTodoById(suite.dataDir, suite.repo, root.id).status, 'done');
 });
 
-test('a non-root integration prepare is refused', async (t) => {
-  const suite = makeSuite('not-root');
+test('a non-root integration prepare resolves the tree ROOT', async (t) => {
+  const suite = makeSuite('non-root-resolve');
   t.after(suite.cleanup);
   const loadPolicy = () => null;
   const app = makeApp(loadPolicy, { dataDir: suite.dataDir, repo: suite.repo });
@@ -398,8 +422,115 @@ test('a non-root integration prepare is refused', async (t) => {
     params: { id: leaf.id },
     body: { action: 'prepare', workspaceFolder: suite.repo },
   });
+  // The node itself is accepted and resolved to the root; the tree has no
+  // worktree here, which is the honest refusal (was `not_root` before).
   assert.equal(result.status, 409, JSON.stringify(result.body));
-  assert.equal(result.body.error, 'not_root');
+  assert.equal(result.body.error, 'no_worktree');
+});
+
+test('manual merge integrates a worktree tree from any node and is replay-safe', async (t) => {
+  const suite = makeSuite('merge');
+  t.after(suite.cleanup);
+  clearManualStartJobs();
+  clearWorktreePrepareLocks();
+  setWorktreePolicy(suite.dataDir, suite.repo, suite.baseDir);
+  const loadPolicy = (folder) => getWorkspaceWatcher(folder, { dataDir: suite.dataDir });
+  const app = makeApp(loadPolicy, { dataDir: suite.dataDir, repo: suite.repo });
+  const root = addTodo(suite.dataDir, suite.repo, { title: 'merge', status: 'ready', executionMode: 'worktree' }).item;
+  const leaf = addTodo(suite.dataDir, suite.repo, { title: 'leaf', parentId: root.id, status: 'ready' }).item;
+  const started = await startAndSettle(app, root.id, suite.repo);
+  assert.equal(started.status, 200, JSON.stringify(started.body));
+  const record = getWorktreeRecord(root.id, { dataDir: suite.dataDir });
+  fs.writeFileSync(path.join(record.worktreePath, 'feature.js'), 'export const x = 1;\n');
+
+  const merged = await app.invoke('POST', '/api/todos/:id/integration', {
+    params: { id: leaf.id },
+    body: { action: 'merge', workspaceFolder: suite.repo },
+  });
+  assert.equal(merged.status, 200, JSON.stringify(merged.body));
+  assert.equal(merged.body.applied, true);
+  assert.equal(merged.body.alreadyApplied, false);
+  assert.equal(merged.body.item.id, root.id, 'the item returned is the tree ROOT');
+  assert.equal(fs.readFileSync(path.join(suite.repo, 'feature.js'), 'utf8'), 'export const x = 1;\n');
+  const after = getTodoById(suite.dataDir, suite.repo, root.id);
+  assert.equal(after.status, 'doing', 'merge leaves the decision to confirm/reject');
+  assert.equal(after.integration.state, 'ready');
+
+  const replay = await app.invoke('POST', '/api/todos/:id/integration', {
+    params: { id: leaf.id },
+    body: { action: 'merge', workspaceFolder: suite.repo },
+  });
+  assert.equal(replay.status, 200, JSON.stringify(replay.body));
+  assert.equal(replay.body.alreadyApplied, true);
+  assert.equal(replay.body.applied, false);
+});
+
+test('manual merge works from a done tree and the list reports the live worktree', async (t) => {
+  const suite = makeSuite('merge-done');
+  t.after(suite.cleanup);
+  clearManualStartJobs();
+  clearWorktreePrepareLocks();
+  setWorktreePolicy(suite.dataDir, suite.repo, suite.baseDir);
+  const loadPolicy = (folder) => getWorkspaceWatcher(folder, { dataDir: suite.dataDir });
+  const app = makeApp(loadPolicy, { dataDir: suite.dataDir, repo: suite.repo });
+  const root = addTodo(suite.dataDir, suite.repo, { title: 'done root', status: 'ready', executionMode: 'worktree' }).item;
+  const leaf = addTodo(suite.dataDir, suite.repo, { title: 'done leaf', parentId: root.id, status: 'ready' }).item;
+  const started = await startAndSettle(app, root.id, suite.repo);
+  assert.equal(started.status, 200, JSON.stringify(started.body));
+  const record = getWorktreeRecord(root.id, { dataDir: suite.dataDir });
+  fs.writeFileSync(path.join(record.worktreePath, 'feature.js'), 'export const x = 1;\n');
+  // A tree closed as done without integration is exactly the stranded case.
+  updateTodo(suite.dataDir, suite.repo, leaf.id, { status: 'done', strictStatus: true });
+  updateTodo(suite.dataDir, suite.repo, root.id, { status: 'done', strictStatus: true });
+
+  const list = await app.invoke('GET', '/api/todos', { query: { workspaceFolder: suite.repo } });
+  assert.equal(list.status, 200, JSON.stringify(list.body));
+  const rootRow = list.body.items.find((row) => row.id === root.id);
+  const leafRow = list.body.items.find((row) => row.id === leaf.id);
+  assert.equal(rootRow.worktree.live, true);
+  assert.equal(rootRow.worktree.ownerTodoId, root.id);
+  assert.equal(rootRow.worktree.branch, record.branch);
+  assert.equal(leafRow.worktree.live, true, 'a subtask reports the ROOT worktree it belongs to');
+  assert.equal(leafRow.worktree.ownerTodoId, root.id);
+
+  const merged = await app.invoke('POST', '/api/todos/:id/integration', {
+    params: { id: leaf.id },
+    body: { action: 'merge', workspaceFolder: suite.repo },
+  });
+  assert.equal(merged.status, 200, JSON.stringify(merged.body));
+  assert.equal(fs.readFileSync(path.join(suite.repo, 'feature.js'), 'utf8'), 'export const x = 1;\n');
+  // A container whose children are all done is derived back to `done`; the
+  // integration pointer is what keeps the result awaiting a human decision.
+  const afterRoot = getTodoById(suite.dataDir, suite.repo, root.id);
+  assert.equal(afterRoot.status, 'done');
+  assert.equal(afterRoot.integration.state, 'ready');
+  assert.equal(getWorktreeRecord(root.id, { dataDir: suite.dataDir }).integrationState, 'ready');
+});
+
+test('manual merge reports the conflicted paths and leaves the workspace untouched', async (t) => {
+  const suite = makeSuite('merge-conflict');
+  t.after(suite.cleanup);
+  clearManualStartJobs();
+  clearWorktreePrepareLocks();
+  setWorktreePolicy(suite.dataDir, suite.repo, suite.baseDir);
+  const loadPolicy = (folder) => getWorkspaceWatcher(folder, { dataDir: suite.dataDir });
+  const app = makeApp(loadPolicy, { dataDir: suite.dataDir, repo: suite.repo });
+  const root = addTodo(suite.dataDir, suite.repo, { title: 'conflict', status: 'ready', executionMode: 'worktree' }).item;
+  const started = await startAndSettle(app, root.id, suite.repo);
+  assert.equal(started.status, 200, JSON.stringify(started.body));
+  const record = getWorktreeRecord(root.id, { dataDir: suite.dataDir });
+  fs.writeFileSync(path.join(record.worktreePath, 'README.md'), '# agent result\n');
+  fs.writeFileSync(path.join(suite.repo, 'README.md'), '# user changed the same file\n');
+
+  const merged = await app.invoke('POST', '/api/todos/:id/integration', {
+    params: { id: root.id },
+    body: { action: 'merge', workspaceFolder: suite.repo },
+  });
+  assert.equal(merged.status, 409, JSON.stringify(merged.body));
+  assert.equal(merged.body.error, 'integration_conflict');
+  assert.deepEqual(merged.body.conflicts, ['README.md']);
+  assert.equal(fs.readFileSync(path.join(suite.repo, 'README.md'), 'utf8'), '# user changed the same file\n');
+  assert.equal(getTodoById(suite.dataDir, suite.repo, root.id).integration?.state, 'ready');
 });
 
 test('a doing todo with a live worktree record is user_action and never auto-released', async (t) => {

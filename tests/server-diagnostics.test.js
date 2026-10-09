@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -215,4 +216,31 @@ test('preserves fatal records beyond the daily cap and attaches pending counts t
   exitHandler(0);
   const processExitEntry = recorder.readRecent(1)[0];
   assert.equal(Object.hasOwn(processExitEntry.details, 'suppressedCount'), false);
+});
+
+test('separates server RSS from child process RSS in the snapshot', async (context) => {
+  const dataDir = createTempDirectory();
+  const recorder = createRecorder(dataDir);
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);'], { stdio: 'ignore' });
+  context.after(() => {
+    child.kill('SIGKILL');
+    recorder.stop();
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+  await new Promise((resolve) => child.once('spawn', resolve));
+  let entry = recorder.snapshot('current');
+  const startedAt = Date.now();
+  while (entry.processTree.childCount === 0 && Date.now() - startedAt < 2000) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    entry = recorder.snapshot('current');
+  }
+  assert.equal(entry.processTree.serverRssBytes, entry.processMemory.rssBytes);
+  assert.ok(entry.processTree.childCount >= 1);
+  assert.ok(entry.processTree.children.length <= 10);
+  assert.ok(entry.processTree.childrenRssBytes > 0);
+  assert.equal(
+    entry.processTree.combinedRssBytes,
+    entry.processTree.serverRssBytes + entry.processTree.childrenRssBytes,
+  );
+  assert.ok(entry.processTree.children.some((row) => row.pid === child.pid));
 });
