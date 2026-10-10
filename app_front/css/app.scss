@@ -11354,6 +11354,242 @@ body.theme-light {
   }
 }
 
+/* Sidebar bar under the search row: workspace branch chip + chat filter toggle. */
+.sidebar-workspace-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--cr-border);
+  flex-shrink: 0;
+}
+
+.sidebar-workspace-branch {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.75rem;
+  font-family: var(--cr-font-mono);
+  color: var(--cr-text-muted);
+  background: var(--cr-surface-inset);
+  border: 1px dashed var(--cr-border-control);
+  border-radius: var(--cr-radius-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  cursor: pointer;
+  transition: var(--cr-transition);
+
+  &:hover {
+    color: var(--cr-text);
+    border-color: var(--cr-accent);
+  }
+
+  &[data-detached='1'] {
+    color: var(--cr-error);
+  }
+}
+
+.sidebar-worktree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.sidebar-worktree-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.75rem;
+  font-family: var(--cr-font-mono);
+  color: var(--cr-accent);
+  border: 1px solid var(--cr-accent);
+  border-radius: var(--cr-radius-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--cr-hover);
+  }
+}
+
+.sidebar-workspace-bar[hidden] {
+  display: none;
+}
+
+.sidebar-only-active-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  padding: 0;
+  color: var(--cr-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--cr-radius-sm);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--cr-hover);
+    border-color: var(--cr-border-strong);
+  }
+
+  &.is-active {
+    color: var(--cr-accent);
+    border-color: var(--cr-accent);
+  }
+
+  .mdi {
+    font-size: 1rem;
+  }
+}
+
+/* Branch section of the workspace quick menu (outside the workspace listbox). */
+.header-branch-section {
+  border-top: 1px solid var(--cr-overlay-panel-border);
+  margin-top: 0.25rem;
+  padding: 0.4rem 0.75rem 0.5rem;
+}
+
+.header-branch-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.header-branch-title {
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--cr-text-muted);
+}
+
+.header-branch-current {
+  font-family: var(--cr-font-mono);
+  font-size: 0.78rem;
+  color: var(--cr-text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-branch-list {
+  max-height: 11rem;
+  overflow-y: auto;
+  margin-bottom: 0.4rem;
+}
+
+.header-branch-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.28rem 0.4rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-family: var(--cr-font-mono);
+  color: var(--cr-text);
+  background: transparent;
+  border: 0;
+  border-radius: var(--cr-radius-sm);
+  cursor: pointer;
+  text-align: left;
+
+  &:hover {
+    background: var(--cr-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--cr-accent);
+    outline-offset: -2px;
+  }
+
+  &.is-current {
+    color: var(--cr-accent);
+  }
+
+  &[aria-disabled='true'] {
+    color: var(--cr-text-muted);
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .header-branch-item-marker {
+    flex-shrink: 0;
+    width: 0.9rem;
+    font-size: 0.75rem;
+  }
+
+  .header-branch-item-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.header-branch-new {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.header-branch-new-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.28rem 0.5rem;
+  font-size: 0.82rem;
+  font-family: var(--cr-font-mono);
+  background: var(--cr-control-bg);
+  color: var(--cr-text);
+  border: 1px solid var(--cr-border-control);
+  border-radius: var(--cr-radius-sm);
+
+  &:focus {
+    outline: none;
+    border-color: var(--cr-accent);
+  }
+}
+
+.header-branch-new-btn {
+  flex-shrink: 0;
+}
+
+.header-branch-message {
+  margin: 0.35rem 0 0;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.78rem;
+  border-radius: var(--cr-radius-sm);
+  border: 1px solid transparent;
+
+  &[data-tone='error'] {
+    background: var(--cr-error-bg);
+    color: var(--cr-error);
+    border-color: var(--cr-error-border);
+  }
+
+  &[data-tone='success'] {
+    background: var(--cr-success-bg);
+    color: var(--cr-success);
+    border-color: var(--cr-success-border);
+  }
+}
+
 .embed-chat-switcher {
   display: none;
   flex: 1;
@@ -11618,6 +11854,17 @@ body.sidebar-swipe-settling {
 
 .sidebar-empty-add {
   width: 100%;
+}
+
+/* "Active workspace only" fallback notice (filter on, folder not in the list). */
+.sidebar-only-active-hint {
+  margin: 0.25rem 0.75rem;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.78rem;
+  color: var(--cr-text-muted);
+  background: var(--cr-surface-inset);
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
 }
 
 .sidebar-workspaces {

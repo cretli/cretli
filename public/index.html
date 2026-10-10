@@ -199,15 +199,34 @@
       <span class="embed-chat-switcher-label" id="embed-chat-switcher-label">—</span>
       <span class="mdi mdi-chevron-down embed-chat-switcher-arrow" aria-hidden="true"></span>
     </button>
-    <!-- Hidden workspace data source + dropdown (fallback). The sidebar is the primary UI. -->
+    <!-- Hidden workspace data source (fallback). The sidebar is the primary UI. -->
     <div class="header-workspace-wrap" hidden aria-hidden="true">
       <button type="button" id="header-workspace-trigger" class="header-workspace-trigger" title="Switch workspace" data-i18n-title="header.workspaceTitle" aria-haspopup="listbox" aria-expanded="false" data-workspace-file="" data-workspace-folder="">
         <span id="header-workspace-label" class="header-workspace-label-text">—</span>
         <span class="header-workspace-arrow mdi mdi-chevron-down" aria-hidden="true"></span>
       </button>
-      <div id="header-workspace-popover" class="chat-list-modal header-workspace-popover" role="dialog" aria-label="Switch workspace" data-i18n-aria="workspace.quickSwitchAria" hidden>
-        <div class="chat-list-panel">
-          <ul id="header-workspace-items" class="chat-list-items" role="listbox"></ul>
+    </div>
+    <!-- Workspace quick menu: opened from the branch chip in the sidebar workspace bar. -->
+    <div id="sidebar-worktree-popover" class="chat-list-modal header-workspace-popover" hidden>
+      <div class="chat-list-panel">
+        <ul id="sidebar-worktree-items" class="chat-list-items" role="listbox" aria-label="Worktrees" data-i18n-aria="workspace.worktreeListAria"></ul>
+      </div>
+    </div>
+    <div id="header-workspace-popover" class="chat-list-modal header-workspace-popover" role="dialog" aria-label="Switch workspace" data-i18n-aria="workspace.quickSwitchAria" hidden>
+      <div class="chat-list-panel">
+        <ul id="header-workspace-items" class="chat-list-items" role="listbox"></ul>
+        <!-- The branch section stays OUTSIDE the listbox above (a11y: a dialog
+             may host it, a listbox must only hold options). -->
+        <div id="header-branch-section" class="header-branch-section" hidden>
+          <div class="header-branch-head">
+            <span class="header-branch-title" data-i18n="workspace.branchSection">Branch</span>
+            <span id="header-branch-current" class="header-branch-current"></span>
+          </div>
+          <div id="header-branch-list" class="header-branch-list" role="listbox" aria-label="Branches" data-i18n-aria="workspace.branchListAria"></div>
+          <div class="header-branch-new">
+            <input type="text" id="header-branch-new-input" class="header-branch-new-input" placeholder="New branch" data-i18n-placeholder="workspace.newBranchPlaceholder" data-i18n-aria="workspace.newBranchAria" aria-label="New branch name" autocomplete="off" spellcheck="false" />
+            <button type="button" id="header-branch-new-btn" class="chat-list-item-action header-branch-new-btn" data-i18n="workspace.newBranchCreate">Create</button>
+          </div>
         </div>
       </div>
     </div>
@@ -247,12 +266,24 @@
         data-i18n-placeholder="sidebar.searchPlaceholder"
         data-i18n-aria="sidebar.searchAria"
       ></cr-bar-input>
+      <button type="button" id="sidebar-only-active-btn" class="sidebar-only-active-btn" aria-pressed="false" title="Show chats for the active workspace only" data-i18n-title="workspace.onlyActiveChats" aria-label="Show chats for the active workspace only" data-i18n-aria="workspace.onlyActiveChats">
+        <span class="mdi mdi-filter-variant" aria-hidden="true"></span>
+      </button>
       <button type="button" id="sidebar-pin-btn" class="sidebar-pin-btn" title="Pin sidebar" aria-label="Pin sidebar" aria-pressed="false">
         <span class="mdi mdi-pin-outline" aria-hidden="true"></span>
       </button>
       <button type="button" id="sidebar-close-btn" class="sidebar-close-btn" title="Close" data-i18n-title="common.close" aria-label="Close" data-i18n-aria="common.close">
         <span class="mdi mdi-close" aria-hidden="true"></span>
       </button>
+    </div>
+    <div class="sidebar-workspace-bar" id="sidebar-workspace-bar" hidden>
+      <button type="button" id="header-workspace-branch" class="sidebar-workspace-branch" hidden aria-haspopup="dialog" aria-expanded="false" aria-label="Workspace branch" data-i18n-aria="workspace.branchAria" title="Workspace branch"></button>
+      <div id="sidebar-worktree-row" class="sidebar-worktree-row" hidden>
+        <button type="button" id="sidebar-worktree-label" class="sidebar-worktree-label" aria-haspopup="listbox" aria-expanded="false" title="Switch worktree" data-i18n-title="workspace.switchWorktree"></button>
+        <button type="button" id="sidebar-only-worktree-btn" class="sidebar-only-active-btn" aria-pressed="false" title="Show chats of this worktree only" data-i18n-title="workspace.onlyWorktreeChats" aria-label="Show chats of this worktree only" data-i18n-aria="workspace.onlyWorktreeChats">
+          <span class="mdi mdi-source-branch" aria-hidden="true"></span>
+        </button>
+      </div>
     </div>
     <div class="sidebar-body"></div>
     <div
@@ -2784,6 +2815,10 @@
             <div id="chat-new-folder-row" class="chat-new-field">
               <label for="chat-new-folder-select" data-i18n="workspace.folder">Folder (terminal, agent)</label>
               <select id="chat-new-folder-select" class="chat-settings-select"></select>
+            </div>
+            <div id="chat-new-worktree-row" class="chat-new-field" hidden>
+              <label for="chat-new-worktree-select" data-i18n="chat.newWorktreeLabel">Worktree</label>
+              <select id="chat-new-worktree-select" class="chat-settings-select"></select>
             </div>
             <div class="chat-new-field">
               <label for="chat-new-harness-select" data-i18n="chat.harnessLabel">Harness</label>

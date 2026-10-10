@@ -8,6 +8,52 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Workspace quick menu: branch badge, branch switch and an active-workspace
+  chat filter.** The header gains a compact chip with the branch of the active
+  workspace folder (`workspaceBranchBadge.js`; hidden when it would duplicate
+  the execution badge, shows the short hash on a detached HEAD). The chip opens
+  the workspace popover that used to hang off the hidden fallback trigger: the
+  workspace list stays in its `role=listbox`, while a new *Branch* section
+  (outside the listbox) lists local branches via the new
+  `GET /api/git/branches` (`for-each-ref`, with `normalizeGitArg`-rejected
+  names rendered disabled), creates branches with `switch-new` and confirms
+  before switching on a dirty tree. Switching is guarded server-side: while
+  any chat run, delegation slot or watcher cycle is live in the repository's
+  main working tree, `POST /api/git/run` refuses `switch`/`switch-new` with
+  `workspace_busy` (`lib/git-switch-guard.js`); the client-side confirmation is
+  only UX. The popover also carries the per-browser *"Show chats for the active
+  workspace only"* sidebar filter (`sidebarOnlyActiveFilter.js`), which is
+  suspended during a search, keys groups by their preferred folder (clones
+  resolve their own folder) and falls back to showing all workspaces with a
+  hint when the active folder is not in the catalog. Covered by
+  `tests/git-switch-guard.test.js`, `tests/git-routes-branches.test.js`,
+  `tests/sidebar-only-active-filter.test.js`,
+  `tests/workspace-branch-view.test.js` and
+  `tests/workspace-branch-placement.test.js`.
+
+- **Release a frozen worktree back to project mode.** `todo_start` with
+  `execution_mode=project` used to be silently overridden by an existing live
+  worktree. It now fails with a 409 (`todo.worktreeFrozen`) unless
+  `release_worktree=true` is passed; the release closes the worktree record
+  (`releasedAt`, directory and branch stay on disk), refuses while a chat of the
+  tree has a live run, re-points the linked chat to the project folder and sets
+  the root `executionMode` to `project`. A later worktree-mode start re-adopts
+  the released worktree.
+
+- **Usage/model-pick acceptance conformance suite and rollout guide.** A frozen
+  fixture with one cutoff now drives ten mandatory conformance scenarios across
+  three suites: `tests/usage-acceptance-usage.test.js` (version stamps and the
+  production Claude/CodeBuddy/OpenRouter adapter boundary, dedup/crash recovery,
+  snapshots/late usage/retention), `tests/usage-acceptance-decisions.test.js`
+  (parent/child coverage, `pick_id` lifecycle, cycle acceptance and
+  cost-per-accepted) and `tests/usage-acceptance-policy.test.js` (roles,
+  controlled exploration, shadow parity/overhead, API/UI/CSV windows). The
+  conformance report and evidence map live in
+  `docs/usage-acceptance-report.md`; `docs/usage-rollout.md` documents the
+  staged rollout and rollback contract (exploration stays dry-run/OFF, shadow
+  is never auto-promoted, backfill only after a verified dry-run on a copy, all
+  stored versions stay readable after a flag rollback).
+
 - **Usage telemetry: retention, optional alerts and documentation.** The
   usage journal under `data/usage/` now has configurable retention (default 90
   days): `pruneUsageJournal` deletes only stale `YYYY-MM-DD.jsonl` day files,

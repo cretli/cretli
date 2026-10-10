@@ -627,6 +627,12 @@ export async function logoutCodex() {
   return apiFetchJson('/api/codex/logout', { method: 'POST' }, 'logoutCodex');
 }
 
+/** Live task worktrees of a workspace folder (new-chat picker). */
+export async function getWorktrees(workspaceFolder) {
+  const params = new URLSearchParams({ workspaceFolder: String(workspaceFolder || '') });
+  return apiFetchJson(`/api/worktrees?${params.toString()}`, {}, 'getWorktrees');
+}
+
 export async function postChat(payload) {
   return apiFetchJson('/api/chats', {
     method: 'POST',
@@ -1143,6 +1149,11 @@ function withQuery(basePath, params) {
 
 export async function getGitInfo(scope = null) {
   return cretliApiFetch(withQuery('/api/git/info', buildGitScopeParams(scope)), {}, { acceptLanguage: getCurrentLang() }).then(json);
+}
+
+/** Local branches for the workspace quick switch (server parses `for-each-ref`). */
+export async function getGitBranches(scope = null) {
+  return cretliApiFetch(withQuery('/api/git/branches', buildGitScopeParams(scope)), {}, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 /** Diff of a single file against HEAD; path is relative to the execution folder. */

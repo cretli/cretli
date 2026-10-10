@@ -48,6 +48,9 @@ import {
   expandSidebarWorkspaceSearchPool,
 } from './chat.js';
 import { initGitContextBadge } from './gitContextBadge.js';
+import { initWorkspaceBranchBadge } from './app/appShell/workspaceBranchBadge.js';
+import { initWorkspaceBranchMenu } from './app/appShell/workspaceBranchMenu.js';
+import { initWorkspaceWorktreeBar } from './app/appShell/workspaceWorktreeBar.js';
 import { deriveWorkspaceKey } from './features/chat/chatMetadataIdbSchema.js';
 import { hasLocalChatBootCacheForColdStart, readChatLocalBootCacheForColdStart } from './features/chat/chatLocalBootSync.js';
 import { seedLocalBootSyncFromIdbBootCache } from './features/chat/chatOfflineBootSeed.js';
@@ -399,6 +402,28 @@ const gitContextBadge = initGitContextBadge({
   getActiveWorkspaceFolder: getActiveWorkspaceFolderFromHeader,
 });
 window.addEventListener('cretli-git-open', () => showPanel('git'));
+// Workspace-folder branch chip + its quick menu (branch switch, chat filter).
+initWorkspaceBranchBadge({
+  getActiveWorkspaceFolder: getActiveWorkspaceFolderFromHeader,
+});
+initWorkspaceBranchMenu({
+  getActiveWorkspaceFolder: getActiveWorkspaceFolderFromHeader,
+  refreshMenuContent: () => workspaceContext.refreshWorkspaceQuickMenuContent(),
+  onGitMutated: () => {
+    void callLoadedPanel('git', 'refreshGitInfo');
+  },
+  onFilterChanged: () => sidebarView.forceRerender(),
+});
+const workspaceWorktreeBar = initWorkspaceWorktreeBar({
+  getActiveChat: () => {
+    const id = getActiveChatIdValue();
+    if (!id) return null;
+    return getChatsList().find((chat) => chat.id === id) || null;
+  },
+  getChats: () => getChatsList(),
+  onSelectChat: (chatId) => selectChat(chatId),
+  onFilterChanged: () => sidebarView.forceRerender(),
+});
 const {
   applyEmbedWorkspaceContext,
   initWorkspaceHeader,
@@ -2162,7 +2187,8 @@ function bootApp() {
       setSidebarRenderHook(() => {
         sidebarView.render();
         headerContextTitle.refresh();
-        void gitContextBadge.refresh();
+        workspaceWorktreeBar.refresh();
+        void Promise.resolve(gitContextBadge.refresh()).then(() => workspaceWorktreeBar.refresh());
       });
       setSidebarTransientPatchHook(() => sidebarView.patchTransientVisualStates());
       setSidebarOpenHook(() => sidebarView.open());

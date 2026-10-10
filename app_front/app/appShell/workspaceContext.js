@@ -458,6 +458,23 @@ export function createWorkspaceContext(deps = {}) {
 
   let workspacePopoverApi = null;
 
+  /**
+   * Load the workspace list + settings and render the popover items, without
+   * opening the dropdown. Shared by the legacy (hidden) trigger and the
+   * visible branch chip in the header.
+   *
+   * @returns {Promise<boolean>} whether the content was rendered
+   */
+  function refreshWorkspaceQuickMenuContent() {
+    return Promise.all([ensureWorkspacesListLoaded(), api.getSettings()])
+      .then(([, settingsData]) => {
+        const workspaceFile = settingsData?.ok ? settingsData.workspaceFile || '' : '';
+        renderWorkspacePopoverItems(workspaceFile);
+        return true;
+      })
+      .catch(() => false);
+  }
+
   function initWorkspacePopover() {
     const trigger = document.getElementById('header-workspace-trigger');
     const popover = document.getElementById('header-workspace-popover');
@@ -480,13 +497,9 @@ export function createWorkspaceContext(deps = {}) {
         workspacePopoverApi.close();
         return;
       }
-      Promise.all([ensureWorkspacesListLoaded(), api.getSettings()])
-        .then(([, settingsData]) => {
-          const workspaceFile = settingsData?.ok ? settingsData.workspaceFile || '' : '';
-          renderWorkspacePopoverItems(workspaceFile);
-          workspacePopoverApi?.open();
-        })
-        .catch(() => {});
+      refreshWorkspaceQuickMenuContent().then((ok) => {
+        if (ok) workspacePopoverApi?.open();
+      });
     });
 
     trigger.addEventListener('keydown', (e) => {
@@ -567,6 +580,7 @@ export function createWorkspaceContext(deps = {}) {
     applyEmbedWorkspaceContext,
     initWorkspaceHeader,
     initWorkspacePopover,
+    refreshWorkspaceQuickMenuContent,
     initSettingsWorkspacePicker,
     refreshSettingsWorkspacePicker,
     switchWorkspace,

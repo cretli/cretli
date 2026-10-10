@@ -1,6 +1,7 @@
 /**
  * Chat panel: chat list, openTerminal(chat), ensureChatConnection, closeChat, selectChat, newChat, model select, send-keys.
  */
+import { chatWorktreeTodoId } from './features/sidebar/sidebarOnlyActiveFilter.js';
 import * as api from './core/api/index.js';
 import {
   applyDefaultNewChatHarnessToModal,
@@ -1952,6 +1953,10 @@ async function createAppChatForHarnessSwitch(chat, nextHarness, nextModel) {
     sdkMode: String(chat?.sdkMode || 'agent').trim() || 'agent',
     sdkUiMode: String(chat?.sdkUiMode || 'compact').trim() || 'compact',
   };
+  const worktreeTodoId = chat?.onWorktree === true
+    ? String(chat.todoId || '').trim()
+    : '';
+  if (worktreeTodoId) payload.worktreeTodoId = worktreeTodoId;
   let data = null;
   try {
     data = await api.postChat(payload);
@@ -7304,6 +7309,71 @@ function applyLateDefaultNewChatHarness() {
  *   workspaceFolder?: string,
  * }} [options]
  */
+/**
+ * Worktree preselected from the active chat (todo id + its workspace), or
+ * null. The select itself is filled from `GET /api/worktrees`.
+ */
+let newChatWorktreeTarget = null;
+/** Bumps per modal open so a late worktree list cannot repaint a newer modal. */
+let newChatWorktreeLoadSeq = 0;
+
+function normalizeFolderForCompare(value) {
+  return String(value || '').replace(/\\/g, '/').replace(/\/+$/, '').trim();
+}
+
+/** Active chat that runs in a live worktree, or null. */
+function findActiveWorktreeChat() {
+  const chat = chats.find((entry) => entry.id === activeChatId);
+  return chatWorktreeTodoId(chat) && chat.workspaceFolder ? chat : null;
+}
+
+/**
+ * Fill the worktree select for the folder the modal targets. The active
+ * chat's worktree is preselected; "no worktree" stays the first option.
+ */
+async function syncNewChatWorktreeRow({ keepSelection = false } = {}) {
+  const row = document.getElementById('chat-new-worktree-row');
+  const select = document.getElementById('chat-new-worktree-select');
+  if (!row || !(select instanceof HTMLSelectElement)) return;
+  const folder = String(selectedWorkspaceFolder || '').trim();
+  const seq = ++newChatWorktreeLoadSeq;
+  const previous = keepSelection && !row.hidden ? select.value : null;
+  row.hidden = true;
+  select.innerHTML = '';
+  if (!folder) return;
+  let data = null;
+  try {
+    data = await api.getWorktrees(folder);
+  } catch (_) {
+    return;
+  }
+  if (seq !== newChatWorktreeLoadSeq || !data?.ok) return;
+  const rows = Array.isArray(data.worktrees) ? data.worktrees : [];
+  if (!rows.length) return;
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = t('chat.newWorktreeNone');
+  select.appendChild(none);
+  for (const item of rows) {
+    const option = document.createElement('option');
+    option.value = item.todoId;
+    option.textContent = item.title ? `${item.branch} — ${item.title}` : item.branch;
+    option.title = item.worktreePath || '';
+    select.appendChild(option);
+  }
+  const preferred = previous ?? (newChatWorktreeTarget?.todoId || '');
+  select.value = rows.some((item) => item.todoId === preferred) ? preferred : '';
+  row.hidden = false;
+}
+
+/** todoId of the worktree picked in the modal, or '' for the project folder. */
+function resolveNewChatWorktreeTodoId() {
+  const row = document.getElementById('chat-new-worktree-row');
+  const select = document.getElementById('chat-new-worktree-select');
+  if (!row || row.hidden || !(select instanceof HTMLSelectElement)) return '';
+  return select.value || '';
+}
+
 export function openNewChatModal(options = {}) {
   newChatHarnessUserTouched = false;
   newChatModelUserTouched = false;
@@ -7424,14 +7494,35 @@ export function openNewChatModal(options = {}) {
   const preferredWorkspaceFolder =
     options && typeof options.workspaceFolder === 'string' ? options.workspaceFolder.trim() : '';
   const ctx = getWorkspaceContextForChat();
+  // The active chat's worktree is the default target; it only applies when no
+  // explicit workspace points elsewhere.
+  const worktreeChat = sourceChat ? null : findActiveWorktreeChat();
+  const worktreeMatches = Boolean(worktreeChat) && (
+    !preferredWorkspaceFolder ||
+    normalizeFolderForCompare(preferredWorkspaceFolder) ===
+      normalizeFolderForCompare(worktreeChat.workspaceFolder)
+  );
+  newChatWorktreeTarget = worktreeMatches
+    ? {
+      todoId: chatWorktreeTodoId(worktreeChat),
+      workspaceFile: String(worktreeChat.workspaceFile || ''),
+      workspaceFolder: String(worktreeChat.workspaceFolder || ''),
+    }
+    : null;
   selectedWorkspaceFile =
     preferredWorkspaceFile ||
     sourceChat?.workspaceFile ||
+    (worktreeMatches ? worktreeChat.workspaceFile : '') ||
     ctx?.workspaceFile ||
     (workspaces[0] && workspaces[0].workspaceFile) ||
     null;
   selectedWorkspaceFolder =
-    preferredWorkspaceFolder || sourceChat?.workspaceFolder || ctx?.workspaceFolder || null;
+    preferredWorkspaceFolder ||
+    sourceChat?.workspaceFolder ||
+    (worktreeMatches ? worktreeChat.workspaceFolder : '') ||
+    ctx?.workspaceFolder ||
+    null;
+  void syncNewChatWorktreeRow();
   chatController.renderWorkspacesSelects();
   ensureEmbedNewChatFolderSelect();
   const model = document.getElementById('chat-new-model-select');
@@ -7481,6 +7572,7 @@ export function openNewChatModal(options = {}) {
       selectedWorkspaceFolder;
     chatController.renderWorkspacesSelects();
     ensureEmbedNewChatFolderSelect();
+    void syncNewChatWorktreeRow({ keepSelection: true });
     if (!newChatModelUserTouched && !newChatModelPresetApplied) {
       const m = document.getElementById('chat-new-model-select');
       const source = getNewChatModalSourceChat();
@@ -8531,6 +8623,8 @@ function createChatFromModal() {
     sdkUiMode: 'compact',
   };
   if (title) payload.title = title;
+  const worktreeTodoId = resolveNewChatWorktreeTodoId();
+  if (worktreeTodoId) payload.worktreeTodoId = worktreeTodoId;
   void attachWidgetHostPinToCreatePayload(payload)
     .then(() => api.postChat(payload))
     .then((data) => {
@@ -9782,6 +9876,13 @@ export function initChatPanel() {
 
   chatNewModelDropdownApi = chatModelSelectApi.ensureFloatingModelSelect(document.getElementById('chat-new-model-select'));
   chatNewFolderDropdownApi = chatModelSelectApi.ensureFloatingFolderSelect(document.getElementById('chat-new-folder-select'));
+  // The worktree list belongs to the chosen folder; a different folder starts
+  // from "no worktree" because the active chat's worktree no longer applies.
+  document.getElementById('chat-new-folder-select')?.addEventListener('change', (event) => {
+    const value = event.target instanceof HTMLSelectElement ? event.target.value : '';
+    if (value) selectedWorkspaceFolder = value;
+    void syncNewChatWorktreeRow();
+  });
   api.getSettings().then((data) => {
     if (!data?.ok) return;
     applyHarnessOrder(data.harnessOrder);

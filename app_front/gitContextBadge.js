@@ -19,8 +19,8 @@ import {
 let requestSeq = 0;
 /** Last scope key we attempted, so frequent sidebar renders do not refetch. */
 let lastAttemptKey = '';
-/** @type {{ scope: object | null }} */
-let lastState = { scope: null };
+/** @type {{ scope: object | null, info: object | null }} */
+let lastState = { scope: null, info: null };
 let deps = {
   getActiveChat: () => null,
   getActiveWorkspaceFolder: () => '',
@@ -60,6 +60,18 @@ function hideBadge() {
   el.removeAttribute('title');
   delete el.dataset.kind;
   lastState = { scope: null };
+}
+
+/**
+ * Last painted execution-badge state (chat/worktree scope), so the workspace
+ * branch chip can hide itself when it would duplicate the same branch of the
+ * same repository. Read-only snapshot; null when nothing is shown.
+ *
+ * @returns {{ scope: object | null, info: object | null }}
+ */
+export function getGitContextBadgeSnapshot() {
+  if (!lastState.scope) return { scope: null, info: null };
+  return { scope: lastState.scope, info: lastState.info || null };
 }
 
 function onBadgeClick() {
@@ -109,7 +121,7 @@ export async function refreshGitContextBadge(options = {}) {
       return;
     }
     const label = t('git.contextGlobal');
-    lastState = { scope };
+    lastState = { scope, info };
     el.hidden = false;
     el.textContent = branch;
     el.title = `${label}: ${branch}`;
@@ -118,7 +130,7 @@ export async function refreshGitContextBadge(options = {}) {
     return;
   }
   const badge = deriveGitContextBadge(info, t);
-  lastState = { scope };
+  lastState = { scope, info };
   el.hidden = false;
   el.textContent = badge.branch ? `${badge.label} · ${badge.branch}` : badge.label;
   el.title = badge.title;

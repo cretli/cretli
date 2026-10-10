@@ -53,6 +53,14 @@ import {
 } from './workspaceWatcherToggle.js';
 import { readChatOrder, writeChatOrder, writeChatOrderForList } from './sidebarChatOrder.js';
 import {
+  chatWorktreeTodoId,
+  filterChatsByWorktree,
+  filterWorkspacesByActiveWorkspace,
+  readSidebarOnlyActiveWorkspaceFlag,
+  readSidebarOnlyWorktreeFlag,
+  SIDEBAR_ONLY_ACTIVE_WORKSPACE_KEY,
+} from './sidebarOnlyActiveFilter.js';
+import {
   publishSidebarLayout,
   sidebarLayoutListsEqual,
 } from './sidebarLayoutSync.js';
@@ -750,9 +758,21 @@ export function createSidebarView(deps) {
     }
   }
 
+  /**
+   * Worktree filter target: the active chat's worktree root todo id when the
+   * "only this worktree" toggle is on. Suspended while searching.
+   */
+  function activeWorktreeFilterId() {
+    if (!readSidebarOnlyWorktreeFlag() || isSearchActive()) return '';
+    const activeId = getActiveChatId();
+    if (!activeId) return '';
+    return chatWorktreeTodoId(getChats().find((chat) => chat?.id === activeId));
+  }
+
   function visibleChatsForWorkspace(workspace) {
     const workspaceName = workspace.name || workspace.workspaceFile || '';
-    const scoped = orderedChats(chatsForWorkspace(workspace));
+    const worktreeId = activeWorktreeFilterId();
+    const scoped = filterChatsByWorktree(orderedChats(chatsForWorkspace(workspace)), worktreeId);
     const pool = typeof expandWorkspaceChatsForSearch === 'function'
       ? expandWorkspaceChatsForSearch(workspace, scoped)
       : scoped;
@@ -1317,6 +1337,12 @@ export function createSidebarView(deps) {
     const entries = listWorkspaceWatcherPinnedChats();
     const showAll = readWatcherShowAllFlag();
     if (!entries.length && !showAll) return '';
+    // The "active workspace only" filter also applies here: watcher rows of
+    // other workspaces must not leak past the filtered chat list.
+    const onlyActive = readSidebarOnlyActiveWorkspaceFlag() && !isSearchActive();
+    const activeFolder = normalizePath(getActiveWorkspaceFolder());
+    const matchesActive = (folder) => !onlyActive || !activeFolder
+      || normalizePath(folder) === activeFolder;
     const chats = getChats();
     const wsList = getWorkspaces();
     const nameFor = (folder) => workspaceDisplayNameForFolder(wsList, folder, getPreferredWorkspaceFolder);
@@ -1344,6 +1370,7 @@ export function createSidebarView(deps) {
         if (!folder) continue;
         const norm = normalizePath(folder);
         if (seenFolders.has(norm)) continue;
+        if (!matchesActive(norm)) continue;
         seenFolders.add(norm);
         const entry = entryByFolder.get(norm) || null;
         const chat = entry ? chats.find((item) => item.id === entry.pinnedChatId) : null;
@@ -1364,6 +1391,7 @@ export function createSidebarView(deps) {
       // Without "show all" the section is the watcher list, so a workspace whose
       // watcher is off stays hidden — the list button reveals it again.
       for (const entry of listEnabledWorkspaceWatcherPinnedChats()) {
+        if (!matchesActive(entry.workspaceFolder)) continue;
         const chat = chats.find((item) => item.id === entry.pinnedChatId);
         if (!chat) continue;
         rows.push(renderPinnedWatcherRow({
@@ -1636,7 +1664,11 @@ export function createSidebarView(deps) {
         '||' +
         (readPinActiveWorkspaceFlag() ? '1' : '0') +
         '||' +
-        (readWatcherShowAllFlag() ? '1' : '0');
+        (readWatcherShowAllFlag() ? '1' : '0') +
+        '||' +
+        (readSidebarOnlyActiveWorkspaceFlag() ? '1' : '0') +
+        '||' +
+        activeWorktreeFilterId();
       const watcherSig = String(workspaceWatcherPresenceRevision());
       // The master start gate is server-wide state, not part of the presence
       // frame, so its revision is tracked separately to repaint the header switch.
@@ -1697,7 +1729,13 @@ export function createSidebarView(deps) {
       const { grouped } = workspaceModel(workspace);
       for (const group of grouped.groups) settledGroupsByParent.set(group.parentId, group);
     }
-    const visibleWorkspaces = ordered.filter((workspace) => {
+    const activeFilterEarly = filterWorkspacesByActiveWorkspace(ordered, {
+      activeWorkspaceFolder,
+      searching,
+      enabled: readSidebarOnlyActiveWorkspaceFlag(),
+      getPreferredWorkspaceFolder,
+    });
+    const visibleWorkspaces = activeFilterEarly.workspaces.filter((workspace) => {
       const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
       return !(searching && (chatsByKey.get(sidebarKey) || []).length === 0);
     });
@@ -1925,7 +1963,13 @@ export function createSidebarView(deps) {
         computeWorkspaceStructureSignature(workspace, activeChatId, searching),
       );
     }
-    const visibleWorkspaces = ordered.filter((workspace) => {
+    const activeFilter = filterWorkspacesByActiveWorkspace(ordered, {
+      activeWorkspaceFolder,
+      searching,
+      enabled: readSidebarOnlyActiveWorkspaceFlag(),
+      getPreferredWorkspaceFolder,
+    });
+    const visibleWorkspaces = activeFilter.workspaces.filter((workspace) => {
       const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
       return !(searching && (chatsByKey.get(sidebarKey) || []).length === 0);
     });
@@ -1934,6 +1978,9 @@ export function createSidebarView(deps) {
       renderedWorkspaceNodes.clear();
       lastPinnedSectionHtml = '';
       const innerStart = trace ? monoNow() : 0;
+      // When only the search empties the list this is the "no results" state;
+      // the workspace filter never empties the list (it falls back to all),
+      // so this branch keeps meaning "the search found nothing".
       body.innerHTML =
         '<div class="sidebar-empty">' + escapeHtml(t('sidebar.noSearchResults')) + '</div>';
       if (metrics) {
@@ -1958,6 +2005,7 @@ export function createSidebarView(deps) {
       chatsByKey,
     });
     applyPinnedSection(body, activeChatId);
+    applyOnlyActiveHint(body, activeFilter);
     const innerMs = trace ? monoNow() - innerStart : 0;
     const wireStart = trace ? monoNow() : 0;
     wireBodyEvents();
@@ -2081,6 +2129,34 @@ export function createSidebarView(deps) {
     if (existing) existing.replaceWith(node);
     else body.insertBefore(node, body.firstChild);
     lastPinnedSectionHtml = html;
+  }
+
+  /**
+   * One-line notice for the "active workspace only" fallback: the filter was on
+   * but the active folder matches no sidebar group, so everything is shown.
+   *
+   * @param {Element} body
+   * @param {{ fallback: boolean }} activeFilter
+   */
+  function applyOnlyActiveHint(body, activeFilter) {
+    const existing = body.querySelector('.sidebar-only-active-hint');
+    if (!activeFilter?.fallback) {
+      if (existing) existing.remove();
+      return;
+    }
+    const text = t('workspace.onlyActiveFallbackHint');
+    if (existing) {
+      if (existing.textContent !== text) existing.textContent = text;
+      return;
+    }
+    const hint = document.createElement('div');
+    hint.className = 'sidebar-only-active-hint';
+    hint.textContent = text;
+    const ul = body.querySelector('.sidebar-workspaces');
+    const pinned = body.querySelector('.sidebar-pinned-section');
+    if (ul) body.insertBefore(hint, ul);
+    else if (pinned) body.insertBefore(hint, pinned.nextSibling);
+    else body.appendChild(hint);
   }
 
   /**
@@ -2788,6 +2864,12 @@ export function createSidebarView(deps) {
     // carry: fetch it once, then refresh whenever the watcher reports a change.
     window.addEventListener('cretli:workspace-watcher-changed', () => {
       void refreshWorkspaceWatcherRuntimeControl().then(() => updateScheduler.schedule());
+    });
+    // The only-active filter is per browser: another tab flipping it must
+    // repaint here too (best-effort; fires only for cross-tab writes).
+    window.addEventListener('storage', (event) => {
+      if (event?.key !== SIDEBAR_ONLY_ACTIVE_WORKSPACE_KEY) return;
+      forceRerender();
     });
     void refreshWorkspaceWatcherRuntimeControl().then((ok) => {
       if (ok) updateScheduler.schedule();

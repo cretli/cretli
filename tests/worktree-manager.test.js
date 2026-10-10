@@ -6,12 +6,13 @@ import { test } from 'node:test';
 import {
   ensureWorktree,
   reconcileWorktreeRegistry,
+  releaseWorktree,
   removeWorktree,
   updateWorktreeState,
   verifyWorktreeRecord,
 } from '../lib/worktree-manager.js';
 import { readWorktreeRegistry, mutateWorktreeRegistry } from '../lib/persist/worktree-registry-persist.js';
-import { createWorktreeRecord } from '../lib/worktree/worktree-record.js';
+import { createWorktreeRecord, isWorktreeRecordLive } from '../lib/worktree/worktree-record.js';
 import { resolveWorktreeLayout } from '../lib/worktree/worktree-layout.js';
 import { WORKTREE_ERROR_CODES } from '../lib/worktree/worktree-errors.js';
 import { commitFile, createTempRepo, git, tempDir, worktreeConfig } from './helpers/temp-git-repo.js';
@@ -408,4 +409,23 @@ test('an external change to a registered worktree is detected and never adopted'
   const report = reconcileWorktreeRegistry({ registryOptions, config });
   assert.ok(report.entries.some((entry) => entry.todoId === TODO_A && entry.status === 'external_change'));
   assert.ok(fs.existsSync(created.record.worktreePath), 'external change is reported, never deleted');
+});
+
+test('releaseWorktree closes the live record, keeps the directory and is refused while an agent runs', (t) => {
+  const { repo, config, registryOptions } = setup(t);
+  const { record } = ensureWorktree({ todoId: TODO_A, workspaceFolder: repo, mode: 'worktree', config, registryOptions });
+  assert.equal(
+    errorCode(() => releaseWorktree({ todoId: TODO_A, registryOptions, hasActiveAgent: () => true })),
+    WORKTREE_ERROR_CODES.BUSY,
+  );
+  assert.equal(isWorktreeRecordLive(readWorktreeRegistry(registryOptions).items[TODO_A]), true);
+  const released = releaseWorktree({ todoId: TODO_A, registryOptions, hasActiveAgent: () => false });
+  assert.equal(released.released, true);
+  assert.ok(fs.existsSync(record.worktreePath));
+  assert.equal(isWorktreeRecordLive(readWorktreeRegistry(registryOptions).items[TODO_A]), false);
+  assert.equal(releaseWorktree({ todoId: TODO_A, registryOptions, hasActiveAgent: () => false }).alreadyReleased, true);
+  // An explicit worktree-mode start re-adopts the released worktree.
+  const again = ensureWorktree({ todoId: TODO_A, workspaceFolder: repo, mode: 'worktree', config, registryOptions });
+  assert.equal(again.reused, true);
+  assert.equal(isWorktreeRecordLive(readWorktreeRegistry(registryOptions).items[TODO_A]), true);
 });

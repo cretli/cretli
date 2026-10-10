@@ -72,6 +72,20 @@ built to `public/dist/`.
 | `voice/openai-api-key.js` | OpenAI API key resolution for the voice layer (env/config) |
 | `voice/openai-rate-limit.js` | Opt-in per-IP throttle for the OpenAI voice endpoints |
 | `voice/realtime-session-config.js` | Instructions, tool schemas and audio config pinned to every minted Realtime token |
+| `usage/usage-contract.js` | Versioned token/measurement contract: harness matrix, disjoint buckets, provenance/scope/lifecycle/completeness, logical identity, 24 h final-usage grace |
+| `usage/usage-event.js` | Canonical usage event (stamps every event with schema/normalization/contract versions and the contract fields) |
+| `usage/usage-ledger.js` | Read-model over the usage journal: scope-aware summary, timeseries, run lifecycle |
+| `usage/usage-insights.js` | One filter-consistent API/UI/CSV payload: disjoint sums, cost provenance, coverage, executed choices |
+| `persist/usage-persist.js` | Append-only JSONL journal + rebuildable `ledger-index.json`, inter-process lock, snapshot baselines, corrections, retention |
+| `model-role-profiles.js` | Role matchers/profiles, `selectModelPick`, eligibility, rotation, cold-start, observed blend |
+| `model-pick-hard-gates.js` | Injectable hard gates: role/model id, flash/premium review, favorites, lockout/quota, excludes, MCP capability |
+| `model-pick-service.js` | `pickModelForPurpose` / `pickAndPersistModelForPurpose`; composes explore + shadow segments |
+| `model-pick-explore.js` | Bounded out-of-band exploration (dry-run default, credits, cooldown, CAS budget reserve) |
+| `model-pick-shadow.js` | Observer-only explainable shadow ranking (never changes the selection) |
+| `model-pick-shadow-facts.js` | Shadow measurement facts and cycle-cost normalization |
+| `persist/model-pick-decisions-persist.js` | Durable `model-pick-decisions.json` store with an atomic per-document lock |
+| `model-pick-decisions.js` | Pick proposal/link classification, fanout slots, shadow comparisons, execution counters |
+| `delegation-cycle-outcomes.js` | Implement/fix→review cycles, acceptance evidence, cost-per-accepted and union wall time |
 
 ## Agent harnesses
 
@@ -396,7 +410,8 @@ Model windows come from a static prefix table in `lib/sdk/sdk-context-advisory.j
 | GET | `/api/files/entries` / `/api/files/read` | Workspace tree / file content (symlink-safe) |
 | GET | `/api/fs/entries` | Absolute directory listing for path pickers (`?path=&includeHidden=1`) |
 | POST | `/api/fs/mkdir` | Create one folder under an existing absolute path (`{ path, name }`) |
-| POST | `/api/git/run` | Whitelisted git actions (status, fetch, pull, push, checkout) |
+| POST | `/api/git/run` | Whitelisted git actions (status, fetch, pull, push, checkout). `switch`/`switch-new` are guarded: refused with `workspace_busy` while a chat run, delegation slot or watcher cycle is live in the repo's main working tree |
+| GET | `/api/git/branches` | Local branches for the workspace quick switch (`for-each-ref`; `{ name, current, argSafe }[]`) |
 | POST | `/api/upload-screenshot` | Image upload (sharp re-encode, 5 MB limit) |
 | POST | `/api/voice/speak` | Text to speech via OpenAI or Azure (`provider`) → base64 mp3 |
 | POST | `/api/voice/transcribe` | Audio (base64) to text via OpenAI |
@@ -475,12 +490,22 @@ TLS verification (loopback is relaxed by default — self-signed cert).
 
 ## Usage ledger
 
-Every paid AI call (voice Live/TTS/STT, OpenRouter chat, Cursor SDK tokens) records into
-one server ledger (`lib/usage/` + gitignored `data/usage/YYYY-MM-DD.jsonl`). The server
-sets USD from `lib/usage/usage-rates.js`; the browser never sends a price. Gemini Live is
-counted on the WS relay. OpenAI Realtime is browser-direct, so the client POSTs raw token
-counts only. Cursor SDK stores tokens with `usd: null`. OpenCode has no money in v1. The
-chat context ring stays a separate meter. Settings → Usage shows today and this month.
+Every paid AI call (voice Live/TTS/STT, OpenRouter chat, Cursor SDK tokens, and every
+agent harness) records into one server ledger (`lib/usage/` + gitignored
+`data/usage/YYYY-MM-DD.jsonl` and its rebuildable `ledger-index.json` read-model). The
+server sets USD from `lib/usage/usage-rates.js`; the browser never sends a price. Gemini
+Live is counted on the WS relay. OpenAI Realtime is browser-direct, so the client POSTs
+raw token counts only. Cursor SDK stores tokens with `usd: null`. The chat context ring
+stays a separate meter. Settings → Usage shows the zone-aware windows, disjoint cache
+buckets, data completeness and executed automatic choices.
+
+The measurement contract is versioned and documented in
+[usage-contract.md](usage-contract.md); the event schema, endpoints, privacy and
+retention/alerts are in [usage-telemetry.md](usage-telemetry.md); the staged rollout and
+rollback rules are in [usage-rollout.md](usage-rollout.md). Model-pick decisions and cycle
+costs are documented in [model-pick-decisions.md](model-pick-decisions.md), and the
+observed/shadow scoring facts in [model-scoring-facts.md](model-scoring-facts.md).
+
 
 ## Voice layer
 
