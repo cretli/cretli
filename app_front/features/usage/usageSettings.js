@@ -6,7 +6,7 @@
  * `usageCharts.js` so they can be unit-tested without a DOM.
  */
 
-import { getUsagePlanLimits, getUsageSummary, getUsageTimeseries, getUsageModels, getDelegationStats, getUsageInsights } from '../../api.js';
+import { getUsagePlanLimits, getUsageSummary, getUsageTimeseries, getUsageModels, getDelegationStats, getUsageInsights, getUsageSettings, saveUsageSettings } from '../../api.js';
 import { renderPlanLimitsHtml } from './planLimitsView.js';
 import {
   renderChoicesHtml,
@@ -779,6 +779,9 @@ export async function refreshUsageSettings() {
   if (typeof document === 'undefined') return;
   const section = document.querySelector('.settings-section[data-settings-tab="usage"]');
   if (!section) return;
+  // The retention/alerts panel has its own endpoint; paint it alongside the
+  // ledger requests so a ledger outage never hides the settings.
+  void refreshUsageSettingsPanel();
   const token = ++requestToken;
   const statsToken = delegationStatsGate.begin();
   setView('loading');
@@ -965,6 +968,148 @@ function exportCsv() {
 }
 
 /**
+ * @param {number} bytes
+ * @returns {string}
+ */
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024) return `${value} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let scaled = value / 1024;
+  let index = 0;
+  while (scaled >= 1024 && index < units.length - 1) {
+    scaled /= 1024;
+    index += 1;
+  }
+  return `${scaled.toFixed(scaled >= 10 ? 0 : 1)} ${units[index]}`;
+}
+
+/**
+ * @param {object} storage
+ * @returns {string}
+ */
+function formatStorageText(storage) {
+  if (!storage || storage.exists !== true) return t('usage.storageMissing');
+  return t('usage.storageInfo', {
+    size: formatBytes(storage.bytes),
+    files: formatInteger(storage.files, getCurrentLang()),
+    days: formatInteger(storage.dayFiles, getCurrentLang()),
+    oldest: storage.oldestDay || '—',
+    newest: storage.newestDay || '—',
+  });
+}
+
+/**
+ * Paint the retention/alerts form and the `data/usage/` size from the
+ * `GET/POST /api/usage/settings` payload.
+ *
+ * @param {object} payload
+ * @returns {void}
+ */
+function paintUsageSettingsForm(payload) {
+  const settings = payload?.settings || {};
+  const alerts = settings.alerts || {};
+  const retentionEl = byId('usage-retention-days');
+  if (retentionEl) retentionEl.value = String(settings.retentionDays ?? 90);
+  const thresholdEl = byId('usage-alert-plan-threshold');
+  if (thresholdEl) thresholdEl.value = String(alerts.planLimitThresholdPercent ?? 80);
+  const dailyEl = byId('usage-budget-daily');
+  if (dailyEl) dailyEl.value = alerts.dailyBudgetUsd == null ? '' : String(alerts.dailyBudgetUsd);
+  const monthlyEl = byId('usage-budget-monthly');
+  if (monthlyEl) monthlyEl.value = alerts.monthlyBudgetUsd == null ? '' : String(alerts.monthlyBudgetUsd);
+  const toggles = [
+    ['usage-alert-plan-limit', alerts.planLimit],
+    ['usage-alert-lockout', alerts.lockout],
+    ['usage-alert-budget', alerts.budget],
+  ];
+  for (const [id, value] of toggles) {
+    const el = byId(id);
+    if (el) el.checked = value === true;
+  }
+  const infoEl = byId('usage-storage-info');
+  if (infoEl) infoEl.textContent = formatStorageText(payload?.storage);
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number|null}
+ */
+function parseOptionalUsd(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const numeric = Number(raw);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+/**
+ * Integer form field: an empty/invalid value is omitted from the patch so the
+ * server keeps the stored value instead of clamping an accidental 0.
+ *
+ * @param {unknown} value
+ * @returns {number|null}
+ */
+function parseOptionalInt(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const numeric = Number(raw);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric) : null;
+}
+
+/**
+ * @returns {object}
+ */
+function collectUsageSettingsPatch() {
+  const patch = {
+    alerts: {
+      planLimit: byId('usage-alert-plan-limit')?.checked === true,
+      lockout: byId('usage-alert-lockout')?.checked === true,
+      budget: byId('usage-alert-budget')?.checked === true,
+      dailyBudgetUsd: parseOptionalUsd(byId('usage-budget-daily')?.value),
+      monthlyBudgetUsd: parseOptionalUsd(byId('usage-budget-monthly')?.value),
+    },
+  };
+  const retentionDays = parseOptionalInt(byId('usage-retention-days')?.value);
+  if (retentionDays != null) patch.retentionDays = retentionDays;
+  const threshold = parseOptionalInt(byId('usage-alert-plan-threshold')?.value);
+  if (threshold != null) patch.alerts.planLimitThresholdPercent = threshold;
+  return patch;
+}
+
+/**
+ * @param {boolean} pruneNow
+ * @returns {Promise<void>}
+ */
+async function submitUsageSettings(pruneNow) {
+  const statusEl = byId('usage-settings-status');
+  if (statusEl) statusEl.textContent = t('usage.saving');
+  try {
+    const patch = collectUsageSettingsPatch();
+    const result = await saveUsageSettings(pruneNow ? { ...patch, pruneNow: true } : patch);
+    if (!result?.ok) throw new Error(result?.error || 'save failed');
+    paintUsageSettingsForm(result);
+    if (statusEl) statusEl.textContent = pruneNow ? t('usage.pruned') : t('usage.saved');
+  } catch (error) {
+    console.warn('[usage] settings save failed:', error);
+    if (statusEl) statusEl.textContent = t('usage.saveFailed');
+  }
+}
+
+/**
+ * Load the retention/alerts form and the directory size.
+ *
+ * @returns {Promise<void>}
+ */
+export async function refreshUsageSettingsPanel() {
+  if (typeof document === 'undefined') return;
+  try {
+    const payload = await getUsageSettings();
+    if (payload?.ok) paintUsageSettingsForm(payload);
+  } catch (error) {
+    console.warn('[usage] settings load failed:', error);
+  }
+}
+
+/**
  * Wires controls and the language-change reload. First paint happens when the
  * tab opens.
  *
@@ -1089,6 +1234,16 @@ export function initUsageSettings() {
   // of showing the previous workspace's aggregate.
   window.addEventListener('cretli-workspace-updated', refreshUsageIfVisible);
   window.addEventListener('cretli-active-workspace-changed', refreshUsageIfVisible);
+  byId('usage-settings-save')?.addEventListener('click', () => {
+    void submitUsageSettings(false);
+  });
+  byId('usage-settings-prune')?.addEventListener('click', () => {
+    void submitUsageSettings(true);
+  });
+  // The storage line is built in JS, so a language switch must repaint it.
+  window.addEventListener('cr-lang-changed', () => {
+    void refreshUsageSettingsPanel();
+  });
 }
 
 export { harnessLabel, state as usageUiState };

@@ -345,6 +345,20 @@ export function initLanSettings() {
     hint.textContent = t('lanSettings.claudeKeyMissing');
   }
 
+  function applyClaudeCacheSettings(data) {
+    const cachingCheckbox = document.getElementById('claude-prompt-caching-1h-checkbox');
+    const disableCompactCheckbox = document.getElementById('claude-disable-auto-compact-checkbox');
+    const pctInput = document.getElementById('claude-autocompact-pct-input');
+    const statusEl = document.getElementById('claude-cache-save-status');
+    if (cachingCheckbox) cachingCheckbox.checked = data?.claudePromptCaching1h === true;
+    if (disableCompactCheckbox) disableCompactCheckbox.checked = data?.claudeDisableAutoCompact === true;
+    if (pctInput) {
+      const pct = Number(data?.claudeAutocompactPctOverride);
+      pctInput.value = Number.isFinite(pct) && pct > 0 ? String(pct) : '';
+    }
+    if (statusEl) statusEl.textContent = '';
+  }
+
   function applyCodexChatGptHint(data) {
     const statusEl = document.getElementById('codex-chatgpt-status');
     if (!statusEl) return;
@@ -505,6 +519,7 @@ export function initLanSettings() {
     applyQwenApiKeyHint(data);
     applyClaudeAuthModeSelect(data);
     applyClaudeApiKeyHint(data);
+    applyClaudeCacheSettings(data);
     applyCodexApiKeyHint(data);
     applyCodexChatGptHint(data);
     applyCodexAuthModeSelect(data);
@@ -988,6 +1003,37 @@ export function initLanSettings() {
         })
         .catch(() => {
           if (claudeApiKeyStatusEl) claudeApiKeyStatusEl.textContent = t('lanSettings.connectionError');
+        });
+    });
+  }
+
+  const claudeCacheSaveBtn = document.getElementById('claude-cache-save-btn');
+  if (claudeCacheSaveBtn) {
+    claudeCacheSaveBtn.addEventListener('click', () => {
+      const cachingCheckbox = document.getElementById('claude-prompt-caching-1h-checkbox');
+      const disableCompactCheckbox = document.getElementById('claude-disable-auto-compact-checkbox');
+      const pctInput = document.getElementById('claude-autocompact-pct-input');
+      const statusEl = document.getElementById('claude-cache-save-status');
+      const rawPct = (pctInput?.value || '').trim();
+      const payload = {
+        claudePromptCaching1h: cachingCheckbox?.checked === true,
+        claudeDisableAutoCompact: disableCompactCheckbox?.checked === true,
+        claudeAutocompactPctOverride: rawPct ? rawPct : null,
+      };
+      if (statusEl) statusEl.textContent = t('common.saving');
+      api
+        .patchSettings(payload)
+        .then((data) => {
+          if (!data?.ok) {
+            if (statusEl) statusEl.textContent = data?.error || t('lanSettings.saveError');
+            return;
+          }
+          applyClaudeCacheSettings(data);
+          if (statusEl) statusEl.textContent = t('common.saved');
+          window.dispatchEvent(new CustomEvent('cretli-claude-key-changed'));
+        })
+        .catch(() => {
+          if (statusEl) statusEl.textContent = t('lanSettings.connectionError');
         });
     });
   }

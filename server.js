@@ -733,6 +733,11 @@ server.listen(PORT, BIND_HOST, () => {
   refreshMemoryMonitorAlerts();
   const memoryMonitorAlertTimer = setInterval(refreshMemoryMonitorAlerts, 60_000);
   memoryMonitorAlertTimer.unref?.();
+  // Usage telemetry retention + optional alerts run at startup and periodically.
+  // Imported lazily so a failure here cannot prevent the server from serving.
+  void import('./lib/usage/usage-maintenance.js')
+    .then(({ startUsageMaintenance }) => startUsageMaintenance({ dataDir }))
+    .catch((err) => console.warn('[cretli] usage maintenance startup failed:', err?.message || err));
   if (FRONT_HOT_FALLBACK_ENABLED) installFrontBuildWatcher(__dirname, SERVER_INSTANCE_TOKEN);
   setInterval(() => runAgentsScheduler(wsRouterCtx), AGENTS_SCHEDULER_INTERVAL_MS);
   logServerReady({

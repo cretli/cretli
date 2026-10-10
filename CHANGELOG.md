@@ -8,6 +8,23 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Usage telemetry: retention, optional alerts and documentation.** The
+  usage journal under `data/usage/` now has configurable retention (default 90
+  days): `pruneUsageJournal` deletes only stale `YYYY-MM-DD.jsonl` day files,
+  while ledger identity keys keep their 30-day floor. Retention runs at server
+  startup and every six hours, and alerts are polled every five minutes.
+  Settings → Usage gains a *Telemetry & retention*
+  panel with the retention window, the `data/usage/` size and three alert
+  channels — plan window above a configurable percentage, harness lockout, and
+  daily/monthly USD budget — all **off by default**, throttled to at most once
+  per period, and delivered through the existing Web Push and in-app
+  notification centre. New `GET/POST /api/usage/settings`. `docs/usage-telemetry.md`
+  documents the event schema, endpoints, privacy guarantees, retention/alerts
+  and the step-by-step harness onboarding. Covered by
+  `tests/usage-retention.test.js`, `tests/usage-alerts.test.js`,
+  `tests/usage-settings.test.js`, `tests/usage-settings-routes.test.js` and
+  `tests/usage-privacy.test.js`.
+
 - **Opt-in cap on live OpenCode instances.** `CRETLI_OPENCODE_MAX_INSTANCES` or
   the `opencodeMaxInstances` setting caps simultaneously live `opencode serve`
   processes. Empty/`0`/invalid means no limit, so the default behaviour is
@@ -77,6 +94,17 @@ All notable changes to this project are documented here. The format is based on
   `mistral-medium-latest`. Setup: `docs/mistral/SETUP.md`.
 
 ### Fixed
+
+- **Todo: "Continue in a new chat" on a worktree tree no longer leaves an empty
+  chat.** A tree whose worktree was already prepared answered the start
+  synchronously but still re-ran the worktree prepare command (for example
+  `npm ci`) on every start. The request outlived the client timeout, the Todo
+  panel reported a failure, and the server then created an orchestrator chat
+  that never received its start prompt. An already prepared, active worktree is
+  now only verified against Git and reused, so its dependencies are not
+  reinstalled under chats still running in it. The MCP tool `todo_start` gains
+  `force_new` for the same action. Covered by
+  `tests/todo-manual-worktree.test.js`.
 
 - **Mistral favorites are start-eligible for delegation.** `model_list("mistral",
   enabled_only=true)` returned nothing when the enabled models came from the

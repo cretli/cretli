@@ -91,6 +91,23 @@ test('fromOpenCodeUsage does not subtract cache.read from input (disjoint counts
   assert.equal(tokens.cachedInput, 300);
 });
 
+test('session.next.step.ended without assistantMessageID still records a step delta', () => {
+  const tokensByMessageId = new Map();
+  const resolved = resolveOpenCodeUsageFromStreamEvent({
+    type: 'session.next.step.ended',
+    properties: {
+      sessionID: SESSION,
+      tokens: { input: 300, output: 40, reasoning: 0, cache: { read: 10, write: 5 } },
+    },
+  }, tokensByMessageId);
+  assert.ok(resolved, 'a step without an assistant message id must not be dropped');
+  assert.equal(resolved.messageId, '');
+  assert.equal(resolved.delta.input, 300);
+  assert.equal(resolved.delta.cacheRead, 10);
+  assert.equal(resolved.delta.cacheWrite, 5);
+  assert.equal(resolved.sdkEvent.usage.tokens.cache.write, 5);
+});
+
 test('sync-wrapped message.updated.1 unwraps and yields usage', () => {
   const tokensByMessageId = new Map();
   const wrapped = {

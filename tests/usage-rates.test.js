@@ -114,6 +114,30 @@ test('provider-reported Claude cost wins over the rate table', () => {
   assert.equal(priced.estimated, false);
 });
 
+test('prices DeepSeek API tokens with the cache-hit rate', () => {
+  const event = createUsageEvent({
+    provider: 'other',
+    harness: 'deepseek',
+    feature: 'chat',
+    model: 'deepseek-flash',
+    tokens: { textInput: 1_000_000, cachedInput: 1_000_000, textOutput: 1_000_000 },
+  });
+  const priced = priceUsage(event);
+  assert.equal(priced.usd, 0.728);
+  assert.equal(priced.estimated, true);
+  // A sibling DeepSeek model id resolves through the bare `deepseek` prefix.
+  assert.equal(
+    priceUsage(createUsageEvent({
+      provider: 'other',
+      harness: 'deepseek',
+      feature: 'chat',
+      model: 'deepseek-v4-pro',
+      tokens: { textInput: 1_000_000 },
+    })).usd,
+    0.28
+  );
+});
+
 test('formats tiny amounts', () => {
   assert.equal(formatUsd(0.004), '<$0.01');
   assert.equal(formatUsd(1.2), '$1.20');

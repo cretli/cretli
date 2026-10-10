@@ -6,6 +6,7 @@ import {
   createClaudeEventNormalizer,
   normalizeClaudeMessage,
   resolveClaudeAssistantErrorMessage,
+  resolveClaudeAssistantMessageUsage,
   resolveClaudeResultUsage,
   stringifyClaudeToolResult,
 } from '../lib/agent-harness/claude-event-normalizer.js';
@@ -406,5 +407,84 @@ assert.equal(
   collectClaudeIdleNotices({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } })[0].noticeType,
   'rate_limit',
 );
+
+// --- Usage gap: per-assistant-message usage and the ephemeral TTL split ---
+const assistantUsage = resolveClaudeAssistantMessageUsage({
+  type: 'assistant',
+  message: {
+    usage: {
+      input_tokens: 100,
+      output_tokens: 20,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 50,
+      cache_creation: { ephemeral_5m_input_tokens: 50, ephemeral_1h_input_tokens: 0 },
+    },
+  },
+});
+assert.equal(assistantUsage.inputTokens, 150);
+assert.equal(assistantUsage.cacheWriteTokens, 50);
+assert.equal(assistantUsage.cacheWrite5mTokens, 50);
+assert.equal(assistantUsage.cacheWrite1hTokens, undefined);
+
+const resultWithSplit = resolveClaudeResultUsage({
+  usage: {
+    input_tokens: 10,
+    output_tokens: 2,
+    cache_read_input_tokens: 200,
+    cache_creation_input_tokens: 7,
+    cache_creation: { ephemeral_5m_input_tokens: 4, ephemeral_1h_input_tokens: 3 },
+  },
+});
+assert.equal(resultWithSplit.cacheWriteTokens, 7);
+assert.equal(resultWithSplit.cacheWrite5mTokens, 4);
+assert.equal(resultWithSplit.cacheWrite1hTokens, 3);
+
+const usageGapNormalizer = createClaudeEventNormalizer();
+const firstCallItems = usageGapNormalizer.normalize({
+  type: 'assistant',
+  message: {
+    content: [],
+    usage: {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 50,
+    },
+  },
+});
+const apiCallItem = firstCallItems.find((event) => event.kind === 'api_call_usage');
+assert.ok(apiCallItem, 'the first API call of a turn is collected');
+assert.equal(apiCallItem.first, true);
+assert.equal(apiCallItem.usage.cacheWriteTokens, 50);
+assert.equal(
+  usageGapNormalizer.normalize({
+    type: 'assistant',
+    message: { content: [], usage: { input_tokens: 300, output_tokens: 5, cache_read_input_tokens: 80 } },
+  }).filter((event) => event.kind === 'api_call_usage').length,
+  0,
+  'later API calls of the same turn do not re-announce the first call'
+);
+const usageGapResult = usageGapNormalizer.normalize({
+  type: 'result',
+  subtype: 'success',
+  is_error: false,
+  usage: {
+    input_tokens: 10,
+    output_tokens: 2,
+    cache_read_input_tokens: 200,
+    cache_creation_input_tokens: 5,
+    cache_creation: { ephemeral_5m_input_tokens: 5, ephemeral_1h_input_tokens: 0 },
+  },
+});
+const usageGapUsage = usageGapResult.find((event) => event.kind === 'usage');
+assert.equal(usageGapUsage.usage.cacheWriteTokens, 5);
+assert.equal(usageGapUsage.usage.cacheWrite5mTokens, 5);
+assert.deepEqual(usageGapUsage.firstApiCallUsage, apiCallItem.usage);
+// A result ends the turn, so the next turn's first call is collected again.
+const nextTurn = usageGapNormalizer.normalize({
+  type: 'assistant',
+  message: { content: [], usage: { input_tokens: 42, output_tokens: 1, cache_read_input_tokens: 42 } },
+});
+assert.equal(nextTurn.filter((event) => event.kind === 'api_call_usage').length, 1);
 
 console.log('claude-event-normalizer.test.js OK');

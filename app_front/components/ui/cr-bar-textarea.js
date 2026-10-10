@@ -172,6 +172,7 @@ class CrBarTextarea extends LitElement {
     return html`
       <textarea
         class="control"
+        part="control"
         .value=${this.value || ''}
         .placeholder=${this.placeholder || ''}
         .rows=${Number.isFinite(this.rows) && this.rows > 0 ? this.rows : 2}

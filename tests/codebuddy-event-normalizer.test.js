@@ -69,4 +69,40 @@ assert.equal(failed[0].errorMessage, 'boom');
 assert.deepEqual(normalizeCodeBuddyMessage(null), []);
 assert.deepEqual(normalizeCodeBuddyMessage({ type: 'unknown' }), []);
 
+// --- Native compaction is observed (compact_boundary / PreCompact / status) ---
+const compactBoundary = normalizeCodeBuddyMessage({
+  type: 'system',
+  subtype: 'compact_boundary',
+  session_id: 'cb-sess-1',
+  compact_metadata: { trigger: 'auto', pre_tokens: 180000 },
+});
+assert.equal(compactBoundary[0].kind, 'session');
+const boundaryNotice = compactBoundary.find((event) => event.kind === 'notice');
+assert.ok(boundaryNotice, 'a compact_boundary notice is emitted');
+assert.equal(boundaryNotice.noticeType, 'compact');
+assert.equal(boundaryNotice.phase, 'boundary');
+assert.equal(boundaryNotice.trigger, 'auto');
+assert.equal(boundaryNotice.preTokens, 180000);
+
+const preCompact = normalizeCodeBuddyMessage({
+  type: 'system',
+  hook_event_name: 'PreCompact',
+  session_id: 'cb-sess-1',
+  trigger: 'manual',
+});
+assert.equal(preCompact.find((event) => event.kind === 'notice').phase, 'pre');
+const postCompact = normalizeCodeBuddyMessage({
+  type: 'system',
+  hook_event_name: 'PostCompact',
+  session_id: 'cb-sess-1',
+});
+assert.equal(postCompact.find((event) => event.kind === 'notice').phase, 'post');
+const compactingStatus = normalizeCodeBuddyMessage({
+  type: 'system',
+  subtype: 'status',
+  status: 'compacting',
+  session_id: 'cb-sess-1',
+});
+assert.equal(compactingStatus.find((event) => event.kind === 'notice').phase, 'pre');
+
 console.log('codebuddy-event-normalizer.test.js OK');

@@ -3004,6 +3004,19 @@ body.files-preview-resizing {
   background: var(--cr-border-subtle);
 }
 
+.todo-row-worktree-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  color: var(--cr-accent);
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.todo-row-worktree-badge[hidden] {
+  display: none;
+}
+
 .todo-row-badge,
 .todo-row-mark {
   flex-shrink: 0;
@@ -3147,6 +3160,16 @@ body.files-preview-resizing {
   overflow: hidden;
 }
 
+/* On phones the 44rem cap leaves most of the viewport empty and squeezes the
+ * editable panel (long header + worktree card). Let the editor grow into the
+ * height that is actually available. */
+@media (max-width: 768px) {
+  .todo-editor-dialog .todo-item {
+    max-height: calc(100vh - 8rem);
+    max-height: calc(100dvh - 8rem);
+  }
+}
+
 cr-todo-card.todo-card {
   display: block;
   min-width: 0;
@@ -3155,6 +3178,15 @@ cr-todo-card.todo-card {
 .todo-editor-tabs {
   flex: 0 0 auto;
   margin: 0 -0.6rem;
+}
+
+/* The editor has only four short tabs; wrapping beats a hidden horizontal
+ * scroll on narrow screens (a clipped "Settings" tab reads as broken). */
+@media (max-width: 768px) {
+  .todo-editor-tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
 }
 
 .todo-editor-panels {
@@ -3296,6 +3328,19 @@ cr-todo-card.todo-card {
   flex: 1;
   min-width: 0;
   font-weight: 500;
+}
+
+/* The title is a one-line field: auto-grow does not apply here and the native
+ * resize grip would sit on top of the last line of text. */
+.todo-item-title::part(control) {
+  resize: none;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+/* Same for the notes editor: cr-bar-textarea auto-grows, a manual grip would
+ * fight it and overlap the text. */
+.todo-item-body-edit::part(control) {
   resize: none;
 }
 
@@ -3341,17 +3386,25 @@ cr-todo-card.todo-card {
   font-size: 0.95rem;
 }
 
+.todo-item-hint {
+  margin: 0;
+}
+
 .todo-item-meta-line {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.25rem 0.1rem;
   font-size: 0.72rem;
   color: var(--cr-text-muted);
   flex: 0 0 auto;
 }
 
-.todo-item-meta-sep {
+/* Separator lives inside the following chip, so wrapping keeps "·" attached to
+ * it instead of leaving it alone at the end of the previous line. */
+.todo-item-meta-line > * + *::before {
+  content: '·';
+  margin-right: 0.4rem;
   opacity: 0.6;
 }
 
@@ -3526,6 +3579,16 @@ cr-todo-card.todo-card {
 
 .todo-item-plan,
 .todo-item-history {
+  margin-top: 0.45rem;
+}
+
+/* The plan is the primary artifact of a task tree, so it sits above the notes
+   instead of hiding below a long note body. */
+.todo-item-plan:first-child {
+  margin-top: 0;
+}
+
+.todo-item-plan + .todo-item-body {
   margin-top: 0.45rem;
 }
 
@@ -8803,6 +8866,25 @@ body.sdk-image-lightbox-open {
   border: 1px solid var(--cr-border-control);
   border-radius: var(--cr-radius-sm);
   font-size: 0.8rem;
+}
+
+.settings-usage-alerts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 0.5rem 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.settings-usage-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  color: var(--cr-text);
+}
+
+.settings-usage-telemetry-meta {
+  font-variant-numeric: tabular-nums;
 }
 
 .settings-usage-kpis {

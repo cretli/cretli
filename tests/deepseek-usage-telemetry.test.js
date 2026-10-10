@@ -122,12 +122,22 @@ test('room._lastUsagePayload accumulates across DSH steps and resets per run', (
   });
 
   step({ inputTokens: 100, outputTokens: 20, cacheReadTokens: 5 });
-  assert.deepEqual(room._lastUsagePayload, { inputTokens: 100, outputTokens: 20 },
-    'the first step seeds the SDK-compatible payload');
+  assert.deepEqual(room._lastUsagePayload, {
+    inputTokens: 100,
+    outputTokens: 20,
+    cacheReadTokens: 5,
+    cacheWriteTokens: 0,
+    reasoningTokens: 0,
+  }, 'the first step seeds the SDK-compatible payload including cache counters');
 
-  step({ inputTokens: 250, outputTokens: 35, cacheReadTokens: 40 });
-  assert.deepEqual(room._lastUsagePayload, { inputTokens: 350, outputTokens: 55 },
-    'the second step folds into the run total (cache stays disjoint)');
+  step({ inputTokens: 250, outputTokens: 35, cacheReadTokens: 40, cacheWriteTokens: 3, reasoningTokens: 7 });
+  assert.deepEqual(room._lastUsagePayload, {
+    inputTokens: 350,
+    outputTokens: 55,
+    cacheReadTokens: 45,
+    cacheWriteTokens: 3,
+    reasoningTokens: 7,
+  }, 'the second step folds into the run total and preserves cache/reasoning fields');
 
   kernel.broadcastRoom(room, { type: 'sdkPromptStarted', runId: 'run-accum-2' });
   assert.equal(room._lastUsagePayload, null, 'the next run drops the previous total');

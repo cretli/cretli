@@ -10,6 +10,7 @@ import {
   fromOpenAiRealtimeUsage,
   fromOpenCodeUsage,
   fromOpenRouterUsage,
+  fromQwenUsage,
   fromSdkUsage,
   mapProviderToHarness,
   readGeminiLiveCumulative,
@@ -73,12 +74,37 @@ test('maps Cursor SDK usage including cache and reasoning', () => {
     inputTokens: 1000,
     outputTokens: 80,
     cacheReadTokens: 200,
+    cacheWriteTokens: 50,
     reasoningTokens: 15,
   });
   assert.equal(actual.textInput, 1000);
   assert.equal(actual.textOutput, 80);
   assert.equal(actual.cachedInput, 200);
+  assert.equal(actual.cacheWrite, 50);
   assert.equal(actual.reasoning, 15);
+});
+
+test('maps Qwen explicit cache writes when the SDK supplies them', () => {
+  const withTotal = fromQwenUsage({
+    input_tokens: 1000,
+    output_tokens: 120,
+    cache_read_input_tokens: 400,
+    cache_creation_input_tokens: 50,
+  });
+  assert.equal(withTotal.cachedInput, 400);
+  assert.equal(withTotal.cacheWrite, 50);
+  assert.equal(withTotal.textInput, 550);
+
+  // The OpenAI-compatible path normally omits the write total; derive it from
+  // the ephemeral TTL breakdown when only that is present.
+  const withSplit = fromQwenUsage({
+    input_tokens: 1000,
+    output_tokens: 120,
+    cache_read_input_tokens: 400,
+    cache_creation: { ephemeral_5m_input_tokens: 20, ephemeral_1h_input_tokens: 30 },
+  });
+  assert.equal(withSplit.cacheWrite, 50);
+  assert.equal(withSplit.textInput, 550);
 });
 
 test('deltaTokens never goes negative', () => {

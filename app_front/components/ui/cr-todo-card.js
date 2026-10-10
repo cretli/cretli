@@ -480,9 +480,9 @@ class CrTodoCard extends LitElement {
       chips.push(html`<span class="todo-item-integration-chip">${t('todo.integrationReady')}</span>`);
     }
     if (!chips.length) return '';
-    return html`<div class="todo-item-meta-line">${chips.map((chip, index) => html`
-      ${index > 0 ? html`<span class="todo-item-meta-sep" aria-hidden="true">·</span>` : ''}${chip}
-    `)}</div>`;
+    // Separators are drawn with CSS (::before) so a wrapped line never ends on a
+    // dangling "·"; each separator stays glued to the chip that follows it.
+    return html`<div class="todo-item-meta-line">${chips}</div>`;
   }
 
   /**
@@ -760,7 +760,7 @@ class CrTodoCard extends LitElement {
         aria-labelledby="todo-tab-description"
         ?hidden=${this.activeTab !== 'description'}
       >
-        ${this._renderBodyEditor(item)} ${this._renderPlanSection(item)}
+        ${this._renderPlanSection(item)} ${this._renderBodyEditor(item)}
       </section>
     `;
   }
@@ -941,7 +941,7 @@ class CrTodoCard extends LitElement {
             @keydown=${this._onTitleKeydown}
           ></cr-bar-textarea>
         </div>
-        ${this.hasChildren ? html`<p>${t('todo.statusFromChildren')}</p>` : nothing}
+        ${this.hasChildren ? html`<p class="cr-hint todo-item-hint">${t('todo.statusFromChildren')}</p>` : nothing}
         <p class="todo-action-feedback" role="status" aria-live="polite" hidden></p>
         ${String(item.blockedReason || '').trim() ? html`
           <section class="todo-blocked-alert" role="alert" aria-live="polite">

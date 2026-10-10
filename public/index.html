@@ -860,6 +860,34 @@
           </div>
         </div>
         <p id="claude-harness-status" class="settings-hint" aria-live="polite"></p>
+        <h3 class="settings-section-title" data-i18n="settings.harnessClaudeCacheTitle">Prompt cache &amp; compaction</h3>
+        <p class="settings-hint" data-i18n="settings.harnessClaudeCacheHint">Optional Claude Code environment overrides. These variable names are not officially documented and may not work for every API key — verify before relying on them.</p>
+        <div class="cr-field">
+          <cr-checkbox id="claude-prompt-caching-1h-checkbox">
+            <span data-i18n="settings.harnessClaudePromptCaching1h">Enable 1-hour prompt caching (ENABLE_PROMPT_CACHING_1H)</span>
+          </cr-checkbox>
+        </div>
+        <div class="cr-field">
+          <cr-checkbox id="claude-disable-auto-compact-checkbox">
+            <span data-i18n="settings.harnessClaudeDisableAutoCompact">Disable automatic compaction (DISABLE_AUTO_COMPACT)</span>
+          </cr-checkbox>
+        </div>
+        <div class="cr-field">
+          <label class="cr-field-label" data-i18n="settings.harnessClaudeAutocompactPctLabel">Auto-compact percent override</label>
+          <div class="cr-row">
+            <cr-bar-input
+              id="claude-autocompact-pct-input"
+              type="number"
+              min="1"
+              max="100"
+              inputmode="numeric"
+              placeholder="e.g. 75 (empty = default)"
+              data-i18n-placeholder="settings.harnessClaudeAutocompactPctPlaceholder"
+            ></cr-bar-input>
+            <cr-bar-button variant="primary" id="claude-cache-save-btn" data-i18n="common.save">Save</cr-bar-button>
+            <span id="claude-cache-save-status" class="cr-status"></span>
+          </div>
+        </div>
       </section>
       <section class="settings-section" data-settings-tab="harness-codex-keys" id="codex-api-settings" role="tabpanel">
         <div class="harness-version-card-host" data-harness-version-host="codex"></div>
@@ -1969,6 +1997,39 @@
             </div>
             <p class="settings-hint" data-i18n="delegationStats.unusedHint">Enabled harnesses without a delegated job in the last 14 days.</p>
             <div id="delegation-stats-unused-list" class="settings-usage-unused-list"></div>
+          </div>
+        </div>
+        <div role="region" class="settings-usage-panel" aria-labelledby="usage-telemetry-title">
+          <h4 id="usage-telemetry-title" class="settings-usage-subtitle" data-i18n="usage.telemetryTitle">Telemetry &amp; retention</h4>
+          <p class="settings-hint" data-i18n="usage.telemetryHint">Journal retention and optional alerts. Alerts stay off until enabled and are sent at most once per crossing through the existing notification channels.</p>
+          <div class="settings-usage-controls">
+            <div class="settings-usage-control">
+              <label class="settings-usage-control-label" for="usage-retention-days" data-i18n="usage.retentionLabel">Retention (days)</label>
+              <input id="usage-retention-days" class="settings-usage-select" type="number" min="1" max="3650" step="1" inputmode="numeric" />
+            </div>
+            <div class="settings-usage-control">
+              <label class="settings-usage-control-label" for="usage-alert-plan-threshold" data-i18n="usage.planThresholdLabel">Plan alert threshold (%)</label>
+              <input id="usage-alert-plan-threshold" class="settings-usage-select" type="number" min="1" max="100" step="1" inputmode="numeric" />
+            </div>
+            <div class="settings-usage-control">
+              <label class="settings-usage-control-label" for="usage-budget-daily" data-i18n="usage.budgetDailyLabel">Daily budget (USD)</label>
+              <input id="usage-budget-daily" class="settings-usage-select" type="number" min="0.01" step="0.01" inputmode="decimal" />
+            </div>
+            <div class="settings-usage-control">
+              <label class="settings-usage-control-label" for="usage-budget-monthly" data-i18n="usage.budgetMonthlyLabel">Monthly budget (USD)</label>
+              <input id="usage-budget-monthly" class="settings-usage-select" type="number" min="0.01" step="0.01" inputmode="decimal" />
+            </div>
+          </div>
+          <div class="settings-usage-alerts-grid">
+            <label class="settings-usage-toggle"><input type="checkbox" id="usage-alert-plan-limit" /> <span data-i18n="usage.alertPlanLimit">Notify when a plan window crosses the threshold</span></label>
+            <label class="settings-usage-toggle"><input type="checkbox" id="usage-alert-lockout" /> <span data-i18n="usage.alertLockout">Notify when a harness enters a lockout</span></label>
+            <label class="settings-usage-toggle"><input type="checkbox" id="usage-alert-budget" /> <span data-i18n="usage.alertBudget">Notify when a daily/monthly budget is reached</span></label>
+          </div>
+          <p id="usage-storage-info" class="settings-hint settings-usage-telemetry-meta" aria-live="polite"></p>
+          <div class="quick-commands-save-row">
+            <button type="button" id="usage-settings-save" class="settings-usage-btn" data-i18n="usage.save">Save</button>
+            <button type="button" id="usage-settings-prune" class="settings-usage-btn" data-i18n="usage.pruneNow">Prune now</button>
+            <span id="usage-settings-status" class="quick-commands-save-status" aria-live="polite"></span>
           </div>
         </div>
       </section>

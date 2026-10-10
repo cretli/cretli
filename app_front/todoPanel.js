@@ -733,6 +733,7 @@ function createTodoRow() {
     '<button type="button" class="todo-row-toggle" hidden></button>' +
     '<button type="button" class="todo-row-main">' +
     '<span class="todo-item-status-icon" aria-hidden="true"></span>' +
+    '<span class="todo-row-worktree-badge" role="img" hidden><span class="mdi mdi-source-branch" aria-hidden="true"></span></span>' +
     '<span class="todo-row-text">' +
     '<span class="todo-row-title"></span>' +
     '<span class="todo-row-meta" hidden></span>' +
@@ -1172,6 +1173,7 @@ function paintTodoRow(el, row) {
   el.setAttribute('aria-level', String(row.level + 1));
   const toggle = el.querySelector('.todo-row-toggle');
   const title = el.querySelector('.todo-row-title');
+  const worktreeBadge = el.querySelector('.todo-row-worktree-badge');
   const meta = el.querySelector('.todo-row-meta');
   const badge = el.querySelector('.todo-row-badge');
   const mark = el.querySelector('.todo-row-mark');
@@ -1180,6 +1182,12 @@ function paintTodoRow(el, row) {
   const menu = el.querySelector('.todo-row-menu');
   const main = el.querySelector('.todo-row-main');
   paintTodoStatusIcon(el, row.item);
+  if (worktreeBadge instanceof HTMLElement) {
+    const usesWorktree = row.item?.executionMode === 'worktree' || row.item?.worktree?.live === true;
+    worktreeBadge.hidden = !usesWorktree;
+    worktreeBadge.title = t('sidebar.worktreeTitle');
+    worktreeBadge.setAttribute('aria-label', t('sidebar.worktreeTitle'));
+  }
   if (title) title.textContent = String(row.item.title || '');
   if (grip instanceof HTMLElement) grip.setAttribute('aria-label', t('todo.dragHandle'));
   if (main instanceof HTMLElement) main.setAttribute('aria-label', t('todo.editTask'));
@@ -1708,6 +1716,7 @@ async function startTodoAgentOnce(todoId, options = {}) {
         const choice = await chooseDirtyWorktreePolicy(data.details.dirtyPaths);
         if (choice) return startTodoAgentOnce(todoId, { ...options, dirtyPolicy: choice });
       }
+      if (data?.code === 'WORKTREE_PREPARE_FAILED') showWorktreePrepareFailure(data.details || {});
       setStatus(data?.error || t('todo.startAgentFailed'), true);
       return;
     }
@@ -1721,6 +1730,51 @@ async function startTodoAgentOnce(todoId, options = {}) {
   } catch {
     setStatus(t('todo.networkError'), true);
   }
+}
+
+/** Show the failed prepare command and its captured output without interpreting it as HTML. */
+function showWorktreePrepareFailure(details) {
+  const dialog = document.createElement('cr-dialog');
+  dialog.heading = t('todo.worktreePrepareErrorTitle');
+  dialog.style.setProperty('--cr-dialog-max-width', '48rem');
+  const content = document.createElement('div');
+  const addRow = (label, value) => {
+    if (!value) return;
+    const row = document.createElement('p');
+    const heading = document.createElement('strong');
+    heading.textContent = `${label}: `;
+    const text = document.createElement('code');
+    text.textContent = value;
+    text.style.overflowWrap = 'anywhere';
+    row.append(heading, text);
+    content.appendChild(row);
+  };
+  const command = Array.isArray(details.command) ? details.command.map(String) : [];
+  if (details.stage === 'preflight') addRow(t('todo.worktreePrepareStage'), t('todo.worktreePreparePreflight'));
+  addRow(t('todo.worktreePrepareCommand'), command.length ? JSON.stringify(command) : '—');
+  addRow(t('todo.worktreePrepareDirectory'), String(details.cwd || ''));
+  addRow(t('todo.worktreePrepareExit'), [details.exitCode, details.signal].filter(Boolean).join(' / '));
+  const output = [
+    details.stderr ? `stderr:\n${details.stderr}` : '',
+    details.stdout ? `stdout:\n${details.stdout}` : '',
+  ].filter(Boolean).join('\n\n') || t('todo.worktreePrepareNoOutput');
+  const outputLabel = document.createElement('strong');
+  outputLabel.textContent = t('todo.worktreePrepareOutput');
+  const outputBlock = document.createElement('pre');
+  outputBlock.textContent = output;
+  outputBlock.style.cssText = 'max-height: 18rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;';
+  content.append(outputLabel, outputBlock);
+  dialog.appendChild(content);
+  const actions = document.createElement('div');
+  actions.setAttribute('slot', 'actions');
+  const close = document.createElement('cr-bar-button');
+  close.textContent = t('settings.close');
+  close.addEventListener('click', () => dialog.hide(), { once: true });
+  actions.appendChild(close);
+  dialog.appendChild(actions);
+  document.body.appendChild(dialog);
+  dialog.show();
+  dialog.addEventListener('cr-dialog-close', () => dialog.remove(), { once: true });
 }
 
 /** Ask the operator how to handle a dirty logical worktree before retrying. */

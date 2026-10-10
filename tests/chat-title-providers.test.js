@@ -202,6 +202,17 @@ try {
   await providers.getTitleProviderAdapter('codex').generate({ ...input, model: 'gpt-4o-mini' });
   assert.equal(calls[0].url, 'https://api.openai.com/v1/chat/completions');
 
+  // The reused one-shot seam accepts a summary-sized completion budget and keeps
+  // the shipped 60-token default for titles.
+  calls.length = 0;
+  await providers.getTitleProviderAdapter('deepseek').generate({
+    ...input, model: 'deepseek-flash', maxOutputTokens: 2000,
+  });
+  assert.equal(JSON.parse(calls[0].init.body).max_tokens, 2000);
+  calls.length = 0;
+  await providers.getTitleProviderAdapter('deepseek').generate({ ...input, model: 'deepseek-flash' });
+  assert.equal(JSON.parse(calls[0].init.body).max_tokens, 60);
+
   calls.length = 0;
   mockFetch(() => jsonResponse({ content: [{ type: 'text', text: 'api: anthropic title' }] }));
   const claudeOut = await providers.getTitleProviderAdapter('claude').generate({ ...input, model: 'claude-haiku-4-5-20251001' });
@@ -209,6 +220,12 @@ try {
   assert.equal(calls[0].url, 'https://api.anthropic.com/v1/messages');
   assert.equal(calls[0].init.headers['x-api-key'], 'ant-SECRETCLAUDE');
   assert.equal(calls[0].init.headers['anthropic-version'], '2023-06-01');
+
+  calls.length = 0;
+  await providers.getTitleProviderAdapter('claude').generate({
+    ...input, model: 'claude-haiku-4-5-20251001', maxOutputTokens: 1200,
+  });
+  assert.equal(JSON.parse(calls[0].init.body).max_tokens, 1200);
 
   mockFetch(() => jsonResponse({}, 401));
   await assert.rejects(

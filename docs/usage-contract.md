@@ -51,9 +51,9 @@ subtracts it when deriving disjoint buckets, so the transition is versioned.
 | `claude` | resolved | snapshot | run | yes / no | subset of output (not reported) | yes | yes | durable_sequence (session, request) | run reset |
 | `codex` | raw | delta | turn | yes / no | subset of output | yes | yes | durable_sequence (thread, turn) | run reset |
 | `deepseek` | resolved | delta | message | no / no | subset of output | yes | yes | durable_sequence (session, message) | run reset |
-| `qwen` | raw | delta | run | yes / no | unknown | yes | yes | durable_sequence (session, request) | — |
+| `qwen` | raw | delta | run | yes / no | unknown | yes | no | durable_sequence (session, request) | compaction |
 | `opencode` | raw | snapshot | message | no / no | separate | yes | yes | durable_sequence (session, message) | run reset |
-| `codebuddy` | raw | delta | message | yes / no | unknown | yes | yes | durable_sequence (session, message) | — |
+| `codebuddy` | raw | delta | message | yes / no | unknown | yes | yes | durable_sequence (session, message) | compaction |
 | `openrouter` | raw | delta | request | yes / no | unknown | yes | no | provider (event id) | — |
 
 The `voice` harness shares the ledger and is described in the module, but is
@@ -107,7 +107,11 @@ there. Every harness now stores a first-class `cacheWrite` bucket. Only the
 true`), so the contract layer subtracts it; the other harnesses store disjoint
 input. OpenRouter's `prompt_tokens`/`cached_tokens` relation was verified as
 inclusive (cached is a subset of the prompt), so the adapter subtracts cache
-before the bag and its window semantics are `inclusive`.
+before the bag and its window semantics are `inclusive`. Qwen's DashScope
+OpenAI-compatible path reports only cache reads; `fromQwenUsage` still accepts
+`cache_creation_input_tokens` (and derives it from the ephemeral TTL split when
+only that is present), but the contract declares `cacheWrite: false` because a
+reliable cache-write bucket is not guaranteed.
 
 ## 4. Logical event identity
 

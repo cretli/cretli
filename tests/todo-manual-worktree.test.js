@@ -185,6 +185,42 @@ test('a leaf start and a forceNew start both reuse the ROOT worktree', async (t)
   assert.notEqual(again.body.chat.id, first.body.chat.id);
 });
 
+test('continuing in a new chat reuses the prepared worktree without re-running prepare', async (t) => {
+  const suite = makeSuite('continue');
+  t.after(suite.cleanup);
+  clearManualStartJobs();
+  clearWorktreePrepareLocks();
+  setWorktreePolicy(suite.dataDir, suite.repo, suite.baseDir, {
+    worktree: { ...worktreeConfig(suite.baseDir), prepareCommand: [process.execPath, '-e', 'process.exit(0)'] },
+  });
+  let prepared = 0;
+  const worktreeDeps = { runPrepareCommand: async () => { prepared += 1; } };
+  const loadPolicy = (folder) => getWorkspaceWatcher(folder, { dataDir: suite.dataDir });
+  const app = makeApp(loadPolicy, { dataDir: suite.dataDir, repo: suite.repo, worktreeDeps });
+
+  const root = addTodo(suite.dataDir, suite.repo, { title: 'root', status: 'ready', executionMode: 'worktree' }).item;
+  addTodo(suite.dataDir, suite.repo, { title: 'child', parentId: root.id, status: 'ready' });
+
+  const first = await startAndSettle(app, root.id, suite.repo);
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.equal(prepared, 1, 'the first start prepares the worktree');
+  const record = getWorktreeRecord(root.id, { dataDir: suite.dataDir });
+
+  // A second orchestrator must be answered in one request: the client does not
+  // poll here, and a slow prepare used to outlive its request timeout.
+  const again = await app.invoke('POST', '/api/todos/:id/start-agent', {
+    params: { id: root.id },
+    body: { agentTransport: 'claude', workspaceFolder: suite.repo, forceNew: true },
+  });
+  assert.equal(again.status, 200, JSON.stringify(again.body));
+  assert.equal(prepared, 1, 'an active worktree is not prepared again');
+  assert.notEqual(again.body.chat.id, first.body.chat.id);
+  assert.equal(again.body.chat.executionFolder, record.worktreePath);
+  assert.equal(again.body.todo.orchestratorChatId, again.body.chat.id);
+  assert.ok(again.body.initialPrompt.includes(first.body.chat.id), 'the prompt points at the previous chat');
+  assert.equal(getWorktreeRecord(root.id, { dataDir: suite.dataDir }).executionState, 'active');
+});
+
 test('a flipped override with a live record keeps the frozen folder', async (t) => {
   const suite = makeSuite('frozen');
   t.after(suite.cleanup);

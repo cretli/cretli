@@ -4,6 +4,7 @@ import {
   createQwenEventNormalizer,
   normalizeQwenMessage,
 } from '../lib/agent-harness/qwen-event-normalizer.js';
+import { accumulateQwenUsagePayload } from '../lib/qwen/qwen-agent-ws.js';
 
 /**
  * @param {unknown} event
@@ -275,5 +276,91 @@ const thinkingEvents = createQwenEventNormalizer().normalize({
 });
 assert.equal(thinkingEvents[0].type, 'thinking');
 assert.equal(thinkingEvents[0].text, 'Checking PHP…');
+
+// --- Native compaction is observed (compact_metadata → compact notice) ---
+const compactEvents = normalizeQwenMessage({
+  type: 'system',
+  subtype: 'compact_boundary',
+  session_id: 'qwen-sess-1',
+  compact_metadata: { trigger: 'auto', pre_tokens: 180000 },
+});
+assert.equal(compactEvents[0].kind, 'session');
+const compactNotice = compactEvents.find((event) => event.kind === 'notice');
+assert.ok(compactNotice, 'a compact notice is emitted');
+assert.equal(compactNotice.noticeType, 'compact');
+assert.equal(compactNotice.trigger, 'auto');
+assert.equal(compactNotice.preTokens, 180000);
+
+// --- Per-assistant-message usage counts every API call, result is fallback ---
+const usageNormalizer = createQwenEventNormalizer();
+const assistantUsageEvents = usageNormalizer.normalize({
+  type: 'assistant',
+  message: {
+    content: [{ type: 'text', text: 'working' }],
+    usage: {
+      input_tokens: 100,
+      output_tokens: 20,
+      cache_read_input_tokens: 40,
+      cache_creation_input_tokens: 5,
+    },
+  },
+});
+const assistantUsage = assistantUsageEvents.find((event) => event.kind === 'usage');
+assert.ok(assistantUsage, 'the assistant API call reports usage');
+assert.equal(assistantUsage.usage.input_tokens, 100);
+assert.equal(assistantUsage.usage.cache_read_input_tokens, 40);
+assert.equal(assistantUsage.usage.cache_creation_input_tokens, 5);
+
+// A tool loop produces one assistant message per API call; every call must be
+// counted, not just the first or the last.
+const secondAssistantUsageEvents = usageNormalizer.normalize({
+  type: 'assistant',
+  message: {
+    content: [{ type: 'tool_use', id: 'call-2', name: 'Read', input: {} }],
+    usage: { input_tokens: 300, output_tokens: 8, cache_read_input_tokens: 80 },
+  },
+});
+assert.equal(
+  secondAssistantUsageEvents.filter((event) => event.kind === 'usage').length,
+  1,
+  'a later API call in the same tool loop is counted too'
+);
+
+const resultAfterAssistant = usageNormalizer.normalize({
+  type: 'result',
+  subtype: 'success',
+  session_id: 'qwen-sess-1',
+  usage: { input_tokens: 999, output_tokens: 999, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+});
+assert.equal(
+  resultAfterAssistant.filter((event) => event.kind === 'usage').length,
+  0,
+  'the run-level result usage must not double count when per-call usage arrived'
+);
+
+const fallbackResult = normalizeQwenMessage({
+  type: 'result',
+  subtype: 'success',
+  session_id: 'qwen-sess-1',
+  usage: { input_tokens: 7, output_tokens: 3 },
+});
+assert.equal(
+  fallbackResult.filter((event) => event.kind === 'usage').length,
+  1,
+  'a run with no assistant usage still falls back to result.usage'
+);
+
+// --- _lastUsagePayload keeps cache counters and accumulates across steps ---
+assert.deepEqual(
+  accumulateQwenUsagePayload(
+    { inputTokens: 10, outputTokens: 2, cacheReadTokens: 1, cacheWriteTokens: 0 },
+    { input_tokens: 5, output_tokens: 1, cache_read_input_tokens: 3, cache_creation_input_tokens: 2 }
+  ),
+  { inputTokens: 15, outputTokens: 3, cacheReadTokens: 4, cacheWriteTokens: 2 }
+);
+assert.deepEqual(
+  accumulateQwenUsagePayload(null, { input_tokens: 4, output_tokens: 1 }),
+  { inputTokens: 4, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }
+);
 
 console.log('qwen-event-normalizer.test.js OK');

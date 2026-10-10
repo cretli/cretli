@@ -1333,6 +1333,30 @@ export async function getUsagePlanLimits() {
 }
 
 /**
+ * Usage telemetry settings + `data/usage/` size from GET /api/usage/settings.
+ *
+ * @returns {Promise<{ ok: boolean, settings?: object, storage?: object, error?: string }>}
+ */
+export async function getUsageSettings() {
+  return dedupeGetJson('/api/usage/settings', 'getUsageSettings');
+}
+
+/**
+ * Persist a usage settings patch (retention + alert thresholds) and optionally
+ * run the retention sweep now.
+ *
+ * @param {{ retentionDays?: number, alerts?: object, usage?: object, pruneNow?: boolean }} patch
+ * @returns {Promise<{ ok: boolean, settings?: object, storage?: object, pruned?: object, error?: string }>}
+ */
+export async function saveUsageSettings(patch = {}) {
+  return apiFetchJson('/api/usage/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  }, 'saveUsageSettings', { timeoutMs: 15000 });
+}
+
+/**
  * Shared query builder for the stage-8 usage read endpoints, so the summary,
  * chart, table and insights always carry the same window and filters.
  *
