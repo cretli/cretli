@@ -8,6 +8,20 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Usage/model-pick acceptance conformance suite and rollout guide.** A frozen
+  fixture with one cutoff now drives ten mandatory conformance scenarios across
+  three suites: `tests/usage-acceptance-usage.test.js` (version stamps and the
+  production Claude/CodeBuddy/OpenRouter adapter boundary, dedup/crash recovery,
+  snapshots/late usage/retention), `tests/usage-acceptance-decisions.test.js`
+  (parent/child coverage, `pick_id` lifecycle, cycle acceptance and
+  cost-per-accepted) and `tests/usage-acceptance-policy.test.js` (roles,
+  controlled exploration, shadow parity/overhead, API/UI/CSV windows). The
+  conformance report and evidence map live in
+  `docs/usage-acceptance-report.md`; `docs/usage-rollout.md` documents the
+  staged rollout and rollback contract (exploration stays dry-run/OFF, shadow
+  is never auto-promoted, backfill only after a verified dry-run on a copy, all
+  stored versions stay readable after a flag rollback).
+
 - **Usage telemetry: retention, optional alerts and documentation.** The
   usage journal under `data/usage/` now has configurable retention (default 90
   days): `pruneUsageJournal` deletes only stale `YYYY-MM-DD.jsonl` day files,

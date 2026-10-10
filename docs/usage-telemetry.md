@@ -199,3 +199,13 @@ Settings live in `data/config.json` under `usage` (see
 
 Run them with `node --test tests/usage-*.test.js` or the full unit runner
 (`npm test`).
+
+## 8. Acceptance and rollout
+
+The stage-9 conformance suite runs the ten mandatory usage/model-pick
+scenarios on one frozen fixture and cutoff
+(`tests/usage-acceptance-usage.test.js`, `tests/usage-acceptance-decisions.test.js`,
+`tests/usage-acceptance-policy.test.js`). The scenario-by-scenario evidence map
+and the open criteria are in
+[usage-acceptance-report.md](usage-acceptance-report.md). Enable and roll back
+the stages with [usage-rollout.md](usage-rollout.md).
