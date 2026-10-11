@@ -1084,10 +1084,10 @@ export async function retryWorkspaceWatcherTodo(todoId, workspaceFolder) {  cons
  * returns it to ready with a reason. The worktree is always preserved and
  * nothing is committed, pushed or merged at the Git level.
  */
-export async function integrateTodo(todoId, workspaceFolder, action, expectedUpdatedAt, reason = '') {
+export async function integrateTodo(todoId, workspaceFolder, action, expectedUpdatedAt, reason = '', proof = {}) {
   const id = String(todoId || '').trim();
   const folder = String(workspaceFolder || '').trim();
-  const mode = ['confirm', 'reject', 'prepare', 'apply', 'merge'].includes(action) ? action : 'confirm';
+  const mode = ['confirm', 'reject', 'prepare', 'apply', 'merge', 'invalidate', 'no-code'].includes(action) ? action : 'confirm';
   if (!id || !folder) return { ok: false, error: 'Missing task or workspace' };
   return apiFetchJson(
     `/api/todos/${encodeURIComponent(id)}/integration`,
@@ -1099,6 +1099,7 @@ export async function integrateTodo(todoId, workspaceFolder, action, expectedUpd
         workspaceFolder: folder,
         expectedUpdatedAt: String(expectedUpdatedAt || '').trim(),
         reason: String(reason || '').trim(),
+        ...(mode === 'confirm' ? { proof } : {}),
       }),
     },
     'integrateTodo',

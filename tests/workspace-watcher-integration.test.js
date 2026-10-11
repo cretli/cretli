@@ -370,12 +370,26 @@ test('a worktree PASS does not unblock the next sequential sibling; confirm does
   let items = loadTodosData(suite.dataDir, suite.repo).items;
   assert.equal(listReadyTodoLeaves(items).length, 0, 's2 stays blocked while s1 awaits integration');
 
+  const sourceCommit = git(suite.repo, ['rev-parse', 'HEAD']).trim();
+  fs.copyFileSync(path.join(record.worktreePath, 's1.js'), path.join(suite.repo, 's1.js'));
+  git(suite.repo, ['add', 's1.js']);
+  git(suite.repo, ['commit', '-qm', 'integrate sequential task']);
+  const targetCommit = git(suite.repo, ['rev-parse', 'HEAD']).trim();
+
   const confirmed = confirmWorkspaceTodoIntegration({
     todoId: s1.id,
     workspaceFolder: suite.repo,
     dataDir: suite.dataDir,
     expectedUpdatedAt: getTodoById(suite.dataDir, suite.repo, s1.id).updatedAt,
     now: T0 + 120_000,
+    proof: {
+      targetBranch: 'main',
+      targetCommit,
+      sourceCommit,
+      materialRevision: getTodoById(suite.dataDir, suite.repo, s1.id).integration.materialRevision,
+      changeRef: `TODO ${s1.id}: s1.js worktree result`,
+      changeAttested: true,
+    },
   });
   assert.equal(confirmed.ok, true, confirmed.reason);
   assert.equal(getTodoById(suite.dataDir, suite.repo, s1.id).status, 'done');

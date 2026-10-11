@@ -6,7 +6,7 @@ import { loadChatHistory } from '../lib/persist/chat-history-persist.js';
 import { createDelegationRecord, getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { createDelegationService, finishDelegation, flushDelegationOutbox, publishDelegationStatus } from '../lib/delegation-service.js';
 import { tickDelegationRuntime } from '../lib/delegation-runtime-worker.js';
-import { registerMockChatRunAdapter, patchMockChatRun } from '../lib/chat-run/mock-adapter.js';
+import { registerMockChatRunAdapter, patchMockChatRun, getMockChatRun } from '../lib/chat-run/mock-adapter.js';
 import { DELEGATION_CANCELLING_TIMEOUT_MS } from '../lib/delegation-status.js';
 
 registerMockChatRunAdapter('opencode');
@@ -61,6 +61,21 @@ function makeJob() {
   assert.equal(busy.status, 'cancelling');
   assert.ok(busy.errors.some((entry) => entry.code === 'cancel_timeout'));
   patchMockChatRun(job.childChatId, { busy: false, waitingForInput: false });
+  await tickDelegationRuntime({ now: now + 1, drainMailbox: false });
+  assert.equal(getDelegationById(job.id).status, 'cancelled');
+}
+
+// A stuck `cancelling` job past the timeout re-sends the adapter stop for a run
+// that is still known busy; the slot is only released once the run is idle.
+{
+  const { delegation: job } = await makeJob();
+  const now = Date.now();
+  updateDelegationRecord(job.id, { status: 'cancelling',
+    lastTransitionAt: new Date(now - DELEGATION_CANCELLING_TIMEOUT_MS - 100).toISOString() });
+  assert.equal(getMockChatRun(job.childChatId).cancelled, false);
+  await tickDelegationRuntime({ now, drainMailbox: false });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(getMockChatRun(job.childChatId).cancelled, true, 'worker must retry the adapter stop');
   await tickDelegationRuntime({ now: now + 1, drainMailbox: false });
   assert.equal(getDelegationById(job.id).status, 'cancelled');
 }

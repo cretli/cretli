@@ -154,6 +154,11 @@ class CrTodoCard extends LitElement {
     this._emit('todo-integration', { id, revision, action });
   }
 
+  _integrationLabel(item) {
+    const state = String(item?.integrationSummary?.state || 'unconfirmed');
+    return t(`todo.integrationFilter${state.charAt(0).toUpperCase()}${state.slice(1)}`);
+  }
+
   /**
    * A manually started worktree tree is integrated from its ROOT: the root owns
    * the worktree, so only the root card shows the diff/prepare section. The
@@ -969,6 +974,12 @@ class CrTodoCard extends LitElement {
             <div>
               <strong>${t('todo.integrationReady')}</strong>
               <p>${t('todo.integrationReadyHint')}</p>
+              ${item.integrationSummary?.detail === 'conflict' ? html`<p>${t('todo.integrationConflict')}</p><p class="cr-hint">${String(item.integrationSummary.reason || '')}</p>` : nothing}
+              ${item.integrationSummary?.detail === 'rejected' ? html`<p>${t('todo.integrationRejected')}</p>` : nothing}
+              ${String(item.integration?.appliedAt || '').trim() ? html`
+                <p class="cr-hint">${t('todo.integrationWorkingDirectoryHint')}</p>
+                <p class="cr-hint">${t('todo.integrationAppliedAt')}: ${String(item.integration.appliedAt)}</p>
+              ` : nothing}
               ${String(item.integration?.resultPath || '').trim() ? html`
                 <p class="cr-hint">${t('todo.integrationResult')}: ${String(item.integration.resultPath)}</p>
               ` : nothing}
@@ -977,6 +988,37 @@ class CrTodoCard extends LitElement {
             ${!String(item.integration?.appliedAt || '').trim() ? html`
               <cr-bar-button class="todo-integration-apply" data-id=${id} @click=${() => this._onIntegrationDecision('apply')}>${t('todo.integrationApplyPatch')}</cr-bar-button>
               <cr-bar-button class="todo-integration-reject" data-id=${id} @click=${() => this._onIntegrationDecision('reject')}>${t('todo.integrationReject')}</cr-bar-button>
+            ` : nothing}
+          </section>
+        ` : nothing}
+        ${!isTodoAwaitingIntegration(item) ? html`
+          <section class="todo-integration-alert" role="status" aria-live="polite">
+            <div>
+              <strong>${this._integrationLabel(item)}</strong>
+              ${item.integrationSummary?.detail === 'legacy_confirmation' ? html`<p>${t('todo.integrationLegacyHint')}</p>` : nothing}
+              ${item.integrationSummary?.detail === 'no_code_changes' ? html`<p>${t('todo.integrationNoCodeDetail')}: ${String(item.integrationSummary.reason || '')}</p>` : nothing}
+              ${item.integrationSummary?.detail === 'stale_evidence' ? html`<p>${t('todo.integrationStaleEvidenceHint')}</p>` : nothing}
+              ${item.integrationSummary?.detail === 'proof_invalidated' ? html`<p>${String(item.integrationSummary.reason || '').replace(/^proof_invalidated:\s*/, '')}</p>` : nothing}
+              ${item.integrationSummary?.detail === 'working_directory_applied' ? html`<p>${t('todo.integrationWorkingDirectoryHint')}</p>` : nothing}
+              ${item.integrationSummary?.detail === 'rejected' ? html`<p>${t('todo.integrationRejected')}</p>` : nothing}
+              ${item.integrationSummary?.detail === 'conflict' ? html`<p>${t('todo.integrationConflict')}</p><p class="cr-hint">${String(item.integrationSummary.reason || '')}</p>` : nothing}
+              ${item.integrationSummary?.hasCurrentEvidence ? html`
+                <p class="cr-hint">${t('todo.integrationTargetBranch')}: ${item.integrationSummary.targetBranch}</p>
+                <p class="cr-hint">${t('todo.integrationTargetCommit')}: ${item.integrationSummary.targetCommit}</p>
+                <p class="cr-hint">${t('todo.integrationConfirmedAt')}: ${item.integrationSummary.confirmedAt} · ${item.integrationSummary.source}</p>
+              ` : nothing}
+              ${item.integrationSummary?.aggregate ? html`
+                <p class="cr-hint">${t('todo.integrationAggregate', { confirmed: item.integrationSummary.aggregate.confirmed, required: item.integrationSummary.aggregate.required })}</p>
+              ` : nothing}
+            </div>
+            ${item.integrationSummary?.state !== 'integrated' ? html`
+              <cr-bar-button class="todo-integration-confirm" data-id=${id} @click=${() => this._onIntegrationDecision('confirm')}>${t('todo.integrationRecordProof')}</cr-bar-button>
+            ` : nothing}
+            ${item.integrationSummary?.state === 'unconfirmed' && item.integrationSummary?.detail !== 'no_code_changes' ? html`
+              <cr-bar-button class="todo-integration-no-code" data-id=${id} @click=${() => this._onIntegrationDecision('no-code')}>${t('todo.integrationNoCodeButton')}</cr-bar-button>
+            ` : nothing}
+            ${item.integrationSummary?.hasCurrentEvidence ? html`
+              <cr-bar-button class="todo-integration-reject" data-id=${id} @click=${() => this._onIntegrationDecision('invalidate')}>${t('todo.integrationInvalidateProof')}</cr-bar-button>
             ` : nothing}
           </section>
         ` : nothing}

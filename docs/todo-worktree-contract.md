@@ -16,6 +16,10 @@ questions listed in the parent TODO and marks every unresolved point as
   [`todo-review-contract.md`](todo-review-contract.md). The worktree result stays
   a per-cycle artifact; a review PASS recorded here does not set `done` and does
   not certify a parent/container (§13.1 S11/S12, S18).
+- Target-branch integration evidence, freshness, legacy mapping and tree
+  aggregation are defined in
+  [`todo-integration-contract.md`](todo-integration-contract.md). That contract
+  extends this lifecycle and applies equally to `project` mode.
 - `integration.reviewOutcome` (copied from the cycle's `result.review.outcome`)
   and `todo.review` are different scopes: the first is a frozen per-cycle
   artifact fact, the second is the latest recomputed state per subject.
@@ -361,9 +365,10 @@ existing todo status:
 it is a stored field or derived, and its exact name, is **OPEN (O2)**. The todo
 `status` remains the only pickable status.
 
-For `project` mode, `integrationState` is `not_applicable` (current behavior;
-review PASS returns the leaf to the existing flow) `OPEN (O2)` on whether
-project mode also needs an integration gate.
+For historical `project` rows without an `integration` object, integration
+evidence is absent. They are unconfirmed in the derived read model and are not
+backfilled. New target proof for both modes follows
+[`todo-integration-contract.md`](todo-integration-contract.md).
 
 ### 8.2 Start
 
@@ -428,7 +433,9 @@ in the first version.
 
 ### 8.5 Done
 
-`done` is set only when integration is confirmed:
+`done` is set for a worktree result only when target integration is confirmed
+with current task-linked evidence under
+[`todo-integration-contract.md`](todo-integration-contract.md):
 
 - `integrationState = integrated`, `status → done` (CAS on the live
   `updatedAt`);
@@ -536,7 +543,7 @@ When the integrated result is rejected (or integration is abandoned):
 | active | review PASS | execution_closed / integration ready | doing | released | blocked |
 | active | failure | closed / not_applicable | ready (+reason) or parked | released | unchanged |
 | active | cancel | closed / not ready | ready (+reason) | released | unchanged |
-| integration ready | integration confirmed — owner **OPEN (O8)**, state representation **OPEN (O2)** | integrated | done | — | next sibling may start, subject to the §5.2/S6 clean-tree precondition |
+| integration ready | target proof confirmed — see `todo-integration-contract.md` | integrated | done | — | next sibling may start, subject to the §5.2/S6 clean-tree precondition |
 | integration ready | rejected — owner/auto-retry **OPEN (O8)**, state representation **OPEN (O2)** | rejected | ready (+reason) | — | unchanged |
 | ready | retry (record exists) | preparing/active | doing | held | blocked |
 | ready | retry, worktree missing/foreign | ready (+reason) | ready | released | unchanged |
@@ -551,9 +558,11 @@ version as follows.
 - The todo carries a top-level `integration` object:
   `{ state, cycleId, resultPath, baseCommit, branch, worktreePath,
   materialRevision, reviewOutcome, testOutcome, changedFiles, reason,
-  recordedAt, updatedAt }`.
-- `integration.state` is one of `ready`, `integrated`, `rejected`. An absent
-  `integration` object means "not applicable" (today's `project` behavior).
+  recordedAt, updatedAt }`, with target evidence extended as specified in
+  [`todo-integration-contract.md`](todo-integration-contract.md).
+- `integration.state` remains one of `ready`, `integrated`, `rejected`. An
+  absent `integration` object is legacy data without proof; it is not backfilled
+  and does not confirm a target branch.
 - A worktree PASS sets `integration.state = ready` and **forces
   `status = doing`**. It never uses a new `status` value, so the persisted
   status vocabulary is unchanged and `doing` remains the only "not pickable"
@@ -573,9 +582,13 @@ version as follows.
   (builds the diff and marks `integration.state=ready`, keeping `status=doing`),
   `action=merge` (explicit human "integrate with workspace": prepare when needed,
   then apply the guarded three-way merge to the logical working tree),
-  `action=apply`, `action=confirm` (CAS `expectedUpdatedAt`, sets `status=done`
-  and unblocks siblings) or `action=reject` (sets `status=ready` with a rejection
-  reason; the worktree and its patch are preserved). No automatic
+  `action=apply`, `action=confirm` with CAS and current target evidence, or
+  `action=invalidate` when a later revert removes the previously confirmed
+  changes, or `action=reject`
+  (sets `status=ready` with a rejection reason; the worktree and its patch are
+  preserved). `appliedAt` records application to the working directory only.
+  Target proof follows
+  [`todo-integration-contract.md`](todo-integration-contract.md). No automatic
   merge/rebase/cherry-pick exists: every one of these runs only on an explicit
   human request, commits nothing and reports conflicts before touching a file.
 - Any node of a tree may name the todo: the action resolves the worktree OWNER by
@@ -765,7 +778,7 @@ is neither auto-released to `ready` nor re-executed; S2 stays blocked.
 | # | Open question | Notes / candidate (not agreed) |
 | --- | --- | --- |
 | O1 | Does a per-TODO override inherit from ancestors, and how does `inherit` walk the tree? | Candidate: nearest ancestor override, else policy default. Watcher implementation must use leaf value + policy default until closed. **Manual starts** are settled separately (§4.3a): they use the ROOT override, else the policy default. |
-| O2 | Is `integrationState` a stored field or derived, what is its exact name/schema, and does `project` mode need the same gate? | **Representation settled for v1 in §8.13**: todo field `integration.state` in `ready/integrated/rejected`; the todo stays `doing`, the durable result is a worktree-registry `results[cycleId]` record. `project` mode keeps today's behavior (`not_applicable`). Still open: whether the claim should be held from PASS to integration. |
+| O2 | Is `integrationState` stored or derived, what is its schema, and does `project` mode use the same gate? | The stored lifecycle remains `integration.state` in `ready/integrated/rejected`; the UI/read model derives the target-proof label under [`todo-integration-contract.md`](todo-integration-contract.md). Historical `project` rows without integration evidence remain unconfirmed. The original `not_applicable` project behavior is superseded. Claim release and recovery continue under §8.11 and §8.13. |
 | O3 | Exact worktree base path, per-workspace namespace, branch/directory naming schema. | Candidate: `<data-root>/worktrees/<workspace-key>/<todo-id>`. |
 | O4 | Handling of existing/foreign branches, orphaned branches, and a registered worktree missing on disk. | Settled constraints: no force removal, no adoption on name, no silent recreation; the choice is open. |
 | O5 | Are local commits ever allowed, and under what explicit policy? | Analyses are not consent; no commits until agreed. Also patch format/storage details. |

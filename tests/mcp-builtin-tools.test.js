@@ -158,6 +158,7 @@ assert.ok(listed.structuredContent.items[0].id);
 
 const shown = await handlersA.todo_show({ todo_id: todoId });
 assert.equal(shown.structuredContent.item.id, todoId);
+assert.equal(shown.structuredContent.item.integration_summary.state, 'unconfirmed');
 const updatedAt = shown.structuredContent.item.updated_at;
 
 const extraPatch = await handlersA.todo_update({

@@ -671,4 +671,175 @@ for (const event of [escapedPrivilege, escapedEnv]) {
   assert.equal(action.decision, 'ask_user');
 }
 
+// --- printed `$?` / `$#` / `$$` --------------------------------------------
+
+// `$?` (exit status), `$#` (argument count) and `$$` (own pid) read no
+// environment and no file. Printed by `echo`/`printf` they no longer raise
+// `expansion`, which on its own used to rate every exit-code probe `high`.
+for (const command of [
+  'echo "exit=$?"',
+  'echo $?',
+  'echo "rc=$? args=$# pid=$$"',
+  "printf 'rc=%s\\n' \"$?\"",
+  'echo "exit=$?; still one segment"',
+  "echo 'quoted; rc=$?'",
+  'rg -n "foo" lib/ 2>&1 | tail -20',
+]) {
+  const risk = classifyOpenCodePermissionRisk({ action: 'bash', metadata: { command } });
+  assert.deepEqual(risk.categories, [], `expected no risk category for: ${command}`);
+  assert.equal(risk.risk, 'low', `expected low risk for: ${command}`);
+}
+
+// The probe that closes a test run. Without the review context `node --test`
+// stays the mutation it always was (`medium`); the exemption only removes the
+// false `expansion`, so it never becomes an automatic consent on its own.
+const testRunProbe = {
+  action: 'bash',
+  metadata: { command: 'node --test tests/todos-persist.test.js 2>&1 | tail -10; echo "exit=$?"' },
+};
+const probePlain = classifyOpenCodePermissionRisk(testRunProbe);
+assert.deepEqual(probePlain.categories, ['mutation']);
+assert.equal(probePlain.risk, 'medium');
+const probeReview = classifyOpenCodePermissionRisk(testRunProbe, {
+  allowReviewVerify: true,
+  projectRoot: brokerWorkspace,
+});
+assert.deepEqual(probeReview.categories, []);
+assert.equal(probeReview.risk, 'low');
+for (const mode of ['off', 'local_reads']) {
+  const reviewAction = resolveOpenCodeApprovalAction({
+    mode,
+    sdkMode: 'agent',
+    permissionEvent: testRunProbe,
+    assignment: 'review',
+    workspaceFolder: brokerWorkspace,
+  });
+  assert.equal(reviewAction.reply, 'once', `${mode} review may run its tests with an exit-code echo`);
+  const implementAction = resolveOpenCodeApprovalAction({
+    mode,
+    sdkMode: 'agent',
+    permissionEvent: testRunProbe,
+    assignment: 'implement',
+    workspaceFolder: brokerWorkspace,
+  });
+  assert.equal(implementAction.decision, 'ask_user', `${mode} implement must not gain a new auto-allow`);
+  assert.equal(implementAction.reply, null);
+}
+
+// The exemption covers printing only. Any other `$` form, a path or a write the
+// parameter could feed, an unbalanced quote, an escape, or a nested shell keeps
+// `expansion` (and with it `high` and the manual card).
+for (const command of [
+  'cat $HOME/notes.txt',
+  'cat ${HOME}/notes.txt',
+  'echo "$(date)"',
+  'echo `hostname`',
+  'echo "pid=$PID" && cat $HOME/x',
+  'echo "$@"',
+  'echo "first=$1"',
+  'echo "exit=\\$?"',
+  'echo "rc=\\$#"',
+  'echo "pid=\\$$"',
+  "echo '$(id)",
+  'ls ~',
+  'cat "$?"',
+  'cat /proc/$$/environ',
+  'echo "path=/proc/$$/environ"',
+  'tail -f /tmp/x $$',
+  'cp a$? b',
+  'echo "exit=$?" > /tmp/out',
+  'echo "exit=$?" >> /tmp/out',
+  'echo $$ > log',
+  'bash -c "echo $?"',
+  'sh -c "echo $HOME"',
+  'echo "exit=$?',
+  "echo \\'; echo $?; echo \\'",
+  'kill -0 $$',
+]) {
+  const event = { action: 'bash', metadata: { command } };
+  const risk = classifyOpenCodePermissionRisk(event);
+  assert.ok(risk.categories.includes('expansion'), `must keep expansion: ${command}`);
+  assert.equal(risk.risk, 'high', `must stay high: ${command}`);
+  for (const mode of ['off', 'local_reads']) {
+    for (const assignment of ['review', 'implement', '']) {
+      const action = resolveOpenCodeApprovalAction({
+        mode,
+        sdkMode: 'agent',
+        permissionEvent: event,
+        assignment,
+        workspaceFolder: brokerWorkspace,
+      });
+      assert.notEqual(
+        action.reply,
+        'once',
+        `${mode}/${assignment || 'interactive'} must not auto-approve: ${command}`,
+      );
+    }
+  }
+}
+
+for (const command of [
+  `echo "'" $HOME "'"`,
+  `echo "'" $(id) "'"`,
+]) {
+  const event = { action: 'bash', metadata: { command } };
+  const risk = classifyOpenCodePermissionRisk(event);
+  assert.ok(risk.categories.includes('expansion'), `stray quote bypass must flag expansion: ${command}`);
+}
+
+const quotedLiteralHome = classifyOpenCodePermissionRisk({
+  action: 'bash',
+  metadata: { command: "echo 'a $HOME'" },
+});
+assert.ok(
+  !quotedLiteralHome.categories.includes('expansion'),
+  "single-quoted $HOME must not raise expansion",
+);
+
+// Categories still aggregate across segments: an exempt printing segment does
+// not hide its neighbours' env dump, `data/` secret, network or write risk, and
+// a context change still cannot hide an outside-workspace read.
+for (const [command, category] of [
+  ['echo "exit=$?"; env', 'secrets'],
+  ['env; echo "exit=$?"', 'secrets'],
+  ['cd data && echo "exit=$?"', 'secrets'],
+  ['echo "exit=$?"; curl https://example.com', 'network'],
+  ['echo "exit=$?"; rm -rf tmp', 'destructive'],
+]) {
+  const event = { action: 'bash', metadata: { command } };
+  const risk = classifyOpenCodePermissionRisk(event);
+  assert.ok(risk.categories.includes(category), `expected ${category} for: ${command}`);
+  assert.equal(risk.risk, 'high', `expected high risk for: ${command}`);
+  for (const mode of ['off', 'local_reads']) {
+    for (const assignment of ['review', 'implement', '']) {
+      const action = resolveOpenCodeApprovalAction({
+        mode,
+        sdkMode: 'agent',
+        permissionEvent: event,
+        assignment,
+        workspaceFolder: brokerWorkspace,
+      });
+      assert.notEqual(action.reply, 'once', `${mode} must not auto-approve: ${command}`);
+    }
+  }
+}
+for (const command of [
+  'cd .. && cat ../other/x',
+  'cd /tmp && echo "exit=$?" && cat ../etc/shadow',
+]) {
+  for (const mode of ['off', 'local_reads']) {
+    for (const assignment of ['review', 'implement', '']) {
+      const action = resolveOpenCodeApprovalAction({
+        mode,
+        sdkMode: 'agent',
+        permissionEvent: { action: 'bash', metadata: { command } },
+        assignment,
+        workspaceFolder: brokerWorkspace,
+      });
+      assert.equal(action.decision, 'ask_user', `outside the workspace must ask: ${mode} ${command}`);
+      assert.notEqual(action.reply, 'once', `outside the workspace must not auto-reply: ${mode} ${command}`);
+    }
+  }
+}
+
 console.log('opencode-permission.test.js OK');

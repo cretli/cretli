@@ -202,6 +202,10 @@ const reviewMcp = handlersFor(reviewClient, chatReview.id, wsReview, 'sdk');
 const reviewParent = addTodo(dataDir, wsReview, { title: 'Review parent', status: 'doing' }).item;
 const reviewLeaf = addTodo(dataDir, wsReview, { title: 'Review leaf', status: 'doing', parentId: reviewParent.id }).item;
 const reviewEmpty = addTodo(dataDir, wsReview, { title: 'No review leaf', status: 'doing', parentId: reviewParent.id }).item;
+const integrationAwaiting = addTodo(dataDir, wsReview, { title: 'Awaiting integration', status: 'done' }).item;
+updateTodo(dataDir, wsReview, integrationAwaiting.id, { integration: { state: 'ready', appliedAt: '2026-10-11T00:00:00.000Z' } });
+const integrationLegacy = addTodo(dataDir, wsReview, { title: 'Legacy confirmation', status: 'done' }).item;
+updateTodo(dataDir, wsReview, integrationLegacy.id, { integration: { state: 'integrated' } });
 writeTodoReview(dataDir, wsReview, reviewLeaf.id, {
   code: {
     state: 'passed',
@@ -238,6 +242,17 @@ check('todo_list reports none for a missing snapshot and empty fields for a cont
   const parent = rows.find((item) => item.id === reviewParent.id);
   assert.equal(parent.review_state, '', 'a container has no own leaf state');
   assert.equal(parent.review_reviewer, null);
+});
+
+const integrationFiltered = await reviewMcp.todo_list({ integration: 'awaiting', limit: 100 });
+check('MCP TODO list exposes and filters derived integration summaries', () => {
+  const awaiting = reviewList.structuredContent.items.find((item) => item.id === integrationAwaiting.id);
+  const legacy = reviewList.structuredContent.items.find((item) => item.id === integrationLegacy.id);
+  assert.equal(awaiting.integration_summary.state, 'awaiting');
+  assert.equal(awaiting.integration_summary.detail, 'working_directory_applied');
+  assert.equal(legacy.integration_summary.state, 'unconfirmed');
+  assert.equal(legacy.integration_summary.detail, 'legacy_confirmation');
+  assert.deepEqual(integrationFiltered.structuredContent.items.map((item) => item.id), [integrationAwaiting.id]);
 });
 
 const reviewFiltered = await reviewMcp.todo_list({ review: 'passed', limit: 100 });

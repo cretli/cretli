@@ -90,6 +90,7 @@ const startAgentInFlight = new Set();
 const COLLAPSE_PREFIX = 'cretli-todo-collapsed:';
 const STATUS_FILTER_PREFIX = 'cretli-todo-status-filter:';
 const REVIEW_FILTER_PREFIX = 'cretli-todo-review-filter:';
+const INTEGRATION_FILTER_PREFIX = 'cretli-todo-integration-filter:';
 /** Burst of `todosChanged` frames (several open chat sockets) becomes one fetch. */
 const REVIEW_REFRESH_DEBOUNCE_MS = 400;
 
@@ -97,6 +98,8 @@ const REVIEW_REFRESH_DEBOUNCE_MS = 400;
 let rootStatusFilter = null;
 /** @type {'' | 'none' | 'stale'} */
 let reviewListFilter = '';
+/** @type {string} */
+let integrationListFilter = '';
 /** @type {HTMLButtonElement | null} */
 let statusFilterTrigger = null;
 /** @type {{ api: ReturnType<typeof initDropdown>, panel: HTMLElement, list: HTMLElement } | null} */
@@ -199,6 +202,30 @@ function saveReviewFilter() {
   }
 }
 
+function integrationFilterStorageKey() {
+  const folder = getWorkspaceContext().workspaceFolder || 'default';
+  return `${INTEGRATION_FILTER_PREFIX}${folder}`;
+}
+
+function loadIntegrationFilter() {
+  try {
+    const value = localStorage.getItem(integrationFilterStorageKey()) || '';
+    integrationListFilter = ['unconfirmed', 'awaiting', 'integrated', 'partial', 'rejected', 'conflict', 'no_code_changes'].includes(value)
+      ? value : '';
+  } catch {
+    integrationListFilter = '';
+  }
+}
+
+function saveIntegrationFilter() {
+  try {
+    if (integrationListFilter) localStorage.setItem(integrationFilterStorageKey(), integrationListFilter);
+    else localStorage.removeItem(integrationFilterStorageKey());
+  } catch {
+    // Private mode can reject storage; filtering still works for this view.
+  }
+}
+
 /**
  * Items shown in the list: the root status filter first, then the review filter
  * (leaves matching the review state plus their ancestors).
@@ -206,10 +233,35 @@ function saveReviewFilter() {
  * @returns {object[]}
  */
 function getVisibleTodoItems() {
-  return filterTodoItemsByReviewState(
+  const byReview = filterTodoItemsByReviewState(
     filterTodoItemsByRootStatus(latestItems, rootStatusFilter),
     reviewListFilter
   );
+  return filterTodoItemsByIntegrationState(byReview, integrationListFilter);
+}
+
+function filterTodoItemsByIntegrationState(items, filter) {
+  if (!filter) return items;
+  const byId = new Map(items.map((item) => [String(item.id), item]));
+  const included = new Set();
+  for (const item of items) {
+    const summary = item.integrationSummary || {};
+    if (summary.state !== filter && summary.detail !== filter) continue;
+    let current = item;
+    const seen = new Set();
+    while (current && !seen.has(String(current.id))) {
+      const id = String(current.id);
+      included.add(id);
+      seen.add(id);
+      current = byId.get(String(current.parentId || ''));
+    }
+  }
+  return items.filter((item) => included.has(String(item.id)));
+}
+
+function integrationFilterLabel(filter) {
+  if (filter === 'no_code_changes') return t('todo.integrationNoCodeDetail');
+  return t(`todo.integrationFilter${filter.charAt(0).toUpperCase()}${filter.slice(1)}`);
 }
 
 function reviewFilterLabel(filter) {
@@ -245,6 +297,7 @@ function formatStatusFilterTriggerLabel() {
     )
     : [];
   if (reviewListFilter) parts.push(reviewFilterLabel(reviewListFilter));
+  if (integrationListFilter) parts.push(integrationFilterLabel(integrationListFilter));
   return parts.length ? parts.join(', ') : t('todo.filterStatusAll');
 }
 
@@ -296,6 +349,23 @@ function renderStatusFilterMenuItems() {
     const text = document.createElement('span');
     text.textContent = reviewFilterLabel(filter);
     box.appendChild(text);
+    row.appendChild(box);
+    list.appendChild(row);
+  });
+  const integrationHeading = document.createElement('div');
+  integrationHeading.className = 'todo-review-filter-heading';
+  integrationHeading.textContent = t('todo.integrationFilterHeading');
+  list.appendChild(integrationHeading);
+  ['all', 'unconfirmed', 'awaiting', 'integrated', 'partial', 'rejected', 'conflict', 'no_code_changes'].forEach((filter) => {
+    const row = document.createElement('div');
+    row.className = 'todo-integration-filter-row';
+    row.dataset.integrationFilter = filter;
+    const box = document.createElement('cr-checkbox');
+    box.checked = filter === 'all' ? !integrationListFilter : integrationListFilter === filter;
+    box.setAttribute('aria-label', integrationFilterLabel(filter));
+    const label = document.createElement('span');
+    label.textContent = integrationFilterLabel(filter);
+    box.appendChild(label);
     row.appendChild(box);
     list.appendChild(row);
   });
@@ -388,6 +458,23 @@ function ensureStatusFilterUi(toolbar) {
       if (latestItems.length || listEl?.querySelector('.todo-empty')) renderList({ items: latestItems });
       return;
     }
+    const integrationRow = event.target instanceof Element ? event.target.closest('.todo-integration-filter-row') : null;
+    if (integrationRow instanceof HTMLElement) {
+      event.stopPropagation();
+      const box = integrationRow.querySelector('cr-checkbox');
+      integrationListFilter = box && 'checked' in box && box.checked && integrationRow.dataset.integrationFilter !== 'all'
+        ? String(integrationRow.dataset.integrationFilter || '')
+        : '';
+      entry.list.querySelectorAll('.todo-integration-filter-row').forEach((other) => {
+        if (other === integrationRow) return;
+        const otherBox = other.querySelector('cr-checkbox');
+        if (otherBox) otherBox.checked = false;
+      });
+      saveIntegrationFilter();
+      syncStatusFilterTriggerLabel();
+      if (latestItems.length || listEl?.querySelector('.todo-empty')) renderList({ items: latestItems });
+      return;
+    }
     const row = event.target instanceof Element ? event.target.closest('.todo-status-filter-row') : null;
     if (!(row instanceof HTMLElement)) return;
     event.stopPropagation();
@@ -415,6 +502,7 @@ function ensureStatusFilterUi(toolbar) {
   });
   loadStatusFilter();
   loadReviewFilter();
+  loadIntegrationFilter();
   syncStatusFilterTriggerLabel();
   const refreshBtn = document.getElementById('todo-refresh-btn');
   if (refreshBtn?.parentNode) {
@@ -457,6 +545,12 @@ function formatTodoMetaText(item) {
             : 'todo.timeDays';
     parts.push(t(key, { count: String(meta.age.count) }));
   }
+  const integrationState = String(item?.integrationSummary?.state || 'unconfirmed');
+  const integrationDetail = String(item?.integrationSummary?.detail || '');
+  const integrationLabel = ['no_code_changes', 'rejected', 'conflict'].includes(integrationDetail)
+    ? integrationFilterLabel(integrationDetail)
+    : integrationFilterLabel(integrationState);
+  parts.push(`${t('todo.integrationState')}: ${integrationLabel}`);
   return parts.join(' · ');
 }
 
@@ -582,11 +676,45 @@ async function onIntegrationDecision(e) {
   const id = String(detail.id || '').trim();
   const revision = String(detail.revision || '').trim();
   const requested = String(detail.action || '').trim();
-  const action = ['prepare', 'apply', 'reject', 'confirm'].includes(requested) ? requested : 'confirm';
+  const action = ['prepare', 'apply', 'reject', 'confirm', 'invalidate', 'no-code'].includes(requested) ? requested : 'confirm';
   const ctx = getWorkspaceContext();
   if (!id || !revision || !ctx.workspaceFolder) return;
   const card = e.currentTarget instanceof HTMLElement ? e.currentTarget : null;
   const feedback = card?.querySelector('.todo-action-feedback');
+  let proof = {};
+  let reason = '';
+  if (action === 'invalidate' || action === 'no-code') {
+    const promptKey = action === 'no-code' ? 'todo.integrationAskNoCodeReason' : 'todo.integrationAskInvalidationReason';
+    const suppliedReason = typeof window.prompt === 'function' ? window.prompt(t(promptKey)) : null;
+    if (suppliedReason == null || !suppliedReason.trim()) return;
+    reason = suppliedReason.trim();
+  }
+  if (action === 'confirm') {
+    const item = findItem(id);
+    if (!item || typeof window.prompt !== 'function') return;
+    const ask = (key, fallback = '') => window.prompt(t(key), fallback);
+    const targetBranch = ask('todo.integrationAskTargetBranch', item.integrationSummary?.targetBranch || '');
+    if (targetBranch == null || !targetBranch.trim()) return;
+    const targetCommit = ask('todo.integrationAskTargetCommit');
+    if (targetCommit == null || !targetCommit.trim()) return;
+    const sourceCommit = ask('todo.integrationAskSourceCommit');
+    if (sourceCommit == null || !sourceCommit.trim()) return;
+    const materialRevision = ask('todo.integrationAskMaterialRevision', item.integration?.materialRevision || sourceCommit);
+    if (materialRevision == null || !materialRevision.trim()) return;
+    const changeRef = ask('todo.integrationAskChangeRef', `TODO ${id}: ${item.title || ''}`);
+    if (changeRef == null || !changeRef.trim()) return;
+    const scope = item.integrationSummary?.aggregate && confirmAction(t('todo.integrationAskTreeScope')) ? 'tree' : 'task';
+    if (!confirmAction(t('todo.integrationAttestConfirm', { changeRef: changeRef.trim(), targetBranch: targetBranch.trim(), targetCommit: targetCommit.trim() }))) return;
+    proof = {
+      targetBranch: targetBranch.trim(),
+      targetCommit: targetCommit.trim(),
+      sourceCommit: sourceCommit.trim(),
+      materialRevision: materialRevision.trim(),
+      changeRef: changeRef.trim(),
+      changeAttested: true,
+      scope,
+    };
+  }
   const showFeedback = (message, isError = false) => {
     if (!(feedback instanceof HTMLElement)) return;
     feedback.hidden = !message;
@@ -597,10 +725,12 @@ async function onIntegrationDecision(e) {
   showFeedback(busyMessage);
   setStatus(busyMessage);
   try {
-    const result = await api.integrateTodo(id, ctx.workspaceFolder, action, revision);
+    const result = await api.integrateTodo(id, ctx.workspaceFolder, action, revision, reason, proof);
     if (!result?.ok) {
       const message = action === 'prepare'
         ? t('todo.integrationPrepareFailed')
+        : String(result?.error || '').startsWith('target_') || result?.error === 'task_change_link_required' || result?.error === 'full_commit_required'
+          ? t('todo.integrationProofInvalid')
         : ['conflict', 'integration_conflict'].includes(String(result?.error || ''))
           ? t('todo.integrationConflict')
           : t('todo.integrationFailed');
@@ -615,8 +745,12 @@ async function onIntegrationDecision(e) {
       ? t('todo.integrationPrepared')
       : action === 'apply'
         ? t('todo.integrationApplied')
-        : action === 'reject'
+      : action === 'reject'
         ? t('todo.integrationRejected')
+        : action === 'invalidate'
+          ? t('todo.integrationProofInvalidated')
+          : action === 'no-code'
+            ? t('todo.integrationNoCodeSaved')
         : t('todo.integrationConfirmed');
     showFeedback(success);
     setStatus(success);
@@ -1326,12 +1460,12 @@ function paintTodoRow(el, row) {
   const isClaimed = !!claimedBy;
   const isQueued = !isClaimed && status === 'ready' && isWatcherAutopilot();
   const isIntegrationReady = isTodoAwaitingIntegration(row.item);
-  // Merged into the workspace (apply or smart merge); only the human confirmation is left.
-  const isIntegrationMerged = isIntegrationReady && !!String(row.item?.integration?.appliedAt || '').trim();
+  // Applied to the working directory; target-branch proof is still required.
+  const isIntegrationApplied = isIntegrationReady && !!String(row.item?.integration?.appliedAt || '').trim();
   const isSmartMerging = isIntegrationReady && String(row.item?.integration?.reason || '') === 'smart_merge_running';
   const integrationLabel = isSmartMerging
     ? t('todo.smartMergeRunningBadge')
-    : isIntegrationMerged ? t('todo.integrationMergedBadge') : t('todo.integrationReady');
+    : isIntegrationApplied ? t('todo.integrationAppliedBadge') : t('todo.integrationReady');
   const assigneeBadge = formatTodoAssigneeBadge(row.item);
   let badgeFull = '';
   let badgeKind = '';
@@ -1376,7 +1510,7 @@ function paintTodoRow(el, row) {
     mark.dataset.mark = markKind === 'integration' ? 'integration' : (blockKind ? `blocked-${blockKind}` : markKind);
     const blockedReason = String(row.item?.blockedReason || '').trim();
     const blockDetail = markKind === 'integration'
-      ? (isSmartMerging ? t('todo.smartMergeRunningHint') : isIntegrationMerged ? t('todo.integrationMergedBadgeHint') : t('todo.integrationReadyHint'))
+      ? (isSmartMerging ? t('todo.smartMergeRunningHint') : isIntegrationApplied ? t('todo.integrationWorkingDirectoryHint') : t('todo.integrationReadyHint'))
       : blockKind === 'action'
         ? blockedReason
         : blockKind === 'dependency' ? t('todo.blockedDependencyHint') : '';

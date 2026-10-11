@@ -21,9 +21,10 @@ import { registerTodosRoutes, clearManualStartJobs } from '../lib/routes/todos-r
 import { prepareWorkspaceWatcherExecution, clearWorktreePrepareLocks } from '../lib/workspace-watcher-worktree.js';
 import { classifyWorkspaceDoingTodos } from '../lib/workspace-watcher-recovery.js';
 import { buildLiveWorktreePredicate } from '../lib/todo-worktree-manual.js';
+import { fingerprintTodoTree } from '../lib/todo-integration-proof.js';
 import { resolveDelegationWorkspaceWriteConflict } from '../lib/delegation-workspace-guard.js';
 import { WORKTREE_ERROR_CODES, WorktreeError } from '../lib/worktree/worktree-errors.js';
-import { createTempRepo, tempDir, worktreeConfig } from './helpers/temp-git-repo.js';
+import { commitFile, createTempRepo, git, tempDir, worktreeConfig } from './helpers/temp-git-repo.js';
 
 /**
  * @param {string} name
@@ -438,13 +439,134 @@ test('manual integration prepare/confirm works on the ROOT and reject keeps doin
   });
   assert.equal(applied.status, 200, JSON.stringify(applied.body));
   assert.equal(fs.readFileSync(path.join(suite.repo, 'feature.js'), 'utf8'), 'export const x = 1;\n');
+  git(suite.repo, ['add', 'feature.js']);
+  git(suite.repo, ['commit', '-qm', 'integrate TODO task changes']);
+  const targetCommit = git(suite.repo, ['rev-parse', 'HEAD']).trim();
+
+  const staleMaterial = await app.invoke('POST', '/api/todos/:id/integration', {
+    params: { id: root.id },
+    body: {
+      action: 'confirm', workspaceFolder: suite.repo, expectedUpdatedAt: applied.body.item.updatedAt,
+      proof: {
+        targetBranch: 'main', targetCommit, sourceCommit: targetCommit,
+        materialRevision: 'different-material',
+        changeRef: `TODO ${root.id}: stale material`, changeAttested: true,
+      },
+    },
+  });
+  assert.equal(staleMaterial.status, 409);
+  assert.equal(staleMaterial.body.error, 'material_revision_mismatch');
+  assert.equal(getTodoById(suite.dataDir, suite.repo, root.id).integration.evidence, undefined);
 
   const confirmed = await app.invoke('POST', '/api/todos/:id/integration', {
     params: { id: root.id },
-    body: { action: 'confirm', workspaceFolder: suite.repo, expectedUpdatedAt: applied.body.item.updatedAt },
+    body: {
+      action: 'confirm',
+      workspaceFolder: suite.repo,
+      expectedUpdatedAt: applied.body.item.updatedAt,
+      proof: {
+        targetBranch: 'main',
+        targetCommit,
+        sourceCommit: targetCommit,
+        materialRevision: item.integration.materialRevision,
+        changeRef: `TODO ${root.id}: feature.js result`,
+        changeAttested: true,
+      },
+    },
   });
   assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
   assert.equal(getTodoById(suite.dataDir, suite.repo, root.id).status, 'done');
+  assert.equal(confirmed.body.item.integration.evidence.targetCommit, targetCommit);
+});
+
+test('project-mode done todos stay unconfirmed until task-linked target proof is recorded', async (t) => {
+  const suite = makeSuite('project-proof');
+  t.after(suite.cleanup);
+  const app = makeApp(() => null, { dataDir: suite.dataDir, repo: suite.repo });
+  const todo = addTodo(suite.dataDir, suite.repo, { title: 'project result', body: 'Task material', status: 'done', executionMode: 'project' }).item;
+  const initial = await app.invoke('GET', '/api/todos', { query: { workspaceFolder: suite.repo } });
+  const initialItem = initial.body.items.find((row) => row.id === todo.id);
+  assert.equal(initialItem.integrationSummary.state, 'unconfirmed');
+  const targetCommit = commitFile(suite.repo, 'project-result.js', 'export const projectResult = true;\n');
+  const confirmed = await app.invoke('POST', '/api/todos/:id/integration', {
+    params: { id: todo.id },
+    body: {
+      action: 'confirm', workspaceFolder: suite.repo, expectedUpdatedAt: todo.updatedAt,
+      proof: {
+        targetBranch: 'main', targetCommit, sourceCommit: targetCommit,
+        materialRevision: targetCommit,
+        changeRef: `TODO ${todo.id}: verified project changes`,
+        changeAttested: true,
+      },
+    },
+  });
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+  assert.equal(confirmed.body.items.find((row) => row.id === todo.id).integrationSummary.state, 'integrated');
+  assert.equal(getTodoById(suite.dataDir, suite.repo, todo.id).status, 'done');
+  const invalidated = await app.invoke('POST', '/api/todos/:id/integration', {
+    params: { id: todo.id },
+    body: {
+      action: 'invalidate', workspaceFolder: suite.repo,
+      expectedUpdatedAt: confirmed.body.item.updatedAt,
+      reason: 'A later commit reverted the task change.',
+    },
+  });
+  assert.equal(invalidated.status, 200, JSON.stringify(invalidated.body));
+  const invalidatedSummary = invalidated.body.items.find((row) => row.id === todo.id).integrationSummary;
+  assert.equal(invalidatedSummary.state, 'unconfirmed');
+  assert.equal(invalidatedSummary.detail, 'proof_invalidated');
+});
+
+test('an explicit project parent proof covers its tree and becomes stale after a child material edit', async (t) => {
+  const suite = makeSuite('project-tree-proof');
+  t.after(suite.cleanup);
+  const app = makeApp(() => null, { dataDir: suite.dataDir, repo: suite.repo });
+  const parent = addTodo(suite.dataDir, suite.repo, { title: 'Tree result', body: 'Tree task', status: 'done', executionMode: 'project' }).item;
+  const child = addTodo(suite.dataDir, suite.repo, { title: 'Leaf result', body: 'Leaf task', status: 'done', parentId: parent.id, executionMode: 'project' }).item;
+  const targetCommit = commitFile(suite.repo, 'tree-result.js', 'export const treeResult = true;\n');
+  const confirmed = await app.invoke('POST', '/api/todos/:id/integration', {
+    params: { id: parent.id },
+    body: {
+      action: 'confirm', workspaceFolder: suite.repo, expectedUpdatedAt: parent.updatedAt,
+      proof: {
+        targetBranch: 'main', targetCommit, sourceCommit: targetCommit,
+        materialRevision: targetCommit, changeRef: `TODO ${parent.id}: whole tree`,
+        changeAttested: true, scope: 'tree',
+      },
+    },
+  });
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+  assert.equal(confirmed.body.item.integration.evidence.scope, 'tree');
+  assert.equal(confirmed.body.item.integration.evidence.treeMaterialFingerprint, fingerprintTodoTree(confirmed.body.items, parent.id));
+  assert.equal(confirmed.body.items.find((row) => row.id === parent.id).integrationSummary.state, 'integrated');
+  assert.deepEqual(confirmed.body.items.find((row) => row.id === parent.id).integrationSummary.aggregate, { confirmed: 1, required: 1 });
+
+  const currentChild = getTodoById(suite.dataDir, suite.repo, child.id);
+  updateTodo(suite.dataDir, suite.repo, child.id, {
+    body: 'Changed leaf task', expectedUpdatedAt: currentChild.updatedAt,
+  });
+  const afterEdit = await app.invoke('GET', '/api/todos', { query: { workspaceFolder: suite.repo } });
+  assert.equal(afterEdit.body.items.find((row) => row.id === parent.id).integrationSummary.state, 'unconfirmed');
+});
+
+test('a done TODO can explicitly record a no-code outcome without a target commit', async (t) => {
+  const suite = makeSuite('no-code');
+  t.after(suite.cleanup);
+  const app = makeApp(() => null, { dataDir: suite.dataDir, repo: suite.repo });
+  const todo = addTodo(suite.dataDir, suite.repo, { title: 'No code change', status: 'done', executionMode: 'project' }).item;
+  const result = await app.invoke('POST', '/api/todos/:id/integration', {
+    params: { id: todo.id },
+    body: {
+      action: 'no-code', workspaceFolder: suite.repo,
+      expectedUpdatedAt: todo.updatedAt,
+      reason: 'The task only confirmed existing behavior.',
+    },
+  });
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  const summary = result.body.items.find((row) => row.id === todo.id).integrationSummary;
+  assert.equal(summary.detail, 'no_code_changes');
+  assert.equal(summary.state, 'unconfirmed');
+  assert.equal(getTodoById(suite.dataDir, suite.repo, todo.id).status, 'done');
 });
 
 test('a non-root integration prepare resolves the tree ROOT', async (t) => {
@@ -567,6 +689,8 @@ test('manual merge reports the conflicted paths and leaves the workspace untouch
   assert.deepEqual(merged.body.conflicts, ['README.md']);
   assert.equal(fs.readFileSync(path.join(suite.repo, 'README.md'), 'utf8'), '# user changed the same file\n');
   assert.equal(getTodoById(suite.dataDir, suite.repo, root.id).integration?.state, 'ready');
+  const listed = await app.invoke('GET', '/api/todos', { query: { workspaceFolder: suite.repo } });
+  assert.equal(listed.body.items.find((row) => row.id === root.id).integrationSummary.detail, 'conflict');
 });
 
 test('a doing todo with a live worktree record is user_action and never auto-released', async (t) => {
