@@ -48,6 +48,7 @@ assert.deepEqual(normalizeApprovalBrokerFormState(null), {
   timeoutMs: ADVISOR_DEFAULT_TIMEOUT_MS,
   dailyQuota: ADVISOR_DEFAULT_DAILY_QUOTA,
   riskScope: 'low_only',
+  sendSensitiveCommand: false,
 });
 assert.deepEqual(normalizeApprovalBrokerFormState({}), {
   mode: 'off',
@@ -59,8 +60,21 @@ assert.deepEqual(normalizeApprovalBrokerFormState({}), {
   timeoutMs: ADVISOR_DEFAULT_TIMEOUT_MS,
   dailyQuota: ADVISOR_DEFAULT_DAILY_QUOTA,
   riskScope: 'low_only',
+  sendSensitiveCommand: false,
 });
 assert.equal(normalizeApprovalBrokerFormState({ approvalBroker: { mode: 'yolo' } }).mode, 'off');
+assert.equal(
+  normalizeApprovalBrokerFormState({ approvalBroker: { mode: 'local_reads', advisor: { riskScope: 'advise_all' } } }).riskScope,
+  'advise_all',
+);
+assert.equal(
+  normalizeApprovalBrokerFormState({ approvalBroker: { mode: 'local_reads', advisor: { riskScope: 'bogus' } } }).riskScope,
+  'low_only',
+);
+assert.equal(
+  normalizeApprovalBrokerFormState({ approvalBroker: { mode: 'local_reads', advisor: { sendSensitiveCommand: true } } }).sendSensitiveCommand,
+  true,
+);
 assert.equal(
   normalizeApprovalBrokerFormState({ approvalBroker: { mode: 'SHADOW' } }).mode,
   'shadow',
@@ -162,9 +176,29 @@ assert.deepEqual(advisorPatch, {
       timeoutMs: ADVISOR_MAX_TIMEOUT_MS,
       dailyQuota: 123,
       riskScope: 'low_only',
+      sendSensitiveCommand: false,
     },
   },
 });
+assert.deepEqual(
+  buildApprovalAdvisorPatch({
+    mode: 'local_reads',
+    enabled: true,
+    riskScope: 'advise_all',
+    sendSensitiveCommand: true,
+  }).approvalBroker.advisor,
+  {
+    enabled: true,
+    protocol: 'openai_chat',
+    baseUrl: '',
+    model: '',
+    minProbability: ADVISOR_DEFAULT_MIN_PROBABILITY,
+    timeoutMs: ADVISOR_DEFAULT_TIMEOUT_MS,
+    dailyQuota: ADVISOR_DEFAULT_DAILY_QUOTA,
+    riskScope: 'advise_all',
+    sendSensitiveCommand: true,
+  },
+);
 assert.equal(
   buildApprovalAdvisorPatch({ mode: 'local_reads', enabled: true }).approvalBroker.advisor.protocol,
   'openai_chat',
@@ -283,6 +317,8 @@ for (const id of [
   'approval-broker-mode-status',
   'approval-advisor-enabled-checkbox',
   'approval-advisor-protocol-select',
+  'approval-advisor-risk-scope-select',
+  'approval-advisor-send-sensitive-command-checkbox',
   'approval-advisor-endpoint-field',
   'approval-advisor-endpoint-input',
   'approval-advisor-endpoint-status',
@@ -306,17 +342,21 @@ assert.match(indexHtml, /id="approval-advisor-quota-input"[^>]*min="0"[^>]*max="
 const richViewPath = path.join(projectRoot, 'app_front/lib/sdk-rich-view.js');
 const richView = fs.readFileSync(richViewPath, 'utf8');
 assert.match(richView, /showOpenCodePermissionAdvisorStatus\(requestId, meta = \{\}\)/);
-assert.match(richView, /markOpenCodePermissionAdvisorStatus\(block, id, meta\)/);
+assert.match(richView, /renderOpenCodePermissionAdvisorPanel/);
 for (const locale of ['en', 'pl']) {
   const dictionary = fs.readFileSync(path.join(projectRoot, `app_front/i18n/${locale}.js`), 'utf8');
   assert.match(dictionary, /openCodePermissionAdvisorStatus:\s*\{/);
-  assert.match(dictionary, /checking: .*Jev advisor|checking: .*Advisor JEV/);
-  assert.match(dictionary, /skipped: .*not consulted|skipped: .*nie wywołano/);
+  assert.match(dictionary, /checking:.*\{advisor\}/);
+  assert.match(dictionary, /openCodePermissionAdvisorPanel:/);
+  assert.match(dictionary, /assessmentLimited:/);
+  assert.match(dictionary, /approvalAdvisorRiskScope_advise_all:/);
+  assert.match(dictionary, /approvalAdvisorSendSensitiveCommandHint:/);
 }
 
 const permissionHandler = fs.readFileSync(path.join(projectRoot, 'lib/opencode/opencode-agent-ws.js'), 'utf8');
-assert.match(permissionHandler, /type: 'opencodePermissionAdvisorStatus'[\s\S]{0,120}status: 'checking'/);
+assert.match(permissionHandler, /buildOpenCodePermissionAdvisorStatusPayload[\s\S]{0,200}status: 'checking'/);
 assert.match(permissionHandler, /recordApprovalAdvisorAudit\(\{/);
+assert.match(permissionHandler, /recordApprovalHumanPermissionDecisionAudit\(\{/);
 assert.match(permissionHandler, /const error = 'advisor_run_exception'/);
 assert.match(
   indexHtml,

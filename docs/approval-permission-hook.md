@@ -57,6 +57,39 @@ Policy versions:
 Redaction uses `redactText`, path basenames, and the caps above — identical to
 the pre-extraction OpenCode advisor tuple.
 
+Advisory-only scope (`riskScope=advise_all`, advisor role `advisory`) uses
+`buildAdvisoryPermissionTuple`: by default the outbound tuple is minimal (request
+id, controlled action name, local risk, categories — no command, no resources).
+The settings toggle **`sendSensitiveCommand`** applies **only to this advisory
+role**. When `true`, a bounded redacted command snippet and resource basenames
+are added only for lower-risk advisory requests (low/medium risk without secrets,
+network, privilege, destructive, or expansion categories). High or unknown risk
+and those sensitive categories keep a minimal payload even when the toggle is on
+(see `needsMinimalAdvisorPayload` in `lib/approval/permission-request.js`).
+
+Authority role (`low_only`, `advisor_assessed`) uses `buildAdvisorPermissionTuple`
+and always sends the documented redacted tuple (including command and basenames from
+`normalizePermissionRequest`) **regardless of `sendSensitiveCommand`**.
+
+The advisor never executes harness replies; it only feeds the OpenCode permission
+card UI (or, in authority mode, may widen a narrow allow into a single `once`
+under existing broker rules).
+
+Audit rows (`lib/approval/approval-audit.js`) correlate assessments
+(`kind=advisor_assessment`) with human card replies (`kind=human_permission_decision`)
+via `requestId`. Assessments record `policyVersion` from the table above; advisor
+wire evolution is tracked separately as `advisorPolicyVersion` on assessment lines.
+`human_permission_decision` rows are appended only after a successful human reply
+POST (`once` / `always` / `reject`). **`ask_user` is never written as a final
+human decision.**
+
+When a permission card disappears without a human answer — for example the
+permission stream resolves on its own, the OpenCode session resets, or the run
+aborts — **no closing audit event is written**. Correlation therefore treats a
+missing `human_permission_decision` for a given `requestId` as **no human
+decision recorded** (not an implicit deny or allow). An `advisor_assessment` or
+`advisor_skip` line may still exist for the same `requestId`.
+
 ## D2 — Authoritative tokenizer naming
 
 | Concern | Module / export | Role |

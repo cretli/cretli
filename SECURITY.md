@@ -137,6 +137,40 @@ still not a network boundary.
    include API keys), `chats.json`, TLS certs and uploads — keep it private. Set
    `CRETLI_DATA_DIR` to relocate it, for example onto an encrypted volume.
 
+## OpenCode approval advisor (optional)
+
+When enabled in Settings → Harness → OpenCode (broker mode `local_reads`), Cretli
+may call an **external HTTPS** model you configure (`openai_chat` or `systemone`).
+This applies only to **OpenCode permission cards**; other harnesses keep their own
+policies (Codex headless, Claude `canUseTool`, and so on).
+
+- **Defaults fail closed:** broker `off`, advisor disabled, `sendSensitiveCommand`
+  false, daily quota may skip calls. Modes `off` and `shadow` perform **no**
+  advisor network I/O.
+- **Payload:** role-dependent. **Advisory** (`riskScope=advise_all`) sends by
+  default only request id, controlled action name, local risk, and categories
+  (no command, no resource names). The **`sendSensitiveCommand`** setting
+  governs **advisory requests only**: when enabled, a bounded redacted command
+  snippet and resource basenames are added only for lower-risk advisory requests;
+  high/unknown risk and sensitive categories (secrets, network, privilege,
+  destructive, expansion) stay minimal even when enabled (still capped and scrubbed
+  when included).
+  **Authority** flows (`low_only`, `advisor_assessed`) always use the documented
+  redacted tuple via `buildAdvisorPermissionTuple` — command and basenames are
+  included per normal normalization, **independent of `sendSensitiveCommand`**.
+  No chat history, cwd, diffs, or API keys. **Redaction is best-effort**, not a
+  guarantee; providers may retain what they receive.
+- **Advisory scope (`advise_all`):** informational risk/recommendation on the
+  card only; Cretli never sends `once`/`always`/`reject` on your behalf.
+- **Authority scope:** at most one automatic `once` for the narrow low-risk /
+  review-verify allowlist; `always` and `reject` are never sent by the advisor.
+- **Endpoint safety:** HTTPS only, public addresses, DNS pinning — see
+  `docs/APPROVAL-BROKER-PHASE-2.md`. Keys: `CRETLI_APPROVAL_ADVISOR_API_KEY`
+  overrides stored settings; neither is returned on GET.
+
+Treat the advisor like any third-party API: model drift, false positives, and
+provider logging remain operator responsibilities.
+
 ## Known dependency advisories
 
 `npm audit` reports advisories (moderate and high) in `undici`, pulled in through

@@ -134,6 +134,7 @@ test('PATCH persists broker mode and advisor config without a key', async () => 
     timeoutMs: 6000,
     dailyQuota: 50,
     riskScope: 'low_only',
+    sendSensitiveCommand: false,
   });
   assert.equal(patched.body.approvalAdvisorEnabled, true);
   assert.equal(patched.body.approvalAdvisorEndpointConfigured, true);
@@ -149,7 +150,41 @@ test('PATCH persists broker mode and advisor config without a key', async () => 
     timeoutMs: 6000,
     dailyQuota: 50,
     riskScope: 'low_only',
+    sendSensitiveCommand: false,
   });
+});
+
+test('PATCH persists riskScope and sendSensitiveCommand; unknown riskScope falls back to low_only', async () => {
+  delete process.env[APPROVAL_ADVISOR_API_KEY_ENV];
+  const client = createSettingsClient();
+
+  const scoped = await client.patch({
+    approvalBroker: {
+      mode: 'local_reads',
+      advisor: {
+        enabled: true,
+        baseUrl: ENDPOINT,
+        model: 'advisor-model',
+        riskScope: 'advise_all',
+        sendSensitiveCommand: true,
+      },
+    },
+  });
+  assert.equal(scoped.status, 200);
+  assert.equal(scoped.body.approvalBroker.advisor.riskScope, 'advise_all');
+  assert.equal(scoped.body.approvalBroker.advisor.sendSensitiveCommand, true);
+
+  const reloaded = await client.get();
+  assert.equal(reloaded.body.approvalBroker.advisor.riskScope, 'advise_all');
+  assert.equal(reloaded.body.approvalBroker.advisor.sendSensitiveCommand, true);
+
+  const unknownScope = await client.patch({
+    approvalBroker: {
+      mode: 'local_reads',
+      advisor: { riskScope: 'totally_invalid' },
+    },
+  });
+  assert.equal(unknownScope.body.approvalBroker.advisor.riskScope, 'low_only');
 });
 
 test('PATCH normalizes unknown protocol and out-of-range minProbability instead of rejecting', async () => {

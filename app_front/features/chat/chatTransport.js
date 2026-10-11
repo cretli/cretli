@@ -1433,11 +1433,22 @@ export function createChatTransport(deps) {
           const status = typeof msg.status === 'string' ? msg.status : '';
           const advisorDecision = typeof msg.advisorDecision === 'string' ? msg.advisorDecision : '';
           const reason = typeof msg.reason === 'string' ? msg.reason : '';
+          const localCategories = Array.isArray(msg.localCategories)
+            ? msg.localCategories.filter((entry) => typeof entry === 'string')
+            : [];
           chat._sdkRichView?.showOpenCodePermissionAdvisorStatus?.(requestId, {
             status,
             advisorDecision,
             finalDecision: typeof msg.finalDecision === 'string' ? msg.finalDecision : '',
             reason,
+            advisorName: typeof msg.advisorName === 'string' ? msg.advisorName : '',
+            advisorProtocol: typeof msg.advisorProtocol === 'string' ? msg.advisorProtocol : '',
+            localRisk: typeof msg.localRisk === 'string' ? msg.localRisk : '',
+            localCategories,
+            alwaysAvailable: msg.alwaysAvailable === true,
+            advisoryAssessment: msg.advisoryAssessment && typeof msg.advisoryAssessment === 'object'
+              ? msg.advisoryAssessment
+              : null,
           });
           return;
         }

@@ -661,7 +661,8 @@
       <section class="settings-section" data-settings-tab="harness-opencode-approvals" id="opencode-approval-broker-settings" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.approvalBrokerTitle">Approval Broker (OpenCode only)</h3>
         <p class="settings-hint" data-i18n="settings.approvalBrokerScopeHint">Only the OpenCode permission flow goes through the broker. Codex and CodeBuddy in Agent mode never ask for approvals at all; other harness flows keep their manual cards.</p>
-        <p class="settings-hint approval-broker-warning" data-i18n="settings.approvalBrokerSafetyHint">The broker never auto-approves writes, edits, network access, secrets or git writes. The external advisor receives only a redacted permission tuple (request id, action, command, file names, risk and categories) and your provider may retain it.</p>
+        <p class="settings-hint" data-i18n="settings.approvalAdvisorOpenCodeCardsHint">The external advisor applies only to OpenCode permission cards left for you. It never executes Once, Always or Reject on its own in advisory mode; daily quota may skip assessments when exhausted.</p>
+        <p class="settings-hint approval-broker-warning" data-i18n="settings.approvalBrokerSafetyHint">The broker never auto-approves writes, edits, network access, secrets or git writes. Advisory requests (advise_all) send by default only a minimal payload (request id, controlled action name, local risk, categories — no command, no resource names). The opt-in “Include redacted command text” toggle adds a bounded, redacted command snippet and basenames only for lower-risk advisory requests; high/unknown risk and sensitive categories (secrets, network, privilege, destructive, expansion) stay minimal even when the toggle is on. Authority requests (low_only / advisor_assessed) always send the documented redacted tuple; the toggle does not affect them. Redaction is best-effort, not a guarantee; the provider may retain what it receives.</p>
         <div class="cr-field">
           <label class="cr-field-label" data-i18n="settings.approvalBrokerModeLabel">Broker mode</label>
           <cr-bar-select id="approval-broker-mode-select" data-i18n-aria="settings.approvalBrokerModeLabel"></cr-bar-select>
@@ -685,7 +686,13 @@
         <div class="cr-field">
           <label class="cr-field-label" data-i18n="settings.approvalAdvisorRiskScopeLabel">Risk scope</label>
           <cr-bar-select id="approval-advisor-risk-scope-select" data-i18n-aria="settings.approvalAdvisorRiskScopeLabel"></cr-bar-select>
-          <p class="settings-hint" data-i18n="settings.approvalAdvisorRiskScopeHint">low_only — the advisor only sees low-risk reads. advisor_assessed — the advisor also judges medium-risk commands itself (for example a short read-only script). High risk, network, secrets, privilege and destructive actions always stay with you.</p>
+          <p class="settings-hint" data-i18n="settings.approvalAdvisorRiskScopeHint">low_only — the advisor only sees low-risk reads. advisor_assessed — the advisor also judges medium-risk commands itself (for example a short read-only script). advise_all — shows an assessment on the card only; it never approves and never changes which actions stay with you. High risk, network, secrets, privilege and destructive actions always stay with you.</p>
+        </div>
+        <div class="cr-field">
+          <cr-checkbox id="approval-advisor-send-sensitive-command-checkbox">
+            <span data-i18n="settings.approvalAdvisorSendSensitiveCommand">Include redacted command text in advisory requests</span>
+          </cr-checkbox>
+          <p class="settings-hint" data-i18n="settings.approvalAdvisorSendSensitiveCommandHint">Off by default. When enabled, a bounded, redacted command snippet may be sent for advisory assessments; resource paths stay basename-only and secrets are scrubbed, but redaction is not guaranteed to catch every secret.</p>
         </div>
         <div class="cr-field" id="approval-advisor-endpoint-field">
           <label class="cr-field-label" data-i18n="settings.approvalAdvisorEndpointLabel">HTTPS endpoint</label>

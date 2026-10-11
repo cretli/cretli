@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **OpenCode approval advisor — settings, audit correlation, and advisory scope.**
+  Settings → OpenCode adds `riskScope=advise_all` (advisory-only; no auto-approve)
+  and opt-in `sendSensitiveCommand` (default false) with UI/docs on OpenCode-only
+  scope, quota limits, and best-effort redaction. Audit JSONL now writes
+  `advisor_assessment` separately from `human_permission_decision` (correlated by
+  `requestId`); advisor wire policy version is `advisor-external-4`. Documented in
+  `docs/APPROVAL-BROKER-PHASE-2.md`, `docs/approval-permission-hook.md`, and
+  `SECURITY.md`.
+
 - **Browser runtime documentation for Docker, limited egress and Termux.** New
   `docs/browser-runtime.md` states the Browser's real runtime dependency split
   (`playwright-core` is required, the Chromium binary never comes from `npm ci`), the

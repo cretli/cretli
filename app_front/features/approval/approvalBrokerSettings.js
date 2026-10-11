@@ -42,6 +42,7 @@ const MODE_STATUS_ID = 'approval-broker-mode-status';
 const ADVISOR_ENABLED_ID = 'approval-advisor-enabled-checkbox';
 const ADVISOR_PROTOCOL_ID = 'approval-advisor-protocol-select';
 const ADVISOR_RISK_SCOPE_ID = 'approval-advisor-risk-scope-select';
+const ADVISOR_SEND_SENSITIVE_COMMAND_ID = 'approval-advisor-send-sensitive-command-checkbox';
 const ADVISOR_ENDPOINT_ID = 'approval-advisor-endpoint-input';
 const ADVISOR_ENDPOINT_FIELD_ID = 'approval-advisor-endpoint-field';
 const ADVISOR_ENDPOINT_STATUS_ID = 'approval-advisor-endpoint-status';
@@ -107,11 +108,11 @@ export function normalizeAdvisorProtocol(value) {
   return APPROVAL_ADVISOR_PROTOCOLS.includes(protocol) ? protocol : ADVISOR_DEFAULT_PROTOCOL;
 }
 
-const ADVISOR_RISK_SCOPES = ['low_only', 'advisor_assessed'];
+const ADVISOR_RISK_SCOPES = ['low_only', 'advisor_assessed', 'advise_all'];
 
 /**
  * @param {unknown} value
- * @returns {'low_only' | 'advisor_assessed'}
+ * @returns {'low_only' | 'advisor_assessed' | 'advise_all'}
  */
 export function normalizeAdvisorRiskScope(value) {
   const scope = String(value || '').trim();
@@ -152,6 +153,7 @@ export function normalizeApprovalBrokerFormState(settings) {
     timeoutMs: clampAdvisorTimeoutMs(advisor.timeoutMs),
     dailyQuota: clampAdvisorDailyQuota(advisor.dailyQuota),
     riskScope: normalizeAdvisorRiskScope(advisor.riskScope),
+    sendSensitiveCommand: advisor.sendSensitiveCommand === true,
   };
 }
 
@@ -198,6 +200,7 @@ export function buildApprovalAdvisorPatch(formState) {
         timeoutMs: clampAdvisorTimeoutMs(formState?.timeoutMs),
         dailyQuota: clampAdvisorDailyQuota(formState?.dailyQuota),
         riskScope: normalizeAdvisorRiskScope(formState?.riskScope),
+        sendSensitiveCommand: formState?.sendSensitiveCommand === true,
       },
     },
   };
@@ -361,6 +364,7 @@ function updateAdvisorControls(mode) {
   setDisabled(byId(ADVISOR_ENABLED_ID), !enabled);
   setDisabled(byId(ADVISOR_PROTOCOL_ID), !enabled);
   setDisabled(byId(ADVISOR_RISK_SCOPE_ID), !enabled);
+  setDisabled(byId(ADVISOR_SEND_SENSITIVE_COMMAND_ID), !enabled);
   setDisabled(byId(ADVISOR_ENDPOINT_ID), !enabled);
   setDisabled(byId(ADVISOR_MODEL_ID), !enabled);
   setDisabled(byId(ADVISOR_MIN_PROBABILITY_ID), !enabled);
@@ -447,6 +451,11 @@ function readForm() {
     enabled: Boolean(enabledEl && 'checked' in enabledEl && enabledEl.checked),
     protocol: readProtocol(byId(ADVISOR_PROTOCOL_ID)),
     riskScope: normalizeAdvisorRiskScope(byId(ADVISOR_RISK_SCOPE_ID)?.value),
+    sendSensitiveCommand: Boolean(
+      byId(ADVISOR_SEND_SENSITIVE_COMMAND_ID)
+      && 'checked' in byId(ADVISOR_SEND_SENSITIVE_COMMAND_ID)
+      && byId(ADVISOR_SEND_SENSITIVE_COMMAND_ID).checked,
+    ),
     baseUrl: endpointEl && 'value' in endpointEl ? String(endpointEl.value || '') : '',
     model: modelEl && 'value' in modelEl ? String(modelEl.value || '') : '',
     minProbability: minProbabilityEl && 'value' in minProbabilityEl
@@ -475,6 +484,8 @@ function applySettingsSnapshot(settings) {
   const riskScopeSelect = byId(ADVISOR_RISK_SCOPE_ID);
   fillRiskScopeOptions(riskScopeSelect);
   if (riskScopeSelect && 'value' in riskScopeSelect) riskScopeSelect.value = form.riskScope;
+  const sendSensitiveEl = byId(ADVISOR_SEND_SENSITIVE_COMMAND_ID);
+  if (sendSensitiveEl && 'checked' in sendSensitiveEl) sendSensitiveEl.checked = form.sendSensitiveCommand;
   const endpointEl = byId(ADVISOR_ENDPOINT_ID);
   if (endpointEl && 'value' in endpointEl) endpointEl.value = form.baseUrl;
   const modelEl = byId(ADVISOR_MODEL_ID);
@@ -670,6 +681,7 @@ export function initApprovalBrokerSettings() {
 
   fillModeOptions(modeSelect);
   fillProtocolOptions(byId(ADVISOR_PROTOCOL_ID));
+  fillRiskScopeOptions(byId(ADVISOR_RISK_SCOPE_ID));
   updateAdvisorControls(readMode(modeSelect));
 
   modeSelect.addEventListener('cr-change', (event) => {
@@ -703,6 +715,7 @@ export function initApprovalBrokerSettings() {
     fillModeOptions(select);
     if (select && cachedSettings) select.value = normalizeApprovalBrokerFormState(cachedSettings).mode;
     fillProtocolOptions(byId(ADVISOR_PROTOCOL_ID));
+    fillRiskScopeOptions(byId(ADVISOR_RISK_SCOPE_ID));
     const protocolSelect = byId(ADVISOR_PROTOCOL_ID);
     if (protocolSelect && 'value' in protocolSelect) {
       protocolSelect.value = cachedSettings

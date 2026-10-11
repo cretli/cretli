@@ -7649,6 +7649,56 @@ cr-sdk-block.sdk-rich-opencode-question--resolved {
   box-shadow: inset 0 0 0 1px var(--cr-accent);
 }
 
+.sdk-rich-opencode-permission-advisor-panel {
+  margin: var(--cr-space-2) 0;
+  padding: var(--cr-space-2);
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-bg);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.sdk-rich-opencode-permission-advisor-heading {
+  margin: 0 0 var(--cr-space-1);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cr-text);
+}
+
+.sdk-rich-opencode-permission-advisor-subheading {
+  margin: var(--cr-space-2) 0 var(--cr-space-1);
+  font-weight: 600;
+  color: var(--cr-text);
+}
+
+.sdk-rich-opencode-permission-advisor-line {
+  margin: 0 0 var(--cr-space-1);
+  color: var(--cr-text);
+}
+
+.sdk-rich-opencode-permission-advisor-note {
+  margin: var(--cr-space-1) 0 0;
+  color: var(--cr-text-muted);
+}
+
+.sdk-rich-opencode-permission-advisor-status-line {
+  margin: 0 0 var(--cr-space-2);
+  font-weight: 600;
+  color: var(--cr-accent);
+}
+
+.sdk-rich-opencode-permission-advisor-recommended {
+  font-weight: 600;
+}
+
+.sdk-rich-opencode-permission-actions button.is-advisor-recommend {
+  outline: 2px solid var(--cr-accent);
+  outline-offset: 2px;
+}
+
 cr-sdk-block.sdk-rich-opencode-permission--resolved {
   opacity: 0.65;
 }

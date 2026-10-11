@@ -4,6 +4,10 @@ import path from 'node:path';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 import {
   HARNESS_NEUTRAL_POLICY_VERSION,
+  buildAdvisoryPermissionTuple,
+  deriveHarnessBoundedAlwaysScopeFromSaveOptions,
+  isAdvisoryAssessmentPayloadLimited,
+  needsMinimalAdvisorPayload,
   normalizePermissionRequest,
   resolveApprovalPolicyVersion,
 } from '../lib/approval/permission-request.js';
@@ -68,7 +72,7 @@ assert.equal(qwenTuple.policyVersion, HARNESS_NEUTRAL_POLICY_VERSION);
     },
   });
   assert.equal(normalized.requestId.length, 64);
-  assert.equal(normalized.permission.length, 120);
+  assert.equal(normalized.permission, 'other', 'oversized or unsafe permission names collapse to other');
   assert.equal(normalized.command.length, 300);
   assert.equal(normalized.categories.length, 8);
   assert.equal(normalized.policyVersion.length, 80);
@@ -117,5 +121,25 @@ const claudeAudit = recordApprovalAudit({
 assert.ok(claudeAudit);
 assert.equal(claudeAudit.harness, 'claude');
 assert.equal(claudeAudit.policyVersion, HARNESS_NEUTRAL_POLICY_VERSION);
+
+assert.equal(needsMinimalAdvisorPayload({ risk: 'high', categories: [] }), true);
+assert.equal(needsMinimalAdvisorPayload({ risk: 'low', categories: ['secrets'] }), true);
+assert.equal(needsMinimalAdvisorPayload({ risk: 'low', categories: [] }), false);
+
+const advisoryMinimal = buildAdvisoryPermissionTuple({
+  permissionEvent: event,
+  approvalAction: { ...lowRiskReadAction, risk: 'high', command: 'rm -rf /tmp/x', categories: ['destructive'] },
+});
+assert.equal(advisoryMinimal.command, '');
+assert.equal(advisoryMinimal.resources.length, 0);
+assert.equal(advisoryMinimal.permission, 'read');
+
+assert.equal(deriveHarnessBoundedAlwaysScopeFromSaveOptions(['bash']), 'bash');
+assert.equal(deriveHarnessBoundedAlwaysScopeFromSaveOptions(['**']), null);
+assert.equal(isAdvisoryAssessmentPayloadLimited({ command: '', resources: [], risk: 'low' }, { risk: 'low', categories: [] }), true);
+assert.equal(
+  isAdvisoryAssessmentPayloadLimited({ command: 'cat x', resources: [], risk: 'low' }, { risk: 'low', categories: [] }),
+  false,
+);
 
 console.log('approval-permission-request.test.js OK');
