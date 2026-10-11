@@ -109,3 +109,11 @@ test('an explicit parent tree proof takes precedence and expires when descendant
   const changed = attachTodoIntegrationReadModels([proofParent, { ...leaf, body: 'changed leaf material' }]);
   assert.equal(changed.find((row) => row.id === parent.id).integrationSummary.state, 'unconfirmed');
 });
+
+test('a proof stays current when the read path hydrates the plan from the workspace file', () => {
+  const stored = { id: 'task-plan', body: 'task', status: 'done', plan: { markdown: '# Plan\n' } };
+  const proofed = withProof(stored);
+  const hydrated = { ...proofed, plan: { markdown: '# Plan' }, planStoredMarkdown: '# Plan\n' };
+  assert.equal(summarizeTodoIntegration(hydrated).state, 'integrated');
+  assert.equal(summarizeTodoIntegration({ ...hydrated, planStoredMarkdown: '# Another plan\n' }).state, 'unconfirmed');
+});
