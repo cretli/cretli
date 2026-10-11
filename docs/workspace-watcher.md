@@ -281,8 +281,13 @@ explicitly.
 - The cycle prompt encodes the hard rules: one cycle = this chat run only, never
   start another cycle, never commit/push/merge, complete a todo only after an
   independent review PASS.
-- Delegations are one level deep (the server enforces it), so children of a
-  cycle do not start further delegations.
+- By default delegations are **one level deep** (`CRETLI_DELEGATION_MAX_DEPTH=1`):
+  a cycle child without an explicit grant cannot call `delegation_start`
+  (`nested_delegation_denied`). Multi-level trees are opt-in only (`allow_child_delegations`
+  on `delegation_start`, depth cap, optional `CRETLI_DELEGATION_TREE_SLOT_LIMIT`,
+  root-only `tree_budget_*` on `workflow_update`, and `delegation_cancel` with
+  `tree:true`). Watcher cycles still treat the orchestrator as the primary
+  planner: nested delegation is not the default autopilot path.
 
 ### Guardrails
 
@@ -1008,6 +1013,14 @@ behave exactly as in §4.
 
 ### 3. Review
 
+The **current** review state of a leaf is persisted on the todo as
+`todo.review` and is documented in
+[`todo-review-contract.md`](todo-review-contract.md): subject (`code`/`plan`),
+per-attempt reviewers, independence, verify obligation, freshness and the human
+acceptance state. That snapshot and the per-cycle artifact below are separate
+scopes — the artifact is pinned to one cycle, the todo field is the latest
+recomputed state.
+
 Implement, review and fix share the **same** worktree for one leaf, so review
 sees exactly the material the implementer produced. A review PASS closes the
 execution cycle but does not make the change available to the next sequential
@@ -1020,6 +1033,20 @@ sibling:
   head, branch, diff stat, changed files, review/test outcomes, patch hash);
 - the TODO gets an `integration` pointer with `state = ready` while its `status`
   stays `doing`, so the scheduler cannot pick it up again.
+
+The result's `review` block is derived from the cycle's **own** delegations: an
+independent PASS with a satisfied verify records `outcome: 'PASS'`,
+`verified: true` and the concrete reviewer/implementer attempt ids plus the
+material revision; a cycle with no such PASS records `outcome: 'unknown'` /
+`verified: false` (never a hardcoded PASS). `integration.reviewOutcome` on the
+TODO pointer is historical artifact metadata copied from `result.review.outcome`
+— it is not `todo.review` and never overwrites it. `confirm`/`merge` are not a
+review acceptance: they neither create a review `passed` nor a `manual` state.
+
+The watcher itself does not decide review status and does not read it as a gate:
+the cycle orchestrator confirms it with `todo_show` before closing a leaf.
+Workspace Scout is outside the mechanism. Limits of the badge:
+[`todo-review-contract.md`](todo-review-contract.md) §17.
 
 ### 4. Integration (manual)
 

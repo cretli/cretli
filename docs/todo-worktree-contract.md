@@ -11,6 +11,15 @@ questions listed in the parent TODO and marks every unresolved point as
   wykonania i decyzje o integracji".
 - Related, still-open product context: `docs/workspace-watcher.md`
   (cycle lifecycle, claims, plan gate, no-commit rule).
+- The review evidence persisted on the todo (per subject, per attempt,
+  independence and freshness) is defined in
+  [`todo-review-contract.md`](todo-review-contract.md). The worktree result stays
+  a per-cycle artifact; a review PASS recorded here does not set `done` and does
+  not certify a parent/container (§13.1 S11/S12, S18).
+- `integration.reviewOutcome` (copied from the cycle's `result.review.outcome`)
+  and `todo.review` are different scopes: the first is a frozen per-cycle
+  artifact fact, the second is the latest recomputed state per subject.
+  Neither writes the other; `confirm`/`merge` are not a review acceptance.
 
 ## 0. Reading conventions
 

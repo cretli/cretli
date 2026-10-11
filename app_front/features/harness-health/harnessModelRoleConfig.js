@@ -8,9 +8,13 @@
 
 import {
   getHarnessModelRoleConfig,
+  getModelPickOverrides,
   previewHarnessModelRoleConfig,
   putHarnessModelRoleConfig,
+  putModelPickOverride,
   resetHarnessModelRoleConfig,
+  resetModelPickOverrides,
+  revokeModelPickOverride,
 } from '../../api.js';
 import { t } from '../../i18n/index.js';
 import {
@@ -123,7 +127,10 @@ export async function loadHarnessModelRoleConfig(fresh = false) {
   const seq = ++loadSeq;
   flash(t('harnessModelRole.loading'));
   try {
-    const snapshot = await getHarnessModelRoleConfig(fresh);
+    const [snapshot, overridesSnapshot] = await Promise.all([
+      getHarnessModelRoleConfig(fresh),
+      getModelPickOverrides().catch(() => null),
+    ]);
     if (seq !== loadSeq) return;
     if (!snapshot?.ok) {
       out.replaceChildren();
@@ -131,7 +138,11 @@ export async function loadHarnessModelRoleConfig(fresh = false) {
       flash(snapshot?.error || t('harnessModelRole.loadFailed'), 'error');
       return;
     }
-    currentModel = buildModelRoleConfigViewModel(snapshot, t);
+    currentModel = buildModelRoleConfigViewModel({
+      ...snapshot,
+      overrides: overridesSnapshot?.overrides || [],
+      overridesEtag: overridesSnapshot?.etag || '',
+    }, t);
     out.innerHTML = renderModelRoleConfigHtml(currentModel, t);
     setDiff('');
     flash('');
@@ -215,6 +226,83 @@ async function reset() {
 }
 
 /**
+ * Read the compact create form and submit one audited override. The server
+ * stamps `createdBy`, `source` and `createdAt`; this only sends the operator's
+ * intent.
+ *
+ * @returns {Promise<void>}
+ */
+async function createOverride() {
+  const out = outputEl();
+  if (!currentModel || !out) return;
+  /** @param {string} name */
+  const field = (name) => out.querySelector(`[data-override-field="${name}"]`);
+  const value = (name) => String(field(name)?.value || '').trim();
+  const ttlHours = Math.max(1, Math.min(720, Number(value('ttlHours')) || 24));
+  const body = {
+    action: value('action'),
+    targetHarness: value('targetHarness'),
+    targetModel: value('targetModel'),
+    targetRole: value('targetRole'),
+    reason: value('reason'),
+    expiresAt: new Date(Date.now() + ttlHours * 60 * 60 * 1000).toISOString(),
+  };
+  flash(t('harnessModelRole.saving'));
+  try {
+    const result = await putModelPickOverride(body, currentModel.overridesEtag);
+    if (!result?.ok) {
+      flash(result?.conflict ? t('harnessModelRole.conflict') : (result?.error || t('harnessModelRole.overridesSaveFailed')), 'error');
+      return;
+    }
+    await loadHarnessModelRoleConfig(true);
+    flash(t('harnessModelRole.overridesCreated'), 'success');
+  } catch {
+    flash(t('harnessModelRole.overridesSaveFailed'), 'error');
+  }
+}
+
+/**
+ * @param {string} id
+ * @returns {Promise<void>}
+ */
+async function revokeOverride(id) {
+  if (!currentModel || !id) return;
+  flash(t('harnessModelRole.saving'));
+  try {
+    const result = await revokeModelPickOverride(id, currentModel.overridesEtag, 'revoked from Settings');
+    if (!result?.ok) {
+      flash(result?.conflict ? t('harnessModelRole.conflict') : (result?.error || t('harnessModelRole.saveFailed')), 'error');
+      return;
+    }
+    await loadHarnessModelRoleConfig(true);
+    flash(t('harnessModelRole.overridesRevoked'), 'success');
+  } catch {
+    flash(t('harnessModelRole.saveFailed'), 'error');
+  }
+}
+
+/**
+ * @returns {Promise<void>}
+ */
+async function resetOverrides() {
+  if (!currentModel) return;
+  if (typeof window !== 'undefined' && typeof window.confirm === 'function'
+    && !window.confirm(t('harnessModelRole.resetConfirm'))) return;
+  flash(t('harnessModelRole.overridesResetting'));
+  try {
+    const result = await resetModelPickOverrides(currentModel.overridesEtag);
+    if (!result?.ok) {
+      flash(result?.conflict ? t('harnessModelRole.conflict') : (result?.error || t('harnessModelRole.resetFailed')), 'error');
+      return;
+    }
+    await loadHarnessModelRoleConfig(true);
+    flash(t('harnessModelRole.overridesResetDone', { backup: result.backupPath || '—' }), 'success');
+  } catch {
+    flash(t('harnessModelRole.resetFailed'), 'error');
+  }
+}
+
+/**
  * @returns {void}
  */
 export function initHarnessModelRoleConfig() {
@@ -229,6 +317,24 @@ export function initHarnessModelRoleConfig() {
   });
   document.getElementById('harness-model-role-config-reset')?.addEventListener('click', () => {
     void reset();
+  });
+  // The override list is re-rendered on every load, so a delegated listener on
+  // the section survives the re-render.
+  section.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    const revokeId = target.closest('[data-override-revoke]')?.getAttribute('data-override-revoke');
+    if (revokeId) {
+      void revokeOverride(revokeId);
+      return;
+    }
+    if (target.closest('[data-override-create]')) {
+      void createOverride();
+      return;
+    }
+    if (target.closest('[data-override-reset]')) {
+      void resetOverrides();
+    }
   });
   window.addEventListener('cr-lang-changed', () => {
     if (currentModel) void loadHarnessModelRoleConfig(true);

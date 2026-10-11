@@ -30,3 +30,19 @@ test('measured percentage and forecast are separate and stale data has no foreca
   assert.match(stale, /harnessHealth.planLimitStaleShort/);
   assert.doesNotMatch(stale, /usage.planForecast/);
 });
+
+test('utilization percent is visible in HTML when measured and absent when unknown', () => {
+  const measured = renderPlanLimitsHtml({ planLimits: [{
+    harness: 'claude', utilization: 82.5, remainingPercent: 17.5,
+    resetsAt: '2026-10-02T20:00:00Z', resetInMs: 3600000,
+    observedAt: '2026-10-02T19:00:00Z',
+  }] }, { t, lang: 'en' });
+  assert.match(measured, /usage\.planUtilization 82\.5%/);
+  assert.match(measured, /value="82\.5"/);
+  const unknown = renderPlanLimitsHtml({ planLimits: [
+    { harness: 'qwen', status: 'allowed', observedAt: '2026-10-02T19:00:00Z' },
+    { harness: 'sdk', expired: true, observedAt: '2026-10-02T19:00:00Z' },
+  ] }, { t, lang: 'en' });
+  assert.doesNotMatch(unknown, /usage\.planUtilization/);
+  assert.doesNotMatch(unknown, /<progress[^>]*value="/);
+});

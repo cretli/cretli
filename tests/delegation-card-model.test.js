@@ -136,4 +136,52 @@ assert.equal(cancelledReconnect.get('d1').actions.includes('retry'), true);
 assert.equal(cancelledReconnect.get('d1').showUncertain, true);
 assert.equal(cancelledReconnect.get('d1').canCancel, false);
 
+// Human accept (todo review contract §7): review attempts only, bound to the attempt.
+const reviewCard = buildDelegationCardModel({ status: 'completed', assignment: 'review', attemptId: 'a1' });
+assert.equal(reviewCard.canAccept, true);
+assert.equal(reviewCard.attemptId, 'a1');
+assert.equal(reviewCard.actions.includes('accept'), true);
+assert.equal(buildDelegationCardModel({ status: 'completed', assignment: 'implement', attemptId: 'a1' }).canAccept, false);
+assert.equal(buildDelegationCardModel({ status: 'running', assignment: 'review', attemptId: 'a1' }).canAccept, false);
+assert.equal(buildDelegationCardModel({ status: 'completed', assignment: 'review' }).canAccept, false, 'no attempt id, no accept');
+const acceptedCard = buildDelegationCardModel({
+  status: 'completed', assignment: 'review', attemptId: 'a1',
+  acknowledgedAt: '2026-01-01T00:00:00.000Z', acknowledgedReason: 'accepted', acknowledgedActor: 'human',
+});
+assert.equal(acceptedCard.canAccept, false);
+assert.equal(acceptedCard.isAccepted, true);
+// A plain "reviewed" ack only dismissed the card; accept stays possible.
+assert.equal(buildDelegationCardModel({
+  status: 'completed', assignment: 'review', attemptId: 'a1',
+  acknowledgedAt: '2026-01-01T00:00:00.000Z', acknowledgedReason: 'reviewed', acknowledgedActor: 'human',
+}).canAccept, true);
+
+// M2: an agent/system/unknown `accepted` ack is a channel signal, not the human
+// UI action, so it neither hides the button nor shows "accepted manually".
+for (const actor of ['agent', 'system', 'unknown', '']) {
+  const card = buildDelegationCardModel({
+    status: 'completed', assignment: 'review', attemptId: 'a1',
+    acknowledgedAt: '2026-01-01T00:00:00.000Z', acknowledgedReason: 'accepted', acknowledgedActor: actor,
+    acknowledgedAttemptId: 'a1',
+  });
+  assert.equal(card.canAccept, true, `actor "${actor}" must not block human accept`);
+  assert.equal(card.isAccepted, false, `actor "${actor}" is not a manual acceptance`);
+}
+// A human acceptance of an OLDER attempt does not disable the current one.
+const wrongAttempt = buildDelegationCardModel({
+  status: 'completed', assignment: 'review', attemptId: 'a2',
+  acknowledgedAt: '2026-01-01T00:00:00.000Z', acknowledgedReason: 'accepted', acknowledgedActor: 'human',
+  acknowledgedAttemptId: 'a1',
+});
+assert.equal(wrongAttempt.canAccept, true);
+assert.equal(wrongAttempt.isAccepted, false);
+// Only the matching human acceptance disables it.
+const matching = buildDelegationCardModel({
+  status: 'completed', assignment: 'review', attemptId: 'a2',
+  acknowledgedAt: '2026-01-01T00:00:00.000Z', acknowledgedReason: 'accepted', acknowledgedActor: 'human',
+  acknowledgedAttemptId: 'a2',
+});
+assert.equal(matching.canAccept, false);
+assert.equal(matching.isAccepted, true);
+
 console.log('delegation-card-model.test.js OK');

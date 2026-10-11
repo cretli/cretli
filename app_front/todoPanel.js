@@ -1,6 +1,14 @@
 import * as api from './core/api/index.js';
 import { openTodoAgentChat, openTodoAgentStartModal, getChatsList, getTerminalStateMetaPublic } from './chat.js';
 import { resolveTodoStatusIcon } from './features/todo/todoStatusIcon.js';
+import './components/ui/cr-todo-review-badge.js';
+import { createTodoReviewRefresher } from './features/todo/todoReviewRefresh.js';
+import {
+  filterTodoItemsByReviewState,
+  parseReviewListFilter,
+  resolveAggregateReviewBadge,
+  shouldShowLeafReviewBadge,
+} from './features/todo/todoReviewBadge.js';
 import { isTodoAwaitingIntegration } from '../lib/todo-integration-state.js';
 import { subscribeSidebarChatRowStatusPatch } from './features/sidebar/sidebarChatRowRefreshBus.js';
 import { getCurrentLang, t } from './i18n/index.js';
@@ -81,9 +89,14 @@ const startAgentInFlight = new Set();
 
 const COLLAPSE_PREFIX = 'cretli-todo-collapsed:';
 const STATUS_FILTER_PREFIX = 'cretli-todo-status-filter:';
+const REVIEW_FILTER_PREFIX = 'cretli-todo-review-filter:';
+/** Burst of `todosChanged` frames (several open chat sockets) becomes one fetch. */
+const REVIEW_REFRESH_DEBOUNCE_MS = 400;
 
 /** @type {Set<string> | null} */
 let rootStatusFilter = null;
+/** @type {'' | 'none' | 'stale'} */
+let reviewListFilter = '';
 /** @type {HTMLButtonElement | null} */
 let statusFilterTrigger = null;
 /** @type {{ api: ReturnType<typeof initDropdown>, panel: HTMLElement, list: HTMLElement } | null} */
@@ -164,6 +177,45 @@ function loadStatusFilter() {
   }
 }
 
+function reviewFilterStorageKey() {
+  const folder = getWorkspaceContext().workspaceFolder || 'default';
+  return `${REVIEW_FILTER_PREFIX}${folder}`;
+}
+
+function loadReviewFilter() {
+  try {
+    reviewListFilter = parseReviewListFilter(localStorage.getItem(reviewFilterStorageKey()));
+  } catch {
+    reviewListFilter = '';
+  }
+}
+
+function saveReviewFilter() {
+  try {
+    if (reviewListFilter) localStorage.setItem(reviewFilterStorageKey(), reviewListFilter);
+    else localStorage.removeItem(reviewFilterStorageKey());
+  } catch {
+    // Private mode can reject storage; filtering still works for this view.
+  }
+}
+
+/**
+ * Items shown in the list: the root status filter first, then the review filter
+ * (leaves matching the review state plus their ancestors).
+ *
+ * @returns {object[]}
+ */
+function getVisibleTodoItems() {
+  return filterTodoItemsByReviewState(
+    filterTodoItemsByRootStatus(latestItems, rootStatusFilter),
+    reviewListFilter
+  );
+}
+
+function reviewFilterLabel(filter) {
+  return t(filter === 'stale' ? 'todo.filterReviewStale' : 'todo.filterReviewNone');
+}
+
 function saveStatusFilter() {
   try {
     localStorage.setItem(
@@ -187,11 +239,13 @@ function todoStatusLabelKey(status) {
 }
 
 function formatStatusFilterTriggerLabel() {
-  if (!rootStatusFilter) return t('todo.filterStatusAll');
-  const parts = TODO_ITEM_STATUSES.filter((status) => rootStatusFilter.has(status)).map((status) =>
-    t(todoStatusLabelKey(status))
-  );
-  return parts.join(', ');
+  const parts = rootStatusFilter
+    ? TODO_ITEM_STATUSES.filter((status) => rootStatusFilter.has(status)).map((status) =>
+      t(todoStatusLabelKey(status))
+    )
+    : [];
+  if (reviewListFilter) parts.push(reviewFilterLabel(reviewListFilter));
+  return parts.length ? parts.join(', ') : t('todo.filterStatusAll');
 }
 
 function syncStatusFilterTriggerLabel() {
@@ -227,6 +281,23 @@ function renderStatusFilterMenuItems() {
   addRow('all', t('todo.filterStatusAll'), showAll);
   TODO_ITEM_STATUSES.forEach((status) => {
     addRow(status, t(todoStatusLabelKey(status)), !showAll && selected.has(status));
+  });
+  const heading = document.createElement('div');
+  heading.className = 'todo-review-filter-heading';
+  heading.textContent = t('todo.filterReviewHeading');
+  list.appendChild(heading);
+  ['none', 'stale'].forEach((filter) => {
+    const row = document.createElement('div');
+    row.className = 'todo-review-filter-row';
+    row.dataset.reviewFilter = filter;
+    const box = document.createElement('cr-checkbox');
+    box.checked = reviewListFilter === filter;
+    box.setAttribute('aria-label', reviewFilterLabel(filter));
+    const text = document.createElement('span');
+    text.textContent = reviewFilterLabel(filter);
+    box.appendChild(text);
+    row.appendChild(box);
+    list.appendChild(row);
   });
 }
 
@@ -301,6 +372,22 @@ function ensureStatusFilterUi(toolbar) {
   // cr-checkbox toggles itself (clicks on the label text included); only keep the
   // "All" row and the status rows mutually consistent here.
   list.addEventListener('change', (event) => {
+    const reviewRow = event.target instanceof Element ? event.target.closest('.todo-review-filter-row') : null;
+    if (reviewRow instanceof HTMLElement) {
+      event.stopPropagation();
+      const filter = parseReviewListFilter(reviewRow.dataset.reviewFilter);
+      const reviewBox = reviewRow.querySelector('cr-checkbox');
+      // The two review filters are mutually exclusive; unchecking clears it.
+      reviewListFilter = reviewBox && 'checked' in reviewBox && reviewBox.checked ? filter : '';
+      entry.list.querySelectorAll('.todo-review-filter-row').forEach((other) => {
+        const box = other.querySelector('cr-checkbox');
+        if (box && other !== reviewRow) box.checked = false;
+      });
+      saveReviewFilter();
+      syncStatusFilterTriggerLabel();
+      if (latestItems.length || listEl?.querySelector('.todo-empty')) renderList({ items: latestItems });
+      return;
+    }
     const row = event.target instanceof Element ? event.target.closest('.todo-status-filter-row') : null;
     if (!(row instanceof HTMLElement)) return;
     event.stopPropagation();
@@ -327,6 +414,7 @@ function ensureStatusFilterUi(toolbar) {
     entry.api.toggle();
   });
   loadStatusFilter();
+  loadReviewFilter();
   syncStatusFilterTriggerLabel();
   const refreshBtn = document.getElementById('todo-refresh-btn');
   if (refreshBtn?.parentNode) {
@@ -421,6 +509,7 @@ function bindCardHandlers(card) {
   card.addEventListener('todo-runmode-change', onEditorRunModeChange);
   card.addEventListener('todo-executionmode-change', onEditorExecutionModeChange);
   card.addEventListener('todo-plan-approve', onPlanApprove);
+  card.addEventListener('todo-review-open-report', onReviewOpenReport);
 }
 
 /** @param {Event} e */
@@ -666,7 +755,7 @@ function renderList(data) {
   latestWorkspaceFolder = folder;
   if (!listEl) return;
   latestItems = Array.isArray(data?.items) ? data.items : [];
-  const visibleItems = filterTodoItemsByRootStatus(latestItems, rootStatusFilter);
+  const visibleItems = getVisibleTodoItems();
   if (!latestItems.length) {
     disposeAllRowMenus();
     listEl.innerHTML =
@@ -738,6 +827,7 @@ function createTodoRow() {
     '<span class="todo-row-title"></span>' +
     '<span class="todo-row-meta" hidden></span>' +
     '</span>' +
+    '<cr-todo-review-badge class="todo-row-review" hidden></cr-todo-review-badge>' +
     '<span class="todo-row-badge" hidden></span>' +
     '<span class="todo-row-mark" hidden></span>' +
     '</button>' +
@@ -1140,7 +1230,7 @@ async function deleteTodoWithConfirm(id) {
 /** Re-paint queued/claimed badges after the watcher view changes without a full list fetch. */
 export function repaintTodoRowBadges() {
   if (!listEl || !latestItems.length) return;
-  const visibleItems = filterTodoItemsByRootStatus(latestItems, rootStatusFilter);
+  const visibleItems = getVisibleTodoItems();
   if (!visibleItems.length) return;
   const rows = flattenTodoTree(visibleItems, collapsedIds);
   const wrapEl = listEl.querySelector('.todo-rows');
@@ -1163,6 +1253,26 @@ function paintTodoStatusIcon(el, item) {
   }
 }
 
+/**
+ * Paint the review badge of one row. The element never changes the row height:
+ * it is a single nowrap flex item with an ellipsis cap, and below 640px the
+ * component collapses to the icon in CSS (the label stays in `title` /
+ * `aria-label`).
+ */
+function paintTodoReviewBadge(el, row) {
+  const badge = el.querySelector('.todo-row-review');
+  if (!(badge instanceof HTMLElement)) return;
+  const show = row.hasChildren
+    ? !!resolveAggregateReviewBadge(row.item?.review)
+    : shouldShowLeafReviewBadge(row.item);
+  badge.hidden = !show;
+  if (!show) return;
+  // Property assignment only: Lit diffs the object, so an identical snapshot
+  // re-renders nothing and a live refresh does not flicker rows.
+  if (badge.item !== row.item) badge.item = row.item;
+  if (badge.hasChildren !== !!row.hasChildren) badge.hasChildren = !!row.hasChildren;
+}
+
 function paintTodoRow(el, row) {
   const id = String(row.item.id || '');
   const status = String(row.item.status || 'idea');
@@ -1182,6 +1292,7 @@ function paintTodoRow(el, row) {
   const menu = el.querySelector('.todo-row-menu');
   const main = el.querySelector('.todo-row-main');
   paintTodoStatusIcon(el, row.item);
+  paintTodoReviewBadge(el, row);
   if (worktreeBadge instanceof HTMLElement) {
     const usesWorktree = row.item?.executionMode === 'worktree' || row.item?.worktree?.live === true;
     worktreeBadge.hidden = !usesWorktree;
@@ -1955,6 +2066,91 @@ function onTodoWorkspaceChange() {
   }
 }
 
+/**
+ * One refresher per panel: server `todo.review` frames and reconnects collapse
+ * into a single debounced list fetch. It renders through `renderList`, which
+ * diffs rows in place, so an unchanged snapshot repaints nothing.
+ */
+/** @type {ReturnType<typeof createTodoReviewRefresher> | null} */
+let reviewRefresher = null;
+
+function getReviewRefresher() {
+  if (reviewRefresher) return reviewRefresher;
+  reviewRefresher = createTodoReviewRefresher({
+    debounceMs: REVIEW_REFRESH_DEBOUNCE_MS,
+    isActive: () => !!document.getElementById('todo-panel')?.classList.contains('active'),
+    load: async () => {
+      const folder = getTodoWorkspaceFolder();
+      const generation = refreshGeneration;
+      const data = await api.getTodos(folder);
+      // A newer full refresh or a workspace switch owns the list now.
+      if (generation !== refreshGeneration || !todoWorkspaceMatches(folder)) return null;
+      if (!data?.ok || !Array.isArray(data.items)) return null;
+      if (data.cwd && folder && !todoWorkspaceMatches(data.cwd, folder)) return null;
+      return data;
+    },
+    apply: (data) => renderList(data),
+  });
+  return reviewRefresher;
+}
+
+/**
+ * Server pushed a `todo.review` refresh frame (or the socket reconnected, in
+ * which case the frame has no todo id and may have been missed). A frame for
+ * another selected workspace is ignored.
+ *
+ * @param {CustomEvent<{ workspaceFolder?: string, todoId?: string }>} [event]
+ */
+function onTodoReviewChanged(event) {
+  const folder = String(event?.detail?.workspaceFolder || '').trim();
+  if (folder && !todoWorkspaceMatches(folder)) return;
+  getReviewRefresher().schedule();
+}
+
+/**
+ * Open a reviewer's delegation report from the details panel. The persisted
+ * snapshot carries no chat id and the list read never computes the link state,
+ * so it is resolved lazily here (one cheap request per click, §11.3). The
+ * resolved state is handed back to the badge so the row shows `trimmed`,
+ * `chat deleted`, etc., and the outcome is also reported in the panel status.
+ *
+ * @param {CustomEvent<{ delegationId?: string, setLinkState?: (state: string) => void }>} event
+ */
+async function onReviewOpenReport(event) {
+  const delegationId = String(event?.detail?.delegationId || '').trim();
+  if (!delegationId) return;
+  const setLinkState = typeof event?.detail?.setLinkState === 'function' ? event.detail.setLinkState : null;
+  try {
+    const link = await api.getDelegationReportLink(delegationId);
+    if (!link?.ok) {
+      // 404 means the record is gone (or not visible in this workspace).
+      const gone = link?.status === 404 || /not found/i.test(String(link?.error || ''));
+      if (gone) {
+        setLinkState?.('delegation_missing');
+        setStatus(t('todo.reviewReport.delegation_missing'), true);
+        return;
+      }
+      setStatus(t('todo.reviewOpenFailed'), true);
+      return;
+    }
+    const state = String(link.reportLinkState || '').trim();
+    if (state) setLinkState?.(state);
+    if (state === 'report_missing' || state === 'chat_deleted' || state === 'delegation_missing') {
+      setStatus(t(`todo.reviewReport.${state}`), true);
+      return;
+    }
+    const chatId = String(link.chatId || '').trim();
+    if (!chatId) {
+      setStatus(t('todo.reviewReport.chat_deleted'), true);
+      return;
+    }
+    if (state === 'report_trimmed') setStatus(t('todo.reviewReport.trimmedNotice'), false);
+    openWatcherChat(chatId);
+  } catch {
+    setStatus(t('todo.reviewOpenFailed'), true);
+  }
+}
+
 export function refreshTodoList() {
   const generation = ++refreshGeneration;
   const folder = getTodoWorkspaceFolder();
@@ -1962,6 +2158,7 @@ export function refreshTodoList() {
   const isCurrent = () => generation === refreshGeneration && todoWorkspaceMatches(folder);
   loadCollapsed();
   loadStatusFilter();
+  loadReviewFilter();
   void refreshWatcherPanel();
   void api.getAgentSdkStatus().then((data) => {
     sdkReady = !!data?.ready;
@@ -2010,6 +2207,7 @@ export function initTodoPanel(options = {}) {
   statusEl = document.getElementById('todo-status');
   hintEl = document.getElementById('todo-cwd-hint');
   window.addEventListener('cretli-active-workspace-changed', onTodoWorkspaceChange);
+  window.addEventListener('cretli:todo-changed', onTodoReviewChanged);
   subscribeSidebarChatRowStatusPatch(() => {
     listEl?.querySelectorAll('.todo-row').forEach((el) => {
       const item = findItem(el.dataset.id);

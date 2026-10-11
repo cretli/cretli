@@ -8,6 +8,25 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Browser runtime documentation for Docker, limited egress and Termux.** New
+  `docs/browser-runtime.md` states the Browser's real runtime dependency split
+  (`playwright-core` is required, the Chromium binary never comes from `npm ci`), the
+  executable-resolution order including `CRETLI_BROWSER_EXECUTABLE_PATH` and the system
+  candidates, the closed `available` / `browser-unavailable` / `unsupported-platform`
+  status vocabulary with the cause and the operator action for each, why the shipped
+  image has no browser and runs as root (`CRETLI_BROWSER_ALLOW_NO_SANDBOX` is the only
+  path to `--no-sandbox`, and it is never implicit), why `proxy` / `required` boundary
+  modes refuse to start without `CRETLI_BROWSER_PROXY_SERVER` instead of falling back to
+  direct egress, why an inherited container `HTTP(S)_PROXY` cannot widen Chromium's
+  egress, and why Termux is `unsupported-platform` by design rather than a missing
+  install. It documents `/api/browser/status` and `/api/browser/health` as the
+  availability surfaces and repeats the `SECURITY.md` residual risk without claiming a
+  complete SSRF or DNS boundary. Linked from `README.md`, `SECURITY.md` and
+  `docs/INSTALL.md` (Docker and Termux). Guarded by
+  `tests/browser-runtime-doc.test.js`, which re-runs every documented availability
+  scenario against `detectBrowserRuntime()` and fails if the document quotes a status,
+  env var, binary path or reason string the code no longer produces.
+
 - **Workspace quick menu: branch badge, branch switch and an active-workspace
   chat filter.** The header gains a compact chip with the branch of the active
   workspace folder (`workspaceBranchBadge.js`; hidden when it would duplicate
@@ -39,6 +58,23 @@ All notable changes to this project are documented here. The format is based on
   tree has a live run, re-points the linked chat to the project folder and sets
   the root `executionMode` to `project`. A later worktree-mode start re-adopts
   the released worktree.
+
+- **Explicit review status on todos (`todo.review`).** The server now persists
+  per todo, per subject (`code`/`plan`), who reviewed it, with which model, how
+  independent the reviewer was, whether verify was satisfied and whether the
+  review is still current, and shows it as a badge in the Todo panel and in
+  `todo_show`/`todo_list` (with a `review` filter). The field is server-written
+  only; REST/MCP patches carrying it are rejected, and `manual` is reachable only
+  from a human accept in the UI. Limits: freshness only detects an implement/fix
+  queued or started after the review (not outside edits or plan edits), retention
+  can turn old evidence into `unknown`, and Scout is not part of it. The
+  `acceptedByReview` metric already existed; only the "done after review" rule
+  was prompt-only. **Metric change:** `manualAccepted` now counts only human
+  acceptances, so agent `accepted` acknowledgements no longer count and the value
+  can drop. Existing leaves can be filled in once with
+  `node scripts/backfill-todo-review.js --workspace DIR` (dry-run by default;
+  `--apply` backs up the todos document, restore it to roll back). See
+  `docs/todo-review-contract.md`.
 
 - **Usage/model-pick acceptance conformance suite and rollout guide.** A frozen
   fixture with one cutoff now drives ten mandatory conformance scenarios across
@@ -140,6 +176,19 @@ All notable changes to this project are documented here. The format is based on
   `mistral-medium-latest`. Setup: `docs/mistral/SETUP.md`.
 
 ### Fixed
+
+- **Built-in tool loop no longer sends a provider-invalid message order.** Once a
+  conversation passed the 80-message budget, the trim kept the newest messages by
+  counting only, so the cut could land between an assistant message that
+  requested tool calls and the tool results answering it. The request then began
+  with a `tool` message right after the `system` prompt, which Mistral rejects
+  with `400 invalid_request_message_order` ("Unexpected role 'tool' after role
+  'system'"), and every later prompt in that chat failed the same way because the
+  trimmed array is written back to the room. Trimming now keeps whole tool-call
+  units, drops tool results whose call was trimmed away, and hoists system
+  messages (including the iteration-limit pause note) to the front, for every
+  harness on the shared loop (Mistral and OpenRouter). Covered by
+  `tests/llm-tool-loop.test.js`.
 
 - **Todo: "Continue in a new chat" on a worktree tree no longer leaves an empty
   chat.** A tree whose worktree was already prepared answered the start

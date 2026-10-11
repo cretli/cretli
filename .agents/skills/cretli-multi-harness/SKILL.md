@@ -60,7 +60,9 @@ On `MODEL_UNAVAILABLE` (empty favorites) or `review_uncertified`:
   `review_fanout_full`. Queue extra reviews yourself — the server does not
   enqueue them. Mixed review+implement stays exclusive. This is not an
   executor pool.
-- Ask a child to call `delegation_start` (depth is server-enforced).
+- Ask a child to call `delegation_start` unless the parent granted
+  `allow_child_delegations` and depth/slot/budget gates allow it (default depth 1
+  denies nested starts with `nested_delegation_denied`).
 - Edit Settings or `config.json` to add favorites. Tell the user instead.
 
 ## Pick a model
@@ -215,7 +217,11 @@ Idempotency key: stable per role and source, unique per round, for example
 return the existing job. An infra retry **must** use a new key (same key
 returns the failed/cancelled job).
 
-Set `assignment` to `review` or `implement` (plan/fix are mapped). In `loop`
+Set `assignment` to `review` or `implement` (plan/fix are mapped). On **every**
+review start pass `review_subject` explicitly: `code` for a code review, `plan`
+for a plan review. The server default is a safety net for ad-hoc starts, not the
+normal path; a job with no subject reads as `other` and never makes `code` or
+`plan` `passed`. In `loop`
 or `fanout-review`, persist loop state with `workflow_update` (role,
 round, last implementer, last reviewer, findings, deadline, `material_revision`,
 and `idempotency_key` unique per review event) so a parent restart does not
@@ -245,6 +251,16 @@ Tell the child to write in the **user's language** and end with exactly:
 
 `TASK: audit` PASS means the audit/plan is complete, not that the product has
 no defects. A thinking dump, one-liner, or empty `completed` body is not PASS.
+
+## Review status on the todo
+
+The server writes `todo.review` from delegation records; you cannot set it
+(`todo_update`/`todo_create` reject `review`). Before closing a leaf, call
+`todo_show` and confirm `review.code` is `passed` (or `manual`, which only a human
+UI accept produces) and not `stale`/`unknown`/`pending`. A `plan` review is not a
+code review and never makes `code` `passed`. An agent `delegation_ack` with
+`reason=accepted` does not yield `manual`. The badge is not a content guarantee:
+see `docs/todo-review-contract.md` §17.
 
 ## Wait
 
@@ -444,9 +460,11 @@ loop. It is a separate server-side actor, not a mode of this skill:
 - The cycle keeps the same restrictions as a manual parent: **never commit, push
   or merge**, never edit the workspace while a review job is running, never
   start a second implement/fix while `slot_occupied=true`.
-- Delegations are one level deep: **children do not start further
-  delegations**. The orchestrator is the only chat that calls
-  `delegation_start`.
+- By default delegations are one level deep (`CRETLI_DELEGATION_MAX_DEPTH=1`): a
+  child without `allow_child_delegations` gets `nested_delegation_denied`. Nested
+  trees are opt-in (grant, depth cap, optional tree slot/budget limits,
+  `delegation_cancel` with `tree:true`). The Watcher cycle orchestrator remains
+  the primary planner; nested delegation is not the default autopilot path.
 - Control/inspection: `watcher_status` / `watcher_set` / `watcher_report` /
   `watcher_claim_next` and `watcher_show` / `watcher_update`
   MCP tools (or Settings → Workspace Watcher).

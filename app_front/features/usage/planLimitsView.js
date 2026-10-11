@@ -23,7 +23,7 @@ export function renderPlanLimitsHtml(payload, { t, lang = 'en' }) {
     const percent = known ? Math.max(0, Math.min(100, Number(row.utilization))) : null;
     return `<article class="settings-usage-card"><h5 class="settings-usage-card-title">${escapeHtml(row.harness)} · ${escapeHtml(row.rateLimitType || '—')}</h5>`
       + (row.status ? `<p>${escapeHtml(row.status)}</p>` : '')
-      + (percent == null ? '' : `<progress max="100" value="${percent}" aria-label="${escapeHtml(t('harnessHealth.planLimitUsageAria', { percent: formatPercent(percent / 100, lang) }))}"></progress>`)
+      + (percent == null ? '' : `<p class="settings-hint"><progress max="100" value="${percent}" aria-label="${escapeHtml(t('harnessHealth.planLimitUsageAria', { percent: formatPercent(percent / 100, lang) }))}"></progress> ${escapeHtml(t('usage.planUtilization', { percent: formatPercent(percent / 100, lang) }))}</p>`)
       + text.map((value) => `<p class="settings-hint">${escapeHtml(value)}</p>`).join('') + '</article>';
   });
   for (const lock of locks) html.push(`<article class="settings-usage-card"><h5 class="settings-usage-card-title">${escapeHtml(lock.harness)}</h5><p>${escapeHtml(t('usage.planLocked', { model: lock.model || '—', time: time(lock.resetAt) }))}</p></article>`);

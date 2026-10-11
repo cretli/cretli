@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { addTodo, getTodoById, loadTodosData } from '../lib/persist/todos-persist.js';
+import { createDelegationRecord, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { getWorkspaceWatcher, upsertWorkspaceWatcher } from '../lib/persist/workspace-watchers-persist.js';
 import {
   getWorktreeRecord,
@@ -259,6 +260,11 @@ test('a worktree PASS records the result, keeps the todo doing and is replay-saf
   assert.ok(cycleId, 'the result is stored by cycle id');
   assert.equal(stored.results[cycleId].changedFiles.some((entry) => entry.path === 'feature.js'), true);
   assert.equal(fs.existsSync(stored.results[cycleId].patchPath), true);
+  // No review job ran in this cycle, so the artifact is honest: no hardcoded PASS.
+  assert.equal(stored.results[cycleId].review.outcome, 'unknown');
+  assert.equal(stored.results[cycleId].review.verified, false);
+  assert.equal(stored.results[cycleId].review.attemptId, '');
+  assert.equal(after.integration?.reviewOutcome, 'unknown', 'the pointer carries the artifact outcome, not a PASS');
   const revision = readWorktreeRegistry({ dataDir: suite.dataDir }).revision;
 
   // A repeated report is a replay and must not double-count or lose the result.
@@ -284,6 +290,66 @@ test('a worktree PASS records the result, keeps the todo doing and is replay-saf
   assert.equal(afterLost.status, 'doing');
   assert.equal(isTodoAwaitingIntegration(afterLost), true);
   assert.equal(Object.keys(getWorktreeRecord(todo.id, { dataDir: suite.dataDir }).results).length, 1);
+});
+
+test('a worktree integration result pins the cycle review evidence to the attempt', async (t) => {
+  const suite = makeSuite('evidence');
+  t.after(suite.cleanup);
+  const todo = addReadyTodo(suite.dataDir, suite.repo, 'reviewed integration', { executionMode: 'worktree' });
+  setAutopilotWorktree(suite.repo, suite.dataDir, suite.baseDir);
+  const chatId = await startCycle(suite, todo);
+  const record = getWorktreeRecord(todo.id, { dataDir: suite.dataDir });
+  fs.writeFileSync(path.join(record.worktreePath, 'reviewed.js'), 'reviewed\n');
+
+  // The cycle's own implement + independent review, keyed to the cycle chat and
+  // this leaf. The integration result must record these concrete attempts.
+  const impl = createDelegationRecord({
+    parentChatId: chatId,
+    workspaceFolder: suite.repo,
+    executor: { transport: 'opencode', model: 'gpt-5' },
+    assignment: 'implement',
+    executionMode: 'agent',
+    leafId: todo.id,
+    queuedAt: '2026-06-01T10:00:01.000Z',
+  });
+  updateDelegationRecord(impl.id, {
+    status: 'completed',
+    startedAt: '2026-06-01T10:00:01.000Z',
+    finishedAt: '2026-06-01T10:00:02.000Z',
+  });
+  const review = createDelegationRecord({
+    parentChatId: chatId,
+    workspaceFolder: suite.repo,
+    executor: { transport: 'opencode', model: 'deepseek-chat' },
+    assignment: 'review',
+    executionMode: 'agent',
+    leafId: todo.id,
+    reviewSubject: 'code',
+    reviewSubjectSource: 'explicit',
+    queuedAt: '2026-06-01T10:00:02.000Z',
+  });
+  updateDelegationRecord(review.id, {
+    status: 'completed',
+    startedAt: '2026-06-01T10:00:02.000Z',
+    finishedAt: '2026-06-01T10:00:03.000Z',
+    report: 'VERDICT: PASS',
+    reportVerdict: 'PASS',
+  });
+
+  const cycleId = String(getWorkspaceWatcher(suite.repo, { dataDir: suite.dataDir }).activeCycles[0].cycleId);
+  const reported = reportPass(suite, chatId, todo, { cycleId, reportId: 'ev-1' });
+  assert.equal(reported.ok, true, reported.reason);
+
+  const stored = getWorktreeRecord(todo.id, { dataDir: suite.dataDir });
+  const result = stored.results[cycleId];
+  assert.equal(result.review.outcome, 'PASS');
+  assert.equal(result.review.verified, true);
+  assert.equal(result.review.attemptId, review.attemptId);
+  assert.equal(result.review.delegationId, review.id);
+  assert.equal(result.review.implementerAttemptId, impl.attemptId);
+  assert.equal(result.review.independence, 'different_base_model');
+  assert.equal(result.cycleId, cycleId, 'the evidence is pinned to this cycle');
+  assert.ok(result.materialRevision, 'the evidence is pinned to the material revision');
 });
 
 test('a worktree PASS does not unblock the next sequential sibling; confirm does', async (t) => {

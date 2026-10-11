@@ -18,14 +18,25 @@ import {
   MODEL_PICK_HARD_GATE_CODES,
   evaluateModelPickHardGates,
 } from '../lib/model-pick-hard-gates.js';
-import { DELEGATION_MODEL_GATE_CODES, evaluateDelegationModelGate } from '../lib/delegation-model-gates.js';
-import { selectModelPick } from '../lib/model-role-profiles.js';
+import {
+  DELEGATION_MODEL_GATE_CODES,
+  buildNamedDelegationStartHardGateInput,
+  evaluateDelegationModelGate,
+  evaluateDelegationStartHardGates,
+} from '../lib/delegation-model-gates.js';
+import {
+  listRolesForModel,
+  loadModelRoleProfiles,
+  normalizeModelRoleProfiles,
+  selectModelPick,
+} from '../lib/model-role-profiles.js';
+import { applyModelRoleDelta } from '../lib/model-role-config-store.js';
 import { resolveWorkspaceWatcherOrchestrator } from '../lib/workspace-watcher-orchestrator.js';
 import { MCP_CAPABILITY_DENIED } from '../lib/mcp/mcp-orchestrator-contract.js';
 import { createDelegationService } from '../lib/delegation-service.js';
 import { addChat } from '../lib/persist/chats-persist.js';
 import { registerMockChatRunAdapter, resetMockChatRuns } from '../lib/chat-run/mock-adapter.js';
-import { noteHarnessUsageLimit } from '../lib/harness-usage-limits.js';
+import { listHarnessUsageLimits, noteHarnessUsageLimit } from '../lib/harness-usage-limits.js';
 import {
   beginWorkspaceWatcherCycleMetric,
   finalizeWorkspaceWatcherCycleMetric,
@@ -397,34 +408,30 @@ test('explicit orchestrator path: allow-list, lockout, quota and excludes share 
   assert.equal(excluded.reason, 'orchestrator_model_excluded', 'the exclusion gate is now wired in');
 });
 
-test('named start without pick_id cannot bypass an active lockout', async () => {
-  resetMockChatRuns();
-  registerMockChatRunAdapter('deepseek');
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'cr-hard-gates-'));
-  const service = createDelegationService({
-    workspaceDirForAgent: () => project,
-    isModelAvailable: () => true,
-  });
-  const parent = addChat('hard-gates-parent', 'Hard gates parent', null, project, 'planner-model', {
-    agentTransport: 'sdk',
-    sdkMode: 'agent',
-  });
+test('named start without pick_id cannot bypass an active lockout', () => {
   noteHarnessUsageLimit({
     harness: 'deepseek',
     model: 'locked-model',
     message: 'usage limit reached; resets at 2099-01-01T00:00:00Z',
   });
-  const refused = await service.createAndStart({
-    parentChatId: parent.id,
-    executor: { transport: 'deepseek', model: 'locked-model' },
-    sourceKind: 'text',
-    taskText: 'Implement the change.',
-    assignment: 'implement',
-    idempotencyKey: 'hard-gates-lockout-refused',
+  const activeUsageLimits = listHarnessUsageLimits();
+  const snapshot = buildNamedDelegationStartHardGateInput({
+    role: 'implement',
+    harness: 'deepseek',
+    model: 'locked-model',
+    lockouts: activeUsageLimits,
+    usageLimits: activeUsageLimits,
+  });
+  const refused = evaluateDelegationStartHardGates({
+    ...snapshot,
+    harnessRow: { enabled: true, ready: true, can_delegate: true },
+    favoritesConfigured: true,
+    favoriteModels: ['locked-model'],
+    lockouts: activeUsageLimits,
+    usageLimits: activeUsageLimits,
   });
   assert.equal(refused.ok, false);
   assert.equal(refused.code, MODEL_PICK_HARD_GATE_CODES.ACTIVE_LOCKOUT);
-  fs.rmSync(project, { recursive: true, force: true });
 });
 
 test('orchestrator attribution: model identity, mode, outcome, duration and disjoint cost', () => {
@@ -493,6 +500,432 @@ test('orchestrator attribution: model identity, mode, outcome, duration and disj
   assert.equal(usage.orchestrator.own.cost.reportedUsd, 1);
   assert.equal(usage.children.own.cost.reportedUsd, 0.5);
   fs.rmSync(dataDir, { recursive: true, force: true });
+});
+
+test('parity matrix: every hard gate admits/rejects the same pair in the picker and the validator', () => {
+  const future = new Date(Date.now() + HOUR).toISOString();
+  /**
+   * @param {{
+   *   role?: string,
+   *   harnesses: object[],
+   *   modelsByHarness: Record<string, object>,
+   *   pairs: Array<[string, string, boolean]>,
+   *   pickerInput?: object,
+   *   validatorFor: (harness: string, model: string) => object,
+   * }} input
+   */
+  const assertParity = (input) => {
+    const pick = selectModelPick({
+      role: input.role || 'implement',
+      harnesses: input.harnesses,
+      modelsByHarness: input.modelsByHarness,
+      rotation: 'off',
+      ...(input.pickerInput || {}),
+    });
+    const admitted = new Set((pick.candidates || []).map((c) => `${c.harness}/${c.model}`));
+    for (const [harness, model, expected] of input.pairs) {
+      const verdict = evaluateModelPickHardGates(input.validatorFor(harness, model));
+      assert.equal(admitted.has(`${harness}/${model}`), verdict.ok, `${harness}/${model} picker/validator parity`);
+      assert.equal(verdict.ok, expected, `${harness}/${model} expectation`);
+    }
+  };
+
+  // Harness enabled / ready / delegatable.
+  assertParity({
+    harnesses: [
+      { id: 'ok', enabled: true, ready: true, can_delegate: true },
+      { id: 'unready', enabled: true, ready: false, can_delegate: true },
+    ],
+    modelsByHarness: {
+      ok: { favorites_configured: true, items: [{ id: 'model-a', roles: ['implement'] }] },
+      unready: { favorites_configured: true, items: [{ id: 'model-b', roles: ['implement'] }] },
+    },
+    pairs: [['ok', 'model-a', true], ['unready', 'model-b', false]],
+    validatorFor: (harness, model) => ({
+      role: 'implement',
+      harness,
+      model,
+      harnessRow: harness === 'unready'
+        ? { enabled: true, ready: false, can_delegate: true }
+        : { enabled: true, ready: true, can_delegate: true },
+      favoritesConfigured: true,
+      favoriteModels: [model],
+      modelRoles: ['implement'],
+    }),
+  });
+
+  // Favorites configured and model membership.
+  assertParity({
+    harnesses: [{ id: 'ok', enabled: true, ready: true, can_delegate: true }],
+    modelsByHarness: {
+      ok: {
+        favorites_configured: true,
+        items: [
+          { id: 'model-a', roles: ['implement'] },
+          { id: 'review-only', roles: ['review'] },
+        ],
+      },
+    },
+    pairs: [['ok', 'model-a', true], ['ok', 'review-only', false]],
+    validatorFor: (harness, model) => ({
+      role: 'implement',
+      harness,
+      model,
+      harnessRow: { enabled: true, ready: true, can_delegate: true },
+      favoritesConfigured: true,
+      favoriteModels: ['model-a', 'review-only'],
+      modelRoles: model === 'review-only' ? ['review'] : ['implement'],
+    }),
+  });
+
+  // Caller/harness excludes and active lockout.
+  assertParity({
+    harnesses: [
+      { id: 'ok', enabled: true, ready: true, can_delegate: true },
+      { id: 'excluded', enabled: true, ready: true, can_delegate: true },
+    ],
+    modelsByHarness: {
+      ok: { favorites_configured: true, items: [{ id: 'model-a', roles: ['implement'] }] },
+      excluded: { favorites_configured: true, items: [{ id: 'model-b', roles: ['implement'] }] },
+    },
+    pickerInput: { excludeHarness: 'excluded' },
+    pairs: [['ok', 'model-a', true], ['excluded', 'model-b', false]],
+    validatorFor: (harness, model) => ({
+      role: 'implement',
+      harness,
+      model,
+      harnessRow: { enabled: true, ready: true, can_delegate: true },
+      favoritesConfigured: true,
+      favoriteModels: [model],
+      modelRoles: ['implement'],
+      excludeHarnesses: ['excluded'],
+    }),
+  });
+
+  assertParity({
+    harnesses: [{ id: 'h', enabled: true, ready: true, can_delegate: true }],
+    modelsByHarness: {
+      h: {
+        favorites_configured: true,
+        items: [
+          { id: 'model-a', roles: ['implement'] },
+          { id: 'locked', roles: ['implement'] },
+        ],
+      },
+    },
+    pickerInput: { history: { lockouts: [{ harness: 'h', model: 'locked', resetAt: future }] } },
+    pairs: [['h', 'model-a', true], ['h', 'locked', false]],
+    validatorFor: (harness, model) => ({
+      role: 'implement',
+      harness,
+      model,
+      harnessRow: { enabled: true, ready: true, can_delegate: true },
+      favoritesConfigured: true,
+      favoriteModels: ['model-a', 'locked'],
+      modelRoles: ['implement'],
+      lockouts: [{ harness: 'h', model: 'locked', resetAt: future }],
+    }),
+  });
+
+  // Quota and model availability.
+  assertParity({
+    harnesses: [{ id: 'h', enabled: true, ready: true, can_delegate: true }],
+    modelsByHarness: {
+      h: {
+        favorites_configured: true,
+        items: [
+          { id: 'model-a', roles: ['implement'] },
+          { id: 'quota', roles: ['implement'] },
+        ],
+      },
+    },
+    pickerInput: { usageLimits: [{ harness: 'h', model: 'quota', resetAt: future }] },
+    pairs: [['h', 'model-a', true], ['h', 'quota', false]],
+    validatorFor: (harness, model) => ({
+      role: 'implement',
+      harness,
+      model,
+      harnessRow: { enabled: true, ready: true, can_delegate: true },
+      favoritesConfigured: true,
+      favoriteModels: ['model-a', 'quota'],
+      modelRoles: ['implement'],
+      usageLimits: [{ harness: 'h', model: 'quota', resetAt: future }],
+    }),
+  });
+
+  assertParity({
+    harnesses: [{ id: 'h', enabled: true, ready: true, can_delegate: true }],
+    modelsByHarness: {
+      h: {
+        favorites_configured: true,
+        items: [
+          { id: 'model-a', roles: ['implement'], available: true },
+          { id: 'offline', roles: ['implement'], available: false },
+        ],
+      },
+    },
+    pairs: [['h', 'model-a', true], ['h', 'offline', false]],
+    validatorFor: (harness, model) => ({
+      role: 'implement',
+      harness,
+      model,
+      harnessRow: { enabled: true, ready: true, can_delegate: true },
+      favoritesConfigured: true,
+      favoriteModels: ['model-a', 'offline'],
+      modelRoles: ['implement'],
+      modelAvailable: model !== 'offline',
+    }),
+  });
+
+  // Flash review and the review-adapter guarantee.
+  assertParity({
+    role: 'review',
+    harnesses: [{ id: 'sdk', enabled: true, ready: true, can_delegate: true }],
+    modelsByHarness: {
+      sdk: {
+        favorites_configured: true,
+        items: [
+          { id: 'glm-5.3', roles: ['review'] },
+          { id: 'glm-5.3-flash', roles: ['review'] },
+        ],
+      },
+    },
+    pickerInput: { checkReviewAdapter: false },
+    pairs: [['sdk', 'glm-5.3', true], ['sdk', 'glm-5.3-flash', false]],
+    validatorFor: (harness, model) => ({
+      role: 'review',
+      harness,
+      model,
+      checkReviewAdapter: false,
+      allowPremium: true,
+      harnessRow: { enabled: true, ready: true, can_delegate: true },
+      favoritesConfigured: true,
+      favoriteModels: ['glm-5.3', 'glm-5.3-flash'],
+      modelRoles: ['review'],
+    }),
+  });
+
+  assertParity({
+    role: 'review',
+    harnesses: [
+      { id: 'sdk', enabled: true, ready: true, can_delegate: true },
+      { id: 'codex', enabled: true, ready: true, can_delegate: true },
+    ],
+    modelsByHarness: {
+      sdk: { favorites_configured: true, items: [{ id: 'glm-5.3', roles: ['review'] }] },
+      codex: { favorites_configured: true, items: [{ id: 'glm-5.3', roles: ['review'] }] },
+    },
+    pickerInput: { checkReviewAdapter: true },
+    pairs: [['sdk', 'glm-5.3', true], ['codex', 'glm-5.3', false]],
+    validatorFor: (harness, model) => ({
+      role: 'review',
+      harness,
+      model,
+      checkReviewAdapter: true,
+      allowPremium: true,
+      harnessRow: { enabled: true, ready: true, can_delegate: true },
+      favoritesConfigured: true,
+      favoriteModels: ['glm-5.3'],
+      modelRoles: ['review'],
+    }),
+  });
+});
+
+test('GPT Sol low: built-in/rolesDelta source, explicit passes all gates, automatic admits to the pool', async () => {
+  const modelId = 'gpt-6.1-sol::effort=low';
+  const profiles = loadModelRoleProfiles();
+  assert.ok(listRolesForModel(modelId, profiles).includes('implement'), 'built-in family carries implement');
+  assert.equal(
+    evaluateModelPickHardGates({
+      role: 'implement',
+      harness: 'codex',
+      model: modelId,
+      harnessRow: { enabled: true, ready: true, can_delegate: true },
+      favoritesConfigured: true,
+      favoriteModels: [modelId],
+      modelRoles: listRolesForModel(modelId, profiles),
+      requireMcp: true,
+      mcpCapabilityProbe: () => ({ ok: true }),
+    }).ok,
+    true,
+    'the explicit pair passes every gate',
+  );
+
+  const catalog = [{ id: 'codex', enabled: true, ready: true, can_delegate: true }];
+  const models = async () => ({ favorites_configured: true, items: [{ id: modelId, roles: listRolesForModel(modelId, profiles) }] });
+  const explicit = await resolveWorkspaceWatcherOrchestrator({
+    watcher: { policy: { orchestrator: { harness: 'codex', model: modelId } } },
+    deps: { listHarnessCatalog: async () => catalog, listHarnessModels: models, mcpCapabilityProbe: () => ({ ok: true }) },
+  });
+  assert.equal(explicit.ok, true, explicit.reason);
+
+  // Automatic: effort=low is not an exclusion, so the pair is admissible to the
+  // ranking pool (winning is not guaranteed, so assert admission, not the pick).
+  const picked = selectModelPick({
+    role: 'implement',
+    harnesses: catalog,
+    modelsByHarness: { codex: { favorites_configured: true, items: [{ id: modelId, roles: listRolesForModel(modelId, profiles) }] } },
+    rotation: 'off',
+  });
+  assert.equal(picked.ok, true, picked.error);
+  assert.equal(picked.pick.model, modelId);
+
+  // A plan-only fixture: sol is not implement-eligible, and a store delta adds
+  // it back without touching the unrelated plan list.
+  const planOnlyProfiles = { plan: [{ pattern: 'sol', priority: 2 }] };
+  assert.equal(listRolesForModel(modelId, planOnlyProfiles).includes('implement'), false);
+  const nextDocument = applyModelRoleDelta({}, { roles: { implement: { set: { sol: { priority: 6 } } } } });
+  const editedProfiles = normalizeModelRoleProfiles(nextDocument);
+  assert.ok(listRolesForModel(modelId, editedProfiles).includes('implement'), 'the store delta restores implement');
+  assert.ok(listRolesForModel(modelId, editedProfiles).includes('plan'), 'unrelated roles are preserved');
+});
+
+test('automatic pick filters all candidates before ranking, so excludes leave an alternative', async () => {
+  const catalog = [{ id: 'mock', enabled: true, ready: true, can_delegate: true }];
+  const models = async () => ({
+    favorites_configured: true,
+    items: [
+      { id: 'gpt-5.6', roles: ['implement'], cost_tier: 3, quality_tier: 5, speed_tier: 3 },
+      { id: 'gpt-6-astra', roles: ['implement'], cost_tier: 3, quality_tier: 5, speed_tier: 3 },
+    ],
+  });
+  const deps = { listHarnessCatalog: async () => catalog, listHarnessModels: models, mcpCapabilityProbe: () => ({ ok: true }) };
+  const excludedWinner = await resolveWorkspaceWatcherOrchestrator({
+    watcher: { policy: {} },
+    excludeModels: ['gpt-5.6'],
+    deps,
+  });
+  assert.equal(excludedWinner.ok, true, excludedWinner.reason);
+  assert.equal(excludedWinner.model, 'gpt-6-astra', 'a full pre-ranking filter leaves the alternative');
+  const allExcluded = await resolveWorkspaceWatcherOrchestrator({
+    watcher: { policy: {} },
+    excludeModels: ['gpt-5.6', 'gpt-6-astra'],
+    deps,
+  });
+  assert.equal(allExcluded.ok, false, 'blocking the winner alone must never be the reason a cycle cannot start');
+});
+
+test('role membership: unknown family may bypass membership when explicitly named', () => {
+  const unknownId = 'operator-private-mock-9b';
+  const verdict = evaluateModelPickHardGates({
+    role: 'implement',
+    harness: 'sdk',
+    model: unknownId,
+    harnessRow: { enabled: true, ready: true, can_delegate: true },
+    favoritesConfigured: true,
+    favoriteModels: [unknownId],
+    modelRoles: [],
+    allowNamedModel: true,
+  });
+  assert.equal(verdict.ok, true, 'unknown-family named exception skips membership only');
+});
+
+test('role membership: empty roles on a known family still deny the role', () => {
+  const verdict = evaluateModelPickHardGates({
+    role: 'implement',
+    harness: 'sdk',
+    model: 'grok-4.6',
+    harnessRow: { enabled: true, ready: true, can_delegate: true },
+    favoritesConfigured: true,
+    favoriteModels: ['grok-4.6'],
+    modelRoles: listRolesForModel('grok-4.6'),
+    allowNamedModel: true,
+  });
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.code, MODEL_PICK_HARD_GATE_CODES.ROLE_MEMBERSHIP);
+});
+
+test('role membership: confirmed uncertified review bypasses membership only via the opt-in', () => {
+  // Without the operator opt-in the uncertified adapter is refused at gate 4
+  // (review_uncertified) and never reaches the membership gate.
+  const refused = evaluateModelPickHardGates({
+    role: 'review',
+    harness: 'codex',
+    model: 'codex/gpt-5',
+    modelRoles: ['implement'],
+    reviewAdapter: { ok: false, status: 409, code: 'review_uncertified', error: 'no guarantee', capabilities: {}, reviewUncertified: true },
+  });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.code, MODEL_PICK_HARD_GATE_CODES.REVIEW_UNCERTIFIED);
+
+  // With the opt-in the adapter is allowed (uncertified:true); membership is
+  // then skipped for the review role only.
+  const allowed = evaluateModelPickHardGates({
+    role: 'review',
+    harness: 'codex',
+    model: 'codex/gpt-5',
+    modelRoles: ['implement'],
+    reviewAdapter: { ok: true, reviewUncertified: true },
+  });
+  assert.equal(allowed.ok, true, 'opt-in review on a non-member model starts');
+  assert.equal(allowed.reviewUncertified, true);
+
+  // A certified adapter (reviewUncertified:false) on a non-member model is
+  // still denied by membership — the exception never fires without the flag.
+  const certifiedMismatch = evaluateModelPickHardGates({
+    role: 'review',
+    harness: 'opencode',
+    model: 'opencode/test',
+    modelRoles: ['implement'],
+    reviewAdapter: { ok: true, reviewUncertified: false },
+  });
+  assert.equal(certifiedMismatch.ok, false);
+  assert.equal(certifiedMismatch.code, MODEL_PICK_HARD_GATE_CODES.ROLE_MEMBERSHIP);
+});
+
+test('role membership: uncertified review exception never weakens implement/fix', () => {
+  // The exception is review-only; a non-review role on an uncertified pair is
+  // still denied by membership even if reviewUncertified were true.
+  const implement = evaluateModelPickHardGates({
+    role: 'implement',
+    harness: 'codex',
+    model: 'codex/gpt-5',
+    modelRoles: ['review'],
+    reviewAdapter: { ok: true, reviewUncertified: true },
+  });
+  assert.equal(implement.ok, false);
+  assert.equal(implement.code, MODEL_PICK_HARD_GATE_CODES.ROLE_MEMBERSHIP);
+});
+
+test('role membership: uncertified review membership bypass requires the live opt-in', () => {
+  const prev = process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED;
+  try {
+    process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED = '1';
+    const allowed = evaluateModelPickHardGates({
+      role: 'review',
+      harness: 'codex',
+      model: 'codex/gpt-5',
+      modelRoles: ['implement'],
+    });
+    assert.equal(allowed.ok, true, 'live opt-in review on a non-member codex model starts');
+    assert.equal(allowed.reviewUncertified, true);
+  } finally {
+    if (prev === undefined) delete process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED;
+    else process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED = prev;
+  }
+});
+
+test('explicit orchestrator enforces role membership for a known family', async () => {
+  const catalog = [{ id: 'sdk', enabled: true, ready: true, can_delegate: true }];
+  const models = async () => ({
+    favorites_configured: true,
+    items: [{ id: 'grok-4.6', roles: ['plan', 'review', 'fix'] }],
+  });
+  const refused = await resolveWorkspaceWatcherOrchestrator({
+    watcher: { policy: { orchestrator: { harness: 'sdk', model: 'grok-4.6' } } },
+    deps: { listHarnessCatalog: async () => catalog, listHarnessModels: models, mcpCapabilityProbe: () => ({ ok: true }) },
+  });
+  assert.equal(refused.ok, false, 'grok does not claim implement');
+  assert.equal(refused.reason, 'orchestrator_model_unavailable');
+  const accepted = await resolveWorkspaceWatcherOrchestrator({
+    watcher: { policy: { orchestrator: { harness: 'sdk', model: 'gpt-5.6' } } },
+    deps: {
+      listHarnessCatalog: async () => catalog,
+      listHarnessModels: async () => ({ favorites_configured: true, items: [{ id: 'gpt-5.6', roles: ['implement'] }] }),
+      mcpCapabilityProbe: () => ({ ok: true }),
+    },
+  });
+  assert.equal(accepted.ok, true, accepted.reason);
 });
 
 console.log('model-pick-hard-gates.test.js OK');

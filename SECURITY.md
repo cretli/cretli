@@ -54,6 +54,12 @@ reachability probe (the result is reported as
 `runtime.networkBoundary.proxyHealth`), while `proxy` only records a warning and
 still starts.
 
+[docs/browser-runtime.md](docs/browser-runtime.md) covers the host requirements for
+Chromium itself — a Docker image that ships no browser binary, running as root and the
+`CRETLI_BROWSER_ALLOW_NO_SANDBOX` opt-in, and Termux — plus what each `runtime.status`
+means for an operator. It adds no guarantees and weakens nothing here: the Browser is
+still not a network boundary.
+
 - **Default-deny origins.** A workspace must explicitly allowlist each `http(s)://host`
   before Chromium can reach it. `allowLocalhost` opens loopback only and
   `allowPrivateNetwork` opens RFC1918/ULA literals only; neither implies the other.

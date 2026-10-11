@@ -91,6 +91,12 @@ the SPA build continues; screenshot upload in chat will return 503.
 Chat on a phone is realistic with **OpenRouter** (API key in Settings).
 OpenCode is heavy. Cursor SDK usually is not available on Termux.
 
+The built-in Browser is **not supported on Termux**: server-side Chromium cannot run as
+an Android host, so `/api/browser/status` reports `unsupported-platform` (not a missing
+install) and the Browser panel stays off. Everything else works; use the phone's own
+browser, or the widget `page_*` tools for page interaction. Details:
+[browser-runtime.md](browser-runtime.md).
+
 ### Updating an existing Termux clone
 
 Public `master` is rewritten as a single orphan commit. `git pull` cannot
@@ -165,6 +171,12 @@ device, put a reverse proxy or VPN in front — do not publish `0.0.0.0:3011` to
 internet.
 
 Volume `./data` stores password, chats, and certs. Never commit it.
+
+The shipped image has **no Chromium**, and Cretli runs there as root, so the built-in
+Browser is off by default in Docker: `/api/browser/status` reports `browser-unavailable`
+and, once a binary is added, a root `sandboxWarning`. To enable it, add a browser to the
+image and choose between a non-root container and an explicit
+`CRETLI_BROWSER_ALLOW_NO_SANDBOX=1`: [browser-runtime.md](browser-runtime.md).
 
 ## Chat without Cursor
 

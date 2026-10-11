@@ -1,6 +1,8 @@
 import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import {
+  PLAN_LIMIT_GROWTH_MAX_PERCENT_PER_HOUR,
+  PLAN_LIMIT_GROWTH_WARN_PERCENT_PER_HOUR,
   PLAN_LIMIT_PENALTY,
   PLAN_LIMIT_PENALTY_MAX,
   PLAN_LIMIT_TYPICAL_TASK_MS,
@@ -260,6 +262,34 @@ const tiePick = selectModelPick({
 assert.equal(tiePick.pick.harness, 'b', 'A with a near-exhaustion forecast loses to a healthy B');
 assert.ok(tiePick.candidates.find((row) => row.harness === 'a').plan_limit_penalty > 0);
 assert.equal(tiePick.candidates.find((row) => row.harness === 'b').plan_limit_penalty, 0);
+
+// (h) Each ramp is load-bearing on its own: growth alone, margin alone.
+assert.equal(
+  penaltyFor([{
+    harness: 'a',
+    utilization: 50,
+    resetsAt: FUTURE,
+    confidence: 'high',
+    forecast: forecast({ percentPerHour: 20 }),
+  }]),
+  PLAN_LIMIT_PENALTY_MAX * 0.5,
+  `growth-only: (${20} - ${PLAN_LIMIT_GROWTH_WARN_PERCENT_PER_HOUR}) / (${PLAN_LIMIT_GROWTH_MAX_PERCENT_PER_HOUR} - ${PLAN_LIMIT_GROWTH_WARN_PERCENT_PER_HOUR}) = 0.5`,
+);
+assert.equal(
+  penaltyFor([{
+    harness: 'a',
+    utilization: 50,
+    resetsAt: FUTURE,
+    confidence: 'high',
+    forecast: forecast({
+      beforeReset: false,
+      percentPerHour: 2,
+      remainingMs: PLAN_LIMIT_TYPICAL_TASK_MS / 4,
+    }),
+  }]),
+  PLAN_LIMIT_PENALTY_MAX * 0.75,
+  'margin-only: remainingMs at one quarter of typical task → marginRisk 0.75',
+);
 
 removeIsolatedDataDir();
 console.log('model-pick-plan-forecast.test.js OK');

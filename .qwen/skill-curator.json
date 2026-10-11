@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "skills": {
+    "auto-skill-cretli-delegation-review": {
+      "skillName": "cretli-delegation-review",
+      "firstSeenAt": "2026-10-10T17:28:33.960Z",
+      "lastActivityAt": "2026-10-10T18:19:31.715Z",
+      "useCount": 2,
+      "state": "active",
+      "pinned": false,
+      "lastUsedAt": "2026-10-10T18:19:31.715Z"
+    }
+  }
+}

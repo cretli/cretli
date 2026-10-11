@@ -32,6 +32,9 @@ that is not on the `Task` list):
 Use Cursor `Task` only when the user wants a Cursor SDK subagent on a model that
 tool actually lists.
 
+A todo's `review` field is written only by the server from delegation records;
+never set it manually (`docs/todo-review-contract.md`).
+
 Default bind is **127.0.0.1**. LAN is opt-in (`npm run start:lan` /
 `CRETLI_BIND=0.0.0.0`). Runtime data lives in gitignored `data/` — never commit
 it. On WSL, LAN needs Windows portproxy (`scripts/wsl-port-forward.ps1`) and

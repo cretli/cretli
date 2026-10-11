@@ -72,6 +72,7 @@ assert.equal(reviewed.structuredContent.skipped, false);
 const afterReview = getDelegationById(job.id);
 assert.equal(afterReview.unverified, false);
 assert.equal(afterReview.acknowledgedReason, 'reviewed');
+assert.equal(afterReview.acknowledgedActor, 'unknown');
 assert.ok(String(afterReview.acknowledgedAt || '').trim());
 
 const acceptImplement = createDelegationRecord({
@@ -90,12 +91,19 @@ const accepted = await parentHandlers.delegation_ack({ delegation_id: acceptRevi
 assert.equal(accepted.isError, false);
 const afterAccept = getDelegationById(acceptReview.id);
 assert.equal(afterAccept.acknowledgedReason, 'accepted');
+// The in-process MCP transport is server-internal: it must never record a
+// `human` actor, so an `accepted` ack from it is not a manual acceptance.
+assert.equal(afterAccept.acknowledgedActor, 'unknown');
 const cycles = buildDelegationQualityCycles({
   rows: [getDelegationById(acceptImplement.id), afterAccept],
   parentChatId: parent.id,
   includeOpen: true,
 });
-assert.equal(cycles.some((cycle) => cycle.manualAccepted === true), true);
+assert.equal(
+  cycles.some((cycle) => cycle.manualAccepted === true),
+  false,
+  'an in-process MCP accept is not a human manual acceptance',
+);
 
 const childClient = createInProcessMcpClient({
   harness: 'sdk',

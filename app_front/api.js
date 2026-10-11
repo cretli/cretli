@@ -702,6 +702,23 @@ export async function getWorkspaceDelegations(query = {}) {
   return apiFetchJson(`/api/delegations${suffix}`, undefined, 'getWorkspaceDelegations');
 }
 
+export async function getDelegationTree(chatId, query = {}) {
+  if (!chatId) return { ok: false, error: 'Missing chat id' };
+  const params = new URLSearchParams();
+  if (query.rootDelegationId) params.set('rootDelegationId', String(query.rootDelegationId));
+  if (query.status) params.set('status', String(query.status));
+  if (query.cursor) params.set('cursor', String(query.cursor));
+  if (query.limit) params.set('limit', String(query.limit));
+  if (query.workspaceFolder) params.set('workspaceFolder', String(query.workspaceFolder));
+  if (query.workspaceFile) params.set('workspaceFile', String(query.workspaceFile));
+  const suffix = params.toString() ? `?${params}` : '';
+  return apiFetchJson(
+    `/api/chats/${encodeURIComponent(chatId)}/delegation-tree${suffix}`,
+    undefined,
+    `getDelegationTree:${chatId}`,
+  );
+}
+
 export async function postDelegationRetryDelivery(id, payload = {}) {
   if (!id) return { ok: false, error: 'Missing delegation id' };
   return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}/retry-delivery`, {
@@ -711,11 +728,14 @@ export async function postDelegationRetryDelivery(id, payload = {}) {
   }, `postDelegationRetryDelivery:${id}`);
 }
 
-export async function postDelegationCancel(id) {
+export async function postDelegationCancel(id, { tree = false } = {}) {
   if (!id) return { ok: false, error: 'Missing delegation id' };
-  return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}/cancel`, {
-    method: 'POST',
-  }, `postDelegationCancel:${id}`);
+  const init = { method: 'POST' };
+  if (tree === true) {
+    init.headers = { 'Content-Type': 'application/json' };
+    init.body = JSON.stringify({ tree: true });
+  }
+  return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}/cancel`, init, `postDelegationCancel:${id}${tree ? ':tree' : ''}`);
 }
 
 export async function postDelegationAck(id, payload = {}) {
@@ -725,6 +745,45 @@ export async function postDelegationAck(id, payload = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload || {}),
   }, `postDelegationAck:${id}`);
+}
+
+/**
+ * Accept context the card echoes back: the current attempt and material
+ * revision of a delegation (`docs/todo-review-contract.md` §7.3).
+ */
+export async function getDelegationAcceptContext(id) {
+  if (!id) return { ok: false, error: 'Missing delegation id' };
+  return apiFetchJson(
+    `/api/delegations/${encodeURIComponent(id)}?field=accept`,
+    undefined,
+    `getDelegationAcceptContext:${id}`,
+  );
+}
+
+/**
+ * Honest state of the "open the delegation report" link, resolved on demand
+ * (`docs/todo-review-contract.md` §11.3).
+ */
+export async function getDelegationReportLink(id) {
+  if (!id) return { ok: false, error: 'Missing delegation id' };
+  return apiFetchJson(
+    `/api/delegations/${encodeURIComponent(id)}?field=report-link`,
+    undefined,
+    `getDelegationReportLink:${id}`,
+  );
+}
+
+/**
+ * Explicit human acceptance from the delegation card. The server derives the
+ * actor from the channel and rejects a stale attempt/material with 409.
+ */
+export async function postDelegationAccept(id, payload = {}) {
+  if (!id) return { ok: false, error: 'Missing delegation id' };
+  return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}/accept`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  }, `postDelegationAccept:${id}`);
 }
 
 /** User rating from the delegation card (rater is fixed server-side to `user`). */
@@ -1547,6 +1606,129 @@ export async function resetHarnessModelRoleConfig(etag) {
     method: 'POST',
     headers,
   }, 'resetHarnessModelRoleConfig');
+}
+
+/**
+ * List the audited global model-selection overrides (Settings → Harness).
+ *
+ * @returns {Promise<object>}
+ */
+export async function getModelPickOverrides() {
+  return dedupeGetJson('/api/harness-model-role-config/overrides', 'getModelPickOverrides');
+}
+
+/**
+ * Create one audited global override, guarded by the store ETag.
+ *
+ * @param {object} override
+ * @param {string} etag
+ * @returns {Promise<object>}
+ */
+export async function putModelPickOverride(override, etag) {
+  return apiFetchJson('/api/harness-model-role-config/overrides', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'If-Match': String(etag || '') },
+    body: JSON.stringify(override || {}),
+  }, 'putModelPickOverride');
+}
+
+/**
+ * Revoke one audited global override.
+ *
+ * @param {string} id
+ * @param {string} etag
+ * @param {string} [reason]
+ * @returns {Promise<object>}
+ */
+export async function revokeModelPickOverride(id, etag, reason = '') {
+  return apiFetchJson('/api/harness-model-role-config/overrides/revoke', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(etag ? { 'If-Match': String(etag) } : {}) },
+    body: JSON.stringify({ id, reason }),
+  }, 'revokeModelPickOverride');
+}
+
+/**
+ * Back up and reset the audited global overrides.
+ *
+ * @param {string} [etag]
+ * @returns {Promise<object>}
+ */
+export async function resetModelPickOverrides(etag) {
+  return apiFetchJson('/api/harness-model-role-config/overrides/reset', {
+    method: 'POST',
+    headers: etag ? { 'If-Match': String(etag) } : {},
+  }, 'resetModelPickOverrides');
+}
+
+/**
+ * Read-only benchmark source registry and local snapshot store (Settings → Harness).
+ *
+ * @returns {Promise<object>}
+ */
+export async function getHarnessBenchmarkSources() {
+  return dedupeGetJson('/api/harness-benchmark-sources', 'getHarnessBenchmarkSources');
+}
+
+/**
+ * Import a bounded local benchmark snapshot (no outbound fetch).
+ *
+ * @param {object} body
+ * @param {string} etag
+ * @returns {Promise<object>}
+ */
+export async function putHarnessBenchmarkImport(body, etag) {
+  return apiFetchJson('/api/harness-benchmark-sources/import', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'If-Match': String(etag || '') },
+    body: JSON.stringify(body || {}),
+  }, 'putHarnessBenchmarkImport');
+}
+
+/**
+ * List the audited workspace-scoped overrides for one folder.
+ *
+ * @param {string} workspaceFolder
+ * @returns {Promise<object>}
+ */
+export async function getWorkspaceModelPickOverrides(workspaceFolder) {
+  const query = new URLSearchParams({ workspaceFolder: String(workspaceFolder || '') });
+  return dedupeGetJson(`/api/workspace-watcher/overrides?${query}`, 'getWorkspaceModelPickOverrides');
+}
+
+/**
+ * Create one audited workspace override, guarded by the store ETag.
+ *
+ * @param {string} workspaceFolder
+ * @param {object} override
+ * @param {string} etag
+ * @returns {Promise<object>}
+ */
+export async function putWorkspaceModelPickOverride(workspaceFolder, override, etag) {
+  const query = new URLSearchParams({ workspaceFolder: String(workspaceFolder || '') });
+  return apiFetchJson(`/api/workspace-watcher/overrides?${query}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'If-Match': String(etag || '') },
+    body: JSON.stringify(override || {}),
+  }, 'putWorkspaceModelPickOverride');
+}
+
+/**
+ * Revoke one audited workspace override.
+ *
+ * @param {string} workspaceFolder
+ * @param {string} id
+ * @param {string} etag
+ * @param {string} [reason]
+ * @returns {Promise<object>}
+ */
+export async function revokeWorkspaceModelPickOverride(workspaceFolder, id, etag, reason = '') {
+  const query = new URLSearchParams({ workspaceFolder: String(workspaceFolder || '') });
+  return apiFetchJson(`/api/workspace-watcher/overrides/revoke?${query}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(etag ? { 'If-Match': String(etag) } : {}) },
+    body: JSON.stringify({ id, reason }),
+  }, 'revokeWorkspaceModelPickOverride');
 }
 
 /**

@@ -1267,6 +1267,32 @@ body.theme-light .widget-panel-select {
   gap: var(--cr-space-2);
 }
 
+.delegation-tree-panel {
+  margin-top: var(--cr-space-3);
+  padding-top: var(--cr-space-2);
+  border-top: 1px solid var(--cr-border-strong);
+}
+
+.delegation-tree-list,
+.delegation-tree-children {
+  list-style: none;
+  margin: 0;
+  padding-left: var(--cr-space-3);
+}
+
+.delegation-tree-node {
+  padding: var(--cr-space-1) 0;
+}
+
+.delegation-tree-node[data-slot-occupied='1'] > .delegation-tree-status {
+  color: var(--cr-accent);
+}
+
+.delegation-tree-status {
+  margin-right: var(--cr-space-2);
+  font-family: var(--cr-font-mono);
+}
+
 @media (max-width: 640px) {
   .delegation-center-filters {
     flex-direction: column;
@@ -3015,6 +3041,61 @@ body.files-preview-resizing {
 
 .todo-row-worktree-badge[hidden] {
   display: none;
+}
+
+/* Host box of cr-todo-review-badge in a list row. The badge itself (Shadow DOM)
+ * owns its styles; this only keeps the row height stable and the host bounded. */
+.todo-row-review {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.todo-row-review[hidden] {
+  display: none;
+}
+
+.todo-review-detail {
+  margin: 0 0 var(--cr-space-3);
+  padding: var(--cr-space-2) var(--cr-space-3);
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-surface);
+}
+
+.todo-review-filter-heading {
+  padding: var(--cr-space-1) var(--cr-space-2);
+  border-top: 1px solid var(--cr-border-strong);
+  font-size: 0.72rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-review-filter-row {
+  padding: var(--cr-space-1) var(--cr-space-2);
+}
+
+.sdk-rich-delegation-accept-context {
+  margin: var(--cr-space-1) 0 0;
+  font-size: 0.72rem;
+  color: var(--cr-text-muted);
+}
+
+.sdk-rich-delegation-accept-feedback {
+  margin: var(--cr-space-1) 0 0;
+  font-size: 0.78rem;
+}
+
+.sdk-rich-delegation-accept-feedback[data-tone='error'] {
+  color: var(--cr-error);
+}
+
+.sdk-rich-delegation-accept-feedback[data-tone='success'] {
+  color: var(--cr-success);
 }
 
 .todo-row-badge,
@@ -10684,6 +10765,10 @@ body:has(#chat-panel.active:not(.hide-send-field)) #chat-context-meter {
     max-width: 30%;
   }
 
+  .todo-row-review {
+    max-width: 2.6rem;
+  }
+
   .todo-cwd-hint {
     display: none;
   }
@@ -14051,6 +14136,43 @@ body.theme-light .sidebar-chat-item-harness--codex img {
 
 /* Settings → Harness: audited model-role editor. Tokens only; the rule grid
    wraps so a long alias list never widens the settings page. */
+.harness-benchmark-sources {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-3);
+  font-size: 0.85rem;
+}
+
+.harness-benchmark-source-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+}
+
+.harness-benchmark-meta {
+  display: grid;
+  grid-template-columns: minmax(8rem, 11rem) 1fr;
+  gap: var(--cr-space-1) var(--cr-space-3);
+  margin: 0;
+
+  dt {
+    margin: 0;
+    color: var(--cr-text-muted);
+    font-size: 0.75rem;
+  }
+
+  dd {
+    margin: 0;
+    color: var(--cr-text);
+    word-break: break-word;
+  }
+}
+
+.harness-benchmark-store-invalid {
+  margin: 0;
+  color: var(--cr-error);
+}
+
 .harness-model-role {
   display: flex;
   flex-direction: column;

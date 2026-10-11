@@ -64,8 +64,11 @@ adopts a session, the read tools (`browser_screenshot`, `browser_elements`,
 `browser_dom`, `browser_console`, `browser_network`) inspect the page, and in agent
 mode `browser_input` and `browser_navigate` act on it. Origins are **default-deny**
 under the workspace Browser policy, and screenshots come back as a temp file path to
-open instead of inline base64. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
-the `cretli-browser` skill (`.agents/skills/cretli-browser/SKILL.md`).
+open instead of inline base64. Chromium is a separate native binary, so availability
+depends on the host (the Docker image ships none, and Termux is unsupported by design) —
+see [docs/browser-runtime.md](docs/browser-runtime.md). Further detail:
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and the `cretli-browser` skill
+(`.agents/skills/cretli-browser/SKILL.md`).
 
 ## How it works
 

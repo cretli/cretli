@@ -4,6 +4,7 @@
 
 import {
   getDelegationRuntime,
+  getDelegationTree,
   getWorkspaceDelegations,
   postDelegationAck,
   postDelegationCancel,
@@ -22,6 +23,7 @@ const FILTERS = [
 ];
 
 const PAGE_LIMIT = 40;
+const TREE_PAGE_LIMIT = 50;
 
 /** @type {Set<string>} */
 const inflightActions = new Set();
@@ -121,6 +123,9 @@ function renderRow(row) {
   const canRetry = !slotHeld && ['completed', 'failed', 'interrupted', 'cancelled'].includes(status);
   // Stop is per job (slotHeld). Two active reviews each keep their own Stop; no bulk cancel.
   const canCancel = (row.active === true || slotHeld) && status !== 'cancelling';
+  // A job that may have delegated further can own a subtree; the server cancel
+  // is idempotent, so the action stays available while it is not cancelled.
+  const canCancelTree = row.allowChildDelegations === true && status !== 'cancelled';
   const canRetryDelivery = row.retryableDelivery === true
     || row.pendingOutbox === true
     || String(row.acceptState || '') === 'uncertain';
@@ -137,12 +142,140 @@ function renderRow(row) {
       <p class="cr-hint">${escapeHtml(t('settings.delegationsAttemptHint', { count: Number(row.attemptCount) || 0 }))}</p>
       <div class="delegation-center-actions">
         ${canCancel ? `<cr-bar-button data-act="cancel" data-id="${id}">${escapeHtml(t('chat.delegationCancel'))}</cr-bar-button>` : ''}
+        ${canCancelTree ? `<cr-bar-button data-act="cancel-tree" data-id="${id}">${escapeHtml(t('settings.delegationsCancelTree'))}</cr-bar-button>` : ''}
         ${canAck ? `<cr-bar-button data-act="ack" data-id="${id}">${escapeHtml(t('chat.delegationAcknowledge'))}</cr-bar-button>` : ''}
         ${canRetry ? `<cr-bar-button data-act="retry-task" data-id="${id}">${escapeHtml(t('settings.delegationsRetryTask'))}</cr-bar-button>` : ''}
         ${canRetryDelivery ? `<cr-bar-button data-act="retry-delivery" data-id="${id}" data-mailbox-id="${mailboxId}" data-attempt-id="${escapeHtml(String(row.attemptId || ''))}">${escapeHtml(t('settings.delegationsRetryDelivery'))}</cr-bar-button>` : ''}
+        <cr-bar-button data-act="tree" data-id="${id}">${escapeHtml(t('settings.delegationsTreeShow'))}</cr-bar-button>
       </div>
     </article>
   `;
+}
+
+/**
+ * @param {object} counters Tree counters from the server (labelled scopes).
+ * @returns {string}
+ */
+function renderTreeCounters(counters) {
+  const slots = counters?.slots || {};
+  const budget = counters?.budget || {};
+  const limit = Number(slots.limit) > 0 ? String(slots.limit) : t('settings.delegationsTreeSlotsLimitOff');
+  const noCap = t('settings.delegationsTreeNoCap');
+  const tokenCap = Number(budget.budget_tokens) > 0 ? String(budget.budget_tokens) : noCap;
+  const usdCap = Number(budget.budget_usd) > 0 ? String(budget.budget_usd) : noCap;
+  const slotLine = t('settings.delegationsTreeSlots', {
+    occupied: Number(slots.occupied_total) || 0,
+    limit,
+  });
+  const budgetLine = budget.measured === true
+    ? t('settings.delegationsTreeBudget', {
+      tokens: Number(budget.tokens) || 0,
+      tokenCap,
+      usd: Number(budget.usd) || 0,
+      usdCap,
+    })
+    : t('settings.delegationsTreeBudgetNotMeasured', { tokenCap, usdCap });
+  return `<p class="cr-hint delegation-tree-counters">${escapeHtml(slotLine)}</p>
+    <p class="cr-hint delegation-tree-counters">${escapeHtml(budgetLine)}</p>`;
+}
+
+/**
+ * @param {object} node
+ * @param {Map<string, object[]>} children
+ * @param {Set<string>} seen
+ * @returns {string}
+ */
+function renderTreeNode(node, children, seen) {
+  const id = String(node.id || '');
+  if (seen.has(id)) return '';
+  seen.add(id);
+  const kids = (children.get(id) || []).map((kid) => renderTreeNode(kid, children, seen)).join('');
+  const relationKey = {
+    self: 'settings.delegationsTreeRelationSelf',
+    ancestor: 'settings.delegationsTreeRelationAncestor',
+    descendant: 'settings.delegationsTreeRelationDescendant',
+  }[String(node.relation || '')];
+  const meta = [
+    relationKey ? t(relationKey) : '',
+    t('settings.delegationsTreeDepth', { depth: Number(node.depth) || 1 }),
+    node.allow_child_delegations === true ? t('settings.delegationsTreeGrant') : '',
+    node.model || node.harness || '',
+  ].filter(Boolean).join(' · ');
+  return `<li class="delegation-tree-node" role="treeitem" data-tree-node-id="${escapeHtml(id)}"
+      data-slot-occupied="${node.slot_occupied === true ? '1' : '0'}">
+      <span class="delegation-tree-status">${escapeHtml(node.status || '')}</span>
+      <span class="cr-hint">${escapeHtml(meta)}</span>
+      ${kids ? `<ul role="group" class="delegation-tree-children">${kids}</ul>` : ''}
+    </li>`;
+}
+
+/**
+ * Render a tree snapshot. Nodes whose parent is not in the visible set (the
+ * viewer's own root, or an ancestor cut by scope) become top-level entries.
+ *
+ * @param {object} tree
+ * @returns {string}
+ */
+function renderTreeSnapshot(tree) {
+  const nodes = Array.isArray(tree?.nodes) ? tree.nodes : [];
+  const known = new Set(nodes.map((node) => String(node.id || '')));
+  const children = new Map();
+  const roots = [];
+  for (const node of nodes) {
+    const parent = String(node.parent_delegation_id || '');
+    if (parent && known.has(parent)) {
+      if (!children.has(parent)) children.set(parent, []);
+      children.get(parent).push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+  const seen = new Set();
+  const body = roots.length
+    ? `<ul role="tree" class="delegation-tree-list">${roots.map((node) => renderTreeNode(node, children, seen)).join('')}</ul>`
+    : `<p class="cr-hint">${escapeHtml(t('settings.delegationsTreeEmpty'))}</p>`;
+  const more = tree?.next_cursor
+    ? `<cr-bar-button data-act="tree-more" data-cursor="${escapeHtml(String(tree.next_cursor))}">${escapeHtml(t('settings.delegationsTreeMore'))}</cr-bar-button>`
+    : '';
+  return `${renderTreeCounters(tree?.counters)}${body}${more}`;
+}
+
+/**
+ * Toggle the read-only tree under one card. The tree is requested through the
+ * row's root chat, so the server derives the visible scope itself.
+ *
+ * @param {Element} card
+ * @param {object} row
+ * @param {string} [cursor]
+ * @returns {Promise<void>}
+ */
+async function toggleTree(card, row, cursor = '') {
+  let panel = card.querySelector('.delegation-tree-panel');
+  if (panel && !cursor) {
+    panel.remove();
+    return;
+  }
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.className = 'delegation-tree-panel';
+    card.appendChild(panel);
+  }
+  panel.textContent = t('settings.delegationsTreeLoading');
+  const result = await getDelegationTree(String(row.rootChatId || row.parentChatId || ''), {
+    rootDelegationId: String(row.rootDelegationId || ''),
+    limit: TREE_PAGE_LIMIT,
+    cursor,
+    ...getActiveWorkspaceScope(),
+  });
+  if (!result || result.ok === false || !result.tree) {
+    panel.textContent = String(result?.error || t('settings.delegationsTreeError'));
+    return;
+  }
+  // Keep earlier pages so "load more" extends the tree instead of replacing it.
+  const previous = cursor && Array.isArray(panel.treeNodes) ? panel.treeNodes : [];
+  const merged = { ...result.tree, nodes: [...previous, ...(result.tree.nodes || [])] };
+  panel.treeNodes = merged.nodes;
+  panel.innerHTML = renderTreeSnapshot(merged);
 }
 
 /**
@@ -237,6 +370,7 @@ function confirmMessage(act, row) {
   if (act === 'retry-delivery') return t('settings.delegationsConfirmRetryDeliveryUncertain');
   if (act === 'retry-task') return t('settings.delegationsConfirmRetryTask');
   if (act === 'cancel') return t('settings.delegationsConfirmStop');
+  if (act === 'cancel-tree') return t('settings.delegationsConfirmCancelTree');
   if (act === 'ack') return t('settings.delegationsConfirmAck');
   return t('settings.delegationsConfirmGeneric');
 }
@@ -247,8 +381,17 @@ function confirmMessage(act, row) {
 async function onListClick(event) {
   const target = actionTargetFromEvent(event);
   if (!target) return;
-  const id = String(target.getAttribute('data-id') || '');
   const act = String(target.getAttribute('data-act') || '');
+  if (act === 'tree' || act === 'tree-more') {
+    const card = target.closest('[data-delegation-id]');
+    const cardId = String(card?.getAttribute('data-delegation-id') || '');
+    const treeRow = loadedRows.find((item) => String(item.id) === cardId);
+    if (card && treeRow) {
+      await toggleTree(card, treeRow, act === 'tree-more' ? String(target.getAttribute('data-cursor') || '') : '');
+    }
+    return;
+  }
+  const id = String(target.getAttribute('data-id') || '');
   if (!id || !act) return;
   const row = loadedRows.find((item) => String(item.id) === id) || {};
   if (!confirmImpl(confirmMessage(act, row))) return;
@@ -263,6 +406,7 @@ async function onListClick(event) {
     /** @type {{ ok?: boolean, error?: string, status?: number }} */
     let result = { ok: true };
     if (act === 'cancel') result = await postDelegationCancel(id);
+    if (act === 'cancel-tree') result = await postDelegationCancel(id, { tree: true });
     if (act === 'ack') result = await postDelegationAck(id, { reason: 'reviewed' });
     if (act === 'retry-task') result = await postDelegationRetry(id);
     if (act === 'retry-delivery') {

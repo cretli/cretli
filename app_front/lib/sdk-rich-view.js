@@ -4485,6 +4485,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const content = card.querySelector('.sdk-rich-line__content');
     if (!(content instanceof HTMLElement)) return;
     const model = buildDelegationCardModel(data);
+    const acceptedBadge = model.isAccepted
+      ? `<span class="sdk-rich-badge sdk-rich-badge--ok">${escapeHtml(t('chat.delegationAcceptedManual'))}</span>`
+      : '';
     const unverified = model.showUnverified
       ? `<span class="sdk-rich-badge sdk-rich-badge--warn">${escapeHtml(t('chat.delegationUnverified'))}</span>`
       : '';
@@ -4510,14 +4513,18 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const pickReasonLabel = model.pickReason
       ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-pick-reason" title="${escapeHtml(model.pickReason)}">${escapeHtml(t('chat.delegationPickReason'))}: ${escapeHtml(model.pickReason)}</div>`
       : '';
+    const childGrantLabel = model.allowChildDelegations
+      ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-child-grant">${escapeHtml(t('chat.delegationChildGrant'))}</div>`
+      : '';
     content.innerHTML = [
       `<strong class="sdk-rich-delegation-title">${escapeHtml(t('chat.delegationCardTitle'))}</strong>`,
-      `<div class="sdk-rich-delegation-meta">${escapeHtml(delegationStatusLabel(status))} ${unverified} ${uncertain}</div>`,
+      `<div class="sdk-rich-delegation-meta">${escapeHtml(delegationStatusLabel(status))} ${unverified} ${uncertain} ${acceptedBadge}</div>`,
       attemptLabel,
       deliveryLabel,
       attemptsLabel,
       executorLabel ? `<div class="sdk-rich-delegation-meta">${escapeHtml(executorLabel)}</div>` : '',
       pickReasonLabel,
+      childGrantLabel,
       sourceLabel,
       duration,
       waiting,
@@ -4559,6 +4566,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
         });
         actions.appendChild(ackBtn);
       }
+      if (model.canAccept) {
+        renderDelegationAcceptAction(card, actions, id, model);
+      }
       if (model.canRetry) {
         const retryBtn = document.createElement('button');
         retryBtn.type = 'button';
@@ -4572,6 +4582,136 @@ export function createSdkRichView(chat, mountEl, hooks) {
     }
     renderDelegationRating(card, content, id, model);
     scrollToBottom();
+  }
+
+  /**
+   * Human "Accept" action of a review card (`docs/todo-review-contract.md` §7).
+   *
+   * The accept is bound to what the card displays. The attempt id comes from the
+   * rendered card payload; the material and todo revision are captured ONCE when
+   * the card appears (the "pinned" context), shown next to the button and sent
+   * back unchanged on click — a later value is never substituted. The server
+   * rejects a changed attempt/material/todo revision with 409 and the card
+   * explains it. The button stays disabled until the context is pinned; a failed
+   * load is reported and retried on click.
+   *
+   * @param {HTMLElement} card
+   * @param {HTMLElement} actions
+   * @param {string} delegationId
+   * @param {{ attemptId: string }} model
+   */
+  function renderDelegationAcceptAction(card, actions, delegationId, model) {
+    const attemptId = String(model.attemptId || '');
+    const key = `${delegationId}:${attemptId}`;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'sdk-rich-delegation-btn sdk-rich-delegation-accept';
+    btn.textContent = t('chat.delegationAccept');
+    const contextEl = document.createElement('p');
+    contextEl.className = 'sdk-rich-delegation-accept-context';
+    contextEl.hidden = true;
+    const feedback = document.createElement('p');
+    feedback.className = 'sdk-rich-delegation-accept-feedback';
+    feedback.setAttribute('role', 'status');
+    feedback.hidden = true;
+    const showFeedback = (text, isError) => {
+      feedback.textContent = text;
+      feedback.hidden = !text;
+      feedback.dataset.tone = isError ? 'error' : 'success';
+    };
+    const short = (value) => {
+      const text = String(value || '').trim();
+      if (!text) return '—';
+      return text.length > 12 ? text.slice(0, 12) : text;
+    };
+    const readPinned = () => {
+      if (card.dataset.acceptContextKey !== key) return null;
+      return {
+        attemptId,
+        materialRevision: String(card.dataset.acceptMaterialRevision ?? ''),
+        todoRevision: String(card.dataset.acceptTodoRevision ?? ''),
+      };
+    };
+    const showContext = (pinned) => {
+      contextEl.textContent = t('chat.delegationAcceptContext', {
+        attempt: short(pinned.attemptId),
+        material: short(pinned.materialRevision),
+        todo: short(pinned.todoRevision),
+      });
+      contextEl.hidden = false;
+    };
+    const loadContext = () => {
+      if (typeof hooks.onLoadDelegationAcceptContext !== 'function') {
+        showFeedback(t('chat.delegationAcceptContextMissing'), true);
+        return Promise.resolve(false);
+      }
+      return Promise.resolve(hooks.onLoadDelegationAcceptContext(delegationId)).then((ctx) => {
+        if (!ctx?.ok) {
+          showFeedback(t('chat.delegationAcceptContextFailed'), true);
+          return false;
+        }
+        if (String(ctx.attemptId || '') !== attemptId) {
+          // The job moved to a newer attempt after this card was written.
+          showFeedback(t('chat.delegationAcceptStaleAttempt'), true);
+          return false;
+        }
+        // An attributed job whose todo is missing/ambiguous/unreadable cannot
+        // be accepted; never pin an empty revision for it.
+        const todoResolution = String(ctx.todoResolution ?? '');
+        if (todoResolution && todoResolution !== 'exact' && todoResolution !== 'prefix'
+          && todoResolution !== 'unattributed') {
+          showFeedback(t('chat.delegationAcceptStaleTodo'), true);
+          return false;
+        }
+        // Pin once; a second load (retry) never overwrites a pinned value.
+        if (card.dataset.acceptContextKey !== key) {
+          card.dataset.acceptContextKey = key;
+          card.dataset.acceptMaterialRevision = String(ctx.materialRevision ?? '');
+          card.dataset.acceptTodoRevision = String(ctx.todoRevision ?? '');
+        }
+        showFeedback('', false);
+        showContext(readPinned());
+        btn.disabled = false;
+        return true;
+      }).catch(() => {
+        showFeedback(t('chat.delegationAcceptContextFailed'), true);
+        return false;
+      });
+    };
+    const initial = readPinned();
+    btn.disabled = !initial;
+    if (initial) showContext(initial);
+    else void loadContext();
+    btn.addEventListener('click', () => {
+      const pinned = readPinned();
+      if (!pinned) {
+        // Context never loaded: retry visibly instead of staying silent.
+        showFeedback(t('chat.delegationAcceptContextMissing'), true);
+        void loadContext();
+        return;
+      }
+      if (btn.disabled) return;
+      if (typeof window !== 'undefined' && typeof window.confirm === 'function'
+        && !window.confirm(t('chat.delegationAcceptConfirm'))) {
+        return;
+      }
+      btn.disabled = true;
+      showFeedback('', false);
+      void Promise.resolve(hooks.onAcceptDelegation?.(delegationId, pinned)).then((res) => {
+        if (res?.ok) {
+          showFeedback(t('chat.delegationAcceptDone'), false);
+          return;
+        }
+        btn.disabled = false;
+        showFeedback(t(res?.errorKey || 'chat.delegationAcceptFailed'), true);
+      }).catch(() => {
+        btn.disabled = false;
+        showFeedback(t('chat.delegationAcceptFailed'), true);
+      });
+    });
+    actions.appendChild(btn);
+    actions.appendChild(contextEl);
+    actions.appendChild(feedback);
   }
 
   /**

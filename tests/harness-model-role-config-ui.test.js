@@ -12,8 +12,10 @@ import {
   buildModelRoleConfigViewModel,
   computeModelRoleConfigDelta,
   computeRoleDelta,
+  renderExploreStatusHtml,
   renderModelRoleConfigDiffHtml,
   renderModelRoleConfigHtml,
+  renderOverridesHtml,
 } from '../app_front/features/harness-health/harnessModelRoleConfigModel.js';
 
 /**
@@ -198,4 +200,48 @@ test('the diff renderer shows added, removed and updated rules', () => {
 test('the diff renderer shows a no-op and a blocked state', () => {
   assert.match(renderModelRoleConfigDiffHtml({ changed: false, blocked: false, roles: {} }, t), /harnessModelRole\.diffNone/);
   assert.match(renderModelRoleConfigDiffHtml({ changed: false, blocked: true, roles: {} }, t), /harnessModelRole\.diffBlocked/);
+});
+
+test('the overrides renderer lists active and revoked rows with a create form', () => {
+  const model = buildModelRoleConfigViewModel({
+    ...SNAPSHOT,
+    overrides: [
+      {
+        id: 'ov-1',
+        scope: 'global',
+        action: 'exclude',
+        targetHarness: 'codex',
+        reason: 'maintenance',
+        createdBy: 'operator',
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      },
+      {
+        id: 'ov-2',
+        scope: 'global',
+        action: 'prefer',
+        targetHarness: 'qwen',
+        reason: 'try it',
+        createdBy: 'operator',
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+        revokedAt: new Date().toISOString(),
+      },
+    ],
+  }, t);
+  const html = renderOverridesHtml(model, t);
+  assert.match(html, /data-override-id="ov-1"/);
+  assert.match(html, /data-override-revoke="ov-1"/);
+  assert.doesNotMatch(html, /data-override-revoke="ov-2"/);
+  assert.match(html, /data-override-field="action"/);
+  assert.match(html, /harnessModelRole\.overridesExclude/);
+});
+
+test('the explore status renderer keeps reservations and attempts visible', () => {
+  const model = buildModelRoleConfigViewModel({
+    ...SNAPSHOT,
+    exploreStatus: { attemptCount: 3, consumed: 1, open: [{ pairKey: 'a/m/implement' }], recent: [{ pairKey: 'a/m/implement', status: 'started' }] },
+  }, t);
+  const html = renderExploreStatusHtml(model, t);
+  assert.match(html, /harnessModelRole\.exploreStatusTitle/);
+  assert.match(html, /a\/m\/implement:started/);
+  assert.equal(renderExploreStatusHtml(buildModelRoleConfigViewModel(SNAPSHOT, t), t), '');
 });

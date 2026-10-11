@@ -8,10 +8,17 @@ import {
   hashTodoCreateArgs,
   linkTodoChat,
   loadTodosData,
+  normalizeTodoReview,
   TODOS_MAX_ITEMS,
   updateTodo,
   workspaceKeyFromCwd,
+  writeTodoReview,
 } from '../lib/persist/todos-persist.js';
+import {
+  registerWorkspaceWatcherAutopilotRunner,
+  stopWorkspaceWatcherAutopilotSchedule,
+  workspaceWatcherAutopilotPendingDebounceCount,
+} from '../lib/workspace-watcher-event-schedule.js';
 
 let failed = 0;
 
@@ -747,6 +754,342 @@ runCase('legacy done parent with open child is repaired on reads without rewriti
   const before = readFileSync(file, 'utf8');
   assert.equal(loadTodosData(dataDir, project).items.find((row) => row.id === parent.id).status, 'ready');
   assert.equal(readFileSync(file, 'utf8'), before);
+});
+
+runCase('review: round-trips a full snapshot through writeTodoReview and load', () => {
+  const dataDir = path.join(tmpRoot, 'review-roundtrip');
+  const project = path.join(tmpRoot, 'review-roundtrip-proj');
+  mkdirSync(project, { recursive: true });
+  const item = addTodo(dataDir, project, { title: 'Reviewed' }).item;
+  const written = writeTodoReview(dataDir, project, item.id, {
+    code: {
+      state: 'passed',
+      stateReason: 'fresh_review',
+      subject: 'code',
+      subjectSource: 'explicit',
+      round: { index: 1, id: 'open-1', openedAt: '2024-01-01T00:00:00.000Z' },
+      reviewers: [{
+        delegationId: 'deleg-code',
+        attemptId: 'attempt-code',
+        leafId: item.id,
+        harness: 'opencode',
+        model: 'deepseek-chat',
+        baseModel: 'deepseek-chat',
+        status: 'completed',
+        verdict: 'PASS',
+        usable: true,
+        startedAt: '2024-01-01T00:00:00.000Z',
+        verifyStatus: 'passed',
+        independence: 'different_base_model',
+      }],
+      implementer: {
+        delegationId: 'deleg-impl',
+        attemptId: 'attempt-impl',
+        role: 'implement',
+        harness: 'codex',
+        model: 'gpt-5',
+      },
+      independence: { independent: true, class: 'different_base_model', reference: 'implementer' },
+      material: { current: true, revision: 'abc123', kind: 'trusted', reason: 'fresh_review' },
+    },
+    plan: { state: 'pending', subject: 'plan', reviewers: [] },
+  }, { expectedGeneration: 0 });
+  assert.equal(written.changed, true);
+  const item2 = loadTodosData(dataDir, project).items[0];
+  assert.equal(item2.review.schemaVersion, 1);
+  assert.equal(item2.review.generation, 1);
+  assert.match(item2.review.decisionKey, /^sha256:/);
+  assert.equal(item2.review.code.state, 'passed');
+  assert.equal(item2.review.code.reviewers.length, 1);
+  assert.equal(item2.review.code.reviewers[0].delegationId, 'deleg-code');
+  assert.equal(item2.review.code.reviewers[0].attemptId, 'attempt-code');
+  assert.equal(item2.review.code.implementer.role, 'implement');
+  assert.equal(item2.review.plan.state, 'pending');
+  // normalizeTodoReview is the load-time normalizer and stays stable.
+  assert.deepEqual(normalizeTodoReview(item2.review), item2.review);
+});
+
+runCase('review: a per-subject write preserves the stored container aggregate', () => {
+  const dataDir = path.join(tmpRoot, 'review-aggregate');
+  const project = path.join(tmpRoot, 'review-aggregate-proj');
+  mkdirSync(project, { recursive: true });
+  const item = addTodo(dataDir, project, { title: 'Aggregate' }).item;
+  const codeCounts = { passed: 1, failed: 0, pending: 0, none: 2, unknown: 0, stale: 0, manual: 0 };
+  const planCounts = { passed: 0, failed: 0, pending: 0, none: 3, unknown: 0, stale: 0, manual: 0 };
+  writeTodoReview(dataDir, project, item.id, {
+    code: { state: 'passed', subject: 'code' },
+    aggregate: { source: 'children', code: codeCounts, plan: planCounts },
+  }, { expectedGeneration: 0 });
+  const first = loadTodosData(dataDir, project).items[0];
+  assert.equal(first.review.aggregate.code.passed, 1);
+  assert.equal(first.review.aggregate.plan.none, 3);
+  // A later plan-only write must not drop the stored rollup.
+  const second = writeTodoReview(dataDir, project, item.id, {
+    plan: { state: 'pending', subject: 'plan' },
+  });
+  assert.equal(second.changed, true);
+  const after = loadTodosData(dataDir, project).items[0];
+  assert.equal(after.review.code.state, 'passed', 'the code snapshot is preserved');
+  assert.equal(after.review.aggregate.code.passed, 1, 'the stored aggregate is preserved');
+  assert.equal(after.review.aggregate.plan.none, 3);
+  // An explicit null still clears it deliberately.
+  writeTodoReview(dataDir, project, item.id, {
+    aggregate: null,
+    plan: { state: 'pending', subject: 'plan' },
+  });
+  assert.equal(loadTodosData(dataDir, project).items[0].review.aggregate, undefined);
+});
+
+runCase('review: a legacy record without the field loads unchanged and is not rewritten', () => {
+  const dataDir = path.join(tmpRoot, 'review-legacy');
+  mkdirSync(path.join(dataDir, 'todos'), { recursive: true });
+  const project = path.join(tmpRoot, 'review-legacy-proj');
+  mkdirSync(project, { recursive: true });
+  const key = workspaceKeyFromCwd(project);
+  const file = path.join(dataDir, 'todos', `${key}.json`);
+  writeFileSync(file, JSON.stringify({
+    version: 3,
+    updatedAt: '2024-01-01T00:00:00.000Z',
+    items: [{
+      id: 'legacy-1',
+      title: 'Old record',
+      status: 'idea',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+    }],
+    idempotency: {},
+  }), 'utf8');
+  const before = readFileSync(file, 'utf8');
+  const doc = loadTodosData(dataDir, project);
+  assert.equal(doc.items[0].review, undefined);
+  assert.equal(readFileSync(file, 'utf8'), before, 'reading a legacy record must not migrate the file');
+});
+
+runCase('review: garbage values normalize to unknown and never crash', () => {
+  const dataDir = path.join(tmpRoot, 'review-garbage');
+  mkdirSync(path.join(dataDir, 'todos'), { recursive: true });
+  const project = path.join(tmpRoot, 'review-garbage-proj');
+  mkdirSync(project, { recursive: true });
+  const key = workspaceKeyFromCwd(project);
+  writeFileSync(path.join(dataDir, 'todos', `${key}.json`), JSON.stringify({
+    version: 3,
+    updatedAt: '2024-01-01T00:00:00.000Z',
+    items: [
+      {
+        id: 'g1', title: 'Garbage state', status: 'idea',
+        review: { code: { state: 'banana' }, plan: 'not-an-object' },
+        createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'g2', title: 'Garbage review', status: 'idea',
+        review: 'not-an-object',
+        createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'g3', title: 'Unknown subject', status: 'idea',
+        review: { code: { state: 'passed', subject: 'wrench' } },
+        createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z',
+      },
+    ],
+    idempotency: {},
+  }), 'utf8');
+  const doc = loadTodosData(dataDir, project);
+  const byId = new Map(doc.items.map((row) => [row.id, row]));
+  assert.equal(byId.get('g1').review.code.state, 'unknown');
+  assert.equal(byId.get('g1').review.plan.state, 'unknown');
+  assert.equal(byId.get('g2').review, undefined);
+  assert.equal(byId.get('g3').review.code.state, 'unknown');
+  assert.equal(byId.get('g3').review.code.subjectSource, 'unknown');
+});
+
+runCase('review: reviewers without delegationId/attemptId are dropped', () => {
+  const dataDir = path.join(tmpRoot, 'review-reviewers');
+  const project = path.join(tmpRoot, 'review-reviewers-proj');
+  mkdirSync(project, { recursive: true });
+  const item = addTodo(dataDir, project, { title: 'Reviewers' }).item;
+  writeTodoReview(dataDir, project, item.id, {
+    code: {
+      state: 'passed',
+      reviewers: [
+        { delegationId: 'd1', attemptId: 'a1', verdict: 'PASS' },
+        { delegationId: 'd2', verdict: 'PASS' },
+        { attemptId: 'a3', verdict: 'PASS' },
+        {},
+      ],
+    },
+  }, { expectedGeneration: 0 });
+  const row = loadTodosData(dataDir, project).items[0];
+  assert.equal(row.review.code.reviewers.length, 1);
+  assert.equal(row.review.code.reviewers[0].delegationId, 'd1');
+  assert.equal(row.review.code.reviewers[0].attemptId, 'a1');
+  assert.equal(row.review.code.reviewerCount, 1);
+});
+
+runCase('review: a reviewer list above the cap is truncated and never stays passed', () => {
+  const dataDir = path.join(tmpRoot, 'review-reviewers-cap');
+  const project = path.join(tmpRoot, 'review-reviewers-cap-proj');
+  mkdirSync(project, { recursive: true });
+  const item = addTodo(dataDir, project, { title: 'Reviewer cap' }).item;
+  const reviewers = [];
+  for (let i = 0; i < 65; i += 1) {
+    reviewers.push({ delegationId: `d${i}`, attemptId: `a${i}`, verdict: 'PASS', usable: true });
+  }
+  writeTodoReview(dataDir, project, item.id, {
+    code: { state: 'passed', reviewers },
+  }, { expectedGeneration: 0 });
+  const row = loadTodosData(dataDir, project).items[0];
+  assert.equal(row.review.code.reviewers.length, 64, 'the durable reviewer list is capped');
+  assert.equal(row.review.code.truncated, true);
+  assert.equal(row.review.code.state, 'unknown', 'a partial reviewer list must not certify a PASS');
+});
+
+runCase('review: write does not bump item.updatedAt and a parallel update keeps its earlier token', () => {
+  const dataDir = path.join(tmpRoot, 'review-cas');
+  const project = path.join(tmpRoot, 'review-cas-proj');
+  mkdirSync(project, { recursive: true });
+  const item = addTodo(dataDir, project, { title: 'CAS' }).item;
+  const revision = loadTodosData(dataDir, project).items[0].updatedAt;
+  const written = writeTodoReview(dataDir, project, item.id, {
+    code: { state: 'passed' },
+  }, { expectedGeneration: 0 });
+  assert.equal(written.changed, true);
+  assert.equal(written.item.updatedAt, revision, 'review write must not advance the item CAS token');
+  // A concurrent agent that read before the review write still succeeds.
+  const updated = updateTodo(dataDir, project, item.id, {
+    title: 'CAS updated',
+    expectedUpdatedAt: revision,
+  });
+  assert.equal(updated.items[0].title, 'CAS updated');
+  assert.equal(updated.items[0].review.code.state, 'passed');
+});
+
+runCase('review: a review-only write bumps doc.updatedAt but not parent state or statuses', async () => {
+  const dataDir = path.join(tmpRoot, 'review-doc-rev');
+  const project = path.join(tmpRoot, 'review-doc-rev-proj');
+  mkdirSync(project, { recursive: true });
+  const parent = addTodo(dataDir, project, { title: 'Parent', status: 'ready' }).item;
+  const child = addTodo(dataDir, project, { title: 'Child', status: 'ready', parentId: parent.id }).item;
+  const beforeDoc = loadTodosData(dataDir, project);
+  const beforeParent = beforeDoc.items.find((row) => row.id === parent.id);
+  const beforeChild = beforeDoc.items.find((row) => row.id === child.id);
+  // The document revision is millisecond-granular; make sure the write lands in
+  // a later millisecond so the assertion below is deterministic.
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const written = writeTodoReview(dataDir, project, child.id, {
+    code: { state: 'passed' },
+  }, { expectedGeneration: 0 });
+  assert.equal(written.changed, true);
+  assert.notEqual(written.doc.updatedAt, beforeDoc.updatedAt, 'doc.updatedAt is a document revision and does change');
+  const afterParent = written.doc.items.find((row) => row.id === parent.id);
+  const afterChild = written.doc.items.find((row) => row.id === child.id);
+  assert.equal(afterParent.updatedAt, beforeParent.updatedAt, 'parent status sync must not run on a review-only write');
+  assert.equal(afterParent.status, beforeParent.status);
+  assert.equal(afterChild.status, beforeChild.status);
+  assert.equal(afterChild.updatedAt, beforeChild.updatedAt);
+});
+
+runCase('review: a normal update preserves review and an ignored patch key cannot delete it', () => {
+  const dataDir = path.join(tmpRoot, 'review-preserve');
+  const project = path.join(tmpRoot, 'review-preserve-proj');
+  mkdirSync(project, { recursive: true });
+  const item = addTodo(dataDir, project, { title: 'Preserve' }).item;
+  writeTodoReview(dataDir, project, item.id, { code: { state: 'passed' } }, { expectedGeneration: 0 });
+  updateTodo(dataDir, project, item.id, { title: 'Renamed', review: null });
+  updateTodo(dataDir, project, item.id, { status: 'doing', review: { code: { state: 'none' } } });
+  const row = loadTodosData(dataDir, project).items.find((entry) => entry.id === item.id);
+  assert.equal(row.review.code.state, 'passed');
+  assert.equal(row.review.generation, 1);
+});
+
+runCase('review: an identical snapshot is a no-op (no file write, no doc.updatedAt bump)', () => {
+  const dataDir = path.join(tmpRoot, 'review-noop');
+  const project = path.join(tmpRoot, 'review-noop-proj');
+  mkdirSync(project, { recursive: true });
+  const item = addTodo(dataDir, project, { title: 'Noop' }).item;
+  const first = writeTodoReview(dataDir, project, item.id, {
+    code: { state: 'passed', reviewers: [{ delegationId: 'd1', attemptId: 'a1', verdict: 'PASS' }] },
+  }, { expectedGeneration: 0 });
+  const file = path.join(dataDir, 'todos', `${workspaceKeyFromCwd(project)}.json`);
+  const before = readFileSync(file, 'utf8');
+  const second = writeTodoReview(dataDir, project, item.id, {
+    // Same decision content, different timestamps and generation.
+    code: {
+      state: 'passed',
+      reviewers: [{ delegationId: 'd1', attemptId: 'a1', verdict: 'PASS', startedAt: '2030-01-01T00:00:00.000Z' }],
+    },
+    generation: 99,
+    computedAt: '2030-01-01T00:00:00.000Z',
+  }, { expectedGeneration: first.generation });
+  assert.equal(second.changed, false);
+  assert.equal(second.doc.updatedAt, first.doc.updatedAt);
+  assert.equal(readFileSync(file, 'utf8'), before, 'identical snapshot must not rewrite the file');
+});
+
+runCase('review: an older generation is rejected with CONFLICT', () => {
+  const dataDir = path.join(tmpRoot, 'review-stale');
+  const project = path.join(tmpRoot, 'review-stale-proj');
+  mkdirSync(project, { recursive: true });
+  const item = addTodo(dataDir, project, { title: 'Stale' }).item;
+  const first = writeTodoReview(dataDir, project, item.id, { code: { state: 'passed' } }, { expectedGeneration: 0 });
+  assert.throws(
+    () => writeTodoReview(dataDir, project, item.id, { code: { state: 'failed' } }, { expectedGeneration: first.generation - 1 }),
+    (err) => err.code === 'CONFLICT' && err.currentGeneration === first.generation,
+  );
+  assert.equal(loadTodosData(dataDir, project).items[0].review.code.state, 'passed');
+});
+
+runCase('review: a review write does not schedule a Workspace Watcher cycle', async () => {
+  const dataDir = path.join(tmpRoot, 'review-nudge');
+  const project = path.join(tmpRoot, 'review-nudge-proj');
+  mkdirSync(project, { recursive: true });
+  const item = addTodo(dataDir, project, { title: 'Nudge' }).item;
+  const flush = async () => {
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+  stopWorkspaceWatcherAutopilotSchedule();
+  registerWorkspaceWatcherAutopilotRunner(() => {});
+  try {
+    // Sanity: a real status change does nudge (the nudge is an async import).
+    updateTodo(dataDir, project, item.id, { status: 'doing' });
+    await flush();
+    assert.ok(workspaceWatcherAutopilotPendingDebounceCount() >= 1, 'status change should nudge');
+    stopWorkspaceWatcherAutopilotSchedule();
+    registerWorkspaceWatcherAutopilotRunner(() => {});
+    await flush();
+    stopWorkspaceWatcherAutopilotSchedule();
+    registerWorkspaceWatcherAutopilotRunner(() => {});
+    writeTodoReview(dataDir, project, item.id, { code: { state: 'passed' } }, { expectedGeneration: 0 });
+    await flush();
+    assert.equal(workspaceWatcherAutopilotPendingDebounceCount(), 0, 'review write must not nudge');
+  } finally {
+    stopWorkspaceWatcherAutopilotSchedule();
+  }
+});
+
+runCase('review: code and plan snapshots do not overwrite each other', () => {
+  const dataDir = path.join(tmpRoot, 'review-subjects');
+  const project = path.join(tmpRoot, 'review-subjects-proj');
+  mkdirSync(project, { recursive: true });
+  const item = addTodo(dataDir, project, { title: 'Subjects' }).item;
+  const codeWrite = writeTodoReview(dataDir, project, item.id, {
+    code: { state: 'passed', reviewers: [{ delegationId: 'd-code', attemptId: 'a-code' }] },
+  }, { expectedGeneration: 0 });
+  const planWrite = writeTodoReview(dataDir, project, item.id, {
+    plan: { state: 'failed', reviewers: [{ delegationId: 'd-plan', attemptId: 'a-plan' }] },
+  }, { expectedGeneration: codeWrite.generation });
+  assert.equal(planWrite.changed, true);
+  const row = loadTodosData(dataDir, project).items[0];
+  assert.equal(row.review.code.state, 'passed');
+  assert.equal(row.review.code.reviewers[0].delegationId, 'd-code');
+  assert.equal(row.review.plan.state, 'failed');
+  assert.equal(row.review.plan.reviewers[0].delegationId, 'd-plan');
+  // A later code refresh still keeps the plan evidence.
+  const codeAgain = writeTodoReview(dataDir, project, item.id, {
+    code: { state: 'failed', reviewers: [{ delegationId: 'd-code', attemptId: 'a-code-2' }] },
+  }, { expectedGeneration: planWrite.generation });
+  assert.equal(codeAgain.review.plan.state, 'failed');
+  assert.equal(codeAgain.review.code.state, 'failed');
 });
 
 await Promise.all(pendingCases);

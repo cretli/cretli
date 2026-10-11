@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import {
   buildChatContextSnapshot,
+  resolveChatContextUsage,
   resolveChatContextUsageSource,
 } from '../app_front/features/chat/chatContextMeter.js';
-import { setDynamicModelContextWindows } from '../lib/sdk/sdk-context-advisory.js';
+import {
+  estimateTokensFromText,
+  setDynamicModelContextWindows,
+} from '../lib/sdk/sdk-context-advisory.js';
 
 const sdkChat = {
   agentTransport: 'sdk',
@@ -98,5 +102,17 @@ assert.equal(exactMissingTotal.isEstimated, false);
 assert.equal(exactMissingTotal.inputTokens, 3862);
 assert.equal(exactMissingTotal.outputTokens, 0);
 assert.equal(exactMissingTotal.totalTokens, 3862);
+
+{
+  const reported = resolveChatContextUsage({
+    _contextUsageInputTokens: 999,
+    _buffer: 'A'.repeat(4000),
+  });
+  assert.equal(reported.inputTokens, 999);
+  assert.equal(reported.estimated, false);
+  const estimatedOnly = resolveChatContextUsage({ _buffer: 'A'.repeat(4000) });
+  assert.equal(estimatedOnly.estimated, true);
+  assert.equal(estimatedOnly.inputTokens, estimateTokensFromText('A'.repeat(4000)));
+}
 
 console.log('chat-context-meter.test.js OK');

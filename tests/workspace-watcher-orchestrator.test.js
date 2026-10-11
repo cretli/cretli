@@ -37,6 +37,7 @@ import {
   isWorkspaceWatcherOrchestratorModelUsageLimited,
   resolveWorkspaceWatcherOrchestrator,
 } from '../lib/workspace-watcher-orchestrator.js';
+import { normalizeModelPickOverride } from '../lib/model-pick-overrides.js';
 import {
   MCP_CAPABILITY_DENIED,
   ORCHESTRATOR_MCP_CONTRACT_TOOLS,
@@ -268,6 +269,73 @@ runCase('orchestrator resolution honors explicit policy, allow-list and usage li
     },
   });
   assert.equal(picked.ok, false, 'a fully limited favorite must not be picked');
+});
+
+runCase('orchestrator pair excludes reach the shared hard-gate validator', async () => {
+  const catalog = [
+    { id: 'mock', enabled: true, ready: true, can_delegate: true },
+    { id: 'other', enabled: true, ready: true, can_delegate: true },
+  ];
+  const models = async ({ harness }) => {
+    if (harness === 'mock') {
+      return {
+        favorites_configured: true,
+        items: [
+          { id: 'cheap', roles: ['implement'] },
+          { id: 'alt', roles: ['implement'] },
+        ],
+      };
+    }
+    return { favorites_configured: true, items: [{ id: 'cheap', roles: ['implement'] }] };
+  };
+  const deps = {
+    listHarnessCatalog: async () => catalog,
+    listHarnessModels: models,
+    mcpCapabilityProbe: () => ({ ok: true }),
+  };
+  const pairOverride = normalizeModelPickOverride({
+    action: 'exclude',
+    targetHarness: 'mock',
+    targetModel: 'cheap',
+    reason: 'orchestrator pair exclude test',
+    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+  }, { now: Date.now(), createdBy: 'test', source: 'test', generateId: () => 'orch-pair-ex' });
+  const explicitBlocked = await resolveWorkspaceWatcherOrchestrator({
+    watcher: { policy: { orchestrator: { harness: 'mock', model: 'cheap' } } },
+    overrideRows: [pairOverride],
+    deps,
+  });
+  assert.equal(explicitBlocked.ok, false, 'override pair-exclude must refuse the explicit policy pair');
+  assert.equal(explicitBlocked.reason, 'orchestrator_model_excluded');
+
+  const maliciousPick = await resolveWorkspaceWatcherOrchestrator({
+    watcher: { policy: {} },
+    excludePairs: [{ harness: 'mock', model: 'cheap' }],
+    deps: {
+      ...deps,
+      selectModelPick: () => ({ ok: true, pick: { harness: 'mock', model: 'cheap' } }),
+    },
+  });
+  assert.equal(maliciousPick.ok, false, 'the automatic winner re-check must refuse a pair-excluded pick');
+  assert.equal(maliciousPick.reason, 'orchestrator_model_excluded');
+
+  const sameModelOtherHarness = await resolveWorkspaceWatcherOrchestrator({
+    watcher: { policy: { orchestrator: { harness: 'other', model: 'cheap' } } },
+    excludePairs: [{ harness: 'mock', model: 'cheap' }],
+    deps,
+  });
+  assert.equal(sameModelOtherHarness.ok, true, sameModelOtherHarness.reason);
+  assert.equal(sameModelOtherHarness.harness, 'other');
+  assert.equal(sameModelOtherHarness.model, 'cheap');
+
+  const otherModelSameHarness = await resolveWorkspaceWatcherOrchestrator({
+    watcher: { policy: { orchestrator: { harness: 'mock', model: 'alt' } } },
+    excludePairs: [{ harness: 'mock', model: 'cheap' }],
+    deps,
+  });
+  assert.equal(otherModelSameHarness.ok, true, otherModelSameHarness.reason);
+  assert.equal(otherModelSameHarness.harness, 'mock');
+  assert.equal(otherModelSameHarness.model, 'alt');
 });
 
 runCase('executor selection skips a harness that cannot deliver the MCP contract', async () => {

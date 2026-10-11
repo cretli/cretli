@@ -96,6 +96,8 @@ function makePanel() {
     localStorage: { getItem: () => null },
     parseTodoRootStatusFilter: () => null,
     filterTodoItemsByRootStatus: (items) => items,
+    parseReviewListFilter: () => '',
+    filterTodoItemsByReviewState: (items) => items,
     refreshWatcherPanel: async () => {},
     t: (key) => key,
     list, hint, status,

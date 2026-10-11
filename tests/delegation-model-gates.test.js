@@ -15,13 +15,17 @@ import path from 'node:path';
 import { selectModelPick, isHighInfraRiskObserved } from '../lib/model-role-profiles.js';
 import {
   DELEGATION_MODEL_GATE_CODES,
+  buildNamedDelegationStartHardGateInput,
   evaluateDelegationModelGate,
+  evaluateDelegationStartHardGates,
   resolveDelegationGateRole,
 } from '../lib/delegation-model-gates.js';
+import { MODEL_PICK_HARD_GATE_CODES } from '../lib/model-pick-hard-gates.js';
 import { createDelegationService } from '../lib/delegation-service.js';
 import { isDelegationModelAvailable } from '../lib/delegation-executor.js';
 import { addChat } from '../lib/persist/chats-persist.js';
 import { registerMockChatRunAdapter, resetMockChatRuns } from '../lib/chat-run/mock-adapter.js';
+import { unregisterChatRunAdapter } from '../lib/chat-run-service.js';
 import { buildModelPickHistory } from '../lib/model-pick-history.js';
 import {
   listHarnessUsageLimits,
@@ -267,9 +271,57 @@ const planPick = selectModelPick({
 assert.ok(planPick.ok);
 assert.ok(planPick.pick.plan_limit_penalty > 0, 'the fresh plan limit penalises the pick');
 
+// --- Named start snapshot: favorites + membership (no allowRoleOverride) -------
+{
+  const snapshot = buildNamedDelegationStartHardGateInput({
+    role: 'implement',
+    harness: 'sdk',
+    model: 'grok-4.6',
+  });
+  assert.equal(snapshot.allowNamedModel, true);
+  assert.equal(snapshot.allowRoleOverride, undefined);
+  assert.ok(Array.isArray(snapshot.favoriteModels));
+  assert.ok(snapshot.harnessRow && typeof snapshot.harnessRow === 'object');
+  const membership = evaluateDelegationStartHardGates({
+    ...snapshot,
+    harnessRow: { enabled: true, ready: true, can_delegate: true },
+    favoritesConfigured: true,
+    favoriteModels: ['grok-4.6'],
+  });
+  assert.equal(membership.ok, false);
+  assert.equal(membership.code, MODEL_PICK_HARD_GATE_CODES.ROLE_MEMBERSHIP);
+}
+
+// --- Named start snapshot: a registered run adapter is enough readiness ------
+{
+  const model = 'private-mock-model-xyz';
+  const namedInput = () => ({
+    ...buildNamedDelegationStartHardGateInput({ role: 'implement', harness: 'qwen', model }),
+    favoritesConfigured: true,
+    favoriteModels: [model],
+  });
+  // No run adapter for this harness: the shared validator still refuses it.
+  assert.equal(namedInput().harnessRow.can_delegate, false);
+  const noAdapter = evaluateDelegationStartHardGates(namedInput());
+  assert.equal(noAdapter.ok, false);
+  assert.equal(noAdapter.code, MODEL_PICK_HARD_GATE_CODES.HARNESS_UNAVAILABLE);
+  // A mock/test adapter (the isolated-data-dir setup) makes the same harness
+  // delegatable even though this process has no vendor credentials.
+  registerMockChatRunAdapter('qwen');
+  try {
+    assert.equal(namedInput().harnessRow.can_delegate, true);
+    const withAdapter = evaluateDelegationStartHardGates(namedInput());
+    assert.equal(withAdapter.ok, true, withAdapter.error || '');
+  } finally {
+    unregisterChatRunAdapter('qwen');
+  }
+}
+
 // --- delegation_start enforces the same flash gate end to end ----------------
 resetMockChatRuns();
 registerMockChatRunAdapter('deepseek');
+const previousDeepseekKey = process.env.DEEPSEEK_API_KEY;
+process.env.DEEPSEEK_API_KEY = 'dsh-test-key';
 const project = fs.mkdtempSync(path.join(os.tmpdir(), 'cr-model-gates-'));
 const service = createDelegationService({
   workspaceDirForAgent: () => project,
@@ -313,5 +365,7 @@ const replayedStart = await service.createAndStart({
 assert.equal(replayedStart.ok, true, replayedStart.error || '');
 assert.equal(replayedStart.replayed, true);
 fs.rmSync(project, { recursive: true, force: true });
+if (typeof previousDeepseekKey === 'string') process.env.DEEPSEEK_API_KEY = previousDeepseekKey;
+else delete process.env.DEEPSEEK_API_KEY;
 
 console.log('delegation-model-gates.test.js OK');

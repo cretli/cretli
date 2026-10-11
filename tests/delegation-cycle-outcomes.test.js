@@ -165,6 +165,7 @@ test('manualAccepted comes from an explicit human acknowledgement', () => {
     createdAt: '2026-10-01T01:00:00.000Z',
     acknowledgedAt: '2026-10-01T01:30:00.000Z',
     acknowledgedReason: 'accepted',
+    acknowledgedActor: 'human',
   });
   const pass = review({ id: 'rev-ack', report: 'VERDICT: PASS', createdAt: '2026-10-01T01:05:00.000Z' });
   const cycles = buildDelegationQualityCycles({ rows: [implement, pass], parentChatId: PARENT });
@@ -272,6 +273,7 @@ test('manualAccepted is counted separately from accepted-by-review', () => {
     createdAt: '2026-10-01T00:00:00.000Z',
     acknowledgedAt: '2026-10-01T00:10:00.000Z',
     acknowledgedReason: 'accepted',
+    acknowledgedActor: 'human',
   });
   const cycles = buildDelegationQualityCycles({ rows: [implement], parentChatId: PARENT });
   const metrics = summarizeDelegationCycleCostMetrics(cycles);
@@ -415,9 +417,24 @@ test('manualAccepted needs an explicit accept, not any ack (reviewed/open_child/
       createdAt: '2026-10-03T00:00:00.000Z',
       acknowledgedAt: '2026-10-03T00:10:00.000Z',
       acknowledgedReason: reason,
+      acknowledgedActor: 'human',
     });
     const [cycle] = buildDelegationQualityCycles({ rows: [implement], parentChatId: PARENT });
     assert.equal(cycle.manualAccepted, false, `${reason}/${status} must not be a manual acceptance`);
+  }
+});
+
+test('manualAccepted counts only a human actor, never an agent/MCP/widget accept', () => {
+  for (const [actor, expected] of [['human', true], ['agent', false], ['system', false], ['unknown', false], ['', false]]) {
+    const implement = row({
+      id: `impl-actor-${actor || 'empty'}`,
+      createdAt: '2026-10-03T03:00:00.000Z',
+      acknowledgedAt: '2026-10-03T03:10:00.000Z',
+      acknowledgedReason: 'accepted',
+      acknowledgedActor: actor,
+    });
+    const [cycle] = buildDelegationQualityCycles({ rows: [implement], parentChatId: PARENT });
+    assert.equal(cycle.manualAccepted, expected, `actor ${actor || '<empty>'} manualAccepted`);
   }
 });
 

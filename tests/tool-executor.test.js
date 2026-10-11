@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { executeTool } from '../lib/agent-harness/tool-executor.js';
 import { findForeignRepoGitTarget } from '../lib/agent-harness/foreign-repo-guard.js';
+import { buildMcpRuntimeContext } from '../lib/mcp/mcp-session.js';
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cr-tool-exec-'));
 const sampleFile = path.join(tmpRoot, 'hello.txt');
@@ -128,3 +129,27 @@ process.env.CRETLI_ALLOW_FOREIGN_REPO_GIT = '1';
 assert.equal(findForeignRepoGitTarget(`git -C ${foreignRepo} commit -m "x"`, workspaceRepo), '');
 delete process.env.CRETLI_ALLOW_FOREIGN_REPO_GIT;
 fs.rmSync(scopeRoot, { recursive: true, force: true });
+
+const mcpContext = buildMcpRuntimeContext({
+  chat: { id: 'tool-executor-misnamed', workspaceFolder: tmpRoot },
+  room: { cwd: tmpRoot, sdkMode: 'agent' },
+  harness: 'mistral',
+  mode: 'agent',
+});
+const mcpCtx = { cwd: tmpRoot, mode: 'agent', mcpContext };
+const canonicalResult = await executeTool('mcp__cretli_builtincretl__todo_list', {}, mcpCtx);
+assert.equal(canonicalResult.ok, true, canonicalResult.error);
+for (const misnamed of [
+  'mcp__cretli_builtincretli__todo_list',
+  'mcp__cretli_bridge__mcp__cretli_builtincretl__todo_list',
+  'mcp__cretli_bridge__mcp__cre___tincretl__todo_list',
+]) {
+  const result = await executeTool(misnamed, {}, mcpCtx);
+  assert.equal(result.ok, true, `${misnamed}: ${result.error}`);
+}
+const foreignMcp = await executeTool('mcp__github__todo_list', {}, mcpCtx);
+assert.equal(foreignMcp.ok, false);
+assert.match(String(foreignMcp.error), /Unknown MCP tool/);
+const unknownBuiltin = await executeTool('mcp__cretli_builtincretli__no_such_tool', {}, mcpCtx);
+assert.equal(unknownBuiltin.ok, false);
+assert.match(String(unknownBuiltin.error), /Unknown MCP tool/);

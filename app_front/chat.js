@@ -3,6 +3,7 @@
  */
 import { chatWorktreeTodoId } from './features/sidebar/sidebarOnlyActiveFilter.js';
 import * as api from './core/api/index.js';
+import { resolveAcceptErrorKey } from './features/todo/todoReviewBadge.js';
 import {
   applyDefaultNewChatHarnessToModal,
   applyEnabledHarnesses,
@@ -4895,6 +4896,28 @@ function openTerminal(chat) {
         if (chat._sdkHistoryHydrating) return;
         void syncSdkHistoryOnResume(chat, { reason: 'delegation_ack' }).catch(() => {});
       }).catch(() => {});
+    },
+    onLoadDelegationAcceptContext: (delegationId) => {
+      if (!delegationId) return Promise.resolve({ ok: false });
+      return api.getDelegationAcceptContext(delegationId);
+    },
+    onAcceptDelegation: (delegationId, payload) => {
+      if (!delegationId) return Promise.resolve({ ok: false });
+      return api.postDelegationAccept(delegationId, {
+        attemptId: payload?.attemptId || '',
+        // Sent exactly as pinned when the card appeared; '' means the card saw
+        // "unavailable", which the server must not treat as "omitted" (§6.3).
+        materialRevision: String(payload?.materialRevision ?? ''),
+        todoRevision: String(payload?.todoRevision ?? ''),
+      }).then((res) => {
+        if (res?.ok) {
+          if (!chat._sdkHistoryHydrating) {
+            void syncSdkHistoryOnResume(chat, { reason: 'delegation_accept' }).catch(() => {});
+          }
+          return res;
+        }
+        return { ...(res || {}), ok: false, errorKey: resolveAcceptErrorKey(res) };
+      });
     },
     onRateDelegation: (delegationId, payload) => {
       if (!delegationId) return Promise.resolve({ ok: false, error: 'Missing delegation id' });

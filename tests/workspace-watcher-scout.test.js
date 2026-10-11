@@ -675,6 +675,7 @@ runCase('REST /api/workspace-watcher/scout lists, submits and resolves', async (
   const app = {
     get(p, fn) { handlers.set(`GET ${p}`, fn); },
     post(p, fn) { handlers.set(`POST ${p}`, fn); },
+    put(p, fn) { handlers.set(`PUT ${p}`, fn); },
     patch(p, fn) { handlers.set(`PATCH ${p}`, fn); },
     delete(p, fn) { handlers.set(`DELETE ${p}`, fn); },
   };
@@ -866,6 +867,7 @@ function makeWatcherApp(dataDir, cwd) {
   const app = {
     get(p, fn) { handlers.set(`GET ${p}`, fn); },
     post(p, fn) { handlers.set(`POST ${p}`, fn); },
+    put(p, fn) { handlers.set(`PUT ${p}`, fn); },
     patch(p, fn) { handlers.set(`PATCH ${p}`, fn); },
     delete(p, fn) { handlers.set(`DELETE ${p}`, fn); },
   };

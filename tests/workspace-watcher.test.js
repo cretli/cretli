@@ -88,7 +88,11 @@ import {
   getDelegationLifecycleSnapshot,
   resetDelegationLifecycleForTest,
 } from '../lib/delegation-lifecycle.js';
-import { getDelegationsDataPath } from '../lib/persist/delegations-persist.js';
+import {
+  createDelegationRecord,
+  getDelegationsDataPath,
+  updateDelegationRecord,
+} from '../lib/persist/delegations-persist.js';
 
 let failed = 0;
 
@@ -2146,6 +2150,61 @@ runCase('delegation boot stays ready when the optional watcher store is corrupt'
 });
 
 const T0 = Date.parse('2026-01-01T00:00:00.000Z');
+
+runCase('delegation boot repairs a missing todo.review snapshot', async () => {
+  // Wait for every case registered so far (including the boot case above) so the
+  // single delegation owner lock is free before this boot.
+  await Promise.all([...pendingCases]);
+  const workspace = fs.mkdtempSync(path.join(tmpRoot, 'boot-review-'));
+  const todo = addTodo(ISOLATED_DATA_DIR, workspace, { title: 'Boot review', status: 'doing' }).item;
+  const impl = createDelegationRecord({
+    parentChatId: 'boot-review-parent',
+    workspaceFolder: workspace,
+    executor: { transport: 'opencode', model: 'gpt-5' },
+    assignment: 'implement',
+    executionMode: 'agent',
+    leafId: todo.id,
+    queuedAt: '2026-01-01T00:00:01.000Z',
+  });
+  updateDelegationRecord(impl.id, {
+    status: 'completed',
+    startedAt: '2026-01-01T00:00:01.000Z',
+    finishedAt: '2026-01-01T00:00:02.000Z',
+  });
+  const review = createDelegationRecord({
+    parentChatId: 'boot-review-parent',
+    workspaceFolder: workspace,
+    executor: { transport: 'opencode', model: 'deepseek-chat' },
+    assignment: 'review',
+    executionMode: 'agent',
+    leafId: todo.id,
+    reviewSubject: 'code',
+    reviewSubjectSource: 'explicit',
+    queuedAt: '2026-01-01T00:00:02.000Z',
+  });
+  updateDelegationRecord(review.id, {
+    status: 'completed',
+    startedAt: '2026-01-01T00:00:02.000Z',
+    finishedAt: '2026-01-01T00:00:03.000Z',
+    report: 'VERDICT: PASS',
+    reportVerdict: 'PASS',
+  });
+  assert.equal(
+    loadTodosData(ISOLATED_DATA_DIR, workspace).items.find((row) => row.id === todo.id).review,
+    undefined,
+    'precondition: the crash left no snapshot',
+  );
+  resetDelegationLifecycleForTest();
+  try {
+    await bootDelegationRuntime({ intervalMs: 60 });
+    const row = loadTodosData(ISOLATED_DATA_DIR, workspace).items.find((entry) => entry.id === todo.id);
+    assert.equal(row.review.code.state, 'passed');
+    assert.equal(row.review.code.reviewers[0].attemptId, review.attemptId);
+  } finally {
+    await shutdownDelegationRuntime({ timeoutMs: 4000 });
+    resetDelegationLifecycleForTest();
+  }
+});
 
 /**
  * A real workspace directory used as both the watcher key and the todo-store

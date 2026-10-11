@@ -11,6 +11,15 @@ jawnie w `pickRole` (przed normalizacją `assignment`), więc `fix` nie zlewa si
 z legacy `implement`; grupowanie cykli (`delegationCycleRole`) używa tego pola,
 a wiersze bez niego pozostają `implement`.
 
+The persisted verdict a leaf carries — who reviewed it, with which model and on
+which subject, how independent the reviewer was and whether the review is still
+current — is defined in [`todo-review-contract.md`](todo-review-contract.md).
+This file stays the per-leaf *loop* contract (rounds, deadlines, budgets); the
+review contract owns the `todo.review` snapshot and reads the same attempt
+history. Pass `review_subject` (`code` or `plan`) on every review start; the
+loop's `last_verdict`/`report_text` are inputs to the loop only — the todo's
+review state is recomputed by the server and is not written by `workflow_update`.
+
 ## Klucz i dopasowanie liścia
 
 - Klucz wiersza: `parentChatId` + `leafId` (`leaf_id`/`todo_id`).

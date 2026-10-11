@@ -164,6 +164,44 @@ function noteInAppSignalIfLive(msg, eventType, eventId, chat) {
   });
 }
 
+/**
+ * Turn a server `todosChanged` frame into the DOM event the Todo panel listens
+ * for. The frame carries identifiers only, so the panel refetches the
+ * authoritative snapshot and decides whether anything visible changed.
+ *
+ * A frame without a todo id is ignored. The workspace is forwarded so the panel
+ * can drop a frame that belongs to another selected workspace.
+ *
+ * @param {Record<string, unknown> | null | undefined} msg
+ * @returns {boolean} true when an event was dispatched
+ */
+export function dispatchTodoChangedEvent(msg) {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return false;
+  const todoId = typeof msg?.todoId === 'string' ? msg.todoId.trim() : '';
+  if (!todoId) return false;
+  const workspaceFolder = typeof msg.workspaceFolder === 'string' ? msg.workspaceFolder.trim() : '';
+  const reason = typeof msg.reason === 'string' ? msg.reason.trim() : '';
+  window.dispatchEvent(new CustomEvent('cretli:todo-changed', {
+    detail: { workspaceFolder, todoId, reason },
+  }));
+  return true;
+}
+
+/**
+ * After a socket reconnect a `todosChanged` frame may have been missed, so ask
+ * the Todo panel for one refresh. The event has no todo id on purpose; the
+ * panel debounces it together with any real frames.
+ *
+ * @returns {boolean}
+ */
+export function dispatchTodoReconnectEvent() {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return false;
+  window.dispatchEvent(new CustomEvent('cretli:todo-changed', {
+    detail: { workspaceFolder: '', todoId: '', reason: 'reconnect' },
+  }));
+  return true;
+}
+
 export function createChatTransport(deps) {
   const {
     WS_PATH_AGENT_SDK,
@@ -1046,6 +1084,12 @@ export function createChatTransport(deps) {
           if (typeof onChatsChanged === 'function') onChatsChanged(msg);
           return;
         }
+        if (msg.type === 'todosChanged') {
+          // Server-owned `todo.review` snapshot changed: hand the Todo panel a
+          // DOM event on the existing socket, no new channel.
+          dispatchTodoChangedEvent(msg);
+          return;
+        }
         if (msg.type === 'sidebarLayout') {
           if (typeof onSidebarLayout === 'function') onSidebarLayout(msg);
           return;
@@ -1858,6 +1902,8 @@ export function createChatTransport(deps) {
     };
     socket.onopen = () => {
       delete chat._wsConnectingSince;
+      const reconnected = (chat._reconnectAttempts || 0) > 0 || chat._connectionStatus === 'reconnecting';
+      if (reconnected) dispatchTodoReconnectEvent();
       chat._reconnectAttempts = 0;
       chat._lastPongAt = Date.now();
       chat._lastPingAt = 0;

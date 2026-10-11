@@ -12,7 +12,7 @@ const dataDir = mkdtempSync(path.join(os.tmpdir(), 'cr-todo-tools-data-'));
 process.env.CRETLI_DATA_DIR = dataDir;
 
 const { addChat, loadChats } = await import('../lib/persist/chats-persist.js');
-const { addTodo, loadTodosData, saveTodosData, updateTodo } = await import('../lib/persist/todos-persist.js');
+const { addTodo, loadTodosData, saveTodosData, updateTodo, writeTodoReview } = await import('../lib/persist/todos-persist.js');
 const { setBuiltinMcpRuntimeDeps } = await import('../lib/mcp/builtin/runtime-deps.js');
 const { createInProcessMcpClient } = await import('../lib/mcp/mcp-inprocess-client.js');
 const { createCretliMcpToolHandlers } = await import('../lib/mcp/mcp-builtin-tools.js');
@@ -43,7 +43,8 @@ const wsInProcess = path.join(root, 'in-process');
 const wsPrefix = path.join(root, 'prefix');
 const wsRemote = path.join(root, 'remote');
 const wsRemotePrefix = path.join(root, 'remote-prefix');
-for (const dir of [wsInProcess, wsPrefix, wsRemote, wsRemotePrefix]) mkdirSync(dir, { recursive: true });
+const wsReview = path.join(root, 'review');
+for (const dir of [wsInProcess, wsPrefix, wsRemote, wsRemotePrefix, wsReview]) mkdirSync(dir, { recursive: true });
 
 const chatIp = addChat('sess-ip', 'In-process chat', null, wsInProcess, 'model-ip', { agentTransport: 'opencode', sdkMode: 'agent' });
 const chatRemote = addChat('sess-remote', 'Remote chat', null, wsRemote, 'model-r', { agentTransport: 'sdk', sdkMode: 'agent' });
@@ -158,6 +159,122 @@ check('in-process todo_update links the caller and logs the status change', () =
   const linked = item.chats.find((row) => row.id === chatIp.id);
   assert.ok(linked.roles.includes('linked'));
   assert.ok(item.changelog.some((entry) => String(entry.text).includes('ready→doing')));
+});
+
+// --- Review is server-owned: an agent patch must be rejected ---
+const ipReviewPatch = await ip.todo_update({
+  todo_id: ipId,
+  expected_updated_at: ipShown2.structuredContent.item.updated_at,
+  patch: { review: { code: { state: 'passed' } } },
+});
+check('in-process todo_update rejects a review patch', () => {
+  assert.equal(ipReviewPatch.isError, true);
+  assert.match(ipReviewPatch.content[0].text, /VALIDATION_ERROR/);
+  assert.match(ipReviewPatch.content[0].text, /review/);
+});
+
+const ipReviewSubjectPatch = await ip.todo_update({
+  todo_id: ipId,
+  expected_updated_at: ipShown2.structuredContent.item.updated_at,
+  patch: { review_subject: 'code' },
+});
+check('in-process todo_update rejects a review_subject patch', () => {
+  assert.equal(ipReviewSubjectPatch.isError, true);
+  assert.match(ipReviewSubjectPatch.content[0].text, /VALIDATION_ERROR/);
+  assert.match(ipReviewSubjectPatch.content[0].text, /review_subject/);
+});
+
+const ipCreateWithReview = await ip.todo_create({
+  title: 'Review cannot be created',
+  idempotency_key: 'ip-review-create',
+  review: { code: { state: 'passed' } },
+});
+check('in-process todo_create never persists a review', () => {
+  const created = ipCreateWithReview.structuredContent.item;
+  const stored = loadTodosData(dataDir, wsInProcess).items.find((row) => row.id === created.id);
+  assert.equal(stored.review, undefined);
+});
+
+// --- Review read surface: list fields, filter, show block, aggregate ---
+const chatReview = addChat('sess-review', 'Review chat', null, wsReview, 'model-rv', { agentTransport: 'sdk', sdkMode: 'agent' });
+const reviewClient = createInProcessMcpClient({ harness: 'sdk', chatId: chatReview.id, workspaceFolder: wsReview });
+const reviewMcp = handlersFor(reviewClient, chatReview.id, wsReview, 'sdk');
+const reviewParent = addTodo(dataDir, wsReview, { title: 'Review parent', status: 'doing' }).item;
+const reviewLeaf = addTodo(dataDir, wsReview, { title: 'Review leaf', status: 'doing', parentId: reviewParent.id }).item;
+const reviewEmpty = addTodo(dataDir, wsReview, { title: 'No review leaf', status: 'doing', parentId: reviewParent.id }).item;
+writeTodoReview(dataDir, wsReview, reviewLeaf.id, {
+  code: {
+    state: 'passed',
+    stateReason: 'fresh_review',
+    subject: 'code',
+    subjectSource: 'explicit',
+    reviewerCount: 2,
+    reviewers: [
+      { delegationId: 'd1', attemptId: 'a1', harness: 'deepseek', model: 'flash', status: 'completed', verdict: 'PASS', usable: true, independence: 'different_base_model' },
+      { delegationId: 'd2', attemptId: 'a2', harness: 'claude', model: 'sonnet', status: 'completed', verdict: 'PASS', usable: true, independence: 'different_base_model' },
+    ],
+    independence: { independent: true, class: 'different_base_model', reference: 'implementer' },
+    implementer: { delegationId: 'impl', attemptId: 'ia', role: 'implement', harness: 'codex', model: 'gpt' },
+    material: { current: true, kind: 'trusted', reason: 'fresh_review' },
+  },
+  plan: { state: 'none', stateReason: 'no_review', subject: 'plan', subjectSource: 'default' },
+});
+
+const reviewList = await reviewMcp.todo_list({ limit: 100 });
+check('todo_list exposes the four review fields on a leaf', () => {
+  const row = reviewList.structuredContent.items.find((item) => item.id === reviewLeaf.id);
+  assert.ok(row, 'review leaf missing from list');
+  assert.equal(row.review_state, 'passed');
+  assert.equal(row.review_plan_state, 'none');
+  assert.deepEqual(row.review_reviewer, { harness: 'deepseek', model: 'flash', count: 2 });
+  assert.equal(row.review_independence, 'different_base_model');
+});
+
+check('todo_list reports none for a missing snapshot and empty fields for a container', () => {
+  const rows = reviewList.structuredContent.items;
+  const emptyLeaf = rows.find((item) => item.id === reviewEmpty.id);
+  assert.equal(emptyLeaf.review_state, 'none');
+  assert.equal(emptyLeaf.review_reviewer, null);
+  const parent = rows.find((item) => item.id === reviewParent.id);
+  assert.equal(parent.review_state, '', 'a container has no own leaf state');
+  assert.equal(parent.review_reviewer, null);
+});
+
+const reviewFiltered = await reviewMcp.todo_list({ review: 'passed', limit: 100 });
+const reviewPlanNone = await reviewMcp.todo_list({ review: 'plan:none', limit: 100 });
+const reviewInvalid = await reviewMcp.todo_list({ review: 'banana' });
+check('todo_list review filter matches leaves only', () => {
+  const passedIds = reviewFiltered.structuredContent.items.map((item) => item.id);
+  assert.ok(passedIds.includes(reviewLeaf.id));
+  assert.equal(passedIds.includes(reviewParent.id), false);
+  assert.equal(passedIds.includes(reviewEmpty.id), false);
+  assert.ok(reviewPlanNone.structuredContent.items.some((item) => item.id === reviewEmpty.id));
+  assert.equal(reviewInvalid.isError, true);
+  assert.match(reviewInvalid.content[0].text, /VALIDATION_ERROR/);
+});
+
+const reviewShown = await reviewMcp.todo_show({ todo_id: reviewLeaf.id });
+check('todo_show returns the full review block with reviewer, subject and independence', () => {
+  const review = reviewShown.structuredContent.item.review;
+  assert.equal(review.code.state, 'passed');
+  assert.equal(review.code.subject, 'code');
+  assert.equal(review.code.reviewers.length, 2);
+  assert.equal(review.code.reviewers[0].harness, 'deepseek');
+  assert.equal(review.code.independence.class, 'different_base_model');
+  assert.equal(review.code.implementer.model, 'gpt');
+  assert.equal(review.plan.state, 'none');
+  assert.equal(reviewShown.structuredContent.item.review_state, 'passed');
+  assert.match(reviewShown.content[0].text, /review: code=passed/);
+});
+
+const parentShown = await reviewMcp.todo_show({ todo_id: reviewParent.id });
+check('todo_show on a container derives the aggregate from direct children', () => {
+  const review = parentShown.structuredContent.item.review;
+  assert.equal(review.aggregate.source, 'children');
+  assert.equal(review.aggregate.code.passed, 1);
+  assert.equal(review.aggregate.code.none, 1);
+  assert.equal(review.aggregate.plan.none, 2);
+  assert.equal(parentShown.structuredContent.item.review_state, '');
 });
 
 // --- Prefix resolution: unique / collision / missing (in-process) ---
@@ -299,6 +416,17 @@ try {
     const linked = item.chats.find((row) => row.id === chatRemote.id);
     assert.ok(linked.roles.includes('linked'));
     assert.ok(item.changelog.some((entry) => String(entry.text).includes('ready→doing')));
+  });
+
+  const rReviewPatch = await remote.todo_update({
+    todo_id: rId,
+    expected_updated_at: rShown2.structuredContent.item.updated_at,
+    patch: { review: { code: { state: 'passed' } } },
+  });
+  check('remote todo_update rejects a review patch', () => {
+    assert.equal(rReviewPatch.isError, true);
+    assert.match(rReviewPatch.content[0].text, /VALIDATION_ERROR/);
+    assert.match(rReviewPatch.content[0].text, /review/);
   });
 
   seedWorkspace(wsRemotePrefix, [

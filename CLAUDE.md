@@ -28,6 +28,12 @@ Dlaczego: zadania tworzone przez `TaskCreate` są widoczne tylko w tym chacie. C
 - `body` — opis co i jak, nie tylko tytuł
 - Nie twórz todo dla trywialnych jednorazowych kroków
 
+### Pole `review`
+
+Todo ma pole `review` zapisywane wyłącznie przez serwer na podstawie delegacji
+(odznaka review w panelu Todo); nie ustawia się go ręcznie przez `todo_update`,
+`todo_create` ani REST. Kontrakt: `docs/todo-review-contract.md`.
+
 ### Kiedy tworzyć todo
 
 - Gdy użytkownik prosi o plan lub listę zadań
@@ -98,8 +104,11 @@ agenta. Domyślnie `maxParallel = 1`, więc cykle są sekwencyjne.
 - **Rodzic cyklu nie commituje i nie pushuje** (ani nie robi merge). Nie edytuje
   workspace, gdy trwa review, i nie startuje drugiego implement/fix dopóki
   `slot_occupied=true`.
-- **Dzieci nie startują kolejnych delegacji.** Delegacje są jednopoziomowe; tylko
-  orkiestrator cyklu wywołuje `delegation_start`.
+- **Domyślnie dzieci nie startują kolejnych delegacji** (`CRETLI_DELEGATION_MAX_DEPTH=1`,
+  brak grantu → `nested_delegation_denied`). Wielopoziomowe drzewo wymaga jawnego
+  `allow_child_delegations` na `delegation_start`, limitu głębokości oraz slotów/budżetu
+  drzewa i `delegation_cancel` z `tree:true`. Orkiestrator cyklu Watchera nadal jest
+  głównym planistą — zagnieżdżone delegacje nie są domyślną ścieżką autopilotu.
 - **Bramka planu nigdy nie zatwierdza planu sama.** Cykl z niezatwierdzonym
   planem zapisuje szkic i kończy się; `plan.approvedAt` ustawia wyłącznie
   człowiek. Zatwierdzenie planu na przodku (w tym na korzeniu) odblokowuje

@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { addChat } from '../lib/persist/chats-persist.js';
-import { addTodo, linkTodoChat, loadTodosData, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, linkTodoChat, loadTodosData, updateTodo, writeTodoReview } from '../lib/persist/todos-persist.js';
 import { registerTodosRoutes } from '../lib/routes/todos-routes.js';
 import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 
@@ -337,6 +337,85 @@ runCase('tree API: reject premature completion and later starts, roll up parents
   assert.equal(getItem(first.id).status, 'ready');
   assert.equal(getItem(root.id).status, 'doing');
   function getItem(id) { return loadTodosData(dataDir, cwd).items.find((row) => row.id === id); }
+}));
+
+runCase('REST PATCH rejects a client-supplied review field', withApp(async (invoke) => {
+  const created = addTodo(dataDir, cwd, { title: 'REST review', status: 'ready' });
+  const id = created.item.id;
+  for (const payload of [
+    { review: { code: { state: 'passed' } } },
+    { review_subject: 'code' },
+    { reviewSubject: 'plan' },
+  ]) {
+    const res = await invoke('PATCH', '/api/todos/:id', { params: { id }, body: payload });
+    assert.equal(res.status, 400, JSON.stringify(payload));
+    assert.equal(res.body.ok, false);
+    assert.match(String(res.body.error), /review/i);
+  }
+  const item = loadTodosData(dataDir, cwd).items.find((row) => row.id === id);
+  assert.equal(item.review, undefined, 'review must never be written through REST');
+  // A normal patch still works.
+  const patched = await invoke('PATCH', '/api/todos/:id', { params: { id }, body: { title: 'REST renamed' } });
+  assert.equal(patched.status, 200);
+  assert.equal(loadTodosData(dataDir, cwd).items.find((row) => row.id === id).title, 'REST renamed');
+}));
+
+runCase('REST POST rejects a client-supplied review field', withApp(async (invoke) => {
+  const res = await invoke('POST', '/api/todos', {
+    body: { title: 'Nope review', review: { code: { state: 'passed' } } },
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.ok, false);
+  assert.match(String(res.body.error), /review/i);
+  assert.equal(
+    loadTodosData(dataDir, cwd).items.some((row) => row.title === 'Nope review'),
+    false,
+    'a rejected create must not persist anything',
+  );
+}));
+
+runCase('REST list exposes the review read model and the container aggregate', withApp(async (invoke) => {
+  const parent = addTodo(dataDir, cwd, { title: 'Review REST parent', status: 'doing' }).item;
+  const leaf = addTodo(dataDir, cwd, { title: 'Review REST leaf', status: 'doing', parentId: parent.id }).item;
+  const empty = addTodo(dataDir, cwd, { title: 'Review REST empty', status: 'doing', parentId: parent.id }).item;
+  writeTodoReview(dataDir, cwd, leaf.id, {
+    code: {
+      state: 'passed',
+      stateReason: 'fresh_review',
+      subject: 'code',
+      subjectSource: 'explicit',
+      reviewerCount: 1,
+      reviewers: [
+        { delegationId: 'rd1', attemptId: 'ra1', harness: 'opencode', model: 'mimo', status: 'completed', verdict: 'PASS', usable: true, independence: 'different_base_model' },
+      ],
+      independence: { independent: true, class: 'different_base_model', reference: 'implementer' },
+      implementer: { delegationId: 'impl', attemptId: 'ia', role: 'implement', harness: 'codex', model: 'gpt' },
+      material: { current: true, kind: 'trusted', reason: 'fresh_review' },
+    },
+    plan: { state: 'none', stateReason: 'no_review', subject: 'plan', subjectSource: 'default' },
+  });
+
+  const listed = await invoke('GET', '/api/todos', { query: { workspaceFolder: cwd } });
+  assert.equal(listed.status, 200);
+  const listedLeaf = listed.body.items.find((row) => row.id === leaf.id);
+  assert.equal(listedLeaf.review_state, 'passed');
+  assert.equal(listedLeaf.review_plan_state, 'none');
+  assert.deepEqual(listedLeaf.review_reviewer, { harness: 'opencode', model: 'mimo', count: 1 });
+  assert.equal(listedLeaf.review_independence, 'different_base_model');
+  assert.equal(listedLeaf.review.code.state, 'passed');
+  assert.equal(listedLeaf.review.code.reviewers.length, 1);
+
+  const listedEmpty = listed.body.items.find((row) => row.id === empty.id);
+  assert.equal(listedEmpty.review_state, 'none');
+  assert.equal(listedEmpty.review.code.state, 'none');
+
+  const listedParent = listed.body.items.find((row) => row.id === parent.id);
+  assert.equal(listedParent.review_state, '', 'container row has empty own state');
+  assert.equal(listedParent.review.aggregate.source, 'children');
+  assert.equal(listedParent.review.aggregate.code.passed, 1);
+  assert.equal(listedParent.review.aggregate.code.none, 1);
+  assert.equal(listedParent.review.aggregate.plan.none, 2);
+  assert.equal(Object.prototype.hasOwnProperty.call(listedParent.review.aggregate, 'reviewers'), false);
 }));
 
 Promise.all(pending).then(() => {

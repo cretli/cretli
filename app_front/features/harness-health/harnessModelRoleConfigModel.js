@@ -98,6 +98,23 @@ export function buildModelRoleConfigViewModel(snapshot, t = (key) => key) {
     // Explore lives in the same file but is read-only in this panel.
     explore: source.explore || null,
     defaultExplore: source.defaultExplore || null,
+    // Audited overrides are a separate store, merged by the controller.
+    overrides: Array.isArray(source.overrides) ? source.overrides.map((row) => ({
+      id: text(row.id),
+      scope: text(row.scope || 'global'),
+      action: text(row.action),
+      targetHarness: text(row.targetHarness),
+      targetModel: text(row.targetModel),
+      targetRole: text(row.targetRole),
+      reason: text(row.reason),
+      createdBy: text(row.createdBy),
+      source: text(row.source),
+      createdAt: text(row.createdAt),
+      expiresAt: text(row.expiresAt),
+      revokedAt: text(row.revokedAt),
+    })) : [],
+    overridesEtag: text(source.overridesEtag || ''),
+    exploreStatus: source.exploreStatus && typeof source.exploreStatus === 'object' ? source.exploreStatus : null,
     weights: source.weights || {},
     defaultWeights: source.defaultWeights || {},
   };
@@ -242,6 +259,91 @@ export function renderModelRoleConfigHtml(model, t) {
   }
   parts.push('</div>');
 
+  parts.push(renderOverridesHtml(model, t));
+  parts.push(renderExploreStatusHtml(model, t));
+
+  parts.push('</div>');
+  return parts.join('');
+}
+
+/**
+ * Render the audited override list plus the compact create form. The server
+ * still owns the author/time fields; this form only collects the operator's
+ * intent.
+ *
+ * @param {object} model
+ * @param {(key: string, values?: object) => string} t
+ * @returns {string}
+ */
+export function renderOverridesHtml(model, t) {
+  const overrides = Array.isArray(model.overrides) ? model.overrides : [];
+  const parts = ['<div class="harness-model-overrides">'];
+  parts.push(`<h4>${h(t('harnessModelRole.overridesTitle'))}</h4>`);
+  parts.push(`<p class="harness-model-role-hint">${h(t('harnessModelRole.overridesHint'))}</p>`);
+  if (overrides.length === 0) {
+    parts.push(`<p class="harness-model-role-hint">${h(t('harnessModelRole.overridesEmpty'))}</p>`);
+  } else {
+    parts.push('<ul class="harness-model-override-list">');
+    for (const row of overrides) {
+      const active = !row.revokedAt && Date.parse(row.expiresAt) > Date.now();
+      const target = [row.targetHarness, row.targetModel, row.targetRole].filter(Boolean).join(' / ') || '—';
+      parts.push(`<li data-override-id="${h(row.id)}">`
+        + `<span class="harness-model-role-badge" data-tone="${active ? 'active' : 'revoked'}">${h(active ? t('harnessModelRole.overridesActive') : t('harnessModelRole.overridesRevoked'))}</span>`
+        + `<strong>${h(row.action)}</strong> ${h(target)}`
+        + `<span class="harness-model-role-sub">${h(row.reason)}</span>`
+        + `<span class="harness-model-role-sub">${h(t('harnessModelRole.overridesCreatedBy'))}: ${h(row.createdBy)} · ${h(t('harnessModelRole.overridesExpires'))}: ${h(row.expiresAt)}</span>`
+        + (active ? `<button type="button" class="cr-bar-button" data-override-revoke="${h(row.id)}">${h(t('harnessModelRole.overridesRevoke'))}</button>` : '')
+        + '</li>');
+    }
+    parts.push('</ul>');
+  }
+  parts.push('<div class="harness-model-override-form">');
+  parts.push('<label class="cr-field"><span class="cr-field-label">'
+    + `${h(t('harnessModelRole.overridesAction'))}</span><select data-override-field="action">`
+    + `<option value="prefer">${h(t('harnessModelRole.overridesPrefer'))}</option>`
+    + `<option value="exclude" selected>${h(t('harnessModelRole.overridesExclude'))}</option>`
+    + `<option value="explicit-orchestrator">${h(t('harnessModelRole.overridesExplicit'))}</option>`
+    + '</select></label>');
+  parts.push(`<label class="cr-field"><span class="cr-field-label">${h(t('harnessModelRole.overridesTargetHarness'))}</span>`
+    + '<input type="text" data-override-field="targetHarness"></label>');
+  parts.push(`<label class="cr-field"><span class="cr-field-label">${h(t('harnessModelRole.overridesTargetModel'))}</span>`
+    + '<input type="text" data-override-field="targetModel"></label>');
+  parts.push('<label class="cr-field"><span class="cr-field-label">'
+    + `${h(t('harnessModelRole.overridesTargetRole'))}</span><select data-override-field="targetRole">`
+    + `<option value="">${h(t('harnessModelRole.overridesAnyRole'))}</option>`
+    + MODEL_ROLE_CONFIG_ROLES.map((role) => `<option value="${role}">${h(roleLabel(role, t))}</option>`).join('')
+    + '</select></label>');
+  parts.push(`<label class="cr-field"><span class="cr-field-label">${h(t('harnessModelRole.overridesReason'))}</span>`
+    + '<input type="text" data-override-field="reason"></label>');
+  parts.push(`<label class="cr-field"><span class="cr-field-label">${h(t('harnessModelRole.overridesTtlHours'))}</span>`
+    + '<input type="number" min="1" max="720" step="1" value="24" data-override-field="ttlHours"></label>');
+  parts.push(`<div class="cr-row"><button type="button" class="cr-bar-button" data-override-create>${h(t('harnessModelRole.overridesCreate'))}</button>`
+    + `<button type="button" class="cr-bar-button" data-override-reset>${h(t('harnessModelRole.reset'))}</button></div>`);
+  parts.push('</div>');
+  parts.push('</div>');
+  return parts.join('');
+}
+
+/**
+ * Render the read-only explore status. Rotation cold-start stays a distinct
+ * ranking signal; the out-of-band ledger is the attempt list below.
+ *
+ * @param {object} model
+ * @param {(key: string, values?: object) => string} t
+ * @returns {string}
+ */
+export function renderExploreStatusHtml(model, t) {
+  const status = model.exploreStatus;
+  if (!status || typeof status !== 'object') return '';
+  const parts = ['<div class="harness-model-explore-status">'];
+  parts.push(`<h4>${h(t('harnessModelRole.exploreStatusTitle'))}</h4>`);
+  parts.push(`<p class="harness-model-role-hint">${h(t('harnessModelRole.exploreStatusHint'))}</p>`);
+  parts.push(`<p class="harness-model-role-hint">${h(t('harnessModelRole.exploreOpenReservations'))}: ${h((status.open || []).length)}`
+    + ` · ${h(t('harnessModelRole.exploreAttempts'))}: ${h(status.attemptCount || 0)}`
+    + ` · ${h(t('harnessModelRole.exploreConsumed'))}: ${h(status.consumed || 0)}</p>`);
+  if (Array.isArray(status.recent) && status.recent.length > 0) {
+    parts.push(`<p class="harness-model-role-sub">${h(t('harnessModelRole.exploreRecent'))}: ${h(status.recent.map((row) => `${row.pairKey || ''}:${row.status || row.outcome || ''}`).join(', '))}</p>`);
+  }
   parts.push('</div>');
   return parts.join('');
 }

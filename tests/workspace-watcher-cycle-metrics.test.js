@@ -193,6 +193,7 @@ test('a full metrics record round-trips through the normalizer', () => {
     usageFinalized: false,
     usageFinalizedAt: null,
     usageExpired: false,
+    attribution: null,
     startedAt: iso(T0),
     closedAt: iso(T0 + 120_000),
     closeSource: 'report',

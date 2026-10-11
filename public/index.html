@@ -569,6 +569,15 @@
         <div id="harness-model-role-config-output" aria-live="polite"></div>
         <div id="harness-model-role-config-diff" class="harness-model-role-diff-host" aria-live="polite"></div>
       </section>
+      <section class="settings-section" data-settings-tab="harness" id="harness-benchmark-sources-section" role="tabpanel">
+        <h3 class="settings-section-title" data-i18n="harnessBenchmarkSources.title">External benchmark sources (display-only)</h3>
+        <p class="settings-hint" data-i18n="harnessBenchmarkSources.hint">Informational registry and locally imported snapshots. Nothing here changes model_pick ranking or triggers outbound fetch.</p>
+        <div class="cr-row">
+          <cr-bar-button id="harness-benchmark-sources-refresh" data-i18n="harnessBenchmarkSources.refresh">Refresh</cr-bar-button>
+          <span id="harness-benchmark-sources-status" class="cr-status" aria-live="polite"></span>
+        </div>
+        <div id="harness-benchmark-sources-output" aria-live="polite"></div>
+      </section>
       <section class="settings-section" data-settings-tab="harness-opencode-keys" id="opencode-api-settings" role="tabpanel">
         <div class="harness-version-card-host" data-harness-version-host="opencode"></div>
         <h3 class="settings-section-title" data-i18n="settings.harnessOpenCodeApiTitle">OpenCode API (Zen)</h3>

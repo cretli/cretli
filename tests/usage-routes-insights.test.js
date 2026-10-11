@@ -265,6 +265,7 @@ test('changing the window moves executed choices and every cycle signal together
       status: 'completed', taskOutcome: 'success',
       createdAt: '2026-08-10T00:00:00.000Z', finishedAt: '2026-08-10T00:10:00.000Z',
       acknowledgedAt: '2026-08-10T01:00:00.000Z', acknowledgedReason: 'accepted',
+      acknowledgedActor: 'human',
     },
     {
       id: 'r1', parentChatId: 'c1', leafId: 'l1',

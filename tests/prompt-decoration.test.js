@@ -20,6 +20,7 @@ import {
   logPromptDecorationMeasurement,
   resetPromptDecorationStatesForTests,
 } from '../lib/sdk/prompt-decoration.js';
+import { estimateTokensFromText } from '../lib/sdk/sdk-context-advisory.js';
 import {
   applyHarnessOutboundPrompt,
   applySdkHarnessOutboundPrompt,
@@ -66,6 +67,7 @@ test('hashPromptContent is deterministic and empty-safe', () => {
   assert.notEqual(hashPromptContent('abc'), hashPromptContent('abd'));
   assert.ok(estimatePromptTokens('12345678') === 2);
   assert.equal(estimatePromptTokens(''), 0);
+  assert.equal(estimatePromptTokens('abcd efgh'), estimateTokensFromText('abcd efgh'));
 });
 
 test('first turn of a session emits the full static block and live volatile blocks', () => {

@@ -1,5 +1,6 @@
 import {
   estimateContextFillPercent,
+  estimateTokensFromText,
   formatContextTokenCount,
   getContextPressureLevel,
   getModelContextWindowTokens,
@@ -28,7 +29,7 @@ export function resolveChatContextUsage(chat) {
   const transcript = richText.trim() || String(chat?._buffer || '').trim();
   if (!transcript) return { inputTokens: null, estimated: false };
   return {
-    inputTokens: Math.max(1, Math.ceil(transcript.length / 4)),
+    inputTokens: Math.max(1, estimateTokensFromText(transcript)),
     estimated: true,
   };
 }

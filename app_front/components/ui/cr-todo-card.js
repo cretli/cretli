@@ -19,6 +19,7 @@ import {
 import { renderMarkdownHtml } from '../../lib/render-markdown.js';
 import { isWorkspaceWatcherRetryableBlockedTodo } from '../../../lib/workspace-watcher-blocked-reason.js';
 import { isTodoAwaitingIntegration } from '../../../lib/todo-integration-state.js';
+import './cr-todo-review-badge.js';
 import './cr-bar-select.js';
 import './cr-bar-input.js';
 import './cr-bar-textarea.js';
@@ -987,6 +988,11 @@ class CrTodoCard extends LitElement {
               <p class="cr-hint">${t('todo.worktreeActiveHint')}</p>
             </div>
             <cr-bar-button class="todo-integration-prepare" data-id=${id} @click=${() => this._onIntegrationDecision('prepare')}>${t('todo.integrationPrepare')}</cr-bar-button>
+          </section>
+        ` : nothing}
+        ${item.review ? html`
+          <section class="todo-review-detail" aria-label=${t('todo.filterReviewHeading')}>
+            <cr-todo-review-badge detail .item=${item} .hasChildren=${this.hasChildren}></cr-todo-review-badge>
           </section>
         ` : nothing}
         ${this._renderIdBar(item)} ${this._renderMeta(item)} ${this._renderManualModeHint(item)} ${this._renderTabs()}

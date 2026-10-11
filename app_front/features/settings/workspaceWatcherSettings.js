@@ -153,6 +153,9 @@ let refreshSeq = 0;
  *  save). An optimistic-save rollback only restores its snapshot while the
  *  cache still holds that same generation, so a newer refresh always wins. */
 let viewSeq = 0;
+/** Audited workspace-scoped overrides (a separate store from the policy pair).
+ *  Loaded on the full render; a mutation refetches the full panel. */
+let workspaceOverridesState = { overrides: [], etag: '', error: '', busy: false };
 /** Scout profile list state (stage 5.1). Kept module-scoped so a management
  *  action can repaint only the list, never the editable policy form. */
 const EMPTY_SCOUT_PROFILES_STATE = {
@@ -275,7 +278,11 @@ async function watcherApi(path, options = {}) {
   // workspace than the one the operator opened Settings for.
   const scoped = scopeWatcherRequestToWorkspace(path, options, getWatcherWorkspaceFolder());
   if (isWorkspaceWatcherRead(scoped.path, scoped.options)) return getWorkspaceWatcherView(scoped.path);
-  const headers = { Accept: 'application/json', 'Accept-Language': getCurrentLang() };
+  const headers = {
+    Accept: 'application/json',
+    'Accept-Language': getCurrentLang(),
+    ...(options.headers && typeof options.headers === 'object' ? options.headers : {}),
+  };
   if (scoped.options.body !== undefined) headers['Content-Type'] = 'application/json';
   const res = await cretliApiFetch(scoped.path, {
     method: scoped.options.method || 'GET',
@@ -291,6 +298,24 @@ export function initWorkspaceWatcherSettingsPanel() {
   const root = document.getElementById('settings-watcher-root');
   if (!root || root.dataset.bound === 'true') return;
   root.dataset.bound = 'true';
+  // The override list is re-rendered on every full refresh, so a delegated
+  // listener on the root survives the re-render.
+  root.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    const revokeId = target.closest('[data-watcher-override-revoke]')?.getAttribute('data-watcher-override-revoke');
+    if (revokeId) {
+      void revokeWorkspaceOverride(root, revokeId);
+      return;
+    }
+    if (target.closest('[data-watcher-override-create]')) {
+      void createWorkspaceOverride(root);
+      return;
+    }
+    if (target.closest('[data-watcher-override-reset]')) {
+      void resetWorkspaceOverrides();
+    }
+  });
   window.addEventListener('cretli:workspace-watcher-changed', () => {
     const panel = document.getElementById('settings-watcher-root');
     if (!panel || panel.dataset.bound !== 'true') return;
@@ -368,13 +393,14 @@ export async function refreshWorkspaceWatcherSettingsPanel(options = {}) {
   // alongside the watcher view so the checkbox list renders synchronously. The
   // profile list is additive: a failure degrades to an error card, it must never
   // reject the whole refresh and blank the rest of the panel.
-  const [res, catalog, runtime, profilesRes, historyRes, inboxRes] = await Promise.all([
+  const [res, catalog, runtime, profilesRes, historyRes, inboxRes, overridesRes] = await Promise.all([
     watcherApi(full ? '/api/workspace-watcher?suggest=1' : '/api/workspace-watcher'),
     full ? watcherApi('/api/harness-catalog/harnesses') : Promise.resolve(null),
     watcherApi('/api/workspace-watcher/runtime-control'),
     full ? watcherApi('/api/workspace-watcher/scout/profiles').catch(() => null) : Promise.resolve(null),
     full && scoutHistoryPath ? watcherApi(scoutHistoryPath).catch(() => null) : Promise.resolve(null),
     full && scoutInboxPath ? watcherApi(scoutInboxPath).catch(() => null) : Promise.resolve(null),
+    full ? watcherApi('/api/workspace-watcher/overrides').catch(() => null) : Promise.resolve(null),
   ]);
   // A newer refresh (a save, or another live event) already owns the paint.
   if (seq !== refreshSeq) return;
@@ -387,6 +413,7 @@ export async function refreshWorkspaceWatcherSettingsPanel(options = {}) {
     applyScoutProfilesResponse(profilesRes);
     applyScoutHistoryResponse(historyRes);
     applyScoutInboxResponse(inboxRes, res.json?.scout);
+    applyWorkspaceOverridesResponse(overridesRes);
   }
   if (!res.json?.ok) {
     if (full) root.innerHTML = `<p class="message" data-tone="error">${escapeHtml(res.json?.error || t('settings.watcherLoadError'))}</p>`;
@@ -1905,6 +1932,140 @@ export function syncWorkspaceWatcherSettingsTab() {
  * @param {HTMLElement} root
  * @param {object} data
  */
+/**
+ * @param {{ status?: number, json?: any } | null} res
+ * @returns {void}
+ */
+function applyWorkspaceOverridesResponse(res) {
+  if (!res || !res.json || res.json.ok !== true) {
+    workspaceOverridesState = {
+      overrides: [],
+      etag: '',
+      error: String(res?.json?.error || ''),
+      busy: false,
+    };
+    return;
+  }
+  workspaceOverridesState = {
+    overrides: Array.isArray(res.json.overrides) ? res.json.overrides : [],
+    etag: String(res.json.etag || ''),
+    error: '',
+    busy: false,
+  };
+}
+
+/**
+ * Render the audited workspace override list and its create form. The form
+ * collects only intent; the server sets author/time and enforces the TTL.
+ *
+ * @param {(key: string, values?: object) => string} t
+ * @returns {string}
+ */
+function renderWorkspaceOverridesHtml(t) {
+  const state = workspaceOverridesState;
+  const parts = ['<section class="watcher-section">'];
+  parts.push(`<h4 class="watcher-section-title">${escapeHtml(t('harnessModelRole.overridesTitle'))}</h4>`);
+  parts.push(`<p class="cr-hint">${escapeHtml(t('harnessModelRole.overridesHint'))}</p>`);
+  if (state.error) {
+    parts.push(`<p class="message" data-tone="error">${escapeHtml(state.error)}</p>`);
+  }
+  if (state.overrides.length === 0) {
+    parts.push(`<p class="cr-hint">${escapeHtml(t('harnessModelRole.overridesEmpty'))}</p>`);
+  } else {
+    parts.push('<ul class="harness-model-override-list">');
+    for (const row of state.overrides) {
+      const active = !row.revokedAt && Date.parse(row.expiresAt) > Date.now();
+      const target = [row.targetHarness, row.targetModel, row.targetRole].filter(Boolean).join(' / ') || '—';
+      parts.push(`<li data-override-id="${escapeAttr(row.id)}">`
+        + `<span class="harness-model-role-badge" data-tone="${active ? 'active' : 'revoked'}">${escapeHtml(active ? t('harnessModelRole.overridesActive') : t('harnessModelRole.overridesRevoked'))}</span>`
+        + `<strong>${escapeHtml(row.action)}</strong> ${escapeHtml(target)} `
+        + `<span class="cr-hint">${escapeHtml(row.reason)}</span>`
+        + (active ? `<button type="button" class="cr-bar-button" data-watcher-override-revoke="${escapeAttr(row.id)}">${escapeHtml(t('harnessModelRole.overridesRevoke'))}</button>` : '')
+        + '</li>');
+    }
+    parts.push('</ul>');
+  }
+  parts.push('<div class="watcher-grid">');
+  parts.push(`<label class="cr-field"><span class="cr-field-label">${escapeHtml(t('harnessModelRole.overridesAction'))}</span>`
+    + '<select data-watcher-override-field="action">'
+    + `<option value="prefer">${escapeHtml(t('harnessModelRole.overridesPrefer'))}</option>`
+    + `<option value="exclude" selected>${escapeHtml(t('harnessModelRole.overridesExclude'))}</option>`
+    + `<option value="explicit-orchestrator">${escapeHtml(t('harnessModelRole.overridesExplicit'))}</option>`
+    + '</select></label>');
+  parts.push(`<label class="cr-field"><span class="cr-field-label">${escapeHtml(t('harnessModelRole.overridesTargetHarness'))}</span>`
+    + '<input type="text" data-watcher-override-field="targetHarness"></label>');
+  parts.push(`<label class="cr-field"><span class="cr-field-label">${escapeHtml(t('harnessModelRole.overridesTargetModel'))}</span>`
+    + '<input type="text" data-watcher-override-field="targetModel"></label>');
+  parts.push(`<label class="cr-field"><span class="cr-field-label">${escapeHtml(t('harnessModelRole.overridesReason'))}</span>`
+    + '<input type="text" data-watcher-override-field="reason"></label>');
+  parts.push(`<label class="cr-field"><span class="cr-field-label">${escapeHtml(t('harnessModelRole.overridesTtlHours'))}</span>`
+    + '<input type="number" min="1" max="720" step="1" value="24" data-watcher-override-field="ttlHours"></label>');
+  parts.push('</div>');
+  parts.push(`<div class="cr-row"><button type="button" class="cr-bar-button" data-watcher-override-create>${escapeHtml(t('harnessModelRole.overridesCreate'))}</button>`
+    + `<button type="button" class="cr-bar-button" data-watcher-override-reset>${escapeHtml(t('harnessModelRole.reset'))}</button></div>`);
+  parts.push('</section>');
+  return parts.join('');
+}
+
+/**
+ * @param {HTMLElement} root
+ * @returns {Promise<void>}
+ */
+async function createWorkspaceOverride(root) {
+  const field = (name) => root.querySelector(`[data-watcher-override-field="${name}"]`);
+  const value = (name) => String(field(name)?.value || '').trim();
+  const ttlHours = Math.max(1, Math.min(720, Number(value('ttlHours')) || 24));
+  const body = {
+    action: value('action'),
+    targetHarness: value('targetHarness'),
+    targetModel: value('targetModel'),
+    reason: value('reason'),
+    expiresAt: new Date(Date.now() + ttlHours * 60 * 60 * 1000).toISOString(),
+  };
+  const res = await watcherApi('/api/workspace-watcher/overrides', {
+    method: 'PUT',
+    body,
+    headers: { 'If-Match': workspaceOverridesState.etag || '*' },
+  });
+  if (!res.json?.ok) {
+    workspaceOverridesState = { ...workspaceOverridesState, error: String(res.json?.error || 'override create failed') };
+  }
+  await refreshWorkspaceWatcherSettingsPanel();
+}
+
+/**
+ * @param {HTMLElement} root
+ * @param {string} id
+ * @returns {Promise<void>}
+ */
+async function revokeWorkspaceOverride(root, id) {
+  if (!id) return;
+  const res = await watcherApi('/api/workspace-watcher/overrides/revoke', {
+    method: 'POST',
+    body: { id, reason: 'revoked from Workspace Watcher settings' },
+    headers: { 'If-Match': workspaceOverridesState.etag || '*' },
+  });
+  if (!res.json?.ok) {
+    workspaceOverridesState = { ...workspaceOverridesState, error: String(res.json?.error || 'override revoke failed') };
+  }
+  await refreshWorkspaceWatcherSettingsPanel();
+}
+
+/**
+ * @returns {Promise<void>}
+ */
+async function resetWorkspaceOverrides() {
+  const res = await watcherApi('/api/workspace-watcher/overrides/reset', {
+    method: 'POST',
+    body: {},
+    headers: { 'If-Match': workspaceOverridesState.etag || '*' },
+  });
+  if (!res.json?.ok) {
+    workspaceOverridesState = { ...workspaceOverridesState, error: String(res.json?.error || 'override reset failed') };
+  }
+  await refreshWorkspaceWatcherSettingsPanel();
+}
+
 function renderWatcherPanel(root, data) {
   const watcher = data.watcher || {};
   const policy = watcher.policy || {};
@@ -2088,6 +2249,7 @@ function renderWatcherPanel(root, data) {
           <div class="watcher-role-list">${roleChecks}</div>
         </div>
       </section>
+      ${renderWorkspaceOverridesHtml(t)}
     </div>
     </div>
 
