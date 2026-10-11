@@ -692,28 +692,9 @@ async function onIntegrationDecision(e) {
   if (action === 'confirm') {
     const item = findItem(id);
     if (!item || typeof window.prompt !== 'function') return;
-    const ask = (key, fallback = '') => window.prompt(t(key), fallback);
-    const targetBranch = ask('todo.integrationAskTargetBranch', item.integrationSummary?.targetBranch || '');
-    if (targetBranch == null || !targetBranch.trim()) return;
-    const targetCommit = ask('todo.integrationAskTargetCommit');
-    if (targetCommit == null || !targetCommit.trim()) return;
-    const sourceCommit = ask('todo.integrationAskSourceCommit');
-    if (sourceCommit == null || !sourceCommit.trim()) return;
-    const materialRevision = ask('todo.integrationAskMaterialRevision', item.integration?.materialRevision || sourceCommit);
-    if (materialRevision == null || !materialRevision.trim()) return;
-    const changeRef = ask('todo.integrationAskChangeRef', `TODO ${id}: ${item.title || ''}`);
-    if (changeRef == null || !changeRef.trim()) return;
-    const scope = item.integrationSummary?.aggregate && confirmAction(t('todo.integrationAskTreeScope')) ? 'tree' : 'task';
-    if (!confirmAction(t('todo.integrationAttestConfirm', { changeRef: changeRef.trim(), targetBranch: targetBranch.trim(), targetCommit: targetCommit.trim() }))) return;
-    proof = {
-      targetBranch: targetBranch.trim(),
-      targetCommit: targetCommit.trim(),
-      sourceCommit: sourceCommit.trim(),
-      materialRevision: materialRevision.trim(),
-      changeRef: changeRef.trim(),
-      changeAttested: true,
-      scope,
-    };
+    // One click: the server records the current workspace branch and HEAD commit.
+    if (!confirmAction(t('todo.integrationSimpleConfirm', { title: item.title || id }))) return;
+    proof = { simple: true };
   }
   const showFeedback = (message, isError = false) => {
     if (!(feedback instanceof HTMLElement)) return;

@@ -73,6 +73,19 @@ The `worktree` mode can use its frozen result (`cycleId`, material revision and
 patch fingerprint) as the task-material reference. `appliedAt` only records
 working-directory application and is never target proof.
 
+### One-click confirmation
+
+The UI action "Record target evidence" sends `proof: { simple: true }`. The
+server then derives the proof itself: `targetBranch` is the workspace's current
+local branch, `targetCommit` and `sourceCommit` are its `HEAD`, the material
+revision is the stored one (or `HEAD`), and the click is the explicit
+attestation. The derived proof goes through the same strict verification as a
+typed one, so a detached `HEAD` is refused (`target_ref_missing`). The scope is
+`tree` when the node has children, otherwise `task`. The explicit fields
+(`targetBranch`, `targetCommit`, `changeRef`, ...) remain available through the
+REST/MCP API for merge or cherry-pick flows where the destination differs from
+the current branch.
+
 ## 3. Freshness and transitions
 
 Evidence is current only while its task material/generation and target identity

@@ -2241,6 +2241,7 @@ export const en = {
     integrationAskMaterialRevision: 'Task material revision or fingerprint:',
     integrationAskChangeRef: 'Describe how this commit is linked to the task changes:',
     integrationAskTreeScope: 'Does this evidence confirm the integrated changes for the entire TODO tree? Choose Cancel to confirm only this TODO.',
+    integrationSimpleConfirm: 'Confirm that the changes of “{title}” are already in the current workspace branch? The branch and its latest commit will be recorded as evidence automatically.',
     integrationAttestConfirm: 'I verified that the task changes ({changeRef}) are present on {targetBranch} at {targetCommit}. Record this evidence?',
     integrationProofInvalid: 'Could not verify the target proof. Check the branch, full commit SHAs and task change reference.',
     integrationMergedBadge: 'Applied — verify target',

@@ -2241,6 +2241,7 @@ export const pl = {
     integrationAskMaterialRevision: 'Wersja lub fingerprint materiału zadania:',
     integrationAskChangeRef: 'Opisz, jak ten commit jest powiązany ze zmianami zadania:',
     integrationAskTreeScope: 'Czy ten dowód potwierdza integrację zmian z całego drzewa TODO? Wybierz Anuluj, aby potwierdzić tylko to TODO.',
+    integrationSimpleConfirm: 'Potwierdzasz, że zmiany zadania „{title}” są już w bieżącej gałęzi workspace? Gałąź i jej ostatni commit zostaną zapisane jako dowód automatycznie.',
     integrationAttestConfirm: 'Potwierdzam, że zmiany zadania ({changeRef}) są na {targetBranch} w {targetCommit}. Zapisać dowód?',
     integrationProofInvalid: 'Nie udało się zweryfikować dowodu. Sprawdź gałąź, pełne SHA commitów i odnośnik do zmian zadania.',
     integrationMergedBadge: 'Zastosowano — sprawdź cel',
