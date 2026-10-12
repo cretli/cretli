@@ -14773,3 +14773,17 @@ body.theme-light .sidebar-chat-item-harness--codex img {
 .todo-editor-dialog .todo-item-meta-line > * + *::before {
   content: none;
 }
+
+/* Edge-to-edge tab bar: the item bleeds into the dialog padding and gives it
+ * back as inline padding, so only the tabs (and the header rule) touch the
+ * window edges while the rest of the content keeps its gutter. */
+.todo-editor-dialog .todo-item {
+  margin-inline: calc(-1 * var(--cr-overlay-panel-padding, 1rem));
+  padding-inline: var(--cr-overlay-panel-padding, 1rem);
+}
+
+.todo-editor-dialog .todo-editor-tabs {
+  margin-inline: calc(-1 * var(--cr-overlay-panel-padding, 1rem));
+  padding-inline: var(--cr-overlay-panel-padding, 1rem);
+  scroll-padding-inline: var(--cr-overlay-panel-padding, 1rem);
+}
