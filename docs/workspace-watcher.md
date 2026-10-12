@@ -724,6 +724,28 @@ Defaults from `defaultWorkspaceWatcherPolicy()`:
 | `scoutMaxPerDay` | `4` | UTC-day scan budget (independent of `maxCyclesPerDay`); `0` disables |
 | `scoutMaxPerScan` | `10` | Maximum proposals kept per scan |
 
+### Execution pools
+
+`maxParallel` is the overall ceiling. `maxParallelWorktree` and
+`maxParallelProject` can narrow each pool independently; both default to `0`,
+which preserves the existing global-only policy. A worktree runs in its own
+folder and branch, so it does not compete with project tasks for files, but each
+checkout can still require a preparation command such as `npm ci` and its own
+agent process and model. Separate limits let the operator bound that cost.
+
+The watcher resolves each leaf's effective execution mode before choosing its
+pool, then freezes that task pool on the cycle. A settings or todo override
+change cannot move an active cycle to another pool. Planning consumes the same
+task pool even when it runs without creating a checkout. When a candidate's pool is full it tries an eligible leaf in the other
+pool. If none has room, the decision is `wait_active/worktree_parallel` or
+`wait_active/project_parallel`; a pool held by the watcher's own cycles is
+reported as `wait_active/cycle_active` with a `pool` marker. Unknown liveness
+continues to block globally, and untraceable busy tokens count as project work.
+
+The schedule and MCP status expose both pool counts and configured caps.
+A pool blocker is reported only after candidate selection has ruled out an
+eligible fallback; a full worktree pool alone does not stop project work.
+
 ## Control surfaces
 
 REST (`lib/routes/workspace-watcher-routes.js`):

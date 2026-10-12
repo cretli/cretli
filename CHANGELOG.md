@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Workspace Watcher execution pools.** Separate optional worktree and project
+  parallel limits, enforced across external agents and watcher cycles, with
+  frozen cycle execution modes and pool counts/blockers in Settings and MCP.
+
 - **OpenCode approval advisor — settings, audit correlation, and advisory scope.**
   Settings → OpenCode adds `riskScope=advise_all` (advisory-only; no auto-approve)
   and opt-in `sendSensitiveCommand` (default false) with UI/docs on OpenCode-only
