@@ -74,6 +74,8 @@ assert.equal(compact.oldest_seq, 1);
 assert.equal(compact.newest_seq, 3);
 assert.equal(compact.events[1].kind, 'tool');
 assert.equal(compact.events[1].args, undefined);
+assert.equal(compact.events[0].text, 'Ask dropdown');
+assert.equal(compact.events[2].text, 'done');
 assert.match(compact.text, /^1 {2}user/);
 
 const withPayloads = formatHistoryPage(history, { includeToolPayloads: true });
@@ -108,7 +110,7 @@ const hugeHistory = {
 };
 const hugePage = formatHistoryPage(hugeHistory, { forward: true });
 assert.ok(hugePage.text.length <= MCP_EVENT_TEXT_CHARS + 20);
-assert.equal(hugePage.events[0].text, undefined);
+assert.equal(hugePage.events[0].text, huge.slice(0, MCP_EVENT_TEXT_CHARS));
 assert.equal(hugePage.events[0].text_truncated, true);
 assert.match(formatContinueHints('chat-a', hugePage.events), /chat_event\(chat="chat-a"/);
 assert.ok(JSON.stringify(hugePage).length < 20_000);

@@ -185,6 +185,56 @@ runCase(
 );
 
 runCase(
+  'start-agent mode=refine opens a side chat with the refine-loop prompt and leaves the todo untouched',
+  withApp(async (invoke) => {
+    const created = addTodo(dataDir, cwd, { title: 'Refine me', status: 'ready' });
+    const id = created.item.id;
+    const first = await invoke('POST', '/api/todos/:id/start-agent', {
+      params: { id },
+      body: { agentTransport: 'claude', workspaceFile, workspaceFolder: cwd },
+    });
+    const executorChatId = first.body.chat.id;
+
+    const refined = await invoke('POST', '/api/todos/:id/start-agent', {
+      params: { id },
+      body: { agentTransport: 'claude', mode: 'refine', workspaceFile, workspaceFolder: cwd },
+    });
+    assert.equal(refined.body.ok, true);
+    assert.equal(refined.body.reused, false);
+    assert.equal(refined.body.chat.sdkMode, 'agent');
+    assert.match(refined.body.chat.title, /^\[Todo plan\] Refine me/);
+    const refineChatId = refined.body.chat.id;
+    assert.notEqual(refineChatId, executorChatId);
+    assert.match(refined.body.initialPrompt, /@cretli-todo-refine-loop/);
+    assert.match(refined.body.initialPrompt, /cretli-ref todo=/);
+    assert.doesNotMatch(refined.body.initialPrompt, /set-todo-from-agent/);
+
+    // The refine chat is listed on the todo but is not its executor chat.
+    const item = loadTodosData(dataDir, cwd).items.find((row) => row.id === id);
+    assert.equal(item.chatId, executorChatId);
+    assert.equal(item.status, 'doing');
+    assert.ok(item.linkedChatIds.includes(refineChatId));
+  })
+);
+
+runCase(
+  'start-agent mode=refine does not move an untouched todo to doing',
+  withApp(async (invoke) => {
+    const created = addTodo(dataDir, cwd, { title: 'Draft only', status: 'idea' });
+    const id = created.item.id;
+    const refined = await invoke('POST', '/api/todos/:id/start-agent', {
+      params: { id },
+      body: { agentTransport: 'claude', mode: 'refine', workspaceFile, workspaceFolder: cwd },
+    });
+    assert.equal(refined.body.ok, true);
+    const item = loadTodosData(dataDir, cwd).items.find((row) => row.id === id);
+    assert.equal(item.status, 'idea');
+    assert.ok(!item.chatId);
+    assert.ok(item.linkedChatIds.includes(refined.body.chat.id));
+  })
+);
+
+runCase(
   'start-agent forceNew defaults to agent over a planning assignee and respects an explicit mode',
   withApp(async (invoke) => {
     const created = addTodo(dataDir, cwd, {

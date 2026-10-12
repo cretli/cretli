@@ -28,19 +28,43 @@ and persist each review with its verdict, findings, material revision and stable
 attempt-specific idempotency key. Existing user budgets and deadlines survive a
 resume. Corrections use the `fix` pick role and assignment.
 
-The default progress checkpoint is 15 minutes for a fix or review and 30 minutes
-for initial implementation. These are **agent instructions, not runtime timers**.
-At a checkpoint the parent checks changed files, closed findings and remaining
-verification. It extends only for concrete progress with another stated checkpoint;
-otherwise it requests a report, cancels the run, waits for the slot to be released,
-and hands off partial work. A configured `deadline_at` remains a separate hard
-budget enforced by the worker. User deadlines are never silently extended.
+The orchestrator prompt still uses soft checkpoints (15 minutes for fix/review,
+30 minutes for initial implement) to inspect progress. Separately, the runtime
+worker enforces a **hard per-run limit from `startedAt`**: review and fix jobs
+default to 20 minutes, implement jobs to 40 minutes (`CRETLI_DELEGATION_RUN_DEADLINE_*`,
+`0` disables the default). Explicit `deadline_at` on `workflow_update` or
+`delegation_start` overrides that default; the server never extends a user
+deadline. On exceed the worker requests cancel like `delegation_cancel`; the job
+finishes as `interrupted` with `interrupt_code=run_deadline_exceeded` (not a
+review verdict and not counted as a review round in workflow history). Leaf
+`deadline_at` cancels use the same stop path but keep a normal cancel finish
+without `run_deadline_exceeded`. The parent waits for `slot_occupied=false`, then hands partial
+work to another executor (`exclude_models`). Runs that entered `running` before
+this feature shipped keep only explicit deadlines until they finish; new runs
+set `runDefaultLimitActive` at first `running`.
 
 After a finding survives a fix, or two code reviews fail, the parent must reconcile
 scope and root cause and choose a different eligible executor. Transport failures
 lead to a different harness for that recovery attempt. Lack of eligible alternatives
 is reported as a blocker. Soft round caps and `same_findings` are not lifted repeatedly
 without new evidence and a changed approach.
+
+For implement/fix picks on a leaf, pass `leaf_id` (or `todo_id`) to `model_pick`:
+after a **completed** implement or fix job on that leaf in the parent chat, the
+picker sticky-prefers the same harness/model for the next implement/fix on that
+leaf (unless `exclude_model` removes it). Terminal completion rate and median
+duration from the last 30 days feed the implement/fix score when
+`adaptive.enabled` is on (`data/model-role-profiles.json`).
+
+Implement picks also classify the leaf body as **small** or **large**
+(`classifyLeafSize`: at most three listed existing file paths and no configured
+large keywords → small; missing file list → large). On a **large** leaf,
+`*flash*` catalog ids are merged into `exclude_models` for the pick; the start
+gate still blocks flash without a substantive `pick_reason`. When every
+implement candidate is flash-only, the leaf gets
+`blocked_reason=no_non_flash_candidate` instead of silently picking flash.
+Thresholds: `CRETLI_LEAF_SIZE_MAX_FILES`, `CRETLI_LEAF_SIZE_LARGE_KEYWORDS`
+(pipe-separated, case-insensitive substring match on the body).
 
 Both fix executors and reviewers receive stored workflow and Watcher findings,
 including on retry. The fix checklist asks for `FIXED`/`STILL_OPEN` evidence for
@@ -58,6 +82,15 @@ checks still run when required at the leaf or final integration boundary.
 are prohibited. The reviewer first establishes a permitted inspection path. If none
 exists, the parent supplies the exact diff and relevant sources or chooses another
 eligible reviewer. Mutation guards remain unchanged.
+
+After every terminal **implement** or **fix** on a leaf, the orchestrator runs
+`delegation_verify` on that delegation id **before** starting a code review (or
+before handing partial work to the next executor). A failed verify sends the
+orchestrator to fix with the test output; it must not start review or consume a
+review round. The server rejects a code review start when the latest implement/fix
+on the same leaf still has a failed verify for the current material revision
+(`verify_failed_before_review`; override with `allow_verify_failed_review=true`).
+Verify results are stored on the implement/fix record (`verify_result.material_revision`).
 
 ## Klucz i dopasowanie liścia
 
@@ -113,6 +146,15 @@ eligible reviewer. Mutation guards remain unchanged.
   fence.
 - Start dla przeterminowanego liścia zwraca `workflow_deadline`; parent czeka na
   `slot_occupied=false`.
+- Domyślny limit czasu pojedynczego joba (review/fix 20 min, implement 40 min od
+  `startedAt`) działa tylko gdy job ma `runDefaultLimitActive` (nowe przebiegi po
+  wdrożeniu). Jawny `deadline_at` liścia albo `deadline_at`/`deadlineAt` przy
+  `delegation_start` wygrywa z domyślnym; przy obu jawnych źródłach obowiązuje
+  wcześniejszy moment. Po przekroczeniu domyślnego limitu joba:
+  `interrupt_code=run_deadline_exceeded` (nie liczy się jako runda review).
+  Anulowanie przez `deadline_at` liścia kończy się zwykłym cancel bez tego kodu.
+  Slot do `slot_occupied=false`. `delegation_show` / `delegation_list` pokazują
+  `interrupt_code`.
 
 ## Budżet kosztu/tokenów
 

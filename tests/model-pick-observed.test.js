@@ -861,10 +861,11 @@ assert.equal(
 // --- Adaptive config: file flag + override -----------------------------------
 const adaptiveFile = path.join(os.tmpdir(), `model-adaptive-${process.pid}.json`);
 writeFileSync(adaptiveFile, JSON.stringify({ adaptive: { enabled: false } }), 'utf8');
-assert.deepEqual(loadAdaptiveConfig({ filePath: adaptiveFile }), { enabled: false });
-assert.deepEqual(normalizeAdaptiveConfig({ adaptive: { enabled: true } }), { enabled: true });
-assert.deepEqual(normalizeAdaptiveConfig('bogus'), { enabled: true });
-assert.deepEqual(normalizeAdaptiveConfig({ delegation: { adaptivePick: false } }), { enabled: false });
+assert.equal(loadAdaptiveConfig({ filePath: adaptiveFile }).enabled, false);
+assert.equal(normalizeAdaptiveConfig({ adaptive: { enabled: true } }).enabled, true);
+assert.equal(normalizeAdaptiveConfig('bogus').enabled, true);
+assert.equal(normalizeAdaptiveConfig({ delegation: { adaptivePick: false } }).enabled, false);
+assert.equal(normalizeAdaptiveConfig({ adaptive: { completionMinRate: 0.75 } }).completionMinRate, 0.75);
 
 // `buildDelegationOutcomes` is the exported loader wrapper for the future UI.
 const loaded = buildDelegationOutcomes({ rows: selfPassRows, now });
@@ -882,7 +883,11 @@ const handlerClient = {
     return modelsByHarness[harness];
   },
 };
-const handlers = createCretliMcpToolHandlers(handlerClient, { chatId: 'observed-handler', mode: 'agent' });
+const handlers = createCretliMcpToolHandlers(handlerClient, {
+  chatId: 'observed-handler',
+  mode: 'agent',
+  workspaceFolder: '/tmp/observed',
+});
 const handlerPick = await handlers.model_pick({ role: 'implement' });
 assert.equal(handlerPick.isError, false);
 assert.ok(

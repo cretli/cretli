@@ -135,6 +135,8 @@ test('interrupt reasons normalize and stay aligned with the delegation codes', (
     'server_restart',
     'starting_timeout',
     'running_orphan',
+    'cancel_unconfirmed',
+    'run_deadline_exceeded',
     'process_gone',
     'unknown',
   ]);

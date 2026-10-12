@@ -23,8 +23,9 @@ assert.match(sent, /max_rounds=4/);
 assert.match(sent, /assignment=fix/);
 assert.match(sent, /exclude_models/);
 assert.match(sent, /not a blanket shell prohibition/);
-assert.match(sent, /These checkpoints are not automatic process deadlines/);
-assert.match(sent, /never silently extend a user deadline/);
+assert.match(sent, /At the soft checkpoint \(15 minutes fix\/review, 30 minutes implement\)/);
+assert.match(sent, /never extends a user deadline/);
+assert.match(sent, /run delegation_verify on that delegation id before starting a code review/);
 assert.equal(stripTodoExecutionWorkflow(extractTodoRefsFromMessage(sent).text), 'Dodatkowe wymagania\nKontynuuj to zadanie.');
 assert.equal(stripTodoExecutionWorkflow('Ordinary message'), 'Ordinary message');
 

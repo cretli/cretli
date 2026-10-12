@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- **Run deadline review/fix follow-ups.** Workflow history skips
+  `run_deadline_exceeded` reviews for round and verdict inference; leaf
+  `deadline_at` cancels no longer stamp `run_deadline_exceeded`; explore picks
+  do not treat that interrupt as `infra_fail`.
+
 ### Changed
 
 - **TODO execution guidance bounds fix/review loops.** Orchestrators now receive
@@ -34,6 +41,41 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Mistral Large is eligible for automatic delegation picks.** `mistral-large-*`
+  ids resolve to a verified alias family, so `model_pick` can choose them for
+  implement, fix and review on the `mistral` harness (read-only before execution, so
+  review is allowed). The heuristic tier (cost 2, quality 3, speed 3) and the missing
+  plan role are judgment calls that observed outcomes correct over time. The new
+  policy version starts a fresh pick cohort. Ministral, Codestral and Medium stay
+  unrecognized until verified.
+
+- **Host verify before code review on each implement/fix.** The orchestrator
+  prompt runs `delegation_verify` after every terminal implement or fix before
+  review; failed verify blocks review starts for the same material
+  (`verify_failed_before_review`, override `allow_verify_failed_review`). Verify
+  works on implement/fix rows and records `material_revision` beside the result.
+
+- **Implement `model_pick` respects leaf size for flash models.** Pass
+  `leaf_id`/`todo_id` on implement picks: large stages (no file list, more than
+  `CRETLI_LEAF_SIZE_MAX_FILES` paths, or a configured keyword) auto-exclude
+  `*flash*` favorites; flash on a large leaf still needs an explicit
+  `pick_reason`. When no non-flash implement candidate remains, the leaf is
+  blocked with `no_non_flash_candidate`.
+
+- **Server-enforced default delegation run deadlines.** Review/fix runs default to
+  20 minutes and implement runs to 40 minutes from `startedAt`
+  (`CRETLI_DELEGATION_RUN_DEADLINE_REVIEW_FIX_MS` /
+  `CRETLI_DELEGATION_RUN_DEADLINE_IMPLEMENT_MS`, `0` disables). Explicit
+  `deadline_at` on `workflow_update` or `delegation_start` overrides the default;
+  exceed finishes as `interrupted` with `interrupt_code=run_deadline_exceeded`.
+  TODO execution guidance documents hard limits and handoff after exceed.
+
+- **`model_pick` implement/fix adaptive ranking.** Terminal completion rate and
+  observed median duration (n≥10 by default) adjust the score; pairs below
+  `adaptive.completionMinRate` are demoted unless `allow_low_completion=true`.
+  `leaf_id`/`todo_id` enables sticky re-picks of the last completed implement/fix
+  executor on that leaf. Thresholds live under `adaptive` in
+  `data/model-role-profiles.json`.
 - **`todo_integration` MCP tool.** Records TODO integration evidence from an
   agent (`confirm`, `invalidate`, `no_code`, `reject`); it never prepares, applies
   or merges a worktree. See `docs/todo-integration-contract.md`.

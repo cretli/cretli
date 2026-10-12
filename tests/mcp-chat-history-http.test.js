@@ -106,6 +106,7 @@ try {
   assert.doesNotMatch(page.content[0].text, /msg-5/);
   assert.match(page.content[0].text, /next_from_seq: 3/);
   assert.equal(page.structuredContent.next_from_seq, 3);
+  assert.deepEqual(page.structuredContent.events.map((event) => event.text), ['msg-1', 'msg-2']);
   const openRouterText = formatMcpToolResult(page);
   assert.match(openRouterText, /next_from_seq: 3/);
 
@@ -113,6 +114,7 @@ try {
   assert.equal(viaHttp.isError, false);
   assert.match(viaHttp.content[0].text, /msg-3/);
   assert.equal(viaHttp.structuredContent.next_offset, null);
+  assert.equal(viaHttp.structuredContent.fragment, 'msg-3');
 
   const gapMiss = await handlers.chat_event({ chat: gapChat.id, seq: 3, field: 'text' });
   assert.equal(gapMiss.isError, true);
@@ -156,6 +158,7 @@ assert.match(converted, /continue: chat_event/);
 
 let offset = 0;
 let recovered = '';
+let structuredRecovered = '';
 for (let i = 0; i < 8; i += 1) {
   const slice = await local.chat_event({
     chat: longChat.id,
@@ -167,11 +170,14 @@ for (let i = 0; i < 8; i += 1) {
   assert.equal(slice.isError, false);
   const fragment = String(slice.content[0].text).split('--- fragment ---\n')[1] ?? '';
   recovered += fragment;
+  assert.equal(slice.structuredContent.fragment, fragment);
+  structuredRecovered += slice.structuredContent.fragment;
   if (slice.structuredContent.next_offset == null) break;
   assert.ok(slice.structuredContent.next_offset > offset);
   offset = slice.structuredContent.next_offset;
 }
 assert.equal(recovered, longText);
+assert.equal(structuredRecovered, longText);
 assert.match(recovered, /UNIQUE_TAIL_MARKER/);
 
 const showChat = addChat('sess-http-show', 'HTTP show', null, workspace, 'model-a', {
@@ -184,6 +190,7 @@ for (let i = 1; i <= 10; i += 1) {
 }
 const shown = await local.chat_show({ chat: showChat.id });
 assert.match(shown.content[0].text, /MESSAGE_10/);
+assert.match(shown.structuredContent.tail, /MESSAGE_10/);
 assert.equal(shown.structuredContent.newest_seq, 10);
 assert.match(shown.content[0].text, new RegExp(`MESSAGE_${shown.structuredContent.oldest_seq}`));
 

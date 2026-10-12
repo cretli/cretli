@@ -20,6 +20,7 @@ import { renderMarkdownHtml } from '../../lib/render-markdown.js';
 import { isWorkspaceWatcherRetryableBlockedTodo } from '../../../lib/workspace-watcher-blocked-reason.js';
 import { isTodoAwaitingIntegration } from '../../../lib/todo-integration-state.js';
 import './cr-todo-review-badge.js';
+import { resolveTodoReviewParentChatId } from '../../features/todo/todoReviewStart.js';
 import './cr-bar-select.js';
 import './cr-bar-input.js';
 import './cr-bar-textarea.js';
@@ -880,14 +881,29 @@ class CrTodoCard extends LitElement {
             </div>
           </section>
         ` : nothing}
-        ${item.review ? html`
+        ${item.review || !this.hasChildren ? html`
           <section class="todo-overview-card todo-review-detail" aria-label=${t('todo.filterReviewHeading')}>
             <div class="todo-overview-card-head"><strong>${t('todo.sectionReview')}</strong></div>
-            <cr-todo-review-badge detail .item=${item} .hasChildren=${this.hasChildren}></cr-todo-review-badge>
+            ${item.review ? html`<cr-todo-review-badge detail .item=${item} .hasChildren=${this.hasChildren}></cr-todo-review-badge>` : nothing}
+            ${this._renderReviewStartActions(item)}
           </section>
         ` : nothing}
         ${this._renderManualModeHint(item)}
       </section>
+    `;
+  }
+
+  /** Manual review of a leaf: code or plan, each opens the shared harness/model picker. */
+  _renderReviewStartActions(item) {
+    if (this.hasChildren) return nothing;
+    const id = item?.id ? String(item.id) : '';
+    const noChat = !resolveTodoReviewParentChatId(item);
+    const hint = noChat ? t('todo.reviewStartNoChat') : '';
+    return html`
+      <div class="todo-overview-card-actions">
+        <cr-bar-button class="todo-review-start-code" data-id=${id} ?disabled=${noChat} title=${hint} @click=${() => this._emit('todo-review-start', { id, subject: 'code' })}>${t('todo.reviewStartCode')}</cr-bar-button>
+        <cr-bar-button class="todo-review-start-plan" data-id=${id} ?disabled=${noChat} title=${hint} @click=${() => this._emit('todo-review-start', { id, subject: 'plan' })}>${t('todo.reviewStartPlan')}</cr-bar-button>
+      </div>
     `;
   }
 
@@ -901,6 +917,19 @@ class CrTodoCard extends LitElement {
         ?hidden=${this.activeTab !== 'plan'}
       >
         ${this._renderPlanSection(item)}
+        ${item?.status !== 'done' ? html`
+          <div class="todo-item-actions">
+            <cr-bar-button
+              class="todo-item-refine-plan"
+              data-id=${String(item?.id || '')}
+              title=${t('todo.refinePlanHint')}
+              @click=${() => this._emit('todo-refine-start', { id: String(item?.id || '') })}
+            >
+              <span class="mdi mdi-file-document-edit-outline" aria-hidden="true"></span>
+              <span>${t('todo.refinePlan')}</span>
+            </cr-bar-button>
+          </div>
+        ` : nothing}
       </section>
     `;
   }

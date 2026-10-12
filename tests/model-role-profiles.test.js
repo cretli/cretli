@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const testMcpWorkspace = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 import { createCretliMcpToolHandlers } from '../lib/mcp/mcp-builtin-tools.js';
 import {
   buildModelPickEligibilityCohort,
@@ -48,6 +51,10 @@ assert.deepEqual(listRolesForModel('hy3').sort(), ['fix', 'implement', 'review']
 assert.deepEqual(listRolesForModel('hy4-preview-f').sort(), ['fix', 'implement', 'review']);
 assert.ok(listRolesForModel('claude-opus-5').includes('implement'));
 assert.deepEqual(listRolesForModel('claude-sonnet-5').sort(), ['fix', 'implement', 'plan', 'review']);
+assert.deepEqual(listRolesForModel('mistral-large-latest').sort(), ['fix', 'implement', 'review']);
+assert.deepEqual(listRolesForModel('mistral-large-4-0::effort=high').sort(), ['fix', 'implement', 'review']);
+assert.deepEqual(listRolesForModel('ministral-3b-latest'), []);
+assert.deepEqual(listRolesForModel('codestral-latest'), []);
 
 const inputAstraMissing = selectModelPick({
   role: 'implement',
@@ -241,7 +248,11 @@ assert.equal(flashSkippedForReview.ok, true);
 assert.equal(flashSkippedForReview.pick.model, 'grok-4.6::effort=high');
 
 function createPickHandlers(client) {
-  return createCretliMcpToolHandlers(client, { mode: 'agent' });
+  return createCretliMcpToolHandlers(client, {
+    mode: 'agent',
+    chatId: 'model-role-profiles-test',
+    workspaceFolder: testMcpWorkspace,
+  });
 }
 
 const mockJoinClient = {
@@ -536,7 +547,29 @@ assert.equal(actualFanoutMcp.content[0].text.split('\n').length, 2, 'one short l
 assert.match(actualFanoutMcp.content[0].text, /tests=no/);
 assert.match(actualFanoutMcp.content[0].text, /reason=/);
 
-assert.match(buildModelPickEligibilityCohort(), /alias-policy-2026-10-08\+role-policy-2026-10-08/);
+assert.match(buildModelPickEligibilityCohort(), /alias-policy-2026-10-12\+role-policy-2026-10-12/);
+
+const mistralHarness = { id: 'mistral', enabled: true, ready: true, can_delegate: true };
+const mistralModels = {
+  mistral: { favorites_configured: true, items: [{ id: 'mistral-large-latest', label: 'Mistral Large' }] },
+};
+for (const role of ['implement', 'fix']) {
+  const mistralPick = selectModelPick({ role, harnesses: [mistralHarness], modelsByHarness: mistralModels });
+  assert.equal(mistralPick.ok, true, `${role} picks Mistral Large`);
+  assert.equal(mistralPick.pick.harness, 'mistral');
+  assert.equal(mistralPick.pick.model, 'mistral-large-latest');
+}
+const mistralReview = selectModelPick({
+  role: 'review',
+  harnesses: [mistralHarness],
+  modelsByHarness: mistralModels,
+  diagnosisInput: { checkReviewAdapter: true },
+});
+assert.equal(mistralReview.ok, true, 'review picks Mistral Large behind the review adapter gate');
+assert.equal(mistralReview.pick.model, 'mistral-large-latest');
+const mistralPlan = selectModelPick({ role: 'plan', harnesses: [mistralHarness], modelsByHarness: mistralModels });
+assert.equal(mistralPlan.ok, false, 'plan is not granted to Mistral Large');
+assert.equal(mistralPlan.code, 'MODEL_UNAVAILABLE');
 
 const auditTable = buildModelPickFavoriteDiagnosis({
   role: 'review',

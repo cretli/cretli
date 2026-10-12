@@ -46,6 +46,7 @@ import './components/ui/cr-checkbox.js';
 import './components/ui/cr-dialog.js';
 import './components/ui/cr-todo-card.js';
 import { findTodoRecoveryState } from './features/todo/todoRecoveryView.js';
+import { buildTodoReviewTaskText, resolveTodoReviewParentChatId } from './features/todo/todoReviewStart.js';
 import {
   initWatcherPanel,
   refreshWatcherPanel,
@@ -737,6 +738,8 @@ function bindCardHandlers(card) {
   card.addEventListener('todo-executionmode-change', onEditorExecutionModeChange);
   card.addEventListener('todo-plan-approve', onPlanApprove);
   card.addEventListener('todo-review-open-report', onReviewOpenReport);
+  card.addEventListener('todo-review-start', onReviewStart);
+  card.addEventListener('todo-refine-start', (e) => openTodoRefinePicker(findItem(String(e?.detail?.id || ''))));
 }
 
 /** @param {Event} e */
@@ -1171,6 +1174,12 @@ function renderRowMenuItems(row, list) {
       disabled: chats.length === 0 && !item.chatId && !item.sourceChat?.id,
     },
     { id: 'newChat', icon: 'mdi-robot-outline', label: t('todo.continueNewChat') },
+    {
+      id: 'refinePlan',
+      icon: 'mdi-file-document-edit-outline',
+      label: t('todo.refinePlan'),
+      disabled: String(item.status || '') === 'done',
+    },
     // Only offered when the item's tree really owns an un-integrated worktree;
     // a permanently disabled row on every other task would be noise.
     ...(canIntegrateWorktree(item)
@@ -1301,6 +1310,10 @@ async function runRowMenuAction(action, item) {
   }
   if (action === 'newChat') {
     openTodoStartPicker(item);
+    return;
+  }
+  if (action === 'refinePlan') {
+    openTodoRefinePicker(item);
     return;
   }
   if (action === 'integrate') {
@@ -2049,6 +2062,74 @@ function openTodoStartPicker(item) {
 }
 
 /**
+ * Pick harness and model for a chat that runs the plan review-and-refine loop
+ * (`cretli-todo-refine-loop` skill). The chat is linked to the todo but does not
+ * become its executor chat and does not change its status.
+ */
+function openTodoRefinePicker(item) {
+  if (!item?.id || String(item.status || '') === 'done') return;
+  openTodoAgentStartModal({
+    harness: resolveTodoStartHarness(item),
+    onStart: ({ harness, model }) => startTodoAgent(String(item.id), {
+      mode: 'refine',
+      forceNew: true,
+      agentTransport: harness,
+      model,
+      item,
+    }),
+  });
+}
+
+/** Review button on the card: the shared picker chooses harness and model of the reviewer chat. */
+function onReviewStart(e) {
+  const id = String(e?.detail?.id || '').trim();
+  const subject = e?.detail?.subject === 'plan' ? 'plan' : 'code';
+  const item = findItem(id);
+  if (!item?.id) return;
+  if (!resolveTodoReviewParentChatId(item)) {
+    setStatus(t('todo.reviewStartNoChat'), true);
+    return;
+  }
+  openTodoAgentStartModal({
+    harness: resolveTodoStartHarness(item),
+    onStart: ({ harness, model }) => startTodoReview(item, subject, harness, model),
+  });
+}
+
+/**
+ * Starts a review delegation of one subject for the todo. The reviewer runs in its
+ * own new chat; the server attaches its verdict to the todo's review block.
+ *
+ * @param {object} item
+ * @param {'code'|'plan'} subject
+ * @param {string} harness
+ * @param {string} model
+ */
+async function startTodoReview(item, subject, harness, model) {
+  const todoId = String(item.id);
+  setStatus(t('todo.reviewStarting'));
+  try {
+    const data = await api.postChatDelegation(resolveTodoReviewParentChatId(item), {
+      executor: { transport: harness, model },
+      idempotencyKey: `todo-review:${todoId}:${subject}:${Date.now()}:${Math.random().toString(16).slice(2)}`,
+      sourceKind: 'text',
+      taskText: buildTodoReviewTaskText(item, subject),
+      title: `${String(item.title || '').trim()} (review ${subject})`,
+      assignment: 'review',
+      reviewSubject: subject,
+      leafId: todoId,
+    });
+    if (!data?.ok) {
+      setStatus(data?.error || t('todo.reviewStartFailed'), true);
+      return;
+    }
+    setStatus(t('todo.reviewStarted'));
+  } catch {
+    setStatus(t('todo.networkError'), true);
+  }
+}
+
+/**
  * Opens the linked chat or creates one. `forceNew` always creates a fresh chat
  * and keeps the previous one in the todo history.
  *
@@ -2071,10 +2152,11 @@ async function startTodoAgent(id, options = {}) {
 
 /**
  * @param {string} todoId
- * @param {{ forceNew?: boolean, agentTransport?: string, model?: string, item?: object | null }} [options]
+ * @param {{ forceNew?: boolean, mode?: 'refine', agentTransport?: string, model?: string, item?: object | null }} [options]
  */
 async function startTodoAgentOnce(todoId, options = {}) {
   const forceNew = options.forceNew === true;
+  const refine = options.mode === 'refine';
   const item = options.item || findItem(todoId) || {};
   const ctx = getWorkspaceContext();
   if (!ctx.workspaceFile || !ctx.workspaceFolder) {
@@ -2088,7 +2170,7 @@ async function startTodoAgentOnce(todoId, options = {}) {
     setStatus(t('todo.sdkRequiresApiKey'), true);
     return;
   }
-  if (forceNew && String(item.status || '') === 'done' && !confirmAction(t('todo.confirmStartDone'))) {
+  if (forceNew && !refine && String(item.status || '') === 'done' && !confirmAction(t('todo.confirmStartDone'))) {
     return;
   }
   setStatus(t('todo.creatingAgent'));
@@ -2100,6 +2182,7 @@ async function startTodoAgentOnce(todoId, options = {}) {
     ...(options.dirtyPolicy ? { dirtyPolicy: options.dirtyPolicy } : {}),
   };
   if (forceNew) payload.forceNew = true;
+  if (refine) payload.mode = 'refine';
   try {
     let data = await api.postTodoStartAgent(todoId, payload);
     if (data?.ok && data.state === 'preparing') {
@@ -2123,7 +2206,7 @@ async function startTodoAgentOnce(todoId, options = {}) {
       reused: !!data.reused,
     });
     showPanelFn('chat');
-    setStatus(data.reused ? t('todo.openedLinkedChat') : t('todo.startedAgent'));
+    setStatus(refine ? t('todo.refinePlanStarted') : data.reused ? t('todo.openedLinkedChat') : t('todo.startedAgent'));
   } catch {
     setStatus(t('todo.networkError'), true);
   }

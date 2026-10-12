@@ -398,19 +398,31 @@ const mockClient = {
 const deepseekChatUses = (response) => response.structuredContent.candidates
   .find((row) => row.harness === 'deepseek')?.chat_uses;
 
-const handlers = createCretliMcpToolHandlers(mockClient, { chatId: 'chat-rotation', mode: 'agent' });
+const handlers = createCretliMcpToolHandlers(mockClient, {
+  chatId: 'chat-rotation',
+  mode: 'agent',
+  workspaceFolder: '/tmp/rotation',
+});
 const handlerPick = await handlers.model_pick({ role: 'implement' });
 assert.equal(handlerPick.isError, false);
 assert.equal(handlerPick.structuredContent.pick.harness, 'codebuddy');
 assert.equal(typeof handlerPick.structuredContent.pick.reason, 'string');
 assert.equal(deepseekChatUses(handlerPick), 4, 'session chat id feeds the workflow-diversity history');
 
-const otherChatPick = await createCretliMcpToolHandlers(mockClient, { chatId: 'chat-other', mode: 'agent' })
+const otherChatPick = await createCretliMcpToolHandlers(mockClient, {
+  chatId: 'chat-other',
+  mode: 'agent',
+  workspaceFolder: '/tmp/rotation',
+})
   .model_pick({ role: 'implement' });
 assert.equal(otherChatPick.isError, false);
 assert.equal(deepseekChatUses(otherChatPick), 0, 'a different calling chat has no prior model use');
 
-const explicitChatPick = await createCretliMcpToolHandlers(mockClient, { chatId: 'chat-other', mode: 'agent' })
+const explicitChatPick = await createCretliMcpToolHandlers(mockClient, {
+  chatId: 'chat-other',
+  mode: 'agent',
+  workspaceFolder: '/tmp/rotation',
+})
   .model_pick({ role: 'implement', chat_id: 'chat-rotation' });
 assert.equal(deepseekChatUses(explicitChatPick), 4, 'explicit chat_id overrides the session chat');
 

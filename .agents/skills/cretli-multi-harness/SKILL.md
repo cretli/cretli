@@ -304,8 +304,11 @@ reviews beyond the cap wait until a slot frees.
 
 ## Verdict → next step
 
-- **PASS** on plan → implement. **PASS** on implement → review. **PASS** on
-  review in `loop` → stop (success). **PASS** on fix → review again.
+- **PASS** on plan → implement. **PASS** on implement → run parent
+  `delegation_verify` on that job, then review when verify passes. **PASS** on
+  review in `loop` → stop (success). **PASS** on fix → `delegation_verify`, then
+  review again. Do not start review while verify for the latest implement/fix is
+  still failed for the same material (`verify_failed_before_review`).
 - **FAIL** or **conflict** on review → fix (if rounds remain), then review with
   `exclude_model` = last implementer/fixer, then the last reviewer.
 - After a child **PASS** on implement/fix, independently reproduce 1–2 claims

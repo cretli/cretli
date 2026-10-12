@@ -92,4 +92,11 @@ assert.equal(estimateModelQualityTier('glm-5.3-flash'), 4);
 assert.equal(estimateModelCostTier('glm-5.3-flashx'), 1);
 assert.equal(estimateModelQualityTier('flashlight-9b'), UNKNOWN_FAMILY_TIER);
 
+// Mistral Large has its own frozen cost row; sibling Mistral lines keep the neutral tier.
+assert.equal(estimateModelCostTier('mistral-large-latest'), 2);
+assert.equal(estimateModelQualityTier('mistral-large-4'), 3);
+assert.equal(estimateModelSpeedTier('mistral-large-4-0', []), 3);
+assert.equal(estimateModelCostTier('ministral-3b-latest'), UNKNOWN_FAMILY_TIER);
+assert.equal(estimateModelCostTier('mistral-medium-latest'), UNKNOWN_FAMILY_TIER);
+
 console.log('All model-catalog-meta tests passed.');

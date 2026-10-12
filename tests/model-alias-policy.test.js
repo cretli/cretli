@@ -93,7 +93,7 @@ test('diagnosis lists rejection causes for non-selected favorites', () => {
   });
   assert.equal(picked.ok, true);
   assert.equal(picked.pick.model, 'gpt-5.6');
-  assert.ok(String(picked.policyVersion).includes('cohort=alias-policy-2026-10-08+role-policy-2026-10-08'));
+  assert.ok(String(picked.policyVersion).includes('cohort=alias-policy-2026-10-12+role-policy-2026-10-12'));
   const blocked = picked.diagnosis.rows.find((row) => row.model === 'blocked-model');
   const unknown = picked.diagnosis.rows.find((row) => row.model === 'unknown-xyz');
   const winner = picked.diagnosis.rows.find((row) => row.model === 'gpt-5.6');
@@ -229,4 +229,14 @@ test('rejection causes stay distinct: harness-disabled, no-favorites, lockout, a
     mixed.diagnosis.rows.find((r) => r.harness === 'sdk').filter_reasons,
     ['no-favorites'],
   );
+});
+
+test('mistral-large is a verified family; sibling Mistral lines resolve to no family', () => {
+  assert.equal(resolveModelFamily('mistral-large-latest').family, 'mistral-large');
+  assert.equal(resolveModelFamily('mistral-large-latest').verified, true);
+  assert.equal(resolveModelFamily('mistral-large-4-0::effort=high').family, 'mistral-large');
+  assert.equal(resolveModelFamily('ministral-3b-latest').family, UNKNOWN_FAMILY_FALLBACK.family);
+  assert.equal(resolveModelFamily('codestral-latest').family, UNKNOWN_FAMILY_FALLBACK.family);
+  assert.equal(resolveModelFamily('mistral-medium-latest').family, UNKNOWN_FAMILY_FALLBACK.family);
+  assert.equal(describeRoleRejection('mistral-medium-latest', 'implement'), UNKNOWN_FAMILY_FALLBACK.reason);
 });
