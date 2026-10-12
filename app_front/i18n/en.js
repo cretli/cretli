@@ -2358,6 +2358,7 @@ export const en = {
     chats: 'Chats',
     tabDescription: 'Plan & notes',
     tabOverview: 'Overview',
+    closeEditor: 'Close',
     copyMenu: 'Copy',
     sectionIntegration: 'Integration',
     sectionReview: 'Review',

@@ -1,4 +1,4 @@
-import { LitElement, css, html } from 'lit';
+import { LitElement, css, html, nothing } from 'lit';
 
 /**
  * Shared modal/dialog component (Shadow DOM).
@@ -12,6 +12,8 @@ class CrDialog extends LitElement {
     heading: { type: String },
     variant: { type: String, reflect: true },
     persistent: { type: Boolean, reflect: true },
+    closable: { type: Boolean, reflect: true },
+    closeLabel: { type: String },
   };
 
   static styles = css`
@@ -53,6 +55,31 @@ class CrDialog extends LitElement {
       margin: 0 0 var(--cr-space-2);
       font-size: 1rem;
       font-weight: 600;
+    }
+    .heading-text {
+      flex: 1;
+      min-width: 0;
+    }
+    .close {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2rem;
+      height: 2rem;
+      margin: -0.25rem -0.25rem -0.25rem 0;
+      border: 0;
+      border-radius: var(--cr-radius-sm);
+      background: transparent;
+      color: var(--cr-text-muted);
+      font: inherit;
+      font-size: 1.25rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .close:hover {
+      background: var(--cr-surface-raised, transparent);
+      color: var(--cr-text);
     }
     .heading ::slotted(.mdi) {
       font-size: 1.25rem;
@@ -102,6 +129,9 @@ class CrDialog extends LitElement {
     this.heading = '';
     this.variant = 'info';
     this.persistent = false;
+    // Opt-in close button in the heading; confirm-style dialogs keep their own buttons.
+    this.closable = false;
+    this.closeLabel = 'Close';
     this._lastFocused = null;
   }
 
@@ -146,9 +176,13 @@ class CrDialog extends LitElement {
     return html`
       <div class="backdrop" @click=${this._onBackdropClick}>
         <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="cr-dialog-heading">
-          ${this.heading
-            ? html`<h2 class="heading" id="cr-dialog-heading"><slot name="icon"></slot> ${this.heading}</h2>`
-            : html`<h2 class="heading" id="cr-dialog-heading"><slot name="icon"></slot></h2>`}
+          <h2 class="heading" id="cr-dialog-heading">
+            <slot name="icon"></slot>
+            <span class="heading-text">${this.heading}</span>
+            ${this.closable && !this.persistent
+              ? html`<button type="button" class="close" aria-label=${this.closeLabel} title=${this.closeLabel} @click=${() => this.hide()}>&times;</button>`
+              : nothing}
+          </h2>
           <slot name="subheading"></slot>
           <div class="body">
             <slot></slot>

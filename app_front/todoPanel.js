@@ -1737,6 +1737,8 @@ function ensureEditor() {
   if (editorDialog) return;
   const dialog = document.createElement('cr-dialog');
   dialog.className = 'todo-editor-dialog';
+  dialog.closable = true;
+  dialog.closeLabel = t('todo.closeEditor');
   dialog.style.setProperty('--cr-dialog-max-width', '40rem');
   const wrap = document.createElement('div');
   wrap.className = 'todo-editor';

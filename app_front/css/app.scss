@@ -14638,3 +14638,15 @@ body.theme-light .sidebar-chat-item-harness--codex img {
     line-clamp: 2;
   }
 }
+
+/* The dialog already frames the editor: drop the card's own border, padding and
+ * background so the content is not boxed twice. */
+.todo-editor-dialog .todo-item {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.todo-editor-dialog .todo-editor-tabs {
+  margin: 0;
+}
