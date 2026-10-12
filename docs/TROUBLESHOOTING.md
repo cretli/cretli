@@ -199,3 +199,42 @@ about 4.0 s in total, so both phases and their escalations always finish before 
 hard kill. Lowering the `sleep` there without lowering the manager constants, or
 the reverse, would silently orphan OpenCode and harness/PTY processes.
 
+## Delegation startup failures (first-event timeout, transport not started)
+
+When a delegated executor never reaches its first event (OpenCode first-event
+timeout) or the transport fails to start, Cretli records a short **startup-failure lockout** for that harness/model
+pair (`startup_failure`, default 2 h). `model_pick` skips the pair and reports
+`startup-failure` with `lockout_reset_at` in diagnosis; a second startup failure
+within 24 h extends the block to 12 h. A later **successful** run on the same pair
+clears only that startup lockout (usage/quota lockouts stay).
+
+Explicit **named** `delegation_start` calls may still use a cooling-down pair;
+the response includes a `warning` with `reset_at`. Starts bound to `pick_id` stay
+blocked until the lockout expires.
+
+Delegated OpenCode jobs use a shorter first-event timeout (default **2 min**,
+`OPENCODE_DELEGATED_FIRST_EVENT_TIMEOUT_MS` or
+`delegatedSdkRunFirstEventTimeoutSeconds` in settings). User chat OpenCode runs
+keep the normal first-event timeout; that split is unchanged by runtime prompt
+timeouts below.
+
+**Runtime `OpenCode prompt timed out` is not a startup lockout.** This section
+and the env table below cover **startup** failures only: the executor never reaches
+its first event (OpenCode first-event timeout) or the transport fails to start
+(see `lib/delegation-startup-failure.js`). If a run has already received at least
+one event and later fails with `OpenCode prompt timed out` (post-start / runtime
+prompt idle timeout), Cretli does **not** record `startup_failure` or block
+`model_pick` for that reason.
+
+Tune or disable startup lockouts:
+
+| Variable / setting | Default | Meaning |
+| --- | --- | --- |
+| `CRETLI_STARTUP_FAILURE_LOCKOUT_MS` / `startupFailureLockoutMs` | 2 h | Base lockout; `0` disables new startup lockouts |
+| `CRETLI_STARTUP_FAILURE_LOCKOUT_EXTENDED_MS` / `startupFailureLockoutExtendedMs` | 12 h | Repeat failure within the escalation window |
+| `CRETLI_STARTUP_FAILURE_LOCKOUT_ESCALATION_MS` / `startupFailureLockoutEscalationMs` | 24 h | Window for the extended duration |
+| `OPENCODE_DELEGATED_FIRST_EVENT_TIMEOUT_MS` / `delegatedSdkRunFirstEventTimeoutSeconds` | 2 min | Delegation OpenCode first-event wait only |
+
+Substantive review FAIL, usage limits, cancel, and deadline outcomes do **not**
+open a startup-failure lockout.
+

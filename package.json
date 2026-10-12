@@ -58,6 +58,7 @@
     "chat": "node scripts/chat-cli.js",
     "mcp": "node scripts/cretli-mcp.js",
     "mcp:test-server": "node scripts/mcp-test-server.js",
+    "setup:zai-sdk": "bash scripts/setup-zai-sdk.sh",
     "test:status-parser": "node tests/status-parser.test.js",
     "test:status-parser:flow": "node tests/status-parser-flow.test.js",
     "test:status-parser:flow:list": "node tests/status-parser-flow.test.js --list",

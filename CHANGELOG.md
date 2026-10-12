@@ -6,6 +6,48 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Workspace Watcher settings now expose the worktree dirty-tree start policy:
+  block (default), last commit (HEAD), or a snapshot of current changes. New
+  watcher worktrees honor the saved policy; existing worktree bases stay frozen.
+
+- **Temporary startup-failure lockouts for harness/model pairs.** After a
+  delegation executor dies before its first event (first-event `adapter_timeout`,
+  not a post-start prompt idle timeout) or with `Transport not started`, the
+  server records a picker lockout (`startup_failure`,
+  default 2 h, `0` disables) scoped to the logical workspace (worktree
+  execution folders map back to the todo workspace key). Provider usage-limit
+  lockouts stay account-wide. A second startup failure within 24 h extends the
+  block to 12 h; a later successful run on that pair clears only the startup
+  lockout for that workspace. `model_pick` skips the pair and reports
+  `startup-failure` with `lockout_reset_at`; explicit named `delegation_start`
+  still proceeds with a warning. Delegated OpenCode runs use a separate
+  first-event timeout (default 2 min); user chat OpenCode timeouts are unchanged.
+
+- **Orchestrator leaf inference for `model_pick` and `delegation_start`.** When
+  `leaf_id` / `todo_id` is omitted, the server infers the sole `doing` leaf under
+  a todo root whose `orchestrator_chat_id` is the calling chat (`leaf_source=inferred`
+  on pick records and start responses). Zero or multiple doing leaves yield
+  `warning.leaf_id_missing` with candidates; explicit ids win and leaves outside
+  the orchestrator subtree are rejected. The parent chat's linked todo id is not
+  treated as an explicit leaf when inference is ambiguous. Disable with
+  `CRETLI_ORCHESTRATOR_LEAF_INFERENCE=0`.
+
+- **Per-leaf material checkpoints.** After an independent code review PASS and
+  leaf `done`, the server records a worktree-only checkpoint commit on the
+  prepared branch (or a project-mode path manifest without committing). Review,
+  fix and verify prompts diff against the leaf base; `material_revision` and
+  `todo_show` diagnostics are scoped to that base. Disable with
+  `CRETLI_LEAF_MATERIAL_CHECKPOINT=0`.
+
+- **Two-phase leaf code review (audit + closure).** Code reviews with
+  `review_subject=code` and a leaf id run one scoped audit then closure rounds
+  that re-check open findings only; `reviewMode` is stored on the delegation,
+  workflow tracks audit/closure caps (`closure_rounds_exhausted`), closure picks
+  prefer the audit reviewer, and prompts route `FOLLOW_UP` / `OUT_OF_SCOPE` to
+  separate todos. Disable with `CRETLI_DELEGATION_CODE_REVIEW_PHASE=0`.
+
 ### Fixed
 
 - **Recovery contract deferred adapters for Z.AI and MiMo.** The Z.AI and MiMo
@@ -15,6 +57,41 @@ All notable changes to this project are documented here. The format is based on
   validation matrix covers 11 harnesses, and `docs/recovery-contract.md` was
   synced with contract revision `2026-10-08.3`.
 
+- **Z.AI SDK worker startup.** Use the same Python executable for readiness
+  checks and completions, including the managed SDK virtual environment, so a
+  ready harness does not fail with `No module named 'zai'` on the first message.
+
+- **New-chat harness selection.** Include Z.AI SDK in the initial harness list,
+  keep a visible enabled choice when an inherited harness is unavailable, and
+  hide favorite setups whose harness is absent from the picker.
+
+- **Leaf material execution context and checkpoints.** Inherit-root trees now
+  resolve worktree mode from the workspace watcher policy and live worktree
+  records (explicit `project` on the root still wins). Worktree checkpoints
+  reject non-`/todo/` branches and HEAD mismatches before `update-ref`/`reset`;
+  project manifests hash symlinks and directories without EISDIR aborts and cap
+  stored path counts via `CRETLI_LEAF_MATERIAL_MANIFEST_MAX_PATHS`. Partial
+  worktree handoff paths appear in prompts and clear after a completed run;
+  skipped prior siblings without a verified PASS checkpoint surface diagnostics.
+- **Two-phase code review lifecycle.** Closure caps count credible rounds per
+  material revision (fan-out and delegation retries no longer double-count),
+  `resume_rounds` lifts `closure_rounds_exhausted`, start applies workflow
+  resume before the code-review gate, infra/cancel outcomes skip audit/closure
+  counters, closure without open findings stays in closure mode, non-P1
+  `FOLLOW_UP` items reconcile to PASS server-side, and audit-reviewer sticky
+  drops after an infra failure on the leaf.
+- **Todo review fan-out after infra retry.** `evaluateRound` ignores
+  infrastructure-only review attempts (structured errors or a `Transport not started`
+  start error; a missing report alone is not infra and never hides a persisted FAIL/BLOCKED) when settling a round, so
+  a usable replacement PASS is no longer downgraded to `unknown`/`no_verdict`
+  because an earlier sibling died before producing a report.
+- **Todo review deciding attempts.** Verify obligations and independence now
+  ignore non-deciding infra siblings; persisted FAIL/BLOCKED on infra still
+  blocks the round; `reviewers[]` still lists every fan-out participant.
+- **Implement-verify gate catalog test under review-verify.** Gate tests use a
+  dedicated temp git checkout for material revision instead of `process.cwd()`,
+  so `node scripts/review-verify.js delegation-implement-verify-gate` passes
+  when the runner isolates cwd.
 - **Run deadline review/fix follow-ups.** Workflow history skips
   `run_deadline_exceeded` reviews for round and verdict inference; leaf
   `deadline_at` cancels no longer stamp `run_deadline_exceeded`; explore picks

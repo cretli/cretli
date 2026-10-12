@@ -972,6 +972,16 @@ right branch visible.
   pushes (the only exception is the explicit, user-started git-level merge chat
   described under *Worktree list and git-level merge*); integration is manual and the branch is preserved until a human
   decides.
+- **Per-leaf checkpoints (worktree only):** after an independent code review PASS
+  and `todo_update` closes the leaf, the server may commit a **leaf checkpoint**
+  on the prepared worktree branch (`cretli/todo/<root-id>` or the configured
+  prefix). It uses the same temporary-index snapshot technique as worktree
+  prepare (`Cretli leaf checkpoint for <leaf-id>`). The orchestrator still does
+  not commit; the target branch and main checkout stay untouched. A failed
+  checkpoint is logged on `todo.leafMaterial.lastCheckpoint.error` and does not
+  block `done`. Disable with `CRETLI_LEAF_MATERIAL_CHECKPOINT=0`. In
+  `execution_mode=project` the server never commits; it stores a path→content-hash
+  manifest at leaf start so reviewers diff only that leaf's delta.
 
 ### 1. Mode selection
 
@@ -985,6 +995,13 @@ right branch visible.
   a `worktree` default or a partially filled layout refuses to save until the
   four path/naming fields are complete and safe. The same block can be written
   through the `watcher_set` MCP policy patch.
+- **Uncommitted changes at worktree start** in the same settings section stores
+  `policy.worktree.dirtyPolicy`: `block` (default) requires a clean repository;
+  `head` starts from the last commit and skips local changes; `snapshot` includes
+  tracked changes and non-ignored untracked files through a temporary Git index.
+  The project branch and index stay unchanged. This applies to new worktrees;
+  existing worktrees keep their frozen base. Manual starts can override this
+  policy explicitly with their own `dirtyPolicy`.
 - Empty fields are **prefilled from a server suggestion** computed from the
   workspace (`GET /api/workspace-watcher?suggest=1`, `lib/execution-settings-suggest.js`):
   the root is `<parent-of-repo>/.cretli-worktrees` (always outside the repository),

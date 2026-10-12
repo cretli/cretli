@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { buildSpaPath, isSpaShellPath, parseSpaPath } from '../lib/spa-routes.js';
 import { en } from '../app_front/i18n/en.js';
 import { pl } from '../app_front/i18n/pl.js';
-import { loadPanelModule } from '../app_front/app/appShell/lazyPanelModules.js';
+import { hasLazyPanelModule, loadPanelModule } from '../app_front/app/appShell/lazyPanelModules.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => readFileSync(path.join(root, rel), 'utf8');
@@ -62,6 +62,14 @@ test('lazyPanelModules maps browser to the panel module with its API', async () 
   const mod = await loadPanelModule('browser');
   assert.equal(typeof mod.initBrowserPanel, 'function');
   assert.equal(typeof mod.refreshBrowserPanel, 'function');
+});
+
+test('chat and todo stay in the main bundle so tab clicks are not blocked on a chunk', () => {
+  assert.equal(hasLazyPanelModule('chat'), false);
+  assert.equal(hasLazyPanelModule('todo'), false);
+  assert.equal(hasLazyPanelModule('browser'), true);
+  const app = read('app_front/App.js');
+  assert.match(app, /if \(!hasLazyPanelModule\(panelKey\)\) return Promise\.resolve\(\)/);
 });
 
 test('App.js and panelRouter.js wire the browser panel into the router', () => {

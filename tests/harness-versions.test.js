@@ -805,5 +805,5 @@ test('the endpoint is registered with the session routes, not the dev block', ()
     source.indexOf('export function registerAppRoutes'),
     source.indexOf('export function registerDevAndUpdateRoutes'),
   );
-  assert.match(appRoutes, /registerHarnessCatalogRoutes\(app\);\n\s*registerHarnessVersionsRoutes\(app\);/);
+  assert.match(appRoutes, /registerHarnessVersionsRoutes\(app,\s*\{ projectRoot: ctx\.projectRoot \}\);/);
 });

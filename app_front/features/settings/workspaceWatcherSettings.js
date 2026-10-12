@@ -6,6 +6,7 @@
  * watcher (tick / run cycle / claim next) without turning on autopilot.
  */
 
+import '../../components/ui/cr-bar-select.js';
 import { t } from '../../i18n/index.js';
 import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 import { getWorkspaceWatcherView, isWorkspaceWatcherRead } from '../watcher/watcherGetCoalesce.js';
@@ -93,7 +94,7 @@ const DEFAULT_POLICY = {
   // layout and refuses a `worktree` start until the operator fills it in, so the
   // reset mirror must stay empty too.
   executionMode: 'project',
-  worktree: { root: '', namespace: '', branchPrefix: '', directoryPrefix: '', prepareCommand: [] },
+  worktree: { dirtyPolicy: 'block', root: '', namespace: '', branchPrefix: '', directoryPrefix: '', prepareCommand: [] },
   allowedHarnesses: [],
   pickRoles: [...PICK_ROLES],
   quietHours: { start: '', end: '' },
@@ -2196,6 +2197,11 @@ function renderWatcherPanel(root, data) {
           <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherWorktreeBranchPrefix'))}</span><input id="watcher-worktree-branch-prefix" type="text" placeholder="cretli/todo/" value="${escapeAttr(worktreeText('branchPrefix'))}"></label>
           <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherWorktreeDirectoryPrefix'))}</span><input id="watcher-worktree-directory-prefix" type="text" placeholder="t-" value="${escapeAttr(worktreeText('directoryPrefix'))}"></label>
         </div>
+        <div class="cr-field watcher-wide">
+          <span class="cr-field-label">${escapeHtml(t('settings.watcherWorktreeDirtyPolicy'))}</span>
+          <cr-bar-select id="watcher-worktree-dirty-policy" aria-label="${escapeAttr(t('settings.watcherWorktreeDirtyPolicy'))}" value="${['head', 'snapshot'].includes(worktree.dirtyPolicy) ? worktree.dirtyPolicy : 'block'}"></cr-bar-select>
+          <p class="cr-hint">${escapeHtml(t('settings.watcherWorktreeDirtyPolicyHint'))}</p>
+        </div>
         <label class="cr-field watcher-wide"><span class="cr-field-label">${escapeHtml(t('settings.watcherWorktreePrepare'))}</span><textarea id="watcher-worktree-prepare" rows="3" placeholder="npm&#10;ci">${escapeHtml(prepareCommandText(worktreePrepare))}</textarea></label>
         ${worktreeSuggested ? `<p class="cr-hint">${escapeHtml(t('settings.watcherWorktreeSuggestedHint'))} <code>${escapeHtml(suggested?.repoRoot || '')}</code></p>` : ''}
         <p class="cr-hint">${escapeHtml(t('settings.watcherWorktreePrepareHint'))}</p>
@@ -2353,6 +2359,10 @@ function renderWatcherPanel(root, data) {
     const out = root.querySelector('#watcher-scout-interval-out');
     if (out) out.textContent = `${scoutIntervalInput.value} ${t('settings.watcherHourUnit')}`;
   });
+  const dirtyPolicySelect = root.querySelector('#watcher-worktree-dirty-policy');
+  if (dirtyPolicySelect) dirtyPolicySelect.options = ['block', 'head', 'snapshot'].map((value) => ({
+    value, label: t(`settings.watcherWorktreeDirtyPolicy_${value}`),
+  }));
   // Quiet hours gate the time inputs: disabled and greyed unless the toggle is on.
   const quietToggle = root.querySelector('#watcher-quiet-enabled');
   const syncQuietFields = () => {
@@ -2419,6 +2429,7 @@ function readWatcherForm(root) {
       planApprovalScope: root.querySelector('input[name="watcher-plan-scope"]:checked')?.value === 'root' ? 'root' : 'leaf',
       executionMode: root.querySelector('input[name="watcher-execution-mode"]:checked')?.value === 'worktree' ? 'worktree' : 'project',
       worktree: {
+        dirtyPolicy: root.querySelector('#watcher-worktree-dirty-policy')?.value || 'block',
         root: String(root.querySelector('#watcher-worktree-root')?.value || '').trim(),
         namespace: String(root.querySelector('#watcher-worktree-namespace')?.value || '').trim(),
         branchPrefix: String(root.querySelector('#watcher-worktree-branch-prefix')?.value || '').trim(),
@@ -2582,6 +2593,7 @@ function resetWatcherForm(root) {
   const resetWorktree = lastView?.executionSuggest?.worktree && typeof lastView.executionSuggest.worktree === 'object'
     ? lastView.executionSuggest.worktree
     : DEFAULT_POLICY.worktree;
+  set('watcher-worktree-dirty-policy', DEFAULT_POLICY.worktree.dirtyPolicy);
   set('watcher-worktree-root', resetWorktree.root);
   set('watcher-worktree-namespace', resetWorktree.namespace);
   set('watcher-worktree-branch-prefix', resetWorktree.branchPrefix);

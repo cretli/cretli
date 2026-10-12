@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { AGENT_TRANSPORTS } from '../lib/agent-transport.js';
 import {
   catalogHasModels,
   createNewChatCatalogCache,
@@ -13,8 +15,16 @@ import {
 assert.equal(normalizeNewChatHarnessId('OpenCode'), 'opencode');
 assert.equal(normalizeNewChatHarnessId(' qwen '), 'qwen');
 assert.equal(normalizeNewChatHarnessId('codex'), 'codex');
+assert.equal(normalizeNewChatHarnessId(' ZAI '), 'zai');
 assert.equal(normalizeNewChatHarnessId('nonsense'), 'sdk');
 assert.equal(normalizeNewChatHarnessId(undefined), 'sdk');
+
+// The shell must offer every built-in harness before asynchronous settings load.
+const shell = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+const harnessSelect = shell.match(/<select\s+id="chat-new-harness-select"[^>]*>([\s\S]*?)<\/select>/)?.[1];
+assert.ok(harnessSelect, 'new-chat harness select must exist');
+const shellHarnessIds = Array.from(harnessSelect.matchAll(/<option\s+value="([^"]+)"/g), (match) => match[1]);
+assert.deepEqual(new Set(shellHarnessIds), new Set(AGENT_TRANSPORTS));
 
 // A local id survives normalization only while it is in the enabled allowlist.
 const localIds = new Set(['alpha']);

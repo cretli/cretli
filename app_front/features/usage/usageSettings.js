@@ -73,6 +73,8 @@ const HARNESS_LABEL_KEYS = {
   sdk: 'usage.harnessSdk',
   claude: 'usage.harnessClaude',
   mistral: 'usage.harnessMistral',
+  zai: 'usage.harnessZai',
+  mimo: 'usage.harnessMimo',
   codex: 'usage.harnessCodex',
   opencode: 'usage.harnessOpencode',
   codebuddy: 'usage.harnessCodebuddy',

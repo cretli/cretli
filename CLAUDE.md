@@ -101,9 +101,11 @@ agenta. Domyślnie `maxParallel = 1`, więc cykle są sekwencyjne.
   tylko od orkiestratora danego cyklu. Gdy żyją cykle, autoryzuje wyłącznie
   `chatId` z `activeCycles` — `orchestratorChatId` to tylko „ostatni znany”
   właściciel wiersza bez żywych cykli.
-- **Rodzic cyklu nie commituje i nie pushuje** (ani nie robi merge). Nie edytuje
-  workspace, gdy trwa review, i nie startuje drugiego implement/fix dopóki
-  `slot_occupied=true`.
+- **Rodzic cyklu nie commituje i nie pushuje** (ani nie robi merge). Po PASS liścia
+  serwer może zapisać punkt kontrolny na gałęzi worktree (`todo.leafMaterial` /
+  commit „Cretli leaf checkpoint…”) — to nie jest commit orkiestratora ani push.
+  Nie edytuje workspace, gdy trwa review, i nie startuje drugiego implement/fix
+  dopóki `slot_occupied=true`.
 - **Domyślnie dzieci nie startują kolejnych delegacji** (`CRETLI_DELEGATION_MAX_DEPTH=1`,
   brak grantu → `nested_delegation_denied`). Wielopoziomowe drzewo wymaga jawnego
   `allow_child_delegations` na `delegation_start`, limitu głębokości oraz slotów/budżetu

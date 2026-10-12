@@ -105,9 +105,15 @@ test('an explicit parent tree proof takes precedence and expires when descendant
   const attached = attachTodoIntegrationReadModels([proofParent, leaf]);
   assert.equal(attached.find((row) => row.id === parent.id).integrationSummary.state, 'integrated');
   assert.deepEqual(attached.find((row) => row.id === parent.id).integrationSummary.aggregate, { confirmed: 1, required: 1 });
+  const coveredLeaf = attached.find((row) => row.id === leaf.id).integrationSummary;
+  assert.equal(coveredLeaf.state, 'integrated');
+  assert.equal(coveredLeaf.detail, '');
+  assert.equal(coveredLeaf.coveredByTreeId, parent.id);
+  assert.equal(coveredLeaf.hasCurrentEvidence, false);
 
   const changed = attachTodoIntegrationReadModels([proofParent, { ...leaf, body: 'changed leaf material' }]);
   assert.equal(changed.find((row) => row.id === parent.id).integrationSummary.state, 'unconfirmed');
+  assert.equal(changed.find((row) => row.id === leaf.id).integrationSummary.state, 'unconfirmed');
 });
 
 test('a proof stays current when the read path hydrates the plan from the workspace file', () => {

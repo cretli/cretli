@@ -27,4 +27,14 @@ assert.equal(
 );
 assert.equal(resolveHarnessSelectValue({ options: [] }), '');
 
+// An inherited disabled harness must leave a visible enabled choice.
+assert.equal(
+  resolveHarnessSelectValue({ current: 'zai', options: ['sdk', 'opencode'], fallback: 'opencode' }),
+  'opencode',
+);
+assert.equal(
+  resolveHarnessSelectValue({ current: 'zai', options: ['sdk', 'zai'], fallback: 'sdk' }),
+  'zai',
+);
+
 console.log('harness-settings-load.test.js OK');

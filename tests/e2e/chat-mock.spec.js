@@ -30,8 +30,14 @@ test('mock: opens new chat modal with all harness options', async ({ page }) => 
   expect(harnessValues).toContain('openrouter');
   expect(harnessValues).toContain('codebuddy');
   expect(harnessValues).toContain('deepseek');
+  expect(harnessValues).toContain('mistral');
+  expect(harnessValues).toContain('zai');
   expect(harnessValues).toContain('codex');
   expect(harnessValues).toContain('qwen');
+  expect(harnessValues).toContain('claude');
+  await harnessSelect.selectOption('zai');
+  await expect(harnessSelect).toHaveValue('zai');
+  await expect(harnessSelect.locator('option:checked')).toHaveText('Z.AI SDK');
   await modal.locator('#chat-new-cancel').click();
   await expect(modal).toBeHidden();
 });

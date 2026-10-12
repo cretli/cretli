@@ -15,6 +15,8 @@ const HARNESSES = [
   ['codebuddy', 'CodeBuddy'],
   ['deepseek', 'DeepSeek'],
   ['mistral', 'Mistral'],
+  ['zai', 'Z.AI SDK'],
+  ['mimo', 'MiMo'],
   ['openrouter', 'OpenRouter'],
 ];
 

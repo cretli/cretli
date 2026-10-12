@@ -74,6 +74,8 @@ import { initOpenCodeModelSettings, refreshOpenCodeModelSettingsPanel } from './
 import { initCodeBuddyModelSettings, refreshCodeBuddyModelSettingsPanel } from './codebuddyModelSettings.js';
 import { initDeepSeekModelSettings, refreshDeepSeekModelSettingsPanel } from './deepseekModelSettings.js';
 import { initMistralModelSettings, refreshMistralModelSettingsPanel } from './mistralModelSettings.js';
+import { initZaiModelSettings, refreshZaiModelSettingsPanel } from './zaiModelSettings.js';
+import { initMimoModelSettings, refreshMimoModelSettingsPanel } from './mimoModelSettings.js';
 import { initQwenModelSettings, refreshQwenModelSettingsPanel } from './qwenModelSettings.js';
 import { initClaudeModelSettings, refreshClaudeModelSettingsPanel } from './claudeModelSettings.js';
 import { initCodexModelSettings, refreshCodexModelSettingsPanel } from './codexModelSettings.js';
@@ -147,7 +149,7 @@ import {
   isWatcherSettingsTab,
   remapSettingsTab,
 } from '../lib/spa-routes.js';
-import { loadPanelModule, getLoadedPanelModule } from './app/appShell/lazyPanelModules.js';
+import { loadPanelModule, getLoadedPanelModule, hasLazyPanelModule } from './app/appShell/lazyPanelModules.js';
 import { createWorkspaceContext } from './app/appShell/workspaceContext.js';
 import { createHeaderContextTitle } from './app/appShell/headerContextTitle.js';
 import { createSidebarView } from './features/sidebar/sidebarView.js';
@@ -262,7 +264,7 @@ let terminalPanelState = null;
  * @returns {Promise<void>}
  */
 function ensurePanelReady(panelKey) {
-  if (panelKey === 'settings') return Promise.resolve();
+  if (!hasLazyPanelModule(panelKey)) return Promise.resolve();
   return loadPanelModule(panelKey).then((mod) => {
     if (panelKey === 'terminal' && !terminalPanelState) {
       terminalPanelState = mod.initTerminalPanel('terminal-container');
@@ -434,6 +436,9 @@ const workspaceContext = createWorkspaceContext({
 const headerContextTitle = createHeaderContextTitle({
   getActiveChatId: getActiveChatIdValue,
   getChats: getChatsList,
+  onActivate: () => {
+    void getSharedSpaNavigation()?.navigate({ panel: 'chat' }, { explicit: true });
+  },
 });
 
 const {
@@ -643,6 +648,8 @@ function ensureSettingsHeavyModules() {
   initCodeBuddyModelSettings();
   initDeepSeekModelSettings();
   initMistralModelSettings();
+  initZaiModelSettings();
+  initMimoModelSettings();
   initQwenModelSettings();
   initClaudeModelSettings();
   initCodexModelSettings();
@@ -1250,19 +1257,25 @@ function initHeaderSettings() {
     }
     updateAppFullscreenButton();
   }
+  const leaveSettings = () => {
+    resetChatFullscreenMode();
+    void getSharedSpaNavigation()?.navigate({ panel: getLastMainPanel() }, { explicit: true });
+  };
   const settingsBtn = document.getElementById('header-settings-btn');
   if (settingsBtn) {
     settingsBtn.addEventListener('click', () => {
+      const settingsOpen = document.getElementById('settings-panel')?.classList.contains('active');
+      if (settingsOpen) {
+        leaveSettings();
+        return;
+      }
       resetChatFullscreenMode();
       void getSharedSpaNavigation()?.navigate({ panel: 'settings' }, { explicit: true });
     });
   }
   const backBtn = document.getElementById('settings-back-btn');
   if (backBtn) {
-    backBtn.addEventListener('click', () => {
-      resetChatFullscreenMode();
-      void getSharedSpaNavigation()?.navigate({ panel: getLastMainPanel() }, { explicit: true });
-    });
+    backBtn.addEventListener('click', leaveSettings);
   }
   initAccountLogout();
   initAppUpdateSettings();
@@ -1362,6 +1375,8 @@ function refreshSettingsTabPanels(tabId) {
   if (isHarnessModelSubtab(tabId, 'codebuddy')) refreshCodeBuddyModelSettingsPanel();
   if (isHarnessModelSubtab(tabId, 'deepseek')) refreshDeepSeekModelSettingsPanel();
   if (isHarnessModelSubtab(tabId, 'mistral')) refreshMistralModelSettingsPanel();
+  if (isHarnessModelSubtab(tabId, 'zai')) refreshZaiModelSettingsPanel();
+  if (isHarnessModelSubtab(tabId, 'mimo')) refreshMimoModelSettingsPanel();
   if (isHarnessModelSubtab(tabId, 'qwen')) refreshQwenModelSettingsPanel();
   if (isHarnessModelSubtab(tabId, 'claude')) refreshClaudeModelSettingsPanel();
   if (isHarnessModelSubtab(tabId, 'codex')) refreshCodexModelSettingsPanel();

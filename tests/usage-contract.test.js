@@ -53,17 +53,19 @@ const REQUIRED_MATRIX_FIELDS = [
   'example',
 ];
 
-test('matrix covers all eight harnesses with the required contract fields', () => {
+test('matrix covers all eleven harnesses with the required contract fields', () => {
   assert.deepEqual([...USAGE_MATRIX_HARNESSES].sort(), [
     'claude',
     'codebuddy',
     'codex',
     'deepseek',
+    'mimo',
     'mistral',
     'opencode',
     'openrouter',
     'qwen',
     'sdk',
+    'zai',
   ]);
   for (const harness of USAGE_MATRIX_HARNESSES) {
     const entry = USAGE_HARNESS_MATRIX[harness];

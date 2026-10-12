@@ -46,13 +46,15 @@ export function buildSidebarChatRowHtml(chat, activeChatId, opts, deps) {
       codebuddy: 'CodeBuddy',
       deepseek: 'DeepSeek',
       mistral: 'Mistral',
+      zai: 'Z.AI SDK',
+      mimo: 'MiMo',
       codex: 'Codex',
       qwen: 'Qwen',
       claude: 'Claude',
     })[harness] || 'Cursor SDK';
   const harnessModifier = localHarnessDisplay.blocked
     ? 'local'
-    : (harness === 'cursor-sdk' ? 'sdk' : (['sdk', 'openrouter', 'opencode', 'codebuddy', 'deepseek', 'mistral', 'codex', 'qwen', 'claude'].includes(harness) ? harness : 'sdk'));
+    : (harness === 'cursor-sdk' ? 'sdk' : (['sdk', 'openrouter', 'opencode', 'codebuddy', 'deepseek', 'mistral', 'zai', 'mimo', 'codex', 'qwen', 'claude'].includes(harness) ? harness : 'sdk'));
   const harnessTitle = localHarnessDisplay.blocked ? t(localHarnessDisplay.messageKey) : harnessLabel;
   const actionHtml = typeof deps.renderChatActionButtonsHtml === 'function'
     ? deps.renderChatActionButtonsHtml(chat, { archived })

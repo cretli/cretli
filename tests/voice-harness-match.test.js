@@ -15,6 +15,7 @@ test('accepts spoken product names including Polish cursor', () => {
   assert.equal(resolveVoiceHarness('open router'), 'openrouter');
   assert.equal(resolveVoiceHarness('code buddy'), 'codebuddy');
   assert.equal(resolveVoiceHarness('deep seek'), 'deepseek');
+  assert.equal(resolveVoiceHarness('Z.AI SDK'), 'zai');
   assert.equal(resolveVoiceHarness('qwen'), 'qwen');
 });
 

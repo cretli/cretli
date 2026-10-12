@@ -8,6 +8,8 @@ const HELLO_TRANSPORTS = new Set([
   'codebuddy',
   'deepseek',
   'mistral',
+  'zai',
+  'mimo',
   'codex',
   'qwen',
   'claude',
@@ -15,11 +17,11 @@ const HELLO_TRANSPORTS = new Set([
 
 /**
  * @param {unknown} transport
- * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'mistral' | 'codex' | 'qwen' | 'claude'}
+ * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'mistral' | 'zai' | 'mimo' | 'codex' | 'qwen' | 'claude'}
  */
 export function normalizeHarnessTransport(transport) {
   const raw = typeof transport === 'string' ? transport.trim().toLowerCase() : '';
-  if (raw === 'openrouter' || raw === 'opencode' || raw === 'codebuddy' || raw === 'deepseek' || raw === 'mistral' || raw === 'codex' || raw === 'qwen' || raw === 'claude') return raw;
+  if (raw === 'openrouter' || raw === 'opencode' || raw === 'codebuddy' || raw === 'deepseek' || raw === 'mistral' || raw === 'zai' || raw === 'mimo' || raw === 'codex' || raw === 'qwen' || raw === 'claude') return raw;
   return 'sdk';
 }
 
@@ -43,6 +45,8 @@ export function resolveHarnessDisplayLabel(transport) {
   if (normalized === 'codebuddy') return 'CodeBuddy';
   if (normalized === 'deepseek') return 'DeepSeek';
   if (normalized === 'mistral') return 'Mistral';
+  if (normalized === 'zai') return 'Z.AI SDK';
+  if (normalized === 'mimo') return 'MiMo';
   if (normalized === 'codex') return 'Codex';
   if (normalized === 'qwen') return 'Qwen';
   if (normalized === 'claude') return 'Claude';
@@ -88,6 +92,12 @@ export function buildHarnessLaunchLabel(input) {
   }
   if (transport === 'mistral') {
     return `Mistral · ${modeLabel} · ${sessionLabel}`;
+  }
+  if (transport === 'zai') {
+    return `Z.AI SDK · ${modeLabel} · ${sessionLabel}`;
+  }
+  if (transport === 'mimo') {
+    return `MiMo · ${modeLabel} · ${sessionLabel}`;
   }
   if (transport === 'codex') {
     return `Codex · ${modeLabel} · ${sessionLabel}`;

@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { addTodo, getTodoById } from '../lib/persist/todos-persist.js';
-import { getWorkspaceWatcher, upsertWorkspaceWatcher } from '../lib/persist/workspace-watchers-persist.js';
+import { getWorkspaceWatcher, upsertWorkspaceWatcher, normalizeWorkspaceWatcherPolicy } from '../lib/persist/workspace-watchers-persist.js';
 import { getWorktreeRecord } from '../lib/persist/worktree-registry-persist.js';
 import { startWorkspaceWatcherCycle } from '../lib/workspace-watcher-cycle.js';
 import { resolveWorktreeMode } from '../lib/worktree/worktree-mode.js';
@@ -513,4 +513,44 @@ test('a per-leaf project override beats a worktree policy default', async (t) =>
   assert.equal(executionFolders.length, 1);
   assert.equal(executionFolders[0], '', 'project mode leaves the default workspace cwd in place');
   assert.equal(getWorktreeRecord(todo.id, { dataDir: suite.dataDir }), null);
+});
+
+for (const dirtyPolicy of ['block', 'head', 'snapshot']) {
+  test(`saved watcher dirty-tree policy ${dirtyPolicy} controls new worktree contents`, async (t) => {
+    const suite = makeSuite(`dirty-policy-${dirtyPolicy}`);
+    t.after(suite.cleanup);
+    const todoId = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+    fs.writeFileSync(path.join(suite.repo, 'README.md'), 'local tracked change\n');
+    fs.writeFileSync(path.join(suite.repo, 'new.txt'), 'local new file\n');
+    const beforeStatus = git(suite.repo, ['status', '--porcelain']);
+    const beforeHead = git(suite.repo, ['rev-parse', 'HEAD']);
+    const beforeIndex = git(suite.repo, ['write-tree']);
+    const watcher = upsertWorkspaceWatcher(suite.repo, {
+      policy: { executionMode: 'worktree', worktree: { ...worktreeConfig(suite.baseDir), dirtyPolicy } },
+    }, { dataDir: suite.dataDir });
+    assert.equal(getWorkspaceWatcher(suite.repo, { dataDir: suite.dataDir }).policy.worktree.dirtyPolicy, dirtyPolicy);
+    const prepare = () => prepareWorkspaceWatcherExecution({
+      todoId, workspaceFolder: suite.repo, todo: { executionMode: 'inherit' },
+      policy: watcher.policy, dataDir: suite.dataDir,
+    });
+    if (dirtyPolicy === 'block') {
+      await assert.rejects(prepare, (error) => error.code === WORKTREE_ERROR_CODES.DIRTY);
+      assert.equal(getWorktreeRecord(todoId, { dataDir: suite.dataDir }), null);
+    } else {
+      const result = await prepare();
+      assert.equal(result.record.baseKind, dirtyPolicy);
+      assert.equal(fs.readFileSync(path.join(result.executionFolder, 'README.md'), 'utf8'),
+        dirtyPolicy === 'snapshot' ? 'local tracked change\n' : '# temp\n');
+      assert.equal(fs.existsSync(path.join(result.executionFolder, 'new.txt')), dirtyPolicy === 'snapshot');
+    }
+    assert.equal(git(suite.repo, ['status', '--porcelain']), beforeStatus);
+    assert.equal(git(suite.repo, ['rev-parse', 'HEAD']), beforeHead);
+    assert.equal(git(suite.repo, ['write-tree']), beforeIndex);
+  });
+}
+
+test('missing and invalid watcher dirty-tree policies retain the blocking default', () => {
+  for (const dirtyPolicy of [undefined, null, '', 'invalid']) {
+    assert.equal(normalizeWorkspaceWatcherPolicy({ worktree: { dirtyPolicy } }).worktree.dirtyPolicy, 'block');
+  }
 });

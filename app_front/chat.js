@@ -320,6 +320,7 @@ import {
   notifyWidgetParentPagePinChanged as postWidgetParentPagePinChanged,
 } from './features/chat/chatWidgetPin.js';
 import { createChatModelSelect } from './features/chat/chatModelSelect.js';
+import { resolveHarnessSelectValue } from './features/chat/harnessSettingsLoad.js';
 import {
   createNewChatCatalogCache,
   createNewChatHarnessStatusTracker,
@@ -1730,6 +1731,20 @@ function refreshPendingHarnessModelCatalog(harness) {
   if (nextHarness === 'mistral') {
     return api.getMistralModels().then((data) => {
       if (data?.ok) chatModelSelectApi.applyAvailableModelsFromMistral(data);
+      chatModelSelectApi.refreshModelSelectLabels();
+      return syncLoadedModelsToModeBar();
+    }).catch(() => {});
+  }
+  if (nextHarness === 'zai') {
+    return api.getZaiModels().then((data) => {
+      if (data?.ok) chatModelSelectApi.applyAvailableModelsFromZai(data);
+      chatModelSelectApi.refreshModelSelectLabels();
+      return syncLoadedModelsToModeBar();
+    }).catch(() => {});
+  }
+  if (nextHarness === 'mimo') {
+    return api.getMimoModels().then((data) => {
+      if (data?.ok) chatModelSelectApi.applyAvailableModelsFromMimo(data);
       chatModelSelectApi.refreshModelSelectLabels();
       return syncLoadedModelsToModeBar();
     }).catch(() => {});
@@ -3475,6 +3490,16 @@ export function applyDeepSeekEnabledModels(enabledKeys) {
 /** @param {unknown} enabledKeys */
 export function applyMistralEnabledModels(enabledKeys) {
   chatModelSelectApi?.applyMistralEnabledModels(enabledKeys);
+}
+
+/** @param {unknown} enabledKeys */
+export function applyZaiEnabledModels(enabledKeys) {
+  chatModelSelectApi?.applyZaiEnabledModels(enabledKeys);
+}
+
+/** @param {unknown} enabledKeys */
+export function applyMimoEnabledModels(enabledKeys) {
+  chatModelSelectApi?.applyMimoEnabledModels(enabledKeys);
 }
 
 export function applyQwenEnabledModels(enabledKeys) {
@@ -6456,6 +6481,8 @@ let cachedOpenCodeReady = null;
 let cachedCodeBuddyReady = null;
 let cachedDeepSeekReady = null;
 let cachedMistralReady = null;
+let cachedZaiReady = null;
+let cachedMimoReady = null;
 let cachedQwenReady = null;
 let cachedClaudeReady = null;
 let cachedCodexReady = null;
@@ -6499,6 +6526,8 @@ function getNewChatHarnessReadiness(harness) {
   if (harness === 'codebuddy') return cachedCodeBuddyReady;
   if (harness === 'deepseek') return cachedDeepSeekReady;
   if (harness === 'mistral') return cachedMistralReady;
+  if (harness === 'zai') return cachedZaiReady;
+  if (harness === 'mimo') return cachedMimoReady;
   if (harness === 'qwen') return cachedQwenReady;
   if (harness === 'claude') return cachedClaudeReady;
   if (harness === 'codex') return cachedCodexReady;
@@ -6516,6 +6545,8 @@ function setNewChatHarnessReadyCache(harness, ready) {
   else if (harness === 'codebuddy') cachedCodeBuddyReady = ready;
   else if (harness === 'deepseek') cachedDeepSeekReady = ready;
   else if (harness === 'mistral') cachedMistralReady = ready;
+  else if (harness === 'zai') cachedZaiReady = ready;
+  else if (harness === 'mimo') cachedMimoReady = ready;
   else if (harness === 'qwen') cachedQwenReady = ready;
   else if (harness === 'claude') cachedClaudeReady = ready;
   else if (harness === 'codex') cachedCodexReady = ready;
@@ -6573,7 +6604,7 @@ function setNewChatCreateBusy(busy) {
 
 /**
  * @param {unknown} value
- * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'mistral' | 'codex' | 'qwen' | 'claude'}
+ * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'mistral' | 'zai' | 'mimo' | 'codex' | 'qwen' | 'claude'}
  */
 function normalizeNewChatHarness(value) {
   return normalizeNewChatHarnessId(value, { localIds: localChatHarnessIds });
@@ -6582,6 +6613,19 @@ function normalizeNewChatHarness(value) {
 function getSelectedNewChatHarness() {
   const harnessSel = document.getElementById('chat-new-harness-select');
   return normalizeNewChatHarness(harnessSel?.value || 'sdk');
+}
+
+/**
+ * Keep a visible selection when an inherited harness is disabled or not loaded yet.
+ * @param {HTMLSelectElement} select
+ * @param {string} harness
+ */
+function selectNewChatHarness(select, harness) {
+  select.value = resolveHarnessSelectValue({
+    current: harness,
+    options: Array.from(select.options, (option) => option.value),
+    fallback: select.value,
+  });
 }
 
 /**
@@ -6633,6 +6677,8 @@ function getNewChatHarnessError(harness) {
   if (harness === 'codebuddy') return t('chat.harnessErrorCodeBuddy');
   if (harness === 'deepseek') return t('chat.harnessErrorDeepSeek');
   if (harness === 'mistral') return t('chat.harnessErrorMistral');
+  if (harness === 'zai') return t('chat.harnessErrorZai');
+  if (harness === 'mimo') return t('chat.harnessErrorMimo');
   if (harness === 'qwen') return t('chat.harnessErrorQwen');
   if (harness === 'claude') return t('chat.harnessErrorClaude');
   if (harness === 'codex') return t('chat.harnessErrorCodex');
@@ -6936,6 +6982,40 @@ function refreshNewChatMistralStatus(token) {
     });
 }
 
+function refreshNewChatZaiStatus(token) {
+  return api.getZaiStatus().then((status) => {
+    if (token && !isNewChatHarnessStatusLatest(token)) return null;
+    const ready = !!status?.ready;
+    applyNewChatHarnessStatus('zai', ready, !status?.sdkAvailable ? t('chat.zaiSdkMissing') : undefined, token);
+    if (!status?.zaiApiKeyEffective || !status?.sdkAvailable) return null;
+    return newChatCatalogCache.fetchDeduped('zai', () => api.getZaiModels()).then((models) => {
+      if (token && !isNewChatHarnessStatusLatest(token)) return;
+      if (models?.ok) chatModelSelectApi.applyAvailableModelsFromZai(models);
+      if (getSelectedNewChatHarness() === 'zai') chatModelSelectApi.refreshNewChatModelPicker('zai');
+    });
+  }).catch(() => {
+    if (token && !isNewChatHarnessStatusLatest(token)) return;
+    applyNewChatHarnessStatus('zai', false, t('chat.zaiStatusFailed'), token);
+  });
+}
+
+function refreshNewChatMimoStatus(token) {
+  return api.getMimoStatus().then((status) => {
+    if (token && !isNewChatHarnessStatusLatest(token)) return null;
+    const ready = !!status?.ready;
+    applyNewChatHarnessStatus('mimo', ready, !status?.mimoApiKeyEffective ? t('chat.mimoDisabled') : undefined, token);
+    if (!status?.mimoApiKeyEffective) return null;
+    return newChatCatalogCache.fetchDeduped('mimo', () => api.getMimoModels()).then((models) => {
+      if (token && !isNewChatHarnessStatusLatest(token)) return;
+      if (models?.ok) chatModelSelectApi.applyAvailableModelsFromMimo(models);
+      if (getSelectedNewChatHarness() === 'mimo') chatModelSelectApi.refreshNewChatModelPicker('mimo');
+    });
+  }).catch(() => {
+    if (token && !isNewChatHarnessStatusLatest(token)) return;
+    applyNewChatHarnessStatus('mimo', false, t('chat.mimoStatusFailed'), token);
+  });
+}
+
 function refreshNewChatQwenStatus(token) {
   return api
     .getQwenStatus()
@@ -7081,6 +7161,10 @@ function runNewChatHarnessStatusCheck(harness, options = {}) {
     refreshPromise = refreshNewChatDeepSeekStatus(token);
   } else if (resolvedHarness === 'mistral') {
     refreshPromise = refreshNewChatMistralStatus(token);
+  } else if (resolvedHarness === 'zai') {
+    refreshPromise = refreshNewChatZaiStatus(token);
+  } else if (resolvedHarness === 'mimo') {
+    refreshPromise = refreshNewChatMimoStatus(token);
   } else if (resolvedHarness === 'qwen') {
     refreshPromise = refreshNewChatQwenStatus(token);
   } else if (resolvedHarness === 'claude') {
@@ -7127,6 +7211,8 @@ const NEW_CHAT_HARNESS_LABEL_KEYS = {
   codebuddy: 'settings.harnessCodeBuddy',
   deepseek: 'settings.harnessDeepSeek',
   mistral: 'settings.harnessMistral',
+  zai: 'settings.harnessZai',
+  mimo: 'settings.harnessMimo',
   qwen: 'settings.harnessQwen',
   claude: 'settings.harnessClaude',
   codex: 'settings.harnessCodex',
@@ -7149,8 +7235,14 @@ function getNewChatFavoritePresetLabel(preset) {
 
 function getVisibleNewChatFavoritePresets() {
   const presets = chatPresets.getPresets();
-  if (!chatModelSelectApi) return presets;
-  return presets.filter((preset) => chatModelSelectApi.isModelEnabled(preset.harness, preset.model));
+  const select = document.getElementById('chat-new-harness-select');
+  const availableHarnesses = select instanceof HTMLSelectElement
+    ? new Set(Array.from(select.options, (option) => option.value))
+    : null;
+  return presets.filter((preset) => (
+    (!availableHarnesses || availableHarnesses.has(preset.harness))
+    && (!chatModelSelectApi || chatModelSelectApi.isModelEnabled(preset.harness, preset.model))
+  ));
 }
 
 function renderNewChatFavoritePresetOptions() {
@@ -7222,6 +7314,7 @@ function applyNewChatFavoritePreset(value) {
   const harnessSelect = document.getElementById('chat-new-harness-select');
   const modelSelect = document.getElementById('chat-new-model-select');
   if (!(harnessSelect instanceof HTMLSelectElement) || !(modelSelect instanceof HTMLSelectElement)) return;
+  if (!Array.from(harnessSelect.options).some((option) => option.value === preset.harness)) return;
   // A preset is an explicit user choice; keep late settings/workspace loads from overriding it.
   newChatHarnessUserTouched = true;
   newChatModelPresetApplied = true;
@@ -7495,11 +7588,11 @@ export function openNewChatModal(options = {}) {
     ? readLastDelegationExecutor()
     : { harness: '', model: '' };
   if (harnessSel instanceof HTMLSelectElement && typeof options?.harness === 'string' && options.harness.trim()) {
-    harnessSel.value = normalizeNewChatHarness(options.harness);
+    selectNewChatHarness(harnessSel, normalizeNewChatHarness(options.harness));
   } else if (harnessSel instanceof HTMLSelectElement && sourceChat) {
-    harnessSel.value = normalizeNewChatHarness(sourceChat.agentTransport || 'sdk');
+    selectNewChatHarness(harnessSel, normalizeNewChatHarness(sourceChat.agentTransport || 'sdk'));
   } else if (harnessSel instanceof HTMLSelectElement && lastExecutor.harness) {
-    harnessSel.value = normalizeNewChatHarness(lastExecutor.harness);
+    selectNewChatHarness(harnessSel, normalizeNewChatHarness(lastExecutor.harness));
   }
   // Remember that the modal resolved a harness explicitly so a late settings default cannot replace it.
   newChatHarnessExplicitChoice = !!(
@@ -8133,6 +8226,8 @@ function isVoiceHarnessUsable(harness) {
   if (harness === 'codebuddy') return cachedCodeBuddyReady !== false;
   if (harness === 'deepseek') return cachedDeepSeekReady !== false;
   if (harness === 'mistral') return cachedMistralReady !== false;
+  if (harness === 'zai') return cachedZaiReady !== false;
+  if (harness === 'mimo') return cachedMimoReady !== false;
   if (harness === 'qwen') return cachedQwenReady !== false;
   if (harness === 'claude') return cachedClaudeReady !== false;
   if (harness === 'codex') return cachedCodexReady !== false;
@@ -8280,7 +8375,7 @@ export async function switchVoiceHarness(options = {}) {
   if (!AGENT_TRANSPORTS.includes(nextHarness)) {
     return {
       ok: false,
-      error: 'Unknown harness. Try cursor, opencode, openrouter, codebuddy, deepseek, mistral, codex, qwen, claude.',
+      error: 'Unknown harness. Try cursor, opencode, openrouter, codebuddy, deepseek, mistral, zai, mimo, codex, qwen, claude.',
       harnesses: listReadyVoiceHarnesses(),
     };
   }
@@ -8531,6 +8626,10 @@ function createChatFromModal() {
               ? t('chat.deepseekDisabled')
               : harness === 'mistral'
                 ? t('chat.mistralDisabled')
+              : harness === 'zai'
+                ? t('chat.zaiDisabled')
+              : harness === 'mimo'
+                ? t('chat.mimoDisabled')
               : harness === 'qwen'
                 ? t('chat.qwenDisabled')
               : harness === 'claude'
@@ -9927,6 +10026,8 @@ export function initChatPanel() {
     applyCodeBuddyEnabledModels(data.codebuddyChatEnabledModels || []);
     applyDeepSeekEnabledModels(data.deepseekChatEnabledModels || []);
     applyMistralEnabledModels(data.mistralChatEnabledModels || []);
+    applyZaiEnabledModels(data.zaiChatEnabledModels || []);
+    applyMimoEnabledModels(data.mimoChatEnabledModels || []);
     applyQwenEnabledModels(data.qwenChatEnabledModels || []);
     applyClaudeEnabledModels(data.claudeChatEnabledModels || []);
     applyCodexEnabledModels(data.codexChatEnabledModels || []);
@@ -9970,6 +10071,20 @@ export function initChatPanel() {
       const detail = event?.detail;
       applyMistralEnabledModels(detail?.mistralChatEnabledModels || []);
     });
+    window.addEventListener('cretli-zai-models-changed', (event) => {
+      const detail = event?.detail || {};
+      applyZaiEnabledModels(detail?.zaiChatEnabledModels || []);
+      newChatCatalogCache.clear('zai');
+      newChatHarnessStatusTracker.invalidate('zai');
+      void runNewChatHarnessStatusCheck('zai');
+    });
+    window.addEventListener('cretli-mimo-models-changed', (event) => {
+      const detail = event?.detail || {};
+      applyMimoEnabledModels(detail?.mimoChatEnabledModels || []);
+      newChatCatalogCache.clear('mimo');
+      newChatHarnessStatusTracker.invalidate('mimo');
+      void runNewChatHarnessStatusCheck('mimo');
+    });
     window.addEventListener('cretli-qwen-models-changed', (event) => {
       const detail = event?.detail;
       applyQwenEnabledModels(detail?.qwenChatEnabledModels || []);
@@ -9998,6 +10113,16 @@ export function initChatPanel() {
       // Route through the tracker so the check gets a token and can never be overwritten by
       // an older, tokenless response.
       void runNewChatHarnessStatusCheck('opencode');
+    });
+    window.addEventListener('cretli-zai-key-changed', () => {
+      newChatCatalogCache.clear('zai');
+      newChatHarnessStatusTracker.invalidate('zai');
+      void runNewChatHarnessStatusCheck('zai');
+    });
+    window.addEventListener('cretli-mimo-key-changed', () => {
+      newChatCatalogCache.clear('mimo');
+      newChatHarnessStatusTracker.invalidate('mimo');
+      void runNewChatHarnessStatusCheck('mimo');
     });
     window.addEventListener('cretli-codebuddy-key-changed', () => {
       newChatCatalogCache.clear('codebuddy');

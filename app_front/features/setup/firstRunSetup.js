@@ -10,7 +10,7 @@ import '../../components/ui/index.js';
 import { openFsPicker } from '../../components/ui/cr-fs-picker.js';
 import './first-run-setup.scss';
 
-/** @typedef {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'mistral' | 'codex' | 'qwen' | 'claude'} FirstRunHarness */
+/** @typedef {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'mistral' | 'zai' | 'mimo' | 'codex' | 'qwen' | 'claude'} FirstRunHarness */
 
 const HARNESS_KEY_FIELD = {
   sdk: 'cursorApiKey',
@@ -19,6 +19,8 @@ const HARNESS_KEY_FIELD = {
   codebuddy: 'codebuddyApiKey',
   deepseek: 'deepseekApiKey',
   mistral: 'mistralApiKey',
+  zai: 'zaiApiKey',
+  mimo: 'mimoApiKey',
   qwen: 'qwenApiKey',
   claude: 'claudeApiKey',
   codex: 'codexApiKey',
@@ -31,6 +33,8 @@ const HARNESS_HINT_KEY = {
   codebuddy: 'firstRun.hintCodeBuddy',
   deepseek: 'firstRun.hintDeepSeek',
   mistral: 'firstRun.hintMistral',
+  zai: 'firstRun.hintZai',
+  mimo: 'firstRun.hintMimo',
   qwen: 'firstRun.hintQwen',
   claude: 'firstRun.hintClaude',
   codex: 'firstRun.hintCodex',
@@ -42,7 +46,7 @@ const HARNESS_HINT_KEY = {
  */
 function normalizeHarness(value) {
   const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (raw === 'sdk' || raw === 'opencode' || raw === 'codebuddy' || raw === 'deepseek' || raw === 'mistral' || raw === 'qwen' || raw === 'claude' || raw === 'codex') return raw;
+  if (raw === 'sdk' || raw === 'opencode' || raw === 'codebuddy' || raw === 'deepseek' || raw === 'mistral' || raw === 'zai' || raw === 'mimo' || raw === 'qwen' || raw === 'claude' || raw === 'codex') return raw;
   return 'openrouter';
 }
 
@@ -58,6 +62,8 @@ function listAvailableHarnesses(status) {
     { value: 'codebuddy', label: t('settings.harnessCodeBuddy'), available: status?.codebuddy?.available === true },
     { value: 'deepseek', label: t('settings.harnessDeepSeek'), available: status?.deepseek?.available === true },
     { value: 'mistral', label: t('settings.harnessMistral'), available: status?.mistral?.available === true },
+    { value: 'zai', label: t('settings.harnessZai'), available: status?.zai?.available === true },
+    { value: 'mimo', label: t('settings.harnessMimo'), available: status?.mimo?.available === true },
     { value: 'qwen', label: t('settings.harnessQwen'), available: status?.qwen?.available === true },
     { value: 'claude', label: t('settings.harnessClaude'), available: status?.claude?.available === true },
     { value: 'codex', label: t('settings.harnessCodex'), available: status?.codex?.available === true },
@@ -198,6 +204,7 @@ class CrFirstRunSetup extends LitElement {
       } else {
         payload[field] = key;
       }
+      if (this.harness === 'zai') payload.zaiProvider = 'zai-coding-plan';
       if (this.harness === 'codex' && !usesChatGpt) {
         payload.codexAuthMode = 'api-key';
       }

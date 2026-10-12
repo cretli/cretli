@@ -540,6 +540,8 @@ test('an explicit project parent proof covers its tree and becomes stale after a
   assert.equal(confirmed.body.item.integration.evidence.treeMaterialFingerprint, fingerprintTodoTree(confirmed.body.items, parent.id));
   assert.equal(confirmed.body.items.find((row) => row.id === parent.id).integrationSummary.state, 'integrated');
   assert.deepEqual(confirmed.body.items.find((row) => row.id === parent.id).integrationSummary.aggregate, { confirmed: 1, required: 1 });
+  assert.equal(confirmed.body.items.find((row) => row.id === child.id).integrationSummary.state, 'integrated');
+  assert.equal(confirmed.body.items.find((row) => row.id === child.id).integrationSummary.coveredByTreeId, parent.id);
 
   const currentChild = getTodoById(suite.dataDir, suite.repo, child.id);
   updateTodo(suite.dataDir, suite.repo, child.id, {

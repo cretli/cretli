@@ -147,6 +147,39 @@ test('initPopstate registers at most one popstate handler', () => {
   assert.equal(handlers.length, 1);
 });
 
+test('canonical rewrite during apply still paints the destination panel', async () => {
+  let loc = { pathname: '/settings/connection', search: '' };
+  const painted = [];
+  /** @type {ReturnType<typeof createSpaNavigation>} */
+  let nav;
+  nav = createSpaNavigation({
+    readLocation: () => loc,
+    writeHistory: (url) => {
+      const queryAt = url.indexOf('?');
+      loc = {
+        pathname: queryAt === -1 ? url : url.slice(0, queryAt),
+        search: queryAt === -1 ? '' : url.slice(queryAt),
+      };
+    },
+    applyRouteContext: async () => {
+      nav.replaceCanonicalUrl('/chat?ws=k1');
+    },
+    ensurePanelReady: async () => {},
+    showPanel: (panelId) => painted.push(panelId),
+    applySettingsTab: () => {},
+    applyGitSubview: () => {},
+    applyRouteGitScope: () => {},
+    restoreRouteResources: async () => {},
+    isPanelAllowed: () => true,
+    getModeConfig: () => ({ allowedPanels: ['chat', 'settings'] }),
+    whenScopedAccessAllowed: async () => ({}),
+  });
+  await nav.navigate({ panel: 'chat' }, { explicit: true });
+  assert.deepEqual(painted, ['chat']);
+  assert.equal(loc.pathname, '/chat');
+  assert.equal(loc.search, '?ws=k1');
+});
+
 test('stale generation does not paint after a newer navigate', async () => {
   const slow = deferred();
   const painted = [];

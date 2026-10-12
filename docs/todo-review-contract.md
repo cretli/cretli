@@ -266,15 +266,22 @@ Given the fresh attempts of the current round:
 | else any verdict `conflict` or `unspecified` | `unknown` |
 | else any verify `failed` | `failed` |
 | else verify `required` and absent on a terminal attempt | `unknown` (`verify_missing`) |
-| else every fresh attempt is a usable `PASS` and every verify obligation is satisfied | `passed` |
-| else (some terminal attempt is cancelled / infra / unusable, no FAIL/BLOCKED) | `unknown` |
+| else every non-infra fresh attempt is a usable `PASS` and every verify obligation is satisfied | `passed` |
+| else (some terminal attempt is cancelled / unusable, no FAIL/BLOCKED; or only infra attempts) | `unknown` |
 
-The last row is deliberately conservative and matches the existing cycle
-aggregation, which requires `reviews.every(credibleReview && PASS)` for
-acceptance (`lib/delegation-cycle-outcomes.js:211-212`) and treats fan-out as
-"any BLOCKED, then FAIL, then conflict, PASS only when all PASS"
-(`aggregateReviewFanoutVerdicts`, `lib/delegation-verdict.js:161`). A
-cancelled or infra sibling therefore yields `unknown`, not a silent `passed`.
+Fan-out `passed` ignores infrastructure-only siblings (`isStructuredInfraDelegationOutcome`
+or a `Transport not started` start error; an empty report alone is never infra, §5.3). Verify
+obligations (`verify_failed`, `verify_missing`) apply only to **deciding** reviewers —
+credible, non-infra terminal attempts — so a dead infra sibling with
+`verifyRequired` and no verdict cannot downgrade a usable PASS. A persisted
+`FAIL` or `BLOCKED` on an infra attempt still blocks the round like a non-infra
+failure. Independence aggregation (§9.3) uses the same deciding set; the durable
+`reviewers[]` list still lists every round participant for the UI. A
+cancelled participant or a non-infra attempt without a usable verdict still
+yields `unknown`, not a silent `passed`. Quality-cycle aggregation
+(`lib/delegation-cycle-outcomes.js`) keeps its own `reviews.every(credibleReview && PASS)`
+rule; the todo snapshot is intentionally more lenient on infra retries so a
+replacement review can close the leaf.
 
 ### 4.6 Transition table — SETTLED
 
@@ -288,7 +295,7 @@ cancelled or infra sibling therefore yields `unknown`, not a silent `passed`.
 | terminal reviewer, no usable verdict | empty/degraded/repetition/conflict | `unknown` | degraded `size` with a kept VERDICT stays usable (§5.3) |
 | one cancelled fan-out participant | other participants exist | `unknown` | conservative; a FAIL/BLOCKED sibling makes it `failed` |
 | all fan-out participants cancelled | — | `unknown` | no usable verdict |
-| infra failure (`adapter_*`, provider error) | no FAIL/BLOCKED sibling | `unknown` | classified from structured errors, not report text (§5.3) |
+| infra failure (`adapter_*`, provider error, or `Transport not started` start error) | no FAIL/BLOCKED sibling | `unknown` when alone; `passed` when a non-infra sibling PASS satisfies the round | structured/startup classification only; an empty report without those signals stays `unknown` (§5.3) |
 | review interrupted (run lost) | terminal `interrupted` | `unknown` | never `passed` |
 | implement/fix queued after a review | status `queued` or later | `stale` | decision 5: at queue time, not start |
 | implement/fix started after a review | — | `stale` | |
@@ -923,7 +930,7 @@ touches any of them needs its own decision.
 | C2 | `reviewSubject` is explicit and persisted; defaults are `plan` for plan-mode review, else `other`; legacy records never default to `code`. |
 | C3 | Code and plan snapshots are independent; `other` is audit-only. |
 | C4 | State is always recomputed; `passed` requires every fresh reviewer to be a usable PASS with satisfied verify. |
-| C5 | One cancelled/infra sibling makes the round `unknown`, matching the existing cycle aggregation. |
+| C5 | A cancelled fan-out participant makes the round `unknown`. An infrastructure-only sibling (structured infra or a `Transport not started` start error; a failed row with no error evidence stays unknown and keeps its persisted verdict) is ignored for round settlement so a usable replacement PASS can close the leaf; quality-cycle aggregation stays strict. |
 | C6 | Per-attempt evidence includes `reportVerdict`, `verifyResult`, `acknowledged*`, `reviewSubject`, `queuedAt`; retry resets the record-level copy and archives it. |
 | C7 | Credibility uses structured errors only; a degraded `size` report with a kept VERDICT stays usable. |
 | C8 | No hardcoded `reviewOutcome: 'PASS'` in the integration caller. |

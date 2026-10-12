@@ -10,7 +10,7 @@ built to `public/dist/`.
 | Path | Role |
 |------|------|
 | `server.js` | Composition root: bind, HTTPS, middleware, listen. Workspace/widget/HMR live in `lib/` |
-| `lib/` | Domain modules: top-level app services plus `sdk/`, `opencode/`, `openrouter/`, `mistral/`, `codebuddy/`, `deepseek/`, `qwen/`, `claude/`, `codex/`, `persist/`, `widget/`, `routes/`, `ws/`, `agent-harness/` |
+| `lib/` | Domain modules: top-level app services plus `sdk/`, `opencode/`, `openrouter/`, `mistral/`, `zai/`, `codebuddy/`, `deepseek/`, `qwen/`, `claude/`, `codex/`, `persist/`, `widget/`, `routes/`, `ws/`, `agent-harness/` |
 | `app_front/` | SPA source (webpack → `public/dist/`) |
 | `public/` | Static assets served by Express, including `login.html` |
 | `data/` | Runtime data (gitignored): `auth.json`, `config.json`, `mcp.json`, `mcp-secrets.json`, `mcp-tx.json`, `chats.json`, `todos/`, `uploads/`, `dsh-home/`, `qwen-home/`, `claude-home/`, `codex-home/`, TLS certs |
@@ -98,13 +98,14 @@ SPA navigation contract (RouteState v1, storage, resource adapters):
 
 ## Agent harnesses
 
-Each chat stores `agentTransport`: `sdk` (default), `openrouter`, `mistral`, `opencode`, `codebuddy`, `deepseek`, `qwen`, `claude`, or `codex`. Changing harness from the toolbar creates a **new** chat with the chosen harness (same workspace/folder) and then optionally archives, deletes, or keeps the previous one. You can also pass the previous transcript as a handoff prompt so the new agent continues the work. In widget mode the new chat is also pinned to the host page URL.
+Each chat stores `agentTransport`: `sdk` (default), `openrouter`, `mistral`, `zai`, `opencode`, `codebuddy`, `deepseek`, `qwen`, `claude`, or `codex`. Changing harness from the toolbar creates a **new** chat with the chosen harness (same workspace/folder) and then optionally archives, deletes, or keeps the previous one. You can also pass the previous transcript as a handoff prompt so the new agent continues the work. In widget mode the new chat is also pinned to the host page URL.
 
 | Harness | Backend | Auth / config |
 |---------|---------|---------------|
 | `sdk` | `@cursor/sdk` via `cursor-agent-sdk-ws.js` | `CURSOR_API_KEY` / Settings |
 | `openrouter` | OpenRouter `/v1/chat/completions` + server-side tools | `OPENROUTER_API_KEY` / Settings |
 | `mistral` | `@mistralai/mistralai` via `mistral-agent-ws.js` + host LLM tool loop (`lib/agent-harness`) | `MISTRAL_API_KEY` / Settings; optional `MISTRAL_BASE_URL` |
+| `zai` | Official `zai-sdk` Python package via `lib/zai/zai-agent-ws.js` + host LLM tool loop; install with `npm run setup:zai-sdk` | `ZAI_SDK_API_KEY` / Settings → Harness → Z.AI; provider uses `ZAI_SDK_PROVIDER` or its independent saved setting |
 | `opencode` | `@opencode-ai/sdk` (`opencode serve` per workspace) + OpenCode tool loop | Zen (`OPENCODE_API_KEY`) **or** Z.AI (`ZAI_API_KEY` / Settings → OpenCode) |
 | `codebuddy` | `@tencent-ai/agent-sdk` via `codebuddy-agent-ws.js` + `codebuddy` CLI | `CODEBUDDY_API_KEY` / Settings; optional `CODEBUDDY_CODE_PATH` |
 | `deepseek` | `@deepseek-ai/dsh-sdk-client` via `deepseek-agent-ws.js` + `dsh --profile sdk` | `DEEPSEEK_API_KEY` / Settings; optional `DSH_BIN` |
@@ -116,7 +117,7 @@ A parent agent that needs a **sub-chat on another harness** (for example Cursor 
 
 **Delegation depth and trees (default: one level).** `CRETLI_DELEGATION_MAX_DEPTH` defaults to **1** (hard cap 8): a delegation child chat cannot call `delegation_start` unless the parent passed `allow_child_delegations` (stored as `delegationGrant` on the child chat). The grant only narrows downward — a child may grant further only while it holds the grant itself. Without a grant, starts from depth ≥ 1 return **409** `nested_delegation_denied`; exceeding the configured max returns `depth_exceeded`. Optional `CRETLI_DELEGATION_TREE_SLOT_LIMIT` (default **0** = off) caps occupied slots **per tree** (`rootDelegationId`); when full, starts return **409** `tree_slot_limit`. Mutating implement/fix jobs still respect the workspace write lock (`workspace_busy`); blockers in the same tree use a tree-specific message. Shared tree budgets live on the **root chat** workflow row: `workflow_update` / `POST /api/chats/:id/delegation-workflow` accepts `tree_budget_tokens` / `tree_budget_usd` only from the root chat (`workflow_parent_required` for children). When measured usage from the ledger meets or exceeds a configured cap, further starts in that tree return **409** `tree_budget_exceeded`; absent measurement does not block (`measured: false`). Visibility: MCP `delegation_tree` (read-only; optional `chat_id` must equal the caller), `delegation_list` with `scope=tree`, Settings → Delegations tree panel (`GET /api/chats/:id/delegation-tree`). Cancel: MCP `delegation_cancel` with `tree:true` (or HTTP cancel with tree flag) walks descendants before ancestors; authorized for the job's `parentChatId` or the tree `rootChatId`. While an ancestor is `cancelling`, child starts are rejected with **409** `parent_cancelling`. Gates run on start, retry, and queue drain. Gates, error codes, flag defaults and known gaps are also summarised in [delegation-tree-controls.md](delegation-tree-controls.md).
 
-All nine harnesses share the same WebSocket path (`/ws-agent-sdk`), protocol (`sdkEvent`, replay batches), rich view, and history persist format. OpenRouter, Mistral, OpenCode, CodeBuddy, DeepSeek, Qwen, Claude, and Codex events are normalized to SDK-shaped payloads before broadcast. Archive, restore, delete, and sidebar nesting persist a `chatsChanged` frame to every attached agent socket so the live sidebar reloads without waiting for a page resume. If the chat row is gone (deleted on another device), the server sends `sdkError` with code `chat_not_found` and the client stops reconnecting instead of treating it as a recoverable `invalid_session`.
+All ten harnesses share the same WebSocket path (`/ws-agent-sdk`), protocol (`sdkEvent`, replay batches), rich view, and history persist format. OpenRouter, Mistral, Z.AI, OpenCode, CodeBuddy, DeepSeek, Qwen, Claude, and Codex events are normalized to SDK-shaped payloads before broadcast. Archive, restore, delete, and sidebar nesting persist a `chatsChanged` frame to every attached agent socket so the live sidebar reloads without waiting for a page resume. If the chat row is gone (deleted on another device), the server sends `sdkError` with code `chat_not_found` and the client stops reconnecting instead of treating it as a recoverable `invalid_session`.
 
 Skills use `.agents/skills/<name>/SKILL.md` as the cross-harness convention.
 Project, Cretli-bundled, user (`~/.agents/skills`), and configured shared roots are
@@ -380,6 +381,9 @@ Model windows come from a static prefix table in `lib/sdk/sdk-context-advisory.j
 | GET | `/api/deepseek/models` | DeepSeek Harness model catalog (live `GET /models` when a key is set; fallback `deepseek-flash` / `deepseek-v4-pro`) |
 | GET | `/api/mistral/status` | Mistral SDK package + API key readiness |
 | GET | `/api/mistral/models` | Mistral model catalog (live `models.list()` when a key is set; otherwise static fallback) |
+| GET | `/api/zai/status` | Official Z.AI SDK + independent Z.AI SDK key readiness |
+| GET | `/api/zai/models` | Static GLM catalog for the official SDK harness |
+| POST | `/api/harness/zai/install` | Installs `zai-sdk` into the managed Python virtual environment |
 | GET | `/api/qwen/status` | Qwen Code SDK + Qwen Cloud API key readiness (CLI optional) |
 | GET | `/api/qwen/models` | Qwen Cloud model catalog (live `{baseUrl}/models` when a key is set; otherwise plan fallback) |
 | GET | `/api/claude/status` | Claude Agent SDK package + Anthropic API key readiness |

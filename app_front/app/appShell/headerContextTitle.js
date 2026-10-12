@@ -3,7 +3,7 @@
  * active chat title. The workspace assigned to the active chat wins; the label from
  * #header-workspace-label is only a fallback.
  */
-export function createHeaderContextTitle({ getActiveChatId, getChats }) {
+export function createHeaderContextTitle({ getActiveChatId, getChats, onActivate }) {
   function readWorkspaceLabelFromTrigger() {
     const el = document.getElementById('header-workspace-label');
     if (!el) return '';
@@ -48,8 +48,25 @@ export function createHeaderContextTitle({ getActiveChatId, getChats }) {
     return activeChat?.title ? String(activeChat.title).trim() : '';
   }
 
+  function bindHomeClick() {
+    if (typeof document === 'undefined' || typeof onActivate !== 'function') return;
+    const el = document.getElementById('header-context-title');
+    if (!el || el.dataset.homeBound === '1') return;
+    el.dataset.homeBound = '1';
+    el.setAttribute('role', 'button');
+    el.tabIndex = 0;
+    const goHome = () => onActivate();
+    el.addEventListener('click', goHome);
+    el.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      goHome();
+    });
+  }
+
   function refresh() {
     if (typeof document === 'undefined') return;
+    bindHomeClick();
     const el = document.getElementById('header-context-title');
     if (!el) return;
 

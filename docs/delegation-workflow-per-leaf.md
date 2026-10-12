@@ -49,6 +49,17 @@ lead to a different harness for that recovery attempt. Lack of eligible alternat
 is reported as a blocker. Soft round caps and `same_findings` are not lifted repeatedly
 without new evidence and a changed approach.
 
+When the orchestrator omits `leaf_id` / `todo_id`, the server may infer the
+active leaf: the calling chat must be the `orchestrator_chat_id` of a todo root
+and that subtree must contain exactly one leaf in status `doing`. The resolved id
+feeds leaf-size flash policy, per-leaf workflow, delegation `leafId`, and pick
+proposal linkage; responses include `leaf_source=inferred` when applicable. With
+zero or more than one doing leaf the call proceeds without inference and returns
+`warning.code=leaf_id_missing` plus `candidates`. Explicit ids always win; a leaf
+outside the orchestrator subtree is rejected. Set
+`CRETLI_ORCHESTRATOR_LEAF_INFERENCE=0` to disable inference. The generated TODO
+execution prompt still asks the orchestrator to pass `leaf_id` explicitly.
+
 For implement/fix picks on a leaf, pass `leaf_id` (or `todo_id`) to `model_pick`:
 after a **completed** implement or fix job on that leaf in the parent chat, the
 picker sticky-prefers the same harness/model for the next implement/fix on that
@@ -92,6 +103,34 @@ on the same leaf still has a failed verify for the current material revision
 (`verify_failed_before_review`; override with `allow_verify_failed_review=true`).
 Verify results are stored on the implement/fix record (`verify_result.material_revision`).
 
+## Two-phase code review (audit + closure)
+
+For `review_subject=code` on a leaf with an explicit `leaf_id`, the server
+stores `reviewMode` on the delegation record (`audit` or `closure`) and keeps
+phase counters on the workflow row:
+
+- **`audit`** — first code review of the leaf in the current cycle: full scoped
+  audit against leaf acceptance criteria; findings use stable IDs and priority;
+  out-of-scope notes are `OUT_OF_SCOPE` and do not block the verdict.
+- **`closure`** — later code reviews after the audit: prompt limits work to
+  FIXED/STILL_OPEN on open findings plus fix regressions; new non-P1 findings
+  go to `FOLLOW_UP` and do not block PASS when audit findings are closed.
+
+Defaults: one audit plus two closure **rounds** per cycle
+(`CRETLI_DELEGATION_CODE_REVIEW_MAX_CLOSURES`, default `2`). A round is one
+implement/fix material revision: parallel closure fan-out in the same round
+counts once. Only terminal reviews with a usable verdict advance counters;
+infra/cancel/deadline/unspecified finishes and retries of the same delegation id
+do not consume closure budget. A closure FAIL on the last allowed round sets
+`stop_reason=closure_rounds_exhausted`; `resume_rounds` on `workflow_update` (or
+on `delegation_start`) clears the stop and grants one more closure allowance.
+Closure picks sticky-prefer the audit reviewer (`codeReviewAuditReviewer`) when
+still eligible; an infra outcome by that reviewer on the leaf drops sticky
+automatically. Plan reviews and ad-hoc code reviews without a leaf id keep the legacy
+full regression gate (`CRETLI_DELEGATION_CODE_REVIEW_PHASE=0` disables the
+split). The orchestrator should create separate todos for `FOLLOW_UP` and
+`OUT_OF_SCOPE` items instead of expanding the current leaf.
+
 ## Klucz i dopasowanie liścia
 
 - Klucz wiersza: `parentChatId` + `leafId` (`leaf_id`/`todo_id`).
@@ -115,7 +154,9 @@ Verify results are stored on the implement/fix record (`verify_result.material_r
 - Cykl otwiera terminalny `implement`/`fix`; jeżeli historii brakuje
   implementu, cykl otwiera pierwszy terminalny `review`.
 - Równoległe review jednej rundy (fan-out) są grupowane: kolejne review bez
-  implementu między nimi nie zwiększają rundy.
+  implementu między nimi nie zwiększają rundy. Przy liczeniu `todo.review` awaria
+  infrastruktury bez raportu (np. `failed` bez treści) nie blokuje użytecznego
+  PASS zastępczego w tej samej rundzie — szczegóły w `docs/todo-review-contract.md` §4.5.
 - `review` z `VERDICT: PASS` zeruje rundę; następny implement/fix startuje nowy
   cykl od 1. Auto-reset działa też na ścieżce historii (`resolve` obniża
   zapisane `round`, gdy ostatnie review to PASS).
@@ -170,11 +211,28 @@ Verify results are stored on the implement/fix record (`verify_result.material_r
   jest ustawiony; przy dużym dzienniku może to być kosztowny skan. Gdy harness
   nie raportuje usage, budżet pozostaje nieaktywny (żadnej fałszywej blokady).
 
+## Leaf material base and checkpoints
+
+- Before the first implement/fix on a leaf, the server captures a **leaf base**:
+  in worktree mode the base commit is the previous sibling's successful checkpoint
+  (or the worktree prepare base for the first leaf); in project mode it is a
+  manifest of tracked and untracked paths with content hashes (pre-existing dirty
+  files are part of the base, not the leaf delta).
+- Implement, fix and review prompts include `[LEAF MATERIAL BASE]` with the base
+  commit or partial paths after a failed/interrupted run.
+- `material_revision` on `workflow_update` is rewritten server-side from the
+  leaf-scoped revision when a base exists. Host verify stores the same scoped
+  revision on `verify_result`.
+- After code review PASS and the leaf moves to `done`, the server writes a
+  checkpoint (worktree commit on the prepared branch, or project manifest on the
+  todo). Checkpoint failures are visible in `todo_show` (`leaf_material:` line).
+
 ## Kody odpowiedzi bramki startu
 
 | Kod | Znaczenie |
 | --- | --- |
 | `workflow_deadline` | minął `deadline_at` liścia |
 | `workflow_rounds_exhausted` | `round >= max_rounds` |
-| `workflow_stopped` | twardy `stop_reason` (np. `same_findings`, `blocked`) |
+| `workflow_stopped` | twardy `stop_reason` (np. `same_findings`, `blocked`, `closure_rounds_exhausted`) |
+| `closure_rounds_exhausted` | wyczerpany domyślny limit rund closure (1 audyt + 2 closure); `resume_rounds` podnosi stop |
 | `workflow_budget_exhausted` | zmierzony koszt/tokeny osiągnęły budżet liścia |

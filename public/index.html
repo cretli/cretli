@@ -387,6 +387,7 @@
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codebuddy" data-harness-tab="codebuddy" role="tab" aria-selected="false" data-i18n="settings.harnessCodeBuddy">CodeBuddy</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-deepseek" data-harness-tab="deepseek" role="tab" aria-selected="false" data-i18n="settings.harnessDeepSeek">DeepSeek</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mistral" data-harness-tab="mistral" role="tab" aria-selected="false" data-i18n="settings.harnessMistral">Mistral</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-zai" data-harness-tab="zai" role="tab" aria-selected="false" data-i18n="settings.harnessZai">Z.AI SDK</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-qwen" data-harness-tab="qwen" role="tab" aria-selected="false" data-i18n="settings.harnessQwen">Qwen</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-claude" data-harness-tab="claude" role="tab" aria-selected="false" data-i18n="settings.harnessClaude">Claude</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codex" data-harness-tab="codex" role="tab" aria-selected="false" data-i18n="settings.harnessCodex">Codex</button>
@@ -421,6 +422,16 @@
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mistral-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mistral-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mistral-stats" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabStats">Statistics</button>
+    </div>
+    <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-zai" data-harness-id="zai" role="tablist" hidden data-i18n-aria="settings.harnessZai" aria-label="Z.AI SDK">
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-zai-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-zai-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-zai-stats" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabStats">Statistics</button>
+    </div>
+    <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-mimo" data-harness-id="mimo" role="tablist" hidden data-i18n-aria="settings.harnessMimo" aria-label="MiMo">
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mimo-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mimo-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mimo-stats" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabStats">Statistics</button>
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-qwen" data-harness-id="qwen" role="tablist" hidden data-i18n-aria="settings.harnessQwen" aria-label="Qwen">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-qwen-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
@@ -1606,6 +1617,62 @@
           <span id="mistral-model-settings-status" class="cr-status" aria-live="polite"></span>
         </div>
       </section>
+      <section class="settings-section" data-settings-tab="harness-zai-models" role="tabpanel">
+        <h3 class="settings-section-title" data-i18n="settings.harnessZaiModelsTitle">Z.AI — chat models</h3>
+        <p class="settings-hint" data-i18n="settings.harnessZaiModelsHint">
+          Models from the Z.AI API. Check entries for the chat model picker when harness is Z.AI.
+        </p>
+        <p id="zai-model-settings-summary" class="settings-hint" aria-live="polite"></p>
+        <div class="chat-model-settings-toolbar">
+          <cr-bar-input
+            type="search"
+            id="zai-model-settings-search"
+            class="chat-model-settings-search"
+            placeholder="Search models…"
+            data-i18n-placeholder="settings.chatModelsSearchPlaceholder"
+            autocomplete="off"
+          ></cr-bar-input>
+          <label class="chat-model-settings-sort-wrap">
+            <span class="chat-model-settings-sort-label" data-i18n="settings.chatModelsSortLabel">Sort</span>
+            <cr-bar-select id="zai-model-settings-sort" class="chat-model-settings-sort" aria-label="Sort models"></cr-bar-select>
+          </label>
+          <cr-bar-button id="zai-model-settings-toggle-all-btn" data-i18n="settings.chatModelsToggleAll">Select / deselect all</cr-bar-button>
+          <cr-bar-button id="zai-model-settings-clear-btn" data-i18n="settings.chatModelsClear">Show all in chat</cr-bar-button>
+        </div>
+        <div id="zai-model-settings-list" class="chat-model-settings-list" role="group" aria-labelledby="zai-model-settings-summary"></div>
+        <div class="cr-row">
+          <cr-bar-button variant="primary" id="zai-model-settings-save-btn" data-i18n="settings.chatModelsSave">Save model list</cr-bar-button>
+          <span id="zai-model-settings-status" class="cr-status" aria-live="polite"></span>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="harness-mimo-models" role="tabpanel">
+        <h3 class="settings-section-title" data-i18n="settings.harnessMimoModelsTitle">MiMo — chat models</h3>
+        <p class="settings-hint" data-i18n="settings.harnessMimoModelsHint">
+          Models from the Xiaomi MiMo API. Check entries for the chat model picker when harness is MiMo.
+        </p>
+        <p id="mimo-model-settings-summary" class="settings-hint" aria-live="polite"></p>
+        <div class="chat-model-settings-toolbar">
+          <cr-bar-input
+            type="search"
+            id="mimo-model-settings-search"
+            class="chat-model-settings-search"
+            placeholder="Search models…"
+            data-i18n-placeholder="settings.chatModelsSearchPlaceholder"
+            autocomplete="off"
+          ></cr-bar-input>
+          <label class="chat-model-settings-sort-wrap">
+            <span class="chat-model-settings-sort-label" data-i18n="settings.chatModelsSortLabel">Sort</span>
+            <cr-bar-select id="mimo-model-settings-sort" class="chat-model-settings-sort" aria-label="Sort models"></cr-bar-select>
+          </label>
+          <cr-bar-button id="mimo-model-settings-toggle-all-btn" data-i18n="settings.chatModelsToggleAll">Select / deselect all</cr-bar-button>
+          <cr-bar-button id="mimo-model-settings-clear-btn" data-i18n="settings.chatModelsClear">Show all in chat</cr-bar-button>
+        </div>
+        <div id="mimo-model-settings-list" class="chat-model-settings-list" role="group" aria-labelledby="mimo-model-settings-summary"></div>
+        <div class="cr-row">
+          <cr-bar-button variant="primary" id="mimo-model-settings-save-btn" data-i18n="settings.chatModelsSave">Save model list</cr-bar-button>
+          <span id="mimo-model-settings-status" class="cr-status" aria-live="polite"></span>
+        </div>
+      </section>
       <section class="settings-section" data-settings-tab="harness-qwen-models" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessQwenModelsTitle">Qwen — chat models</h3>
         <p class="settings-hint" data-i18n="settings.harnessQwenModelsHint">
@@ -1687,10 +1754,66 @@
         <p class="settings-hint" data-i18n="harnessHealth.statsRange">Runs and errors from the last 7 days. Plan limits show the latest harness reading.</p>
         <div class="harness-health-card" data-role="harness-statistics" data-harness-id="deepseek" aria-live="polite"></div>
       </section>
+      <section class="settings-section" data-settings-tab="harness-zai-keys" role="tabpanel" hidden>
+        <h3 class="settings-section-title" data-i18n="settings.harnessZaiApiTitle">Z.AI SDK</h3>
+        <p class="settings-hint" id="zai-harness-status" aria-live="polite"></p>
+        <p class="settings-hint" data-i18n="settings.harnessZaiIndependentHint">These credentials are separate from OpenCode.</p>
+        <div class="cr-field">
+          <label class="cr-field-label" for="zai-sdk-provider" data-i18n="settings.harnessZaiProvider">Provider / plan</label>
+          <cr-bar-select id="zai-sdk-provider"></cr-bar-select>
+        </div>
+        <div class="cr-field">
+          <label class="cr-field-label" for="zai-sdk-api-key" data-i18n="settings.harnessZaiApiKey">Z.AI API key</label>
+          <div class="cr-row">
+            <cr-bar-input id="zai-sdk-api-key" type="password" autocomplete="new-password"></cr-bar-input>
+            <cr-bar-button variant="primary" id="zai-sdk-key-save" data-i18n="common.save">Save</cr-bar-button>
+            <cr-bar-button id="zai-sdk-key-clear" data-i18n="common.remove">Remove</cr-bar-button>
+          </div>
+          <span id="zai-sdk-key-status" class="cr-status" aria-live="polite"></span>
+        </div>
+        <div class="cr-row">
+          <cr-bar-button variant="primary" id="zai-sdk-install-btn" data-i18n="settings.harnessZaiInstallSdk">Install official Python SDK</cr-bar-button>
+          <span id="zai-sdk-install-status" class="cr-status" aria-live="polite"></span>
+        </div>
+        <p class="settings-hint" data-i18n="settings.harnessZaiSdkRestartHint">The server process may need a restart after installation.</p>
+      </section>
+      <section class="settings-section" data-settings-tab="harness-mimo-keys" role="tabpanel" hidden>
+        <h3 class="settings-section-title" data-i18n="settings.harnessMimoApiTitle">Xiaomi MiMo API</h3>
+        <p class="settings-hint" id="mimo-harness-status" aria-live="polite"></p>
+        <p class="settings-hint" data-i18n="settings.harnessMimoIndependentHint">These credentials are separate from the OpenCode custom provider.</p>
+        <div class="cr-field">
+          <label class="cr-field-label" for="mimo-api-key" data-i18n="settings.harnessMimoApiKey">MiMo API key</label>
+          <div class="cr-row">
+            <cr-bar-input id="mimo-api-key" type="password" autocomplete="new-password"></cr-bar-input>
+            <cr-bar-button variant="primary" id="mimo-key-save" data-i18n="common.save">Save</cr-bar-button>
+            <cr-bar-button id="mimo-key-clear" data-i18n="common.remove">Remove</cr-bar-button>
+          </div>
+          <span id="mimo-key-status" class="cr-status" aria-live="polite"></span>
+        </div>
+        <div class="cr-field">
+          <label class="cr-field-label" for="mimo-base-url" data-i18n="settings.harnessMimoBaseUrl">MiMo API base URL</label>
+          <div class="cr-row">
+            <cr-bar-input id="mimo-base-url" type="text" autocomplete="off" placeholder="https://api.xiaomimimo.com/v1"></cr-bar-input>
+            <cr-bar-button variant="primary" id="mimo-base-url-save" data-i18n="common.save">Save</cr-bar-button>
+          </div>
+          <span class="cr-status" id="mimo-base-url-status" aria-live="polite"></span>
+          <p class="settings-hint" data-i18n="settings.harnessMimoBaseUrlHint">Defaults to https://api.xiaomimimo.com/v1.</p>
+        </div>
+      </section>
       <section class="settings-section" data-settings-tab="harness-mistral-stats" role="tabpanel" hidden>
         <h3 class="settings-section-title"><span data-i18n="settings.harnessMistral">mistral</span> — <span data-i18n="settings.harnessSubtabStats">Statistics</span></h3>
         <p class="settings-hint" data-i18n="harnessHealth.statsRange">Runs and errors from the last 7 days. Plan limits show the latest harness reading.</p>
         <div class="harness-health-card" data-role="harness-statistics" data-harness-id="mistral" aria-live="polite"></div>
+      </section>
+      <section class="settings-section" data-settings-tab="harness-zai-stats" role="tabpanel" hidden>
+        <h3 class="settings-section-title"><span data-i18n="settings.harnessZai">Z.AI SDK</span> — <span data-i18n="settings.harnessSubtabStats">Statistics</span></h3>
+        <p class="settings-hint" data-i18n="harnessHealth.statsRange">Runs and errors from the last 7 days. Plan limits show the latest harness reading.</p>
+        <div class="harness-health-card" data-role="harness-statistics" data-harness-id="zai" aria-live="polite"></div>
+      </section>
+      <section class="settings-section" data-settings-tab="harness-mimo-stats" role="tabpanel" hidden>
+        <h3 class="settings-section-title"><span data-i18n="settings.harnessMimo">mimo</span> — <span data-i18n="settings.harnessSubtabStats">Statistics</span></h3>
+        <p class="settings-hint" data-i18n="harnessHealth.statsRange">Runs and errors from the last 7 days. Plan limits show the latest harness reading.</p>
+        <div class="harness-health-card" data-role="harness-statistics" data-harness-id="mimo" aria-live="polite"></div>
       </section>
       <section class="settings-section" data-settings-tab="harness-qwen-stats" role="tabpanel" hidden>
         <h3 class="settings-section-title"><span data-i18n="settings.harnessQwen">qwen</span> — <span data-i18n="settings.harnessSubtabStats">Statistics</span></h3>
@@ -2866,6 +2989,8 @@
                 <option value="codebuddy">CodeBuddy</option>
                 <option value="deepseek">DeepSeek</option>
                 <option value="mistral">Mistral</option>
+                <option value="zai" data-i18n="settings.harnessZai">Z.AI SDK</option>
+                <option value="mimo" data-i18n="settings.harnessMimo">MiMo</option>
                 <option value="qwen">Qwen</option>
                 <option value="claude">Claude</option>
                 <option value="codex">Codex</option>

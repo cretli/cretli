@@ -51,6 +51,8 @@ export async function loadHarnessModelUsage(settings) {
     api.getClaudeModels(),
     api.getCodexModels(),
     api.getMistralModels(),
+    api.getZaiModels(),
+    api.getMimoModels(),
   ]);
   const sdk = readSettledPayload(settled[0]);
   const openrouter = readSettledPayload(settled[1]);
@@ -61,6 +63,8 @@ export async function loadHarnessModelUsage(settings) {
   const claude = readSettledPayload(settled[6]);
   const codex = readSettledPayload(settled[7]);
   const mistral = readSettledPayload(settled[8]);
+  const zai = readSettledPayload(settled[9]);
+  const mimo = readSettledPayload(settled[10]);
   return {
     sdk: countCatalogEnabledModels(catalogFromModelsPayload(sdk), settings?.chatEnabledModels),
     openrouter: countCatalogEnabledModels(
@@ -86,5 +90,7 @@ export async function loadHarnessModelUsage(settings) {
       catalogFromModelsPayload(mistral),
       settings?.mistralChatEnabledModels,
     ),
+    zai: countCatalogEnabledModels(catalogFromModelsPayload(zai), settings?.zaiChatEnabledModels),
+    mimo: countCatalogEnabledModels(catalogFromModelsPayload(mimo), settings?.mimoChatEnabledModels),
   };
 }

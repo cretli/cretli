@@ -133,4 +133,66 @@ test('blockTodoForNoNonFlashCandidate sets blockedReason on the leaf', () => {
   assert.equal(after.blockedReason, TODO_BLOCKED_REASON_NO_NON_FLASH_CANDIDATE);
 });
 
+test('classifyLeafSize: root-level files are counted (no directory segment required)', () => {
+  const body = 'Touch server.js and config.js only.';
+  assert.equal(listExistingFilePathsInLeafBody(body).length, 2);
+  assert.equal(classifyLeafSize(body), LEAF_SIZE_SMALL);
+});
+
+test('classifyLeafSize: every path on one line is counted (no undercount)', () => {
+  const body = 'lib/a.js lib/b.js lib/c.js lib/d.js';
+  assert.equal(listExistingFilePathsInLeafBody(body).length, 4);
+  assert.equal(classifyLeafSize(body), LEAF_SIZE_LARGE);
+});
+
+test('classifyLeafSize: mixed root and directory paths count correctly', () => {
+  const body = 'server.js lib/a.js config.js are the only files.';
+  assert.equal(listExistingFilePathsInLeafBody(body).length, 3);
+  assert.equal(classifyLeafSize(body), LEAF_SIZE_SMALL);
+});
+
+test('classifyLeafSize: a single line over the threshold is large', () => {
+  const body = 'a.js b.js c.js d.js e.js';
+  assert.equal(listExistingFilePathsInLeafBody(body).length, 5);
+  assert.equal(classifyLeafSize(body), LEAF_SIZE_LARGE);
+});
+
+test('classifyLeafSize: existence check treats non-existent-only lists as large', () => {
+  // No path exists on disk -> the list is treated as "no list" -> large.
+  const neverExists = () => false;
+  const body = 'Dodaj lib/nonexistent.js i config.js.';
+  assert.equal(listExistingFilePathsInLeafBody(body, { exists: neverExists }).length, 0);
+  assert.equal(classifyLeafSize(body, { exists: neverExists }), LEAF_SIZE_LARGE);
+});
+
+test('classifyLeafSize: existence check keeps a small leaf when paths exist', () => {
+  const existing = new Set(['lib/real.js', 'server.js']);
+  const exists = (p) => existing.has(String(p || '').trim().toLowerCase());
+  const body = 'Edit lib/real.js only.';
+  assert.equal(listExistingFilePathsInLeafBody(body, { exists }).length, 1);
+  assert.equal(classifyLeafSize(body, { exists }), LEAF_SIZE_SMALL);
+});
+
+test('classifyLeafSize: existence check keeps large when more existing files than threshold', () => {
+  const existing = new Set(['a.js', 'b.js', 'c.js', 'd.js']);
+  const exists = (p) => existing.has(String(p || '').trim().toLowerCase());
+  const body = 'a.js b.js c.js d.js';
+  assert.equal(classifyLeafSize(body, { exists }), LEAF_SIZE_LARGE);
+});
+
+test('classifyLeafSize: existence check mixes existing and missing paths', () => {
+  const existing = new Set(['lib/real.js']);
+  const exists = (p) => existing.has(String(p || '').trim().toLowerCase());
+  // One existing + one missing: only the existing counts (1 <= 3) -> small.
+  const body = 'lib/real.js lib/missing.js';
+  assert.equal(listExistingFilePathsInLeafBody(body, { exists }).length, 1);
+  assert.equal(classifyLeafSize(body, { exists }), LEAF_SIZE_SMALL);
+  // Four existing, one missing -> 4 existing -> large.
+  const many = new Set(['a.js', 'b.js', 'c.js', 'd.js']);
+  const existsMany = (p) => many.has(String(p || '').trim().toLowerCase());
+  const bodyMany = 'a.js b.js c.js d.js lib/missing.js';
+  assert.equal(listExistingFilePathsInLeafBody(bodyMany, { exists: existsMany }).length, 4);
+  assert.equal(classifyLeafSize(bodyMany, { exists: existsMany }), LEAF_SIZE_LARGE);
+});
+
 console.log('model-pick-leaf-size.test.js OK');

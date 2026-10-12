@@ -376,6 +376,8 @@ export function resolveSidebarHarnessIcon(chat) {
     codebuddy: 'codebuddy.svg',
     deepseek: 'deepseek.svg',
     mistral: 'mistral.svg',
+    zai: 'zai.svg',
+    mimo: 'mimo.svg',
     codex: 'codex.svg',
     qwen: 'qwen.svg',
     claude: 'claude.svg',

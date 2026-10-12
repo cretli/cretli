@@ -65,6 +65,10 @@ export function createChatModelSelect(deps) {
   /** @type {import('../../../lib/model-catalog.js').ModelCatalogEntry[]} */
   let mistralModelCatalog = [];
   /** @type {import('../../../lib/model-catalog.js').ModelCatalogEntry[]} */
+  let zaiModelCatalog = [];
+  /** @type {import('../../../lib/model-catalog.js').ModelCatalogEntry[]} */
+  let mimoModelCatalog = [];
+  /** @type {import('../../../lib/model-catalog.js').ModelCatalogEntry[]} */
   let qwenModelCatalog = [];
   /** @type {import('../../../lib/model-catalog.js').ModelCatalogEntry[]} */
   let claudeModelCatalog = [];
@@ -85,17 +89,21 @@ export function createChatModelSelect(deps) {
   /** @type {string[]} */
   let mistralEnabledModelKeys = [];
   /** @type {string[]} */
+  let zaiEnabledModelKeys = [];
+  /** @type {string[]} */
+  let mimoEnabledModelKeys = [];
+  /** @type {string[]} */
   let qwenEnabledModelKeys = [];
   /** @type {string[]} */
   let claudeEnabledModelKeys = [];
   /** @type {string[]} */
   let codexEnabledModelKeys = [];
-  /** @type {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'mistral' | 'codex' | 'qwen' | 'claude'} */
+  /** @type {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'mistral' | 'zai' | 'mimo' | 'codex' | 'qwen' | 'claude'} */
   let pickerHarness = 'sdk';
 
   /**
    * @param {unknown} harness
-   * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'mistral' | 'codex' | 'qwen' | 'claude'}
+   * @returns {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'mistral' | 'zai' | 'mimo' | 'codex' | 'qwen' | 'claude'}
    */
   function normalizeModelPickerHarness(harness) {
     const raw = typeof harness === 'string' ? harness.trim().toLowerCase() : '';
@@ -104,6 +112,8 @@ export function createChatModelSelect(deps) {
     if (raw === 'codebuddy') return 'codebuddy';
     if (raw === 'deepseek') return 'deepseek';
     if (raw === 'mistral') return 'mistral';
+    if (raw === 'zai') return 'zai';
+    if (raw === 'mimo') return 'mimo';
     if (raw === 'codex') return 'codex';
     if (raw === 'qwen') return 'qwen';
     if (raw === 'claude') return 'claude';
@@ -131,6 +141,8 @@ export function createChatModelSelect(deps) {
     if (resolved === 'mistral') {
       return { catalog: mistralModelCatalog, keys: mistralEnabledModelKeys };
     }
+    if (resolved === 'zai') return { catalog: zaiModelCatalog, keys: zaiEnabledModelKeys };
+    if (resolved === 'mimo') return { catalog: mimoModelCatalog, keys: mimoEnabledModelKeys };
     if (resolved === 'qwen') {
       return { catalog: qwenModelCatalog, keys: qwenEnabledModelKeys };
     }
@@ -193,6 +205,20 @@ export function createChatModelSelect(deps) {
   function applyMistralEnabledModels(enabledKeys) {
     mistralEnabledModelKeys = normalizeChatEnabledModels(enabledKeys);
     if (pickerHarness === 'mistral') rebuildAvailableAgentModels('mistral');
+    refreshModelSelectLabels();
+  }
+
+  /** @param {unknown} enabledKeys */
+  function applyZaiEnabledModels(enabledKeys) {
+    zaiEnabledModelKeys = normalizeChatEnabledModels(enabledKeys);
+    if (pickerHarness === 'zai') rebuildAvailableAgentModels('zai');
+    refreshModelSelectLabels();
+  }
+
+  /** @param {unknown} enabledKeys */
+  function applyMimoEnabledModels(enabledKeys) {
+    mimoEnabledModelKeys = normalizeChatEnabledModels(enabledKeys);
+    if (pickerHarness === 'mimo') rebuildAvailableAgentModels('mimo');
     refreshModelSelectLabels();
   }
 
@@ -355,6 +381,52 @@ export function createChatModelSelect(deps) {
     }
     mistralModelCatalog = nextCatalog;
     if (pickerHarness === 'mistral') rebuildAvailableAgentModels('mistral');
+    return true;
+  }
+
+  /**
+   * @param {unknown} payload
+   * @returns {boolean}
+   */
+  function applyAvailableModelsFromZai(payload) {
+    if (!payload?.ok || !Array.isArray(payload.models)) return false;
+    const nextCatalog = payload.models.map((row) => ({
+      value: row.id,
+      label: row.name || row.id,
+      modelId: row.id,
+      group: 'Z.AI',
+      provider: 'zai',
+    }));
+    if (nextCatalog.length === 0) return false;
+    if (Array.isArray(payload?.chatEnabledModels)) zaiEnabledModelKeys = normalizeChatEnabledModels(payload.chatEnabledModels);
+    const prevSig = JSON.stringify(zaiModelCatalog);
+    const nextSig = JSON.stringify(nextCatalog);
+    if (prevSig === nextSig && pickerHarness === 'zai' && availableAgentModels.length > 0) return false;
+    zaiModelCatalog = nextCatalog;
+    if (pickerHarness === 'zai') rebuildAvailableAgentModels('zai');
+    return true;
+  }
+
+  /**
+   * @param {unknown} payload
+   * @returns {boolean}
+   */
+  function applyAvailableModelsFromMimo(payload) {
+    if (!payload?.ok || !Array.isArray(payload.models)) return false;
+    const nextCatalog = payload.models.map((row) => ({
+      value: row.id,
+      label: row.name || row.id,
+      modelId: row.id,
+      group: 'MiMo',
+      provider: 'mimo',
+    }));
+    if (nextCatalog.length === 0) return false;
+    if (Array.isArray(payload?.chatEnabledModels)) mimoEnabledModelKeys = normalizeChatEnabledModels(payload.chatEnabledModels);
+    const prevSig = JSON.stringify(mimoModelCatalog);
+    const nextSig = JSON.stringify(nextCatalog);
+    if (prevSig === nextSig && pickerHarness === 'mimo' && availableAgentModels.length > 0) return false;
+    mimoModelCatalog = nextCatalog;
+    if (pickerHarness === 'mimo') rebuildAvailableAgentModels('mimo');
     return true;
   }
 
@@ -621,6 +693,8 @@ export function createChatModelSelect(deps) {
       || getCatalogEntryLabel(codebuddyModelCatalog, value)
       || getCatalogEntryLabel(deepseekModelCatalog, value)
       || getCatalogEntryLabel(mistralModelCatalog, value)
+      || getCatalogEntryLabel(zaiModelCatalog, value)
+      || getCatalogEntryLabel(mimoModelCatalog, value)
       || getCatalogEntryLabel(qwenModelCatalog, value)
       || getCatalogEntryLabel(claudeModelCatalog, value)
       || getCatalogEntryLabel(codexModelCatalog, value);
@@ -930,6 +1004,8 @@ export function createChatModelSelect(deps) {
     applyCodeBuddyEnabledModels,
     applyDeepSeekEnabledModels,
     applyMistralEnabledModels,
+    applyZaiEnabledModels,
+    applyMimoEnabledModels,
     applyQwenEnabledModels,
     applyClaudeEnabledModels,
     applyCodexEnabledModels,
@@ -941,6 +1017,8 @@ export function createChatModelSelect(deps) {
     applyAvailableModelsFromCodeBuddy,
     applyAvailableModelsFromDeepSeek,
     applyAvailableModelsFromMistral,
+    applyAvailableModelsFromZai,
+    applyAvailableModelsFromMimo,
     applyAvailableModelsFromQwen,
     applyAvailableModelsFromClaude,
     applyAvailableModelsFromCodex,

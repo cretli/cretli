@@ -24,6 +24,7 @@ import { MODEL_PICK_HARD_GATE_CODES } from '../lib/model-pick-hard-gates.js';
 import { createDelegationService } from '../lib/delegation-service.js';
 import { isDelegationModelAvailable } from '../lib/delegation-executor.js';
 import { addChat } from '../lib/persist/chats-persist.js';
+import { addTodo } from '../lib/persist/todos-persist.js';
 import { registerMockChatRunAdapter, resetMockChatRuns } from '../lib/chat-run/mock-adapter.js';
 import { unregisterChatRunAdapter } from '../lib/chat-run-service.js';
 import { buildModelPickHistory } from '../lib/model-pick-history.js';
@@ -367,5 +368,46 @@ assert.equal(replayedStart.replayed, true);
 fs.rmSync(project, { recursive: true, force: true });
 if (typeof previousDeepseekKey === 'string') process.env.DEEPSEEK_API_KEY = previousDeepseekKey;
 else delete process.env.DEEPSEEK_API_KEY;
+
+// --- Leaf-size gate: parent.todoId path (L2-F4) -----------------------------
+{
+  const leaf = addTodo(ISOLATED_DATA_DIR, ISOLATED_DATA_DIR, {
+    title: 'Large leaf via parent.todoId',
+    status: 'doing',
+    body: ['Files:', 'lib/a.js', 'lib/b.js', 'lib/c.js', 'lib/d.js'].join('\n'),
+  }).item;
+  assert.ok(leaf?.id);
+  const withParent = buildNamedDelegationStartHardGateInput({
+    role: 'implement',
+    harness: 'opencode',
+    model: 'opencode/test',
+    parentTodoId: String(leaf.id),
+    workspaceFolder: ISOLATED_DATA_DIR,
+  });
+  assert.equal(withParent.leafSize, 'large', 'leafSize must resolve from parent.todoId');
+  // A small (single-file) leaf via parent.todoId stays small.
+  const smallLeaf = addTodo(ISOLATED_DATA_DIR, ISOLATED_DATA_DIR, {
+    title: 'Small leaf via parent.todoId',
+    status: 'doing',
+    body: 'Touch lib/single.js only.',
+  }).item;
+  assert.ok(smallLeaf?.id);
+  const smallParent = buildNamedDelegationStartHardGateInput({
+    role: 'implement',
+    harness: 'opencode',
+    model: 'opencode/test',
+    parentTodoId: String(smallLeaf.id),
+    workspaceFolder: ISOLATED_DATA_DIR,
+  });
+  assert.equal(smallParent.leafSize, 'small', 'single-file leaf via parent.todoId stays small');
+  // Without parent.todoId the gate does not invent a large leaf.
+  const noParent = buildNamedDelegationStartHardGateInput({
+    role: 'implement',
+    harness: 'opencode',
+    model: 'opencode/test',
+    workspaceFolder: ISOLATED_DATA_DIR,
+  });
+  assert.notEqual(noParent.leafSize, 'large');
+}
 
 console.log('delegation-model-gates.test.js OK');

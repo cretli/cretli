@@ -579,6 +579,22 @@ export async function getMistralModels() {
   return dedupeGetJson('/api/mistral/models', 'getMistralModels');
 }
 
+export async function getZaiStatus() {
+  return dedupeGetJson('/api/zai/status', 'getZaiStatus');
+}
+
+export async function getZaiModels() {
+  return dedupeGetJson('/api/zai/models', 'getZaiModels');
+}
+
+export async function getMimoStatus() {
+  return dedupeGetJson('/api/mimo/status', 'getMimoStatus');
+}
+
+export async function getMimoModels() {
+  return dedupeGetJson('/api/mimo/models', 'getMimoModels');
+}
+
 /** DeepSeek Harness status (SDK + CLI + API key). */
 export async function getDeepSeekStatus() {
   return dedupeGetJson('/api/deepseek/status', 'getDeepSeekStatus');
@@ -1972,6 +1988,15 @@ export async function installMistralSdk() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
   }, 'installMistralSdk', { timeoutMs: 180000 });
+}
+
+/** Install the official Z.AI Python SDK into Cretli's managed virtual environment. */
+export async function installZaiSdk() {
+  return apiFetchJson('/api/harness/zai/install', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  }, 'installZaiSdk', { timeoutMs: 180000 });
 }
 
 /**

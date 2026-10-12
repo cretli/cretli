@@ -162,12 +162,120 @@ test('fan-out PASS + cancelled sibling is unknown, never passed', () => {
   assert.equal(code.reviewerCount, 2);
 });
 
-test('fan-out PASS + infra sibling is unknown, never passed', () => {
+test('fan-out PASS + infra sibling passes when the replacement review is usable', () => {
   const impl = materialRow({ queuedAt: t(1) });
   const pass = reviewRow({ startedAt: t(3) });
   const infra = reviewRow({ startedAt: t(4), status: 'failed', error: 'adapter_incomplete', report: '' });
   const code = subjectSnapshot([impl, pass, infra]);
+  assert.equal(code.state, 'passed');
+  assert.equal(code.stateReason, 'fresh_review');
+});
+
+test('infra failed without report (Transport not started) does not poison a usable PASS sibling', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const infra = reviewRow({
+    startedAt: t(2),
+    status: 'failed',
+    error: 'Transport not started',
+    report: '',
+    reportVerdict: '',
+    verifyRequired: true,
+    reviewCanRunTests: false,
+    verifyResult: null,
+  });
+  const pass = reviewRow({
+    startedAt: t(3),
+    verifyRequired: true,
+    reviewCanRunTests: false,
+    verifyResult: { status: 'passed', attemptId: 'att-pass', recordedAt: t(4) },
+  });
+  const code = subjectSnapshot([impl, infra, pass]);
+  assert.equal(code.state, 'passed');
+  assert.notEqual(code.stateReason, 'verify_missing');
+  assert.equal(code.reviewers.find((row) => row.verdict === 'PASS')?.usable, true);
+});
+
+test('dead sdk review sibling does not poison independence when a deciding PASS exists', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const deadSdk = reviewRow({
+    startedAt: t(2),
+    status: 'failed',
+    error: 'Transport not started',
+    report: '',
+    reportVerdict: '',
+    executor: { transport: 'sdk', model: 'composer-2.5-fast' },
+  });
+  const pass = reviewRow({
+    startedAt: t(3),
+    executor: { transport: 'opencode', model: 'deepseek-chat' },
+  });
+  const code = subjectSnapshot([impl, deadSdk, pass]);
+  assert.equal(code.state, 'passed');
+  assert.equal(code.independence.independent, true);
+  assert.equal(code.independence.class, 'different_base_model');
+  assert.equal(code.reviewerCount, 2);
+});
+
+test('infra attempt with persisted FAIL blocks a usable PASS sibling', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const infraFail = reviewRow({
+    startedAt: t(2),
+    status: 'failed',
+    error: 'Transport not started',
+    report: '',
+    reportVerdict: 'FAIL',
+  });
+  const pass = reviewRow({ startedAt: t(3) });
+  const code = subjectSnapshot([impl, infraFail, pass]);
+  assert.equal(code.state, 'failed');
+  assert.equal(code.stateReason, 'review_failed');
+});
+
+test('failed review with an empty report and no error evidence is not infra: PASS sibling stays unknown', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const unclassified = reviewRow({ startedAt: t(2), status: 'failed', report: '', reportVerdict: '' });
+  const pass = reviewRow({ startedAt: t(3) });
+  const code = subjectSnapshot([impl, unclassified, pass]);
   assert.equal(code.state, 'unknown');
+  assert.notEqual(code.state, 'passed');
+});
+
+test('failed review with an empty report keeps a persisted FAIL / BLOCKED verdict', () => {
+  for (const verdict of ['FAIL', 'BLOCKED']) {
+    const impl = materialRow({ queuedAt: t(1) });
+    const row = reviewRow({ startedAt: t(2), status: 'failed', report: '', reportVerdict: verdict });
+    const pass = reviewRow({ startedAt: t(3) });
+    const code = subjectSnapshot([impl, row, pass]);
+    assert.equal(code.state, 'failed', verdict);
+  }
+});
+
+test('failed review with an empty report and a conflict verdict stays unknown', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const row = reviewRow({ startedAt: t(2), status: 'failed', report: '', reportVerdict: 'conflict' });
+  const code = subjectSnapshot([impl, row]);
+  assert.equal(code.state, 'unknown');
+});
+
+test('infra-only reviews without a replacement PASS stay unknown', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const a = reviewRow({ startedAt: t(2), status: 'failed', error: 'Transport not started', report: '', reportVerdict: '' });
+  const b = reviewRow({ startedAt: t(3), status: 'interrupted', error: 'adapter_incomplete', report: '', reportVerdict: '' });
+  const code = subjectSnapshot([impl, a, b]);
+  assert.equal(code.state, 'unknown');
+});
+
+test('failed host verify is preserved next to a Transport not started sibling', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const infra = reviewRow({ startedAt: t(2), status: 'failed', error: 'Transport not started', report: '', reportVerdict: '' });
+  const pass = reviewRow({
+    startedAt: t(3),
+    verifyRequired: true,
+    reviewCanRunTests: false,
+    verifyResult: { status: 'failed', attemptId: 'att-v', recordedAt: t(4) },
+  });
+  const code = subjectSnapshot([impl, infra, pass]);
+  assert.equal(code.state, 'failed');
 });
 
 test('fan-out FAIL + infra sibling stays failed (a FAIL is decisive)', () => {

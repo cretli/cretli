@@ -434,6 +434,34 @@ test('finishDelegation persists the terminal snapshot (worker + bridge path)', (
   assert.equal(readTodo(project, todo.id).review.code.state, 'passed');
 });
 
+test('closure reconcile FAIL→PASS on finish syncs todo review passed', () => {
+  const project = makeProject('closure-reconcile');
+  const todo = makeTodo(project);
+  const impl = makeDelegation(project, todo, { assignment: 'implement', queuedAt: '2026-01-01T00:01:00.000Z' });
+  patchRecord(impl, { status: 'completed', startedAt: '2026-01-01T00:01:00.000Z', finishedAt: '2026-01-01T00:02:00.000Z' });
+  const review = makeDelegation(project, todo, {
+    queuedAt: '2026-01-01T00:02:00.000Z',
+    reviewMode: 'closure',
+    reviewSubject: 'code',
+  });
+  patchRecord(review, { status: 'running', startedAt: '2026-01-01T00:02:00.000Z' });
+  const report = [
+    'TASK: review',
+    'F1 FIXED with test evidence',
+    'VERDICT: FAIL',
+    '[FOLLOW_UP]',
+    'F9 (P2): style nit',
+  ].join('\n');
+  finishDelegation(getDelegationById(review.id), {
+    status: 'completed',
+    attemptId: review.attemptId,
+    report,
+  });
+  const stored = getDelegationById(review.id);
+  assert.equal(stored.reportVerdict, 'PASS', 'finish must persist reconciled verdict');
+  assert.equal(readTodo(project, todo.id).review.code.state, 'passed');
+});
+
 // --- retry queue -------------------------------------------------------------
 
 test('a failed sync is re-armed and a later flush writes it', () => {

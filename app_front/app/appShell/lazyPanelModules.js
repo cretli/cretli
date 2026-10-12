@@ -30,6 +30,17 @@ const pending = new Map();
 const loaded = new Map();
 
 /**
+ * True when the panel is a separate chunk. Chat, Todo, Logs and Settings live
+ * in the main bundle; asking the loader for them rejects and must not block
+ * navigation.
+ * @param {string} key
+ * @returns {boolean}
+ */
+export function hasLazyPanelModule(key) {
+  return Object.prototype.hasOwnProperty.call(importers, key);
+}
+
+/**
  * Loads a panel module once and keeps it for later synchronous access.
  * @param {string} key
  * @returns {Promise<object>}

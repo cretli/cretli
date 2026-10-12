@@ -255,6 +255,9 @@ export function createSpaNavigation(deps = {}) {
   const now = typeof deps.now === 'function' ? deps.now : () => Date.now();
 
   let generation = 0;
+  // Last applyRoute that may rewrite the address. A rewrite from an older
+  // navigation must not replace a newer URL or cancel that newer paint.
+  let canonicalOwnerGeneration = 0;
   let popstateBound = false;
   let activeEntryId = createHistoryEntryId();
 
@@ -298,6 +301,7 @@ export function createSpaNavigation(deps = {}) {
   async function applyRoute(route, options = {}) {
     const token = Number.isFinite(options.token) ? Number(options.token) : ++generation;
     generation = token;
+    canonicalOwnerGeneration = token;
     const modeConfig = getModeConfig();
     const panel = trimmed(route.panel) || 'chat';
     if (!isPanelAllowed(panel, modeConfig)) return;
@@ -384,14 +388,17 @@ export function createSpaNavigation(deps = {}) {
 
   function replaceCanonicalUrl(canonicalPath) {
     if (typeof canonicalPath !== 'string' || !canonicalPath.startsWith('/')) return;
+    if (canonicalOwnerGeneration !== generation) return;
     const current = currentCanonical();
     if (current === canonicalPath) return;
     const loc = readLocation();
     const route = readRouteFromLocation(loc) || mergeRouteIntent(null, {});
     const parsed = parseSpaRoute(canonicalPath);
     const merged = parsed || { ...route, canonical: canonicalPath };
-    const token = ++generation;
-    commitHistory(canonicalPath, 'replace', merged, token);
+    // Keep the current generation. Bumping it here made applyRoute treat the
+    // rewrite as a newer navigation and skip showPanel, so Settings back and
+    // the cog toggle updated the URL and left the old panel on screen.
+    commitHistory(canonicalPath, 'replace', merged, generation);
   }
 
   function initPopstate() {
