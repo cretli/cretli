@@ -372,7 +372,7 @@ The flag never promotes `unknown` to `recoverable`.
 
 Automatic release and manual **Wznów** both call
 `recoverWorkspaceWatcherTodo` (`POST /api/workspace-watcher/todos/:id/recover`,
-MCP `watcher_recover_todo`). Responses distinguish `released`, `conflict`,
+MCP `watcher_recover`; formerly `watcher_recover_todo`, renamed to fit the harness tool-name limit). Responses distinguish `released`, `conflict`,
 `already-active`, `unknown`, `user-action` and `blocked`. A successful manual
 recover sets the todo to `ready` and **starts a new execution** on the next
 claim. Recovery CAS failures do **not** increment `watcher.failures`; only

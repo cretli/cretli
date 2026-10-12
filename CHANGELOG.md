@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- **MCP tool names fit the 64-character harness limit.** `watcher_recover_todo` is
+  now `watcher_recover`, and the `browser_debugger_*` tools are `browser_dbg_*`
+  (`state`, `stack`, `scopes`, `src`, `pause`, `resume`, `set_bp`, `del_bp`,
+  `watch`). Old names still resolve through the legacy alias table.
+
 ### Added
 
 - **OpenCode approval advisor — settings, audit correlation, and advisory scope.**

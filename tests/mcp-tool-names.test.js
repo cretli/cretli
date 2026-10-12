@@ -29,7 +29,7 @@ import {
 const toolDefs = CRETILI_MCP_TOOL_DEFS;
 const catalogNames = new Set(toolDefs.map((tool) => tool.name));
 const defsByName = new Map(toolDefs.map((tool) => [tool.name, tool]));
-const builtinServer = { kind: 'builtin-cretli' };
+const builtinServer = { kind: 'builtin-cretli', id: 'builtin-cretli' };
 
 /**
  * (a) The guard is on the exported table itself, not on a Set built from it:
@@ -322,6 +322,10 @@ const promptNonToolRefs = new Set([
   'idempotency_key',
   // Rating tags, the rating source and the report acknowledgement flag are
   // prompt vocabulary, not MCP tool ids.
+  // `review_subject` is a delegation_start argument; code/plan are its values.
+  'review_subject',
+  'code',
+  'plan',
   'caught_bug',
   'missed_bug',
   'user',
