@@ -113,6 +113,13 @@ class CrTodoReviewBadge extends LitElement {
     :host([compact]) .independence-text {
       display: none;
     }
+    /* Compact badges sit in a toolbar-style row next to 2rem controls. */
+    :host([compact]) .badge,
+    :host([compact]) .independence {
+      box-sizing: border-box;
+      min-height: 2rem;
+      padding: 0 0.5rem;
+    }
     @media (max-width: 640px) {
       :host(:not([detail])) .label,
       :host(:not([detail])) .independence-text {

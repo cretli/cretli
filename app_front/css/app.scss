@@ -14787,3 +14787,38 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   padding-inline: var(--cr-overlay-panel-padding, 1rem);
   scroll-padding-inline: var(--cr-overlay-panel-padding, 1rem);
 }
+
+/* State line: every control shares one height, radius and baseline. */
+.todo-item-stateline {
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.todo-item-stateline .todo-item-copy,
+.todo-item-stateline .todo-item-state-chip,
+.todo-item-stateline .todo-item-git-chip {
+  box-sizing: border-box;
+  min-height: 2rem;
+  padding: 0 0.55rem;
+  border: 1px solid var(--cr-border-control);
+  border-radius: var(--cr-radius-sm);
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.todo-item-stateline .todo-item-copy-toggle {
+  min-width: 2rem;
+  justify-content: center;
+}
+
+.todo-item-stateline .todo-item-state-chip[data-tone='success'] {
+  border-color: var(--cr-success);
+}
+
+.todo-item-stateline .todo-item-state-chip[data-tone='accent'] {
+  border-color: var(--cr-accent);
+}
+
+.todo-item-stateline .todo-item-idbadge {
+  margin-right: 0.15rem;
+}
