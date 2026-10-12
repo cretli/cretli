@@ -16,8 +16,8 @@ All notable changes to this project are documented here. The format is based on
   and an in-modal "Saving… / Saved" indicator. `cr-dialog` gains an opt-in `closable`
   close button.
 - **TODO list is faster and easier to scan on mobile.** Finished trees start
-  collapsed in a new workspace, `/api/todos` drops raw integration evidence and
-  truncates long changelog text (4.2 -> 3.3 MiB), row marks are cached per list
+  collapsed in a new workspace, `/api/todos` drops raw integration evidence while
+  preserving complete editor history, and row marks are cached per list
   (was ~1.6 s of repeated scanning for 570 tasks), unchanged rows skip DOM writes,
   offscreen rows use `content-visibility`, and a refresh spinner plus placeholder
   rows show while the list loads.
@@ -33,6 +33,10 @@ All notable changes to this project are documented here. The format is based on
   or merges a worktree. See `docs/todo-integration-contract.md`.
 - **TODO list search and filter counts.** A title/ID search next to the filter, and
   per-row counts in the status / review / integration filter dropdown.
+- **Workspace Watcher execution pools.** Separate optional worktree and project
+  parallel limits, enforced across external agents and watcher cycles, with
+  frozen cycle execution modes and pool counts/blockers in Settings and MCP.
+
 - **OpenCode approval advisor — settings, audit correlation, and advisory scope.**
   Settings → OpenCode adds `riskScope=advise_all` (advisory-only; no auto-approve)
   and opt-in `sendSensitiveCommand` (default false) with UI/docs on OpenCode-only

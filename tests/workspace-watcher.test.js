@@ -14,6 +14,7 @@ import {
   WorkspaceWatchersCorruptError,
   WorkspaceWatchersLockError,
   acquireWorkspaceWatcherLease,
+  appendWorkspaceWatcherCycle,
   appendWorkspaceWatcherDecision,
   defaultWorkspaceWatcherPolicy,
   getWorkspaceWatcher,
@@ -876,6 +877,89 @@ runCase('policy normalization caps maxParallel at 10 (99 -> 10)', () => {
     policy: { scoutMaxParallel: 99 },
   }).policy.scoutMaxParallel, 10);
   assert.equal(WORKSPACE_WATCHER_MAX_ACTIVE_CYCLES, 10);
+});
+
+runCase('per-pool limits maxParallelWorktree/maxParallelProject normalize to 0..10', () => {
+  const POOL_KEYS = ['maxParallelWorktree', 'maxParallelProject'];
+  const normalize = (policy) => normalizeWorkspaceWatcherRow({
+    workspaceFolder: workspaceA,
+    policy,
+  }).policy;
+
+  // Full backward compatibility: a legacy row that never stored either field
+  // gets `0` (= the pool inherits `maxParallel`), and `0` is the default too, so
+  // the only difference from the old policy shape is these two added keys.
+  for (const key of POOL_KEYS) {
+    assert.equal(normalize({})[key], 0, `${key} backfills a missing field to 0`);
+  }
+  assert.deepEqual(
+    Object.keys(normalize({})).sort(),
+    Object.keys(defaultWorkspaceWatcherPolicy()).sort(),
+  );
+  assert.equal(defaultWorkspaceWatcherPolicy().maxParallelWorktree, 0);
+  assert.equal(defaultWorkspaceWatcherPolicy().maxParallelProject, 0);
+
+  for (const key of POOL_KEYS) {
+    // Accepted boundaries.
+    assert.equal(normalize({ [key]: 0 })[key], 0);
+    assert.equal(normalize({ [key]: 1 })[key], 1);
+    assert.equal(normalize({ [key]: 10 })[key], 10);
+    // Above range clamps to the same hard ceiling as `maxParallel`, never raises
+    // it and never stores an unbounded value.
+    assert.equal(normalize({ [key]: 99 })[key], WORKSPACE_WATCHER_MAX_PARALLEL);
+    // Out-of-range below the floor and non-numeric values fall back to the
+    // default 0, the same normalization style as `maxParallel`.
+    assert.equal(normalize({ [key]: -3 })[key], 0);
+    assert.equal(normalize({ [key]: 'many' })[key], 0);
+    assert.equal(normalize({ [key]: NaN })[key], 0);
+    assert.equal(normalize({ [key]: null })[key], 0);
+    assert.equal(normalize({ [key]: undefined })[key], 0);
+    // Integers only.
+    assert.equal(normalize({ [key]: 3.7 })[key], 3);
+    // Neither field narrows or overrides `maxParallel`, which keeps its own
+    // 1..10 range and its 1 default.
+    assert.equal(normalize({ [key]: 5 }).maxParallel, 1);
+    assert.equal(normalize({ [key]: 5, maxParallel: 99 }).maxParallel, 10);
+    assert.equal(normalize({ [key]: 5, maxParallel: 0 }).maxParallel, 1);
+  }
+});
+
+runCase('per-pool limits round-trip through save/load and survive a partial patch', () => {
+  const dataDir = freshDataDir('per-pool-parallel-roundtrip');
+  const saved = upsertWorkspaceWatcher(workspaceA, {
+    policy: { maxParallel: 4, maxParallelWorktree: 3, maxParallelProject: 2 },
+  }, { dataDir });
+  assert.equal(saved.policy.maxParallel, 4);
+  assert.equal(saved.policy.maxParallelWorktree, 3);
+  assert.equal(saved.policy.maxParallelProject, 2);
+
+  const loaded = getWorkspaceWatcher(workspaceA, { dataDir });
+  assert.equal(loaded.policy.maxParallelWorktree, 3);
+  assert.equal(loaded.policy.maxParallelProject, 2);
+
+  // Re-normalizing the stored row is a no-op, so the values are stable across a
+  // read→write cycle instead of drifting toward the default.
+  const renormalized = normalizeWorkspaceWatcherRow(loaded);
+  assert.equal(renormalized.policy.maxParallelWorktree, 3);
+  assert.equal(renormalized.policy.maxParallelProject, 2);
+
+  // Patching one pool keeps the other and the cap (the control layer shallow-
+  // merges the policy patch before normalization).
+  const patched = upsertWorkspaceWatcher(workspaceA, {
+    policy: { ...loaded.policy, maxParallelProject: 0 },
+  }, { dataDir });
+  assert.equal(patched.policy.maxParallelWorktree, 3, 'the untouched pool keeps its limit');
+  assert.equal(patched.policy.maxParallelProject, 0, 'an explicit 0 narrows nothing');
+  assert.equal(patched.policy.maxParallel, 4);
+  assert.equal(getWorkspaceWatcher(workspaceA, { dataDir }).policy.maxParallelWorktree, 3);
+
+  // Out-of-range values are clamped on the way in, not stored raw.
+  const clamped = upsertWorkspaceWatcher(workspaceA, {
+    policy: { maxParallelWorktree: 99, maxParallelProject: -1 },
+  }, { dataDir });
+  assert.equal(clamped.policy.maxParallelWorktree, WORKSPACE_WATCHER_MAX_PARALLEL);
+  assert.equal(clamped.policy.maxParallelProject, 0);
+  assert.equal(getWorkspaceWatcher(workspaceA, { dataDir }).policy.maxParallelWorktree, 10);
 });
 
 runCase('cooldown default is 30s end-to-end and an explicit 60s row is preserved', () => {
@@ -1797,6 +1881,255 @@ runCase('snapshot captures store failures instead of throwing', () => {
   assert.deepEqual(snapshot.errors.map((e) => e.scope).sort(), ['delegations', 'todos']);
 });
 
+/**
+ * Occupancy deps for the execution-pool cases: nothing but the todo rows and the
+ * chat list the case passes in, so a pool assertion can only come from those.
+ *
+ * @param {Partial<Record<string, unknown>>} [overrides]
+ */
+function poolDeps(overrides = {}) {
+  return {
+    loadTodosData: () => ({ items: [] }),
+    listReadyTodoLeaves: () => [],
+    isTodoBranchBlocked: () => false,
+    loadDelegations: () => [],
+    isActiveDelegationStatus: () => false,
+    listWorkspaceChatIds: () => [],
+    probeChatRunLiveness: () => ({ known: true, busy: true, reason: 'busy' }),
+    getChatRunState: () => ({ waitingForInput: false }),
+    ...overrides,
+  };
+}
+
+runCase('snapshot splits busy tokens into the worktree and project execution pools', () => {
+  const dataDir = freshDataDir('pool-split-mixed');
+  // The cycle slot names the orchestrator chat and the todos it drives, so the
+  // orchestrator token resolves against the cycle's primary todo (`todoIds[0]`).
+  upsertWorkspaceWatcher(workspaceA, {
+    mode: 'autopilot',
+    enabled: true,
+    activeCycles: [{
+      cycleId: 'c1',
+      chatId: 'orch',
+      todoIds: ['t-cycle-wt', 't-cycle-extra'],
+      startedAt: '2026-01-01T00:00:00.000Z',
+    }],
+  }, { dataDir });
+  const snapshot = snapshotWorkspaceWatcher({
+    workspaceFolder: workspaceA,
+    dataDir,
+    scoutParentChatIds: ['scout-parent'],
+    deps: poolDeps({
+      loadTodosData: () => ({ items: [
+        { id: 't-wt-claim', status: 'doing', executionMode: 'worktree', claimedByChatId: 'wt-chat' },
+        { id: 't-pj-claim', status: 'doing', executionMode: 'project', claimedByChatId: 'pj-chat' },
+        { id: 't-wt-leaf', status: 'doing', executionMode: 'worktree' },
+        { id: 't-pj-leaf', status: 'doing', executionMode: 'project' },
+        { id: 't-wt-nochild', status: 'doing', executionMode: 'worktree' },
+        { id: 't-cycle-wt', status: 'doing', executionMode: 'worktree' },
+        { id: 't-cycle-extra', status: 'doing', executionMode: 'project' },
+        // A leaf closed while its delegated child still runs cannot be traced to
+        // a `doing` todo, so that token is placed conservatively.
+        { id: 't-ghost', status: 'ready', executionMode: 'worktree' },
+        // Unknown liveness holds a worktree claim and must stay out of both pools.
+        { id: 't-cold', status: 'doing', executionMode: 'worktree', claimedByChatId: 'cold-chat' },
+      ] }),
+      listReadyTodoLeaves: () => [{ id: 't-ghost', status: 'ready' }],
+      loadDelegations: () => [
+        { id: 'd-wt', status: 'running', workspaceFolder: workspaceA, leafId: 't-wt-leaf', parentChatId: 'orch', childChatId: 'wt-child' },
+        { id: 'd-nochild', status: 'running', workspaceFolder: workspaceA, leafId: 't-wt-nochild' },
+        { id: 'd-pj', status: 'running', workspaceFolder: workspaceA, leafId: 't-pj-leaf', parentChatId: 'orch', childChatId: 'pj-child' },
+        { id: 'd-ghost', status: 'running', workspaceFolder: workspaceA, leafId: 't-ghost', childChatId: 'ghost-chat' },
+        { id: 'd-scout', status: 'running', workspaceFolder: workspaceA, parentChatId: 'scout-parent', childChatId: 'scout-child' },
+      ],
+      isActiveDelegationStatus: (status) => status === 'running',
+      listWorkspaceChatIds: () => [
+        'wt-chat', 'orch', 'pj-chat', 'wt-child', 'pj-child', 'ghost-chat', 'human',
+        'scout-parent', 'scout-child', 'cold-chat',
+      ],
+      probeChatRunLiveness: ({ chatId }) => (chatId === 'cold-chat'
+        ? { known: false, busy: false, reason: 'adapter_error' }
+        : { known: true, busy: true, reason: 'busy' }),
+    }),
+  });
+  // `busyTokens` keeps its own contract: live chats in store order first, then
+  // the synthetic token of the delegation that has no child chat yet.
+  assert.deepEqual(snapshot.busyTokens, [
+    'wt-chat', 'orch', 'pj-chat', 'wt-child', 'pj-child', 'ghost-chat', 'human', 'delegation:d-nochild',
+  ]);
+  assert.deepEqual(snapshot.worktreeBusyTokens, ['wt-chat', 'orch', 'wt-child', 'delegation:d-nochild']);
+  assert.deepEqual(snapshot.projectBusyTokens, ['pj-chat', 'pj-child', 'ghost-chat', 'human']);
+  assert.equal(snapshot.worktreeAgentCount, 4);
+  assert.equal(snapshot.projectAgentCount, 4);
+  assert.equal(snapshot.activeAgentCount, 8);
+  assert.equal(snapshot.scoutAgentCount, 2, 'scout tokens consume neither todo pool');
+  assert.equal(snapshot.unknownAgentCount, 1);
+  assert.deepEqual(snapshot.unknownChatIds, ['cold-chat']);
+  assert.deepEqual(snapshot.errors, []);
+});
+
+runCase('snapshot resolves a leaf through the watcher policy default, never an ancestor walk', () => {
+  const cases = [
+    { label: 'inherit + policy worktree', todo: { executionMode: 'inherit' }, policy: { executionMode: 'worktree' }, pool: 'worktree' },
+    { label: 'missing mode + policy worktree', todo: {}, policy: { executionMode: 'worktree' }, pool: 'worktree' },
+    { label: 'inherit + default policy', todo: { executionMode: 'inherit' }, policy: {}, pool: 'project' },
+    { label: 'inherit + explicit project policy', todo: { executionMode: 'inherit' }, policy: { executionMode: 'project' }, pool: 'project' },
+    // No watcher row at all: the resolver has no default, so the conservative
+    // project folder wins (`maxParallel` still caps the total).
+    { label: 'inherit + no watcher row', todo: { executionMode: 'inherit' }, row: false, pool: 'project' },
+    // The resolver refuses a stored value it does not know. The snapshot stays
+    // usable (no `errors` row, which would block every decision) and the token
+    // lands in the project pool.
+    { label: 'invalid leaf mode falls back to project', todo: { executionMode: 'sideways' }, policy: { executionMode: 'worktree' }, pool: 'project' },
+  ];
+  for (const [index, testCase] of cases.entries()) {
+    const dataDir = freshDataDir(`pool-split-inherit-${index}`);
+    if (testCase.row !== false) upsertWorkspaceWatcher(workspaceA, { policy: testCase.policy }, { dataDir });
+    const snapshot = snapshotWorkspaceWatcher({
+      workspaceFolder: workspaceA,
+      dataDir,
+      deps: poolDeps({
+        loadTodosData: () => ({ items: [{ id: 't-inherit', status: 'doing', claimedByChatId: 'inh-chat', ...testCase.todo }] }),
+        listWorkspaceChatIds: () => ['inh-chat'],
+      }),
+    });
+    const expected = { worktree: ['inh-chat'], project: [] }[testCase.pool];
+    const other = { worktree: [], project: ['inh-chat'] }[testCase.pool];
+    assert.deepEqual(snapshot.worktreeBusyTokens, expected, testCase.label);
+    assert.deepEqual(snapshot.projectBusyTokens, other, testCase.label);
+    assert.deepEqual(snapshot.errors, [], testCase.label);
+    assert.equal(snapshot.worktreeAgentCount + snapshot.projectAgentCount, snapshot.activeAgentCount, testCase.label);
+  }
+});
+
+runCase('snapshot pool counts always add up to the busy tokens exactly once', () => {
+  const scenarios = [
+    {
+      label: 'empty workspace',
+      deps: poolDeps(),
+    },
+    {
+      label: 'claim, scout and unknown liveness',
+      deps: poolDeps({
+        loadTodosData: () => ({ items: [
+          { id: 't-wt', status: 'doing', executionMode: 'worktree', claimedByChatId: 'wt-chat' },
+          { id: 't-pj', status: 'doing', executionMode: 'project', claimedByChatId: 'own-chat' },
+          { id: 't-cold', status: 'doing', executionMode: 'worktree', claimedByChatId: 'cold-chat' },
+        ] }),
+        listWorkspaceChatIds: () => ['wt-chat', 'own-chat', 'scout-chat', 'cold-chat'],
+        probeChatRunLiveness: ({ chatId }) => (chatId === 'cold-chat'
+          ? { known: false, busy: false, reason: 'adapter_error' }
+          : { known: true, busy: true, reason: 'busy' }),
+      }),
+      scoutParentChatIds: ['scout-chat'],
+    },
+    {
+      label: 'delegation slots only',
+      deps: poolDeps({
+        loadTodosData: () => ({ items: [
+          { id: 't-wt', status: 'doing', executionMode: 'worktree' },
+          { id: 't-pj', status: 'doing', executionMode: 'project' },
+        ] }),
+        loadDelegations: () => [
+          { id: 'd-a', status: 'running', workspaceFolder: workspaceA, leafId: 't-wt' },
+          { id: 'd-b', status: 'running', workspaceFolder: workspaceA, leafId: 't-pj', childChatId: 'pj-child' },
+          { id: 'd-c', status: 'running', workspaceFolder: workspaceA, childChatId: 'no-leaf-child' },
+        ],
+        isActiveDelegationStatus: (status) => status === 'running',
+        listWorkspaceChatIds: () => ['pj-child', 'no-leaf-child'],
+      }),
+    },
+    {
+      label: 'tokens without any todo link',
+      deps: poolDeps({ listWorkspaceChatIds: () => ['human-a', 'human-b'] }),
+    },
+  ];
+  for (const scenario of scenarios) {
+    const dataDir = freshDataDir(`pool-split-invariant-${scenario.label.replace(/\W+/g, '-')}`);
+    const snapshot = snapshotWorkspaceWatcher({
+      workspaceFolder: workspaceA,
+      dataDir,
+      scoutParentChatIds: scenario.scoutParentChatIds,
+      deps: scenario.deps,
+    });
+    const pooled = [...snapshot.worktreeBusyTokens, ...snapshot.projectBusyTokens];
+    assert.equal(
+      snapshot.worktreeAgentCount + snapshot.projectAgentCount,
+      snapshot.activeAgentCount,
+      scenario.label,
+    );
+    assert.equal(new Set(pooled).size, pooled.length, `${scenario.label}: no token in both pools`);
+    assert.deepEqual(pooled.sort(), [...snapshot.busyTokens].sort(), scenario.label);
+    assert.deepEqual(snapshot.unknownChatIds.filter((id) => pooled.includes(id)), [], scenario.label);
+  }
+});
+
+runCase('pool split keeps the scout scenario fields unchanged', () => {
+  // Same fixture as 'snapshot keeps a live scout and its review out of the todo
+  // parallel slot': the new pools are additive and must not move an older field.
+  const dataDir = freshDataDir('pool-split-regression-scout');
+  const snapshot = snapshotWorkspaceWatcher({
+    workspaceFolder: workspaceA,
+    dataDir,
+    scoutParentChatIds: ['scout-parent'],
+    deps: poolDeps({
+      loadTodosData: () => ({ items: [{ id: 'ready', status: 'ready' }] }),
+      listReadyTodoLeaves: () => [{ id: 'ready', status: 'ready' }],
+      loadDelegations: () => [{
+        id: 'scout-review',
+        status: 'running',
+        workspaceFolder: workspaceA,
+        parentChatId: 'scout-parent',
+        childChatId: 'scout-child',
+      }],
+      isActiveDelegationStatus: (status) => status === 'running',
+      listWorkspaceChatIds: () => ['scout-parent', 'scout-child', 'human'],
+      probeChatRunLiveness: ({ chatId }) => ({
+        known: true,
+        busy: chatId !== 'human',
+        reason: chatId === 'human' ? 'idle' : 'busy',
+      }),
+    }),
+  });
+  assert.deepEqual(snapshot.busyTokens, []);
+  assert.equal(snapshot.activeAgentCount, 0);
+  assert.equal(snapshot.scoutAgentCount, 2);
+  assert.equal(snapshot.unknownAgentCount, 0);
+  assert.deepEqual(snapshot.activeDelegationIds, []);
+  assert.deepEqual(snapshot.worktreeBusyTokens, []);
+  assert.deepEqual(snapshot.projectBusyTokens, []);
+  assert.equal(snapshot.worktreeAgentCount, 0);
+  assert.equal(snapshot.projectAgentCount, 0);
+  const decision = decideWorkspaceWatcherAction({
+    watcher: { mode: 'autopilot', enabled: true, policy: { maxParallel: 1, requirePlanApproval: false }, stopReason: '' },
+    snapshot,
+  });
+  assert.equal(decision.kind, 'start_cycle');
+  assert.equal(decision.nextTodoId, 'ready');
+});
+
+runCase('pool split keeps a claim-backed busy token in the project pool by default', () => {
+  // Same fixture as 'a closed-cycle orchestrator that still holds a claim counts
+  // as busy', with an untouched policy: `inherit` resolves to `project`.
+  const dataDir = freshDataDir('pool-split-regression-claim');
+  upsertWorkspaceWatcher(workspaceA, { mode: 'observe' }, { dataDir });
+  const snapshot = snapshotWorkspaceWatcher({
+    workspaceFolder: workspaceA,
+    dataDir,
+    closedCycleChatIds: ['orch-closed'],
+    deps: poolDeps({
+      loadTodosData: () => ({ items: [{ id: 't', status: 'doing', claimedByChatId: 'orch-closed' }] }),
+      listWorkspaceChatIds: () => ['orch-closed'],
+    }),
+  });
+  assert.deepEqual(snapshot.busyTokens, ['orch-closed']);
+  assert.equal(snapshot.activeAgentCount, 1);
+  assert.deepEqual(snapshot.projectBusyTokens, ['orch-closed']);
+  assert.deepEqual(snapshot.worktreeBusyTokens, []);
+  assert.equal(snapshot.projectAgentCount, 1);
+  assert.equal(snapshot.worktreeAgentCount, 0);
+});
+
 runCase('decide: off, stopped, wait, idle and observe_ready', () => {
   const baseWatcher = { mode: 'observe', enabled: true, policy: { maxParallel: 2 }, stopReason: '' };
   const idleSnapshot = { readyTodoCount: 1, activeAgentCount: 0, errors: [] };
@@ -1822,6 +2155,483 @@ runCase('decide: snapshot errors block observe_ready and idle_no_work', () => {
   assert.equal(decision.kind, 'snapshot_error');
   assert.equal(decision.reason, 'snapshot_unavailable');
   assert.equal(decision.shouldNotify, false);
+});
+
+/**
+ * Hand-built snapshot for the per-pool gate: the decision reads only the pool
+ * counts and token lists a snapshot carries, so each case states the occupancy it
+ * means to test instead of depending on the snapshot's token split. `busyTokens`
+ * is the union of both pools, the invariant the real snapshot keeps.
+ *
+ * @param {{
+ *   readyLeaves: object[],
+ *   worktree?: number,
+ *   project?: number,
+ *   worktreeTokens?: string[],
+ *   projectTokens?: string[],
+ * }} input
+ * @returns {object}
+ */
+function poolSnapshot(input) {
+  const worktree = input.worktree || 0;
+  const project = input.project || 0;
+  const worktreeTokens = input.worktreeTokens || [];
+  const projectTokens = input.projectTokens || [];
+  return {
+    readyTodoCount: input.readyLeaves.length,
+    readyLeaves: input.readyLeaves,
+    activeAgentCount: worktree + project,
+    worktreeAgentCount: worktree,
+    projectAgentCount: project,
+    worktreeBusyTokens: worktreeTokens,
+    projectBusyTokens: projectTokens,
+    busyTokens: [...worktreeTokens, ...projectTokens],
+    unknownAgentCount: 0,
+    errors: [],
+  };
+}
+
+/**
+ * Watcher row for the same cases. `maxParallel` stays above every pool figure so
+ * a pool outcome is never the global cap in disguise, and the failure ceiling is
+ * finite so an eligibility case can actually disqualify a leaf.
+ *
+ * @param {object} [policy]
+ * @param {object} [extras]
+ * @returns {object}
+ */
+function poolWatcher(policy = {}, extras = {}) {
+  return {
+    mode: 'autopilot',
+    enabled: true,
+    stopReason: '',
+    policy: { maxParallel: 4, requirePlanApproval: false, maxConsecutiveFailures: 2, ...policy },
+    ...extras,
+  };
+}
+
+const WT_LEAF = { id: 'wt', status: 'ready', siblingIndex: 0, executionMode: 'worktree' };
+const PJ_LEAF = { id: 'pj', status: 'ready', siblingIndex: 1, executionMode: 'project' };
+
+runCase('decide: a full worktree pool waits with worktree_parallel and names its holders', () => {
+  const decision = decideWorkspaceWatcherAction({
+    watcher: poolWatcher({ maxParallelWorktree: 2 }),
+    snapshot: poolSnapshot({
+      readyLeaves: [WT_LEAF],
+      worktree: 2,
+      worktreeTokens: ['wt-chat', 'delegation:wt-d', 'wt-chat'],
+      // A project holder occupies the global cap but not the worktree pool, so it
+      // must stay out of the reported slots.
+      project: 1,
+      projectTokens: ['pj-chat'],
+    }),
+  });
+  assert.equal(decision.kind, 'wait_active');
+  assert.equal(decision.reason, 'worktree_parallel');
+  assert.equal(decision.shouldNotify, false);
+  assert.equal(decision.nextTodoId, '', 'a candidate nobody may start is not carried as the next todo');
+  assert.deepEqual(decision.slotHolders, ['wt-chat', 'delegation:wt-d'], 'only the saturated pool holds slots');
+});
+
+runCase('decide: a full project pool waits with project_parallel and names its holders', () => {
+  const decision = decideWorkspaceWatcherAction({
+    watcher: poolWatcher({ maxParallelProject: 1 }),
+    snapshot: poolSnapshot({
+      readyLeaves: [PJ_LEAF],
+      project: 1,
+      projectTokens: ['pj-chat'],
+      worktree: 1,
+      worktreeTokens: ['wt-chat'],
+    }),
+  });
+  assert.equal(decision.kind, 'wait_active');
+  assert.equal(decision.reason, 'project_parallel');
+  assert.deepEqual(decision.slotHolders, ['pj-chat']);
+});
+
+runCase('decide: both pools below their limits start the first-picked candidate', () => {
+  const decision = decideWorkspaceWatcherAction({
+    watcher: poolWatcher({ maxParallelWorktree: 2, maxParallelProject: 2 }),
+    snapshot: poolSnapshot({ readyLeaves: [WT_LEAF, PJ_LEAF], worktree: 1, project: 1 }),
+  });
+  assert.equal(decision.kind, 'start_cycle');
+  assert.equal(decision.nextTodoId, 'wt');
+  assert.equal(decision.slotHolders, undefined);
+});
+
+runCase('decide: a full worktree pool falls through to an eligible project todo', () => {
+  const decision = decideWorkspaceWatcherAction({
+    watcher: poolWatcher({ maxParallelWorktree: 2 }),
+    snapshot: poolSnapshot({
+      readyLeaves: [WT_LEAF, PJ_LEAF],
+      worktree: 2,
+      worktreeTokens: ['wt-a', 'wt-b'],
+      project: 0,
+    }),
+  });
+  assert.equal(decision.kind, 'start_cycle');
+  assert.equal(decision.nextTodoId, 'pj', 'the other pool keeps working instead of starving');
+});
+
+runCase('decide: a full project pool falls through to an eligible worktree todo', () => {
+  const decision = decideWorkspaceWatcherAction({
+    watcher: poolWatcher({ maxParallelProject: 1 }),
+    snapshot: poolSnapshot({
+      readyLeaves: [
+        { ...PJ_LEAF, siblingIndex: 0 },
+        { ...WT_LEAF, siblingIndex: 1 },
+      ],
+      project: 1,
+      projectTokens: ['pj-a'],
+      worktree: 0,
+    }),
+  });
+  assert.equal(decision.kind, 'start_cycle');
+  assert.equal(decision.nextTodoId, 'wt');
+});
+
+runCase('decide: the pool fallback keeps the pick order and every eligibility rule', () => {
+  // `pj-blocked` sorts ahead of `pj-free` and is disqualified twice over: the
+  // failure ceiling and the integration wait. The fallback may only step over the
+  // saturated pool, never over a leaf the plain pick would have skipped.
+  const decision = decideWorkspaceWatcherAction({
+    watcher: poolWatcher({ maxParallelWorktree: 1 }, { failures: { 'pj-blocked': 2 } }),
+    snapshot: poolSnapshot({
+      readyLeaves: [
+        WT_LEAF,
+        { id: 'pj-blocked', status: 'ready', siblingIndex: 1, executionMode: 'project' },
+        { id: 'pj-integration', status: 'ready', siblingIndex: 2, executionMode: 'project', integration: { state: 'ready' } },
+        { id: 'pj-free', status: 'ready', siblingIndex: 3, executionMode: 'project' },
+      ],
+      worktree: 1,
+      worktreeTokens: ['wt-a'],
+    }),
+  });
+  assert.equal(decision.kind, 'start_cycle');
+  assert.equal(decision.nextTodoId, 'pj-free');
+});
+
+runCase('decide: pool occupancy never blocks a candidate from the other pool', () => {
+  // The worktree pool has room while the project pool is three-over-its-limit,
+  // and the global cap (4) still has one slot, so the worktree leaf starts.
+  const decision = decideWorkspaceWatcherAction({
+    watcher: poolWatcher({ maxParallelWorktree: 1, maxParallelProject: 1 }),
+    snapshot: poolSnapshot({
+      readyLeaves: [WT_LEAF],
+      worktree: 0,
+      project: 3,
+      projectTokens: ['pj-a', 'pj-b', 'pj-c'],
+    }),
+  });
+  assert.equal(decision.kind, 'start_cycle');
+  assert.equal(decision.nextTodoId, 'wt');
+});
+
+runCase('decide: the global cap and unknown liveness still outrank the pool gate', () => {
+  const capped = decideWorkspaceWatcherAction({
+    watcher: poolWatcher({ maxParallel: 2, maxParallelWorktree: 1 }),
+    snapshot: poolSnapshot({
+      readyLeaves: [WT_LEAF, PJ_LEAF],
+      worktree: 2,
+      worktreeTokens: ['wt-a', 'wt-b'],
+    }),
+  });
+  assert.equal(capped.reason, 'max_parallel', 'the sum of both pools is still the first gate');
+  assert.deepEqual(capped.slotHolders, ['wt-a', 'wt-b']);
+
+  const unknown = decideWorkspaceWatcherAction({
+    watcher: poolWatcher({ maxParallelWorktree: 1 }),
+    snapshot: {
+      ...poolSnapshot({ readyLeaves: [WT_LEAF, PJ_LEAF], worktree: 1, worktreeTokens: ['wt-a'] }),
+      unknownAgentCount: 1,
+    },
+  });
+  assert.equal(unknown.kind, 'wait_active');
+  assert.equal(unknown.reason, 'unknown_liveness', 'the liveness guard stays global, not per pool');
+  assert.equal(unknown.slotHolders, undefined);
+});
+
+runCase('decide: an inherit todo is gated by the pool its policy default resolves to', () => {
+  const leaves = [{ id: 'inherited', status: 'ready', siblingIndex: 0, executionMode: 'inherit' }];
+  const snapshot = poolSnapshot({ readyLeaves: leaves, worktree: 1, worktreeTokens: ['wt-chat'] });
+  const gated = decideWorkspaceWatcherAction({
+    watcher: poolWatcher({ executionMode: 'worktree', maxParallelWorktree: 1 }),
+    snapshot,
+  });
+  assert.equal(gated.reason, 'worktree_parallel', 'the leaf inherits the worktree pool from the policy');
+  const unlimed = decideWorkspaceWatcherAction({
+    watcher: poolWatcher({ executionMode: 'worktree' }),
+    snapshot,
+  });
+  assert.equal(unlimed.kind, 'start_cycle');
+  assert.equal(unlimed.nextTodoId, 'inherited');
+});
+
+runCase('decide: an unusable executionMode falls back to the project pool without erroring', () => {
+  const decision = decideWorkspaceWatcherAction({
+    watcher: poolWatcher({ maxParallelProject: 1 }),
+    snapshot: poolSnapshot({
+      readyLeaves: [{ id: 'weird', status: 'ready', siblingIndex: 0, executionMode: 'sideways' }],
+      project: 1,
+      projectTokens: ['pj-chat'],
+    }),
+  });
+  assert.equal(decision.kind, 'wait_active');
+  assert.equal(decision.reason, 'project_parallel', 'the same conservative pool as the snapshot split');
+});
+
+runCase('decide: a snapshot without pool counts behaves as zero occupancy', () => {
+  for (const counts of [
+    {},
+    { worktreeAgentCount: undefined, projectAgentCount: undefined },
+    { worktreeAgentCount: 'many', projectAgentCount: NaN },
+    { worktreeAgentCount: -3, projectAgentCount: -1 },
+  ]) {
+    const decision = decideWorkspaceWatcherAction({
+      watcher: poolWatcher({ maxParallelWorktree: 1, maxParallelProject: 1 }),
+      snapshot: {
+        readyTodoCount: 1,
+        activeAgentCount: 0,
+        readyLeaves: [WT_LEAF],
+        errors: [],
+        ...counts,
+      },
+    });
+    assert.equal(decision.kind, 'start_cycle');
+    assert.equal(decision.nextTodoId, 'wt');
+  }
+});
+
+runCase('decide: worktree occupancy from a real snapshot gates only the worktree leaf', () => {
+  const dataDir = freshDataDir('pool-gate-live-snapshot');
+  upsertWorkspaceWatcher(workspaceA, {
+    mode: 'autopilot',
+    enabled: true,
+    policy: { maxParallel: 3, maxParallelWorktree: 1, requirePlanApproval: false, cooldownMs: 0 },
+  }, { dataDir });
+  const snapshot = snapshotWorkspaceWatcher({
+    workspaceFolder: workspaceA,
+    dataDir,
+    deps: poolDeps({
+      loadTodosData: () => ({ items: [
+        { id: 't-wt-busy', status: 'doing', executionMode: 'worktree', claimedByChatId: 'wt-agent' },
+        { id: 't-wt-ready', status: 'ready', siblingIndex: 0, executionMode: 'worktree' },
+        { id: 't-pj-ready', status: 'ready', siblingIndex: 1, executionMode: 'project' },
+      ] }),
+      listReadyTodoLeaves: () => [
+        { id: 't-wt-ready', status: 'ready', siblingIndex: 0, executionMode: 'worktree' },
+        { id: 't-pj-ready', status: 'ready', siblingIndex: 1, executionMode: 'project' },
+      ],
+      listWorkspaceChatIds: () => ['wt-agent'],
+    }),
+  });
+  // The busy claim is traced to its worktree leaf, so the pool the decision reads
+  // is the one the snapshot split produced — not a figure this case invented.
+  assert.deepEqual(snapshot.worktreeBusyTokens, ['wt-agent']);
+  assert.deepEqual(snapshot.projectBusyTokens, []);
+  assert.equal(snapshot.activeAgentCount, 1, 'the global cap leaves two slots free');
+  const decision = decideWorkspaceWatcherAction({
+    watcher: getWorkspaceWatcher(workspaceA, { dataDir }),
+    snapshot,
+  });
+  assert.equal(decision.kind, 'start_cycle');
+  assert.equal(decision.nextTodoId, 't-pj-ready', 'the saturated pool is skipped, not waited on');
+});
+
+runCase('decide: zero pool limits leave every decision unchanged', () => {
+  const now = Date.parse('2026-01-01T00:00:00.000Z');
+  const scenarios = [
+    {
+      label: 'off',
+      watcher: { mode: 'off' },
+      snapshot: { readyTodoCount: 1, activeAgentCount: 0, errors: [] },
+    },
+    {
+      label: 'paused',
+      watcher: { mode: 'autopilot', enabled: true, paused: true, policy: { maxParallel: 2 }, stopReason: '' },
+      snapshot: { readyTodoCount: 1, activeAgentCount: 0, errors: [] },
+    },
+    {
+      label: 'stopped',
+      watcher: { mode: 'autopilot', enabled: true, policy: { maxParallel: 2 }, stopReason: 'deadline' },
+      snapshot: { readyTodoCount: 1, activeAgentCount: 0, errors: [] },
+    },
+    {
+      label: 'snapshot_error',
+      watcher: { mode: 'observe', enabled: true, policy: { maxParallel: 2 }, stopReason: '' },
+      snapshot: { readyTodoCount: 3, activeAgentCount: 0, errors: [{ scope: 'todos', code: 'ERR', message: 'todos boom' }] },
+    },
+    {
+      label: 'max_parallel',
+      watcher: { mode: 'observe', enabled: true, policy: { maxParallel: 2 }, stopReason: '' },
+      snapshot: { readyTodoCount: 1, activeAgentCount: 2, errors: [], busyTokens: ['a', 'b', 'b'] },
+    },
+    {
+      label: 'unknown_liveness',
+      watcher: { mode: 'autopilot' },
+      snapshot: { readyTodoCount: 1, activeAgentCount: 0, unknownAgentCount: 1, readyLeaves: [{ id: 'ready' }] },
+    },
+    {
+      label: 'no_ready_work',
+      watcher: { mode: 'observe', enabled: true, policy: { maxParallel: 2 }, stopReason: '' },
+      snapshot: { readyTodoCount: 0, activeAgentCount: 0, errors: [] },
+    },
+    {
+      label: 'observe_ready',
+      watcher: { mode: 'observe', enabled: true, policy: { maxParallel: 2 }, stopReason: '' },
+      snapshot: { readyTodoCount: 1, activeAgentCount: 0, errors: [], readyLeaves: [{ id: 'ready' }] },
+    },
+    {
+      label: 'no_eligible_work',
+      watcher: poolWatcher({ maxConsecutiveFailures: 1 }, { failures: { wt: 1 } }),
+      snapshot: poolSnapshot({ readyLeaves: [WT_LEAF] }),
+    },
+    {
+      label: 'start_cycle',
+      watcher: poolWatcher(),
+      snapshot: poolSnapshot({ readyLeaves: [WT_LEAF, PJ_LEAF] }),
+    },
+    {
+      label: 'pools_full_yet_unlimited',
+      watcher: poolWatcher(),
+      snapshot: poolSnapshot({
+        readyLeaves: [WT_LEAF, PJ_LEAF],
+        worktree: 2,
+        project: 1,
+        worktreeTokens: ['wt-a', 'wt-b'],
+        projectTokens: ['pj-a'],
+      }),
+    },
+    {
+      label: 'plan_gate',
+      watcher: poolWatcher({ requirePlanApproval: true }),
+      snapshot: poolSnapshot({ readyLeaves: [WT_LEAF] }),
+    },
+  ];
+  for (const scenario of scenarios) {
+    const baseline = decideWorkspaceWatcherAction({ watcher: scenario.watcher, snapshot: scenario.snapshot, now });
+    const zeroLimits = decideWorkspaceWatcherAction({
+      watcher: {
+        ...scenario.watcher,
+        policy: { ...(scenario.watcher.policy || {}), maxParallelWorktree: 0, maxParallelProject: 0 },
+      },
+      snapshot: scenario.snapshot,
+      now,
+    });
+    assert.deepEqual(zeroLimits, baseline, `${scenario.label}: explicit 0 limits change nothing`);
+  }
+});
+
+runCase('decide: a pool saturated by cycles waits with cycle_active and names the pool', () => {
+  const decision = decideWorkspaceWatcherAction({
+    watcher: poolWatcher({ maxParallelWorktree: 2 }),
+    snapshot: poolSnapshot({ readyLeaves: [WT_LEAF] }),
+    activeCycleCounts: { worktree: 2, project: 0 },
+  });
+  assert.equal(decision.kind, 'wait_active');
+  assert.equal(decision.reason, 'cycle_active', 'this row is waiting on its own cycles, not on outside agents');
+  assert.equal(decision.pool, 'worktree');
+  assert.equal(decision.nextTodoId, '');
+  assert.equal(decision.slotHolders, undefined, 'a cycle slot is never reported as an external holder');
+});
+
+runCase('decide: cycles filling one pool never block a candidate of the other pool', () => {
+  const decision = decideWorkspaceWatcherAction({
+    watcher: poolWatcher({ maxParallelWorktree: 1, maxParallelProject: 1 }),
+    snapshot: poolSnapshot({ readyLeaves: [WT_LEAF, PJ_LEAF] }),
+    activeCycleCounts: { worktree: 1, project: 0 },
+  });
+  assert.equal(decision.kind, 'start_cycle');
+  assert.equal(decision.nextTodoId, 'pj', 'the worktree cycles do not starve the project pool');
+  assert.equal(decision.pool, undefined, 'the marker belongs to a refused wait only');
+});
+
+runCase('decide: external occupancy keeps the pool reason when both sources fill a pool', () => {
+  // Both the snapshot's worktree agents and the row's worktree cycles are at the
+  // ceiling. The cause is picked deterministically — agents first — so the wait
+  // keeps the pool's own reason whenever outside occupancy alone explains it.
+  const decision = decideWorkspaceWatcherAction({
+    watcher: poolWatcher({ maxParallelWorktree: 1 }),
+    snapshot: poolSnapshot({ readyLeaves: [WT_LEAF], worktree: 1, worktreeTokens: ['wt-chat'] }),
+    activeCycleCounts: { worktree: 1, project: 0 },
+  });
+  assert.equal(decision.kind, 'wait_active');
+  assert.equal(decision.reason, 'worktree_parallel');
+  assert.deepEqual(decision.slotHolders, ['wt-chat']);
+  assert.equal(decision.pool, undefined);
+});
+
+runCase('decide: cycles gate an inherit leaf through the policy default, like any other pool check', () => {
+  const decision = decideWorkspaceWatcherAction({
+    watcher: poolWatcher({ executionMode: 'worktree', maxParallelWorktree: 1 }),
+    snapshot: poolSnapshot({ readyLeaves: [{ id: 'inherited', status: 'ready', siblingIndex: 0, executionMode: 'inherit' }] }),
+    activeCycleCounts: { worktree: 1 },
+  });
+  assert.equal(decision.reason, 'cycle_active');
+  assert.equal(decision.pool, 'worktree');
+});
+
+runCase('decide: absent, zero or unusable cycle counts read as no cycles at all', () => {
+  for (const counts of [
+    undefined,
+    null,
+    'worktree',
+    {},
+    { worktree: 0, project: 0 },
+    { worktree: 'many', project: NaN },
+    { worktree: -3, project: -1 },
+  ]) {
+    const decision = decideWorkspaceWatcherAction({
+      watcher: poolWatcher({ maxParallelWorktree: 1, maxParallelProject: 1 }),
+      snapshot: poolSnapshot({ readyLeaves: [WT_LEAF] }),
+      activeCycleCounts: counts,
+    });
+    assert.equal(decision.kind, 'start_cycle', JSON.stringify(counts));
+    assert.equal(decision.nextTodoId, 'wt', JSON.stringify(counts));
+  }
+});
+
+runCase('decide: cycle counts change no decision while no pool limit is configured', () => {
+  const now = Date.parse('2026-01-01T00:00:00.000Z');
+  const scenarios = [
+    {
+      label: 'start_cycle',
+      watcher: poolWatcher(),
+      snapshot: poolSnapshot({ readyLeaves: [WT_LEAF, PJ_LEAF] }),
+    },
+    {
+      label: 'plan_gate',
+      watcher: poolWatcher({ requirePlanApproval: true }),
+      snapshot: poolSnapshot({ readyLeaves: [WT_LEAF] }),
+    },
+    {
+      label: 'max_parallel',
+      watcher: poolWatcher({ maxParallel: 2 }),
+      snapshot: poolSnapshot({ readyLeaves: [WT_LEAF], worktree: 2, worktreeTokens: ['a', 'b'] }),
+    },
+    {
+      label: 'pool_agent_wait',
+      watcher: poolWatcher({ maxParallelWorktree: 1 }),
+      snapshot: poolSnapshot({ readyLeaves: [WT_LEAF], worktree: 1, worktreeTokens: ['a'] }),
+    },
+    {
+      label: 'no_ready_work',
+      watcher: poolWatcher(),
+      snapshot: poolSnapshot({ readyLeaves: [] }),
+    },
+  ];
+  for (const scenario of scenarios) {
+    const without = decideWorkspaceWatcherAction({ watcher: scenario.watcher, snapshot: scenario.snapshot, now });
+    const withCycles = decideWorkspaceWatcherAction({
+      watcher: scenario.watcher,
+      snapshot: scenario.snapshot,
+      now,
+      // Both pools read as far over any ceiling the policy could hold: with no
+      // limit configured this must be indistinguishable from no cycles at all.
+      activeCycleCounts: { worktree: 10, project: 10 },
+    });
+    assert.deepEqual(withCycles, without, `${scenario.label}: unconfigured pools ignore cycle counts`);
+  }
 });
 
 runCase('tick records snapshot_error when todos store fails', () => {
@@ -3284,6 +4094,496 @@ runCase('a full cycle slot records wait_active/cycle_active instead of start_cyc
   const summary = describeWorkspaceWatcherDecision(last);
   assert.match(summary, /cycle_active/);
   assert.match(summary, /holder-c/);
+});
+
+/**
+ * Live cycle slot in the shape a real start leaves behind: `running` with a run
+ * id, its orchestrator chat and the todos it claimed. Written through the same
+ * append path the reservation uses, so the pool gate reads a production row
+ * rather than a fixture of a test's own invention.
+ *
+ * @param {string} dataDir
+ * @param {string} cwd
+ * @param {{ cycleId: string, chatId: string, todoIds: string[] }} cycle
+ * @param {number} [now]
+ * @returns {void}
+ */
+function seedLiveCycle(dataDir, cwd, cycle, now = T0) {
+  mutateWorkspaceWatcherRow(cwd, ({ row }) => appendWorkspaceWatcherCycle(row, {
+    ...cycle,
+    startedAt: new Date(now).toISOString(),
+    runId: `run-${cycle.cycleId}`,
+    phase: 'running',
+  }), { dataDir });
+}
+
+/**
+ * Claim a ready todo for a cycle's orchestrator chat, as a live cycle leaves it:
+ * `doing` with a claim, so the row is absent from `readyLeaves` and only the
+ * snapshot's item list can classify which pool that cycle occupies.
+ *
+ * @param {string} dataDir
+ * @param {string} cwd
+ * @param {object} todo
+ * @param {string} chatId
+ * @returns {void}
+ */
+function claimTodoForCycle(dataDir, cwd, todo, chatId) {
+  updateTodo(dataDir, cwd, todo.id, {
+    status: 'doing',
+    claimedByChatId: chatId,
+    expectedUpdatedAt: getTodoById(dataDir, cwd, todo.id).updatedAt,
+  });
+}
+
+/**
+ * Deps for the per-pool start cases: an orchestrator pair that always resolves,
+ * so a refusal can only come from a gate and never from the ambient catalog.
+ *
+ * @param {string[]} chatCalls collects the orchestrator chats a start created
+ */
+function poolStartDeps(chatCalls) {
+  return {
+    addChat: (_session, title, _wf, _folder, _model, extras) => {
+      chatCalls.push(extras.id);
+      return { id: extras.id, title };
+    },
+    startChatRun: async () => ({ runId: 'run-pool', accepted: true }),
+    resolveWorkspaceWatcherOrchestrator: async () => ({ ok: true, harness: 'mock', model: 'cheap', source: 'policy' }),
+    selectModelPick: () => ({ ok: true, pick: { harness: 'mock', model: 'cheap' } }),
+    probeChatRunLiveness: () => ({ known: true, busy: true, reason: 'busy' }),
+    loadDelegations: () => [],
+    notify: () => false,
+  };
+}
+
+/**
+ * Tick object for `startWorkspaceWatcherCycle` with the same two todo lists the
+ * real tick hands a start.
+ *
+ * @param {string} dataDir
+ * @param {string} cwd
+ * @param {string} todoId
+ * @param {object} [watcherOverride] a row to use instead of the live store row
+ * @returns {object}
+ */
+function poolTick(dataDir, cwd, todoId, watcherOverride = null) {
+  const items = loadTodosData(dataDir, cwd).items || [];
+  return {
+    watcher: watcherOverride || getWorkspaceWatcher(cwd, { dataDir }),
+    decision: { kind: 'start_cycle', planOnly: false, nextTodoId: todoId },
+    snapshot: {
+      items,
+      readyLeaves: items.filter((row) => String(row.status || '') === 'ready'),
+    },
+  };
+}
+
+/**
+ * @param {object} policy
+ * @returns {object} the watcher row the pool cases drive
+ */
+function poolCycleWatcher(policy) {
+  return { mode: 'autopilot', policy: { requirePlanApproval: false, cooldownMs: 0, maxCyclesPerDay: 50, ...policy } };
+}
+
+/**
+ * Rewrite a stored row exactly as an install predating the pool fields would
+ * have it: the policy carries neither `maxParallelWorktree` nor
+ * `maxParallelProject`, a shape `normalizeWorkspaceWatcherPolicy` can never
+ * produce on a write and therefore the only honest legacy fixture.
+ *
+ * @param {string} dataDir
+ * @param {string} cwd
+ * @returns {void}
+ */
+function stripPoolFieldsFromStore(dataDir, cwd) {
+  const doc = loadWorkspaceWatchersDocument({ dataDir });
+  const key = normalizeWorkspaceFolder(cwd);
+  const row = doc.items[key];
+  assert.ok(row && row.policy, `fixture row missing for ${key}`);
+  delete row.policy.maxParallelWorktree;
+  delete row.policy.maxParallelProject;
+  fs.writeFileSync(getWorkspaceWatchersDataPath({ dataDir }), `${JSON.stringify(doc, null, 2)}\n`);
+}
+
+/**
+ * @param {string} dataDir
+ * @param {string} cwd
+ * @param {Record<string, unknown>} patch
+ * @returns {void}
+ */
+function patchWatcherPolicy(dataDir, cwd, patch) {
+  mutateWorkspaceWatcherRow(cwd, ({ row }) => ({
+    policy: { ...row.policy, ...patch },
+  }), { dataDir });
+}
+
+runCase('startWorkspaceWatcherCycle: a full worktree cycle pool refuses a worktree leaf and admits a project leaf', async () => {
+  const dataDir = freshDataDir('start-pool-worktree');
+  const cwd = makeWorkspace('start-pool-worktree');
+  const inFlight = addReadyTodo(dataDir, cwd, 'worktree in flight', { executionMode: 'worktree' });
+  claimTodoForCycle(dataDir, cwd, inFlight, 'wt-orch');
+  const nextWorktree = addReadyTodo(dataDir, cwd, 'second worktree leaf', { executionMode: 'worktree' });
+  const nextProject = addReadyTodo(dataDir, cwd, 'project leaf', { executionMode: 'project' });
+  upsertWorkspaceWatcher(cwd, poolCycleWatcher({
+    // The global cap leaves room, so the only thing that can refuse the second
+    // worktree leaf is the pool ceiling of one worktree cycle.
+    maxParallel: 2,
+    maxParallelWorktree: 1,
+  }), { dataDir });
+  seedLiveCycle(dataDir, cwd, { cycleId: 'wt-cycle', chatId: 'wt-orch', todoIds: [inFlight.id] });
+  const chats = [];
+  const deps = poolStartDeps(chats);
+  const refused = await startWorkspaceWatcherCycle({
+    workspaceFolder: cwd, dataDir, now: T0, tick: poolTick(dataDir, cwd, nextWorktree.id), token: 'pool-wt-1', deps,
+  });
+  assert.equal(refused.started, false);
+  assert.equal(refused.reason, 'cycle_active');
+  assert.equal(chats.length, 0, 'a pool refusal never creates an orchestrator chat');
+  assert.equal(getTodoById(dataDir, cwd, nextWorktree.id).status, 'ready', 'and never claims the leaf');
+  const allowed = await startWorkspaceWatcherCycle({
+    workspaceFolder: cwd, dataDir, now: T0 + 1000, tick: poolTick(dataDir, cwd, nextProject.id), token: 'pool-wt-2', deps,
+  });
+  assert.equal(allowed.started, true, JSON.stringify(allowed));
+  assert.deepEqual(allowed.cycle.todoIds, [nextProject.id], 'the project pool still had room');
+});
+
+runCase('startWorkspaceWatcherCycle: a full project cycle pool refuses a project leaf and admits a worktree leaf', async () => {
+  const dataDir = freshDataDir('start-pool-project');
+  const cwd = makeWorkspace('start-pool-project');
+  const inFlight = addReadyTodo(dataDir, cwd, 'project in flight', { executionMode: 'project' });
+  claimTodoForCycle(dataDir, cwd, inFlight, 'pj-orch');
+  const nextProject = addReadyTodo(dataDir, cwd, 'second project leaf', { executionMode: 'project' });
+  const nextWorktree = addReadyTodo(dataDir, cwd, 'worktree leaf', { executionMode: 'worktree' });
+  upsertWorkspaceWatcher(cwd, poolCycleWatcher({ maxParallel: 2, maxParallelProject: 1 }), { dataDir });
+  seedLiveCycle(dataDir, cwd, { cycleId: 'pj-cycle', chatId: 'pj-orch', todoIds: [inFlight.id] });
+  const chats = [];
+  const deps = poolStartDeps(chats);
+  const refused = await startWorkspaceWatcherCycle({
+    workspaceFolder: cwd, dataDir, now: T0, tick: poolTick(dataDir, cwd, nextProject.id), token: 'pool-pj-1', deps,
+  });
+  assert.equal(refused.started, false);
+  assert.equal(refused.reason, 'cycle_active');
+  assert.equal(getTodoById(dataDir, cwd, nextProject.id).status, 'ready');
+  // The worktree leaf gets past the pool gate. This suite has no worktree layout
+  // configured, so it stops in preparation — a different gate, and the proof that
+  // the saturated project pool did not hold it.
+  const worktree = await startWorkspaceWatcherCycle({
+    workspaceFolder: cwd, dataDir, now: T0 + 1000, tick: poolTick(dataDir, cwd, nextWorktree.id), token: 'pool-pj-2', deps,
+  });
+  assert.notEqual(worktree.reason, 'cycle_active', 'the project cycles do not bound the worktree pool');
+  assert.equal(getWorkspaceWatcherActiveCycles(getWorkspaceWatcher(cwd, { dataDir })).length, 1, 'no slot was reserved');
+  assert.equal(chats.length, 0);
+});
+
+runCase('startWorkspaceWatcherCycle: a cycle belongs to the pool of the todo it claimed first', async () => {
+  const dataDir = freshDataDir('start-pool-first-todo');
+  const cwd = makeWorkspace('start-pool-first-todo');
+  // One cycle that drives a project leaf and, later in its subtree, a worktree
+  // leaf. Only `todoIds[0]` is the cycle's pool: the pool never moves mid-cycle.
+  const claimedProject = addReadyTodo(dataDir, cwd, 'claimed project', { executionMode: 'project' });
+  const alsoWorktree = addReadyTodo(dataDir, cwd, 'subtree worktree', { executionMode: 'worktree' });
+  claimTodoForCycle(dataDir, cwd, claimedProject, 'mixed-orch');
+  claimTodoForCycle(dataDir, cwd, alsoWorktree, 'mixed-orch');
+  const nextWorktree = addReadyTodo(dataDir, cwd, 'another worktree leaf', { executionMode: 'worktree' });
+  const nextProject = addReadyTodo(dataDir, cwd, 'another project leaf', { executionMode: 'project' });
+  upsertWorkspaceWatcher(cwd, poolCycleWatcher({
+    maxParallel: 3,
+    maxParallelWorktree: 1,
+    maxParallelProject: 1,
+  }), { dataDir });
+  seedLiveCycle(dataDir, cwd, {
+    cycleId: 'mixed-cycle',
+    chatId: 'mixed-orch',
+    todoIds: [claimedProject.id, alsoWorktree.id],
+  });
+  const chats = [];
+  const deps = poolStartDeps(chats);
+  const worktree = await startWorkspaceWatcherCycle({
+    workspaceFolder: cwd, dataDir, now: T0, tick: poolTick(dataDir, cwd, nextWorktree.id), token: 'mixed-wt', deps,
+  });
+  assert.notEqual(worktree.reason, 'cycle_active', 'the worktree todo of that cycle is not the claimed one');
+  const project = await startWorkspaceWatcherCycle({
+    workspaceFolder: cwd, dataDir, now: T0 + 1000, tick: poolTick(dataDir, cwd, nextProject.id), token: 'mixed-pj', deps,
+  });
+  assert.equal(project.started, false);
+  assert.equal(project.reason, 'cycle_active', 'the mixed cycle occupies the project pool');
+});
+
+runCase('startWorkspaceWatcherCycle: a cycle whose todo row is gone counts toward the project pool', async () => {
+  const dataDir = freshDataDir('start-pool-unresolved');
+  const cwd = makeWorkspace('start-pool-unresolved');
+  const nextProject = addReadyTodo(dataDir, cwd, 'project leaf', { executionMode: 'project' });
+  const nextWorktree = addReadyTodo(dataDir, cwd, 'worktree leaf', { executionMode: 'worktree' });
+  upsertWorkspaceWatcher(cwd, poolCycleWatcher({ maxParallel: 2, maxParallelProject: 1 }), { dataDir });
+  // A deleted todo, so no row can ever resolve the slot's folder.
+  seedLiveCycle(dataDir, cwd, { cycleId: 'orphan', chatId: 'orphan-orch', todoIds: ['gone-todo'] });
+  const chats = [];
+  const deps = poolStartDeps(chats);
+  const project = await startWorkspaceWatcherCycle({
+    workspaceFolder: cwd, dataDir, now: T0, tick: poolTick(dataDir, cwd, nextProject.id), token: 'orphan-pj', deps,
+  });
+  assert.equal(project.started, false);
+  assert.equal(project.reason, 'cycle_active', 'an untraceable cycle is charged to the conservative pool');
+  const worktree = await startWorkspaceWatcherCycle({
+    workspaceFolder: cwd, dataDir, now: T0 + 1000, tick: poolTick(dataDir, cwd, nextWorktree.id), token: 'orphan-wt', deps,
+  });
+  assert.notEqual(worktree.reason, 'cycle_active', 'and never blocks the other pool');
+  assert.equal(chats.length, 0, 'no orchestrator chat for a leaf stopped by the pool gate');
+});
+
+runCase('startWorkspaceWatcherCycle: a start that passes the pre-check is aborted when the pool filled inside the lock', async () => {
+  const dataDir = freshDataDir('start-pool-in-lock');
+  const cwd = makeWorkspace('start-pool-in-lock');
+  const inFlight = addReadyTodo(dataDir, cwd, 'worktree in flight', { executionMode: 'worktree' });
+  claimTodoForCycle(dataDir, cwd, inFlight, 'wt-orch');
+  const nextWorktree = addReadyTodo(dataDir, cwd, 'second worktree leaf', { executionMode: 'worktree' });
+  upsertWorkspaceWatcher(cwd, poolCycleWatcher({ maxParallel: 2, maxParallelWorktree: 1 }), { dataDir });
+  // The stale row is the pre-check's view: no cycle yet. The store gets the
+  // second worktree cycle before the reservation runs, exactly like a start that
+  // raced this one, so only the in-lock re-check can refuse it.
+  const staleWatcher = getWorkspaceWatcher(cwd, { dataDir });
+  seedLiveCycle(dataDir, cwd, { cycleId: 'wt-race', chatId: 'wt-orch', todoIds: [inFlight.id] });
+  const chats = [];
+  const deps = poolStartDeps(chats);
+  const started = await startWorkspaceWatcherCycle({
+    workspaceFolder: cwd,
+    dataDir,
+    now: T0,
+    tick: poolTick(dataDir, cwd, nextWorktree.id, staleWatcher),
+    token: 'race-lease',
+    deps,
+  });
+  assert.equal(started.started, false);
+  assert.equal(started.reason, 'cycle_active');
+  assert.equal(chats.length, 0, 'the reservation never reached the orchestrator');
+  assert.equal(getTodoById(dataDir, cwd, nextWorktree.id).status, 'ready');
+  const row = getWorkspaceWatcher(cwd, { dataDir });
+  assert.deepEqual(getWorkspaceWatcherActiveCycles(row).map((cycle) => cycle.cycleId), ['wt-race'], 'no phantom slot');
+});
+
+runCase('startWorkspaceWatcherCycle: the global cap still wins once both pools are configured above it', async () => {
+  const dataDir = freshDataDir('start-pool-global-cap');
+  const cwd = makeWorkspace('start-pool-global-cap');
+  const firstWt = addReadyTodo(dataDir, cwd, 'worktree one', { executionMode: 'worktree' });
+  const secondWt = addReadyTodo(dataDir, cwd, 'worktree two', { executionMode: 'worktree' });
+  claimTodoForCycle(dataDir, cwd, firstWt, 'wt-1');
+  claimTodoForCycle(dataDir, cwd, secondWt, 'wt-2');
+  const nextProject = addReadyTodo(dataDir, cwd, 'project leaf', { executionMode: 'project' });
+  upsertWorkspaceWatcher(cwd, poolCycleWatcher({
+    maxParallel: 2,
+    maxParallelWorktree: 2,
+    maxParallelProject: 2,
+  }), { dataDir });
+  seedLiveCycle(dataDir, cwd, { cycleId: 'wt-a', chatId: 'wt-1', todoIds: [firstWt.id] });
+  seedLiveCycle(dataDir, cwd, { cycleId: 'wt-b', chatId: 'wt-2', todoIds: [secondWt.id] });
+  const chats = [];
+  const deps = poolStartDeps(chats);
+  const refused = await startWorkspaceWatcherCycle({
+    workspaceFolder: cwd, dataDir, now: T0, tick: poolTick(dataDir, cwd, nextProject.id), token: 'global-cap', deps,
+  });
+  assert.equal(refused.started, false);
+  assert.equal(refused.reason, 'cycle_active');
+  assert.equal(chats.length, 0);
+  // Raising only the global cap admits the same leaf, which proves the refusal
+  // above came from `maxParallel` and not from the project pool.
+  patchWatcherPolicy(dataDir, cwd, { maxParallel: 3 });
+  const room = await startWorkspaceWatcherCycle({
+    workspaceFolder: cwd, dataDir, now: T0 + 1000, tick: poolTick(dataDir, cwd, nextProject.id), token: 'global-room', deps,
+  });
+  assert.equal(room.started, true, JSON.stringify(room));
+});
+
+runCase('tick: a full worktree cycle pool starts the eligible project todo instead of waiting', async () => {
+  const dataDir = freshDataDir('tick-pool-anti-starvation');
+  const cwd = makeWorkspace('tick-pool-anti-starvation');
+  const inFlight = addReadyTodo(dataDir, cwd, 'worktree in flight', { executionMode: 'worktree' });
+  claimTodoForCycle(dataDir, cwd, inFlight, 'wt-orch');
+  // First in pick order and in the saturated pool, so the tick has to step over
+  // it rather than wait behind it.
+  const nextWorktree = addReadyTodo(dataDir, cwd, 'blocked worktree leaf', { executionMode: 'worktree', siblingIndex: 0 });
+  const nextProject = addReadyTodo(dataDir, cwd, 'eligible project leaf', { executionMode: 'project', siblingIndex: 1 });
+  upsertWorkspaceWatcher(cwd, poolCycleWatcher({ maxParallel: 3, maxParallelWorktree: 1 }), { dataDir });
+  seedLiveCycle(dataDir, cwd, { cycleId: 'wt-cycle', chatId: 'wt-orch', todoIds: [inFlight.id] }, T0 - 5000);
+  const chats = [];
+  const pass = await runWorkspaceWatcherAutopilot({
+    workspaceFolder: cwd,
+    dataDir,
+    now: T0,
+    token: 'anti-starve',
+    deps: poolStartDeps(chats),
+  });
+  assert.equal(pass.started, 1, JSON.stringify(pass.errors || []));
+  assert.deepEqual(pass.cycles[0].todoIds, [nextProject.id], 'the other pool keeps working');
+  assert.equal(pass.cycles[0].mode, 'implement');
+  assert.equal(getTodoById(dataDir, cwd, nextProject.id).status, 'doing');
+  assert.equal(getTodoById(dataDir, cwd, nextWorktree.id).status, 'ready', 'the saturated pool is untouched');
+  const row = getWorkspaceWatcher(cwd, { dataDir });
+  const last = row.decisions.at(-1);
+  assert.equal(last.kind, 'start_cycle');
+  assert.equal(last.nextTodoId, nextProject.id);
+  assert.equal(last.pool, undefined);
+});
+
+runCase('tick: with no other pool to fall through to, the wait names the saturated pool and only its cycles', async () => {
+  const dataDir = freshDataDir('tick-pool-cycle-wait');
+  const cwd = makeWorkspace('tick-pool-cycle-wait');
+  const wtInFlight = addReadyTodo(dataDir, cwd, 'worktree in flight', { executionMode: 'worktree' });
+  const pjInFlight = addReadyTodo(dataDir, cwd, 'project in flight', { executionMode: 'project' });
+  claimTodoForCycle(dataDir, cwd, wtInFlight, 'wt-orch');
+  claimTodoForCycle(dataDir, cwd, pjInFlight, 'pj-orch');
+  const readyWorktree = addReadyTodo(dataDir, cwd, 'only ready leaf', { executionMode: 'worktree' });
+  upsertWorkspaceWatcher(cwd, poolCycleWatcher({
+    maxParallel: 3,
+    maxParallelWorktree: 1,
+    maxParallelProject: 1,
+  }), { dataDir });
+  seedLiveCycle(dataDir, cwd, { cycleId: 'wt-cycle', chatId: 'wt-orch', todoIds: [wtInFlight.id] });
+  seedLiveCycle(dataDir, cwd, { cycleId: 'pj-cycle', chatId: 'pj-orch', todoIds: [pjInFlight.id] });
+  const tick = tickWorkspaceWatcher({
+    workspaceFolder: cwd,
+    dataDir,
+    now: T0,
+    token: 'pool-wait',
+    deps: poolStartDeps([]),
+  });
+  assert.equal(tick.decision.kind, 'wait_active');
+  assert.equal(tick.decision.reason, 'cycle_active');
+  assert.equal(tick.decision.pool, 'worktree');
+  assert.deepEqual(tick.decision.slotChats, [{ chatId: 'wt-orch', cycleId: 'wt-cycle' }], 'only the saturated pool holds slots');
+  assert.equal(tick.decision.slotHolders, undefined);
+  const row = getWorkspaceWatcher(cwd, { dataDir });
+  const last = row.decisions.at(-1);
+  assert.equal(last.pool, 'worktree', 'the marker survives the store round-trip');
+  assert.deepEqual(last.slotChats, [{ chatId: 'wt-orch', cycleId: 'wt-cycle' }]);
+  assert.match(describeWorkspaceWatcherDecision(last), /cycle_active:worktree/);
+  assert.equal(getTodoById(dataDir, cwd, readyWorktree.id).status, 'ready');
+});
+
+runCase('tick: a symmetric full project cycle pool names the eligible worktree todo', async () => {
+  const dataDir = freshDataDir('tick-pool-project-starvation');
+  const cwd = makeWorkspace('tick-pool-project-starvation');
+  const pjInFlight = addReadyTodo(dataDir, cwd, 'project in flight', { executionMode: 'project' });
+  claimTodoForCycle(dataDir, cwd, pjInFlight, 'pj-orch');
+  const readyProject = addReadyTodo(dataDir, cwd, 'blocked project leaf', { executionMode: 'project', siblingIndex: 0 });
+  const readyWorktree = addReadyTodo(dataDir, cwd, 'eligible worktree leaf', { executionMode: 'worktree', siblingIndex: 1 });
+  upsertWorkspaceWatcher(cwd, poolCycleWatcher({ maxParallel: 3, maxParallelProject: 1 }), { dataDir });
+  seedLiveCycle(dataDir, cwd, { cycleId: 'pj-cycle', chatId: 'pj-orch', todoIds: [pjInFlight.id] }, T0 - 5000);
+  const tick = tickWorkspaceWatcher({
+    workspaceFolder: cwd,
+    dataDir,
+    now: T0,
+    token: 'symmetric',
+    deps: poolStartDeps([]),
+  });
+  assert.equal(tick.decision.kind, 'start_cycle');
+  assert.equal(tick.decision.nextTodoId, readyWorktree.id, 'the first-picked project leaf is stepped over');
+  assert.equal(tick.decision.pool, undefined, 'a decision that found room names no pool');
+  assert.equal(getTodoById(dataDir, cwd, readyProject.id).status, 'ready');
+  const last = getWorkspaceWatcher(cwd, { dataDir }).decisions.at(-1);
+  assert.equal(last.kind, 'start_cycle');
+  assert.equal(last.nextTodoId, readyWorktree.id);
+});
+
+runCase('runWorkspaceWatcherTick: a cycle-saturated pool reaches the driver as a wait, never a start', async () => {
+  const dataDir = freshDataDir('control-pool-wait');
+  const cwd = makeWorkspace('control-pool-wait');
+  const inFlight = addReadyTodo(dataDir, cwd, 'worktree in flight', { executionMode: 'worktree' });
+  claimTodoForCycle(dataDir, cwd, inFlight, 'wt-orch');
+  addReadyTodo(dataDir, cwd, 'only a worktree leaf is ready', { executionMode: 'worktree' });
+  upsertWorkspaceWatcher(cwd, poolCycleWatcher({ maxParallel: 3, maxParallelWorktree: 1 }), { dataDir });
+  seedLiveCycle(dataDir, cwd, { cycleId: 'wt-cycle', chatId: 'wt-orch', todoIds: [inFlight.id] });
+  const chats = [];
+  const run = await runWorkspaceWatcherTick({
+    workspaceFolder: cwd,
+    dataDir,
+    now: T0,
+    token: 'control-pool',
+    deps: poolStartDeps(chats),
+  });
+  assert.equal(run.tick.decision.kind, 'wait_active');
+  assert.equal(run.tick.decision.reason, 'cycle_active');
+  assert.equal(run.tick.decision.pool, 'worktree');
+  assert.equal(run.started, null, 'the driver never calls a start for a refused pool');
+  assert.equal(chats.length, 0);
+});
+
+runCase('tick: the global cycle cap keeps its exact decision shape with pools configured', async () => {
+  const dataDir = freshDataDir('tick-pool-global-shape');
+  const cwd = makeWorkspace('tick-pool-global-shape');
+  const wtInFlight = addReadyTodo(dataDir, cwd, 'worktree in flight', { executionMode: 'worktree' });
+  const pjInFlight = addReadyTodo(dataDir, cwd, 'project in flight', { executionMode: 'project' });
+  claimTodoForCycle(dataDir, cwd, wtInFlight, 'wt-orch');
+  claimTodoForCycle(dataDir, cwd, pjInFlight, 'pj-orch');
+  addReadyTodo(dataDir, cwd, 'ready leaf', { executionMode: 'project' });
+  upsertWorkspaceWatcher(cwd, poolCycleWatcher({
+    maxParallel: 2,
+    maxParallelWorktree: 2,
+    maxParallelProject: 2,
+  }), { dataDir });
+  seedLiveCycle(dataDir, cwd, { cycleId: 'wt-cycle', chatId: 'wt-orch', todoIds: [wtInFlight.id] });
+  seedLiveCycle(dataDir, cwd, { cycleId: 'pj-cycle', chatId: 'pj-orch', todoIds: [pjInFlight.id] });
+  const tick = tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0, token: 'global-shape', deps: poolStartDeps([]) });
+  assert.equal(tick.decision.reason, 'cycle_active', 'every pool has room, the sum does not');
+  assert.equal('pool' in tick.decision, false, 'the global refusal stays exactly the decision it was');
+  assert.deepEqual(tick.decision.slotChats, [
+    { chatId: 'wt-orch', cycleId: 'wt-cycle' },
+    { chatId: 'pj-orch', cycleId: 'pj-cycle' },
+  ]);
+  const last = getWorkspaceWatcher(cwd, { dataDir }).decisions.at(-1);
+  assert.equal('pool' in last, false, 'and the store round-trip does not invent one');
+  assert.deepEqual(last.slotChats, tick.decision.slotChats);
+});
+
+runCase('a watcher row written before the pool fields existed starts the same cycles as one with 0', async () => {
+  // The legacy row is written straight to the store file, so its policy really
+  // has no `maxParallelWorktree` / `maxParallelProject` keys at all — the shape
+  // every workspace on every install has today.
+  const legacyDir = freshDataDir('pool-legacy-row');
+  const legacyCwd = makeWorkspace('pool-legacy-row');
+  const zeroDir = freshDataDir('pool-zero-row');
+  const zeroCwd = makeWorkspace('pool-zero-row');
+  const fixtures = [];
+  for (const [dataDir, cwd] of [[legacyDir, legacyCwd], [zeroDir, zeroCwd]]) {
+    const wtInFlight = addReadyTodo(dataDir, cwd, 'worktree in flight', { executionMode: 'worktree' });
+    claimTodoForCycle(dataDir, cwd, wtInFlight, 'wt-orch');
+    const wtReady = addReadyTodo(dataDir, cwd, 'second worktree leaf', { executionMode: 'worktree', siblingIndex: 0 });
+    const pjReady = addReadyTodo(dataDir, cwd, 'project leaf', { executionMode: 'project', siblingIndex: 1 });
+    seedLiveCycle(dataDir, cwd, { cycleId: 'wt-cycle', chatId: 'wt-orch', todoIds: [wtInFlight.id] });
+    fixtures.push({ wtReady: wtReady.id, pjReady: pjReady.id });
+  }
+  upsertWorkspaceWatcher(zeroCwd, poolCycleWatcher({ maxParallel: 2, maxParallelWorktree: 0, maxParallelProject: 0 }), { dataDir: zeroDir });
+  upsertWorkspaceWatcher(legacyCwd, poolCycleWatcher({ maxParallel: 2 }), { dataDir: legacyDir });
+  stripPoolFieldsFromStore(legacyDir, legacyCwd);
+  const legacyFile = fs.readFileSync(getWorkspaceWatchersDataPath({ dataDir: legacyDir }), 'utf8');
+  assert.ok(!legacyFile.includes('maxParallelWorktree') && !legacyFile.includes('maxParallelProject'),
+    'the fixture really is a row written before these fields existed');
+  const results = [];
+  for (const [dataDir, cwd, fixture] of [[legacyDir, legacyCwd, fixtures[0]], [zeroDir, zeroCwd, fixtures[1]]]) {
+    const chats = [];
+    const deps = poolStartDeps(chats);
+    // One lease token for both starts: a failed worktree preparation keeps the
+    // cycle lease it took, and a second token would read that as another driver.
+    const worktree = await startWorkspaceWatcherCycle({
+      workspaceFolder: cwd, dataDir, now: T0, tick: poolTick(dataDir, cwd, fixture.wtReady), token: 'legacy-lease', deps,
+    });
+    const project = await startWorkspaceWatcherCycle({
+      workspaceFolder: cwd, dataDir, now: T0 + 1000, tick: poolTick(dataDir, cwd, fixture.pjReady), token: 'legacy-lease', deps,
+    });
+    results.push({
+      startedChats: chats.length,
+      worktree: { started: worktree.started, reason: worktree.reason },
+      project: { started: project.started, reason: project.reason },
+      cycles: getWorkspaceWatcherActiveCycles(getWorkspaceWatcher(cwd, { dataDir })).length,
+    });
+  }
+  assert.deepEqual(results[0], results[1], 'a legacy row behaves as the documented 0 default');
+  // Neither leaf is held by a pool gate here: with no separate limit only
+  // `maxParallel` bounds the pair, and the worktree leaf can still reach the
+  // worktree preparation step this suite has no layout for.
+  assert.equal(results[0].worktree.reason, 'worktree_prepare_failed', JSON.stringify(results[0].worktree));
+  assert.equal(results[0].project.started, true, JSON.stringify(results[0].project));
 });
 
 runCase('startWorkspaceWatcherCycle: orchestrator refusal rolls back daily budget and failure count', async () => {

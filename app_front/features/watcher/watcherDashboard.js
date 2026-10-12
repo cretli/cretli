@@ -443,5 +443,7 @@ export function renderWatcherScheduleHtml(schedule = {}, now = Date.now()) {
     + `<p class="cr-hint">${escapeWatcherHtml(t('settings.watcherScheduleLast'))}: ${escapeWatcherHtml(schedule.lastCycleAt || '-')}</p>`
     + `<p class="cr-hint">${escapeWatcherHtml(t('settings.watcherScheduleCyclesToday'))}: ${budgetText}</p>`
     + `<p class="cr-hint">${escapeWatcherHtml(t('settings.watcherScheduleRunning'))}: ${Number(schedule.running) || 0} / ${Number(schedule.maxParallel) || 1}</p>`
+    + `<p class="cr-hint">${escapeWatcherHtml(t('settings.watcherMaxParallelWorktree'))}: ${Number(schedule.worktreeRunning) || 0} / ${Number(schedule.maxParallelWorktree) || Number(schedule.maxParallel) || 1}`
+    + ` · ${escapeWatcherHtml(t('settings.watcherMaxParallelProject'))}: ${Number(schedule.projectRunning) || 0} / ${Number(schedule.maxParallelProject) || Number(schedule.maxParallel) || 1}</p>`
     + blockedHtml;
 }
