@@ -60,8 +60,11 @@ function makeJob() {
   const busy = getDelegationById(job.id);
   assert.equal(busy.status, 'cancelling');
   assert.ok(busy.errors.some((entry) => entry.code === 'cancel_timeout'));
+  // A still-busy executor is reported once per gap, not on every tick.
+  await tickDelegationRuntime({ now: now + 5000, drainMailbox: false });
+  assert.equal(getDelegationById(job.id).errors.filter((entry) => entry.code === 'cancel_timeout').length, 1);
   patchMockChatRun(job.childChatId, { busy: false, waitingForInput: false });
-  await tickDelegationRuntime({ now: now + 1, drainMailbox: false });
+  await tickDelegationRuntime({ now: now + 5001, drainMailbox: false });
   assert.equal(getDelegationById(job.id).status, 'cancelled');
 }
 

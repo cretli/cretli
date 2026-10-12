@@ -428,6 +428,7 @@ test('startWorkspaceWatcherCycle: a prepare failure releases the claim, keeps th
   assert.equal(record.executionState, 'none');
   assert.equal(fs.existsSync(record.worktreePath), true);
   assert.ok(row.decisions.some((decision) => decision.kind === 'worktree_prepare_failed'));
+  assert.equal(row.blockedBackoff[todo.id].count, 1, 'a preflight failure delays the next pick of the same leaf');
 });
 
 test('startWorkspaceWatcherCycle: a dirty tree refuses worktree mode before any chat', async (t) => {
