@@ -139,3 +139,37 @@
   border-radius: 999px;
   padding: 0 0.4rem;
 }
+
+/* Collapse toggle: narrow screens only; desktop always shows the full bar. */
+.todo-watcher-collapse {
+  display: none;
+  margin-left: auto;
+  padding: 0.1rem 0.35rem;
+  border: 0;
+  background: transparent;
+  color: var(--cr-text-muted, inherit);
+  font: inherit;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .todo-watcher-collapse {
+    display: inline-flex;
+    align-items: center;
+    min-width: 2.25rem;
+    min-height: 2.25rem;
+    justify-content: center;
+  }
+
+  .todo-watcher-collapse .mdi {
+    transition: transform var(--cr-transition, 120ms ease);
+  }
+
+  .todo-watcher-bar--collapsed .todo-watcher-collapse .mdi {
+    transform: rotate(-90deg);
+  }
+
+  .todo-watcher-bar--collapsed > :not(.todo-watcher-title):not(.todo-watcher-status):not(.todo-watcher-pill):not(.todo-watcher-collapse) {
+    display: none;
+  }
+}

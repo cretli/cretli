@@ -2211,6 +2211,8 @@ export const pl = {
     retryBlockedFailed: 'Nie udało się ponowić zadania.',
     statusIntegrationReady: 'Czeka na integrację',
     integrationReady: 'Czeka na integrację',
+    search: 'Szukaj',
+    searchPlaceholder: 'Szukaj po tytule lub ID',
     integrationFilterHeading: 'Integracja',
     integrationFilterAll: 'Wszystkie integracje',
     integrationFilterUnconfirmed: 'Niepotwierdzona',

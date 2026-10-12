@@ -98,6 +98,28 @@ function paintWhy(view) {
   why.innerHTML = `${recoveryHtml}${decisionsHtml}`;
 }
 
+const BAR_COLLAPSE_KEY = 'cretli-todo-watcher-bar-collapsed';
+
+/** Collapsed by default on narrow screens, where the full bar takes a quarter of the list. */
+function isBarCollapsed() {
+  try {
+    const stored = localStorage.getItem(BAR_COLLAPSE_KEY);
+    if (stored === '1') return true;
+    if (stored === '0') return false;
+  } catch {
+    // Private mode: fall back to the viewport default.
+  }
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    && window.matchMedia('(max-width: 640px)').matches;
+}
+
+/** @param {HTMLElement} bar */
+function syncBarCollapse(bar) {
+  const collapsed = isBarCollapsed();
+  bar.classList.toggle('todo-watcher-bar--collapsed', collapsed);
+  bar.querySelector('[data-watcher-collapse]')?.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+}
+
 /**
  * @param {object} view
  */
@@ -106,6 +128,7 @@ function paint(view) {
   if (bar) {
     bar.hidden = false;
     bar.innerHTML = renderWatcherBarHtml(view, { getTodoTitle: getTodoTitleFn, whyOpen });
+    syncBarCollapse(bar);
   }
   paintWhy(view);
 }
@@ -190,9 +213,18 @@ export function initWatcherPanel(options = {}) {
     });
     bar.addEventListener('click', (event) => {
       const target = event.target instanceof Element
-        ? event.target.closest('[data-watcher-action],[data-watcher-why],[data-watcher-open-chat]')
+        ? event.target.closest('[data-watcher-action],[data-watcher-why],[data-watcher-open-chat],[data-watcher-collapse]')
         : null;
       if (!target) return;
+      if (target.hasAttribute('data-watcher-collapse')) {
+        try {
+          localStorage.setItem(BAR_COLLAPSE_KEY, isBarCollapsed() ? '0' : '1');
+        } catch {
+          // Private mode: the toggle still works for this render only.
+        }
+        syncBarCollapse(bar);
+        return;
+      }
       const action = target.getAttribute('data-watcher-action');
       if (action === 'pause' || action === 'resume') {
         void setPaused(action);

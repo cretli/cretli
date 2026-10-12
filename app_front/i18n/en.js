@@ -2211,6 +2211,8 @@ export const en = {
     retryBlockedFailed: 'Could not retry this task.',
     statusIntegrationReady: 'Awaiting integration',
     integrationReady: 'Awaiting integration',
+    search: 'Search',
+    searchPlaceholder: 'Search by title or ID',
     integrationFilterHeading: 'Integration',
     integrationFilterAll: 'All integrations',
     integrationFilterUnconfirmed: 'Unconfirmed',

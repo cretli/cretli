@@ -165,6 +165,8 @@ export function renderWatcherBarHtml(view, options = {}) {
   return ''
     + '<span class="todo-watcher-title"><span class="mdi mdi-robot-outline" aria-hidden="true"></span>'
     + `${escapeWatcherHtml(t('todo.watcherBarTitle'))}</span>`
+    + '<button type="button" class="todo-watcher-collapse" data-watcher-collapse aria-expanded="true">'
+    + '<span class="mdi mdi-chevron-down" aria-hidden="true"></span></button>'
     + `<label class="todo-watcher-mode"><span class="todo-watcher-mode-label">${escapeWatcherHtml(t('todo.watcherMode'))}</span>`
     + `<select class="widget-panel-select" data-watcher-mode aria-label="${escapeWatcherAttr(t('todo.watcherMode'))}">${modeOptions}</select></label>`
     + `<span class="todo-watcher-status" data-state="${escapeWatcherAttr(status.key)}" title="${escapeWatcherAttr(status.reason || status.label)}">${escapeWatcherHtml(status.label)}</span>`

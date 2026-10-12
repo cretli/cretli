@@ -2625,7 +2625,9 @@ body.files-preview-resizing {
   padding: 0.35rem 0;
 }
 
-.todo-status-filter-row {
+.todo-status-filter-row,
+.todo-review-filter-row,
+.todo-integration-filter-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -2635,11 +2637,15 @@ body.files-preview-resizing {
   color: var(--cr-text);
 }
 
-.todo-status-filter-row:hover {
+.todo-status-filter-row:hover,
+.todo-review-filter-row:hover,
+.todo-integration-filter-row:hover {
   background: var(--cr-surface-raised);
 }
 
-.todo-status-filter-row cr-checkbox {
+.todo-status-filter-row cr-checkbox,
+.todo-review-filter-row cr-checkbox,
+.todo-integration-filter-row cr-checkbox {
   flex: 1;
   min-width: 0;
   font-size: inherit;
@@ -3068,15 +3074,21 @@ body.files-preview-resizing {
   background: var(--cr-surface);
 }
 
-.todo-review-filter-heading {
-  padding: var(--cr-space-1) var(--cr-space-2);
-  border-top: 1px solid var(--cr-border-strong);
+.todo-filter-count {
+  flex-shrink: 0;
+  min-width: 1.5rem;
+  text-align: right;
   font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
   color: var(--cr-text-muted);
 }
 
-.todo-review-filter-row {
-  padding: var(--cr-space-1) var(--cr-space-2);
+.todo-review-filter-heading {
+  margin-top: 0.35rem;
+  padding: 0.5rem 0.75rem 0.15rem;
+  border-top: 1px solid var(--cr-border-strong);
+  font-size: 0.72rem;
+  color: var(--cr-text-muted);
 }
 
 .sdk-rich-delegation-accept-context {
@@ -3115,6 +3127,47 @@ body.files-preview-resizing {
 
 .todo-row-mark[data-mark='blocked-dependency'] {
   color: var(--cr-warn);
+}
+
+/* Narrow rows: the title gets the width. "Add subtask" lives in the row menu, the
+ * queue badge repeats the status icon, and blocked marks collapse to an icon. */
+@media (max-width: 640px) {
+  /* Half the desktop indent keeps nested titles wide; a left rule keeps the tree
+   * readable at that depth. */
+  .todo-row {
+    margin-left: calc(var(--todo-level) * 0.9rem);
+  }
+
+  .todo-row:not([data-level='0']) {
+    border-left: 2px solid var(--cr-border-strong);
+  }
+
+  .todo-row-add {
+    display: none;
+  }
+
+  .todo-row-grip {
+    flex-basis: 1.4rem;
+  }
+
+  .todo-row-text .todo-row-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .todo-row-badge[data-kind='queued'] {
+    display: none;
+  }
+
+  .todo-row-mark[data-icon-only] {
+    max-width: none;
+    font-size: 1rem;
+    line-height: 1;
+  }
 }
 
 .todo-blocked-alert {
@@ -14362,4 +14415,37 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.35rem;
+}
+
+.todo-search {
+  display: flex;
+  padding: 0 0.35rem 0.35rem;
+}
+
+/* A class `display` would otherwise beat the UA [hidden] rule. */
+.todo-search[hidden] {
+  display: none;
+}
+
+.todo-search cr-bar-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.todo-search-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--cr-control-height, 1.75rem);
+  height: var(--cr-control-height, 1.75rem);
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+  color: var(--cr-text-muted);
+  cursor: pointer;
+}
+
+.todo-search-btn--active {
+  color: var(--cr-accent);
+  border-color: var(--cr-accent);
 }

@@ -420,6 +420,14 @@ class CrTodoReviewBadge extends LitElement {
     if (!shouldShowLeafReviewBadge(item)) return nothing;
     const code = resolveReviewBadge(item.review, 'code');
     const plan = resolveReviewBadge(item.review, 'plan');
+    // A narrow list row has room for one badge: show the code review, or the
+    // plan review when there is no code review yet.
+    const narrow = !this.detail && typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia('(max-width: 640px)').matches;
+    if (narrow && plan.state !== 'none') {
+      return this._renderSubject(code.state === 'none' ? plan : code);
+    }
     return html`
       ${this._renderSubject(code)}
       ${plan.state !== 'none' ? this._renderSubject(plan) : nothing}

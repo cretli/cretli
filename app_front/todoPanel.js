@@ -5,6 +5,7 @@ import './components/ui/cr-todo-review-badge.js';
 import { createTodoReviewRefresher } from './features/todo/todoReviewRefresh.js';
 import {
   filterTodoItemsByReviewState,
+  countTodoItemsByReviewState,
   parseReviewListFilter,
   resolveAggregateReviewBadge,
   shouldShowLeafReviewBadge,
@@ -27,6 +28,7 @@ import {
   parseTodoRootStatusFilter,
   serializeTodoRootStatusFilter,
   TODO_ITEM_STATUSES,
+  normalizeTodoItemStatus,
   readTodoRowMark,
   readTodoRowBlockKind,
   readTodoRowMeta,
@@ -100,6 +102,8 @@ let rootStatusFilter = null;
 let reviewListFilter = '';
 /** @type {string} */
 let integrationListFilter = '';
+/** Free-text list search (title or id); not persisted. */
+let todoSearchQuery = '';
 /** @type {HTMLButtonElement | null} */
 let statusFilterTrigger = null;
 /** @type {{ api: ReturnType<typeof initDropdown>, panel: HTMLElement, list: HTMLElement } | null} */
@@ -237,7 +241,28 @@ function getVisibleTodoItems() {
     filterTodoItemsByRootStatus(latestItems, rootStatusFilter),
     reviewListFilter
   );
-  return filterTodoItemsByIntegrationState(byReview, integrationListFilter);
+  return filterTodoItemsBySearch(filterTodoItemsByIntegrationState(byReview, integrationListFilter), todoSearchQuery);
+}
+
+function filterTodoItemsBySearch(items, query) {
+  const needle = String(query || '').trim().toLowerCase();
+  if (!needle) return items;
+  const byId = new Map(items.map((item) => [String(item.id), item]));
+  const included = new Set();
+  for (const item of items) {
+    const haystack = `${item.title || ''} ${item.id || ''}`.toLowerCase();
+    if (!haystack.includes(needle)) continue;
+    // Keep ancestors so a match stays reachable in the tree.
+    let current = item;
+    const seen = new Set();
+    while (current && !seen.has(String(current.id))) {
+      const id = String(current.id);
+      included.add(id);
+      seen.add(id);
+      current = byId.get(String(current.parentId || ''));
+    }
+  }
+  return items.filter((item) => included.has(String(item.id)));
 }
 
 function filterTodoItemsByIntegrationState(items, filter) {
@@ -257,6 +282,21 @@ function filterTodoItemsByIntegrationState(items, filter) {
     }
   }
   return items.filter((item) => included.has(String(item.id)));
+}
+
+function countTodoItemsByIntegrationState(items, filter) {
+  if (filter === 'all') return items.length;
+  return items.filter((item) => {
+    const summary = item.integrationSummary || {};
+    return summary.state === filter || summary.detail === filter;
+  }).length;
+}
+
+function createFilterCountEl(count) {
+  const el = document.createElement('span');
+  el.className = 'todo-filter-count';
+  el.textContent = String(count);
+  return el;
 }
 
 function integrationFilterLabel(filter) {
@@ -318,7 +358,7 @@ function renderStatusFilterMenuItems() {
   list.textContent = '';
   const showAll = !rootStatusFilter;
   const selected = rootStatusFilter || new Set(TODO_ITEM_STATUSES);
-  const addRow = (id, label, checked) => {
+  const addRow = (id, label, checked, count) => {
     const row = document.createElement('div');
     row.className = 'todo-status-filter-row';
     row.dataset.filterId = id;
@@ -328,12 +368,13 @@ function renderStatusFilterMenuItems() {
     const text = document.createElement('span');
     text.textContent = label;
     box.appendChild(text);
-    row.appendChild(box);
+    row.append(box, createFilterCountEl(count));
     list.appendChild(row);
   };
-  addRow('all', t('todo.filterStatusAll'), showAll);
+  addRow('all', t('todo.filterStatusAll'), showAll, latestItems.length);
   TODO_ITEM_STATUSES.forEach((status) => {
-    addRow(status, t(todoStatusLabelKey(status)), !showAll && selected.has(status));
+    const count = latestItems.filter((item) => normalizeTodoItemStatus(item.status) === status).length;
+    addRow(status, t(todoStatusLabelKey(status)), !showAll && selected.has(status), count);
   });
   const heading = document.createElement('div');
   heading.className = 'todo-review-filter-heading';
@@ -349,7 +390,7 @@ function renderStatusFilterMenuItems() {
     const text = document.createElement('span');
     text.textContent = reviewFilterLabel(filter);
     box.appendChild(text);
-    row.appendChild(box);
+    row.append(box, createFilterCountEl(countTodoItemsByReviewState(latestItems, filter)));
     list.appendChild(row);
   });
   const integrationHeading = document.createElement('div');
@@ -366,7 +407,7 @@ function renderStatusFilterMenuItems() {
     const label = document.createElement('span');
     label.textContent = integrationFilterLabel(filter);
     box.appendChild(label);
-    row.appendChild(box);
+    row.append(box, createFilterCountEl(countTodoItemsByIntegrationState(latestItems, filter)));
     list.appendChild(row);
   });
 }
@@ -510,6 +551,48 @@ function ensureStatusFilterUi(toolbar) {
   } else {
     toolbar.appendChild(trigger);
   }
+  ensureTodoSearchUi(toolbar, trigger);
+}
+
+/**
+ * Search button next to the filter trigger; the input row opens below the toolbar.
+ *
+ * @param {HTMLElement} toolbar
+ * @param {HTMLElement} anchor
+ */
+function ensureTodoSearchUi(toolbar, anchor) {
+  if (toolbar.querySelector('.todo-search-btn')) return;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'todo-search-btn';
+  button.setAttribute('aria-label', t('todo.search'));
+  button.title = t('todo.search');
+  button.innerHTML = '<span class="mdi mdi-magnify" aria-hidden="true"></span>';
+  const wrap = document.createElement('div');
+  wrap.className = 'todo-search';
+  wrap.hidden = true;
+  const input = document.createElement('cr-bar-input');
+  input.setAttribute('type', 'search');
+  input.setAttribute('placeholder', t('todo.searchPlaceholder'));
+  input.setAttribute('aria-label', t('todo.search'));
+  wrap.appendChild(input);
+  const apply = () => {
+    todoSearchQuery = String(input.value || '');
+    button.classList.toggle('todo-search-btn--active', !!todoSearchQuery.trim());
+    if (latestItems.length || listEl?.querySelector('.todo-empty')) renderList({ items: latestItems });
+  };
+  input.addEventListener('input', apply);
+  button.addEventListener('click', () => {
+    wrap.hidden = !wrap.hidden;
+    if (wrap.hidden) {
+      input.value = '';
+      apply();
+    } else {
+      input.focus?.();
+    }
+  });
+  anchor.parentNode?.insertBefore(button, anchor.nextSibling);
+  toolbar.insertAdjacentElement('afterend', wrap);
 }
 
 /**
@@ -550,7 +633,11 @@ function formatTodoMetaText(item) {
   const integrationLabel = ['no_code_changes', 'rejected', 'conflict'].includes(integrationDetail)
     ? integrationFilterLabel(integrationDetail)
     : integrationFilterLabel(integrationState);
-  parts.push(`${t('todo.integrationState')}: ${integrationLabel}`);
+  // An unconfirmed state is the default for every open task, so it only adds
+  // noise on a narrow row; show integration for done work and non-default states.
+  const showIntegration = integrationState !== 'unconfirmed' || integrationDetail
+    || normalizeTodoItemStatus(item?.status) === 'done';
+  if (showIntegration) parts.push(integrationLabel);
   return parts.join(' · ');
 }
 
@@ -1395,6 +1482,7 @@ function paintTodoRow(el, row) {
   el.dataset.status = status;
   el.className = `todo-row todo-row--${status}`;
   el.style.setProperty('--todo-level', String(row.level));
+  el.dataset.level = String(row.level);
   el.setAttribute('aria-level', String(row.level + 1));
   const toggle = el.querySelector('.todo-row-toggle');
   const title = el.querySelector('.todo-row-title');
@@ -1489,6 +1577,20 @@ function paintTodoRow(el, row) {
           ? t('todo.blockedDependency')
           : markKind === 'blocked' ? t('todo.blocked') : t('todo.ready');
     mark.dataset.mark = markKind === 'integration' ? 'integration' : (blockKind ? `blocked-${blockKind}` : markKind);
+    // Narrow rows show blocked marks as an icon; the text stays in aria-label/title.
+    const iconOnly = markKind === 'blocked' && typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 640px)').matches;
+    mark.dataset.label = mark.textContent;
+    if (iconOnly) {
+      mark.setAttribute('data-icon-only', '');
+      mark.textContent = '';
+      const markIcon = document.createElement('span');
+      markIcon.className = `mdi ${blockKind === 'dependency' ? 'mdi-timer-sand' : 'mdi-alert-circle-outline'}`;
+      markIcon.setAttribute('aria-hidden', 'true');
+      mark.appendChild(markIcon);
+    } else {
+      mark.removeAttribute('data-icon-only');
+    }
     const blockedReason = String(row.item?.blockedReason || '').trim();
     const blockDetail = markKind === 'integration'
       ? (isSmartMerging ? t('todo.smartMergeRunningHint') : isIntegrationApplied ? t('todo.integrationWorkingDirectoryHint') : t('todo.integrationReadyHint'))
@@ -1497,7 +1599,10 @@ function paintTodoRow(el, row) {
         : blockKind === 'dependency' ? t('todo.blockedDependencyHint') : '';
     if (blockDetail) {
       mark.title = blockDetail;
-      mark.setAttribute('aria-label', `${mark.textContent}: ${blockDetail}`);
+      mark.setAttribute('aria-label', `${mark.dataset.label}: ${blockDetail}`);
+    } else if (iconOnly) {
+      mark.title = String(mark.dataset.label || '');
+      mark.setAttribute('aria-label', String(mark.dataset.label || ''));
     } else {
       mark.removeAttribute('title');
       mark.removeAttribute('aria-label');

@@ -314,6 +314,33 @@ export function parseReviewListFilter(value) {
  * @param {unknown} filter
  * @returns {object[]}
  */
+function todoMatchesReviewFilter(item, key) {
+  const code = asText(readSubjectSnapshot(item?.review, 'code')?.state) || 'none';
+  const plan = asText(readSubjectSnapshot(item?.review, 'plan')?.state) || 'none';
+  return key === 'none' ? code === 'none' : code === 'stale' || plan === 'stale';
+}
+
+/**
+ * Number of leaf TODOs a review filter would match (containers are not counted,
+ * mirroring `filterTodoItemsByReviewState`).
+ *
+ * @param {object[]} items
+ * @param {string} filter
+ * @returns {number}
+ */
+export function countTodoItemsByReviewState(items, filter) {
+  const list = Array.isArray(items) ? items : [];
+  const key = parseReviewListFilter(filter);
+  if (!key) return list.length;
+  const byId = buildTodoIndex(list);
+  const parentIds = new Set();
+  for (const item of list) {
+    const parentId = readTodoParentId(item);
+    if (parentId && byId.has(parentId)) parentIds.add(parentId);
+  }
+  return list.filter((item) => !parentIds.has(asText(item?.id)) && todoMatchesReviewFilter(item, key)).length;
+}
+
 export function filterTodoItemsByReviewState(items, filter) {
   const list = Array.isArray(items) ? items : [];
   const key = parseReviewListFilter(filter);
@@ -324,12 +351,7 @@ export function filterTodoItemsByReviewState(items, filter) {
     const parentId = readTodoParentId(item);
     if (parentId && byId.has(parentId)) parentIds.add(parentId);
   }
-  /** @param {object} item */
-  const matches = (item) => {
-    const code = asText(readSubjectSnapshot(item?.review, 'code')?.state) || 'none';
-    const plan = asText(readSubjectSnapshot(item?.review, 'plan')?.state) || 'none';
-    return key === 'none' ? code === 'none' : code === 'stale' || plan === 'stale';
-  };
+  const matches = (item) => todoMatchesReviewFilter(item, key);
   const keep = new Set();
   for (const item of list) {
     const id = asText(item?.id);
