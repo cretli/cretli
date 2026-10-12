@@ -14822,3 +14822,28 @@ body.theme-light .sidebar-chat-item-harness--codex img {
 .todo-item-stateline .todo-item-idbadge {
   margin-right: 0.15rem;
 }
+
+/* Chats tab actions: the two buttons and the harness picker share one height. */
+.todo-item-actions.todo-item-chat-actions {
+  align-items: stretch;
+}
+
+.todo-item-chat-actions .todo-item-newchat-harness {
+  align-self: stretch;
+}
+
+.todo-item-chat-actions cr-bar-button::part(control),
+.todo-item-chat-actions cr-bar-select::part(control) {
+  box-sizing: border-box;
+  min-height: 2.5rem;
+  height: 100%;
+}
+
+/* With many chats the actions would sit far below the fold; keep them reachable. */
+.todo-item-tabpanel--chats .todo-item-chat-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  padding: 0.5rem 0;
+  background: var(--cr-overlay-panel-bg, var(--cr-surface));
+}
