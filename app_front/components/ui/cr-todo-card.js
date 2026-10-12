@@ -25,7 +25,7 @@ import './cr-bar-input.js';
 import './cr-bar-textarea.js';
 import './cr-bar-button.js';
 
-const TODO_TABS = ['description', 'chats', 'history', 'settings'];
+const TODO_TABS = ['overview', 'description', 'chats', 'history', 'settings'];
 
 function getTodoStatusOptions() {
   return [
@@ -50,6 +50,7 @@ class CrTodoCard extends LitElement {
     item: { type: Object },
     hasChildren: { type: Boolean },
     planExpanded: { type: Boolean },
+    copyMenuOpen: { type: Boolean },
     bodyPreview: { type: Boolean },
     newChatHarness: { type: String },
     activeTab: { type: String },
@@ -61,7 +62,9 @@ class CrTodoCard extends LitElement {
     super();
     this.item = null;
     this.hasChildren = false;
-    this.planExpanded = false;
+    // The plan is the main content of the Plan tab, so it starts open.
+    this.planExpanded = true;
+    this.copyMenuOpen = false;
     this.bodyPreview = false;
     this.newChatHarness = '';
     this.activeTab = 'description';
@@ -260,6 +263,7 @@ class CrTodoCard extends LitElement {
     const chatsCount = countActiveTodoChats(item);
     const historyCount = Array.isArray(item.changelog) ? item.changelog.length : 0;
     return [
+      { id: 'overview', label: t('todo.tabOverview') },
       { id: 'description', label: t('todo.tabDescription') },
       { id: 'chats', label: t('todo.tabChats', { count: String(chatsCount) }) },
       { id: 'history', label: t('todo.tabHistory', { count: String(historyCount) }) },
@@ -271,6 +275,7 @@ class CrTodoCard extends LitElement {
     if (!TODO_TABS.includes(id)) return;
     const changed = this.activeTab !== id;
     if (changed) this.activeTab = id;
+    this.copyMenuOpen = false;
     if (options.focus === true || changed) {
       this.updateComplete.then(() => {
         if (options.focus === true) this._focusTab(id);
@@ -416,49 +421,84 @@ class CrTodoCard extends LitElement {
     return String(chat?.title || '').trim();
   }
 
-  /** ID bar: short id + copy ID / copy reference / copy markdown. */
-  _renderIdBar(item) {
+  _toggleCopyMenu = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    this.copyMenuOpen = !this.copyMenuOpen;
+  };
+
+  _onCopyClick(kind) {
+    this.copyMenuOpen = false;
+    this._emitCopy(kind);
+  }
+
+  /** Compact state line: short id + copy menu, integration, review, git and execution chips. */
+  _renderStateLine(item) {
     const id = item?.id ? String(item.id) : '';
     if (!id) return '';
     const shortId = formatTodoShortId(id);
+    const awaiting = isTodoAwaitingIntegration(item);
+    const summary = item.integrationSummary || {};
+    const integrationLabel = awaiting ? t('todo.integrationReady') : this._integrationLabel(item);
+    const integrationTone = awaiting ? 'accent' : summary.state === 'integrated' ? 'success' : 'muted';
+    const gitBranch = String(item?.integration?.branch || '').trim();
+    const showGit = item?.executionMode === 'worktree' || !!gitBranch;
     return html`
-      <div class="todo-item-idbar">
+      <div class="todo-item-stateline">
         <span class="todo-item-idbadge" title=${id}>#${shortId}</span>
+        <span class="todo-item-copy-wrap">
+          <button
+            type="button"
+            class="todo-item-copy todo-item-copy-toggle"
+            aria-haspopup="menu"
+            aria-expanded=${this.copyMenuOpen ? 'true' : 'false'}
+            title=${t('todo.copyMenu')}
+            aria-label=${t('todo.copyMenu')}
+            @click=${this._toggleCopyMenu}
+          >
+            <span class="mdi mdi-content-copy" aria-hidden="true"></span>
+            <span>${t('todo.copyMenu')}</span>
+          </button>
+          ${this.copyMenuOpen
+            ? html`<div class="todo-item-copy-menu" role="menu">
+                <button type="button" role="menuitem" class="todo-item-copy" @click=${() => this._onCopyClick('id')}>
+                  <span class="mdi mdi-identifier" aria-hidden="true"></span><span>${t('todo.copyId')}</span>
+                </button>
+                <button type="button" role="menuitem" class="todo-item-copy" @click=${() => this._onCopyClick('ref')}>
+                  <span class="mdi mdi-link-variant" aria-hidden="true"></span><span>${t('todo.copyRef')}</span>
+                </button>
+                <button type="button" role="menuitem" class="todo-item-copy" @click=${() => this._onCopyClick('markdown')}>
+                  <span class="mdi mdi-language-markdown-outline" aria-hidden="true"></span><span>${t('todo.copyMarkdown')}</span>
+                </button>
+              </div>`
+            : nothing}
+        </span>
         <button
           type="button"
-          class="todo-item-copy"
-          title=${t('todo.copyId')}
-          aria-label=${t('todo.copyId')}
-          @click=${() => this._emitCopy('id')}
+          class="todo-item-state-chip todo-item-integration-chip"
+          data-tone=${integrationTone}
+          title=${t('todo.sectionIntegration')}
+          @click=${() => this._selectTab('overview')}
         >
-          <span class="mdi mdi-identifier" aria-hidden="true"></span>
-          <span>${t('todo.copyId')}</span>
+          <span class="mdi mdi-source-merge" aria-hidden="true"></span><span>${integrationLabel}</span>
         </button>
-        <button
-          type="button"
-          class="todo-item-copy"
-          title=${t('todo.copyRef')}
-          aria-label=${t('todo.copyRef')}
-          @click=${() => this._emitCopy('ref')}
-        >
-          <span class="mdi mdi-link-variant" aria-hidden="true"></span>
-          <span>${t('todo.copyRef')}</span>
-        </button>
-        <button
-          type="button"
-          class="todo-item-copy"
-          title=${t('todo.copyMarkdown')}
-          aria-label=${t('todo.copyMarkdown')}
-          @click=${() => this._emitCopy('markdown')}
-        >
-          <span class="mdi mdi-language-markdown-outline" aria-hidden="true"></span>
-          <span>${t('todo.copyMarkdown')}</span>
-        </button>
+        ${item.review
+          ? html`<cr-todo-review-badge compact class="todo-item-state-review" .item=${item} .hasChildren=${this.hasChildren}></cr-todo-review-badge>`
+          : nothing}
+        ${showGit
+          ? html`<button
+              type="button"
+              class="todo-item-git-chip"
+              title=${t('todo.gitBadgeTitle')}
+              aria-label=${t('todo.gitBadgeTitle')}
+              @click=${this._onOpenGit}
+            ><span class="mdi mdi-source-branch" aria-hidden="true"></span><span>${gitBranch || t('todo.gitBadgeGeneric')}</span></button>`
+          : nothing}
       </div>
     `;
   }
 
-  /** Created / updated / creator line. */
+  /** Created / updated / creator / execution line (Overview tab). */
   _renderMeta(item) {
     const created = this._ageLabel(item?.createdAt);
     const updated = this._ageLabel(item?.updatedAt);
@@ -471,19 +511,6 @@ class CrTodoCard extends LitElement {
     if (item?.executionMode === 'worktree' || item?.executionMode === 'project') {
       const modeKey = item.executionMode === 'worktree' ? 'todo.executionWorktree' : 'todo.executionProject';
       chips.push(html`<span class="todo-item-execution-chip">${t('todo.executionMode')}: ${t(modeKey)}</span>`);
-    }
-    const gitBranch = String(item?.integration?.branch || '').trim();
-    if (item?.executionMode === 'worktree' || gitBranch) {
-      chips.push(html`<button
-        type="button"
-        class="todo-item-git-chip"
-        title=${t('todo.gitBadgeTitle')}
-        aria-label=${t('todo.gitBadgeTitle')}
-        @click=${this._onOpenGit}
-      ><span class="mdi mdi-source-branch" aria-hidden="true"></span><span>${gitBranch || t('todo.gitBadgeGeneric')}</span></button>`);
-    }
-    if (isTodoAwaitingIntegration(item)) {
-      chips.push(html`<span class="todo-item-integration-chip">${t('todo.integrationReady')}</span>`);
     }
     if (!chips.length) return '';
     // Separators are drawn with CSS (::before) so a wrapped line never ends on a
@@ -757,6 +784,118 @@ class CrTodoCard extends LitElement {
     `;
   }
 
+  /** One integration card: summary line, collapsible evidence, grouped actions. */
+  _renderIntegrationCard(item, id) {
+    const summary = item.integrationSummary || {};
+    const detail = String(summary.detail || '');
+    const reason = String(summary.reason || '');
+    const hasEvidence = summary.hasCurrentEvidence === true;
+    const hasDetails = hasEvidence || !!detail || !!summary.aggregate;
+    return html`
+      <section class="todo-overview-card todo-integration-alert" role="status" aria-live="polite">
+        <div class="todo-overview-card-head">
+          <strong>${t('todo.sectionIntegration')}: ${this._integrationLabel(item)}</strong>
+          ${hasEvidence
+            ? html`<span class="todo-overview-card-sub">${summary.targetBranch} · ${String(summary.targetCommit || '').slice(0, 8)}</span>`
+            : nothing}
+        </div>
+        ${hasDetails
+          ? html`<details class="todo-overview-details">
+              <summary>${t('todo.integrationDetails')}</summary>
+              ${detail === 'legacy_confirmation' ? html`<p>${t('todo.integrationLegacyHint')}</p>` : nothing}
+              ${detail === 'no_code_changes' ? html`<p>${t('todo.integrationNoCodeDetail')}: ${reason}</p>` : nothing}
+              ${detail === 'stale_evidence' ? html`<p>${t('todo.integrationStaleEvidenceHint')}</p>` : nothing}
+              ${detail === 'proof_invalidated' ? html`<p>${reason.replace(/^proof_invalidated:\s*/, '')}</p>` : nothing}
+              ${detail === 'working_directory_applied' ? html`<p>${t('todo.integrationWorkingDirectoryHint')}</p>` : nothing}
+              ${detail === 'rejected' ? html`<p>${t('todo.integrationRejected')}</p>` : nothing}
+              ${detail === 'conflict' ? html`<p>${t('todo.integrationConflict')}</p><p class="cr-hint">${reason}</p>` : nothing}
+              ${hasEvidence ? html`
+                <p class="cr-hint">${t('todo.integrationTargetBranch')}: ${summary.targetBranch}</p>
+                <p class="cr-hint">${t('todo.integrationTargetCommit')}: ${summary.targetCommit}</p>
+                <p class="cr-hint">${t('todo.integrationConfirmedAt')}: ${summary.confirmedAt} · ${summary.source}</p>
+              ` : nothing}
+              ${summary.aggregate ? html`
+                <p class="cr-hint">${t('todo.integrationAggregate', { confirmed: summary.aggregate.confirmed, required: summary.aggregate.required })}</p>
+              ` : nothing}
+            </details>`
+          : nothing}
+        <div class="todo-overview-card-actions">
+          ${summary.state !== 'integrated' ? html`
+            <cr-bar-button class="todo-integration-confirm" data-id=${id} @click=${() => this._onIntegrationDecision('confirm')}>${t('todo.integrationRecordProof')}</cr-bar-button>
+          ` : nothing}
+          ${summary.state === 'unconfirmed' && detail !== 'no_code_changes' ? html`
+            <cr-bar-button class="todo-integration-no-code" data-id=${id} @click=${() => this._onIntegrationDecision('no-code')}>${t('todo.integrationNoCodeButton')}</cr-bar-button>
+          ` : nothing}
+          ${hasEvidence ? html`
+            <cr-bar-button class="todo-integration-reject" data-id=${id} @click=${() => this._onIntegrationDecision('invalidate')}>${t('todo.integrationInvalidateProof')}</cr-bar-button>
+          ` : nothing}
+        </div>
+      </section>
+    `;
+  }
+
+  /** Awaiting-integration banner: the only integration state that needs a decision. */
+  _renderAwaitingIntegration(item, id) {
+    const summary = item.integrationSummary || {};
+    const applied = String(item.integration?.appliedAt || '').trim();
+    return html`
+      <section class="todo-integration-alert todo-attention" role="status" aria-live="polite">
+        <div>
+          <strong>${t('todo.integrationReady')}</strong>
+          <p>${t('todo.integrationReadyHint')}</p>
+          ${summary.detail === 'conflict' ? html`<p>${t('todo.integrationConflict')}</p><p class="cr-hint">${String(summary.reason || '')}</p>` : nothing}
+          ${summary.detail === 'rejected' ? html`<p>${t('todo.integrationRejected')}</p>` : nothing}
+          ${applied ? html`
+            <p class="cr-hint">${t('todo.integrationWorkingDirectoryHint')}</p>
+            <p class="cr-hint">${t('todo.integrationAppliedAt')}: ${applied}</p>
+          ` : nothing}
+          ${String(item.integration?.resultPath || '').trim() ? html`
+            <p class="cr-hint">${t('todo.integrationResult')}: ${String(item.integration.resultPath)}</p>
+          ` : nothing}
+        </div>
+        <cr-bar-button class="todo-integration-confirm" data-id=${id} @click=${() => this._onIntegrationDecision('confirm')}>${t('todo.integrationConfirm')}</cr-bar-button>
+        ${!applied ? html`
+          <cr-bar-button class="todo-integration-apply" data-id=${id} @click=${() => this._onIntegrationDecision('apply')}>${t('todo.integrationApplyPatch')}</cr-bar-button>
+          <cr-bar-button class="todo-integration-reject" data-id=${id} @click=${() => this._onIntegrationDecision('reject')}>${t('todo.integrationReject')}</cr-bar-button>
+        ` : nothing}
+      </section>
+    `;
+  }
+
+  _renderOverviewPanel(item) {
+    const id = item?.id ? String(item.id) : '';
+    return html`
+      <section
+        class="todo-item-tabpanel todo-item-tabpanel--overview"
+        id="todo-tabpanel-overview"
+        role="tabpanel"
+        aria-labelledby="todo-tab-overview"
+        ?hidden=${this.activeTab !== 'overview'}
+      >
+        ${this._renderMeta(item)}
+        ${this.hasChildren ? html`<p class="cr-hint todo-item-hint">${t('todo.statusFromChildren')}</p>` : nothing}
+        ${!isTodoAwaitingIntegration(item) ? this._renderIntegrationCard(item, id) : nothing}
+        ${!isTodoAwaitingIntegration(item) && this._canPrepareManualIntegration(item) ? html`
+          <section class="todo-overview-card todo-integration-alert todo-integration-prepare" role="status" aria-live="polite">
+            <div class="todo-overview-card-head"><strong>${t('todo.worktreeBadge')}</strong></div>
+            <p>${t('todo.integrationPrepareHint')}</p>
+            <p class="cr-hint">${t('todo.worktreeActiveHint')}</p>
+            <div class="todo-overview-card-actions">
+              <cr-bar-button class="todo-integration-prepare" data-id=${id} @click=${() => this._onIntegrationDecision('prepare')}>${t('todo.integrationPrepare')}</cr-bar-button>
+            </div>
+          </section>
+        ` : nothing}
+        ${item.review ? html`
+          <section class="todo-overview-card todo-review-detail" aria-label=${t('todo.filterReviewHeading')}>
+            <div class="todo-overview-card-head"><strong>${t('todo.sectionReview')}</strong></div>
+            <cr-todo-review-badge detail .item=${item} .hasChildren=${this.hasChildren}></cr-todo-review-badge>
+          </section>
+        ` : nothing}
+        ${this._renderManualModeHint(item)}
+      </section>
+    `;
+  }
+
   _renderDescriptionPanel(item) {
     return html`
       <section
@@ -766,7 +905,9 @@ class CrTodoCard extends LitElement {
         aria-labelledby="todo-tab-description"
         ?hidden=${this.activeTab !== 'description'}
       >
-        ${this._renderPlanSection(item)} ${this._renderBodyEditor(item)}
+        ${this._renderPlanSection(item)}
+        <p class="todo-editor-label">${t('todo.notes')}</p>
+        ${this._renderBodyEditor(item)}
       </section>
     `;
   }
@@ -947,10 +1088,10 @@ class CrTodoCard extends LitElement {
             @keydown=${this._onTitleKeydown}
           ></cr-bar-textarea>
         </div>
-        ${this.hasChildren ? html`<p class="cr-hint todo-item-hint">${t('todo.statusFromChildren')}</p>` : nothing}
+        ${this._renderStateLine(item)}
         <p class="todo-action-feedback" role="status" aria-live="polite" hidden></p>
         ${String(item.blockedReason || '').trim() ? html`
-          <section class="todo-blocked-alert" role="alert" aria-live="polite">
+          <section class="todo-blocked-alert todo-attention" role="alert" aria-live="polite">
             <div><strong>${t('todo.blocked')}</strong><p>${String(item.blockedReason)}</p></div>
             ${isWorkspaceWatcherRetryableBlockedTodo(item) ? html`
               <cr-bar-button class="todo-blocked-retry" data-id=${id} @click=${this._onRetryBlocked}>${t('todo.retryBlocked')}</cr-bar-button>
@@ -958,7 +1099,7 @@ class CrTodoCard extends LitElement {
           </section>
         ` : nothing}
         ${status === 'doing' && this.recoveryState ? html`
-          <section class="todo-recovery-alert" role="status" aria-live="polite">
+          <section class="todo-recovery-alert todo-attention" role="status" aria-live="polite">
             <div><strong>${todoRecoveryStateLabel(this.recoveryState)}</strong>
               <p>${todoRecoveryDetailText(this.recoveryState)}</p>
               ${todoRecoveryUnknownHint(this.recoveryState) ? html`<p class="cr-hint">${todoRecoveryUnknownHint(this.recoveryState)}</p>` : nothing}
@@ -969,78 +1110,12 @@ class CrTodoCard extends LitElement {
             ` : nothing}
           </section>
         ` : nothing}
-        ${isTodoAwaitingIntegration(item) ? html`
-          <section class="todo-integration-alert" role="status" aria-live="polite">
-            <div>
-              <strong>${t('todo.integrationReady')}</strong>
-              <p>${t('todo.integrationReadyHint')}</p>
-              ${item.integrationSummary?.detail === 'conflict' ? html`<p>${t('todo.integrationConflict')}</p><p class="cr-hint">${String(item.integrationSummary.reason || '')}</p>` : nothing}
-              ${item.integrationSummary?.detail === 'rejected' ? html`<p>${t('todo.integrationRejected')}</p>` : nothing}
-              ${String(item.integration?.appliedAt || '').trim() ? html`
-                <p class="cr-hint">${t('todo.integrationWorkingDirectoryHint')}</p>
-                <p class="cr-hint">${t('todo.integrationAppliedAt')}: ${String(item.integration.appliedAt)}</p>
-              ` : nothing}
-              ${String(item.integration?.resultPath || '').trim() ? html`
-                <p class="cr-hint">${t('todo.integrationResult')}: ${String(item.integration.resultPath)}</p>
-              ` : nothing}
-            </div>
-            <cr-bar-button class="todo-integration-confirm" data-id=${id} @click=${() => this._onIntegrationDecision('confirm')}>${t('todo.integrationConfirm')}</cr-bar-button>
-            ${!String(item.integration?.appliedAt || '').trim() ? html`
-              <cr-bar-button class="todo-integration-apply" data-id=${id} @click=${() => this._onIntegrationDecision('apply')}>${t('todo.integrationApplyPatch')}</cr-bar-button>
-              <cr-bar-button class="todo-integration-reject" data-id=${id} @click=${() => this._onIntegrationDecision('reject')}>${t('todo.integrationReject')}</cr-bar-button>
-            ` : nothing}
-          </section>
-        ` : nothing}
-        ${!isTodoAwaitingIntegration(item) ? html`
-          <section class="todo-integration-alert" role="status" aria-live="polite">
-            <div>
-              <strong>${this._integrationLabel(item)}</strong>
-              ${item.integrationSummary?.detail === 'legacy_confirmation' ? html`<p>${t('todo.integrationLegacyHint')}</p>` : nothing}
-              ${item.integrationSummary?.detail === 'no_code_changes' ? html`<p>${t('todo.integrationNoCodeDetail')}: ${String(item.integrationSummary.reason || '')}</p>` : nothing}
-              ${item.integrationSummary?.detail === 'stale_evidence' ? html`<p>${t('todo.integrationStaleEvidenceHint')}</p>` : nothing}
-              ${item.integrationSummary?.detail === 'proof_invalidated' ? html`<p>${String(item.integrationSummary.reason || '').replace(/^proof_invalidated:\s*/, '')}</p>` : nothing}
-              ${item.integrationSummary?.detail === 'working_directory_applied' ? html`<p>${t('todo.integrationWorkingDirectoryHint')}</p>` : nothing}
-              ${item.integrationSummary?.detail === 'rejected' ? html`<p>${t('todo.integrationRejected')}</p>` : nothing}
-              ${item.integrationSummary?.detail === 'conflict' ? html`<p>${t('todo.integrationConflict')}</p><p class="cr-hint">${String(item.integrationSummary.reason || '')}</p>` : nothing}
-              ${item.integrationSummary?.hasCurrentEvidence ? html`
-                <p class="cr-hint">${t('todo.integrationTargetBranch')}: ${item.integrationSummary.targetBranch}</p>
-                <p class="cr-hint">${t('todo.integrationTargetCommit')}: ${item.integrationSummary.targetCommit}</p>
-                <p class="cr-hint">${t('todo.integrationConfirmedAt')}: ${item.integrationSummary.confirmedAt} · ${item.integrationSummary.source}</p>
-              ` : nothing}
-              ${item.integrationSummary?.aggregate ? html`
-                <p class="cr-hint">${t('todo.integrationAggregate', { confirmed: item.integrationSummary.aggregate.confirmed, required: item.integrationSummary.aggregate.required })}</p>
-              ` : nothing}
-            </div>
-            ${item.integrationSummary?.state !== 'integrated' ? html`
-              <cr-bar-button class="todo-integration-confirm" data-id=${id} @click=${() => this._onIntegrationDecision('confirm')}>${t('todo.integrationRecordProof')}</cr-bar-button>
-            ` : nothing}
-            ${item.integrationSummary?.state === 'unconfirmed' && item.integrationSummary?.detail !== 'no_code_changes' ? html`
-              <cr-bar-button class="todo-integration-no-code" data-id=${id} @click=${() => this._onIntegrationDecision('no-code')}>${t('todo.integrationNoCodeButton')}</cr-bar-button>
-            ` : nothing}
-            ${item.integrationSummary?.hasCurrentEvidence ? html`
-              <cr-bar-button class="todo-integration-reject" data-id=${id} @click=${() => this._onIntegrationDecision('invalidate')}>${t('todo.integrationInvalidateProof')}</cr-bar-button>
-            ` : nothing}
-          </section>
-        ` : nothing}
-        ${!isTodoAwaitingIntegration(item) && this._canPrepareManualIntegration(item) ? html`
-          <section class="todo-integration-alert todo-integration-prepare" role="status" aria-live="polite">
-            <div>
-              <strong>${t('todo.worktreeBadge')}</strong>
-              <p>${t('todo.integrationPrepareHint')}</p>
-              <p class="cr-hint">${t('todo.worktreeActiveHint')}</p>
-            </div>
-            <cr-bar-button class="todo-integration-prepare" data-id=${id} @click=${() => this._onIntegrationDecision('prepare')}>${t('todo.integrationPrepare')}</cr-bar-button>
-          </section>
-        ` : nothing}
-        ${item.review ? html`
-          <section class="todo-review-detail" aria-label=${t('todo.filterReviewHeading')}>
-            <cr-todo-review-badge detail .item=${item} .hasChildren=${this.hasChildren}></cr-todo-review-badge>
-          </section>
-        ` : nothing}
-        ${this._renderIdBar(item)} ${this._renderMeta(item)} ${this._renderManualModeHint(item)} ${this._renderTabs()}
+        ${isTodoAwaitingIntegration(item) ? this._renderAwaitingIntegration(item, id) : nothing}
+        ${this._renderTabs()}
         <div class="todo-editor-panels">
-          ${this._renderDescriptionPanel(item)} ${this._renderChatsPanel(item)}
-          ${this._renderHistoryPanel(item)} ${this._renderSettingsPanel(item)}
+          ${this._renderOverviewPanel(item)} ${this._renderDescriptionPanel(item)}
+          ${this._renderChatsPanel(item)} ${this._renderHistoryPanel(item)}
+          ${this._renderSettingsPanel(item)}
         </div>
       </article>
     `;

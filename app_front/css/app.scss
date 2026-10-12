@@ -3318,8 +3318,18 @@ cr-todo-card.todo-card {
  * scroll on narrow screens (a clipped "Settings" tab reads as broken). */
 @media (max-width: 768px) {
   .todo-editor-tabs {
-    flex-wrap: wrap;
-    overflow-x: visible;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .todo-editor-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .todo-editor-tabs .todo-editor-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
   }
 }
 
@@ -14448,4 +14458,160 @@ body.theme-light .sidebar-chat-item-harness--codex img {
 .todo-search-btn--active {
   color: var(--cr-accent);
   border-color: var(--cr-accent);
+}
+
+/* TODO editor: compact state line, Overview cards, attention banners. */
+.todo-item-stateline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.todo-item-copy-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.todo-item-copy-menu {
+  position: absolute;
+  top: calc(100% + 0.2rem);
+  left: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 10rem;
+  padding: 0.25rem;
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 35%);
+}
+
+.todo-item-copy-menu .todo-item-copy {
+  justify-content: flex-start;
+  min-height: 2rem;
+}
+
+.todo-item-state-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 1.6rem;
+  padding: 0 0.45rem;
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  background: transparent;
+  color: var(--cr-text-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.todo-item-state-chip[data-tone='success'] {
+  color: var(--cr-success);
+  border-color: var(--cr-success);
+}
+
+.todo-item-state-chip[data-tone='accent'] {
+  color: var(--cr-accent);
+  border-color: var(--cr-accent);
+}
+
+.todo-overview-card {
+  margin: 0;
+  padding: var(--cr-space-2) var(--cr-space-3);
+}
+
+.todo-overview-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.5rem;
+}
+
+.todo-overview-card-sub {
+  font-size: 0.75rem;
+  color: var(--cr-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.todo-overview-details {
+  flex: 1 1 100%;
+  font-size: 0.8rem;
+}
+
+.todo-overview-details summary {
+  cursor: pointer;
+  color: var(--cr-text-muted);
+}
+
+.todo-overview-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cr-space-2);
+  flex: 1 1 100%;
+}
+
+.todo-overview-card-actions:empty {
+  display: none;
+}
+
+/* Alerts that need a decision stay in the fixed header; keep them short. */
+.todo-attention {
+  flex: 0 0 auto;
+  margin: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+/* Phones: the editor is a full-height sheet, so the active panel gets the
+ * remaining height instead of a boxed dialog with a long header. */
+@media (max-width: 640px) {
+  .todo-editor-dialog {
+    --cr-dialog-max-width: 100vw !important;
+  }
+
+  .todo-editor-dialog .todo-item {
+    max-height: calc(100dvh - 5.5rem);
+    padding: 0.45rem;
+  }
+}
+
+.todo-attention {
+  font-size: 0.8rem;
+}
+
+.todo-attention strong {
+  font-size: 0.85rem;
+}
+
+.todo-attention p {
+  margin: 0.15rem 0 0;
+  font-size: 0.78rem;
+  color: var(--cr-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.todo-recovery-alert.todo-attention {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cr-space-2);
+  padding: var(--cr-space-2) var(--cr-space-3);
+  border: 1px solid color-mix(in srgb, var(--cr-warn) 45%, transparent);
+  border-radius: var(--cr-radius-sm);
+  background: color-mix(in srgb, var(--cr-warn) 8%, var(--cr-surface));
+}
+
+.todo-overview-card-head strong {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.todo-overview-card p {
+  font-size: 0.78rem;
 }
