@@ -12,6 +12,11 @@ import {
 } from '../lib/delegation-review-gate.js';
 import { buildModelPickHistory } from '../lib/model-pick-history.js';
 import { selectModelPick } from '../lib/model-role-profiles.js';
+import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
+import { addChat } from '../lib/persist/chats-persist.js';
+import { createDelegationService, finishDelegation, releaseDelegationRunSlot } from '../lib/delegation-service.js';
+import { getDelegationById } from '../lib/persist/delegations-persist.js';
+import { getMockChatRun, patchMockChatRun, registerMockChatRunAdapter } from '../lib/chat-run/mock-adapter.js';
 
 const parentId = crypto.randomUUID();
 
@@ -194,6 +199,61 @@ const parentId = crypto.randomUUID();
   });
   assert.equal(prompt.ok, true);
   assert.match(prompt.prompt, /WATCHER_FINDING_ABC/);
+}
+
+{
+  // Exercise the real start and retry paths: prompt-only tests would miss a
+  // service that still loads findings exclusively for review assignments.
+  registerMockChatRunAdapter('opencode');
+  const parent = addChat(crypto.randomUUID(), 'Fix checklist', null, ISOLATED_DATA_DIR, 'opencode/test', {
+    agentTransport: 'opencode', sdkMode: 'agent',
+  });
+  const leafId = crypto.randomUUID();
+  applyDelegationWorkflowPatch({
+    parentChatId: parent.id, leafId,
+    lastVerdict: 'FAIL',
+    findingsText: 'F1: production caller drops explicit scope',
+    idempotencyKey: 'fix-checklist-first',
+  });
+  applyDelegationWorkflowPatch({
+    parentChatId: parent.id, leafId: crypto.randomUUID(),
+    findingsText: 'FOREIGN_LEAF_FINDING',
+    idempotencyKey: 'other-leaf',
+  });
+  const service = createDelegationService({
+    workspaceDirForAgent: () => ISOLATED_DATA_DIR,
+    isModelAvailable: () => true,
+  });
+  const result = await service.createAndStart({
+    parentChatId: parent.id, leafId, sourceKind: 'text', taskText: 'Fix the scoped request.',
+    assignment: 'fix', executionMode: 'agent',
+    executor: { transport: 'opencode', model: 'opencode/test' },
+    idempotencyKey: 'start-fix-checklist',
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const firstPrompt = getMockChatRun(result.delegation.childChatId).prompt;
+  assert.match(firstPrompt, /\[FIX CHECKLIST\]/);
+  assert.match(firstPrompt, /F1: production caller drops explicit scope/);
+  assert.doesNotMatch(firstPrompt, /FOREIGN_LEAF_FINDING/);
+  assert.doesNotMatch(firstPrompt, /You are the reviewer/);
+  finishDelegation(result.delegation, { status: 'failed', error: 'Transient interruption' });
+  patchMockChatRun(result.delegation.childChatId, { busy: false, waitingForInput: false });
+  releaseDelegationRunSlot(getDelegationById(result.delegation.id));
+  applyDelegationWorkflowPatch({
+    parentChatId: parent.id, leafId,
+    lastVerdict: 'FAIL',
+    findingsText: 'F2: consumer still uses the old context',
+    idempotencyKey: 'fix-checklist-next',
+  });
+  const retry = await service.retry(result.delegation.id);
+  assert.equal(retry.ok, true, JSON.stringify(retry));
+  const retryPrompt = getMockChatRun(result.delegation.childChatId).prompt;
+  assert.match(retryPrompt, /F1: production caller drops explicit scope/);
+  assert.match(retryPrompt, /F2: consumer still uses the old context/);
+  assert.doesNotMatch(retryPrompt, /FOREIGN_LEAF_FINDING/);
+  finishDelegation(retry.delegation, { status: 'completed', report: 'TASK: implement\nVERDICT: PASS' });
+  patchMockChatRun(result.delegation.childChatId, { busy: false, waitingForInput: false });
+  releaseDelegationRunSlot(getDelegationById(result.delegation.id));
 }
 
 console.log('delegation-fix-loop-regression.test.js OK');

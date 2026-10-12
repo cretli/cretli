@@ -20,6 +20,45 @@ history. Pass `review_subject` (`code` or `plan`) on every review start; the
 loop's `last_verdict`/`report_text` are inputs to the loop only — the todo's
 review state is recomputed by the server and is not written by `workflow_update`.
 
+## Bounded execution guidance
+
+The generated TODO execution prompt tells the orchestrator to read the existing
+`workflow_show` row before each leaf, initialize missing state with `max_rounds=4`,
+and persist each review with its verdict, findings, material revision and stable
+attempt-specific idempotency key. Existing user budgets and deadlines survive a
+resume. Corrections use the `fix` pick role and assignment.
+
+The default progress checkpoint is 15 minutes for a fix or review and 30 minutes
+for initial implementation. These are **agent instructions, not runtime timers**.
+At a checkpoint the parent checks changed files, closed findings and remaining
+verification. It extends only for concrete progress with another stated checkpoint;
+otherwise it requests a report, cancels the run, waits for the slot to be released,
+and hands off partial work. A configured `deadline_at` remains a separate hard
+budget enforced by the worker. User deadlines are never silently extended.
+
+After a finding survives a fix, or two code reviews fail, the parent must reconcile
+scope and root cause and choose a different eligible executor. Transport failures
+lead to a different harness for that recovery attempt. Lack of eligible alternatives
+is reported as a blocker. Soft round caps and `same_findings` are not lifted repeatedly
+without new evidence and a changed approach.
+
+Both fix executors and reviewers receive stored workflow and Watcher findings,
+including on retry. The fix checklist asks for `FIXED`/`STILL_OPEN` evidence for
+each finding and checks production callers and consumers. An implementer PASS
+never satisfies the independent review gate.
+
+Verification starts with named regressions, directly affected suites and required
+repository checks. Repeating or broadening checks requires a new change, failure
+or concrete unresolved risk. Results for unchanged material can be reused;
+unverified attribution of unrelated failures must remain explicit. Full acceptance
+checks still run when required at the leaf or final integration boundary.
+
+`review_can_run_tests=false` requires parent host verification through
+`delegation_verify`; it does not mean repository reads or guarded read-only shell
+are prohibited. The reviewer first establishes a permitted inspection path. If none
+exists, the parent supplies the exact diff and relevant sources or chooses another
+eligible reviewer. Mutation guards remain unchanged.
+
 ## Klucz i dopasowanie liścia
 
 - Klucz wiersza: `parentChatId` + `leafId` (`leaf_id`/`todo_id`).

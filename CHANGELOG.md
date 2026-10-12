@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **TODO execution guidance bounds fix/review loops.** Orchestrators now receive
+  instructions to persist per-leaf findings and rounds, inspect progress at
+  15/30-minute checkpoints, change strategy after repeated failures, and limit
+  repeated verification. Fix executors receive the same stored findings as
+  reviewers on start and retry. Review guidance distinguishes code inspection
+  from host test execution; checkpoints do not automatically cancel runs.
 - **TODO editor modal reworked for phones.** Overview / Plan / Notes / Chats /
   History / Settings tabs (edge-to-edge, horizontally scrollable), a compact state
   line (id + copy menu, integration, review, branch), attention banners only for

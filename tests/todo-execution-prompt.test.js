@@ -18,6 +18,13 @@ assert.match(sent, /Forward the pickId returned by model_pick as pick_id/);
 assert.match(sent, /without re-picking or matching the proposal by time/);
 assert.match(sent, /required unapproved plan/);
 assert.match(sent, /Continue automatically/);
+assert.match(sent, /workflow_show with leaf_id/);
+assert.match(sent, /max_rounds=4/);
+assert.match(sent, /assignment=fix/);
+assert.match(sent, /exclude_models/);
+assert.match(sent, /not a blanket shell prohibition/);
+assert.match(sent, /These checkpoints are not automatic process deadlines/);
+assert.match(sent, /never silently extend a user deadline/);
 assert.equal(stripTodoExecutionWorkflow(extractTodoRefsFromMessage(sent).text), 'Dodatkowe wymagania\nKontynuuj to zadanie.');
 assert.equal(stripTodoExecutionWorkflow('Ordinary message'), 'Ordinary message');
 
