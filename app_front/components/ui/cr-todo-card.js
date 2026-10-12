@@ -776,7 +776,7 @@ class CrTodoCard extends LitElement {
     return html`
       <section class="todo-overview-card todo-integration-alert" role="status" aria-live="polite">
         <div class="todo-overview-card-head">
-          <strong>${t('todo.sectionIntegration')}: ${this._integrationLabel(item)}</strong>
+          <strong>${t('todo.sectionIntegration')}: <span class="todo-overview-state" data-tone=${summary.state === 'integrated' ? 'success' : 'info'}>${this._integrationLabel(item)}</span></strong>
           ${hasEvidence
             ? html`<span class="todo-overview-card-sub">${summary.targetBranch} · ${String(summary.targetCommit || '').slice(0, 8)}</span>`
             : nothing}
@@ -854,8 +854,18 @@ class CrTodoCard extends LitElement {
         aria-labelledby="todo-tab-overview"
         ?hidden=${this.activeTab !== 'overview'}
       >
-        ${this._renderMeta(item)}
-        ${this.hasChildren ? html`<p class="cr-hint todo-item-hint">${t('todo.statusFromChildren')}</p>` : nothing}
+        <div class="todo-overview-metarow">
+          ${this._renderMeta(item)}
+          ${this.hasChildren
+            ? html`<span
+                class="todo-item-info mdi mdi-information-outline"
+                tabindex="0"
+                role="img"
+                title=${t('todo.statusFromChildren')}
+                aria-label=${t('todo.statusFromChildren')}
+              ></span>`
+            : nothing}
+        </div>
         ${!isTodoAwaitingIntegration(item) ? this._renderIntegrationCard(item, id) : nothing}
         ${!isTodoAwaitingIntegration(item) && this._canPrepareManualIntegration(item) ? html`
           <section class="todo-overview-card todo-integration-alert todo-integration-prepare" role="status" aria-live="polite">

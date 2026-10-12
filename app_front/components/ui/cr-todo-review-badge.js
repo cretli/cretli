@@ -122,6 +122,7 @@ class CrTodoReviewBadge extends LitElement {
     .detail {
       display: flex;
       flex-direction: column;
+      align-items: flex-start;
       gap: var(--cr-space-2);
     }
     .detail-heading {

@@ -14657,3 +14657,119 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   gap: 0.4rem;
   font-weight: 600;
 }
+
+/* TODO editor readability: a clear surface hierarchy (dialog -> section cards ->
+ * inset fields) and text that keeps >= 4.5:1 on the dark surfaces. */
+.todo-editor-dialog .todo-item {
+  gap: 0.65rem;
+  padding-top: var(--cr-space-2);
+  border-top: 1px solid var(--cr-border);
+}
+
+.todo-editor-dialog .todo-item-title::part(control),
+.todo-editor-dialog .todo-item-status-select::part(control),
+.todo-editor-dialog .todo-item-body-edit::part(control) {
+  background: var(--cr-surface-inset);
+  border-color: var(--cr-border-control);
+  color: var(--cr-text-strong);
+}
+
+.todo-editor-dialog .todo-item-idbadge,
+.todo-editor-dialog .todo-item-meta-line,
+.todo-editor-dialog .todo-overview-card-sub,
+.todo-editor-dialog .todo-overview-details summary,
+.todo-editor-dialog .todo-item-chat-sub,
+.todo-editor-dialog .cr-hint {
+  color: var(--cr-text-subtle);
+}
+
+.todo-editor-dialog .todo-overview-metarow {
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-2);
+}
+
+.todo-editor-dialog .todo-item-info {
+  color: var(--cr-text-subtle);
+  font-size: 1.1rem;
+  cursor: help;
+}
+
+.todo-editor-dialog .todo-overview-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+  padding: var(--cr-space-3);
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-surface-2);
+  color: var(--cr-text);
+}
+
+.todo-editor-dialog .todo-overview-card.todo-integration-alert {
+  border-color: var(--cr-info-border);
+  background: var(--cr-info-bg);
+}
+
+.todo-editor-dialog .todo-overview-card-head strong,
+.todo-editor-dialog .todo-integration-alert strong {
+  color: var(--cr-text-strong);
+}
+
+.todo-editor-dialog .todo-overview-state[data-tone='info'] {
+  color: var(--cr-info);
+}
+
+.todo-editor-dialog .todo-overview-state[data-tone='success'] {
+  color: var(--cr-success);
+}
+
+.todo-editor-dialog .todo-overview-card p,
+.todo-editor-dialog .todo-integration-alert p {
+  color: var(--cr-text);
+}
+
+.todo-editor-dialog .todo-editor-tabs {
+  gap: 0.15rem;
+  border-bottom: 1px solid var(--cr-border);
+}
+
+.todo-editor-dialog .todo-editor-tab {
+  color: var(--cr-text-subtle);
+}
+
+.todo-editor-dialog .todo-editor-tab[aria-selected='true'] {
+  color: var(--cr-text-strong);
+  font-weight: 600;
+  background: var(--cr-surface-translucent-hover);
+}
+
+.todo-editor-dialog .todo-overview-card,
+.todo-editor-dialog .todo-overview-card.todo-integration-alert {
+  align-items: stretch;
+  text-align: left;
+}
+
+.todo-editor-dialog .todo-overview-card-actions {
+  justify-content: flex-start;
+}
+
+.todo-editor-dialog .todo-overview-metarow {
+  align-items: flex-start;
+}
+
+.todo-editor-dialog .todo-overview-metarow .todo-item-meta-line {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Wrapped meta chips: spacing instead of "·" separators, which would otherwise
+ * start a wrapped line. */
+.todo-editor-dialog .todo-item-meta-line {
+  gap: 0.2rem 0.9rem;
+}
+
+.todo-editor-dialog .todo-item-meta-line > * + *::before {
+  content: none;
+}
