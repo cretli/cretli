@@ -23,6 +23,7 @@ import {
   buildTodoMarkdown,
   canAddTodoChild,
   filterTodoItemsByRootStatus,
+  filterTodoItemsBySearch,
   flattenTodoTree,
   formatTodoAssigneeBadge,
   parseTodoRootStatusFilter,
@@ -295,27 +296,6 @@ function getVisibleTodoItems() {
     reviewListFilter
   );
   return filterTodoItemsBySearch(filterTodoItemsByIntegrationState(byReview, integrationListFilter), todoSearchQuery);
-}
-
-function filterTodoItemsBySearch(items, query) {
-  const needle = String(query || '').trim().toLowerCase();
-  if (!needle) return items;
-  const byId = new Map(items.map((item) => [String(item.id), item]));
-  const included = new Set();
-  for (const item of items) {
-    const haystack = `${item.title || ''} ${item.id || ''}`.toLowerCase();
-    if (!haystack.includes(needle)) continue;
-    // Keep ancestors so a match stays reachable in the tree.
-    let current = item;
-    const seen = new Set();
-    while (current && !seen.has(String(current.id))) {
-      const id = String(current.id);
-      included.add(id);
-      seen.add(id);
-      current = byId.get(String(current.parentId || ''));
-    }
-  }
-  return items.filter((item) => included.has(String(item.id)));
 }
 
 function filterTodoItemsByIntegrationState(items, filter) {

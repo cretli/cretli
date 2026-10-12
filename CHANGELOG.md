@@ -8,6 +8,19 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **TODO editor modal reworked for phones.** Overview / Plan / Notes / Chats /
+  History / Settings tabs (edge-to-edge, horizontally scrollable), a compact state
+  line (id + copy menu, integration, review, branch), attention banners only for
+  blocked / recovery / awaiting integration, one integration card with collapsible
+  proof details, unframed content, higher text contrast, equal-height action rows
+  and an in-modal "Saving… / Saved" indicator. `cr-dialog` gains an opt-in `closable`
+  close button.
+- **TODO list is faster and easier to scan on mobile.** Finished trees start
+  collapsed in a new workspace, `/api/todos` drops raw integration evidence and
+  truncates long changelog text (4.2 -> 3.3 MiB), row marks are cached per list
+  (was ~1.6 s of repeated scanning for 570 tasks), unchanged rows skip DOM writes,
+  offscreen rows use `content-visibility`, and a refresh spinner plus placeholder
+  rows show while the list loads.
 - **MCP tool names fit the 64-character harness limit.** `watcher_recover_todo` is
   now `watcher_recover`, and the `browser_debugger_*` tools are `browser_dbg_*`
   (`state`, `stack`, `scopes`, `src`, `pause`, `resume`, `set_bp`, `del_bp`,
@@ -15,6 +28,11 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **`todo_integration` MCP tool.** Records TODO integration evidence from an
+  agent (`confirm`, `invalidate`, `no_code`, `reject`); it never prepares, applies
+  or merges a worktree. See `docs/todo-integration-contract.md`.
+- **TODO list search and filter counts.** A title/ID search next to the filter, and
+  per-row counts in the status / review / integration filter dropdown.
 - **OpenCode approval advisor — settings, audit correlation, and advisory scope.**
   Settings → OpenCode adds `riskScope=advise_all` (advisory-only; no auto-approve)
   and opt-in `sendSensitiveCommand` (default false) with UI/docs on OpenCode-only

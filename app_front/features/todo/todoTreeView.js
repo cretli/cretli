@@ -338,6 +338,34 @@ export function buildTodoMarkdown(item) {
 
 
 /**
+ * Free-text list search over title and id. Matches keep their ancestors so a
+ * hit stays reachable in the tree.
+ *
+ * @param {object[]} items
+ * @param {string} query
+ * @returns {object[]}
+ */
+export function filterTodoItemsBySearch(items, query) {
+  const needle = String(query || '').trim().toLowerCase();
+  if (!needle) return items;
+  const byId = new Map(items.map((item) => [String(item.id), item]));
+  const included = new Set();
+  for (const item of items) {
+    const haystack = `${item.title || ''} ${item.id || ''}`.toLowerCase();
+    if (!haystack.includes(needle)) continue;
+    let current = item;
+    const seen = new Set();
+    while (current && !seen.has(String(current.id))) {
+      const id = String(current.id);
+      included.add(id);
+      seen.add(id);
+      current = byId.get(String(current.parentId || ''));
+    }
+  }
+  return items.filter((item) => included.has(String(item.id)));
+}
+
+/**
  * Per-list cache for row marks. A list renders every row against the same
  * `items` array, and each lookup used to rescan the whole list (quadratic: ~1.6 s
  * for 570 tasks). The array is replaced, never mutated in place, so its identity
