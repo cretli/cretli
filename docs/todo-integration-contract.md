@@ -86,6 +86,14 @@ typed one, so a detached `HEAD` is refused (`target_ref_missing`). The scope is
 REST/MCP API for merge or cherry-pick flows where the destination differs from
 the current branch.
 
+### MCP
+
+The `todo_integration` MCP tool exposes the evidence-only actions `confirm`
+(same `proof` fields as REST, including `simple`), `invalidate`, `no_code` and
+`reject`. It never prepares, applies or merges a worktree. `confirm` is the same
+explicit human attestation as in the UI, so an agent may call it only when the
+operator asked for it and the change was verified in the target branch.
+
 ## 3. Freshness and transitions
 
 Evidence is current only while its task material/generation and target identity

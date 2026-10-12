@@ -72,7 +72,7 @@ setBuiltinMcpRuntimeDeps({
 const names = CRETILI_MCP_TOOL_DEFS.map((tool) => tool.name);
 for (const name of [
   'chat_list', 'chat_show', 'chat_history', 'chat_event',
-  'todo_list', 'todo_show', 'todo_create', 'todo_update',
+  'todo_list', 'todo_show', 'todo_create', 'todo_update', 'todo_integration',
   'chat_plan_show', 'delegation_list', 'delegation_show', 'delegation_verify', 'delegation_wait', 'delegation_start', 'delegation_cancel',
   'delegation_reply', 'delegation_inbox', 'workflow_show', 'workflow_update',
   'delegation_rate', 'delegation_ack',
@@ -87,6 +87,7 @@ assert.ok(BUILTIN_MCP_READ_TOOLS.includes('chat_plan_show'));
 assert.ok(BUILTIN_MCP_READ_TOOLS.includes('chat_history'));
 assert.ok(BUILTIN_MCP_READ_TOOLS.includes('chat_event'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('todo_create'));
+assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('todo_integration'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_start'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_verify'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_reply'));
@@ -175,6 +176,22 @@ const stale = await handlersA.todo_update({
 });
 assert.equal(stale.isError, true);
 assert.match(stale.content[0].text, /CONFLICT/);
+
+const badIntegrationAction = await handlersA.todo_integration({
+  todo_id: todoId,
+  action: 'merge',
+  expected_updated_at: updatedAt,
+});
+assert.equal(badIntegrationAction.isError, true);
+
+const noCodeNotDone = await handlersA.todo_integration({
+  todo_id: todoId,
+  action: 'no_code',
+  expected_updated_at: updatedAt,
+  reason: 'nothing changed',
+});
+assert.equal(noCodeNotDone.isError, true);
+assert.match(noCodeNotDone.content[0].text, /not_done/);
 
 const updated = await handlersA.todo_update({
   todo_id: todoId,
