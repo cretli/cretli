@@ -122,14 +122,14 @@ function launchAndAck(store, harness) {
   return { ids, run: ack.run };
 }
 
-test('validation matrix covers exactly six MVP harnesses plus three deferred', () => {
+test('validation matrix covers exactly six MVP harnesses plus five deferred', () => {
   const subjects = listRecoveryAdapterValidationSubjects();
   assert.deepEqual([...subjects].sort(), [
     ...MVP_HARNESSES,
     ...RECOVERY_DEFERRED_ADAPTERS,
   ].sort());
   const matrix = getRecoveryAdapterValidationMatrix();
-  assert.equal(Object.keys(matrix).length, 9);
+  assert.equal(Object.keys(matrix).length, 11);
   for (const harness of MVP_HARNESSES) {
     assert.equal(matrix[harness].scope, 'mvp');
     assert.equal(matrix[harness].overallStatus, 'pending');

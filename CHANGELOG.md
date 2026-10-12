@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- **Recovery contract deferred adapters for Z.AI and MiMo.** The Z.AI and MiMo
+  harnesses are now explicitly listed in `RECOVERY_DEFERRED_ADAPTERS` with
+  deferral reasons (both hydrate the chat from history as plain user/assistant
+  text, like OpenRouter, without a full tool-call/tool-result loop), the
+  validation matrix covers 11 harnesses, and `docs/recovery-contract.md` was
+  synced with contract revision `2026-10-08.3`.
+
 - **Run deadline review/fix follow-ups.** Workflow history skips
   `run_deadline_exceeded` reviews for round and verdict inference; leaf
   `deadline_at` cancels no longer stamp `run_deadline_exceeded`; explore picks

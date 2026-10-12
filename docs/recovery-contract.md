@@ -6,7 +6,7 @@ w języku polskim (nazwy stałych pozostają angielskie). Dokument i moduł musz
 być zmieniane razem.
 
 - `RECOVERY_SCHEMA_VERSION = 1`
-- `RECOVERY_CONTRACT_REVISION = '2026-10-08.2'`
+- `RECOVERY_CONTRACT_REVISION = '2026-10-08.3'`
 
 ## Zakres i granica
 
@@ -236,8 +236,8 @@ Widok kontraktu nie otwiera SQLite. Macierz sama nie zastępuje crash suite.
 Tylko `opencode` potrafi `reattach` do żywego wykonawcy; pozostałe po śmierci
 procesu wznawiają zachowaną sesję.
 
-Poza MVP (`RECOVERY_DEFERRED_ADAPTERS`): `codebuddy`, `openrouter` i `mistral`, z
-uzasadnieniem w `RECOVERY_DEFERRED_ADAPTER_REASONS`:
+Poza MVP (`RECOVERY_DEFERRED_ADAPTERS`): `codebuddy`, `openrouter`, `mistral`,
+`zai` i `mimo`, z uzasadnieniem w `RECOVERY_DEFERRED_ADAPTER_REASONS`:
 
 - `codebuddy` — runner po utracie procesu tworzy świeżą live session bez
   wznowienia zapisanego ID; pełny tool recovery wymaga osobnej pracy.
@@ -245,6 +245,12 @@ uzasadnieniem w `RECOVERY_DEFERRED_ADAPTER_REASONS`:
   tool-call/tool-result; nie kwalifikuje się do auto-resume.
 - `mistral` — jak `openrouter`: odtwarza tylko tekst user/assistant, bez pełnej
   pętli tool-call/tool-result hosta; nie kwalifikuje się do auto-resume.
+- `zai` — jak `openrouter`: hydratuje czat z historii (`buildOpenRouterConversationFromHistory`),
+  więc po restarcie odtwarza tylko tekst bez pełnej pętli tool-call/tool-result;
+  nie kwalifikuje się do auto-resume.
+- `mimo` — jak `openrouter`: hydratuje czat z historii (`buildOpenRouterConversationFromHistory`),
+  więc po restarcie odtwarza tylko tekst bez pełnej pętli tool-call/tool-result;
+  nie kwalifikuje się do auto-resume.
 
 `resolveRecoveryAdapter(harness)` zwraca wpis MVP albo
 `{ supported: false, harness, scope: 'unsupported' }` dla nieznanego harnessu.
@@ -265,7 +271,8 @@ transportu bez kontraktu — `decision: 'unsupported'` i `infraOutcome:
 'unsupported'` (te same tokeny co `RUN_RECOVERY_DECISIONS` i
 `RUN_INFRA_OUTCOMES`; `unsupported` nie jest definiowane ponownie).
 
-Transport poza MVP (`codebuddy`, `openrouter`, `mistral`) albo nieznany nigdy nie jest
+Transport poza MVP (`codebuddy`, `openrouter`, `mistral`, `zai`, `mimo`) albo
+nieznany nigdy nie jest
 zwracany jako ciche `false`, które wołający mógłby odczytać jako „run się
 skończył”. Dostaje jawny `unsupported`.
 
@@ -295,7 +302,7 @@ brama `accepted` pozostaje w R5.
 - `RECOVERY_SCHEMA_VERSION` — podbijany, gdy trwały kształt rekordu recovery
   zyska/zmieni pole. Obecnie `1`.
 - `RECOVERY_CONTRACT_REVISION` — czytelna wersja macierzy/dokumentu. Obecnie
-  `2026-10-08.2`.
+  `2026-10-08.3`.
 
 Każda zmiana wartości w `lib/recovery/recovery-contract.js` wymaga:
 

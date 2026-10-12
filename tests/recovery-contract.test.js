@@ -497,11 +497,27 @@ test('MVP adapters cover six harnesses and defer the rest', () => {
     assert.equal(resolveRecoveryAdapter(harness), entry);
   }
 
-  assert.deepEqual([...RECOVERY_DEFERRED_ADAPTERS], ['codebuddy', 'openrouter', 'mistral']);
+  assert.deepEqual(
+    [...RECOVERY_DEFERRED_ADAPTERS],
+    ['codebuddy', 'openrouter', 'mistral', 'zai', 'mimo']
+  );
   assert.equal(RECOVERY_MVP_ADAPTERS.codebuddy, undefined);
   assert.equal(RECOVERY_MVP_ADAPTERS.openrouter, undefined);
   assert.ok(RECOVERY_DEFERRED_ADAPTER_REASONS.codebuddy);
   assert.ok(RECOVERY_DEFERRED_ADAPTER_REASONS.openrouter);
+  // Every deferred harness must carry a reason: a deferred entry without one
+  // is an unfinished contract change.
+  assert.deepEqual(
+    Object.keys(RECOVERY_DEFERRED_ADAPTER_REASONS).sort(),
+    [...RECOVERY_DEFERRED_ADAPTERS].sort()
+  );
+  for (const deferred of RECOVERY_DEFERRED_ADAPTERS) {
+    assert.ok(
+      typeof RECOVERY_DEFERRED_ADAPTER_REASONS[deferred] === 'string' &&
+        RECOVERY_DEFERRED_ADAPTER_REASONS[deferred].length > 0,
+      `${deferred} has a deferral reason`
+    );
+  }
 
   const unknown = resolveRecoveryAdapter('nieznany');
   assert.equal(unknown.supported, false);
