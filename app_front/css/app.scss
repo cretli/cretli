@@ -14923,3 +14923,12 @@ body.theme-light .sidebar-chat-item-harness--codex img {
 .todo-save-state[hidden] {
   display: none;
 }
+
+/* Long lists: let the browser skip layout and paint for rows far outside the
+ * viewport (cheap alternative to JS virtualization; rows stay in the DOM, so
+ * drag targets, find-in-page and focus keep working). The intrinsic size keeps
+ * the scrollbar stable until a row is first rendered. */
+.todo-rows > .todo-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 3.4rem;
+}
