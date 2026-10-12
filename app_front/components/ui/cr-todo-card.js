@@ -271,6 +271,8 @@ class CrTodoCard extends LitElement {
     if (options.focus === true || changed) {
       this.updateComplete.then(() => {
         if (options.focus === true) this._focusTab(id);
+        // Six tabs overflow a phone: bring the selected one fully into view.
+        this.querySelector(`#todo-tab-${id}`)?.scrollIntoView?.({ block: 'nearest', inline: 'center' });
         // The description textarea was hidden while another tab was active,
         // so auto-grow saw a zero-height control.
         if (id === 'notes') this._refreshBodyAutoGrow();

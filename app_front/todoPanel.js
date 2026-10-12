@@ -68,6 +68,8 @@ let latestWorkspaceFolder = '';
 let refreshGeneration = 0;
 /** @type {Set<string>} */
 let collapsedIds = new Set();
+/** True until a workspace without a stored collapse preference got its defaults. */
+let collapseDefaultsPending = false;
 /** @type {string} */
 let pendingParentId = '';
 /** @type {HTMLElement | null} */
@@ -148,8 +150,10 @@ function collapseStorageKey() {
 
 function loadCollapsed() {
   collapsedIds = new Set();
+  collapseDefaultsPending = false;
   try {
     const raw = localStorage.getItem(collapseStorageKey());
+    collapseDefaultsPending = raw === null;
     const parsed = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(parsed)) return;
     parsed.forEach((id) => {
@@ -159,6 +163,26 @@ function loadCollapsed() {
   } catch {
     collapsedIds = new Set();
   }
+}
+
+/**
+ * First visit to a workspace: collapse finished trees so a long history does not
+ * render (and scroll past) hundreds of closed rows. Explicit expand/collapse
+ * choices are persisted afterwards and are never overridden.
+ */
+function applyCollapseDefaults(items) {
+  if (!collapseDefaultsPending || !items.length) return;
+  collapseDefaultsPending = false;
+  const parentIds = new Set(items.map((item) => String(item.parentId || '')).filter(Boolean));
+  items.forEach((item) => {
+    if (item.status === 'done' && parentIds.has(String(item.id))) collapsedIds.add(String(item.id));
+  });
+  saveCollapsed();
+}
+
+/** A search must reach rows inside collapsed branches. */
+function effectiveCollapsedIds() {
+  return todoSearchQuery.trim() ? new Set() : collapsedIds;
 }
 
 function saveCollapsed() {
@@ -980,7 +1004,8 @@ function renderList(data) {
     syncEditorItem();
     return;
   }
-  const rows = flattenTodoTree(visibleItems, collapsedIds);
+  applyCollapseDefaults(latestItems);
+  const rows = flattenTodoTree(visibleItems, effectiveCollapsedIds());
   let wrapEl = listEl.querySelector('.todo-rows');
   if (!wrapEl) {
     listEl.innerHTML = '';
@@ -1436,7 +1461,7 @@ export function repaintTodoRowBadges() {
   if (!listEl || !latestItems.length) return;
   const visibleItems = getVisibleTodoItems();
   if (!visibleItems.length) return;
-  const rows = flattenTodoTree(visibleItems, collapsedIds);
+  const rows = flattenTodoTree(visibleItems, effectiveCollapsedIds());
   const wrapEl = listEl.querySelector('.todo-rows');
   if (!wrapEl) return;
   const byId = new Map(rows.map((row) => [String(row.item.id), row]));
@@ -1477,15 +1502,29 @@ function paintTodoReviewBadge(el, row) {
   if (badge.hasChildren !== !!row.hasChildren) badge.hasChildren = !!row.hasChildren;
 }
 
+/** @param {HTMLElement} el @param {string} text */
+function setTextIfChanged(el, text) {
+  if (el.textContent !== text) el.textContent = text;
+}
+
+/** @param {HTMLElement} el @param {string} key @param {string} value */
+function setIfChanged(el, key, value) {
+  if (el.dataset[key] !== value) el.dataset[key] = value;
+}
+
 function paintTodoRow(el, row) {
   const id = String(row.item.id || '');
   const status = String(row.item.status || 'idea');
-  el.dataset.id = id;
-  el.dataset.status = status;
-  el.className = `todo-row todo-row--${status}`;
-  el.style.setProperty('--todo-level', String(row.level));
-  el.dataset.level = String(row.level);
-  el.setAttribute('aria-level', String(row.level + 1));
+  // Every write below is skipped when the value is unchanged: a full-list repaint
+  // otherwise restyles and re-lays-out hundreds of rows for no visible change.
+  setIfChanged(el, 'id', id);
+  setIfChanged(el, 'status', status);
+  const className = `todo-row todo-row--${status}`;
+  if (el.className !== className) el.className = className;
+  const levelText = String(row.level);
+  if (el.style.getPropertyValue('--todo-level') !== levelText) el.style.setProperty('--todo-level', levelText);
+  setIfChanged(el, 'level', levelText);
+  if (el.getAttribute('aria-level') !== String(row.level + 1)) el.setAttribute('aria-level', String(row.level + 1));
   const toggle = el.querySelector('.todo-row-toggle');
   const title = el.querySelector('.todo-row-title');
   const worktreeBadge = el.querySelector('.todo-row-worktree-badge');
@@ -1504,7 +1543,7 @@ function paintTodoRow(el, row) {
     worktreeBadge.title = t('sidebar.worktreeTitle');
     worktreeBadge.setAttribute('aria-label', t('sidebar.worktreeTitle'));
   }
-  if (title) title.textContent = String(row.item.title || '');
+  if (title) setTextIfChanged(title, String(row.item.title || ''));
   if (grip instanceof HTMLElement) grip.setAttribute('aria-label', t('todo.dragHandle'));
   if (main instanceof HTMLElement) main.setAttribute('aria-label', t('todo.editTask'));
   if (menu instanceof HTMLElement) {
@@ -1514,7 +1553,7 @@ function paintTodoRow(el, row) {
   const metaText = formatTodoMetaText(row.item);
   if (meta instanceof HTMLElement) {
     meta.hidden = !metaText;
-    meta.textContent = metaText;
+    setTextIfChanged(meta, metaText);
   }
   if (toggle instanceof HTMLButtonElement) {
     toggle.hidden = !row.hasChildren;
