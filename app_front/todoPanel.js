@@ -406,7 +406,7 @@ function renderStatusFilterMenuItems() {
   };
   addRow('all', t('todo.filterStatusAll'), showAll, latestItems.length);
   TODO_ITEM_STATUSES.forEach((status) => {
-    const count = latestItems.filter((item) => normalizeTodoItemStatus(item.status) === status).length;
+    const count = filterTodoItemsByRootStatus(latestItems, new Set([status])).length;
     addRow(status, t(todoStatusLabelKey(status)), !showAll && selected.has(status), count);
   });
   const heading = document.createElement('div');

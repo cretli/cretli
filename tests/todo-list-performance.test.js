@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   filterTodoItemsBySearch,
+  filterTodoItemsByRootStatus,
   readTodoRowMark,
   readTodoRowBlockKind,
 } from '../app_front/features/todo/todoTreeView.js';
@@ -69,7 +70,7 @@ test('search matches title or id and keeps ancestors reachable', () => {
   assert.deepEqual(filterTodoItemsBySearch(items, 'no such task'), []);
 });
 
-test('list payload slimming truncates changelog text and drops integration evidence', () => {
+test('list payload slimming keeps full editor history and drops integration evidence', () => {
   const long = 'x'.repeat(1000);
   const item = {
     id: 't',
@@ -89,8 +90,7 @@ test('list payload slimming truncates changelog text and drops integration evide
   const slim = slimTodoForList(item);
   assert.equal(slim.changelog.length, 2);
   assert.equal(slim.changelog[0].text, 'short');
-  assert.ok(slim.changelog[1].text.length <= 301);
-  assert.ok(slim.changelog[1].text.endsWith('…'));
+  assert.equal(slim.changelog[1].text, item.changelog[1].text);
   assert.equal('evidence' in slim.integration, false);
   assert.equal('changedFiles' in slim.integration, false);
   assert.equal(slim.integration.state, 'integrated');
@@ -114,4 +114,10 @@ test('in-place edits of an item invalidate the cached marks', () => {
   assert.equal(readTodoRowMark(items, second), 'blocked');
   second.blockedReason = 'waiting';
   assert.equal(readTodoRowBlockKind(items, second), 'action');
+});
+
+test('status filter counts the visible subtree under matching roots', () => {
+  const items = [{ id: 'root', status: 'doing' }, { id: 'leaf', parentId: 'root', status: 'ready' }];
+  assert.equal(filterTodoItemsByRootStatus(items, new Set(['ready'])).length, 0);
+  assert.equal(filterTodoItemsByRootStatus(items, new Set(['doing'])).length, 2);
 });

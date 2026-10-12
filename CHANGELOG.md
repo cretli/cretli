@@ -211,6 +211,10 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- **TODO filter counts and editor history.** Status filter counts now match
+  the selected root subtrees, and list responses preserve complete changelog
+  text for the editor History tab.
+
 - **Built-in tool loop no longer sends a provider-invalid message order.** Once a
   conversation passed the 80-message budget, the trim kept the newest messages by
   counting only, so the cut could land between an assistant message that
