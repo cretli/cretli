@@ -368,12 +368,62 @@ export function filterTodoItemsBySearch(items, query) {
 /**
  * Per-list cache for row marks. A list renders every row against the same
  * `items` array, and each lookup used to rescan the whole list (quadratic: ~1.6 s
- * for 570 tasks). The array is replaced, never mutated in place, so its identity
- * is a safe key and the cache dies with the list.
+ * for 570 tasks). The array identity is the key, and a snapshot of exactly the
+ * fields the mark depends on guards against in-place edits (tests and optimistic
+ * UI code mutate items), so a stale answer is never served.
  *
- * @type {WeakMap<object[], { list: object[], index: Map<string, object>, readyIds: Set<string>, blocked: Map<string, boolean> }>}
+ * @type {WeakMap<object[], {
+ *   list: object[],
+ *   snapshot: unknown[][],
+ *   index: Map<string, object>,
+ *   readyIds: Set<string>,
+ *   blocked: Map<string, boolean>,
+ * }>}
  */
 const rowContextCache = new WeakMap();
+
+/**
+ * Fields read by `isTodoBranchBlocked` / `listReadyTodoLeaves`, by reference so
+ * comparing an unchanged (possibly very long) plan string is O(1).
+ *
+ * @param {object} item
+ * @returns {unknown[]}
+ */
+function snapshotRowFields(item) {
+  return [
+    item,
+    item?.id,
+    item?.parentId,
+    item?.status,
+    item?.blockedReason,
+    item?.siblingIndex,
+    item?.runMode,
+    item?.plan?.markdown,
+    item?.plan?.approvedAt,
+    item?.integration?.state,
+  ];
+}
+
+/**
+ * @param {unknown[][]} snapshot
+ * @param {object[]} list
+ * @returns {boolean}
+ */
+function isSnapshotCurrent(snapshot, list) {
+  if (snapshot.length !== list.length) return false;
+  for (let row = 0; row < list.length; row += 1) {
+    const saved = snapshot[row];
+    const item = list[row];
+    if (saved[0] !== item) return false;
+    if (saved[1] !== item?.id || saved[2] !== item?.parentId || saved[3] !== item?.status
+      || saved[4] !== item?.blockedReason || saved[5] !== item?.siblingIndex
+      || saved[6] !== item?.runMode || saved[7] !== item?.plan?.markdown
+      || saved[8] !== item?.plan?.approvedAt || saved[9] !== item?.integration?.state) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /**
  * @param {object[] | null | undefined} items
@@ -381,9 +431,10 @@ const rowContextCache = new WeakMap();
 function readTodoRowContext(items) {
   const list = Array.isArray(items) ? items : [];
   let context = rowContextCache.get(list);
-  if (!context) {
+  if (!context || !isSnapshotCurrent(context.snapshot, list)) {
     context = {
       list,
+      snapshot: list.map(snapshotRowFields),
       index: buildTodoIndex(list),
       readyIds: new Set(listReadyTodoLeaves(list).map((row) => String(row.id))),
       blocked: new Map(),

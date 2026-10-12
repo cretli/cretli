@@ -105,3 +105,13 @@ test('list slimming tolerates items without changelog or integration', () => {
   assert.deepEqual(slimTodoForList({ id: 'x' }), { id: 'x' });
   assert.equal(slimTodoForList(null), null);
 });
+
+test('in-place edits of an item invalidate the cached marks', () => {
+  const items = buildTree();
+  const second = items.find((item) => item.id === 'b');
+  assert.equal(readTodoRowMark(items, second), 'ready');
+  items.find((item) => item.id === 'a').status = 'doing';
+  assert.equal(readTodoRowMark(items, second), 'blocked');
+  second.blockedReason = 'waiting';
+  assert.equal(readTodoRowBlockKind(items, second), 'action');
+});
