@@ -14615,3 +14615,26 @@ body.theme-light .sidebar-chat-item-harness--codex img {
 .todo-overview-card p {
   font-size: 0.78rem;
 }
+
+/* The panel already scrolls; a nested scroll box inside it traps swipes. */
+.todo-editor-dialog .todo-item-plan-body {
+  max-height: none;
+  overflow: visible;
+}
+
+@media (max-width: 640px) {
+  .todo-editor-dialog .todo-item-title::part(control) {
+    padding: 0.15rem 0.4rem;
+    font-size: 0.85rem;
+    line-height: 1.25;
+  }
+
+  /* Let the meta line wrap so the integration label is never cut off. */
+  .todo-row-meta {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+}

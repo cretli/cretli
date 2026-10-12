@@ -661,7 +661,7 @@ class CrTodoCard extends LitElement {
         ${this.planExpanded
           ? html`
             <div class="todo-item-plan-body files-preview-markdown">${unsafeHTML(renderMarkdownHtml(planMarkdown))}</div>
-            ${!approvedAt ? html`
+            ${!approvedAt && item?.status !== 'done' ? html`
               <button
                 type="button"
                 class="todo-item-plan-approve-btn"
