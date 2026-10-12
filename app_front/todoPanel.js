@@ -103,8 +103,9 @@ const REVIEW_REFRESH_DEBOUNCE_MS = 400;
 let rootStatusFilter = null;
 /** @type {'' | 'none' | 'stale'} */
 let reviewListFilter = '';
-/** @type {string} */
-let integrationListFilter = '';
+/** @type {Set<string>} */
+let integrationListFilter = new Set();
+const INTEGRATION_FILTERS = ['unconfirmed', 'awaiting', 'integrated', 'partial', 'rejected', 'conflict', 'no_code_changes'];
 /** Free-text list search (title or id); not persisted. */
 let todoSearchQuery = '';
 /** @type {HTMLButtonElement | null} */
@@ -268,16 +269,16 @@ function integrationFilterStorageKey() {
 function loadIntegrationFilter() {
   try {
     const value = localStorage.getItem(integrationFilterStorageKey()) || '';
-    integrationListFilter = ['unconfirmed', 'awaiting', 'integrated', 'partial', 'rejected', 'conflict', 'no_code_changes'].includes(value)
-      ? value : '';
+    const parsed = value.startsWith('[') ? JSON.parse(value) : [value];
+    integrationListFilter = new Set(Array.isArray(parsed) ? parsed.filter((filter) => INTEGRATION_FILTERS.includes(filter)) : []);
   } catch {
-    integrationListFilter = '';
+    integrationListFilter = new Set();
   }
 }
 
 function saveIntegrationFilter() {
   try {
-    if (integrationListFilter) localStorage.setItem(integrationFilterStorageKey(), integrationListFilter);
+    if (integrationListFilter.size) localStorage.setItem(integrationFilterStorageKey(), JSON.stringify([...integrationListFilter]));
     else localStorage.removeItem(integrationFilterStorageKey());
   } catch {
     // Private mode can reject storage; filtering still works for this view.
@@ -299,12 +300,12 @@ function getVisibleTodoItems() {
 }
 
 function filterTodoItemsByIntegrationState(items, filter) {
-  if (!filter) return items;
+  if (!filter.size) return items;
   const byId = new Map(items.map((item) => [String(item.id), item]));
   const included = new Set();
   for (const item of items) {
     const summary = item.integrationSummary || {};
-    if (summary.state !== filter && summary.detail !== filter) continue;
+    if (!filter.has(summary.state) && !filter.has(summary.detail)) continue;
     let current = item;
     const seen = new Set();
     while (current && !seen.has(String(current.id))) {
@@ -319,6 +320,12 @@ function filterTodoItemsByIntegrationState(items, filter) {
 
 function countTodoItemsByIntegrationState(items, filter) {
   if (filter === 'all') return items.length;
+  if (filter instanceof Set) {
+    return items.filter((item) => {
+      const summary = item.integrationSummary || {};
+      return filter.has(summary.state) || filter.has(summary.detail);
+    }).length;
+  }
   return items.filter((item) => {
     const summary = item.integrationSummary || {};
     return summary.state === filter || summary.detail === filter;
@@ -370,7 +377,7 @@ function formatStatusFilterTriggerLabel() {
     )
     : [];
   if (reviewListFilter) parts.push(reviewFilterLabel(reviewListFilter));
-  if (integrationListFilter) parts.push(integrationFilterLabel(integrationListFilter));
+  if (integrationListFilter.size) parts.push([...integrationListFilter].map(integrationFilterLabel).join(', '));
   return parts.length ? parts.join(', ') : t('todo.filterStatusAll');
 }
 
@@ -430,12 +437,12 @@ function renderStatusFilterMenuItems() {
   integrationHeading.className = 'todo-review-filter-heading';
   integrationHeading.textContent = t('todo.integrationFilterHeading');
   list.appendChild(integrationHeading);
-  ['all', 'unconfirmed', 'awaiting', 'integrated', 'partial', 'rejected', 'conflict', 'no_code_changes'].forEach((filter) => {
+  ['all', ...INTEGRATION_FILTERS].forEach((filter) => {
     const row = document.createElement('div');
     row.className = 'todo-integration-filter-row';
     row.dataset.integrationFilter = filter;
     const box = document.createElement('cr-checkbox');
-    box.checked = filter === 'all' ? !integrationListFilter : integrationListFilter === filter;
+    box.checked = filter === 'all' ? integrationListFilter.size === 0 : integrationListFilter.has(filter);
     box.setAttribute('aria-label', integrationFilterLabel(filter));
     const label = document.createElement('span');
     label.textContent = integrationFilterLabel(filter);
@@ -515,7 +522,7 @@ function ensureStatusFilterUi(toolbar) {
   statusFilterMenu = entry;
   // cr-checkbox toggles itself (clicks on the label text included); only keep the
   // "All" row and the status rows mutually consistent here.
-  list.addEventListener('change', (event) => {
+  list.addEventListener('cr-change', (event) => {
     const reviewRow = event.target instanceof Element ? event.target.closest('.todo-review-filter-row') : null;
     if (reviewRow instanceof HTMLElement) {
       event.stopPropagation();
@@ -536,14 +543,18 @@ function ensureStatusFilterUi(toolbar) {
     if (integrationRow instanceof HTMLElement) {
       event.stopPropagation();
       const box = integrationRow.querySelector('cr-checkbox');
-      integrationListFilter = box && 'checked' in box && box.checked && integrationRow.dataset.integrationFilter !== 'all'
-        ? String(integrationRow.dataset.integrationFilter || '')
-        : '';
-      entry.list.querySelectorAll('.todo-integration-filter-row').forEach((other) => {
-        if (other === integrationRow) return;
-        const otherBox = other.querySelector('cr-checkbox');
-        if (otherBox) otherBox.checked = false;
-      });
+      const filter = String(integrationRow.dataset.integrationFilter || '');
+      if (filter === 'all') {
+        integrationListFilter = new Set();
+        entry.list.querySelectorAll('.todo-integration-filter-row').forEach((other) => {
+          if (other.dataset.integrationFilter !== 'all') other.querySelector('cr-checkbox').checked = false;
+        });
+      } else if (box && 'checked' in box) {
+        if (box.checked) integrationListFilter.add(filter);
+        else integrationListFilter.delete(filter);
+        const allBox = entry.list.querySelector('[data-integration-filter="all"] cr-checkbox');
+        if (allBox) allBox.checked = integrationListFilter.size === 0;
+      }
       saveIntegrationFilter();
       syncStatusFilterTriggerLabel();
       if (latestItems.length || listEl?.querySelector('.todo-empty')) renderList({ items: latestItems });
@@ -1986,12 +1997,13 @@ function onOpenChat(e) {
   setStatus(t('todo.openedLinkedChat'));
 }
 
-/** Opens the Git panel scoped to the worktree of one task. */
+/** Opens the worktree list scoped to one task. */
 function onOpenGit(e) {
   const id = String(e?.detail?.id || '').trim();
   if (!id) return;
   setGitScope({ todoId: id, workspaceFolder: getTodoWorkspaceFolder() }, { lock: true });
   showPanelFn('git');
+  window.dispatchEvent(new CustomEvent('cretli-git-show-worktrees'));
 }
 
 /** @param {Event} e */

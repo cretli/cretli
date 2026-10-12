@@ -301,6 +301,14 @@ Pure and clock-injected:
 - `allowedHarnesses` allow-list plus **real** usage-limit awareness
   (`listHarnessUsageLimits`); a limited model is excluded, and an unlimited
   allow-list still blocks harnesses under an active limit.
+- per-todo **blocked backoff** (`blockedBackoff[todoId] = { count, until }`): a
+  cycle that reports `blocked`, and a worktree preflight failure, are not
+  failures and never reach the failure ceiling, so each one delays the next pick
+  of that leaf instead. The delay starts at twice the longer of `cooldownMs` and
+  `backoffBaseMs`, doubles per consecutive occurrence and is capped by
+  `backoffCapMs`. Any other cycle outcome ends the streak, `clear-stop` wipes the
+  map, and a plan-only cycle is exempt so a plan approval restarts its leaf at
+  once. Other ready leaves stay eligible meanwhile.
 
 ### Restart reconcile
 
@@ -928,6 +936,11 @@ Common syndromes:
   chat/run state instead of forcing a cycle.
 - **`wait_harness_usage`** — check favorites and active usage limits; the
   allow-list is intersected with the real limits.
+- **`idle_no_work` / `blocked_backoff`** — the ready leaves are waiting out a
+  blocked backoff; `blockedBackoff` on the watcher row has the `until` instants.
+- **`idle_no_work` / `ancestor_requires_worktree`** — the only ready leaves sit
+  under a `worktree` ancestor while the watcher would run them in the project
+  folder; see "Mode selection".
 - **`stopped` / `loop_no_eligible_work`** — every ready todo is parked at the
   failure ceiling. Inspect `failures`, fix the blocker, then either
   `clear-stop` or retry the todo manually.
@@ -956,7 +969,8 @@ right branch visible.
   (`executionFolder`, falling back to `workspaceFolder`); for a leaf it is frozen
   in the worktree registry.
 - Worktrees live **outside** the project tree. Nothing here commits, merges or
-  pushes; integration is manual and the branch is preserved until a human
+  pushes (the only exception is the explicit, user-started git-level merge chat
+  described under *Worktree list and git-level merge*); integration is manual and the branch is preserved until a human
   decides.
 
 ### 1. Mode selection
@@ -991,6 +1005,13 @@ right branch visible.
   in the task card settings tab.
 - `resolveWorkspaceWatcherExecutionMode` resolves leaf-over-policy. A plan-only
   cycle never creates a worktree: it keeps the logical workspace.
+- The watcher never walks ancestors for the mode (contract §4.3, O1 open), but
+  `delegation_start` refuses a leaf whose ancestor requires a worktree when the
+  orchestrator chat runs in the project folder. A leaf that resolves to
+  `project` under such an ancestor is therefore **not eligible** for an
+  autopilot pick (`isWorkspaceWatcherLeafBehindWorktreeAncestor`): its cycle
+  could only report `blocked`. Start that tree by hand (`todo_start`, §2a) or
+  give the leaf its own `worktree` override.
 - A worktree that already exists is **frozen**: later policy or override changes
   do not move an in-flight or retried leaf to another directory.
 
@@ -1083,6 +1104,59 @@ A human confirms or rejects through `POST /api/todos/:id/integration`
 - **reject** → `status = ready`, `integration.state = rejected` with a reason;
   the worktree and patch are preserved so a retry reuses the frozen work.
 
+#### Worktree list and git-level merge
+
+The Git panel lists every task worktree of the workspace (`GET
+/api/worktrees/list`, `lib/worktree-list.js`). The registry is reconciled with
+`git worktree list` and the todo's integration pointer; each row carries a
+single `state` (`active`, `execution_closed`, `integration_ready`, `merging`,
+`integrated`, `rejected`, `missing`, `foreign`, `creating`, `cleaned`), the
+branch, base/head commits, commits ahead of the base, uncommitted files and the
+actions that are currently allowed. Paths always come from server records; the
+client only names a todo id. A worktree whose branch moved ahead of the frozen
+base (the agent committed) is shown as healthy, not as an external change.
+
+Actions per row:
+
+- **Diff** — stat + patch against the frozen base (read-only, size capped).
+- **Merge** — opens a summary dialog (branch -> target, base, diffstat,
+  uncommitted files, conflict forecast from `git merge-tree`, preflight
+  blockers, optional instructions) and then the same harness/model picker used
+  to start a TODO. The chat runs in the main project folder and is not bound to
+  the worktree.
+- **Reject** — `rejectWorkspaceTodoIntegration`; the worktree is kept.
+- **Clean up** — `removeWorktree`; an unintegrated worktree is a discard and
+  needs `discard: true` plus `confirmBranch` equal to the recorded branch. The
+  branch is only deleted on request and only with `git branch -d`, so unmerged
+  work is never lost.
+
+**Policy.** Elsewhere in Cretli agents never commit, push or merge. The merge
+chat is an explicit, user-initiated exception limited to that one chat, and the
+prompt says so; it never pushes. Pushing stays manual.
+
+**Preflight** (`lib/worktree-merge.js`, `preflightGitBranchMerge`) runs before
+anything is marked or prepared; a refusal leaves the todo untouched. It blocks
+on: a dirty main tree (files listed), a detached HEAD, a merge already in
+progress, the worktree branch being the checked-out branch, a missing branch or
+worktree directory, and any live chat run, delegation slot or watcher cycle in
+the main tree (`collectWorkspaceGitActivity`, the same guard branch switches
+use). The running merge chat itself holds that guard, so merges of several
+worktrees are strictly sequential; the order is the user's choice.
+
+**Outcome.** The agent commits the worktree changes on its branch, runs `git
+merge --no-ff <branch>` on the target branch (the branch checked out in the
+main tree when the merge started, stored as `integration.targetBranch` with
+`integration.mergeMode = git-branch`), resolves conflicts, runs the checks and
+reports through `POST /api/smart-merge-report-from-agent`. A `merged` report is
+never trusted alone: the server requires that the branch moved past its base,
+that nothing is left uncommitted in the worktree and that the branch tip is an
+ancestor of the target tip. Only then the integration proof is recorded and the
+todo is confirmed (`done`, `integration.state = integrated`). A refused proof
+keeps the todo awaiting integration with `integration.reason =
+git_merge_unverified: <why>`; a `failed` report keeps it with
+`smart_merge_failed: <summary>` so it can be retried. The older "workspace"
+smart merge (uncommitted result, human confirms) is unchanged.
+
 ### 5. Git context indicator and panel
 
 The existing Git panel (`app_front/gitPanel.js`, `/api/git/*`, `/api/github/*`)
@@ -1141,6 +1215,9 @@ node tests/workspace-watcher-archive-sweep.test.js
 node --test tests/git-context.test.js
 node --test tests/git-routes-scope.test.js
 node --test tests/git-scope-ui.test.js
+node --test tests/worktree-merge.test.js
+node --test tests/worktrees-routes.test.js
+node --test tests/worktree-list-ui.test.js
 ```
 
 `tests/git-context.test.js` covers authorized scope resolution (chat, task,

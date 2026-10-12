@@ -16,6 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
+  createOpenCodeProcessProbes,
   getOpenCodePortRegistryPath,
   readOpenCodePortRegistry,
   reconcileOpenCodePortRegistry,
@@ -123,6 +124,7 @@ try {
   assert.equal(serverA.url, `http://127.0.0.1:${portA}`);
   assert.ok(Number.isInteger(serverA.pid) && serverA.pid > 0, 'spawn must report the OpenCode PID');
   assert.equal(isAlive(serverA.pid), true);
+  assert.equal(serverA.hasExited, false);
   const childReady = await waitFor(() => fs.existsSync(childPidFile), 3000);
   assert.equal(childReady, true, 'fake OpenCode child must start');
   const childA = Number.parseInt(fs.readFileSync(childPidFile, 'utf8').trim(), 10);
@@ -130,6 +132,7 @@ try {
   assert.equal(isAlive(childA), true);
   serverA.close();
   assert.equal(await waitFor(() => !isAlive(serverA.pid), 4000), true, 'close() must stop OpenCode');
+  assert.equal(serverA.hasExited, true);
   assert.equal(await waitFor(() => !isAlive(childA), 4000), true, 'close() must stop OpenCode children too');
 
   // --- 2. new format: dead owner -> recorded orphan is killed ------------------
@@ -183,6 +186,8 @@ try {
   const childC = Number.parseInt(fs.readFileSync(childPidFile, 'utf8').trim(), 10);
   spawnedGroups.push(childC);
   assert.equal(isAlive(serverC), true);
+  assert.equal(await waitFor(() => createOpenCodeProcessProbes().findListeningPid(portC) === serverC, 3000), true,
+    'legacy sweep must wait for the detached server to bind its port');
   const sweepC = await reconcileOpenCodePortRegistry({ killWaitMs: 500 });
   assert.ok(sweepC.killed.includes(portC), `expected port ${portC} killed, got ${JSON.stringify(sweepC)}`);
   assert.equal(await waitFor(() => !isAlive(serverC), 3000), true);

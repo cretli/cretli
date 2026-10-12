@@ -3885,6 +3885,10 @@ cr-todo-card.todo-card {
   align-items: center;
 }
 
+.git-toolbar-actions[hidden] {
+  display: none;
+}
+
 .git-status-badge {
   font-size: 0.75rem;
   color: var(--cr-text-muted);
@@ -3937,6 +3941,137 @@ cr-todo-card.todo-card {
 .git-info-value {
   color: var(--cr-text);
   word-break: break-all;
+}
+
+/* Git panel: task worktree list with Merge / Diff / Reject / Cleanup. */
+.git-worktrees {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+  padding: var(--cr-space-3);
+  border-top: 0;
+}
+
+.worktrees-panel-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--cr-space-3);
+  border-top: 0;
+}
+
+.git-worktrees-search-row {
+  display: flex;
+  padding: 0 0.35rem 0.35rem;
+}
+
+.git-worktrees-search-row[hidden] {
+  display: none;
+}
+
+.git-worktrees-search-row cr-bar-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.git-worktrees-search-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--cr-control-height, 1.75rem);
+  height: var(--cr-control-height, 1.75rem);
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+  color: var(--cr-text-muted);
+  cursor: pointer;
+}
+
+.git-worktrees-search-btn--active {
+  color: var(--cr-accent);
+  border-color: var(--cr-accent);
+}
+
+.git-worktrees-filter-trigger--active {
+  border-color: var(--cr-accent);
+  color: var(--cr-accent);
+}
+
+.git-view-panel[hidden] {
+  display: none;
+}
+
+.git-worktrees-title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.git-worktrees-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-3);
+}
+
+.git-worktree-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+  padding: var(--cr-space-3);
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-surface-inset);
+}
+
+.git-worktree-head,
+.git-worktree-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cr-space-2);
+}
+
+.git-worktree-title {
+  overflow-wrap: anywhere;
+}
+
+.git-worktree-chat-count {
+  color: var(--cr-text-muted);
+  font-size: 0.75rem;
+}
+
+.git-worktree-todo-link {
+  color: var(--cr-success);
+  font-size: 0.75rem;
+}
+
+.git-worktree-todo-link--missing {
+  color: var(--cr-error);
+}
+
+.git-worktree-row .git-status-badge[data-tone='success'] {
+  color: var(--cr-success);
+}
+
+.git-worktree-row .git-status-badge[data-tone='warn'] {
+  color: var(--cr-warn);
+}
+
+.git-worktree-row .git-status-badge[data-tone='error'] {
+  color: var(--cr-error);
+}
+
+.git-worktree-row .git-status-badge[data-tone='info'] {
+  color: var(--cr-accent);
+}
+
+.git-worktree-row .cr-hint[data-tone='error'],
+.git-worktree-merge .cr-hint[data-tone='error'] {
+  color: var(--cr-error);
+}
+
+.git-worktree-actions {
+  flex-wrap: wrap;
 }
 
 /* Git panel context chip: main project vs task worktree. */

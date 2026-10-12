@@ -402,6 +402,14 @@ const gitContextBadge = initGitContextBadge({
   getActiveWorkspaceFolder: getActiveWorkspaceFolderFromHeader,
 });
 window.addEventListener('cretli-git-open', () => showPanel('git'));
+window.addEventListener('cretli-git-show-worktrees', () => {
+  void ensurePanelReady('git').then(() => callLoadedPanel('git', 'showWorktreeView'));
+});
+// Lets feature modules that do not own `showPanel` switch the visible panel.
+window.addEventListener('cretli-panel-open', (event) => {
+  const panel = String(event?.detail?.panel || '').trim();
+  if (panel) showPanel(panel);
+});
 // Workspace-folder branch chip + its quick menu (branch switch, chat filter).
 initWorkspaceBranchBadge({
   getActiveWorkspaceFolder: getActiveWorkspaceFolderFromHeader,

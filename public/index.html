@@ -2366,14 +2366,30 @@
 
   <div id="git-panel" class="panel">
     <div class="git-layout">
+      <div class="git-view-tabs settings-tabs cr-tabs settings-subtabs" role="tablist" aria-label="Git views">
+        <button type="button" class="git-view-tab settings-tab cr-tab active" role="tab" aria-selected="true" data-git-view="main" data-i18n="git.tabMain">Git</button>
+        <button type="button" class="git-view-tab settings-tab cr-tab" role="tab" aria-selected="false" data-git-view="worktrees" data-i18n="tabs.worktrees">Worktrees</button>
+      </div>
       <div class="git-toolbar panel-toolbar">
-        <div class="git-toolbar-actions">
+        <div id="git-main-toolbar-actions" class="git-toolbar-actions">
           <cr-bar-button id="git-refresh-btn" title="Refresh info" data-i18n-title="git.refreshTitle" data-i18n="git.refresh">Refresh</cr-bar-button>
           <span id="git-context-chip" class="git-context-chip" hidden></span>
           <span id="git-status-badge" class="git-status-badge">—</span>
         </div>
+        <div id="git-worktrees-toolbar" class="git-toolbar-actions" hidden>
+          <cr-icon-button id="git-worktrees-refresh" title="Refresh list" data-i18n-title="git.refreshTitle" aria-label="Refresh list" data-i18n-aria="git.refreshTitle"><span class="mdi mdi-refresh" aria-hidden="true"></span></cr-icon-button>
+          <button type="button" id="git-worktrees-filter-toggle" class="todo-status-filter-trigger git-worktrees-filter-trigger" aria-haspopup="menu" data-i18n-title="worktrees.filterTitle" data-i18n-aria="worktrees.filterAria" title="Filter worktrees by status" aria-label="Filter worktrees by status">
+            <span class="mdi mdi-filter-variant" aria-hidden="true"></span><span id="git-worktrees-filter-label" class="todo-status-filter-trigger-label" data-i18n="worktrees.filterAll">All statuses</span>
+          </button>
+          <button type="button" id="git-worktrees-search-toggle" class="todo-search-btn git-worktrees-search-btn" data-i18n-title="worktrees.searchAria" data-i18n-aria="worktrees.searchAria" title="Search worktrees" aria-label="Search worktrees" aria-expanded="false" aria-controls="git-worktrees-search-row">
+            <span class="mdi mdi-magnify" aria-hidden="true"></span>
+          </button>
+        </div>
       </div>
-      <div class="git-content">
+      <div id="git-worktrees-search-row" class="git-worktrees-search-row" hidden>
+        <cr-bar-input id="git-worktrees-search" type="search" autocomplete="off" data-i18n-placeholder="worktrees.searchPlaceholder" data-i18n-aria="worktrees.searchAria" placeholder="Filter worktrees…" aria-label="Filter worktrees"></cr-bar-input>
+      </div>
+      <div id="git-main-view" class="git-content git-view-panel" role="tabpanel">
         <div class="git-info">
           <div class="git-info-row">
             <span class="git-info-label" data-i18n="git.dir">Folder:</span>
@@ -2420,6 +2436,10 @@
         </div>
         <pre id="git-output" class="git-output" aria-live="polite"></pre>
       </div>
+      <section id="git-worktrees" class="git-content git-worktrees git-view-panel" role="tabpanel" aria-label="Worktrees" data-i18n-aria="worktrees.title" hidden>
+      <p id="git-worktrees-status" class="cr-status" aria-live="polite"></p>
+      <div id="git-worktrees-list" class="git-worktrees-list" role="list"></div>
+      </section>
     </div>
   </div>
 

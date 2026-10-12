@@ -153,6 +153,7 @@ runCase(
       body: { agentTransport: 'claude', workspaceFile, workspaceFolder: cwd },
     });
     const firstChatId = first.body.chat.id;
+    assert.equal(first.body.chat.sdkMode, 'plan');
 
     const second = await invoke('POST', '/api/todos/:id/start-agent', {
       params: { id },
@@ -161,6 +162,7 @@ runCase(
     assert.equal(second.body.ok, true);
     assert.equal(second.body.reused, false);
     assert.equal(second.body.forceNew, true);
+    assert.equal(second.body.chat.sdkMode, 'agent');
     const secondChatId = second.body.chat.id;
     assert.notEqual(secondChatId, firstChatId);
 
@@ -179,6 +181,30 @@ runCase(
     assert.match(second.body.initialPrompt, /cretli-ref todo=/);
     assert.match(second.body.initialPrompt, new RegExp(firstChatId));
     assert.match(second.body.initialPrompt, /chat_show/);
+  })
+);
+
+runCase(
+  'start-agent forceNew defaults to agent over a planning assignee and respects an explicit mode',
+  withApp(async (invoke) => {
+    const created = addTodo(dataDir, cwd, {
+      title: 'Continue planning task',
+      status: 'ready',
+      assignee: { harness: 'claude', role: 'plan' },
+    });
+    const body = { forceNew: true, workspaceFile, workspaceFolder: cwd };
+    const started = await invoke('POST', '/api/todos/:id/start-agent', {
+      params: { id: created.item.id },
+      body,
+    });
+    assert.equal(started.body.ok, true);
+    assert.equal(started.body.chat.sdkMode, 'agent');
+    const explicit = await invoke('POST', '/api/todos/:id/start-agent', {
+      params: { id: created.item.id },
+      body: { ...body, sdkMode: 'plan' },
+    });
+    assert.equal(explicit.body.ok, true);
+    assert.equal(explicit.body.chat.sdkMode, 'plan');
   })
 );
 

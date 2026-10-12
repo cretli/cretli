@@ -95,6 +95,7 @@ import { purgeBrowserScreenshotRoot } from './lib/browser/screenshot-file.js';
 import { getWorkspacePolicy } from './lib/browser/policy-store.js';
 import { configureBrowserAgentRuntime } from './lib/browser/agent-tools.js';
 import { createServerDiagnostics } from './lib/server-diagnostics.js';
+import { buildShutdownOriginSnapshot } from './lib/shutdown-origin.js';
 import { publishMemoryMonitorAlerts } from './lib/notifications/memory-monitor-producer.js';
 
 setModelScoreRows(loadModelScoreRows());
@@ -571,6 +572,9 @@ async function shutdownDelegationAndExit(signal, options = {}) {
   if (delegationShutdownStarted) return;
   delegationShutdownStarted = true;
   const forcedExitCode = Number.isInteger(options.exitCode) ? options.exitCode : null;
+  // Captured before any child is signalled, while the sender (kill helper,
+  // restart script, process manager) is most likely still alive.
+  serverDiagnostics.record('shutdown-origin', { signal, origin: buildShutdownOriginSnapshot() });
   serverDiagnostics.record('shutdown-signal', { signal });
 
   // Phase 1 — synchronous, never awaited. Refuse new chats/delegations, block

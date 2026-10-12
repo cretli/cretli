@@ -7,6 +7,8 @@ import {
   setGitScope,
   subscribeGitScope,
 } from './features/git/gitScope.js';
+import { initWorktreeList, refreshWorktreeList, showWorktreeView } from './features/git/worktreeList.js';
+export { refreshWorktreeList, showWorktreeView };
 import {
   buildGitDetailRows,
   deriveGitContextBadge,
@@ -147,6 +149,7 @@ export function refreshGitInfo() {
       return null;
     }
     renderInfo(data);
+    void refreshWorktreeList();
     if (Array.isArray(data.statusShort) && data.statusShort.length) {
       renderOutput(data.statusShort.join('\n'));
     } else {
@@ -267,6 +270,7 @@ export function initGitPanel() {
   }
   initQuickButtons();
   initActionForm();
+  initWorktreeList();
   // A scope switch while the panel is open must repaint immediately.
   subscribeGitScope(() => {
     if (document.getElementById('git-panel')?.classList.contains('active')) {

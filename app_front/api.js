@@ -1132,6 +1132,85 @@ export async function smartMergeTodo(todoId, workspaceFolder, options = {}) {
   );
 }
 
+/**
+ * @param {string} workspaceFolder
+ * @returns {string}
+ */
+function worktreeWorkspaceQuery(workspaceFolder) {
+  const folder = String(workspaceFolder || '').trim();
+  return folder ? `?workspaceFolder=${encodeURIComponent(folder)}` : '';
+}
+
+/** Worktrees of a workspace: registry reconciled with Git, with row states and actions. */
+export async function listWorktrees(workspaceFolder) {
+  return apiFetchJson(`/api/worktrees/list${worktreeWorkspaceQuery(workspaceFolder)}`, {}, 'listWorktrees');
+}
+
+export async function getWorktreeDiff(todoId, workspaceFolder) {
+  return apiFetchJson(
+    `/api/worktrees/${encodeURIComponent(String(todoId || ''))}/diff${worktreeWorkspaceQuery(workspaceFolder)}`,
+    {},
+    'getWorktreeDiff',
+  );
+}
+
+/** Merge preflight for the modal: target branch, blockers, diffstat, conflict forecast. */
+export async function getWorktreeMergePreview(todoId, workspaceFolder) {
+  return apiFetchJson(
+    `/api/worktrees/${encodeURIComponent(String(todoId || ''))}/merge-preview${worktreeWorkspaceQuery(workspaceFolder)}`,
+    {},
+    'getWorktreeMergePreview',
+  );
+}
+
+/** Start the git-level merge chat (harness/model chosen by the user). */
+export async function startWorktreeMerge(todoId, workspaceFolder, options = {}) {
+  return apiFetchJson(
+    `/api/worktrees/${encodeURIComponent(String(todoId || ''))}/merge`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspaceFolder: String(workspaceFolder || '').trim(),
+        workspaceFile: options.workspaceFile || '',
+        agentTransport: options.agentTransport || '',
+        model: options.model || '',
+        instructions: String(options.instructions || ''),
+      }),
+    },
+    'startWorktreeMerge',
+  );
+}
+
+export async function rejectWorktree(todoId, workspaceFolder, reason = '') {
+  return apiFetchJson(
+    `/api/worktrees/${encodeURIComponent(String(todoId || ''))}/reject`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaceFolder: String(workspaceFolder || '').trim(), reason }),
+    },
+    'rejectWorktree',
+  );
+}
+
+export async function cleanupWorktree(todoId, workspaceFolder, options = {}) {
+  return apiFetchJson(
+    `/api/worktrees/${encodeURIComponent(String(todoId || ''))}/cleanup`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspaceFolder: String(workspaceFolder || '').trim(),
+        deleteBranch: options.deleteBranch === true,
+        discard: options.discard === true,
+        confirmBranch: String(options.confirmBranch || ''),
+      }),
+    },
+    'cleanupWorktree',
+  );
+}
+
 export async function deleteTodo(id, workspaceFolder) {
   if (!id) return { ok: false, error: 'Missing id' };
   return apiFetchJson(`/api/todos/${encodeURIComponent(id)}${todoWorkspaceQuery(workspaceFolder)}`, { method: 'DELETE' }, 'deleteTodo');

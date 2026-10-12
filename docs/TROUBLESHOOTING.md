@@ -101,6 +101,18 @@ its 4 MiB cap. Error events are rate-limited to one record per minute. Use the
 process manager journal to distinguish those cases. See
 [Server diagnostics and automatic restart](server-diagnostics.md) for setup.
 
+### Who sent the SIGTERM?
+
+Node does not expose the signal sender, so on every shutdown signal the server
+writes a `shutdown-origin` record to `data/server-diagnostics-YYYY-MM-DD.jsonl`
+(before any child is signalled). `details.origin` holds the parent process
+(`parent`, `ancestors`), `suspects` (live processes whose command line looks
+like `kill`, `pkill`, `restart*`, `npm start`, `systemctl`, ...) and a compact
+`processTree`. Command lines are redacted and truncated. Attribution is
+best-effort: a sender that exited before the snapshot will not appear.
+Delegation lifecycle events are also persisted to
+`data/delegation-events-YYYY-MM-DD.jsonl` (14 days, 4 MiB per day).
+
 ## 5. Memory pressure: earlyoom killed the server
 
 A machine-level safety net runs before the killer does: the read-only
