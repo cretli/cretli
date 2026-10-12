@@ -479,6 +479,7 @@ class CrTodoCard extends LitElement {
         ${item.review
           ? html`<cr-todo-review-badge compact class="todo-item-state-review" .item=${item} .hasChildren=${this.hasChildren}></cr-todo-review-badge>`
           : nothing}
+        <span class="todo-save-state" role="status" aria-live="polite" hidden></span>
         ${showGit
           ? html`<button
               type="button"

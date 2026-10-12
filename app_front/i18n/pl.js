@@ -46,6 +46,7 @@ export const pl = {
   settings: {
     back: 'Wstecz',
     loading: 'Ładowanie…',
+    saving: 'Zapisywanie…',
     tabsWorkspace: 'Workspace',
     tabsConnection: 'Połączenie',
     tabsHarness: 'Harness',

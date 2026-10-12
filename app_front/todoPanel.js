@@ -130,9 +130,38 @@ function resolveTodoStartHarness(item) {
  * @param {boolean} isErr
  */
 function setStatus(msg, isErr) {
+  // The page-level status line sits behind the editor modal, so mirror messages
+  // into the modal while it is open.
+  if (msg && editorTodoId) setEditorSaveState(isErr ? 'error' : 'saved', msg);
   if (!statusEl) return;
   statusEl.textContent = msg || '';
   statusEl.classList.toggle('todo-status--error', !!isErr);
+}
+
+const EDITOR_SAVED_VISIBLE_MS = 2500;
+/** @type {ReturnType<typeof setTimeout> | 0} */
+let editorSaveStateTimer = 0;
+
+/**
+ * Save feedback inside the editor modal: "Saving…" while a patch is in flight,
+ * then "Saved" (fades after a moment) or the error text.
+ *
+ * @param {'saving' | 'saved' | 'error'} kind
+ * @param {string} text
+ */
+function setEditorSaveState(kind, text) {
+  const el = editorCard?.querySelector?.('.todo-save-state');
+  if (!(el instanceof HTMLElement)) return;
+  if (editorSaveStateTimer) clearTimeout(editorSaveStateTimer);
+  editorSaveStateTimer = 0;
+  el.hidden = !text;
+  el.textContent = text || '';
+  el.dataset.state = kind;
+  if (kind === 'saved') {
+    editorSaveStateTimer = setTimeout(() => {
+      el.hidden = true;
+    }, EDITOR_SAVED_VISIBLE_MS);
+  }
 }
 
 function getWorkspaceContext() {
@@ -2219,6 +2248,7 @@ async function onStatusChange(e) {
   const status = e.detail?.status || e.detail?.value;
   if (!status) return;
   try {
+    setEditorSaveState('saving', t('todo.saving'));
     const data = await api.patchTodo(id, { status });
     if (!data?.ok) {
       setStatus(data?.error || t('todo.saveError'), true);
@@ -2244,6 +2274,7 @@ async function onTitleBlur(e) {
     return;
   }
   try {
+    setEditorSaveState('saving', t('todo.saving'));
     const data = await api.patchTodo(id, { title });
     if (!data?.ok) {
       setStatus(data?.error || t('todo.saveError'), true);
@@ -2264,6 +2295,7 @@ async function onBodyBlur(e) {
   if (!id) return;
   const body = String(e?.detail?.body || '');
   try {
+    setEditorSaveState('saving', t('todo.saving'));
     const data = await api.patchTodo(id, { body });
     if (!data?.ok) {
       setStatus(data?.error || t('todo.saveError'), true);

@@ -14904,3 +14904,22 @@ body.theme-light .sidebar-chat-item-harness--codex img {
     animation: none;
   }
 }
+
+/* Save feedback inside the editor modal. */
+.todo-save-state {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--cr-text-subtle);
+}
+
+.todo-save-state[data-state='saved'] {
+  color: var(--cr-success);
+}
+
+.todo-save-state[data-state='error'] {
+  color: var(--cr-error);
+}
+
+.todo-save-state[hidden] {
+  display: none;
+}
