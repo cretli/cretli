@@ -25,7 +25,7 @@ import './cr-bar-input.js';
 import './cr-bar-textarea.js';
 import './cr-bar-button.js';
 
-const TODO_TABS = ['overview', 'description', 'chats', 'history', 'settings'];
+const TODO_TABS = ['overview', 'plan', 'notes', 'chats', 'history', 'settings'];
 
 function getTodoStatusOptions() {
   return [
@@ -49,7 +49,6 @@ class CrTodoCard extends LitElement {
   static properties = {
     item: { type: Object },
     hasChildren: { type: Boolean },
-    planExpanded: { type: Boolean },
     copyMenuOpen: { type: Boolean },
     bodyPreview: { type: Boolean },
     newChatHarness: { type: String },
@@ -62,12 +61,10 @@ class CrTodoCard extends LitElement {
     super();
     this.item = null;
     this.hasChildren = false;
-    // The plan is the main content of the Plan tab, so it starts open.
-    this.planExpanded = true;
     this.copyMenuOpen = false;
     this.bodyPreview = false;
     this.newChatHarness = '';
-    this.activeTab = 'description';
+    this.activeTab = 'plan';
     this.recoveryState = null;
     this.statusIcon = null;
   }
@@ -244,12 +241,6 @@ class CrTodoCard extends LitElement {
     this._emit('todo-delete', { id });
   }
 
-  _togglePlanExpanded = (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    this.planExpanded = !this.planExpanded;
-  };
-
   _setBodyPreview = (preview) => (event) => {
     event.preventDefault();
     if (this.bodyPreview === preview) return;
@@ -264,7 +255,8 @@ class CrTodoCard extends LitElement {
     const historyCount = Array.isArray(item.changelog) ? item.changelog.length : 0;
     return [
       { id: 'overview', label: t('todo.tabOverview') },
-      { id: 'description', label: t('todo.tabDescription') },
+      { id: 'plan', label: t('todo.tabPlan') },
+      { id: 'notes', label: t('todo.tabNotes') },
       { id: 'chats', label: t('todo.tabChats', { count: String(chatsCount) }) },
       { id: 'history', label: t('todo.tabHistory', { count: String(historyCount) }) },
       { id: 'settings', label: t('todo.tabSettings') },
@@ -281,7 +273,7 @@ class CrTodoCard extends LitElement {
         if (options.focus === true) this._focusTab(id);
         // The description textarea was hidden while another tab was active,
         // so auto-grow saw a zero-height control.
-        if (id === 'description') this._refreshBodyAutoGrow();
+        if (id === 'notes') this._refreshBodyAutoGrow();
       });
     }
   }
@@ -641,38 +633,28 @@ class CrTodoCard extends LitElement {
       item?.plan && typeof item.plan === 'object' && typeof item.plan.markdown === 'string'
         ? item.plan.markdown.trim()
         : '';
-    if (!planMarkdown) return '';
+    if (!planMarkdown) return html`<p class="todo-item-tab-empty">${t('todo.noPlan')}</p>`;
     const updatedAt =
       item?.plan && typeof item.plan.updatedAt === 'string' ? item.plan.updatedAt.slice(0, 10) : '';
     const approvedAt = item?.plan && typeof item.plan.approvedAt === 'string' ? item.plan.approvedAt.trim() : '';
     return html`
       <div class="todo-item-plan">
-        <button
-          type="button"
-          class="todo-item-section-toggle"
-          aria-expanded=${this.planExpanded ? 'true' : 'false'}
-          @click=${this._togglePlanExpanded}
-        >
+        <div class="todo-item-plan-head">
           <span class="mdi mdi-file-document-outline" aria-hidden="true"></span>
           <span>${t('todo.plan')}${updatedAt ? html` <span class="todo-item-meta">(${updatedAt})</span>` : ''}</span>
           ${approvedAt ? html`<span class="mdi mdi-check-circle todo-item-plan-approved" title=${approvedAt} aria-label=${t('todo.planApproved')}></span>` : ''}
-          <span class="mdi ${this.planExpanded ? 'mdi-chevron-up' : 'mdi-chevron-down'}" aria-hidden="true"></span>
-        </button>
-        ${this.planExpanded
-          ? html`
-            <div class="todo-item-plan-body files-preview-markdown">${unsafeHTML(renderMarkdownHtml(planMarkdown))}</div>
-            ${!approvedAt && item?.status !== 'done' ? html`
-              <button
-                type="button"
-                class="todo-item-plan-approve-btn"
-                @click=${() => this._emit('todo-plan-approve', { id: item.id, updatedAt: item.updatedAt })}
-              >
-                <span class="mdi mdi-check-circle-outline" aria-hidden="true"></span>
-                ${t('todo.planApprove')}
-              </button>
-            ` : ''}
-          `
-          : ''}
+        </div>
+        <div class="todo-item-plan-body files-preview-markdown">${unsafeHTML(renderMarkdownHtml(planMarkdown))}</div>
+        ${!approvedAt && item?.status !== 'done' ? html`
+          <button
+            type="button"
+            class="todo-item-plan-approve-btn"
+            @click=${() => this._emit('todo-plan-approve', { id: item.id, updatedAt: item.updatedAt })}
+          >
+            <span class="mdi mdi-check-circle-outline" aria-hidden="true"></span>
+            ${t('todo.planApprove')}
+          </button>
+        ` : ''}
       </div>
     `;
   }
@@ -896,17 +878,29 @@ class CrTodoCard extends LitElement {
     `;
   }
 
-  _renderDescriptionPanel(item) {
+  _renderPlanPanel(item) {
     return html`
       <section
-        class="todo-item-tabpanel todo-item-tabpanel--description"
-        id="todo-tabpanel-description"
+        class="todo-item-tabpanel todo-item-tabpanel--plan"
+        id="todo-tabpanel-plan"
         role="tabpanel"
-        aria-labelledby="todo-tab-description"
-        ?hidden=${this.activeTab !== 'description'}
+        aria-labelledby="todo-tab-plan"
+        ?hidden=${this.activeTab !== 'plan'}
       >
         ${this._renderPlanSection(item)}
-        <p class="todo-editor-label">${t('todo.notes')}</p>
+      </section>
+    `;
+  }
+
+  _renderNotesPanel(item) {
+    return html`
+      <section
+        class="todo-item-tabpanel todo-item-tabpanel--notes"
+        id="todo-tabpanel-notes"
+        role="tabpanel"
+        aria-labelledby="todo-tab-notes"
+        ?hidden=${this.activeTab !== 'notes'}
+      >
         ${this._renderBodyEditor(item)}
       </section>
     `;
@@ -1113,7 +1107,8 @@ class CrTodoCard extends LitElement {
         ${isTodoAwaitingIntegration(item) ? this._renderAwaitingIntegration(item, id) : nothing}
         ${this._renderTabs()}
         <div class="todo-editor-panels">
-          ${this._renderOverviewPanel(item)} ${this._renderDescriptionPanel(item)}
+          ${this._renderOverviewPanel(item)} ${this._renderPlanPanel(item)}
+          ${this._renderNotesPanel(item)}
           ${this._renderChatsPanel(item)} ${this._renderHistoryPanel(item)}
           ${this._renderSettingsPanel(item)}
         </div>

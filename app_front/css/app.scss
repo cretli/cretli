@@ -14650,3 +14650,10 @@ body.theme-light .sidebar-chat-item-harness--codex img {
 .todo-editor-dialog .todo-editor-tabs {
   margin: 0;
 }
+
+.todo-item-plan-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+}

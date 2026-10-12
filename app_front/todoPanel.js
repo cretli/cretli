@@ -1769,11 +1769,13 @@ function openEditor(id) {
   editorCard.hasChildren = latestItems.some((row) => row.parentId === item.id);
   editorCard.newChatHarness = '';
   editorCard.bodyPreview = false;
-  // A different todo always starts on the description tab; re-renders of the
-  // same todo (renderList/syncEditorItem) keep the user's tab and drafts.
+  // A different todo always starts on its plan (or notes when it has none);
+  // re-renders of the same todo (renderList/syncEditorItem) keep the user's tab
+  // and drafts.
   if (editorTabTodoId !== id) {
     editorTabTodoId = id;
-    editorCard.activeTab = 'description';
+    const hasPlan = typeof item.plan?.markdown === 'string' && item.plan.markdown.trim() !== '';
+    editorCard.activeTab = hasPlan ? 'plan' : 'notes';
   }
   editorDialog.show();
   // The card rendered while the dialog was hidden, so auto-grow saw a
