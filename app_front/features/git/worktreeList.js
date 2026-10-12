@@ -15,7 +15,18 @@ import '../../components/ui/cr-bar-button.js';
 import '../../components/ui/cr-bar-textarea.js';
 import '../../components/ui/cr-checkbox.js';
 import { getGitScope } from './gitScope.js';
+import { viewContextRuntimeParams } from '../../app/appShell/viewContext.js';
+import {
+  getViewContextState,
+  isViewContextScopedAccessAllowed,
+} from '../../app/appShell/viewContextBridge.js';
 import { initDropdown, closeAllOpenDropdowns } from '../../lib/dropdown.js';
+import { navigateSpa } from '../../app/appShell/spaNavigationBridge.js';
+import {
+  registerViewMemoryRestoreHandler,
+  resolveActiveRouteForViewMemory,
+  schedulePanelViewMemoryCapture,
+} from '../../app/appShell/viewMemoryBridge.js';
 import {
   canStartMerge,
   cleanupNeedsDiscard,
@@ -36,12 +47,96 @@ const WORKTREE_FILTER_STATES = ['active', 'execution_closed', 'integration_ready
 let worktreeStateFilter = new Set();
 /** @type {{ api: ReturnType<typeof initDropdown>, panel: HTMLElement, list: HTMLElement } | null} */
 let worktreeFilterMenu = null;
+/** @type {object | null} */
+let pendingWorktreeViewMemory = null;
+
+function worktreeScrollContainer() {
+  return document.getElementById('git-worktrees-list')?.parentElement || document.getElementById('git-worktrees-list');
+}
+
+function buildWorktreeViewMemorySlice() {
+  const searchInput = document.getElementById('git-worktrees-search');
+  const searchToggle = document.getElementById('git-worktrees-search-toggle');
+  return {
+    search: String(searchInput?.value || ''),
+    searchOpen: searchToggle?.getAttribute('aria-expanded') === 'true',
+    filterStates: [...worktreeStateFilter],
+    scrollTop: worktreeScrollContainer()?.scrollTop || 0,
+  };
+}
+
+function scheduleWorktreeViewMemoryCapture() {
+  schedulePanelViewMemoryCapture('git', buildWorktreeViewMemorySlice);
+}
+
+/**
+ * @param {object | null | undefined} slice
+ */
+function applyWorktreeViewMemorySlice(slice) {
+  if (!slice || typeof slice !== 'object') return;
+  const route = resolveActiveRouteForViewMemory();
+  if (route?.subview !== 'worktrees') return;
+  const searchInput = document.getElementById('git-worktrees-search');
+  const searchRow = document.getElementById('git-worktrees-search-row');
+  const searchToggle = document.getElementById('git-worktrees-search-toggle');
+  if (typeof slice.search === 'string' && searchInput) searchInput.value = slice.search;
+  if (typeof slice.searchOpen === 'boolean') {
+    if (searchRow) searchRow.hidden = !slice.searchOpen;
+    searchToggle?.setAttribute('aria-expanded', String(slice.searchOpen));
+    searchToggle?.classList.toggle(
+      'git-worktrees-search-btn--active',
+      slice.searchOpen || !!String(searchInput?.value || '').trim(),
+    );
+  }
+  if (Array.isArray(slice.filterStates)) {
+    worktreeStateFilter = new Set(slice.filterStates.map(String));
+    syncWorktreeFilterLabel();
+  }
+  if (!listedRows.length) return;
+  // Consumed before the repaint: renderRows ends by retrying the pending
+  // slice, so leaving it set here would re-enter this function.
+  pendingWorktreeViewMemory = null;
+  renderRows(listedWorkspaceFolder, listedRows);
+  const scrollEl = worktreeScrollContainer();
+  if (scrollEl && Number.isFinite(Number(slice.scrollTop))) scrollEl.scrollTop = Number(slice.scrollTop);
+}
+
+function tryApplyPendingWorktreeViewMemory() {
+  if (!pendingWorktreeViewMemory) return;
+  applyWorktreeViewMemorySlice(pendingWorktreeViewMemory);
+}
 
 /**
  * @returns {string} scope workspace folder; empty lets the server use its cwd
  */
 function currentWorkspaceFolder() {
-  return getGitScope().workspaceFolder || '';
+  const fromGit = getGitScope().workspaceFolder || '';
+  if (fromGit) return fromGit;
+  return viewContextRuntimeParams(getViewContextState() || {}).workspaceFolder || '';
+}
+
+/**
+ * @returns {boolean}
+ */
+function isWorktreeListBlocked() {
+  const folder = currentWorkspaceFolder();
+  if (folder) return false;
+  return !isViewContextScopedAccessAllowed();
+}
+
+/**
+ * @returns {boolean} false when the action must not run (pending scope or missing folder)
+ */
+function guardWorktreeAction() {
+  if (isWorktreeListBlocked()) {
+    setStatus(t('workspace.contextPending'), false);
+    return false;
+  }
+  if (!currentWorkspaceFolder()) {
+    setStatus(t('worktrees.loadFailed'), true);
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -128,6 +223,7 @@ function buildFactList(entries) {
  * @param {object} row
  */
 async function openDiff(workspaceFolder, row) {
+  if (!guardWorktreeAction()) return;
   const data = await api.getWorktreeDiff(row.todoId, workspaceFolder);
   const body = el('div', 'git-worktree-diff');
   if (!data?.ok) {
@@ -177,6 +273,7 @@ function confirmDialog(input) {
  * @param {object} row
  */
 async function runReject(workspaceFolder, row) {
+  if (!guardWorktreeAction()) return;
   const ok = await confirmDialog({
     heading: t('worktrees.rejectTitle'),
     message: t('worktrees.rejectMessage', { branch: row.branch }),
@@ -194,6 +291,7 @@ async function runReject(workspaceFolder, row) {
  * @param {object} row
  */
 async function runCleanup(workspaceFolder, row) {
+  if (!guardWorktreeAction()) return;
   const discard = cleanupNeedsDiscard(row);
   const deleteBranchBox = document.createElement('cr-checkbox');
   const deleteBranchLabel = el('label', 'cr-check');
@@ -230,6 +328,7 @@ async function runCleanup(workspaceFolder, row) {
  * @param {{ harness: string, model: string }} picked
  */
 async function startMerge(workspaceFolder, row, instructions, picked) {
+  if (!guardWorktreeAction()) return;
   setStatus(t('worktrees.mergeStarting'));
   const data = await api.startWorktreeMerge(row.todoId, workspaceFolder, {
     agentTransport: picked.harness,
@@ -257,6 +356,7 @@ async function startMerge(workspaceFolder, row, instructions, picked) {
  * @param {object} row
  */
 async function openMergeDialog(workspaceFolder, row) {
+  if (!guardWorktreeAction()) return;
   const preview = await api.getWorktreeMergePreview(row.todoId, workspaceFolder);
   const pre = preview?.ok ? preview.preflight : null;
   const body = el('div', 'git-worktree-merge');
@@ -370,6 +470,8 @@ function renderRows(workspaceFolder, rows) {
     return;
   }
   for (const row of visible) host.append(renderRow(workspaceFolder, row));
+  tryApplyPendingWorktreeViewMemory();
+  scheduleWorktreeViewMemoryCapture();
 }
 
 /**
@@ -382,7 +484,19 @@ export async function refreshWorktreeList() {
   const host = document.getElementById('git-worktrees-list');
   if (!host) return;
   const requestId = ++refreshRequestId;
+  if (isWorktreeListBlocked()) {
+    listedRows = [];
+    host.replaceChildren();
+    setStatus(t('workspace.contextPending'), false);
+    return;
+  }
   const folder = currentWorkspaceFolder();
+  if (!folder) {
+    listedRows = [];
+    host.replaceChildren();
+    setStatus(t('worktrees.loadFailed'), true);
+    return;
+  }
   let data = null;
   try {
     data = await api.listWorktrees(folder);
@@ -402,9 +516,18 @@ export async function refreshWorktreeList() {
   renderRows(listedWorkspaceFolder, listedRows);
 }
 
+/**
+ * @param {string} view
+ */
+function requestGitSubviewNavigation(view) {
+  const subview = view === 'worktrees' ? 'worktrees' : 'main';
+  void navigateSpa({ panel: 'git', subview }, { explicit: true });
+}
+
 export function initWorktreeList() {
-  document.querySelectorAll('[data-git-view]').forEach((button) => button.addEventListener('click', () => selectGitView(button.dataset.gitView)));
-  window.addEventListener('cretli-git-show-worktrees', () => selectGitView('worktrees'));
+  document.querySelectorAll('[data-git-view]').forEach((button) => {
+    button.addEventListener('click', () => requestGitSubviewNavigation(button.dataset.gitView));
+  });
   const searchInput = document.getElementById('git-worktrees-search');
   const searchRow = document.getElementById('git-worktrees-search-row');
   const searchToggle = document.getElementById('git-worktrees-search-toggle');
@@ -412,6 +535,7 @@ export function initWorktreeList() {
   searchInput?.addEventListener('input', () => {
     renderRows(listedWorkspaceFolder, listedRows);
     searchToggle?.classList.toggle('git-worktrees-search-btn--active', !!String(searchInput.value || '').trim());
+    scheduleWorktreeViewMemoryCapture();
   });
   searchToggle?.addEventListener('click', () => {
     const isOpen = searchRow?.hidden === true;
@@ -423,7 +547,13 @@ export function initWorktreeList() {
       searchInput.value = '';
       searchInput.dispatchEvent(new Event('input', { bubbles: true }));
     }
+    scheduleWorktreeViewMemoryCapture();
   });
+  registerViewMemoryRestoreHandler('git', (slice) => {
+    pendingWorktreeViewMemory = slice;
+    tryApplyPendingWorktreeViewMemory();
+  });
+  worktreeScrollContainer()?.addEventListener('scroll', () => scheduleWorktreeViewMemoryCapture(), { passive: true });
   window.addEventListener('cretli-git-changed', () => {
     if (document.getElementById('git-panel')?.classList.contains('active') && !document.getElementById('git-worktrees')?.hidden) void refreshWorktreeList();
   });
@@ -476,6 +606,7 @@ function initWorktreeFilterMenu() {
     renderWorktreeFilterMenu();
     syncWorktreeFilterLabel();
     renderRows(listedWorkspaceFolder, listedRows);
+    scheduleWorktreeViewMemoryCapture();
   });
 }
 
@@ -506,10 +637,23 @@ function syncWorktreeFilterLabel() {
 }
 
 export function showWorktreeView() {
-  selectGitView('worktrees');
+  requestGitSubviewNavigation('worktrees');
 }
 
-function selectGitView(view) {
+/**
+ * Paint the Git panel sub-view without touching the URL (route apply path).
+ *
+ * @param {string} subview canonical route sub-view (`main` | `worktrees`)
+ */
+export function applyGitSubviewFromRoute(subview) {
+  const view = subview === 'worktrees' ? 'worktrees' : 'main';
+  paintGitSubview(view);
+}
+
+/**
+ * @param {string} view `main` | `worktrees`
+ */
+function paintGitSubview(view) {
   document.querySelectorAll('[data-git-view]').forEach((tab) => {
     const isActive = tab.dataset.gitView === view;
     tab.classList.toggle('active', isActive);

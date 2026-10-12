@@ -9,7 +9,12 @@
 
 import * as api from './core/api/index.js';
 import { t } from './i18n/index.js';
-import { buildGitScopeKey, isGitScopeLocked, setGitScope } from './features/git/gitScope.js';
+import { buildGitScopeKey, getGitScope, isGitScopeLocked, setGitScope } from './features/git/gitScope.js';
+import { gitScopeFromViewContext } from './app/appShell/viewContext.js';
+import {
+  getViewContextState,
+  isViewContextScopedAccessAllowed,
+} from './app/appShell/viewContextBridge.js';
 import {
   deriveGitContextBadge,
   resolveChatGitScope,
@@ -87,41 +92,65 @@ function onBadgeClick() {
 export async function refreshGitContextBadge(options = {}) {
   const el = document.getElementById('header-git-badge');
   if (!el) return;
+  // An explicit `ws`/`folder` link owns this tab's Git scope. Until it resolves
+  // there is no authorized folder to ask about, and the route would answer from
+  // the server's global cwd (another workspace's branch), so the chip keeps the
+  // pending state and issues no request. The key reset lets the late resolve
+  // refresh the badge instead of being swallowed as "already attempted".
+  if (!isViewContextScopedAccessAllowed()) {
+    lastAttemptKey = '';
+    hideBadge();
+    return;
+  }
   const chat = deps.getActiveChat();
   const scope = resolveChatGitScope(chat, deps.getActiveWorkspaceFolder());
-  const key = buildGitScopeKey(scope);
+  // A pinned scope (route `scope=chat|todo` or a task chip) survives sidebar
+  // and active-chat refreshes: it only releases through a deterministic route
+  // apply (open/reset), never because some other row repainted.
+  const viewState = getViewContextState();
+  const routeGit = viewState?.route?.panel === 'git' ? gitScopeFromViewContext(viewState) : null;
+  const routeWorkspaceGit = Boolean(routeGit && !routeGit.lock);
+  if (isGitScopeLocked()) {
+    const locked = getGitScope();
+    if (locked.todoId && scope.todoId !== locked.todoId) return;
+    if (locked.chatId && scope.chatId !== locked.chatId) return;
+  }
+  const effectiveScope = routeWorkspaceGit ? getGitScope() : scope;
+  const key = buildGitScopeKey(effectiveScope);
   // The sidebar render hook fires very often; only a scope change (or an
   // explicit force from a workspace/language event) refetches.
   if (!options.force && key === lastAttemptKey) return;
   lastAttemptKey = key;
   // Follow the active chat, or a forced workspace change. An explicit task scope
   // pinned from a TODO card is not overwritten while no chat is active.
-  if (scope.chatId || options.force) {
-    setGitScope(scope, { lock: false });
+  if (routeWorkspaceGit) {
+    // `/git` without `scope=` is owned by the route apply — never infer active chat.
   } else if (isGitScopeLocked()) {
-    return;
+    // Same pinned id: fetch badge data only; do not call setGitScope (would unlock).
+  } else if (scope.chatId || options.force) {
+    setGitScope(scope, { lock: false });
   }
   const seq = ++requestSeq;
   let info = null;
   try {
-    info = await api.getGitInfo(scope);
+    info = await api.getGitInfo(effectiveScope);
   } catch {
     if (seq === requestSeq) hideBadge();
     return;
   }
   if (seq !== requestSeq) return;
-  if (!info?.ok || (scope.chatId && !shouldShowGitContextBadge(info))) {
+  if (!info?.ok || (effectiveScope.chatId && !shouldShowGitContextBadge(info))) {
     hideBadge();
     return;
   }
-  if (!scope.chatId) {
+  if (!effectiveScope.chatId) {
     const branch = String(info.worktree?.branch || info.branch || '').trim();
     if (!branch) {
       hideBadge();
       return;
     }
     const label = t('git.contextGlobal');
-    lastState = { scope, info };
+    lastState = { scope: effectiveScope, info };
     el.hidden = false;
     el.textContent = branch;
     el.title = `${label}: ${branch}`;
@@ -130,7 +159,7 @@ export async function refreshGitContextBadge(options = {}) {
     return;
   }
   const badge = deriveGitContextBadge(info, t);
-  lastState = { scope, info };
+  lastState = { scope: effectiveScope, info };
   el.hidden = false;
   el.textContent = badge.branch ? `${badge.label} · ${badge.branch}` : badge.label;
   el.title = badge.title;

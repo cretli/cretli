@@ -11,6 +11,14 @@ import {
   resolveWorkspaceItemKey,
 } from './workspaceHelpers.js';
 import { readChatLocalBootCacheForColdStart } from '../../features/chat/chatLocalBootSync.js';
+import {
+  VIEW_CONTEXT_STATUS,
+  createViewContextStore,
+  hasExplicitWorkspace,
+} from './viewContext.js';
+import { setSharedViewContextStore } from './viewContextBridge.js';
+import { buildSpaRoute, parseSpaRoute } from '../../../lib/spa-routes.js';
+import { replaceSpaCanonical } from './spaNavigationBridge.js';
 
 export function createWorkspaceContext(deps = {}) {
   const {
@@ -34,6 +42,238 @@ export function createWorkspaceContext(deps = {}) {
   let headerRevision = 0;
   let selectionRevision = 0;
   let workspaceWriteQueue = Promise.resolve();
+
+  /**
+   * Show why a link's explicit context could not be honored (missing data or
+   * a resource owned by another workspace), or that it is still resolving. The
+   * popover footer stays inside the workspace menu, so the header itself never
+   * lies about the scope.
+   *
+   * @param {{ code: string, kind?: string, workspaceKey?: string, folderKey?: string }|null|undefined} notice
+   */
+  function setWorkspaceContextMessage(notice) {
+    const el = document.getElementById('header-workspace-message');
+    const bar = document.getElementById('sidebar-workspace-bar');
+    const trigger = document.getElementById('header-workspace-trigger');
+    let text = '';
+    let tone = 'error';
+    if (notice) {
+      const key = notice.kind === 'chat' ? 'workspace.contextConflictChat'
+        : notice.kind === 'todo' ? 'workspace.contextConflictTodo'
+          : notice.code === 'folder-unavailable' ? 'workspace.contextFolderUnavailable'
+            : notice.code === 'pending' ? 'workspace.contextPending'
+              : 'workspace.contextMissing';
+      text = t(key);
+      // Still resolving is informational, not a failure the operator caused.
+      if (notice.code === 'pending') tone = 'muted';
+    }
+    if (trigger && typeof trigger.setAttribute === 'function') {
+      if (text) trigger.setAttribute('title', text);
+      else trigger.setAttribute('title', t('header.workspaceTitle'));
+    }
+    if (!el) return;
+    if (!text) {
+      el.hidden = true;
+      el.textContent = '';
+      el.removeAttribute('data-tone');
+      if (bar && typeof bar.dataset === 'object') {
+        delete bar.dataset.viewContextNotice;
+        const chip = document.getElementById('header-workspace-branch');
+        const row = document.getElementById('sidebar-worktree-row');
+        bar.hidden = (!chip || chip.hidden) && (!row || row.hidden);
+      }
+      return;
+    }
+    el.textContent = text;
+    el.hidden = false;
+    el.setAttribute('data-tone', tone);
+    if (bar) {
+      bar.hidden = false;
+      bar.dataset.viewContextNotice = '1';
+    }
+  }
+
+  /**
+   * Replace stale deep-link ws/folder query params after an operator workspace switch.
+   *
+   * @param {{ workspaceKey?: string, folderKey?: string } | null | undefined} contextKeys
+   */
+  function syncOperatorSwitchToLocation(contextKeys) {
+    if (typeof window === 'undefined' || !window.location) return;
+    const parsed = parseSpaRoute({
+      pathname: window.location.pathname || '/',
+      search: window.location.search || '',
+    });
+    if (!parsed || parsed.notFound) return;
+    const keys = contextKeys && typeof contextKeys === 'object' ? contextKeys : {};
+    const canonical = buildSpaRoute({
+      ...parsed,
+      context: {
+        workspaceKey: String(keys.workspaceKey || '').trim(),
+        folderKey: String(keys.folderKey || '').trim(),
+      },
+      notFound: false,
+    });
+    replaceSpaCanonical(canonical);
+  }
+
+  /**
+   * Map the link's opaque route ids onto catalog rows first (no round-trip on
+   * warm boot), then fall back to the shared context API so cold links to ids
+   * not in the local list still resolve. Unknown/deleted ids answer with the
+   * resolver's machine code and never re-point another project.
+   *
+   * @param {{ workspaceKey: string, folderKey: string }} context
+   */
+  async function resolveViewContextWorkspace(context) {
+    const list = await ensureWorkspacesListLoaded();
+    const fromCatalog = findRouteKeyContext(list, context);
+    if (fromCatalog) return fromCatalog;
+    if (typeof api.getWorkspaceContext !== 'function') return { error: 'workspace-unknown' };
+    const data = await api.getWorkspaceContext({
+      workspaceKey: context.workspaceKey,
+      folderKey: context.folderKey,
+    });
+    if (data?.ok && (data.workspace || data.folder)) {
+      const workspaceFile = data.workspace?.workspaceFile || '';
+      const folderPath = data.folder?.resolvedPath
+        || (data.workspace?.kind === 'folder' ? workspaceFile : '');
+      if (workspaceFile || folderPath) {
+        return {
+          workspaceFile,
+          workspaceFolder: folderPath,
+          workspaceKey: data.workspaceKey || '',
+          folderKey: data.folderKey || '',
+        };
+      }
+    }
+    return { error: data?.error || 'workspace-unknown' };
+  }
+
+  /**
+   * @param {Array<object>} list
+   * @param {{ workspaceKey: string, folderKey: string }} context
+   * @returns {{ workspaceFile: string, workspaceFolder: string, error?: string } | null}
+   */
+  async function resolveContextKeysForRuntime(runtime) {
+    const list = await ensureWorkspacesListLoaded();
+    const fileNorm = normalizePath(runtime.workspaceFile);
+    if (!fileNorm) return null;
+    const folderNorm = normalizePath(runtime.workspaceFolder);
+    for (const item of Array.isArray(list) ? list : []) {
+      if (normalizePath(item.workspaceFile) !== fileNorm) continue;
+      const folder = (item.folders || []).find(
+        (entry) => folderNorm && normalizePath(entry.resolvedPath) === folderNorm,
+      );
+      return { workspaceKey: item.workspaceKey || '', folderKey: folder?.folderKey || '' };
+    }
+    return null;
+  }
+
+  function findRouteKeyContext(list, context) {
+    const workspaceKey = context.workspaceKey;
+    const folderKey = context.folderKey;
+    if (!workspaceKey && !folderKey) return null;
+    for (const item of Array.isArray(list) ? list : []) {
+      const workspaceMatches = workspaceKey
+        ? item.workspaceKey === workspaceKey
+          || (item.kind === 'folder' && item.id === `cretli:ws:${workspaceKey}`)
+        : true;
+      if (!workspaceMatches) continue;
+      if (!folderKey) {
+        const sidebarKey = resolveWorkspaceItemKey(item) || item.workspaceFile || '';
+        const sidebarFolder = getWorkspaceSidebarEntry(sidebarKey)?.folder?.trim() || '';
+        let folderDefault;
+        if (sidebarFolder) {
+          folderDefault = resolveFolderForWorkspaceSelection(sidebarKey, sidebarFolder);
+        } else if (item.kind === 'folder') {
+          folderDefault = item.workspaceFile || item.workspaceDir || '';
+        } else {
+          folderDefault = (item.folders || []).find((entry) => entry.enabled !== false)?.resolvedPath || '';
+        }
+        return {
+          workspaceFile: item.workspaceFile || '',
+          workspaceFolder: folderDefault,
+          workspaceKey: item.workspaceKey || (item.kind === 'folder' ? item.id : ''),
+        };
+      }
+      const folder = (item.folders || []).find((entry) => entry.folderKey === folderKey);
+      if (!folder) continue;
+      if (folder.exists === false) {
+        return { error: 'folder-unavailable', workspaceFile: '', workspaceFolder: '' };
+      }
+      return {
+        workspaceFile: item.workspaceFile || '',
+        workspaceFolder: folder.resolvedPath || '',
+        workspaceKey: item.workspaceKey || (item.kind === 'folder' ? item.id : ''),
+        folderKey: folder.folderKey || '',
+      };
+    }
+    return null;
+  }
+
+  /**
+   * The route-driven local context: applied to this tab's header scope and
+   * panels only. It never writes settings — the global default workspace is a
+   * separate, operator-owned choice (navigation plan stage 2).
+   *
+   * @param {object} state snapshot from the view-context store
+   */
+  function clearHeaderWorkspaceDatasets() {
+    const trigger = document.getElementById('header-workspace-trigger');
+    if (!trigger) return;
+    trigger.dataset.workspaceFile = '';
+    trigger.dataset.workspaceFolder = '';
+    updateWorkspaceTriggerLabel('', '');
+  }
+
+  function applyResolvedViewContext(state) {
+    if (state?.status === VIEW_CONTEXT_STATUS.RESOLVED
+      && (state.runtime.workspaceFile || state.runtime.workspaceFolder)) {
+      setWorkspaceContextMessage(null);
+      if (state.source === 'user') {
+        // Header refresh already ran in applyLocalWorkspace; only broadcast the store.
+      } else {
+        const folder = state.runtime.workspaceFolder
+          || resolveFolderForWorkspaceSelection(state.runtime.workspaceFile, '');
+        applyLocalWorkspace(state.runtime.workspaceFile, folder, { fromViewContext: true });
+      }
+    } else if (state?.status === VIEW_CONTEXT_STATUS.PENDING
+      && hasExplicitWorkspace(state.context)) {
+      // Slow is not missing: the link keeps its own URL and the header says the
+      // scope is still resolving, so the empty panels read as pending, not as
+      // the (different) workspace the global cwd would have shown.
+      clearHeaderWorkspaceDatasets();
+      setWorkspaceContextMessage({ code: 'pending' });
+    } else if (state?.status === VIEW_CONTEXT_STATUS.MISSING_TARGET
+      || state?.status === VIEW_CONTEXT_STATUS.CONFLICT) {
+      clearHeaderWorkspaceDatasets();
+      setWorkspaceContextMessage(state.conflict || { code: 'missing-data' });
+    }
+    if (typeof window !== 'undefined' && typeof CustomEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('cretli-view-context-changed', { detail: state }));
+    }
+  }
+
+  const viewContextStore = createViewContextStore({
+    readLocation: () => (typeof window === 'undefined' || !window.location
+      ? null
+      : { pathname: window.location.pathname || '/', search: window.location.search || '' }),
+    resolveWorkspace: (context) => resolveViewContextWorkspace(context),
+    canonicalize: (canonicalPath) => {
+      replaceSpaCanonical(canonicalPath);
+    },
+    onApplied: (state) => applyResolvedViewContext(state),
+    getDefaultContext: async () => {
+      const trigger = document.getElementById('header-workspace-trigger');
+      return {
+        workspaceFile: trigger?.dataset?.workspaceFile || '',
+        workspaceFolder: trigger?.dataset?.workspaceFolder || '',
+      };
+    },
+    getContextKeysForRuntime: (runtime) => resolveContextKeysForRuntime(runtime),
+  });
+  setSharedViewContextStore(viewContextStore);
 
   /**
    * Cold-start fast path: install a locally cached workspace list so the sidebar can group
@@ -356,23 +596,83 @@ export function createWorkspaceContext(deps = {}) {
     return getWorkspaceDirFromFile(workspaceFile);
   }
 
-  function switchWorkspace(workspaceFile, workspaceFolder) {
+  /**
+   * @param {string} workspaceFile
+   * @param {string} workspaceFolder
+   * @param {{ persistGlobal?: boolean }} [options] persistGlobal is reserved
+   *   for the explicit "global default workspace" control; ordinary view
+   *   switches never write settings.
+   */
+  function switchWorkspace(workspaceFile, workspaceFolder, options = {}) {
     const normalizedWorkspaceFile = (workspaceFile || '').trim();
     if (!normalizedWorkspaceFile) return Promise.resolve(false);
+    // An operator-driven switch retires the deep-link target: the old URL
+    // must not keep reporting ownership conflicts afterwards.
+    viewContextStore.clearRouteTarget();
 
     const preferredFolder = (workspaceFolder || '').trim();
     const immediateFolder = resolveFolderForWorkspaceSelection(normalizedWorkspaceFile, preferredFolder);
     if (immediateFolder) {
-      return applyAndRefresh(normalizedWorkspaceFile, immediateFolder);
+      return applyAndRefresh(normalizedWorkspaceFile, immediateFolder, options);
     }
 
     return ensureWorkspacesListLoaded().then(() => {
       const loadedFolder = resolveFolderForWorkspaceSelection(normalizedWorkspaceFile, preferredFolder);
-      return applyAndRefresh(normalizedWorkspaceFile, loadedFolder);
+      return applyAndRefresh(normalizedWorkspaceFile, loadedFolder, options);
     });
   }
 
-  function applyAndRefresh(workspaceFile, workspaceFolder) {
+  /**
+   * Normal view switch: this tab's context changes, panels refetch with the
+   * explicit scope, nothing is written to the shared settings (a second tab
+   * keeps its own workspace and URL).
+   *
+   * @param {string} workspaceFile
+   * @param {string} workspaceFolder
+   * @returns {boolean}
+   */
+  function applyLocalWorkspace(workspaceFile, workspaceFolder, options = {}) {
+    const normalizedWorkspaceFile = (workspaceFile || '').trim();
+    if (!normalizedWorkspaceFile) return false;
+    const normalizedWorkspaceFolder = (workspaceFolder || '').trim();
+    selectionRevision += 1;
+    const applyRevision = selectionRevision;
+    const paintHeader = () => {
+      updateWorkspaceTriggerLabel(normalizedWorkspaceFile, normalizedWorkspaceFolder);
+      setWorkspaceContextMessage(null);
+      refreshUiAfterWorkspaceChange(normalizedWorkspaceFile, normalizedWorkspaceFolder);
+    };
+    if (options.fromViewContext !== true) {
+      paintHeader();
+      return resolveContextKeysForRuntime({
+        workspaceFile: normalizedWorkspaceFile,
+        workspaceFolder: normalizedWorkspaceFolder,
+      }).then((keys) => {
+        if (applyRevision !== selectionRevision) return false;
+        viewContextStore.applyUserWorkspaceSelection(
+          { workspaceFile: normalizedWorkspaceFile, workspaceFolder: normalizedWorkspaceFolder },
+          keys,
+        );
+        syncOperatorSwitchToLocation(keys);
+        return true;
+      }).catch(() => {
+        if (applyRevision !== selectionRevision) return false;
+        viewContextStore.applyUserWorkspaceSelection(
+          { workspaceFile: normalizedWorkspaceFile, workspaceFolder: normalizedWorkspaceFolder },
+          null,
+        );
+        syncOperatorSwitchToLocation(null);
+        return true;
+      });
+    }
+    paintHeader();
+    return true;
+  }
+
+  function applyAndRefresh(workspaceFile, workspaceFolder, options = {}) {
+    if (options.persistGlobal !== true) {
+      return Promise.resolve(applyLocalWorkspace(workspaceFile, workspaceFolder)).then((value) => value);
+    }
     const normalizedWorkspaceFile = (workspaceFile || '').trim();
     const normalizedWorkspaceFolder = (workspaceFolder || '').trim();
     const revision = ++selectionRevision;
@@ -448,7 +748,7 @@ export function createWorkspaceContext(deps = {}) {
 
       li.addEventListener('click', () => {
         const folder = resolveFolderForWorkspaceSelection(workspaceItem.sidebarKey || itemKey);
-        applyAndRefresh(workspaceItem.workspaceFile || workspaceItem.id || '', folder);
+        void switchWorkspace(workspaceItem.workspaceFile || workspaceItem.id || '', folder);
         workspacePopoverApi?.close?.();
       });
 
@@ -531,6 +831,12 @@ export function createWorkspaceContext(deps = {}) {
           if (revision !== headerRevision) return;
           // Settings are shared across clients; a background reload of sidebar
           // configuration must not change this client's selected workspace.
+          if (!trigger.dataset.workspaceFile
+            && hasExplicitWorkspace(viewContextStore.getState().context)) {
+            // A deep-linked context is still resolving; the global default in
+            // settings must not pre-empt it.
+            return;
+          }
           refreshUiAfterWorkspaceChange(trigger.dataset.workspaceFile || data.workspaceFile || '',
             trigger.dataset.workspaceFolder || data.workspaceFolder || '');
         })
@@ -538,6 +844,11 @@ export function createWorkspaceContext(deps = {}) {
     });
 
     const bootRevision = headerRevision;
+    // Boot deep link: resolve the route context before the settings default
+    // can stamp this tab's scope. An explicit `ws`/`folder` in the URL wins
+    // and is applied locally; a link without context falls back to the
+    // (separate) global default below. Neither path writes settings.
+    void viewContextStore.applyRouteContext();
     return api
       .getSettings()
       .then((settingsData) => {
@@ -545,6 +856,11 @@ export function createWorkspaceContext(deps = {}) {
         const workspaceFolder = settingsData.ok ? settingsData.workspaceFolder || '' : '';
         setWorkspaceSidebarConfig(settingsData?.workspaceSidebarConfig);
         if (bootRevision !== headerRevision) return;
+        if (hasExplicitWorkspace(viewContextStore.getState().context)) {
+          // The route owns this tab's context; settings is only the fallback
+          // for OTHER consumers. Do not repaint the explicit scope with it.
+          return;
+        }
         const bootCached = typeof localStorage !== 'undefined'
           ? readChatLocalBootCacheForColdStart(localStorage)
           : null;
@@ -554,6 +870,7 @@ export function createWorkspaceContext(deps = {}) {
           || normalizePath(bootContext.workspaceFolder) !== normalizePath(workspaceFolder)
         );
         updateWorkspaceTriggerLabel(workspaceFile, workspaceFolder);
+        viewContextStore.markDefaultReady({ workspaceFile, workspaceFolder });
         if (bootDiffersFromSettings) refreshChatListForWorkspace();
       })
       .catch(() => {});
@@ -578,6 +895,7 @@ export function createWorkspaceContext(deps = {}) {
 
   return {
     applyEmbedWorkspaceContext,
+    applyLocalWorkspace,
     initWorkspaceHeader,
     initWorkspacePopover,
     refreshWorkspaceQuickMenuContent,
@@ -588,5 +906,9 @@ export function createWorkspaceContext(deps = {}) {
     getWorkspacesList: () => buildExpandedWorkspacesList(),
     ensureWorkspacesListLoaded,
     seedWorkspacesList,
+    getViewContextState: () => viewContextStore.getState(),
+    applyRouteContext: () => viewContextStore.applyRouteContext(),
+    whenViewContextReady: () => viewContextStore.whenReady(),
+    setWorkspaceSidebarConfig,
   };
 }

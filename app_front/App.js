@@ -48,6 +48,14 @@ import {
   expandSidebarWorkspaceSearchPool,
 } from './chat.js';
 import { initGitContextBadge } from './gitContextBadge.js';
+import { setGitScope } from './features/git/gitScope.js';
+import { gitScopeFromViewContext } from './app/appShell/viewContext.js';
+import {
+  getViewContextState,
+  isViewContextScopedAccessAllowed,
+  whenViewContextReady,
+  whenViewContextScopedAccessAllowed,
+} from './app/appShell/viewContextBridge.js';
 import { initWorkspaceBranchBadge } from './app/appShell/workspaceBranchBadge.js';
 import { initWorkspaceBranchMenu } from './app/appShell/workspaceBranchMenu.js';
 import { initWorkspaceWorktreeBar } from './app/appShell/workspaceWorktreeBar.js';
@@ -98,8 +106,37 @@ import {
   createPanelRouter,
   readRequestedChatId,
   readRequestedSettingsTab,
-  replaceLocationView,
 } from './app/appShell/panelRouter.js';
+import { createSpaNavigation, parseNotificationActionRoute } from './app/appShell/spaNavigation.js';
+import { getSharedSpaNavigation, setSharedSpaNavigation } from './app/appShell/spaNavigationBridge.js';
+import { createRouteResourceRestorer } from './app/appShell/routeResourceRestore.js';
+import { persistViewRoute } from './app/appShell/viewRouteStorage.js';
+import { restoreViewMemoryForRoute } from './app/appShell/viewMemoryBridge.js';
+import {
+  initNavigationResourceNoticeListener,
+  showNavigationResourceNotice,
+} from './app/appShell/navigationResourceNotice.js';
+import {
+  clearTerminalSessionFromRoute,
+  joinTerminalSessionFromRoute,
+} from './terminal.js';
+import { openFilesRoutePath } from './filesPanel.js';
+import {
+  listScopedTaskRunIdsForRoute,
+  restoreTaskRunFromRoute,
+} from './tasks.js';
+import {
+  listScopedAgentRunIdsForRoute,
+  restoreAgentRunFromRoute,
+} from './agents.js';
+import {
+  listBrowserSessionsForRoute,
+  listBrowserTabsForRoute,
+  restoreBrowserRouteTarget,
+} from './features/browser/browserPanel.js';
+import { getTerminalSession } from './api.js';
+import { applyGitSubviewFromRoute } from './features/git/worktreeList.js';
+import { openTodo } from './todoPanel.js';
 import {
   SPA_HARNESS_IDS,
   SPA_SETTINGS_TABS,
@@ -225,6 +262,7 @@ let terminalPanelState = null;
  * @returns {Promise<void>}
  */
 function ensurePanelReady(panelKey) {
+  if (panelKey === 'settings') return Promise.resolve();
   return loadPanelModule(panelKey).then((mod) => {
     if (panelKey === 'terminal' && !terminalPanelState) {
       terminalPanelState = mod.initTerminalPanel('terminal-container');
@@ -336,6 +374,14 @@ function getLastMainPanel() {
   return MAIN_PANELS.includes(lastMainPanelId) ? lastMainPanelId : 'chat';
 }
 
+/** Wired after SPA navigation init; until then tabs fall back to paint-only. */
+const mainTabNavBridge = {
+  /** @type {(panelId: string, modeConfig: object) => void} */
+  handler(panelId, modeConfig) {
+    showPanel(panelId, modeConfig);
+  },
+};
+
 const panelRouter = createPanelRouter({
   appModes: APP_MODES,
   mainPanels: MAIN_PANELS,
@@ -366,6 +412,7 @@ const panelRouter = createPanelRouter({
   refreshInstancesPanel: () => callLoadedPanel('instances', 'refreshInstancesPanel'),
   refreshBrowserPanel: () => callLoadedPanel('browser', 'refreshBrowserPanel'),
   onShowSettings: () => showSettingsPanelExtras(),
+  onMainTabSelect: (panelId, modeConfig) => mainTabNavBridge.handler(panelId, modeConfig),
 });
 
 const workspaceContext = createWorkspaceContext({
@@ -389,7 +436,13 @@ const headerContextTitle = createHeaderContextTitle({
   getChats: getChatsList,
 });
 
-const { isPanelAllowed, resolveInitialPanel, showPanel, initTabs } = panelRouter;
+const {
+  isPanelAllowed,
+  resolveInitialPanel,
+  resolveInitialBoot,
+  showPanel,
+  initTabs,
+} = panelRouter;
 
 // Compact branch/worktree chip in the header. The Git panel itself is a lazy
 // chunk; the chip only writes the scope, then asks the router to open it.
@@ -401,14 +454,44 @@ const gitContextBadge = initGitContextBadge({
   },
   getActiveWorkspaceFolder: getActiveWorkspaceFolderFromHeader,
 });
-window.addEventListener('cretli-git-open', () => showPanel('git'));
-window.addEventListener('cretli-git-show-worktrees', () => {
-  void ensurePanelReady('git').then(() => callLoadedPanel('git', 'showWorktreeView'));
+/**
+ * Deterministic Git scope from the route (stage 2): `/git` without `scope=`
+ * shows the view context's workspace and releases any pin; `scope=chat|todo`
+ * pins that id with the scope lock. Only route applies move the lock, so a
+ * sidebar or active-chat refresh can never overwrite a pinned TODO scope.
+ */
+function applyRouteGitScope() {
+  // An explicit `ws`/`folder` link that has not resolved yet has no runtime
+  // folder: applying its projection would hand the panel an empty scope, which
+  // the Git route answers from the server's global cwd (another workspace).
+  if (!isViewContextScopedAccessAllowed()) return;
+  const state = getViewContextState();
+  if (!state?.route || state.route.panel !== 'git') return;
+  const projected = gitScopeFromViewContext(state);
+  if (!projected) return;
+  setGitScope(projected.scope, { lock: projected.lock });
+}
+window.addEventListener('cretli-view-context-changed', () => applyRouteGitScope());
+window.addEventListener('cretli-git-open', () => {
+  void getSharedSpaNavigation()?.navigate({ panel: 'git' }, { explicit: true });
 });
-// Lets feature modules that do not own `showPanel` switch the visible panel.
+window.addEventListener('cretli-git-show-worktrees', () => {
+  void getSharedSpaNavigation()?.navigate({ panel: 'git', subview: 'worktrees' }, { explicit: true });
+});
+// Lets feature modules switch the visible panel with a full route payload.
 window.addEventListener('cretli-panel-open', (event) => {
-  const panel = String(event?.detail?.panel || '').trim();
-  if (panel) showPanel(panel);
+  const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
+  const panel = String(detail.panel || '').trim();
+  if (!panel) return;
+  void getSharedSpaNavigation()?.navigate({
+    panel,
+    settingsTab: detail.settingsTab,
+    subview: detail.subview,
+    context: detail.context,
+    scope: detail.scope,
+    resource: detail.resource,
+    query: detail.query,
+  }, { explicit: true });
 });
 // Workspace-folder branch chip + its quick menu (branch switch, chat filter).
 initWorkspaceBranchBadge({
@@ -443,7 +526,87 @@ const {
   getWorkspacesList: getWorkspacesListFromCtx,
   ensureWorkspacesListLoaded,
   seedWorkspacesList,
+  applyRouteContext,
 } = workspaceContext;
+
+let spaNavModeConfig = APP_MODES.main;
+
+/**
+ * @param {object} modeConfig
+ * @param {{ popstate?: boolean }} [options]
+ */
+function initSpaNavigationController(modeConfig, options = {}) {
+  spaNavModeConfig = modeConfig;
+  const restoreRouteResources = createRouteResourceRestorer({
+    replaceCanonical: (url) => getSharedSpaNavigation()?.replaceCanonicalUrl(url),
+    showResourceNotice: (messageKey, detail) => {
+      appLogger.log('route-restore', t(messageKey));
+      showNavigationResourceNotice(messageKey, detail);
+    },
+    restoreChat: (chatId) => selectChat(chatId),
+    restoreTodo: (todoId) => openTodo(todoId),
+    restoreFilesPath: (path) => openFilesRoutePath(path),
+    listTerminalSessionIds: async () => {
+      try {
+        const data = await getTerminalSession();
+        if (!data?.ok || !data.sessionId) return [];
+        return [String(data.sessionId)];
+      } catch {
+        return null;
+      }
+    },
+    restoreTerminalSession: (sessionId) => joinTerminalSessionFromRoute(sessionId),
+    clearTerminalSession: () => clearTerminalSessionFromRoute(),
+    listBrowserSessions: () => listBrowserSessionsForRoute(),
+    listBrowserTabs: (sessionId) => listBrowserTabsForRoute(sessionId),
+    restoreBrowser: (sessionId, tabId) => restoreBrowserRouteTarget(sessionId, tabId),
+    listTaskRunIds: async () => listScopedTaskRunIdsForRoute(),
+    restoreTaskRun: (runId) => restoreTaskRunFromRoute(runId),
+    listAgentRunIds: async () => listScopedAgentRunIdsForRoute(),
+    restoreAgentRun: (runId) => restoreAgentRunFromRoute(runId),
+    isCurrentGeneration: (token) => getSharedSpaNavigation()?.isCurrentGeneration(token) !== false,
+  });
+  const nav = createSpaNavigation({
+    readLocation: () => ({
+      pathname: window.location.pathname || '/',
+      search: window.location.search || '',
+    }),
+    readHistoryState: () => (typeof window !== 'undefined' ? window.history?.state || {} : {}),
+    writeHistory: (url, mode, state) => {
+      if (typeof window === 'undefined' || !window.history) return;
+      if (mode === 'push') window.history.pushState(state, '', url);
+      else if (mode === 'replace') window.history.replaceState(state, '', url);
+    },
+    applyRouteContext: () => applyRouteContext(),
+    ensurePanelReady,
+    showPanel,
+    applySettingsTab,
+    applyGitSubview: (subview) => applyGitSubviewFromRoute(subview),
+    applyRouteGitScope,
+    restoreRouteResources,
+    persistRoute: (route) => {
+      try {
+        persistViewRoute(route, {
+          sessionStorage: typeof sessionStorage !== 'undefined' ? sessionStorage : null,
+          localStorage: typeof localStorage !== 'undefined' ? localStorage : null,
+        });
+      } catch (_) {}
+    },
+    restoreViewMemory: (route) => restoreViewMemoryForRoute(route),
+    isPanelAllowed,
+    getModeConfig: () => spaNavModeConfig,
+    whenScopedAccessAllowed: () => whenViewContextScopedAccessAllowed(),
+    registerPopstate: (handler) => {
+      window.addEventListener('popstate', handler);
+    },
+  });
+  setSharedSpaNavigation(nav);
+  mainTabNavBridge.handler = (panelId) => {
+    void nav.navigate({ panel: panelId }, { explicit: true });
+  };
+  if (options.popstate !== false) nav.initPopstate();
+  return nav;
+}
 
 /**
  * Seed the sidebar's workspace list from the cold-start snapshot so cached chats render
@@ -611,8 +774,10 @@ const sidebarView = createSidebarView({
   escapeHtml,
   openWorkspaceSettings: () => {
     sidebarView.close();
-    showPanel('settings');
-    applySettingsTab('workspace');
+    void getSharedSpaNavigation()?.navigate(
+      { panel: 'settings', settingsTab: 'workspace' },
+      { explicit: true },
+    );
   },
   refreshStates: refreshSidebarChatStates,
   setChatForkParent,
@@ -992,32 +1157,34 @@ function initMobileKeyboardOffsetSync() {
 function openNotificationActionUrl(url) {
   const safe = resolveNotificationActionUrl(url);
   if (!safe || typeof window === 'undefined') return;
-  let parsed = null;
-  try {
-    parsed = new URL(safe, window.location.origin);
-  } catch {
-    return;
-  }
   if (document.body?.classList.contains('chat-fullscreen-active')) {
     document.body.classList.remove('chat-fullscreen-active');
   }
-  const panel = parsed.searchParams.get('panel') || '';
-  const chatId = parsed.searchParams.get('chat') || '';
-  if (chatId) {
-    openChatFromNotification({ chatId });
+  const route = parseNotificationActionRoute(safe, window.location.origin);
+  const nav = getSharedSpaNavigation();
+  if (route && nav) {
+    void nav.navigate({
+      panel: route.panel,
+      settingsTab: route.settingsTab,
+      subview: route.subview,
+      context: route.context,
+      scope: route.scope,
+      query: route.query,
+      resource: route.resource,
+    }, { explicit: true });
     return;
   }
-  if (panel === 'settings') {
-    showPanel('settings');
-    const tab = parsed.searchParams.get('tab') || '';
-    if (tab) applySettingsTab(tab);
+  const chatOnly = parseNotificationActionRoute(`/?${safe.startsWith('?') ? safe.slice(1) : safe}`, window.location.origin);
+  if (chatOnly?.query?.chat) {
+    openChatFromNotification({ chatId: chatOnly.query.chat });
     return;
   }
-  if (panel) {
-    showPanel(panel);
-    return;
+  try {
+    const parsed = new URL(safe, window.location.origin);
+    window.location.assign(`${parsed.pathname || '/'}${parsed.search || ''}`);
+  } catch {
+    // ignore unsafe navigation
   }
-  window.location.assign(`${parsed.pathname || '/'}${parsed.search || ''}`);
 }
 
 function initHeaderSettings() {
@@ -1087,14 +1254,14 @@ function initHeaderSettings() {
   if (settingsBtn) {
     settingsBtn.addEventListener('click', () => {
       resetChatFullscreenMode();
-      showPanel('settings');
+      void getSharedSpaNavigation()?.navigate({ panel: 'settings' }, { explicit: true });
     });
   }
   const backBtn = document.getElementById('settings-back-btn');
   if (backBtn) {
     backBtn.addEventListener('click', () => {
       resetChatFullscreenMode();
-      showPanel(getLastMainPanel());
+      void getSharedSpaNavigation()?.navigate({ panel: getLastMainPanel() }, { explicit: true });
     });
   }
   initAccountLogout();
@@ -1302,15 +1469,18 @@ function applySettingsTab(tabId) {
     activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
   }
   refreshSettingsTabPanels(resolvedTabId);
-  if (settingsPanel?.classList.contains('active')) {
-    replaceLocationView('settings', resolvedTabId);
-  }
 }
 
 function bindSettingsTabClicks(root) {
   if (!root) return;
   root.querySelectorAll('.settings-tab').forEach((btn) => {
-    btn.addEventListener('click', () => applySettingsTab(btn.dataset.settingsTab || 'workspace'));
+    btn.addEventListener('click', () => {
+      const tabId = btn.dataset.settingsTab || 'workspace';
+      void getSharedSpaNavigation()?.navigate(
+        { panel: 'settings', settingsTab: tabId },
+        { explicit: true },
+      );
+    });
   });
 }
 
@@ -2172,10 +2342,13 @@ function bootApp() {
     measureStartupStep('initHarnessSettings', () => initHarnessSettings());
     measureStartupStep('initChatPanel', () => initChatPanel());
     measureStartupStep('initPanelCopyButtons', () => initPanelCopyButtons());
+    measureStartupStep('initWorkspacePopover', () => initWorkspacePopover() || Promise.resolve());
+    measureStartupStep('initSpaNavigation', () => initSpaNavigationController(modeConfig));
     measureStartupStep('initTabs', () => initTabs(modeConfig));
     measureStartupStep('initHeaderSettings', () => initHeaderSettings());
     measureStartupStep('initInstallPrompt', () => initInstallPrompt());
     measureStartupStep('initPwaUpdatePrompt', () => initPwaUpdatePrompt());
+    measureStartupStep('initNavigationResourceNotice', () => initNavigationResourceNoticeListener());
     measureStartupStep('initPushSettingsToggle', () => initPushSettingsToggle());
     measureStartupStep('initServiceWorkerMessages', () =>
       initServiceWorkerMessages({ onOpenChat: openChatFromNotification, logger: appLogger })
@@ -2188,9 +2361,15 @@ function bootApp() {
       logger: appLogger,
       onNavigate: openNotificationActionUrl,
     }));
-    measureStartupStep('initWorkspacePopover', () => initWorkspacePopover() || Promise.resolve());
     measureStartupStep('initSettingsWorkspacePicker', () => initSettingsWorkspacePicker() || Promise.resolve());
     measureStartupStep('initChatActivityStore', () => installChatActivityStorageListener());
+    // Boot passes that read workspace-scoped data. The bounded view-context wait
+    // can expire while an explicit `ws`/`folder` link is still resolving: that is
+    // a PENDING target, not a missing one, so nothing scoped may run on the
+    // fallback (an unscoped request would be answered from the server's global
+    // cwd, i.e. another workspace). The promise settles exactly once, here or on
+    // the late resolve, so a slow link still loads its lists and its panel.
+    const scopedBootPass = whenViewContextReady().then(() => whenViewContextScopedAccessAllowed());
     measureStartupStep('initSidebar', () => {
       setSidebarRenderHook(() => {
         sidebarView.render();
@@ -2221,7 +2400,12 @@ function bootApp() {
       // The workspace list is seeded from the boot snapshot first so cached chats group
       // immediately, then revalidated from the server and re-rendered once it lands.
       const seededBootWorkspaces = seedWorkspacesListFromBootCache();
-      void loadChatsFromServer({ preferChatId: readRequestedChatId() });
+      // Scoped chat reads wait for the tab's own context: an explicit `ws`/folder
+      // link that has not resolved must not fetch through the global cwd, and the
+      // same pass resumes exactly once when that link resolves late.
+      void scopedBootPass.then(() => {
+        void loadChatsFromServer({ preferChatId: readRequestedChatId() });
+      });
       const sidebarWorkspaceRender = ensureWorkspacesListLoaded()
         .then(() => sidebarView.forceRerender())
         .then(() => (seededBootWorkspaces ? ensureWorkspacesListLoaded({ refresh: true }) : null))
@@ -2238,7 +2422,11 @@ function bootApp() {
     scheduleIdle(() => {
       void ensurePanelReady('github');
     });
-    measureStartupStep('initTodoPanel', () => initTodoPanel({ showPanel }));
+    measureStartupStep('initTodoPanel', () => initTodoPanel({
+      showPanel: (panelId) => {
+        void getSharedSpaNavigation()?.navigate({ panel: panelId }, { explicit: true });
+      },
+    }));
     measureStartupStep('initLogsPanel', () => initLogsPanel());
 
     setQuickCommandHandler((text) => {
@@ -2300,9 +2488,24 @@ function bootApp() {
     });
 
     // Restore the last panel from localStorage so a reload lands back on the same tab, e.g. Tasks.
-    const initialPanel = resolveInitialPanel(modeConfig);
-    showPanel(initialPanel, modeConfig);
-    startupLog(`initial panel rendered: ${initialPanel}`);
+    // The visible panel renders only when this tab's scoped context is usable:
+    // resolve workspace/folder first, then chat/TODO/Git scope, then data. A
+    // pending or unresolvable explicit link keeps its own URL and the offline
+    // notice instead of opening a panel that would read the global cwd.
+    const initialBoot = resolveInitialBoot(modeConfig);
+    const initialPanel = initialBoot.intent?.panel || resolveInitialPanel(modeConfig);
+    const spaNav = getSharedSpaNavigation();
+    void scopedBootPass.then(() => {
+      if (spaNav) {
+        void spaNav.bootApply(initialBoot.intent || { panel: initialPanel }).then(() => {
+          startupLog(`initial route applied: ${initialPanel} (${initialBoot.source})`);
+        });
+        return;
+      }
+      applyRouteGitScope();
+      showPanel(initialPanel, modeConfig);
+      startupLog(`initial panel rendered: ${initialPanel}`);
+    });
     startupLog('boot sync phase done');
     logNotificationBootResume();
     // Read by the inline boot guard in index.html: no flag within its timeout

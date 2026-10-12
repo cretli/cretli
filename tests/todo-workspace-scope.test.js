@@ -76,7 +76,19 @@ test('in-flight TODO reads are coalesced per workspace', async () => {
 // Exercise the panel itself without loading browser-only custom elements.
 function makePanel() {
   let folder = '/a';
-  const list = { textContent: 'Old rows', innerHTML: '' };
+  // The panel reads the shared ViewContext bridge: a deep link that pins an
+  // explicit ws/folder parks scoped fetches until it resolves. Tests flip this
+  // flag to walk the pending → resolved transition.
+  let scopedAccessAllowed = true;
+  // The panel marks the list busy and drops the skeleton on settle, so the fake
+  // row container needs those two DOM hooks (it was written before both existed).
+  const list = {
+    textContent: 'Old rows',
+    innerHTML: '',
+    setAttribute() {},
+    removeAttribute() {},
+    querySelector: () => null,
+  };
   const hint = { textContent: '/a', hidden: false };
   const status = { textContent: '', classList: { toggle() {} } };
   const pending = [];
@@ -85,6 +97,9 @@ function makePanel() {
     document: { getElementById: (id) => id === 'todo-panel' ? { classList: { contains: () => true } } : null },
     getTodoWorkspaceFolder: () => folder,
     todoWorkspaceMatches: (candidate, active = folder) => todoWorkspaceMatches(candidate, active),
+    isViewContextScopedAccessAllowed: () => scopedAccessAllowed,
+    getViewContextState: () => null,
+    reportViewContextResourceConflict: () => ({ ok: true }),
     api: {
       getTodos: (requestedFolder) => {
         const request = deferred();
@@ -98,6 +113,7 @@ function makePanel() {
     filterTodoItemsByRootStatus: (items) => items,
     parseReviewListFilter: () => '',
     filterTodoItemsByReviewState: (items) => items,
+    filterTodoItemsBySearch: (items) => items,
     refreshWatcherPanel: async () => {},
     t: (key) => key,
     list, hint, status,
@@ -112,10 +128,27 @@ function makePanel() {
     refresh: () => vm.runInContext('refreshTodoList()', context),
     workspaceChanged: () => vm.runInContext('onTodoWorkspaceChange()', context),
     switchTo: (next) => { folder = next; },
+    setScopedAccess: (allowed) => { scopedAccessAllowed = allowed === true; },
     editorHidden: () => editorHidden,
     evaluate: (code) => vm.runInContext(code, context),
   };
 }
+
+test('the TODO list waits for the tab\'s scoped context and reloads once it resolves', async () => {
+  const panel = makePanel();
+  panel.setScopedAccess(false);
+  await panel.refresh();
+  assert.deepEqual(panel.pending, [], 'no TODO read may target the server default while the link is unresolved');
+
+  // The late resolve re-enters through the same path the resolved view context
+  // uses (workspace change → panel refresh), and now the read goes out scoped.
+  panel.setScopedAccess(true);
+  const reloading = panel.workspaceChanged();
+  assert.deepEqual(panel.pending.map((request) => request.folder), ['/a'],
+    'the late resolve retriggers the TODO list exactly once');
+  panel.pending[0].resolve({ ok: true, cwd: '/a', items: [] });
+  await reloading;
+});
 
 test('workspace switch clears old rows and editor, and ignores a delayed response', async () => {
   const panel = makePanel();

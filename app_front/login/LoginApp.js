@@ -3,6 +3,7 @@ import '../components/ui/index.js';
 import { readBarInputLiveValue } from '../components/ui/read-bar-input-live-value.js';
 import { initTheme } from '../theme.js';
 import { t, getCurrentLang, initI18n, setLang, AVAILABLE_LANGS } from '../i18n/index.js';
+import { isSpaLoginNextPath } from '../../lib/spa-routes.js';
 import './login.scss';
 
 // Inlined (Material Design Icons "shield-key") so the login page does not have
@@ -97,7 +98,7 @@ class CrLoginApp extends LitElement {
     }
   }
 
-  /** Safe redirect target after login — same-origin path only, never /login. */
+  /** Safe redirect target after login — a shell path of this origin only, never /login. */
   _resolveNext() {
     try {
       const params = new URLSearchParams(window.location.search || '');
@@ -106,6 +107,9 @@ class CrLoginApp extends LitElement {
       const parsed = new URL(next, window.location.origin);
       if (parsed.origin !== window.location.origin) return '/';
       if (parsed.pathname === '/login' || parsed.pathname.startsWith('/login/')) return '/';
+      // Same contract as the server shell and the service worker: an unknown
+      // view path would land on a 404 right after a successful login.
+      if (!isSpaLoginNextPath(parsed.pathname)) return '/';
       return `${parsed.pathname || '/'}${parsed.search || ''}${parsed.hash || ''}`;
     } catch {
       return '/';

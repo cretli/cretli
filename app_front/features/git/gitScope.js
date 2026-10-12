@@ -81,9 +81,14 @@ export function getGitScopeRevision() {
  */
 export function setGitScope(scope, options = {}) {
   const next = normalizeGitScope(scope);
-  if (options.lock === true) scopeLocked = true;
-  else if (options.lock === false) scopeLocked = false;
-  if (buildGitScopeKey(next) === buildGitScopeKey(activeScope)) return revision;
+  const sameKey = buildGitScopeKey(next) === buildGitScopeKey(activeScope);
+  if (options.lock === true) {
+    scopeLocked = true;
+  } else if (options.lock === false) {
+    scopeLocked = false;
+  }
+  // Same scope key: skip revision bump; `lock: false` above still clears a route pin.
+  if (sameKey) return revision;
   activeScope = next;
   revision += 1;
   for (const listener of listeners) {

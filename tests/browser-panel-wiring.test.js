@@ -48,7 +48,10 @@ test('index.html registers the Browser tab and panel container', () => {
 
 test('service worker knows the /browser view for offline fallback', () => {
   const sw = read('public/sw.js');
-  assert.match(sw, /'browser'/);
+  // The route list moved to public/sw-routes.js so the offline shell and the
+  // server share one contract (tests/spa-route-shell-contract.test.js).
+  assert.match(sw, /importScripts\('\/sw-routes\.js'\)/);
+  assert.match(read('public/sw-routes.js'), /'browser'/);
   // Frames and pulls are API/WS traffic and must stay out of the SW cache.
   assert.match(sw, /pathname\.startsWith\('\/api\/'\) \|\| url\.pathname\.startsWith\('\/ws'\)/);
 });

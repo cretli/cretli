@@ -46,6 +46,6 @@ assert.equal(
 
 const swSource = readFileSync(path.join(root, 'public', 'sw.js'), 'utf8');
 assert.match(swSource, /importScripts\('\/sw-quiet-hours\.js'\)/);
-assert.match(swSource, /CACHE_NAME = 'cretli-v29'/);
+assert.match(swSource, /CACHE_NAME = 'cretli-v30'/);
 
 console.log('sw-quiet-hours.test.js: ok');

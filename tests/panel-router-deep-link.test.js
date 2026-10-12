@@ -180,17 +180,24 @@ test('query panel=widget remaps to settings', async () => {
   delete globalThis.document;
 });
 
-test('replaceLocationView writes a History API path and keeps extra query params', async () => {
-  const calls = [];
+test('replaceLocationView routes through SPA navigation with replace history', async () => {
+  const intents = [];
   setLocation('/', '?source=pwa&panel=chat&tab=harness&chat=abc');
-  globalThis.window.history = {
-    replaceState(_state, _title, url) {
-      calls.push(url);
+  const bridge = await import('../app_front/app/appShell/spaNavigationBridge.js');
+  bridge.setSharedSpaNavigation({
+    navigate(intent, options) {
+      intents.push({ intent, options });
+      return Promise.resolve();
     },
-  };
+  });
   const { replaceLocationView } = await import(
     '../app_front/app/appShell/panelRouter.js'
   );
   replaceLocationView('settings', 'workspace');
-  assert.equal(calls[0], '/settings/workspace?source=pwa&chat=abc');
+  assert.equal(intents.length, 1);
+  assert.equal(intents[0].intent.panel, 'settings');
+  assert.equal(intents[0].intent.settingsTab, 'workspace');
+  assert.equal(intents[0].options.history, 'replace');
+  assert.equal(intents[0].options.explicit, false);
+  bridge.setSharedSpaNavigation(null);
 });

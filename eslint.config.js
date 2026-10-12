@@ -55,6 +55,14 @@ export default [
       globals: { ...globals.node },
     },
   },
+  // public/sw.js is a classic service worker scope: importScripts is a worker
+  // global that neither globals.node nor globals.browser declares.
+  {
+    files: ['public/sw.js'],
+    languageOptions: {
+      globals: { importScripts: 'readonly' },
+    },
+  },
   // ANSI-aware parsers deliberately match control characters (\x1b, \x07) in
   // regular expressions to strip terminal escape sequences. Disable the rule
   // for those files instead of muting each regex.

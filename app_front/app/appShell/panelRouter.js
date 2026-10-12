@@ -3,7 +3,9 @@ import {
   readStorageValueWithAlias,
   writeStorageValueWithAlias,
 } from '../../lib/storageKeyAlias.js';
-import { buildSpaLocation, parseSpaPath, remapLegacySpaPanel } from '../../../lib/spa-routes.js';
+import { buildSpaLocation, parseSpaPath, parseSpaRoute, remapLegacySpaPanel } from '../../../lib/spa-routes.js';
+import { navigateSpa } from './spaNavigationBridge.js';
+import { resolveBootRouteIntent } from './viewRouteStorage.js';
 import { t } from '../../i18n/index.js';
 import { scheduleChatSendBarReserveSync } from '../../features/chat/chatSendBarLayout.js';
 
@@ -76,19 +78,38 @@ export function readRequestedSettingsTab() {
 }
 
 /**
+ * Sub-view of the panel the URL already points at, or `''` when the URL is on a
+ * different panel. The router does not own sub-view state yet (stage 3), so this
+ * only keeps an allowlisted address such as `/git/worktrees` from being rewritten
+ * down to `/git` on boot or F5.
+ *
+ * @param {string} panelId
+ * @returns {string}
+ */
+function currentPanelSubview(panelId) {
+  if (typeof window === 'undefined') return '';
+  const route = parseSpaRoute({ pathname: window.location?.pathname || '', search: '' });
+  if (!route || route.panel !== panelId) return '';
+  return route.subview;
+}
+
+/**
  * @param {string} panelId
  * @param {string} [settingsTab]
  */
 export function replaceLocationView(panelId, settingsTab = '') {
-  if (typeof window === 'undefined' || !window.history?.replaceState) return;
-  const next = buildSpaLocation({
-    panel: panelId,
-    settingsTab,
-    search: window.location.search || '',
-  });
-  const current = `${window.location.pathname || ''}${window.location.search || ''}`;
-  if (current === next) return;
-  window.history.replaceState(null, '', next);
+  if (typeof window === 'undefined') return;
+  const intent = { panel: panelId, subview: currentPanelSubview(panelId) };
+  if (settingsTab) intent.settingsTab = settingsTab;
+  void navigateSpa(intent, { explicit: false, history: 'replace' });
+}
+
+/**
+ * @deprecated History writes go through SPA navigation only; kept for tests that stub this name.
+ * @param {string} canonicalPath
+ */
+export function replaceLocationCanonical(_canonicalPath) {
+  // Intentionally no-op: canonicalization is owned by navigate / replaceCanonicalUrl.
 }
 
 export function createPanelRouter(deps = {}) {
@@ -120,6 +141,7 @@ export function createPanelRouter(deps = {}) {
     refreshInstancesPanel = () => {},
     refreshBrowserPanel = () => {},
     onShowSettings = () => {},
+    onMainTabSelect = null,
   } = deps;
 
   function isPanelAllowed(panelId, modeConfig) {
@@ -193,23 +215,42 @@ export function createPanelRouter(deps = {}) {
     return remapped.panel;
   }
 
-  function resolveInitialPanel(modeConfig) {
-    const activeTab = document.querySelector('.tab.active');
-    const activeTabPanel = activeTab?.dataset?.panel || '';
-    const pathPanel = readRequestedPanelFromPath();
-    if (isPanelAllowed(pathPanel, modeConfig)) return pathPanel;
-    // PWA shortcuts and push notifications link to ?panel=..., so an explicit
-    // request must win over the last panel kept in localStorage.
-    const requestedPanel = resolveLegacyPanel(readRequestedPanel());
-    if (isPanelAllowed(requestedPanel, modeConfig)) return requestedPanel;
-    let savedPanel = null;
+  function resolveInitialBoot(modeConfig) {
+    let sessionStorageRef = null;
+    let localStorageRef = null;
     try {
-      savedPanel = readStorageValueWithAlias(localStorage, LAST_PANEL_STORAGE_KEY, '');
+      sessionStorageRef = typeof sessionStorage !== 'undefined' ? sessionStorage : null;
+      localStorageRef = typeof localStorage !== 'undefined' ? localStorage : null;
     } catch (_) {}
-    const remappedSaved = resolveLegacyPanel(savedPanel || '');
-    if (isPanelAllowed(remappedSaved, modeConfig)) return remappedSaved;
-    if (isPanelAllowed(activeTabPanel, modeConfig)) return activeTabPanel;
-    return modeConfig?.defaultPanel || 'chat';
+    const boot = resolveBootRouteIntent({
+      location: {
+        pathname: typeof window !== 'undefined' ? window.location.pathname || '/' : '/',
+        search: typeof window !== 'undefined' ? window.location.search || '' : '',
+      },
+      sessionStorage: sessionStorageRef,
+      localStorage: localStorageRef,
+      defaultPanel: modeConfig?.defaultPanel || 'chat',
+    });
+    if (boot.source === 'legacy' && localStorageRef) {
+      try {
+        resolveLegacyPanel(readStorageValueWithAlias(localStorageRef, LAST_PANEL_STORAGE_KEY, ''));
+      } catch (_) {}
+    }
+    const panel = boot.intent?.panel || modeConfig?.defaultPanel || 'chat';
+    if (!isPanelAllowed(panel, modeConfig)) {
+      return {
+        ...boot,
+        intent: { panel: modeConfig?.defaultPanel || 'chat' },
+        canonical: '/chat',
+        source: 'default',
+      };
+    }
+    return boot;
+  }
+
+  function resolveInitialPanel(modeConfig) {
+    const boot = resolveInitialBoot(modeConfig);
+    return boot.intent?.panel || modeConfig?.defaultPanel || 'chat';
   }
 
   function showPanel(panelId, modeConfig = appModes.main) {
@@ -322,12 +363,6 @@ export function createPanelRouter(deps = {}) {
     try {
       writeStorageValueWithAlias(localStorage, LAST_PANEL_STORAGE_KEY, panelId);
     } catch (_) {}
-    const settingsTab = panelId === 'settings'
-      ? (document.getElementById('settings-panel')?.dataset?.activeSettingsTab
-        || document.querySelector('#settings-tabs .settings-tab.active')?.dataset?.settingsTab
-        || '')
-      : '';
-    replaceLocationView(panelId, settingsTab);
   }
 
   function initTabs(modeConfig = appModes.main) {
@@ -349,6 +384,10 @@ export function createPanelRouter(deps = {}) {
         if (mainPanels.includes(targetPanelId)) {
           setLastMainPanel(targetPanelId);
         }
+        if (typeof onMainTabSelect === 'function') {
+          onMainTabSelect(targetPanelId, modeConfig);
+          return;
+        }
         showPanel(targetPanelId, modeConfig);
       });
     });
@@ -357,6 +396,7 @@ export function createPanelRouter(deps = {}) {
   return {
     isPanelAllowed,
     resolveInitialPanel,
+    resolveInitialBoot,
     showPanel,
     initTabs,
   };

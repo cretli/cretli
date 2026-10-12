@@ -36,6 +36,7 @@ export default defineConfig({
     launchOptions: chromiumExecutablePath
       ? {
           executablePath: chromiumExecutablePath,
+          args: ['--no-sandbox', '--disable-dev-shm-usage'],
         }
       : undefined,
   },

@@ -18,7 +18,16 @@ import { writeTextToClipboard } from './lib/clipboard.js';
 import { initDropdown, closeAllOpenDropdowns } from './lib/dropdown.js';
 import { preloadMarkdown } from './lib/render-markdown.js';
 import { getTodoWorkspaceFolder, todoWorkspaceMatches } from './features/todo/todoWorkspaceScope.js';
-import { setGitScope } from './features/git/gitScope.js';
+import {
+  getViewContextState,
+  isViewContextScopedAccessAllowed,
+  reportViewContextResourceConflict,
+} from './app/appShell/viewContextBridge.js';
+import { navigateSpa } from './app/appShell/spaNavigationBridge.js';
+import {
+  registerViewMemoryRestoreHandler,
+  schedulePanelViewMemoryCapture,
+} from './app/appShell/viewMemoryBridge.js';
 import {
   buildTodoMarkdown,
   canAddTodoChild,
@@ -109,6 +118,8 @@ let integrationListFilter = new Set();
 const INTEGRATION_FILTERS = ['unconfirmed', 'awaiting', 'integrated', 'partial', 'rejected', 'conflict', 'no_code_changes'];
 /** Free-text list search (title or id); not persisted. */
 let todoSearchQuery = '';
+/** @type {object | null} View memory slice waiting for list data. */
+let pendingTodoViewMemory = null;
 /** @type {HTMLButtonElement | null} */
 let statusFilterTrigger = null;
 /** @type {{ api: ReturnType<typeof initDropdown>, panel: HTMLElement, list: HTMLElement } | null} */
@@ -300,6 +311,76 @@ function getVisibleTodoItems() {
   return filterTodoItemsBySearch(filterTodoItemsByIntegrationState(byReview, integrationListFilter), todoSearchQuery);
 }
 
+function todoScrollContainer() {
+  return document.querySelector('#todo-panel .todo-scroll');
+}
+
+function buildTodoViewMemorySlice() {
+  const searchWrap = document.querySelector('#todo-panel .todo-search');
+  const searchInput = searchWrap?.querySelector('cr-bar-input');
+  return {
+    search: todoSearchQuery,
+    searchOpen: searchWrap ? searchWrap.hidden === false : false,
+    rootStatus: rootStatusFilter ? [...rootStatusFilter] : null,
+    review: reviewListFilter || '',
+    integration: [...integrationListFilter],
+    collapsed: [...collapsedIds],
+    scrollTop: todoScrollContainer()?.scrollTop || 0,
+    focusId: document.activeElement?.closest?.('.todo-row')?.dataset?.id || '',
+    searchInputValue: searchInput && 'value' in searchInput ? String(searchInput.value || '') : todoSearchQuery,
+  };
+}
+
+function scheduleTodoViewMemoryCapture() {
+  schedulePanelViewMemoryCapture('todo', buildTodoViewMemorySlice);
+}
+
+/**
+ * @param {object | null | undefined} slice
+ */
+function applyTodoViewMemorySlice(slice) {
+  if (!slice || typeof slice !== 'object') return;
+  const searchText = typeof slice.searchInputValue === 'string' ? slice.searchInputValue : slice.search;
+  if (typeof searchText === 'string') todoSearchQuery = searchText;
+  if (slice.review === 'none' || slice.review === 'stale' || slice.review === '') {
+    reviewListFilter = slice.review;
+  }
+  if (Array.isArray(slice.integration)) {
+    integrationListFilter = new Set(slice.integration.filter((value) => INTEGRATION_FILTERS.includes(value)));
+  }
+  if (slice.rootStatus === null) rootStatusFilter = null;
+  else if (Array.isArray(slice.rootStatus)) rootStatusFilter = new Set(slice.rootStatus.map(String));
+  if (Array.isArray(slice.collapsed)) {
+    collapsedIds = new Set(slice.collapsed.map(String));
+    collapseDefaultsPending = false;
+  }
+  const searchWrap = document.querySelector('#todo-panel .todo-search');
+  const searchBtn = document.querySelector('#todo-panel .todo-search-btn');
+  const searchInput = searchWrap?.querySelector('cr-bar-input');
+  if (searchWrap && typeof slice.searchOpen === 'boolean') searchWrap.hidden = !slice.searchOpen;
+  if (searchInput && 'value' in searchInput) searchInput.value = todoSearchQuery;
+  searchBtn?.classList.toggle('todo-search-btn--active', !!todoSearchQuery.trim());
+  syncStatusFilterTriggerLabel();
+  if (statusFilterMenu?.api.isOpen()) renderStatusFilterMenuItems();
+  if (!latestItems.length) return;
+  // Consumed before the repaint: renderList ends by retrying the pending
+  // slice, so leaving it set here would re-enter this function.
+  pendingTodoViewMemory = null;
+  if (latestItems.length || listEl?.querySelector('.todo-empty')) renderList({ items: latestItems });
+  const scrollEl = todoScrollContainer();
+  if (scrollEl && Number.isFinite(Number(slice.scrollTop))) scrollEl.scrollTop = Number(slice.scrollTop);
+  const focusId = String(slice.focusId || '').trim();
+  if (focusId && listEl) {
+    const row = listEl.querySelector(`.todo-row[data-id="${CSS.escape(focusId)}"]`);
+    row?.querySelector('.todo-row-open')?.focus?.();
+  }
+}
+
+function tryApplyPendingTodoViewMemory() {
+  if (!pendingTodoViewMemory || !latestItems.length) return;
+  applyTodoViewMemorySlice(pendingTodoViewMemory);
+}
+
 function filterTodoItemsByIntegrationState(items, filter) {
   if (!filter.size) return items;
   const byId = new Map(items.map((item) => [String(item.id), item]));
@@ -480,6 +561,7 @@ function applyStatusFilterFromUi() {
   if (latestItems.length || listEl?.querySelector('.todo-empty')) {
     renderList({ items: latestItems });
   }
+  scheduleTodoViewMemoryCapture();
 }
 
 function ensureStatusFilterUi(toolbar) {
@@ -538,6 +620,7 @@ function ensureStatusFilterUi(toolbar) {
       saveReviewFilter();
       syncStatusFilterTriggerLabel();
       if (latestItems.length || listEl?.querySelector('.todo-empty')) renderList({ items: latestItems });
+      scheduleTodoViewMemoryCapture();
       return;
     }
     const integrationRow = event.target instanceof Element ? event.target.closest('.todo-integration-filter-row') : null;
@@ -559,6 +642,7 @@ function ensureStatusFilterUi(toolbar) {
       saveIntegrationFilter();
       syncStatusFilterTriggerLabel();
       if (latestItems.length || listEl?.querySelector('.todo-empty')) renderList({ items: latestItems });
+      scheduleTodoViewMemoryCapture();
       return;
     }
     const row = event.target instanceof Element ? event.target.closest('.todo-status-filter-row') : null;
@@ -625,6 +709,7 @@ function ensureTodoSearchUi(toolbar, anchor) {
     todoSearchQuery = String(input.value || '');
     button.classList.toggle('todo-search-btn--active', !!todoSearchQuery.trim());
     if (latestItems.length || listEl?.querySelector('.todo-empty')) renderList({ items: latestItems });
+    scheduleTodoViewMemoryCapture();
   };
   input.addEventListener('input', apply);
   button.addEventListener('click', () => {
@@ -1062,6 +1147,8 @@ function renderList(data) {
     paintTodoRow(el, row);
   });
   syncEditorItem();
+  tryApplyPendingTodoViewMemory();
+  scheduleTodoViewMemoryCapture();
 }
 
 function createTodoRow() {
@@ -1761,6 +1848,7 @@ function onToggleClick(event) {
   else collapsedIds.add(id);
   saveCollapsed();
   renderList({ items: latestItems });
+  scheduleTodoViewMemoryCapture();
 }
 
 /** @param {MouseEvent} event */
@@ -2010,13 +2098,17 @@ function onOpenChat(e) {
   setStatus(t('todo.openedLinkedChat'));
 }
 
-/** Opens the worktree list scoped to one task. */
+/** Opens the worktree list scoped to one task via the Git route. */
 function onOpenGit(e) {
   const id = String(e?.detail?.id || '').trim();
   if (!id) return;
-  setGitScope({ todoId: id, workspaceFolder: getTodoWorkspaceFolder() }, { lock: true });
-  showPanelFn('git');
-  window.dispatchEvent(new CustomEvent('cretli-git-show-worktrees'));
+  void navigateSpa({
+    panel: 'git',
+    subview: 'worktrees',
+    scope: 'todo',
+    resource: { type: 'todo', id },
+    query: { todo: id },
+  }, { explicit: true });
 }
 
 /** @param {Event} e */
@@ -2546,6 +2638,9 @@ function setListLoading(loading) {
 }
 
 export function refreshTodoList() {
+  if (!isViewContextScopedAccessAllowed()) {
+    return Promise.resolve();
+  }
   const generation = ++refreshGeneration;
   const folder = getTodoWorkspaceFolder();
   resetTodoWorkspaceView();
@@ -2586,12 +2681,32 @@ export function refreshTodoList() {
       }
       setStatus('');
       renderList(data);
+      notifyViewContextTodoScope(data);
     })
     .catch(() => {
       if (!isCurrent()) return;
       setStatus(t('todo.loadError'), true);
       renderList({ items: [] });
     });
+}
+
+/**
+ * Stage 2 ownership check: when this tab's view context names a TODO (a
+ * `/todo?todo=` or `/git?scope=todo&todo=` link) and the explicit `ws/folder`
+ * list does not contain it, report the conflict instead of pretending the
+ * scope resolved. No message without an explicit link target.
+ *
+ * @param {{ items?: Array<object> } | null | undefined} data
+ */
+function notifyViewContextTodoScope(data) {
+  const state = getViewContextState();
+  if (!state?.target) return;
+  const resource = state.route?.resource;
+  const targetId = String(resource?.type === 'todo' ? resource.id : '').trim();
+  if (!targetId) return;
+  const items = Array.isArray(data?.items) ? data.items : [];
+  const row = items.find((item) => item?.id === targetId) || null;
+  reportViewContextResourceConflict('todo', row);
 }
 
 /**
@@ -2702,4 +2817,9 @@ export function initTodoPanel(options = {}) {
     if (statusFilterMenu?.api.isOpen()) renderStatusFilterMenuItems();
     if (latestItems.length || listEl?.querySelector('.todo-empty')) renderList({ items: latestItems });
   });
+  registerViewMemoryRestoreHandler('todo', (slice) => {
+    pendingTodoViewMemory = slice;
+    tryApplyPendingTodoViewMemory();
+  });
+  todoScrollContainer()?.addEventListener('scroll', () => scheduleTodoViewMemoryCapture(), { passive: true });
 }

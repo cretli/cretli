@@ -96,6 +96,15 @@ test('a task scope can be pinned, and a chat scope releases the pin', () => {
   resetGitScopeForTests();
 });
 
+test('setGitScope unlocks a pinned scope without changing the scope key', () => {
+  resetGitScopeForTests();
+  setGitScope({ todoId: 't1', workspaceFolder: '/p' }, { lock: true });
+  assert.equal(isGitScopeLocked(), true);
+  setGitScope({ todoId: 't1', workspaceFolder: '/p' }, { lock: false });
+  assert.equal(isGitScopeLocked(), false);
+  resetGitScopeForTests();
+});
+
 test('isStaleGitResponse compares captured and live scope keys', () => {
   const key = buildGitScopeKey({ chatId: 'c' });
   assert.equal(isStaleGitResponse(key, key), false);
@@ -225,14 +234,19 @@ test('the header badge dispatches the panel-open event and drops stale answers',
   assert.match(source, /cretli-git-open/);
   assert.match(source, /setGitScope\(lastState\.scope/);
   assert.match(source, /seq !== requestSeq/);
-  assert.match(source, /api\.getGitInfo\(scope\)/);
+  // The refresh reads the scope through `effectiveScope` (route pin vs active
+  // chat), so the fetch assertion follows that name.
+  assert.match(source, /api\.getGitInfo\(effectiveScope\)/);
+  // A deep link's unresolved workspace has no authorized scope: the chip must
+  // stay pending instead of showing the server's global cwd.
+  assert.match(source, /if \(!isViewContextScopedAccessAllowed\(\)\) \{/);
 });
 
 test('App.js wires the header badge and opens the Git panel on the event', () => {
   const source = readSource('app_front/App.js');
   assert.match(source, /initGitContextBadge/);
   assert.match(source, /cretli-git-open/);
-  assert.match(source, /showPanel\('git'\)/);
+  assert.match(source, /navigate\(\{ panel: 'git' \}/);
   assert.match(source, /gitContextBadge\.refresh\(\)/);
 });
 
@@ -242,6 +256,6 @@ test('the TODO card exposes a Git chip and the panel opens the task scope', () =
   assert.match(card, /todo-item-git-chip/);
   const panel = readSource('app_front/todoPanel.js');
   assert.match(panel, /'todo-open-git'/);
-  assert.match(panel, /setGitScope\(\{ todoId: id/);
-  assert.match(panel, /showPanelFn\('git'\)/);
+  assert.match(panel, /scope: 'todo'/);
+  assert.match(panel, /subview: 'worktrees'/);
 });

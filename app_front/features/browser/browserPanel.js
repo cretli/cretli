@@ -1225,6 +1225,41 @@ function syncLiveView() {
 /**
  * Fetches runtime status, then sessions. Safe to call repeatedly.
  */
+/**
+ * @returns {Promise<Array<{ browserSessionId?: string }>>}
+ */
+export async function listBrowserSessionsForRoute() {
+  if (!state.sessions.length) await reloadSessions();
+  return state.sessions.slice();
+}
+
+/**
+ * @param {string} sessionId
+ * @returns {Promise<Array<{ tabId?: string }>>}
+ */
+export async function listBrowserTabsForRoute(sessionId) {
+  const id = String(sessionId || '').trim();
+  if (!id) return [];
+  try {
+    const data = await api(`/sessions/${encodeURIComponent(id)}/tabs`);
+    return Array.isArray(data?.tabs) ? data.tabs : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * @param {string} browserSession
+ * @param {string} browserTab
+ */
+export async function restoreBrowserRouteTarget(browserSession, browserTab) {
+  const sessionId = String(browserSession || '').trim();
+  const tabId = String(browserTab || '').trim();
+  if (!sessionId) return;
+  await selectSession(sessionId);
+  if (tabId) await selectTab(tabId);
+}
+
 export async function refreshBrowserPanel() {
   if (!isBrowserPanelActive() && state.initDone) return;
   try {

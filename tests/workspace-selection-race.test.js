@@ -5,6 +5,12 @@ import vm from 'node:vm';
 import * as helpers from '../app_front/app/appShell/workspaceHelpers.js';
 import { resolveWorkspaceTargetForChat } from '../app_front/features/sidebar/workspaceChatMatch.js';
 import { scopeWatcherRequestToWorkspace } from '../app_front/features/watcher/watcherWorkspaceScope.js';
+import {
+  VIEW_CONTEXT_STATUS,
+  createViewContextStore,
+  hasExplicitWorkspace,
+} from '../app_front/app/appShell/viewContext.js';
+import { buildSpaRoute, parseSpaRoute } from '../lib/spa-routes.js';
 
 function deferred() {
   let resolve, reject;
@@ -13,7 +19,11 @@ function deferred() {
 }
 
 function harness() {
-  const trigger = { dataset: { workspaceFile: '/ws/fresh.code-workspace', workspaceFolder: '/ws/fade' }, addEventListener() {} };
+  const trigger = {
+    dataset: { workspaceFile: '/ws/fresh.code-workspace', workspaceFolder: '/ws/fade' },
+    addEventListener() {},
+    setAttribute() {},
+  };
   const label = { textContent: '' };
   const events = [];
   const listeners = new Map();
@@ -21,7 +31,21 @@ function harness() {
   const reads = [];
   const context = vm.createContext({
     ...helpers,
-    document: { getElementById: (id) => ({ 'header-workspace-trigger': trigger, 'header-workspace-label': label, 'header-workspace-popover': {} })[id] || null },
+    VIEW_CONTEXT_STATUS,
+    createViewContextStore,
+    hasExplicitWorkspace,
+    setSharedViewContextStore: () => {},
+    replaceLocationCanonical: () => {},
+    getSharedSpaNavigation: () => null,
+    parseSpaRoute,
+    buildSpaRoute,
+    document: { getElementById: (id) => ({
+      'header-workspace-trigger': trigger,
+      'header-workspace-label': label,
+      'header-workspace-popover': {},
+      'header-workspace-message': { hidden: true, textContent: '', setAttribute() {}, removeAttribute() {} },
+      'sidebar-workspace-bar': { hidden: true, dataset: {} },
+    })[id] || null },
     window: {
       addEventListener: (name, handler) => listeners.set(name, handler),
       dispatchEvent: (event) => events.push(event),
@@ -48,7 +72,7 @@ function harness() {
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
-test('opening a legacy esystent chat scopes Scout writes to esystent before the settings write finishes', async () => {
+test('opening a legacy esystent chat scopes Scout writes to esystent with a local-only switch', async () => {
   const h = harness();
   const file = '/ws/esystent.code-workspace';
   const target = resolveWorkspaceTargetForChat(
@@ -63,8 +87,8 @@ test('opening a legacy esystent chat scopes Scout writes to esystent before the 
   assert.equal(enable.options.body.workspaceFolder, '/ws/esystent');
   assert.equal(run.options.body.workspaceFolder, '/ws/esystent');
   await settle();
-  h.writes[0].resolve({ ok: true });
-  await switched;
+  assert.equal(await switched, true);
+  assert.equal(h.writes.length, 0, 'opening a chat never writes the global settings workspace');
 });
 
 test('direct chat alignment shares the sidebar project and clone lookup', async () => {
@@ -82,6 +106,7 @@ test('direct chat alignment shares the sidebar project and clone lookup', async 
     listWorkspaceContextsForChat: () => catalog,
     getPreferredWorkspaceFolderForChat: (key) => key.includes('#clone') ? '/projects' : '/esystent',
     workspaceRefreshPreserveDepth: 0,
+    reportViewContextResourceConflict: () => ({ ok: true }),
     applyVoiceWorkspaceSwitch: (workspaceFile, workspaceFolder) => {
       switches.push({ workspaceFile, workspaceFolder });
       active = { workspaceFile, workspaceFolder };
@@ -106,36 +131,35 @@ test('opening a watcher scopes Todo immediately and keeps its explicit folder de
   assert.equal(h.trigger.dataset.workspaceFolder, '/ws/domq');
   assert.equal(h.events.at(-1).detail.workspaceFolder, '/ws/domq');
   await settle();
-  assert.equal(h.writes[0].payload.workspaceFolder, '/ws/domq');
-  h.writes[0].resolve({ ok: true });
   assert.equal(await switched, true);
+  assert.equal(h.writes.length, 0, 'a normal view switch never writes the global settings workspace');
 });
 
-test('an older in-flight selection cannot repaint the header or finish selecting its chat', async () => {
+test('a rapid A→B switch leaves the header on B and never paints A afterwards', async () => {
   const h = harness();
   const first = h.workspace.switchWorkspace('/ws/fresh.code-workspace', '/ws/shop');
-  await settle();
   const second = h.workspace.switchWorkspace('/ws/domq.code-workspace', '/ws/domq');
+  assert.equal(h.trigger.dataset.workspaceFile, '/ws/domq.code-workspace');
   assert.equal(h.trigger.dataset.workspaceFolder, '/ws/domq');
-  assert.equal(h.writes.length, 1, 'settings writes are serialized');
-  h.writes[0].resolve({ ok: true });
-  assert.equal(await first, false);
+  assert.equal(h.writes.length, 0, 'no settings writes for local switches');
   await settle();
-  assert.equal(h.trigger.dataset.workspaceFolder, '/ws/domq');
-  h.writes[1].resolve({ ok: true });
   assert.equal(await second, true);
+  assert.equal(await first, false, 'the superseded A keys pass must not rewrite the URL or store');
+  assert.equal(h.trigger.dataset.workspaceFolder, '/ws/domq', 'the late A answer never repaints the header');
+  const lastWorkspaceEvent = [...h.events].reverse().find((event) => event.type === 'cretli-active-workspace-changed');
+  assert.equal(lastWorkspaceEvent?.detail?.workspaceFolder, '/ws/domq');
 });
 
-test('late boot settings cannot overwrite the workspace selected by the operator', async () => {
+test('a late boot settings answer cannot overwrite the workspace selected by the operator', async () => {
   const h = harness();
   const boot = h.workspace.initWorkspacePopover();
   const switched = h.workspace.switchWorkspace('/ws/domq.code-workspace', '/ws/domq');
   await settle();
   h.reads[0].resolve({ ok: true, workspaceFile: '/ws/fresh.code-workspace', workspaceFolder: '/ws/fade' });
   await boot;
-  assert.equal(h.trigger.dataset.workspaceFolder, '/ws/domq');
-  h.writes[0].resolve({ ok: true });
   await switched;
+  assert.equal(h.trigger.dataset.workspaceFolder, '/ws/domq');
+  assert.equal(h.writes.length, 0);
 });
 
 test('background settings refresh preserves this client selection instead of the global server folder', async () => {
@@ -149,14 +173,18 @@ test('background settings refresh preserves this client selection instead of the
   assert.equal(h.trigger.dataset.workspaceFolder, '/ws/domq');
 });
 
-test('a failed selection restores the previous workspace and publishes the restored scope', async () => {
+test('the global default workspace is a separate setting: persistGlobal still writes and restores on failure', async () => {
   const h = harness();
-  const switched = h.workspace.switchWorkspace('/ws/domq.code-workspace', '/ws/domq');
+  const switched = h.workspace.switchWorkspace('/ws/domq.code-workspace', '/ws/domq', { persistGlobal: true });
   await settle();
   h.writes[0].reject(new Error('Network failure'));
   assert.equal(await switched, false);
-  assert.equal(h.trigger.dataset.workspaceFolder, '/ws/fade');
-  assert.equal(h.events.at(-1).detail.workspaceFolder, '/ws/fade');
+  assert.equal(h.trigger.dataset.workspaceFolder, '/ws/fade', 'a failed global write restores the previous label');
+  const kept = h.workspace.switchWorkspace('/ws/domq.code-workspace', '/ws/domq', { persistGlobal: true });
+  await settle();
+  h.writes[1].resolve({ ok: true });
+  assert.equal(await kept, true);
+  assert.equal(h.writes.length, 2, 'only persistGlobal switches reach the settings write queue');
 });
 
 test('an explicit folder selected in Files updates the local context before background settings return', async () => {

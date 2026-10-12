@@ -20,6 +20,10 @@ import { initDropdown } from './lib/dropdown.js';
 import { initModal } from './lib/modal.js';
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from './lib/storageKeyAlias.js';
 import { t } from './i18n/index.js';
+import {
+  registerViewMemoryRestoreHandler,
+  schedulePanelViewMemoryCapture,
+} from './app/appShell/viewMemoryBridge.js';
 
 hljs.registerLanguage('javascript', javascript);
 hljs.registerLanguage('jsx', javascript);
@@ -117,6 +121,63 @@ let filesSettingsModalApi = null;
 
 /** Cache: path -> { entries, loaded } */
 const cache = new Map();
+/** @type {object | null} */
+let pendingFilesViewMemory = null;
+
+function filesScrollContainer() {
+  return document.querySelector('#files-panel .files-tree-wrap');
+}
+
+function collectExpandedTreePaths() {
+  if (!treeEl) return [];
+  return [...treeEl.querySelectorAll('.files-tree-item--dir[aria-expanded="true"]')]
+    .map((item) => String(item.dataset.path || '').trim())
+    .filter(Boolean);
+}
+
+function buildFilesViewMemorySlice() {
+  return {
+    expandedPaths: collectExpandedTreePaths(),
+    scrollTop: filesScrollContainer()?.scrollTop || 0,
+    previewPath: currentPreviewPath || '',
+  };
+}
+
+function scheduleFilesViewMemoryCapture() {
+  schedulePanelViewMemoryCapture('files', buildFilesViewMemorySlice);
+}
+
+/**
+ * @param {string} path
+ */
+function expandTreePathIfPresent(path) {
+  const normalized = String(path || '').trim();
+  if (!normalized || !treeEl) return;
+  const item = treeEl.querySelector(`.files-tree-item--dir[data-path="${CSS.escape(normalized)}"]`);
+  if (!(item instanceof HTMLElement)) return;
+  if (item.getAttribute('aria-expanded') !== 'true') toggleFolder(item, normalized);
+}
+
+/**
+ * @param {object | null | undefined} slice
+ */
+function applyFilesViewMemorySlice(slice) {
+  if (!slice || typeof slice !== 'object') return;
+  if (Array.isArray(slice.expandedPaths)) {
+    const paths = slice.expandedPaths.map(String).filter(Boolean).sort((a, b) => a.split('/').length - b.split('/').length);
+    for (const path of paths) expandTreePathIfPresent(path);
+  }
+  const scrollEl = filesScrollContainer();
+  if (scrollEl && Number.isFinite(Number(slice.scrollTop))) scrollEl.scrollTop = Number(slice.scrollTop);
+  const previewPath = String(slice.previewPath || '').trim();
+  if (previewPath) openFile(previewPath);
+  pendingFilesViewMemory = null;
+}
+
+function tryApplyPendingFilesViewMemory() {
+  if (!pendingFilesViewMemory || !treeEl?.childElementCount) return;
+  applyFilesViewMemorySlice(pendingFilesViewMemory);
+}
 
 /**
  * Git status: path (relative to cwd, posix) -> code ('M'|'A'|'D'|'R'|'U'|'C').
@@ -625,6 +686,7 @@ function toggleFolder(item, path) {
     item.setAttribute('aria-expanded', 'false');
     if (group) group.hidden = true;
     if (arrow) arrow.innerHTML = '<span class="mdi mdi-chevron-right" aria-hidden="true"></span>';
+    scheduleFilesViewMemoryCapture();
     return;
   }
 
@@ -642,6 +704,7 @@ function toggleFolder(item, path) {
     loadDirInto(path, group, childDepth);
   }
   if (group) group.hidden = false;
+  scheduleFilesViewMemoryCapture();
 }
 
 function loadDirInto(relPath, containerEl, depth) {
@@ -965,6 +1028,7 @@ function openFile(path) {
     updateMarkdownToggleVisibility(path);
     updateDiffToggleVisibility(path);
     renderCurrentPreview();
+    scheduleFilesViewMemoryCapture();
   }).catch((err) => {
     previewContentEl.textContent = err.message || t('files.error');
   });
@@ -1018,6 +1082,8 @@ function buildRootTree() {
 
   loadDirInto('', treeEl, 0);
   fetchGitStatus();
+  tryApplyPendingFilesViewMemory();
+  scheduleFilesViewMemoryCapture();
 }
 
 export function initFilesPanel() {
@@ -1071,8 +1137,24 @@ export function initFilesPanel() {
       renderCurrentPreview();
     });
   }
+  registerViewMemoryRestoreHandler('files', (slice) => {
+    pendingFilesViewMemory = slice;
+    tryApplyPendingFilesViewMemory();
+  });
+  filesScrollContainer()?.addEventListener('scroll', () => scheduleFilesViewMemoryCapture(), { passive: true });
 }
 
 export function refreshFilesPanel() {
   buildRootTree();
+}
+
+/**
+ * Open a workspace-relative file from a route adapter (`/files?path=`).
+ *
+ * @param {string} relativePath
+ */
+export function openFilesRoutePath(relativePath) {
+  const path = typeof relativePath === 'string' ? relativePath.trim() : '';
+  if (!path) return;
+  openFile(path);
 }

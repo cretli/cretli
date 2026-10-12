@@ -41,6 +41,19 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **SPA route navigation docs and Git worktrees E2E.** `docs/spa-route-navigation.md`
+  documents RouteState v1, opaque `ws` / `folder` keys, route storage v1 and resource
+  restore adapters (linked from `docs/ARCHITECTURE.md`). Playwright mock spec
+  `tests/e2e/git-worktrees-route.spec.js` covers scoped `/git/worktrees` reload,
+  `/git` ↔ `/git/worktrees` history, and direct links. Boot from an explicit
+  `/git/worktrees` URL again paints the worktrees sub-view (storage fallback still
+  normalizes Git to main).
+- **SPA route acceptance Playwright matrix (leaf 6).** Shared E2E helpers in
+  `tests/e2e/spa-route-helpers.js`; specs `spa-route-navigation`, `spa-route-two-tabs`,
+  `spa-route-resources`, and `spa-route-shell-http` cover URL-vs-storage precedence,
+  multi-tab folder isolation without global settings PATCH, resource restore notices,
+  and shell/login/embed HTTP checks. `docs/spa-route-navigation.md` lists the full
+  coverage matrix and remaining manual gaps (WS recovery, PWA push/offline, widget host).
 - **Mistral Large is eligible for automatic delegation picks.** `mistral-large-*`
   ids resolve to a verified alias family, so `model_pick` can choose them for
   implement, fix and review on the `mistral` harness (read-only before execution, so

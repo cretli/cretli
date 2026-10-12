@@ -12,7 +12,7 @@
 // the cache, and a strict match would serve Response.error() for the app bundle,
 // leaving the cached HTML shell without any JavaScript.
 
-const CACHE_NAME = 'cretli-v29';
+const CACHE_NAME = 'cretli-v30';
 const OFFLINE_URL = '/offline.html';
 
 // Pure notificationclick decision logic, shared with the unit test. Kept in a
@@ -85,6 +85,7 @@ const SHELL_ASSETS = [
   '/index.html',
   '/login.html',
   '/offline.html',
+  '/sw-routes.js',
   '/manifest.webmanifest',
   '/icon.svg',
   '/icons/icon-192.png',
@@ -220,31 +221,19 @@ async function cacheFirst(req) {
   }
 }
 
-// Keep in sync with lib/spa-routes.js SPA_PANELS.
-// `widget` is a legacy alias for /settings/widgets (SW cannot import lib/).
-const SPA_VIEW_PANELS = new Set([
-  'chat',
-  'terminal',
-  'tasks',
-  'agents',
-  'todo',
-  'browser',
-  'files',
-  'git',
-  'github',
-  'logs',
-  'instances',
-  'tests',
-  'widget',
-  'settings',
-]);
+// Keep in sync with lib/spa-routes.js (the shared server/client route contract).
+// The list lives in its own classic script so the offline shell and the server
+// cannot drift; tests/spa-route-shell-contract.test.js compares both sides.
+try {
+  importScripts('/sw-routes.js');
+} catch (_) {}
+
+const SW_ROUTES = self.cretliSwRoutes || null;
 
 function isSpaViewPath(pathname) {
-  if (pathname === '/' || pathname === '/index.html') return true;
-  const parts = String(pathname || '').replace(/\/$/, '').split('/').filter(Boolean);
-  if (parts.length === 0 || parts.length > 2) return false;
-  if (!SPA_VIEW_PANELS.has(parts[0])) return false;
-  return parts.length === 1 || parts[0] === 'settings';
+  if (SW_ROUTES) return SW_ROUTES.isSpaViewPath(pathname);
+  // Route script unavailable (partial install): only the bare shell is trusted.
+  return pathname === '/' || pathname === '/index.html';
 }
 
 async function networkFirstNavigation(req, url) {

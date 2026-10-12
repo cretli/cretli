@@ -1,7 +1,13 @@
+import {
+  getViewContextRuntimeScope,
+  getViewContextState,
+} from '../../app/appShell/viewContextBridge.js';
+
 /** TODO requests must follow the client workspace, not the server's shared cwd. */
 export function getTodoWorkspaceFolder() {
-  if (typeof document === 'undefined') return '';
-  return String(document.getElementById('header-workspace-trigger')?.dataset?.workspaceFolder || '').trim();
+  const fromStore = String(getViewContextState()?.runtime?.workspaceFolder || '').trim();
+  if (fromStore) return fromStore;
+  return getViewContextRuntimeScope().workspaceFolder || '';
 }
 
 export function normalizeTodoWorkspaceFolder(folder) {

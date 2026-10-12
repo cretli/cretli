@@ -54,7 +54,7 @@ export function buildPromptExpectingToken(token) {
 }
 
 export async function ensureAuthenticatedPage(page) {
-  await page.goto('/');
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
   const loginRoot = page.locator('cr-login-app');
   if (await loginRoot.count() === 0) {
     await expect(page.locator('#chat-panel')).toBeVisible();

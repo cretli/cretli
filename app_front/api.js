@@ -5,6 +5,18 @@ import { readStorageValueWithAlias } from './lib/storageKeyAlias.js';
 import { applyChatAuthSessionBoundary } from './features/chat/chatSessionBoundary.js';
 import { clearPushInboxCache } from './features/pwa/pushInbox.js';
 import { scopeTodoPayload, todoWorkspaceQuery } from './features/todo/todoWorkspaceScope.js';
+// The per-tab view context owns the scope of Git/GitHub reads; this import is
+// one-way (the bridge never imports the API layer), so there is no cycle.
+import {
+  VIEW_CONTEXT_STATUS,
+  hasExplicitWorkspace,
+  viewContextRuntimeParams,
+} from './app/appShell/viewContext.js';
+import {
+  getViewContextState,
+  isViewContextScopedAccessAllowed,
+  withViewContextQuery,
+} from './app/appShell/viewContextBridge.js';
 import { isWorkspaceWatcherRetryableBlockedTodo } from '../lib/workspace-watcher-blocked-reason.js';
 import {
   applyCsrfFromAuthPayload,
@@ -164,6 +176,23 @@ async function apiFetchJson(url, init, label, fetchOptions = {}) {
 
 export async function getWorkspace() {
   return dedupeGetJson('/api/workspace', 'getWorkspace');
+}
+
+/**
+ * Resolve opaque view-context route ids (`ws`/`folder`) into runtime workspace
+ * paths before a panel fetches data. Answers with `{ ok:false, error: code }`
+ * for a deleted or foreign id; the caller must keep the link's target then.
+ *
+ * @param {{ workspaceKey?: string, folderKey?: string }} ids
+ */
+export async function getWorkspaceContext(ids = {}) {
+  const params = new URLSearchParams();
+  const workspaceKey = String(ids.workspaceKey || '').trim();
+  const folderKey = String(ids.folderKey || '').trim();
+  if (workspaceKey) params.set('ws', workspaceKey);
+  if (folderKey) params.set('folder', folderKey);
+  const qs = params.toString();
+  return dedupeGetJson(qs ? `/api/workspace/context?${qs}` : '/api/workspace/context', 'getWorkspaceContext');
 }
 
 export async function getSettings() {
@@ -332,8 +361,9 @@ export async function getChats(query = {}) {
     params.set('includeSummaries', '1');
   }
   const qs = params.toString();
-  const path = qs ? `/api/chats?${qs}` : '/api/chats';
-  return dedupeGetJson(path, qs ? `getChats:${qs}` : 'getChats');
+  const basePath = qs ? `/api/chats?${qs}` : '/api/chats';
+  const path = withResolvedViewContextRuntimeQuery(basePath);
+  return dedupeGetJson(path, path.includes('?') ? `getChats:${path.slice(path.indexOf('?') + 1)}` : 'getChats');
 }
 
 /**
@@ -629,7 +659,12 @@ export async function logoutCodex() {
 
 /** Live task worktrees of a workspace folder (new-chat picker). */
 export async function getWorktrees(workspaceFolder) {
-  const params = new URLSearchParams({ workspaceFolder: String(workspaceFolder || '') });
+  const folder = String(workspaceFolder || '').trim();
+  if (!folder) {
+    if (!isViewContextScopedAccessAllowed()) return blockedGitScopeResult();
+    return { ok: false, code: 'workspace-folder-required' };
+  }
+  const params = new URLSearchParams({ workspaceFolder: folder });
   return apiFetchJson(`/api/worktrees?${params.toString()}`, {}, 'getWorktrees');
 }
 
@@ -1001,7 +1036,8 @@ export async function getFileContent(filePath) {
 
 /** Todos for the current workspace, stored server-side in data/todos. */
 export async function getTodos(workspaceFolder) {
-  return dedupeGetJson(`/api/todos${todoWorkspaceQuery(workspaceFolder)}`, 'getTodos');
+  const path = withViewContextQuery(`/api/todos${todoWorkspaceQuery(workspaceFolder)}`);
+  return dedupeGetJson(path, path.includes('?') ? `getTodos:${path.slice(path.indexOf('?') + 1)}` : 'getTodos');
 }
 
 export async function postTodo(payload) {
@@ -1141,12 +1177,29 @@ function worktreeWorkspaceQuery(workspaceFolder) {
   return folder ? `?workspaceFolder=${encodeURIComponent(folder)}` : '';
 }
 
+/**
+ * @param {string} workspaceFolder
+ * @returns {{ ok: false, code: string } | null}
+ */
+function refuseEmptyWorktreeFolder(workspaceFolder) {
+  const folder = String(workspaceFolder || '').trim();
+  if (folder) return null;
+  return { ok: false, code: 'workspace-folder-required' };
+}
+
 /** Worktrees of a workspace: registry reconciled with Git, with row states and actions. */
 export async function listWorktrees(workspaceFolder) {
-  return apiFetchJson(`/api/worktrees/list${worktreeWorkspaceQuery(workspaceFolder)}`, {}, 'listWorktrees');
+  const folder = String(workspaceFolder || '').trim();
+  if (!folder) {
+    if (!isViewContextScopedAccessAllowed()) return blockedGitScopeResult();
+    return { ok: false, code: 'workspace-folder-required' };
+  }
+  return apiFetchJson(`/api/worktrees/list${worktreeWorkspaceQuery(folder)}`, {}, 'listWorktrees');
 }
 
 export async function getWorktreeDiff(todoId, workspaceFolder) {
+  const refused = refuseEmptyWorktreeFolder(workspaceFolder);
+  if (refused) return refused;
   return apiFetchJson(
     `/api/worktrees/${encodeURIComponent(String(todoId || ''))}/diff${worktreeWorkspaceQuery(workspaceFolder)}`,
     {},
@@ -1156,6 +1209,8 @@ export async function getWorktreeDiff(todoId, workspaceFolder) {
 
 /** Merge preflight for the modal: target branch, blockers, diffstat, conflict forecast. */
 export async function getWorktreeMergePreview(todoId, workspaceFolder) {
+  const refused = refuseEmptyWorktreeFolder(workspaceFolder);
+  if (refused) return refused;
   return apiFetchJson(
     `/api/worktrees/${encodeURIComponent(String(todoId || ''))}/merge-preview${worktreeWorkspaceQuery(workspaceFolder)}`,
     {},
@@ -1165,6 +1220,8 @@ export async function getWorktreeMergePreview(todoId, workspaceFolder) {
 
 /** Start the git-level merge chat (harness/model chosen by the user). */
 export async function startWorktreeMerge(todoId, workspaceFolder, options = {}) {
+  const refused = refuseEmptyWorktreeFolder(workspaceFolder);
+  if (refused) return refused;
   return apiFetchJson(
     `/api/worktrees/${encodeURIComponent(String(todoId || ''))}/merge`,
     {
@@ -1183,6 +1240,8 @@ export async function startWorktreeMerge(todoId, workspaceFolder, options = {}) 
 }
 
 export async function rejectWorktree(todoId, workspaceFolder, reason = '') {
+  const refused = refuseEmptyWorktreeFolder(workspaceFolder);
+  if (refused) return refused;
   return apiFetchJson(
     `/api/worktrees/${encodeURIComponent(String(todoId || ''))}/reject`,
     {
@@ -1195,6 +1254,8 @@ export async function rejectWorktree(todoId, workspaceFolder, reason = '') {
 }
 
 export async function cleanupWorktree(todoId, workspaceFolder, options = {}) {
+  const refused = refuseEmptyWorktreeFolder(workspaceFolder);
+  if (refused) return refused;
   return apiFetchJson(
     `/api/worktrees/${encodeURIComponent(String(todoId || ''))}/cleanup`,
     {
@@ -1265,6 +1326,32 @@ export async function getCursorContext(workspaceFolder = '') {
  * @param {{ chatId?: string, todoId?: string, workspaceFolder?: string } | null | undefined} scope
  * @returns {URLSearchParams}
  */
+/**
+ * Chat list reads need durable route keys plus resolved runtime paths when the
+ * tab owns an explicit ws/folder scope (including resource conflicts).
+ *
+ * @param {string} basePath
+ * @returns {string}
+ */
+function withResolvedViewContextRuntimeQuery(basePath) {
+  const path = withViewContextQuery(basePath);
+  const state = getViewContextState();
+  if (!state || !hasExplicitWorkspace(state.context || {})) return path;
+  const runtime = viewContextRuntimeParams(state);
+  if (!runtime.workspaceFolder && !runtime.workspaceFile) return path;
+  const qIndex = path.indexOf('?');
+  const pathOnly = qIndex === -1 ? path : path.slice(0, qIndex);
+  const merged = new URLSearchParams(qIndex === -1 ? '' : path.slice(qIndex + 1));
+  if (runtime.workspaceFolder && !merged.has('workspaceFolder')) {
+    merged.set('workspaceFolder', runtime.workspaceFolder);
+  }
+  if (runtime.workspaceFile && !merged.has('workspaceFile')) {
+    merged.set('workspaceFile', runtime.workspaceFile);
+  }
+  const query = merged.toString();
+  return query ? `${pathOnly}?${query}` : pathOnly;
+}
+
 function buildGitScopeParams(scope) {
   const params = new URLSearchParams();
   const chatId = String(scope?.chatId || '').trim();
@@ -1274,6 +1361,32 @@ function buildGitScopeParams(scope) {
   if (todoId) params.set('todoId', todoId);
   if (workspaceFolder) params.set('workspaceFolder', workspaceFolder);
   return params;
+}
+
+/**
+ * A Git/GitHub request with NO selector makes the route fall back to the
+ * server's shared settings cwd (lib/git-context.js). While this tab is under an
+ * explicit `ws`/`folder` link that has not resolved (pending, missing or
+ * conflicting), that fallback answer belongs to a DIFFERENT workspace, so the
+ * request is refused here instead of leaving the tab.
+ *
+ * @param {{ chatId?: string, todoId?: string, workspaceFolder?: string } | null | undefined} scope
+ * @returns {boolean}
+ */
+function isUnscopedGitRequestBlocked(scope) {
+  if (buildGitScopeParams(scope).toString() !== '') return false;
+  const state = getViewContextState();
+  if (!state || !hasExplicitWorkspace(state.context)) return false;
+  if (!isViewContextScopedAccessAllowed()) return true;
+  if (state.status === VIEW_CONTEXT_STATUS.CONFLICT) return true;
+  return false;
+}
+
+/** @returns {{ ok: false, code: string }} */
+function blockedGitScopeResult() {
+  // No `error` text: panels and chips render their own localized failure state,
+  // and a pending link is not a server-side failure worth echoing.
+  return { ok: false, code: 'view-context-pending' };
 }
 
 /**
@@ -1287,22 +1400,28 @@ function withQuery(basePath, params) {
 }
 
 export async function getGitInfo(scope = null) {
+  if (isUnscopedGitRequestBlocked(scope)) return blockedGitScopeResult();
   return cretliApiFetch(withQuery('/api/git/info', buildGitScopeParams(scope)), {}, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 /** Local branches for the workspace quick switch (server parses `for-each-ref`). */
 export async function getGitBranches(scope = null) {
+  if (isUnscopedGitRequestBlocked(scope)) return blockedGitScopeResult();
   return cretliApiFetch(withQuery('/api/git/branches', buildGitScopeParams(scope)), {}, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 /** Diff of a single file against HEAD; path is relative to the execution folder. */
 export async function getGitFileDiff(filePath, scope = null) {
+  if (isUnscopedGitRequestBlocked(scope)) return blockedGitScopeResult();
   const params = buildGitScopeParams(scope);
   params.set('path', String(filePath));
   return cretliApiFetch(withQuery('/api/git/file-diff', params), {}, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 export async function postGitAction(payload, scope = null) {
+  // A write is the dangerous half: an empty scope would run Git in whatever
+  // folder the server happens to default to, not the workspace the link named.
+  if (isUnscopedGitRequestBlocked(scope)) return blockedGitScopeResult();
   const body = { ...(payload || {}) };
   for (const [key, value] of buildGitScopeParams(scope)) body[key] = value;
   return cretliApiFetch('/api/git/run', {
@@ -1313,10 +1432,12 @@ export async function postGitAction(payload, scope = null) {
 }
 
 export async function getGithubInfo(scope = null) {
+  if (isUnscopedGitRequestBlocked(scope)) return blockedGitScopeResult();
   return cretliApiFetch(withQuery('/api/github/info', buildGitScopeParams(scope)), {}, { acceptLanguage: getCurrentLang() }).then(json);
 }
 
 export async function getGithubWorkflowRuns(options = {}) {
+  if (isUnscopedGitRequestBlocked(options.scope)) return blockedGitScopeResult();
   const params = buildGitScopeParams(options.scope);
   if (options.perPage) params.set('per_page', String(options.perPage));
   if (options.page) params.set('page', String(options.page));
@@ -1324,6 +1445,7 @@ export async function getGithubWorkflowRuns(options = {}) {
 }
 
 export async function getGithubWorkflowRunJobs(runId, options = {}) {
+  if (isUnscopedGitRequestBlocked(options.scope)) return blockedGitScopeResult();
   const params = buildGitScopeParams(options.scope);
   return cretliApiFetch(
     withQuery(`/api/github/actions/runs/${encodeURIComponent(String(runId))}/jobs`, params),
@@ -1333,6 +1455,7 @@ export async function getGithubWorkflowRunJobs(runId, options = {}) {
 }
 
 export async function getGithubWorkflowJobLogs(jobId, options = {}) {
+  if (isUnscopedGitRequestBlocked(options.scope)) return blockedGitScopeResult();
   const params = buildGitScopeParams(options.scope);
   return cretliApiFetch(
     withQuery(`/api/github/actions/jobs/${encodeURIComponent(String(jobId))}/logs`, params),

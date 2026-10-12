@@ -27,6 +27,12 @@ import { createFavoritesStore } from './lib/favorites.js';
 import { sendSequenceToTerminalState } from './inputDispatch.js';
 import { getTerminalTheme, listenForTerminalThemeChanges } from './terminalTheme.js';
 import { escapeHtml } from './features/chat/chatHtmlUtils.js';
+import { navigateSpa } from './app/appShell/spaNavigationBridge.js';
+import {
+  getViewContextRuntimeScope,
+  hasExplicitViewContextWorkspace,
+  isViewContextScopedAccessAllowed,
+} from './app/appShell/viewContextBridge.js';
 
 const terminals = [];
 listenForTerminalThemeChanges(() => terminals.map((terminal) => terminal.term));
@@ -195,9 +201,22 @@ function connectTerminal(terminal) {
   ) {
     return;
   }
+  if (!isViewContextScopedAccessAllowed()) {
+    terminal._connectionStatus = 'disconnected';
+    if (terminal.id === activeTerminalId) setTerminalStatus('disconnected');
+    terminal.term.writeln('\r\n\x1b[33m' + t('workspace.contextPending') + '\x1b[0m');
+    return;
+  }
   const protocol = typeof location !== 'undefined' && location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = typeof location !== 'undefined' ? location.host : '';
-  const wsPath = terminal.sessionId ? '/ws?session=' + encodeURIComponent(terminal.sessionId) : '/ws';
+  const scope = getViewContextRuntimeScope();
+  const params = new URLSearchParams();
+  if (terminal.sessionId) params.set('session', terminal.sessionId);
+  if (scope.workspaceFolder) params.set('workspaceFolder', scope.workspaceFolder);
+  if (scope.workspaceFile) params.set('workspace', scope.workspaceFile);
+  if (hasExplicitViewContextWorkspace()) params.set('scoped', '1');
+  const query = params.toString();
+  const wsPath = query ? `/ws?${query}` : '/ws';
   const ws = new WebSocket(protocol + '//' + host + wsPath);
   terminal.ws = ws;
   terminal._connectionStatus = 'connecting';
@@ -318,6 +337,85 @@ function showTerminalMain() {
   const main = document.getElementById('terminal-main');
   if (banner) banner.style.display = 'none';
   if (main) main.style.display = 'flex';
+}
+
+function disposeTerminalPane(terminal) {
+  if (!terminal) return;
+  if (terminal._reconnectTimer != null) {
+    clearTimeout(terminal._reconnectTimer);
+    terminal._reconnectTimer = null;
+  }
+  if (terminal.ws) {
+    try {
+      terminal.ws.close();
+    } catch (_) {}
+    terminal.ws = null;
+  }
+  try {
+    terminal.term?.dispose?.();
+  } catch (_) {}
+  terminal.pane?.remove?.();
+}
+
+function disposeAllTerminalPanes() {
+  for (const terminal of [...terminals]) {
+    disposeTerminalPane(terminal);
+  }
+  terminals.length = 0;
+  activeTerminalId = null;
+  updateTerminalSelect();
+}
+
+/**
+ * Safe shell when a deep-linked session id is missing — no PTY spawn.
+ */
+export function clearTerminalSessionFromRoute() {
+  disposeAllTerminalPanes();
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+  const banner = document.getElementById('terminal-join-banner');
+  const main = document.getElementById('terminal-main');
+  const joinText = document.getElementById('terminal-join-text');
+  const joinBtn = document.getElementById('terminal-join-btn');
+  const newBtn = document.getElementById('terminal-new-btn');
+  if (main) main.style.display = 'none';
+  if (banner) banner.style.display = 'flex';
+  if (joinText) joinText.textContent = t('terminal.noSession');
+  if (joinBtn) joinBtn.style.display = 'none';
+  if (newBtn) {
+    newBtn.style.display = '';
+    newBtn.onclick = () => {
+      showTerminalMain();
+      createTerminalPane(null);
+      initTerminalSendBar();
+    };
+  }
+}
+
+/**
+ * Join a live shared terminal session from route restore (after server validation).
+ *
+ * @param {string} sessionId
+ */
+export function joinTerminalSessionFromRoute(sessionId) {
+  const id = typeof sessionId === 'string' ? sessionId.trim() : '';
+  if (!id) return;
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+  const existing = terminals.find((row) => row.sessionId === id);
+  if (existing) {
+    showTerminalMain();
+    selectTerminal(existing.id);
+    initTerminalSendBar();
+    return;
+  }
+  showTerminalMain();
+  createTerminalPane(id);
+  initTerminalSendBar();
 }
 
 function initTerminalSendBar() {
@@ -455,10 +553,10 @@ export function initTerminalPanel(_containerId) {
               showTerminalMain();
               createTerminalPane(data.sessionId);
               initTerminalSendBar();
-              if (typeof history !== 'undefined' && history.replaceState) {
-                const pathname = typeof location !== 'undefined' ? location.pathname : '/';
-                history.replaceState(null, '', pathname + '?session=' + encodeURIComponent(data.sessionId));
-              }
+              void navigateSpa(
+                { panel: 'terminal', query: { session: data.sessionId } },
+                { explicit: false, history: 'replace' },
+              );
             };
           }
         } else {
@@ -507,9 +605,8 @@ export function initTerminalPanel(_containerId) {
       poll();
       pollInterval = setInterval(poll, 2500);
     } else {
-      const sessionId = new URLSearchParams(location.search).get('session');
+      // Session join runs only after route resource restore validates the id.
       showTerminalMain();
-      createTerminalPane(sessionId);
       initTerminalSendBar();
     }
 

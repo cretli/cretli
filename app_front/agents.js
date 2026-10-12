@@ -710,6 +710,22 @@ export function initAgentsPanel() {
   updateAgentRunSelect();
 }
 
+/**
+ * @param {string} runId
+ */
+export function restoreAgentRunFromRoute(runId) {
+  const id = typeof runId === 'string' ? runId.trim() : '';
+  if (!id) return;
+  selectAgentRun(id);
+}
+
+/**
+ * @returns {string[]}
+ */
+export function listScopedAgentRunIdsForRoute() {
+  return agentRuns.map((run) => String(run.id || '').trim()).filter(Boolean);
+}
+
 export function refreshAgentsList() {
   updateAgentRunSelect();
   getAgentsApi().then((agentsData) => {

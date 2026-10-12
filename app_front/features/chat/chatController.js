@@ -38,6 +38,11 @@ import {
 } from './chatListLoadFreshness.js';
 import { reconcileServerChatsInTimeSlices } from './chatListServerReconcile.js';
 import { mergeRuntimeChatListAfterScopedArchiveLoad } from './chatListScopedArchiveMerge.js';
+import {
+  getViewContextRuntimeScope,
+  hasExplicitViewContextTarget,
+  isViewContextScopedAccessAllowed,
+} from '../../app/appShell/viewContextBridge.js';
 import { scheduleDomWrite } from '../../lib/schedulerYield.js';
 
 function normalizePath(pathValue) {
@@ -159,11 +164,7 @@ export function createChatController(deps) {
 
   function readHeaderWorkspaceContext() {
     if (typeof document === 'undefined') return { workspaceFile: '', workspaceFolder: '' };
-    const trigger = document.getElementById('header-workspace-trigger');
-    return {
-      workspaceFile: typeof trigger?.dataset?.workspaceFile === 'string' ? trigger.dataset.workspaceFile : '',
-      workspaceFolder: typeof trigger?.dataset?.workspaceFolder === 'string' ? trigger.dataset.workspaceFolder : '',
-    };
+    return getViewContextRuntimeScope();
   }
 
   /**
@@ -182,6 +183,9 @@ export function createChatController(deps) {
 
   function restoreHeaderWorkspaceContext(context) {
     if (typeof document === 'undefined' || !context) return;
+    // An explicit `ws`/`folder` in the link owns this tab's context; the cold
+    // cache must never pre-empt it (stage 2: the URL wins over the cache).
+    if (hasExplicitViewContextTarget()) return;
     const trigger = document.getElementById('header-workspace-trigger');
     if (!trigger?.dataset) return;
     if (trigger.dataset.workspaceFile || trigger.dataset.workspaceFolder) return;
@@ -554,6 +558,9 @@ export function createChatController(deps) {
   }
 
   function loadChatsFromServer(query = {}) {
+    if (!isViewContextScopedAccessAllowed()) {
+      return Promise.resolve();
+    }
     // Render the cached list (and open the last active chat from IndexedDB) before any
     // network wait; the request below only reconciles it.
     // Task 0.1: time the synchronous hydrate separately from the poll and the
@@ -847,6 +854,7 @@ export function createChatController(deps) {
   function selectChatController(id) {
     const chats = getChats();
     const chat = chats.find((c) => c.id === id);
+    if (chat && !isViewContextScopedAccessAllowed()) return;
     if (chat) openTerminal(chat);
     setActiveChatId(id);
     if (chat?.cursorSessionId && chat.pane) ensureChatConnection(chat);

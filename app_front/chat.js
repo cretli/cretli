@@ -360,6 +360,10 @@ import {
   requestWidgetHostUrl,
 } from './embed/widgetHostNavigation.js';
 import { initAgentWakeLock, syncAgentWakeLock } from './features/pwa/wakeLock.js';
+import {
+  getViewContextRuntimeScope,
+  reportViewContextResourceConflict,
+} from './app/appShell/viewContextBridge.js';
 import './components/chat/cr-sdk-mode-bar.js';
 import './components/chat/cr-chat-diag.js';
 const LAST_CHAT_ID_KEY = 'cretli-last-chat-id';
@@ -3358,13 +3362,11 @@ getChatPersistenceQueue()?.installLifecycleFlushHooks();
 
 /** Chats assigned to the current header workspace. Older chats (no workspaceFile) are hidden. */
 function getWorkspaceContextForChat() {
-  const trigger = document.getElementById('header-workspace-trigger');
-  const headerWorkspaceFile = trigger?.dataset?.workspaceFile || '';
-  const headerWorkspaceFolder = trigger?.dataset?.workspaceFolder || '';
-  if (headerWorkspaceFile || headerWorkspaceFolder) {
+  const scoped = getViewContextRuntimeScope();
+  if (scoped.workspaceFile || scoped.workspaceFolder) {
     return {
-      workspaceFile: headerWorkspaceFile,
-      workspaceFolder: headerWorkspaceFolder,
+      workspaceFile: scoped.workspaceFile,
+      workspaceFolder: scoped.workspaceFolder,
     };
   }
   const embedOverride = (typeof window !== 'undefined' && window.__crWorkspaceOverride)
@@ -6098,6 +6100,10 @@ function alignActiveWorkspaceWithChat(chat) {
     getPreferredWorkspaceFolderForChat,
   );
   if (!target) return;
+  // A chat opened while the link pins ws/folder must belong to that scope;
+  // report a conflict and keep the linked context — no local or global switch.
+  const ownership = reportViewContextResourceConflict('chat', chat);
+  if (!ownership.ok) return;
   workspaceRefreshPreserveDepth += 1;
   Promise.resolve(applyVoiceWorkspaceSwitch(target.workspaceFile, target.workspaceFolder))
     .finally(() => {
@@ -6106,13 +6112,18 @@ function alignActiveWorkspaceWithChat(chat) {
 }
 
 function performSelectChat(id) {
+  const chat = chats.find((c) => c.id === id);
+  if (chat) {
+    const ownership = reportViewContextResourceConflict('chat', chat);
+    if (!ownership.ok) return;
+  }
   const reselectingActive = activeChatId === id;
   const prevActiveChatId = activeChatId;
   retainMountedChatPanes(id);
-  chats.forEach((chat) => {
-    chat.pane?._sendBar?.closeSendMenu?.();
-    if (chat.id === id) return;
-    chatDiagnosticsApi.stopChatContextUsageSync(chat);
+  chats.forEach((c) => {
+    c.pane?._sendBar?.closeSendMenu?.();
+    if (c.id === id) return;
+    chatDiagnosticsApi.stopChatContextUsageSync(c);
   });
   recordChatLastUsed(id);
   recordChatActivity(id);
@@ -6122,7 +6133,6 @@ function performSelectChat(id) {
   // and the newly active row. With the full `*` gone, neither repaints itself.
   scheduleChatListStateRefresh([prevActiveChatId, id]);
   scheduleChatSendBarReserveSync();
-  const chat = chats.find((c) => c.id === id);
   if (chat?._serverRunState?.state === 'waiting' && chat._serverRunState.delegationId) {
     void api.postDelegationAck(chat._serverRunState.delegationId, { reason: 'open_child' }).then((res) => {
       if (!res?.ok || !res.delegation) return;

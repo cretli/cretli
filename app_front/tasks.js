@@ -1392,6 +1392,22 @@ export function initTasksPanel() {
  * Refreshes the list of running runs in the select.
  * @param {{ invalidateCache?: boolean }} [options]
  */
+/**
+ * @param {string} runId
+ */
+export function restoreTaskRunFromRoute(runId) {
+  const id = typeof runId === 'string' ? runId.trim() : '';
+  if (!id) return;
+  selectTaskRun(id);
+}
+
+/**
+ * @returns {string[]}
+ */
+export function listScopedTaskRunIdsForRoute() {
+  return getScopedTaskRuns().map((run) => String(run.id || '').trim()).filter(Boolean);
+}
+
 export function refreshTasksList(options = {}) {
   const scopeKey = getTasksScopeCacheKey();
   if (lastTasksScopeKey && scopeKey !== lastTasksScopeKey) {

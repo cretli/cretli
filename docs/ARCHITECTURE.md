@@ -31,6 +31,11 @@ built to `public/dist/`.
 | `workspace-folders.js` | Folder overlay merge/sync and optional JSONC write-back |
 | `workspace-list.js` | Seed registry, add/remove paths, build `/api/workspaces` payload |
 | `spa-routes.js` | Allowlisted History API view paths (`/chat`, `/settings/workspace`, …) |
+| `workspace-route-context.js` | Resolve opaque `ws` / `folder` query ids to registry rows |
+| `persist/workspace-route-keys.js` | Mint and persist workspace/folder route UUIDs in config |
+
+SPA navigation contract (RouteState v1, storage, resource adapters):
+[docs/spa-route-navigation.md](spa-route-navigation.md).
 | `persist/chats-persist.js` | CRUD for `data/chats.json`; SDK chat metadata (`cursorSessionId`, `sdkAgentId`, `codexThreadId`, `qwenSessionId`, `claudeSessionId`, …) |
 | `persist/mcp-persist.js` | `data/mcp.json` + `mcp-secrets.json` with a recoverable write journal (`mcp-tx.json`) |
 | `mcp/` | MCP config, secrets, runtime, Plan policy, harness adapters, Settings API |
