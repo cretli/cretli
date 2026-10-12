@@ -2070,6 +2070,7 @@ export const en = {
     deleted: 'Deleted',
     loadFailed: 'Failed to load the list',
     loadError: 'Load error',
+    loading: 'Loading tasks…',
     provideTitle: 'Provide a title',
     error: 'Error',
     newTitle: 'New task',

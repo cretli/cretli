@@ -14847,3 +14847,60 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   padding: 0.5rem 0;
   background: var(--cr-overlay-panel-bg, var(--cr-surface));
 }
+
+/* Task list loading state: spinning refresh button and placeholder rows. */
+@keyframes todo-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes todo-skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.todo-refresh--loading .mdi {
+  animation: todo-loading-spin 0.9s linear infinite;
+}
+
+.todo-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.todo-skeleton-row {
+  min-height: 2.9rem;
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  padding: 0.65rem 0.75rem;
+  background: var(--cr-surface-translucent);
+}
+
+.todo-skeleton-row span {
+  display: block;
+  width: var(--todo-skeleton-width, 80%);
+  height: 0.8rem;
+  border-radius: var(--cr-radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--cr-surface-2) 25%,
+    var(--cr-surface-raised) 50%,
+    var(--cr-surface-2) 75%
+  );
+  background-size: 300% 100%;
+  animation: todo-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .todo-refresh--loading .mdi,
+  .todo-skeleton-row span {
+    animation: none;
+  }
+}

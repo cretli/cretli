@@ -2416,6 +2416,28 @@ async function onReviewOpenReport(event) {
   }
 }
 
+const LIST_SKELETON_ROWS = 7;
+
+/**
+ * Loading feedback for the task list: the refresh button spins on every fetch,
+ * and a list with nothing to show yet gets placeholder rows instead of a blank
+ * panel. `renderList` replaces the placeholders as soon as data arrives.
+ *
+ * @param {boolean} loading
+ */
+function setListLoading(loading) {
+  const refreshBtn = document.getElementById('todo-refresh-btn');
+  refreshBtn?.classList.toggle('todo-refresh--loading', loading);
+  refreshBtn?.setAttribute('aria-busy', loading ? 'true' : 'false');
+  listEl?.setAttribute('aria-busy', loading ? 'true' : 'false');
+  if (!loading || !listEl || listEl.querySelector('.todo-rows')) return;
+  const rows = Array.from({ length: LIST_SKELETON_ROWS }, (_, index) =>
+    `<div class="todo-skeleton-row" style="--todo-skeleton-width:${96 - ((index * 13) % 38)}%"><span></span></div>`
+  ).join('');
+  listEl.innerHTML =
+    `<div class="todo-skeleton" role="status" aria-label="${t('todo.loading')}">${rows}</div>`;
+}
+
 export function refreshTodoList() {
   const generation = ++refreshGeneration;
   const folder = getTodoWorkspaceFolder();
@@ -2428,8 +2450,15 @@ export function refreshTodoList() {
   void api.getAgentSdkStatus().then((data) => {
     sdkReady = !!data?.ready;
   }).catch(() => {});
+  setListLoading(true);
   return api
     .getTodos(folder)
+    .finally(() => {
+      if (generation !== refreshGeneration) return;
+      setListLoading(false);
+      // A response that is discarded below must not leave placeholders behind.
+      listEl?.querySelector('.todo-skeleton')?.remove();
+    })
     .then((data) => {
       if (!isCurrent()) return;
       if (data?.cwd && folder && !todoWorkspaceMatches(data.cwd, folder)) return;

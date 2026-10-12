@@ -2070,6 +2070,7 @@ export const pl = {
     deleted: 'Usunięto',
     loadFailed: 'Nie udało się wczytać listy',
     loadError: 'Błąd wczytywania',
+    loading: 'Ładowanie listy zadań…',
     provideTitle: 'Podaj tytuł',
     error: 'Błąd',
     newTitle: 'Nowe zadanie',
