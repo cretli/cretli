@@ -338,15 +338,58 @@ export function buildTodoMarkdown(item) {
 
 
 /**
+ * Per-list cache for row marks. A list renders every row against the same
+ * `items` array, and each lookup used to rescan the whole list (quadratic: ~1.6 s
+ * for 570 tasks). The array is replaced, never mutated in place, so its identity
+ * is a safe key and the cache dies with the list.
+ *
+ * @type {WeakMap<object[], { list: object[], index: Map<string, object>, readyIds: Set<string>, blocked: Map<string, boolean> }>}
+ */
+const rowContextCache = new WeakMap();
+
+/**
+ * @param {object[] | null | undefined} items
+ */
+function readTodoRowContext(items) {
+  const list = Array.isArray(items) ? items : [];
+  let context = rowContextCache.get(list);
+  if (!context) {
+    context = {
+      list,
+      index: buildTodoIndex(list),
+      readyIds: new Set(listReadyTodoLeaves(list).map((row) => String(row.id))),
+      blocked: new Map(),
+    };
+    rowContextCache.set(list, context);
+  }
+  return context;
+}
+
+/**
+ * @param {ReturnType<typeof readTodoRowContext>} context
+ * @param {object} item
+ * @returns {boolean}
+ */
+function isRowBranchBlocked(context, item) {
+  const id = String(item.id);
+  let blocked = context.blocked.get(id);
+  if (blocked === undefined) {
+    blocked = isTodoBranchBlocked(context.list, item, context.index);
+    context.blocked.set(id, blocked);
+  }
+  return blocked;
+}
+
+/**
  * @param {object[] | null | undefined} items
  * @param {object | null | undefined} item
  * @returns {'blocked' | 'ready' | ''}
  */
 export function readTodoRowMark(items, item) {
   if (!item?.id) return '';
-  if (isTodoBranchBlocked(items, item)) return 'blocked';
-  const ready = listReadyTodoLeaves(items).some((row) => row?.id === item.id);
-  return ready ? 'ready' : '';
+  const context = readTodoRowContext(items);
+  if (isRowBranchBlocked(context, item)) return 'blocked';
+  return context.readyIds.has(String(item.id)) ? 'ready' : '';
 }
 
 /**
@@ -360,7 +403,7 @@ export function readTodoRowMark(items, item) {
 export function readTodoRowBlockKind(items, item) {
   if (!item?.id) return '';
   if (String(item.blockedReason || '').trim()) return 'action';
-  return isTodoBranchBlocked(Array.isArray(items) ? items : [], item) ? 'dependency' : '';
+  return isRowBranchBlocked(readTodoRowContext(items), item) ? 'dependency' : '';
 }
 
 /**
