@@ -635,8 +635,10 @@ function formatTodoMetaText(item) {
     : integrationFilterLabel(integrationState);
   // An unconfirmed state is the default for every open task, so it only adds
   // noise on a narrow row; show integration for done work and non-default states.
-  const showIntegration = integrationState !== 'unconfirmed' || integrationDetail
-    || normalizeTodoItemStatus(item?.status) === 'done';
+  // The healthy state (integrated, no caveat) is left out so rows stay one line.
+  const isHealthy = integrationState === 'integrated' && !integrationDetail;
+  const showIntegration = !isHealthy && (integrationState !== 'unconfirmed' || !!integrationDetail
+    || normalizeTodoItemStatus(item?.status) === 'done');
   if (showIntegration) parts.push(integrationLabel);
   return parts.join(' · ');
 }
