@@ -79,6 +79,8 @@ const COOLDOWN_STEP_MS = 30_000;
  */
 const DEFAULT_POLICY = {
   maxParallel: 1,
+  maxParallelWorktree: 0,
+  maxParallelProject: 0,
   maxCyclesPerDay: 20,
   maxConsecutiveFailures: 3,
   maxSameFindings: 2,
@@ -2204,6 +2206,8 @@ function renderWatcherPanel(root, data) {
         <div class="watcher-grid">
           <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherMaxCyclesPerDay'))}</span><input id="watcher-max-cycles" type="number" min="0" value="${Number(policy.maxCyclesPerDay) || 0}"></label>
           <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherMaxParallel'))}</span><input id="watcher-max-parallel" type="number" min="1" max="10" value="${Number(policy.maxParallel) || 1}"></label>
+          <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherMaxParallelWorktree'))}</span><input id="watcher-max-parallel-worktree" type="number" min="0" max="10" value="${Number(policy.maxParallelWorktree) || 0}"></label>
+          <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherMaxParallelProject'))}</span><input id="watcher-max-parallel-project" type="number" min="0" max="10" value="${Number(policy.maxParallelProject) || 0}"></label>
           <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherMaxFailures'))}</span><input id="watcher-max-failures" type="number" min="0" value="${Number(policy.maxConsecutiveFailures) || 0}"></label>
           <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherMaxSameFindings'))}</span><input id="watcher-max-findings" type="number" min="0" value="${Number(policy.maxSameFindings) || 0}"></label>
           <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherBackoffBaseMs'))}</span><input id="watcher-backoff-base" type="number" min="0" value="${Number(policy.backoffBaseMs) || 0}"></label>
@@ -2402,6 +2406,9 @@ function readWatcherForm(root) {
     mode: root.querySelector('input[name="watcher-mode"]:checked')?.value || 'off',
     policy: {
       maxParallel: Number(root.querySelector('#watcher-max-parallel')?.value) || 1,
+      // 0 means "no separate limit" for that execution folder.
+      maxParallelWorktree: Number(root.querySelector('#watcher-max-parallel-worktree')?.value) || 0,
+      maxParallelProject: Number(root.querySelector('#watcher-max-parallel-project')?.value) || 0,
       maxCyclesPerDay: Number(root.querySelector('#watcher-max-cycles')?.value) || 0,
       maxConsecutiveFailures: Number(root.querySelector('#watcher-max-failures')?.value) || 0,
       maxSameFindings: Number(root.querySelector('#watcher-max-findings')?.value) || 0,
@@ -2472,6 +2479,14 @@ function validateWatcherForm(root) {
   const maxParallel = Number(root.querySelector('#watcher-max-parallel')?.value);
   if (!Number.isInteger(maxParallel) || maxParallel < 1 || maxParallel > 10) {
     errors.push(t('settings.watcherValidationMaxParallel'));
+  }
+  for (const id of ['#watcher-max-parallel-worktree', '#watcher-max-parallel-project']) {
+    const raw = root.querySelector(id)?.value;
+    const pool = raw === '' || raw == null ? 0 : Number(raw);
+    if (!Number.isInteger(pool) || pool < 0 || pool > 10) {
+      errors.push(t('settings.watcherValidationPoolParallel'));
+      break;
+    }
   }
   if (root.querySelector('#watcher-quiet-enabled')?.checked === true) {
     const start = String(root.querySelector('#watcher-quiet-start')?.value || '').trim();
@@ -2547,6 +2562,8 @@ function resetWatcherForm(root) {
   if (offRadio) offRadio.checked = true;
   set('watcher-max-cycles', DEFAULT_POLICY.maxCyclesPerDay);
   set('watcher-max-parallel', DEFAULT_POLICY.maxParallel);
+  set('watcher-max-parallel-worktree', DEFAULT_POLICY.maxParallelWorktree);
+  set('watcher-max-parallel-project', DEFAULT_POLICY.maxParallelProject);
   set('watcher-max-failures', DEFAULT_POLICY.maxConsecutiveFailures);
   set('watcher-max-findings', DEFAULT_POLICY.maxSameFindings);
   set('watcher-backoff-base', DEFAULT_POLICY.backoffBaseMs);

@@ -705,6 +705,8 @@ Defaults from `defaultWorkspaceWatcherPolicy()`:
 | Field | Default | Meaning |
 |-------|---------|---------|
 | `maxParallel` | `1` | Maximum busy agents before a new cycle waits (1-10) |
+| `maxParallelWorktree` | `0` | Separate cap for worktree leaves (0-10, `0` = no separate limit); `maxParallel` stays the overall ceiling |
+| `maxParallelProject` | `0` | Separate cap for leaves running in the project folder (0-10, `0` = no separate limit) |
 | `maxCyclesPerDay` | `20` | UTC-day cycle budget |
 | `maxConsecutiveFailures` | `3` | Failure ceiling before a todo is parked; `0` disables |
 | `maxSameFindings` | `2` | Identical review findings in a row before a stop; `0` disables |
