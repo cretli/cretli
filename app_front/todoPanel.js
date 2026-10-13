@@ -1341,6 +1341,8 @@ function renderRowMenuItems(row, list) {
       label: t('todo.refinePlan'),
       disabled: String(item.status || '') === 'done',
     },
+    // Plan-review delegation (review_subject=plan), same path as the card's plan review button.
+    { id: 'reviewPlanAgent', icon: 'mdi-robot-outline', label: t('todo.reviewPlanAgent') },
     // Only offered when the item's tree really owns an un-integrated worktree;
     // a permanently disabled row on every other task would be noise.
     ...(canIntegrateWorktree(item)
@@ -1481,6 +1483,10 @@ async function runRowMenuAction(action, item) {
   }
   if (action === 'refinePlan') {
     openTodoRefinePicker(item);
+    return;
+  }
+  if (action === 'reviewPlanAgent') {
+    onReviewStart({ detail: { id, subject: 'plan' } });
     return;
   }
   if (action === 'integrate') {
@@ -2473,6 +2479,8 @@ async function startTodoAgentOnce(todoId, options = {}) {
     ...(options.dirtyPolicy ? { dirtyPolicy: options.dirtyPolicy } : {}),
   };
   if (forceNew) payload.forceNew = true;
+  // Continuing in a fresh chat runs the executor, never a plan-mode draft.
+  if (forceNew && !refine) payload.sdkMode = 'agent';
   if (refine) payload.mode = 'refine';
   if (refine && options.planReviewerCooperationMode) {
     payload.cooperationMode = options.planReviewerCooperationMode;
