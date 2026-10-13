@@ -13,6 +13,20 @@ All notable changes to this project are documented here. The format is based on
   agent starts, reviews and integration, keeps cohesive work together, and
   asks plan reviewers to check for missing boundaries and excessive splitting.
 
+- **Bounded reviewer wait and no re-check on unchanged material.** A reviewer
+  run that exceeds its run deadline (`CRETLI_REVIEW_REVIEWER_WAIT_MS`, default
+  the 20-minute review/fix limit, `0` disables) is cancelled and resolves the
+  round to `unknown` / `reviewer_timeout` instead of holding it open. Starting
+  the same reviewer again on unchanged code or an unchanged todo plan is refused
+  with `review_recheck_no_material_change` (HTTP 409) unless `allow_recheck=true`
+  is passed.
+
+- **Experimental automatic leaf close (`CRETLI_TODO_LEAF_AUTO_CLOSE`, default
+  off).** When enabled, a `doing` leaf moves to `done` after a fresh code-review
+  PASS with satisfied verify, unless it awaits integration, is worktree-backed,
+  has an active implement/fix, or holds an unconfirmed cancel. With the flag off
+  nothing changes.
+
 - Workspace Watcher settings now expose the worktree dirty-tree start policy:
   block (default), last commit (HEAD), or a snapshot of current changes. New
   watcher worktrees honor the saved policy; existing worktree bases stay frozen.
