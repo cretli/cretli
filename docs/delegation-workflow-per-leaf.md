@@ -103,6 +103,20 @@ on the same leaf still has a failed verify for the current material revision
 (`verify_failed_before_review`; override with `allow_verify_failed_review=true`).
 Verify results are stored on the implement/fix record (`verify_result.material_revision`).
 
+The server also refuses to re-run the same reviewer (same transport and base
+model; an effort suffix does not make a different reviewer) on unchanged
+material (`review_recheck_no_material_change`, HTTP 409, no delegation row is
+created). For `review_subject=code` unchanged means no implement/fix was queued
+since that reviewer's last usable review; for `review_subject=plan` it means the
+plan of the todo named by `leaf_id` is unchanged: the server stores that todo's
+plan revision key (hash of `plan.updatedAt` + `plan.markdown`) on the review row
+as `todoPlanRevisionKey` and compares it on the next start, whatever the
+delegation source (`task_text`, history message or saved chat plan; the chat
+plan revision is not used). A plan start is allowed when the todo or its plan is
+missing, or when the earlier review row carries no key. A different base model, an exchange-phase start tied to an
+independent row, and `allow_recheck=true` are not refused. `review_subject=other`
+is not covered.
+
 ## Two-phase code review (audit + closure)
 
 For `review_subject=code` on a leaf with an explicit `leaf_id`, the server

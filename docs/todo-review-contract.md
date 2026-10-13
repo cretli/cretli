@@ -423,7 +423,7 @@ body. Consequences:
 ```jsonc
 {
   "state": "none|pending|passed|failed|manual|stale|unknown",
-  "stateReason": "fresh_review|verify_missing|no_verdict|history_truncated|implement_queued_after_review|…",
+  "stateReason": "fresh_review|verify_missing|no_verdict|reviewer_timeout|history_truncated|implement_queued_after_review|…",
   "subject": "code|plan|other",
   "subjectSource": "explicit|default|unknown",
   "round": {
@@ -490,6 +490,17 @@ Rules:
   in v1; `material.current` comes from §6.
 - Report bodies are never copied into `review`; only the verdict, the bounded
   `reportSummary` (if needed) and structural flags.
+- `reviewer_timeout` (additive): a reviewer run that exceeded its effective run
+  deadline is cancelled through the run-deadline cancel path and is not usable.
+  By default that deadline is `CRETLI_REVIEW_REVIEWER_WAIT_MS` (default: the
+  review/fix run limit, 20 minutes; `0` disables); an explicit `deadline_at` or
+  workflow deadline replaces the default limit. A terminal such attempt (`interruptCode` or `cancelCause`
+  `run_deadline_exceeded`, also after `cancel_unconfirmed`) resolves the round to
+  `unknown` / `reviewer_timeout`. It is never ignorable, so sibling PASSes do not
+  close the round (C4/C5 unchanged). A persisted FAIL/BLOCKED on such an attempt
+  still resolves the round to `failed` by the §4.5 ordering. `cancelling` is non-terminal, so the round
+  waits at most the wait limit plus `CRETLI_DELEGATION_CANCELLING_TIMEOUT_MS`;
+  the two settings are independent.
 
 ### 5.5 Generation and stable comparison — SETTLED
 
