@@ -150,8 +150,8 @@ runCase('isTodoNodeBlocked: sequential parent blocks on earlier unfinished sibli
 runCase('isTodoNodeBlocked: parallel parent ignores earlier siblings', () => {
   const items = [
     { id: 'root', plan: { approvedAt: 'yes' }, runMode: 'parallel' },
-    { id: 's0', parentId: 'root', siblingIndex: 0, status: 'doing' },
-    { id: 's1', parentId: 'root', siblingIndex: 1, status: 'idea' },
+    { id: 's0', parentId: 'root', siblingIndex: 0, status: 'doing', body: '## Leaf scope\n- lib/s0.js\n' },
+    { id: 's1', parentId: 'root', siblingIndex: 1, status: 'idea', body: '## Leaf scope\n- lib/s1.js\n' },
   ];
   assert.equal(isTodoNodeBlocked(items, items[2]), false);
 });
@@ -159,12 +159,12 @@ runCase('isTodoNodeBlocked: parallel parent ignores earlier siblings', () => {
 runCase('listReadyTodoLeaves: filters done/doing/idea, non-leaves, and blocked', () => {
   const items = [
     { id: 'root', runMode: 'parallel', plan: { approvedAt: 'yes' } },
-    { id: 'a', parentId: 'root', status: 'ready' },
+    { id: 'a', parentId: 'root', status: 'ready', body: '## Leaf scope\n- lib/a.js\n' },
     { id: 'b', parentId: 'root', status: 'done' },
-    { id: 'c', parentId: 'root', status: 'doing' },
+    { id: 'c', parentId: 'root', status: 'doing', body: '## Leaf scope\n- lib/c.js\n' },
     { id: 'e', parentId: 'root', status: 'idea' },
-    { id: 'd', parentId: 'root', status: 'ready', plan: { approvedAt: 'yes' } },
-    { id: 'd1', parentId: 'd', status: 'ready' },
+    { id: 'd', parentId: 'root', status: 'ready', plan: { approvedAt: 'yes' }, body: '## Leaf scope\n- lib/d.js\n' },
+    { id: 'd1', parentId: 'd', status: 'ready', body: '## Leaf scope\n- lib/d1.js\n' },
     { id: 'solo', status: 'ready' },
     { id: 'blockedParent', plan: { markdown: 'no approval' } },
     { id: 'blockedKid', parentId: 'blockedParent', status: 'ready' },

@@ -112,9 +112,12 @@ first failure; the first two compare against different row sets.
 
 Details:
 
-- Parent width: one implement/fix at a time per parent; any non-review row
-  blocks everything. Reviews fan out up to `readDelegationReviewFanout()`
-  (2 by default). A same-job resume is exempt.
+- Parent width: one implement/fix at a time per parent by default
+  (`CRETLI_DELEGATION_PARALLEL_IMPLEMENT_FANOUT=1`). When fanout is 2 (default),
+  additional implement/fix jobs on the same parent are allowed only for a
+  different leaf id with disjoint `## Leaf scope` paths (`lib/todo-parallel-scope.js`).
+  Active implement rows still block incoming reviews. Reviews fan out up to
+  `readDelegationReviewFanout()` (2 by default). A same-job resume is exempt.
 - Workspace guard: an incoming **review** is never blocked. Two parents in
   different execution folders do not block each other. Rows of the same parent
   are not "foreign" to it.

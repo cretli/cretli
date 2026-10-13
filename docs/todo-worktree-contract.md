@@ -168,9 +168,12 @@ still keys by the claimed leaf (`resolveWorktreeMode` is not changed).
 Mixing the two keyings is unsupported: a start refuses with HTTP 409 when the
 same direct line already has a live record under a different id (a manual root
 record vs a Watcher leaf record). Sibling leaves are not on the same line and
-may still run in parallel. Concurrent mutating chats **inside one tree** are
-also unsupported (the per-folder lock is unchanged): the second start gets
-`workspace_busy`.
+may still run in parallel when their declared `## Leaf scope` paths are disjoint
+(see `lib/todo-parallel-scope.js` and `docs/delegation-tree-controls.md`).
+They share one frozen `executionFolder`, so path collision rules apply instead of
+separate worktrees. Concurrent mutating chats **inside one tree** with overlapping
+scope are blocked by todo readiness and parent-width gates; foreign parents in the
+same folder still get `workspace_busy`.
 
 A long prepare does not block the request: `start-agent` answers `202
 {state:'preparing'}` and the client polls
