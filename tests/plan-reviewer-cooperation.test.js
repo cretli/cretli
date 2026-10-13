@@ -15,6 +15,7 @@ import {
 } from '../lib/plan-reviewer-cooperation.js';
 import {
   createPlanReviewerSession,
+  ensurePlanReviewerSession,
   getPlanReviewerExchangePayload,
   inspectPlanReviewerDelegationStart,
   markPlanReviewerSessionStaleIfRevisionChanged,
@@ -256,4 +257,76 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
   assert.match(String(session.divergenceSummary), /divergence:/);
   const stored = getPlanReviewerSessionById(session.id);
   assert.equal(stored.reviewers.length, 2);
+}
+
+// A reviewer that ended without a usable verdict must not close an independent
+// session, so its replacement can still be started.
+{
+  const { workspace, todoId } = setupTodoWithPlan();
+  let session = createPlanReviewerSession({
+    dataDir: ISOLATED_DATA_DIR,
+    workspaceFolder: workspace,
+    todoId,
+    coordinatorChatId: randomUUID(),
+    cooperationMode: 'independent',
+  }).session;
+  const delFailed = randomUUID();
+  const delPass = randomUUID();
+  session = registerPlanReviewerDelegation(session, delFailed, 0);
+  session = registerPlanReviewerDelegation(session, delPass, 1);
+  const finish = (id, report) => syncPlanReviewerSessionAfterDelegationFinish({
+    id,
+    planReviewerSessionId: session.id,
+    planReviewerPhase: 'independent',
+    workspaceFolder: workspace,
+    status: 'finished',
+    report,
+    finishedAt: new Date().toISOString(),
+  });
+  finish(delFailed, 'Qwen run failed');
+  session = finish(delPass, 'ok\nVERDICT: PASS');
+  assert.equal(session.phase, 'independent');
+  const replacement = inspectPlanReviewerDelegationStart({
+    planReviewerSessionId: session.id,
+    planReviewerPhase: 'independent',
+    reviewSubject: 'plan',
+  });
+  assert.equal(replacement.ok, true);
+}
+
+// A saved revision owns a session; retries keep evidence and rewrites get new sessions.
+{
+  const { workspace, todoId } = setupTodoWithPlan('# Version 1\n');
+  const input = {
+    dataDir: ISOLATED_DATA_DIR,
+    workspaceFolder: workspace,
+    todoId,
+    coordinatorChatId: randomUUID(),
+    cooperationMode: 'collaborative',
+  };
+  const first = ensurePlanReviewerSession(input);
+  const reviewerId = randomUUID();
+  registerPlanReviewerDelegation(first.session, reviewerId, 0);
+  const retry = ensurePlanReviewerSession(input);
+  assert.equal(retry.session.id, first.session.id);
+  assert.equal(retry.session.reviewers[0].delegationId, reviewerId);
+  for (const version of [2, 3]) {
+    updateTodo(ISOLATED_DATA_DIR, workspace, todoId, {
+      plan: { markdown: `# Version ${version}\n` },
+    });
+    assert.equal(inspectPlanReviewerDelegationStart({
+      planReviewerSessionId: first.session.id, reviewSubject: 'plan',
+    }).code, 'stale');
+    const current = ensurePlanReviewerSession(input);
+    assert.notEqual(current.session.id, first.session.id);
+    assert.equal(current.session.cooperationMode, 'collaborative');
+    assert.equal(current.session.reviewers.length, 0);
+    assert.equal(inspectPlanReviewerDelegationStart({
+      planReviewerSessionId: current.session.id, reviewSubject: 'plan',
+    }).ok, true);
+    assert.equal(ensurePlanReviewerSession(input).session.id, current.session.id);
+  }
+  const todo = loadTodosData(ISOLATED_DATA_DIR, workspace).items[0];
+  assert.equal(todo.status, 'idea');
+  assert.equal(todo.plan.approvedAt || '', '');
 }

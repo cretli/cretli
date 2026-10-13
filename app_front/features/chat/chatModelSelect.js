@@ -13,6 +13,7 @@ import {
   toLegacyModelOptions,
 } from '../../../lib/model-catalog.js';
 import { normalizeDeepSeekChatEnabledModels } from '../../../lib/deepseek/deepseek-model-ids.js';
+import { sortModelOptionsByStrength } from '../../../lib/model-strength-sort.js';
 import { setDynamicModelContextWindows } from '../../../lib/sdk/sdk-context-advisory.js';
 import { escapeHtml } from './chatHtmlUtils.js';
 
@@ -28,6 +29,14 @@ const MODEL_STATUS_SHORT_LABELS = {
   textarea: 'Tekst',
   awaiting: 'Czeka',
 };
+
+/** Preserve server-provided strength metadata through normalized provider catalogs. */
+function readModelStrengthMetadata(row) {
+  return {
+    ...(Number.isFinite(row?.qualityTier) ? { qualityTier: row.qualityTier } : {}),
+    ...(Number.isFinite(row?.strengthRank) ? { strengthRank: row.strengthRank } : {}),
+  };
+}
 
 /**
  * @typedef {Object} ChatModelSelectDeps
@@ -161,7 +170,13 @@ export function createChatModelSelect(deps) {
   function rebuildAvailableAgentModels(harness) {
     const resolvedHarness = normalizeModelPickerHarness(harness);
     pickerHarness = resolvedHarness;
+    availableAgentModels = getModelOptionsForHarness(resolvedHarness);
+  }
+
+  /** Read a harness catalog without changing the active chat's model picker. */
+  function getModelOptionsForHarness(resolvedHarness, { includeDisabled = false } = {}) {
     const { catalog, keys } = getCatalogStateForHarness(resolvedHarness);
+    if (includeDisabled) return sortModelOptionsByStrength(catalog).map((row) => ({ ...row }));
     const filtered = resolvedHarness === 'claude' && keys.length > 0
       ? catalog.filter((row) => {
         const effort = Array.isArray(row.params)
@@ -171,7 +186,7 @@ export function createChatModelSelect(deps) {
           || (effort === 'medium' && keys.includes(row.modelId));
       })
       : filterCatalogByEnabled(catalog, keys);
-    availableAgentModels = toLegacyModelOptions(filtered);
+    return toLegacyModelOptions(sortModelOptionsByStrength(filtered));
   }
 
   /**
@@ -303,6 +318,7 @@ export function createChatModelSelect(deps) {
   function applyAvailableModelsFromOpenCode(payload) {
     if (!payload?.ok || !Array.isArray(payload.models)) return false;
     const nextCatalog = payload.models.map((row) => ({
+      ...readModelStrengthMetadata(row),
       value: row.id,
       label: row.name || row.id,
       modelId: row.id,
@@ -339,6 +355,7 @@ export function createChatModelSelect(deps) {
   function applyAvailableModelsFromCodeBuddy(payload) {
     if (!payload?.ok || !Array.isArray(payload.models)) return false;
     const nextCatalog = payload.models.map((row) => ({
+      ...readModelStrengthMetadata(row),
       value: row.id,
       label: row.name || row.id,
       modelId: row.id,
@@ -365,6 +382,7 @@ export function createChatModelSelect(deps) {
   function applyAvailableModelsFromMistral(payload) {
     if (!payload?.ok || !Array.isArray(payload.models)) return false;
     const nextCatalog = payload.models.map((row) => ({
+      ...readModelStrengthMetadata(row),
       value: row.id,
       label: row.name || row.id,
       modelId: row.id,
@@ -391,6 +409,7 @@ export function createChatModelSelect(deps) {
   function applyAvailableModelsFromZai(payload) {
     if (!payload?.ok || !Array.isArray(payload.models)) return false;
     const nextCatalog = payload.models.map((row) => ({
+      ...readModelStrengthMetadata(row),
       value: row.id,
       label: row.name || row.id,
       modelId: row.id,
@@ -414,6 +433,7 @@ export function createChatModelSelect(deps) {
   function applyAvailableModelsFromMimo(payload) {
     if (!payload?.ok || !Array.isArray(payload.models)) return false;
     const nextCatalog = payload.models.map((row) => ({
+      ...readModelStrengthMetadata(row),
       value: row.id,
       label: row.name || row.id,
       modelId: row.id,
@@ -437,6 +457,7 @@ export function createChatModelSelect(deps) {
   function applyAvailableModelsFromDeepSeek(payload) {
     if (!payload?.ok || !Array.isArray(payload.models)) return false;
     const nextCatalog = payload.models.map((row) => ({
+      ...readModelStrengthMetadata(row),
       value: row.id,
       label: row.name || row.id,
       modelId: row.id,
@@ -463,6 +484,7 @@ export function createChatModelSelect(deps) {
   function applyAvailableModelsFromQwen(payload) {
     if (!payload?.ok || !Array.isArray(payload.models)) return false;
     const nextCatalog = payload.models.map((row) => ({
+      ...readModelStrengthMetadata(row),
       value: row.id,
       label: row.name || row.id,
       modelId: row.id,
@@ -496,7 +518,7 @@ export function createChatModelSelect(deps) {
       if (!value) return null;
       const modelId = String(row?.modelId || row?.id || value).trim();
       const label = String(row?.label || row?.name || value).trim();
-      const entry = { value, label, modelId, group: String(row?.group || modelId).trim() };
+      const entry = { value, label, modelId, group: String(row?.group || modelId).trim(), ...readModelStrengthMetadata(row) };
       if (Array.isArray(row?.params) && row.params.length > 0) entry.params = row.params;
       if (row?.variantLabel) entry.variantLabel = String(row.variantLabel);
       if (row?.isDefault === true) entry.isDefault = true;
@@ -538,6 +560,8 @@ export function createChatModelSelect(deps) {
         if (row?.provider) entry.provider = String(row.provider);
         if (row?.providerLabel) entry.providerLabel = String(row.providerLabel);
         if (Number.isFinite(row?.costTier)) entry.costTier = Number(row.costTier);
+        if (Number.isFinite(row?.qualityTier)) entry.qualityTier = Number(row.qualityTier);
+        if (Number.isFinite(row?.strengthRank)) entry.strengthRank = Number(row.strengthRank);
         if (Array.isArray(row?.params) && row.params.length > 0) entry.params = row.params;
         return entry;
       }).filter(Boolean)
@@ -572,6 +596,7 @@ export function createChatModelSelect(deps) {
   function applyAvailableModelsFromOpenRouter(payload) {
     if (!payload?.ok || !Array.isArray(payload.models)) return false;
     const nextCatalog = payload.models.map((row) => ({
+      ...readModelStrengthMetadata(row),
       value: row.id,
       label: row.name || row.id,
       modelId: row.id,
@@ -1028,6 +1053,7 @@ export function createChatModelSelect(deps) {
     getModelLabelByValue,
     resolveSdkPresetModel,
     getAvailableAgentModels,
+    getModelOptionsForHarness,
     renderModelSelectOptions,
     getSdkModeBarModelOptions,
     isModelEnabled,

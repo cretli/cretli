@@ -5871,29 +5871,109 @@ cr-todo-card.todo-card {
 /* Portaled to <body> like .cr-bar-select-modal — must clear the cr-dialog backdrop. */
 .chat-list-modal.cr-searchable-select-modal {
   z-index: 20210;
+  box-sizing: border-box;
+}
+
+.cr-searchable-select-modal .chat-list-panel {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .cr-searchable-select-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-2);
   padding: 0.45rem 0.55rem 0.3rem;
   border-bottom: 1px solid var(--cr-border-subtle);
   background: var(--cr-overlay-panel-bg);
 }
 
+.cr-searchable-select-search-wrap[hidden] {
+  display: none;
+}
+
+.cr-searchable-select-search-wrap > .cr-searchable-select-search-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.cr-searchable-select-filter {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: var(--cr-toolbar-control-height);
+  height: var(--cr-toolbar-control-height);
+  min-height: var(--cr-toolbar-control-height);
+  padding: var(--cr-space-1);
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1.2;
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-control-idle-bg);
+  color: var(--cr-text);
+  cursor: pointer;
+}
+
+.cr-searchable-select-filter[hidden] {
+  display: none;
+}
+
+.cr-searchable-select-filter svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.cr-searchable-select-filter[data-filter='favorites'] {
+  color: var(--cr-favorite);
+}
+
+.cr-searchable-select-filter[aria-pressed='true'],
+.cr-searchable-select-filter[aria-pressed='true']:hover {
+  border-color: var(--cr-accent);
+  background: var(--cr-active);
+}
+
+.cr-searchable-select-filter:focus-visible {
+  outline: 1px solid var(--cr-input-focus-border);
+}
+
+.cr-searchable-select-filter:hover {
+  background: var(--cr-hover);
+  border-color: var(--cr-border-strong);
+}
+
 .cr-searchable-select-search-input {
   width: 100%;
-  min-height: 1.7rem;
+  height: var(--cr-toolbar-control-height);
+  min-height: var(--cr-toolbar-control-height);
   box-sizing: border-box;
-  padding: 0.3rem 0.45rem;
-  border-radius: 4px;
-  border: 1px solid var(--cr-border-control);
-  background: var(--cr-input-bg);
+  padding: 0 0.5rem;
+  border-radius: var(--cr-radius-sm);
+  border: 1px solid var(--cr-border-subtle);
+  background: var(--cr-control-idle-bg);
   color: var(--cr-text);
+  font-family: inherit;
   font-size: 0.82rem;
+  line-height: 1.2;
+}
+
+.cr-searchable-select-search-input::placeholder {
+  color: var(--cr-text-muted);
+}
+
+.cr-searchable-select-search-input:hover {
+  border-color: var(--cr-border-strong);
 }
 
 .cr-searchable-select-search-input:focus {
   outline: none;
   border-color: var(--cr-input-focus-border);
+  background: var(--cr-surface-2);
 }
 
 .cr-searchable-select-item-empty {
@@ -5903,6 +5983,124 @@ cr-todo-card.todo-card {
 
 .cr-searchable-select-item-empty:hover {
   background: transparent;
+}
+
+.cr-searchable-select-group {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--cr-space-2) var(--cr-space-3);
+  background: var(--cr-overlay-panel-bg);
+  color: var(--cr-text-muted);
+  border-bottom: 1px solid var(--cr-border-subtle);
+  font-size: 0.75rem;
+  font-weight: 600;
+  list-style: none;
+}
+
+.cr-searchable-select-option-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.cr-searchable-select-option-text > .chat-list-item-title {
+  display: block;
+}
+
+.cr-searchable-select-description {
+  display: block;
+  color: var(--cr-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.cr-searchable-select-status {
+  flex-shrink: 0;
+  min-width: 0;
+  max-width: 40%;
+  overflow-wrap: anywhere;
+  font-size: 0.7rem;
+  color: var(--cr-text-muted);
+}
+
+.cr-searchable-select-option-row {
+  display: flex;
+  align-items: stretch;
+  list-style: none;
+}
+
+.cr-searchable-select-option-row > .cr-searchable-select-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.cr-searchable-select-favorite {
+  align-self: center;
+  flex-shrink: 0;
+  width: 2rem;
+  min-height: 2rem;
+  margin-right: var(--cr-space-1);
+  padding: var(--cr-space-1);
+  border: 0;
+  border-radius: var(--cr-radius-sm);
+  background: transparent;
+  color: var(--cr-favorite);
+  font-size: 1.15rem;
+  cursor: pointer;
+}
+
+.cr-searchable-select-favorite[aria-pressed='true'] {
+  color: var(--cr-favorite);
+}
+
+.cr-searchable-select-favorite:hover {
+  background: var(--cr-control-idle-bg);
+  color: var(--cr-favorite);
+}
+
+.cr-searchable-select-favorite:focus-visible {
+  outline: 1px solid var(--cr-input-focus-border);
+  outline-offset: -1px;
+}
+
+.cr-searchable-select-item[aria-disabled='true'] {
+  color: var(--cr-text-muted);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.cr-searchable-select-item[aria-disabled='true']:hover {
+  background: transparent;
+}
+
+#chat-new-modal .chat-new-model-control {
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-2);
+}
+
+#chat-new-modal #chat-new-agent-model {
+  flex: 1;
+  min-width: 0;
+}
+
+#chat-new-modal #chat-new-agent-model::part(control),
+#chat-new-modal #chat-new-location::part(control) {
+  min-height: 3rem;
+  padding-block: var(--cr-space-2);
+}
+
+#chat-new-modal .chat-new-selection-announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .chat-settings-update-title-row {
@@ -6471,109 +6669,6 @@ cr-todo-card.todo-card {
   color: var(--cr-text-subtle);
 }
 
-#chat-new-modal .chat-new-favorite-preset-row {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-#chat-new-modal .chat-new-favorite-preset-controls {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-}
-
-#chat-new-modal .chat-new-favorite-preset-trigger {
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  min-height: 2rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  flex: 1 1 auto;
-  padding: 0 0.55rem;
-  background: var(--cr-control-idle-bg);
-  color: var(--cr-text);
-  border: 1px solid var(--cr-border-subtle);
-  border-radius: var(--cr-radius-sm, 4px);
-  font: inherit;
-  font-size: 0.9rem;
-  line-height: 1.2;
-  text-align: left;
-  cursor: pointer;
-}
-
-#chat-new-modal .chat-new-favorite-preset-trigger:hover,
-#chat-new-modal .chat-new-favorite-preset-trigger:focus-visible {
-  border-color: var(--cr-border-strong);
-  outline: none;
-}
-
-#chat-new-modal .chat-new-favorite-preset-trigger-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-#chat-new-modal .chat-new-favorite-preset-trigger-arrow {
-  flex: 0 0 auto;
-  font-size: 0.75rem;
-  opacity: 0.8;
-}
-
-.chat-new-favorite-preset-modal {
-  z-index: 20210;
-}
-
-.chat-new-favorite-preset-modal .chat-list-panel {
-  min-width: 220px;
-}
-
-.chat-new-favorite-preset-modal .chat-list-item-empty {
-  cursor: default;
-  color: var(--cr-text-subtle);
-}
-
-#chat-new-modal .chat-new-favorite-preset-toggle {
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 2rem;
-  width: 2rem;
-  height: 2rem;
-  padding: 0;
-  border: 1px solid var(--cr-border-subtle);
-  border-radius: var(--cr-radius-sm, 4px);
-  background: var(--cr-control-idle-bg);
-  color: var(--cr-text-subtle);
-  cursor: pointer;
-}
-
-#chat-new-modal .chat-new-favorite-preset-toggle:hover,
-#chat-new-modal .chat-new-favorite-preset-toggle:focus-visible {
-  border-color: var(--cr-border-strong);
-  color: var(--cr-favorite);
-}
-
-#chat-new-modal .chat-new-favorite-preset-toggle.is-active {
-  color: var(--cr-favorite);
-}
-
-#chat-new-modal .chat-new-favorite-preset-toggle:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-#chat-new-modal .chat-new-favorite-preset-hint {
-  margin: 0;
-  color: var(--cr-text-subtle);
-  line-height: 1.35;
-}
-
 #chat-new-modal .chat-settings-btn-secondary,
 #chat-new-modal .chat-settings-btn-primary,
 #chat-new-modal .chat-settings-btn-danger {
@@ -6607,6 +6702,20 @@ cr-todo-card.todo-card {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  max-width: 28rem;
+}
+
+/* Layout rules must never override fields hidden by the modal's mode. */
+#chat-new-modal [hidden] {
+  display: none !important;
+}
+
+#chat-new-modal .chat-new-section-label {
+  color: var(--cr-text);
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-top: 1px solid var(--cr-border-subtle);
+  padding-top: var(--cr-space-3);
 }
 
 #chat-new-modal .chat-settings-title {
@@ -6631,9 +6740,7 @@ cr-todo-card.todo-card {
   min-width: 0;
 }
 
-#chat-new-modal .chat-new-favorite-preset-row {
-  margin-top: 0.1rem;
-}
+
 
 #chat-new-modal .chat-settings-actions {
   flex: 0 0 auto;
@@ -6643,6 +6750,10 @@ cr-todo-card.todo-card {
 }
 
 @media (max-width: 540px) {
+  #chat-new-modal .chat-settings-input {
+    font-size: 1rem;
+  }
+
   #chat-new-modal .chat-settings-actions {
     flex-wrap: wrap;
   }

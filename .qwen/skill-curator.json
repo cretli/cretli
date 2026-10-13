@@ -4,11 +4,11 @@
     "auto-skill-cretli-delegation-review": {
       "skillName": "cretli-delegation-review",
       "firstSeenAt": "2026-10-10T17:28:33.960Z",
-      "lastActivityAt": "2026-10-10T20:48:59.339Z",
-      "useCount": 3,
+      "lastActivityAt": "2026-10-13T10:55:36.791Z",
+      "useCount": 4,
       "state": "active",
       "pinned": false,
-      "lastUsedAt": "2026-10-10T20:48:59.339Z"
+      "lastUsedAt": "2026-10-13T10:55:36.791Z"
     },
     "auto-skill-cretli-delegation-report-delivery": {
       "skillName": "cretli-delegation-report-delivery",

@@ -752,3 +752,65 @@ test('closure: a STILL_OPEN P1 recorded at finish keeps the todo badge failed', 
   assert.equal(code.state, 'failed');
   assert.equal(code.stateReason, 'review_failed');
 });
+
+/**
+ * @param {string} id
+ * @param {string} startedAt
+ * @param {'PASS'|'FAIL'} verdict
+ * @returns {object}
+ */
+function planReviewRow(id, startedAt, verdict) {
+  return reviewRow({
+    id,
+    startedAt,
+    reviewSubject: 'plan',
+    pickRole: 'plan',
+    reportVerdict: verdict,
+    report: `TASK: review\nVERDICT: ${verdict}`,
+  });
+}
+
+test('plan revision: a PASS after the latest plan edit supersedes older plan FAILs', () => {
+  const rows = [planReviewRow('p-fail', t(3), 'FAIL'), planReviewRow('p-pass', t(12), 'PASS')];
+  assert.equal(subjectSnapshot(rows, 'plan').state, 'failed');
+  const plan = subjectSnapshot(rows, 'plan', { planBoundaryAt: t(10) });
+  assert.equal(plan.state, 'passed');
+  assert.deepEqual(plan.reviewers.map((row) => row.delegationId), ['p-pass']);
+  assert.equal(plan.round.openedAt, t(10));
+  assert.equal(plan.round.invalidationAt, t(10));
+});
+
+test('plan revision: a plan edit after the last review makes the plan review stale', () => {
+  const rows = [planReviewRow('p-pass', t(3), 'PASS')];
+  const plan = subjectSnapshot(rows, 'plan', { planBoundaryAt: t(10) });
+  assert.equal(plan.state, 'stale');
+  assert.equal(plan.stateReason, 'plan_edited_after_review');
+  assert.equal(plan.material.current, false);
+});
+
+test('plan revision: a FAIL in the current plan round stays decisive', () => {
+  const rows = [planReviewRow('p-pass', t(11), 'PASS'), planReviewRow('p-fail', t(12), 'FAIL')];
+  assert.equal(subjectSnapshot(rows, 'plan', { planBoundaryAt: t(10) }).state, 'failed');
+});
+
+test('plan revision does not affect the code subject', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const codePass = reviewRow({ id: 'rev-code', startedAt: t(2), reviewSubject: 'code' });
+  const code = subjectSnapshot([impl, codePass], 'code', { planBoundaryAt: t(40) });
+  assert.equal(code.state, 'passed');
+});
+
+test('plan revision: no boundary keeps the legacy single-round behaviour', () => {
+  const rows = [planReviewRow('p-fail', t(3), 'FAIL'), planReviewRow('p-pass', t(12), 'PASS')];
+  assert.equal(subjectSnapshot(rows, 'plan', { planBoundaryAt: '' }).state, 'failed');
+});
+
+
+test('runtime wrapper applies a legacy plan timestamp when rows are supplied for backfill', () => {
+  const snapshot = computeTodoReviewSnapshotForTodo({
+    todo: { id: LEAF, plan: { markdown: 'v2', updatedAt: t(10) } },
+    rows: [planReviewRow('legacy-fail', t(3), 'FAIL'), planReviewRow('legacy-pass', t(12), 'PASS')],
+    now: NOW,
+  });
+  assert.equal(snapshot.plan.state, 'passed');
+});

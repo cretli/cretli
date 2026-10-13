@@ -1,11 +1,16 @@
 import { LitElement, css, html } from 'lit';
+import { unsafeSVG } from 'lit/directives/unsafe-svg.js';
 import { initDropdown } from '../../lib/dropdown.js';
+
+/** Git branch glyph used for worktree filter and the closed-trigger indicator. */
+const GIT_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 3a3 3 0 0 1 1 5.83v6.34a3 3 0 1 1-2 0V8.83A3 3 0 0 1 6 3zm12 5a3 3 0 0 1 1 5.83V14a4 4 0 0 1-4 4h-3.17a3 3 0 1 1 0-2H15a2 2 0 0 0 2-2v-.17A3 3 0 0 1 18 8z"/></svg>';
 
 /**
  * Searchable select styled for Cretli dropdowns.
- * API: options = [{ value, label, keywords? }], value, disabled, displayLabel.
+ * API: options = [{ value, label, keywords?, group?, description?, status?, disabled?, worktree? }], value, disabled, displayLabel.
  * displayLabel, when set, is the closed-trigger text (dropdown items still use option labels).
- * Events: cr-change { detail: { value } }.
+ * Optional favoritesEnabled shows per-option stars; options may include favorite and favoriteable.
+ * Events: cr-change { detail: { value } }, cr-open, cr-favorite-toggle { detail: { value } }.
  */
 class CrSearchableSelect extends LitElement {
   static properties = {
@@ -19,6 +24,23 @@ class CrSearchableSelect extends LitElement {
     emptyLabel: { type: String, attribute: 'empty-label' },
     searchThreshold: { type: Number, attribute: 'search-threshold' },
     displayLabel: { type: String, attribute: 'display-label' },
+    displayDescription: { type: String, attribute: 'display-description' },
+    favoritesEnabled: { type: Boolean, attribute: 'favorites-enabled' },
+    addFavoriteLabel: { type: String },
+    removeFavoriteLabel: { type: String },
+    favoritesFilterEnabled: { type: Boolean },
+    favoritesOnly: { type: Boolean },
+    allOptionsLabel: { type: String },
+    favoriteOptionsLabel: { type: String },
+    emptyFavoritesLabel: { type: String },
+    availableFilterEnabled: { type: Boolean },
+    availableOnly: { type: Boolean },
+    availableOptionsLabel: { type: String },
+    panelMinWidth: { type: Number, attribute: 'panel-min-width' },
+    worktreeFilterEnabled: { type: Boolean },
+    worktreeFilter: { type: String },
+    worktreeOptionsLabel: { type: String },
+    plainOptionsLabel: { type: String },
   };
 
   static styles = css`
@@ -63,11 +85,25 @@ class CrSearchableSelect extends LitElement {
       border-color: var(--cr-input-focus-border);
     }
     .label {
+      display: block;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       min-width: 0;
       text-align: left;
+    }
+    .selection { flex: 1; min-width: 0; text-align: left; }
+    .favorite-indicator { color: var(--cr-favorite); flex-shrink: 0; }
+    .worktree-indicator { flex-shrink: 0; width: 0.9rem; height: 0.9rem; color: var(--cr-text-muted); }
+    .worktree-indicator svg { display: block; width: 100%; height: 100%; }
+    .description {
+      display: block;
+      font-size: 0.75rem;
+      line-height: 1.4;
+      color: var(--cr-text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .arrow {
       display: inline-flex;
@@ -109,6 +145,19 @@ class CrSearchableSelect extends LitElement {
     this.emptyLabel = 'No matches';
     this.searchThreshold = 10;
     this.displayLabel = '';
+    this.displayDescription = '';
+    this.favoritesEnabled = false;
+    this.addFavoriteLabel = 'Add to favorites';
+    this.removeFavoriteLabel = 'Remove from favorites';
+    this.favoritesFilterEnabled = false;
+    this.favoritesOnly = false;
+    this.allOptionsLabel = 'All models';
+    this.favoriteOptionsLabel = 'Favorites';
+    this.emptyFavoritesLabel = 'No favorites yet';
+    this.availableFilterEnabled = false;
+    this.availableOnly = false;
+    this.worktreeFilter = '';
+    this.availableOptionsLabel = 'Available models';
     this._dropdownApi = null;
     this._triggerEl = null;
     this._panelEl = null;
@@ -116,6 +165,11 @@ class CrSearchableSelect extends LitElement {
     this._searchWrapEl = null;
     this._searchInputEl = null;
     this._searchQuery = '';
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    if (this.hasUpdated) void this.updateComplete.then(() => this._ensureDropdown());
   }
 
   disconnectedCallback() {
@@ -132,13 +186,23 @@ class CrSearchableSelect extends LitElement {
       changedProperties.has('value') ||
       changedProperties.has('options') ||
       changedProperties.has('placeholder') ||
-      changedProperties.has('displayLabel')
+      changedProperties.has('displayLabel') ||
+      changedProperties.has('displayDescription') ||
+      changedProperties.has('emptyLabel') ||
+      changedProperties.has('favoritesEnabled') ||
+      changedProperties.has('addFavoriteLabel') ||
+      changedProperties.has('removeFavoriteLabel')
+      || changedProperties.has('favoritesFilterEnabled') || changedProperties.has('favoritesOnly')
+      || changedProperties.has('allOptionsLabel') || changedProperties.has('favoriteOptionsLabel')
+      || changedProperties.has('emptyFavoritesLabel') || changedProperties.has('availableFilterEnabled')
+      || changedProperties.has('availableOnly') || changedProperties.has('availableOptionsLabel')
     ) {
       this._syncTriggerLabel();
       this._renderPanelItems();
     }
     if (changedProperties.has('disabled') && this._triggerEl) {
       this._triggerEl.disabled = !!this.disabled;
+      if (this.disabled) this.closeDropdown();
     }
     if (changedProperties.has('searchPlaceholder') && this._searchInputEl) {
       this._searchInputEl.placeholder = this.searchPlaceholder || 'Search...';
@@ -156,7 +220,9 @@ class CrSearchableSelect extends LitElement {
         const value = row?.value == null ? '' : String(row.value);
         const label = row?.label == null ? value : String(row.label);
         const keywords = row?.keywords == null ? '' : String(row.keywords);
-        return { value, label, keywords };
+        return { value, label, keywords, group: String(row?.group || ''),
+          description: String(row?.description || ''), status: String(row?.status || ''), disabled: row?.disabled === true,
+          favorite: row?.favorite === true, worktree: row?.worktree === true, favoriteable: row?.favoriteable !== false };
       })
       .filter((row) => row.value || row.label);
   }
@@ -181,7 +247,7 @@ class CrSearchableSelect extends LitElement {
 
   _syncTriggerLabel() {
     const label = this._labelForValue();
-    if (this._triggerEl) this._triggerEl.title = label;
+    if (this._triggerEl) this._triggerEl.title = [label, this.displayDescription].filter(Boolean).join(' · ');
   }
 
   _isSearchEnabled(options = null) {
@@ -192,7 +258,7 @@ class CrSearchableSelect extends LitElement {
 
   _syncSearchVisibility() {
     if (!this._searchWrapEl || !this._searchInputEl) return;
-    const enabled = this._isSearchEnabled();
+    const enabled = this.favoritesFilterEnabled || this.availableFilterEnabled || this.worktreeFilterEnabled || this._isSearchEnabled();
     this._searchWrapEl.hidden = !enabled;
     if (!enabled) {
       this._searchQuery = '';
@@ -201,11 +267,16 @@ class CrSearchableSelect extends LitElement {
   }
 
   _getVisibleOptions() {
-    const options = this._normalizeOptions();
+    const options = this._normalizeOptions().filter((row) => (
+      (!this.favoritesFilterEnabled || !this.favoritesOnly || row.favorite)
+      && (!this.availableFilterEnabled || !this.availableOnly || !row.disabled)
+      && (!this.worktreeFilterEnabled || !this.worktreeFilter
+        || (this.worktreeFilter === 'worktree' ? row.worktree : !row.worktree))
+    ));
     const query = String(this._searchQuery || '').trim().toLowerCase();
     if (!query) return options;
     return options.filter((row) => {
-      const haystack = [row.label, row.value, row.keywords]
+      const haystack = [row.label, row.value, row.keywords, row.group, row.description, row.status]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
@@ -216,33 +287,64 @@ class CrSearchableSelect extends LitElement {
   _renderPanelItems() {
     if (!this._listEl) return;
     this._syncSearchVisibility();
+    const filters = [
+      { kind: 'all', enabled: this.favoritesFilterEnabled || this.availableFilterEnabled || this.worktreeFilterEnabled,
+        active: !this.favoritesOnly && !this.availableOnly && !this.worktreeFilter, label: this.allOptionsLabel },
+      { kind: 'worktree', enabled: this.worktreeFilterEnabled, active: this.worktreeFilter === 'worktree', label: this.worktreeOptionsLabel },
+      { kind: 'plain', enabled: this.worktreeFilterEnabled, active: this.worktreeFilter === 'plain', label: this.plainOptionsLabel },
+      { kind: 'favorites', enabled: this.favoritesFilterEnabled, active: this.favoritesOnly, label: this.favoriteOptionsLabel },
+      { kind: 'available', enabled: this.availableFilterEnabled, active: this.availableOnly, label: this.availableOptionsLabel },
+    ];
+    for (const filter of filters) {
+      const button = this._panelEl?.querySelector(`[data-filter="${filter.kind}"]`);
+      if (!button) continue;
+      button.hidden = !filter.enabled;
+      button.setAttribute('aria-pressed', String(filter.active));
+      button.setAttribute('aria-label', filter.label);
+      button.title = filter.label;
+    }
     const selectedValue = String(this.value || '');
     const visible = this._getVisibleOptions();
     if (visible.length === 0) {
       this._listEl.innerHTML =
         '<li class="chat-list-item cr-searchable-select-item-empty" role="presentation">' +
-        this._escapeHtml(this.emptyLabel || 'No matches') +
+        this._escapeHtml(this.favoritesFilterEnabled && this.favoritesOnly && !this.availableOnly && !this._searchQuery
+          ? this.emptyFavoritesLabel : this.emptyLabel || 'No matches') +
         '</li>';
       return;
     }
-    this._listEl.innerHTML = visible
-      .map((row) => {
-        const selected = row.value === selectedValue;
-        return (
-          '<li class="chat-list-item cr-searchable-select-item' +
-          (selected ? ' is-active' : '') +
-          '" role="option" tabindex="-1" data-value="' +
-          this._escapeHtml(row.value) +
-          '" aria-selected="' +
-          (selected ? 'true' : 'false') +
-          '">' +
-          '<span class="chat-list-item-title">' +
-          this._escapeHtml(row.label || row.value) +
-          '</span>' +
-          '</li>'
-        );
-      })
-      .join('');
+    const favoriteFocused = document.activeElement?.hasAttribute('data-favorite-value') === true;
+    const focusedValue = this._listEl.contains(document.activeElement)
+      ? document.activeElement?.getAttribute(favoriteFocused ? 'data-favorite-value' : 'data-value') : null;
+    let previousGroup = '';
+    this._listEl.innerHTML = visible.map((row) => {
+      const selected = row.value === selectedValue;
+      const escape = (value) => this._escapeHtml(value);
+      const groupHeading = row.group && row.group !== previousGroup
+        ? `<li class="cr-searchable-select-group" role="presentation">${escape(row.group)}</li>` : '';
+      previousGroup = row.group;
+      const name = [row.group, row.label, row.status, row.description].filter(Boolean).join(' · ');
+      const tag = this.favoritesEnabled ? 'div' : 'li';
+      const option = `<${tag} class="chat-list-item cr-searchable-select-item${selected ? ' is-active' : ''}"
+        role="option" tabindex="-1" data-value="${escape(row.value)}" aria-selected="${selected}"
+        aria-disabled="${row.disabled}" aria-label="${escape(name)}">
+        <div class="cr-searchable-select-option-text"><span class="chat-list-item-title">${escape(row.label || row.value)}</span>
+        ${row.description ? `<span class="cr-searchable-select-description">${escape(row.description)}</span>` : ''}</div>
+        ${row.status ? `<span class="cr-searchable-select-status">${escape(row.status)}</span>` : ''}</${tag}>`;
+      if (!this.favoritesEnabled) return groupHeading + option;
+      const actionLabel = `${row.favorite ? this.removeFavoriteLabel : this.addFavoriteLabel}: ${row.group} · ${row.label}`;
+      const star = row.favoriteable ? `<button type="button" class="cr-searchable-select-favorite"
+        data-favorite-value="${escape(row.value)}" aria-pressed="${row.favorite}" aria-label="${escape(actionLabel)}"
+        title="${escape(actionLabel)}"><span aria-hidden="true">${row.favorite ? '★' : '☆'}</span></button>` : '';
+      return groupHeading + `<li class="cr-searchable-select-option-row" role="presentation">${option}${star}</li>`;
+    }).join('');
+    if (focusedValue !== null) {
+      const attribute = favoriteFocused ? 'data-favorite-value' : 'data-value';
+      const item = Array.from(this._listEl.querySelectorAll(`[${attribute}]`))
+        .find((row) => row.getAttribute(attribute) === focusedValue && row.getAttribute('aria-disabled') !== 'true');
+      if (item) item.focus({ preventScroll: true });
+      else this._searchInputEl?.focus({ preventScroll: true });
+    }
     this._listEl.querySelectorAll('.cr-searchable-select-item[data-value]').forEach((item) => {
       item.addEventListener('click', (event) => {
         event.preventDefault();
@@ -251,11 +353,23 @@ class CrSearchableSelect extends LitElement {
         this._selectValue(nextValue);
       });
     });
+    this._listEl.querySelectorAll('[data-favorite-value]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (this.disabled) return;
+        this.dispatchEvent(new CustomEvent('cr-favorite-toggle', {
+          detail: { value: button.getAttribute('data-favorite-value') }, bubbles: true, composed: true,
+        }));
+      });
+    });
   }
 
   _selectValue(nextValue) {
     if (this.disabled) return;
     const normalized = String(nextValue || '');
+    const option = this._normalizeOptions().find((row) => row.value === normalized);
+    if (!option || option.disabled) return;
     const currentValue = String(this.value || '');
     if (normalized !== currentValue) this.value = normalized;
     const changeEvent = new CustomEvent('cr-change', {
@@ -272,6 +386,7 @@ class CrSearchableSelect extends LitElement {
   _focusSearchInput() {
     if (!this._searchInputEl || this._searchWrapEl?.hidden) return;
     window.requestAnimationFrame(() => {
+      if (!this.isDropdownOpen()) return;
       this._searchInputEl?.focus();
       this._searchInputEl?.select();
     });
@@ -285,6 +400,11 @@ class CrSearchableSelect extends LitElement {
       '<div class="chat-list-panel dropdown-panel--compact">' +
       '<div class="cr-searchable-select-search-wrap" hidden>' +
       '<input type="text" class="cr-searchable-select-search-input" autocomplete="off" />' +
+      '<button type="button" class="cr-searchable-select-filter" data-filter="all" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 4h3v3H3zm5 0h13v3H8zM3 10h3v3H3zm5 0h13v3H8zM3 16h3v3H3zm5 0h13v3H8z"/></svg></button>' +
+      '<button type="button" class="cr-searchable-select-filter" data-filter="favorites" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.9L12 17.8l-6.2 3.3L7 14.2 2 9.3l6.9-1z"/></svg></button>' +
+      '<button type="button" class="cr-searchable-select-filter" data-filter="worktree" hidden>' + GIT_ICON + '</button>' +
+      '<button type="button" class="cr-searchable-select-filter" data-filter="plain" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>' +
+      '<button type="button" class="cr-searchable-select-filter" data-filter="available" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-2 15-5-5 1.4-1.4 3.6 3.6 7.6-7.6L19 8z"/></svg></button>' +
       '</div>' +
       '<ul class="chat-list-items cr-searchable-select-items" role="listbox"></ul>' +
       '</div>';
@@ -292,6 +412,24 @@ class CrSearchableSelect extends LitElement {
     this._listEl = this._panelEl.querySelector('.cr-searchable-select-items');
     this._searchWrapEl = this._panelEl.querySelector('.cr-searchable-select-search-wrap');
     this._searchInputEl = this._panelEl.querySelector('.cr-searchable-select-search-input');
+    this._panelEl.querySelectorAll('[data-filter]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (button.dataset.filter === 'all') {
+          this.favoritesOnly = false;
+          this.availableOnly = false;
+          this.worktreeFilter = '';
+        } else if (button.dataset.filter === 'worktree' || button.dataset.filter === 'plain') {
+          this.worktreeFilter = this.worktreeFilter === button.dataset.filter ? '' : button.dataset.filter;
+        } else if (button.dataset.filter === 'favorites') {
+          this.favoritesOnly = !this.favoritesOnly;
+        } else {
+          this.availableOnly = !this.availableOnly;
+        }
+        this._renderPanelItems();
+      });
+    });
     if (this._searchInputEl) {
       this._searchInputEl.placeholder = this.searchPlaceholder || 'Search...';
       this._searchInputEl.setAttribute('aria-label', this.searchPlaceholder || 'Search...');
@@ -300,6 +438,13 @@ class CrSearchableSelect extends LitElement {
         this._renderPanelItems();
       });
       this._searchInputEl.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          event.stopPropagation();
+          const first = this._getVisibleOptions().find((row) => !row.disabled);
+          if (first) this._selectValue(first.value);
+          return;
+        }
         if (event.key === 'Escape') {
           this.closeDropdown();
           return;
@@ -326,9 +471,11 @@ class CrSearchableSelect extends LitElement {
       matchTriggerWidth: true,
       offsetPx: 6,
       viewportPadding: 8,
-      minWidthPx: 180,
+      minWidthPx: () => (Number.isFinite(this.panelMinWidth) && this.panelMinWidth > 0 ? this.panelMinWidth : 180),
       maxHeightPx: 320,
+      optionSelector: '[role="option"]',
       onOpen: () => {
+        this.dispatchEvent(new CustomEvent('cr-open', { bubbles: true, composed: true }));
         this._renderPanelItems();
         this._focusSearchInput();
       },
@@ -338,20 +485,22 @@ class CrSearchableSelect extends LitElement {
         this._renderPanelItems();
       },
     });
-    this._triggerEl.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (this.disabled) return;
-      this.toggleDropdown();
-    });
-    this._triggerEl.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      event.preventDefault();
-      if (this.disabled) return;
-      this.toggleDropdown();
-    });
     this._syncTriggerLabel();
     this._renderPanelItems();
+  }
+
+  // Lit owns these listeners so reconnecting the host never duplicates them.
+  _handleTriggerClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!this.disabled) this.toggleDropdown();
+  }
+
+  _handleTriggerKeydown(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!this.disabled) this.toggleDropdown();
   }
 
   _destroyDropdown() {
@@ -401,10 +550,18 @@ class CrSearchableSelect extends LitElement {
         part="control"
         aria-haspopup="listbox"
         aria-expanded="false"
-        aria-label=${this.ariaLabel || this._labelForValue()}
+        aria-label=${this.ariaLabel ? `${this.ariaLabel}: ${this._labelForValue()}` : this._labelForValue()}
+        aria-describedby=${this.displayDescription ? 'selection-description' : ''}
         ?disabled=${this.disabled}
+        @click=${this._handleTriggerClick}
+        @keydown=${this._handleTriggerKeydown}
       >
-        <span class="label">${this._labelForValue()}</span>
+        ${this._normalizeOptions().some((row) => row.value === this.value && row.worktree)
+          ? html`<span class="worktree-indicator" aria-hidden="true">${unsafeSVG(GIT_ICON)}</span>` : null}
+        ${this.favoritesEnabled && this._normalizeOptions().some((row) => row.value === this.value && row.favorite)
+          ? html`<span class="favorite-indicator" aria-hidden="true">★</span>` : null}
+        <span class="selection"><span class="label">${this._labelForValue()}</span>
+          ${this.displayDescription ? html`<span id="selection-description" class="description">${this.displayDescription}</span>` : null}</span>
         <span class="arrow" aria-hidden="true">
           <svg viewBox="0 0 24 24" focusable="false">
             <path fill="currentColor" d="M7.41 8.58L12 13.17l4.59-4.59L18 10l-6 6-6-6z" />

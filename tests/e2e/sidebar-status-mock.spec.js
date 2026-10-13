@@ -48,7 +48,7 @@ async function createOpenCodeChatFromSidebar(page) {
   });
   const modal = page.locator('#chat-new-modal');
   await expect(modal).toBeVisible();
-  await modal.locator('#chat-new-harness-select').selectOption('opencode');
+  await modal.locator('#chat-new-harness-select').selectOption('opencode', { force: true });
   await modal.locator('#chat-new-create').click();
   await expect(modal).toBeHidden({ timeout: 20_000 });
   let chatId = '';

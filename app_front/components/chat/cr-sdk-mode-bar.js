@@ -13,6 +13,10 @@ class CrSdkModeBar extends LitElement {
     harness: { type: String },
     model: { type: String },
     models: { attribute: false },
+    pickerOptions: { attribute: false },
+    pickerHarnessLabels: { attribute: false },
+    pickerHarness: { type: String },
+    pickerLabels: { attribute: false },
     contextPercent: { type: Number, attribute: 'context-percent' },
     contextLevel: { type: String, attribute: 'context-level' },
     contextLabel: { type: String, attribute: 'context-label' },
@@ -356,6 +360,10 @@ class CrSdkModeBar extends LitElement {
     this.harness = 'sdk';
     this.model = '';
     this.models = [];
+    this.pickerOptions = [];
+    this.pickerHarnessLabels = {};
+    this.pickerHarness = '';
+    this.pickerLabels = {};
     this.statusLabel = '';
     this.statusTone = 'connecting';
     this.contextPercent = null;
@@ -453,6 +461,37 @@ class CrSdkModeBar extends LitElement {
         composed: true,
       })
     );
+  }
+
+  /** Grouped harness+model picker (same rows as the new-chat modal): [harness, model] JSON values. */
+  handleGroupedPickerChange(event) {
+    let pair = null;
+    try {
+      pair = JSON.parse(String(event?.detail?.value || ''));
+    } catch {
+      return;
+    }
+    if (!Array.isArray(pair) || pair.length !== 2 || !pair[0] || !pair[1]) return;
+    const [harness, model] = pair;
+    const option = this.pickerOptions.find((row) => row.value === event.detail.value);
+    if (!option || option.disabled) return;
+    if (this.normalizeBarHarness(harness, 'sdk') !== this.normalizeBarHarness(this.harness, 'sdk')) {
+      this.dispatchEvent(new CustomEvent('cr-sdk-harness-commit', {
+        detail: { harness, model }, bubbles: true, composed: true,
+      }));
+      return;
+    }
+    if (model === this.model) return;
+    this.dispatchEvent(new CustomEvent('cr-sdk-model-change', {
+      detail: { model }, bubbles: true, composed: true,
+    }));
+  }
+
+  handleGroupedFavoriteToggle(event) {
+    event.stopPropagation();
+    this.dispatchEvent(new CustomEvent('cr-sdk-favorite-toggle', {
+      detail: { value: event.detail?.value }, bubbles: true, composed: true,
+    }));
   }
 
   handleModelChange(event) {
@@ -837,6 +876,10 @@ class CrSdkModeBar extends LitElement {
     const combinedDisplayLabel = pickerStep === 'harness' && modelLabel
       ? t('sdkBlock.pickerClosedLabel', { harness: selectedHarnessLabel, model: modelLabel })
       : '';
+    const groupedHarnessLabel = this.pickerHarnessLabels?.[this.normalizeBarHarness(this.harness, 'sdk')] || selectedHarnessLabel;
+    const groupedChoice = JSON.stringify([this.normalizeBarHarness(this.harness, 'sdk'), modelValue]);
+    const groupedSelected = (this.pickerOptions || []).find((row) => row.value === groupedChoice);
+    const combinedDisplayLabelGrouped = `${groupedHarnessLabel} · ${groupedSelected?.label || modelLabel}`;
     const contextPercent = Number(this.contextPercent);
     const hasContextPercent = Number.isFinite(contextPercent) && contextPercent >= 0;
     const normalizedContextPercent = hasContextPercent
@@ -891,7 +934,33 @@ class CrSdkModeBar extends LitElement {
             : null}
         </div>
         <div class="cluster cluster--end">
+          ${Array.isArray(this.pickerOptions) && this.pickerOptions.length > 0 ? html`
           <cr-searchable-select
+            class="combined-picker"
+            size="sm"
+            search-threshold="0"
+            panel-min-width="360"
+            .value=${JSON.stringify([this.normalizeBarHarness(this.harness, 'sdk'), modelValue])}
+            .options=${this.pickerOptions}
+            .displayLabel=${combinedDisplayLabelGrouped}
+            .favoritesEnabled=${this.pickerLabels.favoritesEnabled === true}
+            .favoritesOnly=${this.pickerLabels.defaultFavoritesOnly === true}
+            .availableOnly=${this.pickerLabels.availableFilterEnabled === true}
+            .favoritesFilterEnabled=${this.pickerLabels.favoritesFilterEnabled === true}
+            .availableFilterEnabled=${this.pickerLabels.availableFilterEnabled === true}
+            .availableOptionsLabel=${this.pickerLabels.availableOptionsLabel}
+            .allOptionsLabel=${this.pickerLabels.allOptionsLabel}
+            .favoriteOptionsLabel=${this.pickerLabels.favoriteOptionsLabel}
+            .emptyFavoritesLabel=${this.pickerLabels.emptyFavoritesLabel}
+            .addFavoriteLabel=${this.pickerLabels.addFavoriteLabel}
+            .removeFavoriteLabel=${this.pickerLabels.removeFavoriteLabel}
+            .searchPlaceholder=${this.pickerLabels.searchPlaceholder || ''}
+            .emptyLabel=${this.pickerLabels.emptyLabel || ''}
+            aria-label=${t('sdkBlock.harnessModelAria')}
+            @cr-change=${this.handleGroupedPickerChange}
+            @cr-favorite-toggle=${this.handleGroupedFavoriteToggle}
+            @cr-open=${() => this.dispatchEvent(new CustomEvent('cr-sdk-picker-open', { bubbles: true, composed: true }))}
+          ></cr-searchable-select>` : html`<cr-searchable-select
             class="combined-picker"
             size="sm"
             .value=${combinedValue}
@@ -904,7 +973,7 @@ class CrSdkModeBar extends LitElement {
             aria-label=${t('sdkBlock.harnessModelAria')}
             @cr-change=${this.handleCombinedSelectionChange}
           >
-          </cr-searchable-select>
+          </cr-searchable-select>`}
           <button
             type="button"
             class="context-ring context-ring--${ringTone} ${this.contextVisible ? '' : 'is-dimmed'}"

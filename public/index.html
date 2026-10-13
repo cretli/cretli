@@ -2968,20 +2968,15 @@
         <div class="chat-settings-dialog">
           <h2 id="chat-new-heading" class="chat-settings-title" data-i18n="chat.new">New chat</h2>
           <form id="chat-new-form" class="chat-settings-form" novalidate>
+            <div class="chat-new-section-label" data-i18n="chat.newAgentSection">Agent</div>
             <div class="chat-new-field">
-              <label for="chat-new-title-input" data-i18n="chat.name">Name</label>
-              <input type="text" id="chat-new-title-input" class="chat-settings-input" placeholder="Optional chat name" data-i18n-placeholder="chat.optionalNamePlaceholder" />
+              <label id="chat-new-agent-model-label" for="chat-new-agent-model" data-i18n="chat.newAgentModel">Harness and model</label>
+              <div class="chat-new-model-control">
+                <cr-searchable-select id="chat-new-agent-model" size="lg" search-threshold="0" data-i18n-aria="chat.newAgentModel" aria-label="Harness and model"></cr-searchable-select>
+              </div>
+              <p id="chat-new-sdk-hint" class="chat-new-selection-announcement" role="status" aria-live="polite" aria-atomic="true"></p>
             </div>
-            <div id="chat-new-folder-row" class="chat-new-field">
-              <label for="chat-new-folder-select" data-i18n="workspace.folder">Folder (terminal, agent)</label>
-              <select id="chat-new-folder-select" class="chat-settings-select"></select>
-            </div>
-            <div id="chat-new-worktree-row" class="chat-new-field" hidden>
-              <label for="chat-new-worktree-select" data-i18n="chat.newWorktreeLabel">Worktree</label>
-              <select id="chat-new-worktree-select" class="chat-settings-select"></select>
-            </div>
-            <div class="chat-new-field">
-              <label for="chat-new-harness-select" data-i18n="chat.harnessLabel">Harness</label>
+            <div hidden aria-hidden="true">
               <select id="chat-new-harness-select" class="chat-settings-select">
                 <option value="sdk">Cursor SDK</option>
                 <option value="openrouter">OpenRouter</option>
@@ -2995,30 +2990,23 @@
                 <option value="claude">Claude</option>
                 <option value="codex">Codex</option>
               </select>
+              <select id="chat-new-model-select"></select>
+            </div>
+            <div class="chat-new-section-label" data-i18n="chat.newWorkspaceSection">Workspace</div>
+            <div id="chat-new-folder-row" class="chat-new-field">
+              <label for="chat-new-location" data-i18n="chat.newLocationLabel">Folder and worktree</label>
+              <cr-searchable-select id="chat-new-location" size="lg" search-threshold="0" aria-label="Folder and worktree" data-i18n-aria="chat.newLocationLabel"></cr-searchable-select>
+              <select id="chat-new-folder-select" hidden aria-hidden="true"></select>
+            </div>
+            <div hidden aria-hidden="true">
+              <div id="chat-new-worktree-row" hidden>
+                <select id="chat-new-worktree-select"></select>
+              </div>
             </div>
             <div class="chat-new-field">
-              <label for="chat-new-model-select" data-i18n="chat.modelLabel">Model</label>
-              <select id="chat-new-model-select" class="chat-settings-select"></select>
+              <label for="chat-new-title-input" data-i18n="chat.name">Name</label>
+              <input type="text" id="chat-new-title-input" class="chat-settings-input" placeholder="Optional chat name" data-i18n-placeholder="chat.optionalNamePlaceholder" />
             </div>
-            <div class="chat-new-favorite-preset-row">
-              <label for="chat-new-favorite-preset-trigger" data-i18n="chat.favoritePresetLabel">Favorite setup</label>
-              <div class="chat-new-favorite-preset-controls">
-                <button type="button" id="chat-new-favorite-preset-trigger" class="chat-new-favorite-preset-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="chat-new-favorite-preset-modal" aria-describedby="chat-new-favorite-preset-hint">
-                  <span id="chat-new-favorite-preset-trigger-label" class="chat-new-favorite-preset-trigger-label">Select a favorite setup</span>
-                  <span class="mdi mdi-chevron-down chat-new-favorite-preset-trigger-arrow" aria-hidden="true"></span>
-                </button>
-                <div id="chat-new-favorite-preset-modal" class="chat-list-modal chat-new-favorite-preset-modal" hidden>
-                  <div class="chat-list-panel">
-                    <ul id="chat-new-favorite-preset-items" class="chat-list-items" role="listbox" aria-label="Favorite setups" data-i18n-aria="chat.favoritePresetAria"></ul>
-                  </div>
-                </div>
-                <button type="button" id="chat-new-favorite-preset-toggle" class="chat-new-favorite-preset-toggle" aria-pressed="false" aria-label="Add current setup to favorites" title="Add current setup to favorites">
-                  <span class="mdi mdi-star-outline" aria-hidden="true"></span>
-                </button>
-              </div>
-              <p id="chat-new-favorite-preset-hint" class="chat-settings-hint-inline"></p>
-            </div>
-            <p id="chat-new-sdk-hint" class="chat-settings-hint-inline chat-new-sdk-hint" aria-live="polite" hidden></p>
             <div id="chat-new-plan-reviewer-row" class="chat-new-field" hidden>
               <label for="chat-new-plan-reviewer-mode" data-i18n="todo.planReviewerCooperationMode">Plan reviewer cooperation</label>
               <select id="chat-new-plan-reviewer-mode" class="chat-settings-select">

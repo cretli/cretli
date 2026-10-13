@@ -74,9 +74,7 @@ import { initDropdown } from './lib/dropdown.js';
 import { createFavoritesStore } from './lib/favorites.js';
 import {
   CHAT_PRESETS_CHANGED_EVENT,
-  chatPresetKey,
   chatPresetsStore,
-  normalizeChatPreset,
 } from './features/chat/chatPresets.js';
 import {
   clearChatBuffer,
@@ -264,7 +262,7 @@ import {
   matchWorkspaceBySpokenName,
   workspaceSpokenLabel,
 } from './features/voice/voiceWorkspaceMatch.js';
-import { writeLocalStorageSafe } from './features/chat/chatLocalStorage.js';
+import { readLocalStorageSafe, writeLocalStorageSafe } from './features/chat/chatLocalStorage.js';
 import {
   SHOW_CHAT_DIAG_KEY,
   SDK_VERBOSE_LOGS_KEY,
@@ -319,6 +317,9 @@ import {
   getChatWidgetPinnedUrl,
   notifyWidgetParentPagePinChanged as postWidgetParentPagePinChanged,
 } from './features/chat/chatWidgetPin.js';
+import { buildNewChatLocationOptions, encodeNewChatLocation, decodeNewChatLocation, readNewChatLocationFavorites, toggleNewChatLocationFavorite } from './features/chat/newChatLocationOptions.js';
+import { buildNewChatModelOptions, encodeNewChatModelChoice, decodeNewChatModelChoice } from './features/chat/newChatModelOptions.js';
+import { resolveNewChatUsageLimit, getNewChatLimitResetTime } from './features/chat/newChatUsageLimit.js';
 import { createChatModelSelect } from './features/chat/chatModelSelect.js';
 import { resolveHarnessSelectValue } from './features/chat/harnessSettingsLoad.js';
 import {
@@ -368,6 +369,32 @@ import {
 import './components/chat/cr-sdk-mode-bar.js';
 import './components/chat/cr-chat-diag.js';
 const LAST_CHAT_ID_KEY = 'cretli-last-chat-id';
+const LAST_NEW_CHAT_LOCATION_KEY = 'cretli-new-chat-last-location';
+const LAST_NEW_CHAT_EXECUTOR_KEY = 'cretli-new-chat-last-executor';
+
+/** Last harness/model picked in the new-chat modal (empty strings when none stored). */
+function readLastNewChatExecutor() {
+  try {
+    const row = JSON.parse(readLocalStorageSafe(LAST_NEW_CHAT_EXECUTOR_KEY, 'null'));
+    return {
+      harness: typeof row?.harness === 'string' ? row.harness : '',
+      model: typeof row?.model === 'string' ? row.model : '',
+    };
+  } catch {
+    return { harness: '', model: '' };
+  }
+}
+
+/** Last folder/worktree picked in the new-chat modal, or null when none was stored. */
+function readLastNewChatLocation() {
+  try {
+    const row = JSON.parse(readLocalStorageSafe(LAST_NEW_CHAT_LOCATION_KEY, 'null'));
+    const folder = typeof row?.folder === 'string' ? row.folder.trim() : '';
+    return folder ? { folder, todoId: typeof row.todoId === 'string' ? row.todoId : '' } : null;
+  } catch {
+    return null;
+  }
+}
 
 async function captureWidgetHostScreenshotForSendBar() {
   if (!isWidgetHostScreenshotAvailable()) {
@@ -476,7 +503,6 @@ let pendingDeleteChatId = null;
 let pendingArchiveConfirm = null;
 let chatNewModelDropdownApi = null;
 let chatNewFolderDropdownApi = null;
-let chatNewFavoritePresetDropdownApi = null;
 /** Element focused before the new-chat modal opened, restored on close. */
 /** @type {HTMLElement|null} */
 let newChatModalReturnFocus = null;
@@ -2298,6 +2324,16 @@ function getSharedSdkModeBar() {
     if (!chat) return;
     void switchChatHarnessInWidget(chat, event?.detail?.harness, event?.detail?.model);
   });
+  bar.addEventListener('cr-sdk-favorite-toggle', (event) => {
+    const choice = decodeNewChatModelChoice(event.detail?.value);
+    if (!choice?.model || localChatHarnessIds.has(choice.harness)) return;
+    chatPresets.toggleFavorite(choice);
+    const chat = activeChatId ? chats.find((c) => c.id === activeChatId) : null;
+    syncSdkModeBarPicker(bar, chat);
+  });
+  bar.addEventListener('cr-sdk-picker-open', () => {
+    void loadNewChatModelCatalogs({ fromToolbar: true });
+  });
   bar.addEventListener('cr-context-details-open', () => {
     const chat = activeChatId ? chats.find((c) => c.id === activeChatId) : null;
     if (!chat) return;
@@ -2356,6 +2392,7 @@ function syncChatSdkModeUi(chat) {
   );
   chatModelSelectApi.setModelPickerHarness(normalizeNewChatHarness(chat?.agentTransport));
   bar.models = chatModelSelectApi.getSdkModeBarModelOptions();
+  syncSdkModeBarPicker(bar, chat);
 }
 
 function sdkModeLaunchCommand(chat, mode) {
@@ -6495,8 +6532,6 @@ let newChatHarnessUserTouched = false;
 let newChatHarnessExplicitChoice = false;
 /** True once the user changed the model in an open new-chat modal — async workspace loads must not override it. */
 let newChatModelUserTouched = false;
-/** True once a favorite preset applied its model in an open new-chat modal — async loads must not override it. */
-let newChatModelPresetApplied = false;
 let todoAgentModalSubmit = null;
 /** When true, the new-chat modal shows plan-reviewer cooperation mode (refine loop). */
 let todoAgentModalPlanReviewerMode = false;
@@ -6562,6 +6597,174 @@ function setNewChatHarnessReadyCache(harness, ready) {
  */
 const newChatHarnessStatusTracker = createNewChatHarnessStatusTracker();
 const newChatCatalogCache = createNewChatCatalogCache();
+const newChatHarnessErrors = new Map();
+let newChatUsageLockouts = [];
+let newChatUsageCheckPending = false;
+let newChatUsageCheckFailed = false;
+let newChatUsageCheckSequence = 0;
+let newChatLimitExpiryTimer = null;
+let newChatModelCatalogLoadSequence = 0;
+const newChatModelCatalogChecked = new Set();
+
+/**
+ * Grouped harness+model rows shared by the new-chat modal and the chat toolbar picker.
+ * @returns {{ harnesses: Array<{ id: string, label: string }>, options: object[] } | null}
+ */
+function buildCombinedModelPickerOptions() {
+  const select = document.getElementById('chat-new-harness-select');
+  if (!(select instanceof HTMLSelectElement) || !chatModelSelectApi) return null;
+  const harnesses = Array.from(select.options, (option) => ({
+    id: option.value,
+    label: option.dataset.baseLabel || option.textContent,
+    models: localChatHarnessIds.has(option.value)
+      ? [{ value: 'auto', label: t('chat.newPluginDefault') }]
+      : chatModelSelectApi.getModelOptionsForHarness(option.value, { includeDisabled: true }).map((model) => ({
+        ...model, settingsDisabled: !chatModelSelectApi.isModelEnabled(option.value, model.value),
+      })),
+    ready: getNewChatHarnessReadiness(option.value),
+    checking: !!newChatHarnessStatusTracker.getInFlight(option.value)
+      || (!localChatHarnessIds.has(option.value) && !newChatModelCatalogChecked.has(option.value)
+        && getNewChatHarnessReadiness(option.value) === null),
+    error: newChatHarnessErrors.get(option.value) || getNewChatHarnessError(option.value),
+  }));
+  const built = buildNewChatModelOptions(harnesses, newChatUsageLockouts, t, {
+    limitsPending: newChatUsageCheckPending, locale: document.documentElement.lang || undefined,
+  });
+  const favoriteChoices = new Set(chatPresets.getPresets().map((preset) => encodeNewChatModelChoice(preset.harness, preset.model)));
+  const options = built.map((row) => {
+    const choice = decodeNewChatModelChoice(row.value);
+    return { ...row, favoriteable: !!choice?.model && !localChatHarnessIds.has(choice.harness),
+      favorite: favoriteChoices.has(row.value) };
+  });
+  return { harnesses, options };
+}
+
+/** Apply shared labels and filter flags to a `cr-searchable-select` model picker. */
+function applyCombinedModelPickerLabels(picker) {
+  picker.favoritesEnabled = true;
+  picker.favoritesFilterEnabled = true;
+  picker.availableFilterEnabled = true;
+  picker.availableOptionsLabel = t('chat.newAvailableModels');
+  picker.allOptionsLabel = t('chat.newAllModels');
+  picker.favoriteOptionsLabel = t('chat.newFavoriteModels');
+  picker.emptyFavoritesLabel = t('chat.favoritePresetEmpty');
+  picker.addFavoriteLabel = t('chat.addFavoritePreset');
+  picker.removeFavoriteLabel = t('chat.removeFavoritePreset');
+  picker.searchPlaceholder = t('chat.newSearchModels');
+  picker.emptyLabel = t('chat.newNoMatchingModels');
+}
+
+/** Feed the toolbar picker with the same grouped options as the new-chat modal. */
+function syncSdkModeBarPicker(bar, chat) {
+  const combined = buildCombinedModelPickerOptions();
+  if (!bar || !combined) return;
+  bar.pickerOptions = combined.options;
+  bar.pickerHarnessLabels = Object.fromEntries(combined.harnesses.map((row) => [row.id, row.label]));
+  bar.pickerHarness = normalizeNewChatHarness(chat?.agentTransport || bar.harness || 'sdk');
+  bar.pickerLabels = {
+    favoritesEnabled: true, favoritesFilterEnabled: true, availableFilterEnabled: true,
+    defaultFavoritesOnly: chatPresets.getPresets().length > 0,
+    availableOptionsLabel: t('chat.newAvailableModels'), allOptionsLabel: t('chat.newAllModels'),
+    favoriteOptionsLabel: t('chat.newFavoriteModels'), emptyFavoritesLabel: t('chat.favoritePresetEmpty'),
+    addFavoriteLabel: t('chat.addFavoritePreset'), removeFavoriteLabel: t('chat.removeFavoritePreset'),
+    searchPlaceholder: t('chat.newSearchModels'), emptyLabel: t('chat.newNoMatchingModels'),
+  };
+}
+
+/** Mirror the selected pair and all known catalogs into the combined Lit picker. */
+function syncNewChatAgentModelPicker() {
+  const picker = document.getElementById('chat-new-agent-model');
+  const combined = buildCombinedModelPickerOptions();
+  if (!picker || !combined) return;
+  const { harnesses, options } = combined;
+  picker.options = options;
+  const harness = getSelectedNewChatHarness();
+  const model = document.getElementById('chat-new-model-select')?.value || '';
+  const choice = encodeNewChatModelChoice(harness, model);
+  const selected = picker.options.find((row) => row.value === choice);
+  const label = harnesses.find((row) => row.id === harness)?.label || harness;
+  picker.value = choice;
+  picker.displayLabel = `${label} · ${selected?.label || chatModelSelectApi.getModelLabelByValue(model, harness) || t('chat.newNoModels')}`;
+  picker.displayDescription = document.getElementById('chat-new-sdk-hint')?.textContent || selected?.status || '';
+  applyCombinedModelPickerLabels(picker);
+}
+
+/** Warm grouped catalogs lazily, with a small concurrency bound and existing request deduplication. */
+async function loadNewChatModelCatalogs({ fromToolbar = false } = {}) {
+  const sequence = ++newChatModelCatalogLoadSequence;
+  const select = document.getElementById('chat-new-harness-select');
+  const queue = Array.from(select?.options || [], (option) => option.value)
+    .filter((id) => !localChatHarnessIds.has(id) && (
+      !newChatModelCatalogChecked.has(id) || getNewChatHarnessReadiness(id) !== true
+      || chatModelSelectApi.getModelOptionsForHarness(id, { includeDisabled: true }).length === 0
+    ));
+  async function loadNext() {
+    while (queue.length && sequence === newChatModelCatalogLoadSequence
+      && (fromToolbar || document.getElementById('chat-new-modal')?.hidden === false)) {
+      const id = queue.shift();
+      newChatModelCatalogChecked.add(id);
+      if (chatModelSelectApi.getModelOptionsForHarness(id, { includeDisabled: true }).length === 0) newChatCatalogCache.clear(id);
+      const pending = runNewChatHarnessStatusCheck(id);
+      syncNewChatAgentModelPicker();
+      await pending;
+      syncNewChatAgentModelPicker();
+      if (fromToolbar) {
+        syncSdkModeBarPicker(sharedSdkModeBar, chats.find((c) => c.id === activeChatId) || null);
+      }
+    }
+  }
+  await Promise.allSettled(Array.from({ length: 3 }, loadNext));
+}
+
+/** Mark harness-wide limits in the picker while keeping their explanation accessible. */
+function syncNewChatHarnessLimitLabels() {
+  const select = document.getElementById('chat-new-harness-select');
+  if (!(select instanceof HTMLSelectElement)) return;
+  for (const option of select.options) {
+    const label = option.dataset.baseLabel || option.textContent;
+    option.dataset.baseLabel = label;
+    const limit = resolveNewChatUsageLimit(newChatUsageLockouts, option.value, '');
+    option.textContent = limit ? `${label} · ${t('chat.newLimitedBadge')}` : label;
+  }
+}
+
+/** Re-enable expired selections while the dialog stays open, without polling the server. */
+function scheduleNewChatLimitExpiry() {
+  clearTimeout(newChatLimitExpiryTimer);
+  const now = Date.now();
+  const resets = newChatUsageLockouts.map((row) => Date.parse(row?.resetAt)).filter((time) => time > now);
+  if (!resets.length) return;
+  newChatLimitExpiryTimer = setTimeout(() => {
+    syncNewChatHarnessLimitLabels();
+    syncNewChatHarnessUi();
+    scheduleNewChatLimitExpiry();
+  }, Math.min(Math.min(...resets) - now + 100, 2147483647));
+}
+
+/** Read all known provider limits once per open, without probing each harness. */
+async function refreshNewChatUsageLimits() {
+  const sequence = ++newChatUsageCheckSequence;
+  newChatUsageCheckPending = !isEmbedWidgetMode();
+  newChatUsageCheckFailed = false;
+  syncNewChatHarnessUi();
+  if (isEmbedWidgetMode()) return;
+  try {
+    const result = await api.getUsagePlanLimits();
+    if (sequence !== newChatUsageCheckSequence) return;
+    if (!result?.ok || !Array.isArray(result.lockouts)) throw new Error('Limit check failed');
+    newChatUsageLockouts = result.lockouts;
+  } catch {
+    if (sequence !== newChatUsageCheckSequence) return;
+    newChatUsageCheckFailed = true;
+  } finally {
+    if (sequence === newChatUsageCheckSequence) {
+      newChatUsageCheckPending = false;
+      syncNewChatHarnessLimitLabels();
+      scheduleNewChatLimitExpiry();
+      syncNewChatHarnessUi();
+    }
+  }
+}
 
 /**
  * @param {string} harness
@@ -6645,6 +6848,7 @@ function applyLocalChatHarnessOptions(catalog) {
   }
   const select = document.getElementById('chat-new-harness-select');
   if (!(select instanceof HTMLSelectElement)) return;
+  const previousValue = select.value;
   for (const existing of Array.from(select.querySelectorAll('option[data-local-harness="1"]'))) {
     existing.remove();
   }
@@ -6655,6 +6859,8 @@ function applyLocalChatHarnessOptions(catalog) {
     element.dataset.localHarness = '1';
     select.appendChild(element);
   }
+  if (Array.from(select.options).some((option) => option.value === previousValue)) select.value = previousValue;
+  syncNewChatAgentModelPicker();
 }
 
 /**
@@ -6695,24 +6901,37 @@ function getNewChatHarnessError(harness) {
  * @param {string} [errorMessage]
  */
 function renderNewChatHarnessUi(resolvedHarness, readiness, errorMessage) {
-  const uiState = resolveNewChatHarnessUiState(readiness, chatCreateInFlight);
+  const model = document.getElementById('chat-new-model-select')?.value || '';
+  const hasModel = localChatHarnessIds.has(resolvedHarness)
+    || chatModelSelectApi?.getModelOptionsForHarness(resolvedHarness).some((row) => row.value === model);
+  const limit = resolveNewChatUsageLimit(newChatUsageLockouts, resolvedHarness, model);
+  const statusPending = !!newChatHarnessStatusTracker.getInFlight(resolvedHarness)
+    || (readiness === null && !newChatHarnessStatusTracker.isSelectionSettled(resolvedHarness));
+  const checking = (readiness === null && statusPending) || newChatUsageCheckPending;
+  const uiState = resolveNewChatHarnessUiState(limit || !hasModel ? false : readiness, chatCreateInFlight || checking);
   const createBtn = document.getElementById('chat-new-create');
   const hint = document.getElementById('chat-new-sdk-hint');
-  // While a chat is being created, never re-enable the button mid-flight.
   if (createBtn) {
     createBtn.disabled = uiState.disableCreate;
-    // Tie the warning to Create only while it is visible/announced.
-    if (uiState.showWarning) createBtn.setAttribute('aria-describedby', 'chat-new-sdk-hint');
-    else createBtn.removeAttribute('aria-describedby');
+    createBtn.setAttribute('aria-describedby', 'chat-new-sdk-hint');
   }
   if (!hint) return;
-  if (uiState.showWarning) {
-    hint.hidden = false;
-    hint.textContent = errorMessage || getNewChatHarnessError(resolvedHarness);
-    return;
+  hint.hidden = false;
+  hint.dataset.tone = limit || readiness === false || ((!hasModel || readiness === null) && !checking)
+    ? 'error' : checking ? 'checking' : 'success';
+  if (limit) {
+    const time = getNewChatLimitResetTime(limit);
+    hint.textContent = limit.code === 'model_unavailable'
+      ? t('chat.newUnavailable')
+      : time ? t('chat.newLimitReset', { time }) : t('chat.newLimit');
+  } else if (readiness === false) {
+    hint.textContent = errorMessage || newChatHarnessErrors.get(resolvedHarness) || getNewChatHarnessError(resolvedHarness);
+  } else {
+    hint.textContent = checking ? t('chat.newChecking')
+      : readiness === null || !hasModel ? t('chat.newAvailabilityUnknown')
+        : t(newChatUsageCheckFailed ? 'chat.newLimitsUnknown' : 'chat.newReady');
   }
-  hint.hidden = true;
-  hint.textContent = '';
+  syncNewChatAgentModelPicker();
 }
 
 /**
@@ -6743,7 +6962,10 @@ function syncNewChatHarnessUi(harness = getSelectedNewChatHarness()) {
 function applyNewChatHarnessStatus(harness, ready, errorMessage, token) {
   const resolvedHarness = normalizeNewChatHarness(harness);
   if (token && !isNewChatHarnessStatusLatest(token)) return;
+  if (errorMessage) newChatHarnessErrors.set(resolvedHarness, errorMessage);
+  else newChatHarnessErrors.delete(resolvedHarness);
   setNewChatHarnessReadyCache(resolvedHarness, ready);
+  syncNewChatAgentModelPicker();
   if (resolvedHarness !== getSelectedNewChatHarness()) return;
   // Render the effective readiness: for OpenCode a raw `true` stays unknown until its catalog
   // confirmed models for the current catalog/settings generation.
@@ -7179,7 +7401,11 @@ function runNewChatHarnessStatusCheck(harness, options = {}) {
   /** @type {Promise<unknown>} */
   const tracked = Promise.resolve(refreshPromise).finally(() => {
     newChatHarnessStatusTracker.clearInFlight(resolvedHarness, tracked);
-    if (resolvedHarness === getSelectedNewChatHarness()) syncNewChatFavoritePresetUi();
+    syncNewChatAgentModelPicker();
+    if (resolvedHarness === getSelectedNewChatHarness()) {
+      syncNewChatHarnessUi();
+      syncNewChatAgentModelPicker();
+    }
   });
   newChatHarnessStatusTracker.setInFlight(resolvedHarness, tracked);
   return tracked;
@@ -7206,150 +7432,6 @@ function refreshNewChatHarnessStatus(options = {}) {
   return runNewChatHarnessStatusCheck(harness, options);
 }
 
-const NEW_CHAT_HARNESS_LABEL_KEYS = {
-  sdk: 'settings.harnessSdk',
-  openrouter: 'settings.harnessOpenRouter',
-  opencode: 'settings.harnessOpenCode',
-  codebuddy: 'settings.harnessCodeBuddy',
-  deepseek: 'settings.harnessDeepSeek',
-  mistral: 'settings.harnessMistral',
-  zai: 'settings.harnessZai',
-  mimo: 'settings.harnessMimo',
-  qwen: 'settings.harnessQwen',
-  claude: 'settings.harnessClaude',
-  codex: 'settings.harnessCodex',
-};
-
-function getNewChatFavoritePreset() {
-  const model = document.getElementById('chat-new-model-select');
-  return normalizeChatPreset({
-    harness: getSelectedNewChatHarness(),
-    model: model?.value || '',
-  });
-}
-
-function getNewChatFavoritePresetLabel(preset) {
-  const harnessLabel = t(NEW_CHAT_HARNESS_LABEL_KEYS[preset.harness] || preset.harness);
-  const modelLabel = chatModelSelectApi?.getModelLabelByValue(preset.model, preset.harness)
-    || preset.model;
-  return `${harnessLabel} · ${modelLabel}`;
-}
-
-function getVisibleNewChatFavoritePresets() {
-  const presets = chatPresets.getPresets();
-  const select = document.getElementById('chat-new-harness-select');
-  const availableHarnesses = select instanceof HTMLSelectElement
-    ? new Set(Array.from(select.options, (option) => option.value))
-    : null;
-  return presets.filter((preset) => (
-    (!availableHarnesses || availableHarnesses.has(preset.harness))
-    && (!chatModelSelectApi || chatModelSelectApi.isModelEnabled(preset.harness, preset.model))
-  ));
-}
-
-function renderNewChatFavoritePresetOptions() {
-  const list = document.getElementById('chat-new-favorite-preset-items');
-  const triggerLabel = document.getElementById('chat-new-favorite-preset-trigger-label');
-  const trigger = document.getElementById('chat-new-favorite-preset-trigger');
-  if (!list) return;
-  const current = getNewChatFavoritePreset();
-  const currentKey = current ? chatPresetKey(current) : '';
-  const presets = getVisibleNewChatFavoritePresets();
-  const selectedPreset = presets.find((preset) => chatPresetKey(preset) === currentKey);
-  const labelText = selectedPreset
-    ? getNewChatFavoritePresetLabel(selectedPreset)
-    : presets.length
-      ? t('chat.favoritePresetPlaceholder')
-      : t('chat.favoritePresetEmpty');
-  if (triggerLabel) triggerLabel.textContent = labelText;
-  // The trigger label is visually truncated; keep the full setup name available on hover.
-  if (trigger) trigger.title = labelText;
-  list.textContent = '';
-  if (presets.length === 0) {
-    const empty = document.createElement('li');
-    empty.className = 'chat-list-item chat-list-item-empty';
-    empty.setAttribute('role', 'presentation');
-    empty.textContent = t('chat.favoritePresetEmpty');
-    list.appendChild(empty);
-    return;
-  }
-  for (const preset of presets) {
-    const option = document.createElement('li');
-    const key = chatPresetKey(preset);
-    option.className = 'chat-list-item' + (key === currentKey ? ' is-active' : '');
-    option.setAttribute('role', 'option');
-    option.setAttribute('tabindex', '0');
-    option.setAttribute('aria-selected', key === currentKey ? 'true' : 'false');
-    option.dataset.presetKey = key;
-    option.textContent = getNewChatFavoritePresetLabel(preset);
-    option.addEventListener('click', () => {
-      applyNewChatFavoritePreset(key);
-      chatNewFavoritePresetDropdownApi?.close?.();
-    });
-    list.appendChild(option);
-  }
-}
-
-function syncNewChatFavoritePresetUi() {
-  renderNewChatFavoritePresetOptions();
-  const button = document.getElementById('chat-new-favorite-preset-toggle');
-  if (!button) return;
-  const current = getNewChatFavoritePreset();
-  const active = !!current && chatPresets.isFavorite(current);
-  button.disabled = !current;
-  button.classList.toggle('is-active', active);
-  button.setAttribute('aria-pressed', active ? 'true' : 'false');
-  const label = t(active ? 'chat.removeFavoritePreset' : 'chat.addFavoritePreset');
-  button.title = label;
-  button.setAttribute('aria-label', label);
-  const icon = button.querySelector('.mdi');
-  if (icon) icon.className = `mdi ${active ? 'mdi-star' : 'mdi-star-outline'}`;
-  const hint = document.getElementById('chat-new-favorite-preset-hint');
-  if (hint) hint.textContent = getVisibleNewChatFavoritePresets().length
-    ? t('chat.favoritePresetHint')
-    : t('chat.favoritePresetEmpty');
-}
-
-function applyNewChatFavoritePreset(value) {
-  const preset = chatPresets.getPresets().find((row) => chatPresetKey(row) === String(value || ''));
-  if (!preset) return;
-  const harnessSelect = document.getElementById('chat-new-harness-select');
-  const modelSelect = document.getElementById('chat-new-model-select');
-  if (!(harnessSelect instanceof HTMLSelectElement) || !(modelSelect instanceof HTMLSelectElement)) return;
-  if (!Array.from(harnessSelect.options).some((option) => option.value === preset.harness)) return;
-  // A preset is an explicit user choice; keep late settings/workspace loads from overriding it.
-  newChatHarnessUserTouched = true;
-  newChatModelPresetApplied = true;
-  const presetModel = preset.harness === 'sdk'
-    ? chatModelSelectApi.resolveSdkPresetModel(preset.model)
-    : preset.model;
-  harnessSelect.value = preset.harness;
-  newChatHarnessStatusTracker.selectHarness(preset.harness);
-  chatModelSelectApi.setModelPickerHarness(preset.harness);
-  chatModelSelectApi.renderModelSelectOptions(modelSelect, presetModel);
-  modelSelect.value = presetModel;
-  chatNewModelDropdownApi?.refresh?.();
-  chatNewFavoritePresetDropdownApi?.close?.();
-  syncNewChatFavoritePresetUi();
-  void refreshNewChatHarnessStatus({ forceCloseDropdown: true }).then(() => {
-    // A freshly loaded catalog can replace the model value; re-apply the chosen preset
-    // unless the user already picked another model.
-    if (newChatModelUserTouched) return;
-    if (getSelectedNewChatHarness() !== preset.harness) return;
-    chatModelSelectApi.setModelPickerHarness(preset.harness);
-    chatModelSelectApi.renderModelSelectOptions(modelSelect, presetModel);
-    modelSelect.value = presetModel;
-    chatNewModelDropdownApi?.refresh?.();
-    syncNewChatFavoritePresetUi();
-  });
-}
-
-function toggleNewChatFavoritePreset() {
-  const current = getNewChatFavoritePreset();
-  if (!current) return;
-  chatPresets.toggleFavorite(current);
-  syncNewChatFavoritePresetUi();
-}
 
 function refreshModelCatalogFromServer() {
   return api
@@ -7445,6 +7527,77 @@ let newChatWorktreeTarget = null;
 /** Bumps per modal open so a late worktree list cannot repaint a newer modal. */
 let newChatWorktreeLoadSeq = 0;
 
+const newChatLocationWorktrees = new Map();
+const newChatLocationRequests = new Map();
+let newChatLocationGeneration = 0;
+let newChatLocationUserTouched = false;
+let newChatWorktreeScope = '';
+
+/** Share worktree reads between the selected folder and the grouped location dropdown. */
+async function fetchNewChatLocationWorktrees(folder) {
+  if (newChatLocationWorktrees.has(folder)) return { ok: true, worktrees: newChatLocationWorktrees.get(folder) };
+  if (newChatLocationRequests.has(folder)) return newChatLocationRequests.get(folder);
+  const generation = newChatLocationGeneration;
+  const request = api.getWorktrees(folder).then((data) => {
+    if (generation === newChatLocationGeneration && data?.ok) {
+      newChatLocationWorktrees.set(folder, Array.isArray(data.worktrees) ? data.worktrees : []);
+      syncNewChatLocationPicker();
+    }
+    return data;
+  }).catch(() => null).finally(() => {
+    if (newChatLocationRequests.get(folder) === request) newChatLocationRequests.delete(folder);
+  });
+  newChatLocationRequests.set(folder, request);
+  return request;
+}
+
+/** Synchronize the combined location control without changing native backing fields. */
+function syncNewChatLocationPicker() {
+  const picker = document.getElementById('chat-new-location');
+  const folderSelect = document.getElementById('chat-new-folder-select');
+  const worktreeSelect = document.getElementById('chat-new-worktree-select');
+  if (!picker || !(folderSelect instanceof HTMLSelectElement)) return;
+  if (folderSelect.value !== newChatWorktreeScope) {
+    const row = document.getElementById('chat-new-worktree-row');
+    if (row) row.hidden = true;
+    if (worktreeSelect) worktreeSelect.value = '';
+  }
+  const folders = Array.from(folderSelect.options, (option) => ({ value: option.value, label: option.textContent }));
+  picker.options = buildNewChatLocationOptions(folders, newChatLocationWorktrees, readNewChatLocationFavorites(), t,
+    document.documentElement.lang || undefined);
+  const todoId = resolveNewChatWorktreeTodoId();
+  picker.value = encodeNewChatLocation(folderSelect.value, todoId);
+  const selected = picker.options.find((row) => row.value === picker.value);
+  const folderLabel = folders.find((row) => row.value === folderSelect.value)?.label || folderSelect.value;
+  picker.displayLabel = todoId ? `${folderLabel} · ${selected?.label || worktreeSelect?.selectedOptions[0]?.textContent || ''}` : folderLabel;
+  picker.displayDescription = selected?.description || folderSelect.value;
+  picker.placeholder = t('chat.newLocationLabel');
+  picker.searchPlaceholder = t('chat.newSearchLocations');
+  picker.emptyLabel = t('common.searchDropdownEmpty');
+  picker.favoritesEnabled = true;
+  picker.favoritesFilterEnabled = true;
+  picker.worktreeFilterEnabled = true;
+  picker.worktreeOptionsLabel = t('chat.newLocationsWithWorktree');
+  picker.plainOptionsLabel = t('chat.newLocationsWithoutWorktree');
+  picker.allOptionsLabel = t('chat.newAllLocations');
+  picker.favoriteOptionsLabel = t('chat.newFavoriteModels');
+  picker.emptyFavoritesLabel = t('chat.newEmptyFavoriteLocations');
+  picker.addFavoriteLabel = t('chat.newAddFavoriteLocation');
+  picker.removeFavoriteLabel = t('chat.newRemoveFavoriteLocation');
+}
+
+/** Fetch worktrees for the visible folder groups only when the dropdown is opened. */
+async function loadNewChatLocationGroups() {
+  const generation = newChatLocationGeneration;
+  const queue = Array.from(document.getElementById('chat-new-folder-select')?.options || [], (option) => option.value);
+  async function loadNext() {
+    while (queue.length && generation === newChatLocationGeneration && isNewChatModalOpen()) {
+      await fetchNewChatLocationWorktrees(queue.shift());
+    }
+  }
+  await Promise.allSettled(Array.from({ length: 3 }, loadNext));
+}
+
 function normalizeFolderForCompare(value) {
   return String(value || '').replace(/\\/g, '/').replace(/\/+$/, '').trim();
 }
@@ -7466,12 +7619,16 @@ async function syncNewChatWorktreeRow({ keepSelection = false } = {}) {
   const folder = String(selectedWorkspaceFolder || '').trim();
   const seq = ++newChatWorktreeLoadSeq;
   const previous = keepSelection && !row.hidden ? select.value : null;
+  newChatWorktreeScope = folder;
   row.hidden = true;
   select.innerHTML = '';
+  syncNewChatLocationPicker();
   if (!folder) return;
   let data = null;
   try {
-    data = await api.getWorktrees(folder);
+    data = newChatLocationWorktrees.has(folder)
+      ? { ok: true, worktrees: newChatLocationWorktrees.get(folder) }
+      : await fetchNewChatLocationWorktrees(folder);
   } catch (_) {
     return;
   }
@@ -7492,6 +7649,7 @@ async function syncNewChatWorktreeRow({ keepSelection = false } = {}) {
   const preferred = previous ?? (newChatWorktreeTarget?.todoId || '');
   select.value = rows.some((item) => item.todoId === preferred) ? preferred : '';
   row.hidden = false;
+  syncNewChatLocationPicker();
 }
 
 /** todoId of the worktree picked in the modal, or '' for the project folder. */
@@ -7503,9 +7661,19 @@ function resolveNewChatWorktreeTodoId() {
 }
 
 export function openNewChatModal(options = {}) {
+  ++newChatLocationGeneration;
+  const locationGeneration = newChatLocationGeneration;
+  newChatLocationWorktrees.clear();
+  newChatLocationRequests.clear();
+  newChatLocationUserTouched = false;
+  const locationPicker = document.getElementById('chat-new-location');
+  if (locationPicker) locationPicker.favoritesOnly = readNewChatLocationFavorites().size > 0;
+  const combinedPicker = document.getElementById('chat-new-agent-model');
+  if (combinedPicker) combinedPicker.favoritesOnly = chatPresets.getPresets().length > 0
+  if (combinedPicker) combinedPicker.availableOnly = true;
+  newChatModelCatalogChecked.clear();
   newChatHarnessUserTouched = false;
   newChatModelUserTouched = false;
-  newChatModelPresetApplied = false;
   newChatHarnessExplicitChoice = false;
   // Refresh settings defaults in the background; never let the late result override a
   // harness the user picked (or that was resolved from a source chat) after opening.
@@ -7588,7 +7756,9 @@ export function openNewChatModal(options = {}) {
   const harnessSel = document.getElementById('chat-new-harness-select');
   const lastExecutor = (buildPlanChat || passMessageChat)
     ? readLastDelegationExecutor()
-    : { harness: '', model: '' };
+    : sourceChat || (typeof options?.harness === 'string' && options.harness.trim())
+      ? { harness: '', model: '' }
+      : readLastNewChatExecutor();
   if (harnessSel instanceof HTMLSelectElement && typeof options?.harness === 'string' && options.harness.trim()) {
     selectNewChatHarness(harnessSel, normalizeNewChatHarness(options.harness));
   } else if (harnessSel instanceof HTMLSelectElement && sourceChat) {
@@ -7610,7 +7780,7 @@ export function openNewChatModal(options = {}) {
     // A local id can only be preserved once the enabled-local allowlist loaded.
     // If the modal was opened directly on a local source chat, correct the select
     // after the async refresh instead of letting it collapse to sdk.
-    if (!requestedRawHarness || !localChatHarnessIds.has(requestedRawHarness)) return;
+    if (newChatHarnessUserTouched || !requestedRawHarness || !localChatHarnessIds.has(requestedRawHarness)) return;
     const select = document.getElementById('chat-new-harness-select');
     if (select instanceof HTMLSelectElement && select.value !== requestedRawHarness) {
       select.value = requestedRawHarness;
@@ -7622,6 +7792,8 @@ export function openNewChatModal(options = {}) {
   const preferredWorkspaceFolder =
     options && typeof options.workspaceFolder === 'string' ? options.workspaceFolder.trim() : '';
   const ctx = getWorkspaceContextForChat();
+  // Fall back to the last location the user picked when nothing else points anywhere.
+  const lastLocation = !sourceChat && !preferredWorkspaceFolder ? readLastNewChatLocation() : null;
   // The active chat's worktree is the default target; it only applies when no
   // explicit workspace points elsewhere.
   const worktreeChat = sourceChat ? null : findActiveWorktreeChat();
@@ -7630,7 +7802,9 @@ export function openNewChatModal(options = {}) {
     normalizeFolderForCompare(preferredWorkspaceFolder) ===
       normalizeFolderForCompare(worktreeChat.workspaceFolder)
   );
-  newChatWorktreeTarget = worktreeMatches
+  newChatWorktreeTarget = lastLocation
+    ? { todoId: lastLocation.todoId, workspaceFolder: lastLocation.folder }
+    : worktreeMatches
     ? {
       todoId: chatWorktreeTodoId(worktreeChat),
       workspaceFile: String(worktreeChat.workspaceFile || ''),
@@ -7647,6 +7821,7 @@ export function openNewChatModal(options = {}) {
   selectedWorkspaceFolder =
     preferredWorkspaceFolder ||
     sourceChat?.workspaceFolder ||
+    lastLocation?.folder ||
     (worktreeMatches ? worktreeChat.workspaceFolder : '') ||
     ctx?.workspaceFolder ||
     null;
@@ -7661,7 +7836,7 @@ export function openNewChatModal(options = {}) {
   if (model) {
     chatNewModelDropdownApi?.refresh?.();
   }
-  syncNewChatFavoritePresetUi();
+  syncNewChatAgentModelPicker();
   chatNewFolderDropdownApi?.refresh?.();
   const titleInput = document.getElementById('chat-new-title-input');
   if (titleInput) {
@@ -7676,32 +7851,33 @@ export function openNewChatModal(options = {}) {
   }
   const harness = getSelectedNewChatHarness();
   if (!localChatHarnessIds.has(harness)) newChatHarnessStatusTracker.selectHarness(harness);
-  // Unknown readiness shows no warning and keeps Create disabled; the status check below
-  // either enables it or shows the selected harness' own error.
+  // Mirror readiness immediately; background checks keep the selected status current.
   syncNewChatHarnessUi(harness);
   applyNewChatModalForkLabels();
   const activeBeforeOpen = document.activeElement;
   newChatModalReturnFocus = activeBeforeOpen instanceof HTMLElement ? activeBeforeOpen : null;
   chatNewModalApi.open();
+  void refreshNewChatUsageLimits();
   // The name is optional. Focus the first required choice so opening the dialog
   // does not emphasize an empty field the user may never need to fill in.
-  const harnessSelectForFocus = document.getElementById('chat-new-harness-select');
-  if (harnessSelectForFocus instanceof HTMLElement) harnessSelectForFocus.focus();
+  const modelPickerForFocus = document.getElementById('chat-new-agent-model');
+  void modelPickerForFocus?.updateComplete?.then(() => modelPickerForFocus.shadowRoot?.querySelector('button')?.focus());
   void loadWorkspaces().then(() => {
+    if (locationGeneration !== newChatLocationGeneration) return;
     selectedWorkspaceFile =
       preferredWorkspaceFile ||
       selectedWorkspaceFile ||
       getWorkspaceContextForChat()?.workspaceFile ||
       selectedWorkspaceFile;
     selectedWorkspaceFolder =
-      preferredWorkspaceFolder ||
+      (!newChatLocationUserTouched ? preferredWorkspaceFolder : '') ||
       selectedWorkspaceFolder ||
       getWorkspaceContextForChat()?.workspaceFolder ||
       selectedWorkspaceFolder;
     chatController.renderWorkspacesSelects();
     ensureEmbedNewChatFolderSelect();
     void syncNewChatWorktreeRow({ keepSelection: true });
-    if (!newChatModelUserTouched && !newChatModelPresetApplied) {
+    if (!newChatModelUserTouched) {
       const m = document.getElementById('chat-new-model-select');
       const source = getNewChatModalSourceChat();
       // Keep the delegation executor model; a late workspace load must not reset it to the
@@ -7710,18 +7886,18 @@ export function openNewChatModal(options = {}) {
     }
     chatModelSelectApi.refreshNewChatModelPicker(getSelectedNewChatHarness());
     chatNewModelDropdownApi?.refresh?.();
-    syncNewChatFavoritePresetUi();
+    syncNewChatAgentModelPicker();
   });
   void refreshNewChatHarnessStatus();
   if (passMessageChat) {
     void prepareMessageDelegationModal(passMessageChat, passMessageMeta).then(() => {
       const modelSel = document.getElementById('chat-new-model-select');
       chatModelSelectApi.refreshNewChatModelPicker(getSelectedNewChatHarness());
-      if (modelSel instanceof HTMLSelectElement && lastExecutor.model && !newChatModelUserTouched && !newChatModelPresetApplied) {
+      if (modelSel instanceof HTMLSelectElement && lastExecutor.model && !newChatModelUserTouched) {
         modelSel.value = lastExecutor.model;
       }
       chatNewModelDropdownApi?.refresh?.();
-      syncNewChatFavoritePresetUi();
+      syncNewChatAgentModelPicker();
       void refreshNewChatHarnessStatus();
       document.getElementById('chat-new-plan-preview-child-agent')?.addEventListener('change', applyNewChatModalForkLabels);
       applyNewChatModalForkLabels();
@@ -7730,11 +7906,11 @@ export function openNewChatModal(options = {}) {
     void prepareBuildPlanModal(buildPlanChat).then(() => {
       const modelSel = document.getElementById('chat-new-model-select');
       chatModelSelectApi.refreshNewChatModelPicker(getSelectedNewChatHarness());
-      if (modelSel instanceof HTMLSelectElement && lastExecutor.model && !newChatModelUserTouched && !newChatModelPresetApplied) {
+      if (modelSel instanceof HTMLSelectElement && lastExecutor.model && !newChatModelUserTouched) {
         modelSel.value = lastExecutor.model;
       }
       chatNewModelDropdownApi?.refresh?.();
-      syncNewChatFavoritePresetUi();
+      syncNewChatAgentModelPicker();
       void refreshNewChatHarnessStatus();
       document.getElementById('chat-new-plan-preview-child-agent')?.addEventListener('change', applyNewChatModalForkLabels);
       applyNewChatModalForkLabels();
@@ -7777,12 +7953,19 @@ export function openTodoAgentStartModal({ harness = '', onStart, planReviewerCoo
 }
 
 function closeNewChatModal() {
+  ++newChatLocationGeneration;
+  ++newChatWorktreeLoadSeq;
+  document.getElementById('chat-new-location')?.closeDropdown?.();
+  ++newChatModelCatalogLoadSequence;
+  document.getElementById('chat-new-agent-model')?.closeDropdown?.();
+  ++newChatUsageCheckSequence;
+  newChatUsageCheckPending = false;
+  clearTimeout(newChatLimitExpiryTimer);
   todoAgentModalSubmit = null;
   todoAgentModalPlanReviewerMode = false;
   setTodoPlanReviewerModeRowVisible(false);
   chatNewFolderDropdownApi?.close?.();
   chatNewModelDropdownApi?.close?.();
-  chatNewFavoritePresetDropdownApi?.close?.();
   forkSourceChatId = null;
   forkUpToCreatedAt = null;
   monitorSourceChatId = null;
@@ -7820,9 +8003,9 @@ function isNewChatModalOpen() {
  */
 function isNewChatDropdownOpen() {
   return (
+    document.getElementById('chat-new-agent-model')?.isDropdownOpen?.() === true ||
     chatNewModelDropdownApi?.isOpen?.() === true ||
-    chatNewFolderDropdownApi?.isOpen?.() === true ||
-    chatNewFavoritePresetDropdownApi?.isOpen?.() === true
+    chatNewFolderDropdownApi?.isOpen?.() === true
   );
 }
 
@@ -7836,11 +8019,6 @@ function closeOpenNewChatDropdown() {
     if (host.isDropdownOpen?.() !== true) continue;
     const trigger = host.shadowRoot?.querySelector('.trigger') || null;
     host.closeDropdown?.();
-    return trigger instanceof HTMLElement ? trigger : null;
-  }
-  if (chatNewFavoritePresetDropdownApi?.isOpen?.() === true) {
-    chatNewFavoritePresetDropdownApi.close?.();
-    const trigger = document.getElementById('chat-new-favorite-preset-trigger');
     return trigger instanceof HTMLElement ? trigger : null;
   }
   return null;
@@ -7871,6 +8049,7 @@ function collectNewChatFocusTargets() {
     'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
   const pushNative = (el, { allowRovingOption = false } = {}) => {
     if (!(el instanceof HTMLElement)) return;
+    if (el.getAttribute('aria-disabled') === 'true') return;
     if (el.classList.contains('chat-settings-select-hidden')) return;
     // Searchable-select options use roving tabindex: -1 options can still receive
     // programmatic focus from arrow-key navigation and must remain in the trap.
@@ -7885,6 +8064,13 @@ function collectNewChatFocusTargets() {
     }
   };
   for (const el of modal.querySelectorAll('*')) {
+    if (el.tagName === 'CR-ICON-BUTTON') {
+      const control = el.shadowRoot?.querySelector('button');
+      if (control && !control.disabled && isNewChatFocusableVisible(control)) {
+        targets.push({ id: el, focus: () => control.focus() });
+      }
+      continue;
+    }
     if (el.tagName === 'CR-SEARCHABLE-SELECT') {
       const trigger = el.shadowRoot?.querySelector('.trigger');
       if (trigger instanceof HTMLElement && !trigger.disabled && isNewChatFocusableVisible(trigger)) {
@@ -7896,10 +8082,7 @@ function collectNewChatFocusTargets() {
       continue;
     }
     if (el.matches(nativeSelector)) pushNative(el);
-    if (el.id === 'chat-new-favorite-preset-trigger') {
-      const panel = document.getElementById('chat-new-favorite-preset-modal');
-      if (panel && !panel.hidden) pushPanel(panel);
-    }
+
   }
   return targets;
 }
@@ -8637,31 +8820,10 @@ function createChatFromModal() {
   const title = (titleInput?.value || '').trim();
   const chosenModel = normalizeModelValue(modelSel?.value);
   const harness = getSelectedNewChatHarness();
+  syncNewChatHarnessUi(harness);
   const createBtn = document.getElementById('chat-new-create');
   if (createBtn?.disabled) {
-    alert(
-      harness === 'openrouter'
-        ? t('chat.openrouterDisabled')
-        : harness === 'opencode'
-          ? t('chat.opencodeDisabled')
-          : harness === 'codebuddy'
-            ? t('chat.codebuddyDisabled')
-            : harness === 'deepseek'
-              ? t('chat.deepseekDisabled')
-              : harness === 'mistral'
-                ? t('chat.mistralDisabled')
-              : harness === 'zai'
-                ? t('chat.zaiDisabled')
-              : harness === 'mimo'
-                ? t('chat.mimoDisabled')
-              : harness === 'qwen'
-                ? t('chat.qwenDisabled')
-              : harness === 'claude'
-                ? t('chat.claudeDisabled')
-              : harness === 'codex'
-                ? t('chat.codexDisabled')
-            : t('chat.sdkDisabled')
-    );
+    document.getElementById('chat-new-sdk-hint')?.scrollIntoView({ block: 'nearest' });
     return;
   }
   selectedModel = chosenModel;
@@ -9962,7 +10124,7 @@ export function initChatPanel() {
       chatNewModelDropdownApi?.close?.();
       const selected = getSelectedNewChatHarness();
       if (!localChatHarnessIds.has(selected)) newChatHarnessStatusTracker.selectHarness(selected);
-      syncNewChatFavoritePresetUi();
+      syncNewChatAgentModelPicker();
       void refreshNewChatHarnessStatus({ forceCloseDropdown: true });
     });
   }
@@ -9970,43 +10132,8 @@ export function initChatPanel() {
   if (newModelSel) {
     newModelSel.addEventListener('change', () => {
       newChatModelUserTouched = true;
-      syncNewChatFavoritePresetUi();
-    });
-  }
-  const newFavoritePresetTrigger = document.getElementById('chat-new-favorite-preset-trigger');
-  const newFavoritePresetModal = document.getElementById('chat-new-favorite-preset-modal');
-  if (newFavoritePresetTrigger && newFavoritePresetModal) {
-    // Keep the floating panel out of the scrollable dialog stacking context,
-    // just like cr-searchable-select does for the model and folder pickers.
-    if (newFavoritePresetModal.parentElement !== document.body) {
-      document.body.appendChild(newFavoritePresetModal);
-    }
-    chatNewFavoritePresetDropdownApi = initDropdown({
-      triggerEl: newFavoritePresetTrigger,
-      floatingEl: newFavoritePresetModal,
-      compact: true,
-      placement: 'bottom-start',
-      matchTriggerWidth: true,
-      offsetPx: 6,
-      viewportPadding: 8,
-      minWidthPx: 220,
-      maxHeightPx: 360,
-      optionSelector: '[role="option"]',
-      onOpen: () => {
-        chatNewModelDropdownApi?.close?.();
-        chatNewFolderDropdownApi?.close?.();
-        renderNewChatFavoritePresetOptions();
-      },
-    });
-    newFavoritePresetTrigger.addEventListener('click', () => {
-      chatNewFavoritePresetDropdownApi?.toggle?.();
-    });
-  }
-  const newFavoritePresetToggle = document.getElementById('chat-new-favorite-preset-toggle');
-  if (newFavoritePresetToggle) {
-    newFavoritePresetToggle.addEventListener('click', (event) => {
-      event.preventDefault();
-      toggleNewChatFavoritePreset();
+      syncNewChatHarnessUi();
+      syncNewChatAgentModelPicker();
     });
   }
   const deleteConfirmCancelBtn = document.getElementById('chat-delete-confirm-cancel');
@@ -10052,8 +10179,60 @@ export function initChatPanel() {
     });
   }
 
-  chatNewModelDropdownApi = chatModelSelectApi.ensureFloatingModelSelect(document.getElementById('chat-new-model-select'));
-  chatNewFolderDropdownApi = chatModelSelectApi.ensureFloatingFolderSelect(document.getElementById('chat-new-folder-select'));
+  const combinedModelPicker = document.getElementById('chat-new-agent-model');
+  combinedModelPicker?.addEventListener('cr-favorite-toggle', (event) => {
+    const choice = decodeNewChatModelChoice(event.detail?.value);
+    if (!choice?.model || localChatHarnessIds.has(choice.harness)) return;
+    chatPresets.toggleFavorite(choice);
+  });
+  combinedModelPicker?.addEventListener('cr-open', () => {
+    document.getElementById('chat-new-location')?.closeDropdown?.();
+    if (!newChatUsageCheckPending) void refreshNewChatUsageLimits();
+    void loadNewChatModelCatalogs();
+  });
+  combinedModelPicker?.addEventListener('cr-change', (event) => {
+    const choice = decodeNewChatModelChoice(event.detail?.value);
+    const option = combinedModelPicker.options.find((row) => row.value === event.detail?.value);
+    if (!choice || !option || option.disabled || chatCreateInFlight) return;
+    const harnessSelect = document.getElementById('chat-new-harness-select');
+    const modelSelect = document.getElementById('chat-new-model-select');
+    harnessSelect.value = choice.harness;
+    newChatHarnessUserTouched = true;
+    newChatModelUserTouched = true;
+    if (!localChatHarnessIds.has(choice.harness)) newChatHarnessStatusTracker.selectHarness(choice.harness);
+    chatModelSelectApi.setModelPickerHarness(choice.harness);
+    chatModelSelectApi.renderModelSelectOptions(modelSelect, choice.model);
+    modelSelect.value = choice.model;
+    writeLocalStorageSafe(LAST_NEW_CHAT_EXECUTOR_KEY, JSON.stringify(choice), 'newChatLastExecutor');
+    syncNewChatHarnessUi();
+    syncNewChatAgentModelPicker();
+  });
+  const locationPicker = document.getElementById('chat-new-location');
+  chatNewFolderDropdownApi = {
+    refresh: syncNewChatLocationPicker,
+    close: () => locationPicker?.closeDropdown?.(),
+    isOpen: () => locationPicker?.isDropdownOpen?.() === true,
+  };
+  locationPicker?.addEventListener('cr-open', () => {
+    combinedModelPicker?.closeDropdown?.();
+    void loadNewChatLocationGroups();
+  });
+  locationPicker?.addEventListener('cr-favorite-toggle', (event) => {
+    toggleNewChatLocationFavorite(event.detail?.value);
+    syncNewChatLocationPicker();
+  });
+  locationPicker?.addEventListener('cr-change', (event) => {
+    const choice = decodeNewChatLocation(event.detail?.value);
+    const option = locationPicker.options.find((row) => row.value === event.detail?.value);
+    const folderSelect = document.getElementById('chat-new-folder-select');
+    if (!choice || !option || option.disabled || chatCreateInFlight || !folderSelect) return;
+    newChatLocationUserTouched = true;
+    writeLocalStorageSafe(LAST_NEW_CHAT_LOCATION_KEY, JSON.stringify(choice), 'newChatLastLocation');
+    newChatWorktreeTarget = { todoId: choice.todoId, workspaceFolder: choice.folder };
+    folderSelect.value = choice.folder;
+    selectedWorkspaceFolder = choice.folder;
+    void syncNewChatWorktreeRow();
+  });
   // The worktree list belongs to the chosen folder; a different folder starts
   // from "no worktree" because the active chat's worktree no longer applies.
   document.getElementById('chat-new-folder-select')?.addEventListener('change', (event) => {
@@ -10086,7 +10265,7 @@ export function initChatPanel() {
   }).catch(() => {});
   if (typeof window !== 'undefined') {
     window.addEventListener(CHAT_PRESETS_CHANGED_EVENT, () => {
-      syncNewChatFavoritePresetUi();
+      syncNewChatAgentModelPicker();
     });
     window.addEventListener('cretli-enabled-harnesses-changed', (event) => {
       if (event?.detail?.harnessOrder) applyHarnessOrder(event.detail.harnessOrder);

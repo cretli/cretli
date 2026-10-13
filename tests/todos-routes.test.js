@@ -206,6 +206,8 @@ runCase(
     const refineChatId = refined.body.chat.id;
     assert.notEqual(refineChatId, executorChatId);
     assert.match(refined.body.initialPrompt, /@cretli-todo-refine-loop/);
+    assert.match(refined.body.initialPrompt, /after every rewrite, call reviewer_session/);
+    assert.match(refined.body.initialPrompt, /returned session id/);
     assert.match(refined.body.initialPrompt, /cretli-ref todo=/);
     assert.doesNotMatch(refined.body.initialPrompt, /set-todo-from-agent/);
 

@@ -119,6 +119,13 @@ A parent agent that needs a **sub-chat on another harness** (for example Cursor 
 
 All ten harnesses share the same WebSocket path (`/ws-agent-sdk`), protocol (`sdkEvent`, replay batches), rich view, and history persist format. OpenRouter, Mistral, Z.AI, OpenCode, CodeBuddy, DeepSeek, Qwen, Claude, and Codex events are normalized to SDK-shaped payloads before broadcast. Archive, restore, delete, and sidebar nesting persist a `chatsChanged` frame to every attached agent socket so the live sidebar reloads without waiting for a page resume. If the chat row is gone (deleted on another device), the server sends `sdkError` with code `chat_not_found` and the client stops reconnecting instead of treating it as a recoverable `invalid_session`.
 
+Plan refinement prepares its cooperation session with MCP `reviewer_session`
+after saving the normalised plan and after every rewrite. The tool derives
+workspace and coordinator from the calling chat and reuses the session for
+that saved revision and cooperation mode. A new revision gets a new session;
+closed sessions are never reopened by retries. Both reviewers use the returned
+id as `plan_reviewer_session_id`. Stale revision checks remain enforced.
+
 Skills use `.agents/skills/<name>/SKILL.md` as the cross-harness convention.
 Project, Cretli-bundled, user (`~/.agents/skills`), and configured shared roots are
 discovered at run time and listed in prompts for every harness. Existing

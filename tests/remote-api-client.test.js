@@ -31,6 +31,13 @@ const server = http.createServer((req, res) => {
   // once, then the client is expected to re-login and retry.
   if (cookie === 'cr_session=expired') return reply(401, { ok: false, error: 'Unauthorized' });
   if (cookie !== 'cr_session=tok123') return reply(401, { ok: false, error: 'Unauthorized' });
+  if (req.method === 'POST' && url.pathname === '/api/todos/session-todo/plan-reviewer-session') {
+    if (req.headers['x-cretli-csrf'] !== 'csrf456') return reply(403, { ok: false, error: 'CSRF' });
+    let raw = '';
+    req.on('data', (chunk) => { raw += chunk; });
+    req.on('end', () => reply(200, { ok: true, session: { id: 'revision-session' }, saved: JSON.parse(raw) }));
+    return;
+  }
   if (req.method === 'GET' && url.pathname === '/api/chats') {
     const includeArchived = url.searchParams.get('includeArchived') === '1';
     return reply(200, {
@@ -228,6 +235,15 @@ try {
     findings: [{ title: 'Remote scout finding', category: 'bug' }],
   });
 
+  const preparedSession = await client.ensurePlanReviewerSession({
+    todoId: 'session-todo', workspaceFolder: '/tmp/w1', coordinatorChatId: CHATS[0].id,
+    cooperationMode: 'exchange',
+  });
+  assert.equal(preparedSession.session.id, 'revision-session');
+  assert.deepEqual(preparedSession.saved, {
+    workspaceFolder: '/tmp/w1', coordinatorChatId: CHATS[0].id,
+    cooperationMode: 'exchange', reuseCurrentRevision: true,
+  });
   console.log('remote-api-client.test.js OK');
 } finally {
   server.close();

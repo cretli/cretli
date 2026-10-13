@@ -35,6 +35,7 @@ import {
   finishDelegation,
   recordDelegationVerifyResult,
 } from '../lib/delegation-service.js';
+import { persistTodoPlan } from '../lib/todo-plan-sync.js';
 import { registerDelegationsRoutes } from '../lib/routes/delegations-routes.js';
 
 let seq = 0;
@@ -668,4 +669,27 @@ test('delegation-attempt stays free of node:crypto for the browser bundle', () =
   const source = fs.readFileSync(path.join(process.cwd(), 'lib', 'delegation-attempt.js'), 'utf8');
   assert.doesNotMatch(source, /from\s+['"]\.\/delegation-request\.js['"]/);
   assert.doesNotMatch(source, /['"](?:node:)?crypto['"]/);
+});
+
+
+test('runtime sync reads the saved plan boundary and a chat plan edit immediately invalidates PASS', () => {
+  const project = makeProject('plan-revision');
+  const todo = makeTodo(project);
+  const failed = makeDelegation(project, todo, { reviewSubject: 'plan', queuedAt: '2026-01-01T00:03:00.000Z' });
+  patchRecord(failed, { status: 'completed', startedAt: '2026-01-01T00:03:00.000Z',
+    finishedAt: '2026-01-01T00:04:00.000Z', reportVerdict: 'FAIL', report: 'VERDICT: FAIL' });
+  sync(getDelegationById(failed.id));
+  assert.equal(readTodo(project, todo.id).review.plan.state, 'failed');
+  persistTodoPlan({ dataDir: ISOLATED_DATA_DIR, cwd: project, todoId: todo.id, planMarkdown: 'Revised plan' });
+  assert.equal(readTodo(project, todo.id).review.plan.state, 'stale');
+  const boundary = readTodo(project, todo.id).plan.markdownUpdatedAt;
+  const passed = makeDelegation(project, todo, { reviewSubject: 'plan', queuedAt: boundary });
+  patchRecord(passed, { status: 'completed', startedAt: boundary, finishedAt: boundary,
+    reportVerdict: 'PASS', report: 'VERDICT: PASS' });
+  sync(getDelegationById(passed.id));
+  assert.equal(readTodo(project, todo.id).review.plan.state, 'passed');
+  assert.deepEqual(readTodo(project, todo.id).review.plan.reviewers.map((row) => row.delegationId), [passed.id]);
+  persistTodoPlan({ dataDir: ISOLATED_DATA_DIR, cwd: project, todoId: todo.id, planMarkdown: 'Revised plan' });
+  assert.equal(readTodo(project, todo.id).review.plan.state, 'passed');
+  assert.equal(readTodo(project, todo.id).plan.markdownUpdatedAt, boundary);
 });

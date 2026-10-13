@@ -1129,6 +1129,42 @@ runCase('review: code and plan snapshots do not overwrite each other', () => {
   assert.equal(codeAgain.review.code.state, 'failed');
 });
 
+
+runCase('plan revision follows markdown changes and survives approval and identical saves', () => {
+  const dataDir = path.join(tmpRoot, 'plan-revision');
+  const project = path.join(tmpRoot, 'plan-revision-project');
+  mkdirSync(project, { recursive: true });
+  const { item: todo } = addTodo(dataDir, project, { title: 'Revision' });
+  updateTodo(dataDir, project, todo.id, { plan: { markdown: 'v1' } });
+  const initial = loadTodosData(dataDir, project).items[0].plan;
+  assert.equal(initial.markdownUpdatedAt, initial.updatedAt);
+  updateTodo(dataDir, project, todo.id, {
+    plan: { approvedAt: '2026-01-01T00:00:00.000Z', markdownUpdatedAt: '2099-01-01T00:00:00.000Z' },
+  });
+  updateTodo(dataDir, project, todo.id, { plan: { markdown: 'v1', sourceChatId: 'review-chat' } });
+  const unchanged = loadTodosData(dataDir, project).items[0].plan;
+  assert.equal(unchanged.markdownUpdatedAt, initial.markdownUpdatedAt);
+  assert.ok(unchanged.approvedAt);
+  updateTodo(dataDir, project, todo.id, { plan: { markdown: 'v2' } });
+  const changed = loadTodosData(dataDir, project).items[0].plan;
+  assert.equal(changed.markdownUpdatedAt, changed.updatedAt);
+  assert.equal(changed.approvedAt, undefined);
+});
+
+runCase('legacy plan revision uses its stored update timestamp and freezes it on metadata patches', () => {
+  const dataDir = path.join(tmpRoot, 'legacy-plan-revision');
+  const project = path.join(tmpRoot, 'legacy-plan-project');
+  mkdirSync(project, { recursive: true });
+  const { item: todo } = addTodo(dataDir, project, { title: 'Legacy' });
+  const file = path.join(dataDir, 'todos', `${workspaceKeyFromCwd(project)}.json`);
+  const doc = JSON.parse(readFileSync(file, 'utf8'));
+  doc.items[0].plan = { markdown: 'v1', updatedAt: '2026-01-01T00:10:00.000Z' };
+  writeFileSync(file, JSON.stringify(doc));
+  assert.equal(loadTodosData(dataDir, project).items[0].plan.markdownUpdatedAt, '2026-01-01T00:10:00.000Z');
+  updateTodo(dataDir, project, todo.id, { plan: { approvedAt: '2026-01-01T00:20:00.000Z' } });
+  assert.equal(loadTodosData(dataDir, project).items[0].plan.markdownUpdatedAt, '2026-01-01T00:10:00.000Z');
+});
+
 await Promise.all(pendingCases);
 
 try {

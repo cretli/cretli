@@ -219,12 +219,21 @@ decision 1.
   attempts belong to the round opened by the earlier one.
 - A review with no preceding implement/fix in the leaf forms round 0
   (review-only).
+- For subject `plan`, a change to the saved `todo.plan.markdown` also opens
+  a new round. The boundary is the later of the latest implement/fix and
+  `plan.markdownUpdatedAt`. Only reviews started at or after that boundary
+  count in the current fan-out; older reports remain in delegation history.
+  Approval, metadata-only patches and identical markdown saves do not move
+  `markdownUpdatedAt`. Legacy plans use their existing `plan.updatedAt` as a
+  conservative baseline because the old store did not distinguish metadata
+  changes from markdown changes. Plans without either timestamp retain the
+  legacy review-only round until their next markdown edit.
 - Fan-out membership: **all** subject-review attempts of the same round.
 - A second review started in the same round does **not** replace a failed
   sibling; it joins the fan-out. Because `passed` requires every subject
   reviewer to be a usable PASS, a FAIL stays decisive for that round. The only
-  way to recover from `failed` is a new implement/fix (new round) followed by a
-  fresh review.
+  way to recover from `failed` is a new implement/fix (new round), or a saved
+  markdown revision for subject `plan`, followed by a fresh review.
 
 ### 4.4 Freshness predicate — SETTLED
 
@@ -234,8 +243,11 @@ For a subject `s`:
 2. `lastMaterialAt` = the latest `queuedAt || startedAt` over all implement/fix
    attempts of the leaf.
 3. If `lastReviewAt(s)` is empty → `none`.
-4. If `lastMaterialAt > lastReviewAt(s)` → `stale`. This is the narrow meaning
-   of "not current" from decision 1 (§6).
+4. `boundaryAt(s)` is `lastMaterialAt` for `code`/`other`, and the later
+   of `lastMaterialAt` and `plan.markdownUpdatedAt` for `plan`.
+   If `boundaryAt(s) > lastReviewAt(s)` → `stale`. A plan edit yields
+   `stateReason: plan_edited_after_review` when no newer implement/fix already
+   invalidated the review. Manual plan acceptance is subject to the same boundary.
 5. Otherwise evaluate the latest round that contains a subject-`s` review.
 
 ### 4.5 Round evaluation — SETTLED
@@ -294,7 +306,7 @@ replacement review can close the leaf.
 | Event | Precondition | Resulting `state` | Notes |
 | --- | --- | --- | --- |
 | review queued / starting / running | no later implement/fix | `pending` | terminal jobs never stay here forever (§4.7) |
-| all reviewers PASS + verify passed | review after `lastMaterialAt` | `passed` | the only PASS path |
+| all reviewers PASS + verify passed | review after `boundaryAt(s)` | `passed` | the only PASS path |
 | any reviewer terminal FAIL/BLOCKED | review in the current round | `failed` | decisive even with infra siblings |
 | verify failed | result recorded for an attempt | `failed` | `verifyResult.status === 'failed'` |
 | verify required, missing at terminal | executor cannot run tests | `unknown` | `verify_missing`; never `passed` |
@@ -505,9 +517,10 @@ Rules:
 
 ### 6.1 Narrow "current" — SETTLED (user decision 1)
 
-In v1, a review is **current** iff no implement/fix attempt for the leaf was
-**queued or started after** the review attempt. Formally, using §4.4:
-`material.current = lastMaterialAt <= lastReviewAt(s)`.
+A review is **current** iff no implement/fix attempt for the leaf was
+**queued or started after** the review attempt. For subject `plan`, the saved
+plan markdown must also be unchanged since that review. Formally, using §4.4:
+`material.current = boundaryAt(s) <= lastReviewAt(s)` (see §4.4).
 
 - Invalidating at **queue** time (decision 5) is required: a queued job may sit
   in the queue indefinitely, so waiting for start would leave a `passed` badge
@@ -520,16 +533,16 @@ In v1, a review is **current** iff no implement/fix attempt for the leaf was
 
 The narrow rule does **not** detect the following cases. They do **not** turn
 the snapshot into `unknown`: `material.current` stays computable and stays
-`true` whenever no implement/fix was queued or started after the review, even
+`true` whenever no implement/fix (or saved plan revision for `plan`) followed the review, even
 though the underlying files may have changed. The limitation is surfaced in the
 UI copy / documentation note (U1), never by changing the state or the predicate:
 
 1. **Edits outside a delegation** — a manual edit, another chat, a tool, or a
    human commit in the logical workspace or the worktree. There is no
    delegation attempt, so `lastMaterialAt` does not move.
-2. **Requirement/plan edits** — editing `todo.body` or `todo.plan.markdown`
-   after a review does not invalidate `review.plan` or `review.code` in v1.
-   Only a queued/started implement/fix does.
+2. **Requirement edits** — editing `todo.body` does not invalidate reviews.
+   Editing `todo.plan.markdown` invalidates only `review.plan` and opens a
+   new plan round (§4.3); it does not invalidate `review.code`.
 3. **Worktree changes not driven by an attempt** — a worktree can change
    between the review and the read (e.g. a manual `merge`, a sibling operation).
 4. **Same-attempt change after review** — the reviewer is read-only by contract,
@@ -910,7 +923,7 @@ touches any of them needs its own decision.
 | Scout | untouched |
 | Autopilot review gate | separate leaf; `done` is not blocked here |
 | Widgets receiving a todo-change event | not in v1 (decision 7); only the existing Todo-panel channel |
-| Content fingerprint, logical-vs-worktree diff detection, plan-edit invalidation | v2 candidates (§6.2, §6.4) |
+| Content fingerprint, logical-vs-worktree diff detection, requirement-edit invalidation | v2 candidates (§6.2, §6.4) |
 | Automatic commit / push / merge / rebase / cherry-pick | out of scope (`docs/todo-worktree-contract.md` S15) |
 | Card/panel visual design and i18n strings | the UI leaf materializes this contract; not decided here |
 
@@ -920,7 +933,7 @@ touches any of them needs its own decision.
 
 | # | Decision |
 | --- | --- |
-| U1 | Material freshness is the narrow meaning of "current": no implement/fix queued or started after the review. No content fingerprint in v1; the undetected cases (§6.2) are stated honestly. |
+| U1 | Material freshness is the narrow meaning of "current": no implement/fix queued or started after the review, and no newer saved plan revision for `plan`. No content fingerprint in v1; the undetected cases (§6.2) are stated honestly. |
 | U2 | The same base model on another harness is independent, marked `same_model_other_harness`. |
 | U3 | The "no review" badge is shown for all `done` leaves; human acceptance remains a distinct `manual` state. |
 | U4 | A REST PATCH carrying `review` returns an explicit validation error, never a silent ignore. |
@@ -1143,7 +1156,7 @@ is recorded as an acknowledgement but never yields `manual`.
 
 - **Not a content guarantee.** Freshness is the narrow rule of §6.1: a review is
   stale only when an implement/fix was queued or started after it. Edits outside
-  a delegation, requirement/plan edits, and manual worktree changes are not
+  a delegation, requirement edits, and manual worktree changes are not
   detected (§6.2).
 - **Retention.** Finished delegations are archived after 30 days (report cut to
   2000 chars) and attempt history is capped at 20 (§11.1). When a referenced

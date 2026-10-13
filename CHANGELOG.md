@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Cost-aware plan decomposition in Review and refine plan.** The planning
+  agent now creates subtasks when their benefit outweighs repeated research,
+  agent starts, reviews and integration, keeps cohesive work together, and
+  asks plan reviewers to check for missing boundaries and excessive splitting.
+
 - Workspace Watcher settings now expose the worktree dirty-tree start policy:
   block (default), last commit (HEAD), or a snapshot of current changes. New
   watcher worktrees honor the saved policy; existing worktree bases stay frozen.
@@ -49,6 +54,16 @@ All notable changes to this project are documented here. The format is based on
   separate todos. Disable with `CRETLI_DELEGATION_CODE_REVIEW_PHASE=0`.
 
 ### Fixed
+
+- Plan refinement now prepares a revision-bound reviewer session through MCP
+  after saving the plan and after each rewrite. Retries reuse the current
+  session without clearing reports; earlier revisions remain stale.
+
+- Plan review rounds now follow saved plan revisions: older FAIL reports no
+  longer block fresh PASS reviews after a rewrite, and another edit makes the
+  plan review stale. Approval and identical saves preserve the revision.
+  Legacy plans use their existing update timestamp as a conservative baseline.
+  The refine loop marks successfully reviewed ideas ready for human approval.
 
 - A persisted conflicting verdict on an infrastructure-only review attempt now
   keeps todo review aggregation `unknown` instead of allowing a sibling PASS.

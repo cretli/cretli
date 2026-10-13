@@ -21,7 +21,9 @@ test('mock: opens new chat modal with all harness options', async ({ page }) => 
   const modal = page.locator('#chat-new-modal');
   await expect(modal).toBeVisible();
   const harnessSelect = modal.locator('#chat-new-harness-select');
-  await expect(harnessSelect).toBeVisible();
+  await expect(harnessSelect).toBeHidden();
+  const combinedPicker = modal.locator('#chat-new-agent-model');
+  await expect(combinedPicker).toBeVisible();
   const harnessValues = await harnessSelect.locator('option').evaluateAll((options) =>
     options.map((entry) => (entry instanceof HTMLOptionElement ? entry.value : '')),
   );
@@ -35,9 +37,10 @@ test('mock: opens new chat modal with all harness options', async ({ page }) => 
   expect(harnessValues).toContain('codex');
   expect(harnessValues).toContain('qwen');
   expect(harnessValues).toContain('claude');
-  await harnessSelect.selectOption('zai');
-  await expect(harnessSelect).toHaveValue('zai');
-  await expect(harnessSelect.locator('option:checked')).toHaveText('Z.AI SDK');
+  await combinedPicker.locator('button').click();
+  await expect(page.locator('.cr-searchable-select-modal:not([hidden]) input')).toBeVisible();
+  await expect(page.locator('.cr-searchable-select-modal:not([hidden]) .cr-searchable-select-group').filter({ hasText: 'Z.AI SDK' })).toBeVisible();
+  await page.keyboard.press('Escape');
   await modal.locator('#chat-new-cancel').click();
   await expect(modal).toBeHidden();
 });
@@ -105,7 +108,7 @@ async function createOpenCodeChatFromSidebar(page) {
   const modal = page.locator('#chat-new-modal');
   await expect(modal).toBeVisible();
   const harnessSelect = modal.locator('#chat-new-harness-select');
-  await harnessSelect.selectOption('opencode');
+  await harnessSelect.selectOption('opencode', { force: true });
   await modal.locator('#chat-new-create').click();
   await expect(modal).toBeHidden({ timeout: 20_000 });
 }

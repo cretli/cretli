@@ -24,6 +24,14 @@ and `delegation_rate` apply here unchanged; read that skill for the details.
 
 ## Round 0: load and normalise
 
+0. Treat notes from earlier chats (a session being "closed", a provider being
+   "exhausted", a round cap being "reached") as stale hints, never as facts.
+   The reviewer session id in this chat's prompt was created for this run and
+   is open for its original saved revision; saving a changed plan makes it stale.
+   Prepare a current session as described below; only a rejected `delegation_start` (`phase_closed`, `stale`) shows
+   otherwise. Pick reviewers fresh and let `model_pick` skip models under
+   lockout.
+
 1. `todo_show` the root (body, then `field: "plan"`, following every
    `next_cursor`) and every descendant (`children_cursor`, then recurse).
 2. If the root has no plan, write the body out as plan **v1** with
@@ -32,8 +40,52 @@ and `delegation_rate` apply here unchanged; read that skill for the details.
    task.
 3. Head the plan with `Version N` and, from v2 on, a short
    "Changes since version N-1" section naming the findings it answers.
+4. Assess task decomposition using the policy below before the first review.
+   Save any justified tree changes and the matching plan together so both
+   reviewers audit the same proposed execution structure.
+
+### Task decomposition: benefit must outweigh overhead
+
+- Keep small, cohesive work as one leaf by default. A numbered plan step is
+  not automatically a separate todo. Each extra leaf repeats research,
+  context loading, agent startup, implementation review and integration; weigh
+  that cost against a concrete benefit, without inventing time estimates.
+- Split only when it makes a substantial task manageable in context, isolates
+  a meaningful dependency or risk, or enables independent work with disjoint
+  scopes. Choose the fewest leaves with independently verifiable outcomes.
+  Do not split by file, by arbitrary step count, or just to add more agents.
+- Keep research, implementation, tests and documentation for the same outcome
+  in its leaf. Separate them only when they deliver an independently useful
+  result or resolve a dependency that later work genuinely needs.
+- Inspect and reuse existing descendants first. For a justified split, create
+  missing children with `todo_create`, `parent_id` and a stable
+  `idempotency_key`; keep them in `idea` status and do not start them. Do not
+  duplicate existing work or restructure active or completed leaves. If those
+  need different boundaries, record a proposal for the human in the plan.
+- Each leaf body must state its outcome, measurable acceptance criteria,
+  dependencies and a `## Leaf scope` listing the files/modules it may touch.
+  Set `sibling_index` to reflect dependency order and put the actual child ids
+  and order in the root plan. Keep sequential execution by default; propose
+  parallel execution only for disjoint scopes, leaving approval to the human.
+- Record a short split/no-split rationale in the plan: the benefit and added
+  execution overhead, or why one leaf is sufficient. Reassess during rewrites
+  only when findings change the scope or dependencies; avoid gratuitous tree
+  churn and extra review/consult runs just to decide how many leaves to create.
 
 ## One round
+
+### 0. Prepare the version session
+
+After normalising/saving the plan, and after every rewrite, call
+`reviewer_session({ todo_id: <root id>, cooperation_mode: <mode from prompt, default independent> })`.
+Use the returned `session.id` on both review starts with
+`plan_reviewer_session_id`, distinct `plan_reviewer_slot` values 0 and 1,
+and `plan_reviewer_phase: "independent"`. Do not reuse the initial prompt's id
+after a plan change. Repeated calls reuse the current revision without clearing
+reports or reopening a closed phase. No plan approval or status change occurs.
+If a concurrent plan edit makes a start `stale`, reload the canonical plan and
+prepare its session before retrying; do not bypass revision checks or review an
+unsaved copy. Preserve the requested cooperation mode across all versions.
 
 ### 1. Pick two reviewers
 
@@ -72,6 +124,11 @@ Check:
    and whether each leaf body describes the same work as its stage.
 5. Blockers named in the previous round are resolved: <one line each>.
 6. The plan does not approve itself and does not start any leaf.
+7. Task decomposition is proportionate: identify missing boundaries that make
+   execution impractical, and unnecessary leaves whose extra research, agent
+   starts, reviews and integration outweigh their benefit. Research, tests and
+   docs for one outcome normally belong in its implementation leaf. Check the
+   split/no-split rationale, leaf scopes, acceptance criteria and dependencies.
 
 Report only real blockers, each with a plan section and a file:line. List
 non-blocking notes separately. Do not judge style. At most 400 words.
@@ -158,9 +215,19 @@ plan's scope is unclear and the human should see it.
 End the loop and report when one of these holds:
 
 - **Ready:** every reviewer PASSed the current version and every required verify
-  passed. Confirm with `todo_show` that the plan review block agrees.
-- **Round cap:** 5 rounds without a clean round. Say which findings keep
-  recurring.
+  passed. Confirm with `todo_show` that `review.plan.state` is `passed` for
+  the saved current plan. If the badge disagrees, report the mismatch; never
+  write `review` or hide it with another plan edit. Once confirmed, promote
+  the root from `idea` to `ready` with `todo_update` and a fresh
+  `expected_updated_at`, unless the user explicitly prohibited status changes.
+  Preserve other statuses and leave child statuses unchanged. `ready` means
+  ready for human approval; it does not set `plan.approvedAt` or start work.
+- **Round cap:** 5 rounds without a clean round, counted only over rounds this
+  invocation ran. Plan versions, changelog entries and earlier chats are history,
+  not a counter: a fresh invocation always starts at round 0 and must run at
+  least one review round before this rule can fire. A review that failed on
+  infrastructure (provider limit, 429, adapter failure) is not a round. Say
+  which findings keep recurring.
 - **Same findings:** a reviewer repeats a blocker on a version that changed that
   section, and you have checked that the blocker is wrong. Report the
   disagreement instead of rewriting again.
@@ -179,7 +246,8 @@ Write it for a reader who saw none of the rounds:
 
 - Plan version and state: ready for approval, or the stop rule that fired.
 - Per round, one line: version, reviewers, verdicts.
-- What changed in the tree: todos moved out, created or rewritten, with ids.
+- What changed in the tree: todos moved out, created or rewritten, with ids,
+  and why the chosen split (or keeping one leaf) is worth its execution cost.
 - Questions settled by consulting models: the question, the answer, who gave it.
 - Open decisions for the human, each with a recommendation.
 - Non-blocking notes left unaddressed.

@@ -69,7 +69,11 @@ export function initDropdown(options = {}) {
   const placement = options.placement || 'bottom-start';
   const offsetPx = Number.isFinite(options.offsetPx) ? options.offsetPx : 6;
   const viewportPadding = Number.isFinite(options.viewportPadding) ? options.viewportPadding : 8;
-  const minWidthPx = Number.isFinite(options.minWidthPx) ? options.minWidthPx : 220;
+  // A function lets a host raise the floor after init (e.g. a narrow trigger, a wide list).
+  const resolveMinWidthPx = () => {
+    const raw = typeof options.minWidthPx === 'function' ? options.minWidthPx() : options.minWidthPx;
+    return Number.isFinite(raw) ? raw : 220;
+  };
   const maxHeightPx = Number.isFinite(options.maxHeightPx) ? options.maxHeightPx : 360;
   const matchTriggerWidth = options.matchTriggerWidth === true;
   const compact = options.compact === true;
@@ -100,6 +104,7 @@ export function initDropdown(options = {}) {
         size({
           padding: viewportPadding,
           apply({ availableWidth, availableHeight, rects, elements }) {
+            const minWidthPx = resolveMinWidthPx();
             const widthFromTrigger = Math.floor(rects.reference.width);
             const minW = matchTriggerWidth
               ? Math.max(minWidthPx, widthFromTrigger)
@@ -107,6 +112,8 @@ export function initDropdown(options = {}) {
             const maxW = Math.max(minWidthPx, Math.floor(availableWidth));
             elements.floating.style.minWidth = `${Math.min(minW, maxW)}px`;
             elements.floating.style.maxWidth = `${maxW}px`;
+            // A minimum alone lets long option descriptions expand the panel.
+            elements.floating.style.width = matchTriggerWidth ? `${Math.min(minW, maxW)}px` : '';
             elements.floating.style.maxHeight = `${Math.max(120, Math.min(maxHeightPx, Math.floor(availableHeight)))}px`;
           },
         }),
@@ -122,6 +129,7 @@ export function initDropdown(options = {}) {
     floatingEl.style.left = '';
     floatingEl.style.top = '';
     floatingEl.style.minWidth = '';
+    floatingEl.style.width = '';
     floatingEl.style.maxWidth = '';
     floatingEl.style.maxHeight = '';
     triggerEl.setAttribute('aria-expanded', 'false');
