@@ -130,6 +130,29 @@ test('optimistic rollback is guarded by the cached-view generation', () => {
   );
 });
 
+test('refresh and runtime control guard async failures', () => {
+  assert.match(
+    source,
+    /try \{[\s\S]*?\[res, catalog, runtime, profilesRes, historyRes, inboxRes, overridesRes\] = await Promise\.all\([\s\S]*?catch \{[\s\S]*?settings\.watcherLoadError/,
+    'initial watcher loads must catch network failures and show load error',
+  );
+  assert.match(
+    source,
+    /try \{[\s\S]*?await Promise\.all\(\[loadWatcherStats\(seq\), loadTodoTitles\(seq\)\]\);[\s\S]*?catch \{/,
+    'dashboard stats/todos refresh must not reject the panel paint',
+  );
+  assert.match(
+    extractFunction(source, 'paintWatcherRuntimeControl'),
+    /try \{[\s\S]*?await refreshWorkspaceWatcherSettingsPanel\(\{ full: false \}\);[\s\S]*?catch \{[\s\S]*?finally \{[\s\S]*?#watcher-runtime-disabled/,
+    'runtime toggle must re-enable after PATCH/refresh errors',
+  );
+  assert.match(
+    extractFunction(source, 'watcherAction'),
+    /try \{[\s\S]*?await watcherApi\(path[\s\S]*?catch \{/,
+    'watcherAction must catch thrown API errors like runScoutNow',
+  );
+});
+
 test('frontend validation covers scanner interval and quiet-hour semantics', () => {
   const validateFn = extractFunction(source, 'validateWatcherForm');
   // Quiet hours: both bounds well-formed HH:MM and not equal.

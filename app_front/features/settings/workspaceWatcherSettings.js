@@ -396,15 +396,31 @@ export async function refreshWorkspaceWatcherSettingsPanel(options = {}) {
   // alongside the watcher view so the checkbox list renders synchronously. The
   // profile list is additive: a failure degrades to an error card, it must never
   // reject the whole refresh and blank the rest of the panel.
-  const [res, catalog, runtime, profilesRes, historyRes, inboxRes, overridesRes] = await Promise.all([
-    watcherApi(full ? '/api/workspace-watcher?suggest=1' : '/api/workspace-watcher'),
-    full ? watcherApi('/api/harness-catalog/harnesses') : Promise.resolve(null),
-    watcherApi('/api/workspace-watcher/runtime-control'),
-    full ? watcherApi('/api/workspace-watcher/scout/profiles').catch(() => null) : Promise.resolve(null),
-    full && scoutHistoryPath ? watcherApi(scoutHistoryPath).catch(() => null) : Promise.resolve(null),
-    full && scoutInboxPath ? watcherApi(scoutInboxPath).catch(() => null) : Promise.resolve(null),
-    full ? watcherApi('/api/workspace-watcher/overrides').catch(() => null) : Promise.resolve(null),
-  ]);
+  /** @type {{ status: number, json: object | null } | null} */
+  let res = null;
+  let catalog = null;
+  let runtime = null;
+  let profilesRes = null;
+  let historyRes = null;
+  let inboxRes = null;
+  let overridesRes = null;
+  try {
+    [res, catalog, runtime, profilesRes, historyRes, inboxRes, overridesRes] = await Promise.all([
+      watcherApi(full ? '/api/workspace-watcher?suggest=1' : '/api/workspace-watcher'),
+      full ? watcherApi('/api/harness-catalog/harnesses') : Promise.resolve(null),
+      watcherApi('/api/workspace-watcher/runtime-control'),
+      full ? watcherApi('/api/workspace-watcher/scout/profiles').catch(() => null) : Promise.resolve(null),
+      full && scoutHistoryPath ? watcherApi(scoutHistoryPath).catch(() => null) : Promise.resolve(null),
+      full && scoutInboxPath ? watcherApi(scoutInboxPath).catch(() => null) : Promise.resolve(null),
+      full ? watcherApi('/api/workspace-watcher/overrides').catch(() => null) : Promise.resolve(null),
+    ]);
+  } catch {
+    if (seq !== refreshSeq) return;
+    if (full) {
+      root.innerHTML = `<p class="message" data-tone="error">${escapeHtml(t('settings.watcherLoadError'))}</p>`;
+    }
+    return;
+  }
   // A newer refresh (a save, or another live event) already owns the paint.
   if (seq !== refreshSeq) return;
   if (catalog?.json?.ok && Array.isArray(catalog.json.items)) {
@@ -418,8 +434,8 @@ export async function refreshWorkspaceWatcherSettingsPanel(options = {}) {
     applyScoutInboxResponse(inboxRes, res.json?.scout);
     applyWorkspaceOverridesResponse(overridesRes);
   }
-  if (!res.json?.ok) {
-    if (full) root.innerHTML = `<p class="message" data-tone="error">${escapeHtml(res.json?.error || t('settings.watcherLoadError'))}</p>`;
+  if (!res?.json?.ok) {
+    if (full) root.innerHTML = `<p class="message" data-tone="error">${escapeHtml(res?.json?.error || t('settings.watcherLoadError'))}</p>`;
     return;
   }
   lastView = {
@@ -438,7 +454,11 @@ export async function refreshWorkspaceWatcherSettingsPanel(options = {}) {
   }
   // The dashboard is additive: a stats/todos failure degrades to "no data" /
   // short ids, it must never blank out the already-rendered status/form.
-  await Promise.all([loadWatcherStats(seq), loadTodoTitles(seq)]);
+  try {
+    await Promise.all([loadWatcherStats(seq), loadTodoTitles(seq)]);
+  } catch {
+    // loadWatcherStats / loadTodoTitles swallow errors; guard against future throws.
+  }
   if (seq !== refreshSeq) return;
   const container = root.querySelector('#watcher-dashboard');
   if (!container) return;
@@ -1827,18 +1847,29 @@ function paintWatcherRuntimeControl(root) {
   const toggle = panel.querySelector('#watcher-runtime-disabled');
   toggle?.addEventListener('change', async () => {
     toggle.disabled = true;
-    const res = await watcherApi('/api/workspace-watcher/runtime-control', {
-      method: 'PATCH',
-      body: { startsEnabled: !toggle.checked },
-    });
-    if (!res.json?.ok) {
-      toggle.checked = !toggle.checked;
+    const checkedBefore = toggle.checked;
+    try {
+      const res = await watcherApi('/api/workspace-watcher/runtime-control', {
+        method: 'PATCH',
+        body: { startsEnabled: !toggle.checked },
+      });
+      if (!res.json?.ok) {
+        const liveToggle = panel.querySelector('#watcher-runtime-disabled');
+        if (liveToggle) liveToggle.checked = !checkedBefore;
+        const status = panel.querySelector('#watcher-runtime-status');
+        if (status) status.textContent = res.json?.error || t('settings.watcherActionError');
+        return;
+      }
+      await refreshWorkspaceWatcherSettingsPanel({ full: false });
+    } catch {
+      const liveToggle = panel.querySelector('#watcher-runtime-disabled');
+      if (liveToggle) liveToggle.checked = !checkedBefore;
       const status = panel.querySelector('#watcher-runtime-status');
-      if (status) status.textContent = res.json?.error || t('settings.watcherActionError');
-      toggle.disabled = false;
-      return;
+      if (status) status.textContent = t('settings.watcherActionError');
+    } finally {
+      const liveToggle = panel.querySelector('#watcher-runtime-disabled');
+      if (liveToggle) liveToggle.disabled = false;
     }
-    await refreshWorkspaceWatcherSettingsPanel({ full: false });
   });
 }
 
@@ -2724,12 +2755,16 @@ async function watcherAction(root, action) {
   if (action === 'claim_next') body.claimedByChatId = String(root.querySelector('#watcher-claim-chat')?.value || '').trim();
   if (action === 'record_findings') body.hash = String(root.querySelector('#watcher-findings-hash')?.value || '').trim();
   setWatcherStatus(root, t('settings.watcherWorking'));
-  const res = await watcherApi(path, { method: 'POST', body });
-  if (!res.json?.ok) {
-    setWatcherStatus(root, res.json?.error || t('settings.watcherActionError'));
-    return;
+  try {
+    const res = await watcherApi(path, { method: 'POST', body });
+    if (!res.json?.ok) {
+      setWatcherStatus(root, res.json?.error || t('settings.watcherActionError'));
+      return;
+    }
+    await refreshWorkspaceWatcherSettingsPanel();
+  } catch {
+    setWatcherStatus(root, t('settings.watcherActionError'));
   }
-  await refreshWorkspaceWatcherSettingsPanel();
 }
 
 /**

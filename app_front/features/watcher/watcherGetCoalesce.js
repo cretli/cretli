@@ -39,8 +39,10 @@ export function getWorkspaceWatcherView(path) {
     return { status: res.status, json };
   })();
   inflight.set(key, promise);
-  promise.finally(() => {
+  void promise.finally(() => {
     if (inflight.get(key) === promise) inflight.delete(key);
+  }).catch(() => {
+    // Cleanup chain must not become an unhandled rejection when callers handle `promise`.
   });
   return promise;
 }

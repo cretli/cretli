@@ -27,6 +27,20 @@ try {
   assert.equal(first.status, 200);
   assert.equal(second.json?.mode, 'observe');
   assert.equal(first, second);
+
+  calls = 0;
+  const rejectPath = '/api/workspace-watcher?workspaceFolder=%2Ftmp%2Freject';
+  globalThis.fetch = async () => {
+    calls += 1;
+    throw new Error('network down');
+  };
+  const shared = getWorkspaceWatcherView(rejectPath);
+  const duplicate = getWorkspaceWatcherView(rejectPath);
+  assert.equal(shared, duplicate);
+  assert.equal(calls, 1);
+  await assert.rejects(shared, /network down/);
+  await new Promise((resolve) => setImmediate(resolve));
+
   console.log('watcher-get-coalesce.test.js ok');
 } finally {
   globalThis.fetch = originalFetch;
