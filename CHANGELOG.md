@@ -50,6 +50,9 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- A persisted conflicting verdict on an infrastructure-only review attempt now
+  keeps todo review aggregation `unknown` instead of allowing a sibling PASS.
+
 - **Recovery contract deferred adapters for Z.AI and MiMo.** The Z.AI and MiMo
   harnesses are now explicitly listed in `RECOVERY_DEFERRED_ADAPTERS` with
   deferral reasons (both hydrate the chat from history as plain user/assistant

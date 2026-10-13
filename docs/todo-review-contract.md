@@ -275,7 +275,8 @@ obligations (`verify_failed`, `verify_missing`) apply only to **deciding** revie
 credible, non-infra terminal attempts — so a dead infra sibling with
 `verifyRequired` and no verdict cannot downgrade a usable PASS. A persisted
 `FAIL` or `BLOCKED` on an infra attempt still blocks the round like a non-infra
-failure. Independence aggregation (§9.3) uses the same deciding set; the durable
+failure. A persisted `conflict` on an infra attempt keeps the round `unknown`,
+even when a replacement reviewer reports `PASS`. Independence aggregation (§9.3) uses the same deciding set; the durable
 `reviewers[]` list still lists every round participant for the UI. A
 cancelled participant or a non-infra attempt without a usable verdict still
 yields `unknown`, not a silent `passed`. Quality-cycle aggregation

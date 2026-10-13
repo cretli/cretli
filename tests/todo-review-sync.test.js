@@ -232,6 +232,14 @@ test('infra attempt with persisted FAIL blocks a usable PASS sibling', () => {
   assert.equal(code.stateReason, 'review_failed');
 });
 
+test('infra attempt with conflicting persisted verdict prevents a usable PASS', () => {
+  const infra = reviewRow({ startedAt: t(2), status: 'failed', error: 'Transport not started', report: '', reportVerdict: 'conflict' });
+  const pass = reviewRow({ startedAt: t(3) });
+  const code = subjectSnapshot([infra, pass]);
+  assert.equal(code.state, 'unknown');
+  assert.equal(code.stateReason, 'no_verdict');
+});
+
 test('failed review with an empty report and no error evidence is not infra: PASS sibling stays unknown', () => {
   const impl = materialRow({ queuedAt: t(1) });
   const unclassified = reviewRow({ startedAt: t(2), status: 'failed', report: '', reportVerdict: '' });
