@@ -71,6 +71,7 @@ export default [
       'lib/status-parser.js',
       'lib/fork-chat-text.js',
       'lib/fork-title.js',
+      'lib/todo-worktree-manual.js',
       'lib/codex/codex-device-auth.js',
       'app_front/agents.js',
       'app_front/chat.js',

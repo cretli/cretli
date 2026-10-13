@@ -102,7 +102,7 @@ test('sidebarView registers row payloads and mounts Lit hosts from workspace rep
   assert.doesNotMatch(source, /buildSidebarChatRowHostHtml/, 'no host HTML string builder in sidebarView');
   assert.doesNotMatch(
     source,
-    /return\s*\(\s*'\<li class="sidebar-chat-item/,
+    /return\s*\(\s*'<li class="sidebar-chat-item/,
     'no parallel raw li HTML in sidebarView',
   );
 });
@@ -135,7 +135,7 @@ test('buildSidebarChatRowHtml matches row contract selectors', () => {
   ]);
   for (const sel of SIDEBAR_CHAT_ROW_CHILD_SELECTORS) {
     if (optionalWhenEmpty.has(sel)) continue;
-    const cls = sel.replace(/^\./, '').split(/[\[#]/)[0];
+    const cls = sel.replace(/^\./, '').split(/[[#]/)[0];
     assert.match(html, new RegExp(cls), `html includes ${sel}`);
   }
 });

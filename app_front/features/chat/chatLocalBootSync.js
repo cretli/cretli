@@ -39,7 +39,7 @@ export const CHAT_LOCAL_BOOT_SYNC_VERSION = 1;
 export const CHAT_LOCAL_BOOT_SYNC_MAX_ROWS = 40;
 
 /**
- * Max UTF-16 JSON size for the sync bootstrap. Baseline 0.1: ≤64 KB (65 536 B).
+ * Max UTF-16 JSON size for the sync bootstrap. Baseline 0.1: ≤64 KB (65 536 B).
  */
 export const CHAT_LOCAL_BOOT_SYNC_MAX_BYTES = 65536;
 

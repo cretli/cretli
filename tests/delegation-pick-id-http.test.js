@@ -81,7 +81,6 @@ const pick1 = persistModelPickProposal({
   chatId: parent1.id,
   workspaceFolder: workspace,
   role: 'implement',
-  chatId: parent1.id,
   pickResult: {
     pick: { harness: 'opencode', model: 'opencode/test' },
     picks: [{ harness: 'opencode', model: 'opencode/test' }],

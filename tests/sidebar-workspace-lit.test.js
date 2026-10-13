@@ -58,7 +58,7 @@ test('sidebarView mounts workspace hosts and updates in place when signature cha
   assert.doesNotMatch(source, /buildSidebarWorkspaceHostHtml/, 'no workspace host HTML strings in sidebarView');
   assert.doesNotMatch(
     source,
-    /return\s*\(\s*'\<li class="sidebar-workspace/,
+    /return\s*\(\s*'<li class="sidebar-workspace/,
     'no parallel raw workspace li HTML return',
   );
 });

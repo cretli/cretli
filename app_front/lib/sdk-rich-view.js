@@ -5621,8 +5621,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
       });
     } finally {
       endHistoryReplayApplySlice();
-      if (!historyReplayGenerationGate.isActive(replayGeneration)) return;
     }
+    if (!historyReplayGenerationGate.isActive(replayGeneration)) return;
     if (!replayOutcomeByGeneration.has(replayGeneration)) return;
     const reason = historyReplayGenerationGate.isActive(replayGeneration) ? 'complete' : 'cancelled';
     settleReplayOutcome(replayGeneration, reason);

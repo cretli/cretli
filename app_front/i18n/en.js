@@ -3985,7 +3985,7 @@ export const en = {
     overridesRevoke: 'Revoke',
     overridesSaveFailed: 'Could not create the override.',
     overridesCreated: 'Override created.',
-    overridesRevoked: 'Override revoked.',
+    overridesRevokeSuccess: 'Override revoked.',
     overridesResetting: 'Resetting overrides…',
     overridesResetDone: 'Overrides reset. Backup: {backup}',
     exploreStatusTitle: 'Explore status (read-only)',

@@ -3985,7 +3985,7 @@ export const pl = {
     overridesRevoke: 'Odwołaj',
     overridesSaveFailed: 'Nie udało się utworzyć nadpisania.',
     overridesCreated: 'Nadpisanie utworzone.',
-    overridesRevoked: 'Nadpisanie odwołane.',
+    overridesRevokeSuccess: 'Nadpisanie odwołane.',
     overridesResetting: 'Resetowanie nadpisań…',
     overridesResetDone: 'Nadpisania zresetowane. Kopia: {backup}',
     exploreStatusTitle: 'Stan eksploracji (tylko odczyt)',

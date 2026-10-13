@@ -275,7 +275,7 @@ async function revokeOverride(id) {
       return;
     }
     await loadHarnessModelRoleConfig(true);
-    flash(t('harnessModelRole.overridesRevoked'), 'success');
+    flash(t('harnessModelRole.overridesRevokeSuccess'), 'success');
   } catch {
     flash(t('harnessModelRole.saveFailed'), 'error');
   }

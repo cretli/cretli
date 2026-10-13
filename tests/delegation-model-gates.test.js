@@ -7,7 +7,7 @@
  * behaviour for the same inputs, plus the observed high-infra ordering and the
  * real limit-store feeding.
  */
-import './helpers/isolated-data-dir.js';
+import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
