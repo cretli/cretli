@@ -10,6 +10,8 @@ import {
   loadTodosData,
   normalizeTodoReview,
   TODOS_MAX_ITEMS,
+  TODOS_MAX_IDEMPOTENCY_ENTRIES,
+  TODOS_MAX_IDEMPOTENCY_KEY_LENGTH,
   updateTodo,
   workspaceKeyFromCwd,
   writeTodoReview,
@@ -424,6 +426,41 @@ runCase('idempotency replay detects parentId mismatch as CONFLICT', () => {
     () => addTodo(dataDir, project, { title: 'Kid', idempotencyKey: 'k1', parentId: root.id }),
     (e) => e.code === 'CONFLICT'
   );
+});
+
+runCase('idempotency: truncates keys, caps entry count, prunes orphans, clears on delete', () => {
+  const dataDir = path.join(tmpRoot, 'idem-bounds');
+  mkdirSync(dataDir, { recursive: true });
+  const project = path.join(tmpRoot, 'idem-bounds-proj');
+  mkdirSync(project, { recursive: true });
+  const longKey = `k-${'x'.repeat(TODOS_MAX_IDEMPOTENCY_KEY_LENGTH + 40)}`;
+  const created = addTodo(dataDir, project, { title: 'Live', idempotencyKey: longKey });
+  const liveId = created.item.id;
+  const storedKey = Object.keys(created.idempotency)[0];
+  assert.equal(storedKey.length, TODOS_MAX_IDEMPOTENCY_KEY_LENGTH);
+  const wsKey = workspaceKeyFromCwd(project);
+  assert.ok(wsKey);
+  const todosPath = path.join(dataDir, 'todos', `${wsKey}.json`);
+  /** @type {Record<string, { hash: string, todoId: string }>} */
+  const idempotency = {};
+  for (let i = 0; i < TODOS_MAX_IDEMPOTENCY_ENTRIES + 10; i += 1) {
+    idempotency[`extra-${i}`] = { hash: 'h', todoId: liveId };
+  }
+  idempotency['orphan-key'] = { hash: 'h', todoId: '00000000-0000-0000-0000-000000000099' };
+  writeFileSync(todosPath, JSON.stringify({
+    version: 3,
+    updatedAt: new Date().toISOString(),
+    items: created.items,
+    idempotency,
+  }));
+  const reloaded = loadTodosData(dataDir, project);
+  assert.equal(Object.keys(reloaded.idempotency).length, TODOS_MAX_IDEMPOTENCY_ENTRIES);
+  assert.equal(reloaded.idempotency['orphan-key'], undefined);
+  assert.equal(reloaded.idempotency['extra-0'], undefined, 'oldest extras drop first');
+  assert.ok(reloaded.idempotency[`extra-${TODOS_MAX_IDEMPOTENCY_ENTRIES + 9}`]);
+  deleteTodo(dataDir, project, liveId);
+  const afterDelete = loadTodosData(dataDir, project);
+  assert.equal(Object.keys(afterDelete.idempotency).length, 0);
 });
 
 runCase('plan approval resets when markdown changes', () => {

@@ -12,7 +12,14 @@ import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
 import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
-import { getWorkspaceWatcher, mutateWorkspaceWatcherRow } from '../lib/persist/workspace-watchers-persist.js';
+import {
+  WORKSPACE_WATCHER_MAX_FAILURES_ENTRIES,
+  WORKSPACE_WATCHER_MAX_FINDINGS_BY_TODO_ENTRIES,
+  WORKSPACE_WATCHER_MAX_STOP_REASON_LENGTH,
+  getWorkspaceWatcher,
+  mutateWorkspaceWatcherRow,
+  normalizeWorkspaceWatcherRow,
+} from '../lib/persist/workspace-watchers-persist.js';
 import { registerWorkspaceWatcherRoutes } from '../lib/routes/workspace-watcher-routes.js';
 import { WORKSPACE_WATCHER_PARKED_REASON } from '../lib/workspace-watcher-blocked-reason.js';
 import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
@@ -280,6 +287,43 @@ runCase('reset-plan-requests clears the anti-loop memory', withApp(async (invoke
   await invoke('POST', '/api/workspace-watcher/reset-plan-requests', { body: {} });
   const read = await invoke('GET', '/api/workspace-watcher');
   assert.deepEqual(read.body.watcher.planRequests, {});
+}));
+
+runCase('PATCH caps stopReason length and bounded failures/findings maps', withApp(async (invoke) => {
+  await invoke('PATCH', '/api/workspace-watcher', { body: { mode: 'observe' } });
+  const longStop = 's'.repeat(WORKSPACE_WATCHER_MAX_STOP_REASON_LENGTH + 80);
+  const stopped = await invoke('PATCH', '/api/workspace-watcher', { body: { stopReason: longStop } });
+  assert.equal(stopped.body.watcher.stopReason.length, WORKSPACE_WATCHER_MAX_STOP_REASON_LENGTH);
+  /** @type {Record<string, number>} */
+  const failures = {};
+  for (let i = 0; i < WORKSPACE_WATCHER_MAX_FAILURES_ENTRIES + 25; i += 1) {
+    failures[`todo-fail-${i}`] = 2;
+  }
+  await invoke('PATCH', '/api/workspace-watcher', { body: { failures } });
+  const readFailures = await invoke('GET', '/api/workspace-watcher');
+  assert.equal(
+    Object.keys(readFailures.body.watcher.failures).length,
+    WORKSPACE_WATCHER_MAX_FAILURES_ENTRIES,
+  );
+  assert.equal(readFailures.body.watcher.failures['todo-fail-0'], undefined);
+  assert.equal(readFailures.body.watcher.failures[`todo-fail-${WORKSPACE_WATCHER_MAX_FAILURES_ENTRIES + 24}`], 2);
+  /** @type {Record<string, { hash: string, streak: number }>} */
+  const byTodo = {};
+  for (let i = 0; i < WORKSPACE_WATCHER_MAX_FINDINGS_BY_TODO_ENTRIES + 15; i += 1) {
+    byTodo[`todo-find-${i}`] = { hash: `h-${i}`, streak: 1 };
+  }
+  const normalized = normalizeWorkspaceWatcherRow({
+    workspaceFolder: cwd,
+    mode: 'observe',
+    findings: { byTodo },
+  });
+  assert.equal(
+    Object.keys(normalized.findings.byTodo).length,
+    WORKSPACE_WATCHER_MAX_FINDINGS_BY_TODO_ENTRIES,
+  );
+  assert.equal(normalized.findings.byTodo['todo-find-0'], undefined);
+  assert.ok(normalized.findings.byTodo[`todo-find-${WORKSPACE_WATCHER_MAX_FINDINGS_BY_TODO_ENTRIES + 14}`]);
+  await invoke('PATCH', '/api/workspace-watcher', { body: { stopReason: '', failures: {} } });
 }));
 
 runCase('findings route records a streak for identical hashes', withApp(async (invoke) => {
