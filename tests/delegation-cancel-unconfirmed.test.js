@@ -89,7 +89,7 @@ test('successful abort releases slot with stopProof', async () => {
   assert.equal(isDelegationSlotOccupied(after), false);
 });
 
-test('harness without abort API escalates to cancel_unconfirmed and keeps slot', async () => {
+test('harness without abort API finishes read-only review as infra and releases slot', async () => {
   registerChatRunAdapter({
     transport: 'no-abort-test',
     capabilities: { canCancel: false },
@@ -122,8 +122,37 @@ test('harness without abort API escalates to cancel_unconfirmed and keeps slot',
   });
   const after = getDelegationById(row.id);
   assert.equal(after.status, 'interrupted');
+  assert.equal(after.interruptCode, 'review_cancel_stuck');
+  assert.equal(after.slotHeldBy, 'running');
+  assert.equal(isDelegationSlotOccupied(after), false);
+});
+
+test('harness without abort API still escalates implement to cancel_unconfirmed', () => {
+  const parent = addChat(crypto.randomUUID(), 'parent-na-impl', null, ISOLATED_DATA_DIR, 'no-abort-test/x', {
+    agentTransport: 'no-abort-test',
+    sdkMode: 'agent',
+  });
+  const child = addChat(crypto.randomUUID(), 'child-na-impl', null, ISOLATED_DATA_DIR, 'no-abort-test/x', {
+    agentTransport: 'no-abort-test',
+    sdkMode: 'agent',
+  });
+  const row = updateDelegationRecord(createDelegationRecord({
+    parentChatId: parent.id,
+    childChatId: child.id,
+    workspaceFolder: ISOLATED_DATA_DIR,
+    executor: { transport: 'no-abort-test', model: 'no-abort-test/x' },
+    assignment: 'implement',
+    status: 'cancelling',
+    runId: 'r-impl',
+  }).id, {
+    lastTransitionAt: new Date(Date.now() - DELEGATION_CANCELLING_TIMEOUT_MS - 50).toISOString(),
+  });
+  resolveCancellingDeadline(row, Date.now(), { busy: true, known: true }, {
+    finishDelegation,
+    hasInFlightDelegationStart,
+  });
+  const after = getDelegationById(row.id);
   assert.equal(after.interruptCode, 'cancel_unconfirmed');
-  assert.equal(after.slotHeldBy, 'cancel_unconfirmed');
   assert.equal(isDelegationSlotOccupied(after), true);
 });
 

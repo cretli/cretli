@@ -12,7 +12,6 @@ import path from 'node:path';
 import {
   DELEGATION_METRICS_FIELDS,
   buildRunMetrics,
-  captureGitSnapshot,
   diffGitSnapshots,
   emptyMetrics,
   isExecuteAssignment,
@@ -20,6 +19,7 @@ import {
   normalizeMetrics,
   parseNumstat,
 } from '../lib/delegation-metrics.js';
+import { captureGitSnapshot } from '../lib/delegation-metrics-git.js';
 import {
   hasOpenSdkRunTools,
   noteSdkRunToolActivity,
@@ -204,7 +204,7 @@ const reviewMetrics = collectRoomDelegationMetrics(sdkRoom, {
   assignment: 'review',
   executor: { transport: 'sdk' },
 });
-assert.equal(reviewMetrics.tool_calls_n, null, 'review leaves tool_calls_n null on SDK');
+assert.equal(reviewMetrics.tool_calls_n, 5, 'review records tool_calls_n on SDK for fan-out settlement');
 assert.equal(reviewMetrics.tokens_in, 100, 'token fields are still collected for review');
 
 const planMetrics = collectRoomDelegationMetrics(sdkRoom, {

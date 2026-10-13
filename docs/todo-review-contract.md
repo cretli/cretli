@@ -266,20 +266,25 @@ Given the fresh attempts of the current round:
 | else any verdict `conflict` or `unspecified` | `unknown` |
 | else any verify `failed` | `failed` |
 | else verify `required` and absent on a terminal attempt | `unknown` (`verify_missing`) |
-| else every non-infra fresh attempt is a usable `PASS` and every verify obligation is satisfied | `passed` |
-| else (some terminal attempt is cancelled / unusable, no FAIL/BLOCKED; or only infra attempts) | `unknown` |
+| else every **deciding** reviewer is a usable `PASS` and every verify obligation is satisfied | `passed` |
+| else (some deciding attempt is cancelled / unusable, no FAIL/BLOCKED; or only infra / non-deciding attempts) | `unknown` |
 
-Fan-out `passed` ignores infrastructure-only siblings (`isStructuredInfraDelegationOutcome`
-or a `Transport not started` start error; an empty report alone is never infra, §5.3). Verify
-obligations (`verify_failed`, `verify_missing`) apply only to **deciding** reviewers —
-credible, non-infra terminal attempts — so a dead infra sibling with
-`verifyRequired` and no verdict cannot downgrade a usable PASS. A persisted
-`FAIL` or `BLOCKED` on an infra attempt still blocks the round like a non-infra
-failure. A persisted `conflict` on an infra attempt keeps the round `unknown`,
-even when a replacement reviewer reports `PASS`. Independence aggregation (§9.3) uses the same deciding set; the durable
-`reviewers[]` list still lists every round participant for the UI. A
-cancelled participant or a non-infra attempt without a usable verdict still
-yields `unknown`, not a silent `passed`. Quality-cycle aggregation
+Fan-out `passed` ignores infrastructure-only siblings (`isStructuredInfraDelegationOutcome`,
+`interruptCode` of `cancel_unconfirmed` or `review_cancel_stuck`, or a
+`Transport not started` start error; an empty report alone is never infra, §5.3).
+It also ignores **non-deciding** terminal siblings: zero persisted tool calls
+(`metrics.tool_calls_n === 0`) with no usable verdict, and infra outcomes above.
+Verify obligations (`verify_failed`, `verify_missing`) apply only to **deciding**
+reviewers — credible, non-infra terminal attempts that are not non-deciding —
+so a dead infra sibling with `verifyRequired` and no verdict cannot downgrade a
+usable PASS. A persisted `FAIL` or `BLOCKED` on an infra attempt still blocks the
+round like a non-infra failure. A persisted `conflict` on an infra attempt keeps
+the round `unknown`, even when a replacement reviewer reports `PASS`. Independence
+aggregation (§9.3) uses the same deciding set; the durable `reviewers[]` list still lists every round participant
+for the UI. A user-cancelled participant or a non-infra deciding attempt without
+a usable verdict still yields `unknown`, not a silent `passed`. Read-only review
+jobs stuck in `cancelling` past the deadline are finished as `review_cancel_stuck`
+(infrastructure) instead of holding a `cancel_unconfirmed` slot (§4.7). Quality-cycle aggregation
 (`lib/delegation-cycle-outcomes.js`) keeps its own `reviews.every(credibleReview && PASS)`
 rule; the todo snapshot is intentionally more lenient on infra retries so a
 replacement review can close the leaf.
@@ -294,7 +299,7 @@ replacement review can close the leaf.
 | verify failed | result recorded for an attempt | `failed` | `verifyResult.status === 'failed'` |
 | verify required, missing at terminal | executor cannot run tests | `unknown` | `verify_missing`; never `passed` |
 | terminal reviewer, no usable verdict | empty/degraded/repetition/conflict | `unknown` | degraded `size` with a kept VERDICT stays usable (§5.3) |
-| one cancelled fan-out participant | other participants exist | `unknown` | conservative; a FAIL/BLOCKED sibling makes it `failed` |
+| one cancelled fan-out participant | other deciding participants exist | `unknown` | conservative; a FAIL/BLOCKED sibling makes it `failed`; infra / zero-tool non-deciding siblings are ignored |
 | all fan-out participants cancelled | — | `unknown` | no usable verdict |
 | infra failure (`adapter_*`, provider error, or `Transport not started` start error) | no FAIL/BLOCKED sibling | `unknown` when alone; `passed` when a non-infra sibling PASS satisfies the round | structured/startup classification only; an empty report without those signals stays `unknown` (§5.3) |
 | review interrupted (run lost) | terminal `interrupted` | `unknown` | never `passed` |

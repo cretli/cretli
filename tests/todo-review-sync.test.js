@@ -163,6 +163,36 @@ test('fan-out PASS + cancelled sibling is unknown, never passed', () => {
   assert.equal(code.reviewerCount, 2);
 });
 
+test('fan-out PASS + zero-tool terminal sibling without a verdict passes', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const pass = reviewRow({ startedAt: t(3) });
+  const noTools = reviewRow({
+    startedAt: t(4),
+    status: 'failed',
+    report: '',
+    reportVerdict: '',
+    metrics: { tool_calls_n: 0 },
+  });
+  const code = subjectSnapshot([impl, pass, noTools]);
+  assert.equal(code.state, 'passed');
+  assert.equal(code.stateReason, 'fresh_review');
+});
+
+test('fan-out PASS + cancel_unconfirmed sibling passes when verify is satisfied', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const pass = reviewRow({ startedAt: t(3) });
+  const dead = reviewRow({
+    startedAt: t(4),
+    status: 'interrupted',
+    interruptCode: 'cancel_unconfirmed',
+    error: 'Stop was requested but could not be confirmed before the deadline.',
+    report: '',
+    reportVerdict: '',
+  });
+  const code = subjectSnapshot([impl, pass, dead]);
+  assert.equal(code.state, 'passed');
+});
+
 test('fan-out PASS + infra sibling passes when the replacement review is usable', () => {
   const impl = materialRow({ queuedAt: t(1) });
   const pass = reviewRow({ startedAt: t(3) });
