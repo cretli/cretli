@@ -155,7 +155,7 @@ const gatedPick = selectModelPick({
 assert.equal(gatedPick.pick.harness, 'hb', 'the high-infra leader is not the pick');
 const topTwo = gatedPick.candidates.slice(0, 2).map((row) => row.harness);
 assert.equal(topTwo.includes('ha'), false, 'the high-infra model is not in the top-2 candidates');
-assert.match(gatedPick.pick.reason, /high-infra-risk band leader demoted/);
+assert.match(gatedPick.pick.reason, /measured-risk band leader demoted/);
 const exceptionPick = selectModelPick({
   role: 'review',
   harnesses: triHarnesses,
