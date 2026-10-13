@@ -2300,12 +2300,14 @@ function openTodoRefinePicker(item) {
   if (!item?.id || String(item.status || '') === 'done') return;
   openTodoAgentStartModal({
     harness: resolveTodoStartHarness(item),
-    onStart: ({ harness, model }) => startTodoAgent(String(item.id), {
+    planReviewerCooperationMode: true,
+    onStart: ({ harness, model, planReviewerCooperationMode }) => startTodoAgent(String(item.id), {
       mode: 'refine',
       forceNew: true,
       agentTransport: harness,
       model,
       item,
+      planReviewerCooperationMode,
     }),
   });
 }
@@ -2382,7 +2384,14 @@ async function startTodoAgent(id, options = {}) {
 
 /**
  * @param {string} todoId
- * @param {{ forceNew?: boolean, mode?: 'refine', agentTransport?: string, model?: string, item?: object | null }} [options]
+ * @param {{
+ *   forceNew?: boolean,
+ *   mode?: 'refine',
+ *   agentTransport?: string,
+ *   model?: string,
+ *   item?: object | null,
+ *   planReviewerCooperationMode?: string,
+ * }} [options]
  */
 async function startTodoAgentOnce(todoId, options = {}) {
   const forceNew = options.forceNew === true;
@@ -2413,6 +2422,9 @@ async function startTodoAgentOnce(todoId, options = {}) {
   };
   if (forceNew) payload.forceNew = true;
   if (refine) payload.mode = 'refine';
+  if (refine && options.planReviewerCooperationMode) {
+    payload.cooperationMode = options.planReviewerCooperationMode;
+  }
   try {
     let data = await api.postTodoStartAgent(todoId, payload);
     if (data?.ok && data.state === 'preparing') {

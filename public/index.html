@@ -3019,6 +3019,15 @@
               <p id="chat-new-favorite-preset-hint" class="chat-settings-hint-inline"></p>
             </div>
             <p id="chat-new-sdk-hint" class="chat-settings-hint-inline chat-new-sdk-hint" aria-live="polite" hidden></p>
+            <div id="chat-new-plan-reviewer-row" class="chat-new-field" hidden>
+              <label for="chat-new-plan-reviewer-mode" data-i18n="todo.planReviewerCooperationMode">Plan reviewer cooperation</label>
+              <select id="chat-new-plan-reviewer-mode" class="chat-settings-select">
+                <option value="independent" data-i18n="todo.planReviewerModeIndependent">Independent (default)</option>
+                <option value="exchange" data-i18n="todo.planReviewerModeExchange">Exchange (one peer round)</option>
+                <option value="collaborative" data-i18n="todo.planReviewerModeCollaborative">Collaborative (message bus)</option>
+              </select>
+              <p class="chat-settings-hint-inline" data-i18n="todo.planReviewerCooperationHint">Used when starting a plan refine loop: parallel reviewers share this session.</p>
+            </div>
           </form>
           <div class="chat-settings-actions">
             <button type="button" id="chat-new-cancel" class="chat-settings-btn-secondary" data-i18n="chat.cancel">Cancel</button>

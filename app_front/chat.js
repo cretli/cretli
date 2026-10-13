@@ -6498,6 +6498,8 @@ let newChatModelUserTouched = false;
 /** True once a favorite preset applied its model in an open new-chat modal — async loads must not override it. */
 let newChatModelPresetApplied = false;
 let todoAgentModalSubmit = null;
+/** When true, the new-chat modal shows plan-reviewer cooperation mode (refine loop). */
+let todoAgentModalPlanReviewerMode = false;
 
 /**
  * Enabled local `capabilities.chat` plugin ids, refreshed from the harness
@@ -7742,20 +7744,42 @@ export function openNewChatModal(options = {}) {
   }
 }
 
+/**
+ * @param {boolean} visible
+ */
+function setTodoPlanReviewerModeRowVisible(visible) {
+  const row = document.getElementById('chat-new-plan-reviewer-row');
+  if (row instanceof HTMLElement) row.hidden = !visible;
+}
+
+/**
+ * @returns {'independent' | 'exchange' | 'collaborative'}
+ */
+function readTodoPlanReviewerCooperationModeFromModal() {
+  const select = document.getElementById('chat-new-plan-reviewer-mode');
+  const raw = select instanceof HTMLSelectElement ? String(select.value || '').trim().toLowerCase() : '';
+  if (raw === 'exchange' || raw === 'collaborative') return raw;
+  return 'independent';
+}
+
 /** Open the shared harness/model picker for starting a TODO agent. */
-export function openTodoAgentStartModal({ harness = '', onStart } = {}) {
+export function openTodoAgentStartModal({ harness = '', onStart, planReviewerCooperationMode = false } = {}) {
   if (typeof onStart !== 'function') return;
   if (!chatNewModalApi) {
     const modal = document.getElementById('chat-new-modal');
     if (!(modal instanceof HTMLElement)) return;
     chatNewModalApi = initModal(modal, { backdropSelector: '.chat-settings-backdrop' });
   }
+  todoAgentModalPlanReviewerMode = planReviewerCooperationMode === true;
+  setTodoPlanReviewerModeRowVisible(todoAgentModalPlanReviewerMode);
   todoAgentModalSubmit = onStart;
   openNewChatModal({ harness });
 }
 
 function closeNewChatModal() {
   todoAgentModalSubmit = null;
+  todoAgentModalPlanReviewerMode = false;
+  setTodoPlanReviewerModeRowVisible(false);
   chatNewFolderDropdownApi?.close?.();
   chatNewModelDropdownApi?.close?.();
   chatNewFavoritePresetDropdownApi?.close?.();
@@ -8646,9 +8670,17 @@ function createChatFromModal() {
   saveLastSelectedHarness(selectedHarness);
   if (todoAgentModalSubmit) {
     const submit = todoAgentModalSubmit;
+    const cooperationMode = todoAgentModalPlanReviewerMode
+      ? readTodoPlanReviewerCooperationModeFromModal()
+      : undefined;
     todoAgentModalSubmit = null;
+    todoAgentModalPlanReviewerMode = false;
     closeNewChatModal();
-    void submit({ harness: selectedHarness, model: chosenModel });
+    void submit({
+      harness: selectedHarness,
+      model: chosenModel,
+      ...(cooperationMode ? { planReviewerCooperationMode: cooperationMode } : {}),
+    });
     return;
   }
   ensureEmbedNewChatFolderSelect();
