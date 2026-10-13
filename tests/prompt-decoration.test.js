@@ -433,6 +433,124 @@ test('applySdkHarnessOutboundPrompt slims skills and tracks page context per tur
   }
 });
 
+/**
+ * Temp workspace with one alwaysApply rule and one skill, so both the catalog
+ * and the invoked-skill block are non-empty.
+ * @returns {{ root: string, cleanup: () => void }}
+ */
+function makeSkillWorkspace() {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'cr-prompt-decoration-skill-'));
+  mkdirSync(path.join(root, '.cursor', 'rules'), { recursive: true });
+  writeFileSync(
+    path.join(root, '.cursor', 'rules', 'always.mdc'),
+    `---\nalwaysApply: true\n---\n${RULE_BODY}\n`,
+    'utf8',
+  );
+  const skillDir = path.join(root, '.agents', 'skills', 'demo-skill');
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(
+    path.join(skillDir, 'SKILL.md'),
+    '---\nname: demo-skill\ndescription: >-\n  Folded demo description.\n---\n\nDEMO-SKILL-BODY\n',
+    'utf8',
+  );
+  return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+test('a skill invocation re-sends the skill body without the catalog or the rules', () => {
+  const workspace = makeSkillWorkspace();
+  resetPromptDecorationStatesForTests();
+  try {
+    const common = {
+      cwd: workspace.root,
+      chatId: 'chat-skill',
+      mode: 'agent',
+      transport: 'codex',
+      sessionKey: 'chat-skill#g0',
+    };
+    const first = applyHarnessOutboundPrompt('Fix the parser.', common);
+    assert.match(first, /AVAILABLE AGENT SKILLS/);
+    assert.match(first, /WORKSPACE CURSOR RULES/);
+    assert.equal(first.includes('DEMO-SKILL-BODY'), false);
+
+    // Simple fix, no skill named: only the short delta pointer.
+    const fixTurn = applyHarnessOutboundPrompt('Now fix the second case.', common);
+    assert.equal(fixTurn.includes('[AVAILABLE AGENT SKILLS]'), false);
+    assert.equal(fixTurn.includes('[WORKSPACE CURSOR RULES]'), false);
+    assert.ok(fixTurn.includes(PROMPT_DECORATION_DELTA_HINT));
+
+    // Skill invocation: the body arrives, the stable blocks do not.
+    const invoked = applyHarnessOutboundPrompt('Use @demo-skill for this.', common);
+    assert.equal(invoked.includes('[AVAILABLE AGENT SKILLS]'), false);
+    assert.equal(invoked.includes('[WORKSPACE CURSOR RULES]'), false);
+    assert.ok(invoked.includes('[SKILL: demo-skill]'));
+    assert.ok(invoked.includes('DEMO-SKILL-BODY'));
+
+    // Re-invoking the same skill still reaches the model.
+    const again = applyHarnessOutboundPrompt('Run @demo-skill once more.', common);
+    assert.ok(again.includes('DEMO-SKILL-BODY'));
+  } finally {
+    workspace.cleanup();
+  }
+});
+
+test('a session restart restores the catalog and the invoked skill together', () => {
+  const workspace = makeSkillWorkspace();
+  resetPromptDecorationStatesForTests();
+  try {
+    const cwd = workspace.root;
+    const first = applyHarnessOutboundPrompt('Use @demo-skill here.', {
+      cwd, chatId: 'chat-restart-skill', mode: 'agent', transport: 'codex', sessionKey: 'chat-restart-skill#g0',
+    });
+    assert.match(first, /AVAILABLE AGENT SKILLS/);
+    const second = applyHarnessOutboundPrompt('Use @demo-skill here.', {
+      cwd, chatId: 'chat-restart-skill', mode: 'agent', transport: 'codex', sessionKey: 'chat-restart-skill#g0',
+    });
+    assert.equal(second.includes('[AVAILABLE AGENT SKILLS]'), false);
+    assert.ok(second.includes('DEMO-SKILL-BODY'));
+    // A rebuild bumps the restart counter, so the session key changes.
+    const afterRestart = applyHarnessOutboundPrompt('Use @demo-skill here.', {
+      cwd, chatId: 'chat-restart-skill', mode: 'agent', transport: 'codex', sessionKey: 'chat-restart-skill#g1',
+    });
+    assert.match(afterRestart, /AVAILABLE AGENT SKILLS/);
+    assert.match(afterRestart, /WORKSPACE CURSOR RULES/);
+    assert.ok(afterRestart.includes('DEMO-SKILL-BODY'));
+  } finally {
+    workspace.cleanup();
+  }
+});
+
+test('splitting the skills block reduces the decorated tokens of an invocation turn', () => {
+  const catalog = ['[AVAILABLE AGENT SKILLS]', ...Array(40).fill('- demo-skill: does a thing (read /x)')].join('\n');
+  const rules = ['[WORKSPACE CURSOR RULES]', ...Array(40).fill('rule line')].join('\n');
+  const skills = ['[SKILL: demo-skill]', ...Array(40).fill('skill instruction line')].join('\n');
+  const staticBlock = `${catalog}\n\n${rules}`;
+  // Pre-split: the skill body was part of the static block, so naming a skill
+  // changed its hash and the whole block went out again.
+  const legacyStaticBlock = `${catalog}\n${skills}\n\n${rules}`;
+
+  const first = decidePromptDecoration(null, {
+    sessionKey: 's1',
+    staticBlock,
+    volatile: { [PROMPT_DECORATION_BLOCK.SKILLS]: '' },
+  });
+  const split = decidePromptDecoration(first.state, {
+    sessionKey: 's1',
+    staticBlock,
+    volatile: { [PROMPT_DECORATION_BLOCK.SKILLS]: skills },
+  });
+  const legacy = decidePromptDecoration(first.state, {
+    sessionKey: 's1',
+    staticBlock: legacyStaticBlock,
+    volatile: {},
+  });
+
+  assert.equal(split.staticIncluded, false);
+  assert.ok(split.parts.includes(skills));
+  assert.equal(legacy.staticIncluded, true);
+  assert.ok(split.measurement.includedTokens < legacy.measurement.includedTokens);
+  assert.ok(split.measurement.omittedTokens > 0);
+});
+
 test('debug measurement logging is opt-in and carries no prompt text', () => {
   const restoreTestDir = process.env.CRETLI_TEST_DATA_DIR;
   const restoreDebug = process.env.CRETLI_DEBUG_PROMPT_DECORATION;

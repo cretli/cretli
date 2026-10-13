@@ -1,6 +1,6 @@
 ---
 name: cretli-todo-refine-loop
-description: Review-and-refine loop for a Cretli todo plan. Two independent reviewers audit the plan, the parent rewrites it from their findings and re-reviews, round after round, until every reviewer PASSes or a stop rule fires. Use when asked to verify, review or polish a todo or its plan in a loop before a human approves it. Plans only; code changes go through cretli-multi-harness.
+description: Review-and-refine a Cretli todo plan — two independent plan reviewers, parent rewrites, repeat until PASS or a stop rule. Plans only; code changes go through cretli-multi-harness.
 ---
 
 # Cretli todo refine loop
@@ -10,17 +10,22 @@ return a report. One invocation runs the whole loop: do **not** ask "shall I run
 the next round?" after each review. Stop only on the rules in
 [Stop and ask](#stop-and-ask).
 
-This skill builds on `cretli-multi-harness` (`fanout-review` mode). Its rules for
-`model_pick`, start errors, `delegation_wait`, infra retries, `delegation_ack`
-and `delegation_rate` apply here unchanged; read that skill for the details.
+This skill builds on `cretli-multi-harness` (`fanout-review` mode). Do **not**
+read that skill in full; read only the two sections this loop needs:
 
-## Scope
+- `../cretli-multi-harness/references/loop-protocol.md` — wait, verdict → next
+  step, `delegation_ack`, `delegation_rate`;
+- `../cretli-multi-harness/references/model-picking.md` — `model_pick`,
+  start errors and the infra-retry rule.
+
+## Invariants
 
 - Subject is a **plan** (or a todo body used as one). Every review start passes
   `review_subject: "plan"`.
 - The loop ends at "ready for human approval". It never sets `plan.approvedAt`,
   never starts a leaf, never implements, never commits or pushes.
 - A plan PASS is not a code review and never closes an implementation leaf.
+- `todo.review` is server-owned: never write it with `todo_update`.
 
 ## Round 0: load and normalise
 
@@ -40,175 +45,46 @@ and `delegation_rate` apply here unchanged; read that skill for the details.
    task.
 3. Head the plan with `Version N` and, from v2 on, a short
    "Changes since version N-1" section naming the findings it answers.
-4. Assess task decomposition using the policy below before the first review.
-   Save any justified tree changes and the matching plan together so both
-   reviewers audit the same proposed execution structure.
-
-### Task decomposition: benefit must outweigh overhead
-
-- Keep small, cohesive work as one leaf by default. A numbered plan step is
-  not automatically a separate todo. Each extra leaf repeats research,
-  context loading, agent startup, implementation review and integration; weigh
-  that cost against a concrete benefit, without inventing time estimates.
-- Split only when it makes a substantial task manageable in context, isolates
-  a meaningful dependency or risk, or enables independent work with disjoint
-  scopes. Choose the fewest leaves with independently verifiable outcomes.
-  Do not split by file, by arbitrary step count, or just to add more agents.
-- Keep research, implementation, tests and documentation for the same outcome
-  in its leaf. Separate them only when they deliver an independently useful
-  result or resolve a dependency that later work genuinely needs.
-- Inspect and reuse existing descendants first. For a justified split, create
-  missing children with `todo_create`, `parent_id` and a stable
-  `idempotency_key`; keep them in `idea` status and do not start them. Do not
-  duplicate existing work or restructure active or completed leaves. If those
-  need different boundaries, record a proposal for the human in the plan.
-- Each leaf body must state its outcome, measurable acceptance criteria,
-  dependencies and a `## Leaf scope` listing the files/modules it may touch.
-  Set `sibling_index` to reflect dependency order and put the actual child ids
-  and order in the root plan. Keep sequential execution by default; propose
-  parallel execution only for disjoint scopes, leaving approval to the human.
-- Record a short split/no-split rationale in the plan: the benefit and added
-  execution overhead, or why one leaf is sufficient. Reassess during rewrites
-  only when findings change the scope or dependencies; avoid gratuitous tree
-  churn and extra review/consult runs just to decide how many leaves to create.
+4. Assess task decomposition with `references/decomposition.md` before the first
+   review. Save any justified tree changes and the matching plan together so
+   both reviewers audit the same proposed execution structure.
 
 ## One round
 
-### 0. Prepare the version session
-
-After normalising/saving the plan, and after every rewrite, call
-`reviewer_session({ todo_id: <root id>, cooperation_mode: <mode from prompt, default independent> })`.
-Use the returned `session.id` on both review starts with
-`plan_reviewer_session_id`, distinct `plan_reviewer_slot` values 0 and 1,
-and `plan_reviewer_phase: "independent"`. Do not reuse the initial prompt's id
-after a plan change. Repeated calls reuse the current revision without clearing
-reports or reopening a closed phase. No plan approval or status change occurs.
-If a concurrent plan edit makes a start `stale`, reload the canonical plan and
-prepare its session before retrying; do not bypass revision checks or review an
-unsaved copy. Preserve the requested cooperation mode across all versions.
-
-### 1. Pick two reviewers
-
-`model_pick({ role: "review", count: 2, diverse: true, exclude_models? })`.
-Forward the returned `pickId` as `pick_id` on both starts. A tier 4+ pick needs a
-`pick_reason`.
-
-Rotation between rounds:
-
-- Keep one reviewer whose FAIL drove this revision, so it can confirm its own
-  blockers are gone.
-- Replace a reviewer that PASSed a version another reviewer validly FAILed. Its
-  PASS carried no signal; a second PASS from it adds none.
-- Exclude a reviewer the server marks `review_uncertified`. If one runs anyway,
-  report its verdict with that caveat.
-
-### 2. Start both reviews
-
-`delegation_start` with `assignment: "review"`, `review_subject: "plan"`,
-`leaf_id: <root id>`, and a distinct `idempotency_key` per reviewer and version
-(`refine-<root8>-v<N>-<model-slug>`). Both reviewers get the same `task_text`:
-
-```
-Independent review of a PLAN (not code): todo <root id> "<title>", version <N>.
-Read-only: do not edit files, change any todo, or commit.
-
-Load the plan with todo_show(todo_id, field=plan) and follow every next_cursor.
-Load the root's children with todo_show and read each leaf body.
-
-Check:
-1. Every stage has measurable, testable acceptance criteria.
-2. Every code and doc reference (path, line range, section number) exists and
-   says what the plan claims.
-3. The plan agrees with the contracts it touches (<docs/...>, sections <...>).
-4. The todo tree matches the plan: which leaves exist, their order and status,
-   and whether each leaf body describes the same work as its stage.
-5. Blockers named in the previous round are resolved: <one line each>.
-6. The plan does not approve itself and does not start any leaf.
-7. Task decomposition is proportionate: identify missing boundaries that make
-   execution impractical, and unnecessary leaves whose extra research, agent
-   starts, reviews and integration outweigh their benefit. Research, tests and
-   docs for one outcome normally belong in its implementation leaf. Check the
-   split/no-split rationale, leaf scopes, acceptance criteria and dependencies.
-
-Report only real blockers, each with a plan section and a file:line. List
-non-blocking notes separately. Do not judge style. At most 400 words.
-Write in <user's language>. End with exactly:
-TASK: review
-VERDICT: PASS|FAIL|BLOCKED
-```
-
-Point 5 is empty in the first round. Fill in the concrete contract paths; a
-reviewer told only "check the contracts" checks nothing.
-
-### 3. Wait, read, verify, ack
-
-- Loop `delegation_wait({ ids, until: "all", timeout_ms: 25000 })` until both
-  are terminal and `slot_occupied` is false.
-- Read each full report with `delegation_show`, following `next_cursor`. The
-  `VERDICT` line is at the end and inbox previews drop it.
-- If a PASS attempt is `verify_required` (the `todo_show` review block shows
-  `usable: false` / `verifyStatus: required-missing`), call `delegation_verify`
-  on it straight away. A PASS with missing verify does not count, and the plan
-  review stays `failed` on the server however the reports read.
-- `delegation_ack` each report. After a FAIL that the next round confirms, rate
-  the review per the multi-harness rubric (score 5, `caught_bug`).
-
-### 4. Judge the findings
-
-Aggregate conservatively: BLOCKED, then FAIL, then conflict; PASS only when
-every reviewer PASSes the same version.
-
-For each blocker, open the file or contract section it cites before acting on
-it. Then either fix the plan or, if the finding is wrong, keep the plan and say
-why in the next round's "Changes" section so the next reviewer can check the
-argument. Fold in non-blocking notes when they are cheap.
-
-### 5. Rewrite the plan
-
-- Verify every path, line range and section number you write. A reference
-  copied from a reviewer report is unverified until you have opened it.
-- Check a proposed fix against the contract before writing it. A fix that only
-  moves the conflict to another section costs a full round.
-- When a stage cannot be made consistent without a contract change, move it out
-  rather than bend it: create a separate `idea` todo, and record it under "Out
-  of scope" in the plan with the new todo id. This is the default resolution;
-  it is reversible and needs no approval.
-- Keep the tree and the plan in step in the same round: rewrite the leaf bodies
-  whose stage changed, re-parent removed stages, and update the plan's own tree
-  section. A plan that describes the tree as it was one round ago fails the
-  next review.
-- `todo_show` immediately before every `todo_update` and use that
-  `expected_updated_at`. The review sync writes to the root after each report,
-  so a timestamp from before the round is stale. On `CONFLICT`, re-read, confirm
-  the plan text is still yours, and retry once.
-
-Then start the next round.
+1. **Prepare the version session** — after normalising/saving the plan, and
+   after every rewrite, call `reviewer_session({ todo_id: <root id>,
+   cooperation_mode: <mode from prompt, default independent> })` and use the
+   returned `session.id` on both starts (`plan_reviewer_session_id`,
+   `plan_reviewer_slot` 0 and 1, `plan_reviewer_phase: "independent"`). Details:
+   `references/round-protocol.md`.
+2. **Pick two reviewers** — `model_pick({ role: "review", count: 2, diverse:
+   true, exclude_models? })`; forward the returned `pickId` as `pick_id` on both
+   starts. A tier 4+ pick needs a `pick_reason`. Rotation rules:
+   `references/round-protocol.md`.
+3. **Start both reviews** — `delegation_start` with `assignment: "review"`,
+   `review_subject: "plan"`, `leaf_id: <root id>`, a distinct
+   `idempotency_key` per reviewer and version, and the shared `task_text`
+   template from `references/round-protocol.md`.
+4. **Wait, read, verify, ack** — `delegation_wait` until both are terminal and
+   `slot_occupied` is false, page `delegation_show` for the full report, call
+   `delegation_verify` on a PASS attempt with `verify_required`, then
+   `delegation_ack` each report.
+5. **Judge the findings** — aggregate conservatively (BLOCKED, then FAIL, then
+   conflict; PASS only when every reviewer PASSes the same version). Open the
+   file or contract section a blocker cites before acting on it.
+6. **Rewrite the plan** — verify every path, line range and section number you
+   write, and re-read `todo_show` immediately before each `todo_update` for a
+   fresh `expected_updated_at`. Then start the next round.
 
 ## Open questions
 
-A design question that the findings raise but do not answer (which of two
-variants, where a limit sits, whether a stage is worth keeping) does not stop
-the loop. Settle it in this order:
-
-1. **Decide yourself** when the code or a contract answers it. Open the source
-   first.
-2. **Ask other models.** Start two consult children from a fresh
-   `model_pick({ role: "review", count: 2, diverse: true })`, with
-   `assignment: "review"` and `review_subject: "other"` so the answer never
-   counts as a plan review. Give both the same `task_text`: the question, the
-   options with their trade-offs, the plan sections and files involved, and the
-   instruction to answer with one option and the evidence for it, read-only.
-   Do not state your own preference; it biases the answer. When both agree and
-   you have checked their evidence, apply the answer and record the question,
-   the answer and the delegation ids in the plan's "Changes" section.
-3. **Ask the human** when the models disagree, when their evidence does not hold
-   up, or when the question is one of these, which no model consensus settles:
-   changing a contract, dropping a stage for good, trading away an invariant,
-   or anything that would approve the plan.
-
-Batch the questions of one round into a single consult. Consults do not count
-towards the round cap, but run at most two per loop; more than that means the
-plan's scope is unclear and the human should see it.
+Settle a design question the findings raise but do not answer in this order:
+**decide yourself** when the code or a contract answers it (open the source
+first) → **ask other models** (two consult children, `review_subject: "other"`,
+batched into one consult, at most two per loop) → **ask the human** when the
+models disagree, their evidence does not hold up, or the question changes a
+contract, drops a stage for good, trades away an invariant, or would approve
+the plan. Full procedure: `references/round-protocol.md`.
 
 ## Stop and ask
 

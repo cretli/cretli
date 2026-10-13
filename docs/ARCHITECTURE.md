@@ -137,6 +137,27 @@ never mirrored. Shared-root `alwaysApply` rules continue to apply to Cursor SDK
 chats. Context queries may pass `workspaceFolder` or `cwd`; the widget workspace
 takes precedence, with the current cwd as fallback.
 
+Skill frontmatter is parsed as YAML (`lib/skills/frontmatter.js`, `js-yaml` with
+its safe default schema; a malformed block falls back to a tolerant line
+scanner), so single-line, quoted and block-scalar (`>`, `>-`, `|`, `|-`)
+`description:` values all reach the catalog. Two blocks are produced from one
+directory scan (`buildSkillPromptBlocks` in `lib/skills/skill-context.js`): the
+stable **catalog** (name, purpose, path) and the **selected instructions** of
+the skills the current request names. The catalog is deduped across turns with
+the rules in the static decoration block; the selected instructions are a
+volatile block that is re-sent whenever a skill is invoked, so re-invocation
+works and naming a skill no longer invalidates the catalog hash. See
+`docs/context-cost.md` §5.
+
+A rule file may declare an opt-in scope in its frontmatter — nested
+`cretli: { projects, taskKinds, fileTypes }` or flat `cretliScopeProjects`,
+`cretliScopeTaskKinds`, `cretliScopeFileTypes` — so a shared root can target a
+project, a kind of task or a file type. A rule without those keys stays global,
+so configuring nothing changes nothing. When the current task kind or file
+context is unknown the rule is kept: no restriction is dropped on a guess.
+`explainSharedAlwaysApplyRules()` returns the selected rule ids and the reason
+for each decision, without any rule body.
+
 ### The `sdk-*` prefix is protocol, not Cursor SDK
 
 The name is historical and misleads newcomers. Everything under `lib/sdk/` except

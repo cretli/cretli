@@ -91,7 +91,31 @@ hold, so the value cannot be fed back into a live session or written to a store.
 No persisted event is modified: the function only reads the input and builds
 fresh objects for stubbed rows.
 
-## 4. Out of scope
+## 4. Per-turn prompt decoration
+
+Decoration is the block Cretli prepends to an **outgoing** message. It is
+composed per turn, so it can be slimmed without touching the history of a live
+session — the decision in §1 is unchanged. `lib/sdk/prompt-decoration.js` holds
+the pure decision; `lib/sdk/harness-plan-prompt.js` builds the blocks.
+
+| Block | Content | Emitted |
+| --- | --- | --- |
+| `static` | skills catalog + workspace/shared `alwaysApply` rules | first turn of a session, on a content-hash change, or after a recorded restart |
+| `skills` | full body of the skills the current request names | every turn that names a skill |
+| `pageContext`, `chatPlan`, `delegationReports`, `titleHint` | per-turn state | only when their content hash changes |
+| `modeHint` | Plan/Ask restriction | every turn while active — deduping a safety guard would drop it |
+
+Splitting the invoked skill body out of the static block keeps the catalog
+hash stable across turns: naming a skill no longer re-sends the catalog and the
+rules, only the skill. When the static block is omitted the model receives
+`[Earlier skills and workspace/shared rules still apply.]` instead of losing the
+pointer silently. Harnesses with no observable session identity
+(`PROMPT_DECORATION_ALWAYS_STATIC_TRANSPORTS`) keep `staticMode=always` and
+re-emit everything, because a rebuild could otherwise drop the only copy.
+`CRETLI_DEBUG_PROMPT_DECORATION=1` logs sizes and hashes only, never prompt
+text.
+
+## 5. Out of scope
 
 - No client-side editing of a live session's history in any harness.
 - No LLM summarisation in this path. LLM-based context compression already lives
