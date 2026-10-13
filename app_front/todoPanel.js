@@ -35,8 +35,11 @@ import {
   filterTodoItemsBySearch,
   flattenTodoTree,
   formatTodoAssigneeBadge,
+  parseTodoIntegrationFilter,
   parseTodoRootStatusFilter,
   serializeTodoRootStatusFilter,
+  TODO_INTEGRATION_FILTERS,
+  TODO_INTEGRATION_PENDING_FILTERS,
   TODO_ITEM_STATUSES,
   normalizeTodoItemStatus,
   readTodoRowMark,
@@ -115,18 +118,15 @@ let rootStatusFilter = null;
 /** @type {'' | 'none' | 'stale'} */
 let reviewListFilter = '';
 /** @type {Set<string>} */
-let integrationListFilter = new Set();
-const INTEGRATION_FILTERS = ['unconfirmed', 'awaiting', 'integrated', 'partial', 'rejected', 'conflict', 'no_code_changes'];
-// One-click preset for "everything that still needs integration work".
-const INTEGRATION_PENDING_FILTERS = ['unconfirmed', 'awaiting', 'partial', 'rejected', 'conflict'];
+let integrationListFilter = new Set(TODO_INTEGRATION_PENDING_FILTERS);
 
 /**
  * @param {Set<string>} selected
  * @returns {boolean}
  */
 function isIntegrationPendingSelection(selected) {
-  return selected.size === INTEGRATION_PENDING_FILTERS.length
-    && INTEGRATION_PENDING_FILTERS.every((filter) => selected.has(filter));
+  return selected.size === TODO_INTEGRATION_PENDING_FILTERS.length
+    && TODO_INTEGRATION_PENDING_FILTERS.every((filter) => selected.has(filter));
 }
 /** Free-text list search (title or id); not persisted. */
 let todoSearchQuery = '';
@@ -291,19 +291,19 @@ function integrationFilterStorageKey() {
 }
 
 function loadIntegrationFilter() {
+  let stored = null;
   try {
-    const value = localStorage.getItem(integrationFilterStorageKey()) || '';
-    const parsed = value.startsWith('[') ? JSON.parse(value) : [value];
-    integrationListFilter = new Set(Array.isArray(parsed) ? parsed.filter((filter) => INTEGRATION_FILTERS.includes(filter)) : []);
+    stored = localStorage.getItem(integrationFilterStorageKey());
   } catch {
-    integrationListFilter = new Set();
+    // Storage blocked; the pending preset still applies for this view.
   }
+  integrationListFilter = parseTodoIntegrationFilter(stored);
 }
 
 function saveIntegrationFilter() {
   try {
-    if (integrationListFilter.size) localStorage.setItem(integrationFilterStorageKey(), JSON.stringify([...integrationListFilter]));
-    else localStorage.removeItem(integrationFilterStorageKey());
+    // "All" is saved as an empty list: removing the key would bring back the pending default.
+    localStorage.setItem(integrationFilterStorageKey(), JSON.stringify([...integrationListFilter]));
   } catch {
     // Private mode can reject storage; filtering still works for this view.
   }
@@ -335,7 +335,7 @@ function buildTodoViewMemorySlice() {
     searchOpen: searchWrap ? searchWrap.hidden === false : false,
     rootStatus: rootStatusFilter ? [...rootStatusFilter] : null,
     review: reviewListFilter || '',
-    integration: [...integrationListFilter],
+    // Integration filter stays out of the per-tab slice: a snapshot would override the saved filter.
     collapsed: [...collapsedIds],
     scrollTop: todoScrollContainer()?.scrollTop || 0,
     focusId: document.activeElement?.closest?.('.todo-row')?.dataset?.id || '',
@@ -356,9 +356,6 @@ function applyTodoViewMemorySlice(slice) {
   if (typeof searchText === 'string') todoSearchQuery = searchText;
   if (slice.review === 'none' || slice.review === 'stale' || slice.review === '') {
     reviewListFilter = slice.review;
-  }
-  if (Array.isArray(slice.integration)) {
-    integrationListFilter = new Set(slice.integration.filter((value) => INTEGRATION_FILTERS.includes(value)));
   }
   if (slice.rootStatus === null) rootStatusFilter = null;
   else if (Array.isArray(slice.rootStatus)) rootStatusFilter = new Set(slice.rootStatus.map(String));
@@ -471,7 +468,8 @@ function formatStatusFilterTriggerLabel() {
     )
     : [];
   if (reviewListFilter) parts.push(reviewFilterLabel(reviewListFilter));
-  if (integrationListFilter.size) parts.push([...integrationListFilter].map(integrationFilterLabel).join(', '));
+  if (isIntegrationPendingSelection(integrationListFilter)) parts.push(integrationFilterLabel('pending'));
+  else if (integrationListFilter.size) parts.push([...integrationListFilter].map(integrationFilterLabel).join(', '));
   return parts.length ? parts.join(', ') : t('todo.filterStatusAll');
 }
 
@@ -531,7 +529,7 @@ function renderStatusFilterMenuItems() {
   integrationHeading.className = 'todo-review-filter-heading';
   integrationHeading.textContent = t('todo.integrationFilterHeading');
   list.appendChild(integrationHeading);
-  ['all', 'pending', ...INTEGRATION_FILTERS].forEach((filter) => {
+  ['all', 'pending', ...TODO_INTEGRATION_FILTERS].forEach((filter) => {
     const row = document.createElement('div');
     row.className = 'todo-integration-filter-row';
     row.dataset.integrationFilter = filter;
@@ -546,7 +544,7 @@ function renderStatusFilterMenuItems() {
     label.textContent = integrationFilterLabel(filter);
     box.appendChild(label);
     const count = filter === 'pending'
-      ? INTEGRATION_PENDING_FILTERS.reduce((sum, key) => sum + countTodoItemsByIntegrationState(latestItems, key), 0)
+      ? TODO_INTEGRATION_PENDING_FILTERS.reduce((sum, key) => sum + countTodoItemsByIntegrationState(latestItems, key), 0)
       : countTodoItemsByIntegrationState(latestItems, filter);
     row.append(box, createFilterCountEl(count));
     list.appendChild(row);
@@ -704,7 +702,7 @@ function ensureStatusFilterUi(toolbar) {
           if (other.dataset.integrationFilter !== 'all') other.querySelector('cr-checkbox').checked = false;
         });
       } else if (filter === 'pending' && box && 'checked' in box) {
-        integrationListFilter = new Set(box.checked ? INTEGRATION_PENDING_FILTERS : []);
+        integrationListFilter = new Set(box.checked ? TODO_INTEGRATION_PENDING_FILTERS : []);
         entry.list.querySelectorAll('.todo-integration-filter-row').forEach((other) => {
           const key = String(other.dataset.integrationFilter || '');
           const otherBox = other.querySelector('cr-checkbox');
@@ -2858,6 +2856,8 @@ export function refreshTodoList() {
   loadCollapsed();
   loadStatusFilter();
   loadReviewFilter();
+  loadIntegrationFilter();
+  syncStatusFilterTriggerLabel();
   void refreshWatcherPanel();
   void api.getAgentSdkStatus().then((data) => {
     sdkReady = !!data?.ready;

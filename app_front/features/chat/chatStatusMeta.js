@@ -42,6 +42,8 @@ const FALLBACK_LABELS = {
   'chat.delegationStatus.failed': 'Failed',
   'chat.delegationStatus.interrupted': 'Interrupted',
   'chat.runFailed': 'Run failed',
+  'status.finishedUnread': 'Finished — not read yet',
+  'status.finishedRead': 'Finished — read',
   'chat.delegationWaitingForAgents': 'Waiting for {n} agents',
   'chat.presenceActivity.read': 'Read {arg}',
   'chat.presenceActivity.grep': 'Grep {arg}',
@@ -263,7 +265,7 @@ export function resolveChatStatusWithHistorySync(isInFlight, fallbackMeta, trans
  */
 export function resolveChatListDotState(tone) {
   if (tone === 'disconnected') return 'disconnected';
-  if (tone === 'idle') return 'idle';
+  if (tone === 'idle' || tone === 'finished' || tone === 'seen') return 'idle';
   if (
     tone === 'awaiting'
     || tone === 'waiting'
@@ -415,4 +417,30 @@ export function resolveHarnessChatStateMeta(input = {}) {
     return { tone: 'disconnected', label: translate('status.disconnected') };
   }
   return { tone: 'idle', label: translate('status.ready') };
+}
+
+/** How long a read "finished" check stays on a row before it settles to plain idle. */
+export const FINISHED_READ_VISIBLE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Finished-run marker for an otherwise idle row: green check until the chat is opened,
+ * grey check for {@link FINISHED_READ_VISIBLE_MS} afterwards. Returns null when the row
+ * has no finished run to show.
+ *
+ * @param {{ lastFinishedAt?: string, lastSeenAt?: string, archivedAt?: string } | null | undefined} chat
+ * @param {{ now?: number, translate?: (key: string) => string }} [options]
+ * @returns {ChatStatusMeta | null}
+ */
+export function resolveFinishedReadMeta(chat, options = {}) {
+  if (!chat || chat.archivedAt) return null;
+  const finishedAt = Date.parse(String(chat.lastFinishedAt || ''));
+  if (!Number.isFinite(finishedAt)) return null;
+  const translate = typeof options.translate === 'function' ? options.translate : translateFallback;
+  const seenAt = Date.parse(String(chat.lastSeenAt || ''));
+  if (!Number.isFinite(seenAt) || seenAt < finishedAt) {
+    return { tone: 'finished', label: translate('status.finishedUnread') };
+  }
+  const now = Number.isFinite(options.now) ? options.now : Date.now();
+  if (now - finishedAt > FINISHED_READ_VISIBLE_MS) return null;
+  return { tone: 'seen', label: translate('status.finishedRead') };
 }

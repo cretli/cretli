@@ -44,6 +44,7 @@ import {
 import { isMobileLikeClient } from '../../lib/mobileClient.js';
 import { notifyChatConnectionRestored } from './chatServerRecovery.js';
 import {
+  applyClaudeMeasuredContextUsage,
   isClaudeContextMeterChat,
   resetChatContextMeterState,
 } from './chatContextMeter.js';
@@ -100,6 +101,15 @@ import {
   resolveHarnessDisplayLabel,
   resolveHarnessModeLabel,
 } from './sdk-transport-labels.js';
+
+/** Replayed frame types whose live handler asserts "the harness is working". */
+const REPLAY_BUSY_ASSERTING_TYPES = new Set([
+  'sdkEvent',
+  'sdkQueued',
+  'sdkPromptStarted',
+  'sdkRunProgress',
+  'sdkBusy',
+]);
 
 /**
  * @param {object} chat
@@ -1479,6 +1489,12 @@ export function createChatTransport(deps) {
           }
           return;
         }
+        if (msg.type === 'sdkContextUsage') {
+          if (applyClaudeMeasuredContextUsage(chat, msg.usage, msg.model, msg.contextWindowTokens)) {
+            renderChatTerminalState(chat);
+          }
+          return;
+        }
         if (msg.type === 'sdkEvent' && msg.event) {
           chat._sdkLastLiveEventAt = Date.now();
           if (msg.event && typeof msg.event === 'object' && msg.event.type === 'opencode_question') {
@@ -1506,7 +1522,14 @@ export function createChatTransport(deps) {
           if (msg.event && typeof msg.event === 'object' && msg.event.type === 'usage') {
             const transport = String(chat.agentTransport || 'sdk').trim() || 'sdk';
             // Claude run usage is not current context occupancy (sdk-limits-context-contract §6).
-            if (!isClaudeContextMeterChat(chat)) {
+            if (isClaudeContextMeterChat(chat)) {
+              applyClaudeMeasuredContextUsage(
+                chat,
+                msg.event.lastCallUsage,
+                msg.event.lastCallModel,
+                msg.event.lastCallContextWindowTokens,
+              );
+            } else {
               const usage = msg.event.usage && typeof msg.event.usage === 'object' ? msg.event.usage : null;
               const inputTokens = Number(usage?.inputTokens);
               const outputTokens = Number(usage?.outputTokens);
@@ -1884,7 +1907,23 @@ export function createChatTransport(deps) {
     };
     chat._processSdkSocketMessage = (message) => {
       if (chat.ws !== socket || typeof socket.onmessage !== 'function') return;
+      const isBusyReplay = message?.replay === true && REPLAY_BUSY_ASSERTING_TYPES.has(message.type);
+      if (!isBusyReplay) {
+        socket.onmessage({ data: JSON.stringify(message) });
+        return;
+      }
+      // A replayed event describes a past run. Its handler flips the chat to
+      // "working", which would flash the sidebar status when a finished chat is
+      // opened. The live hello / room state / sdkBusy frames own the busy flag.
+      const prev = {
+        busy: chat._sdkServerBusy,
+        queued: chat._sdkServerQueuedCount,
+        agentState: chat._agentState,
+      };
       socket.onmessage({ data: JSON.stringify(message) });
+      chat._sdkServerBusy = prev.busy;
+      chat._sdkServerQueuedCount = prev.queued;
+      if (chat._agentState !== prev.agentState) setAgentState(chat, prev.agentState || 'idle');
     };
     chat._flushPendingSdkRoomEvents = (pending) => flushPendingSdkRoomEvents(chat, pending);
     socket.onclose = (event) => {

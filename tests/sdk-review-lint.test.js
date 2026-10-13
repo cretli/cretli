@@ -20,6 +20,10 @@ try {
   for (const [command, expectedDeny] of [
     ['node scripts/review-lint.js lib/source.js', false],
     ['node scripts/review-lint.js lib/source.js 2>&1 | tail -20', false],
+    ['node scripts/review-lint.js lib/source.js 2>/dev/null | head -5', false],
+    ['node scripts/review-lint.js lib/source.js >/dev/null', false],
+    ['node scripts/review-lint.js lib/source.js >out.txt', true],
+    ['node scripts/review-lint.js lib/source.js 2>&1 >report.txt', true],
     ['node scripts/review-lint.js lib/source.js --fix', true],
     ['node scripts/review-lint.js lib/escape.js', true],
     ['node scripts/review-lint.js lib/source.js > report.txt', true],

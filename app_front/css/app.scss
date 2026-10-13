@@ -13179,6 +13179,9 @@ body.theme-light .sidebar-chat-item-harness--codex img {
     color: var(--cr-text-muted);
   }
 
+  &--finished { color: var(--cr-success); }
+  &--seen { color: var(--cr-text-muted); opacity: 0.7; }
+
   &[data-status-outcome='completed'] { color: var(--cr-success); }
   &[data-status-outcome='failed'] { color: var(--cr-error); }
   &[data-status-outcome='interrupted'] { color: var(--cr-warn); }
@@ -13187,6 +13190,8 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   &--archive-soon,
   &--archive-imminent,
   &--attention,
+  &--finished,
+  &--seen,
   &--disconnected,
   &--connecting,
   &--syncing,
@@ -14332,6 +14337,16 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   &:disabled {
     opacity: 0.55;
     cursor: not-allowed;
+  }
+}
+
+.harness-version-update-btn {
+  border-color: var(--cr-primary);
+  background: var(--cr-primary);
+  color: #fff;
+
+  &:hover:not(:disabled) {
+    background: var(--cr-primary-hover);
   }
 }
 

@@ -6,6 +6,7 @@ import {
   readReportedTokenCount,
   resolveLiveContextUsageInputTokens,
 } from '../../../lib/sdk/sdk-context-advisory.js';
+import { applyClaudeHistoryContextUsage, isClaudeContextMeterChat } from './chatContextMeter.js';
 import { isChatDiagEnabled } from './chatSettingsPrefs.js';
 import { getCurrentLang, t } from '../../i18n/index.js';
 
@@ -166,9 +167,25 @@ export function createChatDiagnostics(deps) {
     }
   }
 
+  /** @param {object} chat */
+  async function hydrateClaudeContextUsage(chat) {
+    try {
+      const res = await api.getChatDiag(chat.id);
+      if (chat.id !== getActiveChatId()) return;
+      applyServerContextUsageFromDiag(chat, res);
+    } catch (_) {
+      // Non-critical background sync.
+    }
+  }
+
   /** @param {object|null|undefined} chat */
   function startChatContextUsageSync(chat) {
-    if (!chat || chat.agentTransport !== 'sdk') return;
+    if (!chat) return;
+    if (isClaudeContextMeterChat(chat)) {
+      if (chat._contextHistoryHydrated !== true) void hydrateClaudeContextUsage(chat);
+      return;
+    }
+    if (chat.agentTransport !== 'sdk') return;
     if (chat._contextUsageSyncTimer) return;
     stopChatContextUsageSync(chat);
     const tick = async () => {
@@ -191,6 +208,12 @@ export function createChatDiagnostics(deps) {
    */
   function applyServerContextUsageFromDiag(chat, res) {
     if (!chat || !res?.ok) return;
+    if (isClaudeContextMeterChat(chat)) {
+      if (applyClaudeHistoryContextUsage(chat, res.contextStats?.history)) {
+        updateChatContextMeter(chat, resolveContextMeterModelId(chat, res));
+      }
+      return;
+    }
     const pressure = res.contextStats?.pressure;
     const history = res.contextStats?.history;
     const room = res.room;

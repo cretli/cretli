@@ -3,6 +3,7 @@ import '../ui/cr-searchable-select.js';
 import { initDropdown } from '../../lib/dropdown.js';
 import { t } from '../../i18n/index.js';
 import { normalizeSdkMode } from '../../../lib/sdk/sdk-mode.js';
+import { formatContextRingCenterLabel } from '../../../lib/sdk/sdk-context-advisory.js';
 
 class CrSdkModeBar extends LitElement {
   static properties = {
@@ -880,7 +881,7 @@ class CrSdkModeBar extends LitElement {
     const groupedChoice = JSON.stringify([this.normalizeBarHarness(this.harness, 'sdk'), modelValue]);
     const groupedSelected = (this.pickerOptions || []).find((row) => row.value === groupedChoice);
     const combinedDisplayLabelGrouped = `${groupedHarnessLabel} · ${groupedSelected?.label || modelLabel}`;
-    const contextPercent = Number(this.contextPercent);
+    const contextPercent = this.contextPercent == null ? Number.NaN : Number(this.contextPercent);
     const hasContextPercent = Number.isFinite(contextPercent) && contextPercent >= 0;
     const normalizedContextPercent = hasContextPercent
       ? Math.max(0, Math.min(100, contextPercent))
@@ -894,12 +895,7 @@ class CrSdkModeBar extends LitElement {
         : this.contextLevel === 'warn'
           ? 'warn'
           : 'ok';
-    const roundedContextPercent = hasContextPercent ? Math.round(contextPercent) : null;
-    const ringCenterLabel = roundedContextPercent == null
-      ? '—'
-      : roundedContextPercent > 99
-        ? '99+'
-        : String(roundedContextPercent);
+    const ringCenterLabel = formatContextRingCenterLabel(this.contextPercent);
     const ringLabel = String(this.contextLabel || '').trim() || t('sdkBlock.contextDetails');
     return html`
       <div class="bar">

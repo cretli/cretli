@@ -233,7 +233,7 @@ test('TODO restore applies once: renderList retrying the pending slice must not 
   panel.run('latestItems = [{ id: "leaf-1", title: "Leaf", status: "ready" }]');
   panel.run(`pendingTodoViewMemory = {
     search: '', searchInputValue: '', searchOpen: false, rootStatus: null,
-    review: '', integration: [], collapsed: [], scrollTop: 240, focusId: ''
+    review: '', collapsed: [], scrollTop: 240, focusId: ''
   };`);
 
   // The production restore handler: park the slice, then try to apply it.
@@ -251,14 +251,14 @@ test('TODO restore still defers while the list has no rows', () => {
   const panel = makeTodoPanelHarness();
   panel.run(`pendingTodoViewMemory = {
     search: '', searchInputValue: '', searchOpen: false, rootStatus: null,
-    review: '', integration: [], collapsed: [], scrollTop: 180, focusId: ''
+    review: '', collapsed: [], scrollTop: 180, focusId: ''
   };`);
   panel.run('tryApplyPendingTodoViewMemory()');
   assert.equal(panel.stats.applyTodoViewMemorySliceCount, 0);
   assert.equal(panel.run('pendingTodoViewMemory') === null, false,
     'an empty list keeps the slice parked for the first data render');
 
-  panel.run('renderList({ items: [{ id: "leaf-1", title: "Leaf", status: "ready" }] })');
+  panel.run(`renderList({ items: [{ id: "leaf-1", title: "Leaf", status: "ready", integrationSummary: { state: "unconfirmed" } }] })`);
   assert.equal(panel.stats.applyTodoViewMemorySliceCount, 1, 'the late render restores exactly once');
   assert.equal(panel.run('pendingTodoViewMemory'), null);
   assert.equal(panel.scrollEl.scrollTop, 180);

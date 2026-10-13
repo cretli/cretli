@@ -11,6 +11,7 @@ import {
   buildOverviewVersionModel,
   countUpdatableHarnesses,
   dockerEnvironmentNote,
+  packageCanBeUpdated,
   packageUpdateHint,
   renderHarnessVersionCardHtml,
   verifyHarnessVersionCardDomContract,
@@ -172,4 +173,31 @@ test('codex refresh hint appears for codex harness', () => {
   const model = buildHarnessVersionCardModel({ harnesses: [{ harness: 'codex', packages: [] }] }, 'codex');
   const html = renderHarnessVersionCardHtml(model, { t: stubT });
   assert.match(html, /network/i);
+});
+
+test('update-packages action shows only for installable updates outside managed installs', () => {
+  assert.equal(packageCanBeUpdated({ canUpdate: true, behind: true, latest: '2.0.0' }), true);
+  assert.equal(packageCanBeUpdated({ canUpdate: false, behind: true, latest: '2.0.0' }), false);
+  assert.equal(packageCanBeUpdated({ canUpdate: true, behind: false, latest: '2.0.0' }), false);
+  assert.equal(packageCanBeUpdated({ canUpdate: true, behind: true, latest: '—' }), false);
+  const local = { ...samplePayload, updateEnvironment: undefined };
+  const html = renderHarnessVersionCardHtml(
+    buildHarnessVersionCardModel(local, 'sdk', { lang: 'en' }),
+    { t: stubT, harnessLabel: 'Cursor SDK' },
+  );
+  assert.match(html, /data-action="update-packages"/);
+  assert.match(html, /Update packages/);
+  assert.deepEqual(verifyHarnessVersionCardDomContract(html).errors, []);
+  const busyHtml = renderHarnessVersionCardHtml(
+    buildHarnessVersionCardModel(local, 'sdk', { lang: 'en' }),
+    { t: stubT, busy: 'update' },
+  );
+  assert.match(busyHtml, /data-action="update-packages" disabled/);
+  const dockerHtml = renderHarnessVersionCardHtml(
+    buildHarnessVersionCardModel(samplePayload, 'sdk', { lang: 'en' }),
+    { t: stubT },
+  );
+  assert.doesNotMatch(dockerHtml, /update-packages/);
+  const overviewHtml = renderHarnessVersionCardHtml(buildOverviewVersionModel(local, { lang: 'en' }), { t: stubT });
+  assert.doesNotMatch(overviewHtml, /update-packages/);
 });

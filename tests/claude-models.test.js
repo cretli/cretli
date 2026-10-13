@@ -20,13 +20,10 @@ assert.equal(resolveDefaultClaudeModel(), 'sonnet');
 // Fallback is the Claude Code alias list plus the known-model overlay; context
 // window is unknown, not 200k.
 const fallback = listFallbackClaudeModels();
-assert.deepEqual(fallback.map((row) => row.value), ['default', 'opus', 'sonnet', 'haiku', 'claude-haiku-5-5']);
+assert.deepEqual(fallback.map((row) => row.value), [
+  'default', 'opus', 'sonnet', 'haiku', 'claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5',
+]);
 assert.ok(fallback.every((row) => row.contextWindowTokens === null));
-assert.ok(
-  fallback
-    .filter((row) => /^claude-/.test(row.value))
-    .every((row) => row.value === 'claude-haiku-5-5'),
-);
 assert.ok(fallback.every((row) => typeof row.label === 'string' && row.label.length > 0));
 
 const mapped = catalogFromClaudeModelsPayload({
@@ -81,8 +78,13 @@ try {
   };
   const sessionListed = await listClaudeModels();
   assert.equal(sessionListed.modelsSource, 'session');
-  assert.deepEqual(sessionListed.models.map((row) => row.id), ['opus', 'claude-haiku-5-5']);
+  assert.deepEqual(sessionListed.models.map((row) => row.id), [
+    'opus', 'claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5',
+  ]);
   assert.ok(sessionListed.catalog.some((row) => row.value === 'claude-haiku-5-5::effort=high'));
+  for (const key of ['claude-sonnet-5-5::effort=low', 'claude-opus-5-5::effort=medium']) {
+    assert.ok(sessionListed.catalog.some((row) => row.value === key), key);
+  }
 
   // Live source uses Anthropic's API endpoint and the user's x-api-key.
   invalidateClaudeModelsCache();
@@ -106,6 +108,7 @@ try {
   const fallbackListed = await listClaudeModels({ refresh: true });
   assert.equal(fallbackListed.modelsSource, 'fallback');
   assert.ok(fallbackListed.catalog.length > 0);
+  assert.ok(fallbackListed.models.some((row) => row.id === 'claude-sonnet-5-5'));
   assert.ok(fallbackListed.models.every((row) => !row.id.includes('::')));
 
   // Bedrock/Vertex never hit the Anthropic Models API.

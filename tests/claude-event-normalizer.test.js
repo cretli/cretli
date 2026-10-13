@@ -510,4 +510,118 @@ assert.equal(nextTurn.filter((event) => event.kind === 'api_call_usage').length,
   assert.equal(notice({ status: 'allowed', rateLimitType: 'brand_new_window' }).rateLimitType, 'brand_new_window');
 }
 
+// --- Context meter: per-call occupancy of main-thread API calls ---
+{
+  const callUsage = (input, output, cacheRead, cacheWrite) => ({
+    input_tokens: input,
+    output_tokens: output,
+    cache_read_input_tokens: cacheRead,
+    cache_creation_input_tokens: cacheWrite,
+  });
+  const meterNormalizer = createClaudeEventNormalizer();
+  const mainCallEvents = meterNormalizer.normalize({
+    type: 'assistant',
+    message: { model: 'claude-sonnet-4-20250514', content: [], usage: callUsage(10, 20, 1000, 500) },
+  });
+  const mainContext = mainCallEvents.find((event) => event.kind === 'context_usage');
+  assert.equal(mainContext.usage.totalTokens, 1530);
+  assert.equal(mainContext.model, 'claude-sonnet-4-20250514');
+  const subAgentEvents = meterNormalizer.normalize({
+    type: 'assistant',
+    parent_tool_use_id: 'tool-abc',
+    message: { model: 'claude-haiku-4-5-20251001', content: [], usage: callUsage(5, 5, 90000, 0) },
+  });
+  assert.equal(subAgentEvents.filter((event) => event.kind === 'context_usage').length, 0);
+  const turnEvents = meterNormalizer.normalize({
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    usage: callUsage(10, 20, 1000, 500),
+  });
+  const turnUsage = turnEvents.find((event) => event.kind === 'usage');
+  assert.deepEqual(turnUsage.lastCallUsage, mainContext.usage);
+  assert.equal(turnUsage.lastCallModel, 'claude-sonnet-4-20250514');
+
+  const placeholderEvents = createClaudeEventNormalizer().normalize({
+    type: 'assistant',
+    message: { model: '<synthetic>', content: [], usage: callUsage(3, 1, 0, 0) },
+  });
+  assert.equal(placeholderEvents.find((event) => event.kind === 'context_usage').model, null);
+
+  const compactNormalizer = createClaudeEventNormalizer();
+  compactNormalizer.normalize({
+    type: 'assistant',
+    message: { model: 'claude-sonnet-4-20250514', content: [], usage: callUsage(10, 20, 1000, 500) },
+  });
+  compactNormalizer.normalize({
+    type: 'system',
+    subtype: 'compact_boundary',
+    compact_metadata: { trigger: 'auto', pre_tokens: 150000 },
+  });
+  const compactTurn = compactNormalizer.normalize({
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    usage: callUsage(1, 1, 0, 0),
+  });
+  assert.equal('lastCallUsage' in compactTurn.find((event) => event.kind === 'usage'), false);
+}
+
+// --- Context meter: one call reported by several messages, and the SDK window ---
+{
+  const usageOf = (output) => ({
+    input_tokens: 2,
+    output_tokens: output,
+    cache_read_input_tokens: 144991,
+    cache_creation_input_tokens: 0,
+  });
+  const contextOf = (events) => events.filter((event) => event.kind === 'context_usage');
+  const streamNormalizer = createClaudeEventNormalizer();
+  // The prompt size is known as soon as the call starts.
+  const started = contextOf(streamNormalizer.normalize({
+    type: 'stream_event',
+    event: { type: 'message_start', message: { id: 'msg_1', model: 'claude-opus-5-5', usage: usageOf(8) } },
+  }));
+  assert.equal(started.length, 1);
+  assert.equal(started[0].usage.totalTokens, 145001);
+  assert.equal(started[0].model, 'claude-opus-5-5');
+  // Per-block messages of the same call repeat the start usage: no new event.
+  const block = { type: 'assistant', message: { id: 'msg_1', model: 'claude-opus-5-5', content: [], usage: usageOf(8) } };
+  assert.equal(contextOf(streamNormalizer.normalize(block)).length, 0);
+  // `message_delta` carries the final output count of the call.
+  const finished = contextOf(streamNormalizer.normalize({
+    type: 'stream_event',
+    event: { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 2442 } },
+  }));
+  assert.equal(finished.length, 1);
+  assert.equal(finished[0].usage.outputTokens, 2442);
+  assert.equal(finished[0].usage.totalTokens, 147435);
+  // A late per-block message must not roll the output back.
+  assert.equal(contextOf(streamNormalizer.normalize(block)).length, 0);
+  // Sub-agent stream events never move the main meter.
+  assert.equal(streamNormalizer.normalize({
+    type: 'stream_event',
+    parent_tool_use_id: 'tool-abc',
+    event: { type: 'message_start', message: { id: 'msg_sub', model: 'claude-haiku-5-5', usage: usageOf(1) } },
+  }).length, 0);
+  const runUsage = streamNormalizer.normalize({
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    usage: usageOf(2442),
+    modelUsage: {
+      'claude-opus-5-5': { contextWindow: 1000000, maxOutputTokens: 128000 },
+      'claude-haiku-5-5': { contextWindow: 200000, maxOutputTokens: 128000 },
+    },
+  }).find((event) => event.kind === 'usage');
+  assert.equal(runUsage.lastCallUsage.totalTokens, 147435);
+  assert.equal(runUsage.lastCallContextWindowTokens, 1000000);
+  // The next call of a new turn is a new message id and starts from its own usage.
+  const nextCall = contextOf(streamNormalizer.normalize({
+    type: 'assistant',
+    message: { id: 'msg_2', model: 'claude-opus-5-5', content: [], usage: usageOf(5) },
+  }));
+  assert.equal(nextCall[0].usage.totalTokens, 144998);
+}
+
 console.log('claude-event-normalizer.test.js OK');

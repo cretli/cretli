@@ -807,7 +807,9 @@ try {
       await waitFor(() => isClaudeSessionModelCatalogFresh(), { timeoutMs: 500 });
       const listed = await listClaudeModels();
       assert.equal(listed.modelsSource, 'session');
-      assert.deepEqual(listed.models.map((row) => row.id), ['opus', 'sonnet', 'claude-haiku-5-5']);
+      assert.deepEqual(listed.models.map((row) => row.id), [
+        'opus', 'sonnet', 'claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5',
+      ]);
     } finally {
       if (typeof previousKey === 'string') process.env.ANTHROPIC_API_KEY = previousKey;
       else delete process.env.ANTHROPIC_API_KEY;

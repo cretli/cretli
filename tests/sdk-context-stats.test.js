@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { summarizeChatHistoryUsage } from '../lib/persist/chat-history-persist.js';
 import {
   buildContextPressureAssessment,
   collectChatHistoryContextStats,
@@ -145,5 +146,38 @@ const probe = {
 const signals = inferProbeSignals(probe);
 assert.ok(signals.includes('misleading_auth_on_resume'));
 assert.equal(signals.includes('context_over_model_window'), false);
+
+const historyUsageSummary = summarizeChatHistoryUsage([
+  {
+    rec: {
+      kind: 'sdk',
+      event: {
+        type: 'usage',
+        usage: { inputTokens: 1600, totalTokens: 1600 },
+        lastCallUsage: { totalTokens: 85000 },
+        lastCallModel: 'claude-sonnet-4-20250514',
+      },
+    },
+  },
+  { rec: { kind: 'sdk', event: { type: 'assistant' } } },
+  {
+    rec: {
+      kind: 'sdk',
+      event: {
+        type: 'usage',
+        usage: { inputTokens: 40, totalTokens: 40 },
+        lastCallUsage: { totalTokens: 90000 },
+        lastCallModel: 'claude-opus-4-20250514',
+        modelUsage: { 'claude-opus-4-20250514': { contextWindow: 1000000 } },
+      },
+    },
+  },
+]);
+assert.equal(historyUsageSummary.lastCallContextTokens, 90000);
+assert.equal(historyUsageSummary.lastCallModel, 'claude-opus-4-20250514');
+// Stored runs carry the SDK window in `modelUsage` even without the explicit field.
+assert.equal(historyUsageSummary.lastCallContextWindowTokens, 1000000);
+assert.equal(summarizeChatHistoryUsage([]).lastCallContextTokens, null);
+assert.equal(summarizeChatHistoryUsage([]).lastCallContextWindowTokens, null);
 
 console.log('All sdk-context-stats tests passed.');

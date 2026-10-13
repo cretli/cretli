@@ -20,3 +20,12 @@ export function getNewChatLimitResetTime(limit, locale = globalThis.document?.do
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   });
 }
+
+/** Remaining time until a provider-confirmed reset as `{ hours, minutes }`, or null when unknown/past. */
+export function getNewChatLimitCountdown(limit, now = Date.now()) {
+  if (!['provider', 'provider-message'].includes(limit?.resetSource)) return null;
+  const left = Date.parse(limit.resetAt) - now;
+  if (!Number.isFinite(left) || left <= 0) return null;
+  const totalMinutes = Math.max(1, Math.ceil(left / 60000));
+  return { hours: Math.floor(totalMinutes / 60), minutes: totalMinutes % 60 };
+}

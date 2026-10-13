@@ -1,8 +1,13 @@
 /**
- * Settings → Harness: read-only version inventory and explicit model refresh.
+ * Settings → Harness: version inventory, explicit package update and model refresh.
  */
 
-import { getHarnessVersions, installMistralSdk, refreshHarnessModelsCatalog } from '../../api.js';
+import {
+  getHarnessVersions,
+  installMistralSdk,
+  refreshHarnessModelsCatalog,
+  updateHarnessPackages,
+} from '../../api.js';
 import { t, getCurrentLang } from '../../i18n/index.js';
 import { isHarnessSubtabOf } from '../../../lib/spa-routes.js';
 import {
@@ -10,6 +15,7 @@ import {
   buildHarnessVersionCardModel,
   buildOverviewVersionModel,
   countUpdatableHarnesses,
+  packageCanBeUpdated,
   renderHarnessVersionCardHtml,
 } from './harnessVersionModel.js';
 
@@ -73,6 +79,10 @@ function wireHostActions(host, record) {
   if (installBtn instanceof HTMLButtonElement) {
     installBtn.onclick = () => { void runMistralInstall(record.harnessId); };
   }
+  const updateBtn = host.querySelector('[data-action="update-packages"]');
+  if (updateBtn instanceof HTMLButtonElement) {
+    updateBtn.onclick = () => { void runUpdatePackages(record.harnessId); };
+  }
   const checkBtn = host.querySelector('[data-action="check-updates"]');
   if (checkBtn instanceof HTMLButtonElement) {
     checkBtn.onclick = () => {
@@ -111,7 +121,42 @@ async function runMistralInstall(harnessId) {
 }
 
 /**
- * @param {string} scopeHarnessId
+ * @param {string} harnessId
+ * @returns {Promise<void>}
+ */
+async function runUpdatePackages(harnessId) {
+  const record = controllers.get(harnessId);
+  if (!record || record.busy || harnessId === 'overview') return;
+  const model = buildHarnessVersionCardModel(cachedVersionsPayload, harnessId);
+  const targets = model.packages.filter((pkg) => packageCanBeUpdated(pkg));
+  if (!targets.length) return;
+  const list = targets.map((pkg) => `${pkg.name} ${pkg.installed} → ${pkg.latest}`).join('\n');
+  if (!window.confirm(t('harnessVersion.updateConfirm', { packages: list }))) return;
+  record.busy = 'update';
+  record.error = '';
+  record.installNotice = '';
+  paintRecord(record);
+  try {
+    const data = await updateHarnessPackages(harnessId);
+    if (!data?.ok) {
+      record.error = data?.error || t('harnessVersion.updateFailed');
+      return;
+    }
+    cachedVersionsPayload = data;
+    record.installNotice = t('harnessVersion.updateRestartRequired');
+    applyOverviewTabBadge();
+    for (const row of controllers.values()) {
+      if (row !== record) paintRecord(row);
+    }
+  } catch (error) {
+    record.error = error?.message || t('harnessVersion.updateFailed');
+  } finally {
+    record.busy = '';
+    paintRecord(record);
+  }
+}
+
+/**
  * @returns {void}
  */
 function applyOverviewTabBadge() {

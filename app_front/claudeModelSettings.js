@@ -284,16 +284,14 @@ function setDraftEnabledKeys(keys) {
 function readDraftEnabledKeysFromUi() {
   const listEl = document.getElementById('claude-model-settings-list');
   if (!listEl) return;
-  /** @type {Set<string>} */
-  const next = new Set();
+  // Only rendered rows are in the DOM; keys hidden by search or missing from the catalog must survive.
   listEl.querySelectorAll('.claude-model-settings-checkbox[data-model-value]').forEach((el) => {
     if (!(el instanceof HTMLInputElement)) return;
-    if (!el.checked) return;
     const value = String(el.getAttribute('data-model-value') || '').trim();
     if (!value) return;
-    next.add(value);
+    if (el.checked) draftEnabledKeys.add(value);
+    else draftEnabledKeys.delete(value);
   });
-  draftEnabledKeys = next;
   updateModelSettingsSummary();
 }
 
@@ -368,10 +366,10 @@ async function loadClaudeModelSettingsData() {
 }
 
 function toggleAllCatalogModelSettings() {
-  if (areAllCatalogModelsSelected()) {
-    setDraftEnabledKeys([]);
-  } else {
-    setDraftEnabledKeys(getAllCatalogModelValues());
+  const select = !areAllCatalogModelsSelected();
+  for (const value of getAllCatalogModelValues()) {
+    if (select) draftEnabledKeys.add(value);
+    else draftEnabledKeys.delete(value);
   }
   renderModelSettingsList();
 }

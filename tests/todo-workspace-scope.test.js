@@ -7,6 +7,10 @@ import {
   getTodoWorkspaceFolder,
   todoWorkspaceMatches,
 } from '../app_front/features/todo/todoWorkspaceScope.js';
+import {
+  parseTodoIntegrationFilter,
+  TODO_INTEGRATION_PENDING_FILTERS,
+} from '../app_front/features/todo/todoTreeView.js';
 
 function deferred() {
   let resolve;
@@ -93,8 +97,15 @@ function makePanel() {
   const status = { textContent: '', classList: { toggle() {} } };
   const pending = [];
   let editorHidden = 0;
+  const storage = new Map();
   const context = vm.createContext({
-    document: { getElementById: (id) => id === 'todo-panel' ? { classList: { contains: () => true } } : null },
+    document: {
+      getElementById: (id) => {
+        if (id === 'todo-panel') return { classList: { contains: () => true } };
+        if (id === 'header-workspace-trigger') return { dataset: { workspaceFile: '', workspaceFolder: folder } };
+        return null;
+      },
+    },
     getTodoWorkspaceFolder: () => folder,
     todoWorkspaceMatches: (candidate, active = folder) => todoWorkspaceMatches(candidate, active),
     isViewContextScopedAccessAllowed: () => scopedAccessAllowed,
@@ -108,8 +119,14 @@ function makePanel() {
       },
       getAgentSdkStatus: async () => ({ ready: true }),
     },
-    localStorage: { getItem: () => null },
+    localStorage: {
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => { storage.set(key, String(value)); },
+      removeItem: (key) => { storage.delete(key); },
+    },
     parseTodoRootStatusFilter: () => null,
+    parseTodoIntegrationFilter,
+    TODO_INTEGRATION_PENDING_FILTERS,
     filterTodoItemsByRootStatus: (items) => items,
     parseReviewListFilter: () => '',
     filterTodoItemsByReviewState: (items) => items,
@@ -124,7 +141,7 @@ function makePanel() {
     .replace(/^export /gm, '');
   vm.runInContext(`${source}\nlistEl = list; hintEl = hint; statusEl = status; editorDialog = editor;`, context);
   return {
-    pending, list, hint, status,
+    pending, list, hint, status, storage,
     refresh: () => vm.runInContext('refreshTodoList()', context),
     workspaceChanged: () => vm.runInContext('onTodoWorkspaceChange()', context),
     switchTo: (next) => { folder = next; },
@@ -189,6 +206,30 @@ test('a workspace change while Todo is open clears and reloads the list for the 
   panel.pending[0].resolve({ ok: true, cwd: '/domq', items: [] });
   await changed;
   assert.equal(panel.hint.textContent, '/domq');
+});
+
+test('refresh restores the integration filter saved for the active workspace', async () => {
+  const panel = makePanel();
+  panel.storage.set('cretli-todo-integration-filter:/a', '["conflict","integrated"]');
+  const refreshing = panel.refresh();
+  assert.equal(panel.evaluate('[...integrationListFilter].join(",")'), 'conflict,integrated');
+  panel.pending[0].resolve({ ok: true, cwd: '/a', items: [] });
+  await refreshing;
+});
+
+test('integration filter defaults to the pending preset, and an explicit "All" survives a reload', async () => {
+  const panel = makePanel();
+  const refreshing = panel.refresh();
+  assert.equal(panel.evaluate('[...integrationListFilter].join(",")'), TODO_INTEGRATION_PENDING_FILTERS.join(','));
+  panel.pending[0].resolve({ ok: true, cwd: '/a', items: [] });
+  await refreshing;
+
+  const withAll = makePanel();
+  withAll.storage.set('cretli-todo-integration-filter:/a', '[]');
+  const reloading = withAll.refresh();
+  assert.equal(withAll.evaluate('integrationListFilter.size'), 0);
+  withAll.pending[0].resolve({ ok: true, cwd: '/a', items: [] });
+  await reloading;
 });
 
 test('cached lookups and mutation responses cannot restore another workspace', () => {

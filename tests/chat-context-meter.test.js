@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict';
 import {
+  applyClaudeHistoryContextUsage,
+  applyClaudeMeasuredContextUsage,
   buildChatContextSnapshot,
+  formatChatContextUsageLabel,
   resetChatContextMeterState,
   resolveChatContextUsage,
   resolveChatContextUsageSource,
+  resolveContextMeterModelId,
 } from '../app_front/features/chat/chatContextMeter.js';
 import {
+  estimateContextFillPercent,
   estimateTokensFromText,
+  formatContextRingCenterLabel,
   setDynamicModelContextWindows,
 } from '../lib/sdk/sdk-context-advisory.js';
 
@@ -143,15 +149,126 @@ assert.equal(claudeEstimatedSnapshot.fillPercent, 0.5);
 const claudeMeasuredChat = {
   agentTransport: 'claude',
   model: 'claude-sonnet-4-20250514',
-  _contextMeasuredFillPercent: 42.5,
-  _contextMeasuredInputTokens: 85000,
+  _contextMeasuredTokens: 85000,
   _contextMeasuredUpdatedAt: 1750000000000,
 };
 const claudeMeasuredSnapshot = buildChatContextSnapshot(claudeMeasuredChat, claudeMeasuredChat.model);
 assert.equal(claudeMeasuredSnapshot.fillProvenance, 'measured');
 assert.equal(claudeMeasuredSnapshot.source, 'claude-measured');
+assert.equal(claudeMeasuredSnapshot.inputTokens, 85000);
 assert.equal(claudeMeasuredSnapshot.fillPercent, 42.5);
 assert.equal(claudeMeasuredSnapshot.isEstimated, false);
+
+{
+  const liveChat = { agentTransport: 'claude' };
+  assert.equal(applyClaudeMeasuredContextUsage(liveChat, { totalTokens: 85000 }, 'claude-sonnet-4-20250514'), true);
+  assert.equal(buildChatContextSnapshot(liveChat, liveChat._contextUsageModelId).fillPercent, 42.5);
+  assert.equal(applyClaudeMeasuredContextUsage(liveChat, { totalTokens: 0 }, 'claude-sonnet-4-20250514'), false);
+  assert.equal(applyClaudeMeasuredContextUsage(liveChat, null, 'claude-sonnet-4-20250514'), false);
+  assert.equal(liveChat._contextMeasuredTokens, 85000);
+  assert.equal(applyClaudeMeasuredContextUsage({ agentTransport: 'sdk' }, { totalTokens: 85000 }, 'gpt-5-mini'), false);
+}
+
+{
+  const tinyChat = { agentTransport: 'claude' };
+  applyClaudeMeasuredContextUsage(tinyChat, { totalTokens: 50 }, 'claude-sonnet-4-20250514');
+  assert.equal(buildChatContextSnapshot(tinyChat, tinyChat._contextUsageModelId).fillPercent, 0.1);
+  assert.equal(estimateContextFillPercent(50, 'claude-sonnet-4-20250514'), 0.1);
+  assert.equal(estimateContextFillPercent(0, 'claude-sonnet-4-20250514'), null);
+}
+
+{
+  const keyOf = (key) => key;
+  assert.equal(formatChatContextUsageLabel(keyOf, null, 'sonnet', null, false, 'none', true), 'chat.contextMeterNoData');
+  assert.equal(
+    formatChatContextUsageLabel(keyOf, 85000, 'sonnet', null, false, 'measured', true),
+    'chat.contextMeterTokensNoWindow',
+  );
+  assert.equal(
+    formatChatContextUsageLabel(keyOf, 1000, 'sonnet', null, true, 'estimated', false),
+    'chat.contextMeterEstimatedTokensNoWindow',
+  );
+  assert.equal(
+    formatChatContextUsageLabel(keyOf, 1000, 'sonnet', 0.5, false, 'measured', false),
+    'chat.contextMeterTokensOnly',
+  );
+  assert.equal(
+    formatChatContextUsageLabel(keyOf, 85000, 'claude-sonnet-4-20250514', 42.5, false, 'measured', true),
+    'chat.contextMeterMeasured',
+  );
+  assert.equal(
+    formatChatContextUsageLabel(keyOf, 1000, 'claude-sonnet-4-20250514', 0.5, true, 'estimated', false),
+    'chat.contextMeterEstimated',
+  );
+}
+
+{
+  const historyEntry = { lastCallContextTokens: 85000, lastCallModel: 'claude-sonnet-4-20250514' };
+  const resetChat = { agentTransport: 'claude', model: 'claude-sonnet-4-20250514' };
+  resetChatContextMeterState(resetChat, { reason: 'compact_boundary' });
+  assert.equal(applyClaudeHistoryContextUsage(resetChat, historyEntry), false);
+  assert.equal(resetChat._contextMeasuredTokens, undefined);
+
+  const liveFirstChat = { agentTransport: 'claude', model: 'sonnet' };
+  applyClaudeMeasuredContextUsage(liveFirstChat, { totalTokens: 100000 }, 'claude-sonnet-4-20250514');
+  assert.equal(applyClaudeHistoryContextUsage(liveFirstChat, historyEntry), false);
+  assert.equal(liveFirstChat._contextMeasuredTokens, 100000);
+
+  const hydratedChat = { agentTransport: 'claude', model: 'sonnet' };
+  assert.equal(applyClaudeHistoryContextUsage(hydratedChat, historyEntry), true);
+  const hydratedModelId = resolveContextMeterModelId(hydratedChat, hydratedChat.model);
+  assert.equal(hydratedModelId, 'claude-sonnet-4-20250514');
+  assert.equal(buildChatContextSnapshot(hydratedChat, hydratedModelId).fillPercent, 42.5);
+  assert.equal(
+    applyClaudeHistoryContextUsage(hydratedChat, { lastCallContextTokens: 1, lastCallModel: 'claude-haiku-4-5-20251001' }),
+    false,
+  );
+  assert.equal(hydratedChat._contextMeasuredTokens, 85000);
+}
+
+{
+  // The SDK-reported window wins over the per-model table.
+  const wideChat = { agentTransport: 'claude', model: 'claude-sonnet-4-20250514::effort=medium' };
+  applyClaudeMeasuredContextUsage(wideChat, { totalTokens: 145001 }, 'claude-sonnet-4-20250514', 1000000);
+  const wideSnapshot = buildChatContextSnapshot(wideChat, wideChat.model, (...args) => args[6]);
+  assert.equal(wideSnapshot.contextWindowTokens, 1000000);
+  assert.equal(wideSnapshot.fillPercent, 14.5);
+  assert.equal(wideSnapshot.label, 1000000);
+  // A later call without a window keeps it while the model is unchanged...
+  applyClaudeMeasuredContextUsage(wideChat, { totalTokens: 150000 }, 'claude-sonnet-4-20250514', null);
+  assert.equal(buildChatContextSnapshot(wideChat, wideChat.model).fillPercent, 15);
+  // ...and drops it when the call ran on another model.
+  applyClaudeMeasuredContextUsage(wideChat, { totalTokens: 150000 }, 'claude-haiku-4-5-20251001', null);
+  assert.equal(buildChatContextSnapshot(wideChat, wideChat.model).contextWindowTokens, 200000);
+  resetChatContextMeterState(wideChat, { reason: 'model_change' });
+  assert.equal(wideChat._contextMeasuredWindowTokens, undefined);
+
+  // Reload: the stored run supplies tokens and window together.
+  const storedRun = {
+    lastCallContextTokens: 145001,
+    lastCallModel: 'claude-sonnet-4-20250514',
+    lastCallContextWindowTokens: 1000000,
+  };
+  const reloadedChat = { agentTransport: 'claude', model: 'sonnet' };
+  assert.equal(applyClaudeHistoryContextUsage(reloadedChat, storedRun), true);
+  assert.equal(buildChatContextSnapshot(reloadedChat, reloadedChat.model).fillPercent, 14.5);
+  // A live value measured first keeps its tokens and adopts the stored window.
+  const liveBeforeHistoryChat = { agentTransport: 'claude', model: 'sonnet' };
+  applyClaudeMeasuredContextUsage(liveBeforeHistoryChat, { totalTokens: 160000 }, 'claude-sonnet-4-20250514');
+  assert.equal(applyClaudeHistoryContextUsage(liveBeforeHistoryChat, storedRun), true);
+  assert.equal(liveBeforeHistoryChat._contextMeasuredTokens, 160000);
+  assert.equal(buildChatContextSnapshot(liveBeforeHistoryChat, liveBeforeHistoryChat.model).fillPercent, 16);
+  // Without a report the Claude 5 fallback is the 1M window Opus and Sonnet run on.
+  assert.equal(estimateContextFillPercent(145001, 'claude-opus-5-5::effort=medium'), 14.5);
+  assert.equal(estimateContextFillPercent(100000, 'claude-haiku-5-5'), 50);
+}
+
+assert.equal(formatContextRingCenterLabel(null), '—');
+assert.equal(formatContextRingCenterLabel(undefined), '—');
+assert.equal(formatContextRingCenterLabel(-3), '—');
+assert.equal(formatContextRingCenterLabel(0.1), '<1');
+assert.equal(formatContextRingCenterLabel(42.5), '43');
+assert.equal(formatContextRingCenterLabel(99.6), '99+');
 
 const claudeEpochChat = { agentTransport: 'claude', model: 'claude-sonnet-4-20250514' };
 resetChatContextMeterState(claudeEpochChat, { reason: 'compact_boundary' });

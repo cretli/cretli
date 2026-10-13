@@ -69,6 +69,27 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- **Claude context meter uses the window the SDK reports.** Opus 5.5 and
+  Sonnet 5.5 run on a 1M-token window, but the meter divided by a fixed 200k and
+  showed about five times too much (72.5% for a chat that was at 14.5%), which
+  also raised the context warning far too early. The window now comes from the
+  run report of the model that made the call, with 1M as the fallback for these
+  two models. The value also includes the full output of the newest call and
+  moves as soon as the next call starts.
+
+- **Claude context meter reads the newest API call.** The ring shows that
+  call's input and cache tokens against the model's window, updates live during
+  a run and survives a reload. Sub-agent calls and run totals are not counted,
+  and the label marks the value as measured, estimated or unknown. Small usage no
+  longer rounds to 0%, and the ring shows "—" instead of "0" when there is no
+  data.
+
+- **Claude Sonnet 5.5 and Opus 5.5 stay unlocked.** They are overlaid on every
+  Claude catalog source like Haiku 5.5, so they no longer vanish when the picker
+  falls back to the session or alias list. Settings also keeps enabled models that
+  are hidden by the search or missing from the current catalog, instead of
+  dropping them on the next save.
+
 - Plan refinement now prepares a revision-bound reviewer session through MCP
   after saving the plan and after each rewrite. Retries reuse the current
   session without clearing reports; earlier revisions remain stale.

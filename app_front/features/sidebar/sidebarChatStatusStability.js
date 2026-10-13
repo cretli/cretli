@@ -20,6 +20,16 @@ import { SIDEBAR_CONNECTING_GRACE_MS } from '../chat/chatStatusMeta.js';
 
 export const SIDEBAR_STATUS_EXIT_HYSTERESIS_MS = 500;
 export const SIDEBAR_ACTIVITY_LABEL_MIN_MS = 500;
+/**
+ * A dropped or re-opening socket says nothing about the run: the harness keeps working
+ * server-side. While a row shows "working", a connecting/disconnected reading is held this
+ * long (the reconnect normally lands well inside it) instead of swapping the cog for a
+ * connection spinner.
+ */
+export const SIDEBAR_STATUS_CONNECTION_HOLD_MS = 8000;
+
+/** Connection-only tones: they describe the socket, not the agent run. */
+const CONNECTION_TONES = new Set(['connecting', 'disconnected']);
 
 /** Tones that count as "the agent is working" for the exit hysteresis. */
 const WORK_TONES = new Set([
@@ -67,6 +77,7 @@ function normalizeMeta(meta) {
  *   onExpire?: (chatId: string) => void,
  *   exitHysteresisMs?: number,
  *   activityLabelMinMs?: number,
+ *   connectionHoldMs?: number,
  * }} [options]
  */
 export function createSidebarStatusStabilizer(options = {}) {
@@ -81,6 +92,9 @@ export function createSidebarStatusStabilizer(options = {}) {
   const exitMs = Number.isFinite(options.exitHysteresisMs)
     ? options.exitHysteresisMs
     : SIDEBAR_STATUS_EXIT_HYSTERESIS_MS;
+  const connectionHoldMs = Number.isFinite(options.connectionHoldMs)
+    ? options.connectionHoldMs
+    : SIDEBAR_STATUS_CONNECTION_HOLD_MS;
   const labelMs = Number.isFinite(options.activityLabelMinMs)
     ? options.activityLabelMinMs
     : SIDEBAR_ACTIVITY_LABEL_MIN_MS;
@@ -181,11 +195,15 @@ export function createSidebarStatusStabilizer(options = {}) {
       // releases the hold. Needs-action targets are always immediate.
       const targetLeavesWork = !WORK_TONES.has(raw.tone) && !ACTION_TONES.has(raw.tone);
       if (WORK_TONES.has(state.tone) && targetLeavesWork) {
-        const bothAgreeIdle = serverKnown && !serverBusy && !localActive;
+        // "Both sources agree it is idle" is meaningless while the socket is down: the local
+        // flags were reset by the reconnect, not by the run ending.
+        const isConnectionTone = CONNECTION_TONES.has(raw.tone);
+        const bothAgreeIdle = !isConnectionTone && serverKnown && !serverBusy && !localActive;
+        const holdMs = isConnectionTone ? Math.max(exitMs, connectionHoldMs) : exitMs;
         if (!bothAgreeIdle) {
           if (!state.exitSince) state.exitSince = nowValue;
-          if (nowValue - state.exitSince < exitMs) {
-            schedule(chatId, state, exitMs - (nowValue - state.exitSince));
+          if (nowValue - state.exitSince < holdMs) {
+            schedule(chatId, state, holdMs - (nowValue - state.exitSince));
             return state.meta;
           }
         }

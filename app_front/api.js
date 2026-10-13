@@ -789,6 +789,19 @@ export async function postDelegationCancel(id, { tree = false } = {}) {
   return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}/cancel`, init, `postDelegationCancel:${id}${tree ? ':tree' : ''}`);
 }
 
+/**
+ * Marks the chat's latest finished run as read (sidebar check turns grey).
+ *
+ * @param {string} chatId
+ * @returns {Promise<object>}
+ */
+export async function postChatSeen(chatId) {
+  if (!chatId) return { ok: false, error: 'Missing chat id' };
+  return apiFetchJson(`/api/chats/${encodeURIComponent(chatId)}/seen`, {
+    method: 'POST',
+  }, `postChatSeen:${chatId}`);
+}
+
 export async function postDelegationAck(id, payload = {}) {
   if (!id) return { ok: false, error: 'Missing delegation id' };
   return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}/ack`, {
@@ -2003,6 +2016,20 @@ export async function getHarnessVersions(query = {}) {
   if (query.check) params.set('check', '1');
   const suffix = params.toString() ? `?${params.toString()}` : '';
   return apiFetchJson(`/api/harness/versions${suffix}`, undefined, 'getHarnessVersions');
+}
+
+/**
+ * Install the newer upstream versions of one harness's packages.
+ *
+ * @param {string} harness
+ * @returns {Promise<object>}
+ */
+export async function updateHarnessPackages(harness) {
+  return apiFetchJson('/api/harness/packages/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ harness: String(harness || '').trim().toLowerCase() }),
+  }, 'updateHarnessPackages', { timeoutMs: 660000 });
 }
 
 /** Install the optional Mistral SDK in the Cretli project. */

@@ -110,6 +110,16 @@ export function mergeExistingChatFromServerRow(existing, serverChat, ctx) {
   } else {
     delete existing.archivedAt;
   }
+  if (typeof serverChat.lastFinishedAt === 'string' && serverChat.lastFinishedAt) {
+    existing.lastFinishedAt = serverChat.lastFinishedAt;
+  } else {
+    delete existing.lastFinishedAt;
+  }
+  if (typeof serverChat.lastSeenAt === 'string' && serverChat.lastSeenAt) {
+    existing.lastSeenAt = serverChat.lastSeenAt;
+  } else {
+    delete existing.lastSeenAt;
+  }
   if (!existing._buffer) {
     const saved = ctx.readChatBufferForChatRestore(serverChat.id, true);
     if (saved && saved.length > 0) existing._buffer = saved.slice(-ctx.chatBufferMax);
@@ -179,6 +189,12 @@ export function createRuntimeChatFromServerRow(serverChat, ctx) {
   }
   if (typeof serverChat.archivedAt === 'string' && serverChat.archivedAt.trim()) {
     created.archivedAt = serverChat.archivedAt.trim();
+  }
+  if (typeof serverChat.lastFinishedAt === 'string' && serverChat.lastFinishedAt) {
+    created.lastFinishedAt = serverChat.lastFinishedAt;
+  }
+  if (typeof serverChat.lastSeenAt === 'string' && serverChat.lastSeenAt) {
+    created.lastSeenAt = serverChat.lastSeenAt;
   }
   const saved = ctx.readChatBufferForChatRestore(created.id, true);
   if (saved && saved.length > 0) created._buffer = saved.slice(-ctx.chatBufferMax);

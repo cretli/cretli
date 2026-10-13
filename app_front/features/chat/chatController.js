@@ -74,6 +74,8 @@ function chatListRepaintSignature(list, archivedCounts) {
       chat.createdAt || '',
       chat.updatedAt || '',
       chat.archivedAt || '',
+      chat.lastFinishedAt || '',
+      chat.lastSeenAt || '',
       chat.forkParentChatId || '',
       chat.forkKind || '',
       chat.widgetPinnedUrl || '',
@@ -95,6 +97,16 @@ function chatListRepaintSignature(list, archivedCounts) {
     .sort()
     .map((key) => `${key}=${counts[key]}`);
   return `${parts.join('\u0001')}#${countParts.join('\u0002')}`;
+}
+
+// The durable watcher chat is an observability feed, not a conversation to open automatically.
+function isAutoSelectableChat(chat) {
+  return chat?.watcherPinned !== true;
+}
+
+// An explicitly opened watcher chat stays put across list reloads; only restores skip it.
+function isWatcherChatOpen(chats, activeId) {
+  return chats.some((chat) => chat.id === activeId && !isAutoSelectableChat(chat));
 }
 
 export function createChatController(deps) {
@@ -291,14 +303,14 @@ export function createChatController(deps) {
       updateChatBarSelect();
       return true;
     }
-    const visibleChats = runtimeChats.filter((chat) => !chat.archivedAt);
+    const autoSelectChats = runtimeChats.filter((chat) => !chat.archivedAt && isAutoSelectableChat(chat));
     let nextActiveId = '';
     if (preferChatId && runtimeChats.some((chat) => chat.id === preferChatId)) {
       nextActiveId = preferChatId;
     } else {
       const lastId = readLastActiveChatId() || cached.activeChatId;
-      if (lastId && visibleChats.some((chat) => chat.id === lastId)) nextActiveId = lastId;
-      else if (visibleChats.length > 0) nextActiveId = visibleChats[0].id;
+      if (lastId && autoSelectChats.some((chat) => chat.id === lastId)) nextActiveId = lastId;
+      else if (autoSelectChats.length > 0) nextActiveId = autoSelectChats[0].id;
     }
     if (nextActiveId) setActiveChatId(nextActiveId);
     updateChatBarSelect();
@@ -513,12 +525,12 @@ export function createChatController(deps) {
     const visibleChats = chats.filter((chat) => !chat.archivedAt);
     if (opts.preferChatId && chats.some((chat) => chat.id === opts.preferChatId)) {
       setActiveChatId(opts.preferChatId);
-    } else if (!opts.skipAutoSelect) {
+    } else if (!opts.skipAutoSelect && !isWatcherChatOpen(visibleChats, getActiveChatId())) {
       const lastId = typeof localStorage !== 'undefined'
         ? readStorageValueWithAlias(localStorage, LAST_CHAT_ID_KEY, '')
         : null;
-      const validLast = lastId && visibleChats.some((chat) => chat.id === lastId);
-      const autoSelectChats = visibleChats.filter((chat) => chat?.watcherPinned !== true);
+      const autoSelectChats = visibleChats.filter(isAutoSelectableChat);
+      const validLast = lastId && autoSelectChats.some((chat) => chat.id === lastId);
       if (validLast) {
         setActiveChatId(lastId);
       } else if (autoSelectChats.length > 0 && !autoSelectChats.some((chat) => chat.id === getActiveChatId())) {
@@ -731,6 +743,7 @@ export function createChatController(deps) {
         onPresenceHydrate(presenceDirtyIds);
       }
       const visibleChats = mergedRows.filter((chat) => !chat.archivedAt);
+      const autoSelectChats = visibleChats.filter(isAutoSelectableChat);
       const activeIdBeforeSelect = getActiveChatId();
       if (
         activeIdBeforeSelect
@@ -739,25 +752,22 @@ export function createChatController(deps) {
         const lastId = typeof localStorage !== 'undefined'
           ? readStorageValueWithAlias(localStorage, LAST_CHAT_ID_KEY, '')
           : '';
-        const validLast = lastId && visibleChats.some((chat) => chat.id === lastId);
+        const validLast = lastId && autoSelectChats.some((chat) => chat.id === lastId);
         if (validLast) {
           setActiveChatId(lastId);
-        } else if (visibleChats.length > 0) {
-          setActiveChatId(visibleChats[0].id);
+        } else if (autoSelectChats.length > 0) {
+          setActiveChatId(autoSelectChats[0].id);
         } else {
           setActiveChatId(null);
         }
       }
       if (preferChatId && mergedRows.some((chat) => chat.id === preferChatId)) {
         setActiveChatId(preferChatId);
-      } else if (!skipAutoSelect) {
+      } else if (!skipAutoSelect && !isWatcherChatOpen(visibleChats, getActiveChatId())) {
         const lastId = typeof localStorage !== 'undefined'
           ? readStorageValueWithAlias(localStorage, LAST_CHAT_ID_KEY, '')
           : null;
-        const validLast = lastId && visibleChats.some((chat) => chat.id === lastId);
-        // Never auto-open the durable watcher chat: it is an observability feed,
-        // not the user's working conversation.
-        const autoSelectChats = visibleChats.filter((chat) => chat?.watcherPinned !== true);
+        const validLast = lastId && autoSelectChats.some((chat) => chat.id === lastId);
         if (validLast) {
           setActiveChatId(lastId);
         } else if (autoSelectChats.length > 0 && !autoSelectChats.some((chat) => chat.id === getActiveChatId())) {
@@ -851,6 +861,28 @@ export function createChatController(deps) {
     return true;
   }
 
+  /**
+   * Applies one `chatsChanged` reason:'read' frame in place. The sidebar row repaint is the
+   * caller's job (a status refresh), so no list render happens here.
+   *
+   * @param {string} chatId
+   * @param {string} lastFinishedAt
+   * @param {string} lastSeenAt
+   * @returns {boolean} false when this client has no such row, so the caller reloads the list
+   */
+  function patchChatReadState(chatId, lastFinishedAt, lastSeenAt) {
+    const id = typeof chatId === 'string' ? chatId.trim() : '';
+    if (!id) return false;
+    const chat = getChats().find((entry) => entry?.id === id);
+    if (!chat) return false;
+    if (lastFinishedAt) chat.lastFinishedAt = lastFinishedAt;
+    else delete chat.lastFinishedAt;
+    if (lastSeenAt) chat.lastSeenAt = lastSeenAt;
+    else delete chat.lastSeenAt;
+    persistChatListBootCache();
+    return true;
+  }
+
   function selectChatController(id) {
     const chats = getChats();
     const chat = chats.find((c) => c.id === id);
@@ -858,7 +890,7 @@ export function createChatController(deps) {
     if (chat) openTerminal(chat);
     setActiveChatId(id);
     if (chat?.cursorSessionId && chat.pane) ensureChatConnection(chat);
-    if (typeof localStorage !== 'undefined') {
+    if (typeof localStorage !== 'undefined' && isAutoSelectableChat(chat)) {
       try {
         writeStorageValueWithAlias(localStorage, LAST_CHAT_ID_KEY, id);
       } catch {}
@@ -876,7 +908,8 @@ export function createChatController(deps) {
     const activeChatId = getActiveChatId();
     const stillVisible = activeChatId && filtered.some((c) => c.id === activeChatId);
     if (!stillVisible && options.preserveActiveChat !== true) {
-      setActiveChatId(filtered.length ? filtered[0].id : null);
+      const autoSelectChats = filtered.filter(isAutoSelectableChat);
+      setActiveChatId(autoSelectChats.length ? autoSelectChats[0].id : null);
       selectChat(getActiveChatId());
       return;
     }
@@ -917,6 +950,7 @@ export function createChatController(deps) {
     loadChatsFromServer,
     isChatsListLoadInFlight,
     patchChatTitle,
+    patchChatReadState,
     getArchivedCounts: () => archivedCounts,
     selectChat: selectChatController,
     refreshChatListForWorkspace,

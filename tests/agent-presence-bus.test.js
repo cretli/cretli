@@ -87,6 +87,43 @@ assert.equal(watcherDelta.seq, 3);
 broadcastChatListChanged({ reason: 'archive', chatId: 'aaa' });
 assert.equal(session.messages.at(-1).type, 'chatsChanged');
 
+// A refresh scoped to one chat summarizes only that chat. It must never report the other
+// busy chats as cleared: the sidebar would drop their status chip until their next event.
+{
+  const busyRow = { state: 'busy', runId: 'r', delegationId: '', delegationStatus: '', attention: false, waitingAgentCount: 0 };
+  let live = { first: busyRow, second: busyRow };
+  __setPresenceSummarizeForTest((ids) => (Array.isArray(ids) && ids.length > 0
+    ? Object.fromEntries(Object.entries(live).filter(([id]) => ids.includes(id)))
+    : live));
+  scheduleAgentPresenceRefresh();
+  flushAgentPresenceNow();
+  const deltas = () => session.messages.filter((row) => row.type === 'agentPresence' && row.snapshot !== true);
+  assert.ok(deltas().at(-1).states.first);
+  assert.ok(deltas().at(-1).states.second);
+  const before = deltas().length;
+
+  setChatPresenceActivity('first', { activityKey: 'edit', activityArg: 'b.js' });
+  scheduleAgentPresenceRefresh(['first']);
+  flushAgentPresenceNow();
+  const scoped = deltas().at(-1);
+  assert.equal(deltas().length, before + 1);
+  assert.equal(scoped.states.first.activityKey, 'edit');
+  assert.deepEqual(scoped.cleared, [], 'a scoped refresh leaves unrelated busy chats alone');
+  assert.equal(scoped.states.second, undefined);
+
+  // The scoped chat itself still clears when its own run ends.
+  live = { second: busyRow };
+  scheduleAgentPresenceRefresh(['first']);
+  flushAgentPresenceNow();
+  assert.deepEqual(deltas().at(-1).cleared, ['first']);
+
+  // A full refresh still clears a chat that silently went idle.
+  live = {};
+  scheduleAgentPresenceRefresh();
+  flushAgentPresenceNow();
+  assert.deepEqual(deltas().at(-1).cleared, ['second']);
+}
+
 __resetAgentPresenceBusForTest();
 __resetAgentPresenceHooksForTest();
 __clearChatListUpdateClientsForTest();

@@ -17,6 +17,7 @@ const LIVE_SYNC_MAX_WAIT_MS = 600;
  *   shouldIncludeArchived?: () => boolean,
  *   onTitleChanged?: (chatId: string | null) => unknown,
  *   onTitlePatched?: (chatId: string, title: string, titleSource: string) => boolean,
+ *   onReadPatched?: (chatId: string, lastFinishedAt: string, lastSeenAt: string) => boolean,
  *   onWatcherChanged?: () => unknown,
  *   onChatsChangedFrame?: (info: { reason?: string, chatId?: string | null }) => unknown,
  *   shouldSuppressChatsChanged?: (frame: { reason?: string, chatId?: string | null }) => boolean,
@@ -35,6 +36,7 @@ export function createChatListLiveSync({
   // Applies one chat's new title to the local list. Return `true` when the row was found
   // and patched; anything else falls back to a full reload (unknown chat, list not loaded).
   onTitlePatched = () => false,
+  onReadPatched = () => false,
   onWatcherChanged = () => {},
   // Opt-in trace seam only: defaults to a no-op so the existing behaviour and
   // the chat-list-live-sync test are untouched. The caller wraps it in
@@ -129,6 +131,21 @@ export function createChatListLiveSync({
           if (patched) return;
         }
         // No row content (older server) or a row this client does not have: reload as before.
+        schedule();
+        return;
+      }
+      if (reason === 'read') {
+        // Read markers ride the frame, so one row is patched in place and the list is
+        // not refetched (a refetch per finished run would repaint the whole sidebar).
+        const finishedAt = typeof frame.lastFinishedAt === 'string' ? frame.lastFinishedAt : '';
+        const seenAt = typeof frame.lastSeenAt === 'string' ? frame.lastSeenAt : '';
+        let patched = false;
+        try {
+          patched = chatId && onReadPatched(chatId, finishedAt, seenAt) === true;
+        } catch (_) {
+          patched = false;
+        }
+        if (patched) return;
         schedule();
         return;
       }

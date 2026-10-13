@@ -20,6 +20,8 @@ const SYNCING_ICON_HTML = '<span class="mdi mdi-sync mdi-spin" aria-hidden="true
 const WORKING_ICON_HTML = '<span class="mdi mdi-cog-outline mdi-spin" aria-hidden="true"></span>';
 const NEEDS_ACTION_ICON_HTML = '<span class="mdi mdi-help-circle-outline" aria-hidden="true"></span>';
 const WAITING_ICON_HTML = '<span class="mdi mdi-timer-sand" aria-hidden="true"></span>';
+const FINISHED_ICON_HTML = '<span class="mdi mdi-check-circle" aria-hidden="true"></span>';
+const SEEN_ICON_HTML = '<span class="mdi mdi-check-circle-outline" aria-hidden="true"></span>';
 const ARCHIVE_ICON_HTML = '<span class="mdi mdi-progress-clock" aria-hidden="true"></span>';
 export const ACTIVITY_LABEL_CLASS = 'sidebar-chat-item-activity-label';
 
@@ -43,6 +45,8 @@ const NEEDS_ACTION_TONES = new Set([
   'choice',
 ]);
 const WAITING_TONES = new Set(['waiting']);
+/** Settled-run markers: green check until read, grey check after. */
+const FINISHED_TONES = new Set(['finished', 'seen']);
 
 /**
  * @param {string} tone
@@ -56,6 +60,7 @@ export function isIconOnlySidebarStatus(tone, meta = null) {
     || tone === 'syncing'
     || tone === 'active'
     || NEEDS_ACTION_TONES.has(tone)
+    || FINISHED_TONES.has(tone)
     || WAITING_TONES.has(tone);
 }
 
@@ -88,6 +93,8 @@ export function renderSidebarChatStatusHtml(meta, escapeHtml) {
     return renderActiveChipHtml(meta?.activityKey ? label : '', escape);
   }
   if (WAITING_TONES.has(tone)) return WAITING_ICON_HTML;
+  if (tone === 'finished') return FINISHED_ICON_HTML;
+  if (tone === 'seen') return SEEN_ICON_HTML;
   if (ARCHIVE_TONES.has(tone)) return renderActiveChipHtml(label, escape, ARCHIVE_ICON_HTML);
   if (tone === 'attention' && SETTLED_STATUS_ICONS[meta?.status]) return SETTLED_STATUS_ICONS[meta.status];
   if (NEEDS_ACTION_TONES.has(tone)) return NEEDS_ACTION_ICON_HTML;

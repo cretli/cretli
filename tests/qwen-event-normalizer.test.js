@@ -174,6 +174,16 @@ const failed = normalizeQwenMessage({
 assert.equal(failed[0].status, 'error');
 assert.equal(failed[0].errorMessage, 'boom');
 
+// OpenAI-compatible providers report the failure as `error: { message }`; the
+// run error must still read the text instead of falling back to a generic one.
+const failedObjectError = normalizeQwenMessage({
+  type: 'result',
+  subtype: 'error',
+  error: { message: 'insufficient_quota: quota has been exhausted' },
+});
+assert.equal(failedObjectError[0].status, 'error');
+assert.equal(failedObjectError[0].errorMessage, 'insufficient_quota: quota has been exhausted');
+
 const quotaTelemetry = normalizeQwenMessage({
   type: 'system',
   subtype: 'ui_telemetry',

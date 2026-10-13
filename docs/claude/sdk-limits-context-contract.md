@@ -45,7 +45,7 @@ cited by `file:line` and carries no label of its own.
 | Plane | Carries | Scope | Cretli today |
 | --- | --- | --- | --- |
 | `rate_limit_event` → `SDKRateLimitInfo` | plan-meter `utilization` (unit `[UNKNOWN]`, §3), status, one window type, reset | declared "for claude.ai subscription users" (`sdk.d.ts:5572`); account/plan scope `[INFERRED]` from that wording, not a session | normalized to a `rate_limit` notice, stored as a plan-limit snapshot |
-| `result.usage` (`NonNullableUsage`) | token counts of the **main agent loop** | per-turn in streaming-input sessions, excludes subagents | stored as run telemetry; feeds the context meter (wrong plane) |
+| `result.usage` (`NonNullableUsage`) | token counts of the **main agent loop** | per-turn in streaming-input sessions, excludes subagents | stored as run telemetry; the Claude meter does not read it (§6), the non-Claude `usage` branch still does |
 | `result.modelUsage` / `total_cost_usd` | per-model totals + cost | **cumulative for the whole `query()`**, includes Task subagents and internal compaction calls | stored as `modelUsage` on the usage event |
 | `getContextUsage()` / `context_usage` | current context window occupancy (`[INFERRED]` from field names, §5) | one model, one moment `[INFERRED]` | never called: `[OBSERVED]` (`rg getContextUsage lib app_front server.js` → no hits) |
 
@@ -226,40 +226,51 @@ Semantics worth pinning before leaf `a0003cfd`:
    tokens in use, unclamped — may exceed raw_max_tokens when over limit";
    `percentage` "Rounded total_tokens / raw_max_tokens, 0-100+". Which turns carry it
    is `[UNKNOWN]` (not read in this leaf). Never seen in Cretli data: `[UNVERIFIED]`.
-3. `[DECLARED]` `ModelUsage.contextWindow: number` (`sdk.d.ts:1436`). Semantics
-   `[UNKNOWN]`; `[UNVERIFIED]` fixture values 200 000 / 1 000 000.
+3. `[DECLARED]` `ModelUsage.contextWindow: number` (`sdk.d.ts:1436`), carried per
+   model in `result.modelUsage`. `[OBSERVED]` in stored runs: 1 000 000 for
+   `claude-opus-5-5` and `claude-sonnet-5-5`, 200 000 for `claude-haiku-5-5`,
+   `claude-haiku-4-5-20251001` and `claude-sonnet-4-6`. `[OBSERVED]` in session
+   transcripts: the 200 000 models auto-compact at a prompt of about 152 000–168 000
+   tokens, while Opus 5.5 and Sonnet 5.5 sessions reach 418 000 and 548 000 tokens
+   with no compact boundary. The reported value therefore matches the window the
+   CLI really runs on, and it is the meter's denominator (§6).
 4. `[DECLARED]` compact `pre_tokens` (§4) — `[INFERRED]` one sample, at compaction
    time only.
 
-`[INFERRED]` (no event type among §5.1–5.4 carries per-turn occupancy; a full
-search of `sdk.d.ts` for other carriers was not run) there is no SDK event that
-pushes current context occupancy per turn. An always-on meter would have to pull, or
-stay an estimate.
+`[INFERRED]` No event type among §5.1–5.4 is confirmed to carry per-turn occupancy, and
+a full search of `sdk.d.ts` for other carriers was not run. Interim source (§6): the
+per-call `message.usage` of main-thread assistant messages, whose occupancy meaning is
+`[INFERRED]`. An always-on source-rooted value would still have to pull
+(`getContextUsage`, §5.1) or stay an estimate.
 
-## 6. What Cretli currently shows as "context %" (measured, not assumed)
+## 6. What Cretli currently shows as "context %" for Claude (interim)
 
-`[UNVERIFIED]` (code reading carried from an earlier note; only the existence of the
-`type === 'usage'` branch at `app_front/features/chat/chatTransport.js:1496-1510` was
-re-read in this leaf) on every `type: 'usage'` event the front stores
-`chat._contextUsageInputTokens = usage.inputTokens` and labels provenance
-`${transport}-live`. `chatContextMeter.js` then divides it by the catalog window
-(`estimateContextFillPercent` → `getModelContextWindowTokens`) unless
-`_contextFillPercent` overrides it; `chatDiagnostics.js:171` gates the server-side
-sync on `chat.agentTransport !== 'sdk'`.
+Code reading in this leaf; line numbers are for the tree this leaf was written against.
 
-Consequences if the `[UNVERIFIED]` code reading above holds:
-- numerator = main-loop run/turn token **sum** (plane 2), denominator = static
-  catalog window ⇒ a **mixed-plane ratio**, labelled `…-live` as if measured.
-- `[UNVERIFIED]` arithmetic on the §2 fixture row (source not re-read): 668 113 / 1 000 000 = 66.8 % — a plausible
-  looking number with no measured meaning; the same numerator against the 200 000
-  helper window gives 334.1 %, and `getContextMeterFillPercent` clamps only the
-  visual bar, not the label.
-- `[UNVERIFIED]` `resolveChatContextUsageSource` (`chatContextMeter.js:85`) returns `…-estimated`
-  only when it fell back to local text estimation, so a mixed-plane reading is
-  reported as the strongest class. The source taxonomy currently has no slot for
-  "SDK-reported but wrong plane".
+- **Numerator.** The newest main-thread API call's `message.usage`, summed as `input_tokens + cache_read_input_tokens + cache_creation_input_tokens + output_tokens` (`resolveClaudeAssistantMessageUsage`, `lib/agent-harness/claude-event-normalizer.js`). Calls with `parent_tool_use_id` (sub-agents) are excluded. The run-level `usage` total is a sum over calls and is not read for the meter. One call is reported several times and `noteCallUsage` merges them by `message.id`: the stream `message_start` gives the prompt size as soon as the call begins, every per-block `assistant` message repeats that start usage (its `output_tokens` is the count at stream start, a handful of tokens), and the stream `message_delta` gives the final `output_tokens`. The largest output seen for a call wins. `[OBSERVED]` on one session: each call's prompt equals the previous call's prompt plus its final output plus the tool results in between.
+- **Denominator.** The window the SDK reports for the concrete `message.model` of that call: `result.modelUsage[model].contextWindow` (§5.3). It reaches the front as `lastCallContextWindowTokens` on the run's `usage` event, as `contextWindowTokens` on `sdkContextUsage` once any run of the server process has reported that model (`noteClaudeReportedContextWindows`, `lib/claude/claude-models.js`), and as `lastCallContextWindowTokens` in the history summary, which also reads `modelUsage` of runs stored before the field existed. It is kept per chat (`_contextMeasuredWindowTokens`) and dropped when the call's model changes. Until a window is reported, `getModelContextWindowTokens(modelId)` is the fallback: 1 000 000 for `claude-opus-5*` / `claude-sonnet-5*`, 200 000 for the other Claude prefixes. Alias ids (`default`, `opus`, `sonnet`, `haiku`) have no fallback window, so tokens are shown without a percentage.
+- **Delivery.** Three paths write `_contextMeasuredTokens` and `_contextUsageModelId` (`app_front/features/chat/chatContextMeter.js:71`, `:88`):
+  1. Live: normalizer item `context_usage` (`claude-event-normalizer.js:635`) → `sdkContextUsage` broadcast (`lib/claude/claude-agent-ws.js:1104–1105`, `{ log: false }`, not persisted or replayed) → `chatTransport.js:1492`.
+  2. Reconnect: the run's `usage` event carries `lastCallUsage` / `lastCallModel` → `chatTransport.js:1523`.
+  3. Reload: `summarizeChatHistoryUsage` (`lib/persist/chat-history-persist.js:72`) → `lastCallContextTokens` / `lastCallModel` in `contextStats.history` of `GET /api/chats/:id/diag` → one-shot `applyClaudeHistoryContextUsage`, requested from `startChatContextUsageSync` (`chatDiagnostics.js:182`). It is skipped once a live value exists or a reset has happened on the page.
+- **Resets.** A compact boundary (`system/compact_boundary`) clears the server's last-call record (`claude-event-normalizer.js:570`). On the front, a model change (`chatTransport.js:473`) and a compact or session-reset run notice (`chatTransport.js:1703`) call `resetChatContextMeterState`.
+- **Display.** Percent = measured tokens / window, rounded to 0.1 with a 0.1 floor for any positive value (`estimateContextFillPercent`, `lib/sdk/sdk-context-advisory.js`). The ring centre (`cr-sdk-mode-bar.js`) shows `—` for no data, `<1` below 1 %, and `99+` when the rounded value exceeds 99 (`formatContextRingCenterLabel`). Provenance: `claude-measured` is labelled "Measured context"; without a measurement but with a local transcript it is `claude-estimated` (text estimate, labelled as one); otherwise `claude-no-data`.
 
-This is recorded, **not fixed** — fixing it is leaf `a0003cfd`.
+Limitations (recorded, not fixed):
+- After a compact boundary there is no occupancy value until the next main-thread call.
+- Tool results appended after the last call are not counted until the next call starts (its `message_start` includes them), so the value reads low by that amount while tools run.
+- The percentage is of the model window, not of the auto-compact threshold. `[OBSERVED]` the CLI compacts 200 000-window models at roughly 76–84 % of the window, so compaction arrives before the meter reaches 100 %.
+- An account whose Opus 5.5 / Sonnet 5.5 runs on a 200 000 window is divided by the 1 000 000 fallback until its first run reports the real window.
+- A run with no main-thread call records no last-call value. After a reload the meter shows no data until the next call; the live meter keeps its previous value.
+- If a compaction is followed by a run that ends without a usage event, a reload can show the value from before the compaction, because the compact notice is not persisted.
+- A history value hydrated after a model change made while the page was closed may be divided by the old model's window.
+- The per-call semantics above are `[INFERRED]`, not checked against the CLI's own accounting.
+
+Open (not fixed):
+- `sdk` transport (Cursor SDK): the non-Claude branch of the `usage` handler (`chatTransport.js:1525–1534`) still stores run-level `usage.inputTokens` as the context input with provenance `sdk-live`. That is the mixed-plane problem (a run sum over a static window). It is outside the Claude meter.
+- Diagnostics: `chatDiagnostics.js:530` computes `contextFill` from run-level `room.lastUsageInputTokens`, and that line also applies to Claude chats.
+
+The source-rooted percentage (`getContextUsage()`) remains leaf `a0003cfd` (§10.1). Cretli does not read the SDK's `context_usage` field; the normalizer's `context_usage` item is Cretli's internal kind for the per-call value above.
 
 ## 6b. Utilization conversion sites (inventory only)
 
@@ -389,7 +400,7 @@ inputs to code.
 | File | Class | What it proves |
 | --- | --- | --- |
 | `observed-plan-limit-readings.json` | store rows from an earlier read, post-normalization (`[UNVERIFIED]`) | which window types and statuses reached Cretli; a `rejected` reading with no percentage; the prose-classifier lockout for the same rejection. Says nothing about the raw SDK unit |
-| `observed-run-usage-event.json` | archived usage event from an earlier read (`[UNVERIFIED]`) | `usage`/`modelUsage` shapes and the mixed-plane ratio the current meter would produce |
+| `observed-run-usage-event.json` | archived usage event from an earlier read (`[UNVERIFIED]`) | `usage`/`modelUsage` shapes and the mixed-plane ratio the earlier meter produced (§6) |
 | `observed-compact-boundary.json` | transcript frame from an earlier read (`[UNVERIFIED]`) | camelCase `compactMetadata` next to a marked synthetic twin of the snake_case envelope |
 | `synthetic-rate-limit-event-examples.json` | synthetic contract example | the presence/absence matrix of `rate_limit_event` **assuming** the fraction hypothesis (not evidence of it), plus negative controls and the ruled-out `unifiedWindows` field |
 | `synthetic-context-usage-examples.json` | synthetic contract example | the declared shape with numerator-, denominator- and percentage-named fields; their semantics are `[UNKNOWN]` (§5); never observed, never called |
@@ -402,7 +413,7 @@ inputs to code.
 | Subtodo | Verdict | Unknowns it depends on |
 | --- | --- | --- |
 | `57d74653` (plan-limit window UI / last-known percentage per window) | **May proceed only for the unit-independent part**: render the delivered windows, treat a missing `utilization` as unknown (never 0), keep the last known value per window with its own age. **Must not** add or change any unit conversion. | (a) raw `utilization` unit `[UNKNOWN]` (§3) — blocks any new scaling; (b) `authScope` `[UNKNOWN]` (§3.1, §7) — blocks per-account / per-scope attribution of stored rows; (c) provider sample time `[UNKNOWN]` — ages are Cretli receipt age only. |
-| `a0003cfd` (source-rooted Claude context %) | **Blocked** for a "measured" percentage. May proceed only as a design/decision step (poll trigger, labelling as estimate). | (a) semantics of `totalTokens` / `maxTokens` / `rawMaxTokens` / `percentage` / `apiUsage` `[UNKNOWN]` — no JSDoc, no upstream page fetched (§5.1); (b) which turns carry `context_usage` `[UNKNOWN]` (§5.2); (c) minimum version for `categories[].kind` `[UNKNOWN]`; (d) the current meter's behaviour is an `[UNVERIFIED]` code reading (§6). |
+| `a0003cfd` (source-rooted Claude context %) | **Blocked** for an SDK-declared percentage. The interim meter (§6) is a measured per-call token count over a catalog window and does not unblock this row. May proceed only as a design/decision step (poll trigger, labelling). | (a) semantics of `totalTokens` / `maxTokens` / `rawMaxTokens` / `percentage` / `apiUsage` `[UNKNOWN]` — no JSDoc, no upstream page fetched (§5.1); (b) which turns carry `context_usage` `[UNKNOWN]` (§5.2); (c) minimum version for `categories[].kind` `[UNKNOWN]`; (d) the interim numerator (per-call `message.usage` as occupancy) is `[INFERRED]` and its denominator is a catalog window, not an SDK value (§6). |
 | `17a0de8d` (compact-boundary / context epoch handling) | **May proceed** for reading `compact_metadata.pre_tokens` / `post_tokens` and the existing epoch advance (`lib/claude/claude-agent-ws.js:999`); **must not** present them as a percentage and **must not** depend on `cumulativeDroppedTokens`. | (a) `cumulativeDroppedTokens` semantics `[UNKNOWN]`; (b) camelCase-vs-snake_case transcript counts are `[UNVERIFIED]`, so a consumer must accept both spellings; (c) whether `post_tokens` is present is `[UNKNOWN]` (declared optional). |
 
 ### 10.2 What the next leaves may rely on
@@ -435,8 +446,10 @@ in code; this document neither endorses nor changes them.
 ### 10.4 Blocked until a confirmed source is chosen
 
 - A source-rooted current-context percentage for Claude: only `getContextUsage()`
-  (§5.1) is a candidate and its field semantics are `[UNKNOWN]`. Until then the meter
-  is an estimate and must be labelled as one.
+  (§5.1) is a candidate and its field semantics are `[UNKNOWN]`. Until a source is
+  confirmed, the Claude meter shows the measured last-call token count over the catalog
+  window (§6). That is not an SDK-declared percentage, and its per-call semantics are
+  `[INFERRED]`.
 - Merging the `/usage` meters (`SDKUsageReport`, `usage_EXPERIMENTAL_…`): declared
   experimental; shapes may change.
 - Per-model vs account scope of a limit: `[UNKNOWN]`.

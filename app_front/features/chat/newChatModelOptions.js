@@ -1,4 +1,4 @@
-import { resolveNewChatUsageLimit, getNewChatLimitResetTime } from './newChatUsageLimit.js';
+import { resolveNewChatUsageLimit, getNewChatLimitResetTime, getNewChatLimitCountdown } from './newChatUsageLimit.js';
 import { sortHarnessesByModelStrength, sortModelOptionsByStrength } from '../../../lib/model-strength-sort.js';
 
 /** One stable value carries both choices through the searchable select. */
@@ -32,6 +32,13 @@ export function buildNewChatModelOptions(harnesses, lockouts, t, { limitsPending
         const time = getNewChatLimitResetTime(limit, locale);
         description = limit.code === 'model_unavailable' ? t('chat.newUnavailable')
           : time ? t('chat.newLimitReset', { time }) : t('chat.newLimit');
+        const countdown = getNewChatLimitCountdown(limit);
+        if (countdown && time) {
+          const remaining = countdown.hours
+            ? t('chat.newLimitCountdownHours', { hours: countdown.hours, minutes: countdown.minutes })
+            : t('chat.newLimitCountdownMinutes', { minutes: countdown.minutes });
+          description = t('chat.newLimitResetIn', { time, remaining });
+        }
       } else if (harness.ready === false) {
         status = t('chat.newModelUnavailable');
         description = harness.error;

@@ -471,6 +471,9 @@ const reviewVerifyAllowed = [
   'node tests/sdk-history-stream-coalesce.test.js',
   'node --test tests/sidebar-layout.test.js tests/sidebar-render-metrics.test.js',
   'node --test tests/sidebar-layout.test.js tests/sidebar-render-metrics.test.js 2>&1 | tail -20',
+  'node scripts/review-verify.js mcp-chat-history-format 2>&1 | tail -40',
+  'node scripts/review-verify.js notices 2>/dev/null | head -5',
+  'node scripts/review-verify.js notices >/dev/null',
 ];
 for (const command of reviewVerifyAllowed) {
   assert.equal(
@@ -561,6 +564,9 @@ const reviewBlocked = [
   'rg foo\nLD_PRELOAD=./x.so node scripts/review-verify.js notices',
   'python3 -c "open(\'x\',\'w\').write(\'a\')"',
   'echo pwned > pwned.txt',
+  'node scripts/review-verify.js notices >out.txt',
+  'node scripts/review-verify.js notices 2>&1 >out.txt',
+  'node scripts/review-verify.js notices 2>/dev/null > out.txt',
   'git commit -m wip',
 ];
 for (const command of reviewBlocked) {

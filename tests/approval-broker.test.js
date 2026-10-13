@@ -131,6 +131,36 @@ for (const command of ['node scripts/evil.js', 'node -e "process.exit(0)"']) {
   assert.equal(denied.reason, 'plan_or_review_guard');
 }
 
+// Review reads with safe redirects or pipes resolve locally, without the advisor.
+for (const command of [
+  'node scripts/review-verify.js delegation-contract 2>&1 | tail -20',
+  'node scripts/review-lint.js lib/sdk/sdk-review-lint.js 2>&1 | tail -20',
+  'node scripts/review-lint.js lib/sdk/sdk-review-lint.js 2>/dev/null | head -5',
+]) {
+  const readAction = resolveOpenCodeApprovalAction({
+    mode: 'local_reads',
+    sdkMode: 'agent',
+    permissionEvent: { action: 'bash', metadata: { command } },
+    assignment: 'review',
+    workspaceFolder: brokerWorkspace,
+  });
+  assert.equal(readAction.decision, 'allow', command);
+  assert.equal(readAction.reply, 'once', command);
+  assert.equal(readAction.reason, 'delegation_read_once', command);
+}
+const reviewLintWrite = resolveOpenCodeApprovalAction({
+  mode: 'local_reads',
+  sdkMode: 'agent',
+  permissionEvent: {
+    action: 'bash',
+    metadata: { command: 'node scripts/review-lint.js lib/sdk/sdk-review-lint.js > report.txt' },
+  },
+  assignment: 'review',
+  workspaceFolder: brokerWorkspace,
+});
+assert.equal(reviewLintWrite.decision, 'deny');
+assert.equal(reviewLintWrite.reason, 'plan_or_review_guard');
+
 // --- audit -----------------------------------------------------------------
 
 const auditFile = path.join(ISOLATED_DATA_DIR, 'approvals-test', 'audit.jsonl');

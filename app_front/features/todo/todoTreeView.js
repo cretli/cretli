@@ -56,6 +56,37 @@ export function serializeTodoRootStatusFilter(filter) {
   return TODO_ITEM_STATUSES.filter((status) => filter.has(status));
 }
 
+/** Integration states a todo can be in (`integrationSummary` on todo items). */
+export const TODO_INTEGRATION_FILTERS = ['unconfirmed', 'awaiting', 'integrated', 'partial', 'rejected', 'conflict', 'no_code_changes'];
+/** "Not integrated" preset: every state that still needs integration work. */
+export const TODO_INTEGRATION_PENDING_FILTERS = ['unconfirmed', 'awaiting', 'partial', 'rejected', 'conflict'];
+
+/**
+ * @param {string | null | undefined} raw Stored value; `null` when nothing usable is saved.
+ * @returns {Set<string>} Empty set = all integration states. Nothing saved = the pending preset.
+ */
+export function parseTodoIntegrationFilter(raw) {
+  const values = readStoredIntegrationValues(raw);
+  if (!values) return new Set(TODO_INTEGRATION_PENDING_FILTERS);
+  return new Set(values.filter((value) => TODO_INTEGRATION_FILTERS.includes(value)));
+}
+
+/**
+ * @param {string | null | undefined} raw
+ * @returns {string[] | null} `null` when the stored value cannot be read.
+ */
+function readStoredIntegrationValues(raw) {
+  if (typeof raw !== 'string') return null;
+  const text = raw.trim();
+  // Earlier builds stored one state name instead of a JSON array.
+  if (!text.startsWith('[')) return [text];
+  try {
+    return JSON.parse(text).map(String);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Keeps only subtrees whose root matches `statusFilter`. Orphans (missing parent)
  * are treated as roots, same as flattenTodoTree.

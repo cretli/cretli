@@ -7,8 +7,10 @@ import {
   flattenTodoTree,
   formatTodoAssigneeBadge,
   normalizeTodoItemStatus,
+  parseTodoIntegrationFilter,
   parseTodoRootStatusFilter,
   serializeTodoRootStatusFilter,
+  TODO_INTEGRATION_PENDING_FILTERS,
   formatTodoRelativeTime,
   formatTodoShortId,
   readTodoRowMark,
@@ -46,6 +48,14 @@ runCase('normalizeTodoItemStatus and root status filter parsing', () => {
   assert.deepEqual([...partial], ['ready', 'doing']);
   assert.deepEqual(serializeTodoRootStatusFilter(partial), ['ready', 'doing']);
   assert.deepEqual(serializeTodoRootStatusFilter(null), []);
+});
+
+runCase('integration filter parsing falls back to the pending preset', () => {
+  assert.deepEqual([...parseTodoIntegrationFilter(null)], TODO_INTEGRATION_PENDING_FILTERS);
+  assert.deepEqual([...parseTodoIntegrationFilter('[not json')], TODO_INTEGRATION_PENDING_FILTERS);
+  assert.equal(parseTodoIntegrationFilter('[]').size, 0);
+  assert.deepEqual([...parseTodoIntegrationFilter('["conflict","bogus","integrated"]')], ['conflict', 'integrated']);
+  assert.deepEqual([...parseTodoIntegrationFilter('unconfirmed')], ['unconfirmed']);
 });
 
 runCase('filterTodoItemsByRootStatus keeps matching roots and their subtrees', () => {

@@ -55,6 +55,32 @@ assert.equal(isUsageLimitMessage('permission denied'), false);
   }
 }
 
+// The Qwen quota often surfaces only as assistant prose while the run error is
+// the generic fallback. The adapter forwards both as `messages`, and the
+// lockout must use the provider's clock instead of the TTL fallback.
+{
+  const qwenDir = mkdtempSync(path.join(tmpdir(), 'cretli-qwen-usage-limit-candidates-'));
+  try {
+    const prose = 'Quota exhausted: Your token-plan 1-month quota has been exhausted. The quota will reset at 11-04 16:00:00 UTC.';
+    assert.equal(noteHarnessUsageLimit({
+      harness: 'qwen',
+      model: 'qwen3.8-max',
+      message: 'Qwen run failed',
+      messages: ['Qwen run failed', prose],
+      dataDir: qwenDir,
+    }), true);
+    const locked = getHarnessUsageLimit({ harness: 'qwen', model: 'qwen3.8-max', dataDir: qwenDir });
+    const now = new Date();
+    let year = now.getUTCFullYear();
+    let expectedResetAt = Date.UTC(year, 10, 4, 16, 0, 0);
+    if (expectedResetAt <= now.getTime()) expectedResetAt = Date.UTC(++year, 10, 4, 16, 0, 0);
+    assert.equal(locked?.resetAt, new Date(expectedResetAt).toISOString());
+    assert.equal(locked?.resetSource, 'provider-message');
+  } finally {
+    rmSync(qwenDir, { recursive: true, force: true });
+  }
+}
+
 // A rejected model id is not a quota problem, but it must lock that one model
 // out of automatic picks (CodeBuddy `400 model [x] service info not found`).
 {

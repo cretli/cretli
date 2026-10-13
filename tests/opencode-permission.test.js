@@ -141,6 +141,17 @@ assert.equal(
   false,
 );
 
+const reviewLintPiped = {
+  action: 'bash',
+  metadata: { command: 'node scripts/review-lint.js lib/sdk/sdk-review-lint.js 2>&1 | tail -20' },
+};
+assert.equal(
+  shouldAutoAllowOpenCodeDelegationPermission('agent', reviewLintPiped, 'review', { projectRoot: process.cwd() }),
+  true,
+);
+// Without a workspace root review-lint cannot validate its files, so it stays interactive.
+assert.equal(shouldAutoAllowOpenCodeDelegationPermission('agent', reviewLintPiped, 'review'), false);
+
 const askedFromData = buildOpenCodePermissionSdkEvent({
   type: 'permission.v2.asked',
   properties: { extra: true },

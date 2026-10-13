@@ -46,6 +46,20 @@ export function packageHasNewerVersion(pkg) {
 }
 
 /**
+ * True when the update action can install a newer version of this package:
+ * Cretli owns it (declared in a manifest, not an external binary) and the
+ * registry check named a newer release.
+ *
+ * @param {object|null|undefined} pkg
+ * @returns {boolean}
+ */
+export function packageCanBeUpdated(pkg) {
+  if (!pkg || typeof pkg !== 'object') return false;
+  if (pkg.canUpdate !== true || pkg.behind !== true) return false;
+  return /^\d+\.\d+\.\d+/.test(String(pkg.latest || ''));
+}
+
+/**
  * @param {object|null|undefined} entry
  * @returns {boolean}
  */
@@ -282,11 +296,14 @@ export function renderHarnessVersionCardHtml(model, options) {
   const mistralSdk = model.kind === 'single' && model.harnessId === 'mistral'
     ? model.packages.find((pkg) => pkg.name === '@mistralai/mistralai')
     : null;
-  const canInstallMistral = !model.updateEnvironment?.docker && !model.updateEnvironment?.termux;
-  if (model.kind === 'single' && model.harnessId === 'mistral' && canInstallMistral && (!mistralSdk || mistralSdk.status === 'missing')) {
+  const canInstallPackages = !model.updateEnvironment?.docker && !model.updateEnvironment?.termux;
+  if (model.kind === 'single' && model.harnessId === 'mistral' && canInstallPackages && (!mistralSdk || mistralSdk.status === 'missing')) {
     parts.push(`<button type="button" class="harness-version-check-btn" data-action="install-mistral"${busy === 'install' ? ' disabled' : ''}>${escapeHtml(busy === 'install' ? t('harnessVersion.installing') : t('harnessVersion.installMistral'))}</button>`);
   }
   parts.push(`<button type="button" class="harness-version-check-btn" data-action="check-updates"${busy === 'check' ? ' disabled' : ''}>${escapeHtml(t('harnessVersion.checkForUpdates'))}</button>`);
+  if (model.kind === 'single' && canInstallPackages && model.packages.some((pkg) => packageCanBeUpdated(pkg))) {
+    parts.push(`<button type="button" class="harness-version-check-btn harness-version-update-btn" data-action="update-packages"${busy ? ' disabled' : ''}>${escapeHtml(busy === 'update' ? t('harnessVersion.updating') : t('harnessVersion.updatePackages'))}</button>`);
+  }
   const refreshDisabled = busy === 'refresh'
     || model.kind === 'overview'
     || (model.kind === 'single' && MODEL_REFRESH_EXCLUDED.includes(model.harnessId));
@@ -329,7 +346,8 @@ export function renderHarnessVersionCardHtml(model, options) {
 }
 
 /**
- * DOM contract for unit tests (no forbidden update actions).
+ * DOM contract for unit tests. The only install action for existing packages is
+ * `update-packages`; ad-hoc "Update CLI" / "Update SDK" buttons stay forbidden.
  *
  * @param {string} html
  * @returns {{ ok: boolean, errors: string[] }}

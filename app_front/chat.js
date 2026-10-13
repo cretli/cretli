@@ -107,6 +107,7 @@ import {
   resolveChatListDotState,
   resolveHarnessChatStateMeta,
   SIDEBAR_CONNECTING_GRACE_MS,
+  resolveFinishedReadMeta,
 } from './features/chat/chatStatusMeta.js';
 import { shouldSkipChatDeleteConfirm } from './features/chat/chatDeleteConfirm.js';
 import {
@@ -3267,6 +3268,13 @@ chatListLiveSyncApi = createChatListLiveSync({
   onTitlePatched: (chatId, title, titleSource) => (
     chatController.patchChatTitle(chatId, title, titleSource) === true
   ),
+  // Read markers: one row is patched, then only its sidebar chip is repainted.
+  onReadPatched: (chatId, lastFinishedAt, lastSeenAt) => {
+    if (chatController.patchChatReadState(chatId, lastFinishedAt, lastSeenAt) !== true) return false;
+    scheduleChatListStateRefresh([chatId]);
+    if (chatId === activeChatId) markChatSeenIfUnread(chatId);
+    return true;
+  },
   onWatcherChanged: () => {
     if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
       window.dispatchEvent(new CustomEvent('cretli:workspace-watcher-changed'));
@@ -3596,11 +3604,15 @@ function chatExpectsLiveSocket(chat) {
 function getSidebarChatStateMeta(chat) {
   if (!chat) return { tone: 'disconnected', label: t('status.disconnected') };
   const meta = getTerminalStateMeta(chat, 'sidebar');
-  return sidebarStatusStabilizer.stabilize(chat.id, meta, {
+  const stable = sidebarStatusStabilizer.stabilize(chat.id, meta, {
     serverBusy: hasProtocolAgentRun(chat),
     localActive: getChatAgentState(chat) === 'active',
     serverKnown: Boolean(chat._serverRunState) || typeof chat._sdkServerBusy === 'boolean',
   });
+  // Finished-run check only paints over a settled row. It sits after the stabilizer, so the
+  // working hysteresis never sees it and a new run replaces it immediately.
+  if (stable.tone !== 'idle') return stable;
+  return resolveFinishedReadMeta(chat, { translate: t }) || stable;
 }
 
 /**
@@ -6173,6 +6185,29 @@ function alignActiveWorkspaceWithChat(chat) {
     });
 }
 
+/**
+ * The user is looking at this chat: its latest finished run counts as read. The local row is
+ * stamped first so the green check turns grey without waiting for the server round trip; the
+ * server frame then confirms it (and carries it to the user's other devices).
+ *
+ * @param {string} chatId
+ */
+function markChatSeenIfUnread(chatId) {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+  const chat = chats.find((entry) => entry.id === chatId);
+  if (!chat || !chat.lastFinishedAt) return;
+  if (chat.lastSeenAt && chat.lastSeenAt >= chat.lastFinishedAt) return;
+  chat.lastSeenAt = new Date().toISOString();
+  scheduleChatListStateRefresh([chatId]);
+  void api.postChatSeen(chatId).catch(() => {});
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && activeChatId) markChatSeenIfUnread(activeChatId);
+  });
+}
+
 function performSelectChat(id) {
   const chat = chats.find((c) => c.id === id);
   if (chat) {
@@ -6194,6 +6229,7 @@ function performSelectChat(id) {
   // `activeChatId` just moved, so `chatExpectsLiveSocket` changed for BOTH the previous
   // and the newly active row. With the full `*` gone, neither repaints itself.
   scheduleChatListStateRefresh([prevActiveChatId, id]);
+  markChatSeenIfUnread(id);
   scheduleChatSendBarReserveSync();
   if (chat?._serverRunState?.state === 'waiting' && chat._serverRunState.delegationId) {
     void api.postDelegationAck(chat._serverRunState.delegationId, { reason: 'open_child' }).then((res) => {
@@ -6737,8 +6773,11 @@ function scheduleNewChatLimitExpiry() {
   newChatLimitExpiryTimer = setTimeout(() => {
     syncNewChatHarnessLimitLabels();
     syncNewChatHarnessUi();
+    syncNewChatAgentModelPicker();
+    syncSdkModeBarPicker(sharedSdkModeBar, chats.find((c) => c.id === activeChatId) || null);
     scheduleNewChatLimitExpiry();
-  }, Math.min(Math.min(...resets) - now + 100, 2147483647));
+  // Wake at least every 30 s so the visible reset countdown stays current.
+  }, Math.min(Math.min(...resets) - now + 100, 30000));
 }
 
 /** Read all known provider limits once per open, without probing each harness. */
