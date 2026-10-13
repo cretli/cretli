@@ -1185,6 +1185,30 @@ export async function smartMergeTodo(todoId, workspaceFolder, options = {}) {
 }
 
 /**
+ * Verify integration: the server creates an agent chat that checks a finished
+ * todo is in the workspace branch and records the integration proof.
+ */
+export async function verifyIntegrationTodo(todoId, workspaceFolder, options = {}) {
+  const id = String(todoId || '').trim();
+  const folder = String(workspaceFolder || '').trim();
+  if (!id || !folder) return { ok: false, error: 'Missing task or workspace' };
+  return apiFetchJson(
+    `/api/todos/${encodeURIComponent(id)}/verify-integration`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspaceFolder: folder,
+        workspaceFile: options.workspaceFile || '',
+        agentTransport: options.agentTransport || '',
+        model: options.model || '',
+      }),
+    },
+    'verifyIntegrationTodo',
+  );
+}
+
+/**
  * @param {string} workspaceFolder
  * @returns {string}
  */

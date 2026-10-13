@@ -116,6 +116,17 @@ let reviewListFilter = '';
 /** @type {Set<string>} */
 let integrationListFilter = new Set();
 const INTEGRATION_FILTERS = ['unconfirmed', 'awaiting', 'integrated', 'partial', 'rejected', 'conflict', 'no_code_changes'];
+// One-click preset for "everything that still needs integration work".
+const INTEGRATION_PENDING_FILTERS = ['unconfirmed', 'awaiting', 'partial', 'rejected', 'conflict'];
+
+/**
+ * @param {Set<string>} selected
+ * @returns {boolean}
+ */
+function isIntegrationPendingSelection(selected) {
+  return selected.size === INTEGRATION_PENDING_FILTERS.length
+    && INTEGRATION_PENDING_FILTERS.every((filter) => selected.has(filter));
+}
 /** Free-text list search (title or id); not persisted. */
 let todoSearchQuery = '';
 /** @type {object | null} View memory slice waiting for list data. */
@@ -519,17 +530,24 @@ function renderStatusFilterMenuItems() {
   integrationHeading.className = 'todo-review-filter-heading';
   integrationHeading.textContent = t('todo.integrationFilterHeading');
   list.appendChild(integrationHeading);
-  ['all', ...INTEGRATION_FILTERS].forEach((filter) => {
+  ['all', 'pending', ...INTEGRATION_FILTERS].forEach((filter) => {
     const row = document.createElement('div');
     row.className = 'todo-integration-filter-row';
     row.dataset.integrationFilter = filter;
     const box = document.createElement('cr-checkbox');
-    box.checked = filter === 'all' ? integrationListFilter.size === 0 : integrationListFilter.has(filter);
+    box.checked = filter === 'all'
+      ? integrationListFilter.size === 0
+      : filter === 'pending'
+        ? isIntegrationPendingSelection(integrationListFilter)
+        : integrationListFilter.has(filter);
     box.setAttribute('aria-label', integrationFilterLabel(filter));
     const label = document.createElement('span');
     label.textContent = integrationFilterLabel(filter);
     box.appendChild(label);
-    row.append(box, createFilterCountEl(countTodoItemsByIntegrationState(latestItems, filter)));
+    const count = filter === 'pending'
+      ? INTEGRATION_PENDING_FILTERS.reduce((sum, key) => sum + countTodoItemsByIntegrationState(latestItems, key), 0)
+      : countTodoItemsByIntegrationState(latestItems, filter);
+    row.append(box, createFilterCountEl(count));
     list.appendChild(row);
   });
 }
@@ -633,11 +651,21 @@ function ensureStatusFilterUi(toolbar) {
         entry.list.querySelectorAll('.todo-integration-filter-row').forEach((other) => {
           if (other.dataset.integrationFilter !== 'all') other.querySelector('cr-checkbox').checked = false;
         });
+      } else if (filter === 'pending' && box && 'checked' in box) {
+        integrationListFilter = new Set(box.checked ? INTEGRATION_PENDING_FILTERS : []);
+        entry.list.querySelectorAll('.todo-integration-filter-row').forEach((other) => {
+          const key = String(other.dataset.integrationFilter || '');
+          const otherBox = other.querySelector('cr-checkbox');
+          if (!otherBox || key === 'pending') return;
+          otherBox.checked = key === 'all' ? integrationListFilter.size === 0 : integrationListFilter.has(key);
+        });
       } else if (box && 'checked' in box) {
         if (box.checked) integrationListFilter.add(filter);
         else integrationListFilter.delete(filter);
         const allBox = entry.list.querySelector('[data-integration-filter="all"] cr-checkbox');
         if (allBox) allBox.checked = integrationListFilter.size === 0;
+        const pendingBox = entry.list.querySelector('[data-integration-filter="pending"] cr-checkbox');
+        if (pendingBox) pendingBox.checked = isIntegrationPendingSelection(integrationListFilter);
       }
       saveIntegrationFilter();
       syncStatusFilterTriggerLabel();
@@ -929,13 +957,7 @@ async function onIntegrationDecision(e) {
   try {
     const result = await api.integrateTodo(id, ctx.workspaceFolder, action, revision, reason, proof);
     if (!result?.ok) {
-      const message = action === 'prepare'
-        ? t('todo.integrationPrepareFailed')
-        : String(result?.error || '').startsWith('target_') || result?.error === 'task_change_link_required' || result?.error === 'full_commit_required'
-          ? t('todo.integrationProofInvalid')
-        : ['conflict', 'integration_conflict'].includes(String(result?.error || ''))
-          ? t('todo.integrationConflict')
-          : t('todo.integrationFailed');
+      const message = integrationFailureMessage(action, result);
       showFeedback(message, true);
       setStatus(message, true);
       return;
@@ -1275,6 +1297,12 @@ function renderRowMenuItems(row, list) {
         { id: 'smartMerge', icon: 'mdi-robot-outline', label: t('todo.smartMerge') },
       ]
       : []),
+    ...(canConfirmIntegrationFromMenu(item)
+      ? [
+        { id: 'verifyIntegration', icon: 'mdi-robot-outline', label: t('todo.verifyIntegration') },
+        { id: 'confirmIntegration', icon: 'mdi-check-decagram-outline', label: t('todo.integrationConfirmMenu') },
+      ]
+      : []),
     { id: 'delete', icon: 'mdi-delete-outline', label: t('todo.delete'), danger: true },
   ];
   list.textContent = '';
@@ -1411,6 +1439,14 @@ async function runRowMenuAction(action, item) {
     openSmartMergePicker(item, []);
     return;
   }
+  if (action === 'confirmIntegration') {
+    await confirmTodoIntegrationFromMenu(item);
+    return;
+  }
+  if (action === 'verifyIntegration') {
+    openVerifyIntegrationPicker(item);
+    return;
+  }
   if (action === 'delete') {
     await deleteTodoWithConfirm(id);
   }
@@ -1427,6 +1463,107 @@ function canIntegrateWorktree(item) {
   const summary = item?.worktree;
   if (summary?.live !== true) return false;
   return String(summary.integrationState || '') !== 'integrated';
+}
+
+/**
+ * A finished todo with no live worktree has nothing to merge; the remaining
+ * integration step is recording proof against the workspace branch.
+ *
+ * @param {object} item
+ * @returns {boolean}
+ */
+function canConfirmIntegrationFromMenu(item) {
+  if (String(item?.status || '') !== 'done') return false;
+  if (canIntegrateWorktree(item) || isTodoAwaitingIntegration(item)) return false;
+  return String(item?.integrationSummary?.state || 'unconfirmed') !== 'integrated';
+}
+
+/**
+ * One-click confirmation: the server records the current workspace branch and
+ * HEAD as proof, so the operator never types a commit SHA.
+ *
+ * @param {object} item
+ */
+async function confirmTodoIntegrationFromMenu(item) {
+  const id = String(item?.id || '').trim();
+  const revision = String(item?.updatedAt || '').trim();
+  const ctx = getWorkspaceContext();
+  if (!id || !revision || !ctx.workspaceFolder) return;
+  if (!confirmAction(t('todo.integrationSimpleConfirm', { title: item.title || id }))) return;
+  setStatus(t('todo.integrationSaving'));
+  try {
+    const result = await api.integrateTodo(id, ctx.workspaceFolder, 'confirm', revision, '', { simple: true });
+    if (!result?.ok) {
+      const message = integrationFailureMessage('confirm', result);
+      setStatus(message, true);
+      return;
+    }
+    await refreshTodoList();
+    await refreshWatcherPanel();
+    setStatus(t('todo.integrationConfirmed'));
+  } catch {
+    setStatus(t('todo.networkError'), true);
+  }
+}
+
+/**
+ * Agent variant of the confirmation: the agent verifies the task change is in the
+ * workspace branch and records the integration proof itself.
+ *
+ * @param {object} item
+ */
+function openVerifyIntegrationPicker(item) {
+  const id = String(item?.id || '').trim();
+  if (!id) return;
+  openTodoAgentStartModal({
+    harness: resolveTodoStartHarness(item),
+    onStart: ({ harness, model }) => runVerifyIntegration(id, { harness, model }),
+  });
+}
+
+/**
+ * @param {string} todoId
+ * @param {{ harness: string, model: string }} options
+ */
+async function runVerifyIntegration(todoId, options) {
+  const ctx = getWorkspaceContext();
+  if (!ctx.workspaceFile || !ctx.workspaceFolder) {
+    setStatus(t('todo.selectWorkspace'), true);
+    return;
+  }
+  setStatus(t('todo.verifyIntegrationStarting'));
+  try {
+    const data = await api.verifyIntegrationTodo(todoId, ctx.workspaceFolder, {
+      workspaceFile: ctx.workspaceFile,
+      agentTransport: options.harness,
+      model: String(options.model || 'auto'),
+    });
+    if (!data?.ok || !data.chat) {
+      setStatus(t('todo.verifyIntegrationFailed'), true);
+      return;
+    }
+    await refreshTodoList();
+    openTodoAgentChat(data.chat, { initialPrompt: data.initialPrompt });
+    showPanelFn('chat');
+    setStatus(t('todo.verifyIntegrationStarted'));
+  } catch {
+    setStatus(t('todo.networkError'), true);
+  }
+}
+
+/**
+ * @param {string} action
+ * @param {{ error?: string } | null | undefined} result
+ * @returns {string}
+ */
+function integrationFailureMessage(action, result) {
+  const error = String(result?.error || '');
+  if (action === 'prepare') return t('todo.integrationPrepareFailed');
+  if (error.startsWith('target_') || error === 'task_change_link_required' || error === 'full_commit_required') {
+    return t('todo.integrationProofInvalid');
+  }
+  if (error === 'conflict' || error === 'integration_conflict') return t('todo.integrationConflict');
+  return t('todo.integrationFailed');
 }
 
 /**
