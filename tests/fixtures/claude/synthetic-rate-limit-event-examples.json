@@ -1,0 +1,172 @@
+{
+  "_provenance": {
+    "class": "synthetic-contract-example",
+    "shapeSource": "@anthropic-ai/claude-agent-sdk 0.3.284 sdk.d.ts:5583-5606 (SDKRateLimitInfo, [DECLARED] shape only) plus binary strings of the bundled Claude Code 2.1.284 CLI ([INFERRED] field presence and units)",
+    "unitRule": "[UNKNOWN] The unit of utilization is not established: sdk.d.ts:5587 declares only `number`. [INFERRED] from CLI binary strings (unifiedWindows description: 'fraction of the window used (usually 0-1, same scale as the top-level utilization field)') that it is a 0-1 fraction that may exceed 1, and that resetsAt is epoch seconds. No raw payload was captured. The 0.75 / 1.12 values below ASSUME that hypothesis and therefore do not evidence it.",
+    "status": "NONE of these objects was captured from a live stream. They are written to the declared shape so a consumer can be tested against the presence/absence matrix. Values are illustrative under the unconfirmed fraction hypothesis.",
+    "sanitization": "identifiers are placeholders; no credential-like string appears in this file"
+  },
+  "fullReading": {
+    "type": "rate_limit_event",
+    "uuid": "00000000-0000-4000-8000-000000000001",
+    "session_id": "sess-example-1",
+    "rate_limit_info": {
+      "status": "allowed_warning",
+      "rateLimitType": "five_hour",
+      "utilization": 0.75,
+      "resetsAt": 1800000000
+    },
+    "expectedCanonical": {
+      "status": "allowed_warning",
+      "windowType": "five_hour",
+      "utilizationPercent": 75,
+      "resetsAt": "2027-01-15T08:00:00.000Z",
+      "provenance": "reported",
+      "completeness": "complete",
+      "_note": "holds only if the fraction hypothesis is true ([INFERRED], unconfirmed)"
+    }
+  },
+  "warningWithoutPercentage": {
+    "comment": "The most common real shape for the five-hour window in this workspace: status plus a reset, no utilization. Unknown must stay unknown.",
+    "type": "rate_limit_event",
+    "uuid": "00000000-0000-4000-8000-000000000002",
+    "session_id": "sess-example-1",
+    "rate_limit_info": {
+      "status": "allowed",
+      "rateLimitType": "five_hour",
+      "resetsAt": 1800000000
+    },
+    "expectedCanonical": {
+      "utilizationPercent": null,
+      "neverRender": "0%"
+    }
+  },
+  "rejectedWithoutReset": {
+    "comment": "Declared shape (resetsAt is optional, sdk.d.ts:5585); not seen in the corpus. A fallback lockout TTL is Cretli's own number and must never be displayed as a provider reset.",
+    "type": "rate_limit_event",
+    "uuid": "00000000-0000-4000-8000-000000000003",
+    "session_id": "sess-example-1",
+    "rate_limit_info": {
+      "status": "rejected",
+      "rateLimitType": "seven_day"
+    }
+  },
+  "statusOnlyReading": {
+    "comment": "No rateLimitType, no resetsAt, no utilization: still a legitimate event and a legitimate stored row (24 such rejected Claude rows were reported by an earlier read of plan-limits.jsonl on 2026-10-12, [UNVERIFIED] in round 3). Must not be coerced into a default window.",
+    "type": "rate_limit_event",
+    "uuid": "00000000-0000-4000-8000-000000000004",
+    "session_id": "sess-example-1",
+    "rate_limit_info": {
+      "status": "rejected"
+    }
+  },
+  "overLimitFraction": {
+    "comment": "Under the [INFERRED] fraction hypothesis (binary string: values above 1 occur when usage runs past a window's cap) a value above 1 is possible; unconfirmed on a payload. A clamp to 100% must not be reported as the measurement.",
+    "type": "rate_limit_event",
+    "uuid": "00000000-0000-4000-8000-000000000005",
+    "session_id": "sess-example-1",
+    "rate_limit_info": {
+      "status": "rejected",
+      "rateLimitType": "five_hour",
+      "utilization": 1.12,
+      "resetsAt": 1800000000
+    },
+    "expectedCanonical": {
+      "utilizationPercent": 112,
+      "_note": "holds only if the fraction hypothesis is true ([INFERRED], unconfirmed)"
+    }
+  },
+  "perModelAndOverageWindows": {
+    "comment": "DECLARED ONLY, never observed in this workspace. Present so a consumer can be written to tolerate an unknown window type rather than a fixed pair.",
+    "examples": [
+      {
+        "status": "allowed_warning",
+        "rateLimitType": "seven_day_opus",
+        "utilization": 0.4,
+        "resetsAt": 1800000000
+      },
+      {
+        "status": "allowed",
+        "rateLimitType": "seven_day_sonnet",
+        "resetsAt": 1800000000
+      },
+      {
+        "status": "allowed",
+        "rateLimitType": "seven_day_overage_included",
+        "resetsAt": 1800000000
+      },
+      {
+        "status": "rejected",
+        "rateLimitType": "overage",
+        "utilization": 0.98
+      }
+    ]
+  },
+  "overageAndScopeFields": {
+    "comment": "DECLARED ONLY. Shows that a rejection can be an entitlement state rather than a quota: `overageStatus: 'rejected'` with `overageDisabledReason` means extra usage cannot cover the send. None of these fields is persisted by Cretli today.",
+    "type": "rate_limit_event",
+    "uuid": "00000000-0000-4000-8000-000000000006",
+    "session_id": "sess-example-1",
+    "rate_limit_info": {
+      "status": "rejected",
+      "rateLimitType": "five_hour",
+      "resetsAt": 1800000000,
+      "overageStatus": "rejected",
+      "overageResetsAt": 1800086400,
+      "overageDisabledReason": "org_level_disabled",
+      "isUsingOverage": false,
+      "overageInUse": false,
+      "surpassedThreshold": 95,
+      "limitScope": "group_pool",
+      "errorCode": "credits_required"
+    }
+  },
+  "producerInternalUnifiedWindows": {
+    "comment": "NOT PART OF THE PUBLIC CONTRACT. Shape quoted from the zod schema string in the bundled CLI binary ([OBSERVED] in round 3 by dd/grep; absent from sdk.d.ts). Values are illustrative. Ruled out for implementation: it would be an unconfirmed private API.",
+    "shape": {
+      "unifiedWindows": {
+        "five_hour": {
+          "utilization": 0.75,
+          "resetsAt": 1800000000
+        },
+        "seven_day": {
+          "utilization": 0.26,
+          "resetsAt": 1800518400
+        },
+        "seven_day_overage_included": {
+          "utilization": 0.01,
+          "resetsAt": 1800518400
+        }
+      }
+    },
+    "documentedTraits": [
+      "[OBSERVED] binary description: read from anthropic-ratelimit-unified-* response headers",
+      "[OBSERVED] binary description: 'same scale as the top-level utilization field' (scale itself [UNKNOWN] / [INFERRED] fraction)",
+      "[UNVERIFIED] earlier notes also quoted: tracked on every observation; absent until the first header-bearing response; always absent for API-key, Bedrock and Vertex sessions (cut off by the round-3 excerpt, not re-read)"
+    ]
+  },
+  "notARateLimitEvent": {
+    "comment": "Negative controls: a 429 or an assistant error frame is NOT a plan-limit reading.",
+    "examples": [
+      {
+        "type": "assistant",
+        "error": "rate_limit",
+        "message": {
+          "content": []
+        },
+        "mustNotWrite": "plan-limit snapshot"
+      },
+      {
+        "type": "system",
+        "subtype": "api_retry",
+        "error": "429 Too Many Requests",
+        "mustNotWrite": "plan-limit snapshot"
+      },
+      {
+        "type": "rate_limit_event",
+        "rate_limit_info": null,
+        "mustBeDropped": "the CLI itself drops malformed frames before the stream"
+      }
+    ]
+  }
+}

@@ -983,6 +983,17 @@ try {
     assert.equal(payload.status, 'allowed_warning');
     assert.equal(payload.resetsAt, 1_800_000_000);
     assert.equal(payload.phase, 'notice');
+    // No auth stamp unless the run supplies one; no invented percentage.
+    assert.equal('authMode' in payload, false);
+    assert.equal('utilization' in payload, false);
+    const stamped = buildClaudeNoticePayload({
+      kind: 'notice', noticeType: 'rate_limit', status: 'rejected', utilization: null,
+    }, 'run-1', { authMode: 'subscription' });
+    assert.equal(stamped.authMode, 'subscription');
+    assert.equal('utilization' in stamped, false);
+    // Only rate-limit notices carry the scope stamp.
+    const retry = buildClaudeNoticePayload({ kind: 'notice', noticeType: 'api_retry' }, 'run-1', { authMode: 'subscription' });
+    assert.equal('authMode' in retry, false);
   }
 
   console.log('claude-streaming-session.test.js OK');

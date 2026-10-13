@@ -149,7 +149,24 @@ test('an active lockout flips the status and formats the reset', () => {
   assert.ok(model.activeLimit);
   assert.equal(model.activeLimit.model, 'opus');
   assert.equal(model.activeLimit.code, 'usage_limit');
-  assert.match(model.activeLimit.resetTime, /^\d{2}:\d{2}$/);
+  // Legacy rows without resetSource are not treated as provider-confirmed.
+  assert.equal(model.activeLimit.resetConfirmed, false);
+  assert.equal(model.activeLimit.resetTime, '');
+  const provider = buildHealthCardModel({
+    runs: 3,
+    okRuns: 3,
+    activeLimit: { harness: 'claude', model: 'opus', code: 'usage_limit', resetAt: FUTURE, resetSource: 'provider' },
+  }, { now: NOW, lang: 'en' });
+  assert.equal(provider.activeLimit.resetConfirmed, true);
+  assert.match(provider.activeLimit.resetTime, /^\d{2}:\d{2}$/);
+  // A technical TTL fallback is only a retry hint, never a confirmed reset.
+  const ttl = buildHealthCardModel({
+    runs: 3,
+    okRuns: 3,
+    activeLimit: { harness: 'claude', model: 'opus', code: 'usage_limit', resetAt: FUTURE, resetSource: 'fallback-ttl' },
+  }, { now: NOW, lang: 'en' });
+  assert.equal(ttl.activeLimit.resetConfirmed, false);
+  assert.equal(ttl.activeLimit.resetTime, '');
 });
 
 test('an expired lockout is ignored', () => {

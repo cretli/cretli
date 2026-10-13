@@ -470,18 +470,12 @@ function applyCodeReviewFinishPatch(delegation, workflow) {
   workflow = applyCodeReviewFinishPatch(closureFail, workflow);
   assert.equal(workflow.codeReviewClosureCount, 1);
   assert.equal(workflow.codeReviewLastClosureRoundKey, '0::0');
-  const passReset = {
-    id: crypto.randomUUID(),
+  workflow = applyDelegationWorkflowPatch({
     parentChatId: chatId,
     leafId: localLeafId,
-    status: 'completed',
-    reviewSubject: 'code',
-    reviewMode: 'closure',
-    report: 'VERDICT: PASS\nF1 FIXED',
-    reportVerdict: 'PASS',
-    executor: { transport: 'claude', model: 'reviewer-cycle' },
-  };
-  workflow = applyCodeReviewFinishPatch(passReset, workflow);
+    lastVerdict: 'PASS',
+    idempotencyKey: 'simulate-leaf-pass-reset',
+  });
   assert.equal(workflow.codeReviewClosureCount, 0);
   assert.equal(workflow.codeReviewAuditDone, false);
   assert.equal(workflow.codeReviewClosureEpoch, 2);

@@ -12,8 +12,41 @@ test('missing percentages, expired windows and lockouts do not invent a progress
   ], lockouts: [{ harness: 'codex', model: '<script>', resetAt: '2026-10-02T20:00:00Z' }] }, { t });
   assert.doesNotMatch(html, /<progress/);
   assert.match(html, /usage.planExpired/);
-  assert.match(html, /usage.planLocked/);
+  assert.match(html, /usage.planLockedUnconfirmed/);
   assert.doesNotMatch(html, /<script>/);
+});
+
+test('window labels, source, scope mismatch and confirmed lockout reset', () => {
+  const row = {
+    harness: 'claude',
+    rateLimitType: 'five_hour',
+    status: 'allowed_warning',
+    utilization: 55,
+    remainingPercent: 45,
+    resetsAt: '2026-10-02T20:00:00Z',
+    resetInMs: 3600000,
+    observedAt: '2026-10-02T19:00:00Z',
+    utilizationObservedAt: '2026-10-02T18:30:00Z',
+    source: 'claude-sdk-rate-limit-event',
+  };
+  const html = renderPlanLimitsHtml({ planLimits: [row] }, { t, lang: 'en' });
+  assert.match(html, /harnessHealth\.windowFiveHour/);
+  assert.match(html, /harnessHealth\.windowWarning/);
+  assert.match(html, /usage\.planSourceSdkRateLimit/);
+  assert.match(html, /usage\.planUtilizationObserved/);
+  const unknownWindow = renderPlanLimitsHtml({ planLimits: [{
+    harness: 'claude', rateLimitType: 'custom_meter', status: 'allowed', observedAt: '2026-10-02T19:00:00Z',
+  }] }, { t, lang: 'en' });
+  assert.match(unknownWindow, /usage\.planWindowUnknown custom_meter/);
+  const scope = renderPlanLimitsHtml({ planLimits: [{
+    harness: 'claude', scopeMismatch: true, stale: true, observedAt: '2026-10-02T19:00:00Z',
+  }] }, { t, lang: 'en' });
+  assert.match(scope, /usage\.planScopeMismatch/);
+  const lock = renderPlanLimitsHtml({ lockouts: [{
+    harness: 'claude', model: 'opus', resetAt: '2026-10-02T20:00:00Z', resetSource: 'provider', rateLimitType: 'five_hour',
+  }] }, { t, lang: 'en' });
+  assert.match(lock, /usage\.planLocked/);
+  assert.doesNotMatch(lock, /usage\.planLockedUnconfirmed/);
 });
 
 test('measured percentage and forecast are separate and stale data has no forecast text', () => {

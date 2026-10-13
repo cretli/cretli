@@ -9113,18 +9113,24 @@ async function resetChatSdkContext(chat, hintEl = null) {
     chat._sdkServerQueuedCount = 0;
     chat._sdkOptimisticSentNow = [];
     chat._sdkOptimisticSentQueued = [];
-    chat._contextUsageInputTokens = null;
-    chat._contextUsageOutputTokens = null;
-    chat._contextUsageTotalTokens = null;
-    delete chat._contextUsageSource;
-    delete chat._contextUsageUpdatedAt;
-    delete chat._contextWarnings;
-    delete chat._contextUsageSnapshot;
-    delete chat._contextFillPercent;
-    delete chat._contextPeakFillPercent;
-    delete chat._contextLikelyPressure;
-    delete chat._contextUsageModelId;
-    chat._sdkContextFreshSession = true;
+    chatDiagnosticsApi?.resetChatContextMeterState?.(chat, {
+      reason: 'sdk_reset',
+      markFreshSession: true,
+    });
+    if (typeof chatDiagnosticsApi?.resetChatContextMeterState !== 'function') {
+      chat._contextUsageInputTokens = null;
+      chat._contextUsageOutputTokens = null;
+      chat._contextUsageTotalTokens = null;
+      delete chat._contextUsageSource;
+      delete chat._contextUsageUpdatedAt;
+      delete chat._contextWarnings;
+      delete chat._contextUsageSnapshot;
+      delete chat._contextFillPercent;
+      delete chat._contextPeakFillPercent;
+      delete chat._contextLikelyPressure;
+      delete chat._contextUsageModelId;
+      chat._sdkContextFreshSession = true;
+    }
     chat._contextAdvisoryDismissed = false;
     chatDiagnosticsApi?.updateChatContextMeter?.(
       chat,
@@ -9179,6 +9185,9 @@ function resolveContextDetailsSourceLabel(source) {
   const normalized = String(source || '').trim().toLowerCase();
   if (normalized === 'sdk-live') return t('chat.contextDetailsSourceSdkLive');
   if (normalized === 'sdk-history') return t('chat.contextDetailsSourceSdkHistory');
+  if (normalized === 'claude-measured') return t('chat.contextDetailsSourceClaudeMeasured');
+  if (normalized === 'claude-estimated') return t('chat.contextDetailsSourceClaudeEstimated');
+  if (normalized === 'claude-no-data') return t('chat.contextDetailsSourceClaudeNoData');
   if (normalized === 'opencode-estimated') return t('chat.contextDetailsSourceOpencodeEstimated');
   if (normalized.endsWith('-estimated')) return t('chat.contextDetailsSourceEstimated');
   if (normalized.endsWith('-history')) return t('chat.contextDetailsSourceHistory');
@@ -9248,10 +9257,15 @@ function renderChatContextDetails(chat) {
   ) || null;
   const qualityEl = document.getElementById('chat-context-details-quality');
   if (qualityEl) {
+    const fillProvenance = snapshot?.fillProvenance;
     const estimated = snapshot?.isEstimated === true;
-    qualityEl.textContent = estimated ? t('chat.contextDetailsEstimated') : t('chat.contextDetailsExact');
+    let qualityLabel = t('chat.contextDetailsExact');
+    if (fillProvenance === 'none') qualityLabel = t('chat.contextDetailsNoData');
+    else if (estimated) qualityLabel = t('chat.contextDetailsEstimated');
+    qualityEl.textContent = qualityLabel;
     qualityEl.classList.remove('chat-diag-badge-ok', 'chat-diag-badge-warn', 'chat-diag-badge-bad');
-    qualityEl.classList.add(estimated ? 'chat-diag-badge-warn' : 'chat-diag-badge-ok');
+    if (fillProvenance === 'none') qualityEl.classList.add('chat-diag-badge-warn');
+    else qualityEl.classList.add(estimated ? 'chat-diag-badge-warn' : 'chat-diag-badge-ok');
   }
   const warnings = Array.isArray(snapshot?.warnings)
     ? snapshot.warnings.filter((entry) => typeof entry === 'string' && entry.trim())

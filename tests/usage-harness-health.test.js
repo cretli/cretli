@@ -26,6 +26,10 @@ import {
   registerHarnessCatalogRoutes,
 } from '../lib/routes/harness-catalog-routes.js';
 
+// Plan limits exist only under subscription auth; API-key mode is covered by
+// the explicit authMode tests below.
+process.env.CRETLI_CLAUDE_AUTH_MODE = 'subscription';
+
 function createFakeApp() {
   /** @type {Map<string, Function>} */
   const routes = new Map();
@@ -130,7 +134,7 @@ test('plan-limit snapshots upsert per harness/window and flag stale', () => {
   const dataDir = tempDataDir();
   try {
     const stored = noteHarnessPlanLimit({
-      harness: 'claude',
+      harness: 'claude', authMode: 'subscription',
       status: 'allowed_warning',
       utilization: 55,
       resetsAt: '2026-09-01T00:00:00.000Z',
@@ -140,7 +144,7 @@ test('plan-limit snapshots upsert per harness/window and flag stale', () => {
     assert.equal(stored.utilization, 55);
 
     noteHarnessPlanLimit({
-      harness: 'claude',
+      harness: 'claude', authMode: 'subscription',
       status: 'rejected',
       utilization: 99,
       rateLimitType: 'five_hour',
@@ -471,9 +475,10 @@ test('forecast persists measured growth per harness/window and expires at reset'
     assert.equal(read(2 * 3600000).forecast, null);
     note(20, 3 * 3600000, { resetsAt: new Date(start + 10 * 3600000).toISOString() });
     assert.equal(read(3 * 3600000).forecast, null);
+    // A later delivery for an earlier reset window cannot replace the newer one.
     note(null, 4 * 3600000);
-    assert.equal('utilization' in read(4 * 3600000), false);
-    assert.equal(read(4 * 3600000).remainingPercent, null);
+    assert.equal(read(4 * 3600000).utilization, 20);
+    assert.equal(read(4 * 3600000).resetsAt, new Date(start + 10 * 3600000).toISOString());
   } finally { rmSync(dataDir, { recursive: true, force: true }); }
 });
 
@@ -535,9 +540,9 @@ test('plan-limit history records every sample per harness in one shared store', 
 test('plan-limit history ignores a reading with none of status/utilization/resetsAt/rateLimitType', () => {
   const dataDir = tempDataDir();
   try {
-    assert.equal(noteHarnessPlanLimit({ harness: 'claude', dataDir }), null);
-    assert.equal(noteHarnessPlanLimit({ harness: 'claude', model: 'claude-sonnet-4-5', dataDir }), null);
-    assert.equal(noteHarnessPlanLimit({ harness: 'claude', observedAt: '2026-10-01T10:00:00Z', dataDir }), null);
+    assert.equal(noteHarnessPlanLimit({ harness: 'claude', authMode: 'subscription', dataDir }), null);
+    assert.equal(noteHarnessPlanLimit({ harness: 'claude', authMode: 'subscription', model: 'claude-sonnet-4-5', dataDir }), null);
+    assert.equal(noteHarnessPlanLimit({ harness: 'claude', authMode: 'subscription', observedAt: '2026-10-01T10:00:00Z', dataDir }), null);
     assert.deepEqual(readHarnessPlanLimitHistory({ dataDir }), []);
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
@@ -577,8 +582,8 @@ test('plan-limit history does not disturb the last snapshot or the health card',
   const dataDir = tempDataDir();
   const resetsAt = '2026-10-01T18:00:00.000Z';
   try {
-    noteHarnessPlanLimit({ harness: 'claude', rateLimitType: 'five_hour', utilization: 40, resetsAt, observedAt: '2026-10-01T10:00:00.000Z', dataDir });
-    noteHarnessPlanLimit({ harness: 'claude', rateLimitType: 'five_hour', utilization: 70, resetsAt, observedAt: '2026-10-01T11:00:00.000Z', dataDir });
+    noteHarnessPlanLimit({ harness: 'claude', authMode: 'subscription', rateLimitType: 'five_hour', utilization: 40, resetsAt, observedAt: '2026-10-01T10:00:00.000Z', dataDir });
+    noteHarnessPlanLimit({ harness: 'claude', authMode: 'subscription', rateLimitType: 'five_hour', utilization: 70, resetsAt, observedAt: '2026-10-01T11:00:00.000Z', dataDir });
 
     // Upsert keeps ONE last snapshot at the latest reading...
     const now = Date.parse('2026-10-01T11:30:00.000Z');
@@ -745,6 +750,240 @@ test('readHarnessPlanLimits delegates to the pure forecast and stays compatible'
     assert.equal(beta.forecast, null);
     assert.equal(beta.confidence, 'none');
     assert.equal(beta.tokensInWindow, null);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+// --- Claude plan limits: auth scope, partial readings, ordering, lockouts ---
+
+function claudeKernel(dataDir) {
+  return createAgentRoomKernel({
+    transport: 'claude',
+    persistHistory: () => {},
+    recordUsage: () => {},
+    usageDataDir: dataDir,
+  });
+}
+
+function withAuthMode(mode, fn) {
+  const previous = process.env.CRETLI_CLAUDE_AUTH_MODE;
+  process.env.CRETLI_CLAUDE_AUTH_MODE = mode;
+  try {
+    return fn();
+  } finally {
+    process.env.CRETLI_CLAUDE_AUTH_MODE = previous;
+  }
+}
+
+test('api-key mode neither stores nor shows a plan limit or lockout', () => {
+  const dataDir = tempDataDir();
+  try {
+    withAuthMode('api-key', () => {
+      const kernel = claudeKernel(dataDir);
+      const room = kernel.createRoomState({ sessionKey: 'k-api', chatId: 'c-api', modelId: 'claude-sonnet-4-5' });
+      kernel.broadcastRoom(room, {
+        type: 'sdkRunProgress', noticeType: 'rate_limit', status: 'rejected',
+        rateLimitType: 'five_hour', utilization: 91, resetsAt: 4_000_000_000, authMode: 'api-key',
+      });
+      // Also without a stamp: the current auth mode decides.
+      kernel.broadcastRoom(room, {
+        type: 'sdkRunProgress', noticeType: 'rate_limit', status: 'allowed_warning', utilization: 80,
+      });
+      assert.deepEqual(readHarnessPlanLimits('claude', { dataDir }), []);
+      assert.deepEqual(readHarnessPlanLimitHistory({ harness: 'claude', dataDir }), []);
+      assert.deepEqual(readHarnessUsageLimitHistory({ harness: 'claude', dataDir }), []);
+      assert.equal(getHarnessUsageLimit({ harness: 'claude', model: 'claude-sonnet-4-5', dataDir }), null);
+      // Direct store call is defended too.
+      assert.equal(noteHarnessPlanLimit({ harness: 'claude', authMode: 'api-key', status: 'rejected', dataDir }), null);
+      // A provider error with limit prose must not write a plan-limit history row.
+      noteHarnessUsageLimit({
+        harness: 'claude', model: 'claude-sonnet-4-5', authMode: 'api-key',
+        message: 'rate limit reached', dataDir,
+      });
+      assert.deepEqual(readHarnessPlanLimitHistory({ harness: 'claude', dataDir }), []);
+      assert.equal(noteHarnessUsageLimit({
+        harness: 'claude', model: 'claude-sonnet-4-5', authMode: 'api-key',
+        message: "You've hit your session limit · resets 2:30pm", dataDir,
+      }), false);
+      assert.deepEqual(readHarnessUsageLimitHistory({ harness: 'claude', dataDir }), []);
+    });
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('subscription snapshots record auth mode and source; one conversion per event', () => {
+  const dataDir = tempDataDir();
+  try {
+    withAuthMode('subscription', () => {
+      const kernel = claudeKernel(dataDir);
+      const room = kernel.createRoomState({ sessionKey: 'k-sub', chatId: 'c-sub', modelId: 'claude-sonnet-4-5' });
+      // Normalized notice already carries percent: not multiplied again.
+      kernel.broadcastRoom(room, {
+        type: 'sdkRunProgress', noticeType: 'rate_limit', status: 'allowed_warning',
+        rateLimitType: 'five_hour', utilization: 40, resetsAt: 4_000_000_000, authMode: 'subscription',
+      });
+      // A raw SDK event is converted exactly once.
+      kernel.broadcastRoom(room, {
+        type: 'sdkEvent',
+        event: {
+          type: 'rate_limit_event',
+          rate_limit_info: { status: 'allowed_warning', rateLimitType: 'seven_day', utilization: 0.25, resetsAt: 4_000_100_000 },
+        },
+      });
+      const rows = readHarnessPlanLimits('claude', { dataDir, authMode: 'subscription' });
+      const five = rows.find((row) => row.rateLimitType === 'five_hour');
+      const seven = rows.find((row) => row.rateLimitType === 'seven_day');
+      assert.equal(five.utilization, 40);
+      assert.equal(seven.utilization, 25);
+      for (const row of [five, seven]) {
+        assert.equal(row.authMode, 'subscription');
+        assert.equal(row.source, 'claude-sdk-rate-limit-event');
+        assert.equal(row.scopeMismatch, undefined);
+      }
+      const history = readHarnessPlanLimitHistory({ harness: 'claude', dataDir });
+      assert.ok(history.every((row) => row.authMode === 'subscription' && row.source === 'claude-sdk-rate-limit-event'));
+      assert.equal(readHarnessUsageLimitHistory({ harness: 'claude', dataDir }).length, 0);
+    });
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('a snapshot from another auth scope is not shown as current', () => {
+  const dataDir = tempDataDir();
+  try {
+    noteHarnessPlanLimit({
+      harness: 'claude', authMode: 'subscription', rateLimitType: 'five_hour', status: 'allowed_warning',
+      utilization: 70, resetsAt: '2099-01-01T00:00:00.000Z', dataDir,
+    });
+    // Same auth scope: current.
+    assert.equal(readHarnessPlanLimits('claude', { dataDir, authMode: 'subscription' })[0].utilization, 70);
+    // Switched to API-key: nothing is shown.
+    assert.deepEqual(readHarnessPlanLimits('claude', { dataDir, authMode: 'api-key' }), []);
+    // A legacy row without a recorded scope cannot be attributed: stale, no percent.
+    const legacyDir = tempDataDir();
+    try {
+      noteHarnessPlanLimit({
+        harness: 'claude', rateLimitType: 'five_hour', status: 'allowed_warning',
+        utilization: 70, resetsAt: '2099-01-01T00:00:00.000Z', dataDir: legacyDir,
+      });
+      const [legacy] = readHarnessPlanLimits('claude', { dataDir: legacyDir, authMode: 'subscription' });
+      assert.equal(legacy.scopeMismatch, true);
+      assert.equal(legacy.stale, true);
+      assert.equal('utilization' in legacy, false);
+      assert.equal(legacy.remainingPercent, null);
+      // The first reading under the current scope replaces it without merging.
+      noteHarnessPlanLimit({
+        harness: 'claude', authMode: 'subscription', rateLimitType: 'five_hour', status: 'allowed',
+        resetsAt: '2099-01-01T00:00:00.000Z', dataDir: legacyDir,
+      });
+      const [fresh] = readHarnessPlanLimits('claude', { dataDir: legacyDir, authMode: 'subscription' });
+      assert.equal(fresh.scopeMismatch, undefined);
+      assert.equal('utilization' in fresh, false);
+    } finally {
+      rmSync(legacyDir, { recursive: true, force: true });
+    }
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('a partial reading keeps the last known percentage with its own age', () => {
+  const dataDir = tempDataDir();
+  const resetsAt = '2026-10-01T18:00:00.000Z';
+  const base = { harness: 'claude', authMode: 'subscription', dataDir };
+  try {
+    noteHarnessPlanLimit({ ...base, rateLimitType: 'five_hour', status: 'allowed_warning', utilization: 60, resetsAt, observedAt: '2026-10-01T10:00:00.000Z' });
+    noteHarnessPlanLimit({ ...base, rateLimitType: 'seven_day', status: 'allowed_warning', utilization: 30, resetsAt: '2026-10-07T00:00:00.000Z', observedAt: '2026-10-01T10:05:00.000Z' });
+    // Rejected without a percentage and without a reset for the five-hour window.
+    noteHarnessPlanLimit({ ...base, rateLimitType: 'five_hour', status: 'rejected', observedAt: '2026-10-01T11:00:00.000Z' });
+    const now = Date.parse('2026-10-01T11:30:00.000Z');
+    const rows = readHarnessPlanLimits('claude', { dataDir, authMode: 'subscription', now });
+    const five = rows.find((row) => row.rateLimitType === 'five_hour');
+    const seven = rows.find((row) => row.rateLimitType === 'seven_day');
+    assert.equal(five.status, 'rejected');
+    assert.equal(five.utilization, 60);
+    assert.equal(five.utilizationObservedAt, '2026-10-01T10:00:00.000Z');
+    assert.equal(five.observedAt, '2026-10-01T11:00:00.000Z');
+    // No reset was delivered: none is invented.
+    assert.equal('resetsAt' in five, false);
+    // The other window is untouched.
+    assert.equal(seven.utilization, 30);
+    assert.equal(seven.status, 'allowed_warning');
+    // The carried percentage ages from its own observation, not the rejection.
+    const later = readHarnessPlanLimits('claude', {
+      dataDir, authMode: 'subscription', rateLimitType: 'five_hour', now: Date.parse('2026-10-01T16:30:01.000Z'),
+    }).find((row) => row.rateLimitType === 'five_hour');
+    assert.equal(later.stale, true);
+    // A reading for a different (new) window does not inherit the old percentage.
+    noteHarnessPlanLimit({ ...base, rateLimitType: 'five_hour', status: 'allowed', resetsAt: '2026-10-01T23:00:00.000Z', observedAt: '2026-10-01T19:00:00.000Z' });
+    const renewed = readHarnessPlanLimits('claude', { dataDir, authMode: 'subscription', now: Date.parse('2026-10-01T19:10:00.000Z') })
+      .find((row) => row.rateLimitType === 'five_hour');
+    assert.equal('utilization' in renewed, false);
+    assert.equal(renewed.remainingPercent, null);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('an older or earlier-window observation never overwrites a newer snapshot', () => {
+  const dataDir = tempDataDir();
+  const base = { harness: 'claude', authMode: 'subscription', rateLimitType: 'five_hour', dataDir };
+  try {
+    noteHarnessPlanLimit({ ...base, status: 'allowed_warning', utilization: 80, resetsAt: '2026-10-01T18:00:00.000Z', observedAt: '2026-10-01T12:00:00.000Z' });
+    // Delayed event: older receipt time.
+    noteHarnessPlanLimit({ ...base, status: 'allowed', utilization: 10, resetsAt: '2026-10-01T18:00:00.000Z', observedAt: '2026-10-01T11:00:00.000Z' });
+    // Delivered later but belongs to an earlier reset window.
+    noteHarnessPlanLimit({ ...base, status: 'allowed', utilization: 5, resetsAt: '2026-10-01T13:00:00.000Z', observedAt: '2026-10-01T12:30:00.000Z' });
+    const [row] = readHarnessPlanLimits('claude', { dataDir, authMode: 'subscription', now: Date.parse('2026-10-01T12:40:00.000Z') });
+    assert.equal(row.utilization, 80);
+    assert.equal(row.status, 'allowed_warning');
+    assert.equal(row.resetsAt, '2026-10-01T18:00:00.000Z');
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('only rejected on a plan window creates a lockout; reset source is recorded', () => {
+  const dataDir = tempDataDir();
+  try {
+    withAuthMode('subscription', () => {
+      const kernel = claudeKernel(dataDir);
+      const room = kernel.createRoomState({ sessionKey: 'k-lock', chatId: 'c-lock', modelId: 'claude-sonnet-4-5' });
+      const notice = (extra) => kernel.broadcastRoom(room, {
+        type: 'sdkRunProgress', noticeType: 'rate_limit', authMode: 'subscription', ...extra,
+      });
+      const lockCount = () => readHarnessUsageLimitHistory({ harness: 'claude', dataDir }).length;
+      notice({ status: 'allowed', rateLimitType: 'five_hour' });
+      notice({ status: 'allowed_warning', rateLimitType: 'five_hour', utilization: 90 });
+      notice({ rateLimitType: 'five_hour', utilization: 95 });
+      // The overage lane is a different meter.
+      notice({ status: 'rejected', rateLimitType: 'overage' });
+      // Ordinary run errors and a bare 429 are not plan limits.
+      kernel.broadcastRoom(room, { type: 'sdkRunFinished', status: 'error', result: 'Something exploded' });
+      kernel.broadcastRoom(room, { type: 'sdkRunFinished', status: 'error', result: 'API Error: 429' });
+      assert.equal(lockCount(), 0);
+      assert.equal(getHarnessUsageLimit({ harness: 'claude', model: 'claude-sonnet-4-5', dataDir }), null);
+
+      // Rejected without a provider reset: lockout with a technical fallback.
+      notice({ status: 'rejected', rateLimitType: 'five_hour' });
+      assert.equal(lockCount(), 1);
+      const fallback = getHarnessUsageLimit({ harness: 'claude', model: 'claude-sonnet-4-5', dataDir });
+      assert.equal(fallback.resetSource, 'fallback-ttl');
+      assert.equal(fallback.rateLimitType, 'five_hour');
+      assert.equal(fallback.authMode, 'subscription');
+      assert.equal(fallback.source, 'rate-limit-event');
+      // The fallback is not written to the plan snapshot as a reset.
+      const snap = readHarnessPlanLimits('claude', { dataDir, authMode: 'subscription' })
+        .find((row) => row.rateLimitType === 'five_hour');
+      assert.equal('resetsAt' in snap, false);
+      // Neither reading ever carried a reset: the unknown window keeps the
+      // last known percentage (95) with its own age instead of dropping it.
+      assert.equal('utilization' in snap, true);
+      assert.equal(snap.utilization, 95);
+    });
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }

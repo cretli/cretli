@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { takeStreamDelta } from '../app_front/lib/sdk-chat-format.js';
 import {
   CLAUDE_ASSISTANT_ERROR_MESSAGES,
+  buildClaudeRateLimitNotice,
   collectClaudeIdleNotices,
   createClaudeEventNormalizer,
   normalizeClaudeMessage,
@@ -486,5 +487,27 @@ const nextTurn = usageGapNormalizer.normalize({
   message: { content: [], usage: { input_tokens: 42, output_tokens: 1, cache_read_input_tokens: 42 } },
 });
 assert.equal(nextTurn.filter((event) => event.kind === 'api_call_usage').length, 1);
+
+// --- Plan-limit matrix: full / partial / missing / unknown window ---
+{
+  const notice = (info) => buildClaudeRateLimitNotice({ type: 'rate_limit_event', rate_limit_info: info });
+  const full = notice({ status: 'allowed_warning', utilization: 0.5, resetsAt: 1_800_000_000, rateLimitType: 'five_hour' });
+  assert.equal(full.utilization, 50);
+  assert.equal(full.rateLimitType, 'five_hour');
+  // Partial: no percentage and no reset stay absent (never 0 / never invented).
+  const partial = notice({ status: 'rejected', rateLimitType: 'seven_day' });
+  assert.equal('utilization' in partial, false);
+  assert.equal('resetsAt' in partial, false);
+  assert.doesNotMatch(partial.message, /Resets at/);
+  for (const bad of [null, '', '  ', true, false, [], {}, 'abc', NaN, Infinity]) {
+    assert.equal('utilization' in notice({ status: 'allowed', utilization: bad }), false, String(bad));
+  }
+  // A real zero is a reading; only absence is unknown.
+  assert.equal(notice({ status: 'allowed', utilization: 0 }).utilization, 0);
+  // Values outside [0,1] are neither clamped nor rescaled beyond the one x100.
+  assert.equal(notice({ status: 'allowed_warning', utilization: 1.2 }).utilization, 120);
+  // Unknown window type passes through verbatim as provenance.
+  assert.equal(notice({ status: 'allowed', rateLimitType: 'brand_new_window' }).rateLimitType, 'brand_new_window');
+}
 
 console.log('claude-event-normalizer.test.js OK');

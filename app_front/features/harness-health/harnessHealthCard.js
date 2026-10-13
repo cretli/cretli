@@ -83,7 +83,9 @@ function renderExpandedCards() {
     const model = buildHealthCardModel(entry, { now: Date.now(), lang: getCurrentLang() });
     record.summary.hidden = !model.activeLimit;
     record.summary.textContent = model.activeLimit
-      ? t('harnessHealth.rowBlocked', { time: model.activeLimit.resetTime })
+      ? (model.activeLimit.resetConfirmed === false
+        ? t('harnessHealth.rowBlockedUnconfirmed')
+        : t('harnessHealth.rowBlocked', { time: model.activeLimit.resetTime }))
         + (model.activeLimit.model ? ` · ${t('harnessHealth.activeLimitModel', { model: model.activeLimit.model })}` : '')
       : '';
     if (model.activeLimit) nextReset = Math.min(nextReset, Date.parse(model.activeLimit.resetAt));

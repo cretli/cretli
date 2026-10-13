@@ -148,11 +148,16 @@ function normalizeActiveLimit(raw, ctx) {
   const resetMs = resetAt ? new Date(resetAt).getTime() : NaN;
   // An expired row means the lockout is over; the card must not offer "Unlock".
   if (!Number.isFinite(resetMs) || resetMs <= ctx.now) return null;
+  // Only explicit provider provenance counts; TTL fallbacks and legacy rows
+  // without resetSource stay unconfirmed.
+  const resetSource = String(raw.resetSource || '').trim();
+  const resetConfirmed = resetSource === 'provider' || resetSource === 'provider-message';
   return {
     model: String(raw.model || ''),
     code: String(raw.code || ''),
     resetAt,
-    resetTime: formatResetTime(resetAt, ctx),
+    resetConfirmed,
+    resetTime: resetConfirmed ? formatResetTime(resetAt, ctx) : '',
   };
 }
 
@@ -405,7 +410,9 @@ export function renderHealthCardHtml(model, ctx = {}) {
 
   const badgeClass = safe.status === 'ok' ? 'is-ok' : safe.status === 'limit' ? 'is-limit' : 'is-empty';
   const badgeText = safe.status === 'limit'
-    ? t('harnessHealth.statusLimit', { time: safe.activeLimit?.resetTime || '' })
+    ? (safe.activeLimit?.resetConfirmed === false
+      ? t('harnessHealth.statusLimitUnconfirmed')
+      : t('harnessHealth.statusLimit', { time: safe.activeLimit?.resetTime || '' }))
     : safe.status === 'ok'
       ? t('harnessHealth.statusOk')
       : t('harnessHealth.statusNoData');

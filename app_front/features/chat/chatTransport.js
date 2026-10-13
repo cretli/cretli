@@ -44,6 +44,10 @@ import {
 import { isMobileLikeClient } from '../../lib/mobileClient.js';
 import { notifyChatConnectionRestored } from './chatServerRecovery.js';
 import {
+  isClaudeContextMeterChat,
+  resetChatContextMeterState,
+} from './chatContextMeter.js';
+import {
   resolveBackgroundMonitorMode,
   selectBackgroundWsChatIds,
   selectMonitoredChatIds,
@@ -454,6 +458,10 @@ export function createChatTransport(deps) {
     const nextModel = String(confirmedModel || '').trim();
     if (!nextModel) return;
     const pending = chat._pendingModelChange;
+    const previousModel = String(chat.model || '').trim();
+    if (isClaudeContextMeterChat(chat) && previousModel && previousModel !== nextModel) {
+      resetChatContextMeterState(chat, { reason: 'model_change' });
+    }
     chat.model = nextModel;
     if (typeof onSdkModelChange === 'function') {
       onSdkModelChange(chat, nextModel);
@@ -1496,16 +1504,19 @@ export function createChatTransport(deps) {
             noteInAppSignalIfLive(msg, 'permission', msg.event.requestId, chat);
           }
           if (msg.event && typeof msg.event === 'object' && msg.event.type === 'usage') {
-            const usage = msg.event.usage && typeof msg.event.usage === 'object' ? msg.event.usage : null;
-            const inputTokens = Number(usage?.inputTokens);
-            const outputTokens = Number(usage?.outputTokens);
-            const totalTokens = Number(usage?.totalTokens);
-            chat._contextUsageInputTokens = Number.isFinite(inputTokens) ? inputTokens : null;
-            chat._contextUsageOutputTokens = Number.isFinite(outputTokens) ? outputTokens : null;
-            chat._contextUsageTotalTokens = Number.isFinite(totalTokens) ? totalTokens : null;
             const transport = String(chat.agentTransport || 'sdk').trim() || 'sdk';
-            chat._contextUsageSource = transport === 'sdk' ? 'sdk-live' : `${transport}-live`;
-            chat._contextUsageUpdatedAt = Date.now();
+            // Claude run usage is not current context occupancy (sdk-limits-context-contract §6).
+            if (!isClaudeContextMeterChat(chat)) {
+              const usage = msg.event.usage && typeof msg.event.usage === 'object' ? msg.event.usage : null;
+              const inputTokens = Number(usage?.inputTokens);
+              const outputTokens = Number(usage?.outputTokens);
+              const totalTokens = Number(usage?.totalTokens);
+              chat._contextUsageInputTokens = Number.isFinite(inputTokens) ? inputTokens : null;
+              chat._contextUsageOutputTokens = Number.isFinite(outputTokens) ? outputTokens : null;
+              chat._contextUsageTotalTokens = Number.isFinite(totalTokens) ? totalTokens : null;
+              chat._contextUsageSource = transport === 'sdk' ? 'sdk-live' : `${transport}-live`;
+              chat._contextUsageUpdatedAt = Date.now();
+            }
             delete chat._sdkContextFreshSession;
             renderChatTerminalState(chat);
           }
@@ -1670,6 +1681,13 @@ export function createChatTransport(deps) {
         if (msg.type === 'sdkRunProgress') {
           chat._sdkLastLiveEventAt = Date.now();
           setAgentState(chat, 'active');
+          if (isClaudeContextMeterChat(chat)) {
+            const noticeType = typeof msg.noticeType === 'string' ? msg.noticeType.trim() : '';
+            if (noticeType === 'compact' || noticeType === 'session_reset') {
+              resetChatContextMeterState(chat, { reason: noticeType });
+              renderChatTerminalState(chat);
+            }
+          }
           const phase = typeof msg.phase === 'string' ? msg.phase : '';
           const idleForMs = Number.isFinite(msg.idleForMs) ? Number(msg.idleForMs) : 0;
           const remainingMs = Number.isFinite(msg.remainingMs) ? Number(msg.remainingMs) : null;

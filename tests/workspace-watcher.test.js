@@ -4592,7 +4592,7 @@ runCase('startWorkspaceWatcherCycle: orchestrator refusal rolls back daily budge
   const todo = addReadyTodo(dataDir, cwd, 'orchestrator blocked');
   upsertWorkspaceWatcher(cwd, {
     mode: 'autopilot',
-    policy: { requirePlanApproval: false, maxCyclesPerDay: 3 },
+    policy: { requirePlanApproval: false, maxCyclesPerDay: 3, cooldownMs: 0 },
   }, { dataDir });
   const tick = {
     watcher: getWorkspaceWatcher(cwd, { dataDir }),
@@ -4611,6 +4611,69 @@ runCase('startWorkspaceWatcherCycle: orchestrator refusal rolls back daily budge
   assert.equal(row.lastCycleAt, '');
   assert.equal(row.failures?.[todo.id], undefined);
   assert.equal(getTodoById(dataDir, cwd, todo.id).status, 'ready');
+});
+
+runCase('startWorkspaceWatcherCycle: orchestrator refusal respects cooldown and dedupes side effects', async () => {
+  const dataDir = freshDataDir('cycle-orchestrator-cooldown');
+  const cwd = makeWorkspace('cycle-orchestrator-cooldown');
+  const todo = addReadyTodo(dataDir, cwd, 'orchestrator blocked cooldown');
+  const cooldownMs = 60_000;
+  upsertWorkspaceWatcher(cwd, {
+    mode: 'autopilot',
+    policy: { requirePlanApproval: false, maxCyclesPerDay: 3, cooldownMs },
+  }, { dataDir });
+  const tick = {
+    watcher: getWorkspaceWatcher(cwd, { dataDir }),
+    decision: { kind: 'start_cycle', nextTodoId: todo.id },
+    snapshot: { readyLeaves: [getTodoById(dataDir, cwd, todo.id)] },
+  };
+  const pushes = [];
+  const notices = [];
+  const deps = {
+    resolveWorkspaceWatcherOrchestrator: async () => ({ ok: false, reason: 'all_usage_limited', source: 'pick' }),
+    addChat: (_s, _t, _wf, _folder, _m, extras) => ({ id: extras.id }),
+    startChatRun: async () => { throw new Error('should not start'); },
+    notify: (payload) => {
+      pushes.push(payload);
+      return true;
+    },
+    noticeDeps: {
+      loadChats: () => [{ id: 'pin', watcherPinned: true, workspaceFolder: cwd }],
+      appendChatNotice: (_id, text) => {
+        notices.push(String(text));
+        return { ok: true, appended: [{ seq: notices.length }] };
+      },
+    },
+  };
+  const first = await startWorkspaceWatcherCycle({ workspaceFolder: cwd, dataDir, now: T0, tick, deps });
+  assert.equal(first.started, false);
+  assert.equal(first.reason, 'orchestrator_unavailable');
+  let row = getWorkspaceWatcher(cwd, { dataDir });
+  assert.equal(row.cycles.count, 0);
+  assert.equal(row.lastCycleAt, new Date(T0).toISOString());
+  assert.equal(getTodoById(dataDir, cwd, todo.id).status, 'ready');
+  assert.equal(row.decisions.filter((entry) => entry.kind === 'orchestrator_blocked').length, 1);
+  assert.equal(pushes.length, 1);
+  assert.equal(notices.length, 1);
+
+  const secondTick = {
+    ...tick,
+    watcher: row,
+  };
+  const second = await startWorkspaceWatcherCycle({
+    workspaceFolder: cwd,
+    dataDir,
+    now: T0 + 5_000,
+    tick: secondTick,
+    deps,
+  });
+  assert.equal(second.started, false);
+  assert.notEqual(second.reason, 'orchestrator_unavailable', 'cooldown blocks another reservation attempt');
+  row = getWorkspaceWatcher(cwd, { dataDir });
+  assert.equal(row.cycles.count, 0);
+  assert.equal(row.decisions.filter((entry) => entry.kind === 'orchestrator_blocked').length, 1);
+  assert.equal(pushes.length, 1);
+  assert.equal(notices.length, 1);
 });
 
 runCase('startWorkspaceWatcherCycle: missing orchestrator pick rolls back without default harness', async () => {

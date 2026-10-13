@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   buildChatContextSnapshot,
+  resetChatContextMeterState,
   resolveChatContextUsage,
   resolveChatContextUsageSource,
 } from '../app_front/features/chat/chatContextMeter.js';
@@ -63,13 +64,13 @@ assert.equal(opencodeSnapshotWithRuntimeWindow.fillPercent, 0.1);
 
 const sourceFallback = resolveChatContextUsageSource(
   { agentTransport: 'openrouter' },
-  { estimated: false, hasReportedUsage: true },
+  { estimated: false, hasReportedUsage: true, fillProvenance: 'measured' },
 );
 assert.equal(sourceFallback, 'openrouter-live');
 
 const sourceEstimated = resolveChatContextUsageSource(
   { agentTransport: 'openrouter' },
-  { estimated: true, hasReportedUsage: false },
+  { estimated: true, hasReportedUsage: false, fillProvenance: 'estimated' },
 );
 assert.equal(sourceEstimated, 'openrouter-estimated');
 
@@ -114,5 +115,49 @@ assert.equal(exactMissingTotal.totalTokens, 3862);
   assert.equal(estimatedOnly.estimated, true);
   assert.equal(estimatedOnly.inputTokens, estimateTokensFromText('A'.repeat(4000)));
 }
+
+const claudeRunUsageChat = {
+  agentTransport: 'claude',
+  model: 'claude-sonnet-4-20250514',
+  _contextUsageInputTokens: 668_113,
+  _contextUsageSource: 'claude-live',
+  _contextFillPercent: 66.8,
+};
+const claudeRunUsageSnapshot = buildChatContextSnapshot(claudeRunUsageChat, claudeRunUsageChat.model);
+assert.equal(claudeRunUsageSnapshot.fillPercent, null);
+assert.equal(claudeRunUsageSnapshot.fillProvenance, 'none');
+assert.equal(claudeRunUsageSnapshot.source, 'claude-no-data');
+assert.equal(claudeRunUsageSnapshot.inputTokens, null);
+
+const claudeEstimatedChat = {
+  agentTransport: 'claude',
+  model: 'claude-sonnet-4-20250514',
+  _buffer: 'A'.repeat(4000),
+};
+const claudeEstimatedSnapshot = buildChatContextSnapshot(claudeEstimatedChat, claudeEstimatedChat.model);
+assert.equal(claudeEstimatedSnapshot.isEstimated, true);
+assert.equal(claudeEstimatedSnapshot.fillProvenance, 'estimated');
+assert.equal(claudeEstimatedSnapshot.source, 'claude-estimated');
+assert.equal(claudeEstimatedSnapshot.fillPercent, 0.5);
+
+const claudeMeasuredChat = {
+  agentTransport: 'claude',
+  model: 'claude-sonnet-4-20250514',
+  _contextMeasuredFillPercent: 42.5,
+  _contextMeasuredInputTokens: 85000,
+  _contextMeasuredUpdatedAt: 1750000000000,
+};
+const claudeMeasuredSnapshot = buildChatContextSnapshot(claudeMeasuredChat, claudeMeasuredChat.model);
+assert.equal(claudeMeasuredSnapshot.fillProvenance, 'measured');
+assert.equal(claudeMeasuredSnapshot.source, 'claude-measured');
+assert.equal(claudeMeasuredSnapshot.fillPercent, 42.5);
+assert.equal(claudeMeasuredSnapshot.isEstimated, false);
+
+const claudeEpochChat = { agentTransport: 'claude', model: 'claude-sonnet-4-20250514' };
+resetChatContextMeterState(claudeEpochChat, { reason: 'compact_boundary' });
+assert.equal(claudeEpochChat._contextMeterEpoch, 1);
+assert.equal(claudeEpochChat._contextMeterBoundaryReason, 'compact_boundary');
+resetChatContextMeterState(claudeEpochChat, { reason: 'compact_boundary' });
+assert.equal(claudeEpochChat._contextMeterEpoch, 2);
 
 console.log('chat-context-meter.test.js OK');
