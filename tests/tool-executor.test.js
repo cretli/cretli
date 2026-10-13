@@ -23,6 +23,14 @@ const blockedShell = await executeTool('run_terminal_command', { command: 'echo 
 assert.equal(blockedShell.ok, false);
 assert.equal(fs.existsSync(path.join(tmpRoot, 'pwned.txt')), false);
 
+const blockedQuotedSubshell = await executeTool(
+  'run_terminal_command',
+  { command: 'echo "$(touch quoted-bypass.txt)"' },
+  { cwd: tmpRoot, mode: 'plan' },
+);
+assert.equal(blockedQuotedSubshell.ok, false);
+assert.equal(fs.existsSync(path.join(tmpRoot, 'quoted-bypass.txt')), false);
+
 const blockedReplace = await executeTool('search_replace', {
   path: 'hello.txt',
   old_string: 'hello',

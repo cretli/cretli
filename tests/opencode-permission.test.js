@@ -82,12 +82,15 @@ assert.equal(shouldRejectOpenCodePlanPermission('plan', askedV1), true);
 assert.equal(shouldRejectOpenCodePlanPermission('agent', askedV2), false);
 assert.equal(shouldRejectOpenCodePlanPermission('plan', { action: 'Read file' }), false);
 assert.equal(shouldRejectOpenCodePlanPermission('agent', askedV2, 'review'), true);
+// Plain project tests are allowed under the review contract; the guard must not
+// reject `node tests/<file>.test.js` (this previously encoded the OLD contract
+// and threw, hiding the rest of the file).
 assert.equal(
   shouldRejectOpenCodePlanPermission('agent', {
     action: 'bash',
     metadata: { command: 'node tests/conversation-fork.test.js' },
   }, 'review'),
-  true,
+  false,
 );
 assert.equal(
   shouldRejectOpenCodePlanPermission('agent', {
@@ -377,7 +380,7 @@ assert.equal(
     assignment: 'review',
     workspaceFolder: brokerWorkspace,
   }).decision,
-  'deny',
+  'allow',
 );
 
 assert.equal(
