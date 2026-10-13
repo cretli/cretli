@@ -186,10 +186,179 @@ Settings live in `data/config.json` under `usage` (see
    existing harness telemetry tests, plus a matrix/contract assertion when the
    contract row changes.
 
+## 6b. TODO usage statistics
+
+Two read-only views over the *existing* ledger answer "what did this TODO
+cost?". They never write usage, never re-price an event and never touch the
+delegation or todo tree.
+
+- Read model: [`lib/usage/todo-usage.js`](../lib/usage/todo-usage.js) (pure),
+  I/O: [`lib/usage/todo-usage-read.js`](../lib/usage/todo-usage-read.js),
+  routes: `lib/routes/todos-routes.js`.
+
+### Join
+
+A usage event is attributed to a TODO through its delegation:
+
+```
+delegation (leafId = todo id) -> attempt (attemptId + runId) -> usage event
+```
+
+The join key is `delegationId + attemptId + runId`. Consequences:
+
+- a **retry** is a new attempt/run on the same delegation row, so it is a
+  separate measurement, and a repeated delivery of one logical event (same
+  `logicalEventKey`) is counted once (`unattributed.duplicateEvents`);
+- a missing, mismatched or ambiguous attempt/run identity is left unmatched; no
+  delegation-only fallback is used;
+- an event without a `delegationId` (or with an unknown delegation) cannot be
+  attributed. It is counted in `unattributed.events` only when the ledger event
+  carries this workspace's `workspaceFile`. The ledger schema has no
+  `workspaceFolder`, so unjoined events with no workspace key are reported
+  separately as `unattributed.unscopedEvents` (also `diagnostics.unscopedEvents`)
+  and are never summed into any total;
+- `attempts` counts expected distinct attempts from delegation lifecycle records,
+  including attempts with no ledger event; `delegations` counts their unique
+  delegation ids.
+
+### Tree attribution
+
+`own` is the usage of the delegations bound to this very TODO; `consolidated`
+is the usage of the delegations bound to its descendants. Both are returned
+side by side and **must never be added**: the response carries `mixed` when
+both are non-empty and deliberately has no combined total. Every event is
+attributed to exactly one TODO, so a tree roll-up can never double count a
+child (`duplicationGuard`).
+
+The nested `summary` defaults to accounting scope `own`; callers may select
+`accountingScope=consolidated`; `both` is rejected with 400. The separate `accountingScopes` field
+always reports own and consolidated subtotals side by side. These use
+`own`/`consolidated` in the ledger’s per-event accounting-scope sense, separate
+from the TODO tree attribution axis.
+
+### Missing data versus zero
+
+| Situation | Value | Coverage |
+| --- | --- | --- |
+| No joined event at all | `usd: null`, `tokens: null` | `state: 'no_data'`, `costCoverage: 'none'`, note `no_usage_events` |
+| Event measured `usd: 0` | `usd: 0` | `costCoverage: 'complete'` |
+| Event without `usd` (history written before pricing) | `usd: null` | `unpricedEvents`, note `cost_is_not_recomputed_from_the_rate_table` |
+| `billingMode: 'subscription'` | `usd: null` | `subscriptionEvents`, note `subscription_usage_is_not_zero_cost` |
+
+A subscription is **not** a zero cost, and an unpriced historical event is
+never re-priced from the rate table — it is reported as missing instead.
+
+### Cost and time
+
+- Cost comes from the ledger only: `usd` sums events the ledger already
+  priced, `estimatedUsd` keeps rate-table estimates apart, and `reportedUsd`
+  carries provider-reported cost. Run events carry no tokens and no cost.
+- `attemptsDurationMs` is the **sum** of per-attempt wall time. `elapsedMs`
+  is the **span** from the earliest queue/start to the latest finish. They
+  differ whenever attempts overlap, and an open span is `null`.
+
+### Endpoints
+
+| Route | Meaning |
+| --- | --- |
+| `GET /api/todos/usage` | Workspace view: one row per TODO plus a `workspace` roll-up. Registered **before** the parametric `/api/todos/:id*` routes so `usage` is never captured as an id. |
+| `GET /api/todos/:id/usage` | One TODO, `own` + `consolidated`. |
+
+Query parameters (both routes):
+
+| Parameter | Default | Rule |
+| --- | --- | --- |
+| `from`, `to` | — | ISO 8601 instant or `YYYY-MM-DD`; the range is `[from, to)`. |
+| `range` | `30d` | Named range when no endpoint is given (`today`, `month`, `24h`, `7d`, `30d`, `month7d`). |
+| `tz` | server default | IANA zone; an unknown zone is an error. |
+| `limit` | `50` | `1..200`; anything else is 400. |
+| `cursor` | — | Opaque cursor from the previous `nextCursor`. |
+| `scope` | `both` | `own`, `consolidated` or `both`. |
+| `accountingScope` | `own` | Ledger accounting scope: `own` or `consolidated`. `both` is rejected with 400 because the scopes are alternatives and summing them double counts; `accountingScopes` in each aggregate carries both subtotals side by side. |
+| `include` | `all` | `all`, or `usage` for rows with at least one event. |
+| `status` | — | Comma-separated TODO status filter. |
+| `root` | — | Limit the workspace view to one subtree. |
+
+Responses contain no filesystem paths (no `cwd`). Attempt counts (`attempts`,
+`delegations`, `attemptsDurationMs`, `elapsedMs`) come from delegation lifecycle
+records and are not narrowed by the window or model filter. The window is capped at 92 days. Responses carry `asOf`, `appliedFilters`,
+`currency: 'USD'`, `window`, `limit`, `offset`, `total`, `returned` and
+`nextCursor`. The workspace `workspace` total is computed over the selected
+root/status subtree. Every sum (tokens, `usd`, `reportedUsd`, coverage
+counters) is computed from the events that pass the model filter and the
+selected `accountingScope`; the `status`/`root` filters select rows only and
+never remove a descendant from its parent's `consolidated` side. `usd` is
+`null` unless at least one event was priced by the ledger; estimated-only usage
+is reported as `estimatedUsd` with `usd: null`.
+
+Pagination: the cursor binds the normalized filters (`from`/`to` calendar days,
+root, status, include, scope, model, accountingScope) and a data revision built
+from stable fields only (TODO ids + `updatedAt`, delegation ids and attempt
+keys, ledger event count). The rolling instant of a `30d` window is not bound,
+so page 2 succeeds and every page repeats the same workspace totals. A changed
+filter or new data returns 409 `CONFLICT` and requires pagination to restart.
+Ordering uses stable TODO ids. Model-by-role summaries are exposed as
+`byModelRole`.
+
+Coverage: `coverage.ledger` carries `corrupt` and `retainedOut` from the ledger
+read diagnostics (`retainedOut` is `1` when the window starts before the oldest
+retained day file, so retention may have removed days that cannot be proven
+present; older files outside the window never set it) (`null` when not supplied) and `missing`, the number of
+lifecycle attempts with no joined event. `coverage.contractual.complete` is
+`true` only when corrupt = 0, retainedOut = 0, missing = 0 and at least one
+attempt is expected; otherwise it is `false`. Corruption is a counter that
+makes the contract incomplete — it is not itself an error response.
+
+Errors: `400` for an invalid window/limit/cursor/scope (code `VALIDATION`),
+`409` for a cursor bound to stale data or filters (`CONFLICT`), `404` for an
+unknown TODO (`NOT_FOUND`), and `503` with code
+`USAGE_UNAVAILABLE` when the ledger cannot be read — never an empty result.
+The list endpoint `GET /api/todos` gains no extra I/O.
+
+### UI
+
+The statistics have two entry points in the TODO panel; both read the two
+endpoints above and add no backend surface.
+
+- **Editor tab "Usage"** (`cr-todo-card`): one TODO. `own` and `consolidated`
+  (descendants) are shown as separate columns and are never added together.
+- **Workspace dialog** (chart icon in the TODO toolbar): a workspace summary,
+  a model x role table and a per-TODO table with "load more" cursor paging.
+  The scope is always the active workspace (`workspaceFolder`).
+
+Code: `app_front/features/todo/todoUsageView.js` (pure view model, formatting,
+state resolution), `todoUsageController.js` (fetch, abort, stale-response
+guard), `crTodoUsage.js` (`<cr-todo-usage>` Lit section). Filters: period
+(`24h`, `7d`, `30d`, `month`), status (workspace view), model and "only tasks
+with usage".
+
+Display rules:
+
+| State | When |
+| --- | --- |
+| loading | request in flight and nothing to show yet |
+| unavailable | HTTP 503 / `USAGE_UNAVAILABLE` (ledger unreadable) |
+| error | any other failure (network, 4xx, 5xx) |
+| empty | no attempts and no events in the window |
+| partial | numbers exist but are unproven: unpriced events, corrupt/retained-out days, attempts without usage |
+| ready | measured and contractually complete |
+
+`null` is shown as an italic "—" with a "not measured" tooltip; a measured `0`
+is shown as a number. An estimate-only cost is prefixed with `~`. Every new
+request aborts the previous one and carries a sequence number, so a slow
+response for an older filter or TODO never replaces a newer one. Tests:
+`tests/todo-usage-ui.test.js`.
+
 ## 7. Tests
 
 - `tests/usage-*.test.js` — contract, ledger, persistence, window, insights,
   routes, retention, alerts, privacy.
+- `tests/todo-usage.test.js` — join, retry, tree duplication, own/consolidated,
+  null versus zero, cost coverage, elapsed versus sum, filters, pagination.
+- `tests/todos-routes-usage.test.js` — endpoint contract, window defaults and
+  caps, cursor pagination, 400/404/503 mapping, workspace scoping.
+- `tests/todo-usage-ui.test.js` — UI view model, null versus zero, view states,
+  filters, stale-response guard, PL/EN keys.
 - `tests/usage-settings.test.js`, `tests/usage-settings-routes.test.js` —
   retention/alerts settings normalization and the settings API.
 - `tests/usage-privacy.test.js` — no conversation content or paths, client

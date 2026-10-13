@@ -54,6 +54,7 @@ import './components/ui/cr-bar-button.js';
 import './components/ui/cr-checkbox.js';
 import './components/ui/cr-dialog.js';
 import './components/ui/cr-todo-card.js';
+import './features/todo/crTodoUsage.js';
 import { findTodoRecoveryState } from './features/todo/todoRecoveryView.js';
 import { buildTodoReviewTaskText, resolveTodoReviewParentChatId } from './features/todo/todoReviewStart.js';
 import {
@@ -580,6 +581,57 @@ function applyStatusFilterFromUi() {
     renderList({ items: latestItems });
   }
   scheduleTodoViewMemoryCapture();
+}
+
+/** Workspace-wide usage statistics dialog (aggregate view of the TODO panel). */
+let usageDialog = null;
+let usageSection = null;
+
+function openUsageDialog() {
+  if (!usageDialog) {
+    const dialog = document.createElement('cr-dialog');
+    dialog.className = 'todo-usage-dialog';
+    dialog.closable = true;
+    dialog.closeLabel = t('todo.closeEditor');
+    dialog.style.setProperty('--cr-dialog-max-width', '60rem');
+    const section = document.createElement('cr-todo-usage');
+    section.todoId = '';
+    dialog.appendChild(section);
+    // Closing stops fetching and aborts any request still in flight.
+    dialog.addEventListener('cr-dialog-close', () => {
+      section.active = false;
+    });
+    document.body.appendChild(dialog);
+    usageDialog = dialog;
+    usageSection = section;
+  }
+  usageDialog.heading = t('todo.usageDialogHeading');
+  usageSection.active = true;
+  usageSection.refresh();
+  usageDialog.show();
+}
+
+function ensureUsageUi() {
+  const anchor = document.getElementById('todo-new-open-btn');
+  if (!anchor || document.getElementById('todo-usage-open-btn')) return;
+  const btn = document.createElement('cr-icon-button');
+  btn.id = 'todo-usage-open-btn';
+  btn.setAttribute('title', t('todo.usageOpenTitle'));
+  btn.setAttribute('aria-label', t('todo.usageOpenTitle'));
+  const icon = document.createElement('span');
+  icon.className = 'mdi mdi-chart-box-outline';
+  icon.setAttribute('aria-hidden', 'true');
+  btn.appendChild(icon);
+  btn.addEventListener('click', openUsageDialog);
+  anchor.after(btn);
+  window.addEventListener('cretli-active-workspace-changed', () => {
+    if (usageSection?.active) usageSection.refresh();
+  });
+  window.addEventListener('cr-lang-changed', () => {
+    btn.setAttribute('title', t('todo.usageOpenTitle'));
+    btn.setAttribute('aria-label', t('todo.usageOpenTitle'));
+    if (usageDialog) usageDialog.heading = t('todo.usageDialogHeading');
+  });
 }
 
 function ensureStatusFilterUi(toolbar) {
@@ -2882,6 +2934,7 @@ export function initTodoPanel(options = {}) {
     syncEditorItem();
   });
   ensureStatusFilterUi(document.querySelector('#todo-panel .todo-toolbar'));
+  ensureUsageUi();
   initWatcherPanel({
     getTodoTitle: (id) => String(findItem(id)?.title || ''),
     openChat: openWatcherChat,

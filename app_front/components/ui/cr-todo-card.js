@@ -25,8 +25,9 @@ import './cr-bar-select.js';
 import './cr-bar-input.js';
 import './cr-bar-textarea.js';
 import './cr-bar-button.js';
+import '../../features/todo/crTodoUsage.js';
 
-const TODO_TABS = ['overview', 'plan', 'notes', 'chats', 'history', 'settings'];
+const TODO_TABS = ['overview', 'plan', 'notes', 'chats', 'history', 'usage', 'settings'];
 
 function getTodoStatusOptions() {
   return [
@@ -260,6 +261,7 @@ class CrTodoCard extends LitElement {
       { id: 'notes', label: t('todo.tabNotes') },
       { id: 'chats', label: t('todo.tabChats', { count: String(chatsCount) }) },
       { id: 'history', label: t('todo.tabHistory', { count: String(historyCount) }) },
+      { id: 'usage', label: t('todo.tabUsage') },
       { id: 'settings', label: t('todo.tabSettings') },
     ];
   }
@@ -981,6 +983,21 @@ class CrTodoCard extends LitElement {
     `;
   }
 
+  /** Usage statistics tab; the section fetches only while the tab is active. */
+  _renderUsagePanel(item) {
+    return html`
+      <section
+        class="todo-item-tabpanel todo-item-tabpanel--usage"
+        id="todo-tabpanel-usage"
+        role="tabpanel"
+        aria-labelledby="todo-tab-usage"
+        ?hidden=${this.activeTab !== 'usage'}
+      >
+        <cr-todo-usage .todoId=${String(item?.id || '')} .active=${this.activeTab === 'usage'}></cr-todo-usage>
+      </section>
+    `;
+  }
+
   _renderSettingsPanel(item) {
     const assignee = item?.assignee && typeof item.assignee === 'object' ? item.assignee : null;
     const harnessOptions = [
@@ -1152,7 +1169,7 @@ class CrTodoCard extends LitElement {
           ${this._renderOverviewPanel(item)} ${this._renderPlanPanel(item)}
           ${this._renderNotesPanel(item)}
           ${this._renderChatsPanel(item)} ${this._renderHistoryPanel(item)}
-          ${this._renderSettingsPanel(item)}
+          ${this._renderUsagePanel(item)} ${this._renderSettingsPanel(item)}
         </div>
       </article>
     `;
