@@ -9,6 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildTodoReviewSnapshot, computeTodoReviewSnapshotForTodo } from '../lib/todo-review-sync.js';
 import { buildDelegationQualityCycles } from '../lib/delegation-cycle-outcomes.js';
+import { resolveEffectiveCodeReviewReportVerdict } from '../lib/delegation-code-review-phase.js';
 import { isIncompleteDelegationReport } from '../lib/delegation-verdict.js';
 import { createDelegationRecord, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 
@@ -671,4 +672,45 @@ test('round.index counts implement/fix rounds since the last PASS', () => {
   assert.equal(subjectSnapshot([impl1, failed, impl2, passed]).round.index, 0, 'a PASS closes the count');
   const impl3 = materialRow({ queuedAt: t(7), startedAt: t(7), finishedAt: t(8) });
   assert.equal(subjectSnapshot([impl1, failed, impl2, passed, impl3]).round.index, 1);
+});
+
+/**
+ * Finish→record→badge: a closure review's FAIL is reconciled at finish, persisted
+ * as reportVerdict, and only then read by the todo snapshot.
+ *
+ * @param {string} report
+ * @returns {object}
+ */
+function closureReviewRecordedAtFinish(report) {
+  const raw = reviewRow({ startedAt: t(3), reviewMode: 'closure', report, reportVerdict: 'FAIL' });
+  const reportVerdict = resolveEffectiveCodeReviewReportVerdict(raw, 'FAIL');
+  return { ...raw, reportVerdict };
+}
+
+test('closure: a non-P1 FOLLOW_UP FAIL recorded at finish gives a passed todo badge', () => {
+  const impl = materialRow({ queuedAt: t(1), startedAt: t(1), finishedAt: t(2) });
+  const review = closureReviewRecordedAtFinish([
+    'F1 FIXED with test evidence',
+    'VERDICT: FAIL',
+    '[FOLLOW_UP]',
+    'F9 (P2): style nit',
+  ].join('\n'));
+  const code = subjectSnapshot([impl, review]);
+  assert.equal(review.reportVerdict, 'PASS');
+  assert.equal(code.state, 'passed');
+  assert.equal(code.stateReason, 'fresh_review');
+});
+
+test('closure: a STILL_OPEN P1 recorded at finish keeps the todo badge failed', () => {
+  const impl = materialRow({ queuedAt: t(1), startedAt: t(1), finishedAt: t(2) });
+  const review = closureReviewRecordedAtFinish([
+    'F1 STILL_OPEN (P1): regression in the finish path',
+    'VERDICT: FAIL',
+    '[FOLLOW_UP]',
+    'F9 (P2): style nit',
+  ].join('\n'));
+  const code = subjectSnapshot([impl, review]);
+  assert.equal(review.reportVerdict, 'FAIL');
+  assert.equal(code.state, 'failed');
+  assert.equal(code.stateReason, 'review_failed');
 });
