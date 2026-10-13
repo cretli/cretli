@@ -2364,7 +2364,7 @@ export const en = {
     smartMergeOffer: 'The plain merge failed. Run a smart merge with an agent? Conflicts: {paths}',
     smartMergeStarting: 'Preparing the merge and starting the agent…',
     smartMergeFailed: 'Could not start the smart merge.',
-    smartMergeStarted: 'The agent is merging the worktree into the workspace. Confirm the integration on the task when it finishes.',
+    smartMergeStarted: 'The agent is merging the worktree into the workspace, committing those files, and recording the integration proof.',
     recoveryDoingHeading: 'Doing tasks — recovery',
     recoveryDoingEmpty: 'No tasks are in doing.',
     recoveryColTodo: 'Task',

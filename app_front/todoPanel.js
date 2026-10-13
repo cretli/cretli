@@ -1473,8 +1473,9 @@ async function mergeTodoWithWorkspace(item) {
 
 /**
  * Smart merge: pick an agent (harness + model) that merges the worktree result
- * into the workspace by hand. The chat runs in the logical workspace, not in the
- * worktree, and nothing is committed.
+ * into the workspace, commits only those task files, and records the integration
+ * proof. The chat runs in the logical workspace, not in the worktree. It does
+ * not push.
  *
  * @param {object} item
  * @param {string[]} conflicts

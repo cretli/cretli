@@ -2364,7 +2364,7 @@ export const pl = {
     smartMergeOffer: 'Zwykłe scalanie nie powiodło się. Uruchomić smart merge przez agenta? Konflikty: {paths}',
     smartMergeStarting: 'Przygotowuję merge i startuję agenta…',
     smartMergeFailed: 'Nie udało się uruchomić smart merge.',
-    smartMergeStarted: 'Agent scala worktree z workspace. Po zakończeniu potwierdź integrację na zadaniu.',
+    smartMergeStarted: 'Agent scala worktree z workspace, commituje te pliki i zapisuje dowód integracji.',
     recoveryDoingHeading: 'Zadania doing — odzyskiwanie',
     recoveryDoingEmpty: 'Brak zadań w stanie doing.',
     recoveryColTodo: 'Zadanie',

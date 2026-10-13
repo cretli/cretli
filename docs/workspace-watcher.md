@@ -1171,8 +1171,14 @@ ancestor of the target tip. Only then the integration proof is recorded and the
 todo is confirmed (`done`, `integration.state = integrated`). A refused proof
 keeps the todo awaiting integration with `integration.reason =
 git_merge_unverified: <why>`; a `failed` report keeps it with
-`smart_merge_failed: <summary>` so it can be retried. The older "workspace"
-smart merge (uncommitted result, human confirms) is unchanged.
+`smart_merge_failed: <summary>` so it can be retried.
+
+The TODO action **Integrate with workspace (agent)** is the other explicit
+exception. It still merges into a dirty workspace by hand (no `git merge`).
+The prompt then commits only the listed task paths and records integration
+proof with `todo_integration` `confirm` (`proof.simple`), because starting the
+action is the user's attestation. It never pushes and never stages other paths.
+A failed commit does not record proof; the report still marks the result applied.
 
 ### 5. Git context indicator and panel
 

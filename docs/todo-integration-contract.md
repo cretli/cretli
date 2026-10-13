@@ -121,7 +121,9 @@ Transitions preserve current behavior unless explicitly extended here:
 - `patch_invalid` and `integration_conflict` remain visible failure details and
   never create proof.
 - No watcher or agent performs an automatic commit, push, merge, rebase,
-  cherry-pick or deployment.
+  cherry-pick or deployment. Two user-started chats are the exception: the
+  git-level worktree merge, and **Integrate with workspace (agent)**, which
+  commits only the listed task paths and then confirms proof. Neither pushes.
 
 ## 4. Tree aggregation
 

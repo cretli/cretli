@@ -134,6 +134,23 @@ test('verification accepts a merged branch and returns the proof commits', (t) =
   assert.equal(result.sourceCommit, git(suite.repo, ['rev-parse', suite.record.branch]).trim());
 });
 
+test('workspace smart merge asks the agent to commit listed paths and record proof', (t) => {
+  const suite = makeSuite('workspace-prompt');
+  t.after(suite.cleanup);
+  const started = buildSmartMergeRequest({
+    todoId: suite.todo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir,
+    baseUrl: 'https://127.0.0.1:3011', insecureTls: true,
+  });
+  assert.equal(started.ok, true, JSON.stringify(started));
+  assert.match(started.prompt, /Commit only the paths listed/);
+  assert.match(started.prompt, /todo_integration action confirm/);
+  assert.match(started.prompt, /Do not push/);
+  assert.doesNotMatch(started.prompt, /Do NOT commit/);
+  const todo = getTodoById(suite.dataDir, suite.repo, suite.todo.id);
+  assert.equal(todo.integration.reason, 'smart_merge_running');
+  assert.notEqual(todo.integration.mergeMode, GIT_BRANCH_MERGE_MODE);
+});
+
 test('git-branch merge request: refused untouched when blocked, started with a marker when clear', (t) => {
   const suite = makeSuite('request');
   t.after(suite.cleanup);
