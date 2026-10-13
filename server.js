@@ -32,6 +32,7 @@ import { resolveAgentCommand, buildAgentSpawnEnv } from './lib/agent-cli.js';
 import { loadSettings } from './lib/persist/settings.js';
 import { writeJsonAtomic } from './lib/persist/atomic-write.js';
 import {
+  isApiRequestPath,
   isAuthConfigured,
   isLanExposed,
   requireAuth,
@@ -288,7 +289,7 @@ app.use((req, res, next) => {
   next();
 });
 app.use((req, res, next) => {
-  if (!req?.path?.startsWith('/api/') || !isHttpTimingEnabled()) return next();
+  if (!isApiRequestPath(String(req?.path || '')) || !isHttpTimingEnabled()) return next();
   const requestId = randomSessionId();
   const startedAt = Date.now();
   console.log('[http-timing] start', requestId, req.method, req.originalUrl || req.url || req.path);

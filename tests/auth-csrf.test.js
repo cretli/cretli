@@ -14,10 +14,44 @@ const {
   getCsrfTokenForSessionToken,
   verifyCsrfToken,
   requireAuth,
+  isApiRequestPath,
+  isPublicApiPath,
   clearSession,
 } = auth;
 
 setPassword('test-password-123');
+
+assert.equal(isApiRequestPath('/api/chats'), true);
+assert.equal(isApiRequestPath('/API/settings'), true);
+assert.equal(isApiRequestPath('/Api/health'), true);
+assert.equal(isApiRequestPath('/dist/app/main.js'), false);
+assert.equal(isPublicApiPath('/API/health'), true);
+assert.equal(isPublicApiPath('/API/settings'), false);
+
+const unauthedUpperApiReq = { method: 'GET', path: '/API/settings', headers: {} };
+let upperApiBlocked = false;
+requireAuth(unauthedUpperApiReq, {
+  status(code) {
+    assert.equal(code, 401);
+    return this;
+  },
+  json(body) {
+    upperApiBlocked = body?.authRequired === true;
+    return this;
+  },
+}, () => {
+  upperApiBlocked = false;
+});
+assert.equal(upperApiBlocked, true);
+
+let publicUpperApiPassed = false;
+requireAuth({ method: 'GET', path: '/API/health', headers: {} }, {
+  status() { return this; },
+  json() { return this; },
+}, () => {
+  publicUpperApiPassed = true;
+});
+assert.equal(publicUpperApiPassed, true);
 const sessionToken = createSession();
 const csrfToken = getCsrfTokenForSessionToken(sessionToken);
 assert.ok(csrfToken);
