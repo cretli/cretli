@@ -31,8 +31,8 @@ All notable changes to this project are documented here. The format is based on
 - **Experimental automatic leaf close (`CRETLI_TODO_LEAF_AUTO_CLOSE`, default
   off).** When enabled, a `doing` leaf moves to `done` after a fresh code-review
   PASS with satisfied verify, unless it awaits integration, is worktree-backed,
-  has an active implement/fix, or holds an unconfirmed cancel. With the flag off
-  nothing changes.
+  has an active implement/fix, or holds an unconfirmed cancel. An unreadable
+  worktree registry now refuses the close. With the flag off nothing changes.
 
 - Workspace Watcher settings now expose the worktree dirty-tree start policy:
   block (default), last commit (HEAD), or a snapshot of current changes. New

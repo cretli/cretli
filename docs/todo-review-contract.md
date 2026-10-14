@@ -919,6 +919,34 @@ children:
 Nothing in this contract changes status transitions. A todo can reach `done`
 with `review.state = none`, `unknown` or `stale`. `done` is not gated (P10); the
 future review gate for autopilot is a separate leaf and is out of scope here.
+The only exception is the flag-gated, default-off automatic leaf close described
+in §12.4.
+
+### 12.4 Experimental automatic leaf close — flag-gated, OPEN
+
+`CRETLI_TODO_LEAF_AUTO_CLOSE` (`isTodoLeafAutoCloseEnabled`) is off by default.
+When it is on, every review sync (§10.4) re-evaluates the leaf under the todos
+write lock (§10.2) and moves a `doing` leaf to `done` when all hold:
+
+- the todo exists, is `doing` and is a leaf (a parent is never closed
+  explicitly);
+- it does not await integration and runs in project mode: neither the leaf's
+  execution mode is `worktree` nor is there a live worktree record on the leaf
+  or any ancestor (`docs/todo-worktree-contract.md` §8.3, §8.5);
+- no implement/fix is active and no slot is `cancel_unconfirmed`;
+- the code review state is `passed` with a usable PASS and satisfied verify. A
+  plan-review PASS never closes.
+
+Refusal reasons: `not_found`, `not_doing`, `not_leaf`, `awaiting_integration`,
+`worktree_execution`, `cancel_unconfirmed`, `material_active`, `review_<state>`,
+`no_usable_pass`, plus `worktree_registry_unreadable` (an unreadable worktree
+registry is a refusal, never "no worktree"), `error` and `error_after_close`
+(an error after the save still reports the leaf as closed).
+
+A close clears `claimedByChatId`, `claimedAt` and `claimLeaseUntil`, appends an
+`Auto-closed` changelog note and changes `item.updatedAt`, so a later
+`todo_update` with the old `expected_updated_at` gets `CONFLICT`. A missing
+registry file is an empty registry. Open points: D6-D10 in §14.3.
 
 ## 13. Out-of-scope metrics (plan point 13)
 
@@ -933,6 +961,7 @@ touches any of them needs its own decision.
 | `usage-insights` / `model-stats` fields other than `manualAccepted` | unchanged |
 | Scout | untouched |
 | Autopilot review gate | separate leaf; `done` is not blocked here |
+| Automatic leaf close | experimental, default off, §12.4 |
 | Widgets receiving a todo-change event | not in v1 (decision 7); only the existing Todo-panel channel |
 | Content fingerprint, logical-vs-worktree diff detection, requirement-edit invalidation | v2 candidates (§6.2, §6.4) |
 | Automatic commit / push / merge / rebase / cherry-pick | out of scope (`docs/todo-worktree-contract.md` S15) |
@@ -978,6 +1007,11 @@ touches any of them needs its own decision.
 | D3 | Prefix → full todo id resolution | data-model leaf |
 | D4 | v2 content fingerprint | later tree |
 | D5 | Whether the claim is held from PASS to integration (existing OPEN O2) | `docs/todo-worktree-contract.md` |
+| D6 | Re-close of a leaf manually reopened under a still-fresh PASS. A: accept and document. B: close at most once per review round (new field). OPEN; recommendation B before enabling the flag | product decision |
+| D7 | Trees with a worktree never auto-close (§8.5: PASS alone does not set `done`). OPEN; recommendation: keep the refusal, `done` there comes from confirmed integration | worktree contract |
+| D8 | An `integrated` record not yet cleaned/released is live and blocks auto-close of further leaves. OPEN; recommendation: keep | worktree contract |
+| D9 | Orchestrator/skill behaviour after an auto-close (`CONFLICT`; read `todo_show`, `done` with an `Auto-closed` entry means closed). OPEN; recommendation: add to the multi-harness skill when the flag is enabled | skills |
+| D10 | Broadcast to the UI when a close happens without a snapshot change (§10.7). A: leave. B: also emit on close. OPEN; recommendation B before enabling the flag | UI leaf |
 
 ## 15. UI materialization (leaf 5)
 

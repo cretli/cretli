@@ -881,7 +881,7 @@ from delegation records by `lib/todo-review-sync.js` and read through
 in the Todo panel is read-only. Contract, limits and the one-off rollout script
 (`scripts/backfill-todo-review.js`): [todo-review-contract.md](todo-review-contract.md).
 
-**Experimental: automatic leaf close (`CRETLI_TODO_LEAF_AUTO_CLOSE`, default off).** When set to `1`, a leaf in `doing` moves to `done` after a fresh code-review PASS with satisfied verify (`review.code.state = passed`), unless it awaits integration or is worktree-backed (execution mode `worktree` or a live worktree record on the leaf or an ancestor), has an active implement/fix, or a slot is `cancel_unconfirmed`. The check and the write run under the todos write lock. Enabling it requires a contract annex to `docs/todo-review-contract.md` §12.3/§13; with the flag off nothing changes.
+**Experimental: automatic leaf close (`CRETLI_TODO_LEAF_AUTO_CLOSE`, default off).** When set to `1`, a leaf in `doing` moves to `done` after a fresh code-review PASS with satisfied verify (`review.code.state = passed`), unless it awaits integration or is worktree-backed (execution mode `worktree` or a live worktree record on the leaf or an ancestor), has an active implement/fix, or a slot is `cancel_unconfirmed`. The check and the write run under the todos write lock. An unreadable worktree registry refuses the close (`worktree_registry_unreadable`). Contract annex: `docs/todo-review-contract.md` §12.4; with the flag off nothing changes.
 
 ## Workspace Watcher
 

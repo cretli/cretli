@@ -7,7 +7,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { addTodo, loadTodosData, updateTodo } from '../lib/persist/todos-persist.js';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { addTodo, closeTodoLeafIfEligible, loadTodosData, updateTodo } from '../lib/persist/todos-persist.js';
+import { withWorkspaceWatchersFileLock } from '../lib/persist/workspace-watchers-persist.js';
+import { worktreeRegistryPath, writeWorktreeRegistry } from '../lib/persist/worktree-registry-persist.js';
+import { buildLiveWorktreePredicate } from '../lib/todo-worktree-manual.js';
 import { evaluateTodoLeafAutoClose, isTodoLeafAutoCloseEnabled } from '../lib/todo-review-sync.js';
 import { closeTodoLeafAfterReview, syncTodoReviewTarget } from '../lib/todo-review-sync-hooks.js';
 
@@ -207,4 +212,172 @@ test('F5: auto-close appends a changelog note', () => {
   close(project, leaf.id, passedRows(leaf.id));
   const saved = loadTodosData(ISOLATED_DATA_DIR, project).items.find((r) => r.id === leaf.id);
   assert.ok(saved.changelog.some((e) => /Auto-closed/.test(e.text)));
+});
+
+const REGISTRY_OPTIONS = { dataDir: ISOLATED_DATA_DIR };
+
+function withRegistry(items, work) {
+  const file = worktreeRegistryPath(REGISTRY_OPTIONS);
+  try {
+    if (typeof items === 'string') fs.writeFileSync(file, items);
+    else writeWorktreeRegistry({ items }, REGISTRY_OPTIONS);
+    return work();
+  } finally {
+    fs.rmSync(file, { force: true });
+  }
+}
+
+function worktreeRecord(todoId, extra = {}) {
+  return {
+    todoId,
+    workspaceFolder: '/tmp/ws',
+    worktreePath: `/tmp/wt-${todoId}`,
+    branch: `cretli/todo/${todoId}`,
+    baseCommit: 'abc123',
+    ...extra,
+  };
+}
+
+test('T1: unreadable worktree registry refuses the close', () => {
+  const project = makeProject();
+  const leaf = makeLeaf(project);
+  withRegistry('{ not json', () => {
+    const result = close(project, leaf.id, passedRows(leaf.id));
+    assert.equal(result.closed, false);
+    assert.equal(result.reason, 'worktree_registry_unreadable');
+    assert.equal(buildLiveWorktreePredicate(ISOLATED_DATA_DIR)(leaf.id), false);
+    assert.throws(() => buildLiveWorktreePredicate(ISOLATED_DATA_DIR, { strict: true }));
+  });
+  assert.equal(statusOf(project, leaf.id), 'doing');
+});
+
+test('T2: live registry record on the root blocks a child leaf', () => {
+  const project = makeProject();
+  const root = addTodo(ISOLATED_DATA_DIR, project, { title: 'Root', status: 'doing' }).item;
+  const leaf = addTodo(ISOLATED_DATA_DIR, project, { title: 'Leaf', status: 'doing', parentId: root.id }).item;
+  withRegistry({ [root.id]: worktreeRecord(root.id) }, () => {
+    const result = close(project, leaf.id, passedRows(leaf.id));
+    assert.equal(result.closed, false);
+    assert.equal(result.reason, 'worktree_execution');
+  });
+});
+
+test('T3: live registry record on the leaf itself blocks the close', () => {
+  const project = makeProject();
+  const leaf = makeLeaf(project);
+  withRegistry({ [leaf.id]: worktreeRecord(leaf.id) }, () => {
+    const result = close(project, leaf.id, passedRows(leaf.id));
+    assert.equal(result.closed, false);
+    assert.equal(result.reason, 'worktree_execution');
+  });
+});
+
+test('T4: cleaned or released record does not block the close', () => {
+  for (const extra of [{ cleanedAt: t(5) }, { releasedAt: t(5) }]) {
+    const project = makeProject();
+    const leaf = makeLeaf(project);
+    withRegistry({ [leaf.id]: worktreeRecord(leaf.id, extra) }, () => {
+      assert.equal(close(project, leaf.id, passedRows(leaf.id)).closed, true);
+    });
+  }
+});
+
+test('T5: error after the save reports closed, error before it does not', () => {
+  const project = makeProject();
+  const leaf = makeLeaf(project);
+  const after = closeTodoLeafAfterReview({
+    dataDir: ISOLATED_DATA_DIR,
+    workspaceFolder: project,
+    todoId: leaf.id,
+    rows: passedRows(leaf.id),
+    deps: {
+      closeLeaf: (...args) => {
+        closeTodoLeafIfEligible(...args);
+        throw new Error('boom');
+      },
+    },
+  });
+  assert.deepEqual(after, { closed: true, reason: 'error_after_close' });
+  assert.equal(statusOf(project, leaf.id), 'done');
+  const other = makeLeaf(project);
+  const before = closeTodoLeafAfterReview({
+    dataDir: ISOLATED_DATA_DIR,
+    workspaceFolder: project,
+    todoId: other.id,
+    rows: passedRows(other.id),
+    deps: { closeLeaf: () => { throw new Error('boom'); } },
+  });
+  assert.deepEqual(before, { closed: false, reason: 'error' });
+  assert.equal(statusOf(project, other.id), 'doing');
+});
+
+test('T6: auto-close clears the claim fields', () => {
+  const project = makeProject();
+  const leaf = makeLeaf(project);
+  updateTodo(ISOLATED_DATA_DIR, project, leaf.id, {
+    claimedByChatId: 'chat-1',
+    claimedAt: t(2),
+    claimLeaseUntil: t(30),
+  });
+  assert.equal(close(project, leaf.id, passedRows(leaf.id)).closed, true);
+  const saved = loadTodosData(ISOLATED_DATA_DIR, project).items.find((r) => r.id === leaf.id);
+  assert.equal(saved.claimedByChatId, undefined);
+  assert.equal(saved.claimedAt, undefined);
+  assert.equal(saved.claimLeaseUntil, undefined);
+});
+
+test('T7: nested lock in the same process closes exactly once', () => {
+  const project = makeProject();
+  const leaf = makeLeaf(project);
+  const rows = passedRows(leaf.id);
+  const results = withWorkspaceWatchersFileLock(
+    () => [close(project, leaf.id, rows), close(project, leaf.id, rows)],
+    { dataDir: ISOLATED_DATA_DIR },
+  );
+  assert.equal(results.filter((r) => r.closed).length, 1);
+  assert.equal(statusOf(project, leaf.id), 'done');
+});
+
+function runChild(project, leafId, rows, startAt) {
+  const script = fileURLToPath(new URL('./helpers/auto-close-child.js', import.meta.url));
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [script], {
+      env: {
+        ...process.env,
+        AC_PROJECT: project,
+        AC_LEAF: leafId,
+        AC_ROWS: JSON.stringify(rows),
+        AC_START_AT: String(startAt),
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { err += d; });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) return reject(new Error(`child exited ${code}: ${err}`));
+      try { resolve(JSON.parse(out)); } catch (e) { reject(e); }
+    });
+  });
+}
+
+test('T8: concurrent processes produce exactly one transition', async () => {
+  for (let round = 0; round < 5; round += 1) {
+    const project = makeProject();
+    const leaf = makeLeaf(project);
+    const rows = passedRows(leaf.id);
+    const startAt = Date.now() + 1500;
+    const results = await Promise.all([
+      runChild(project, leaf.id, rows, startAt),
+      runChild(project, leaf.id, rows, startAt),
+      runChild(project, leaf.id, rows, startAt),
+    ]);
+    assert.equal(results.filter((r) => r.closed === true).length, 1, JSON.stringify(results));
+    for (const r of results.filter((x) => !x.closed)) assert.equal(r.reason, 'not_doing');
+    const saved = loadTodosData(ISOLATED_DATA_DIR, project).items.find((r) => r.id === leaf.id);
+    assert.equal(saved.status, 'done');
+    assert.equal(saved.changelog.filter((e) => /Auto-closed/.test(e.text)).length, 1);
+  }
 });
