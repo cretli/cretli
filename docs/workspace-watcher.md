@@ -258,6 +258,37 @@ explicitly.
   orchestrator or a nested child still has a live run, so a busy cycle chat
   stays in the sidebar until the run is idle.
 
+### Phases
+
+`policy.phases` (`plan`, `review`, `implement`, `integrate`) narrows what the
+watcher — and the per-todo "do everything" orchestrator (`mode: 'full'`, same
+helper `lib/watcher-phases.js`) — may do. Defaults: `plan`, `review`,
+`implement` on; `integrate` off.
+
+- **Per-todo override.** `watcher_phases` (partial booleans, set with
+  `todo_update` / `PATCH /api/todos/:id`) wins over the workspace policy and is
+  inherited by descendants (nearest ancestor wins). `{}` clears it.
+- **Not phases.** Approving a plan (`plan.approvedAt`) and confirming
+  integration (`todo_integration confirm`) stay human-only; no phase grants them.
+- **Pick-level.** A todo needs `plan` while its plan is unapproved and
+  `implement` once `approvedAt` is set (review state is not consulted, so
+  `review: false` never blocks a todo). A candidate whose needed phase is off is
+  skipped before the pick; when every ready leaf is skipped the decision is
+  `idle_no_work` with reason `phase_disabled:<phase>` (visible in "Why?" at
+  `GET /api/workspace-watcher/decisions`). No cycle, failure or backoff entry
+  is created.
+- **Guard.** Delegations are checked against the cycle todo's effective phases:
+  `plan` -> `plan`; `review` with `review_subject=plan` -> `review`;
+  `review_subject=code`, `implement`, `fix` -> `implement`. A refusal is
+  `watcher_phase_disabled`; the orchestrator reports `blocked` with a message
+  starting `phase_disabled:<phase>`, which closes as `phase_disabled` and is
+  exempt from `blockedBackoff`.
+- **`integrate` is prepare-only and prompt-enforced only.** There is no tool
+  guard for it: the prompt lists the prepare step (state `awaiting`) as the last
+  step of an `implement` cycle and states it must never apply, merge, commit or
+  push. With `integrate` off the step is absent. A standalone integrate-only
+  cycle does not exist.
+
 ### Plan gate (never auto-approves)
 
 - With `requirePlanApproval` (the default), the first time an unapproved todo is
@@ -721,6 +752,7 @@ Defaults from `defaultWorkspaceWatcherPolicy()`:
 | `cooldownMs` | `30000` | Minimum gap between cycles |
 | `backoffBaseMs` / `backoffCapMs` | `60000` / `6 h` | Exponential failure backoff |
 | `requirePlanApproval` | `true` | Plan gate (never auto-approved) |
+| `phases` | `{ plan, review, implement: true, integrate: false }` | Phase scope, see [Phases](#phases) |
 | `allowedHarnesses` | `[]` | Empty = no restriction |
 | `pickRoles` | `plan, implement, review` | Roles the orchestrator may pick |
 | `quietHours` | `{ start: '', end: '' }` | UTC window when the watcher waits |

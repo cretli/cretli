@@ -20,6 +20,7 @@ import { renderMarkdownHtml } from '../../lib/render-markdown.js';
 import { isWorkspaceWatcherRetryableBlockedTodo } from '../../../lib/workspace-watcher-blocked-reason.js';
 import { isTodoAwaitingIntegration } from '../../../lib/todo-integration-state.js';
 import './cr-todo-review-badge.js';
+import { buildTodoStageView } from '../../features/todo/todoStageView.js';
 import { resolveTodoReviewParentChatId } from '../../features/todo/todoReviewStart.js';
 import './cr-bar-select.js';
 import './cr-bar-input.js';
@@ -493,6 +494,27 @@ class CrTodoCard extends LitElement {
             ><span class="mdi mdi-source-branch" aria-hidden="true"></span><span>${gitBranch || t('todo.gitBadgeGeneric')}</span></button>`
           : nothing}
       </div>
+      ${this._renderStageStepper(item)}
+    `;
+  }
+
+  /** Stage stepper: planning -> review -> implementation -> integration -> integrated. */
+  _renderStageStepper(item) {
+    const view = buildTodoStageView(item);
+    return html`
+      <ol class="todo-stage todo-stage--card" aria-label=${t('todo.stageLabel')} data-current=${view.current}>
+        ${view.steps.map((step) =>
+          step.id === 'integrated' && view.isIntegrated
+            ? html`<li class="todo-stage-badge">${t('todo.stageBadgeIntegrated')}</li>`
+            : html`<li
+                class="todo-stage-step todo-stage-step--labelled"
+                data-state=${step.state}
+                data-step=${step.id}
+                title=${step.title}
+                aria-current=${step.id === view.current ? 'step' : 'false'}
+              ><span class="todo-stage-dot" aria-hidden="true"></span><span class="todo-stage-label">${step.label}${step.hint ? html` <span class="todo-stage-hint">(${step.hint})</span>` : nothing}</span></li>`
+        )}
+      </ol>
     `;
   }
 

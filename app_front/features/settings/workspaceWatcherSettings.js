@@ -90,6 +90,7 @@ const DEFAULT_POLICY = {
   backoffCapMs: 6 * 60 * 60_000,
   requirePlanApproval: true,
   planApprovalScope: 'leaf',
+  phases: { plan: true, review: true, implement: true, integrate: false },
   allowedHarnesses: [],
   pickRoles: [...PICK_ROLES],
   quietHours: { start: '', end: '' },
@@ -2180,6 +2181,12 @@ function renderWatcherPanel(root, data) {
       </section>
 
       <section class="watcher-section">
+        <h4 class="watcher-section-title">${escapeHtml(t('settings.watcherPhases'))}</h4>
+        ${['plan', 'review', 'implement', 'integrate'].map((phase) => `<label class="cr-check"><input type="checkbox" id="watcher-phase-${phase}"${(policy.phases?.[phase] ?? DEFAULT_POLICY.phases[phase]) ? ' checked' : ''}> ${escapeHtml(t(`settings.watcherPhase_${phase}`))}</label>`).join('\n        ')}
+        <p class="cr-hint">${escapeHtml(t('settings.watcherPhasesHint'))}</p>
+      </section>
+
+      <section class="watcher-section">
         <h4 class="watcher-section-title">${escapeHtml(t('settings.watcherPlanGate'))}</h4>
         <label class="cr-check"><input type="checkbox" id="watcher-require-plan"${policy.requirePlanApproval !== false ? ' checked' : ''}> ${escapeHtml(t('settings.watcherRequirePlan'))}</label>
         <div class="watcher-plan-scope-row${policy.requirePlanApproval === false ? ' is-disabled' : ''}">
@@ -2370,6 +2377,10 @@ function readWatcherForm(root) {
       backoffCapMs: Number(root.querySelector('#watcher-backoff-cap')?.value) || 0,
       requirePlanApproval: root.querySelector('#watcher-require-plan')?.checked !== false,
       planApprovalScope: root.querySelector('input[name="watcher-plan-scope"]:checked')?.value === 'root' ? 'root' : 'leaf',
+      phases: Object.fromEntries(['plan', 'review', 'implement', 'integrate'].map((phase) => [
+        phase,
+        root.querySelector(`#watcher-phase-${phase}`)?.checked ?? DEFAULT_POLICY.phases[phase],
+      ])),
       // With quiet hours off the pair is sent empty; the guardrails already read
       // an empty/invalid window as "no quiet hours", so no server `enabled` flag
       // is needed and the persisted default shape stays { start, end }.
@@ -2487,6 +2498,9 @@ function resetWatcherForm(root) {
   const cooldownOut = root.querySelector('#watcher-cooldown-out');
   if (cooldownOut) cooldownOut.textContent = formatCooldownLabel(DEFAULT_POLICY.cooldownMs);
   check('watcher-require-plan', DEFAULT_POLICY.requirePlanApproval);
+  for (const phase of ['plan', 'review', 'implement', 'integrate']) {
+    check(`watcher-phase-${phase}`, DEFAULT_POLICY.phases[phase]);
+  }
   const defaultScopeRadio = root.querySelector(`input[name="watcher-plan-scope"][value="${DEFAULT_POLICY.planApprovalScope}"]`);
   if (defaultScopeRadio) defaultScopeRadio.checked = true;
   check('watcher-quiet-enabled', false);

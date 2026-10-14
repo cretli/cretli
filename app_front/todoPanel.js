@@ -57,6 +57,7 @@ import './components/ui/cr-bar-button.js';
 import './components/ui/cr-checkbox.js';
 import './components/ui/cr-dialog.js';
 import './components/ui/cr-todo-card.js';
+import { createTodoStageStepperEl, buildTodoStageView } from './features/todo/todoStageView.js';
 import './features/todo/crTodoUsage.js';
 import { findTodoRecoveryState } from './features/todo/todoRecoveryView.js';
 import { buildTodoReviewTaskText, resolveTodoReviewParentChatId } from './features/todo/todoReviewStart.js';
@@ -71,6 +72,8 @@ import {
 let listEl = null;
 /** @type {HTMLElement|null} */
 let statusEl = null;
+/** @type {import('./components/ui/cr-dialog.js').CrDialog | null} */
+let errorDialog = null;
 /** @type {HTMLElement|null} */
 let hintEl = null;
 /** @type {(panelId: string) => void} */
@@ -154,13 +157,15 @@ function resolveTodoStartHarness(item) {
 /**
  * @param {string} msg
  * @param {boolean} isErr
+ * @param {object | null} [prepareDetails]
  */
-function setStatus(msg, isErr) {
+function setStatus(msg, isErr, prepareDetails = null) {
+  if (msg && isErr) showTodoError(msg, prepareDetails);
   // The page-level status line sits behind the editor modal, so mirror messages
   // into the modal while it is open.
-  if (msg && editorTodoId) setEditorSaveState(isErr ? 'error' : 'saved', msg);
+  if (msg && editorTodoId) setEditorSaveState(isErr ? 'error' : 'saved', isErr ? t('todo.error') : msg);
   if (!statusEl) return;
-  statusEl.textContent = msg || '';
+  statusEl.textContent = msg && isErr ? t('todo.error') : msg || '';
   statusEl.classList.toggle('todo-status--error', !!isErr);
 }
 
@@ -1237,6 +1242,7 @@ function createTodoRow() {
     '<span class="todo-row-text">' +
     '<span class="todo-row-title"></span>' +
     '<span class="todo-row-meta" hidden></span>' +
+    '<span class="todo-row-stage-host"></span>' +
     '</span>' +
     '<cr-todo-review-badge class="todo-row-review" hidden></cr-todo-review-badge>' +
     '<span class="todo-row-badge" hidden></span>' +
@@ -1322,17 +1328,17 @@ function renderRowMenuItems(row, list) {
   if (!item) return;
   const chats = Array.isArray(item.chats) ? item.chats.filter((chat) => !chat.deleted) : [];
   const canAdd = canAddTodoChild(latestItems, id);
+  // Ordered by lifecycle: plan -> execute -> integrate -> utilities -> delete.
+  // `groupStart` draws a visual separator before the item.
   const actions = [
-    { id: 'addChild', icon: 'mdi-plus', label: t('todo.addChild'), disabled: !canAdd },
-    { id: 'copyId', icon: 'mdi-identifier', label: t('todo.copyId') },
-    { id: 'copyRef', icon: 'mdi-link-variant', label: t('todo.copyRef') },
+    // Per-todo orchestrator loop: refine -> approval gate -> implement -> integrate.
     {
-      id: 'openChat',
-      icon: 'mdi-chat-outline',
-      label: t('todo.openLastChat'),
-      disabled: chats.length === 0 && !item.chatId && !item.sourceChat?.id,
+      id: 'orchestratorFull',
+      icon: 'mdi-robot-happy-outline',
+      label: t('todo.orchestratorFull'),
+      title: t('todo.orchestratorFullHint'),
+      disabled: String(item.status || '') === 'done',
     },
-    { id: 'newChat', icon: 'mdi-robot-outline', label: t('todo.continueNewChat') },
     {
       id: 'refinePlan',
       icon: 'mdi-file-document-edit-outline',
@@ -1341,11 +1347,12 @@ function renderRowMenuItems(row, list) {
     },
     // Plan-review delegation (review_subject=plan), same path as the card's plan review button.
     { id: 'reviewPlanAgent', icon: 'mdi-robot-outline', label: t('todo.reviewPlanAgent') },
+    { id: 'newChat', icon: 'mdi-robot-outline', label: t('todo.continueNewChat'), groupStart: true },
     // Only offered when the item's tree really owns an un-integrated worktree;
     // a permanently disabled row on every other task would be noise.
     ...(canIntegrateWorktree(item)
       ? [
-        { id: 'integrate', icon: 'mdi-source-merge', label: t('todo.integrationMerge') },
+        { id: 'integrate', icon: 'mdi-source-merge', label: t('todo.integrationMerge'), groupStart: true },
         { id: 'smartMerge', icon: 'mdi-robot-outline', label: t('todo.smartMerge') },
       ]
       : []),
@@ -1355,13 +1362,23 @@ function renderRowMenuItems(row, list) {
         { id: 'confirmIntegration', icon: 'mdi-check-decagram-outline', label: t('todo.integrationConfirmMenu') },
       ]
       : []),
-    { id: 'delete', icon: 'mdi-delete-outline', label: t('todo.delete'), danger: true },
+    {
+      id: 'openChat',
+      icon: 'mdi-chat-outline',
+      label: t('todo.openLastChat'),
+      disabled: chats.length === 0 && !item.chatId && !item.sourceChat?.id,
+      groupStart: true,
+    },
+    { id: 'addChild', icon: 'mdi-plus', label: t('todo.addChild'), disabled: !canAdd },
+    { id: 'copyId', icon: 'mdi-identifier', label: t('todo.copyId') },
+    { id: 'copyRef', icon: 'mdi-link-variant', label: t('todo.copyRef') },
+    { id: 'delete', icon: 'mdi-delete-outline', label: t('todo.delete'), danger: true, groupStart: true },
   ];
   list.textContent = '';
   actions.forEach((action) => {
-    // Visual group boundary before the destructive action, without adding a
-    // focusable item the dropdown keyboard walk would trip over.
-    if (action.id === 'delete') {
+    // Visual group boundary without adding a focusable item the dropdown
+    // keyboard walk would trip over.
+    if (action.groupStart) {
       const separator = document.createElement('div');
       separator.className = 'todo-row-menu-separator';
       separator.setAttribute('role', 'separator');
@@ -1382,6 +1399,7 @@ function renderRowMenuItems(row, list) {
     label.textContent = action.label;
     button.append(icon, label);
     if (action.id === 'copyId') button.title = String(item.id || '');
+    if (action.title) button.title = action.title;
     list.appendChild(button);
   });
 }
@@ -1477,6 +1495,10 @@ async function runRowMenuAction(action, item) {
   }
   if (action === 'newChat') {
     openTodoStartPicker(item);
+    return;
+  }
+  if (action === 'orchestratorFull') {
+    openTodoFullPicker(item);
     return;
   }
   if (action === 'refinePlan') {
@@ -1816,6 +1838,22 @@ function paintTodoReviewBadge(el, row) {
   if (badge.hasChildren !== !!row.hasChildren) badge.hasChildren = !!row.hasChildren;
 }
 
+/**
+ * Repaints the stage stepper only when its derived view changed, so a live
+ * refresh of hundreds of rows does not rebuild identical DOM.
+ * @param {HTMLElement} el
+ * @param {object} item
+ */
+function paintTodoStageStepper(el, item) {
+  const host = el.querySelector('.todo-row-stage-host');
+  if (!(host instanceof HTMLElement)) return;
+  const view = buildTodoStageView(item);
+  const key = view.steps.map((step) => `${step.id}:${step.state}:${step.hint}`).join('|') + `|${view.current}`;
+  if (host.dataset.stageKey === key) return;
+  host.dataset.stageKey = key;
+  host.replaceChildren(createTodoStageStepperEl(item));
+}
+
 /** @param {HTMLElement} el @param {string} text */
 function setTextIfChanged(el, text) {
   if (el.textContent !== text) el.textContent = text;
@@ -1864,6 +1902,7 @@ function paintTodoRow(el, row) {
     menu.setAttribute('aria-label', t('todo.rowMenu'));
     menu.title = t('todo.rowMenu');
   }
+  paintTodoStageStepper(el, row.item);
   const metaText = formatTodoMetaText(row.item);
   if (meta instanceof HTMLElement) {
     meta.hidden = !metaText;
@@ -2348,6 +2387,27 @@ function openTodoStartPicker(item) {
 }
 
 /**
+ * Pick harness and model for the "do everything" orchestrator chat. The server
+ * records it as the root's orchestrator chat; a human still approves the plan.
+ * Stop it by cancelling that chat's run (chat WebSocket `{ type: 'cancel' }`,
+ * the same path as the chat stop button) and its children through
+ * `POST /api/delegations/:id/cancel` with `tree: true`.
+ */
+function openTodoFullPicker(item) {
+  if (!item?.id || String(item.status || '') === 'done') return;
+  openTodoAgentStartModal({
+    harness: resolveTodoStartHarness(item),
+    onStart: ({ harness, model }) => startTodoAgent(String(item.id), {
+      mode: 'full',
+      forceNew: true,
+      agentTransport: harness,
+      model,
+      item,
+    }),
+  });
+}
+
+/**
  * Pick harness and model for a chat that runs the plan review-and-refine loop
  * (`cretli-todo-refine-loop` skill). The chat is linked to the todo but does not
  * become its executor chat and does not change its status.
@@ -2442,7 +2502,7 @@ async function startTodoAgent(id, options = {}) {
  * @param {string} todoId
  * @param {{
  *   forceNew?: boolean,
- *   mode?: 'refine',
+ *   mode?: 'refine' | 'full',
  *   agentTransport?: string,
  *   model?: string,
  *   item?: object | null,
@@ -2480,6 +2540,7 @@ async function startTodoAgentOnce(todoId, options = {}) {
   // Continuing in a fresh chat runs the executor, never a plan-mode draft.
   if (forceNew && !refine) payload.sdkMode = 'agent';
   if (refine) payload.mode = 'refine';
+  if (options.mode === 'full') payload.mode = 'full';
   if (refine && options.planReviewerCooperationMode) {
     payload.cooperationMode = options.planReviewerCooperationMode;
   }
@@ -2496,8 +2557,8 @@ async function startTodoAgentOnce(todoId, options = {}) {
         const choice = await chooseDirtyWorktreePolicy(data.details.dirtyPaths);
         if (choice) return startTodoAgentOnce(todoId, { ...options, dirtyPolicy: choice });
       }
-      if (data?.code === 'WORKTREE_PREPARE_FAILED') showWorktreePrepareFailure(data.details || {});
-      setStatus(data?.error || t('todo.startAgentFailed'), true);
+      setStatus(data?.error || t('todo.startAgentFailed'), true,
+        data?.code === 'WORKTREE_PREPARE_FAILED' ? data.details || {} : null);
       return;
     }
     renderList(data);
@@ -2512,39 +2573,51 @@ async function startTodoAgentOnce(todoId, options = {}) {
   }
 }
 
-/** Show the failed prepare command and its captured output without interpreting it as HTML. */
-function showWorktreePrepareFailure(details) {
-  const dialog = document.createElement('cr-dialog');
-  dialog.heading = t('todo.worktreePrepareErrorTitle');
+/** Show full TODO errors and optional prepare output as text in one scrollable dialog. */
+function showTodoError(message, prepareDetails = null) {
+  const dialog = errorDialog || document.createElement('cr-dialog');
+  dialog.heading = t(prepareDetails ? 'todo.worktreePrepareErrorTitle' : 'todo.error');
+  dialog.variant = 'error';
+  dialog.closable = true;
+  dialog.closeLabel = t('settings.close');
   dialog.style.setProperty('--cr-dialog-max-width', '48rem');
   const content = document.createElement('div');
-  const addRow = (label, value) => {
-    if (!value) return;
-    const row = document.createElement('p');
-    const heading = document.createElement('strong');
-    heading.textContent = `${label}: `;
-    const text = document.createElement('code');
-    text.textContent = value;
-    text.style.overflowWrap = 'anywhere';
-    row.append(heading, text);
-    content.appendChild(row);
-  };
-  const command = Array.isArray(details.command) ? details.command.map(String) : [];
-  if (details.stage === 'preflight') addRow(t('todo.worktreePrepareStage'), t('todo.worktreePreparePreflight'));
-  addRow(t('todo.worktreePrepareCommand'), command.length ? JSON.stringify(command) : '—');
-  addRow(t('todo.worktreePrepareDirectory'), String(details.cwd || ''));
-  addRow(t('todo.worktreePrepareExit'), [details.exitCode, details.signal].filter(Boolean).join(' / '));
-  const output = [
-    details.stderr ? `stderr:\n${details.stderr}` : '',
-    details.stdout ? `stdout:\n${details.stdout}` : '',
-  ].filter(Boolean).join('\n\n') || t('todo.worktreePrepareNoOutput');
-  const outputLabel = document.createElement('strong');
-  outputLabel.textContent = t('todo.worktreePrepareOutput');
-  const outputBlock = document.createElement('pre');
-  outputBlock.textContent = output;
-  outputBlock.style.cssText = 'max-height: 18rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;';
-  content.append(outputLabel, outputBlock);
-  dialog.appendChild(content);
+  content.style.cssText = 'max-height: 60dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;';
+  const messageBlock = document.createElement('p');
+  messageBlock.textContent = message;
+  messageBlock.style.color = 'var(--cr-error)';
+  messageBlock.setAttribute('role', 'alert');
+  content.appendChild(messageBlock);
+  if (prepareDetails) {
+    const details = prepareDetails;
+    const addRow = (label, value) => {
+      if (!value) return;
+      const row = document.createElement('p');
+      const heading = document.createElement('strong');
+      heading.textContent = `${label}: `;
+      const text = document.createElement('code');
+      text.textContent = value;
+      text.style.overflowWrap = 'anywhere';
+      row.append(heading, text);
+      content.appendChild(row);
+    };
+    const command = Array.isArray(details.command) ? details.command.map(String) : [];
+    if (details.stage === 'preflight') addRow(t('todo.worktreePrepareStage'), t('todo.worktreePreparePreflight'));
+    addRow(t('todo.worktreePrepareCommand'), command.length ? JSON.stringify(command) : '—');
+    addRow(t('todo.worktreePrepareDirectory'), String(details.cwd || ''));
+    addRow(t('todo.worktreePrepareExit'), [details.exitCode, details.signal].filter(Boolean).join(' / '));
+    const output = [
+      details.stderr ? `stderr:\n${details.stderr}` : '',
+      details.stdout ? `stdout:\n${details.stdout}` : '',
+    ].filter(Boolean).join('\n\n') || t('todo.worktreePrepareNoOutput');
+    const outputLabel = document.createElement('strong');
+    outputLabel.textContent = t('todo.worktreePrepareOutput');
+    const outputBlock = document.createElement('pre');
+    outputBlock.textContent = output;
+    outputBlock.style.cssText = 'max-height: 18rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;';
+    content.append(outputLabel, outputBlock);
+  }
+  dialog.replaceChildren(content);
   const actions = document.createElement('div');
   actions.setAttribute('slot', 'actions');
   const close = document.createElement('cr-bar-button');
@@ -2552,9 +2625,15 @@ function showWorktreePrepareFailure(details) {
   close.addEventListener('click', () => dialog.hide(), { once: true });
   actions.appendChild(close);
   dialog.appendChild(actions);
-  document.body.appendChild(dialog);
-  dialog.show();
-  dialog.addEventListener('cr-dialog-close', () => dialog.remove(), { once: true });
+  if (!errorDialog) {
+    document.body.appendChild(dialog);
+    errorDialog = dialog;
+    dialog.addEventListener('cr-dialog-close', () => {
+      dialog.remove();
+      errorDialog = null;
+    }, { once: true });
+  }
+  if (!dialog.open) dialog.show();
 }
 
 /** Ask the operator how to handle a dirty logical worktree before retrying. */

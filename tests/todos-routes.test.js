@@ -119,6 +119,31 @@ runCase(
 );
 
 runCase(
+  'PATCH watcher_phases rejects unknown keys and non-booleans, accepts valid and clears',
+  withApp(async (invoke) => {
+    const todo = addTodo(dataDir, cwd, { title: 'Phases', status: 'ready' }).item;
+    const call = (watcher_phases) => invoke('PATCH', '/api/todos/:id', {
+      params: { id: todo.id },
+      body: { watcher_phases },
+    });
+    const unknown = await call({ bogus: true });
+    assert.equal(unknown.status, 400);
+    assert.match(unknown.body.error, /unknown phase/);
+    const nonBool = await call({ review: 'no' });
+    assert.equal(nonBool.status, 400);
+    assert.match(nonBool.body.error, /boolean/);
+    const notObject = await call([true]);
+    assert.equal(notObject.status, 400);
+    assert.equal(loadTodosData(dataDir, cwd).items.find((row) => row.id === todo.id).watcherPhases, undefined);
+    const ok = await call({ review: false });
+    assert.notEqual(ok.status, 400);
+    assert.deepEqual(loadTodosData(dataDir, cwd).items.find((row) => row.id === todo.id).watcherPhases, { review: false });
+    await call({});
+    assert.equal(loadTodosData(dataDir, cwd).items.find((row) => row.id === todo.id).watcherPhases, undefined);
+  })
+);
+
+runCase(
   'start-agent without forceNew creates once and then reuses the chat',
   withApp(async (invoke) => {
     const created = addTodo(dataDir, cwd, { title: 'Reuse me', status: 'ready' });
@@ -497,6 +522,66 @@ runCase('REST list exposes the review read model and the container aggregate', w
   assert.equal(listedParent.review.aggregate.plan.none, 2);
   assert.equal(Object.prototype.hasOwnProperty.call(listedParent.review.aggregate, 'reviewers'), false);
 }));
+
+runCase(
+  'start-agent mode=full: orchestrator chat, approval-stop prompt for an unapproved plan, no confirm/commit/push',
+  withApp(async (invoke) => {
+    const created = addTodo(dataDir, cwd, { title: 'Do everything', status: 'ready', plan: { markdown: '# Plan\nstep' } });
+    const id = created.item.id;
+    const full = await invoke('POST', '/api/todos/:id/start-agent', {
+      params: { id },
+      body: { agentTransport: 'claude', mode: 'full', workspaceFile, workspaceFolder: cwd },
+    });
+    assert.equal(full.body.ok, true);
+    assert.equal(full.body.forceNew, true);
+    assert.equal(full.body.reused, false);
+    const prompt = full.body.initialPrompt;
+    assert.match(prompt, /ready for human approval/);
+    assert.match(prompt, /TODO EXECUTION WORKFLOW/);
+    assert.doesNotMatch(prompt, /approvedAt/);
+    assert.doesNotMatch(prompt, /3\. Implementation/);
+    assert.match(prompt, /never commit, push or merge/);
+    assert.match(prompt, /never confirm integration/);
+    assert.doesNotMatch(prompt, /\bgit (commit|push)\b/);
+    const item = loadTodosData(dataDir, cwd).items.find((row) => row.id === id);
+    assert.equal(item.orchestratorChatId, full.body.chat.id);
+    assert.equal(item.chatId, full.body.chat.id);
+  })
+);
+
+runCase(
+  'start-agent mode=full on an approved plan runs the implement loop then integration, still no confirm',
+  withApp(async (invoke) => {
+    const created = addTodo(dataDir, cwd, { title: 'Approved work', status: 'ready', plan: { markdown: '# Plan\nstep' } });
+    updateTodo(dataDir, cwd, created.item.id, { plan: { markdown: '# Plan\nstep', approvedAt: new Date().toISOString() } });
+    const full = await invoke('POST', '/api/todos/:id/start-agent', {
+      params: { id: created.item.id },
+      body: { agentTransport: 'claude', mode: 'full', workspaceFile, workspaceFolder: cwd },
+    });
+    assert.equal(full.body.ok, true);
+    const prompt = full.body.initialPrompt;
+    assert.match(prompt, /3\. Implementation/);
+    // Default phases: integrate is off, so the prompt stops after the leaves.
+    assert.match(prompt, /Integration is disabled for this run/);
+    assert.match(prompt, /never call todo_integration with action confirm/i);
+    assert.doesNotMatch(prompt, /ready for human approval/);
+    assert.doesNotMatch(prompt, /\bgit (commit|push)\b/);
+  })
+);
+
+runCase(
+  'start-agent other modes never get the full orchestrator prompt',
+  withApp(async (invoke) => {
+    const created = addTodo(dataDir, cwd, { title: 'Plain', status: 'ready' });
+    const plain = await invoke('POST', '/api/todos/:id/start-agent', {
+      params: { id: created.item.id },
+      body: { agentTransport: 'claude', workspaceFile, workspaceFolder: cwd },
+    });
+    assert.doesNotMatch(plain.body.initialPrompt, /per-todo orchestrator/);
+    const item = loadTodosData(dataDir, cwd).items.find((row) => row.id === created.item.id);
+    assert.ok(!item.orchestratorChatId);
+  })
+);
 
 Promise.all(pending).then(() => {
   rmSync(cwd, { recursive: true, force: true });

@@ -2958,6 +2958,8 @@ body.files-preview-resizing {
 .todo-row-title {
   flex: 1;
   min-width: 0;
+  font-size: 0.85rem;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2982,6 +2984,89 @@ body.files-preview-resizing {
   font-size: 0.68rem;
   line-height: 1.25;
   color: var(--cr-text-muted);
+}
+
+// Stage progress stepper (row meta + card): planning -> review -> implementation -> integration -> integrated.
+.todo-stage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.todo-stage-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.68rem;
+  color: var(--cr-text-muted);
+}
+
+// Compact row variant: the step itself is the dot.
+.todo-row-stage-host .todo-stage-step {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--cr-border-strong);
+}
+
+.todo-stage-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--cr-border-strong);
+}
+
+.todo-stage-step[data-state='done'],
+.todo-stage-step[data-state='done'] .todo-stage-dot {
+  background-color: var(--cr-success);
+}
+
+.todo-stage-step[data-state='active'],
+.todo-stage-step[data-state='active'] .todo-stage-dot {
+  background-color: var(--cr-accent);
+}
+
+.todo-stage-step[data-state='blocked'],
+.todo-stage-step[data-state='blocked'] .todo-stage-dot {
+  background-color: var(--cr-error);
+}
+
+.todo-stage-step--labelled {
+  width: auto;
+  height: auto;
+  background: none !important;
+  border-radius: 0;
+}
+
+.todo-stage-step--labelled[data-state='active'] .todo-stage-label {
+  color: var(--cr-text);
+  font-weight: 600;
+}
+
+.todo-stage-hint {
+  opacity: 0.8;
+}
+
+.todo-stage-badge {
+  padding: 0 0.4rem;
+  border: 1px solid var(--cr-success);
+  border-radius: var(--cr-radius-sm);
+  font-size: 0.66rem;
+  line-height: 1.4;
+  color: var(--cr-success);
+}
+
+.todo-row-stage-host:empty {
+  display: none;
+}
+
+.todo-row-stage-host .todo-stage {
+  gap: 0.25rem;
+  margin-top: 0.1rem;
 }
 
 .chat-list-modal.todo-row-menu-panel {
@@ -3478,8 +3563,8 @@ cr-todo-card.todo-card {
  * resize grip would sit on top of the last line of text. */
 .todo-item-title::part(control) {
   resize: none;
-  font-weight: 600;
-  font-size: 0.9rem;
+  font-weight: 500;
+  font-size: 0.82rem;
 }
 
 /* Same for the notes editor: cr-bar-textarea auto-grows, a manual grip would
