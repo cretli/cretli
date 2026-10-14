@@ -279,8 +279,9 @@ other API call keeps 30 s.
 
 UI-started plan refinement includes the limit "do not change the todo status".
 The refine skill therefore leaves an `idea` todo in `idea` and explains that
-limit in its final report. A human-started chat without that limit may promote
-`idea` to `ready` after the required plan reviews and verification pass.
+limit in its final report. A refine run whose start message has no such limit
+may promote `idea` to `ready` after the required plan reviews and verification
+pass.
 
 Verify one delegation at a time. Before a call, note the existing result and
 its `dataDir`. On a timeout, first use a fresh result, otherwise wait while
