@@ -263,3 +263,19 @@ test('the endpoint roles are exactly the picker roles', async () => {
   const { HARNESS_DIAGNOSTICS_ROLES } = await import('../app_front/features/harness-health/harnessDiagnostics.js');
   assert.deepEqual([...HARNESS_DIAGNOSTICS_ROLES], ['plan', 'implement', 'review', 'fix']);
 });
+
+test('diagnostics views isolate selection from telemetry and technical metadata', () => {
+  const model = buildDiagnosticsViewModel(REPORT, 'en', 'unknown');
+  const html = renderDiagnosticsHtml(model, t);
+  assert.match(html, /id="diagnostics-view-selection"[^>]*data-diagnostics-panel="selection" >/);
+  for (const view of ['models', 'results', 'information']) {
+    assert.match(html, new RegExp(`id="diagnostics-view-${view}"[^>]*hidden`));
+  }
+  const selection = html.split('id="diagnostics-view-selection"')[1].split('</section>')[0];
+  assert.doesNotMatch(selection, /policyBadge|cohortBadge/);
+  assert.match(selection, /data-selected="true"/);
+  assert.match(selection, /<details[^>]*><summary>.*?<\/summary><p class="harness-diagnostics-candidate-reason">/);
+  const information = renderDiagnosticsHtml(model, t, 'information');
+  assert.match(information, /id="diagnostics-view-information"[^>]*data-diagnostics-panel="information" >/);
+  assert.match(information, /id="diagnostics-view-selection"[^>]*hidden/);
+});

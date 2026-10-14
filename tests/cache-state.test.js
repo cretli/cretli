@@ -47,10 +47,10 @@ assert.equal(resolveCacheTtl({ provider: 'anthropic' }).harness, 'claude');
 assert.equal(resolveCacheTtl({ provider: 'openai' }).harness, 'codex');
 
 const codexTtl = resolveCacheTtl({ harness: 'codex' });
-assert.equal(codexTtl.known, true);
-assert.equal(codexTtl.defaultTtlMs, 5 * MINUTE);
-assert.equal(codexTtl.extendedTtlMs, 24 * 60 * MINUTE);
-assert.equal(codexTtl.refreshOnHit, false);
+assert.equal(codexTtl.known, false);
+assert.equal(codexTtl.defaultTtlMs, null);
+assert.equal(codexTtl.extendedTtlMs, null);
+assert.equal(codexTtl.refreshOnHit, true);
 
 // qwen has no 1 h tier: an extended request still resolves the 5 min default.
 const qwenTtl = resolveCacheTtl({ harness: 'qwen' });

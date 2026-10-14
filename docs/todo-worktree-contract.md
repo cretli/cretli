@@ -165,6 +165,13 @@ per-folder write lock therefore does not collide with another tree working in
 the main folder. This is a **manual-start** rule only: the Workspace Watcher
 still keys by the claimed leaf (`resolveWorktreeMode` is not changed).
 
+Before a manual continuation, completed descendants whose worktree execution
+is closed and integration is confirmed are released from live ownership when
+no associated chat has an active run. Their directories, branches and integration
+evidence remain on disk. The remaining tree can prepare a new root worktree
+from the current project branch. A single prepared active descendant can instead
+be adopted onto the root; busy or ambiguous descendants remain conflicts.
+
 Mixing the two keyings is unsupported: a start refuses with HTTP 409 when the
 same direct line already has a live record under a different id (a manual root
 record vs a Watcher leaf record). Sibling leaves are not on the same line and

@@ -309,7 +309,7 @@ export function initHarnessVersionCards() {
  */
 export function refreshHarnessVersionCardsForTab(tabId) {
   if (!wired) initHarnessVersionCards();
-  if (tabId === 'harness') {
+  if (tabId === 'harness-overview-plugins') {
     void loadSnapshotForHarness('overview');
     return;
   }

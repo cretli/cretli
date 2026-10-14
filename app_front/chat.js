@@ -1,3 +1,7 @@
+import { renderChatContextPlanLimitsHtml } from './features/chat/chatContextPlanLimitsView.js';
+import { renderChatContextBreakdownHtml, renderChatContextCacheHtml } from './features/chat/chatContextBreakdownView.js';
+import { renderChatContextCacheCountdownHtml, tickCacheCountdowns } from './features/chat/chatContextCacheCountdownView.js';
+import { mergeSeriesIntoContextSnapshot, renderChatContextCacheChartHtml } from './features/chat/chatContextCacheChartView.js';
 /**
  * Chat panel: chat list, openTerminal(chat), ensureChatConnection, closeChat, selectChat, newChat, model select, send-keys.
  */
@@ -9418,6 +9422,7 @@ function resolveContextDetailsSourceLabel(source) {
   const normalized = String(source || '').trim().toLowerCase();
   if (normalized === 'sdk-live') return t('chat.contextDetailsSourceSdkLive');
   if (normalized === 'sdk-history') return t('chat.contextDetailsSourceSdkHistory');
+  if (normalized === 'codex-measured') return t('chat.contextDetailsSourceCodexMeasured');
   if (normalized === 'claude-measured') return t('chat.contextDetailsSourceClaudeMeasured');
   if (normalized === 'claude-estimated') return t('chat.contextDetailsSourceClaudeEstimated');
   if (normalized === 'claude-no-data') return t('chat.contextDetailsSourceClaudeNoData');
@@ -9457,6 +9462,20 @@ function resolveContextDetailsWarningLabel(code) {
 }
 
 function renderChatContextDetails(chat) {
+  const planEl = document.getElementById('chat-context-details-plan-limits');
+  if (planEl) {
+    planEl.hidden = !['codex', 'claude'].includes(chat?.agentTransport);
+    planEl.innerHTML = planEl.hidden ? '' : renderChatContextPlanLimitsHtml(chat._contextPlanLimits, { t, lang: getCurrentLang(), harness: chat.agentTransport });
+  }
+  const progressEl = document.getElementById('chat-context-details-progress');
+  if (progressEl) progressEl.hidden = true;
+  const cacheEl = document.getElementById('chat-context-details-cache');
+  if (cacheEl) { cacheEl.innerHTML = ''; cacheEl.hidden = true; }
+  const breakdownEl = document.getElementById('chat-context-details-breakdown');
+  if (breakdownEl) {
+    breakdownEl.innerHTML = '';
+    breakdownEl.hidden = true;
+  }
   const setText = (id, value) => {
     const el = document.getElementById(id);
     if (el) el.textContent = value;
@@ -9484,10 +9503,35 @@ function renderChatContextDetails(chat) {
   const stateSnapshot = chat?._contextUsageSnapshot && typeof chat._contextUsageSnapshot === 'object'
     ? chat._contextUsageSnapshot
     : null;
-  const snapshot = stateSnapshot || chatDiagnosticsApi?.buildChatContextSnapshot?.(
+  const liveSnapshot = stateSnapshot || chatDiagnosticsApi?.buildChatContextSnapshot?.(
     chat,
     chatDiagnosticsApi?.resolveContextMeterModelId?.(chat, chat?.model || 'auto'),
   ) || null;
+  const snapshot = mergeSeriesIntoContextSnapshot(liveSnapshot, chat._contextCacheSeries);
+  if (progressEl && Number.isFinite(snapshot?.fillPercent) && snapshot.fillPercent != null) {
+    progressEl.hidden = false;
+    progressEl.value = Math.max(0, Math.min(100, snapshot.fillPercent));
+    progressEl.setAttribute('aria-label', snapshot.label || t('chat.contextDetailsFill'));
+    progressEl.dataset.level = snapshot.pressureLevel || 'normal';
+  }
+  if (cacheEl) {
+    cacheEl.innerHTML = renderChatContextCacheHtml(snapshot, t);
+    cacheEl.hidden = !cacheEl.innerHTML;
+  }
+  const countdownEl = document.getElementById('chat-context-details-countdown');
+  if (countdownEl) {
+    countdownEl.innerHTML = renderChatContextCacheCountdownHtml(chat._cacheCountdown, t);
+    countdownEl.hidden = !countdownEl.innerHTML;
+  }
+  const seriesEl = document.getElementById('chat-context-details-series');
+  if (seriesEl) {
+    seriesEl.innerHTML = renderChatContextCacheChartHtml(chat._contextCacheSeries, t, getCurrentLang());
+    seriesEl.hidden = !seriesEl.innerHTML;
+  }
+  if (breakdownEl) {
+    breakdownEl.innerHTML = renderChatContextBreakdownHtml(snapshot, t);
+    breakdownEl.hidden = !breakdownEl.innerHTML;
+  }
   const qualityEl = document.getElementById('chat-context-details-quality');
   if (qualityEl) {
     const fillProvenance = snapshot?.fillProvenance;
@@ -9537,14 +9581,95 @@ async function refreshChatContextDetailsFromServer(chat) {
   renderChatContextDetails(chat);
 }
 
+async function refreshChatContextPlanLimits(chat) {
+  try {
+    chat._contextPlanLimits = chat.agentTransport === 'claude'
+      ? await api.getClaudePlanLimits(chat.id)
+      : await api.getCodexPlanLimits();
+  } catch (_) {
+    chat._contextPlanLimits = { available: false, reason: 'read-failed' };
+  }
+  if (activeChatId === chat.id) renderChatContextDetails(chat);
+}
+
+let chatContextCountdownTimer = null;
+let chatContextFreshnessTimer = null;
+
+function stopChatContextCountdown() {
+  clearInterval(chatContextCountdownTimer);
+  clearInterval(chatContextFreshnessTimer);
+  chatContextCountdownTimer = null;
+  chatContextFreshnessTimer = null;
+}
+
+/** Read the server-side expiry estimate and tick it locally once per second while the dialog is open. */
+async function refreshChatContextCacheCountdown(chat) {
+  try {
+    const res = await api.getUsageCacheFreshness(chat.id);
+    chat._cacheCountdown = res?.ok ? res.countdown || null : null;
+  } catch (_) {
+    chat._cacheCountdown = null;
+  }
+  if (activeChatId === chat.id) renderChatContextDetails(chat);
+}
+
+function startChatContextCountdown(chat) {
+  stopChatContextCountdown();
+  void refreshChatContextCacheCountdown(chat);
+  chatContextCountdownTimer = setInterval(() => {
+    const modal = document.getElementById('chat-context-details-modal');
+    if (!modal || modal.hidden) { stopChatContextCountdown(); return; }
+    tickCacheCountdowns(modal);
+  }, 1000);
+  // New calls move the expiry; re-read it so the countdown follows them.
+  chatContextFreshnessTimer = setInterval(() => void refreshChatContextCacheCountdown(chat), 15000);
+}
+
+/** Shared by every harness: reads the common context sample stream for this chat. */
+async function refreshChatContextSeries(chat) {
+  try {
+    const res = await api.getContextCacheSeries(chat.id);
+    chat._contextCacheSeries = res?.ok ? { points: res.points, breaks: res.breaks, latestBreakdown: res.latestBreakdown || null } : null;
+  } catch (_) {
+    chat._contextCacheSeries = null;
+  }
+  if (activeChatId === chat.id) renderChatContextDetails(chat);
+}
+
+/** Show one tab of the context details dialog; tabs are plain buttons with data-context-tab. */
+function selectChatContextTab(tabId) {
+  const modal = document.getElementById('chat-context-details-modal');
+  if (!modal) return;
+  modal.querySelectorAll('[data-context-tab]').forEach((button) => {
+    const active = button.dataset.contextTab === tabId;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  modal.querySelectorAll('[data-context-panel]').forEach((panel) => {
+    panel.hidden = panel.dataset.contextPanel !== tabId;
+  });
+}
+
+function bindChatContextTabs() {
+  document.getElementById('chat-context-details-modal')?.addEventListener('click', (event) => {
+    const button = event.target instanceof Element ? event.target.closest('[data-context-tab]') : null;
+    if (button) selectChatContextTab(button.dataset.contextTab);
+  });
+}
+
 function openChatContextDetailsModal(chat) {
   if (!chat) return;
+  selectChatContextTab('overview');
+  startChatContextCountdown(chat);
+  void refreshChatContextSeries(chat);
   renderChatContextDetails(chat);
   chatContextDetailsModalApi?.open();
   void refreshChatContextDetailsFromServer(chat);
+  if (chat.agentTransport === 'codex' || chat.agentTransport === 'claude') void refreshChatContextPlanLimits(chat);
 }
 
 function closeChatContextDetailsModal() {
+  stopChatContextCountdown();
   chatContextDetailsModalApi?.close();
 }
 
@@ -10120,6 +10245,7 @@ export function initChatPanel() {
   chatArchiveConfirmModalApi = initModal(document.getElementById('chat-archive-confirm-modal'), {
     backdropSelector: '.chat-settings-backdrop',
   });
+  bindChatContextTabs();
   chatContextDetailsModalApi = initModal(document.getElementById('chat-context-details-modal'), {
     backdropSelector: '.chat-settings-backdrop',
   });

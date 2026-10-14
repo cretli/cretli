@@ -198,15 +198,15 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@opencode-ai/sdk": "^1.18.26",
+    "@opencode-ai/sdk": "^1.19.0",
     "compression": "^1.8.1",
     "express": "^4.21.0",
     "js-yaml": "^4.3.0",
     "jsonc-parser": "^3.3.1",
     "node-pty": "^1.0.0",
     "playwright-core": "^1.63.0",
-    "source-map-js": "^1.2.1",
     "sharp": "^0.35.4",
+    "source-map-js": "^1.2.1",
     "web-push": "^3.6.7",
     "ws": "^8.21.3"
   },
@@ -219,7 +219,7 @@
     "@openai/codex-sdk": "^0.160.0",
     "@qwen-code/sdk": "^0.1.8",
     "@tencent-ai/agent-sdk": "^0.1.0",
-    "opencode-ai": "^1.18.26",
+    "opencode-ai": "^1.19.0",
     "redis": "^4.7.1"
   },
   "devDependencies": {

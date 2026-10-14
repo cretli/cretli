@@ -239,6 +239,8 @@ export function buildHealthCardModel(entry, options = {}) {
     harness: String(src.harness || ''),
     status,
     hasData,
+    tokenUsage: src.tokenUsage || null,
+    contextUsage: src.contextUsage || null,
     activeLimit,
     planLimits,
     daily,
@@ -446,6 +448,21 @@ export function renderHealthCardHtml(model, ctx = {}) {
     parts.push(`<div class="harness-health-plan"><span class="harness-health-subtitle">${escapeHtml(t('harnessHealth.planLimitsTitle'))}</span>`);
     for (const limit of safe.planLimits) parts.push(planLimitHtml(limit, t));
     parts.push('</div>');
+  }
+
+  if (safe.tokenUsage || safe.contextUsage?.samples) {
+    parts.push('<dl class="harness-health-metrics">');
+    if (safe.tokenUsage?.inputTokens > 0) {
+      parts.push(metricHtml(t('harnessHealth.metricInputTokens'), formatInteger(safe.tokenUsage.inputTokens, lang)));
+      parts.push(metricHtml(t('harnessHealth.metricCacheRead'), formatInteger(safe.tokenUsage.cacheReadTokens, lang)));
+      parts.push(metricHtml(t('harnessHealth.metricCacheHit'), formatPercent(safe.tokenUsage.cacheHitPercent == null ? null : safe.tokenUsage.cacheHitPercent / 100, lang)));
+    }
+    if (safe.contextUsage?.samples) {
+      parts.push(metricHtml(t('harnessHealth.metricContextSamples'), formatInteger(safe.contextUsage.samples, lang)));
+      parts.push(metricHtml(t('harnessHealth.metricContextAverage'), formatPercent(safe.contextUsage.averageFillPercent == null ? null : safe.contextUsage.averageFillPercent / 100, lang)));
+      parts.push(metricHtml(t('harnessHealth.metricContextPeak'), formatPercent(safe.contextUsage.peakFillPercent == null ? null : safe.contextUsage.peakFillPercent / 100, lang)));
+    }
+    parts.push('</dl>');
   }
 
   if (!safe.hasData) {

@@ -1,5 +1,5 @@
 /**
- * Pure view model for Settings → Harness benchmark sources (display-only).
+ * Pure view model for Settings → Harness benchmark source configuration.
  */
 
 /**
@@ -53,6 +53,9 @@ export function buildHarnessBenchmarkSourcesViewModel(payload, t) {
       officialTermsUrl: String(row.officialTermsUrl || ''),
       endpointPurpose: String(row.endpointPurpose || ''),
       enabled: Boolean(row.enabled),
+      keyConfigured: payload?.apiKeys?.[row.id]?.configured === true,
+      keySaved: payload?.apiKeys?.[row.id]?.saved === true,
+      keySource: payload?.apiKeys?.[row.id]?.source || 'none',
       health: String(row.health || 'unknown'),
       networkAttemptStatus: String(row.networkAttemptStatus || row.localMode?.networkAttemptStatus || 'unknown'),
       outgoingMetadata: String(row.outgoingMetadata || 'none'),
@@ -101,20 +104,17 @@ export function renderHarnessBenchmarkSourcesHtml(model, t) {
       parts.push(`<dt>${h(t('harnessBenchmarkSources.lastSuccess'))}</dt><dd>${h(source.lastSuccessAt)}</dd>`);
     }
     parts.push('</dl>');
-    if (source.termsVerification) {
-      const terms = source.termsVerification;
-      parts.push(`<p class="harness-model-role-hint">${h(t('harnessBenchmarkSources.termsVerified'))}: ${h(terms.verifiedAt)} · ${h(t('harnessBenchmarkSources.termsVersion'))}: ${h(terms.version || '—')}</p>`);
-      parts.push(`<p class="harness-model-role-hint">${h(t('harnessBenchmarkSources.verifiedTermsUrl'))}: ${h(terms.officialTermsUrl)}</p>`);
-      parts.push(`<p class="harness-model-role-hint">${h(t('harnessBenchmarkSources.licenseScope'))}: ${h(terms.scopeOfConsent)}</p>`);
-      if (terms.licenseNotes) {
-        parts.push(`<p class="harness-model-role-hint">${h(t('harnessBenchmarkSources.licenseNotes'))}: ${h(terms.licenseNotes)}</p>`);
-      }
-      parts.push(`<p class="harness-model-role-hint">${h(t('harnessBenchmarkSources.redistributionAllowed'))}: ${h(yesNo(terms.redistributionAllowed === true, t))}</p>`);
-      if (terms.attributionRequired) {
-        parts.push(`<p class="harness-model-role-hint">${h(t('harnessBenchmarkSources.attribution'))}</p>`);
-      }
+    if (source.id === 'artificial-analysis') {
+      parts.push(`<div class="cr-field"><label class="cr-field-label" for="benchmark-api-key">${h(t('harnessBenchmarkSources.keyLabel'))}</label><cr-bar-input id="benchmark-api-key" type="password" autocomplete="new-password"></cr-bar-input></div>`);
+      parts.push(`<p class="cr-hint">${h(t(`harnessBenchmarkSources.keySource_${source.keySource}`))}</p>`);
+      parts.push(`<p class="cr-hint">${h(t(source.keySaved ? 'harnessBenchmarkSources.keySaved' : 'harnessBenchmarkSources.keyNotSaved'))}</p>`);
+      parts.push('<div class="cr-row">');
+      for (const action of ['saveKey', 'clearKey', 'test', 'toggle']) parts.push(`<cr-bar-button data-benchmark-action="${action}">${h(t(`harnessBenchmarkSources.${action}`))}</cr-bar-button>`);
+      parts.push('</div>');
+      parts.push(`<cr-checkbox id="benchmark-force">${h(t('harnessBenchmarkSources.force'))}</cr-checkbox>`);
+      parts.push(`<div class="cr-row"><cr-bar-button variant="primary" data-benchmark-action="fetch" ${!source.enabled || !source.keyConfigured ? 'disabled' : ''}>${h(t('harnessBenchmarkSources.fetch'))}</cr-bar-button></div>`);
     } else if (source.id !== 'local-fixture') {
-      parts.push(`<p class="harness-model-role-hint" data-tone="error">${h(t('harnessBenchmarkSources.termsMissing'))}</p>`);
+      parts.push(`<p class="cr-hint">${h(t('harnessBenchmarkSources.unsupported'))}</p>`);
     }
     const snap = source.latestSnapshot;
     if (snap) {

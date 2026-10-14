@@ -41,6 +41,9 @@ function deriveReview(item, approved) {
     case 'failed':
     case 'stale':
       return { id: 'review', state: 'blocked' };
+    case 'unknown':
+      // Reviewers exist but a required verify is missing: not a pending review.
+      return { id: 'review', state: 'active', hint: 'verifyMissing' };
     case 'none':
       // A human-approved plan without a review counts as consciously skipped.
       return approved ? { id: 'review', state: 'done', hint: 'skipped' } : { id: 'review', state: 'pending' };

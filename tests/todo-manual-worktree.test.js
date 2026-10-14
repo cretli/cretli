@@ -222,7 +222,9 @@ test('continuing in a new chat reuses the prepared worktree without re-running p
   assert.notEqual(again.body.chat.id, first.body.chat.id);
   assert.equal(again.body.chat.executionFolder, record.worktreePath);
   assert.equal(again.body.todo.orchestratorChatId, again.body.chat.id);
-  assert.ok(again.body.initialPrompt.includes(first.body.chat.id), 'the prompt points at the previous chat');
+  assert.ok(again.body.todo.linkedChatIds.includes(first.body.chat.id), 'the previous chat remains discoverable on the todo');
+  assert.match(again.body.initialPrompt, /Earlier chats are listed by todo_show/);
+  assert.ok(!again.body.initialPrompt.includes(first.body.chat.id), 'the compact prompt does not copy chat history');
   assert.equal(getWorktreeRecord(root.id, { dataDir: suite.dataDir }).executionState, 'active');
 });
 

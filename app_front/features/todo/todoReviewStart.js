@@ -25,17 +25,15 @@ export function resolveTodoReviewParentChatId(item) {
  */
 export function buildTodoReviewTaskText(item, subject) {
   const id = String(item?.id || '').trim();
-  const title = String(item?.title || '').trim();
-  const body = String(item?.body || '').trim() || '(no description)';
+  const title = String(item?.title || '').trim().slice(0, 240);
   const header = `TODO ${id}: ${title}`;
+  const source = `First call todo_show with todo_id="${id}". Load both body and plan (field=body and field=plan), following every next_cursor until none remains. Use the live requirements, plan and acceptance criteria as the source of truth; do not review from a summary alone. If no plan exists for a plan review, report BLOCKED. If the material changes during review, report the changed revision instead of a PASS for stale material.`;
   const rules = 'Do not edit files or change todo status. Run relevant checks when you can.';
   const verdict = 'End your report with exactly one line: VERDICT: PASS, VERDICT: FAIL or VERDICT: BLOCKED.';
   if (subject === 'plan') {
-    const plan = String(item?.plan?.markdown || '').trim() || '(no plan)';
     return [
       `Review the plan of ${header} before implementation.`,
-      `Requirements:\n${body}`,
-      `Plan:\n${plan}`,
+      source,
       'Check that the plan covers the requirements, is concrete and can be verified.',
       rules,
       verdict,
@@ -43,7 +41,7 @@ export function buildTodoReviewTaskText(item, subject) {
   }
   return [
     `Review the implementation of ${header}.`,
-    `Requirements:\n${body}`,
+    source,
     'Inspect the workspace changes for this task (git status and git diff) and check them against the requirements.',
     rules,
     verdict,

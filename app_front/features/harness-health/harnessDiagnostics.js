@@ -28,6 +28,7 @@ const ROLE_LABEL_KEYS = Object.freeze({
 let wired = false;
 let loadSeq = 0;
 let currentRole = 'implement';
+let currentView = 'selection';
 
 /**
  * @returns {HTMLElement|null}
@@ -99,7 +100,13 @@ function render(report) {
   if (!el) return;
   const lang = getCurrentLang();
   const model = buildDiagnosticsViewModel(report, lang, t('harnessDiagnostics.unknown'));
-  el.innerHTML = renderDiagnosticsHtml(model, t);
+  el.innerHTML = renderDiagnosticsHtml(model, t, currentView);
+  el.querySelectorAll('table').forEach((table) => {
+    const labels = Array.from(table.querySelectorAll('thead th'), (cell) => cell.textContent);
+    table.querySelectorAll('tbody tr').forEach((row) => {
+      Array.from(row.children).forEach((cell, index) => { cell.dataset.label = labels[index] || ''; });
+    });
+  });
 }
 
 /**
@@ -155,6 +162,17 @@ export function initHarnessDiagnostics() {
     el.addEventListener('click', (event) => {
       const target = event.target instanceof Element ? event.target.closest('[data-action="details"]') : null;
       if (target) openUsage();
+      const tab = event.target instanceof Element ? event.target.closest('[data-diagnostics-view]') : null;
+      if (!tab) return;
+      currentView = tab.dataset.diagnosticsView;
+      el.querySelectorAll('[data-diagnostics-view]').forEach((button) => {
+        const active = button.dataset.diagnosticsView === currentView;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-selected', String(active));
+      });
+      el.querySelectorAll('[data-diagnostics-panel]').forEach((panel) => {
+        panel.hidden = panel.dataset.diagnosticsPanel !== currentView;
+      });
     });
   }
   window.addEventListener('cr-lang-changed', () => {

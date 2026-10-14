@@ -641,6 +641,22 @@ export async function cancelClaudePlanLogin() {
   return apiFetchJson('/api/claude/login/cancel', { method: 'POST' }, 'cancelClaudePlanLogin');
 }
 
+/** Claude plan quotas; the chat id lets the server use that chat's live session. */
+export async function getClaudePlanLimits(chatId = '') {
+  const query = chatId ? `?chatId=${encodeURIComponent(chatId)}` : '';
+  return dedupeGetJson(`/api/claude/plan-limits${query}`, 'getClaudePlanLimits', { timeoutMs: 12000 });
+}
+
+/** Per-chat context and cache time series with detected cache breaks (any harness). */
+export async function getContextCacheSeries(chatId) {
+  return dedupeGetJson(`/api/usage/context-cache-series?chatId=${encodeURIComponent(chatId)}`, 'getContextCacheSeries');
+}
+
+/** Account plan quotas, read without starting an inference turn. */
+export async function getCodexPlanLimits() {
+  return dedupeGetJson('/api/codex/plan-limits', 'getCodexPlanLimits', { timeoutMs: 12000 });
+}
+
 /** Codex SDK status (SDK + CLI + ChatGPT session or API key). */
 export async function getCodexStatus() {
   return dedupeGetJson('/api/codex/status', 'getCodexStatus');
@@ -2286,4 +2302,13 @@ function fileToBase64(file) {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+}
+
+/** Update a benchmark source using the current snapshot revision. */
+export async function updateHarnessBenchmarkSource(action, body, etag) {
+  return apiFetchJson(`/api/harness-benchmark-sources/${action}`, {
+    method: action === 'fetch' || action === 'test' ? 'POST' : 'PUT',
+    headers: { 'Content-Type': 'application/json', 'If-Match': String(etag || '') },
+    body: JSON.stringify(body || {}),
+  }, 'updateHarnessBenchmarkSource');
 }

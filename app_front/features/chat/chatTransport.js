@@ -45,6 +45,8 @@ import { isMobileLikeClient } from '../../lib/mobileClient.js';
 import { notifyChatConnectionRestored } from './chatServerRecovery.js';
 import {
   applyClaudeMeasuredContextUsage,
+  applyClaudeContextBreakdown,
+  applyCodexMeasuredContextUsage,
   isClaudeContextMeterChat,
   resetChatContextMeterState,
 } from './chatContextMeter.js';
@@ -1490,9 +1492,9 @@ export function createChatTransport(deps) {
           return;
         }
         if (msg.type === 'sdkContextUsage') {
-          if (applyClaudeMeasuredContextUsage(chat, msg.usage, msg.model, msg.contextWindowTokens)) {
-            renderChatTerminalState(chat);
-          }
+          const measured = applyClaudeMeasuredContextUsage(chat, msg.usage, msg.model, msg.contextWindowTokens);
+          const withBreakdown = applyClaudeContextBreakdown(chat, msg.breakdown);
+          if (measured || withBreakdown) renderChatTerminalState(chat);
           return;
         }
         if (msg.type === 'sdkEvent' && msg.event) {
@@ -1519,6 +1521,11 @@ export function createChatTransport(deps) {
             renderChatTerminalState(chat);
             noteInAppSignalIfLive(msg, 'permission', msg.event.requestId, chat);
           }
+          if (msg.event.type === 'context_usage' && chat.agentTransport === 'codex') {
+            if (applyCodexMeasuredContextUsage(chat, msg.event)) renderChatTerminalState(chat);
+            noteRenderedSdkRoomEvent(chat, msg);
+            return;
+          }
           if (msg.event && typeof msg.event === 'object' && msg.event.type === 'usage') {
             const transport = String(chat.agentTransport || 'sdk').trim() || 'sdk';
             // Claude run usage is not current context occupancy (sdk-limits-context-contract §6).
@@ -1529,7 +1536,7 @@ export function createChatTransport(deps) {
                 msg.event.lastCallModel,
                 msg.event.lastCallContextWindowTokens,
               );
-            } else {
+            } else if (transport !== 'codex') {
               const usage = msg.event.usage && typeof msg.event.usage === 'object' ? msg.event.usage : null;
               const inputTokens = Number(usage?.inputTokens);
               const outputTokens = Number(usage?.outputTokens);
@@ -1540,7 +1547,7 @@ export function createChatTransport(deps) {
               chat._contextUsageSource = transport === 'sdk' ? 'sdk-live' : `${transport}-live`;
               chat._contextUsageUpdatedAt = Date.now();
             }
-            delete chat._sdkContextFreshSession;
+            if (transport !== 'codex') delete chat._sdkContextFreshSession;
             renderChatTerminalState(chat);
           }
           setAgentState(chat, 'active');

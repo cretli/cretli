@@ -3,7 +3,7 @@
  * history (`chats[]`) and id-prefix resolution.
  */
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -77,6 +77,10 @@ check('in-process todo_show returns chats[] with the creator role', () => {
   assert.ok(creator, 'chat missing from chats[]');
   assert.ok(creator.roles.includes('creator'));
   assert.equal(creator.deleted, false);
+  const protocolPath = ipShown.structuredContent.execution_protocol_path;
+  assert.ok(path.isAbsolute(protocolPath));
+  assert.match(readFileSync(protocolPath, 'utf8'), /export const TODO_EXECUTION_WORKFLOW/);
+  assert.ok(ipShown.content[0].text.includes(`execution_protocol_path: ${protocolPath}`));
 });
 
 // --- Hierarchy through the real MCP client and persistence ---
@@ -94,7 +98,11 @@ check('todo_show exposes ordered direct children without claiming them', () => {
   assert.equal(item.plan_approved_at, '');
   assert.equal(hierarchyShown.structuredContent.next_children_cursor, '');
   assert.match(hierarchyShown.content[0].text, /When the user requests execution/);
-  assert.match(hierarchyShown.content[0].text, /assignment=review/);
+  assert.match(hierarchyShown.content[0].text, /read execution_protocol_path/);
+  assert.match(hierarchyShown.content[0].text, /Inspection or planning alone does not authorize execution/);
+  assert.doesNotMatch(hierarchyShown.content[0].text, /assignment=review|At the soft checkpoint/);
+  assert.ok(hierarchyShown.content[0].text.length < 2500);
+  assert.equal(hierarchyShown.structuredContent.execution_protocol_path, ipShown.structuredContent.execution_protocol_path);
 });
 
 const paginationRoot = await ip.todo_create({ title: 'Paged tree', idempotency_key: 'paged-tree' });

@@ -506,14 +506,17 @@ snapshot.
 
 **Fetching** is explicit and operator-triggered
 (`POST /api/harness-benchmark-sources/fetch`, `If-Match` required, widget/MCP
-callers denied). Before any request it checks: source supports a manual keyed
+callers denied). Settings also provides `POST /api/harness-benchmark-sources/test`,
+which checks the saved key with one budgeted API request without importing data,
+and `PUT /api/harness-benchmark-sources/key` to save or remove the write-only key.
+Key metadata distinguishes saved configuration from an environment override. Before any request it checks: source supports a manual keyed
 fetch and is enabled, an API key is configured (`ARTIFICIAL_ANALYSIS_API_KEY` or
 `artificialAnalysisApiKey` in `data/config.json`, server-side only, never logged,
 never in a client payload or snapshot), a snapshot younger than the cache TTL
 (7 days) does not exist unless `force`, and the persisted per-UTC-day counter is
 below 900 (margin under the provider's 1,000). One request returns at most 500
-bounded entries. The import then goes through the existing terms-verification
-gate. Attribution (`Benchmark data: Artificial Analysis (https://artificialanalysis.ai/)`)
+bounded entries. Artificial Analysis fetches and imports require no operator terms-confirmation form
+for self-hosted use. The official API attribution remains visible. Attribution (`Benchmark data: Artificial Analysis (https://artificialanalysis.ai/)`)
 is carried in the registry row and in the shadow explanation `benchmark.attribution`.
 
 **Score.** Per role: `implement`/`fix` use the coding index, `review`/`plan` the

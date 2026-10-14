@@ -23,6 +23,7 @@ const STATUS_I18N = Object.freeze({
 const SOURCE_I18N = Object.freeze({
   'claude-sdk-rate-limit-event': 'usage.planSourceSdkRateLimit',
   'rate-limit-event': 'usage.planSourceSdkRateLimit',
+  'codex-app-server': 'usage.planSourceCodex',
   'error-text': 'usage.planSourceErrorText',
 });
 
@@ -154,5 +155,14 @@ export function renderPlanLimitsHtml(payload, { t, lang = 'en' }) {
   const locks = Array.isArray(payload?.lockouts) ? payload.lockouts : [];
   const html = rows.map((row) => renderPlanLimitCard(row, time, t, lang));
   for (const lock of locks) html.push(renderLockoutCard(lock, time, t));
+  if (payload?.codex?.available) {
+    const codex = payload.codex;
+    const details = [];
+    if (codex.credits?.balance != null) details.push(t('usage.planCodexCredits', { balance: codex.credits.balance }));
+    if (codex.resetCreditsAvailable != null) details.push(t('usage.planCodexResets', { count: codex.resetCreditsAvailable }));
+    if (details.length) html.push(`<article class="settings-usage-card"><h5 class="settings-usage-card-title">Codex</h5>${details.map((text) => `<p class="settings-hint">${escapeHtml(text)}</p>`).join('')}</article>`);
+  } else if (payload?.codex?.reason === 'read-failed') {
+    html.push(`<p class="settings-hint">${escapeHtml(t('usage.planCodexReadFailed'))}</p>`);
+  }
   return html.join('') || `<p class="settings-hint">${escapeHtml(t('usage.planEmpty'))}</p>`;
 }

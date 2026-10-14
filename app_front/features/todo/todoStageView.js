@@ -6,6 +6,7 @@ const HINT_KEYS = {
   notReviewed: 'todo.stageHintNotReviewed',
   changesRequested: 'todo.stageHintChangesRequested',
   inReview: 'todo.stageHintInReview',
+  verifyMissing: 'todo.stageHintVerifyMissing',
   noCode: 'todo.stageHintNoCode',
   partial: 'todo.stageHintPartial',
   conflict: 'todo.stageHintConflict',

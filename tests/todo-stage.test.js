@@ -39,8 +39,8 @@ test('rule 2: every plan review state value', () => {
   assert.equal(rev('stale').state, 'blocked');
   assert.equal(rev('none').state, 'pending');
   assert.deepEqual(rev('none', '2026-01-01T00:00:00Z'), { id: 'review', state: 'done', hint: 'skipped' });
-  assert.equal(rev('unknown').state, 'pending');
-  assert.equal(rev('unknown', '2026-01-01T00:00:00Z').state, 'pending');
+  assert.deepEqual(rev('unknown'), { id: 'review', state: 'active', hint: 'verifyMissing' });
+  assert.deepEqual(rev('unknown', '2026-01-01T00:00:00Z'), { id: 'review', state: 'active', hint: 'verifyMissing' });
   assert.equal(step(item({ review: undefined }), 'review').state, 'pending');
 });
 

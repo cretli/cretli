@@ -8,6 +8,49 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **More accurate Codex cache statistics.** Response ids deduplicate repeated
+  notices, cache writes/reasoning and thread-wide counters are preserved, and
+  Cretli instruction/tool fingerprints help explain changes. Idle gaps are
+  labelled as correlations rather than proven expiry, highly cached smaller
+  prompts no longer trigger cache-break warnings, and Codex shows unknown
+  expiry instead of an unsupported five-minute countdown.
+
+- **Shared harness context telemetry, starting with Codex.** Numeric context and
+  cache readings persist with chat/run/model/workspace identity in a bounded
+  instance-wide journal. Harness statistics show ledger input/cache totals and
+  sampled context averages/peaks; context observations never add billable tokens.
+  A filtered `/api/usage/context-samples` endpoint exposes the samples for later
+  analysis. Final Codex turn usage now marks completed usage coverage.
+
+- **Codex input cache.** Context details show cached input tokens, their share of
+  the latest call and input outside cache. These counters persist with the
+  context reading; cached tokens remain part of context occupancy.
+
+- **Plan limits in context details.** Codex chats show remaining five-hour and
+  weekly account quotas with renewal times in the context dialog. API-key mode
+  and unavailable readings are shown explicitly.
+
+- **Compact context details.** The dialog highlights measured occupancy with a
+  progress bar, keeps measurement metadata and estimation methodology collapsed,
+  and simplifies the table on phones. Its close action stays outside the
+  scrolling content.
+
+- **Saved Codex context breakdown.** Context details show estimates for recorded
+  messages, instructions, skills, memory instructions, tool calls/results and
+  visible reasoning alongside measured free space. Numeric snapshots persist in
+  chat history and remain available without the native CLI log. Unreported
+  tool schemas, agent definitions and compaction buffers remain unknown.
+
+- **Measured Codex context.** The chat context meter reads the latest root-session
+  CLI call and its reported context window, includes cached prompt tokens and
+  generated output, and clears the measurement after compaction. Diagnostics
+  restore the measurement on reconnect without using cumulative billing totals.
+
+- **Codex plan limits.** Settings → Usage reads ChatGPT quota windows through
+  Codex CLI without an inference turn, showing used/remaining percentages,
+  reset times, credit balance and available limit resets. Reads share a
+  one-minute cache and feed the existing plan-limit history.
+
 - **Verify de-duplication and timeout budget.** Concurrent `runReviewVerify`
   calls for the same folder and ids share one run, `delegation_show` reports
   `verify_running` / `verify_recorded`, and the bridge gives `delegation_verify`

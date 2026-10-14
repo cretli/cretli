@@ -110,8 +110,8 @@ runCase(
     assert.equal(started.body.chat.sdkMode, 'agent');
     assert.equal(started.body.todo.orchestratorChatId, started.body.chat.id);
     assert.match(started.body.initialPrompt, /entire subtree/);
-    assert.match(started.body.initialPrompt, /assignment=implement/);
-    assert.match(started.body.initialPrompt, /assignment=review/);
+    assert.match(started.body.initialPrompt, /Delegate implementation and review/);
+    assert.match(started.body.initialPrompt, /read .*todo-execution-prompt\.js/);
     assert.match(started.body.initialPrompt, /Continue automatically/);
     assert.doesNotMatch(started.body.initialPrompt, /Start by preparing a plan/);
     assert.equal(loadTodosData(dataDir, cwd).items.find((row) => row.id === first.id).status, 'ready');
@@ -202,9 +202,10 @@ runCase(
     assert.ok(chatIds.includes(firstChatId), 'old chat stays in chats[]');
     assert.ok(chatIds.includes(secondChatId), 'new chat is in chats[]');
 
-    // The fresh prompt points at the todo ref and the previous chat.
+    // The fresh prompt points at live todo history without copying chat IDs.
     assert.match(second.body.initialPrompt, /cretli-ref todo=/);
-    assert.match(second.body.initialPrompt, new RegExp(firstChatId));
+    assert.doesNotMatch(second.body.initialPrompt, new RegExp(firstChatId));
+    assert.match(second.body.initialPrompt, /Earlier chats are listed by todo_show/);
     assert.match(second.body.initialPrompt, /chat_show/);
   })
 );

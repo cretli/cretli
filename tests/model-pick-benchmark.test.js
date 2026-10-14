@@ -287,7 +287,7 @@ test('provider 429 and bad payloads are reported without leaking the key', async
   assert.deepEqual(parseArtificialAnalysisModels(null), []);
 });
 
-test('terms verification is required before any network call or counter spend', async () => {
+test('self-hosted Artificial Analysis fetching needs no terms confirmation', async () => {
   const calls = [];
   const usageFile = tmp('usage.json');
   const base = { enabled: true, apiKey: 'aa-secret-key', fetchImpl: fakeFetch(200, AA_BODY, calls), now: NOW, usageFile };
@@ -295,11 +295,11 @@ test('terms verification is required before any network call or counter spend', 
   const denied = await fetchBenchmarkSourceSnapshot({ ...base, termsRecord: { ...AA_TERMS, redistributionAllowed: false } });
   const noCost = await fetchBenchmarkSourceSnapshot({ ...base, termsRecord: { ...AA_TERMS, costAcknowledged: false } });
   for (const r of [missing, denied, noCost]) {
-    assert.equal(r.code, 'terms_verification_missing');
-    assert.equal(r.networkAttempted, false);
+    assert.equal(r.ok, true);
+    assert.equal(r.networkAttempted, true);
   }
-  assert.equal(calls.length, 0);
-  assert.equal(fs.existsSync(usageFile), false);
+  assert.equal(calls.length, 3);
+  assert.equal(fs.existsSync(usageFile), true);
 });
 
 test('response size cap is enforced on bytes', async () => {

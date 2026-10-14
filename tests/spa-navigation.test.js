@@ -224,3 +224,12 @@ function deferred() {
   });
   return { promise, resolve, reject };
 }
+
+test('Harness overview sections support direct navigation', () => {
+  for (const section of ['plugins', 'diagnostics', 'roles', 'statistics', 'sources']) {
+    const settingsTab = `harness-overview-${section}`;
+    const actualRoute = parseSpaRoute({ pathname: `/settings/${settingsTab}` });
+    assert.equal(actualRoute.settingsTab, settingsTab);
+    assert.equal(actualRoute.panel, 'settings');
+  }
+});

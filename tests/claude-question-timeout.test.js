@@ -145,3 +145,29 @@ test('sendPendingClaudeQuestionsToClient is a no-op without pending questions', 
   sendPendingClaudeQuestionsToClient(room, ws);
   assert.deepEqual(sent, []);
 });
+
+test('answered AskUserQuestion returns answers keyed by question text', async () => {
+  const room = mkRoom();
+  const canUseTool = createRoomClaudeCanUseTool(room);
+  const pending = canUseTool('AskUserQuestion', SAMPLE_TOOL_INPUT, {});
+  await new Promise((resolve) => setImmediate(resolve));
+  const [requestId] = [...room._pendingQuestions.keys()];
+  assert.ok(requestId, 'question must stay pending until answered');
+  assert.equal(handleClaudeOpenCodeQuestionReply(room, null, { requestId, answers: [['A']] }), true);
+  const result = await pending;
+  assert.equal(result.behavior, 'allow');
+  assert.deepEqual(result.updatedInput.answers, { 'Pick one': 'A' });
+  assert.equal(room._claudeQuestionWaiters.size, 0);
+});
+
+test('dismissed AskUserQuestion returns a declined deny result', async () => {
+  const room = mkRoom();
+  const canUseTool = createRoomClaudeCanUseTool(room);
+  const pending = canUseTool('AskUserQuestion', SAMPLE_TOOL_INPUT, {});
+  await new Promise((resolve) => setImmediate(resolve));
+  const [requestId] = [...room._pendingQuestions.keys()];
+  handleClaudeOpenCodeQuestionReply(room, null, { requestId, reject: true });
+  const result = await pending;
+  assert.equal(result.behavior, 'deny');
+  assert.match(result.message, /declined/i);
+});

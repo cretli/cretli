@@ -1348,6 +1348,8 @@ function renderRowMenuItems(row, list) {
     // Plan-review delegation (review_subject=plan), same path as the card's plan review button.
     { id: 'reviewPlanAgent', icon: 'mdi-robot-outline', label: t('todo.reviewPlanAgent') },
     { id: 'newChat', icon: 'mdi-robot-outline', label: t('todo.continueNewChat'), groupStart: true },
+    // Code-review delegation (review_subject=code), same path as the card's code review button.
+    { id: 'reviewCodeAgent', icon: 'mdi-robot-outline', label: t('todo.reviewCodeAgent') },
     // Only offered when the item's tree really owns an un-integrated worktree;
     // a permanently disabled row on every other task would be noise.
     ...(canIntegrateWorktree(item)
@@ -1370,6 +1372,7 @@ function renderRowMenuItems(row, list) {
       groupStart: true,
     },
     { id: 'addChild', icon: 'mdi-plus', label: t('todo.addChild'), disabled: !canAdd },
+    { id: 'move', icon: 'mdi-drag-vertical', label: t('todo.moveTask') },
     { id: 'copyId', icon: 'mdi-identifier', label: t('todo.copyId') },
     { id: 'copyRef', icon: 'mdi-link-variant', label: t('todo.copyRef') },
     { id: 'delete', icon: 'mdi-delete-outline', label: t('todo.delete'), danger: true, groupStart: true },
@@ -1462,6 +1465,15 @@ async function onRowMenuSelect(event, row) {
   const id = String(row.dataset.id || '');
   const item = findItem(id);
   if (!item) return;
+  if (action === 'move') {
+    const wasMoving = row.classList.contains('todo-row--moving');
+    listEl?.querySelectorAll('.todo-row--moving').forEach((entry) => entry.classList.remove('todo-row--moving'));
+    if (!wasMoving) {
+      row.classList.add('todo-row--moving');
+      row.querySelector('.todo-row-grip')?.focus();
+    }
+    return;
+  }
   await runRowMenuAction(action, item);
 }
 
@@ -1507,6 +1519,10 @@ async function runRowMenuAction(action, item) {
   }
   if (action === 'reviewPlanAgent') {
     onReviewStart({ detail: { id, subject: 'plan' } });
+    return;
+  }
+  if (action === 'reviewCodeAgent') {
+    onReviewStart({ detail: { id, subject: 'code' } });
     return;
   }
   if (action === 'integrate') {
@@ -2052,7 +2068,8 @@ function onGripPointerUp(event) {
   dragState = null;
   clearDropMarks();
   listEl?.querySelectorAll('.todo-row--dragging').forEach((row) => {
-    row.classList.remove('todo-row--dragging');
+    row.classList.remove('todo-row--dragging', 'todo-row--moving');
+    row.querySelector('.todo-row-menu')?.focus();
   });
   if (!move.targetId || !move.zone) return;
   const decision = resolveTodoDrop({

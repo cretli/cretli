@@ -1,13 +1,13 @@
 /**
- * Settings → Harness: external benchmark sources panel (display-only).
+ * Settings → Harness: external benchmark source configuration.
  *
- * Loads registry state via GET only. Import uses same-origin API; no outbound
- * benchmark fetch and no inference.
+ * Keys stay server-side. Official API fetching requires an explicit operator action.
  */
 
 import {
   getHarnessBenchmarkSources,
   putHarnessBenchmarkImport,
+  updateHarnessBenchmarkSource,
 } from '../../api.js';
 import { t } from '../../i18n/index.js';
 import {
@@ -17,6 +17,7 @@ import {
 } from './harnessBenchmarkSourcesModel.js';
 
 let wired = false;
+let isSaving = false;
 let loadSeq = 0;
 /** @type {object|null} */
 let currentPayload = null;
@@ -119,8 +120,53 @@ export function initHarnessBenchmarkSources() {
   section.addEventListener('click', (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
+    const action = target.closest('[data-benchmark-action]')?.getAttribute('data-benchmark-action');
+    if (action) { void configureSource(action); return; }
     const sourceId = target.getAttribute('data-benchmark-import');
     if (!sourceId) return;
     void importFixture(sourceId);
   });
+}
+
+/** Save operator configuration without returning or displaying the stored key. */
+async function configureSource(action) {
+  if (isSaving) return;
+  const read = (id) => document.getElementById(`benchmark-${id}`);
+  const source = currentPayload?.sources?.find((row) => row.id === 'artificial-analysis');
+  if (!source || !currentPayload?.etag) return;
+  let body = { sourceId: source.id };
+  if (action === 'toggle') body.enabled = !source.enabled;
+  if (action === 'fetch') body.force = read('force')?.checked === true;
+  const keyInput = read('api-key');
+  const key = String(keyInput?.value || '').trim();
+  if (action === 'saveKey' && !key) return;
+  isSaving = true;
+  const controls = document.querySelectorAll('#harness-benchmark-sources-section cr-bar-button');
+  const disabledStates = Array.from(controls, (control) => control.disabled);
+  controls.forEach((control) => { control.disabled = true; });
+  setStatus(t('harnessBenchmarkSources.working'));
+  try {
+    const result = action === 'saveKey' || action === 'clearKey'
+      ? await updateHarnessBenchmarkSource('key', action === 'saveKey' ? { apiKey: key } : { clear: true }, currentPayload.etag)
+      : await updateHarnessBenchmarkSource(action === 'toggle' ? 'source' : action === 'test' ? 'test' : 'fetch', body, currentPayload.etag);
+    if (result?.ok === false) {
+      if (result.conflict) await refreshHarnessBenchmarkSourcesPanel();
+      setStatus(result.error || t('harnessBenchmarkSources.importFailed'), 'error');
+      return;
+    }
+    if (action === 'test') {
+      setStatus(t('harnessBenchmarkSources.testSuccess', { count: result.entryCount }), 'success');
+      return;
+    }
+    if (keyInput) keyInput.value = '';
+    await refreshHarnessBenchmarkSourcesPanel();
+    const verifiedSaved = currentPayload?.apiKeys?.['artificial-analysis']?.saved;
+    if (action === 'saveKey' && !verifiedSaved) { setStatus(t('harnessBenchmarkSources.keySaveFailed'), 'error'); return; }
+    setStatus(t(action === 'saveKey' ? 'harnessBenchmarkSources.keySaved' : 'harnessBenchmarkSources.saved'), 'success');
+  } catch (error) {
+    setStatus(error?.message || t('harnessBenchmarkSources.importFailed'), 'error');
+  } finally {
+    isSaving = false;
+    controls.forEach((control, index) => { control.disabled = disabledStates[index]; });
+  }
 }

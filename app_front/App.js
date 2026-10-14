@@ -1370,9 +1370,9 @@ function refreshSettingsTabPanels(tabId) {
   const settingsPanel = document.getElementById('settings-panel');
   if (!settingsPanel?.classList.contains('active')) return;
   ensureSettingsHeavyModules();
-  if (tabId === 'harness') refreshHarnessSettingsPanel();
+  if (tabId === 'harness' || tabId.startsWith('harness-overview-')) refreshHarnessSettingsPanel(tabId);
   refreshHarnessVersionCardsForTab(tabId);
-  if (tabId.endsWith('-stats')) void showHarnessStatistics(getHarnessIdFromSettingsTab(tabId));
+  if (getHarnessIdFromSettingsTab(tabId) && tabId.endsWith('-stats')) void showHarnessStatistics(getHarnessIdFromSettingsTab(tabId));
   if (isHarnessModelSubtab(tabId, 'sdk')) refreshModelSettingsPanel();
   if (isHarnessModelSubtab(tabId, 'openrouter')) refreshOpenRouterModelSettingsPanel();
   if (isHarnessModelSubtab(tabId, 'opencode')) refreshOpenCodeModelSettingsPanel();
@@ -1422,6 +1422,7 @@ function isSettingsTabButtonActive(btn, tabId, inMainBar) {
   if (inMainBar && btnTab === 'chat') return isChatSettingsTab(tabId);
   if (inMainBar && btnTab === 'watcher') return isWatcherSettingsTab(tabId);
   const harnessTab = btn.dataset.harnessTab || '';
+  if (!inMainBar && btnTab === 'harness' && btn.closest('#settings-harness-tabs')) return tabId === 'harness' || tabId.startsWith('harness-overview-');
   if (harnessTab) return isHarnessSubtabOf(tabId, harnessTab);
   return btnTab === tabId;
 }
@@ -1459,7 +1460,8 @@ function applySettingsTab(tabId) {
   activeBtn = applySettingsTabButtonState(chatBar, resolvedTabId, false) || activeBtn;
   activeBtn = applySettingsTabButtonState(watcherBar, resolvedTabId, false) || activeBtn;
 
-  const activeHarnessId = getHarnessIdFromSettingsTab(resolvedTabId);
+  const activeHarnessId = resolvedTabId === 'harness' || resolvedTabId.startsWith('harness-overview-')
+    ? 'overview' : getHarnessIdFromSettingsTab(resolvedTabId);
   document.querySelectorAll('.settings-harness-subtab-bar').forEach((bar) => {
     const barHarnessId = bar.dataset.harnessId || '';
     const isVisible = Boolean(activeHarnessId) && barHarnessId === activeHarnessId;

@@ -635,3 +635,24 @@ test('invalid store state is rendered in the benchmark UI model', () => {
   assert.match(html, /harness-benchmark-store-invalid/);
   assert.match(html, /data-tone="error"/);
 });
+
+test('Artificial Analysis UI gates fetching on configuration and keeps unsupported sources informational', () => {
+  const translate = (key) => key;
+  const payload = {
+    apiKeys: { 'artificial-analysis': { configured: false } },
+    sources: [{ id: 'artificial-analysis', enabled: false }, { id: 'arena-ai' }],
+  };
+  const render = () => renderHarnessBenchmarkSourcesHtml(buildHarnessBenchmarkSourcesViewModel(payload, translate), translate);
+  assert.match(render(), /data-benchmark-action="fetch" disabled/);
+  assert.match(render(), /type="password"/);
+  assert.match(render(), /harnessBenchmarkSources.unsupported/);
+  assert.equal((render().match(/data-benchmark-action="toggle"/g) || []).length, 1);
+  payload.sources[0].enabled = true;
+  payload.apiKeys['artificial-analysis'].configured = true;
+  assert.doesNotMatch(render(), /data-benchmark-action="fetch" disabled/);
+  assert.doesNotMatch(render(), /benchmark-redistribution|benchmark-cost|benchmark-version|benchmark-scope/);
+  assert.match(render(), /data-benchmark-action="test"/);
+  payload.sources[0].termsVerification = { version: '2026-10', scopeOfConsent: 'Display API results' };
+  assert.doesNotMatch(render(), /data-benchmark-action="fetch" disabled/);
+  assert.doesNotMatch(render(), /value="2026-10"/);
+});

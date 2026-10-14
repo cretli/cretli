@@ -393,6 +393,14 @@
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-claude" data-harness-tab="claude" role="tab" aria-selected="false" data-i18n="settings.harnessClaude">Claude</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codex" data-harness-tab="codex" role="tab" aria-selected="false" data-i18n="settings.harnessCodex">Codex</button>
     </div>
+    <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" data-harness-id="overview" role="tablist" hidden data-i18n-aria="settings.tabsHarnessOverview">
+<button type="button" class="settings-tab cr-tab" data-settings-tab="harness" role="tab" aria-selected="false" data-i18n="harnessOverviewTabs.general">General</button>
+<button type="button" class="settings-tab cr-tab" data-settings-tab="harness-overview-plugins" role="tab" aria-selected="false" data-i18n="harnessOverviewTabs.plugins">Plugins & versions</button>
+<button type="button" class="settings-tab cr-tab" data-settings-tab="harness-overview-diagnostics" role="tab" aria-selected="false" data-i18n="harnessOverviewTabs.diagnostics">Diagnostics</button>
+<button type="button" class="settings-tab cr-tab" data-settings-tab="harness-overview-roles" role="tab" aria-selected="false" data-i18n="harnessOverviewTabs.roles">Model selection</button>
+<button type="button" class="settings-tab cr-tab" data-settings-tab="harness-overview-statistics" role="tab" aria-selected="false" data-i18n="harnessOverviewTabs.statistics">Statistics</button>
+<button type="button" class="settings-tab cr-tab" data-settings-tab="harness-overview-sources" role="tab" aria-selected="false" data-i18n="harnessOverviewTabs.sources">Statistics sources</button>
+</div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-sdk" data-harness-id="sdk" role="tablist" hidden data-i18n-aria="settings.harnessSdk" aria-label="Cursor SDK">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-sdk-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-sdk-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
@@ -537,7 +545,7 @@
         <ul id="harness-setup-status" class="harness-setup-status"></ul>
         <p id="harness-enabled-save-status" class="cr-status" aria-live="polite"></p>
       </section>
-      <section class="settings-section" data-settings-tab="harness" id="local-harness-plugins" role="tabpanel">
+      <section class="settings-section" data-settings-tab="harness-overview-plugins" id="local-harness-plugins" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.localHarnessTitle">Local harness plugins</h3>
         <p class="settings-hint" data-i18n="settings.localHarnessHint">Plugins discovered on this server. Enabling one only stores the choice; it still cannot be used for chat until runtime support ships. Saved plugins that are no longer discovered are removed when you save.</p>
         <ul id="local-harness-plugins-list" class="local-harness-plugins-list"></ul>
@@ -555,12 +563,12 @@
           </div>
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="harness" id="harness-versions-overview-section" role="tabpanel">
+      <section class="settings-section" data-settings-tab="harness-overview-plugins" id="harness-versions-overview-section" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="harnessVersion.overviewTitle">Package versions</h3>
         <p class="settings-hint" data-i18n="harnessVersion.overviewHint">Read-only CLI and SDK versions. Package updates ship with Cretli releases — nothing is installed from here.</p>
         <div class="harness-version-card-host" data-harness-version-host="overview"></div>
       </section>
-      <section class="settings-section" data-settings-tab="harness" id="harness-diagnostics-section" role="tabpanel">
+      <section class="settings-section" data-settings-tab="harness-overview-diagnostics" id="harness-diagnostics-section" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="harnessDiagnostics.title">Model diagnostics (read-only)</h3>
         <p class="settings-hint" data-i18n="harnessDiagnostics.hint">Diagnostics reproduce the picker for the current catalog: roles and matcher sources, eligibility, availability, last use, delegation stats and cost. They never start an agent or change the selection.</p>
         <div class="cr-row">
@@ -570,7 +578,7 @@
         </div>
         <div id="harness-diagnostics-output" data-role="harness-diagnostics" aria-live="polite"></div>
       </section>
-      <section class="settings-section" data-settings-tab="harness" id="harness-model-role-config-section" role="tabpanel">
+      <section class="settings-section" data-settings-tab="harness-overview-roles" id="harness-model-role-config-section" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="harnessModelRole.title">Model roles and agent selection (audited)</h3>
         <p class="settings-hint" data-i18n="harnessModelRole.hint">Edit only verified alias rules. Advanced matchers, unknown matcher fields and unknown top-level keys are preserved and shown read-only. A save is atomic and guarded by the content ETag; reset makes a backup first.</p>
         <div class="cr-row">
@@ -582,7 +590,7 @@
         <div id="harness-model-role-config-output" aria-live="polite"></div>
         <div id="harness-model-role-config-diff" class="harness-model-role-diff-host" aria-live="polite"></div>
       </section>
-      <section class="settings-section" data-settings-tab="harness" id="harness-benchmark-sources-section" role="tabpanel">
+      <section class="settings-section" data-settings-tab="harness-overview-sources" id="harness-benchmark-sources-section" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="harnessBenchmarkSources.title">External benchmark sources (display-only)</h3>
         <p class="settings-hint" data-i18n="harnessBenchmarkSources.hint">Informational registry and locally imported snapshots. Nothing here changes model_pick ranking or triggers outbound fetch.</p>
         <div class="cr-row">
@@ -591,7 +599,7 @@
         </div>
         <div id="harness-benchmark-sources-output" aria-live="polite"></div>
       </section>
-      <section class="settings-section" data-settings-tab="harness" id="harness-model-stats-section" role="tabpanel">
+      <section class="settings-section" data-settings-tab="harness-overview-statistics" id="harness-model-stats-section" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="harnessModelStats.title">Model prices and statistics (display-only)</h3>
         <p class="settings-hint" data-i18n="harnessModelStats.hint">Price per 1M tokens, cost per passed job and outcome statistics per model, role and task level. Nothing here changes model_pick ranking.</p>
         <div class="cr-row">
@@ -2974,7 +2982,19 @@
               <span id="chat-context-details-quality" class="chat-diag-badge">—</span>
               <span id="chat-context-details-summary" class="chat-settings-hint-inline">—</span>
             </div>
-            <div class="chat-settings-diag-grid chat-context-details-grid">
+            <progress id="chat-context-details-progress" class="chat-context-details-progress" max="100" value="0"></progress>
+            <div class="cr-tabs chat-context-details-tabs" role="tablist" aria-label="Context details">
+              <button type="button" class="cr-tab active" role="tab" aria-selected="true" data-context-tab="overview" data-i18n="chat.contextTabOverview">Overview</button>
+              <button type="button" class="cr-tab" role="tab" aria-selected="false" data-context-tab="series" data-i18n="chat.contextTabSeries">Over time</button>
+              <button type="button" class="cr-tab" role="tab" aria-selected="false" data-context-tab="breakdown" data-i18n="chat.contextTabBreakdown">Composition</button>
+              <button type="button" class="cr-tab" role="tab" aria-selected="false" data-context-tab="details" data-i18n="chat.contextTabDetails">Details</button>
+            </div>
+            <div class="chat-context-tab-panel" data-context-panel="overview"><section id="chat-context-details-plan-limits" hidden aria-live="polite"></section><section id="chat-context-details-countdown" hidden></section><section id="chat-context-details-cache" hidden></section></div>
+            <div class="chat-context-tab-panel" data-context-panel="series" hidden><section id="chat-context-details-series" hidden></section></div>
+            <div class="chat-context-tab-panel" data-context-panel="breakdown" hidden><section id="chat-context-details-breakdown" hidden></section></div>
+            <div class="chat-context-tab-panel" data-context-panel="details" hidden>
+
+            <div class="chat-settings-diag-grid chat-context-details-grid chat-context-card">
               <div class="chat-settings-diag-row"><span data-i18n="chat.contextDetailsTransport">Transport</span><span id="chat-context-details-transport" class="chat-diag-value">—</span></div>
               <div class="chat-settings-diag-row"><span data-i18n="chat.contextDetailsModel">Model</span><span id="chat-context-details-model" class="chat-diag-value">—</span></div>
               <div class="chat-settings-diag-row"><span data-i18n="chat.contextDetailsSource">Source</span><span id="chat-context-details-source" class="chat-diag-value">—</span></div>
@@ -2986,10 +3006,11 @@
               <div class="chat-settings-diag-row"><span data-i18n="chat.contextDetailsOutput">Output tokens</span><span id="chat-context-details-output" class="chat-diag-value">—</span></div>
               <div class="chat-settings-diag-row"><span data-i18n="chat.contextDetailsTotal">Total tokens</span><span id="chat-context-details-total" class="chat-diag-value">—</span></div>
             </div>
+
             <div class="chat-context-details-warnings">
               <span data-i18n="chat.contextDetailsWarnings">Warnings</span>
               <span id="chat-context-details-warnings" class="chat-diag-value">—</span>
-            </div>
+            </div></div>
           </div>
           <div class="chat-settings-actions">
             <button type="button" id="chat-context-details-close" class="chat-settings-btn-secondary" data-i18n="chat.closeDetails">Close</button>

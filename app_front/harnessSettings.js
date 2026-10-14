@@ -464,11 +464,11 @@ export function initHarnessSettings() {
   });
 }
 
-export function refreshHarnessSettingsPanel() {
+export function refreshHarnessSettingsPanel(tabId = 'harness') {
   void loadDefaultHarnessFromServer({ includeModelUsage: shouldLoadHarnessModelCatalogs('settings') });
-  void refreshLocalHarnessPlugins();
-  refreshHarnessDiagnosticsPanel();
-  refreshHarnessModelRoleConfigPanel();
-  refreshHarnessBenchmarkSourcesPanel();
-  refreshHarnessModelStatsPanel();
+  if (tabId === 'harness-overview-plugins') void refreshLocalHarnessPlugins();
+  if (tabId === 'harness-overview-diagnostics') void refreshHarnessDiagnosticsPanel();
+  if (tabId === 'harness-overview-roles') void refreshHarnessModelRoleConfigPanel();
+  if (tabId === 'harness-overview-sources') void refreshHarnessBenchmarkSourcesPanel();
+  if (tabId === 'harness-overview-statistics') void refreshHarnessModelStatsPanel();
 }

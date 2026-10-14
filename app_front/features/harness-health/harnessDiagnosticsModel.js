@@ -520,9 +520,17 @@ function renderCanonicalHtml(canonical, t) {
  * @param {(key: string, values?: object) => string} t
  * @returns {string}
  */
-export function renderDiagnosticsHtml(model, t) {
+export function renderDiagnosticsHtml(model, t, activeView = 'selection') {
   const parts = [];
   parts.push('<div class="harness-diagnostics">');
+  parts.push('<div class="settings-tabs cr-tabs harness-diagnostics-tabs" role="tablist" aria-label="' + h(t('harnessDiagnostics.viewsLabel')) + '">');
+  for (const view of ['selection', 'models', 'results', 'information']) {
+    const active = activeView === view;
+    parts.push(`<button type="button" class="settings-tab cr-tab${active ? ' active' : ''}" role="tab" aria-selected="${active}" id="diagnostics-tab-${view}" aria-controls="diagnostics-view-${view}" data-diagnostics-view="${view}">${h(t(`harnessDiagnostics.view_${view}`))}</button>`);
+  }
+  parts.push('</div>');
+  const openView = (view) => `<section class="harness-diagnostics-view" role="tabpanel" id="diagnostics-view-${view}" aria-labelledby="diagnostics-tab-${view}" data-diagnostics-panel="${view}" ${activeView === view ? '' : 'hidden'}>`;
+  const informationStart = parts.length;
   parts.push('<div class="harness-diagnostics-meta">'
     + `<span class="harness-diagnostics-badge">${h(t('harnessDiagnostics.roleBadge', { role: model.role }))}</span>`
     + `<span class="harness-diagnostics-badge">${h(t('harnessDiagnostics.policyBadge', { version: model.policyVersion }))}</span>`
@@ -535,6 +543,8 @@ export function renderDiagnosticsHtml(model, t) {
     parts.push(`<p class="harness-diagnostics-alert" data-tone="${h(alert.tone)}">${h(t(`harnessDiagnostics.${alert.key}`))}${detail}</p>`);
   }
 
+  const informationParts = parts.splice(informationStart);
+  parts.push(openView('selection'));
   parts.push('<h4 class="harness-diagnostics-heading">'
     + h(t('harnessDiagnostics.selectionHeading'))
     + '</h4>');
@@ -557,8 +567,8 @@ export function renderDiagnosticsHtml(model, t) {
       for (const penalty of row.penalties) {
         bits.push(`<span class="harness-diagnostics-badge" data-tone="warning">${h(t('harnessDiagnostics.penalty', { reason: penalty }))}</span>`);
       }
-      parts.push(`<li>${bits.join(' ')}<span class="harness-diagnostics-candidate-reason">${h(row.reason)}</span>`);
-      parts.push(`<details class="harness-diagnostics-technical"><summary>${h(t('harnessDiagnostics.technical'))}</summary><dl>`);
+      parts.push(`<li data-selected="${row.selected}"><div class="harness-diagnostics-candidate-header">${bits.join(' ')}</div>`);
+      parts.push(`<details class="harness-diagnostics-technical"><summary>${h(t('harnessDiagnostics.technical'))}</summary><p class="harness-diagnostics-candidate-reason">${h(row.reason)}</p><dl>`);
       parts.push(`<div><dt>${h(t('harnessDiagnostics.colEligibility'))}</dt><dd>${h(row.eligible ? t('harnessDiagnostics.eligible') : (row.filterReasons.join(', ') || t('harnessDiagnostics.notEligible')))}</dd></div>`);
       if (row.penalties.length) parts.push(`<div><dt>${h(t('harnessDiagnostics.penaltiesLabel'))}</dt><dd>${h(row.penalties.join(', '))}</dd></div>`);
       if (row.rankingNote) parts.push(`<div><dt>${h(t('harnessDiagnostics.rankingNote'))}</dt><dd>${h(row.rankingNote)}</dd></div>`);
@@ -582,6 +592,8 @@ export function renderDiagnosticsHtml(model, t) {
     }
   }
 
+  parts.push('</section>');
+  parts.push(openView('models'));
   parts.push('<h4 class="harness-diagnostics-heading">'
     + h(t('harnessDiagnostics.modelsHeading'))
     + '</h4>');
@@ -629,6 +641,8 @@ export function renderDiagnosticsHtml(model, t) {
   }
   parts.push('</tbody></table></div>');
 
+  parts.push('</section>');
+  parts.push(openView('results'));
   parts.push('<h4 class="harness-diagnostics-heading">'
     + h(t('harnessDiagnostics.cohortsHeading'))
     + '</h4>');
@@ -665,6 +679,9 @@ export function renderDiagnosticsHtml(model, t) {
     parts.push(renderCanonicalHtml(model.canonical, t));
   }
 
+  parts.push('</section>');
+  parts.push(openView('information'));
+  parts.push(...informationParts);
   if (model.unknowns.length > 0) {
     parts.push('<h4 class="harness-diagnostics-heading">'
       + h(t('harnessDiagnostics.unknownsHeading'))
@@ -674,8 +691,9 @@ export function renderDiagnosticsHtml(model, t) {
     parts.push('</ul>');
   }
 
+  parts.push('</section>');
   parts.push(`<div class="harness-diagnostics-actions">`
-    + `<button type="button" class="harness-diagnostics-usage-link" data-action="details">${h(t('harnessDiagnostics.openUsage'))}</button>`
+    + `<cr-bar-button class="harness-diagnostics-usage-link" data-action="details">${h(t('harnessDiagnostics.openUsage'))}</cr-bar-button>`
     + '</div>');
   parts.push('</div>');
   return parts.join('');

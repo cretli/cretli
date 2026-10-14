@@ -1,3 +1,4 @@
+import { recordHarnessContextSample } from '../lib/usage/harness-context-telemetry.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
@@ -41,7 +42,7 @@ function createFakeResponse() {
  */
 async function callRoute(method, path, input) {
   const app = createFakeApp();
-  registerUsageRoutes(app, { dataDir: input.dataDir });
+  registerUsageRoutes(app, { dataDir: input.dataDir, readCodexPlanLimits: async () => ({ available: false, reason: 'api-key' }) });
   const handler = app.routes.get(`${method} ${path}`);
   assert.ok(handler, `${method} ${path} must be registered`);
   const res = createFakeResponse();
@@ -341,5 +342,46 @@ test('plan state rejects widget and integration callers', () => {
     const res = createFakeResponse();
     app.routes.get('GET /api/usage/plan-limits')(req, res);
     assert.equal(res.statusCode, 403);
+  }
+});
+
+
+test('plan state awaits Codex quota reads and exposes metadata', async () => {
+  const app = createFakeApp();
+  const dataDir = mkdtempSync(path.join(tmpdir(), 'cretli-plan-codex-api-'));
+  const codex = { available: true, resetCreditsAvailable: 1, credits: { balance: '0' } };
+  let called = false;
+  registerUsageRoutes(app, { dataDir, readCodexPlanLimits: async (options) => {
+    assert.equal(options.dataDir, dataDir);
+    await Promise.resolve();
+    called = true;
+    return codex;
+  } });
+  const res = createFakeResponse();
+  await app.routes.get('GET /api/usage/plan-limits')({}, res);
+  assert.equal(called, true);
+  assert.deepEqual(res.body.codex, codex);
+});
+
+
+test('shared context sample API filters by harness/chat and keeps billing tokens independent', async () => {
+  const dataDir = mkdtempSync(path.join(tmpdir(), 'cretli-context-api-'));
+  recordHarnessContextSample({ dataDir, harness: 'codex', room: { chatId: 'context-chat', _runId: 'context-run' }, event: { observedAt: new Date().toISOString(), usage: { inputTokens: 1000, outputTokens: 100, totalTokens: 1100, cacheReadTokens: 800 }, contextWindowTokens: 10000 } });
+  const response = await callRoute('GET', '/api/usage/context-samples', { dataDir, query: { harness: 'codex', chatId: 'context-chat' } });
+  assert.equal(response.body.samples.length, 1);
+  assert.equal(response.body.samples[0].cacheReadTokens, 800);
+  const other = await callRoute('GET', '/api/usage/context-samples', { dataDir, query: { harness: 'qwen' } });
+  assert.equal(other.body.samples.length, 0);
+  const invalid = await callRoute('GET', '/api/usage/context-samples', { dataDir, query: { from: 'invalid' } });
+  assert.equal(invalid.statusCode, 400);
+});
+
+test('shared context sample API rejects restricted callers before reading the store', async () => {
+  const app = createFakeApp();
+  registerUsageRoutes(app);
+  for (const req of [{ widgetAccess: {} }, { mcpIntegration: {} }]) {
+    const response = createFakeResponse();
+    await app.routes.get('GET /api/usage/context-samples')(req, response);
+    assert.equal(response.statusCode, 403);
   }
 });
