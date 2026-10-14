@@ -95,3 +95,78 @@ test('modularised skills keep the invariants in SKILL.md', () => {
   assert.match(text, /plan_reviewer_phase: "exchange"/);
   assert.match(text, /\/api\/plan-reviewer-sessions\/:sessionId\/messages/);
 }
+
+// Mechanical reviewer rotation: the rule, its filters and the recovery paths.
+{
+  const fs = await import('node:fs');
+  const text = fs.readFileSync(
+    new URL('../.agents/skills/cretli-todo-refine-loop/references/round-protocol.md', import.meta.url),
+    'utf8',
+  );
+  for (const needle of [
+    'review_subject=plan', 'phase=independent', 'session=-', 'uncertified=unknown',
+    'minimum `queued`', 'no row has an active status', 'latest\n   finished round', 'next_cursor',
+    'force_new', 'Worked example', 'only plan write', 'Nothing else is written to the plan or to workflow state',
+  ]) {
+    assert.ok(text.includes(needle), `round-protocol lost: ${needle}`);
+  }
+}
+
+// Fixture: the documented rotation procedure applied to RENDERED list text lines.
+{
+  const ACTIVE = new Set(['queued', 'starting', 'running', 'waiting_for_input', 'cancelling']);
+  const parseLine = (line) => {
+    const [status, id, model, ...rest] = line.trim().split(/\s+/);
+    const tokens = Object.fromEntries(rest.map((t) => t.split('=')).map(([k, ...v]) => [k, v.join('=')]));
+    return { status, id, model, ...tokens };
+  };
+  const selectExclusions = (lines, leaf) => {
+    const rows = lines.map(parseLine).filter((r) => r.leaf === leaf
+      && r.review_subject === 'plan' && r.phase === 'independent' && r.session && r.session !== '-');
+    const rounds = new Map();
+    for (const r of rows) {
+      if (!rounds.has(r.session)) rounds.set(r.session, []);
+      rounds.get(r.session).push(r);
+    }
+    const finished = [...rounds.entries()].map(([session, list]) => ({
+      session, list, time: list.map((r) => r.queued).sort()[0],
+    })).filter((r) => !r.list.some((row) => ACTIVE.has(row.status)));
+    finished.sort((a, b) => (a.time === b.time ? (a.session < b.session ? 1 : -1) : (a.time < b.time ? 1 : -1)));
+    const latest = finished[0];
+    if (!latest) return [];
+    const validFail = (r) => r.verdict === 'FAIL' && r.report === '1' && r.err === '0' && r.interrupt === '-';
+    const excluded = [];
+    for (const r of latest.list) {
+      const otherFail = latest.list.some((o) => o !== r && validFail(o));
+      if (r.verdict === 'PASS' && r.status !== 'interrupted' && otherFail) excluded.push(r.model);
+      if (r.uncertified === 'true') excluded.push(r.model);
+    }
+    return excluded;
+  };
+  const row = (status, model, o = {}) => `${status} id-${model} ${model} verdict=${o.verdict || 'PASS'} review_subject=${o.subject || 'plan'}`
+    + ` session=${o.session || 's1'} phase=${o.phase || 'independent'} uncertified=${o.unc || 'false'} leaf=${o.leaf || 'T'}`
+    + ` outcome=success interrupt=${o.interrupt || '-'} err=${o.err || 0} report=${o.report ?? 1} queued=${o.queued || '2026-01-01T10:00:00Z'}`;
+  assert.deepEqual(selectExclusions([row('completed', 'a'), row('completed', 'b', { verdict: 'FAIL' })], 'T'), ['a']);
+  assert.deepEqual(selectExclusions([row('completed', 'a'), row('completed', 'b', { verdict: 'FAIL', err: 1 })], 'T'), []);
+  assert.deepEqual(selectExclusions([row('completed', 'a'), row('completed', 'b', { verdict: 'FAIL', interrupt: 'x' })], 'T'), []);
+  assert.deepEqual(selectExclusions([
+    row('interrupted', 'a', { verdict: 'FAIL', interrupt: 'x' }), row('completed', 'b'), row('completed', 'c', { verdict: 'FAIL' }),
+  ], 'T'), ['b']);
+  for (const active of ['starting', 'waiting_for_input', 'cancelling']) {
+    assert.deepEqual(selectExclusions([row(active, 'a'), row('completed', 'b', { verdict: 'FAIL' })], 'T'), []);
+  }
+  assert.deepEqual(selectExclusions([
+    row('completed', 'a', { phase: 'exchange' }), row('completed', 'b', { verdict: 'FAIL', session: '-' }),
+    row('completed', 'c', { verdict: 'FAIL', subject: 'other' }), row('completed', 'd', { verdict: 'FAIL', leaf: 'X' }),
+  ], 'T'), []);
+  assert.deepEqual(selectExclusions([
+    row('completed', 'a', { session: 's1', queued: '2026-01-01T10:00:00Z' }),
+    row('completed', 'b', { session: 's1', verdict: 'FAIL', queued: '2026-01-01T10:00:00Z' }),
+    row('completed', 'c', { session: 's2', queued: '2026-01-01T11:00:00Z' }),
+    row('completed', 'd', { session: 's2', verdict: 'FAIL', queued: '2026-01-01T11:00:00Z' }),
+  ], 'T'), ['c']);
+  assert.deepEqual(selectExclusions([
+    row('completed', 'a', { session: 's1' }), row('completed', 'b', { session: 's1', verdict: 'FAIL' }),
+    row('completed', 'c', { session: 's2' }), row('completed', 'd', { session: 's2', verdict: 'FAIL' }),
+  ], 'T'), ['c']);
+}

@@ -154,6 +154,7 @@ function seedInterrupted(parentChatId, interruptCode) {
     childChatId: 'c-uncertified',
     executor: { transport: 'codex', model: 'codex/gpt-5' },
     assignment: 'review',
+    reviewUncertified: true,
     attempts: [],
   };
   const client = {
@@ -176,7 +177,31 @@ function seedInterrupted(parentChatId, interruptCode) {
     { client, session: { chatId: 'p-uncertified', workspaceFolder: ISOLATED_DATA_DIR } },
   );
   assert.equal(result.structuredContent.review_uncertified, true);
-  assert.match(result.content[0].text, /review_uncertified=true/);
+  assert.equal(result.structuredContent.review_uncertified_now, true);
+  assert.match(result.content[0].text, /review_uncertified_now=true/);
+  // A legacy row (no stored value) reports null while the live value stays true.
+  const legacy = await startTool.handler(
+    {
+      task_text: 'review this change',
+      harness: 'codex',
+      model: 'codex/gpt-5',
+      idempotency_key: 'uncertified-review-2',
+      assignment: 'review',
+      chat_id: 'p-uncertified',
+    },
+    {
+      client: {
+        ...client,
+        async startDelegation() {
+          const { reviewUncertified, ...legacyRow } = fakeRow;
+          return { delegation: legacyRow, replayed: true, reviewUncertified: true };
+        },
+      },
+      session: { chatId: 'p-uncertified', workspaceFolder: ISOLATED_DATA_DIR },
+    },
+  );
+  assert.equal(legacy.structuredContent.review_uncertified, null);
+  assert.equal(legacy.structuredContent.review_uncertified_now, true);
 }
 
 // interrupt_code is surfaced by the query summary and delegation_show text.

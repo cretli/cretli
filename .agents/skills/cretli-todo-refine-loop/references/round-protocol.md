@@ -22,12 +22,70 @@ reviewers may POST peer messages to
 
 ## 1. Reviewer rotation between rounds
 
-- Keep one reviewer whose FAIL drove this revision, so it can confirm its own
-  blockers are gone.
-- Replace a reviewer that PASSed a version another reviewer validly FAILed. Its
-  PASS carried no signal; a second PASS from it adds none.
-- Exclude a reviewer the server marks `review_uncertified`. If one runs anyway,
-  report its verdict with that caveat.
+Keep one reviewer whose FAIL drove this revision, so it can confirm its own
+blockers are gone. Replace a reviewer that PASSed a version another reviewer
+validly FAILed: its PASS carried no signal. The rule is mechanical and uses only
+persisted records, so it survives a context loss.
+
+**Tokens.** `delegation_list` and `delegation_show` text carry, per delegation:
+`status`, `verdict`, `review_subject`, `session=<full id>`, `phase`,
+`uncertified=true|false|unknown`, `leaf=<full id>`, `outcome`, `interrupt`
+(`-` when none), `err=0|1` (error non-empty), `report=0|1` (report non-empty)
+and `queued=<ISO of the current attempt>`.
+
+**Procedure.**
+
+1. Read rows with `delegation_list` text; walk `next_cursor` copied verbatim
+   (page max 100). After a `force_new`, also read the earlier coordinators of
+   the todo (full ids from `todo_show` structuredContent, or `chat_show` prefix
+   to full id) with `delegation_list({ chat_id })` and merge all rows before
+   ordering.
+2. Keep only rows with `leaf` equal to the todo under review,
+   `review_subject=plan` and `phase=independent`. Skip rows with an empty
+   session (`session=-`), exchange rows and consult rows.
+3. A round is the set of kept rows sharing one `session`. A FAIL is valid when
+   `verdict=FAIL`, `report=1`, `err=0` and `interrupt` is `-`. Interrupted rows
+   and infrastructure failures are never a valid FAIL and never a PASS.
+4. A round's time is the minimum `queued` of its rows (a retried old row does
+   not move its round). A round is finished when no row has an active status
+   (`queued`, `starting`, `running`, `waiting_for_input`, `cancelling`);
+   `completed`, `failed`, `cancelled` and `interrupted` are terminal. The
+   latest finished round has the greatest time, ties broken by the greater
+   `session` string.
+5. Before round N+1 build `exclude_models` for `model_pick` from the latest
+   finished round only: every base model (strip `::effort=`) that PASSed in a
+   round in which a different reviewer validly FAILed, plus rows with
+   `uncertified=true` when a certified pick exists. `uncertified=unknown` is not
+   excluded. Keep one reviewer whose FAIL drove the rewrite.
+6. If `model_pick` returns no candidate, drop exclusions one at a time
+   (`uncertified=true` rows first, then ascending round time, then ascending
+   session) until a pick exists, and report the relaxation as a deviation
+   (model_pick's own soft exclusion of the last reviewer may overlap; report it
+   once). A higher effort of the same base model is not a replacement.
+
+**Worked example.** Round S2 (`session=s2`, `queued=2026-01-02T10:00Z`):
+
+```
+completed  d1  claude/opus     verdict=PASS session=s2 phase=independent leaf=T err=0 report=1 interrupt=-
+completed  d2  codex/gpt       verdict=FAIL session=s2 phase=independent leaf=T err=0 report=1 interrupt=-
+```
+
+The round is finished and d2's FAIL is valid, so Opus is excluded for round 3
+and the GPT reviewer is kept. An `interrupted` row or `err=1` FAIL would not
+count as valid; a row with `starting`, `waiting_for_input` or `cancelling`
+makes the round unfinished.
+
+Nothing else is written to the plan or to workflow state. The final PASS round
+goes in the final report, never in the plan text.
+
+**Extra round on an unchanged plan version.** A closed session cannot be
+reopened by calling `reviewer_session` again. A replacement reviewer inside a
+still-open session reuses the session. An additional round after a closed one
+(for example a failed verify) requires a plan save: add a line under "Changes
+since version N" stating the reason, which changes the revision key, so
+`reviewer_session` opens a new session; then start both reviewers in it.
+Earlier reviews become stale by design. This is the only plan write the
+rotation procedure allows.
 
 ## 2. Shared `task_text` for both reviewers
 

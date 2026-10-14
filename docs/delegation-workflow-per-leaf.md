@@ -254,3 +254,13 @@ split). The orchestrator should create separate todos for `FOLLOW_UP` and
 ## Controller key
 
 The workflow row is keyed by `(delegationController(row), leafId)`. Rows without `controllerChatId` use the historical parent, so existing workflows are unchanged. Code-review phase patches write to the controller's workflow.
+
+## Reviewer rotation data (refine loop)
+
+`delegation_list` / `delegation_show` expose `plan_reviewer_session_id`,
+`plan_reviewer_phase`, `review_uncertified` (`true|false|null`, stored at the
+first start and never rewritten by replays; `review_uncertified_now` on the
+start response is the live adapter evaluation) and `leaf_id`, plus compact text
+tokens (`session=`, `phase=`, `uncertified=`, `leaf=`, `err=`, `report=`,
+`queued=`). The `cretli-todo-refine-loop` skill uses them to rotate reviewers
+mechanically (references/round-protocol.md §1).

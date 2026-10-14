@@ -56,7 +56,9 @@ read that skill in full; read only the two sections this loop needs:
    returned `session.id` on both starts (`plan_reviewer_session_id`,
    `plan_reviewer_slot` 0 and 1, `plan_reviewer_phase: "independent"`). Details:
    `references/round-protocol.md`.
-2. **Pick two reviewers** — `model_pick({ role: "review", count: 2, diverse:
+2. **Pick two reviewers** — apply the mechanical rotation rule of
+   `references/round-protocol.md` §1 to build `exclude_models`, then
+   `model_pick({ role: "review", count: 2, diverse:
    true, exclude_models? })`; forward the returned `pickId` as `pick_id` on both
    starts. A tier 4+ pick needs a `pick_reason`. Rotation rules:
    `references/round-protocol.md`.
