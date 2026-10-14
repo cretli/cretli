@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Cheaper Verify integration prompts.** The search guidance is one compact
+  sentence, and the builder supplies up to five unverified linked chat hints
+  plus available checkpoint and patch paths under a 600-byte UTF-8 cap. Verify
+  integration and smart merge share their common local-change and HEAD guards.
+
 - **Smaller automatic merge and mailbox prompts.** Smart merge reads its staging
   scope from an atomic JSON sidecar derived from the verified patch, including
   rename/copy sources, modes, binary and empty files. Missing or mismatched

@@ -15,7 +15,7 @@ production chat start. Plan-only uses the watcher builder's plan-gate variant.
 | Builder | Before | After | Decorated before | Decorated after | Decision / derivable block |
 | --- | ---: | ---: | ---: | ---: | --- |
 | `buildSmartMergeRequest` | 3602 | 2830 | 11801 | 11029 | Changed: verified patch → scope sidecar; fixed prompt size. |
-| `buildVerifyIntegrationRequest` | 2844 | 2771 | 11043 | 10970 | Changed: repeated autonomy wording trimmed; all guards retained. |
+| `buildVerifyIntegrationRequest` | 2844 | 2593 | — | — | Fixture with 3 linked chat IDs and a worktree checkpoint: remove 706 bytes of step-2 text and add a 455-byte hints block. Search tools and verify-first guard remain; manual tool-call observation not run in this code session. |
 | `buildGitBranchMergePrompt` | 2623 | 1623 | 10822 | 9822 | Changed: informational paths → git diff --stat instruction. |
 | `buildMailboxDeliveryPrompt` | 3966 | 1171 | 12165 | 9370 | Changed: matching current final report + saved assignment → MCP pointers. |
 | `buildWorkspaceWatcherCyclePrompt` | 5485 | 5485 | 18030 | 18030 | No change: already points to watcher/todo snapshots; bounded memory/history and policy guards. |

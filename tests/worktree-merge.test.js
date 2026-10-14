@@ -11,13 +11,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
-import { addTodo, getTodoById } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, todosDocumentPath, updateTodo } from '../lib/persist/todos-persist.js';
 import { getWorktreeRecord, mutateWorktreeRegistry } from '../lib/persist/worktree-registry-persist.js';
 import { ensureWorktree } from '../lib/worktree-manager.js';
 import {
   buildSmartMergeRequest,
   buildVerifyIntegrationRequest,
   reportSmartMergeOutcome,
+  INTEGRATION_GUARD_NO_LOCAL_CHANGE_DESTRUCTIVE_ACTIONS,
+  INTEGRATION_GUARD_CHANGE_IN_HEAD,
 } from '../lib/workspace-watcher-integration.js';
 import {
   GIT_BRANCH_MERGE_MODE,
@@ -330,4 +332,49 @@ test('verify integration retains search, repair, commit and proof guards', (t) =
   const todo = addTodo(suite.dataDir, suite.repo, { title: 'finished task', status: 'done' }).item;
   const prompt = buildVerifyIntegrationRequest({ todoId: todo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir }).prompt;
   for (const guard of ['todo_show this todo (and its children)', 'Do NOT conclude "missing"', 'chat_history / chat_event', 'git log -S/-G', 'git status/diff', 'git branch --contains <commit>', 'Run the relevant checks', 'fresh expected_updated_at', 'proof.simple true', 'action no_code', 'commit ONLY the task paths', 'never stage unrelated files', 'test or fixture is stale', 'regression test', 'do not confirm', 'Never push, reset, stash or discard local changes', 'leave them untouched and uncommitted', 'user attestation', 'change is not in HEAD']) assert.ok(prompt.includes(guard), guard);
+});
+
+test('verify integration adds bounded server hints and shares guard core', (t) => {
+  const suite = makeSuite('verify-hints');
+  t.after(suite.cleanup);
+  const linkedChatIds = Array.from({ length: 3 }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`);
+  const todo = addTodo(suite.dataDir, suite.repo, {
+    title: 'finished task', status: 'done', chatId: linkedChatIds[0],
+    plan: { sourceChatId: linkedChatIds[1] },
+  }).item;
+  for (const linkedChatId of linkedChatIds.slice(2)) updateTodo(suite.dataDir, suite.repo, todo.id, { linkedChatId });
+  const storedPath = todosDocumentPath(suite.dataDir, suite.repo);
+  const stored = JSON.parse(fs.readFileSync(storedPath, 'utf8'));
+  const storedTodo = stored.items.find((item) => item.id === todo.id);
+  storedTodo.chatId = linkedChatIds[0];
+  storedTodo.linkedChatIds = linkedChatIds.slice(1);
+  storedTodo.plan = { ...storedTodo.plan, sourceChatId: linkedChatIds[1] };
+  storedTodo.leafMaterial = { mode: 'worktree', lastCheckpoint: { commit: 'a'.repeat(40) } };
+  storedTodo.integration = { ...storedTodo.integration, resultPath: '/tmp/result.patch' };
+  fs.writeFileSync(storedPath, JSON.stringify(stored));
+  updateTodo(suite.dataDir, suite.repo, todo.id, { leafMaterial: { mode: 'worktree', lastCheckpoint: { commit: 'a'.repeat(40) } } });
+  const verifyPrompt = buildVerifyIntegrationRequest({ todoId: todo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir }).prompt;
+  assert.ok(verifyPrompt.includes('Hints from the server, unverified; check HEAD and behaviour yourself.'));
+  assert.ok(verifyPrompt.includes(`${linkedChatIds[0]}: executor`));
+  assert.ok(verifyPrompt.includes('Checkpoint commit'));
+  assert.ok(verifyPrompt.includes('NOT proof of presence in HEAD'));
+  assert.equal((verifyPrompt.match(/- Chat /g) || []).length, 3);
+  const hintBlock = verifyPrompt.split('Hints from the server, unverified; check HEAD and behaviour yourself.')[1].trim();
+  assert.ok(Buffer.byteLength(`Hints from the server, unverified; check HEAD and behaviour yourself.${hintBlock ? `\n${hintBlock}` : ''}`, 'utf8') <= 600);
+  assert.ok(verifyPrompt.includes('Do NOT conclude "missing" from a path/commit search alone'));
+  assert.ok(verifyPrompt.includes('proof.simple true'));
+  const smartPrompt = buildSmartMergeRequest({ todoId: suite.todo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir }).prompt;
+  assert.ok(verifyPrompt.includes(INTEGRATION_GUARD_NO_LOCAL_CHANGE_DESTRUCTIVE_ACTIONS));
+  assert.ok(smartPrompt.includes(INTEGRATION_GUARD_NO_LOCAL_CHANGE_DESTRUCTIVE_ACTIONS));
+  assert.ok(verifyPrompt.includes(INTEGRATION_GUARD_CHANGE_IN_HEAD));
+  assert.ok(smartPrompt.includes(INTEGRATION_GUARD_CHANGE_IN_HEAD));
+  const manyChatTodo = addTodo(suite.dataDir, suite.repo, { title: 'many chats', status: 'done' }).item;
+  const manyChatDoc = JSON.parse(fs.readFileSync(storedPath, 'utf8'));
+  manyChatDoc.items.find((item) => item.id === manyChatTodo.id).linkedChatIds = Array.from({ length: 7 }, (_, index) => `10000000-0000-4000-8000-${String(index).padStart(12, '0')}`);
+  fs.writeFileSync(storedPath, JSON.stringify(manyChatDoc));
+  const manyChatPrompt = buildVerifyIntegrationRequest({ todoId: manyChatTodo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir }).prompt;
+  assert.equal((manyChatPrompt.match(/- Chat /g) || []).length, 5);
+  const unknown = addTodo(suite.dataDir, suite.repo, { title: 'no hints', status: 'done' }).item;
+  const unknownPrompt = buildVerifyIntegrationRequest({ todoId: unknown.id, workspaceFolder: suite.repo, dataDir: suite.dataDir }).prompt;
+  assert.ok(!unknownPrompt.includes('Hints from the server'));
 });
