@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Slimmer start prompts.** The refine-plan child prompt is about a third of its
+  former size (session id, split-assessment text, previous-chat list and loop
+  paragraph removed; cooperation mode is always present; the exchange/collaborative
+  procedure moved to the skill's `round-protocol.md`). The review prompt keeps the
+  denied-shell rule only in the reviewer role instead of twice. Bare skill names
+  such as `review` or `shell` in prose no longer pull the generic skill into a
+  prompt; `@name` and "use the X skill" still do.
 - **Cost-aware plan decomposition in Review and refine plan.** The planning
   agent now creates subtasks when their benefit outweighs repeated research,
   agent starts, reviews and integration, keeps cohesive work together, and

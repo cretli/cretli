@@ -89,3 +89,19 @@ assert.notEqual(
 );
 
 console.log('delegation-prompt.test.js OK');
+
+// The denied-shell rule lives only in the review role, so it is present once in Plan and Agent mode.
+for (const executionMode of ['plan', 'agent']) {
+  const built = buildDelegationExecutorPrompt({
+    sourceKind: 'plan',
+    planMarkdown: '# Verify the plan',
+    executionMode,
+    assignment: 'review',
+  });
+  assert.equal(built.ok, true);
+  const occurrences = built.prompt.split('A denied shell call does not fail or end the review.').length - 1;
+  assert.equal(occurrences, 1, `denied-shell rule once in ${executionMode} mode`);
+  assert.doesNotMatch(built.prompt, /If a shell command is denied, the review remains active/);
+  assert.match(built.prompt, /Do not implement\. Do not edit files/);
+  assert.match(built.prompt, /TASK: audit\|implement\|review/);
+}

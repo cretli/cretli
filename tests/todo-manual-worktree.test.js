@@ -308,7 +308,7 @@ test('worktree mode without a layout derives and persists the layout, then start
   assert.equal(layout.branchPrefix, `${path.basename(suite.repo)}/todo/`);
 });
 
-test('D1: a live descendant record blocks a manual root start with 409', async (t) => {
+test('D1: a single live descendant record is adopted by a manual root start', async (t) => {
   const suite = makeSuite('mixing');
   t.after(suite.cleanup);
   clearManualStartJobs();
@@ -330,9 +330,32 @@ test('D1: a live descendant record blocks a manual root start with 409', async (
     params: { id: root.id },
     body: { agentTransport: 'claude', workspaceFolder: suite.repo },
   });
-  assert.equal(result.status, 409, JSON.stringify(result.body));
+  assert.equal(result.status, 200, JSON.stringify(result.body).slice(0, 400));
+  const rootRecord = getWorktreeRecord(root.id, { dataDir: suite.dataDir });
+  assert.equal(rootRecord?.todoId, root.id);
+  assert.equal(getWorktreeRecord(leaf.id, { dataDir: suite.dataDir }), null);
+});
+
+test('D1: two live descendant records still block a manual root start with 409', async (t) => {
+  const suite = makeSuite('mixing-two');
+  t.after(suite.cleanup);
+  clearManualStartJobs();
+  clearWorktreePrepareLocks();
+  setWorktreePolicy(suite.dataDir, suite.repo, suite.baseDir);
+  const loadPolicy = (folder) => getWorkspaceWatcher(folder, { dataDir: suite.dataDir });
+  const app = makeApp(loadPolicy, { dataDir: suite.dataDir, repo: suite.repo });
+  const root = addTodo(suite.dataDir, suite.repo, { title: 'root', status: 'doing', executionMode: 'worktree' }).item;
+  const policy = getWorkspaceWatcher(suite.repo, { dataDir: suite.dataDir }).policy;
+  for (const title of ['leaf-a', 'leaf-b']) {
+    const leaf = addTodo(suite.dataDir, suite.repo, { title, parentId: root.id, status: 'doing', executionMode: 'worktree' }).item;
+    await prepareWorkspaceWatcherExecution({ todoId: leaf.id, workspaceFolder: suite.repo, todo: leaf, policy, dataDir: suite.dataDir });
+  }
+  const result = await app.invoke('POST', '/api/todos/:id/start-agent', {
+    params: { id: root.id },
+    body: { agentTransport: 'claude', workspaceFolder: suite.repo },
+  });
+  assert.equal(result.status, 409, JSON.stringify(result.body).slice(0, 400));
   assert.equal(result.body.code, 'WORKTREE_REGISTRY_CONFLICT');
-  assert.equal(result.body.conflictTodoId, leaf.id);
 });
 
 test('D1: a live ancestor record blocks the Watcher leaf prepare with 409', async (t) => {

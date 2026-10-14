@@ -207,7 +207,9 @@ runCase(
     assert.notEqual(refineChatId, executorChatId);
     assert.match(refined.body.initialPrompt, /@cretli-todo-refine-loop/);
     assert.match(refined.body.initialPrompt, /after every rewrite, call reviewer_session/);
-    assert.match(refined.body.initialPrompt, /returned session id/);
+    assert.match(refined.body.initialPrompt, /Cooperation mode: independent/);
+    assert.match(refined.body.initialPrompt, /do not change the todo status/);
+    assert.doesNotMatch(refined.body.initialPrompt, /PREVIOUS CHATS|session id:|Run the whole loop|two independent plan reviews/);
     assert.match(refined.body.initialPrompt, /cretli-ref todo=/);
     assert.doesNotMatch(refined.body.initialPrompt, /set-todo-from-agent/);
 

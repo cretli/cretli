@@ -8,12 +8,17 @@ After normalising/saving the plan, and after every rewrite, call
 `reviewer_session({ todo_id: <root id>, cooperation_mode: <mode from prompt, default independent> })`.
 Use the returned `session.id` on both review starts with
 `plan_reviewer_session_id`, distinct `plan_reviewer_slot` values 0 and 1,
-and `plan_reviewer_phase: "independent"`. Do not reuse the initial prompt's id
-after a plan change. Repeated calls reuse the current revision without clearing
+and `plan_reviewer_phase: "independent"`. Never reuse a session id after a
+plan change; ask `reviewer_session` again. Repeated calls reuse the current revision without clearing
 reports or reopening a closed phase. No plan approval or status change occurs.
 If a concurrent plan edit makes a start `stale`, reload the canonical plan and
 prepare its session before retrying; do not bypass revision checks or review an
 unsaved copy. Preserve the requested cooperation mode across all versions.
+
+Exchange mode: wait until the session phase is `exchange` before starting
+delegations with `plan_reviewer_phase: "exchange"`. Collaborative mode:
+reviewers may POST peer messages to
+`/api/plan-reviewer-sessions/:sessionId/messages` (audit log on the session).
 
 ## 1. Reviewer rotation between rounds
 

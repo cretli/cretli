@@ -84,3 +84,14 @@ test('modularised skills keep the invariants in SKILL.md', () => {
   // Reading the whole second skill is no longer mandatory.
   assert.equal(/read that skill for the details/.test(refineLoop), false);
 });
+
+// The exchange/collaborative procedure left the refine prompt and must live in the references.
+{
+  const fs = await import('node:fs');
+  const text = fs.readFileSync(
+    new URL('../.agents/skills/cretli-todo-refine-loop/references/round-protocol.md', import.meta.url),
+    'utf8',
+  );
+  assert.match(text, /plan_reviewer_phase: "exchange"/);
+  assert.match(text, /\/api\/plan-reviewer-sessions\/:sessionId\/messages/);
+}

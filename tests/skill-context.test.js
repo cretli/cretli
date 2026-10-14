@@ -130,3 +130,21 @@ test('an empty workspace produces no catalog and no selected block', () => {
     workspace.cleanup();
   }
 });
+
+test('generic skill names in prose do not select a skill, explicit mentions do', () => {
+  const workspace = makeSkillWorkspace({
+    review: '---\nname: review\ndescription: generic review\n---\n\nREVIEW BODY\n',
+    shell: '---\nname: shell\ndescription: generic shell\n---\n\nSHELL BODY\n',
+  });
+  try {
+    const prose = 'Review the plan against the repository. If a shell call is denied, use native read tools to review the code.';
+    const prosePrompt = buildSkillPromptBlocks(workspace.root, workspace.options, prose);
+    assert.equal(prosePrompt.selected, '');
+    const named = buildSkillPromptBlocks(workspace.root, workspace.options, 'Use the review skill on this diff.');
+    assert.notEqual(named.selected, '');
+    const at = buildSkillPromptBlocks(workspace.root, workspace.options, '@shell ls');
+    assert.notEqual(at.selected, '');
+  } finally {
+    workspace.cleanup();
+  }
+});

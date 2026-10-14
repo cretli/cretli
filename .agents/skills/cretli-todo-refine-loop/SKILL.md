@@ -31,10 +31,9 @@ read that skill in full; read only the two sections this loop needs:
 
 0. Treat notes from earlier chats (a session being "closed", a provider being
    "exhausted", a round cap being "reached") as stale hints, never as facts.
-   The reviewer session id in this chat's prompt was created for this run and
-   is open for its original saved revision; saving a changed plan makes it stale.
-   Prepare a current session as described below; only a rejected `delegation_start` (`phase_closed`, `stale`) shows
-   otherwise. Pick reviewers fresh and let `model_pick` skip models under
+   The prompt carries the cooperation mode, not a session id: prepare the
+   session as described below. Only a rejected `delegation_start`
+   (`phase_closed`, `stale`) shows a session is unusable. Pick reviewers fresh and let `model_pick` skip models under
    lockout.
 
 1. `todo_show` the root (body, then `field: "plan"`, following every
