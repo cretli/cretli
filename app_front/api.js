@@ -1749,6 +1749,57 @@ export async function getUsageInsights(query = {}) {
 }
 
 /**
+ * Local cache freshness / session generation of one chat (read-only; never
+ * triggers a model request).
+ *
+ * @param {string} chatId
+ * @returns {Promise<{ ok: boolean, freshness?: object, error?: string }>}
+ */
+export async function getUsageCacheFreshness(chatId) {
+  const qs = new URLSearchParams({ chat_id: String(chatId || '') });
+  return dedupeGetJson(`/api/usage/cache-freshness?${qs}`, `getUsageCacheFreshness:${chatId}`);
+}
+
+/**
+ * Keep-alive plans and the benchmark gate (local read; never pings).
+ *
+ * @returns {Promise<{ ok: boolean, plans?: object[], gate?: object, error?: string }>}
+ */
+export async function getUsageKeepAlive() {
+  return dedupeGetJson('/api/usage/keep-alive', 'getUsageKeepAlive');
+}
+
+/**
+ * Stops one keep-alive plan (terminal; never sends a request).
+ *
+ * @param {{ controllerChatId: string, delegationId: string }} input
+ * @returns {Promise<{ ok: boolean, plan?: object, reason?: string }>}
+ */
+export async function stopUsageKeepAlive(input = {}) {
+  return apiFetchJson('/api/usage/keep-alive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'stop',
+      controllerChatId: String(input.controllerChatId || ''),
+      delegationId: String(input.delegationId || ''),
+    }),
+  }, 'stopUsageKeepAlive', { timeoutMs: 15000 });
+}
+
+/**
+ * Usage per delegation leaf and round for the same window/filters as insights.
+ *
+ * @param {object} [query]
+ * @returns {Promise<{ ok: boolean, breakdown?: object, error?: string }>}
+ */
+export async function getUsageWorkflowBreakdown(query = {}) {
+  const params = buildUsageQueryParams(query);
+  const suffix = params.toString() ? `?${params}` : '';
+  return dedupeGetJson(`/api/usage/workflow-breakdown${suffix}`, 'getUsageWorkflowBreakdown');
+}
+
+/**
  * Model × role delegation outcomes from GET /api/delegations/stats.
  *
  * Same scope gate as the delegations list (workspace + widget installation):

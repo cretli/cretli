@@ -4667,6 +4667,32 @@ export function createSdkRichView(chat, mountEl, hooks) {
   }
 
   /**
+   * A status update can be the first record of a card inside a tail-windowed
+   * history. Move such a card to where its first event sits (`anchorSeq`) so
+   * replies do not pile up at the end of the chat.
+   *
+   * @param {HTMLElement} card
+   * @param {unknown} anchorSeqRaw
+   */
+  function moveHistoryCardToAnchor(card, anchorSeqRaw) {
+    const anchorSeq = Number(anchorSeqRaw) || 0;
+    const ownSeq = Number(renderedRecordHistorySeq) || 0;
+    if (stream !== realStream || anchorSeq <= 0 || ownSeq <= 0 || anchorSeq >= ownSeq) return;
+    const incomingKey = { historySeq: anchorSeq, roomEventSeq: 0, eventStreamId: '' };
+    let before = null;
+    for (const child of stream.children) {
+      if (!(child instanceof HTMLElement) || child === card) continue;
+      if (shouldPlaceViewCardBefore(incomingKey, readElementOrderKey(child))) {
+        before = child;
+        break;
+      }
+    }
+    if (before) stream.insertBefore(card, before);
+    card.dataset.historySeq = String(anchorSeq);
+    if ('historySeq' in card) /** @type {any} */ (card).historySeq = anchorSeq;
+  }
+
+  /**
    * @param {string} text
    * @returns {string}
    */
@@ -4727,7 +4753,10 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (!(card instanceof HTMLElement)) {
       lineMeta('sdk-rich-delegation', '', createdAt);
       card = lastStreamChild;
-      if (card instanceof HTMLElement) card.dataset.delegationId = safeId;
+      if (card instanceof HTMLElement) {
+        card.dataset.delegationId = safeId;
+        moveHistoryCardToAnchor(card, data.anchorSeq);
+      }
     }
     if (!(card instanceof HTMLElement)) return;
     frameHistoryCard(card, 'sdk-rich-delegation');
@@ -4765,6 +4794,11 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const pickReasonLabel = model.pickReason
       ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-pick-reason" title="${escapeHtml(model.pickReason)}">${escapeHtml(t('chat.delegationPickReason'))}: ${escapeHtml(model.pickReason)}</div>`
       : '';
+    const sessionResumeLabel = model.sessionResume
+      ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-session-resume" title="${escapeHtml(model.sessionResume.reason)}">${escapeHtml(model.sessionResume.status === 'resumed'
+        ? t('chat.delegationSessionResumed', { n: String(model.sessionResume.round) })
+        : t('chat.delegationSessionFallback', { code: model.sessionResume.reasonCode }))}</div>`
+      : '';
     const childGrantLabel = model.allowChildDelegations
       ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-child-grant">${escapeHtml(t('chat.delegationChildGrant'))}</div>`
       : '';
@@ -4775,6 +4809,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       deliveryLabel,
       attemptsLabel,
       executorLabel ? `<div class="sdk-rich-delegation-meta">${escapeHtml(executorLabel)}</div>` : '',
+      sessionResumeLabel,
       pickReasonLabel,
       childGrantLabel,
       sourceLabel,
@@ -5203,7 +5238,10 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (!(card instanceof HTMLElement)) {
       lineMeta('sdk-rich-mailbox', '', createdAt);
       card = lastStreamChild;
-      if (card instanceof HTMLElement) card.dataset.mailboxId = safeId;
+      if (card instanceof HTMLElement) {
+        card.dataset.mailboxId = safeId;
+        moveHistoryCardToAnchor(card, data.anchorSeq);
+      }
     }
     if (!(card instanceof HTMLElement)) return;
     frameHistoryCard(card, 'sdk-rich-mailbox');

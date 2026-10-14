@@ -378,3 +378,136 @@ scenarios on one frozen fixture and cutoff
 and the open criteria are in
 [usage-acceptance-report.md](usage-acceptance-report.md). Enable and roll back
 the stages with [usage-rollout.md](usage-rollout.md).
+
+## 9. Cache freshness and session generations
+
+`lib/usage/cache-state.js#getCacheFreshness` (MCP `cache_freshness`,
+`GET /api/usage/cache-freshness?chat_id=`) is a local read of the in-memory
+per-chat state; it never issues a model request or refreshes a cache.
+
+- `expiresAt` / `expiresInMs` exist only when the harness TTL is known and the
+  estimate is warm. An unknown TTL yields `unknown`, never a countdown.
+- A reset (restart, compaction, epoch bump) opens a new `generation`, drops the
+  estimate and the current context fill, and keeps the cumulative session
+  totals: usage history is never rewritten.
+- Cache (`cache`, `session`) and context fill (`context.inputTokens`) are
+  separate dimensions; cached tokens still occupy the context window.
+- Harnesses that do not report cache read/write expose that as
+  `cache.telemetry.cacheRead/cacheWrite: false` instead of zeros.
+- State is in-memory (`stateScope: process`, `stateSince`) and deliberately not
+  persisted: after a server restart a chat has no observation, `confidence` is
+  `none` and no estimate or countdown is produced (no false-warm). Usage history
+  lives in the ledger and is unaffected, so a restart never double counts.
+
+### Workflow / round breakdown
+
+`GET /api/usage/workflow-breakdown` (`lib/usage/workflow-breakdown.js`) groups
+delegated usage by leaf and round. The ledger already stamps `delegationId`,
+`attemptId` and `runId`; the round is the 1-based ordinal of the attempt among
+the leaf's attempts, so no new ledger field exists. Replayed logical events are
+counted once (`duplicates`), unattributable events are reported as
+`unmatched`, and cost keeps measured (`actualUsd`) separate from estimated.
+
+## 10. Optional paid cache keep-alive and net-savings benchmark
+
+Keeping a prompt cache warm is a **paid, opt-in** feature. It is off by
+default: no plan exists until `keepalive_config` (or a manual ping)
+creates one, no timer runs without an active automatic plan, and no user-global
+setting is changed.
+
+### What a ping is
+
+A ping is a real provider request issued into the **same harness session** of a
+finished review delegation (`startChatRun` on its child chat). It is not a
+mailbox message (delivery without a request is never counted as success), not a
+new chat, and not a review round: it creates no delegation, report or verdict
+and changes no TODO status. The prompt asks for a one-word reply, but a warm ping
+still reads the whole cached prefix, so it is never assumed cheap.
+
+A ping is *effective* only when the provider usage of that very request shows a
+cache read. Without usage it becomes `unconfirmed` with an unknown cost, which
+stops a budgeted plan (`cost_unknown`).
+
+### Modes and availability
+
+| Mode | Needs |
+| --- | --- |
+| `off` (default) | nothing |
+| `manual` | resumable adapter, harness session id |
+| `auto` | everything for manual **and** a known TTL policy, a firm tariff, `budget_usd`, `expect_next_round_until`, and a passing benchmark gate |
+
+When a prerequisite is missing `auto` is refused with a stable reason
+(`resume_unsupported`, `ttl_unknown`, `cost_unknown`, `budget_required`,
+`next_round_required`, `benchmark_missing`, `benchmark_no_go`); it is never
+silently downgraded.
+
+### Bounds
+
+`max_pings` (default 3, hard 10), `min_interval_ms` (default 60 s, floor 30 s),
+`max_duration_ms` (default 30 min, hard 2 h) and `budget_usd` (hard 5). A plan
+stops (terminal) on: `cancelled`, `workflow_ended`, `session_reset`,
+`chat_missing`, `deadline`, `ping_limit`, `budget_exhausted`, `cost_unknown`,
+`provider_limit`, `ineffective` (2 pings without a cache read), `not_needed`
+(past the declared next round or a newer round started on the session),
+`cache_expired`, `not_economic`, `error`, `user_stopped`.
+It **defers** (non-terminal) on `busy` (a run or a delegation is active in the
+session — a review is never preempted), `user_command` (a non-keep-alive turn in
+the last 2 minutes), `min_interval` and `not_due`. A manual ping skips only the
+due-ness check, never a stop or deferral.
+
+### Restart, dedupe, audit
+
+Plans live in memory. A restart drops them and nothing is caught up; a long
+suspend inside a live process is evaluated once and ends as `cache_expired`, not
+as a burst. At most one ping per plan is in flight, request ids are
+deterministic (`keepalive:<delegationId>:<key>`) and replayed manual calls
+return the first result, so two paid requests are never created. Every plan
+event (created/refused/requested/deferred/failed/settled/stopped) is audited
+(bounded in-memory log plus a `[keep-alive]` console line).
+
+### Cost accounting
+
+Each settled ping carries its measured cost (or `null`). The remaining budget is
+`null` ("unknown") as soon as one ping is unmeasured. Ping usage is attributed by
+run id and appears in `GET /api/usage/workflow-breakdown` as a separate
+`keep_alive` row per leaf (round `null`); it is not folded into a review round
+and not reported as unmatched.
+
+### MCP, REST and UI
+
+`keepalive_status` (read-only), `keepalive_config`,
+`keepalive_ping`, `keepalive_stop` (mutating, blocked in Plan/Ask).
+REST: `GET /api/usage/keep-alive` (overview), `POST /api/usage/keep-alive`
+(`status|configure|ping|stop`). Settings → Usage shows plans with mode, stop
+reason, last deferral, pings left, budget left (or "Unknown"), spent, a stop
+button and the benchmark gate.
+
+### Benchmark and go/no-go gate
+
+`node scripts/measure-cache-keepalive-benchmark.mjs --observations <file> --out`
+compares **fresh**, **reuse** and **reuse + keep-alive** on the same fixture
+version (`tests/fixtures/keep-alive-benchmark/fixture.json`) for both reviewers
+and the coordinator, including every ping's cost, wall time and the seeded bugs
+found. `--emit-template` prints the observation shape; `--simulate` only
+exercises the pipeline and can never open the gate.
+
+The gate is `go` only for a **measured** report with identical fixture versions,
+all three participants in every arm, a known tariff for every cost (pings
+included), a net saving against fresh *and* against plain reuse, no loss in
+seeded bugs found and mostly effective pings. Otherwise it is `no_go` with
+reasons. An unknown tariff gives an unknown cost, never a savings promise.
+
+The benchmark measures resume **capability on a fixture**, not a real review
+loop: the pair is not wired into loops (plan v3 decision, todo
+`8ed03f09-b5e7-418e-afea-ad26a2df2d66`), so no conclusion about savings in loops
+is drawn. The scheduler reads `data/keep-alive-benchmark.json` and recomputes
+the gate from the stored report; a missing file is `no_go`. A negative result is
+a valid outcome and keeps `auto` unavailable.
+
+#### Result recorded with this change
+
+No measured run exists in this repository. The pipeline was exercised with
+`--simulate` only: source `simulated`, tariff unknown, all costs unknown, gate
+`no_go` (`not_measured`, `cost_unknown`). Consequently automatic keep-alive is **unavailable** until a
+measured report with a known tariff passes the gate; manual pings remain
+available as an explicit, bounded, user-paid action.

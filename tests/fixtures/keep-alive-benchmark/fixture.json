@@ -1,0 +1,16 @@
+{
+  "id": "keep-alive-review-pair",
+  "version": "1",
+  "rounds": 3,
+  "materialIds": ["round-1", "round-2", "round-3"],
+  "seededBugs": [
+    "off-by-one-in-pager",
+    "unchecked-null-owner",
+    "stale-cache-after-update",
+    "missing-await-on-save",
+    "swallowed-error-in-retry",
+    "wrong-sort-direction"
+  ],
+  "participants": ["reviewerA", "reviewerB", "coordinator"],
+  "note": "Synthetic task description used to compare fresh, reuse and reuse+keep-alive arms on identical material. It measures resume capability, not a real review loop."
+}

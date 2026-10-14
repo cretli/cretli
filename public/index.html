@@ -2134,6 +2134,25 @@
             <p class="settings-hint" data-i18n="usage.signalsHint">Technical success, review acceptance, manual acceptance and review verdict are separate signals with their own denominators.</p>
             <div id="usage-signals" aria-live="polite"></div>
           </div>
+          <div role="region" class="settings-usage-panel" aria-labelledby="usage-cache-title">
+            <h4 class="settings-usage-subtitle" id="usage-cache-title" data-i18n="usage.cacheTitle">Cache freshness</h4>
+            <p class="settings-hint" data-i18n="usage.cacheHint">Local estimate for one chat. Reading it sends no model request.</p>
+            <div class="settings-usage-control">
+              <label class="settings-usage-control-label" for="usage-cache-chat-select" data-i18n="usage.cacheChatLabel">Chat</label>
+              <select id="usage-cache-chat-select" class="settings-usage-select"></select>
+            </div>
+            <div id="usage-cache-freshness" aria-live="polite"></div>
+          </div>
+          <div role="region" class="settings-usage-panel" aria-labelledby="usage-keepalive-title">
+            <h4 class="settings-usage-subtitle" id="usage-keepalive-title" data-i18n="usage.keepAliveTitle">Cache keep-alive</h4>
+            <p class="settings-hint" data-i18n="usage.keepAliveHint">Optional and paid: each ping is a real request in a resumed reviewer session. Off by default; bounded by ping count, interval, budget and deadline.</p>
+            <div id="usage-keepalive" aria-live="polite"></div>
+          </div>
+          <div role="region" class="settings-usage-panel" aria-labelledby="usage-workflow-title">
+            <h4 class="settings-usage-subtitle" id="usage-workflow-title" data-i18n="usage.workflowTitle">Usage by workflow round</h4>
+            <p class="settings-hint" data-i18n="usage.workflowHint">Delegated usage grouped by leaf and round. Measured and estimated cost are shown separately.</p>
+            <div id="usage-workflow" aria-live="polite"></div>
+          </div>
         </div>
         <div class="settings-usage-delegation-stats">
           <div class="settings-usage-table-head">

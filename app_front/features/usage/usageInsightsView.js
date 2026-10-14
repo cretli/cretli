@@ -185,3 +185,125 @@ export function renderSignalsHtml(signals, options = {}) {
   return `<ul class="settings-usage-signals">${rows}</ul>`
     + `<p class="settings-hint">${escapeHtml(costText)}</p>${partial}`;
 }
+
+/**
+ * Cache freshness block. Shows exact token counts, keeps the context fill as a
+ * separate row, and prints an estimate only when the TTL is known. The list is
+ * focusable so the TTL caveat (title) is reachable from the keyboard.
+ *
+ * @param {object|null} view `getCacheFreshness` result
+ * @param {{ t: Function, lang?: string }} options
+ * @returns {string}
+ */
+export function renderCacheFreshnessHtml(view, options = {}) {
+  const t = options.t;
+  const lang = options.lang || 'en';
+  if (!view || !view.cache) return `<p class="settings-hint">${escapeHtml(t('usage.cacheNoData'))}</p>`;
+  const { cache, session, context } = view;
+  let status = t('usage.cacheNoData');
+  if (cache.state === 'warm' && cache.expiresInMs != null) {
+    status = t('usage.cacheEstimated', { minutes: String(Math.max(1, Math.ceil(cache.expiresInMs / 60000))) });
+  } else if (cache.state === 'cold') {
+    status = t('usage.cacheLikelyExpired');
+  }
+  const exact = (value) => (value == null ? '—' : formatInteger(value, lang));
+  const rows = [
+    ['usage.cacheStatus', status],
+    ['usage.cacheGeneration', exact(session?.generation)],
+    ['usage.cacheSessionRead', exact(session?.cachedInputTokens)],
+    ['usage.cacheSessionWrite', exact(session?.cacheWriteTokens)],
+    ['usage.cacheContextFill', exact(context?.inputTokens)],
+  ].map(([key, value]) => `<li class="settings-usage-bucket">
+      <span class="settings-usage-bucket-label">${escapeHtml(t(key))}</span>
+      <span class="settings-usage-bucket-value">${escapeHtml(value)}</span>
+    </li>`).join('');
+  return `<ul class="settings-usage-buckets" tabindex="0" title="${escapeHtml(t('usage.cacheTtlCaveat'))}">${rows}</ul>`
+    + `<p class="settings-hint">${escapeHtml(t('usage.cacheTtlCaveat'))}</p>`;
+}
+
+/**
+ * Usage per delegation leaf and round. Token totals are exact; the cost origin
+ * (measured vs estimated vs unpriced) is shown per row, never merged.
+ *
+ * @param {object|null} breakdown `buildWorkflowBreakdown` result
+ * @param {{ t: Function, lang?: string }} options
+ * @returns {string}
+ */
+export function renderWorkflowBreakdownHtml(breakdown, options = {}) {
+  const t = options.t;
+  const lang = options.lang || 'en';
+  const rows = Array.isArray(breakdown?.rows) ? breakdown.rows : [];
+  if (rows.length === 0) return `<p class="settings-hint">${escapeHtml(t('usage.workflowEmpty'))}</p>`;
+  const body = rows.map((row) => {
+    const cost = row.cost || {};
+    const origin = t('usage.workflowCostOrigin', {
+      actual: formatUsd(cost.actualUsd),
+      estimated: formatUsd(cost.estimatedUsd),
+      unpriced: formatInteger(cost.unpricedEvents, lang),
+    });
+    return `<tr>
+      <th scope="row">${escapeHtml(String(row.leafId || '').slice(0, 8))}</th>
+      <td>${escapeHtml(row.round == null ? '—' : formatInteger(row.round, lang))}</td>
+      <td>${escapeHtml(row.role || '—')}</td>
+      <td>${escapeHtml(formatInteger(row.tokens?.totalTokens ?? 0, lang))}</td>
+      <td>${escapeHtml(formatInteger(row.tokens?.cacheRead ?? 0, lang))}</td>
+      <td>${escapeHtml(origin)}</td>
+    </tr>`;
+  }).join('');
+  const head = ['usage.workflowLeaf', 'usage.workflowRound', 'usage.workflowRole', 'usage.workflowTokens', 'usage.cacheSessionRead', 'usage.workflowCost']
+    .map((key) => `<th scope="col">${escapeHtml(t(key))}</th>`).join('');
+  const unmatched = Number(breakdown?.unmatched?.events) > 0
+    ? `<p class="settings-hint">${escapeHtml(t('usage.workflowUnmatched', { count: formatInteger(breakdown.unmatched.events, lang) }))}</p>`
+    : '';
+  return `<div class="settings-usage-table-wrap" tabindex="0" role="group" aria-label="${escapeHtml(t('usage.workflowTitle'))}">`
+    + `<table class="settings-usage-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${unmatched}`;
+}
+
+/**
+ * Keep-alive plans: mode, stop reason, remaining pings and budget, next attempt
+ * and the benchmark gate. An unmeasured ping makes the remaining budget
+ * "unknown" instead of a number. Stop buttons carry `data-keepalive-*`
+ * attributes handled by the caller.
+ *
+ * @param {{ plans?: object[], gate?: object, defaultMode?: string }|null} view
+ * @param {{ t: Function, lang?: string }} options
+ * @returns {string}
+ */
+export function renderKeepAliveHtml(view, options = {}) {
+  const t = options.t;
+  const lang = options.lang || 'en';
+  const gate = view?.gate || {};
+  const gateReasons = Array.isArray(gate.reasons) ? gate.reasons : [];
+  const gateLine = gate.decision === 'go'
+    ? t('usage.keepAliveGateGo')
+    : t('usage.keepAliveGateNoGo', { reasons: gateReasons.join(', ') || '—' });
+  const plans = Array.isArray(view?.plans) ? view.plans : [];
+  const head = `<p class="settings-hint">${escapeHtml(t('usage.keepAliveDefaultOff'))} ${escapeHtml(gateLine)}</p>`;
+  if (plans.length === 0) return `${head}<p class="settings-hint">${escapeHtml(t('usage.keepAliveEmpty'))}</p>`;
+  const body = plans.map((plan) => {
+    const budget = plan.budget || {};
+    const remaining = budget.remainingUsd == null
+      ? t('usage.keepAliveUnknown')
+      : formatUsd(budget.remainingUsd);
+    const state = plan.status === 'active'
+      ? t('usage.keepAliveActive')
+      : t('usage.keepAliveStopped', { reason: plan.stopReason || '—' });
+    const defer = plan.lastDefer?.reason ? ` · ${escapeHtml(t('usage.keepAliveDeferred', { reason: plan.lastDefer.reason }))}` : '';
+    const stop = plan.status === 'active'
+      ? `<button type="button" class="settings-usage-btn" data-keepalive-stop="${escapeHtml(plan.delegationId)}" data-keepalive-controller="${escapeHtml(plan.controllerChatId)}">${escapeHtml(t('usage.keepAliveStop'))}</button>`
+      : '';
+    return `<tr>
+      <th scope="row">${escapeHtml(String(plan.delegationId || '').slice(0, 8))}</th>
+      <td>${escapeHtml(plan.mode)}</td>
+      <td>${escapeHtml(state)}${defer}</td>
+      <td>${escapeHtml(formatInteger(budget.pingsRemaining ?? 0, lang))}</td>
+      <td>${escapeHtml(remaining)}</td>
+      <td>${escapeHtml(formatUsd(budget.spentUsd))}${budget.costComplete === false ? ` (${escapeHtml(t('usage.keepAliveUnmeasured', { count: formatInteger(budget.unknownCostPings, lang) }))})` : ''}</td>
+      <td>${stop}</td>
+    </tr>`;
+  }).join('');
+  const cols = ['usage.keepAliveDelegation', 'usage.keepAliveMode', 'usage.keepAliveState', 'usage.keepAlivePingsLeft', 'usage.keepAliveBudgetLeft', 'usage.keepAliveSpent', 'usage.keepAliveActions']
+    .map((key) => `<th scope="col">${escapeHtml(t(key))}</th>`).join('');
+  return `${head}<div class="settings-usage-table-wrap" tabindex="0" role="group" aria-label="${escapeHtml(t('usage.keepAliveTitle'))}">`
+    + `<table class="settings-usage-table"><thead><tr>${cols}</tr></thead><tbody>${body}</tbody></table></div>`;
+}

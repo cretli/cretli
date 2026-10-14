@@ -6,13 +6,16 @@
  * `usageCharts.js` so they can be unit-tested without a DOM.
  */
 
-import { getUsagePlanLimits, getUsageSummary, getUsageTimeseries, getUsageModels, getDelegationStats, getUsageInsights, getUsageSettings, saveUsageSettings } from '../../api.js';
+import { getUsagePlanLimits, getUsageSummary, getUsageTimeseries, getUsageModels, getDelegationStats, getUsageInsights, getUsageCacheFreshness, getUsageKeepAlive, stopUsageKeepAlive, getUsageWorkflowBreakdown, getChats, getUsageSettings, saveUsageSettings } from '../../api.js';
 import { renderPlanLimitsHtml } from './planLimitsView.js';
 import {
   renderChoicesHtml,
   renderCoverageHtml,
   renderSignalsHtml,
   renderTokenBucketsHtml,
+  renderCacheFreshnessHtml,
+  renderKeepAliveHtml,
+  renderWorkflowBreakdownHtml,
 } from './usageInsightsView.js';
 import { t, getCurrentLang } from '../../i18n/index.js';
 import { formatUsd } from '../../../lib/usage/usage-rates.js';
@@ -769,6 +772,66 @@ function renderInsightsError() {
 }
 
 /**
+ * Fills the chat select once (keeps the selection) and paints the cache
+ * freshness of the selected chat. Local read only.
+ *
+ * @returns {Promise<void>}
+ */
+async function refreshCacheFreshness() {
+  const select = byId('usage-cache-chat-select');
+  const el = byId('usage-cache-freshness');
+  if (!select || !el) return;
+  const lang = getCurrentLang();
+  try {
+    if (select.options.length === 0) {
+      const data = await getChats();
+      const chats = Array.isArray(data?.chats) ? data.chats : [];
+      select.innerHTML = chats
+        .map((chat) => `<option value="${escapeHtml(chat.id)}">${escapeHtml(chat.title || chat.id)}</option>`)
+        .join('');
+    }
+    if (!select.value) {
+      el.innerHTML = `<p class="settings-hint">${escapeHtml(t('usage.cacheNoData'))}</p>`;
+      return;
+    }
+    const result = await getUsageCacheFreshness(select.value);
+    el.innerHTML = renderCacheFreshnessHtml(result?.ok ? result.freshness : null, { t, lang });
+  } catch {
+    el.innerHTML = `<p class="settings-hint">${escapeHtml(t('usage.sectionLoadFailed'))}</p>`;
+  }
+}
+
+/**
+ * Paints the keep-alive plans (local read; it never sends a ping).
+ *
+ * @returns {Promise<void>}
+ */
+async function refreshKeepAlive() {
+  const el = byId('usage-keepalive');
+  if (!el) return;
+  try {
+    const result = await getUsageKeepAlive();
+    el.innerHTML = renderKeepAliveHtml(result?.ok ? result : null, { t, lang: getCurrentLang() });
+  } catch {
+    el.innerHTML = `<p class="settings-hint">${escapeHtml(t('usage.sectionLoadFailed'))}</p>`;
+  }
+}
+
+/**
+ * @returns {Promise<void>}
+ */
+async function refreshWorkflowBreakdown() {
+  const el = byId('usage-workflow');
+  if (!el) return;
+  try {
+    const result = await getUsageWorkflowBreakdown(rangeQuery(state.range));
+    el.innerHTML = renderWorkflowBreakdownHtml(result?.ok ? result.breakdown : null, { t, lang: getCurrentLang() });
+  } catch {
+    el.innerHTML = `<p class="settings-hint">${escapeHtml(t('usage.sectionLoadFailed'))}</p>`;
+  }
+}
+
+/**
  * Reloads the ledger and repaints the Usage tab.
  * Uses Promise.allSettled so a single failing request only hides that section,
  * not the whole view. The global error banner appears only when all three fail.
@@ -784,6 +847,9 @@ export async function refreshUsageSettings() {
   // The retention/alerts panel has its own endpoint; paint it alongside the
   // ledger requests so a ledger outage never hides the settings.
   void refreshUsageSettingsPanel();
+  void refreshCacheFreshness();
+  void refreshWorkflowBreakdown();
+  void refreshKeepAlive();
   const token = ++requestToken;
   const statsToken = delegationStatsGate.begin();
   setView('loading');
@@ -1123,6 +1189,17 @@ export function initUsageSettings() {
   const rangeSelect = byId('usage-range-select');
   const metricSelect = byId('usage-metric-select');
   const groupSelect = byId('usage-group-select');
+  byId('usage-keepalive')?.addEventListener('click', (event) => {
+    const button = event.target instanceof Element ? event.target.closest('[data-keepalive-stop]') : null;
+    if (!button) return;
+    void stopUsageKeepAlive({
+      controllerChatId: button.getAttribute('data-keepalive-controller') || '',
+      delegationId: button.getAttribute('data-keepalive-stop') || '',
+    }).finally(() => refreshKeepAlive());
+  });
+  byId('usage-cache-chat-select')?.addEventListener('change', () => {
+    void refreshCacheFreshness();
+  });
   if (rangeSelect) {
     rangeSelect.value = state.range;
     rangeSelect.addEventListener('change', () => {

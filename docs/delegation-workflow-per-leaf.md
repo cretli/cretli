@@ -145,6 +145,21 @@ full regression gate (`CRETLI_DELEGATION_CODE_REVIEW_PHASE=0` disables the
 split). The orchestrator should create separate todos for `FOLLOW_UP` and
 `OUT_OF_SCOPE` items instead of expanding the current leaf.
 
+Session resume (`resume_session_of`, see `docs/plan-reviewer-cooperation.md`) is
+optional, off by default and not wired into this flow: a closure review whose
+named audit session is of a different `reviewMode` falls back to a new chat
+(`resume_scope_changed`), and the sticky preference for the audit reviewer
+(`codeReviewAuditReviewer`) is computed exactly as before.
+
+Cache keep-alive (see `docs/usage-telemetry.md` §10) is likewise optional, off
+by default and not wired into this flow. A keep-alive ping is a bounded, paid
+request in a resumed reviewer session; it creates no delegation, attempt,
+report, verdict or round, does not advance the workflow counters and does not
+change the TODO review state. It never preempts a running review or a user
+command, stops when the workflow ends (stop reason or PASS), is cancelled, reset
+or hits a provider limit, and its cost is reported as a separate `keep_alive`
+row per leaf, not as a review round.
+
 ## Klucz i dopasowanie liścia
 
 - Klucz wiersza: `parentChatId` + `leafId` (`leaf_id`/`todo_id`).
