@@ -564,7 +564,7 @@ runCase('no response after acceptance stays occupied; confirmed idle with no rev
     now,
     deps: {
       probeChatRunLiveness: () => ({ known: true, busy: false }),
-      listDelegationsForParent: () => [],
+      listDelegationsForController: () => [],
     },
   });
   assert.equal(idle.released, 1);
@@ -599,7 +599,7 @@ runCase('expired-but-busy stays occupied; review delegation keeps the slot', () 
     now,
     deps: {
       probeChatRunLiveness: () => ({ known: true, busy: false }),
-      listDelegationsForParent: () => [{ parentChatId: 'chat-busy', childChatId: 'c1', status: 'running' }],
+      listDelegationsForController: () => [{ parentChatId: 'chat-busy', childChatId: 'c1', status: 'running' }],
       isDelegationSlotOccupied: () => true,
     },
   });
@@ -671,7 +671,7 @@ runCase('drain: reconciliation runs while off and unknown never yields readyForR
       probeChatRunLiveness: ({ chatId }) => (chatId === 'chat-idle'
         ? { known: true, busy: false }
         : { known: false, busy: false }),
-      listDelegationsForParent: () => [],
+      listDelegationsForController: () => [],
     },
   });
   assert.ok(pass.reconciled >= 1);
@@ -685,7 +685,7 @@ runCase('drain: reconciliation runs while off and unknown never yields readyForR
   reconcileScoutScans(cwd, {
     dataDir,
     now,
-    deps: { probeChatRunLiveness: () => ({ known: true, busy: false }), listDelegationsForParent: () => [] },
+    deps: { probeChatRunLiveness: () => ({ known: true, busy: false }), listDelegationsForController: () => [] },
   });
   const ready = getWorkspaceWatcherRuntimeStatus({ dataDir, now });
   assert.equal(ready.readyForRestart, true);

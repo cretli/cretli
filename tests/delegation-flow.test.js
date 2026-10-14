@@ -13,7 +13,7 @@ import {
   reconcileDelegationsOnBoot,
 } from '../lib/delegation-service.js';
 import { isActiveDelegationStatus, DELEGATION_RUNNING_ORPHAN_GRACE_MS } from '../lib/delegation-status.js';
-import { listDelegationsForParent } from '../lib/persist/delegations-persist.js';
+import { listDelegationsForController } from '../lib/persist/delegations-persist.js';
 import {
   registerMockChatRunAdapter,
   resetMockChatRuns,
@@ -149,7 +149,7 @@ const [left, right] = await Promise.all([
 ]);
 assert.equal(left.ok && right.ok, true);
 assert.equal(left.delegation.id, right.delegation.id);
-assert.equal(listDelegationsForParent(parent2.id).length, 1);
+assert.equal(listDelegationsForController(parent2.id).length, 1);
 
 const parent3 = createParent('Planner 3');
 const started = await service.createAndStart({
@@ -186,7 +186,7 @@ const running = await service.createAndStart({
 });
 await service.cancel(running.delegation.id);
 assert.equal(getMockChatRun(running.delegation.childChatId)?.cancelled, true);
-assert.equal(listDelegationsForParent(parent4.id)[0].status, 'cancelled');
+assert.equal(listDelegationsForController(parent4.id)[0].status, 'cancelled');
 
 const parent5 = createParent('Planner 5');
 const waitingJob = await service.createAndStart({
@@ -197,7 +197,7 @@ const waitingJob = await service.createAndStart({
 });
 patchMockChatRun(waitingJob.delegation.childChatId, { waitingForInput: true, busy: true });
 await reconcileDelegationsOnBoot();
-assert.notEqual(listDelegationsForParent(parent5.id)[0].status, 'interrupted');
+assert.notEqual(listDelegationsForController(parent5.id)[0].status, 'interrupted');
 
 const parent6 = createParent('Planner 6');
 const staleJob = await service.createAndStart({
@@ -209,18 +209,18 @@ const staleJob = await service.createAndStart({
 patchMockChatRun(staleJob.delegation.childChatId, { busy: false, waitingForInput: false });
 await reconcileDelegationsOnBoot();
 // A confirmed idle running job gets the same 60s orphan grace as the worker.
-const armedBoot = listDelegationsForParent(parent6.id)[0];
+const armedBoot = listDelegationsForController(parent6.id)[0];
 assert.equal(armedBoot.status, 'running');
 assert.ok(String(armedBoot.idleObservedAt || '').trim());
 updateDelegationRecord(staleJob.delegation.id, {
   idleObservedAt: new Date(Date.now() - DELEGATION_RUNNING_ORPHAN_GRACE_MS - 1000).toISOString(),
 });
 await reconcileDelegationsOnBoot();
-assert.equal(listDelegationsForParent(parent6.id)[0].status, 'interrupted');
-assert.equal(listDelegationsForParent(parent6.id)[0].interruptCode, 'running_orphan');
-assert.notEqual(listDelegationsForParent(parent5.id)[0].status, 'interrupted');
+assert.equal(listDelegationsForController(parent6.id)[0].status, 'interrupted');
+assert.equal(listDelegationsForController(parent6.id)[0].interruptCode, 'running_orphan');
+assert.notEqual(listDelegationsForController(parent5.id)[0].status, 'interrupted');
 
-const parent3Finished = listDelegationsForParent(parent3.id)[0];
+const parent3Finished = listDelegationsForController(parent3.id)[0];
 assert.ok(String(parent3Finished.historyDeliveredAt || '').trim());
 const finishedBeforeRetry = (loadChatHistory(parent3.id)?.events || []).filter((row) => {
   if (row.rec?.variant !== 'delegation') return false;
@@ -229,7 +229,7 @@ const finishedBeforeRetry = (loadChatHistory(parent3.id)?.events || []).filter((
 }).length;
 updateDelegationRecord(parent3Finished.id, { historyDeliveredAt: '' });
 await reconcileDelegationsOnBoot();
-const parent3AfterRetry = listDelegationsForParent(parent3.id)[0];
+const parent3AfterRetry = listDelegationsForController(parent3.id)[0];
 assert.ok(String(parent3AfterRetry.historyDeliveredAt || '').trim());
 const finishedAfterRetry = (loadChatHistory(parent3.id)?.events || []).filter((row) => {
   if (row.rec?.variant !== 'delegation') return false;
@@ -258,7 +258,7 @@ assert.equal(secondActive.ok, true);
 const retryBlocked = await service.retry(firstDone.delegation.id);
 assert.equal(retryBlocked.ok, false);
 assert.equal(retryBlocked.code, 'parent_busy');
-assert.equal(isActiveDelegationStatus(listDelegationsForParent(parent7.id).find((row) => row.id === secondActive.delegation.id)?.status), true);
+assert.equal(isActiveDelegationStatus(listDelegationsForController(parent7.id).find((row) => row.id === secondActive.delegation.id)?.status), true);
 
 const parent8 = createParent('Planner 8');
 const cancelPending = await service.createAndStart({
@@ -271,13 +271,13 @@ setMockChatRunFailCancel(true);
 const cancelResult = await service.cancel(cancelPending.delegation.id);
 assert.equal(cancelResult.status, 202);
 assert.equal(cancelResult.pending, true);
-assert.equal(listDelegationsForParent(parent8.id)[0].status, 'cancelling');
-assert.notEqual(listDelegationsForParent(parent8.id)[0].status, 'cancelled');
-finishDelegation(listDelegationsForParent(parent8.id)[0], {
+assert.equal(listDelegationsForController(parent8.id)[0].status, 'cancelling');
+assert.notEqual(listDelegationsForController(parent8.id)[0].status, 'cancelled');
+finishDelegation(listDelegationsForController(parent8.id)[0], {
   status: 'completed',
   report: 'Executor finished after stop was requested.',
 });
-assert.equal(listDelegationsForParent(parent8.id)[0].status, 'completed');
+assert.equal(listDelegationsForController(parent8.id)[0].status, 'completed');
 
 const parent9 = createParent('Planner 9');
 const reportA = await service.createAndStart({
@@ -323,7 +323,7 @@ noteDelegationRoomEvent({
   runId: waitingPub.delegation.runId,
   event: { type: 'tool_call', name: 'AskQuestion' },
 });
-assert.equal(listDelegationsForParent(parent10.id)[0].status, 'waiting_for_input');
+assert.equal(listDelegationsForController(parent10.id)[0].status, 'waiting_for_input');
 const waitingEvents = (loadChatHistory(parent10.id)?.events || []).filter((row) => {
   if (row.rec?.variant !== 'delegation') return false;
   const data = JSON.parse(row.rec.payload);
@@ -350,7 +350,7 @@ const openAck = service.acknowledge(ackJob.delegation.id, { reason: 'open_child'
 assert.equal(openAck.ok, true);
 assert.ok(openAck.delegation.acknowledgedAt);
 finishDelegation(openAck.delegation, { status: 'completed', report: 'done' });
-const afterFinish = listDelegationsForParent(parent11.id)[0];
+const afterFinish = listDelegationsForController(parent11.id)[0];
 assert.equal(afterFinish.status, 'completed');
 assert.equal(afterFinish.acknowledgedAt, '');
 const reviewed = service.acknowledge(afterFinish.id, { reason: 'reviewed' });
@@ -369,7 +369,7 @@ const deleteJob = await service.createAndStart({
 });
 const cancelledDelete = await service.cancelForDeletedChat(deleteJob.delegation.childChatId);
 assert.equal(cancelledDelete.ok, true);
-assert.equal(listDelegationsForParent(parent12.id)[0].status, 'cancelled');
+assert.equal(listDelegationsForController(parent12.id)[0].status, 'cancelled');
 
 const askParent = addChat('sess-ask-parent', 'Ask parent', null, project, 'planner-model', {
   agentTransport: 'opencode',

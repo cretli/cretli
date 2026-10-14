@@ -1069,3 +1069,7 @@ window above the combined escalation budget
   routes live in `lib/`). `app_front/chat.js` / `app.scss` are still larger than
   ideal.
   Splitting them is tracked in `docs/MODERNIZATION_PLAN.md` (phases 1–2).
+
+### Delegation controller
+
+`lib/delegation-control.js` exposes `delegationController(row)` (`controllerChatId`, falling back to the historical `parentChatId`) and `canChatControlDelegation`. Control decisions go through it; see `docs/delegation-tree-controls.md`.

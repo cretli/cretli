@@ -9,8 +9,8 @@ import { addChat } from '../lib/persist/chats-persist.js';
 import { writeChatPlanFile, readChatPlanDocument } from '../lib/chat-plan-persist.js';
 import { createDelegationService, finishDelegation } from '../lib/delegation-service.js';
 import {
-  listActiveDelegationsForParent,
-  listDelegationsForParent,
+  listActiveDelegationsForController,
+  listDelegationsForController,
   updateDelegationRecord,
 } from '../lib/persist/delegations-persist.js';
 import { readDelegationReviewFanout } from '../lib/delegation-width.js';
@@ -113,7 +113,7 @@ try {
   assert.equal(reviewA.ok, true);
   assert.equal(reviewB.ok, true);
   assert.notEqual(reviewA.delegation.id, reviewB.delegation.id);
-  assert.equal(listActiveDelegationsForParent(flagTwoParent.id).length, 2);
+  assert.equal(listActiveDelegationsForController(flagTwoParent.id).length, 2);
 
   const reviewFull = await startReview(flagTwoParent, 'fanout-2-c');
   assert.equal(reviewFull.ok, true);
@@ -168,7 +168,7 @@ try {
   assert.equal(otherReview.ok, true);
   const retried = await service.retry(doneReview.delegation.id);
   assert.equal(retried.ok, true);
-  assert.equal(listActiveDelegationsForParent(retryParent.id).length, 2);
+  assert.equal(listActiveDelegationsForController(retryParent.id).length, 2);
 
   const retryFull = await service.retry(doneReview.delegation.id);
   assert.equal(retryFull.ok, false);
@@ -185,7 +185,7 @@ try {
   const retryWhileTwo = await service.retry(a.delegation.id);
   assert.equal(retryWhileTwo.ok, false);
   assert.equal(retryWhileTwo.code, 'review_fanout_full');
-  assert.equal(listDelegationsForParent(thirdFinished.id).length, 3);
+  assert.equal(listDelegationsForController(thirdFinished.id).length, 3);
 
   const mapped = toCretliMcpToolError({
     code: 'review_fanout_full',

@@ -6,7 +6,7 @@ import { addChat } from '../lib/persist/chats-persist.js';
 import {
   createDelegationRecord,
   getDelegationById,
-  listActiveDelegationsForParent,
+  listActiveDelegationsForController,
   updateDelegationRecord,
 } from '../lib/persist/delegations-persist.js';
 import { createDelegationService, finishDelegation } from '../lib/delegation-service.js';
@@ -19,7 +19,7 @@ import {
 import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
 import { computeTodoPlanRevisionKey } from '../lib/plan-reviewer-cooperation.js';
 import { createTempRepo } from './helpers/temp-git-repo.js';
-import { listDelegationsForParent } from '../lib/persist/delegations-persist.js';
+import { listDelegationsForController } from '../lib/persist/delegations-persist.js';
 import { buildTodoReviewSnapshot } from '../lib/todo-review-sync.js';
 import { inspectReviewRecheckWithoutChange } from '../lib/delegation-review-recheck-gate.js';
 import {
@@ -212,7 +212,7 @@ test('AC2: after cancel_unconfirmed no new reviewer fits until the slot is relea
   });
   assert.equal(isDelegationSlotOccupied(getDelegationById(row.id)), true);
   const blocked = resolveDelegationParentWidth({
-    active: listActiveDelegationsForParent(parentChatId),
+    active: listActiveDelegationsForController(parentChatId),
     incomingAssignment: 'review',
     fanout: 2,
   });
@@ -220,7 +220,7 @@ test('AC2: after cancel_unconfirmed no new reviewer fits until the slot is relea
   const service = createDelegationService({ isModelAvailable: () => true });
   assert.equal(service.confirmManualSlotRelease(row.id, { confirmation: true, note: 'killed' }).ok, true);
   const freed = resolveDelegationParentWidth({
-    active: listActiveDelegationsForParent(parentChatId),
+    active: listActiveDelegationsForController(parentChatId),
     incomingAssignment: 'review',
     fanout: 2,
   });
@@ -324,7 +324,7 @@ function recheckHarness(reviewSubject, leafId, workspace = ISOLATED_DATA_DIR) {
     idempotencyKey: `recheck-${crypto.randomUUID()}`,
     ...extra,
   });
-  const rows = () => listDelegationsForParent(parent.id);
+  const rows = () => listDelegationsForController(parent.id);
   // Finish every live row of the parent so the next start is not queued behind it.
   const settle = (verdict) => {
     for (const row of rows()) {

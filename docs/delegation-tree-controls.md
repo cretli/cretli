@@ -95,7 +95,7 @@ Same shared gates, different order and **no queueing**:
 6. Parent re-validation and `canAcceptNewRun()`, then the attempt transitions
    to `starting`.
 
-Queue drain (`drainQueueForParent`, FIFO head only) re-runs
+Queue drain (`drainQueueForController`, FIFO head only) re-runs
 `parentWidthConflict(gate: 'start', ignoreQueued: true)` and keeps the head
 parked on any block.
 
@@ -106,7 +106,7 @@ first failure; the first two compare against different row sets.
 
 | Order | Gate | Source | Scope | Code |
 |-------|------|--------|-------|------|
-| 1 | Parent width | `lib/delegation-width.js` `resolveDelegationParentWidth` | rows counted by `isDelegationSlotOccupied` (`listActiveDelegationsForParent`) for the **same parent chat** — active statuses plus terminal jobs with a non-stale `runStoppingAt` (see 1.3) | `active_delegation_exists` (start) / `parent_busy` (retry), `review_fanout_full` |
+| 1 | Parent width | `lib/delegation-width.js` `resolveDelegationParentWidth` | rows counted by `isDelegationSlotOccupied` (`listActiveDelegationsForController`) for the **same parent chat** — active statuses plus terminal jobs with a non-stale `runStoppingAt` (see 1.3) | `active_delegation_exists` (start) / `parent_busy` (retry), `review_fanout_full` |
 | 2 | Workspace write lock | `lib/delegation-workspace-guard.js` `resolveDelegationWorkspaceWriteConflict` | occupied, non-queued, **mutating** (non-review) rows from a **different parent** with the same execution folder (realpath-normalized; falls back to workspace folder) | `workspace_busy` |
 | 3 | Process-wide cap | `lib/delegation-workspace-guard.js` `resolveDelegationGlobalLimit` | all occupied, non-queued rows across all parents | `global_limit` |
 
@@ -173,7 +173,7 @@ error codes:
 | `nested_delegation_denied` | `validateDelegationExecutorStart` | 409 | `CONFLICT` |
 | `workspace_busy` | workspace guard | 409 | `CONFLICT` |
 | `global_limit` | process-wide cap | 409 | `CONFLICT` |
-| `queue_full` | `queueFullConflict` in `createAndStart` only — when accepting a new delegation (initial queueable slot block and the synchronous re-check before `createDelegationRecord`); `drainQueueForParent` never returns it (a blocked head stays `queued`) | 409 | `CONFLICT` |
+| `queue_full` | `queueFullConflict` in `createAndStart` only — when accepting a new delegation (initial queueable slot block and the synchronous re-check before `createDelegationRecord`); `drainQueueForController` never returns it (a blocked head stays `queued`) | 409 | `CONFLICT` |
 | `depth_exceeded` | **not produced anywhere** | — | no explicit mapping; would fall through to `status === 409` → `CONFLICT` only if a producer set it |
 
 Other 409 codes in the same family: `active_delegation_exists`, `parent_busy`,
@@ -312,3 +312,18 @@ are implemented.
 - Shared tree budget and slots keyed by `rootChatId` (see 2.2).
 
 These close gaps 1.9.1–1.9.5; until they ship, Part 1 is the behavior.
+
+## Controller vs historical parent
+
+A delegation record keeps `parentChatId` as its historical identity (who
+started it). Who currently *controls* it is `delegationController(row)` from
+`lib/delegation-control.js`: the optional `controllerChatId`, falling back to
+`parentChatId`. Waiting, ack, rating, cancel, the per-leaf workflow key, the
+queue (`listDelegationsForController`, `drainQueueForController`), the parent
+lock and idempotency replay all use the controller. Scope gates resolve the chat
+through `resolveDelegationScopeChat`, so a deleted original parent does not hide
+the delegation from its controller. No operation moves control yet; rows without
+`controllerChatId` are unchanged. The guard test
+`tests/delegation-controller-guard.test.js` and
+`config/delegation-controller-allowlist.json` classify each remaining
+`parentChatId` use as control / identity / scope.

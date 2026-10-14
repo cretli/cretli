@@ -250,3 +250,7 @@ split). The orchestrator should create separate todos for `FOLLOW_UP` and
 | `workflow_stopped` | twardy `stop_reason` (np. `same_findings`, `blocked`, `closure_rounds_exhausted`) |
 | `closure_rounds_exhausted` | wyczerpany domyślny limit rund closure (1 audyt + 2 closure); `resume_rounds` podnosi stop |
 | `workflow_budget_exhausted` | zmierzony koszt/tokeny osiągnęły budżet liścia |
+
+## Controller key
+
+The workflow row is keyed by `(delegationController(row), leafId)`. Rows without `controllerChatId` use the historical parent, so existing workflows are unchanged. Code-review phase patches write to the controller's workflow.

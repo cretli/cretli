@@ -38,7 +38,7 @@ import {
 } from '../lib/delegation-slot-stop.js';
 import { resolveDelegationParentWidth } from '../lib/delegation-width.js';
 import { resolveDelegationWorkspaceWriteConflict } from '../lib/delegation-workspace-guard.js';
-import { listActiveDelegationsForParent } from '../lib/persist/delegations-persist.js';
+import { listActiveDelegationsForController } from '../lib/persist/delegations-persist.js';
 import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
 
 const service = createDelegationService({ isModelAvailable: () => true });
@@ -229,7 +229,7 @@ test('second reviewer blocked when fanout allows more but cancel_unconfirmed hol
     runStoppingAt: new Date().toISOString(),
   });
   const width = resolveDelegationParentWidth({
-    active: listActiveDelegationsForParent(parent),
+    active: listActiveDelegationsForController(parent),
     incomingAssignment: 'review',
     fanout: 2,
   });
@@ -318,7 +318,7 @@ test('occupied cancel_unconfirmed blocks new implement on same folder and second
     slotHeldBy: 'cancel_unconfirmed',
     runStoppingAt: new Date().toISOString(),
   });
-  const active = listActiveDelegationsForParent(parent);
+  const active = listActiveDelegationsForController(parent);
   assert.ok(active.some((row) => row.id === reviewBlocker.id));
   const width = resolveDelegationParentWidth({
     active,

@@ -41,7 +41,7 @@ Skill wymienia `finished` jako status terminalny, a `lib/delegation-status.js:5`
 
 ### P2 — limity są lokalne dla parenta
 
-`lib/delegation-service.js:718` sprawdza `listActiveDelegationsForParent`. Dwa różne parenty mogą więc zlecić implementację w tym samym workspace. To ograniczenie obecnego zakresu blokady, nie błąd fanoutu. Konflikt plików jest ryzykiem do odtworzenia na izolowanym fixture. Brak wspólnej polityki limitu pracy/kosztu dla całego workspace.
+`lib/delegation-service.js:718` sprawdza `listActiveDelegationsForController`. Dwa różne parenty mogą więc zlecić implementację w tym samym workspace. To ograniczenie obecnego zakresu blokady, nie błąd fanoutu. Konflikt plików jest ryzykiem do odtworzenia na izolowanym fixture. Brak wspólnej polityki limitu pracy/kosztu dla całego workspace.
 
 ### P2 — brak trwałego stanu pętli i wspólnego budżetu zadania
 

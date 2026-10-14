@@ -62,7 +62,7 @@ function makeDeps(input, extra = {}) {
   return {
     loadChats: () => chats,
     updateChat: (id) => { input.archived.push(asString(id)); },
-    listDelegationsForParent: (parentId) => rows[asString(parentId)] || [],
+    listDelegationsForController: (parentId) => rows[asString(parentId)] || [],
     isChatRunConfirmedIdle: () => true,
     isDelegationSlotOccupied: () => false,
     // Default: no live cycle child, so the archive proceeds; the dedicated
@@ -221,7 +221,7 @@ runCase('a busy fork descendant refuses the orchestrator (fork cascade cannot hi
 runCase('a failed delegation read is fail-closed', () => {
   const archived = [];
   const deps = makeDeps({ chats: [chat({ id: 'orchestrator' })], archived }, {
-    listDelegationsForParent: () => { throw new Error('delegation store unavailable'); },
+    listDelegationsForController: () => { throw new Error('delegation store unavailable'); },
   });
   const out = archiveChatFamily('orchestrator', { now: NOW, deps });
   assert.deepEqual(archived, [], 'no archive without a trustworthy delegation read');

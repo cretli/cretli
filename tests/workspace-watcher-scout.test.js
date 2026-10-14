@@ -1185,7 +1185,7 @@ runCase('heartbeat pass clears an expired scan AND archives only past-grace idle
           scoutChat({ id: 'scout-fresh', workspaceFolder: cwd, updatedAt: new Date(now - 60_000).toISOString() }),
         ],
         updateChat: (id) => { archivedIds.push(id); },
-        listDelegationsForParent: () => [],
+        listDelegationsForController: () => [],
         isChatRunConfirmedIdle: () => true,
         isDelegationSlotOccupied: () => false,
       },
@@ -1235,7 +1235,7 @@ runCase('scout pass sweeps closed-cycle families past the grace and leaves pinne
       { id: 'sweep-live', workspaceFolder: cwd, updatedAt: oldAt },
     ],
     updateChat: (id) => { archived.push(String(id)); },
-    listDelegationsForParent: (parentId) => (parentId === 'sweep-old'
+    listDelegationsForController: (parentId) => (parentId === 'sweep-old'
       ? [{ parentChatId: 'sweep-old', childChatId: 'sweep-old-child', status: 'completed' }]
       : []),
     isChatRunConfirmedIdle: () => true,
@@ -1283,7 +1283,7 @@ runCase('archive sweep keeps pinned, non-idle, unknown and human [Scout]-titled 
     deps: {
       loadChats: () => chats,
       updateChat: (id) => { archived.push(id); },
-      listDelegationsForParent: () => [],
+      listDelegationsForController: () => [],
       // Idle-true for every candidate except not-idle so pin/grace/folder gates are tested directly.
       isChatRunConfirmedIdle: ({ chatId }) => chatId !== 'not-idle',
       isDelegationSlotOccupied: () => false,
@@ -1305,7 +1305,7 @@ runCase('archive sweep skips scout parent when delegation list read fails', () =
     deps: {
       loadChats: () => [parent],
       updateChat: (id) => { archived.push(id); },
-      listDelegationsForParent: () => { throw new Error('delegation store unavailable'); },
+      listDelegationsForController: () => { throw new Error('delegation store unavailable'); },
       isChatRunConfirmedIdle: () => true,
       isDelegationSlotOccupied: () => false,
     },
@@ -1335,7 +1335,7 @@ runCase('boot reconcile clears expired activeScoutScan before archive sweep', ()
     scoutArchiveDeps: {
       loadChats: () => [],
       updateChat: () => {},
-      listDelegationsForParent: () => [],
+      listDelegationsForController: () => [],
       isChatRunConfirmedIdle: () => true,
       isDelegationSlotOccupied: () => false,
     },
@@ -1353,7 +1353,7 @@ runCase('archive sweep keeps a scout child that holds a slot and refuses its par
   const deps = {
     loadChats: () => [parent, child],
     updateChat: (id) => { archived.push(id); },
-    listDelegationsForParent: (id) => (id === 'parent' ? [{ parentChatId: 'parent', childChatId: 'child', status: 'completed' }] : []),
+    listDelegationsForController: (id) => (id === 'parent' ? [{ parentChatId: 'parent', childChatId: 'child', status: 'completed' }] : []),
     isChatRunConfirmedIdle: () => true,
   };
   // Child still occupies its delegation slot → both the child stays and the parent is refused.
@@ -1380,7 +1380,7 @@ runCase('archive sweep repairs an archived Scout family with later children', ()
     deps: {
       loadChats: () => [parent, child],
       updateChat: (id) => { archived.push(id); },
-      listDelegationsForParent: (id) => (id === parent.id ? [{ childChatId: child.id, status: 'completed' }] : []),
+      listDelegationsForController: (id) => (id === parent.id ? [{ childChatId: child.id, status: 'completed' }] : []),
       isChatRunConfirmedIdle: () => true,
       isDelegationSlotOccupied: () => false,
     },
@@ -1399,7 +1399,7 @@ runCase('archive sweep refuses a parent whose fork descendant is still busy', ()
   const deps = {
     loadChats: () => [parent, fork],
     updateChat: (id) => { archived.push(id); },
-    listDelegationsForParent: () => [],
+    listDelegationsForController: () => [],
     isDelegationSlotOccupied: () => false,
   };
   const busy = scout.archiveIdleScoutChats(cwd, { now, deps: { ...deps, isChatRunConfirmedIdle: ({ chatId }) => chatId === 'fparent' } });

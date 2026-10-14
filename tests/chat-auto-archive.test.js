@@ -62,7 +62,7 @@ function makeDeps(input, extra = {}) {
   return {
     loadChats: () => chats,
     updateChat: (id) => { input.archived.push(String(id)); },
-    listDelegationsForParent: (parentId) => rows[String(parentId)] || [],
+    listDelegationsForController: (parentId) => rows[String(parentId)] || [],
     isChatRunConfirmedIdle: () => true,
     isDelegationSlotOccupied: () => false,
     isTerminalDelegationStatus: (status) => ['completed', 'failed', 'cancelled', 'interrupted'].includes(status),

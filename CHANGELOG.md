@@ -15,6 +15,19 @@ All notable changes to this project are documented here. The format is based on
   denied-shell rule only in the reviewer role instead of twice. Bare skill names
   such as `review` or `shell` in prose no longer pull the generic skill into a
   prompt; `@name` and "use the X skill" still do.
+
+- **Delegation controller accessor.** New `lib/delegation-control.js`
+  (`delegationController(row)`, `canChatControlDelegation`) separates the chat
+  that controls a delegation (optional `controllerChatId`) from the historical
+  `parentChatId`; rows without a controller behave exactly as before. Control
+  paths (wait/ack/rate/cancel, workflow keys, queue, locks, idempotency replay,
+  scope gates) use the accessor, and scope gates no longer return `NOT_FOUND`
+  once the original parent chat is deleted. Helpers were renamed to
+  `*ForController`. `tests/delegation-controller-guard.test.js` plus
+  `config/delegation-controller-allowlist.json` keep every remaining
+  `parentChatId` use classified (`--print-inventory` lists them). No takeover
+  endpoint yet.
+
 - **Cost-aware plan decomposition in Review and refine plan.** The planning
   agent now creates subtasks when their benefit outweighs repeated research,
   agent starts, reviews and integration, keeps cohesive work together, and

@@ -101,7 +101,7 @@ runCase('archives a closed-cycle family past the grace, delegation child before 
     rows: [row],
     deps: {
       isChatRunConfirmedIdle: () => true,
-      listDelegationsForParent: (parentId) => (parentId === 'sweep-orch'
+      listDelegationsForController: (parentId) => (parentId === 'sweep-orch'
         ? [{ parentChatId: 'sweep-orch', childChatId: 'sweep-child', status: 'completed' }]
         : []),
     },
@@ -133,7 +133,7 @@ runCase('sweeps children created after the closed-cycle parent was archived', ()
   }]);
   const deps = {
     isChatRunConfirmedIdle: () => true,
-    listDelegationsForParent: (parentId) => (parentId === 'late-orch'
+    listDelegationsForController: (parentId) => (parentId === 'late-orch'
       ? [{ parentChatId: 'late-orch', childChatId: 'late-child', status: 'completed' }]
       : []),
     isDelegationSlotOccupied: () => false,
@@ -159,7 +159,7 @@ runCase('keeps a pinned closed-cycle orchestrator', () => {
   const out = sweepClosedWorkspaceWatcherCycles({
     now: PAST_GRACE,
     rows: [row],
-    deps: { isChatRunConfirmedIdle: () => true, listDelegationsForParent: () => [] },
+    deps: { isChatRunConfirmedIdle: () => true, listDelegationsForController: () => [] },
   });
   assert.deepEqual(out.archived, [], 'a pinned orchestrator stays visible');
   assert.ok(!storedChat('pin-orch')?.archivedAt);
@@ -174,7 +174,7 @@ runCase('keeps a closed-cycle orchestrator inside the grace window', () => {
   const out = sweepClosedWorkspaceWatcherCycles({
     now: WITHIN_GRACE,
     rows: [row],
-    deps: { isChatRunConfirmedIdle: () => true, listDelegationsForParent: () => [] },
+    deps: { isChatRunConfirmedIdle: () => true, listDelegationsForController: () => [] },
   });
   assert.deepEqual(out.archived, [], 'a freshly closed cycle is not hidden before the grace');
   assert.ok(!storedChat('grace-orch')?.archivedAt);
@@ -189,7 +189,7 @@ runCase('keeps a closed-cycle orchestrator whose run liveness is unknown (fail-c
   const out = sweepClosedWorkspaceWatcherCycles({
     now: PAST_GRACE,
     rows: [row],
-    deps: { isChatRunConfirmedIdle: () => false, listDelegationsForParent: () => [] },
+    deps: { isChatRunConfirmedIdle: () => false, listDelegationsForController: () => [] },
   });
   assert.deepEqual(out.archived, [], 'unknown liveness keeps the chat (fail-closed)');
   assert.ok(!storedChat('unknown-orch')?.archivedAt);
@@ -206,7 +206,7 @@ runCase('never sweeps a chat that still orchestrates a live cycle', () => {
   const out = sweepClosedWorkspaceWatcherCycles({
     now: PAST_GRACE,
     rows: [row],
-    deps: { isChatRunConfirmedIdle: () => true, listDelegationsForParent: () => [] },
+    deps: { isChatRunConfirmedIdle: () => true, listDelegationsForController: () => [] },
   });
   assert.deepEqual(out.archived, [], 'a chat with a live cycle slot on the row is never swept');
   assert.ok(!storedChat('live-orch')?.archivedAt);

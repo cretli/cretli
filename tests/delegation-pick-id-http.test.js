@@ -9,7 +9,7 @@ import { ISOLATED_DATA_DIR, removeIsolatedDataDir } from './helpers/isolated-dat
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { addChat } from '../lib/persist/chats-persist.js';
-import { getDelegationById, listDelegationsForParent, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
+import { getDelegationById, listDelegationsForController, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { saveSettings } from '../lib/persist/settings.js';
 import { registerDelegationsRoutes } from '../lib/routes/delegations-routes.js';
 import { persistModelPickProposal } from '../lib/model-pick-decisions.js';
@@ -243,7 +243,7 @@ finish(fallbackStart.body.delegation.id);
 
 // A second fallback from the same earlier attempt with a new key is refused
 // and leaves no extra row behind.
-const rowsBeforeDup = listDelegationsForParent(parent6.id).length;
+const rowsBeforeDup = listDelegationsForController(parent6.id).length;
 const dupFallback = await invoke('POST', '/api/chats/:id/delegations', {
   params: { id: parent6.id },
   body: startBody(parent6, fallbackPick.pickId, {
@@ -254,7 +254,7 @@ const dupFallback = await invoke('POST', '/api/chats/:id/delegations', {
 });
 assert.equal(dupFallback.status, 409, JSON.stringify(dupFallback.body));
 assert.equal(dupFallback.body.code, 'slot_taken');
-assert.equal(listDelegationsForParent(parent6.id).length, rowsBeforeDup, 'a refused reservation leaves no orphan row');
+assert.equal(listDelegationsForController(parent6.id).length, rowsBeforeDup, 'a refused reservation leaves no orphan row');
 
 // --- Fallback leaf mismatch: same parent chat but leafId must match -------------
 const parentLeafMismatch = makeParent();
@@ -445,14 +445,14 @@ const noKey = await invoke('POST', '/api/chats/:id/delegations', {
 });
 assert.equal(noKey.status, 400, JSON.stringify(noKey.body));
 assert.equal(noKey.body.code, 'idempotency_key_required');
-assert.equal(listDelegationsForParent(parentKey.id).length, 0, 'no row without a key');
+assert.equal(listDelegationsForController(parentKey.id).length, 0, 'no row without a key');
 const keyed = startBody(parentKey, keyPick.pickId);
 const keyedStart = await invoke('POST', '/api/chats/:id/delegations', { params: { id: parentKey.id }, body: keyed });
 assert.equal(keyedStart.status, 201, JSON.stringify(keyedStart.body));
 assert.equal(keyedStart.body.delegation.pickOrigin, 'auto');
 const keyedReplay = await invoke('POST', '/api/chats/:id/delegations', { params: { id: parentKey.id }, body: keyed });
 assert.equal(keyedReplay.body.replayed, true, 'the repeated key replays');
-assert.equal(listDelegationsForParent(parentKey.id).length, 1, 'replay creates no second row');
+assert.equal(listDelegationsForController(parentKey.id).length, 1, 'replay creates no second row');
 finish(keyedStart.body.delegation.id);
 // Same pick, new key: slot already used -> refused, no orphan row.
 const reuse = await invoke('POST', '/api/chats/:id/delegations', {
@@ -461,7 +461,7 @@ const reuse = await invoke('POST', '/api/chats/:id/delegations', {
 });
 assert.equal(reuse.status, 409, JSON.stringify(reuse.body));
 assert.equal(reuse.body.code, 'slot_taken');
-assert.equal(listDelegationsForParent(parentKey.id).length, 1, 'a refused reservation leaves no queued orphan');
+assert.equal(listDelegationsForController(parentKey.id).length, 1, 'a refused reservation leaves no queued orphan');
 // An audit-only candidate is not a pick: it cannot be matched into a start.
 const candidateStart = await invoke('POST', '/api/chats/:id/delegations', {
   params: { id: parentKey.id },

@@ -524,7 +524,7 @@ runCase('boot bulk archive routes a closed orchestrator through the shared canAr
   const scoutDeps = {
     loadChats: () => [],
     updateChat: () => {},
-    listDelegationsForParent: () => [],
+    listDelegationsForController: () => [],
     isChatRunConfirmedIdle: () => true,
     isDelegationSlotOccupied: () => false,
   };
@@ -540,7 +540,7 @@ runCase('boot bulk archive routes a closed orchestrator through the shared canAr
         { id: 'orch-child', updatedAt: oldAt, pickPurpose: 'implement' },
       ],
       updateChat: (id) => { archived.push(String(id)); },
-      listDelegationsForParent: (pid) => (pid === 'orch-closed'
+      listDelegationsForController: (pid) => (pid === 'orch-closed'
         ? [{ parentChatId: 'orch-closed', childChatId: 'orch-child', status: 'completed' }]
         : []),
       isChatRunConfirmedIdle: () => true,
@@ -565,7 +565,7 @@ runCase('boot bulk archive routes a closed orchestrator through the shared canAr
         { id: 'orch-child', updatedAt: oldAt, pickPurpose: 'implement' },
       ],
       updateChat: (id) => { refused.push(String(id)); },
-      listDelegationsForParent: (pid) => (pid === 'orch-closed'
+      listDelegationsForController: (pid) => (pid === 'orch-closed'
         ? [{ parentChatId: 'orch-closed', childChatId: 'orch-child', status: 'completed' }]
         : []),
       isChatRunConfirmedIdle: () => true,
@@ -591,7 +591,7 @@ function sweepArchiveDeps(input, extra = {}) {
   return {
     loadChats: () => chats,
     updateChat: (id) => { input.archived.push(String(id)); },
-    listDelegationsForParent: (parentId) => rows[String(parentId)] || [],
+    listDelegationsForController: (parentId) => rows[String(parentId)] || [],
     isChatRunConfirmedIdle: () => true,
     isDelegationSlotOccupied: () => false,
     hasActiveWorkspaceWatcherCycleChildren: () => false,

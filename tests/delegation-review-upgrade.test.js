@@ -11,7 +11,7 @@ import os from 'os';
 import path from 'path';
 import { addChat } from '../lib/persist/chats-persist.js';
 import { createDelegationService, finishDelegation } from '../lib/delegation-service.js';
-import { getDelegationById, listDelegationsForParent, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
+import { getDelegationById, listDelegationsForController, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import {
   registerMockChatRunAdapter,
   resetMockChatRuns,
@@ -85,7 +85,7 @@ const replay = await service.createAndStart({
 assert.equal(replay.ok, true);
 assert.equal(replay.replayed, true);
 assert.equal(replay.delegation.id, first.delegation.id);
-assert.equal(listDelegationsForParent(parent2.id).length, 1);
+assert.equal(listDelegationsForController(parent2.id).length, 1);
 
 // An explicit implement assignment in Plan mode is not silently turned into a
 // review: the caller asked for the child to stay in Plan.

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { ISOLATED_DATA_DIR, removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 import { addChat, loadChats, updateChat } from '../lib/persist/chats-persist.js';
 import { createDelegationService } from '../lib/delegation-service.js';
-import { createDelegationRecord, getDelegationById, listDelegationsForParent, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
+import { createDelegationRecord, getDelegationById, listDelegationsForController, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { registerMockChatRunAdapter } from '../lib/chat-run/mock-adapter.js';
 
 registerMockChatRunAdapter('opencode');
@@ -41,7 +41,7 @@ try {
     assertArchivedRefusal(await service.createAndStart(buildRequest(parent, assignment)));
   }
   assert.deepEqual(loadChats(), beforeChats, 'refused starts never create a child');
-  assert.deepEqual(listDelegationsForParent(parent.id), [], 'refused starts never create a job');
+  assert.deepEqual(listDelegationsForController(parent.id), [], 'refused starts never create a job');
 
   const queuedParent = createParent('Queued parent');
   const queuedRequest = buildRequest(queuedParent);
@@ -83,7 +83,7 @@ try {
     isModelAvailable: () => { updateChat(racingParent.id, { archived: true }); return true; },
   });
   assertArchivedRefusal(await racingService.createAndStart(buildRequest(racingParent)));
-  assert.deepEqual(listDelegationsForParent(racingParent.id), [], 'archive during validation leaves no job');
+  assert.deepEqual(listDelegationsForController(racingParent.id), [], 'archive during validation leaves no job');
 
   updateChat(parent.id, { archived: false });
   const restored = await service.createAndStart(buildRequest(parent));

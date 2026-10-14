@@ -62,7 +62,7 @@ has a single source:
 
 The snapshot MUST be computed from
 `listDelegationsForWorkspace(row.workspaceFolder)` (`lib/persist/delegations-persist.js:480`),
-not from `listDelegationsForParent` (`lib/persist/delegations-persist.js:508`).
+not from `listDelegationsForController` (`lib/persist/delegations-persist.js:508`).
 
 Rationale: a leaf can be executed by several orchestrator chats over its life
 (the Watcher cycle chat, a manual orchestrator, a resumed chat). Parent-scoped
