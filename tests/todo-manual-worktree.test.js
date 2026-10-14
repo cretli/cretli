@@ -8,6 +8,7 @@
  * start a Watcher cycle.
  */
 
+import { getExecutionSettings } from '../lib/persist/execution-settings-persist.js';
 import './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -24,6 +25,7 @@ import { buildLiveWorktreePredicate } from '../lib/todo-worktree-manual.js';
 import { fingerprintTodoTree } from '../lib/todo-integration-proof.js';
 import { resolveDelegationWorkspaceWriteConflict } from '../lib/delegation-workspace-guard.js';
 import { WORKTREE_ERROR_CODES, WorktreeError } from '../lib/worktree/worktree-errors.js';
+import { updateWorktreeState } from '../lib/worktree-manager.js';
 import { commitFile, createTempRepo, git, tempDir, worktreeConfig } from './helpers/temp-git-repo.js';
 
 /**
@@ -70,7 +72,9 @@ function makeApp(loadWatcherPolicy, deps) {
     getLocalCallbackBaseUrl: () => 'http://127.0.0.1:9999',
     useHttps: false,
     loadWatcherPolicy,
-    probeChatRunLiveness: () => (deps.probeBusy
+    probeChatRunLiveness: () => (deps.probeUnknown
+      ? { known: false, busy: false, reason: 'adapter_error' }
+      : deps.probeBusy
       ? { known: true, busy: true, reason: 'busy' }
       : { known: true, busy: false, reason: 'idle' }),
     worktreeDeps: deps.worktreeDeps,
@@ -302,7 +306,7 @@ test('worktree mode without a layout derives and persists the layout, then start
   assert.ok(record, 'the derived worktree record exists');
   assert.equal(result.body.chat.executionFolder, record.worktreePath);
   // The derivation is persisted, so the per-workspace settings panel shows it.
-  const layout = getWorkspaceWatcher(suite.repo, { dataDir: suite.dataDir }).policy.worktree;
+  const layout = getExecutionSettings(suite.repo, { dataDir: suite.dataDir }).worktree;
   assert.equal(layout.root, derivedRoot);
   assert.equal(layout.namespace, path.basename(suite.repo));
   assert.equal(layout.branchPrefix, `${path.basename(suite.repo)}/todo/`);
@@ -335,6 +339,53 @@ test('D1: a single live descendant record is adopted by a manual root start', as
   assert.equal(rootRecord?.todoId, root.id);
   assert.equal(getWorktreeRecord(leaf.id, { dataDir: suite.dataDir }), null);
 });
+
+for (const scenario of [
+  { name: 'completed integration', status: 'done', integrationState: 'integrated', busy: false, succeeds: true },
+  { name: 'busy integration', status: 'done', integrationState: 'integrated', busy: true, succeeds: false },
+  { name: 'unknown executor integration', status: 'done', integrationState: 'integrated', unknown: true, busy: false, succeeds: false },
+  { name: 'unintegrated completion', status: 'done', integrationState: 'ready', busy: false, succeeds: false },
+  { name: 'unfinished integration', status: 'doing', integrationState: 'integrated', busy: false, succeeds: false },
+]) {
+  test(`manual continuation handles ${scenario.name} without deleting material`, async (t) => {
+    const suite = makeSuite('integrated-continuation');
+    t.after(suite.cleanup);
+    clearManualStartJobs();
+    clearWorktreePrepareLocks();
+    setWorktreePolicy(suite.dataDir, suite.repo, suite.baseDir);
+    const loadPolicy = (folder) => getWorkspaceWatcher(folder, { dataDir: suite.dataDir });
+    const app = makeApp(loadPolicy, { dataDir: suite.dataDir, repo: suite.repo, probeBusy: scenario.busy, probeUnknown: scenario.unknown });
+    const root = addTodo(suite.dataDir, suite.repo, { title: 'root', status: 'doing', executionMode: 'worktree' }).item;
+    const leaf = addTodo(suite.dataDir, suite.repo, { title: 'first leaf', parentId: root.id, status: scenario.status }).item;
+    addTodo(suite.dataDir, suite.repo, { title: 'remaining leaf', parentId: root.id, status: 'ready' });
+    const policy = getWorkspaceWatcher(suite.repo, { dataDir: suite.dataDir }).policy;
+    await prepareWorkspaceWatcherExecution({ todoId: leaf.id, workspaceFolder: suite.repo, todo: leaf, policy, dataDir: suite.dataDir });
+    updateWorktreeState({ todoId: leaf.id, registryOptions: { dataDir: suite.dataDir }, executionState: 'execution_closed', integrationState: scenario.integrationState });
+    const original = getWorktreeRecord(leaf.id, { dataDir: suite.dataDir });
+    const chat = addChat(`continuation-${root.id}`, 'previous executor', '', suite.repo, 'auto', { agentTransport: 'claude' });
+    // Retain a chat association so the busy scenario exercises the liveness guard.
+    updateWorktreeState({ todoId: leaf.id, chatId: chat.id, registryOptions: { dataDir: suite.dataDir } });
+    fs.writeFileSync(path.join(original.worktreePath, 'retained.txt'), 'retained material\n');
+    const integratedHead = commitFile(suite.repo, 'integrated.txt', 'integrated change\n');
+    const result = await startAndSettle(app, root.id, suite.repo, { forceNew: true });
+    assert.equal(result.status, scenario.succeeds ? 200 : 409, JSON.stringify(result.body).slice(0, 400));
+    const retained = getWorktreeRecord(leaf.id, { dataDir: suite.dataDir });
+    assert.equal(Boolean(retained.releasedAt), scenario.succeeds);
+    assert.equal(retained.integrationState, scenario.integrationState);
+    assert.equal(retained.cleanedAt, null);
+    assert.equal(fs.readFileSync(path.join(original.worktreePath, 'retained.txt'), 'utf8'), 'retained material\n');
+    assert.equal(git(suite.repo, ['rev-parse', original.branch]).trim(), original.baseCommit);
+    if (scenario.succeeds) {
+      const fresh = getWorktreeRecord(root.id, { dataDir: suite.dataDir });
+      assert.notEqual(fresh.worktreePath, original.worktreePath);
+      assert.equal(fresh.baseCommit, integratedHead);
+      assert.equal(result.body.chat.executionFolder, fresh.worktreePath);
+    } else {
+      assert.equal(result.body.code, 'WORKTREE_REGISTRY_CONFLICT');
+      assert.equal(getWorktreeRecord(root.id, { dataDir: suite.dataDir }), null);
+    }
+  });
+}
 
 test('D1: two live descendant records still block a manual root start with 409', async (t) => {
   const suite = makeSuite('mixing-two');

@@ -90,11 +90,6 @@ const DEFAULT_POLICY = {
   backoffCapMs: 6 * 60 * 60_000,
   requirePlanApproval: true,
   planApprovalScope: 'leaf',
-  // Execution folder default plus the worktree layout. The server ships an empty
-  // layout and refuses a `worktree` start until the operator fills it in, so the
-  // reset mirror must stay empty too.
-  executionMode: 'project',
-  worktree: { dirtyPolicy: 'block', root: '', namespace: '', branchPrefix: '', directoryPrefix: '', prepareCommand: [] },
   allowedHarnesses: [],
   pickRoles: [...PICK_ROLES],
   quietHours: { start: '', end: '' },
@@ -406,7 +401,7 @@ export async function refreshWorkspaceWatcherSettingsPanel(options = {}) {
   let overridesRes = null;
   try {
     [res, catalog, runtime, profilesRes, historyRes, inboxRes, overridesRes] = await Promise.all([
-      watcherApi(full ? '/api/workspace-watcher?suggest=1' : '/api/workspace-watcher'),
+      watcherApi('/api/workspace-watcher'),
       full ? watcherApi('/api/harness-catalog/harnesses') : Promise.resolve(null),
       watcherApi('/api/workspace-watcher/runtime-control'),
       full ? watcherApi('/api/workspace-watcher/scout/profiles').catch(() => null) : Promise.resolve(null),
@@ -502,43 +497,6 @@ async function loadWatcherStats(seq) {
 }
 
 const CLOCK_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
-/** Absolute path on POSIX (`/...`) or Windows (`C:\...` / `C:/...`). */
-const ABSOLUTE_PATH_RE = /^(?:[A-Za-z]:[\\/]|\/)/;
-
-/**
- * The worktree `prepareCommand` is an argv array, never a shell string. Each
- * non-empty line of the textarea is one argument, so a quoted or spaced value
- * cannot be reinterpreted by a shell.
- *
- * @param {unknown} value
- * @returns {string[]}
- */
-function prepareCommandLines(value) {
-  if (Array.isArray(value)) return value.map((part) => String(part ?? '').trim()).filter(Boolean);
-  return String(value ?? '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
-/**
- * One argv argument per line for the textarea editor.
- *
- * @param {unknown} value
- * @returns {string}
- */
-function prepareCommandText(value) {
-  return prepareCommandLines(value).join('\n');
-}
-
-/**
- * @param {HTMLElement} root
- * @returns {string[]}
- */
-function readPrepareCommandLines(root) {
-  return prepareCommandLines(root.querySelector('#watcher-worktree-prepare')?.value || '');
-}
-
 /**
  * Whether a stored quiet-hours pair reads back as "enabled" — both bounds must
  * be well-formed HH:MM. The server has no `enabled` flag: an empty/invalid pair
@@ -2105,22 +2063,6 @@ function renderWatcherPanel(root, data) {
   const policy = watcher.policy || {};
   const quiet = policy.quietHours || {};
   const orchestrator = policy.orchestrator || {};
-  const worktree = policy.worktree && typeof policy.worktree === 'object' ? policy.worktree : {};
-  const worktreeDefault = String(policy.executionMode || '').trim() === 'worktree';
-  // The server suggests a safe layout derived from the workspace (Git root,
-  // folder name, lockfile) so an empty record does not render as blank
-  // placeholders. A stored value always wins; the suggestion fills only gaps.
-  const suggested = data.executionSuggest && typeof data.executionSuggest === 'object' ? data.executionSuggest : null;
-  const suggestedWorktree = suggested?.worktree && typeof suggested.worktree === 'object' ? suggested.worktree : {};
-  const worktreeText = (key) => {
-    const stored = String(worktree[key] ?? '').trim();
-    return stored || String(suggestedWorktree[key] ?? '').trim();
-  };
-  const storedPrepare = Array.isArray(worktree.prepareCommand) ? worktree.prepareCommand.filter(Boolean) : [];
-  const worktreePrepare = storedPrepare.length
-    ? storedPrepare
-    : (Array.isArray(suggestedWorktree.prepareCommand) ? suggestedWorktree.prepareCommand : []);
-  const worktreeSuggested = Boolean(suggested?.available) && !String(worktree.root ?? '').trim();
   const quietEnabled = quietHoursActive(quiet);
   const roleChecks = PICK_ROLES.map((role) => (
     `<label class="cr-check"><input type="checkbox" data-pick-role="${role}"${(policy.pickRoles || []).includes(role) ? ' checked' : ''}> ${escapeHtml(role)}</label>`
@@ -2210,32 +2152,6 @@ function renderWatcherPanel(root, data) {
           <span class="cr-field-label">${escapeHtml(t('settings.watcherWorkspaceFolder'))}</span>
           <code class="watcher-folder">${escapeHtml(workspaceFolder || '-')}</code>
         </div>
-      </section>
-
-      <section class="watcher-section">
-        <h4 class="watcher-section-title">${escapeHtml(t('settings.watcherWorktree'))}</h4>
-        <p class="cr-hint">${escapeHtml(t('settings.watcherWorktreeHint'))}</p>
-        <div class="cr-field">
-          <span class="cr-field-label">${escapeHtml(t('settings.watcherExecutionMode'))}</span>
-          <div class="watcher-mode-list">
-            <label class="cr-check"><input type="radio" name="watcher-execution-mode" value="project"${worktreeDefault ? '' : ' checked'}> ${escapeHtml(t('settings.watcherExecutionModeProject'))}</label>
-            <label class="cr-check"><input type="radio" name="watcher-execution-mode" value="worktree"${worktreeDefault ? ' checked' : ''}> ${escapeHtml(t('settings.watcherExecutionModeWorktree'))}</label>
-          </div>
-        </div>
-        <div class="watcher-grid">
-          <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherWorktreeRoot'))}</span><input id="watcher-worktree-root" type="text" placeholder="/var/lib/cretli/worktrees" value="${escapeAttr(worktreeText('root'))}"></label>
-          <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherWorktreeNamespace'))}</span><input id="watcher-worktree-namespace" type="text" placeholder="my-workspace" value="${escapeAttr(worktreeText('namespace'))}"></label>
-          <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherWorktreeBranchPrefix'))}</span><input id="watcher-worktree-branch-prefix" type="text" placeholder="cretli/todo/" value="${escapeAttr(worktreeText('branchPrefix'))}"></label>
-          <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherWorktreeDirectoryPrefix'))}</span><input id="watcher-worktree-directory-prefix" type="text" placeholder="t-" value="${escapeAttr(worktreeText('directoryPrefix'))}"></label>
-        </div>
-        <div class="cr-field watcher-wide">
-          <span class="cr-field-label">${escapeHtml(t('settings.watcherWorktreeDirtyPolicy'))}</span>
-          <cr-bar-select id="watcher-worktree-dirty-policy" aria-label="${escapeAttr(t('settings.watcherWorktreeDirtyPolicy'))}" value="${['head', 'snapshot'].includes(worktree.dirtyPolicy) ? worktree.dirtyPolicy : 'block'}"></cr-bar-select>
-          <p class="cr-hint">${escapeHtml(t('settings.watcherWorktreeDirtyPolicyHint'))}</p>
-        </div>
-        <label class="cr-field watcher-wide"><span class="cr-field-label">${escapeHtml(t('settings.watcherWorktreePrepare'))}</span><textarea id="watcher-worktree-prepare" rows="3" placeholder="npm&#10;ci">${escapeHtml(prepareCommandText(worktreePrepare))}</textarea></label>
-        ${worktreeSuggested ? `<p class="cr-hint">${escapeHtml(t('settings.watcherWorktreeSuggestedHint'))} <code>${escapeHtml(suggested?.repoRoot || '')}</code></p>` : ''}
-        <p class="cr-hint">${escapeHtml(t('settings.watcherWorktreePrepareHint'))}</p>
       </section>
 
       <section class="watcher-section">
@@ -2390,10 +2306,6 @@ function renderWatcherPanel(root, data) {
     const out = root.querySelector('#watcher-scout-interval-out');
     if (out) out.textContent = `${scoutIntervalInput.value} ${t('settings.watcherHourUnit')}`;
   });
-  const dirtyPolicySelect = root.querySelector('#watcher-worktree-dirty-policy');
-  if (dirtyPolicySelect) dirtyPolicySelect.options = ['block', 'head', 'snapshot'].map((value) => ({
-    value, label: t(`settings.watcherWorktreeDirtyPolicy_${value}`),
-  }));
   // Quiet hours gate the time inputs: disabled and greyed unless the toggle is on.
   const quietToggle = root.querySelector('#watcher-quiet-enabled');
   const syncQuietFields = () => {
@@ -2458,15 +2370,6 @@ function readWatcherForm(root) {
       backoffCapMs: Number(root.querySelector('#watcher-backoff-cap')?.value) || 0,
       requirePlanApproval: root.querySelector('#watcher-require-plan')?.checked !== false,
       planApprovalScope: root.querySelector('input[name="watcher-plan-scope"]:checked')?.value === 'root' ? 'root' : 'leaf',
-      executionMode: root.querySelector('input[name="watcher-execution-mode"]:checked')?.value === 'worktree' ? 'worktree' : 'project',
-      worktree: {
-        dirtyPolicy: root.querySelector('#watcher-worktree-dirty-policy')?.value || 'block',
-        root: String(root.querySelector('#watcher-worktree-root')?.value || '').trim(),
-        namespace: String(root.querySelector('#watcher-worktree-namespace')?.value || '').trim(),
-        branchPrefix: String(root.querySelector('#watcher-worktree-branch-prefix')?.value || '').trim(),
-        directoryPrefix: String(root.querySelector('#watcher-worktree-directory-prefix')?.value || '').trim(),
-        prepareCommand: readPrepareCommandLines(root),
-      },
       // With quiet hours off the pair is sent empty; the guardrails already read
       // an empty/invalid window as "no quiet hours", so no server `enabled` flag
       // is needed and the persisted default shape stays { start, end }.
@@ -2551,36 +2454,6 @@ function validateWatcherForm(root) {
   if (!Number.isInteger(scoutMaxPerDay) || scoutMaxPerDay < 0) {
     errors.push(t('settings.watcherValidationScoutMaxPerDay'));
   }
-  // A `worktree` default (or a half-filled layout the operator is preparing)
-  // must be complete and safe before it can ever reach a start. The server is
-  // fail-closed too, so this only makes the refusal readable in the form.
-  const executionMode = root.querySelector('input[name="watcher-execution-mode"]:checked')?.value === 'worktree'
-    ? 'worktree'
-    : 'project';
-  const layout = {
-    root: String(root.querySelector('#watcher-worktree-root')?.value || '').trim(),
-    namespace: String(root.querySelector('#watcher-worktree-namespace')?.value || '').trim(),
-    branchPrefix: String(root.querySelector('#watcher-worktree-branch-prefix')?.value || '').trim(),
-    directoryPrefix: String(root.querySelector('#watcher-worktree-directory-prefix')?.value || '').trim(),
-  };
-  const layoutStarted = Object.values(layout).some((value) => value !== '');
-  if (executionMode === 'worktree' || layoutStarted) {
-    if (!layout.root || !layout.namespace || !layout.branchPrefix || !layout.directoryPrefix) {
-      // The server backfills a missing layout from the workspace suggestion, so
-      // "enable worktree mode and save" is enough. Only a workspace with no
-      // suggestion (no Git repository) must be refused before the round-trip.
-      if (lastView?.executionSuggest?.available !== true) {
-        errors.push(t('settings.watcherValidationWorktree'));
-      }
-    } else {
-      if (!ABSOLUTE_PATH_RE.test(layout.root)) {
-        errors.push(t('settings.watcherValidationWorktreeRoot'));
-      }
-      if (/[\\/]/.test(layout.namespace) || layout.namespace === '.' || layout.namespace === '..') {
-        errors.push(t('settings.watcherValidationWorktreeNamespace'));
-      }
-    }
-  }
   return errors;
 }
 
@@ -2616,20 +2489,6 @@ function resetWatcherForm(root) {
   check('watcher-require-plan', DEFAULT_POLICY.requirePlanApproval);
   const defaultScopeRadio = root.querySelector(`input[name="watcher-plan-scope"][value="${DEFAULT_POLICY.planApprovalScope}"]`);
   if (defaultScopeRadio) defaultScopeRadio.checked = true;
-  const defaultExecutionRadio = root.querySelector(`input[name="watcher-execution-mode"][value="${DEFAULT_POLICY.executionMode}"]`);
-  if (defaultExecutionRadio) defaultExecutionRadio.checked = true;
-  // Keep the worktree fields usable after a reset: prefer the workspace-derived
-  // suggestion, so the operator never lands on an empty layout that only the
-  // server could complete.
-  const resetWorktree = lastView?.executionSuggest?.worktree && typeof lastView.executionSuggest.worktree === 'object'
-    ? lastView.executionSuggest.worktree
-    : DEFAULT_POLICY.worktree;
-  set('watcher-worktree-dirty-policy', DEFAULT_POLICY.worktree.dirtyPolicy);
-  set('watcher-worktree-root', resetWorktree.root);
-  set('watcher-worktree-namespace', resetWorktree.namespace);
-  set('watcher-worktree-branch-prefix', resetWorktree.branchPrefix);
-  set('watcher-worktree-directory-prefix', resetWorktree.directoryPrefix);
-  set('watcher-worktree-prepare', (Array.isArray(resetWorktree.prepareCommand) ? resetWorktree.prepareCommand : []).join('\n'));
   check('watcher-quiet-enabled', false);
   set('watcher-quiet-start', '');
   set('watcher-quiet-end', '');

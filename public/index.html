@@ -375,6 +375,7 @@
       <button type="button" class="settings-tab cr-tab" data-settings-tab="delegations" role="tab" aria-selected="false" data-i18n="settings.tabsDelegations">Delegations</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="widgets" role="tab" aria-selected="false" data-i18n="settings.widgetsTitle">Page widgets</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="mcp" role="tab" aria-selected="false" data-i18n="settings.mcpTitle">MCP</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="execution" role="tab" aria-selected="false" data-i18n="settings.tabsExecution">Execution</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="watcher" role="tab" aria-selected="false" data-i18n="settings.watcherTitle">Workspace Watcher</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="usage" role="tab" aria-selected="false" data-i18n="settings.tabsUsage">Usage</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="account" role="tab" aria-selected="false" data-i18n="settings.tabsAccount">Account</button>
@@ -1958,6 +1959,10 @@
         <h3 class="settings-section-title" data-i18n="settings.mcpTitle">MCP</h3>
         <p class="settings-hint" data-i18n="settings.mcpHint">Configure MCP servers once. Pick workspaces and harnesses; agents receive the tools without extra shell scripts. Secrets stay on the server.</p>
         <div id="settings-mcp-root" class="mcp-settings-root"></div>
+      </section>
+      <section class="settings-section" data-settings-tab="execution" hidden role="tabpanel">
+        <h3 class="settings-section-title" data-i18n="settings.executionTitle">Execution</h3>
+        <div id="settings-execution-root" class="cr-page"></div>
       </section>
       <section class="settings-section" data-settings-tab="watcher" hidden role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.watcherTitle">Workspace Watcher</h3>

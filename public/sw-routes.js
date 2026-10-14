@@ -110,6 +110,7 @@
     'delegations',
     'widgets',
     'mcp',
+    'execution',
     'watcher',
     'watcher-monitor',
     'watcher-settings',

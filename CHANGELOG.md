@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Settings → Execution.** The default execution folder and the worktree
+  layout moved out of the Workspace Watcher policy into a per-workspace store
+  (`data/execution-settings.json`, `GET/PATCH /api/execution-settings`) read by
+  both the Watcher and manual todo starts. Missing values are proposed from the
+  repository; legacy `policy.worktree` / `policy.executionMode` still work as an
+  alias.
 - **Verify integration hints.** Equal-role chats now prefer the newest
   `linkedChatIds` entries, and the patch-path hint says the file may be gone.
   Patch-scope tests cover newline names and `a/`/`b/` directories.
@@ -106,6 +112,15 @@ All notable changes to this project are documented here. The format is based on
   separate todos. Disable with `CRETLI_DELEGATION_CODE_REVIEW_PHASE=0`.
 
 ### Fixed
+
+- TODO action errors now show their full message in a scrollable dialog instead
+  of squeezing it into the status bar. Worktree preparation errors include the
+  message, failed command and captured output in the same dialog.
+
+- Manual TODO continuation releases completed, integrated descendant worktrees
+  from live ownership without deleting their branches, files or evidence. A
+  partially integrated tree can prepare a new root worktree; busy and unfinished
+  descendants still block conflicting starts.
 
 - **Claude context meter uses the window the SDK reports.** Opus 5.5 and
   Sonnet 5.5 run on a 1M-token window, but the meter divided by a fixed 200k and

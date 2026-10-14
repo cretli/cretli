@@ -222,50 +222,21 @@ test('the Scout tab shows the next scan and a manual run trigger', () => {
   }
 });
 
-test('the watcher settings panel exposes the worktree layout', () => {
-  for (const id of [
-    'watcher-worktree-root',
-    'watcher-worktree-namespace',
-    'watcher-worktree-branch-prefix',
-    'watcher-worktree-directory-prefix',
-    'watcher-worktree-prepare',
-  ]) {
-    assert.ok(source.includes(`id="${id}"`), `missing ${id}`);
+test('the worktree layout lives in the Execution tab, not the watcher panel', () => {
+  assert.doesNotMatch(source, /watcher-worktree-root/);
+  assert.doesNotMatch(source, /name="watcher-execution-mode"/);
+  const exec = fs.readFileSync(path.join(root, 'app_front/features/settings/executionSettings.js'), 'utf8');
+  for (const id of ['execution-root', 'execution-namespace', 'execution-branch-prefix', 'execution-directory-prefix', 'execution-prepare']) {
+    assert.ok(exec.includes(id), `missing ${id}`);
   }
-  assert.match(source, /name="watcher-execution-mode"/);
-  // The form reads and writes both the default mode and the layout block.
-  assert.match(source, /executionMode: root\.querySelector\('input\[name="watcher-execution-mode"\]:checked'\)/);
-  assert.match(source, /worktree: \{[\s\S]*?prepareCommand: readPrepareCommandLines\(root\),/);
+  assert.match(exec, /name="execution-mode"/);
+  assert.match(exec, /\/api\/execution-settings/);
   // A shell string is never built: one argv argument per textarea line.
-  assert.match(source, /function prepareCommandLines\(value\)/);
-  assert.match(source, /\.split\('\\n'\)/);
-  // The server suggestion prefills empty fields; the form asks for it only on
-  // the form-building (full) fetch.
-  assert.match(source, /executionSuggest/);
-  assert.match(source, /\/api\/workspace-watcher\?suggest=1/);
-  assert.match(source, /settings\.watcherWorktreeSuggestedHint/);
-  // Fail-closed validation mirrors the server refusal.
-  assert.match(source, /watcherValidationWorktree/);
-  assert.match(source, /watcherValidationWorktreeRoot/);
-  assert.match(source, /watcherValidationWorktreeNamespace/);
+  assert.match(exec, /\.split\('\\n'\)/);
+  const html = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
+  assert.match(html, /data-settings-tab="execution"/);
   for (const [lang, dict] of [['en', en], ['pl', pl]]) {
-    for (const key of [
-      'watcherWorktree',
-      'watcherWorktreeHint',
-      'watcherWorktreeSuggestedHint',
-      'watcherExecutionMode',
-      'watcherExecutionModeProject',
-      'watcherExecutionModeWorktree',
-      'watcherWorktreeRoot',
-      'watcherWorktreeNamespace',
-      'watcherWorktreeBranchPrefix',
-      'watcherWorktreeDirectoryPrefix',
-      'watcherWorktreePrepare',
-      'watcherWorktreePrepareHint',
-      'watcherValidationWorktree',
-      'watcherValidationWorktreeRoot',
-      'watcherValidationWorktreeNamespace',
-    ]) {
+    for (const key of ['tabsExecution', 'executionTitle', 'executionMode', 'executionWorktreeRoot', 'executionPrepare', 'executionSave']) {
       assert.ok(dict.settings?.[key], `${lang}.settings.${key} is missing`);
     }
   }

@@ -304,6 +304,10 @@ function ensurePanelReady(panelKey) {
       initPanelOnce(panelKey, () => mod.initMcpSettingsPanel());
       return;
     }
+    if (panelKey === 'executionSettings') {
+      initPanelOnce(panelKey, () => mod.initExecutionSettingsPanel());
+      return;
+    }
     if (panelKey === 'watcherSettings') {
       initPanelOnce(panelKey, () => mod.initWorkspaceWatcherSettingsPanel());
       return;
@@ -1389,6 +1393,9 @@ function refreshSettingsTabPanels(tabId) {
   }
   if (tabId === 'mcp') {
     void ensurePanelReady('mcpSettings').then(() => callLoadedPanel('mcpSettings', 'refreshMcpSettingsPanel'));
+  }
+  if (tabId === 'execution') {
+    void ensurePanelReady('executionSettings').then(() => callLoadedPanel('executionSettings', 'refreshExecutionSettingsPanel'));
   }
   if (isWatcherSettingsTab(tabId)) {
     void ensurePanelReady('watcherSettings').then(() => {

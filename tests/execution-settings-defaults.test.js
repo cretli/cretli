@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
+import { applyExecutionSettingsToPolicy } from '../lib/execution-settings.js';
 import { applyWorkspaceWatcherPatch } from '../lib/workspace-watcher-control.js';
 import { createTempRepo, tempDir } from './helpers/temp-git-repo.js';
 
@@ -23,7 +24,10 @@ import { createTempRepo, tempDir } from './helpers/temp-git-repo.js';
 function patchPolicy(workspaceFolder, policy) {
   const dataDir = tempDir('cretli-wt-defaults-data-');
   try {
-    return applyWorkspaceWatcherPatch({ dataDir, workspaceFolder, patch: { policy } });
+    const row = applyWorkspaceWatcherPatch({ dataDir, workspaceFolder, patch: { policy } });
+    // The execution fields now live in their own store; read them back through
+    // the same overlay both start flows use.
+    return { ...row, policy: applyExecutionSettingsToPolicy(row.policy, workspaceFolder, dataDir) };
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }

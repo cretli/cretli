@@ -477,6 +477,7 @@ Model windows come from a static prefix table in `lib/sdk/sdk-context-advisory.j
 | GET | `/api/mcp/status` | Config/connection status for workspace, harness, session |
 | GET/POST | `/api/mcp/bridge/*` | Session integration-token bridge (not widget, not cookie UI) |
 | GET/PATCH/DELETE | `/api/workspace-watcher` | Per-workspace watcher state (`mode`, `policy`, `stopReason`). GET never creates a row |
+| GET/PUT/PATCH | `/api/execution-settings` | Per-workspace execution settings (default mode + worktree layout) shared by the Watcher and manual todo starts; returns `saved`, `effective`, `proposal` |
 | POST | `/api/workspace-watcher/tick` | One deterministic tick; autopilot may also start a cycle |
 | POST | `/api/workspace-watcher/run-cycle` | Reconcile + tick + guarded cycle start for this workspace |
 | POST | `/api/workspace-watcher/claim-next` | Atomically claim the next ready todo for a chat |

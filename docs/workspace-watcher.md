@@ -985,18 +985,24 @@ right branch visible.
 
 ### 1. Mode selection
 
-- Watcher policy holds the default: `policy.executionMode` (`project` for
-  backwards compatibility) plus the `policy.worktree` layout block (location,
-  branch scheme, `prepareCommand` argv).
-- The layout is edited in **Settings → Workspace Watcher → Settings → Execution
-  folder (worktree)**: the default mode, an absolute root outside the repository,
-  a single-segment namespace, the branch and directory prefixes, and the prepare
-  argv (one argument per line — a shell string is refused). Saving is fail-closed:
-  a `worktree` default or a partially filled layout refuses to save until the
-  four path/naming fields are complete and safe. The same block can be written
-  through the `watcher_set` MCP policy patch.
-- **Uncommitted changes at worktree start** in the same settings section stores
-  `policy.worktree.dirtyPolicy`: `block` (default) requires a clean repository;
+- The default mode and the worktree layout are **per-workspace execution
+  settings**, stored in `data/execution-settings.json` independently of the
+  watcher row (they exist even if the watcher was never enabled). Both the
+  Watcher cycle and the manual "Run todo" start read them. Precedence per field:
+  saved record > legacy `policy.executionMode` / `policy.worktree` > server
+  proposal (repository root, `<parent>/.cretli-worktrees`, sanitized folder name
+  as namespace, `<namespace>/todo/`, `t-`, prepare command detected from the
+  lockfile, mode `project`). An explicitly cleared `prepareCommand` stays empty.
+- The layout is edited in **Settings → Execution**: the default mode, an
+  absolute root outside the repository, a single-segment namespace, the branch
+  and directory prefixes, and the prepare argv (one argument per line — a shell
+  string is refused). `GET/PATCH /api/execution-settings` returns `saved`,
+  `effective` and `proposal`. A `worktree` start with an incomplete layout stays
+  fail-closed. `policy.executionMode` / `policy.worktree` in `watcher_set`,
+  `watcher_update` and `PATCH /api/workspace-watcher` remain accepted as an alias
+  and are written through to the execution settings store.
+- **Uncommitted changes at worktree start** in Settings → Execution stores
+  `worktree.dirtyPolicy` (execution settings): `block` (default) requires a clean repository;
   `head` starts from the last commit and skips local changes; `snapshot` includes
   tracked changes and non-ignored untracked files through a temporary Git index.
   The project branch and index stay unchanged. This applies to new worktrees;

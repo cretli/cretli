@@ -6,6 +6,7 @@
  * frozen worktrees and the watcher cycle start/rollback wiring.
  */
 
+import { getExecutionSettings } from '../lib/persist/execution-settings-persist.js';
 import './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -302,13 +303,13 @@ test('allowSuggestedLayout derives the workspace suggestion, persists it and pre
     path.join(expectedRoot, 'my-app', `t-${todoId}`),
   );
   // Persisted so the settings panel and every later start agree on the layout.
-  const row = getWorkspaceWatcher(repo, { dataDir: suite.dataDir });
-  assert.equal(row.policy.worktree.root, expectedRoot);
-  assert.equal(row.policy.worktree.namespace, 'my-app');
-  assert.equal(row.policy.worktree.branchPrefix, 'my-app/todo/');
-  assert.equal(row.policy.worktree.directoryPrefix, 't-');
+  const saved = getExecutionSettings(repo, { dataDir: suite.dataDir });
+  assert.equal(saved.worktree.root, expectedRoot);
+  assert.equal(saved.worktree.namespace, 'my-app');
+  assert.equal(saved.worktree.branchPrefix, 'my-app/todo/');
+  assert.equal(saved.worktree.directoryPrefix, 't-');
   // The layout is derived; running an install stays the operator's decision.
-  assert.deepEqual(row.policy.worktree.prepareCommand, []);
+  assert.equal(saved.worktree.prepareCommand, undefined);
 });
 
 test('allowSuggestedLayout still fails closed when the workspace is not a Git repository', async (t) => {
