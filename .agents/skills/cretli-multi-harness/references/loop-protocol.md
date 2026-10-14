@@ -124,7 +124,7 @@ not an executor pool.
   the fanout slot until the user approves in the child chat or the job reaches
   a terminal status.
 - **Infra** (`failed`/`cancelled` with empty report, `code=adapter_timeout`,
-  `adapter_incomplete`, first-event timeout, ChatGPT/Codex **usage limit**,
+  `adapter_incomplete`, `adapter_no_verdict` (report without VERDICT even after the server follow-up; no answer, never a FAIL), first-event timeout, ChatGPT/Codex **usage limit**,
   harness quota, one-line thinking dump): wait until `slot_occupied` is false,
   then `model_pick` with `exclude_model` = the failed id. Review never picks
   `*flash*` ids. Use `exclude_harness` **only** with concrete evidence that the

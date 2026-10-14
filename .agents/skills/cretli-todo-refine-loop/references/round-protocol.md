@@ -45,7 +45,7 @@ and `queued=<ISO of the current attempt>`.
    session (`session=-`), exchange rows and consult rows.
 3. A round is the set of kept rows sharing one `session`. A FAIL is valid when
    `verdict=FAIL`, `report=1`, `err=0` and `interrupt` is `-`. Interrupted rows
-   and infrastructure failures are never a valid FAIL and never a PASS.
+   and infrastructure failures (including `adapter_no_verdict`, a review with no VERDICT line) are never a valid FAIL and never a PASS.
 4. A round's time is the minimum `queued` of its rows (a retried old row does
    not move its round). A round is finished when no row has an active status
    (`queued`, `starting`, `running`, `waiting_for_input`, `cancelling`);
