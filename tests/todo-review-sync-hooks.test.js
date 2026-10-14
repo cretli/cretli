@@ -493,6 +493,21 @@ test('a failed sync is re-armed and a later flush writes it', () => {
   assert.equal(pendingTodoReviewSyncRetryCount(), 0);
 });
 
+test('a permanently failing sync stops re-arming after the retry cap', () => {
+  const project = makeProject('retry-cap');
+  const todo = makeTodo(project);
+  clearTodoReviewSyncRetries();
+  const failing = { writeReview: () => { const err = new Error('corrupt'); err.code = 'IO'; throw err; } };
+  const target = { workspaceFolder: project, todoId: todo.id, dataDir: ISOLATED_DATA_DIR };
+  for (let i = 0; i < 8; i += 1) {
+    syncTodoReviewTarget(target, { deps: failing });
+    assert.equal(pendingTodoReviewSyncRetryCount(), 1, `attempt ${i + 1} is still queued`);
+  }
+  syncTodoReviewTarget(target, { deps: failing });
+  assert.equal(pendingTodoReviewSyncRetryCount(), 0, 'exhausted retries are dropped');
+  clearTodoReviewSyncRetries();
+});
+
 // --- boot repair -------------------------------------------------------------
 
 test('boot repair restores a snapshot after a crash between writes', () => {
@@ -692,4 +707,126 @@ test('runtime sync reads the saved plan boundary and a chat plan edit immediatel
   persistTodoPlan({ dataDir: ISOLATED_DATA_DIR, cwd: project, todoId: todo.id, planMarkdown: 'Revised plan' });
   assert.equal(readTodo(project, todo.id).review.plan.state, 'passed');
   assert.equal(readTodo(project, todo.id).plan.markdownUpdatedAt, boundary);
+});
+
+// --- retry queue: flush/timer path --------------------------------------------
+
+/**
+ * Make the todo file of a project unreadable (a directory in its place) and
+ * return a restore function.
+ *
+ * @param {string} todoId
+ * @returns {() => void}
+ */
+function breakTodoStore(todoId) {
+  const dir = path.join(ISOLATED_DATA_DIR, 'todos');
+  const file = fs.readdirSync(dir)
+    .filter((name) => name.endsWith('.json'))
+    .map((name) => path.join(dir, name))
+    .find((full) => fs.statSync(full).isFile() && fs.readFileSync(full, 'utf8').includes(todoId));
+  assert.ok(file, 'todo store file found');
+  const backup = `${file}.bak`;
+  fs.renameSync(file, backup);
+  fs.mkdirSync(file);
+  return () => {
+    fs.rmdirSync(file);
+    fs.renameSync(backup, file);
+  };
+}
+
+test('a persistent read_error stops re-arming after the cap via flush', () => {
+  const project = makeProject('read-error-cap');
+  const todo = makeTodo(project);
+  const review = makeDelegation(project, todo);
+  clearTodoReviewSyncRetries();
+  const restore = breakTodoStore(todo.id);
+  try {
+    const first = sync(review);
+    assert.equal(first.ok, false);
+    assert.equal(first.reason, 'read_error');
+    assert.equal(pendingTodoReviewSyncRetryCount(), 1);
+    // 1 initial arm + 7 flush re-arms = 8 attempts; the 8th flush exhausts.
+    for (let i = 0; i < 7; i += 1) {
+      const flushed = flushTodoReviewSyncRetries();
+      assert.equal(flushed.failed, 1);
+      assert.equal(flushed.ok, 0);
+      assert.equal(pendingTodoReviewSyncRetryCount(), 1, `flush ${i + 1} re-armed`);
+    }
+    const last = flushTodoReviewSyncRetries();
+    assert.equal(last.failed, 1);
+    assert.equal(pendingTodoReviewSyncRetryCount(), 0, 'retry budget exhausted, nothing re-armed');
+    assert.equal(flushTodoReviewSyncRetries().retried, 0);
+  } finally {
+    restore();
+    clearTodoReviewSyncRetries();
+  }
+});
+
+test('a transient read_error recovers on flush and clears the counter', () => {
+  const project = makeProject('read-error-recover');
+  const todo = makeTodo(project);
+  const review = makeDelegation(project, todo, { queuedAt: '2026-01-01T00:02:00.000Z' });
+  patchRecord(review, {
+    status: 'completed',
+    startedAt: '2026-01-01T00:02:00.000Z',
+    finishedAt: '2026-01-01T00:03:00.000Z',
+    report: 'VERDICT: PASS',
+    reportVerdict: 'PASS',
+  });
+  clearTodoReviewSyncRetries();
+  const restore = breakTodoStore(todo.id);
+  assert.equal(sync(review).ok, false);
+  assert.equal(flushTodoReviewSyncRetries().failed, 1);
+  restore();
+  const recovered = flushTodoReviewSyncRetries();
+  assert.equal(recovered.ok, 1);
+  assert.equal(pendingTodoReviewSyncRetryCount(), 0);
+  assert.equal(readTodo(project, todo.id).review.code.state, 'passed');
+  // Counter cleared: a fresh failure series gets the full budget again.
+  const restoreAgain = breakTodoStore(todo.id);
+  try {
+    assert.equal(sync(review).ok, false);
+    for (let i = 0; i < 7; i += 1) {
+      assert.equal(flushTodoReviewSyncRetries().failed, 1);
+      assert.equal(pendingTodoReviewSyncRetryCount(), 1);
+    }
+  } finally {
+    restoreAgain();
+    clearTodoReviewSyncRetries();
+  }
+});
+
+test('a delegation retry handing over to a target key leaves no orphaned counter', () => {
+  const project = makeProject('key-transfer');
+  const todo = makeTodo(project);
+  const review = makeDelegation(project, todo);
+  clearTodoReviewSyncRetries();
+  const restore = breakTodoStore(todo.id);
+  assert.equal(sync(review).ok, false);
+  restore();
+  // Resolution now succeeds but the target write fails: the retry moves to the
+  // target-level key. Fail the write via a broken snapshot compute dependency
+  // is not reachable here, so make the write fail by removing write access.
+  const dir = path.join(ISOLATED_DATA_DIR, 'todos');
+  const file = fs.readdirSync(dir).map((n) => path.join(dir, n))
+    .find((full) => full.endsWith('.json') && fs.readFileSync(full, 'utf8').includes(todo.id));
+  const origMode = fs.statSync(file).mode;
+  fs.chmodSync(dir, 0o555);
+  let transferred = false;
+  try {
+    const flushed = flushTodoReviewSyncRetries();
+    transferred = flushed.failed === 1 && pendingTodoReviewSyncRetryCount() === 1;
+  } finally {
+    fs.chmodSync(dir, 0o755);
+    fs.chmodSync(file, origMode);
+  }
+  if (!transferred) {
+    // Running as root: permissions do not block the write, so the sync simply
+    // succeeds. The counter must be gone in that case too.
+    assert.equal(pendingTodoReviewSyncRetryCount(), 0);
+  }
+  // Drain: after recovery nothing may remain pending or counted.
+  for (let i = 0; i < 9 && pendingTodoReviewSyncRetryCount() > 0; i += 1) flushTodoReviewSyncRetries();
+  assert.equal(pendingTodoReviewSyncRetryCount(), 0);
+  clearTodoReviewSyncRetries();
 });
