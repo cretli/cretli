@@ -102,6 +102,21 @@ assert.ok(reviewRow, 'review outcome present');
 assert.equal(reviewRow.pass_rate, 1, 'a PASS verdict is productive');
 assert.equal(reviewRow.verdict_fail_rate, 0);
 
+// --- L6: priced statistics (cost_per_pass, price_per_1m, per level) ---------
+assert.ok(body.priced_stats && Array.isArray(body.priced_stats.by_level), 'priced_stats.by_level is present');
+assert.equal(body.priced_stats.attribution.url, 'https://artificialanalysis.ai/', 'AA attribution credit is exposed');
+assert.ok('cost_per_pass' in implementRow && 'price_per_1m' in implementRow, 'outcome rows carry cost_per_pass and price_per_1m');
+assert.ok(implementRow.price_per_1m && 'source' in implementRow.price_per_1m && 'captured_at' in implementRow.price_per_1m,
+  'price_per_1m names its source and captured_at');
+const levelRow = body.priced_stats.by_level.find((row) => row.role === 'implement' && row.harness === 'opencode');
+assert.ok(levelRow, 'per (model, role, level) row present');
+assert.equal(levelRow.level, 'unknown', 'a delegation without a pick record has the unknown level');
+assert.ok(levelRow.cost_per_pass === null || ['usd', 'rcu'].includes(levelRow.cost_per_pass.unit));
+if (levelRow.cost_per_pass) {
+  assert.ok('source' in levelRow.cost_per_pass && 'captured_at' in levelRow.cost_per_pass);
+  if (levelRow.billing_class !== 'api_metered') assert.equal(levelRow.cost_per_pass.is_money, false, 'a proxy is never money');
+}
+
 assert.equal(body.unused_14d.includes('opencode'), false, 'a harness with a job is not unused');
 assert.equal(body.unused_14d.includes('claude'), false, 'the reviewer harness is not unused');
 assert.ok(body.unused_14d.length > 0, 'enabled harnesses with no job stay listed');

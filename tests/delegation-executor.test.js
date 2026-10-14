@@ -5,6 +5,10 @@ import {
   describeUnavailableDelegationModel,
   isDelegationModelAvailable,
   resolveDelegationModel,
+  resolveDelegationModelDetailed,
+  describeEffortUnavailable,
+  describeModelResolution,
+  normalizeEffortParam,
 } from '../lib/delegation-executor.js';
 
 resetMockChatRuns();
@@ -93,14 +97,75 @@ const inputCodexSettings = {
   enabledHarnesses: ['codex'],
   codexChatEnabledModels: ['gpt-6-astra::effort=medium'],
 };
+// A requested effort that is not enabled is refused, never lowered silently.
 assert.equal(
   resolveDelegationModel({
     transport: 'codex',
     model: 'gpt-6-astra::effort=high',
     settings: inputCodexSettings,
   }),
-  'gpt-6-astra::effort=medium',
+  '',
 );
+const actualEffort = resolveDelegationModelDetailed({
+  transport: 'codex',
+  model: 'gpt-6-astra::effort=high',
+  settings: inputCodexSettings,
+});
+assert.equal(actualEffort.code, 'effort_unavailable');
+assert.deepEqual(actualEffort.availableEfforts, ['medium']);
+assert.match(describeEffortUnavailable(actualEffort), /available efforts: medium/);
+assert.equal(
+  resolveDelegationModelDetailed({
+    transport: 'codex',
+    model: 'gpt-6-astra::effort=extra-high',
+    settings: inputCodexSettings,
+  }).requestedEffort,
+  'xhigh',
+);
+// grok-style `reasoning_effort` is normalized the same way.
+const inputGrokReasoning = {
+  chatEnabledModels: ['grok-4.7::reasoning_effort=low', 'grok-4.7::reasoning_effort=medium'],
+};
+assert.equal(
+  resolveDelegationModelDetailed({
+    transport: 'sdk', model: 'grok-4.7::reasoning_effort=high', settings: inputGrokReasoning,
+  }).code,
+  'effort_unavailable',
+);
+assert.equal(
+  resolveDelegationModel({
+    transport: 'sdk', model: 'grok-4.7::reasoning_effort=medium', settings: inputGrokReasoning,
+  }),
+  'grok-4.7::reasoning_effort=medium',
+);
+// Free-text effort tokens (max, minimal, extra-high) are recognized, never dropped silently.
+const inputFreeText = {
+  enabledHarnesses: ['codex'],
+  codexChatEnabledModels: ['gpt-6-astra::effort=max', 'gpt-6-astra::effort=low', 'gpt-6-astra::effort=medium'],
+};
+assert.equal(
+  resolveDelegationModel({ transport: 'codex', model: 'gpt-6-astra max', settings: inputFreeText }),
+  'gpt-6-astra::effort=max',
+);
+assert.equal(
+  resolveDelegationModel({ transport: 'codex', model: 'gpt-6-astra minimal', settings: inputFreeText }),
+  'gpt-6-astra::effort=low',
+);
+const inputFreeTextMedium = {
+  enabledHarnesses: ['codex'],
+  codexChatEnabledModels: ['gpt-6-astra::effort=medium'],
+};
+for (const word of ['max', 'minimal']) {
+  const actualFreeText = resolveDelegationModelDetailed({
+    transport: 'codex', model: `gpt-6-astra ${word}`, settings: inputFreeTextMedium,
+  });
+  assert.equal(actualFreeText.code, 'effort_unavailable', word);
+  assert.deepEqual(actualFreeText.availableEfforts, ['medium'], word);
+}
+const actualResolution = describeModelResolution('claude-sonnet-5-5::effort=high', 'claude-sonnet-5-5::effort=low');
+assert.equal(actualResolution.model_downgraded, true);
+assert.equal(describeModelResolution('a::effort=low', 'a::effort=low').model_downgraded, false);
+assert.deepEqual(normalizeEffortParam([{ id: 'reasoning_effort', value: 'extra-high' }]), { level: 'xhigh', key: 'reasoning_effort' });
 assert.equal(
   resolveDelegationModel({
     transport: 'codex',

@@ -16,6 +16,7 @@ Every successful MCP `model_pick` call persists a proposal:
 | `role` | Logical role (`plan`, `implement`, `review`, `fix`). |
 | `candidates` | Bounded candidate set (max 12) copied from the pick response. |
 | `picks` | Fanout slots (max 5), slot `0` = primary selection. |
+| `complexity` | `{ level, signals[] }` from the task complexity signal (below). Every `model_pick` response (success and error) carries it; the journal stores it on each persisted proposal (failed picks create no proposal). |
 
 Retention: unclaimed proposals older than 30 days are purged on the next write.
 Executed links remain on delegation rows.
@@ -23,6 +24,71 @@ Executed links remain on delegation rows.
 Decision journal stores metadata only (no prompts). Pick candidates keep
 `harness`/`model`/`selectionSlot`/`originDetailHint`; the human-readable
 `reason` and any prompt/task text are never copied into the journal.
+
+## Task complexity signal (shadow)
+
+`lib/model-pick-complexity.js` exports `classifyTaskComplexity({ role, leafBody,
+leafSize, heavy, history, sourceKind })` and returns `{ level, signals }`. It is
+computed for every `model_pick` (also without a leaf), written to the decision
+journal and returned as `complexity` in the `model_pick` response. It is a
+shadow signal: it never changes candidate selection.
+
+`level` is `trivial`, `standard` or `demanding`. `signals` is a list of codes
+from a **closed list**; the persistence layer drops anything else, so the leaf
+body (or any free text) cannot reach the journal.
+
+| Signal | Meaning |
+| --- | --- |
+| `no_leaf_context` | Neither a leaf body nor a leaf size was available (level defaults to `standard`). |
+| `leaf_size_small` / `leaf_size_large` | Result of `classifyLeafSize`; large raises to at least `standard`. |
+| `few_files` / `many_files` | Existing file paths named in the leaf; more than 6 raises to `demanding`. |
+| `risk_keywords` | Security, auth, migration, schema, concurrency, encryption, secret, credential, data loss, breaking change and similar words (Polish: `migracja`, `kontrakt`, `bezpiecze*`); raises to at least `standard`. |
+| `review_fail_history` | Not wired yet (needs a review-FAIL counter in model-pick history). Classifier support: at least 2 review FAILs (`history.reviewFailCount`) gives `demanding`. |
+| `role_floor_standard` | `review`/`plan` role or `sourceKind=plan`; never below `standard`. |
+| `explicit_heavy` | `heavy: true` on the pick; `demanding`. |
+| `explicit_level` | The `complexity` parameter overrides the heuristic level. |
+
+Inputs reach the classifier in memory only (`leafBody`, `leafSize`, `heavy`,
+`complexity`, `source_kind`); the stored record keeps `level` and `signals` and
+nothing else.
+
+## Cost policy (`complexityPolicy`, shadow by default)
+
+`lib/model-pick-cost-policy.js` (rules, config, canary evaluator) and
+`lib/model-pick-cost-policy-layer.js` (glue in `pickModelForPurpose`, shared by
+`model_pick`, the Watcher orchestrator and the Scout) implement plan v10
+§2.3, §2.4 and §2.7. Config: `complexityPolicy` in `data/model-role-profiles.json`.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `mode` | `shadow` | `off` (no layer), `shadow` (record verdict + counterfactual, selection unchanged), `enforce`. |
+| `ceilings.<role>.<level>` | implement/fix 2/3/4, review/plan 4 | Max cost tier (1..4). Candidates above are **filtered**, never silently raised. |
+| `autoPremium` | `heavy_only` | Tier 5 is eligible only for `demanding` and (`premium:true` or `heavy:true` when `heavy_only`). `never` requires `premium:true`. |
+| `modelPolicy.models` | none | Per model `auto`, `heavy_only`, `manual_only` (never in autopick; explicit `delegation_start` still works). |
+| `qualityFloor` | 1/3/4 | Min quality tier per level; review/plan are lifted to 4. Flash is refused for review/plan/demanding. |
+| `effortFloorMin` | `medium` | Review/plan/demanding need effort >= this for models with an effort param (`normalizeEffortParam`). |
+| `infraFailCeiling` | 0.5, review 0.35 | Per-role infra-fail ceiling (min n = `infraMinN`, default 3). |
+| `canary` | 20% / 7 days | See below. |
+
+Rejection reasons are a closed list: `cost_ceiling`, `tier5_not_allowed`,
+`model_policy_manual_only`, `model_policy_heavy_only`, `quality_floor`,
+`flash_not_allowed`, `effort_floor`, `infra_fail_ceiling`. The journal stores a
+`costPolicy` block (mode, bucket, phase, `wouldChange`, `policyPick`,
+`counterfactualPick`, rejected candidate ids with codes) and nothing else.
+
+When no candidate is left the pick fails with `MODEL_UNAVAILABLE` and
+`reason: cost_ceiling` plus the rejected list (suggestion `premium:true`).
+Before that, the quality floor is relaxed by one tier **only** for
+implement/fix trivial/standard; the ceiling and review/plan floors never relax.
+
+Canary: with `mode: enforce`, the first pick starts a 7-day window
+(`data/model-pick-cost-policy-state.json`). Inside it only implement/fix
+trivial/standard picks in a deterministic 20% bucket (`sha256(chat|leaf|role|purpose) mod 100`)
+are enforced; the rest stay shadow. A rolling evaluator on every pick compares
+canary vs control (review FAIL +10 pp, `no_candidate` +5% / +2% for review,
+infra-fail +`infraFailMaxIncreasePp`, min 10 samples) and on breach writes
+`rolledBackAt` + reason and falls back to `shadow`. Enforce appends
+`cost-policy=enforce` to the policy version cohort.
 
 ## `delegation_start` link
 
@@ -154,3 +220,14 @@ Mapping to decided cycles for shadow ranking (`2584cd05`): use
 `qualityOutcome === 'accepted-by-review'` or explicit rejection/exhaustion;
 `runClass === 'infra'|'cancel'` keeps infra prior separate from quality prior
 (existing shrinkage in `model-pick-history` unchanged).
+
+## Priced statistics (display only)
+
+`/api/delegations/stats` groups finished delegations per (harness, base model,
+role, level) and reports `usable_rate`, `infra_fail_rate`, `completion_rate`,
+median duration and tokens, `cost_per_pass` and `price_per_1m` (each with
+`source` and `captured_at`; USD only for `api_metered`, otherwise an RCU proxy
+labelled as such). The level is read from the persisted pick-record complexity
+(`unknown` when absent). The decision journal is unchanged and these values
+never influence `model_pick`. Shown in Settings -> Harness -> "Model prices and
+statistics". Detail: `docs/model-scoring-facts.md` ("Priced statistics").

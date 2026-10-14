@@ -446,9 +446,121 @@ thresholds are clamped to their documented values. The policy version gains a
 `;shadow=<mode>+<policy>[+promoted]` segment (`composeModelPickShadowSegment`), so
 the agreement cohort never mixes with the pre-shadow one.
 
+### Cost proxy (`cost_proxy`, unit `rcu`)
+
+The one exception to the "no cost beyond `api_metered` USD" rule above (§3) is a
+separate, clearly-labelled fact: `cost_proxy`. It is a relative cost index in
+**RCU** (USD-equivalent per 1M tokens, in:out weighted 1:3), computed for the
+picked pair and the audit candidates in `lib/model-pick-cost-proxy.js`.
+
+- **Never money.** The unit is `rcu` and no `usd` field exists on the fact, in
+  the decision log or in the `model_pick` response (`cost_proxy`). Metered USD
+  stays an `api_metered`-only fact; the two are never mixed or summed.
+- **Rate.** `estimateTokenRates(model, provider)` (`lib/usage/usage-rates.js`)
+  answers only on an exact match: a Claude alias (`opus`/`sonnet`/`haiku`) is
+  mapped to the current numbered id and resolved like it (so `opus` and
+  `claude-opus-5-5` share the 5/25 rate); `default` has none; an effort suffix is
+  ignored; an OpenRouter catalog `pricing` row is an exact price. Provider
+  fallbacks (`OPENROUTER_FALLBACK`, Gemini or realtime rates) are *not* used.
+  `basis: rate` on a hit.
+- **Tier table.** Otherwise `TIER_RATE_TABLE[base cost tier]` from the operator
+  config (`costProxy.tierRateTable` in `data/model-role-profiles.json`),
+  `basis: tier_table`, with no effort correction. No tier and no rate gives
+  `basis: empty` and a `null` value.
+- **Tokens.** Median `tokens_in`/`tokens_out` of delegation history per
+  (model, role, level) when n >= 5 (`tokenSource: history`), else the median per
+  role (`role`), else a configured constant (`constant`). Effort is counted once,
+  only in the token volume of the `role`/`constant` sources
+  (`costProxy.effortTokenMultiplier`), identically for `rate` and `tier_table`.
+- **Journal.** The decision log stores `{ unit, level, selected, candidates[] }`
+  with `candidateId`, `value`, `basis`, `tokenSource` and `tier` only. It never
+  changes the selection (shadow).
+- **Quality report** (`buildCostProxyQualityReport`): share of `basis=rate`, share
+  of `tokenSource=history` (target >= 60%), share of `empty`, the leave-one-out
+  error of the tier table over rated models and the error on the held-out
+  OpenRouter-priced set. Both calibration errors need n >= 5 rated models and are
+  otherwise reported as `undetermined`; the target is <= 25%.
+
+### Benchmark audit and shadow signal (plan v10 §2.5, audited 2026-10-14)
+
+Benchmark data reaches only the `model_pick` *shadow* explanation and the
+decision journal. It never changes the selection and does not reorder
+`shadow_top`. Implementation: `lib/benchmark-source-registry.js` (audit flags),
+`lib/benchmark-fetch.js` (explicit fetch), `lib/model-pick-benchmark.js`
+(scoring), `lib/benchmark-api-key.js` (key).
+
+**Source audit** (official pages fetched 2026-10-14; `termsCheckedAt` in the
+registry):
+
+| Source | Status | Outcome |
+|---|---|---|
+| Artificial Analysis | `allowed_api_only` | The site Terms of Use forbid scraping and automated queries. The separate free API (`x-api-key` header, 1,000 requests/day, HTTP 429 beyond) requires attribution wherever data is shown, forbids client-side key use and expects cached responses. Commercial use falls under their Terms/Data Platform Terms and a separate commercial API. Used **only** through the official API with a key; never scraped. |
+| Arena (LMArena) | `prohibited_automated` | Terms prohibit automated scraping/extraction/download and redistribution; no public dataset access is stated. Display-only manual reference, `fetchEnabled=false`, disabled by default. |
+| Aider leaderboard | `unverified` | Repository is Apache-2.0 but the licence of the leaderboard data and a machine-readable path are not confirmed. Registered disabled; no ingestion until verified. |
+| OpenRouter public models API | unchanged | Already used for endpoint pricing (section 10). Its ToS has no clause for the documented API and prohibits scraping the site; usage is unchanged. |
+
+No other source and no scraping is added. Only `allowed_api_only` sources with
+`scrapingAllowed=false` can feed the shadow (`isBenchmarkSourceUsableForShadow`);
+a source must also be enabled by the operator and have an imported, non-fixture
+snapshot.
+
+**Fetching** is explicit and operator-triggered
+(`POST /api/harness-benchmark-sources/fetch`, `If-Match` required, widget/MCP
+callers denied). Before any request it checks: source supports a manual keyed
+fetch and is enabled, an API key is configured (`ARTIFICIAL_ANALYSIS_API_KEY` or
+`artificialAnalysisApiKey` in `data/config.json`, server-side only, never logged,
+never in a client payload or snapshot), a snapshot younger than the cache TTL
+(7 days) does not exist unless `force`, and the persisted per-UTC-day counter is
+below 900 (margin under the provider's 1,000). One request returns at most 500
+bounded entries. The import then goes through the existing terms-verification
+gate. Attribution (`Benchmark data: Artificial Analysis (https://artificialanalysis.ai/)`)
+is carried in the registry row and in the shadow explanation `benchmark.attribution`.
+
+**Score.** Per role: `implement`/`fix` use the coding index, `review`/`plan` the
+intelligence index, scaled to 0..1. The value is shrunk toward the neutral 0.5
+(`0.5 + (raw - 0.5) * 0.6`) and weighted by `benchmarkWeight = 0.1`; the reported
+`contribution` is `weight * (score - 0.5)`. A snapshot older than the source TTL
+is `stale`: weight 0, no contribution. A missing, unmapped or disabled source is
+neutral. Identity is an exact match: the registry `externalModelId` for the
+`(harness, model)` pair first, then the candidate's own model id, compared as
+trimmed lower-case strings; no prefix or family matching.
+
+**Journal.** `benchmark` stores `{ role, level, weight, attribution, selected,
+candidates[] }` with `candidateId`, `status` (`ok|stale|missing|unmapped|no_source`),
+`metric`, `benchmark_score`, `weight`, `contribution`, `source`, `captured_at`,
+`stale` only. Promotion of a benchmark into the real score is a human decision
+after the shadow window.
+
+### Priced statistics (plan v10 §2.5-2.6, display only)
+
+`GET /api/delegations/stats` returns `priced_stats` (per harness / base model /
+role / **level**) and adds `cost_per_pass`, `price_per_1m` and `benchmark` to
+every outcome row. The level comes from the complexity persisted on the pick
+record (`delegation.pickId` -> `complexity.level`); a delegation without one is
+`unknown`. Nothing here feeds the selection.
+
+- `price_per_1m` — `{ unit, is_money, input, output, source, captured_at,
+  basis, estimated, billing_class }`. `unit: "usd"` / `is_money: true` only for
+  an `api_metered` pair with an exact rate (`openrouter_pricing` catalog row, or
+  the repository `token_rates` table dated `TOKEN_RATES_CAPTURED_AT`). Any
+  other pair (subscription, local, unknown billing, or a `tier_table` rate) is
+  `unit: "rcu"`, `is_money: false`: a proxy, never money.
+- `cost_per_pass` — measured USD (`source: usage_ledger`: non-estimated usage
+  events carrying the `delegationId`, divided by passed jobs) for `api_metered`
+  pairs; otherwise the RCU `cost_proxy` per decided job divided by passes
+  (`source: cost_proxy`, `is_money: false`). A pass: implement = every review of
+  its cycle PASS; review = a parsed PASS verdict; plan = completed with report.
+- `billingClassOf` is set in production (`lib/model-pick-billing-class.js`:
+  harness + provider -> `resolveTelemetryBillingClass`), so the shadow observer
+  and this view agree on which pairs may carry USD.
+- Benchmark scores shown next to a price are credited to Artificial Analysis
+  (https://artificialanalysis.ai/), as the free API terms require. Only data
+  already in the repository is read (usage rates, OpenRouter pricing cache,
+  local delegation/usage records, imported benchmark snapshots): no new fetch.
+
 ### Deferred (no code in this stage)
 
-Artificial Analysis / benchmark priors, task-type stratification, effort,
-a separate UI for the shadow report and any auto-learning are explicitly out of
-scope.
-
+Task-type stratification, a separate UI for the shadow report and any
+auto-learning are explicitly out of scope. Effort and a relative cost index are
+covered by the `cost_proxy` section above; metered USD per model remains an
+`api_metered`-only fact.

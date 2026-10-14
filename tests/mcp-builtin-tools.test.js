@@ -313,6 +313,9 @@ assert.ok(startResult, 'delegation_start should acknowledge before adapter accep
 const started = startResult;
 assert.equal(started.isError, false);
 assert.equal(started.structuredContent.status, 'starting');
+assert.equal(started.structuredContent.requested_model, 'opencode/test');
+assert.equal(started.structuredContent.resolved_model, 'opencode/test');
+assert.equal(started.structuredContent.model_downgraded, false);
 const delegationId = started.structuredContent.id;
 assert.ok(started.structuredContent.child_chat_id);
 const listedA = await handlersA.delegation_list({});

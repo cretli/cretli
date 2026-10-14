@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   MODEL_CATALOG_META_POLICY_VERSION,
   enrichCatalogEntryMeta,
+  adjustCostTierFromParams,
   estimateModelCostTier,
   estimateModelQualityTier,
   estimateModelSpeedTier,
@@ -85,6 +86,20 @@ assert.equal(estimateModelCostTier('gpt-6-astra::effort=high'), 5);
 assert.equal(estimateModelCostTier('gpt-6-sol::effort=high'), 4);
 assert.equal(estimateModelCostTier('composer-2.5::effort=max', [{ id: 'effort', value: 'max' }]), 3);
 assert.equal(estimateModelCostTier('composer-2.5::effort=max'), 2);
+// Effort is normalized across keys: opus max reaches tier 5, grok high/xhigh is +1.
+assert.ok(estimateModelCostTier('claude-opus-5-5::effort=max', [{ id: 'effort', value: 'max' }]) >= 5);
+for (const level of ['high', 'xhigh']) {
+  const params = [{ id: 'reasoning_effort', value: level }];
+  assert.equal(
+    estimateModelCostTier('grok-4.7', params),
+    estimateModelCostTier('grok-4.7') + 1,
+    `grok reasoning_effort=${level}`,
+  );
+}
+assert.equal(
+  adjustCostTierFromParams(2, [{ id: 'reasoning_effort', value: 'extra-high' }]),
+  adjustCostTierFromParams(2, [{ id: 'effort', value: 'xhigh' }]),
+);
 
 // A class alias (flash) resolves with a boundary too: `flashx` is a verified
 // alias of the same family, `flashlight` is not a model family at all.

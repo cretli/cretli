@@ -21,6 +21,7 @@ import { attachHarnessHealthRow } from './features/harness-health/harnessHealthC
 import { initHarnessDiagnostics, refreshHarnessDiagnosticsPanel } from './features/harness-health/harnessDiagnostics.js';
 import { initHarnessModelRoleConfig, refreshHarnessModelRoleConfigPanel } from './features/harness-health/harnessModelRoleConfig.js';
 import { initHarnessBenchmarkSources, refreshHarnessBenchmarkSourcesPanel } from './features/harness-health/harnessBenchmarkSources.js';
+import { initHarnessModelStats, refreshHarnessModelStatsPanel } from './features/harness-health/harnessModelStats.js';
 import { initHarnessVersionCards } from './features/settings/harnessVersionCard.js';
 
 /** @typedef {'sdk' | 'openrouter' | 'opencode' | 'codebuddy' | 'deepseek' | 'mistral' | 'zai' | 'mimo' | 'codex' | 'qwen' | 'claude'} NewChatHarness */
@@ -402,6 +403,7 @@ export function initHarnessSettings() {
   initHarnessDiagnostics();
   initHarnessModelRoleConfig();
   initHarnessBenchmarkSources();
+  initHarnessModelStats();
   const selectEl = document.getElementById('default-new-chat-harness-select');
   const saveBtn = document.getElementById('default-new-chat-harness-save-btn');
   const statusEl = document.getElementById('default-new-chat-harness-save-status');
@@ -468,4 +470,5 @@ export function refreshHarnessSettingsPanel() {
   refreshHarnessDiagnosticsPanel();
   refreshHarnessModelRoleConfigPanel();
   refreshHarnessBenchmarkSourcesPanel();
+  refreshHarnessModelStatsPanel();
 }

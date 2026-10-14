@@ -57,6 +57,8 @@ assert.ok(allSdk.items.length > favSdk.items.length);
 assert.ok(favSdk.items.every((row) => row.enabled !== false));
 assert.ok(favSdk.items.some((row) => row.id === 'grok-4.6::effort=high,fast=false'));
 assert.equal(favSdk.favorites_configured, true);
+assert.ok(favSdk.items.every((row) => row.favorite === true), 'favorites are marked');
+assert.ok(allSdk.items.some((row) => row.favorite === false), 'non-favorites are marked false');
 assert.equal(typeof favSdk.items[0].cost_tier, 'number');
 assert.equal(typeof favSdk.items[0].quality_tier, 'number');
 assert.equal(typeof favSdk.items[0].speed_tier, 'number');

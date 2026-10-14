@@ -2928,6 +2928,10 @@ body.files-preview-resizing {
   touch-action: none;
 }
 
+.todo-row:not(.todo-row--moving) .todo-row-grip {
+  display: none;
+}
+
 /* Parent indentation equals the toggle width plus the row gap: margin-left is
  * `var(--todo-level) * (1.5rem + 0.15rem)`. A leaf still shows an empty toggle
  * unless `[hidden]` wins over the `display:inline-flex` group rule above; the
@@ -14635,6 +14639,55 @@ body.theme-light .sidebar-chat-item-harness--codex img {
     color: var(--cr-text);
     word-break: break-word;
   }
+}
+
+/* Settings → Harness: model prices and statistics table. Tokens only. */
+.harness-model-stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+  font-size: 0.85rem;
+}
+
+.harness-model-stats-scroll {
+  overflow-x: auto;
+}
+
+.harness-model-stats-table {
+  width: 100%;
+  border-collapse: collapse;
+
+  th,
+  td {
+    padding: var(--cr-space-1) var(--cr-space-2);
+    border-bottom: 1px solid var(--cr-border-strong);
+    text-align: left;
+    vertical-align: top;
+    white-space: nowrap;
+  }
+
+  th {
+    color: var(--cr-text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+}
+
+.harness-model-stats-price {
+  display: block;
+  color: var(--cr-text);
+}
+
+.harness-model-stats-meta {
+  display: block;
+  color: var(--cr-text-muted);
+  font-size: 0.7rem;
+}
+
+.harness-model-stats-attribution {
+  margin: 0;
+  color: var(--cr-text-muted);
+  font-size: 0.75rem;
 }
 
 .harness-benchmark-store-invalid {
