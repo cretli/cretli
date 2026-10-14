@@ -56,6 +56,9 @@ SHA-256 before parsing. Extended Git headers are authoritative; C-style quoting
 is decoded as UTF-8 bytes. `git apply --numstat -z` cross-checks entry counts and
 size-field format, never supplies the path scope.
 
+Retention: the sidecar has the same lifetime as the patch it describes. No
+dedicated cleanup exists; it is removed together with the patch directory.
+
 Missing/unreadable/mismatched patch, failed parsing, or failed sidecar write
 selects a documented best-effort fallback: read `git diff --name-status -z -M
 <base>` and `git ls-files --others --exclude-standard` in the worktree. Stop and

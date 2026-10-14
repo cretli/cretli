@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Verify integration hints.** Equal-role chats now prefer the newest
+  `linkedChatIds` entries, and the patch-path hint says the file may be gone.
+  Patch-scope tests cover newline names and `a/`/`b/` directories.
 - **Cheaper Verify integration prompts.** The search guidance is one compact
   sentence, and the builder supplies up to five unverified linked chat hints
   plus available checkpoint and patch paths under a 600-byte UTF-8 cap. Verify

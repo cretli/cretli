@@ -70,3 +70,18 @@ test('quoted rename/copy headers, binary marker and empty mode-only entries reta
     { path: 'mode', status: 'M', mode: '100755', binary: false },
   ]);
 });
+
+test('scope handles a newline in a name and directories named a/ and b/', (t) => {
+  const { dir, baseCommit } = createScopeFixture();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  for (const sub of ['a', 'b']) fs.mkdirSync(path.join(dir, sub), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'a', 'one.txt'), 'one\n');
+  fs.writeFileSync(path.join(dir, 'b', 'two.txt'), 'two\n');
+  fs.writeFileSync(path.join(dir, 'new\nline.txt'), 'nl\n');
+  const diff = collectWorktreeExecutionDiff({ worktreePath: dir, baseCommit });
+  const files = parsePatchScope(diff.patch);
+  const paths = pathsOf(files);
+  for (const expected of ['a/one.txt', 'b/two.txt', 'new\nline.txt']) assert.ok(paths.includes(expected), expected);
+  const untracked = git(dir, ['ls-files', '--others', '--exclude-standard', '-z']).split('\0').filter(Boolean);
+  for (const name of untracked) assert.ok(paths.includes(name), name);
+});

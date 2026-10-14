@@ -374,6 +374,20 @@ test('verify integration adds bounded server hints and shares guard core', (t) =
   fs.writeFileSync(storedPath, JSON.stringify(manyChatDoc));
   const manyChatPrompt = buildVerifyIntegrationRequest({ todoId: manyChatTodo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir }).prompt;
   assert.equal((manyChatPrompt.match(/- Chat /g) || []).length, 5);
+  // Newest linkedChatIds entries win ties; none of the 7 is filtered as deleted (empty chat index).
+  const manyChatHint = manyChatPrompt.split('Hints from the server')[1];
+  assert.ok(manyChatHint.includes('10000000-0000-4000-8000-000000000006'));
+  assert.ok(!manyChatHint.includes('10000000-0000-4000-8000-000000000000'));
+  const unicodeTodo = addTodo(suite.dataDir, suite.repo, { title: 'unicode patch', status: 'done' }).item;
+  const unicodeDoc = JSON.parse(fs.readFileSync(storedPath, 'utf8'));
+  const unicodeRow = unicodeDoc.items.find((item) => item.id === unicodeTodo.id);
+  unicodeRow.chatId = linkedChatIds[0];
+  unicodeRow.integration = { resultPath: `/tmp/${'zażółć-'.repeat(60)}.patch` };
+  fs.writeFileSync(storedPath, JSON.stringify(unicodeDoc));
+  const unicodeHint = buildVerifyIntegrationRequest({ todoId: unicodeTodo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir }).prompt.split('Hints from the server')[1];
+  assert.ok(Buffer.byteLength(`Hints from the server${unicodeHint}`, 'utf8') <= 600 + 1);
+  assert.ok(!unicodeHint.includes('zażółć-zażółć-zażółć-zażółć-zażółć-zażółć-zażółć-zażółć'));
+  assert.ok(unicodeHint.includes(linkedChatIds[0]));
   const unknown = addTodo(suite.dataDir, suite.repo, { title: 'no hints', status: 'done' }).item;
   const unknownPrompt = buildVerifyIntegrationRequest({ todoId: unknown.id, workspaceFolder: suite.repo, dataDir: suite.dataDir }).prompt;
   assert.ok(!unknownPrompt.includes('Hints from the server'));
