@@ -248,3 +248,43 @@ try {
 } finally {
   server.close();
 }
+
+// Per-call budget: the first request and the 401 retry of a builtin
+// delegation_verify call use the larger timeout; other tools keep 30 s.
+{
+  const { BRIDGE_VERIFY_TIMEOUT_MS } = await import('../lib/remote-api-client.js');
+  const seen = [];
+  const original = http.ClientRequest.prototype.setTimeout;
+  http.ClientRequest.prototype.setTimeout = function patched(ms, ...rest) {
+    seen.push({ path: this.path, ms });
+    return original.call(this, ms, ...rest);
+  };
+  let calls = 0;
+  const bridge = http.createServer((req, res) => {
+    const reply = (status, body, headers = {}) => {
+      res.writeHead(status, { 'Content-Type': 'application/json', ...headers });
+      res.end(JSON.stringify(body));
+    };
+    req.resume();
+    if (req.url === '/api/login') return reply(200, { ok: true, csrfToken: 'c' }, { 'Set-Cookie': 'cr_session=t; Path=/' });
+    calls += 1;
+    if (calls === 1) return reply(401, { ok: false, error: 'Unauthorized' });
+    return reply(200, { ok: true });
+  });
+  await new Promise((resolve) => bridge.listen(0, '127.0.0.1', resolve));
+  const client = new CretliApiClient({ baseUrl: `http://127.0.0.1:${bridge.address().port}`, password: 'good' });
+  try {
+    await client.callMcpBridgeTool('mcp__cretli_builtincretl__delegation_verify', {});
+    const bridgeCalls = seen.filter((s) => s.path === '/api/mcp/bridge/call');
+    assert.ok(bridgeCalls.length >= 2, 'first request and 401 retry both observed');
+    assert.ok(bridgeCalls.every((s) => s.ms === BRIDGE_VERIFY_TIMEOUT_MS));
+    assert.ok(seen.filter((s) => s.path === '/api/login').every((s) => s.ms === 30000));
+    seen.length = 0;
+    calls = 1;
+    await client.callMcpBridgeTool('mcp__cretli_builtincretl__delegation_show', {});
+    assert.ok(seen.filter((s) => s.path === '/api/mcp/bridge/call').every((s) => s.ms === 30000));
+  } finally {
+    http.ClientRequest.prototype.setTimeout = original;
+    await new Promise((resolve) => bridge.close(resolve));
+  }
+}

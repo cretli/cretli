@@ -91,13 +91,21 @@ still not a network boundary.
   the resolver deny is stricter than a hostname-only map would suggest; this is still not a
   hard IP-level guarantee. A configured upstream proxy is a separate channel:
   `context.route()` cannot inspect traffic inside CONNECT/HTTPS tunnels. The main
-  route-invisible hole is a resolver-pinned allowlisted hostname whose page opens a
+  route-invisible hole outside Cretli's separately guarded self hosts is a
+  resolver-pinned allowlisted hostname whose page opens a
   WebSocket to a **different**, non-allowlisted port — the handshake never reaches
   `route`, while the equivalent HTTP fetch is blocked. WebRTC uses
   `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` (no direct UDP candidates
   without a proxy; Cretli does not configure TURN/STUN), but a page can still use its own
   TURN relay over TCP. WebSocket panel navigations and the always-blocked address list
   cover other cases; do not treat the Browser as a network boundary.
+- **Self-origin debug WebSockets.** `allowSelfOrigin` adds validated resolver pins
+  or literal-address exceptions for Cretli's own hosts. Every WebSocket on those
+  hosts is intercepted and checked against the current origin/port policy before
+  connecting, so the resolver exception does not permit arbitrary WebSocket ports.
+  This exception is host-wide at the Chromium resolver layer; WebRTC/TURN residuals
+  still apply. A driver without WebSocket routing cannot open a self-origin debug
+  session.
 - **Resource limits.** Screenshots are capped per tab (2 fps; the client `force` flag does
   not bypass the cap), input events are rate limited and serialized per tab, and the WS
   queue is bounded.

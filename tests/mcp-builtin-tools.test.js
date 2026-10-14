@@ -650,6 +650,10 @@ const reportPage1 = await handlersA.delegation_show({
 assert.equal(reportPage1.isError, false);
 assert.equal(reportPage1.structuredContent.truncated, true);
 assert.ok(reportPage1.structuredContent.next_cursor);
+// verify visibility: nothing recorded and nothing in flight for this folder.
+assert.equal(reportPage1.structuredContent.verify_recorded, false);
+assert.equal(reportPage1.structuredContent.verify_running, false);
+assert.match(reportPage1.content[0].text, /verify_recorded=false verify_running=false/);
 // The parent read a terminal report, so it counts as delivered: the queued
 // mailbox final_report must not wake it with the same body later.
 assert.ok(String(getDelegationById(reportRow.id)?.reportDeliveredAt || '').trim());

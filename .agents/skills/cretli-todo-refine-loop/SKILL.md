@@ -69,7 +69,10 @@ read that skill in full; read only the two sections this loop needs:
 4. **Wait, read, verify, ack** — `delegation_wait` until both are terminal and
    `slot_occupied` is false, page `delegation_show` for the full report, call
    `delegation_verify` on a PASS attempt with `verify_required`, then
-   `delegation_ack` each report.
+   `delegation_ack` each report. Run `delegation_verify` for one delegation at
+   a time; on a timeout follow the recovery order in
+   `references/round-protocol.md`. Pass `cursor` only with a value copied
+   verbatim from the previous response's `next_cursor`; never invent one.
 5. **Judge the findings** — aggregate conservatively (BLOCKED, then FAIL, then
    conflict; PASS only when every reviewer PASSes the same version). Open the
    file or contract section a blocker cites before acting on it.
@@ -96,8 +99,10 @@ End the loop and report when one of these holds:
   the saved current plan. If the badge disagrees, report the mismatch; never
   write `review` or hide it with another plan edit. Once confirmed, promote
   the root from `idea` to `ready` with `todo_update` and a fresh
-  `expected_updated_at`, unless the user explicitly prohibited status changes.
-  Preserve other statuses and leave child statuses unchanged. `ready` means
+  `expected_updated_at` only when the start message contains no limit such as
+  "do not change the todo status"; when it does, leave the status and state in
+  the final report that it was left because of that limit. Preserve other
+  statuses and leave child statuses unchanged. `ready` means
   ready for human approval; it does not set `plan.approvedAt` or start work.
 - **Round cap:** 5 rounds without a clean round, counted only over rounds this
   invocation ran. Plan versions, changelog entries and earlier chats are history,
@@ -128,4 +133,5 @@ Write it for a reader who saw none of the rounds:
 - Questions settled by consulting models: the question, the answer, who gave it.
 - Open decisions for the human, each with a recommendation.
 - Non-blocking notes left unaddressed.
+- The root status: promoted to `ready`, or left as is because of the start message's status limit.
 - That nothing was approved, started, committed or pushed.

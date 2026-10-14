@@ -273,9 +273,14 @@ Restates the invariant in [../SECURITY.md](../SECURITY.md) ("Browser module SSRF
   not claim complete DNS/SSRF isolation.
 - Chromium resolves hostnames in its own network stack, separately from Node's policy
   check; `--host-resolver-rules` is defense in depth, not a hard IP-level guarantee.
+- With `allowSelfOrigin`, validated Cretli hostnames get resolver pins and literal
+  addresses get narrow resolver exceptions so its chat WebSockets can connect.
+  WebSockets on every self host are intercepted separately and checked against
+  the current URL policy, including the scheme, port and debug opt-in. Cookies
+  stay in Chromium's connection. Other hosts retain their existing DNS rules.
 - A configured upstream proxy is a separate channel: `context.route()` cannot inspect
   traffic inside CONNECT/HTTPS tunnels, and the shipped egress proxy does no HTTPS MITM.
-- The main route-invisible hole is a resolver-pinned allowlisted hostname whose page
+- Outside the separately guarded self hosts, the main route-invisible hole is a resolver-pinned allowlisted hostname whose page
   opens a WebSocket to a different, non-allowlisted port. WebRTC TCP/TURN relays remain
   possible.
 - `CRETLI_BROWSER_NETWORK_BOUNDARY=required` narrows egress through a proxy you operate;

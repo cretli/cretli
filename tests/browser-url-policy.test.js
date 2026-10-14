@@ -190,6 +190,26 @@ test('buildHostResolverRules keeps localhost resolvable for an allowLocalhost po
   assert.equal(rules[rules.length - 1], 'MAP * ~NOTFOUND');
 });
 
+test('self-origin debug opt-in permits local addresses and only exempts validated self hosts', async () => {
+  const blockedOrigins = ['http://127.0.0.1:3011', 'http://localhost:3011', 'http://169.254.169.254'];
+  const lookup = async () => [{ address: '127.0.0.1' }];
+  const disabled = await buildHostResolverRules({ policy: {}, blockedOrigins, lookup });
+  assert.deepEqual(disabled.rules, ['MAP * ~NOTFOUND']);
+  const enabled = await buildHostResolverRules({ policy: { allowSelfOrigin: true }, blockedOrigins, lookup });
+  assert.ok(enabled.rules.includes('EXCLUDE 127.0.0.1'));
+  assert.ok(enabled.rules.includes('MAP localhost 127.0.0.1'));
+  assert.ok(!enabled.rules.some((rule) => rule.includes('169.254.169.254')));
+  assert.equal(enabled.rules.at(-1), 'MAP * ~NOTFOUND');
+  const allowed = await evaluateUrlPolicy({
+    url: blockedOrigins[0], policy: { allowSelfOrigin: true }, blockedOrigins, lookup,
+  });
+  assert.equal(allowed.allowed, true);
+  const otherPort = await evaluateUrlPolicy({
+    url: 'http://127.0.0.1:3012', policy: { allowSelfOrigin: true }, blockedOrigins, lookup,
+  });
+  assert.equal(otherPort.allowed, false);
+});
+
 test('rejects URLs with userinfo instead of silently stripping credentials', async () => {
   const result = await evaluateUrlPolicy({
     url: 'https://user:secret@example.com/private',

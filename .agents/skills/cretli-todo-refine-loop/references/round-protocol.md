@@ -178,3 +178,24 @@ the loop. Settle it in this order:
 Batch the questions of one round into a single consult. Consults do not count
 towards the round cap, but run at most two per loop; more than that means the
 plan's scope is unclear and the human should see it.
+
+## Verify timeout recovery
+
+Run `delegation_verify` for one delegation at a time. Before the call, note
+whether `delegation_show` has a `verify_result` and its `dataDir`. A concurrent
+call for the same folder and ids joins the run already in flight, and a dropped
+client connection does not cancel it. When the call times out:
+
+1. A fresh result (absent before the call, or its `dataDir` differs from the
+   noted one) -> use it and stop.
+2. Else while `verify_running` is true -> wait (at most 4 x 20 s), then
+   re-read `delegation_show`.
+3. Else call `delegation_verify` again once.
+
+If waiting ends with `verify_running` still true and no fresh result, report
+"no confirmation yet". Never treat a result that existed before the call as
+the outcome of this call. A deterministic failure is retried once, as the
+skill says.
+
+Pass `cursor` only with a value copied verbatim from the previous response's
+`next_cursor`; never invent one.

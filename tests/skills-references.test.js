@@ -170,3 +170,24 @@ test('modularised skills keep the invariants in SKILL.md', () => {
     row('completed', 'c', { session: 's2' }), row('completed', 'd', { session: 's2', verdict: 'FAIL' }),
   ], 'T'), ['c']);
 }
+
+test('refine skill: conditional promotion, verify recovery and cursor rules', async () => {
+  const skill = fs.readFileSync(path.join(skillsDir, 'cretli-todo-refine-loop', 'SKILL.md'), 'utf8');
+  const protocol = fs.readFileSync(
+    path.join(skillsDir, 'cretli-todo-refine-loop', 'references', 'round-protocol.md'),
+    'utf8',
+  );
+  const flat = skill.replace(/\s+/g, ' ');
+  assert.match(flat, /only when the start message contains no limit such as "do not change the todo status"/);
+  assert.match(flat, /leave the status and state in the final report/);
+  const { buildTodoRefineInitialPrompt } = await import('../lib/todo-agent.js');
+  const prompt = buildTodoRefineInitialPrompt({ id: 't1', title: 'T', status: 'idea' }, 'c1');
+  assert.ok(prompt.includes('do not change the todo status'));
+  const flatProtocol = protocol.replace(/\s+/g, ' ');
+  const fresh = flatProtocol.indexOf('A fresh result');
+  const wait = flatProtocol.indexOf('while `verify_running`');
+  const again = flatProtocol.indexOf('call `delegation_verify` again once');
+  assert.ok(fresh >= 0 && fresh < wait && wait < again);
+  assert.ok(flatProtocol.includes('no confirmation yet'));
+  assert.match(flat, /copied verbatim from the previous response's `next_cursor`; never invent one/);
+});

@@ -308,6 +308,8 @@ function createFakeDriver() {
       for (const handler of this._handlers.get(event) || []) handler(...args);
     }
     async route(_pattern, handler) { this.routes.push(handler); }
+    async routeWebSocket(pattern, handler) { this.webSocketRoute = { pattern, handler }; }
+    async addInitScript() {}
     async newCDPSession(_page) {
       return {
         send: async (method) => {
@@ -395,6 +397,31 @@ test('createSession rejects an empty workspace scope', async () => {
     () => manager.createSession({ ownerSessionId: OWNER }),
     (err) => err instanceof BrowserError && err.code === 'no-workspace' && err.status === 400,
   );
+});
+
+test('self-origin resolver exceptions fail closed and clean up without WebSocket routing', async () => {
+  const { manager, state } = createManager({
+    selfOrigins: ['http://127.0.0.1:3011'],
+    resolvePolicy: () => ({ allowSelfOrigin: true }),
+  });
+  const launch = manager.driver.launch;
+  manager.driver.launch = async (options) => {
+    const browser = await launch(options);
+    const newContext = browser.newContext.bind(browser);
+    browser.newContext = async (contextOptions) => {
+      const context = await newContext(contextOptions);
+      context.routeWebSocket = undefined;
+      return context;
+    };
+    return browser;
+  };
+  await assert.rejects(
+    manager.createSession({ ownerSessionId: OWNER, ...SCOPE }),
+    (error) => error.code === 'browser-unavailable' && /WebSocket routing/.test(error.message),
+  );
+  assert.equal(manager.sessions.size, 0);
+  assert.equal(state.contexts[0].closed, true);
+  assert.equal(state.browsers[0].closed, true);
 });
 
 test('blocks Service Workers and pins DNS via launch args', async () => {
@@ -2100,4 +2127,3 @@ test('browser_input locator fields win in selector, role, text, label, placehold
   assert.equal(tab.page.locatorQueries.at(-1), 'text=Save');
   assert.equal(tab.page.locatorQueries.length, before + 1);
 });
-

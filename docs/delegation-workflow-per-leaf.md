@@ -264,3 +264,27 @@ start response is the live adapter evaluation) and `leaf_id`, plus compact text
 tokens (`session=`, `phase=`, `uncertified=`, `leaf=`, `err=`, `report=`,
 `queued=`). The `cretli-todo-refine-loop` skill uses them to rotate reviewers
 mechanically (references/round-protocol.md §1).
+
+## Verify runs: de-duplication and visibility
+
+`runReviewVerify` keeps an in-flight map keyed by the resolved execution folder
+and the sorted resolved ids. Concurrent calls with the same key (from
+`delegation_verify` or the harness runner) await one execution and share its
+result and `dataDir`; completed results are not cached, and a dropped client
+connection does not cancel the run. `delegation_show` reports `verify_running`
+(a run is in flight in the delegation's execution folder) and `verify_recorded`
+(the current attempt has a `verify_result`). The bridge client gives
+`delegation_verify` a 60 s per-call budget (`BRIDGE_VERIFY_TIMEOUT_MS`); every
+other API call keeps 30 s.
+
+UI-started plan refinement includes the limit "do not change the todo status".
+The refine skill therefore leaves an `idea` todo in `idea` and explains that
+limit in its final report. A human-started chat without that limit may promote
+`idea` to `ready` after the required plan reviews and verification pass.
+
+Verify one delegation at a time. Before a call, note the existing result and
+its `dataDir`. On a timeout, first use a fresh result, otherwise wait while
+`verify_running` (at most four 20-second waits), otherwise retry the call once.
+If the run is still active without fresh evidence after those waits, report
+"no confirmation yet". An older result is not evidence for the timed-out call.
+Pass pagination `cursor` values only by copying the previous `next_cursor`.

@@ -8,6 +8,23 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Verify de-duplication and timeout budget.** Concurrent `runReviewVerify`
+  calls for the same folder and ids share one run, `delegation_show` reports
+  `verify_running` / `verify_recorded`, and the bridge gives `delegation_verify`
+  a 60 s call budget. The refine skill promotes `idea` -> `ready` only without a
+  status limit, documents the timeout recovery order and the `cursor` rule.
+- **Compact TODO execution starts.** Direct executors and subtree/full
+  orchestrators load the live paginated TODO instead of copying its body,
+  plan and chat history into the first message. Direct starts use a dedicated
+  executor protocol; orchestrators load the existing shared execution workflow.
+  Already approved plans resume without another approval request; `doing`
+  alone does not grant approval. TODO updates use MCP instead of a curl callback.
+  Existing-chat continuations and parent `todo_show` responses now point to the
+  server-resolved execution protocol instead of repeating its full workflow.
+  Manual plan/code reviews load live paginated requirements and plans instead
+  of copying saved material into their assignments. Older continuation messages
+  retain their compact display.
+
 - **Settings → Execution.** The default execution folder and the worktree
   layout moved out of the Workspace Watcher policy into a per-workspace store
   (`data/execution-settings.json`, `GET/PATCH /api/execution-settings`) read by
@@ -113,6 +130,14 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- **Browser self-origin WebSockets.** The `allowSelfOrigin` debug opt-in now
+  permits Cretli chat connections through the default-deny Chromium resolver.
+  WebSockets on Cretli hosts are checked against the current origin/port policy;
+  other ports and revoked opt-ins stay blocked. Older system Chromium versions
+  receive the `URL.parse` compatibility helper required by Playwright routing.
+- **Workflow material revision.** A `workflow_update` without a resolvable
+  material revision no longer clears the stored one, so `same_findings` is not
+  tripped after a revision bump.
 - TODO action errors now show their full message in a scrollable dialog instead
   of squeezing it into the status bar. Worktree preparation errors include the
   message, failed command and captured output in the same dialog.
