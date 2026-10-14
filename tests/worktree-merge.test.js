@@ -9,12 +9,14 @@ import './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { addTodo, getTodoById } from '../lib/persist/todos-persist.js';
-import { getWorktreeRecord } from '../lib/persist/worktree-registry-persist.js';
+import { getWorktreeRecord, mutateWorktreeRegistry } from '../lib/persist/worktree-registry-persist.js';
 import { ensureWorktree } from '../lib/worktree-manager.js';
 import {
   buildSmartMergeRequest,
+  buildVerifyIntegrationRequest,
   reportSmartMergeOutcome,
 } from '../lib/workspace-watcher-integration.js';
 import {
@@ -142,7 +144,8 @@ test('workspace smart merge asks the agent to commit listed paths and record pro
     baseUrl: 'https://127.0.0.1:3011', insecureTls: true,
   });
   assert.equal(started.ok, true, JSON.stringify(started));
-  assert.match(started.prompt, /Commit only the paths listed/);
+  for (const guard of ['Workspace (merge target', 'Worktree path:', 'Worktree branch:', 'Base commit', 'Prepared patch', 'Authorization scope file:', 'Commit only paths from this file that you changed', 'for a rename both paths are in scope', 'Do not stage any other path', 'Do not push, reset, stash, or delete the worktree or its branch', 'Never discard, revert or overwrite', 'combine both sides', 'not by picking one wholesale', 'unrelated local edits', 'name it in the summary', 'Do not confirm when the commit fails', 'task change is not in HEAD', 'report must happen', 'current branch contains HEAD', 'todo_show for expected_updated_at', 'proof.simple true', 'curl -sS -X POST', suite.todo.id, suite.repo]) assert.ok(started.prompt.includes(guard), guard);
+  assert.ok(started.prompt.indexOf('2. Report') < started.prompt.indexOf('3. On outcome'));
   assert.match(started.prompt, /todo_integration action confirm/);
   assert.match(started.prompt, /Do not push/);
   assert.doesNotMatch(started.prompt, /Do NOT commit/);
@@ -168,7 +171,7 @@ test('git-branch merge request: refused untouched when blocked, started with a m
     instructions: 'prefer small commits', baseUrl: 'https://127.0.0.1:3011', insecureTls: true,
   });
   assert.equal(started.ok, true, JSON.stringify(started));
-  assert.match(started.prompt, /git merge --no-ff/);
+  for (const guard of ['git diff --stat <base>', 'git status', 'Commit every intended change', 'Nothing may stay uncommitted', 'git merge --no-ff', 'never by picking one side wholesale', 'Complete the merge commit', 'Run the relevant tests/checks', 'covers ONLY this merge', 'Do NOT push, reset --hard, force anything, stash', 'delete the worktree or delete the branch', 'Do not switch the main tree to another branch', 'REPORT THE OUTCOME', 'smart-merge-report-from-agent']) assert.ok(started.prompt.includes(guard), guard);
   assert.match(started.prompt, /prefer small commits/);
   assert.match(started.prompt, /smart-merge-report-from-agent/);
   const todo = getTodoById(suite.dataDir, suite.repo, suite.todo.id);
@@ -271,4 +274,60 @@ test('the diff is read from the record path and refuses a foreign workspace', (t
   const other = createTempRepo().dir;
   t.after(() => fs.rmSync(other, { recursive: true, force: true }));
   assert.equal(readWorktreeDiff({ dataDir: suite.dataDir, workspaceFolder: other, todoId: suite.todo.id }).reason, 'not_found');
+});
+
+for (const cause of ['missing', 'unreadable', 'hash mismatch']) test(`smart merge fallback: ${cause}`, (t) => {
+  const suite = makeSuite(`fallback-${cause.replaceAll(' ', '-')}`);
+  t.after(suite.cleanup);
+  const input = { todoId: suite.todo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir };
+  assert.equal(buildSmartMergeRequest(input).ok, true);
+  const todo = getTodoById(suite.dataDir, suite.repo, suite.todo.id);
+  const result = getWorktreeRecord(suite.todo.id, { dataDir: suite.dataDir }).results[todo.integration.cycleId];
+  fs.unlinkSync(result.patchPath);
+  if (cause === 'unreadable') fs.mkdirSync(result.patchPath);
+  if (cause === 'hash mismatch') fs.writeFileSync(result.patchPath, 'different patch');
+  const conflicts = Array.from({ length: 60 }, (_, index) => `conflict-${index}`);
+  const prompt = buildSmartMergeRequest({ ...input, conflicts }).prompt;
+  const sidecar = JSON.parse(fs.readFileSync(`${result.patchPath}.files.json`));
+  assert.equal(sidecar.scopeUnavailable, true);
+  assert.deepEqual(sidecar.conflicts, conflicts);
+  assert.ok(prompt.includes('this file does not authorize paths'));
+  for (const text of ['Patch missing, unreadable or hash mismatch', 'git diff --name-status -z -M <base>', 'git ls-files --others --exclude-standard', 'best effort', 'worktree is gone, stop and report failure', 'commit only paths from the derived scope']) assert.ok(prompt.includes(text), text);
+  assert.ok(!prompt.includes('Authorization scope file:'));
+});
+
+test('smart merge size is independent of file count; conflicts spill after fifty', (t) => {
+  const suite = makeSuite('sixty-files');
+  t.after(suite.cleanup);
+  const input = { todoId: suite.todo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir };
+  const first = buildSmartMergeRequest(input).prompt;
+  const todo = getTodoById(suite.dataDir, suite.repo, suite.todo.id);
+  const result = getWorktreeRecord(suite.todo.id, { dataDir: suite.dataDir }).results[todo.integration.cycleId];
+  // Keep paths/ids fixed to isolate the file-count effect from parameter lengths.
+  const patch = Array.from({ length: 60 }, (_, index) => `diff --git a/file-${index}.txt b/file-${index}.txt\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/file-${index}.txt\n@@ -0,0 +1 @@\n+x\n`).join('');
+  fs.writeFileSync(result.patchPath, patch);
+  const patchSha256 = createHash('sha256').update(patch).digest('hex');
+  mutateWorktreeRegistry((doc) => {
+    const stored = doc.items[suite.todo.id].results[todo.integration.cycleId];
+    stored.patchSha256 = patchSha256;
+    stored.changedFiles = Array.from({ length: 60 }, (_, index) => ({ path: `file-${index}.txt`, status: 'A' }));
+    return { changed: true };
+  }, { dataDir: suite.dataDir });
+  const next = buildSmartMergeRequest(input).prompt;
+  assert.equal(next, first);
+  const conflicts = Array.from({ length: 60 }, (_, index) => `conflict-${String(index).padStart(2, '0')}`);
+  const conflictPrompt = buildSmartMergeRequest({ ...input, conflicts }).prompt;
+  assert.ok(conflictPrompt.includes('conflict-49'));
+  assert.ok(!conflictPrompt.includes('conflict-50'));
+  assert.deepEqual(JSON.parse(fs.readFileSync(`${result.patchPath}.files.json`)).conflicts, conflicts);
+  assert.equal(JSON.parse(fs.readFileSync(`${result.patchPath}.files.json`)).files.length, 60);
+});
+
+
+test('verify integration retains search, repair, commit and proof guards', (t) => {
+  const suite = makeSuite('verify-prompt');
+  t.after(suite.cleanup);
+  const todo = addTodo(suite.dataDir, suite.repo, { title: 'finished task', status: 'done' }).item;
+  const prompt = buildVerifyIntegrationRequest({ todoId: todo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir }).prompt;
+  for (const guard of ['todo_show this todo (and its children)', 'Do NOT conclude "missing"', 'chat_history / chat_event', 'git log -S/-G', 'git status/diff', 'git branch --contains <commit>', 'Run the relevant checks', 'fresh expected_updated_at', 'proof.simple true', 'action no_code', 'commit ONLY the task paths', 'never stage unrelated files', 'test or fixture is stale', 'regression test', 'do not confirm', 'Never push, reset, stash or discard local changes', 'leave them untouched and uncommitted', 'user attestation', 'change is not in HEAD']) assert.ok(prompt.includes(guard), guard);
 });

@@ -378,7 +378,8 @@ await noteDelegationRoomEvent({
 assert.equal(repliesForDelegation(autoJob.delegation.id).length, 1);
 assert.equal(findMailboxReplyForDelegation(autoJob.delegation.id)?.status, 'delivered');
 assert.equal(getMockChatRun(autoParent.id)?.displayText, 'Child reply');
-assert.match(getMockChatRun(autoParent.id)?.prompt || '', /Toolbar done/);
+assert.match(getMockChatRun(autoParent.id)?.prompt || '', /delegation_show/);
+assert.doesNotMatch(getMockChatRun(autoParent.id)?.prompt || '', /Toolbar done/);
 
 const manualParent = createPlanParent('Manual then finish');
 const manualJob = await service.createAndStart({

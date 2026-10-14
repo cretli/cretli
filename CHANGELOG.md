@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Smaller automatic merge and mailbox prompts.** Smart merge reads its staging
+  scope from an atomic JSON sidecar derived from the verified patch, including
+  rename/copy sources, modes, binary and empty files. Missing or mismatched
+  artifacts use a documented worktree fallback; conflict hints are capped at
+  50 paths. Branch merge asks Git for its informational stat. Matching final
+  mailbox reports and saved-message assignments use paginated MCP pointers
+  with attempt checks and inbox fallback. Existing commit, local-edit,
+  callback and confirmation guards remain. See
+  [the audit and fixture evidence](docs/automatic-action-prompts.md).
+
 - **Slimmer start prompts.** The refine-plan child prompt is about a third of its
   former size (session id, split-assessment text, previous-chat list and loop
   paragraph removed; cooperation mode is always present; the exchange/collaborative
