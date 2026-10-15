@@ -2009,7 +2009,8 @@ function paintTodoRow(el, row) {
     const badgeText = narrow && !isClaimed && !isQueued && !isIntegrationReady
       ? String(row.item?.assignee?.harness || '').trim()
       : badgeFull;
-    badge.hidden = !badgeText;
+    // The integration label is already shown by the row mark; do not repeat it.
+    badge.hidden = !badgeText || isIntegrationReady;
     badge.textContent = badgeText;
     badge.dataset.kind = badgeKind;
     if (isClaimed) badge.title = t('todo.claimedBy', { chat: claimedBy });
@@ -2030,14 +2031,14 @@ function paintTodoRow(el, row) {
           : markKind === 'blocked' ? t('todo.blocked') : t('todo.ready');
     mark.dataset.mark = markKind === 'integration' ? 'integration' : (blockKind ? `blocked-${blockKind}` : markKind);
     // Narrow rows show blocked marks as an icon; the text stays in aria-label/title.
-    const iconOnly = markKind === 'blocked' && typeof window !== 'undefined'
+    const iconOnly = (markKind === 'blocked' || markKind === 'integration') && typeof window !== 'undefined'
       && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 640px)').matches;
     mark.dataset.label = mark.textContent;
     if (iconOnly) {
       mark.setAttribute('data-icon-only', '');
       mark.textContent = '';
       const markIcon = document.createElement('span');
-      markIcon.className = `mdi ${blockKind === 'dependency' ? 'mdi-timer-sand' : 'mdi-alert-circle-outline'}`;
+      markIcon.className = `mdi ${markKind === 'integration' ? 'mdi-source-merge' : blockKind === 'dependency' ? 'mdi-timer-sand' : 'mdi-alert-circle-outline'}`;
       markIcon.setAttribute('aria-hidden', 'true');
       mark.appendChild(markIcon);
     } else {

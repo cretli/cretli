@@ -199,6 +199,15 @@ export async function getSettings() {
   return dedupeGetJson('/api/settings', 'getSettings');
 }
 
+/**
+ * Counters-only summary of approval-audit.jsonl (decisions by source, advisor skips by reason).
+ *
+ * @param {number} [days]
+ */
+export async function getApprovalAuditSummary(days = 7) {
+  return dedupeGetJson(`/api/approval-broker/audit-summary?days=${encodeURIComponent(days)}`, 'getApprovalAuditSummary');
+}
+
 export async function getSidebarLayout() {
   return dedupeGetJson('/api/sidebar-layout', 'getSidebarLayout');
 }
@@ -2322,4 +2331,15 @@ export async function updateHarnessBenchmarkSource(action, body, etag) {
     headers: { 'Content-Type': 'application/json', 'If-Match': String(etag || '') },
     body: JSON.stringify(body || {}),
   }, 'updateHarnessBenchmarkSource');
+}
+
+/** Persistent human permission grants, with no command or argument payloads. */
+export async function getPermissionGrants() {
+  return apiFetchJson('/api/approval-broker/grants', {}, 'getPermissionGrants');
+}
+
+export async function revokePermissionGrants(ids) {
+  return apiFetchJson('/api/approval-broker/grants/revoke', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+  }, 'revokePermissionGrants');
 }

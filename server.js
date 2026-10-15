@@ -98,6 +98,7 @@ import { configureBrowserAgentRuntime } from './lib/browser/agent-tools.js';
 import { createServerDiagnostics } from './lib/server-diagnostics.js';
 import { buildShutdownOriginSnapshot } from './lib/shutdown-origin.js';
 import { publishMemoryMonitorAlerts } from './lib/notifications/memory-monitor-producer.js';
+import { startHarnessRecoveryNotifications } from './lib/notifications/harness-recovery-producer.js';
 
 setModelScoreRows(loadModelScoreRows());
 
@@ -735,6 +736,7 @@ server.listen(PORT, BIND_HOST, () => {
       })
       .catch((err) => console.warn('[cretli] memory monitor alert publish failed:', err?.message || err));
   };
+  startHarnessRecoveryNotifications({ dataDir });
   refreshMemoryMonitorAlerts();
   const memoryMonitorAlertTimer = setInterval(refreshMemoryMonitorAlerts, 60_000);
   memoryMonitorAlertTimer.unref?.();

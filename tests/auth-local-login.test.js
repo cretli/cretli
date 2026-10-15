@@ -12,7 +12,7 @@ process.on('exit', () => {
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
-const { setPassword } = await import('../lib/auth.js');
+const { setPassword, getSessionIdFromRequest, isBrowserPreviewSession, __reloadSessionsFromDiskForTest } = await import('../lib/auth.js');
 const { getLocalLoginToken, isLocalLoginRequest, isLoopbackAddress, LOCAL_LOGIN_HEADER } = await import('../lib/local-login.js');
 const { registerAuthRoutes } = await import('../lib/routes/auth-routes.js');
 
@@ -84,6 +84,20 @@ assert.equal(allowedBody.ok, true);
 assert.equal(typeof allowedBody.csrfToken, 'string');
 const setCookie = allowed.headers.get('set-cookie') || '';
 assert.match(setCookie, /cr_session=/);
+const previewId = getSessionIdFromRequest({ headers: { cookie: setCookie } });
+assert.ok(previewId);
+assert.equal(isBrowserPreviewSession(previewId), true);
+__reloadSessionsFromDiskForTest();
+assert.equal(isBrowserPreviewSession(previewId), true, 'preview provenance survives a server restart');
+const passwordLogin = await fetch(`${baseUrl}/api/login`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ password: 'test-password-123', browserPreview: true }),
+});
+assert.equal(passwordLogin.status, 200);
+const normalId = getSessionIdFromRequest({ headers: { cookie: passwordLogin.headers.get('set-cookie') } });
+assert.ok(normalId);
+assert.equal(isBrowserPreviewSession(normalId), false, 'client body cannot choose preview provenance');
 
 const statusWithToken = await fetch(`${baseUrl}/api/auth-status`, {
   headers: { [LOCAL_LOGIN_HEADER]: token },

@@ -1,3 +1,4 @@
+import './features/approval/cr-permission-grants.js';
 /**
  * Entry point: tab initialization, workspace loading and panel wiring.
  */
@@ -146,6 +147,7 @@ import {
   isHarnessSubtabOf,
   isInterfaceSettingsTab,
   isChatSettingsTab,
+  isDelegationSettingsTab,
   isWatcherSettingsTab,
   remapSettingsTab,
 } from '../lib/spa-routes.js';
@@ -1386,12 +1388,14 @@ function refreshSettingsTabPanels(tabId) {
   if (isHarnessModelSubtab(tabId, 'claude')) refreshClaudeModelSettingsPanel();
   if (isHarnessModelSubtab(tabId, 'codex')) refreshCodexModelSettingsPanel();
   if (tabId === 'harness-opencode-approvals') void refreshApprovalBrokerSettings();
+  if (tabId.endsWith('-approvals')) {
+    const section = document.querySelector(`.settings-section[data-settings-tab="${tabId}"]`);
+    section?.querySelectorAll('cr-permission-grants').forEach((panel) => void panel.refresh());
+  }
   if (tabId === 'chat') refreshModelSettingsPanel();
   if (tabId === 'usage') void refreshUsageSettings();
-  if (tabId === 'delegations') {
-    void refreshDelegationCenter();
-    void refreshDelegationSettings();
-  }
+  if (tabId === 'delegations') void refreshDelegationCenter();
+  if (isDelegationSettingsTab(tabId) && tabId !== 'delegations') void refreshDelegationSettings();
   if (tabId === 'widgets') {
     void ensurePanelReady('widget').then(() => callLoadedPanel('widget', 'refreshWidgetPanel'));
   }
@@ -1424,6 +1428,7 @@ function isSettingsTabButtonActive(btn, tabId, inMainBar) {
   if (inMainBar && btnTab === 'harness') return isHarnessSettingsTab(tabId);
   if (inMainBar && btnTab === 'interface') return isInterfaceSettingsTab(tabId);
   if (inMainBar && btnTab === 'chat') return isChatSettingsTab(tabId);
+  if (inMainBar && btnTab === 'delegations') return isDelegationSettingsTab(tabId);
   if (inMainBar && btnTab === 'watcher') return isWatcherSettingsTab(tabId);
   const harnessTab = btn.dataset.harnessTab || '';
   if (!inMainBar && btnTab === 'harness' && btn.closest('#settings-harness-tabs')) return tabId === 'harness' || tabId.startsWith('harness-overview-');
@@ -1457,11 +1462,13 @@ function applySettingsTab(tabId) {
   const harnessBar = document.getElementById('settings-harness-tabs');
   const interfaceBar = document.getElementById('settings-interface-tabs');
   const chatBar = document.getElementById('settings-chat-tabs');
+  const delegationBar = document.getElementById('settings-delegation-tabs');
   const watcherBar = document.getElementById('settings-watcher-tabs');
   let activeBtn = applySettingsTabButtonState(mainBar, resolvedTabId, true);
   activeBtn = applySettingsTabButtonState(harnessBar, resolvedTabId, false) || activeBtn;
   activeBtn = applySettingsTabButtonState(interfaceBar, resolvedTabId, false) || activeBtn;
   activeBtn = applySettingsTabButtonState(chatBar, resolvedTabId, false) || activeBtn;
+  activeBtn = applySettingsTabButtonState(delegationBar, resolvedTabId, false) || activeBtn;
   activeBtn = applySettingsTabButtonState(watcherBar, resolvedTabId, false) || activeBtn;
 
   const activeHarnessId = resolvedTabId === 'harness' || resolvedTabId.startsWith('harness-overview-')
@@ -1477,6 +1484,7 @@ function applySettingsTab(tabId) {
   if (harnessBar) harnessBar.hidden = !isHarnessSettingsTab(resolvedTabId);
   if (interfaceBar) interfaceBar.hidden = !isInterfaceSettingsTab(resolvedTabId);
   if (chatBar) chatBar.hidden = !isChatSettingsTab(resolvedTabId);
+  if (delegationBar) delegationBar.hidden = !isDelegationSettingsTab(resolvedTabId);
   if (watcherBar) watcherBar.hidden = !isWatcherSettingsTab(resolvedTabId);
   document.querySelectorAll('.settings-section[data-settings-tab]').forEach((section) => {
     if (section.id === 'settings-account-section' && section.dataset.accountEnabled !== 'true') {
@@ -1532,6 +1540,7 @@ function initSettingsTabs() {
   bindSettingsTabClicks(document.getElementById('settings-harness-tabs'));
   bindSettingsTabClicks(document.getElementById('settings-interface-tabs'));
   bindSettingsTabClicks(document.getElementById('settings-chat-tabs'));
+  bindSettingsTabClicks(document.getElementById('settings-delegation-tabs'));
   bindSettingsTabClicks(document.getElementById('settings-watcher-tabs'));
   document.querySelectorAll('.settings-harness-subtab-bar').forEach((bar) => {
     bindSettingsTabClicks(bar);

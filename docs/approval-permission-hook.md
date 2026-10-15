@@ -108,14 +108,126 @@ host-side gate before the tool runs; plan-only prompts are noted separately.
 | Harness | Pre-exec hook / policy | Primary location | Notes |
 |---------|------------------------|------------------|-------|
 | OpenCode | Broker + advisor on `permission.asked` | `lib/approval/approval-broker.js`, `lib/approval/approval-advisor.js` | Only harness wired to `normalizePermissionRequest` via advisor tuple and `recordOpenCodeApprovalAudit` today |
-| Claude | `canUseTool` + `PreToolUse` deny | `lib/claude/claude-agent-ws.js:477`, `PreToolUse` deny `:437` | `permissionMode` from `resolveClaudePermissionMode`; no Cretli ask_user card |
-| Qwen | `canUseTool` | `lib/qwen/qwen-agent-ws.js:635` | `permissionMode` `plan` \| `yolo` at `:630` |
+| Claude | `canUseTool` + shared Cretli permission card | `lib/claude/claude-agent-ws.js`, `lib/approval/can-use-tool-permission.js` | `off`/`shadow` keep legacy behavior; `local_reads` gates `ask_user` calls with Once/Reject (no Always) |
+| Qwen | `canUseTool` + shared Cretli permission card | `lib/qwen/qwen-agent-ws.js`, `lib/approval/can-use-tool-permission.js` | `plan` \| `yolo` remains; broker `local_reads` adds Once/Reject (no Always) |
 | CodeBuddy | `canUseTool` (plan guard) | `lib/codebuddy/codebuddy-live-session.js:186` | Agent WS sets `permissionMode` `plan` \| `bypassPermissions` at `lib/codebuddy/codebuddy-agent-ws.js:265` |
-| Codex | `approvalPolicy: 'never'` (headless) | `lib/codex/codex-thread-options.js:53`, `docs/codex/SETUP.md:24` (`sandboxMode`), `docs/codex/SETUP.md:27` (`approvalPolicy`) | No interactive Once/Always; plan is prompt-only |
-| SDK (Cursor) | Host plan guard in tool executor | `lib/agent-harness/tool-executor.js:172-196` | No `canUseTool` in Cretli SDK path; Cursor runtime handles its own approvals |
+| Codex | `approvalPolicy: 'never'` (headless) | `lib/codex/codex-thread-options.js:53`, `docs/codex/SETUP.md:24` (`sandboxMode` and `approvalPolicy`) | No host pre-exec gate; see [Codex and Cursor SDK: no verified host gate](#codex-and-cursor-sdk-no-verified-host-gate) |
+| SDK (Cursor) | Host plan guard in tool executor | `lib/agent-harness/tool-executor.js:172-196` | No host pre-exec gate; see [Codex and Cursor SDK: no verified host gate](#codex-and-cursor-sdk-no-verified-host-gate) |
 | DeepSeek (DSH) | Same as generic harness loop | `lib/agent-harness/llm-tool-loop.js:271` → `executeTool` | Plan/read-only guards only; no ask_user seam |
 | OpenRouter | Same | `lib/agent-harness/llm-tool-loop.js:271` | No dedicated permission callback |
 | Mistral | Same | `lib/agent-harness/llm-tool-loop.js:271` | No dedicated permission callback |
 
 Future harness adapters should call `normalizePermissionRequest` at the row’s
 pre-exec decision point before emitting `ask_user` to the user or harness.
+
+### Codex and Cursor SDK: no verified host gate
+
+Verified against `@openai/codex-sdk` 0.160.0 (bundled `codex` binary) and
+`@cursor/sdk` 1.0.37. Cretli does **not** claim a host approval gate for either
+harness, and the shared `can-use-tool-permission.js` flow is not wired to them.
+
+**Codex**
+
+- Threads run with `approvalPolicy: 'never'` and `sandboxMode:
+  'danger-full-access'` (`lib/codex/codex-thread-options.js`). The SDK spawns
+  `codex exec --json`; its `ThreadEvent` stream (`item.started` /
+  `item.updated` / `item.completed`, `turn.*`, `error`) has no approval-request
+  event and no reply channel, so `on-request` / `untrusted` would only make
+  tools fail, not ask the host.
+- Codex CLI does expose config-defined `PreToolUse` / `PermissionRequest`
+  command hooks (`[hooks]` in the Codex config, gated by persisted hook trust
+  via `trusted_hash`, or `--dangerously-bypass-hook-trust`). That would be a
+  separate out-of-process hook script that has to call back into the server
+  with a per-run secret. It is not implemented: it needs Cretli to write hook
+  config and trust state into the Codex home (a harness-settings change that
+  must be an explicit user action), and its behaviour in `codex exec` could not
+  be exercised end to end here (no authenticated run available).
+- Safe fallback (current behaviour): the plan/review/scout guards in
+  `lib/sdk/sdk-plan-guard.js` (prompt hint plus post-hoc event guard) and
+  `sandboxMode: 'read-only'` for Scout runs. Nothing is auto-approved.
+
+**Cursor SDK**
+
+- `AgentOptions` / `LocalSendOptions` expose no `canUseTool`, permission
+  callback or pre-tool hook. The only host-side seams are `customTools`
+  (in-process tools; they explicitly never require approval), `sandboxOptions`
+  and `autoReview`, which are Cursor-runtime policy, not a host decision point.
+- Safe fallback: host plan guard in `lib/agent-harness/tool-executor.js`; the
+  Cursor runtime keeps its own approval behaviour. Cretli does not change
+  `sandboxOptions` / `autoReview` autonomously.
+- `settingSources` and repo or user config hooks (Cursor-side configuration
+  files) are configuration routes outside the host: they are not an SDK
+  callback, give Cretli no per-request decision point, and are not used as a
+  gate.
+
+`tests/codex-cursor-no-host-gate.test.js` pins these facts: if an SDK upgrade
+adds an approval event, a `canUseTool` option, or someone wires the permission
+flow into these harnesses, the test fails and this section must be revisited
+(a new gate must be default off, fail closed, once/reject only, bound to a
+`requestId` card, and covered by a real runtime-path test).
+
+### OpenCode edit size evidence
+
+The installed OpenCode 1.19.0 runtime emits edit and write permission requests
+with `permission: "edit"`, a workspace-relative `patterns` entry, and
+`metadata.filepath` plus the proposed patch in `metadata.diff`. The SDK's
+`PermissionRequest` type exposes `metadata` as an extensible object; it does not
+define a separate byte-count field. The workspace edit policy therefore
+measures the UTF-8 byte length of the supplied diff and keeps the request with a
+human when no recognized content or diff field is present. This is a bound on
+the proposed patch data, not the final file size; the path and symlink checks
+remain separate gates.
+
+### Persistent human grants for Claude and Qwen
+
+Callback permission cards offer **Always** for the exact tool and arguments,
+plus **Always allow this harness in this workspace** for all tools in that
+workspace. These are explicit human choices; the advisor can only allow once.
+Grants survive server restarts and apply across chats using the same harness
+and workspace. They never override Plan, review, or Scout denials.
+
+Manage these grants under Settings → Harness → Claude/Qwen → Permissions.
+The panel lists each grant, its workspace and scope, and lets you revoke one or
+all listed grants. Older hashes without display metadata remain revocable.
+
+Cretli stores grant hashes and display metadata in
+`data/approval-human-grants.json`; commands, arguments and absolute workspace
+paths are not stored in this file. Delete the file to revoke all these grants. Revocation takes effect on the next tool call, without a restart.
+An already allowed tool call continues running.
+
+
+### Per-harness approval categories
+
+Settings → Harness → Claude/Qwen/OpenCode → Permissions offers an overall
+approval-check toggle and individual toggles for files, MCP tools, shell
+commands, web tools and other tools. These preferences are stored per harness
+in `harnessPermissionControls` through GET/PATCH `/api/settings`. Partial patches
+preserve other categories and harnesses. Missing settings keep checks enabled.
+
+Disabling a category explicitly permits its tool calls without broker or
+advisor approval, including writes and commands. This applies to every chat
+and workspace for that harness starting with the next tool call; already
+pending approval cards keep their existing decision flow. Plan, review and
+Scout guards remain enforced independently. Enabled categories follow the
+broker mode and existing human grants. Re-enabling a category does not revoke
+previously saved human grants; revoke those separately in the same panel.
+
+A tool is classified by its name, with MCP prefixes checked first. A shell
+command that edits files belongs to the shell category; an MCP tool that edits
+files belongs to MCP. Unknown tool names belong to the other-tools category.
+
+
+### Harness coverage
+
+Every harness has a Settings → Harness → Permissions tab. Category approval
+checks are implemented for Claude, Qwen, OpenCode, OpenRouter, Mistral, Z.AI SDK
+and MiMo. The latter four execute tools through Cretli's shared tool executor:
+consent is requested before execution, after the existing read-only guards.
+Their cards support Once, Reject, exact Always and persistent workspace grants.
+Cancelling a run also cancels a pending permission request.
+
+Cursor SDK, Codex, CodeBuddy and DeepSeek currently execute native tools without
+a verified Cretli pre-execution approval/reply channel. Their Permissions tabs
+explain this limitation instead of offering switches that cannot control those
+native tools. Their existing mode restrictions continue to apply. Adding a tab
+or saving category preferences does not introduce a native approval channel.

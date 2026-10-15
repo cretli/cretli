@@ -645,6 +645,7 @@ test('normalizeNotificationCenterPreferences mirrors the server defaults', () =>
   assert.deepEqual(defaults, {
     preset: 'all',
     categories: { chat: true, models: true, cli: true, system: true },
+    harnessRecovery: true,
     showBadge: true,
     sound: true,
   });

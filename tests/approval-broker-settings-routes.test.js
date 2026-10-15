@@ -7,6 +7,7 @@
  * clear-only-stored semantics. No network and no real HTTP server.
  */
 import './helpers/isolated-data-dir.js';
+import { buildCanUseToolGrantKeys, saveCanUseToolGrant, hasCanUseToolGrant } from '../lib/approval/can-use-tool-grants.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { registerSettingsRoutes } from '../lib/routes/settings-routes.js';
@@ -57,8 +58,8 @@ function createSettingsClient() {
   };
   registerSettingsRoutes(app, ctx);
 
-  function call(method, body) {
-    const handler = handlers.get(`${method} /api/settings`);
+  function call(method, body, url = '/api/settings') {
+    const handler = handlers.get(`${method} ${url}`);
     assert.ok(handler, `missing ${method} /api/settings handler`);
     const req = { body: body || {}, headers: {} };
     return new Promise((resolve) => {
@@ -79,6 +80,8 @@ function createSettingsClient() {
   }
 
   return {
+    grants: () => call('GET', null, '/api/approval-broker/grants'),
+    revoke: (ids) => call('POST', { ids }, '/api/approval-broker/grants/revoke'),
     get: () => call('GET'),
     patch: (body) => call('PATCH', body),
   };
@@ -302,4 +305,49 @@ test('a tampered advisor.enabled outside local_reads still cannot reach the netw
   });
   assert.equal(plan.eligible, false);
   assert.equal(plan.reason, 'mode_not_local_reads');
+});
+
+test('permission management lists safe metadata and revokes only selected grants', async () => {
+  const client = createSettingsClient();
+  const claude = buildCanUseToolGrantKeys({ harness: 'claude', workspace: '/workspace/my-app', toolName: 'Bash', input: { command: 'echo private-argument' } });
+  const qwen = buildCanUseToolGrantKeys({ harness: 'qwen', workspace: '/workspace/my-app', toolName: 'Write' });
+  saveCanUseToolGrant(claude, 'tool');
+  saveCanUseToolGrant(qwen, 'harness');
+  const listed = await client.grants();
+  assert.equal(listed.status, 200);
+  assert.equal(listed.body.grants.length, 2);
+  const row = listed.body.grants.find((grant) => grant.harness === 'claude');
+  assert.equal(row.workspace, 'my-app');
+  assert.equal(row.toolName, 'Bash');
+  assert.equal(row.scope, 'tool');
+  assert.ok(!JSON.stringify(listed.body).includes('/workspace'));
+  assert.ok(!JSON.stringify(listed.body).includes('private-argument'));
+  const invalid = await client.revoke(['invalid']);
+  assert.equal(invalid.status, 400);
+  assert.equal(hasCanUseToolGrant(claude), true);
+  const revoked = await client.revoke([row.id]);
+  assert.equal(revoked.body.revoked, 1);
+  assert.equal(hasCanUseToolGrant(claude), false);
+  assert.equal(hasCanUseToolGrant(qwen), true);
+  const remaining = await client.grants();
+  assert.equal((await client.revoke(remaining.body.grants.map((grant) => grant.id))).body.revoked, 1);
+  assert.deepEqual((await client.grants()).body.grants, []);
+});
+
+test('harness category controls persist through settings PATCH and GET without replacing other harnesses', async () => {
+  const client = createSettingsClient();
+  const defaults = await client.get();
+  assert.equal(defaults.body.harnessPermissionControls.claude.files, true);
+  const patched = await client.patch({ harnessPermissionControls: { claude: { files: false, mcp: false } } });
+  assert.equal(patched.body.harnessPermissionControls.claude.files, false);
+  assert.equal(patched.body.harnessPermissionControls.qwen.files, true);
+  await client.patch({ harnessPermissionControls: { qwen: { shell: false }, claude: { web: 'false' } } });
+  const reread = await client.get();
+  assert.equal(reread.body.harnessPermissionControls.claude.files, false);
+  assert.equal(reread.body.harnessPermissionControls.claude.mcp, false);
+  assert.equal(reread.body.harnessPermissionControls.claude.web, true);
+  assert.equal(reread.body.harnessPermissionControls.qwen.shell, false);
+  assert.equal(loadSettings().harnessPermissionControls.qwen.shell, false);
+  await client.patch({ harnessPermissionControls: { claude: { files: true } } });
+  assert.equal((await client.get()).body.harnessPermissionControls.claude.files, true);
 });

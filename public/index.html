@@ -404,11 +404,13 @@
     <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-sdk" data-harness-id="sdk" role="tablist" hidden data-i18n-aria="settings.harnessSdk" aria-label="Cursor SDK">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-sdk-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-sdk-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-sdk-approvals" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabApprovals">Permissions</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-sdk-stats" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabStats">Statistics</button>
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-openrouter" data-harness-id="openrouter" role="tablist" hidden data-i18n-aria="settings.harnessOpenRouter" aria-label="OpenRouter">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-openrouter-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-openrouter-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-openrouter-approvals" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabApprovals">Permissions</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-openrouter-stats" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabStats">Statistics</button>
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-opencode" data-harness-id="opencode" role="tablist" hidden data-i18n-aria="settings.harnessOpenCode" aria-label="OpenCode">
@@ -420,46 +422,60 @@
     <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-codebuddy" data-harness-id="codebuddy" role="tablist" hidden data-i18n-aria="settings.harnessCodeBuddy" aria-label="CodeBuddy">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codebuddy-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codebuddy-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codebuddy-approvals" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabApprovals">Permissions</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codebuddy-stats" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabStats">Statistics</button>
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-deepseek" data-harness-id="deepseek" role="tablist" hidden data-i18n-aria="settings.harnessDeepSeek" aria-label="DeepSeek">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-deepseek-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-deepseek-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-deepseek-approvals" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabApprovals">Permissions</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-deepseek-stats" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabStats">Statistics</button>
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-mistral" data-harness-id="mistral" role="tablist" hidden data-i18n-aria="settings.harnessMistral" aria-label="Mistral">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mistral-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mistral-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mistral-approvals" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabApprovals">Permissions</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mistral-stats" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabStats">Statistics</button>
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-zai" data-harness-id="zai" role="tablist" hidden data-i18n-aria="settings.harnessZai" aria-label="Z.AI SDK">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-zai-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-zai-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-zai-approvals" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabApprovals">Permissions</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-zai-stats" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabStats">Statistics</button>
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-mimo" data-harness-id="mimo" role="tablist" hidden data-i18n-aria="settings.harnessMimo" aria-label="MiMo">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mimo-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mimo-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mimo-approvals" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabApprovals">Permissions</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-mimo-stats" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabStats">Statistics</button>
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-qwen" data-harness-id="qwen" role="tablist" hidden data-i18n-aria="settings.harnessQwen" aria-label="Qwen">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-qwen-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-qwen-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-qwen-approvals" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabApprovals">Permissions</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-qwen-stats" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabStats">Statistics</button>
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-claude" data-harness-id="claude" role="tablist" hidden data-i18n-aria="settings.harnessClaude" aria-label="Claude">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-claude-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-claude-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-claude-approvals" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabApprovals">Permissions</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-claude-stats" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabStats">Statistics</button>
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-harness-subtab-bar" id="settings-harness-subtabs-codex" data-harness-id="codex" role="tablist" hidden data-i18n-aria="settings.harnessCodex" aria-label="Codex">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codex-keys" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabKeys">Keys</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codex-models" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabModels">Models</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codex-approvals" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabApprovals">Permissions</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="harness-codex-stats" role="tab" aria-selected="false" data-i18n="settings.harnessSubtabStats">Statistics</button>
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs settings-chat-tabs" id="settings-chat-tabs" role="tablist" hidden data-i18n-aria="settings.tabsChat" aria-label="Chat &amp; agents">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="chat" role="tab" aria-selected="false" data-i18n="settings.tabsChatGeneral">General</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="chat-titles" role="tab" aria-selected="false" data-i18n="settings.tabsChatTitles">Titles</button>
+    </div>
+    <div class="settings-tabs cr-tabs settings-subtabs" id="settings-delegation-tabs" role="tablist" hidden data-i18n-aria="settings.tabsDelegations" aria-label="Delegations">
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="delegations" role="tab" aria-selected="false" data-i18n="settings.delegationSubtab_center">Center</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="delegations-limits" role="tab" aria-selected="false" data-i18n="settings.delegationSubtab_limits">Limits</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="delegations-review" role="tab" aria-selected="false" data-i18n="settings.delegationSubtab_review">Review</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="delegations-models" role="tab" aria-selected="false" data-i18n="settings.delegationSubtab_models">Models</button>
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs" id="settings-watcher-tabs" role="tablist" hidden data-i18n-aria="settings.watcherTabsAria" aria-label="Workspace Watcher sections">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="watcher" role="tab" aria-selected="false" data-i18n="settings.watcherTab_status">Status</button>
@@ -692,7 +708,7 @@
         <h3 class="settings-section-title" data-i18n="settings.approvalBrokerTitle">Approval Broker (OpenCode only)</h3>
         <p class="settings-hint" data-i18n="settings.approvalBrokerScopeHint">Only the OpenCode permission flow goes through the broker. Codex and CodeBuddy in Agent mode never ask for approvals at all; other harness flows keep their manual cards.</p>
         <p class="settings-hint" data-i18n="settings.approvalAdvisorOpenCodeCardsHint">The external advisor applies only to OpenCode permission cards left for you. It never executes Once, Always or Reject on its own in advisory mode; daily quota may skip assessments when exhausted.</p>
-        <p class="settings-hint approval-broker-warning" data-i18n="settings.approvalBrokerSafetyHint">The broker never auto-approves writes, edits, network access, secrets or git writes. Advisory requests (advise_all) send by default only a minimal payload (request id, controlled action name, local risk, categories — no command, no resource names). The opt-in “Include redacted command text” toggle adds a bounded, redacted command snippet and basenames only for lower-risk advisory requests; high/unknown risk and sensitive categories (secrets, network, privilege, destructive, expansion) stay minimal even when the toggle is on. Authority requests (low_only / advisor_assessed) always send the documented redacted tuple; the toggle does not affect them. Redaction is best-effort, not a guarantee; the provider may retain what it receives.</p>
+        <p class="settings-hint approval-broker-warning" data-i18n="settings.approvalBrokerSafetyHint">By default the broker never auto-approves writes, edits, network access, secrets or git writes; only with the opt-in workspace_edits scope may the advisor approve single-file edits inside the workspace during implement delegations (never secrets, CI, git metadata, lockfiles or agent-control files; own daily limit, audited). Advisory requests (advise_all) send by default only a minimal payload (request id, controlled action name, local risk, categories — no command, no resource names). The opt-in “Include redacted command text” toggle adds a bounded, redacted command snippet and basenames only for lower-risk advisory requests; high/unknown risk and sensitive categories (secrets, network, privilege, destructive, expansion) stay minimal even when the toggle is on. Authority requests (low_only / advisor_assessed / workspace_edits) always send the documented redacted tuple; the toggle does not affect them. Redaction is best-effort, not a guarantee; the provider may retain what it receives.</p>
         <div class="cr-field">
           <label class="cr-field-label" data-i18n="settings.approvalBrokerModeLabel">Broker mode</label>
           <cr-bar-select id="approval-broker-mode-select" data-i18n-aria="settings.approvalBrokerModeLabel"></cr-bar-select>
@@ -716,7 +732,7 @@
         <div class="cr-field">
           <label class="cr-field-label" data-i18n="settings.approvalAdvisorRiskScopeLabel">Risk scope</label>
           <cr-bar-select id="approval-advisor-risk-scope-select" data-i18n-aria="settings.approvalAdvisorRiskScopeLabel"></cr-bar-select>
-          <p class="settings-hint" data-i18n="settings.approvalAdvisorRiskScopeHint">low_only — the advisor only sees low-risk reads. advisor_assessed — the advisor also judges medium-risk commands itself (for example a short read-only script). advise_all — shows an assessment on the card only; it never approves and never changes which actions stay with you. High risk, network, secrets, privilege and destructive actions always stay with you.</p>
+          <p class="settings-hint" data-i18n="settings.approvalAdvisorRiskScopeHint">low_only — the advisor only sees low-risk reads. advisor_assessed — the advisor also judges medium-risk commands itself (for example a short read-only script). advise_all — shows an assessment on the card only; it never approves and never changes which actions stay with you. High risk, network, secrets, privilege and destructive actions always stay with you. workspace_edits — the advisor also approves single-file edits inside the workspace during implement delegations only; it excludes .git, data, secrets, CI and lockfiles and has its own daily limit.</p>
         </div>
         <div class="cr-field">
           <cr-checkbox id="approval-advisor-send-sensitive-command-checkbox">
@@ -747,6 +763,10 @@
             <label class="cr-field-label" data-i18n="settings.approvalAdvisorQuotaLabel">Daily quota</label>
             <cr-bar-input id="approval-advisor-quota-input" type="number" min="0" max="10000" step="1" data-i18n-aria="settings.approvalAdvisorQuotaLabel"></cr-bar-input>
           </div>
+          <div class="cr-field">
+            <label class="cr-field-label" data-i18n="settings.approvalAdvisorEditDailyLimitLabel">Daily workspace edit limit</label>
+            <cr-bar-input id="approval-advisor-edit-daily-limit-input" type="number" min="0" max="1000" step="1" data-i18n-aria="settings.approvalAdvisorEditDailyLimitLabel"></cr-bar-input>
+          </div>
         </div>
         <p class="settings-hint" data-i18n="settings.approvalAdvisorQuotaHint">Timeout is clamped to 3000–8000 ms; the System One min probability is clamped to 0.5–0.99 (default 0.9). A daily quota of 0 disables network calls; otherwise 1–10000 requests per day.</p>
         <div class="cr-row">
@@ -756,6 +776,7 @@
         <p class="settings-hint" data-i18n="settings.approvalAdvisorOpenCodeCardsHint">The external advisor applies only to OpenCode permission cards left for you. It never executes Once, Always or Reject on its own in advisory mode; daily quota may skip assessments when exhausted.</p>
         <h4 class="settings-subsection-title" data-i18n="settings.approvalAuditStatsTitle">Last 7 days</h4>
         <div class="cr-card" id="approval-audit-stats" role="status" aria-live="polite"></div>
+        <cr-permission-grants></cr-permission-grants>
         <h4 class="settings-subsection-title" data-i18n="settings.approvalAdvisorKeyTitle">Advisor API key</h4>
         <p id="approval-advisor-key-source-hint" class="settings-hint" role="status" aria-live="polite"></p>
         <div class="cr-field">
@@ -768,6 +789,9 @@
           </div>
         </div>
         <p class="settings-hint" data-i18n="settings.approvalAdvisorEnvHint">CRETLI_APPROVAL_ADVISOR_API_KEY always takes precedence over a stored key; Clear removes only the stored key.</p>
+      </section>
+      <section class="settings-section" data-settings-tab="harness-codebuddy-approvals" role="tabpanel" hidden>
+        <cr-permission-grants harness="codebuddy"></cr-permission-grants>
       </section>
       <section class="settings-section" data-settings-tab="harness-codebuddy-keys" id="codebuddy-api-settings" role="tabpanel">
         <div class="harness-version-card-host" data-harness-version-host="codebuddy"></div>
@@ -795,6 +819,9 @@
         </div>
         <p id="codebuddy-harness-status" class="settings-hint" aria-live="polite"></p>
       </section>
+      <section class="settings-section" data-settings-tab="harness-deepseek-approvals" role="tabpanel" hidden>
+        <cr-permission-grants harness="deepseek"></cr-permission-grants>
+      </section>
       <section class="settings-section" data-settings-tab="harness-deepseek-keys" id="deepseek-api-settings" role="tabpanel">
         <div class="harness-version-card-host" data-harness-version-host="deepseek"></div>
         <h3 class="settings-section-title" data-i18n="settings.harnessDeepSeekApiTitle">DeepSeek API</h3>
@@ -821,6 +848,9 @@
         </div>
         <p id="deepseek-harness-status" class="settings-hint" aria-live="polite"></p>
       </section>
+      <section class="settings-section" data-settings-tab="harness-mistral-approvals" role="tabpanel" hidden>
+        <cr-permission-grants harness="mistral"></cr-permission-grants>
+      </section>
       <section class="settings-section" data-settings-tab="harness-mistral-keys" id="mistral-api-settings" role="tabpanel">
         <div class="harness-version-card-host" data-harness-version-host="mistral"></div>
         <h3 class="settings-section-title" data-i18n="settings.harnessMistralApiTitle">Mistral API</h3>
@@ -846,6 +876,9 @@
           </div>
         </div>
         <p id="mistral-harness-status" class="settings-hint" aria-live="polite"></p>
+      </section>
+      <section class="settings-section" data-settings-tab="harness-qwen-approvals" role="tabpanel" hidden>
+        <cr-permission-grants harness="qwen"></cr-permission-grants>
       </section>
       <section class="settings-section" data-settings-tab="harness-qwen-keys" id="qwen-api-settings" role="tabpanel">
         <div class="harness-version-card-host" data-harness-version-host="qwen"></div>
@@ -888,6 +921,9 @@
           </div>
         </div>
         <p id="qwen-harness-status" class="settings-hint" aria-live="polite"></p>
+      </section>
+      <section class="settings-section" data-settings-tab="harness-claude-approvals" role="tabpanel" hidden>
+        <cr-permission-grants harness="claude"></cr-permission-grants>
       </section>
       <section class="settings-section" data-settings-tab="harness-claude-keys" id="claude-api-settings" role="tabpanel">
         <div class="harness-version-card-host" data-harness-version-host="claude"></div>
@@ -969,6 +1005,9 @@
           </div>
         </div>
       </section>
+      <section class="settings-section" data-settings-tab="harness-codex-approvals" role="tabpanel" hidden>
+        <cr-permission-grants harness="codex"></cr-permission-grants>
+      </section>
       <section class="settings-section" data-settings-tab="harness-codex-keys" id="codex-api-settings" role="tabpanel">
         <div class="harness-version-card-host" data-harness-version-host="codex"></div>
         <h3 class="settings-section-title" data-i18n="settings.harnessCodexBillingTitle">Codex billing</h3>
@@ -1021,6 +1060,9 @@
           </div>
         </div>
         <p id="codex-harness-status" class="settings-hint" aria-live="polite"></p>
+      </section>
+      <section class="settings-section" data-settings-tab="harness-sdk-approvals" role="tabpanel" hidden>
+        <cr-permission-grants harness="sdk"></cr-permission-grants>
       </section>
       <section class="settings-section" data-settings-tab="harness-sdk-keys" role="tabpanel">
         <div class="harness-version-card-host" data-harness-version-host="sdk"></div>
@@ -1082,6 +1124,9 @@
             <span id="sdk-custom-system-prompt-save-status" class="cr-status"></span>
           </div>
         </div>
+      </section>
+      <section class="settings-section" data-settings-tab="harness-openrouter-approvals" role="tabpanel" hidden>
+        <cr-permission-grants harness="openrouter"></cr-permission-grants>
       </section>
       <section class="settings-section" data-settings-tab="harness-openrouter-keys" role="tabpanel">
         <div class="harness-version-card-host" data-harness-version-host="openrouter"></div>
@@ -1164,6 +1209,10 @@
           <cr-checkbox id="notification-center-badge">
             <span data-i18n="settings.notificationCenterBadge">Show unread badge on the bell</span>
           </cr-checkbox>
+          <cr-checkbox id="notification-center-harness-recovery">
+            <span data-i18n="settings.notificationHarnessRecovery">Notify when harness usage limits reset</span>
+          </cr-checkbox>
+          <p class="settings-hint" data-i18n="settings.notificationHarnessRecoveryHint">Global for all harnesses, including Claude and Codex. Sends an in-app notice and push to enabled devices. An estimated retry time does not confirm provider availability.</p>
           <cr-checkbox id="notification-center-sound">
             <span data-i18n="settings.notificationCenterSound">Sound for new items</span>
           </cr-checkbox>
@@ -1775,6 +1824,9 @@
         <p class="settings-hint" data-i18n="harnessHealth.statsRange">Runs and errors from the last 7 days. Plan limits show the latest harness reading.</p>
         <div class="harness-health-card" data-role="harness-statistics" data-harness-id="deepseek" aria-live="polite"></div>
       </section>
+      <section class="settings-section" data-settings-tab="harness-zai-approvals" role="tabpanel" hidden>
+        <cr-permission-grants harness="zai"></cr-permission-grants>
+      </section>
       <section class="settings-section" data-settings-tab="harness-zai-keys" role="tabpanel" hidden>
         <h3 class="settings-section-title" data-i18n="settings.harnessZaiApiTitle">Z.AI SDK</h3>
         <p class="settings-hint" id="zai-harness-status" aria-live="polite"></p>
@@ -1797,6 +1849,9 @@
           <span id="zai-sdk-install-status" class="cr-status" aria-live="polite"></span>
         </div>
         <p class="settings-hint" data-i18n="settings.harnessZaiSdkRestartHint">The server process may need a restart after installation.</p>
+      </section>
+      <section class="settings-section" data-settings-tab="harness-mimo-approvals" role="tabpanel" hidden>
+        <cr-permission-grants harness="mimo"></cr-permission-grants>
       </section>
       <section class="settings-section" data-settings-tab="harness-mimo-keys" role="tabpanel" hidden>
         <h3 class="settings-section-title" data-i18n="settings.harnessMimoApiTitle">Xiaomi MiMo API</h3>
@@ -1900,14 +1955,7 @@
         </div>
       </section>
       <section class="settings-section" data-settings-tab="delegations" role="tabpanel">
-        <div id="delegation-subtabs" class="cr-tabs" role="tablist">
-          <button type="button" class="cr-tab active" data-delegation-subtab="center" role="tab" aria-selected="true" data-i18n="settings.delegationSubtab_center">Center</button>
-          <button type="button" class="cr-tab" data-delegation-subtab="limits" role="tab" aria-selected="false" data-i18n="settings.delegationSubtab_limits">Limits</button>
-          <button type="button" class="cr-tab" data-delegation-subtab="review" role="tab" aria-selected="false" data-i18n="settings.delegationSubtab_review">Review</button>
-          <button type="button" class="cr-tab" data-delegation-subtab="models" role="tab" aria-selected="false" data-i18n="settings.delegationSubtab_models">Models</button>
-        </div>
-        <div data-delegation-panel="center">
-        <h3 class="settings-section-title" data-i18n="settings.delegationsCenterTitle">Delegation center</h3>
+                <h3 class="settings-section-title" data-i18n="settings.delegationsCenterTitle">Delegation center</h3>
         <p class="settings-hint" data-i18n="settings.delegationsCenterHint">Runtime health, stuck jobs, and repair actions for this workspace. Prompt text is never shown here.</p>
         <div id="delegation-runtime-health" class="delegation-center-health" aria-live="polite"></div>
         <div class="cr-row delegation-center-filters">
@@ -1922,11 +1970,10 @@
           <cr-bar-button id="delegation-center-more" hidden data-i18n="settings.delegationsLoadMore">Load more</cr-bar-button>
         </div>
         <p id="delegation-center-status" class="cr-hint" aria-live="polite"></p>
-        </div>
-        <div data-delegation-panel="limits" hidden><div id="settings-delegation-limits-root" class="cr-page"></div></div>
-        <div data-delegation-panel="review" hidden><div id="settings-delegation-review-root" class="cr-page"></div></div>
-        <div data-delegation-panel="models" hidden><div id="settings-delegation-models-root" class="cr-page"></div></div>
       </section>
+      <section class="settings-section" data-settings-tab="delegations-limits" hidden role="tabpanel"><div id="settings-delegation-limits-root" class="cr-page"></div></section>
+      <section class="settings-section" data-settings-tab="delegations-review" hidden role="tabpanel"><div id="settings-delegation-review-root" class="cr-page"></div></section>
+      <section class="settings-section" data-settings-tab="delegations-models" hidden role="tabpanel"><div id="settings-delegation-models-root" class="cr-page"></div></section>
       <section class="settings-section" data-settings-tab="widgets" hidden role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.widgetsTitle">Page widgets</h3>
         <p class="settings-hint" data-i18n="settings.widgetsHint">Each installation is bound to one workspace and to the allowed page origins.</p>

@@ -71,3 +71,37 @@ test('shrinking context with healthy cache hit share is not a cache break', () =
   const series = analyzeContextCacheSeries([sample(0), sample(1, { inputTokens: 10000, cacheReadTokens: 9500, totalTokens: 10500 })]);
   assert.equal(series.breaks.length, 0);
 });
+
+test('a collapsing context is a compaction and the following cache rebuild is attributed to it', () => {
+  const synthetic = { measurementId: undefined, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, totalTokens: 9000 };
+  const series = analyzeContextCacheSeries([
+    sample(0, { totalTokens: 80000, inputTokens: 79500, cacheReadTokens: 79000, measurementId: 'a' }),
+    sample(0.4, synthetic),
+    sample(0.5, { totalTokens: 12000, inputTokens: 11900, cacheReadTokens: 3000, measurementId: 'b' }),
+  ]);
+  assert.equal(series.compactions.length, 1);
+  assert.equal(series.compactions[0].cause, 'compaction');
+  assert.equal(series.compactions[0].totalBefore, 80000);
+  assert.equal(series.compactions[0].totalAfter, 9000);
+  assert.equal(series.breaks.length, 1);
+  assert.equal(series.breaks[0].cause, 'compaction');
+});
+
+test('chart marks compactions and exposes hover binding without throwing outside a DOM', async () => {
+  const { bindChatContextCacheChart } = await import('../app_front/features/chat/chatContextCacheChartView.js');
+  const series = analyzeContextCacheSeries([sample(0, { totalTokens: 80000, measurementId: 'a' }), sample(1, { totalTokens: 9000, inputTokens: 0, cacheReadTokens: 0 })]);
+  const html = renderChatContextCacheChartHtml(series, (key) => key);
+  assert.match(html, /data-event="compaction"/);
+  assert.match(html, /contextEventCompaction/);
+  assert.doesNotThrow(() => bindChatContextCacheChart(null, series, (key) => key));
+});
+
+test('zoom presets limit the plotted calls and mark the active preset', () => {
+  const many = Array.from({ length: 60 }, (_, i) => sample(i, { measurementId: `m${i}` }));
+  const series = analyzeContextCacheSeries(many);
+  const all = renderChatContextCacheChartHtml(series, (key, params) => `${key}${params?.count ?? ''}`);
+  assert.match(all, /data-range="30"/);
+  const zoomed = renderChatContextCacheChartHtml(series, (key) => key, 'en', { range: 30 });
+  assert.match(zoomed, /data-range="30" aria-pressed="true"/);
+  assert.match(zoomed, /contextSeriesRange/);
+});

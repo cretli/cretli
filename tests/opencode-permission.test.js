@@ -89,7 +89,7 @@ assert.equal(
   shouldRejectOpenCodePlanPermission('agent', {
     action: 'bash',
     metadata: { command: 'node tests/conversation-fork.test.js' },
-  }, 'review'),
+  }, 'review', { projectRoot: process.cwd() }),
   false,
 );
 assert.equal(
@@ -286,6 +286,20 @@ const brokerWorkspace = process.cwd();
 assert.equal(classifyOpenCodePermissionRisk(brokerCurl).categories.includes('network'), true);
 assert.equal(classifyOpenCodePermissionRisk(brokerSecret).categories.includes('secrets'), true);
 assert.equal(classifyOpenCodePermissionRisk(brokerRead).risk, 'low');
+for (const command of ['node --check lib/x.js', 'npx eslint lib/x.js', 'git branch --show-current']) {
+  assert.equal(
+    classifyOpenCodePermissionRisk({ action: 'bash', metadata: { command } }).risk,
+    'low',
+    command,
+  );
+}
+for (const command of ['node --test tests/x.test.js', 'npx eslint --fix lib/x.js', 'git branch feature', 'npm test']) {
+  assert.equal(
+    classifyOpenCodePermissionRisk({ action: 'bash', metadata: { command } }).risk,
+    'medium',
+    command,
+  );
+}
 
 // default mode is off: interactive permissions stay on the manual card.
 const defaultOff = resolveOpenCodeApprovalAction({

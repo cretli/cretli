@@ -891,4 +891,50 @@ assert.equal(
   assert.equal(ASK_GUARD_USER_MESSAGE, 'Ask mode blocked this change. Switch to Agent mode to apply changes.');
 }
 
+// Read-only syntax/lint/branch checks are not mutations; code-running forms stay blocked.
+for (const cmd of [
+  'node --check lib/x.js',
+  'node -c lib/x.js',
+  'cd repo && node --check lib/x.js',
+  'FOO=bar node --check lib/x.js',
+  'npx eslint lib/x.js',
+  'eslint lib/x.js tests/y.js',
+  'git branch --show-current',
+  'git branch --list',
+  "git branch --list 'next/*'",
+]) {
+  assert.equal(isMutatingPlanModeShellCommand(cmd), false, cmd);
+}
+for (const cmd of [
+  'node -e "1"',
+  'node -p 1',
+  'node lib/x.js',
+  'node --test tests/x.test.js',
+  'node tests/x.test.js',
+  'node -r ./evil.js --check x.js',
+  'node --check x.js > out.txt',
+  'NODE_OPTIONS=--require=./x.js node --check y.js',
+  'env NODE_OPTIONS=--require=./x.js node --check y.js',
+  'cd repo && NODE_OPTIONS=--require=./x.js node --check y.js',
+  'NODE_PATH=./evil node --check y.js',
+  'LD_PRELOAD=./x.so node --check y.js',
+  'DYLD_INSERT_LIBRARIES=./x.dylib node --check y.js',
+  'npm test',
+  'npm run lint',
+  'npx eslint --fix lib/x.js',
+  'npx eslint --fix-dry-run lib/x.js',
+  'eslint --fix lib/x.js',
+  'eslint -o out.json lib/x.js',
+  'npx prettier --write .',
+  'git branch feature',
+  'git branch -d feature',
+  'git branch -D feature',
+  'git branch -m old new',
+  'git branch',
+  'python3 -c "open(\'x\',\'w\')"',
+  'tee out.txt',
+]) {
+  assert.equal(isMutatingPlanModeShellCommand(cmd), true, cmd);
+}
+
 console.log('sdk-plan-guard.test.js OK');

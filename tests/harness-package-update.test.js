@@ -6,9 +6,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import express from 'express';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import os from 'node:os';
 
 import {
   buildNpmUpdateCommands,
+  applyHarnessPackageUpdate,
   planHarnessPackageUpdate,
 } from '../lib/harness-package-update.js';
 import { registerHarnessVersionsRoutes } from '../lib/routes/harness-versions-routes.js';
@@ -31,6 +34,49 @@ const inventory = {
     ],
   }],
 };
+
+test('DeepSeek resolves shared prerelease peers before installing and restores files on resolution failure', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'cretli-package-update-'));
+  const manifest = JSON.stringify({ optionalDependencies: { '@deepseek-ai/dsh': '0.1.0' } });
+  const lock = JSON.stringify({ lockfileVersion: 3, packages: {
+    '': { optionalDependencies: { '@deepseek-ai/dsh': '0.1.0' } },
+    'node_modules/@deepseek-ai/dsh': { version: '0.1.0' },
+    'node_modules/@deepseek-ai/cordis': { version: '4.0.2' },
+    'node_modules/other': { version: '1.0.0' },
+  } });
+  const manifestPath = path.join(root, 'package.json');
+  const lockPath = path.join(root, 'package-lock.json');
+  const plan = { harness: 'deepseek', installPrefix: '', targets: [
+    { name: '@deepseek-ai/dsh', from: '0.1.0', to: '0.2.0', exact: true },
+  ] };
+  try {
+    await writeFile(manifestPath, manifest);
+    await writeFile(lockPath, lock);
+    const commands = [];
+    await applyHarnessPackageUpdate(plan, root, async (command) => {
+      commands.push(command);
+      if (commands.length === 1) {
+        const refreshed = JSON.parse(await readFile(lockPath, 'utf8'));
+        assert.deepEqual(Object.keys(refreshed.packages), ['', 'node_modules/other']);
+        assert.deepEqual(refreshed.packages[''], JSON.parse(lock).packages['']);
+      }
+    });
+    assert.equal(commands.length, 2);
+    assert.ok(commands[0].args.includes('--package-lock-only'));
+    assert.ok(commands[0].args.includes('--ignore-scripts'));
+    assert.equal(commands[1].args.includes('--package-lock-only'), false);
+    assert.equal(commands.flatMap((command) => command.args).includes('--force'), false);
+    await writeFile(lockPath, lock);
+    await assert.rejects(applyHarnessPackageUpdate(plan, root, async () => {
+      await writeFile(manifestPath, '{}');
+      throw new Error('resolution failed');
+    }), /resolution failed/);
+    assert.equal(await readFile(manifestPath, 'utf8'), manifest);
+    assert.equal(await readFile(lockPath, 'utf8'), lock);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('plan keeps only declared packages with a newer checked version', () => {
   assert.equal(planHarnessPackageUpdate(inventory, 'nope'), null);

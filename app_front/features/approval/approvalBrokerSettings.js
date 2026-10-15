@@ -33,6 +33,8 @@ export const ADVISOR_MIN_TIMEOUT_MS = 3000;
 export const ADVISOR_MAX_TIMEOUT_MS = 8000;
 export const ADVISOR_DEFAULT_DAILY_QUOTA = 100;
 export const ADVISOR_MAX_DAILY_QUOTA = 10000;
+export const ADVISOR_DEFAULT_EDIT_DAILY_LIMIT = 50;
+export const ADVISOR_MAX_EDIT_DAILY_LIMIT = 1000;
 export const ADVISOR_DEFAULT_MIN_PROBABILITY = 0.9;
 export const ADVISOR_MIN_MIN_PROBABILITY = 0.5;
 export const ADVISOR_MAX_MIN_PROBABILITY = 0.99;
@@ -50,12 +52,14 @@ const ADVISOR_MODEL_ID = 'approval-advisor-model-input';
 const ADVISOR_MIN_PROBABILITY_ID = 'approval-advisor-min-probability-input';
 const ADVISOR_TIMEOUT_ID = 'approval-advisor-timeout-input';
 const ADVISOR_QUOTA_ID = 'approval-advisor-quota-input';
+const ADVISOR_EDIT_QUOTA_ID = 'approval-advisor-edit-daily-limit-input';
 const ADVISOR_SAVE_ID = 'approval-advisor-save-btn';
 const ADVISOR_SAVE_STATUS_ID = 'approval-advisor-save-status';
 const ADVISOR_KEY_INPUT_ID = 'approval-advisor-api-key-input';
 const ADVISOR_KEY_SAVE_ID = 'approval-advisor-api-key-save-btn';
 const ADVISOR_KEY_CLEAR_ID = 'approval-advisor-api-key-clear-btn';
 const ADVISOR_KEY_STATUS_ID = 'approval-advisor-api-key-status';
+const AUDIT_STATS_ID = 'approval-audit-stats';
 const ADVISOR_KEY_SOURCE_HINT_ID = 'approval-advisor-key-source-hint';
 
 /** @type {object|null} */
@@ -87,6 +91,17 @@ export function clampAdvisorDailyQuota(value) {
 }
 
 /**
+ * Clamp the workspace edit quota to 0..1000.
+ * @param {unknown} value
+ * @returns {number}
+ */
+export function clampAdvisorEditDailyLimit(value) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  const base = Number.isFinite(parsed) ? parsed : ADVISOR_DEFAULT_EDIT_DAILY_LIMIT;
+  return Math.min(ADVISOR_MAX_EDIT_DAILY_LIMIT, Math.max(0, base));
+}
+
+/**
  * Clamp the System One `noul` threshold to 0.5–0.99. A non-number falls back to
  * the safe 0.9 default.
  *
@@ -108,11 +123,11 @@ export function normalizeAdvisorProtocol(value) {
   return APPROVAL_ADVISOR_PROTOCOLS.includes(protocol) ? protocol : ADVISOR_DEFAULT_PROTOCOL;
 }
 
-const ADVISOR_RISK_SCOPES = ['low_only', 'advisor_assessed', 'advise_all'];
+const ADVISOR_RISK_SCOPES = ['low_only', 'advisor_assessed', 'advise_all', 'workspace_edits'];
 
 /**
  * @param {unknown} value
- * @returns {'low_only' | 'advisor_assessed' | 'advise_all'}
+ * @returns {'low_only' | 'advisor_assessed' | 'advise_all' | 'workspace_edits'}
  */
 export function normalizeAdvisorRiskScope(value) {
   const scope = String(value || '').trim();
@@ -152,6 +167,7 @@ export function normalizeApprovalBrokerFormState(settings) {
     minProbability: clampAdvisorMinProbability(advisor.minProbability),
     timeoutMs: clampAdvisorTimeoutMs(advisor.timeoutMs),
     dailyQuota: clampAdvisorDailyQuota(advisor.dailyQuota),
+    editDailyLimit: clampAdvisorEditDailyLimit(advisor.editDailyLimit),
     riskScope: normalizeAdvisorRiskScope(advisor.riskScope),
     sendSensitiveCommand: advisor.sendSensitiveCommand === true,
   };
@@ -199,6 +215,7 @@ export function buildApprovalAdvisorPatch(formState) {
         minProbability: clampAdvisorMinProbability(formState?.minProbability),
         timeoutMs: clampAdvisorTimeoutMs(formState?.timeoutMs),
         dailyQuota: clampAdvisorDailyQuota(formState?.dailyQuota),
+        editDailyLimit: clampAdvisorEditDailyLimit(formState?.editDailyLimit),
         riskScope: normalizeAdvisorRiskScope(formState?.riskScope),
         sendSensitiveCommand: formState?.sendSensitiveCommand === true,
       },
@@ -370,6 +387,7 @@ function updateAdvisorControls(mode) {
   setDisabled(byId(ADVISOR_MIN_PROBABILITY_ID), !enabled);
   setDisabled(byId(ADVISOR_TIMEOUT_ID), !enabled);
   setDisabled(byId(ADVISOR_QUOTA_ID), !enabled);
+  setDisabled(byId(ADVISOR_EDIT_QUOTA_ID), !enabled);
   setDisabled(byId(ADVISOR_SAVE_ID), !enabled);
 }
 
@@ -463,6 +481,9 @@ function readForm() {
       : ADVISOR_DEFAULT_MIN_PROBABILITY,
     timeoutMs: timeoutEl && 'value' in timeoutEl ? timeoutEl.value : ADVISOR_DEFAULT_TIMEOUT_MS,
     dailyQuota: quotaEl && 'value' in quotaEl ? quotaEl.value : ADVISOR_DEFAULT_DAILY_QUOTA,
+    editDailyLimit: byId(ADVISOR_EDIT_QUOTA_ID) && 'value' in byId(ADVISOR_EDIT_QUOTA_ID)
+      ? byId(ADVISOR_EDIT_QUOTA_ID).value
+      : ADVISOR_DEFAULT_EDIT_DAILY_LIMIT,
   };
 }
 
@@ -496,6 +517,8 @@ function applySettingsSnapshot(settings) {
   if (timeoutEl && 'value' in timeoutEl) timeoutEl.value = String(form.timeoutMs);
   const quotaEl = byId(ADVISOR_QUOTA_ID);
   if (quotaEl && 'value' in quotaEl) quotaEl.value = String(form.dailyQuota);
+  const editQuotaEl = byId(ADVISOR_EDIT_QUOTA_ID);
+  if (editQuotaEl && 'value' in editQuotaEl) editQuotaEl.value = String(form.editDailyLimit);
   updateAdvisorControls(form.mode);
   refreshEndpointValidity();
   applyAdvisorKeyHint(settings);
@@ -647,6 +670,57 @@ async function clearAdvisorKey() {
 }
 
 /**
+ * Build the human lines for the audit summary (counters only).
+ *
+ * @param {any} summary
+ * @returns {string[]}
+ */
+export function buildApprovalAuditStatsLines(summary) {
+  const d = summary && typeof summary.decisions === 'object' && summary.decisions ? summary.decisions : {};
+  const skips = summary && typeof summary.skips === 'object' && summary.skips ? summary.skips : {};
+  const num = (v) => (Number.isFinite(v) ? v : 0);
+  const lines = [t('settings.approvalAuditStatsDecisions', {
+    advisor: num(d.advisor),
+    local: num(d.local),
+    user: num(d.user),
+    unknown: num(d.unknown),
+  })];
+  const reasons = Array.isArray(skips.reasons) ? skips.reasons : [];
+  if (!num(skips.total)) {
+    lines.push(t('settings.approvalAuditStatsNoSkips'));
+    return lines;
+  }
+  const parts = reasons.map((row) => {
+    const key = `sdkView.openCodePermissionAdvisorSkipReason.${row.reason}`;
+    const label = t(key);
+    return `${label === key ? row.reason : label}: ${num(row.count)}`;
+  });
+  lines.push(t('settings.approvalAuditStatsSkips', { total: num(skips.total), reasons: parts.join(', ') }));
+  return lines;
+}
+
+/** Load the 7-day audit summary into the stats card; failures leave it blank. */
+async function refreshAuditStats() {
+  const el = byId(AUDIT_STATS_ID);
+  if (!el) return;
+  try {
+    const data = await api.getApprovalAuditSummary(7);
+    if (!data?.ok) {
+      el.textContent = '';
+      return;
+    }
+    el.replaceChildren(...buildApprovalAuditStatsLines(data).map((text) => {
+      const p = document.createElement('p');
+      p.className = 'settings-hint';
+      p.textContent = text;
+      return p;
+    }));
+  } catch {
+    el.textContent = '';
+  }
+}
+
+/**
  * Reload the panel from GET /api/settings. Safe to call on every tab open.
  *
  * @returns {Promise<void>}
@@ -662,6 +736,7 @@ export async function refreshApprovalBrokerSettings() {
     setStatus(byId(MODE_STATUS_ID), '');
     setStatus(byId(ADVISOR_SAVE_STATUS_ID), '');
     setStatus(byId(ADVISOR_KEY_STATUS_ID), '');
+    void refreshAuditStats();
   } catch {
     // Keep the last known state; the next tab open retries.
   }

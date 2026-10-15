@@ -19,6 +19,10 @@ export default {
   devtool: false,
   resolve: {
     extensions: ['.js'],
+    alias: {
+      // Cards use status predicates; server settings persistence is outside this fixture.
+      [path.join(projectRoot, 'lib/delegation-settings.js')]: path.join(here, 'settings-stub.js'),
+    },
     modules: [
       path.join(projectRoot, 'node_modules'),
       path.join(projectRoot, 'app_front/node_modules'),

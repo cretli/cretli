@@ -178,7 +178,8 @@ runCase(
       body: { agentTransport: 'claude', workspaceFile, workspaceFolder: cwd },
     });
     const firstChatId = first.body.chat.id;
-    assert.equal(first.body.chat.sdkMode, 'plan');
+    // A plain executor start is Agent, never an implicit Plan chat.
+    assert.equal(first.body.chat.sdkMode, 'agent');
 
     const second = await invoke('POST', '/api/todos/:id/start-agent', {
       params: { id },
@@ -285,6 +286,51 @@ runCase(
     });
     assert.equal(explicit.body.ok, true);
     assert.equal(explicit.body.chat.sdkMode, 'plan');
+  })
+);
+
+runCase(
+  'start-agent never defaults to plan without an explicit plan choice',
+  withApp(async (invoke) => {
+    const plain = addTodo(dataDir, cwd, { title: 'Plain executor', status: 'ready' }).item;
+    const started = await invoke('POST', '/api/todos/:id/start-agent', {
+      params: { id: plain.id },
+      body: { agentTransport: 'claude', workspaceFile, workspaceFolder: cwd },
+    });
+    assert.equal(started.body.ok, true);
+    assert.equal(started.body.chat.sdkMode, 'agent');
+
+    // A saved (even unapproved) plan must not flip the executor back to Plan.
+    const withPlan = addTodo(dataDir, cwd, { title: 'Has draft plan', status: 'ready' }).item;
+    updateTodo(dataDir, cwd, withPlan.id, { plan: { markdown: '# Draft' } });
+    const planned = await invoke('POST', '/api/todos/:id/start-agent', {
+      params: { id: withPlan.id },
+      body: { agentTransport: 'claude', workspaceFile, workspaceFolder: cwd },
+    });
+    assert.equal(planned.body.ok, true);
+    assert.equal(planned.body.chat.sdkMode, 'agent');
+
+    // An explicit user choice still opens Plan.
+    const requested = addTodo(dataDir, cwd, { title: 'Explicit plan', status: 'ready' }).item;
+    const planChat = await invoke('POST', '/api/todos/:id/start-agent', {
+      params: { id: requested.id },
+      body: { agentTransport: 'claude', sdkMode: 'plan', workspaceFile, workspaceFolder: cwd },
+    });
+    assert.equal(planChat.body.ok, true);
+    assert.equal(planChat.body.chat.sdkMode, 'plan');
+
+    // A plan-only assignee role keeps Plan when the caller did not choose a mode.
+    const assigneePlan = addTodo(dataDir, cwd, {
+      title: 'Plan role executor',
+      status: 'ready',
+      assignee: { harness: 'claude', role: 'plan' },
+    }).item;
+    const roleChat = await invoke('POST', '/api/todos/:id/start-agent', {
+      params: { id: assigneePlan.id },
+      body: { agentTransport: 'claude', workspaceFile, workspaceFolder: cwd },
+    });
+    assert.equal(roleChat.body.ok, true);
+    assert.equal(roleChat.body.chat.sdkMode, 'plan');
   })
 );
 

@@ -37,6 +37,11 @@ assert.match(planDefault.prompt, /Review the assignment against the repository/)
 assert.equal(planDefault.displayText, 'Review the approved plan.');
 assert.equal(resolveDelegationChildExecutionMode('plan', 'review'), 'agent');
 assert.equal(resolveDelegationChildExecutionMode('plan', 'implement'), 'plan');
+// An executor child must not inherit a plan-mode parent: Plan is explicit only.
+assert.equal(resolveDelegationChildExecutionMode(undefined, 'implement', 'plan'), 'agent');
+assert.equal(resolveDelegationChildExecutionMode(undefined, 'review', 'plan'), 'agent');
+assert.equal(resolveDelegationChildExecutionMode('agent', 'implement', 'plan'), 'agent');
+assert.equal(resolveDelegationChildExecutionMode('plan', 'implement', 'agent'), 'plan');
 
 const implementation = buildDelegationExecutorPrompt({
   sourceKind: 'plan',

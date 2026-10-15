@@ -154,3 +154,10 @@ test('provider response identity survives repeated token notices and richer coun
   assert.equal(event.usage.reasoningTokens, 500);
   assert.equal(event.contextWindowTokens, 100000);
 });
+
+test('a token_count right after a compacted record keeps the compaction marker', () => {
+  const compactedAt = '2026-10-14T12:01:00Z';
+  const usage = parseCodexContextUsage(jsonl(model, measurement(), { type: 'compacted', timestamp: compactedAt }, measurement(0, '2026-10-14T12:01:00.01Z')));
+  assert.equal(usage.compactedAt, compactedAt);
+  assert.notEqual(usage.reset, true);
+});

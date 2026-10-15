@@ -89,6 +89,7 @@ test.describe('delegation card DOM', () => {
     await append(page, [record(3, 'delegation', {
       id: 'job-1',
       status: 'interrupted',
+      interruptCode: 'server_restart',
       childChatId: 'child-1',
       attemptId: 'a2',
       attempts: [{ attemptId: 'a1', status: 'failed' }],
@@ -157,4 +158,69 @@ test.describe('delegation card DOM', () => {
       await harnessState(page)
     ).calls.some((row) => row.type === 'mailbox-retry' && row.id === 'mail-1')).toBe(true);
   });
+});
+
+test('repeated errors and replies are compact in either arrival order', async ({ page }) => {
+  await waitReady(page);
+  const message = "You've hit your session limit";
+  const delegation = record(10, 'delegation', {
+    id: 'duplicate-job', status: 'failed', childChatId: 'child-duplicate', attemptId: 'duplicate-attempt',
+    error: message, report: message, pickReason: 'Review permissions',
+    executor: { transport: 'claude', model: 'opus' }, sourceKind: 'text',
+  });
+  const mailbox = record(11, 'mailbox', {
+    id: 'duplicate-mail', delegationId: 'duplicate-job', kind: 'reply',
+    status: 'uncertain', body: message, fromChatId: 'child-duplicate',
+  });
+  for (const records of [[delegation, mailbox], [mailbox, delegation]]) {
+    await replay(page, records);
+    const job = page.locator('[data-delegation-id="duplicate-job"]');
+    const mail = page.locator('[data-mailbox-id="duplicate-mail"]');
+    await expect(job.locator('.sdk-rich-delegation-report')).toHaveCount(1);
+    await expect(job.getByText('Review permissions', { exact: false })).toBeHidden();
+    await job.locator('.sdk-rich-delegation-details > summary').click();
+    await expect(job).toContainText('Attempt 1');
+    await expect(job.getByText('Review permissions', { exact: false })).toBeVisible();
+    await expect(mail.locator('.sdk-rich-delegation-report')).toBeHidden();
+    await expect(mail.getByText('Delivery unconfirmed', { exact: true })).toBeVisible();
+    await mail.getByRole('button', { name: 'Retry delivery' }).click();
+    await expect.poll(async () => (await harnessState(page)).calls.some(
+      (row) => row.type === 'mailbox-retry' && row.id === 'duplicate-mail',
+    )).toBe(true);
+    await mail.getByText('Show repeated reply', { exact: true }).click();
+    await expect(mail.locator('.sdk-rich-delegation-report')).toBeVisible();
+    await append(page, [record(12, 'mailbox', { ...JSON.parse(mailbox.payload), status: 'delivered' })]);
+    await expect(mail.locator('.sdk-rich-delegation-report')).toBeVisible();
+    await append(page, [record(13, 'delegation', { ...JSON.parse(delegation.payload), report: 'Different report', error: '' })]);
+    await expect(mail.locator('summary')).toBeHidden();
+    await expect(mail.locator('.sdk-rich-delegation-report')).toBeVisible();
+  }
+});
+
+test('distinct reports and unrelated replies remain visible', async ({ page }) => {
+  await waitReady(page);
+  await replay(page, [
+    record(1, 'delegation', { id: 'distinct-job', status: 'failed', error: 'Error detail', report: 'Partial report' }),
+    record(2, 'mailbox', { id: 'unrelated-mail', delegationId: 'other-job', kind: 'reply', body: 'Partial report' }),
+    record(3, 'mailbox', { id: 'task-mail', delegationId: 'distinct-job', kind: 'task', body: 'Partial report' }),
+  ]);
+  await expect(page.locator('[data-delegation-id="distinct-job"] .sdk-rich-delegation-report')).toHaveCount(2);
+  for (const id of ['unrelated-mail', 'task-mail']) {
+    await expect(page.locator(`[data-mailbox-id="${id}"] .sdk-rich-delegation-report`)).toBeVisible();
+    await expect(page.locator(`[data-mailbox-id="${id}"] summary`)).toBeHidden();
+  }
+});
+
+test('loading an older delegation collapses a matching reply', async ({ page }) => {
+  await waitReady(page);
+  await replay(page, [record(20, 'mailbox', {
+    id: 'older-mail', delegationId: 'older-job', kind: 'reply', body: 'Same report',
+  })]);
+  const report = page.locator('[data-mailbox-id="older-mail"] .sdk-rich-delegation-report');
+  await expect(report).toBeVisible();
+  await page.evaluate((rows) => window.__delegationCard.prepend(rows), [record(10, 'delegation', {
+    id: 'older-job', status: 'completed', report: 'Same report',
+  })]);
+  await expect(report).toBeHidden();
+  await expect(page.locator('[data-delegation-id="older-job"] .sdk-rich-delegation-report')).toBeVisible();
 });

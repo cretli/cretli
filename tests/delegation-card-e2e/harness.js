@@ -61,6 +61,7 @@ async function boot() {
   });
   window.__delegationCard.replay = (records) => view.replayHistoryRecords(records, { instant: true });
   window.__delegationCard.append = (records) => view.appendHistoryRecords(records, { instant: true });
+  window.__delegationCard.prepend = (records) => view.prependHistoryRecords(records);
   window.__delegationCard.ready = true;
 }
 

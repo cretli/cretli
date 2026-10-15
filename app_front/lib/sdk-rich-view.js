@@ -1,3 +1,4 @@
+import { PERMISSION_HARNESS_LABELS } from '../../lib/approval/harness-permission-controls.js';
 /**
  * HTML view for the @cursor/sdk chat — collapsible tools, Markdown answers, file paths.
  */
@@ -112,14 +113,10 @@ import {
 } from '../features/chat/chatDelegations.js';
 import { buildDelegationCardModel } from '../../lib/delegation-card-model.js';
 import { isActiveDelegationStatus } from '../../lib/delegation-status.js';
-import {
-  DELEGATION_RATING_TAGS,
-  MAX_DELEGATION_RATING_NOTE_LENGTH,
-  MAX_DELEGATION_RATING_TAGS,
-} from '../../lib/delegation-rating-constants.js';
 import { parseRelatedChatPayload } from '../../lib/chat-relation-payload.js';
 import {
   buildHistoryCardReportHostHtml,
+  registerHistoryCardReportFullText,
   wireHistoryCardReportControls,
 } from './delegationHistoryCardReport.js';
 import {
@@ -928,6 +925,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
 
   /** @type {HTMLElement | null} */
   let assistantMdEl = null;
+  /** Answer text host a replayed snapshot should update (see runViewApplyWithOrder). @type {HTMLElement | null} */
+  let snapshotAdoptCandidate = null;
   /** @type {HTMLDetailsElement | null} */
   let thinkingDetails = null;
   /** @type {HTMLElement | null} */
@@ -1232,6 +1231,56 @@ export function createSdkRichView(chat, mountEl, hooks) {
     // it is a server-generated `perm_*` token, never user content.
     const id = String(requestId || '').trim().slice(0, 64);
     if (id) badge.title = t('sdkView.openCodePermissionAdvisorTooltip', { requestId: id });
+  }
+
+  /**
+   * Stamp who made the final permission decision (advisor / local policy /
+   * human) onto the card. Works on resolved cards too: the live card is looked
+   * up in the stream by request id, so a history replay can mark it as well.
+   *
+   * @param {string} requestId
+   * @param {Record<string, unknown>} meta
+   * @returns {boolean} whether a card was found and marked
+   */
+  function markOpenCodePermissionDecision(requestId, meta = {}) {
+    const id = String(requestId || '').trim().slice(0, 64);
+    const decidedBy = String(meta.decidedBy || '').trim();
+    if (!id || (decidedBy !== 'advisor' && decidedBy !== 'local' && decidedBy !== 'user')) return false;
+    const block = Array.from(stream.querySelectorAll('.sdk-rich-opencode-permission'))
+      .find((el) => el instanceof HTMLElement && el.dataset.requestId === id);
+    if (!(block instanceof HTMLElement)) return false;
+    const body = block.querySelector('.sdk-rich-opencode-permission-body');
+    if (!body) return false;
+    let chip = block.querySelector('.sdk-rich-opencode-permission-decided-by');
+    if (!chip) {
+      chip = document.createElement('span');
+      chip.className = 'sdk-rich-badge sdk-rich-opencode-permission-decided-by';
+      body.insertBefore(chip, body.firstChild);
+    }
+    chip.dataset.decidedBy = decidedBy;
+    const percent = Number.isFinite(meta.confidence) ? Math.round(Number(meta.confidence) * 100) : null;
+    const latency = Number.isFinite(meta.latencyMs) ? Math.round(Number(meta.latencyMs)) : null;
+    const parts = [];
+    if (decidedBy === 'advisor') {
+      const name = String(meta.advisorName || '').trim() || t('sdkView.openCodePermissionAdvisorDefaultName');
+      parts.push(t('sdkView.openCodePermissionDecidedBy.advisor', { name }));
+      if (percent != null) parts.push(`${percent}%`);
+      if (latency != null) parts.push(`${latency} ms`);
+    } else if (decidedBy === 'user' && meta.reply === 'reject') {
+      parts.push(t('sdkView.openCodePermissionDecidedBy.userReject'));
+    } else {
+      parts.push(t(`sdkView.openCodePermissionDecidedBy.${decidedBy}`));
+    }
+    chip.textContent = parts.join(' · ');
+    const tooltip = [];
+    if (decidedBy === 'advisor') {
+      if (meta.reason) tooltip.push(String(meta.reason));
+      if (meta.localReason) tooltip.push(t('sdkView.openCodePermissionDecidedBy.localReason', { reason: String(meta.localReason) }));
+      const via = [meta.provider, meta.model].map((v) => String(v || '').trim()).filter(Boolean).join(' / ');
+      if (via) tooltip.push(via);
+    }
+    chip.title = tooltip.join('\n');
+    return true;
   }
 
   /**
@@ -3136,6 +3185,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       releaseEvictedMountedCard(el, mountedViewResourceLedger, mountedDomNodeRegistry);
     }
     purgeDisconnectedRunMaps();
+    refreshDuplicateMailboxReports();
     return parked;
   }
 
@@ -3872,7 +3922,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (!requestId) return;
     const block = createSdkBlock({
       variant: 'question',
-      label: t('sdkView.openCodePermission'),
+      label: Boolean(PERMISSION_HARNESS_LABELS[ev.harness])
+        ? t('sdkView.harnessPermission', { harness: PERMISSION_HARNESS_LABELS[ev.harness] || ev.harness })
+        : t('sdkView.openCodePermission'),
       name: action === 'Permission required' ? '' : action,
       open: true,
     });
@@ -3901,13 +3953,18 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const replyButtons = [
       { reply: 'once', label: 'Once', className: 'sdk-rich-opencode-permission-once' },
       { reply: 'always', label: 'Always', className: 'sdk-rich-opencode-permission-always' },
+      { reply: 'harness', label: t('sdkView.harnessPermanentGrant', { harness: PERMISSION_HARNESS_LABELS[ev.harness] || ev.harness }), className: 'sdk-rich-opencode-permission-harness' },
       { reply: 'reject', label: 'Reject', className: 'sdk-rich-opencode-permission-reject' },
     ];
     replyButtons.forEach(({ reply, label, className }) => {
+      // Persistent callback grants are offered only when the host provides a scope.
+      if (reply === 'harness' && ev.allowHarnessGrant !== true) return;
+      if (reply === 'always' && ev.allowAlways === false) return;
       const button = document.createElement('button');
       button.type = 'button';
       button.className = className;
       button.textContent = label;
+      if (reply === 'always' && ev.allowHarnessGrant === true) button.title = t('sdkView.exactPermissionGrant');
       button.addEventListener('click', () => {
         if (typeof hooks.onOpenCodePermissionReply !== 'function') return;
         clearAdvisorPermissionPick(requestId);
@@ -3989,6 +4046,14 @@ export function createSdkRichView(chat, mountEl, hooks) {
         activeThinkingRunKey = '';
       }
       // A new answer block must start from a clean accumulator.
+      if (!assistantMdEl && snapshotAdoptCandidate instanceof HTMLElement) {
+        const candidateRaw = snapshotAdoptCandidate.dataset.rawMd || '';
+        if (candidateRaw && (full.startsWith(candidateRaw) || candidateRaw.startsWith(full))) {
+          delete chat._sdkAssistantAcc;
+          adoptAssistantBlock(snapshotAdoptCandidate);
+        }
+        snapshotAdoptCandidate = null;
+      }
       if (!assistantMdEl) {
         const sameKeyBlock = findStreamChildByOrderKey(resolveViewOrderKey({
           historySeq: renderedRecordHistorySeq,
@@ -4392,6 +4457,29 @@ export function createSdkRichView(chat, mountEl, hooks) {
     return !!tailStream && tailStream !== incomingStream;
   }
 
+  /**
+   * The answer text host directly above `anchor` when it belongs to the same
+   * event stream and was opened before `incomingKey`. A replayed snapshot of
+   * that answer must update the host instead of starting a second block.
+   *
+   * @param {HTMLElement} anchor
+   * @param {{ roomEventSeq?: number, eventStreamId?: string }} incomingKey
+   * @returns {HTMLElement | null}
+   */
+  function findAnswerBlockPrecedingAnchor(anchor, incomingKey) {
+    const incomingStream = resolveEventStreamId(incomingKey);
+    const incomingRoom = Number(incomingKey?.roomEventSeq) || 0;
+    if (!incomingStream || incomingRoom <= 0) return null;
+    const prev = anchor.previousElementSibling;
+    if (!(prev instanceof HTMLElement)) return null;
+    const md = prev.querySelector('.sdk-rich-assistant-md');
+    if (!(md instanceof HTMLElement)) return null;
+    const prevKey = readElementOrderKey(prev);
+    if (resolveEventStreamId(prevKey) !== incomingStream) return null;
+    if (!((Number(prevKey.roomEventSeq) || 0) > 0 && Number(prevKey.roomEventSeq) < incomingRoom)) return null;
+    return md;
+  }
+
   function flushPendingAssistantMarkdown() {
     const pendingHost = mdScheduledHost || (mdRaf ? assistantMdEl : null);
     mdScheduledHost = null;
@@ -4451,7 +4539,15 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const later = stream === realStream ? findInsertBeforeChild(incomingKey) : null;
     if (later) noteInsertBeforeAnchor(later);
     if (later) {
-      withIsolatedRenderState(fn);
+      // A reconnect replays every snapshot of an answer that is already on screen.
+      // Its older snapshots sort before the cards that followed it, so without a
+      // hint each one would open a new answer block in the isolated state.
+      snapshotAdoptCandidate = findAnswerBlockPrecedingAnchor(later, incomingKey);
+      try {
+        withIsolatedRenderState(fn);
+      } finally {
+        snapshotAdoptCandidate = null;
+      }
       return;
     }
     if (shouldStartFreshTailForNewEventStream(incomingKey)) {
@@ -4522,6 +4618,19 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (rec.kind !== 'meta') return;
 
     const variant = rec.variant;
+    if (variant === 'permissionDecision') {
+      // Payload is a JSON string (history validation only allows string payloads).
+      let decision = null;
+      try {
+        decision = typeof rec.payload === 'string' ? JSON.parse(rec.payload) : null;
+      } catch {
+        decision = null;
+      }
+      if (decision && typeof decision === 'object') {
+        markOpenCodePermissionDecision(String(decision.requestId || ''), decision);
+      }
+      return;
+    }
     if (variant === 'questionResolved') {
       const meta = rec.payload && typeof rec.payload === 'object'
         ? /** @type {Record<string, unknown>} */ (rec.payload)
@@ -4778,7 +4887,11 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const waiting = status === 'waiting_for_input'
       ? `<p class="sdk-rich-delegation-waiting">${escapeHtml(t('chat.delegationNeedsInput'))}</p>`
       : '';
-    const errorProse = status === 'waiting_for_input' ? '' : renderHistoryCardProse(error);
+    const errorProse = status === 'waiting_for_input' || error === report ? '' : renderHistoryCardProse(error);
+    const detailsOpen = content.querySelector('.sdk-rich-delegation-details')?.open === true;
+    card.dataset.reportContentKey = report ? registerHistoryCardReportFullText(report) : '';
+    card.dataset.errorContentKey = error && status !== 'waiting_for_input'
+      ? registerHistoryCardReportFullText(error) : '';
     const durationSec = Math.round(model.durationMs / 1000);
     const duration = durationSec > 0
       ? `<div class="sdk-rich-delegation-meta">${escapeHtml(t('chat.delegationDuration', { seconds: String(durationSec) }))}</div>`
@@ -4877,6 +4990,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       }
     }
     renderDelegationRating(card, content, id, model);
+    refreshDuplicateMailboxReports();
     scrollToBottom();
   }
 
@@ -5041,7 +5155,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
   function renderDelegationRating(card, content, delegationId, model) {
     const previous = content.querySelector('.sdk-rich-delegation-rate');
     if (previous instanceof HTMLElement) previous.remove();
-    if (!model.canRate && !model.userRating) return;
+    if (!model.userRating && !parseCardJson(card.dataset.userRating)) return;
     const wrap = document.createElement('div');
     wrap.className = 'sdk-rich-delegation-rate';
     content.appendChild(wrap);
@@ -5079,141 +5193,22 @@ export function createSdkRichView(chat, mountEl, hooks) {
       }
       return;
     }
-    if (typeof hooks.onRateDelegation !== 'function') return;
+  }
 
-    const draft = {
-      score: Number(parseCardJson(card.dataset.ratingDraft)?.score) || 0,
-      tags: (parseCardJson(card.dataset.ratingDraft)?.tags || []).map(String),
-      note: String(parseCardJson(card.dataset.ratingDraft)?.note || ''),
-    };
-    const busy = card.dataset.ratingBusy === '1';
-    const errorText = String(card.dataset.ratingError || '');
-
-    const paint = () => renderDelegationRating(card, content, delegationId, model);
-    const saveDraft = () => {
-      card.dataset.ratingDraft = JSON.stringify(draft);
-    };
-
-    const label = document.createElement('div');
-    label.className = 'sdk-rich-delegation-rate-label';
-    label.textContent = t('chat.delegationRateTitle');
-    wrap.appendChild(label);
-
-    const starsEl = document.createElement('div');
-    starsEl.className = 'sdk-rich-delegation-stars';
-    starsEl.setAttribute('role', 'group');
-    starsEl.setAttribute('aria-label', t('chat.delegationRateTitle'));
-    for (let score = 1; score <= 5; score += 1) {
-      const star = document.createElement('button');
-      star.type = 'button';
-      star.className = 'sdk-rich-delegation-star';
-      star.textContent = '★';
-      star.disabled = busy;
-      star.setAttribute('aria-label', t('chat.delegationRateStarAria', { score: String(score) }));
-      star.setAttribute('aria-pressed', String(draft.score === score));
-      if (draft.score === score) star.classList.add('is-active');
-      star.addEventListener('click', () => {
-        if (busy) return;
-        draft.score = score;
-        saveDraft();
-        paint();
-      });
-      starsEl.appendChild(star);
-    }
-    wrap.appendChild(starsEl);
-
-    const tagsEl = document.createElement('div');
-    tagsEl.className = 'sdk-rich-delegation-rate-tags';
-    for (const tag of DELEGATION_RATING_TAGS) {
-      const chip = document.createElement('button');
-      chip.type = 'button';
-      chip.className = 'sdk-rich-delegation-rate-tag';
-      chip.textContent = t(`chat.delegationRateTags.${tag}`);
-      chip.disabled = busy;
-      chip.setAttribute('aria-pressed', String(draft.tags.includes(tag)));
-      if (draft.tags.includes(tag)) chip.classList.add('is-active');
-      chip.addEventListener('click', () => {
-        if (busy) return;
-        if (draft.tags.includes(tag)) {
-          draft.tags = draft.tags.filter((entry) => entry !== tag);
-        } else if (draft.tags.length < MAX_DELEGATION_RATING_TAGS) {
-          draft.tags = [...draft.tags, tag];
-        }
-        saveDraft();
-        paint();
-      });
-      tagsEl.appendChild(chip);
-    }
-    wrap.appendChild(tagsEl);
-
-    const noteEl = document.createElement('input');
-    noteEl.type = 'text';
-    noteEl.className = 'sdk-rich-delegation-rate-note-input';
-    noteEl.maxLength = MAX_DELEGATION_RATING_NOTE_LENGTH;
-    noteEl.placeholder = t('chat.delegationRateNotePlaceholder');
-    noteEl.setAttribute('aria-label', t('chat.delegationRateNotePlaceholder'));
-    noteEl.value = draft.note;
-    noteEl.disabled = busy;
-    noteEl.addEventListener('input', () => {
-      draft.note = noteEl.value;
-      saveDraft();
-    });
-    wrap.appendChild(noteEl);
-
-    const submit = document.createElement('button');
-    submit.type = 'button';
-    submit.className = 'sdk-rich-delegation-btn sdk-rich-delegation-rate-submit';
-    submit.textContent = busy ? t('chat.delegationRateBusy') : t('chat.delegationRateSubmit');
-    submit.disabled = busy || !draft.score;
-    submit.addEventListener('click', () => {
-      if (busy || !draft.score || draft.score < 1 || draft.score > 5) return;
-      card.dataset.ratingBusy = '1';
-      delete card.dataset.ratingError;
-      paint();
-      Promise.resolve()
-        .then(() => hooks.onRateDelegation(delegationId, {
-          score: draft.score,
-          tags: [...draft.tags],
-          note: draft.note,
-        }))
-        .then((res) => {
-          delete card.dataset.ratingBusy;
-          const stored = res && res.ok !== false && res.rating ? res.rating : null;
-          if (stored) {
-            // Persist the card-shaped snapshot only (same fields the server
-            // embeds in the history payload).
-            card.dataset.userRating = JSON.stringify({
-              score: Number(stored.score),
-              tags: Array.isArray(stored.tags) ? stored.tags : [],
-              note: String(stored.note || ''),
-              ts: String(stored.ts || new Date().toISOString()),
-            });
-            delete card.dataset.ratingDraft;
-            delete card.dataset.ratingError;
-          } else {
-            const ratingCode = String(res?.code || '').trim();
-            const ratingServerError = String(res?.error || '').trim();
-            if (ratingCode === 'contradictory_rating' && ratingServerError) {
-              card.dataset.ratingError = stringifySnippet(ratingServerError, MAX_DELEGATION_RATING_NOTE_LENGTH);
-            } else {
-              card.dataset.ratingError = String(res?.error || t('chat.delegationRateFailed'));
-            }
-          }
-        })
-        .catch(() => {
-          delete card.dataset.ratingBusy;
-          card.dataset.ratingError = t('chat.serverConnectionError');
-        })
-        .finally(() => paint());
-    });
-    wrap.appendChild(submit);
-
-    if (errorText) {
-      const errorEl = document.createElement('div');
-      errorEl.className = 'sdk-rich-delegation-rate-error';
-      errorEl.dataset.tone = 'error';
-      errorEl.textContent = errorText;
-      wrap.appendChild(errorEl);
+  /** Collapse repeated replies while keeping delivery status and retry controls visible. */
+  function refreshDuplicateMailboxReports() {
+    const delegations = new Map(Array.from(stream.querySelectorAll('[data-delegation-id]'))
+      .map((card) => [card.dataset.delegationId, card]));
+    for (const card of stream.querySelectorAll('[data-mailbox-id]')) {
+      const details = card.querySelector('.sdk-rich-mailbox-details');
+      if (!(details instanceof HTMLDetailsElement)) continue;
+      const delegation = delegations.get(card.dataset.mailboxDelegationId);
+      const key = card.dataset.mailboxContentKey;
+      const duplicate = card.dataset.mailboxKind === 'reply' && !!key && !!delegation
+        && (key === delegation.dataset.reportContentKey || key === delegation.dataset.errorContentKey);
+      if (card.dataset.duplicateReport !== String(duplicate)) details.open = !duplicate;
+      card.dataset.duplicateReport = String(duplicate);
+      details.querySelector('summary').hidden = !duplicate;
     }
   }
 
@@ -5255,17 +5250,26 @@ export function createSdkRichView(chat, mountEl, hooks) {
     if (!(card instanceof HTMLElement)) return;
     frameHistoryCard(card, 'sdk-rich-mailbox');
     card.dataset.mailboxStatus = status;
+    card.dataset.mailboxDelegationId = String(data.delegationId || '');
+    card.dataset.mailboxKind = kind;
+    card.dataset.mailboxContentKey = body ? registerHistoryCardReportFullText(body) : '';
     if (historySeq > 0) card.dataset.mailboxHistorySeq = String(historySeq);
     const content = card.querySelector('.sdk-rich-line__content');
     if (!(content instanceof HTMLElement)) return;
+    const replyOpen = card.dataset.duplicateReport !== 'true'
+      || content.querySelector('.sdk-rich-mailbox-details')?.open === true;
     const title = kind === 'task'
       ? t('chat.mailboxTaskFromParent')
       : t('chat.mailboxReplyFromChild');
     content.innerHTML = [
       `<strong class="sdk-rich-delegation-title">${escapeHtml(title)}</strong> ${queued}`,
+      `<details class="sdk-rich-mailbox-details"${replyOpen ? ' open' : ''}>`,
+      `<summary>${escapeHtml(t('chat.mailboxRepeatedReply'))}</summary>`,
       fromChatId ? `<div class="sdk-rich-delegation-meta">${escapeHtml(t('chat.mailboxFromChat'))}: ${escapeHtml(fromTitle)}</div>` : '',
       renderHistoryCardProse(body),
       `<div class="sdk-rich-delegation-actions"></div>`,
+      '</details>',
+      '<div class="sdk-rich-mailbox-delivery-actions sdk-rich-delegation-actions"></div>',
     ].filter(Boolean).join('');
     decorateHistoryCardReports(content);
     const actions = content.querySelector('.sdk-rich-delegation-actions');
@@ -5279,7 +5283,8 @@ export function createSdkRichView(chat, mountEl, hooks) {
       });
       actions.appendChild(openBtn);
     }
-    if (actions instanceof HTMLElement && (status === 'failed' || status === 'uncertain')) {
+    const deliveryActions = content.querySelector('.sdk-rich-mailbox-delivery-actions');
+    if (deliveryActions instanceof HTMLElement && (status === 'failed' || status === 'uncertain')) {
       const retryBtn = document.createElement('button');
       retryBtn.type = 'button';
       retryBtn.className = 'sdk-rich-delegation-btn';
@@ -5287,8 +5292,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
       retryBtn.addEventListener('click', () => {
         hooks.onRetryMailbox?.(id);
       });
-      actions.appendChild(retryBtn);
+      deliveryActions.appendChild(retryBtn);
     }
+    refreshDuplicateMailboxReports();
     scrollToBottom();
   }
 
@@ -5606,6 +5612,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
     suppressScrollStickUpdate = true;
     try {
       realStream.prepend(...Array.from(offscreen.childNodes));
+      refreshDuplicateMailboxReports();
       mountEl.scrollTop = scrollBefore + (mountEl.scrollHeight - heightBefore);
       adoptTrailingTimeoutProgressSeries();
       enforceMountedHistoryWindowBudget();
@@ -6053,6 +6060,11 @@ export function createSdkRichView(chat, mountEl, hooks) {
       if (endsAt > Date.now()) {
         openCodeAdvisorPickTimers.set(id, setInterval(tick, 250));
       }
+    },
+
+    /** @returns {boolean} whether a permission card was found and marked */
+    showOpenCodePermissionDecision(requestId, meta = {}) {
+      return markOpenCodePermissionDecision(requestId, meta);
     },
 
     showOpenCodePermissionAdvisorStatus(requestId, meta = {}) {

@@ -12,7 +12,6 @@ import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 import { getWatcherWorkspaceFolder, scopeWatcherRequestToWorkspace } from '../watcher/watcherWorkspaceScope.js';
 
 const API_PATH = '/api/delegation-settings';
-const SUBTABS = ['center', 'limits', 'review', 'models'];
 const PAIR_SEPARATOR = '\u0001';
 
 /** Fields per editable subtab, in render order. `kind` selects the control. */
@@ -284,32 +283,25 @@ function readSubtab(root, tab) {
 
 /** Fetch and paint all three panels. */
 export async function refreshDelegationSettings() {
+  for (const tab of Object.keys(DELEGATION_SUBTAB_FIELDS)) {
+    const root = getRoot(tab);
+    if (root) root.textContent = t('settings.delegationSettingsLoading');
+  }
   const [{ status, json }, favorites] = await Promise.all([api(API_PATH), loadFavorites().catch(() => [])]);
   if (status !== 200 || !json?.ok) {
     for (const tab of Object.keys(DELEGATION_SUBTAB_FIELDS)) {
       const root = getRoot(tab);
-      if (root) root.textContent = json?.error || t('settings.delegationSettingsLoadFailed');
+      if (root) {
+        // A missing JSON body usually means the server predates this endpoint (404 HTML).
+        const detail = json?.error || `HTTP ${status}`;
+        root.textContent = `${t('settings.delegationSettingsLoadFailed')} (${detail})`;
+      }
     }
     return;
   }
   state.data = json;
   state.favorites = favorites;
   renderAll();
-}
-
-/**
- * @param {string} tab one of SUBTABS
- */
-export function selectDelegationSubtab(tab) {
-  const next = SUBTABS.includes(tab) ? tab : 'center';
-  document.querySelectorAll('[data-delegation-subtab]').forEach((btn) => {
-    const active = btn.dataset.delegationSubtab === next;
-    btn.setAttribute('aria-selected', active ? 'true' : 'false');
-    btn.classList.toggle('active', active);
-  });
-  document.querySelectorAll('[data-delegation-panel]').forEach((panel) => {
-    panel.hidden = panel.dataset.delegationPanel !== next;
-  });
 }
 
 /**
@@ -329,13 +321,8 @@ async function savePatch(root, patch, tab) {
 
 /** Wire subtab switching, Save/reset and cross-panel links once. */
 export function initDelegationSettings() {
-  const bar = document.getElementById('delegation-subtabs');
-  if (!bar || bar.dataset.bound === 'true') return;
-  bar.dataset.bound = 'true';
-  bar.addEventListener('click', (event) => {
-    const btn = event.target instanceof Element ? event.target.closest('[data-delegation-subtab]') : null;
-    if (btn) selectDelegationSubtab(btn.dataset.delegationSubtab);
-  });
+  if (state.bound) return;
+  state.bound = true;
   for (const tab of Object.keys(DELEGATION_SUBTAB_FIELDS)) {
     const root = getRoot(tab);
     if (!root) continue;
@@ -377,11 +364,12 @@ export function initDelegationSettings() {
  * @param {string} tab
  */
 export function openDelegationSubtabLink(tab) {
-  const mainTab = tab === 'stats' ? 'usage' : 'delegations';
-  document.querySelector(`#settings-tabs .settings-tab[data-settings-tab="${mainTab}"]`)?.click();
   if (tab === 'stats') {
+    document.querySelector('#settings-tabs .settings-tab[data-settings-tab="usage"]')?.click();
     document.getElementById('delegation-stats-title')?.scrollIntoView?.({ block: 'start' });
     return;
   }
-  selectDelegationSubtab(tab);
+  const target = tab === 'center' ? 'delegations' : `delegations-${tab}`;
+  document.querySelector(`#settings-delegation-tabs .settings-tab[data-settings-tab="${target}"]`)?.click()
+    || document.querySelector('#settings-tabs .settings-tab[data-settings-tab="delegations"]')?.click();
 }

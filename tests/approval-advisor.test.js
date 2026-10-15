@@ -30,6 +30,7 @@ import {
   postApprovalAdvisorRequest,
   readApprovalAdvisorSettings,
   recordApprovalAdvisorAudit,
+  buildOpenCodePermissionDecisionPayload,
   recordApprovalAdvisorSkipAudit,
   captureApprovalActionSnapshot,
   recordApprovalHumanPermissionDecisionAudit,
@@ -55,6 +56,7 @@ import {
 import { buildAdvisoryPermissionTuple, sanitizeAdvisorPermissionName } from '../lib/approval/permission-request.js';
 import { createOpenCodePermissionReplyGuard } from '../lib/opencode/opencode-permission-reply-guard.js';
 import { resolveOpenCodeApprovalAction } from '../lib/opencode/opencode-permission.js';
+import { recordApprovalAudit } from '../lib/approval/approval-broker.js';
 import { readApprovalAuditEntries } from '../lib/approval/approval-audit.js';
 
 const KEY = 'sk-advisor-secret-0123456789';
@@ -1164,6 +1166,178 @@ resetApprovalAdvisorQuota();
   );
 }
 
+// workspace_edits scope: single-file edits inside the workspace, implement only.
+{
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const { resetWorkspaceEditQuota } = await import('../lib/approval/workspace-edit-policy.js');
+  const workspace = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-edit-ws-')));
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-edit-out-')));
+  fs.mkdirSync(path.join(workspace, 'lib'));
+  fs.symlinkSync(outside, path.join(workspace, 'escape'));
+  const editSettings = (advisor = {}) => {
+    const settings = advisorSettings();
+    applyApprovalBrokerSettingsPatch(settings, {
+      mode: 'local_reads',
+      advisor: { riskScope: 'workspace_edits', ...advisor },
+    });
+    return settings;
+  };
+  const editEvent = (resource, extra = {}) => ({
+    type: 'opencode_permission',
+    requestId: 'perm-edit',
+    action: 'edit',
+    resources: [resource],
+    ...extra,
+  });
+  const editAction = (resource, { assignment = 'implement', event = {}, ...rest } = {}) => {
+    const action = resolveOpenCodeApprovalAction({
+      mode: 'local_reads',
+      permissionEvent: editEvent(resource, event),
+      assignment,
+      workspaceFolder: workspace,
+    });
+    return { ...action, ...rest };
+  };
+  const planFor = (resource, options = {}, settings = editSettings()) => {
+    const event = options.event || { metadata: { diff: 'small edit' } };
+    return resolveApprovalAdvisorPlan(settings, editAction(resource, { ...options, event }));
+  };
+
+  resetWorkspaceEditQuota();
+  const local = editAction('lib/delegation-ratings.js', {
+    event: { metadata: { diff: 'small edit' } },
+  });
+  assert.equal(local.decision, 'ask_user');
+  assert.equal(local.risk, 'medium');
+  assert.deepEqual(local.categories, ['mutation']);
+  const eligible = resolveApprovalAdvisorPlan(editSettings(), local);
+  assert.equal(eligible.eligible, true);
+  assert.equal(eligible.role, 'authority');
+  assert.equal(eligible.editScope, true);
+  assert.equal(eligible.editPath, 'lib/delegation-ratings.js');
+  assert.equal(
+    planFor(path.join(workspace, 'lib', 'new-file.js'), { event: { metadata: { diff: 'small edit' } } }).eligible,
+    true,
+    'absolute in-workspace path',
+  );
+
+  // Opt-in only: defaults and advisor_assessed semantics are unchanged.
+  assert.equal(resolveApprovalAdvisorPlan(advisorSettings(), local).reason, 'not_low_risk');
+  const assessedSettings = advisorSettings();
+  applyApprovalBrokerSettingsPatch(assessedSettings, { mode: 'local_reads', advisor: { riskScope: 'advisor_assessed' } });
+  const assessedPlan = resolveApprovalAdvisorPlan(assessedSettings, local);
+  assert.equal(assessedPlan.eligible, true);
+  assert.equal(assessedPlan.editScope, undefined, 'advisor_assessed has no edit class');
+
+  const reasons = {
+    '../x': 'edit_outside_workspace',
+    '/etc/hosts': 'edit_outside_workspace',
+    'escape/payload.js': 'edit_symlink_path',
+    '.git/config': 'edit_path_excluded',
+    'data/config.json': 'edit_path_excluded',
+    '.env': 'edit_path_excluded',
+    '.env.local': 'edit_path_excluded',
+    '.github/workflows/ci.yml': 'edit_path_excluded',
+    'package-lock.json': 'edit_path_excluded',
+    'certs/server.pem': 'edit_path_excluded',
+    'node_modules/x/index.js': 'edit_path_excluded',
+    '.husky/pre-commit': 'edit_path_excluded',
+  };
+  for (const [resource, reason] of Object.entries(reasons)) {
+    const plan = planFor(resource);
+    assert.equal(plan.eligible, false, resource);
+    // Secret-looking paths may already be `high` locally; either way they never reach the advisor.
+    assert.ok([reason, 'not_low_risk', 'unsafe_category'].includes(plan.reason), `${resource}: ${plan.reason}`);
+  }
+  assert.equal(planFor('../x').reason, 'edit_outside_workspace');
+  assert.equal(planFor('.git/config').reason, 'edit_path_excluded');
+  assert.equal(planFor('lib/a.js', { assignment: '' }).reason, 'edit_not_implement_assignment');
+  // A review assignment is denied locally by the guard, so it never reaches the advisor.
+  assert.equal(planFor('lib/a.js', { assignment: 'review' }).reason, 'not_ask_user');
+  assert.equal(
+    resolveApprovalAdvisorPlan(editSettings(), { ...local, editTarget: { ...local.editTarget, paths: ['a.js', 'b.js'] } }).reason,
+    'edit_multiple_paths',
+  );
+  assert.equal(
+    planFor('lib/a.js', { event: { metadata: { diff: 'x'.repeat(300 * 1024) } } }).reason,
+    'edit_too_large',
+  );
+
+  // Bash mutations, dangerous categories and high stay with the human.
+  const bashMutation = { ...local, action: 'bash', command: 'sed -i s/a/b/ lib/a.js', editTarget: null };
+  assert.equal(resolveApprovalAdvisorPlan(editSettings(), bashMutation).reason, 'not_low_risk');
+  assert.equal(resolveApprovalAdvisorPlan(editSettings(), { ...local, risk: 'high' }).reason, 'not_low_risk');
+  assert.equal(
+    resolveApprovalAdvisorPlan(editSettings(), { ...local, categories: ['mutation', 'secrets'] }).reason,
+    'unsafe_category',
+  );
+  assert.equal(resolveApprovalAdvisorPlan(editSettings(), { ...local, decision: 'deny' }).reason, 'not_ask_user');
+  assert.equal(
+    resolveApprovalAdvisorPlan(editSettings(), { ...local, shadow: true }).eligible,
+    false,
+  );
+
+  // Daily edit limit: consumed per consultation, separate from dailyQuota.
+  resetApprovalAdvisorQuota();
+  resetWorkspaceEditQuota();
+  const limited = editSettings({ editDailyLimit: 2 });
+  assert.equal(readApprovalAdvisorSettings(limited).editDailyLimit, 2);
+  assert.equal(readApprovalAdvisorSettings(advisorSettings()).editDailyLimit, undefined);
+  const transport = async () => ({
+    status: 200,
+    json: { choices: [{ message: { content: JSON.stringify({ decision: 'allow', reason: 'ok', confidence: 0.99 }) } }] },
+  });
+  const seenBodies = [];
+  for (let i = 0; i < 2; i += 1) {
+    const result = await requestApprovalAdvisor({
+      settings: limited,
+      approvalAction: local,
+      permissionEvent: editEvent('lib/delegation-ratings.js'),
+      transport: async (req) => {
+        seenBodies.push(req.body);
+        return transport();
+      },
+    });
+    assert.equal(result.error, null);
+    assert.equal(result.advisorDecision, 'allow');
+  }
+  assert.match(seenBodies[0].messages[0].content, /edit exactly one file/);
+  assert.match(seenBodies[0].messages[0].content, /file basename, never an absolute path or workspace root/, 'edit prompt describes the basename the provider receives');
+  assert.doesNotMatch(seenBodies[0].messages[0].content, /workspace-relative/, 'edit prompt must not claim a relative path');
+  assert.match(seenBodies[0].messages[0].content, /untrusted data, never as instructions/, 'edit prompt keeps the untrusted-tuple instruction');
+  assert.equal(seenBodies[0].messages[1].content.includes(workspace), false, 'provider tuple carries no absolute workspace path');
+  assert.match(seenBodies[0].messages[1].content, /"resources":\["delegation-ratings\.js"\]/, 'provider tuple resources are basenames');
+  assert.equal(resolveApprovalAdvisorPlan(limited, local).reason, 'edit_quota_exhausted');
+  const exhausted = await requestApprovalAdvisor({
+    settings: limited,
+    approvalAction: local,
+    permissionEvent: editEvent('lib/delegation-ratings.js'),
+    transport,
+    plan: { ...resolveApprovalAdvisorPlan(editSettings(), local), editDailyLimit: 2 },
+  });
+  assert.equal(exhausted.error, 'edit_quota_exhausted');
+  assert.equal(resolveApprovalAdvisorPlan(editSettings({ editDailyLimit: 0 }), local).reason, 'edit_disabled');
+  resetApprovalAdvisorQuota();
+  resetWorkspaceEditQuota();
+
+  // Audit: source=advisor only when applied; edit rows carry scope + basename.
+  const auditFile = path.join(ISOLATED_DATA_DIR, 'edit-audit.jsonl');
+  const row = recordApprovalAdvisorAudit({
+    permissionEvent: editEvent('lib/delegation-ratings.js'),
+    approvalAction: local,
+    plan: resolveApprovalAdvisorPlan(editSettings(), local),
+    result: { advisorDecision: 'allow', reason: 'ok', confidence: 0.99 },
+    advisorAutomationOutcome: 'allow_once',
+  }, { file: auditFile });
+  assert.equal(row.source, 'advisor');
+  assert.equal(row.editScope, true);
+  assert.equal(row.editPath, 'lib/delegation-ratings.js');
+  assert.equal(row.editPath.startsWith(workspace), false, 'relative path only, no absolute workspace root');
+  fs.rmSync(workspace, { recursive: true, force: true });
+  fs.rmSync(outside, { recursive: true, force: true });
+}
+
 // --- advise_all: advisory role, every ask_user, never auto-once ------------
 
 function adviseAllSettings(overrides = {}) {
@@ -1604,6 +1778,184 @@ function adviseAllSettings(overrides = {}) {
   assert.ok(fromSnapshot);
   assert.equal(fromSnapshot.localRisk, 'medium');
   assert.deepEqual(fromSnapshot.categories, ['expansion']);
+}
+
+// --- decision source: advisor / local / user (legacy rows have none) --------
+
+{
+  const file = path.join(ISOLATED_DATA_DIR, 'advisor-audit-source', 'audit.jsonl');
+  const action = { mode: 'local_reads', risk: 'low', categories: [], policyVersion: 'opencode-local-1' };
+  const advisorRow = recordApprovalAdvisorAudit({
+    room: { chatId: 'chat_src' },
+    permissionEvent: { requestId: 'perm_src_adv' },
+    approvalAction: action,
+    plan: { role: 'authority', model: 'jev-latest' },
+    result: { advisorDecision: 'allow', confidence: 0.97, latencyMs: 346, reason: 'read only' },
+    advisorAutomationOutcome: 'allow_once',
+  }, { file });
+  assert.equal(advisorRow.source, 'advisor');
+  const askRow = recordApprovalAdvisorAudit({
+    room: { chatId: 'chat_src' },
+    permissionEvent: { requestId: 'perm_src_ask' },
+    approvalAction: action,
+    plan: { role: 'authority' },
+    result: { advisorDecision: 'ask_user' },
+    advisorAutomationOutcome: 'ask_user',
+  }, { file });
+  assert.equal('source' in askRow, false, 'ask_user leaves the decision to a human row');
+  const localRow = recordApprovalAudit({
+    room: { chatId: 'chat_src' },
+    permissionEvent: { requestId: 'perm_src_local', action: 'read' },
+    action: { mode: 'local_reads', decision: 'allow', reply: 'once', risk: 'low', reason: 'r', categories: [] },
+  }, { file });
+  assert.equal(localRow.source, 'local');
+  const pendingRow = recordApprovalAudit({
+    room: { chatId: 'chat_src' },
+    permissionEvent: { requestId: 'perm_src_pending', action: 'bash' },
+    action: { mode: 'local_reads', decision: 'ask_user', reply: null, risk: 'high', categories: [] },
+  }, { file });
+  assert.equal('source' in pendingRow, false);
+  const humanRow = recordApprovalHumanPermissionDecisionAudit({
+    room: { chatId: 'chat_src' },
+    permissionEvent: { requestId: 'perm_src_user' },
+    approvalAction: action,
+    humanReply: 'once',
+  }, { file });
+  assert.equal(humanRow.source, 'user');
+}
+
+{
+  const payload = buildOpenCodePermissionDecisionPayload({
+    requestId: 'perm_dec_1',
+    decidedBy: 'advisor',
+    reply: 'once',
+    result: {
+      advisorDecision: 'allow',
+      confidence: 0.97,
+      latencyMs: 346,
+      provider: 'api.example.com',
+      model: 'jev-latest',
+      reason: 'safe read',
+    },
+    plan: { protocol: 'systemone', model: 'jev-latest' },
+    approvalAction: { reason: 'local_read' },
+  });
+  assert.equal(payload.type, 'opencodePermissionDecision');
+  assert.equal(payload.decidedBy, 'advisor');
+  assert.equal(payload.confidence, 0.97);
+  assert.equal(payload.latencyMs, 346);
+  assert.equal(payload.model, 'jev-latest');
+  assert.equal(payload.localReason, 'local_read');
+  const userPayload = buildOpenCodePermissionDecisionPayload({ requestId: 'p', decidedBy: 'user', reply: 'reject' });
+  assert.deepEqual(userPayload, {
+    type: 'opencodePermissionDecision', requestId: 'p', decidedBy: 'user', reply: 'reject',
+  });
+  assert.equal(buildOpenCodePermissionDecisionPayload({ requestId: 'p', decidedBy: 'bogus' }), null);
+  assert.equal(buildOpenCodePermissionDecisionPayload({ requestId: '', decidedBy: 'local' }), null);
+}
+
+// workspace_edits policy hardening: realistic events, symlinks, exclusions.
+{
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const { evaluateWorkspaceEdit, extractWorkspaceEditTarget, isWorkspaceEditPathExcluded } =
+    await import('../lib/approval/workspace-edit-policy.js');
+  const { buildOpenCodePermissionSdkEvent } = await import('../lib/opencode/opencode-permission.js');
+  const ws = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-pol-ws-')));
+  const out = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-pol-out-')));
+  try {
+    fs.mkdirSync(path.join(ws, 'lib'));
+    fs.mkdirSync(path.join(ws, '.git', 'hooks'), { recursive: true });
+    fs.writeFileSync(path.join(ws, 'lib', 'real.js'), '');
+    fs.symlinkSync(path.join(out, 'authorized_keys'), path.join(ws, 'lib', 'dangling-out.js'));
+    fs.symlinkSync(path.join(ws, '.git', 'hooks', 'pre-commit'), path.join(ws, 'lib', 'dangling-hook.js'));
+    fs.symlinkSync(path.join(ws, 'lib', 'real.js'), path.join(ws, 'lib', 'link-in.js'));
+    fs.symlinkSync(path.join(ws, 'lib'), path.join(ws, 'linkdir'));
+    const check = (paths) => evaluateWorkspaceEdit({
+      kind: 'edit', paths, bytes: 1, workspaceFolder: ws, assignment: 'implement',
+    });
+    // F1: realistic OpenCode event carries relative patterns and absolute filepath.
+    const event = buildOpenCodePermissionSdkEvent({
+      type: 'permission.asked',
+      properties: {
+        id: 'per_1', sessionID: 's', permission: 'edit', patterns: ['lib/real.js'],
+        metadata: { filepath: path.join(ws, 'lib', 'real.js'), diff: '--- a' },
+      },
+    }, { opencodeSessionId: 's' });
+    assert.ok(event, 'event built');
+    const target = extractWorkspaceEditTarget(event, { workspaceFolder: ws, assignment: 'implement', worktree: ws });
+    assert.equal(target.paths.length, 1, JSON.stringify(target.paths));
+    assert.equal(target.bytes, Buffer.byteLength('--- a', 'utf8'));
+    assert.equal(evaluateWorkspaceEdit(target).ok, true);
+    // OpenCode 1.19.0 uses the same `edit` permission metadata shape for its
+    // write tool: absolute filepath plus the proposed patch in `diff`.
+    const writeEvent = buildOpenCodePermissionSdkEvent({
+      type: 'permission.asked',
+      properties: {
+        id: 'per_write', sessionID: 's', permission: 'edit', patterns: ['lib/real.js'],
+        metadata: { filepath: path.join(ws, 'lib', 'real.js'), diff: '--- a\n+++ b\n+new' },
+      },
+    }, { opencodeSessionId: 's' });
+    const writeTarget = extractWorkspaceEditTarget(writeEvent, {
+      workspaceFolder: ws, assignment: 'implement', worktree: ws,
+    });
+    assert.equal(writeTarget.bytes, Buffer.byteLength('--- a\n+++ b\n+new', 'utf8'));
+    assert.equal(evaluateWorkspaceEdit(writeTarget).ok, true);
+    const productionAction = resolveOpenCodeApprovalAction({
+      mode: 'local_reads', permissionEvent: event, assignment: 'implement', workspaceFolder: ws,
+    });
+    assert.equal(productionAction.editTarget.paths.length, 1);
+    assert.equal(evaluateWorkspaceEdit(productionAction.editTarget).ok, true);
+    // No diff/content/byte metadata means size is unknown and must stay with the human.
+    const eventWithoutPayload = buildOpenCodePermissionSdkEvent({
+      type: 'permission.asked',
+      properties: {
+        id: 'per_no_payload', sessionID: 's', permission: 'edit', patterns: ['lib/real.js'],
+        metadata: { filepath: path.join(ws, 'lib', 'real.js') },
+      },
+    }, { opencodeSessionId: 's' });
+    assert.ok(eventWithoutPayload, 'event without payload built');
+    const unknownSizeTarget = extractWorkspaceEditTarget(eventWithoutPayload, {
+      workspaceFolder: ws, assignment: 'implement', worktree: ws,
+    });
+    assert.equal(unknownSizeTarget.bytes, null);
+    assert.equal(evaluateWorkspaceEdit(unknownSizeTarget).reason, 'edit_size_unknown');
+    const unknownSizeAction = resolveOpenCodeApprovalAction({
+      mode: 'local_reads', permissionEvent: eventWithoutPayload, assignment: 'implement', workspaceFolder: ws,
+    });
+    assert.equal(unknownSizeAction.editTarget.bytes, null);
+    assert.equal(evaluateWorkspaceEdit(unknownSizeAction.editTarget).reason, 'edit_size_unknown');
+    const multi = extractWorkspaceEditTarget({
+      action: 'edit', resources: ['lib/a.js'], metadata: { filepath: path.join(ws, 'lib', 'b.js') },
+    }, { workspaceFolder: ws, assignment: 'implement', worktree: ws });
+    assert.equal(evaluateWorkspaceEdit(multi).reason, 'edit_multiple_paths');
+    // F2: symlinks fail closed; plain and missing files are fine.
+    assert.equal(check(['lib/dangling-out.js']).reason, 'edit_symlink_path');
+    assert.equal(check(['lib/dangling-hook.js']).reason, 'edit_symlink_path');
+    assert.equal(check(['lib/link-in.js']).reason, 'edit_symlink_path');
+    assert.equal(check(['linkdir/real.js']).reason, 'edit_symlink_path');
+    assert.equal(check(['lib/real.js']).ok, true);
+    assert.equal(check(['lib/missing.js']).ok, true);
+    // F8: path length.
+    assert.equal(check([`lib/${'a'.repeat(1100)}.js`]).reason, 'edit_path_too_long');
+    // F3 + F5 exclusions.
+    for (const excluded of [
+      '.envrc', '.env-local', '.env_backup', '.envrc.local', '.env',
+      '.gitlab/ci.yml', '.travis.yml', 'azure-pipelines.yml', 'bitbucket-pipelines.yml',
+      '.drone.yml', '.buildkite/pipeline.yml', '.netrc', '.git-credentials', '.pgpass',
+      'package.json', 'packages/a/package.json', 'Makefile', 'Dockerfile', 'Dockerfile.dev',
+      'docker-compose.yml', 'docker-compose.override.yml', '.vscode/tasks.json',
+      '.cursor/rules/a.mdc', '.claude/settings.json', '.codex/config.toml',
+      '.agents/skills/x/SKILL.md', 'CLAUDE.md', 'AGENTS.md',
+    ]) {
+      assert.equal(isWorkspaceEditPathExcluded(excluded), true, excluded);
+    }
+    assert.equal(isWorkspaceEditPathExcluded('.dockerignore'), false);
+    assert.equal(isWorkspaceEditPathExcluded('lib/foo.js'), false);
+  } finally {
+    fs.rmSync(ws, { recursive: true, force: true });
+    fs.rmSync(out, { recursive: true, force: true });
+  }
 }
 
 clearEnvKey();

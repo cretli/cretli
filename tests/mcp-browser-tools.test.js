@@ -270,15 +270,16 @@ test('catalog lists every browser_* tool with the read-only split of the Browser
   assert.deepEqual(Object.keys(elements.inputSchema.properties).sort(), ['browserSessionId', 'browserTabId', 'limit']);
 });
 
-test('the live login session attached to the chat is the browser owner; the newest attach wins', () => {
+test('a live bound owner stays stable; otherwise the newest live attachment wins', () => {
   rememberBrowserChatOwner('chat-x', 'login-a');
   rememberBrowserChatOwner('chat-x', 'login-b');
   rememberBrowserChatOwner('', 'login-c');
   rememberBrowserChatOwner('chat-y', '');
   assert.equal(resolveBrowserChatOwner('chat-x', manager), 'login-b');
   assert.equal(resolveBrowserChatOwner('chat-y', manager), '');
-  // A stale user binding must not outrank the live UI attachment on the same chat.
   manager.addSession({ id: 'session-bound', ownerSessionId: 'login-a', chatId: 'chat-x' });
+  assert.equal(resolveBrowserChatOwner('chat-x', manager), 'login-a');
+  forgetBrowserChatOwner('chat-x', 'login-a');
   assert.equal(resolveBrowserChatOwner('chat-x', manager), 'login-b');
 });
 
@@ -316,6 +317,7 @@ test('ws-router marks the owner live for authenticated, non-widget sockets and f
   const router = readFileSync(path.join(root, 'lib/ws/ws-router.js'), 'utf8');
   assert.match(router, /const sessionId = widgetAccess \? null : getSessionIdFromRequest\(req\);/);
   assert.match(router, /rememberBrowserChatOwner\(routedChat\.id, sessionId\);/);
+  assert.match(router, /if \(sessionId && routedChat\?\.id && !isBrowserPreviewSession\(sessionId\)\)/);
   assert.match(router, /ws\.on\('close', \(\) => forgetBrowserChatOwner\(routedChat\.id, sessionId\)\)/);
 });
 
@@ -599,4 +601,22 @@ test('browser_elements reaches the agent through the MCP surface', async () => {
   assert.equal(noTarget.isError, true);
   assert.equal(noTarget.structuredContent.code, 'VALIDATION_ERROR');
   assert.match(noTarget.structuredContent.error, /^explicit-target-required: /);
+});
+
+test('opening Cretli then attaching another login does not break subsequent Browser MCP calls', async () => {
+  const chat = newChat();
+  rememberBrowserChatOwner(chat.id, OWNER);
+  const handlers = handlersFor(chat);
+  const opened = await handlers.browser_open({ url: 'https://example.test/settings' });
+  assert.equal(opened.isError, false);
+  const target = { browserSessionId: opened.structuredContent.browserSessionId, browserTabId: opened.structuredContent.browserTabId };
+  rememberBrowserChatOwner(chat.id, 'second-login-session');
+  const elements = await handlers.browser_elements(target);
+  assert.equal(elements.isError, false, elements.content[0].text);
+  const navigated = await handlers.browser_navigate({ ...target, url: 'https://example.test/settings/permissions' });
+  assert.equal(navigated.isError, false, navigated.content[0].text);
+  forgetBrowserChatOwner(chat.id, OWNER);
+  const denied = await handlers.browser_elements(target);
+  assert.equal(denied.isError, true);
+  assert.match(denied.structuredContent.error, /^forbidden-owner:/);
 });

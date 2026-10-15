@@ -193,6 +193,11 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- DeepSeek package updates now re-resolve the vendor's locked prerelease peer
+  dependencies before installation, avoiding stale-lock `ERESOLVE` failures
+  without bypassing peer checks. Failed resolution restores the original manifest
+  and lockfile.
+
 - **Browser self-origin WebSockets.** The `allowSelfOrigin` debug opt-in now
   permits Cretli chat connections through the default-deny Chromium resolver.
   WebSockets on Cretli hosts are checked against the current origin/port policy;

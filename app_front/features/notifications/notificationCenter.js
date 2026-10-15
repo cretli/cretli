@@ -170,6 +170,7 @@ export function initNotificationCenter(options = {}) {
   const presetSelect = el('notification-center-preset');
   const badgeToggle = el('notification-center-badge');
   const soundToggle = el('notification-center-sound');
+  const recoveryToggle = el('notification-center-harness-recovery');
   const categoryToggles = new Map();
   for (const category of NOTIFICATION_CENTER_CATEGORIES) {
     const toggle = el(`notification-center-category-${category}`);
@@ -384,6 +385,7 @@ export function initNotificationCenter(options = {}) {
     }
     if (badgeToggle) badgeToggle.checked = normalized.showBadge;
     if (soundToggle) soundToggle.checked = normalized.sound;
+    if (recoveryToggle) recoveryToggle.checked = normalized.harnessRecovery;
   }
 
   /**
@@ -435,6 +437,7 @@ export function initNotificationCenter(options = {}) {
       preset,
       categories,
       showBadge: badgeToggle ? badgeToggle.checked === true : current.showBadge,
+      harnessRecovery: recoveryToggle ? recoveryToggle.checked === true : current.harnessRecovery,
       sound: soundToggle ? soundToggle.checked === true : current.sound,
     });
   }
@@ -452,6 +455,7 @@ export function initNotificationCenter(options = {}) {
   }
   badgeToggle?.addEventListener('change', () => void savePreferences(readPreferencesFromUi()));
   soundToggle?.addEventListener('change', () => void savePreferences(readPreferencesFromUi()));
+  recoveryToggle?.addEventListener('change', () => void savePreferences(readPreferencesFromUi()));
 
   async function runMarkAll() {
     const confirmed = await confirmNotificationAction({

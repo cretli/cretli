@@ -27,10 +27,11 @@ export const NOTIFICATION_CENTER_CATEGORIES = Object.freeze(['chat', 'models', '
 /** Preference presets shared with the server store. */
 export const NOTIFICATION_CENTER_PRESETS = Object.freeze(['all', 'important', 'custom']);
 
-/** @type {{ preset: string, categories: Record<string, boolean>, showBadge: boolean, sound: boolean }} */
+/** @type {{ preset: string, categories: Record<string, boolean>, harnessRecovery: boolean, showBadge: boolean, sound: boolean }} */
 export const DEFAULT_NOTIFICATION_CENTER_PREFERENCES = Object.freeze({
   preset: 'all',
   categories: Object.freeze({ chat: true, models: true, cli: true, system: true }),
+  harnessRecovery: true,
   showBadge: true,
   sound: true,
 });
@@ -47,7 +48,7 @@ function isPlainObject(value) {
  * Mirror of the server-side normaliser so the UI and server agree on the shape.
  *
  * @param {unknown} raw
- * @returns {{ preset: string, categories: Record<string, boolean>, showBadge: boolean, sound: boolean }}
+ * @returns {{ preset: string, categories: Record<string, boolean>, harnessRecovery: boolean, showBadge: boolean, sound: boolean }}
  */
 export function normalizeNotificationCenterPreferences(raw) {
   const source = isPlainObject(raw) ? raw : {};
@@ -65,6 +66,7 @@ export function normalizeNotificationCenterPreferences(raw) {
   return {
     preset,
     categories,
+    harnessRecovery: typeof source.harnessRecovery === 'boolean' ? source.harnessRecovery : true,
     showBadge: typeof source.showBadge === 'boolean'
       ? source.showBadge
       : DEFAULT_NOTIFICATION_CENTER_PREFERENCES.showBadge,

@@ -31,6 +31,18 @@ assert.match(richView, /is-advisor-pick/);
 assert.doesNotMatch(richView, /is-advisor-recommend[\s\S]{0,200}\.focus\(/);
 assert.doesNotMatch(richView, /applyAdvisorRecommendationHighlight[\s\S]{0,400}\.click\(/);
 
+// Decision-source chip: three states, persisted via a history meta variant.
+assert.match(richView, /markOpenCodePermissionDecision/);
+assert.match(richView, /variant === 'permissionDecision'/);
+assert.match(richView, /openCodePermissionDecidedBy\.advisor/);
+assert.match(transport, /opencodePermissionDecision/);
+assert.match(opencodeWs, /broadcastOpenCodePermissionDecision\(room, \{ requestId, decidedBy: 'user'/);
+assert.match(opencodeWs, /decidedBy: 'local'/);
+for (const lang of ['en', 'pl']) {
+  const i18n = fs.readFileSync(path.join(projectRoot, `app_front/i18n/${lang}.js`), 'utf8');
+  assert.match(i18n, /openCodePermissionDecidedBy: \{[\s\S]{0,400}advisor:[\s\S]{0,200}local:[\s\S]{0,200}user:/);
+}
+
 assert.match(transport, /advisoryAssessment:/);
 assert.match(transport, /alwaysAvailable:/);
 assert.match(transport, /localRisk:/);

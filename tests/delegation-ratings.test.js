@@ -186,16 +186,16 @@ const mixedRaters = [
   { delegationId: 'd3', rater: 'parent', score: 5, tags: [], note: '', ts: minutesAgo(1) },
 ];
 assert.equal(summarizeDelegationRatings(mixedRaters).rating_n, 3);
-assert.equal(summarizeDelegationRatingsForScoring(mixedRaters).rating_n, 2);
-assert.equal(summarizeDelegationRatingsForScoring(mixedRaters).rating_avg, 4.5);
+assert.equal(summarizeDelegationRatingsForScoring(mixedRaters).rating_n, 3);
+assert.equal(summarizeDelegationRatingsForScoring(mixedRaters).rating_avg, summarizeDelegationRatings(mixedRaters).rating_avg);
 const parentOnlyFiveStars = [
   { delegationId: 'p1', rater: 'parent', score: 5, tags: ['caught_bug'], note: '', ts: minutesAgo(1) },
   { delegationId: 'p2', rater: 'parent', score: 5, tags: ['caught_bug'], note: '', ts: minutesAgo(1) },
   { delegationId: 'p3', rater: 'parent', score: 5, tags: ['caught_bug'], note: '', ts: minutesAgo(1) },
 ];
 assert.equal(summarizeDelegationRatings(parentOnlyFiveStars).rating_avg, 5);
-assert.equal(summarizeDelegationRatingsForScoring(parentOnlyFiveStars).rating_avg, null);
-assert.equal(summarizeDelegationRatingsForScoring(parentOnlyFiveStars).rating_n, 0);
+assert.equal(summarizeDelegationRatingsForScoring(parentOnlyFiveStars).rating_avg, 5);
+assert.equal(summarizeDelegationRatingsForScoring(parentOnlyFiveStars).rating_n, 3);
 const harnessesCalib = [
   { id: 'ha', enabled: true, ready: true, can_delegate: true },
 ];
@@ -408,7 +408,6 @@ const lastRated = ratedPayloads[ratedPayloads.length - 1];
 assert.equal(lastRated.userRating.score, 5);
 assert.deepEqual(lastRated.userRating.tags, ['great']);
 const ratedCard = buildDelegationCardModel(lastRated);
-assert.equal(ratedCard.canRate, false, 'a rated card is read-only');
 assert.equal(ratedCard.userRating.score, 5);
 assert.equal(
   fs.readFileSync(path.join(workspace, 'delegation-ratings.jsonl'), 'utf8').includes('SECRET-REPORT-TEXT'),

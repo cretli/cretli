@@ -19,16 +19,15 @@ const html = read('public/index.html');
 const app = read('app_front/App.js');
 const docs = read('docs/ARCHITECTURE.md');
 
-test('Delegations section has Center / Limits / Review / Models subtabs on .cr-tabs', () => {
-  assert.match(html, /id="delegation-subtabs" class="cr-tabs"/);
-  for (const tab of ['center', 'limits', 'review', 'models']) {
-    assert.ok(html.includes(`data-delegation-subtab="${tab}"`), `${tab} subtab button`);
-    assert.ok(html.includes(`data-delegation-panel="${tab}"`), `${tab} panel`);
+test('Delegations has Center / Limits / Review / Models subtabs in the Harness-style settings bar', () => {
+  assert.match(html, /id="settings-delegation-tabs"[^>]*class|class="settings-tabs cr-tabs settings-subtabs" id="settings-delegation-tabs"/);
+  for (const tab of ['delegations', 'delegations-limits', 'delegations-review', 'delegations-models']) {
+    assert.ok(html.includes(`data-settings-tab="${tab}"`), `${tab} tab`);
   }
   for (const tab of ['limits', 'review', 'models']) {
     assert.ok(html.includes(`id="settings-delegation-${tab}-root"`), `${tab} root`);
   }
-  assert.match(html, /data-delegation-panel="center">[\s\S]*id="delegation-center-list"/, 'Center keeps the existing view');
+  assert.match(html, /data-settings-tab="delegations" role="tabpanel">[\s\S]*id="delegation-center-list"/, 'Center keeps the existing view');
 });
 
 test('subtabs expose every workspace and server delegation field', () => {
@@ -105,7 +104,7 @@ test('i18n keys used by the module exist in pl and en', () => {
 test('Save footer is revealed for the delegations section and statuses are styled', () => {
   const appScss = read('app_front/css/app.scss');
   const recipes = read('app_front/css/cr-recipes.scss');
-  assert.match(appScss, /#settings-panel \.settings-section\[data-settings-tab='delegations'\]:not\(\[hidden\]\) \.cr-page-footer/);
+  assert.match(appScss, /#settings-panel \.settings-section\[data-settings-tab\^='delegations'\]:not\(\[hidden\]\) \.cr-page-footer/);
   // A bare `#settings-panel:has(...delegations...) .cr-page-footer` would also match #settings-workspace-save-row.
   assert.doesNotMatch(appScss, /#settings-panel:has\(\.settings-section\[data-settings-tab='delegations'\][^)]*\)\)? \.cr-page-footer/);
   assert.match(recipes, /&\.is-error \{\s*color: var\(--cr-danger-text\)/);
@@ -119,13 +118,4 @@ test('saving re-renders only the saved subtab', () => {
   assert.match(source, /function renderAll\(only\)/);
   assert.match(source, /renderAll\(tab\);/);
   assert.match(source, /rerenderPreservingEdits/);
-});
-
-test('hidden delegation subpanels are really hidden', () => {
-  const appScss = read('app_front/css/app.scss');
-  const html = read('public/index.html');
-  assert.match(appScss, /\[data-delegation-panel\]\[hidden\] \{\s*display: none;/);
-  const wrappers = html.match(/<div data-delegation-panel="[a-z]+"[^>]*>/g) || [];
-  assert.equal(wrappers.length, 4);
-  for (const w of wrappers) assert.doesNotMatch(w, /class=/, w);
 });

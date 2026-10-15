@@ -12,6 +12,9 @@ import {
   syncClaudeRoomModelFromChat,
 } from '../lib/claude/claude-agent-ws.js';
 
+// Hermetic: never read the operator's real approval broker settings.
+const offDeps = { loadSettings: () => ({}) };
+
 assert.equal(resolveClaudePermissionMode('agent'), 'acceptEdits');
 assert.equal(resolveClaudePermissionMode('plan'), 'plan');
 assert.equal(resolveClaudePermissionMode('ask'), 'default');
@@ -30,7 +33,7 @@ assert.equal(isResumableClaudeSessionId('claude-sess-1'), true);
  */
 function canUseTool(mode, assignment = '') {
   const room = { _activeRunMode: mode, sdkMode: mode, delegationAssignment: assignment };
-  return createRoomClaudeCanUseTool(room)('Edit', { file_path: 'a.txt' }, {});
+  return createRoomClaudeCanUseTool(room, offDeps)('Edit', { file_path: 'a.txt' }, {});
 }
 
 const agentDecision = await canUseTool('agent');
@@ -50,7 +53,7 @@ assert.equal(reviewDecision.behavior, 'deny');
 assert.match(String(reviewDecision.message), /review/i);
 
 const readRoom = { _activeRunMode: 'plan', sdkMode: 'plan', delegationAssignment: '' };
-const readDecision = await createRoomClaudeCanUseTool(readRoom)('Read', { file_path: 'a.txt' }, {});
+const readDecision = await createRoomClaudeCanUseTool(readRoom, offDeps)('Read', { file_path: 'a.txt' }, {});
 assert.equal(readDecision.behavior, 'allow');
 
 // --- Task 1: PreToolUse hook + disallowedTools close the read-only bypass ---

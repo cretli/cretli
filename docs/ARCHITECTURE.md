@@ -221,8 +221,9 @@ OpenCode chats persist optional `opencodeSessionId` in `data/chats.json` for ses
   or “yes” → Agent). Review assignments keep native Cursor edit/delete/shell blocked
   (no pre-exec hook for shell). Harnesses that can deny before exec may run
   `node scripts/review-verify.js` with a frozen catalog of audited tests inside an
-  isolated data dir. Direct `node tests/<file>.test.js` / `node --test` runs,
-  other node flags, reporters, npm, and mutations stay denied. A pre-exec deny does not abort the review job. Codex has no pre-exec
+  isolated data dir. Pre-exec harnesses also allow a single
+  `node [--test] tests/<name>.test.js` run (workspace `tests/` only; the in-process
+  host executor still denies it). Other node flags, reporters, npm, and mutations stay denied. A pre-exec deny does not abort the review job. Codex has no pre-exec
   hook: the trusted runner is allowed, other mutations abort the turn. Codex Plan
   is prompt-only (no turn abort); Codex Ask still denies mutations on the host.
   Read-only sandbox is not used because Linux bwrap fails on non-git workspace

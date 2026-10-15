@@ -1,7 +1,7 @@
 import { renderChatContextPlanLimitsHtml } from './features/chat/chatContextPlanLimitsView.js';
 import { renderChatContextBreakdownHtml, renderChatContextCacheHtml } from './features/chat/chatContextBreakdownView.js';
 import { renderChatContextCacheCountdownHtml, tickCacheCountdowns } from './features/chat/chatContextCacheCountdownView.js';
-import { mergeSeriesIntoContextSnapshot, renderChatContextCacheChartHtml } from './features/chat/chatContextCacheChartView.js';
+import { bindChatContextCacheChart, mergeSeriesIntoContextSnapshot, renderChatContextCacheChartHtml } from './features/chat/chatContextCacheChartView.js';
 /**
  * Chat panel: chat list, openTerminal(chat), ensureChatConnection, closeChat, selectChat, newChat, model select, send-keys.
  */
@@ -4999,16 +4999,6 @@ function openTerminal(chat) {
         return { ...(res || {}), ok: false, errorKey: resolveAcceptErrorKey(res) };
       });
     },
-    onRateDelegation: (delegationId, payload) => {
-      if (!delegationId) return Promise.resolve({ ok: false, error: 'Missing delegation id' });
-      return api.postDelegationRate(delegationId, payload).then((res) => {
-        if (res?.ok && !chat._sdkHistoryHydrating) {
-          // The server publishes the rated card; pull it into the stream.
-          void syncSdkHistoryOnResume(chat, { reason: 'delegation_rate' }).catch(() => {});
-        }
-        return res;
-      });
-    },
     onRetryDelegation: (delegationId) => {
       if (!delegationId) return;
       void api.postDelegationRetry(delegationId).then((res) => {
@@ -5969,7 +5959,8 @@ export function openTodoAgentChat(chat, options = {}) {
     Object.assign(existing, next);
   } else {
     chat.agentTransport = normalizeNewChatHarness(chat.agentTransport || 'sdk');
-    if (!chat.sdkMode) chat.sdkMode = 'plan';
+    // Plan mode is an explicit choice; an unknown mode must not silently start a
+    // todo chat read-only. Leave it unset so the server's mode wins on connect.
     chats.push(chat);
   }
   renderChatList();
@@ -5987,7 +5978,8 @@ export function openTodoAgentChat(chat, options = {}) {
     if (active.ws?.readyState === WebSocket.OPEN) {
       setTimeout(() => {
         sendTextWithEnterToTerminalState(active, initialPrompt, {
-          sdkMode: active.sdkMode || 'plan',
+          // Unknown mode: omit it so the server runs the chat's stored mode.
+          sdkMode: active.sdkMode,
           focusDelayMs: 600,
           sendEnterDelayMs: 250,
         });
@@ -9525,8 +9517,9 @@ function renderChatContextDetails(chat) {
   }
   const seriesEl = document.getElementById('chat-context-details-series');
   if (seriesEl) {
-    seriesEl.innerHTML = renderChatContextCacheChartHtml(chat._contextCacheSeries, t, getCurrentLang());
+    seriesEl.innerHTML = renderChatContextCacheChartHtml(chat._contextCacheSeries, t, getCurrentLang(), { range: Number(seriesEl.dataset.chartRange) || 0 });
     seriesEl.hidden = !seriesEl.innerHTML;
+    bindChatContextCacheChart(seriesEl, chat._contextCacheSeries, t, getCurrentLang());
   }
   if (breakdownEl) {
     breakdownEl.innerHTML = renderChatContextBreakdownHtml(snapshot, t);
@@ -9629,7 +9622,7 @@ function startChatContextCountdown(chat) {
 async function refreshChatContextSeries(chat) {
   try {
     const res = await api.getContextCacheSeries(chat.id);
-    chat._contextCacheSeries = res?.ok ? { points: res.points, breaks: res.breaks, latestBreakdown: res.latestBreakdown || null } : null;
+    chat._contextCacheSeries = res?.ok ? { points: res.points, breaks: res.breaks, compactions: res.compactions || [], latestBreakdown: res.latestBreakdown || null } : null;
   } catch (_) {
     chat._contextCacheSeries = null;
   }

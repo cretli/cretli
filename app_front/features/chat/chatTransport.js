@@ -1438,6 +1438,11 @@ export function createChatTransport(deps) {
           }
           return;
         }
+        if (msg.type === 'opencodePermissionDecision') {
+          const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
+          chat._sdkRichView?.showOpenCodePermissionDecision?.(requestId, msg);
+          return;
+        }
         if (msg.type === 'opencodePermissionAdvisorPick') {
           const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
           const reply = typeof msg.reply === 'string' ? msg.reply : 'once';
