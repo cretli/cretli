@@ -466,11 +466,6 @@ const reviewVerifyAllowed = [
   ['/bin/bash', '-lc', 'node scripts/review-verify.js mcp-chat-history-format'],
   // wrapper without path is still allowed (skipReadOnlyShellPrefix handles it)
   'env node scripts/review-verify.js notices',
-  'node tests/mcp-chat-history-format.test.js',
-  'node tests/conversation-fork.test.js',
-  'node tests/sdk-history-stream-coalesce.test.js',
-  'node --test tests/sidebar-layout.test.js tests/sidebar-render-metrics.test.js',
-  'node --test tests/sidebar-layout.test.js tests/sidebar-render-metrics.test.js 2>&1 | tail -20',
   'node scripts/review-verify.js mcp-chat-history-format 2>&1 | tail -40',
   'node scripts/review-verify.js notices 2>/dev/null | head -5',
   'node scripts/review-verify.js notices >/dev/null',
@@ -482,6 +477,15 @@ for (const command of reviewVerifyAllowed) {
     String(command),
   );
   assert.equal(isMutatingPlanModeShellCommand(command), true, String(command));
+}
+for (const command of [
+  'node tests/mcp-chat-history-format.test.js',
+  'node tests/conversation-fork.test.js',
+  'node --test tests/sidebar-layout.test.js tests/sidebar-render-metrics.test.js',
+  'node --test tests/sidebar-layout.test.js tests/sidebar-render-metrics.test.js 2>&1 | tail -20',
+]) {
+  assert.equal(isMutatingPlanModeShellCommand(command, { allowReviewVerify: true }), true, command);
+  assert.equal(isMutatingPlanModeShellCommand(command), true, command);
 }
 
 assert.equal(
@@ -716,7 +720,7 @@ assert.equal(
     toolName: 'Bash',
     input: { command: 'node tests/conversation-fork.test.js' },
   }).deny,
-  false,
+  true,
   'claude_review_node_test_with_projectRoot',
 );
 
@@ -827,8 +831,7 @@ assert.equal(isMutatingPlanModeShellCommand('echo hi >/dev/null7'), true, 'L1 /d
 // L2: a literal `\cat` is not the `cat` binary; do not strip the backslash.
 assert.equal(isMutatingPlanModeShellCommand('/usr/bin/\\cat x'), true, 'L2 backslash not stripped from basename');
 
-// M7: qwen canUseTool now passes projectRoot (parity with Claude), so an absolute
-// in-workspace node test is allowed with projectRoot and denied without it.
+// M7: qwen canUseTool passes projectRoot; direct node test execution stays denied.
 const m7AbsTest = path.join(process.cwd(), 'tests', 'sdk-plan-guard.test.js');
 assert.equal(
   resolvePlanModeToolDecision({
@@ -837,8 +840,8 @@ assert.equal(
     toolName: 'run_shell_command',
     input: { command: `node ${m7AbsTest}` },
   }).deny,
-  false,
-  'M7 qwen absolute node test allowed with projectRoot',
+  true,
+  'M7 qwen absolute node test denied with projectRoot',
 );
 assert.equal(
   resolvePlanModeToolDecision({
