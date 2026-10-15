@@ -167,6 +167,20 @@ test('todo rows show claimed-by and queued badges', () => {
   assert.match(todoPanel, /isWatcherAutopilot\(\)/);
 });
 
+test('unknown recovery exposes a confirmed release control in the todo editor', () => {
+  const card = readSource('app_front/components/ui/cr-todo-card.js');
+  const todoPanel = readSource('app_front/todoPanel.js');
+  assert.match(card, /canManualReleaseUnknownWorkspaceTodo/);
+  assert.match(card, /todo-recovery-release-unknown/);
+  assert.match(todoPanel, /todo-release-unknown/);
+  assert.match(todoPanel, /releaseDoingWorkspaceWatcherTodo/);
+  assert.match(todoPanel, /recoveryReleaseUnknownConfirm/);
+  for (const dict of [en, pl]) {
+    assert.ok(dict.todo.recoveryReleaseUnknown, 'recoveryReleaseUnknown i18n');
+    assert.ok(dict.todo.recoveryReleaseUnknownConfirm, 'recoveryReleaseUnknownConfirm i18n');
+  }
+});
+
 test('todo badges repaint when the watcher view updates', () => {
   const todoPanel = readSource('app_front/todoPanel.js');
   const watcherPanel = readSource('app_front/features/watcher/watcherPanel.js');

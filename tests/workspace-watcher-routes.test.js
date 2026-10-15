@@ -404,6 +404,42 @@ runCase('POST todos/:id/recover returns conflict on stale revision', withApp(asy
   assert.equal(res.body.outcome, 'conflict');
 }));
 
+runCase('POST todos/:id/release requires confirmUnknownRelease', withApp(async (invoke) => {
+  const todo = addTodo(dataDir, cwd, { title: 'Release route', status: 'ready' }).item;
+  updateTodo(dataDir, cwd, todo.id, { status: 'doing', orchestratorChatId: 'exec-release' });
+  const row = getTodoById(dataDir, cwd, todo.id);
+  const missingConfirm = await invoke('POST', '/api/workspace-watcher/todos/:id/release', {
+    params: { id: todo.id },
+    body: { expectedUpdatedAt: row.updatedAt },
+  });
+  assert.equal(missingConfirm.status, 400);
+  assert.equal(missingConfirm.body.error?.code, 'VALIDATION');
+  assert.equal(getTodoById(dataDir, cwd, todo.id).status, 'doing');
+}));
+
+runCase('POST todos/:id/release returns 409 on a stale revision and 422 for a non-doing todo', withApp(async (invoke) => {
+  const todo = addTodo(dataDir, cwd, { title: 'Release CAS route', status: 'ready' }).item;
+  updateTodo(dataDir, cwd, todo.id, { status: 'doing', orchestratorChatId: 'exec-release-cas' });
+  const stale = await invoke('POST', '/api/workspace-watcher/todos/:id/release', {
+    params: { id: todo.id },
+    body: { expectedUpdatedAt: '1970-01-01T00:00:00.000Z', confirmUnknownRelease: true },
+  });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.outcome, 'conflict');
+  assert.equal(getTodoById(dataDir, cwd, todo.id).status, 'doing');
+
+  const ready = addTodo(dataDir, cwd, { title: 'Release not doing route', status: 'ready' }).item;
+  const readyRow = getTodoById(dataDir, cwd, ready.id);
+  const notDoing = await invoke('POST', '/api/workspace-watcher/todos/:id/release', {
+    params: { id: ready.id },
+    body: { expectedUpdatedAt: readyRow.updatedAt, confirmUnknownRelease: true },
+  });
+  assert.equal(notDoing.status, 422);
+  assert.equal(notDoing.body.outcome, 'not-doing');
+  assert.equal(notDoing.body.error?.code, 'NOT_DOING');
+  assert.equal(getTodoById(dataDir, cwd, ready.id).status, 'ready');
+}));
+
 runCase('DELETE removes the watcher row', withApp(async (invoke) => {
   await invoke('PATCH', '/api/workspace-watcher', { body: { mode: 'observe' } });
   const removed = await invoke('DELETE', '/api/workspace-watcher');

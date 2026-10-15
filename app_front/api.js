@@ -866,16 +866,6 @@ export async function postDelegationAccept(id, payload = {}) {
   }, `postDelegationAccept:${id}`);
 }
 
-/** User rating from the delegation card (rater is fixed server-side to `user`). */
-export async function postDelegationRate(id, payload = {}) {
-  if (!id) return { ok: false, error: 'Missing delegation id' };
-  return apiFetchJson(`/api/delegations/${encodeURIComponent(id)}/rate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload || {}),
-  }, `postDelegationRate:${id}`);
-}
-
 export async function postChatMailboxReply(id, payload) {
   if (!id) return { ok: false, error: 'Missing chat id' };
   return apiFetchJson(`/api/chats/${encodeURIComponent(id)}/mailbox/reply`, {
@@ -1127,6 +1117,27 @@ export async function recoverWorkspaceWatcherTodo(todoId, workspaceFolder, expec
       }),
     },
     'recoverWorkspaceWatcherTodo',
+  );
+}
+
+export async function releaseDoingWorkspaceWatcherTodo(todoId, workspaceFolder, expectedUpdatedAt, idempotencyKey = '') {
+  const id = String(todoId || '').trim();
+  const folder = String(workspaceFolder || '').trim();
+  const revision = String(expectedUpdatedAt || '').trim();
+  if (!id || !folder || !revision) return { ok: false, error: 'Missing task, workspace or revision' };
+  return apiFetchJson(
+    `/api/workspace-watcher/todos/${encodeURIComponent(id)}/release`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspaceFolder: folder,
+        expectedUpdatedAt: revision,
+        confirmUnknownRelease: true,
+        idempotencyKey: String(idempotencyKey || '').trim() || `ui-release-unknown-${id}-${revision}`,
+      }),
+    },
+    'releaseDoingWorkspaceWatcherTodo',
   );
 }
 

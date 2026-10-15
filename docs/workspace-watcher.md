@@ -418,6 +418,17 @@ claim. Recovery CAS failures do **not** increment `watcher.failures`; only
 finished cycles with outcome `failure` do (same `maxConsecutiveFailures` ceiling
 and backoff as before).
 
+When liveness stays **`unknown`** (for example `state_missing` after a server
+restart), automatic reconcile still refuses to release. Operators may force
+release with confirmation: `releaseDoingWorkspaceWatcherTodo` via
+`POST /api/workspace-watcher/todos/:id/release` (body must include
+`confirmUnknownRelease: true` and `expectedUpdatedAt`) or MCP `watcher_update`
+action `release_unknown_todo` with `confirm_unknown_release: true`. The path
+clears claims, appends a changelog note, sets `ready`, and never bypasses
+integration/worktree `user_action` guards (`integration_ready`, `worktree_open`,
+blocked reports). The Todo editor shows **Release to ready** for `unknown`
+rows only (destructive, confirmed in the UI).
+
 The release is fenced. Each claim stores `execution` on the todo (`attemptId`,
 `key`, `todoRevision`, `source`, `chatId`, `cycleId`, `phase`, plus one
 `previous` attempt); the run id lives on the cycle row joined by `cycleId`. The

@@ -12,6 +12,7 @@ import {
 } from '../../features/todo/todoTreeView.js';
 import {
   canManualRecoverWorkspaceTodo,
+  canManualReleaseUnknownWorkspaceTodo,
   todoRecoveryDetailText,
   todoRecoveryStateLabel,
   todoRecoveryUnknownHint,
@@ -148,6 +149,14 @@ class CrTodoCard extends LitElement {
     const revision = this.item?.updatedAt ? String(this.item.updatedAt) : '';
     if (!id || !revision) return;
     this._emit('todo-recover', { id, revision });
+  }
+
+  _onReleaseUnknown() {
+    const id = this.item?.id ? String(this.item.id) : '';
+    const revision = this.item?.updatedAt ? String(this.item.updatedAt) : '';
+    const title = this.item?.title ? String(this.item.title) : id;
+    if (!id || !revision) return;
+    this._emit('todo-release-unknown', { id, revision, title });
   }
 
   _onIntegrationDecision(action) {
@@ -1182,6 +1191,10 @@ class CrTodoCard extends LitElement {
             ${canManualRecoverWorkspaceTodo(this.recoveryState) ? html`
               <p class="cr-hint">${t('todo.recoveryResumeNewRun')}</p>
               <cr-bar-button class="todo-recovery-resume" data-id=${id} @click=${this._onRecover}>${t('todo.recoveryResume')}</cr-bar-button>
+            ` : nothing}
+            ${canManualReleaseUnknownWorkspaceTodo(this.recoveryState) ? html`
+              <p class="cr-hint">${t('todo.recoveryReleaseUnknownHint')}</p>
+              <cr-bar-button variant="danger" class="todo-recovery-release-unknown" data-id=${id} @click=${this._onReleaseUnknown}>${t('todo.recoveryReleaseUnknown')}</cr-bar-button>
             ` : nothing}
           </section>
         ` : nothing}

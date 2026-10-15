@@ -893,6 +893,7 @@ function bindCardHandlers(card) {
   card.addEventListener('todo-status-change', onStatusChange);
   card.addEventListener('todo-retry-blocked', onRetryBlockedTodo);
   card.addEventListener('todo-recover', onRecoverTodo);
+  card.addEventListener('todo-release-unknown', onReleaseUnknownTodo);
   card.addEventListener('todo-integration', onIntegrationDecision);
   card.addEventListener('todo-title-save', onTitleBlur);
   card.addEventListener('todo-body-save', onBodyBlur);
@@ -965,6 +966,47 @@ async function onRecoverTodo(e) {
     setStatus(t('todo.recoveryResumeSuccess'));
   } catch {
     showFeedback(t('todo.recoveryResumeFailed', { outcome: 'network' }), true);
+    setStatus(t('todo.networkError'), true);
+  }
+}
+
+/** @param {Event} e */
+async function onReleaseUnknownTodo(e) {
+  const detail = /** @type {any} */ (e)?.detail || {};
+  const id = String(detail.id || '').trim();
+  const revision = String(detail.revision || '').trim();
+  const title = String(detail.title || id).trim();
+  const ctx = getWorkspaceContext();
+  if (!id || !revision || !ctx.workspaceFolder) return;
+  if (!confirmAction(t('todo.recoveryReleaseUnknownConfirm', { title }))) return;
+  const card = e.currentTarget instanceof HTMLElement ? e.currentTarget : null;
+  const feedback = card?.querySelector('.todo-action-feedback');
+  const showFeedback = (message, isError = false) => {
+    if (!(feedback instanceof HTMLElement)) return;
+    feedback.hidden = !message;
+    feedback.textContent = message;
+    feedback.dataset.tone = isError ? 'error' : 'status';
+  };
+  showFeedback(t('todo.recoveryReleaseUnknown'));
+  setStatus(t('todo.recoveryReleaseUnknown'));
+  try {
+    const result = await api.releaseDoingWorkspaceWatcherTodo(id, ctx.workspaceFolder, revision);
+    if (!result?.ok) {
+      const outcome = String(result?.outcome || '');
+      const message = outcome === 'conflict'
+        ? t('todo.recoveryResumeConflict')
+        : t('todo.recoveryReleaseUnknownFailed', { outcome: outcome || result?.error || 'error' });
+      showFeedback(message, true);
+      setStatus(message, true);
+      return;
+    }
+    await refreshTodoList();
+    await refreshWatcherPanel();
+    openEditor(id);
+    showFeedback(t('todo.recoveryReleaseUnknownSuccess'));
+    setStatus(t('todo.recoveryReleaseUnknownSuccess'));
+  } catch {
+    showFeedback(t('todo.recoveryReleaseUnknownFailed', { outcome: 'network' }), true);
     setStatus(t('todo.networkError'), true);
   }
 }

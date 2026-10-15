@@ -62,6 +62,14 @@ export function canManualRecoverWorkspaceTodo(row) {
 }
 
 /**
+ * @param {object | null | undefined} row
+ * @returns {boolean}
+ */
+export function canManualReleaseUnknownWorkspaceTodo(row) {
+  return String(row?.state || '') === 'unknown';
+}
+
+/**
  * @param {object | null | undefined} view
  * @param {string} todoId
  * @returns {object | null}
