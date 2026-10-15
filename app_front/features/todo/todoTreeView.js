@@ -32,6 +32,19 @@ export function normalizeTodoItemStatus(status) {
 }
 
 /**
+ * A row may join the bulk "integrate with agent" selection only when the server
+ * marked it eligible. The read-only `batchEligibility` field is authoritative, so
+ * the client never re-derives worktree / done state here.
+ *
+ * @param {unknown} item
+ * @returns {boolean}
+ */
+export function isBatchSelectableItem(item) {
+  const row = item && typeof item === 'object' ? /** @type {Record<string, any>} */ (item) : {};
+  return String(row.batchEligibility?.mode || 'none').trim() !== 'none';
+}
+
+/**
  * @param {unknown} values
  * @returns {Set<string> | null} `null` = no filter (show all roots).
  */

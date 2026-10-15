@@ -35,6 +35,7 @@ import {
   filterTodoItemsBySearch,
   flattenTodoTree,
   formatTodoAssigneeBadge,
+  isBatchSelectableItem,
   parseTodoIntegrationFilter,
   parseTodoRootStatusFilter,
   serializeTodoRootStatusFilter,
@@ -50,6 +51,24 @@ import {
   resolveTodoStartHarness as resolveTodoHarness,
   todoDropZoneFromRatio,
 } from './features/todo/todoTreeView.js';
+import {
+  buildBatchRequestIds,
+  buildBatchSelection,
+  findBatchEntryForTodo,
+  isActiveBatchStatus,
+  isTerminalBatchStatus,
+  captureBatchScope,
+  createLatestRequestGate,
+  createOwnedPendingGuard,
+  resolveResumeAgentNeed,
+  describeBatchFailure,
+  isBatchScopeCurrent,
+  localizeBatchReason,
+  pruneBatchSelection,
+  resolveBatchControls,
+  resolveBatchToTrack,
+  summarizeBatchEntries,
+} from './features/todo/todoBatchSelection.js';
 import './components/ui/cr-bar-select.js';
 import './components/ui/cr-bar-input.js';
 import './components/ui/cr-bar-textarea.js';
@@ -108,6 +127,46 @@ const rowMenus = new Map();
 
 /** Todo ids with a start-agent request in flight (row menu and card share it). */
 const startAgentInFlight = new Set();
+
+/** Selection mode for the bulk "integrate with agent" flow. */
+let batchSelectionMode = false;
+/** @type {Set<string>} */
+let batchSelectedIds = new Set();
+/** @type {object | null} Batch view the panel currently tracks (active or just finished). */
+let activeBatch = null;
+/** Batch id whose final notification was already shown. */
+let lastNotifiedBatchId = '';
+/** Entry-state fingerprint; a poll only repaints rows when it changes. */
+let batchBadgeSignature = '';
+/** setTimeout chain id for the active-batch poll. */
+let batchPollTimer = 0;
+/** Guards a stale in-flight poll after stop/restart/workspace switch. */
+let batchPollGeneration = 0;
+const BATCH_POLL_MS = 4000;
+/** Bumped on every workspace switch; in-flight batch responses compare against it. */
+let batchWorkspaceGeneration = 0;
+/** True while a start request is in flight (double-click guard). */
+const batchStartGuard = createOwnedPendingGuard();
+/** Only the newest list request may update the tracked batch. */
+const batchListGate = createLatestRequestGate();
+/** Harness / model used to start a batch, kept so a resume can reuse them. */
+const batchAgentById = new Map();
+/** Long-press (touch) delay before selection mode starts on a row. */
+const BATCH_LONG_PRESS_MS = 500;
+const BATCH_LONG_PRESS_MOVE_PX = 12;
+let batchLongPressTimer = 0;
+let batchLongPressPointerId = -1;
+let batchLongPressStart = { x: 0, y: 0 };
+/** Set when a touch long-press already toggled selection, to swallow the click. */
+let suppressRowOpenAfterLongPress = false;
+/** @type {HTMLElement | null} */
+let batchActionBar = null;
+/** @type {Record<string, HTMLElement> | null} */
+let batchActionBarRefs = null;
+/** @type {HTMLElement | null} */
+let batchBanner = null;
+/** @type {Record<string, HTMLElement> | null} */
+let batchBannerRefs = null;
 
 const COLLAPSE_PREFIX = 'cretli-todo-collapsed:';
 const STATUS_FILTER_PREFIX = 'cretli-todo-status-filter:';
@@ -433,6 +492,694 @@ function createFilterCountEl(count) {
   el.className = 'todo-filter-count';
   el.textContent = String(count);
   return el;
+}
+
+// ---------------------------------------------------------------------------
+// Bulk "integrate with agent": selection, action bar, progress banner, polling
+// ---------------------------------------------------------------------------
+
+/**
+ * @param {unknown} reason
+ * @param {'skip' | 'entry' | 'pause'} [scope]
+ * @returns {string}
+ */
+function batchReasonText(reason, scope = 'entry') {
+  return localizeBatchReason(reason, t, scope);
+}
+
+/**
+ * @param {{ error?: string, message?: string } | null | undefined} result
+ * @param {string} [fallbackKey]
+ * @returns {string}
+ */
+function batchErrorMessage(result, fallbackKey = 'todo.batchFailed') {
+  return describeBatchFailure(result, t, fallbackKey);
+}
+
+/** @returns {{ folder: string, generation: number }} */
+function captureCurrentBatchScope() {
+  return captureBatchScope(getTodoWorkspaceFolder(), batchWorkspaceGeneration);
+}
+
+/**
+ * @param {{ folder: string, generation: number }} scope
+ * @returns {boolean}
+ */
+function isCurrentBatchScope(scope) {
+  return isBatchScopeCurrent(scope, batchWorkspaceGeneration, (folder) => todoWorkspaceMatches(folder));
+}
+
+/** @returns {{ eligibleIds: string[], eligibleSet: Set<string> }} */
+function currentBatchSelection() {
+  return buildBatchSelection({
+    items: getVisibleTodoItems(),
+    collapsedIds: effectiveCollapsedIds(),
+  });
+}
+
+/** Keep the toolbar toggle in sync with the current selection mode and language. */
+function syncBatchSelectTrigger() {
+  const btn = document.getElementById('todo-batch-select-btn');
+  if (!(btn instanceof HTMLElement)) return;
+  const label = batchSelectionMode ? t('todo.batchSelectModeExit') : t('todo.batchSelectMode');
+  btn.setAttribute('aria-label', label);
+  btn.title = label;
+  btn.setAttribute('aria-pressed', batchSelectionMode ? 'true' : 'false');
+  btn.classList.toggle('todo-batch-select-trigger--active', batchSelectionMode);
+}
+
+/**
+ * @param {string} id
+ * @returns {HTMLElement | null}
+ */
+function todoRowElForId(id) {
+  if (!listEl || !id) return null;
+  const escaped = typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(id) : id;
+  return listEl.querySelector(`.todo-row[data-id="${escaped}"]`);
+}
+
+/** @param {string} id */
+function repaintSingleRowSelection(id) {
+  const row = todoRowElForId(id);
+  const box = row?.querySelector('.todo-row-select');
+  if (box && 'checked' in box) box.checked = batchSelectedIds.has(id);
+  if (row instanceof HTMLElement) {
+    row.dataset.batchSelected = batchSelectedIds.has(id) ? 'true' : 'false';
+  }
+}
+
+function ensureBatchActionBar() {
+  if (batchActionBar) return batchActionBar;
+  const layout = document.querySelector('#todo-panel .todo-layout');
+  const toolbar = layout?.querySelector('.todo-toolbar');
+  if (!layout || !(toolbar instanceof HTMLElement)) return null;
+  const bar = document.createElement('div');
+  bar.className = 'todo-batch-bar';
+  bar.hidden = true;
+  bar.setAttribute('role', 'toolbar');
+  bar.setAttribute('aria-label', t('todo.batchActionBarAria'));
+  const count = document.createElement('span');
+  count.className = 'todo-batch-bar-count';
+  const selectAll = document.createElement('cr-bar-button');
+  selectAll.className = 'todo-batch-bar-select-all';
+  const clear = document.createElement('cr-bar-button');
+  clear.className = 'todo-batch-bar-clear';
+  const integrate = document.createElement('cr-bar-button');
+  integrate.className = 'todo-batch-bar-integrate';
+  integrate.setAttribute('variant', 'primary');
+  const exit = document.createElement('cr-bar-button');
+  exit.className = 'todo-batch-bar-exit';
+  bar.append(selectAll, clear, count, integrate, exit);
+  const anchor = batchBanner && batchBanner.isConnected ? batchBanner : toolbar;
+  anchor.insertAdjacentElement('afterend', bar);
+  batchActionBar = bar;
+  batchActionBarRefs = { count, selectAll, clear, integrate, exit };
+  selectAll.addEventListener('click', () => selectAllEligibleBatch());
+  clear.addEventListener('click', () => clearBatchSelection());
+  integrate.addEventListener('click', () => openBatchIntegratePicker());
+  exit.addEventListener('click', () => exitBatchSelectionMode());
+  return bar;
+}
+
+function paintBatchActionBar() {
+  const bar = ensureBatchActionBar();
+  if (!bar || !batchActionBarRefs) return;
+  bar.hidden = !batchSelectionMode;
+  if (!batchSelectionMode) return;
+  const { eligibleIds } = currentBatchSelection();
+  const selected = buildBatchRequestIds(batchSelectedIds, eligibleIds);
+  const refs = batchActionBarRefs;
+  refs.selectAll.textContent = t('todo.batchSelectAll');
+  refs.selectAll.disabled = eligibleIds.length === 0 || selected.length >= eligibleIds.length;
+  refs.clear.textContent = t('todo.batchClearSelection');
+  refs.clear.disabled = selected.length === 0;
+  refs.exit.textContent = t('todo.batchExitSelection');
+  refs.integrate.disabled = selected.length === 0 || batchStartGuard.isPending();
+  refs.integrate.textContent = t('todo.batchIntegrateSelected', { count: String(selected.length) });
+  refs.count.textContent = t('todo.batchSelectedCount', { count: String(selected.length) });
+}
+
+function ensureBatchBanner() {
+  if (batchBanner) return batchBanner;
+  const layout = document.querySelector('#todo-panel .todo-layout');
+  const toolbar = layout?.querySelector('.todo-toolbar');
+  if (!layout || !(toolbar instanceof HTMLElement)) return null;
+  const banner = document.createElement('div');
+  banner.className = 'todo-batch-banner';
+  banner.hidden = true;
+  const head = document.createElement('div');
+  head.className = 'todo-batch-banner-head';
+  const title = document.createElement('span');
+  title.className = 'todo-batch-banner-title';
+  const status = document.createElement('span');
+  status.className = 'todo-batch-banner-status';
+  const counts = document.createElement('span');
+  counts.className = 'todo-batch-banner-counts';
+  head.append(title, status, counts);
+  const progress = document.createElement('p');
+  progress.className = 'todo-batch-banner-progress';
+  const reason = document.createElement('p');
+  reason.className = 'todo-batch-banner-reason';
+  reason.hidden = true;
+  const list = document.createElement('ul');
+  list.className = 'todo-batch-banner-list';
+  list.hidden = true;
+  const actions = document.createElement('div');
+  actions.className = 'todo-batch-banner-actions';
+  const openChat = document.createElement('cr-bar-button');
+  openChat.className = 'todo-batch-open-chat';
+  const cancel = document.createElement('cr-bar-button');
+  cancel.className = 'todo-batch-cancel';
+  const resumeRetry = document.createElement('cr-bar-button');
+  resumeRetry.className = 'todo-batch-resume-retry';
+  resumeRetry.setAttribute('variant', 'primary');
+  const resumeSkip = document.createElement('cr-bar-button');
+  resumeSkip.className = 'todo-batch-resume-skip';
+  const abandon = document.createElement('cr-bar-button');
+  abandon.className = 'todo-batch-abandon';
+  abandon.setAttribute('variant', 'danger');
+  const dismiss = document.createElement('cr-bar-button');
+  dismiss.className = 'todo-batch-dismiss';
+  actions.append(openChat, cancel, resumeRetry, resumeSkip, abandon, dismiss);
+  banner.append(head, progress, reason, list, actions);
+  toolbar.insertAdjacentElement('afterend', banner);
+  batchBanner = banner;
+  batchBannerRefs = { title, status, counts, progress, reason, list, openChat, cancel, resumeRetry, resumeSkip, abandon, dismiss };
+  openChat.addEventListener('click', () => {
+    const chatId = String(activeBatch?.chatId || '').trim();
+    if (!chatId) return;
+    openTodoAgentChat({ id: chatId }, { reused: true });
+    showPanelFn('chat');
+  });
+  cancel.addEventListener('click', () => void runBatchCancel());
+  resumeRetry.addEventListener('click', () => runBatchResume('retry'));
+  resumeSkip.addEventListener('click', () => runBatchResume('skip'));
+  abandon.addEventListener('click', () => void runBatchAbandon());
+  dismiss.addEventListener('click', () => dismissBatchBanner());
+  return banner;
+}
+
+/**
+ * Toggle one batch action control. A `cr-bar-button` sets `:host { display:
+ * inline-block }`, which outranks the UA `[hidden]` rule, so the inline display
+ * is kept alongside `hidden` for assistive tech.
+ *
+ * @param {HTMLElement | null | undefined} el
+ * @param {boolean} visible
+ */
+function setBatchControlVisible(el, visible) {
+  if (!el) return;
+  el.hidden = !visible;
+  el.style.display = visible ? '' : 'none';
+}
+
+function paintBatchBanner() {
+  const banner = ensureBatchBanner();
+  if (!banner) return;
+  if (!activeBatch || !batchBannerRefs) {
+    banner.hidden = true;
+    return;
+  }
+  banner.hidden = false;
+  const batch = activeBatch;
+  const refs = batchBannerRefs;
+  const { total, counts } = summarizeBatchEntries(batch);
+  const done = ['merged', 'verified', 'failed', 'skipped', 'cancelled']
+    .reduce((sum, state) => sum + (counts[state] || 0), 0);
+  const controls = resolveBatchControls(batch);
+  refs.title.textContent = t('todo.batchBannerTitle');
+  refs.status.textContent = t(`todo.batchStatus_${batch.status}`);
+  refs.status.dataset.batchStatus = String(batch.status || '');
+  refs.counts.textContent = t('todo.batchCounts', { done: String(done), total: String(total) });
+  const progressParts = ['merged', 'verified', 'failed', 'skipped', 'cancelled']
+    .filter((state) => counts[state])
+    .map((state) => `${t(`todo.batchEntryState_${state}`)} ${counts[state]}`);
+  refs.progress.textContent = progressParts.join(' · ');
+  const pausedReason = String(batch.pausedReason || '').trim();
+  let reasonText = '';
+  if (pausedReason) {
+    reasonText = t('todo.batchPausedHint', { reason: batchReasonText(pausedReason, 'pause') });
+  } else if (controls.livenessUnknown) {
+    reasonText = t('todo.batchLivenessUnknownHint');
+  }
+  refs.reason.hidden = !reasonText;
+  refs.reason.textContent = reasonText;
+  const listItems = [];
+  for (const entry of Array.isArray(batch.entries) ? batch.entries : []) {
+    if (entry.state !== 'failed' && !(entry.state === 'skipped' && entry.reason)) continue;
+    listItems.push(`${entry.title || entry.todoId}: ${batchReasonText(entry.reason, 'entry')}`);
+  }
+  for (const skip of Array.isArray(batch.skipped) ? batch.skipped : []) {
+    listItems.push(`${String(skip.todoId || '').slice(0, 8)}: ${batchReasonText(skip.reason, 'skip')}`);
+  }
+  refs.list.replaceChildren(...listItems.map((text) => {
+    const li = document.createElement('li');
+    li.textContent = text;
+    return li;
+  }));
+  refs.list.hidden = !listItems.length;
+  setBatchControlVisible(refs.openChat, !!String(batch.chatId || '').trim());
+  refs.openChat.textContent = t('todo.batchOpenChat');
+  setBatchControlVisible(refs.cancel, controls.canCancel);
+  refs.cancel.disabled = controls.cancelDisabled;
+  refs.cancel.textContent = t('todo.batchCancel');
+  setBatchControlVisible(refs.resumeRetry, controls.canResume);
+  refs.resumeRetry.textContent = t('todo.batchResumeRetry');
+  setBatchControlVisible(refs.resumeSkip, controls.canResume);
+  refs.resumeSkip.textContent = t('todo.batchResumeSkip');
+  setBatchControlVisible(refs.abandon, controls.canAbandon);
+  refs.abandon.textContent = t('todo.batchAbandon');
+  setBatchControlVisible(refs.dismiss, controls.canDismiss);
+  refs.dismiss.textContent = t('todo.batchDismiss');
+}
+
+function dismissBatchBanner() {
+  if (activeBatch?.id) lastNotifiedBatchId = activeBatch.id;
+  stopBatchPoll();
+  activeBatch = null;
+  batchBadgeSignature = '';
+  paintBatchBanner();
+  repaintTodoRowBadges();
+}
+
+function enterBatchSelectionMode() {
+  if (batchSelectionMode) return;
+  batchSelectionMode = true;
+  batchSelectedIds = new Set();
+  listEl?.classList.add('todo-list--batch-mode');
+  syncBatchSelectTrigger();
+  paintBatchActionBar();
+  repaintTodoRowBadges();
+}
+
+function exitBatchSelectionMode() {
+  if (!batchSelectionMode) return;
+  batchSelectionMode = false;
+  batchSelectedIds = new Set();
+  suppressRowOpenAfterLongPress = false;
+  listEl?.classList.remove('todo-list--batch-mode');
+  syncBatchSelectTrigger();
+  paintBatchActionBar();
+  repaintTodoRowBadges();
+}
+
+function toggleBatchSelectionMode() {
+  if (batchSelectionMode) exitBatchSelectionMode();
+  else enterBatchSelectionMode();
+}
+
+function selectAllEligibleBatch() {
+  const { eligibleIds } = currentBatchSelection();
+  batchSelectedIds = new Set(eligibleIds);
+  paintBatchActionBar();
+  repaintTodoRowBadges();
+}
+
+function clearBatchSelection() {
+  batchSelectedIds = new Set();
+  paintBatchActionBar();
+  repaintTodoRowBadges();
+}
+
+/** @param {string} id */
+function toggleRowBatchSelection(id) {
+  const item = findItem(id);
+  if (!item) return;
+  if (!isBatchSelectableItem(item)) {
+    setStatus(batchReasonText(item?.batchEligibility?.reason || 'not_eligible', 'skip'), true);
+    return;
+  }
+  if (batchSelectedIds.has(id)) batchSelectedIds.delete(id);
+  else batchSelectedIds.add(id);
+  repaintSingleRowSelection(id);
+  paintBatchActionBar();
+  scheduleTodoViewMemoryCapture();
+}
+
+/** @param {Event} event */
+function onBatchCheckboxChange(event) {
+  const box = event.target instanceof Element ? event.target.closest('.todo-row-select') : null;
+  const row = box?.closest('.todo-row');
+  const id = String(row?.dataset.id || '');
+  if (!id) return;
+  const checked = event?.detail?.checked === true;
+  if (checked) batchSelectedIds.add(id);
+  else batchSelectedIds.delete(id);
+  paintBatchActionBar();
+  scheduleTodoViewMemoryCapture();
+}
+
+/** @param {PointerEvent} event */
+function onRowMainPointerDown(event) {
+  if (batchSelectionMode) return;
+  if (String(event.pointerType || '') !== 'touch') return;
+  // A new gesture never belongs to a previous long-press click.
+  suppressRowOpenAfterLongPress = false;
+  const row = event.currentTarget instanceof Element ? event.currentTarget.closest('.todo-row') : null;
+  const id = String(row?.dataset.id || '');
+  const item = findItem(id);
+  if (!id || !item || !isBatchSelectableItem(item)) return;
+  cancelBatchLongPress();
+  batchLongPressPointerId = event.pointerId;
+  batchLongPressStart = { x: event.clientX, y: event.clientY };
+  batchLongPressTimer = setTimeout(() => {
+    batchLongPressTimer = 0;
+    const still = findItem(id);
+    if (!still || !isBatchSelectableItem(still)) return;
+    enterBatchSelectionMode();
+    if (!batchSelectedIds.has(id)) {
+      batchSelectedIds.add(id);
+      repaintSingleRowSelection(id);
+      paintBatchActionBar();
+    }
+    suppressRowOpenAfterLongPress = true;
+    try {
+      navigator?.vibrate?.(10);
+    } catch {
+      // Vibration is best-effort feedback; unsupported engines may throw.
+    }
+  }, BATCH_LONG_PRESS_MS);
+}
+
+function cancelBatchLongPress() {
+  if (batchLongPressTimer) clearTimeout(batchLongPressTimer);
+  batchLongPressTimer = 0;
+  batchLongPressPointerId = -1;
+}
+
+/** @param {PointerEvent} event */
+function onRowMainPointerMove(event) {
+  if (!batchLongPressTimer || event.pointerId !== batchLongPressPointerId) return;
+  if (Math.abs(event.clientX - batchLongPressStart.x) > BATCH_LONG_PRESS_MOVE_PX
+    || Math.abs(event.clientY - batchLongPressStart.y) > BATCH_LONG_PRESS_MOVE_PX) {
+    cancelBatchLongPress();
+  }
+}
+
+/** @param {PointerEvent} event */
+function onRowMainPointerUp(event) {
+  if (batchLongPressPointerId !== -1 && event.pointerId !== batchLongPressPointerId) return;
+  cancelBatchLongPress();
+}
+
+/**
+ * Open the agent picker for the current selection, then start the batch. One
+ * chat integrates every selected todo; skipped / aliased rows are reported in
+ * the banner and in the status line.
+ */
+function openBatchIntegratePicker() {
+  if (batchStartGuard.isPending()) return;
+  const { eligibleIds } = currentBatchSelection();
+  const ids = buildBatchRequestIds(batchSelectedIds, eligibleIds);
+  if (!ids.length) {
+    setStatus(t('todo.batchNothingSelected'), true);
+    return;
+  }
+  // The scope is captured before the picker opens: it may sit open across a switch.
+  const scope = captureCurrentBatchScope();
+  const first = findItem(ids[0]);
+  openTodoAgentStartModal({
+    harness: resolveTodoStartHarness(first),
+    onStart: ({ harness, model }) => startTodoBatch(ids, { harness, model }, scope),
+  });
+}
+
+/**
+ * @param {string[]} todoIds
+ * @param {{ harness: string, model: string }} options
+ * @param {{ folder: string, generation: number }} scope
+ */
+async function startTodoBatch(todoIds, options, scope) {
+  if (batchStartGuard.isPending()) return;
+  if (!scope.folder) {
+    setStatus(t('todo.selectWorkspace'), true);
+    return;
+  }
+  if (!isCurrentBatchScope(scope)) return;
+  const ctx = getWorkspaceContext();
+  const model = String(options.model || 'auto');
+  const startToken = batchStartGuard.begin();
+  paintBatchActionBar();
+  setStatus(t('todo.batchStarting'));
+  try {
+    const data = await api.integrateTodosBatch(todoIds, scope.folder, {
+      workspaceFile: ctx.workspaceFile,
+      agentTransport: options.harness,
+      model,
+    });
+    if (!isCurrentBatchScope(scope)) return;
+    if (!data?.ok) {
+      setStatus(batchErrorMessage(data, 'todo.batchStartFailed'), true);
+      if (data?.batch) applyActiveBatch(data.batch);
+      return;
+    }
+    if (data.batch?.id) batchAgentById.set(String(data.batch.id), { harness: options.harness, model });
+    exitBatchSelectionMode();
+    applyActiveBatch(data.batch);
+    const skipped = Array.isArray(data.skipped) ? data.skipped.length : 0;
+    if (data.chat) {
+      openTodoAgentChat(data.chat, { initialPrompt: data.initialPrompt });
+      showPanelFn('chat');
+    }
+    await refreshTodoList();
+    if (!isCurrentBatchScope(scope)) return;
+    setStatus(skipped
+      ? t('todo.batchStartedWithSkipped', { count: String(skipped) })
+      : t('todo.batchStarted'));
+  } catch {
+    if (isCurrentBatchScope(scope)) setStatus(t('todo.networkError'), true);
+  } finally {
+    if (batchStartGuard.release(startToken)) paintBatchActionBar();
+  }
+}
+
+/**
+ * Resume needs the harness / model, because the server opens a new chat for it.
+ * Reuse what the batch was started with; when unknown (reload, another device)
+ * ask through the same agent picker.
+ *
+ * @param {'retry' | 'skip'} entryAction
+ */
+function runBatchResume(entryAction) {
+  const batch = activeBatch;
+  if (!batch) return;
+  const scope = captureCurrentBatchScope();
+  const known = batchAgentById.get(String(batch.id));
+  const need = resolveResumeAgentNeed(batch, known);
+  if (!need.needsPicker) {
+    void executeBatchResume(batch, entryAction, need.agent, scope);
+    return;
+  }
+  const firstEntry = (Array.isArray(batch.entries) ? batch.entries : [])[0];
+  openTodoAgentStartModal({
+    harness: resolveTodoStartHarness(findItem(String(firstEntry?.todoId || ''))),
+    onStart: ({ harness, model }) => {
+      if (!isCurrentBatchScope(scope)) return;
+      const agent = { harness, model: String(model || 'auto') };
+      batchAgentById.set(String(batch.id), agent);
+      void executeBatchResume(batch, entryAction, agent, scope);
+    },
+  });
+}
+
+/**
+ * @param {object} batch
+ * @param {'retry' | 'skip'} entryAction
+ * @param {{ harness: string, model: string }} agent
+ * @param {{ folder: string, generation: number }} scope
+ */
+async function executeBatchResume(batch, entryAction, agent, scope) {
+  if (!isCurrentBatchScope(scope)) return;
+  const folder = scope.folder;
+  const needsForce = resolveBatchControls(batch).needsForce;
+  if (needsForce && !confirmAction(t('todo.batchForceLivenessConfirm'))) return;
+  const send = (forceLiveness) => api.resumeIntegrateBatch(batch.id, folder, {
+    entryAction,
+    forceLiveness,
+    workspaceFile: getWorkspaceContext().workspaceFile,
+    ...(agent ? { agentTransport: agent.harness, model: agent.model } : {}),
+  });
+  setStatus(t('todo.batchResuming'));
+  try {
+    let result = await send(needsForce);
+    if (!isCurrentBatchScope(scope)) return;
+    if (!result?.ok && ['liveness_unknown', 'agent_busy'].includes(String(result?.error || ''))) {
+      if (!confirmAction(t('todo.batchForceLivenessConfirm'))) return;
+      result = await send(true);
+      if (!isCurrentBatchScope(scope)) return;
+    }
+    if (!result?.ok) {
+      setStatus(batchErrorMessage(result, 'todo.batchResumeFailed'), true);
+      if (result?.batch) applyActiveBatch(result.batch);
+      return;
+    }
+    applyActiveBatch(result.batch);
+    if (result.chat) {
+      openTodoAgentChat(result.chat, { initialPrompt: result.initialPrompt });
+      showPanelFn('chat');
+    }
+    await refreshTodoList();
+    if (!isCurrentBatchScope(scope)) return;
+    setStatus(t('todo.batchResumed'));
+  } catch {
+    if (isCurrentBatchScope(scope)) setStatus(t('todo.networkError'), true);
+  }
+}
+
+async function runBatchAbandon() {
+  const batch = activeBatch;
+  if (!batch) return;
+  if (!confirmAction(t('todo.batchAbandonConfirm'))) return;
+  const scope = captureCurrentBatchScope();
+  const needsForce = resolveBatchControls(batch).needsForce;
+  if (needsForce && !confirmAction(t('todo.batchForceLivenessConfirm'))) return;
+  setStatus(t('todo.batchAbandoning'));
+  try {
+    let result = await api.abandonIntegrateBatch(batch.id, scope.folder, { forceLiveness: needsForce });
+    if (!isCurrentBatchScope(scope)) return;
+    if (!result?.ok && ['liveness_unknown', 'agent_busy'].includes(String(result?.error || ''))) {
+      if (!confirmAction(t('todo.batchForceLivenessConfirm'))) return;
+      result = await api.abandonIntegrateBatch(batch.id, scope.folder, { forceLiveness: true });
+      if (!isCurrentBatchScope(scope)) return;
+    }
+    if (!result?.ok) {
+      setStatus(batchErrorMessage(result, 'todo.batchAbandonFailed'), true);
+      if (result?.batch) applyActiveBatch(result.batch);
+      return;
+    }
+    applyActiveBatch(result.batch);
+    await refreshTodoList();
+    if (!isCurrentBatchScope(scope)) return;
+    setStatus(t('todo.batchAbandoned'));
+  } catch {
+    if (isCurrentBatchScope(scope)) setStatus(t('todo.networkError'), true);
+  }
+}
+
+async function runBatchCancel() {
+  const batch = activeBatch;
+  if (!batch) return;
+  if (!confirmAction(t('todo.batchCancelConfirm'))) return;
+  const scope = captureCurrentBatchScope();
+  setStatus(t('todo.batchCancelling'));
+  try {
+    const result = await api.cancelIntegrateBatch(batch.id, scope.folder);
+    if (!isCurrentBatchScope(scope)) return;
+    if (!result?.ok) {
+      setStatus(batchErrorMessage(result, 'todo.batchCancelFailed'), true);
+      return;
+    }
+    if (result.batch) applyActiveBatch(result.batch);
+    setStatus(t('todo.batchCancelRequested'));
+  } catch {
+    if (isCurrentBatchScope(scope)) setStatus(t('todo.networkError'), true);
+  }
+}
+
+/** One toast per terminal batch; the banner stays until dismissed. */
+function notifyBatchFinished(batch) {
+  if (typeof window === 'undefined') return;
+  const { total, counts } = summarizeBatchEntries(batch);
+  const done = (counts.merged || 0) + (counts.verified || 0);
+  const message = t('todo.batchFinalSummary', {
+    status: t(`todo.batchStatus_${batch.status}`),
+    done: String(done),
+    total: String(total),
+    failed: String(counts.failed || 0),
+    skipped: String(counts.skipped || 0),
+  });
+  window.dispatchEvent(new CustomEvent('cretli:toast', { detail: { message } }));
+  setStatus(message);
+}
+
+/**
+ * Track one batch view, repaint the banner / badges and keep polling while the
+ * queue is still active. Called from create, resume, cancel, abandon, the list
+ * sync and every poll answer.
+ *
+ * @param {object | null} batch
+ */
+function applyActiveBatch(batch) {
+  activeBatch = batch || null;
+  const signature = activeBatch
+    ? (Array.isArray(activeBatch.entries) ? activeBatch.entries : [])
+      .map((entry) => `${entry.todoId}:${entry.state}:${entry.reason}`)
+      .join('|')
+    : '';
+  const badgesChanged = signature !== batchBadgeSignature;
+  batchBadgeSignature = signature;
+  if (activeBatch && isTerminalBatchStatus(activeBatch.status) && activeBatch.id !== lastNotifiedBatchId) {
+    lastNotifiedBatchId = activeBatch.id;
+    notifyBatchFinished(activeBatch);
+  }
+  paintBatchBanner();
+  paintBatchActionBar();
+  // Polling must not restyle every row when no entry changed.
+  if (badgesChanged) repaintTodoRowBadges();
+  scheduleBatchPoll();
+}
+
+/** @param {object[] | null | undefined} batches */
+function syncTrackedBatch(batches) {
+  const chosen = resolveBatchToTrack(batches, activeBatch);
+  if (chosen) applyActiveBatch(chosen);
+  else if (activeBatch && !isTerminalBatchStatus(activeBatch.status)) applyActiveBatch(null);
+}
+
+function stopBatchPoll() {
+  batchPollGeneration += 1;
+  if (batchPollTimer) clearTimeout(batchPollTimer);
+  batchPollTimer = 0;
+}
+
+function scheduleBatchPoll() {
+  stopBatchPoll();
+  if (!activeBatch || !isActiveBatchStatus(activeBatch.status)) return;
+  const generation = batchPollGeneration;
+  batchPollTimer = setTimeout(() => {
+    batchPollTimer = 0;
+    void pollActiveBatch(generation);
+  }, BATCH_POLL_MS);
+}
+
+/** @param {number} generation */
+async function pollActiveBatch(generation) {
+  if (generation !== batchPollGeneration) return;
+  const batchId = String(activeBatch?.id || '');
+  const folder = getTodoWorkspaceFolder();
+  if (!batchId || !todoWorkspaceMatches(folder)) return;
+  try {
+    const data = await api.getIntegrateBatch(folder, batchId);
+    if (generation !== batchPollGeneration) return;
+    if (data?.ok && data.batch) applyActiveBatch(data.batch);
+    else scheduleBatchPoll();
+  } catch {
+    if (generation === batchPollGeneration) scheduleBatchPoll();
+  }
+}
+
+/**
+ * Background tabs throttle timers, so a batch may have finished while hidden:
+ * poll once on return so the final notification still fires.
+ */
+function onBatchPanelVisibilityChange() {
+  if (document.visibilityState !== 'visible') return;
+  if (!activeBatch || !isActiveBatchStatus(activeBatch.status)) return;
+  void pollActiveBatch(batchPollGeneration);
+}
+
+/** Workspace switch: a batch belongs to exactly one workspace. */
+function resetBatchWorkspaceView() {
+  batchWorkspaceGeneration += 1;
+  batchStartGuard.reset();
+  batchListGate.next();
+  stopBatchPoll();
+  activeBatch = null;
+  lastNotifiedBatchId = '';
+  batchBadgeSignature = '';
+  batchSelectedIds = new Set();
+  if (batchSelectionMode) exitBatchSelectionMode();
+  paintBatchBanner();
 }
 
 function integrationFilterLabel(filter) {
@@ -764,6 +1511,32 @@ function ensureStatusFilterUi(toolbar) {
     toolbar.appendChild(trigger);
   }
   ensureTodoSearchUi(toolbar, trigger);
+}
+
+/**
+ * Toolbar toggle for the bulk "integrate with agent" selection mode. On touch it
+ * is also reachable by long-pressing an eligible row.
+ *
+ * @param {HTMLElement} toolbar
+ */
+function ensureBatchSelectionUi(toolbar) {
+  if (!(toolbar instanceof HTMLElement) || document.getElementById('todo-batch-select-btn')) return;
+  const btn = document.createElement('cr-icon-button');
+  btn.id = 'todo-batch-select-btn';
+  btn.className = 'todo-batch-select-trigger';
+  btn.setAttribute('aria-pressed', 'false');
+  const icon = document.createElement('span');
+  icon.className = 'mdi mdi-checkbox-multiple-marked-outline';
+  icon.setAttribute('aria-hidden', 'true');
+  btn.appendChild(icon);
+  btn.addEventListener('click', () => toggleBatchSelectionMode());
+  const refreshBtn = document.getElementById('todo-refresh-btn');
+  if (refreshBtn?.parentNode) {
+    refreshBtn.parentNode.insertBefore(btn, refreshBtn.nextSibling);
+  } else {
+    toolbar.appendChild(btn);
+  }
+  syncBatchSelectTrigger();
 }
 
 /**
@@ -1219,6 +1992,7 @@ function renderList(data) {
       `<p class="todo-empty">${t('todo.none')}</p>` +
       '</div>';
     syncEditorItem();
+    afterTodoRowsPainted();
     return;
   }
   if (!visibleItems.length) {
@@ -1229,6 +2003,7 @@ function renderList(data) {
       `<p class="todo-empty">${t('todo.noneFiltered')}</p>` +
       '</div>';
     syncEditorItem();
+    afterTodoRowsPainted();
     return;
   }
   applyCollapseDefaults(latestItems);
@@ -1268,6 +2043,19 @@ function renderList(data) {
   syncEditorItem();
   tryApplyPendingTodoViewMemory();
   scheduleTodoViewMemoryCapture();
+  afterTodoRowsPainted();
+}
+
+/**
+ * A list render may remove or filter out selected rows; drop them before the
+ * bar computes its count so the request can never include a hidden id.
+ */
+function afterTodoRowsPainted() {
+  if (batchSelectionMode) {
+    const { eligibleIds } = currentBatchSelection();
+    batchSelectedIds = pruneBatchSelection(batchSelectedIds, eligibleIds);
+  }
+  paintBatchActionBar();
 }
 
 function createTodoRow() {
@@ -1275,6 +2063,7 @@ function createTodoRow() {
   row.className = 'todo-row';
   row.setAttribute('role', 'treeitem');
   row.innerHTML =
+    '<cr-checkbox class="todo-row-select" hidden></cr-checkbox>' +
     '<button type="button" class="todo-row-grip" draggable="false">' +
     '<span class="mdi mdi-drag-vertical" aria-hidden="true"></span></button>' +
     '<button type="button" class="todo-row-toggle" hidden></button>' +
@@ -1287,6 +2076,7 @@ function createTodoRow() {
     '<span class="todo-row-stage-host"></span>' +
     '</span>' +
     '<cr-todo-review-badge class="todo-row-review" hidden></cr-todo-review-badge>' +
+    '<span class="todo-row-batch-badge" hidden></span>' +
     '<span class="todo-row-badge" hidden></span>' +
     '<span class="todo-row-mark" hidden></span>' +
     '</button>' +
@@ -1305,6 +2095,12 @@ function createTodoRow() {
   grip?.addEventListener('pointercancel', onGripPointerUp);
   toggle?.addEventListener('click', onToggleClick);
   main?.addEventListener('click', onRowOpen);
+  // Touch long-press enters bulk selection on an eligible row; a short tap still
+  // opens the editor. Pointer events also cover the underlying mouse click.
+  main?.addEventListener('pointerdown', onRowMainPointerDown);
+  main?.addEventListener('pointermove', onRowMainPointerMove);
+  main?.addEventListener('pointerup', onRowMainPointerUp);
+  main?.addEventListener('pointercancel', onRowMainPointerUp);
   add?.addEventListener('click', onAddChildClick);
   menu?.addEventListener('click', onRowMenuClick);
   return row;
@@ -1922,6 +2718,60 @@ function setIfChanged(el, key, value) {
   if (el.dataset[key] !== value) el.dataset[key] = value;
 }
 
+/**
+ * Row checkbox: visible only in selection mode and only on eligible rows. The
+ * server's `batchEligibility.mode` decides eligibility, never the client.
+ *
+ * @param {HTMLElement} el
+ * @param {object} item
+ */
+function paintTodoRowSelection(el, item) {
+  const box = el.querySelector('.todo-row-select');
+  if (!(box instanceof HTMLElement)) return;
+  const selectable = isBatchSelectableItem(item);
+  const visible = batchSelectionMode && selectable;
+  // cr-checkbox `:host { display: inline-flex }` beats the UA `[hidden]` rule.
+  setBatchControlVisible(box, visible);
+  el.dataset.batchSelectable = selectable ? 'true' : 'false';
+  const selected = visible && batchSelectedIds.has(String(item.id || ''));
+  el.dataset.batchSelected = selected ? 'true' : 'false';
+  if ('checked' in box && box.checked !== selected) box.checked = selected;
+  if (visible) {
+    const label = t('todo.batchSelectRow', { title: String(item.title || '') });
+    box.setAttribute('aria-label', label);
+    box.title = label;
+  }
+}
+
+/**
+ * Per-row badge mirroring the batch entry state (`queued`, `running`,
+ * `awaiting_confirmation`, `merged`, `verified`, `failed`, `skipped`, `cancelled`).
+ * The banner stays the place for reasons and actions.
+ *
+ * @param {HTMLElement} el
+ * @param {object} item
+ */
+function paintTodoRowBatchBadge(el, item) {
+  const badge = el.querySelector('.todo-row-batch-badge');
+  if (!(badge instanceof HTMLElement)) return;
+  const entry = activeBatch ? findBatchEntryForTodo(activeBatch, item?.id) : null;
+  if (!entry) {
+    badge.hidden = true;
+    badge.textContent = '';
+    badge.removeAttribute('data-batch-state');
+    badge.removeAttribute('title');
+    return;
+  }
+  const label = t(`todo.batchEntryState_${entry.state}`);
+  badge.hidden = false;
+  badge.textContent = label;
+  badge.dataset.batchState = String(entry.state || '');
+  const reason = entry.reason ? batchReasonText(entry.reason, 'entry') : '';
+  const detail = reason ? `${label} · ${reason}` : label;
+  badge.title = detail;
+  badge.setAttribute('aria-label', detail);
+}
+
 function paintTodoRow(el, row) {
   const id = String(row.item.id || '');
   const status = String(row.item.status || 'idea');
@@ -1947,6 +2797,8 @@ function paintTodoRow(el, row) {
   const main = el.querySelector('.todo-row-main');
   paintTodoStatusIcon(el, row.item);
   paintTodoReviewBadge(el, row);
+  paintTodoRowSelection(el, row.item);
+  paintTodoRowBatchBadge(el, row.item);
   if (worktreeBadge instanceof HTMLElement) {
     const usesWorktree = row.item?.executionMode === 'worktree' || row.item?.worktree?.live === true;
     worktreeBadge.hidden = !usesWorktree;
@@ -2149,6 +3001,15 @@ function onRowOpen(event) {
   const row = event.currentTarget instanceof Element ? event.currentTarget.closest('.todo-row') : null;
   const id = String(row?.dataset.id || '');
   if (!id) return;
+  if (suppressRowOpenAfterLongPress) {
+    // The long-press already entered selection mode and selected this row.
+    suppressRowOpenAfterLongPress = false;
+    return;
+  }
+  if (batchSelectionMode) {
+    toggleRowBatchSelection(id);
+    return;
+  }
   openEditor(id);
 }
 
@@ -2867,6 +3728,7 @@ function resetTodoWorkspaceView() {
     hintEl.textContent = '';
     hintEl.hidden = true;
   }
+  resetBatchWorkspaceView();
   setStatus('');
 }
 
@@ -2998,6 +3860,12 @@ export function refreshTodoList() {
   loadIntegrationFilter();
   syncStatusFilterTriggerLabel();
   void refreshWatcherPanel();
+  // Restore the banner and the poll loop after a reload or workspace switch.
+  const batchListToken = batchListGate.next();
+  void api.getIntegrateBatch(folder).then((data) => {
+    if (!isCurrent() || !batchListGate.isLatest(batchListToken) || !data?.ok) return;
+    syncTrackedBatch(data.batches);
+  }).catch(() => {});
   void api.getAgentSdkStatus().then((data) => {
     sdkReady = !!data?.ready;
   }).catch(() => {});
@@ -3069,9 +3937,12 @@ export function initTodoPanel(options = {}) {
   // One delegated handler for all rows: row menus are lazy, so this opens the
   // first ArrowDown before any per-row dropdown instance exists.
   listEl?.addEventListener('keydown', onRowMenuTriggerKeydown);
+  // cr-checkbox emits cr-change; one delegated listener covers every row.
+  listEl?.addEventListener('cr-change', onBatchCheckboxChange);
   statusEl = document.getElementById('todo-status');
   hintEl = document.getElementById('todo-cwd-hint');
   window.addEventListener('cretli-active-workspace-changed', onTodoWorkspaceChange);
+  document.addEventListener('visibilitychange', onBatchPanelVisibilityChange);
   window.addEventListener('cretli:todo-changed', onTodoReviewChanged);
   subscribeSidebarChatRowStatusPatch(() => {
     listEl?.querySelectorAll('.todo-row').forEach((el) => {
@@ -3080,7 +3951,10 @@ export function initTodoPanel(options = {}) {
     });
     syncEditorItem();
   });
-  ensureStatusFilterUi(document.querySelector('#todo-panel .todo-toolbar'));
+  const todoToolbar = document.querySelector('#todo-panel .todo-toolbar');
+  ensureStatusFilterUi(todoToolbar);
+  ensureBatchSelectionUi(todoToolbar);
+  ensureBatchBanner();
   ensureUsageUi();
   initWatcherPanel({
     getTodoTitle: (id) => String(findItem(id)?.title || ''),
@@ -3164,8 +4038,11 @@ export function initTodoPanel(options = {}) {
   });
   window.addEventListener('cr-lang-changed', () => {
     syncStatusFilterTriggerLabel();
+    syncBatchSelectTrigger();
     if (statusFilterMenu?.api.isOpen()) renderStatusFilterMenuItems();
     if (latestItems.length || listEl?.querySelector('.todo-empty')) renderList({ items: latestItems });
+    paintBatchBanner();
+    paintBatchActionBar();
   });
   registerViewMemoryRestoreHandler('todo', (slice) => {
     pendingTodoViewMemory = slice;

@@ -2565,6 +2565,146 @@ body.files-preview-resizing {
   justify-content: flex-start;
 }
 
+/* Bulk "integrate with agent": toolbar toggle, action bar and progress banner. */
+/* The toggle is a cr-icon-button; the active state restyles its inner control. */
+.todo-batch-select-trigger--active::part(control) {
+  background: var(--cr-primary);
+  border-color: var(--cr-primary-hover);
+  color: var(--cr-text-inverse);
+}
+
+.todo-batch-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.35rem 0.65rem;
+  border-bottom: 1px solid var(--cr-border-subtle);
+  background: var(--cr-surface-inset);
+}
+
+/* display:flex above outranks the UA [hidden] rule. */
+.todo-batch-bar[hidden],
+.todo-batch-banner[hidden] {
+  display: none;
+}
+
+.todo-batch-bar-count {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-batch-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid var(--cr-border-subtle);
+  background: var(--cr-surface-raised);
+}
+
+.todo-batch-banner-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.todo-batch-banner-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--cr-text);
+}
+
+.todo-batch-banner-status {
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface-inset);
+  font-size: 0.7rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-batch-banner-status[data-batch-status='running'] {
+  color: var(--cr-accent);
+}
+
+.todo-batch-banner-status[data-batch-status='paused'],
+.todo-batch-banner-status[data-batch-status='stalled'] {
+  color: var(--cr-error);
+}
+
+.todo-batch-banner-status[data-batch-status='completed'] {
+  color: var(--cr-success);
+}
+
+.todo-batch-banner-counts {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-batch-banner-progress,
+.todo-batch-banner-reason {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-batch-banner-reason {
+  color: var(--cr-error);
+}
+
+.todo-batch-banner-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.72rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-batch-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.todo-row-select {
+  align-self: center;
+  margin-left: 0.4rem;
+}
+
+.todo-row[data-batch-selected='true'] {
+  border-color: var(--cr-accent);
+  background: var(--cr-surface-raised);
+}
+
+.todo-row-batch-badge {
+  flex: 0 0 auto;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.05rem 0.35rem;
+  border-radius: var(--cr-radius-sm);
+  font-size: 0.65rem;
+  color: var(--cr-text-muted);
+  background: var(--cr-surface-inset);
+}
+
+.todo-row-batch-badge[data-batch-state='running'],
+.todo-row-batch-badge[data-batch-state='queued'] {
+  color: var(--cr-accent);
+}
+
+.todo-row-batch-badge[data-batch-state='merged'],
+.todo-row-batch-badge[data-batch-state='verified'] {
+  color: var(--cr-success);
+}
+
+.todo-row-batch-badge[data-batch-state='failed'] {
+  color: var(--cr-error);
+}
+
 .todo-status-filter-trigger {
   display: inline-flex;
   align-items: center;

@@ -1258,6 +1258,122 @@ export async function verifyIntegrationTodo(todoId, workspaceFolder, options = {
 }
 
 /**
+ * Bulk "integrate with agent": one agent chat integrates several finished todos
+ * strictly one after another, each on top of the already integrated HEAD. The
+ * server owns the queue and the workspace lock; see docs/todo-integration-contract.md §6.
+ */
+export async function integrateTodosBatch(todoIds, workspaceFolder, options = {}) {
+  const ids = (Array.isArray(todoIds) ? todoIds : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+  const folder = String(workspaceFolder || '').trim();
+  if (!ids.length) return { ok: false, error: 'empty' };
+  if (!folder) return { ok: false, error: 'Missing workspace' };
+  return apiFetchJson(
+    '/api/todos/integrate-batch',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        todoIds: ids,
+        workspaceFolder: folder,
+        workspaceFile: options.workspaceFile || '',
+        agentTransport: options.agentTransport || '',
+        model: options.model || '',
+      }),
+    },
+    'integrateTodosBatch',
+  );
+}
+
+/** Active and recent bulk integrate batches of a workspace, plus the current lock. */
+export async function getIntegrateBatch(workspaceFolder, batchId = '') {
+  const folder = String(workspaceFolder || '').trim();
+  const id = String(batchId || '').trim();
+  if (id) {
+    const query = folder ? `?workspaceFolder=${encodeURIComponent(folder)}` : '';
+    return apiFetchJson(
+      `/api/todos/integrate-batch/${encodeURIComponent(id)}${query}`,
+      {},
+      'getIntegrateBatch',
+    );
+  }
+  const path = withViewContextQuery(`/api/todos/integrate-batch${todoWorkspaceQuery(folder)}`);
+  return dedupeGetJson(path, path.includes('?') ? `listIntegrateBatches:${path.slice(path.indexOf('?') + 1)}` : 'listIntegrateBatches');
+}
+
+export async function cancelIntegrateBatch(batchId, workspaceFolder) {
+  const id = String(batchId || '').trim();
+  if (!id) return { ok: false, error: 'Missing batch' };
+  return apiFetchJson(
+    `/api/todos/integrate-batch/${encodeURIComponent(id)}/cancel`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(scopeTodoPayload({ workspaceFolder })),
+    },
+    'cancelIntegrateBatch',
+  );
+}
+
+export async function resumeIntegrateBatch(batchId, workspaceFolder, options = {}) {
+  const id = String(batchId || '').trim();
+  if (!id) return { ok: false, error: 'Missing batch' };
+  const entryAction = options.entryAction === 'skip' ? 'skip' : 'retry';
+  return apiFetchJson(
+    `/api/todos/integrate-batch/${encodeURIComponent(id)}/resume`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(scopeTodoPayload({
+        workspaceFolder,
+        workspaceFile: options.workspaceFile || '',
+        entryAction,
+        forceLiveness: options.forceLiveness === true,
+        // The server opens a new chat for the resume and defaults to sdk, so the
+        // harness and model chosen at start must travel with the request.
+        agentTransport: options.agentTransport || '',
+        model: options.model || '',
+      })),
+    },
+    'resumeIntegrateBatch',
+  );
+}
+
+export async function abandonIntegrateBatch(batchId, workspaceFolder, options = {}) {
+  const id = String(batchId || '').trim();
+  if (!id) return { ok: false, error: 'Missing batch' };
+  return apiFetchJson(
+    `/api/todos/integrate-batch/${encodeURIComponent(id)}/abandon`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(scopeTodoPayload({
+        workspaceFolder,
+        forceLiveness: options.forceLiveness === true,
+      })),
+    },
+    'abandonIntegrateBatch',
+  );
+}
+
+/**
+ * Explicit operator clear of a stranded integration lock. `force` is not needed;
+ * the server only records who owned it. A still-running agent may keep writing.
+ */
+export async function clearIntegrationLock(workspaceFolder) {
+  return apiFetchJson(
+    '/api/integration-lock/clear',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(scopeTodoPayload({ workspaceFolder })),
+    },
+    'clearIntegrationLock',
+  );
+}
+
+/**
  * @param {string} workspaceFolder
  * @returns {string}
  */
