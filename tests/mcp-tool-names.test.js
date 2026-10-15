@@ -9,6 +9,7 @@ import {
   isReadOnlyBuiltinMcpToolName,
   isReviewProtocolMcpToolName,
 } from '../lib/mcp/mcp-policy.js';
+import { DELEGATION_RATING_TAGS } from '../lib/delegation-rating-constants.js';
 import { resolveScoutNativeToolDecision } from '../lib/workspace-scout-read-only.js';
 import {
   PLAN_PROTOCOL_TOOL_ACTIONS,
@@ -326,15 +327,31 @@ const promptNonToolRefs = new Set([
   'review_subject',
   'code',
   'plan',
-  'caught_bug',
-  'missed_bug',
   'user',
   'unverified',
+  // Rating tags come from the single source of truth, not a hardcoded copy.
+  ...DELEGATION_RATING_TAGS,
 ]);
-const toolRefs = [...prompt.matchAll(/`([a-z][a-z0-9_]*)`/g)].map((match) => match[1]);
-for (const ref of toolRefs) {
-  if (promptNonToolRefs.has(ref)) continue;
-  assert.ok(catalogNames.has(ref), `prompt references unknown tool \`${ref}\``);
+/**
+ * @param {string} text
+ * @returns {string[]} backticked identifiers that are neither known tools nor allowed non-tool refs
+ */
+function findUnknownPromptRefs(text) {
+  return [...text.matchAll(/`([a-z][a-z0-9_]*)`/g)]
+    .map((match) => match[1])
+    .filter((ref) => !promptNonToolRefs.has(ref) && !catalogNames.has(ref));
+}
+for (const requirePlanApproval of [true, false]) {
+  const variant = buildWorkspaceWatcherCyclePrompt({
+    ...watcherCyclePromptInput,
+    policy: { requirePlanApproval },
+  });
+  assert.deepEqual(findUnknownPromptRefs(variant), [], `prompt references unknown tool (requirePlanApproval=${requirePlanApproval})`);
+  // Negative check: a real unknown tool name must still be detected.
+  assert.deepEqual(
+    findUnknownPromptRefs(`${variant}\nCall \`not_a_real_tool\` next.`),
+    ['not_a_real_tool'],
+  );
 }
 assert.match(prompt, /workflow_update/);
 assert.match(prompt, /delegation_rate/);
