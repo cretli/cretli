@@ -75,7 +75,7 @@ for (const name of [
   'todo_list', 'todo_show', 'todo_create', 'todo_update', 'todo_integration',
   'chat_plan_show', 'delegation_list', 'delegation_show', 'delegation_verify', 'delegation_wait', 'delegation_start', 'delegation_cancel',
   'delegation_reply', 'delegation_inbox', 'workflow_show', 'workflow_update',
-  'delegation_rate', 'delegation_ack',
+  'delegation_rate', 'delegation_ack', 'todo_takeover',
   'watcher_show', 'watcher_update',
   'watcher_status', 'watcher_set', 'watcher_report', 'watcher_claim_next', 'scout_findings',
   'task_list', 'task_run_list', 'agent_list', 'agent_run_list', 'harness_list', 'model_list', 'model_pick',
@@ -97,6 +97,7 @@ assert.ok(BUILTIN_MCP_READ_TOOLS.includes('workflow_show'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('workflow_update'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_rate'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_ack'));
+assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('todo_takeover'));
 assert.ok(BUILTIN_MCP_READ_TOOLS.includes('model_pick'));
 assert.ok(BUILTIN_MCP_READ_TOOLS.includes('watcher_show'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('watcher_update'));

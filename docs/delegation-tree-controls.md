@@ -271,7 +271,7 @@ Resolution of the two root identifiers:
 - Readers derive missing values as in the table above; they never write the
   derived values back as a side effect of reading.
 - New rows always store all three fields. A one-level row stores
-  `rootChatId == parentChatId`, `rootDelegationId == id`, `depth == 1`, so
+  `rootChatId == parentChatId` (until orchestration takeover), `rootDelegationId == id`, `depth == 1`, so
   default-mode rows are indistinguishable from derived legacy rows.
 - Chats keep `delegationParentChatId` as the source of truth for "is a child".
 
@@ -327,3 +327,11 @@ the delegation from its controller. No operation moves control yet; rows without
 `tests/delegation-controller-guard.test.js` and
 `config/delegation-controller-allowlist.json` classify each remaining
 `parentChatId` use as control / identity / scope.
+
+### Orchestration takeover and occupied slots
+
+The controller is read through `delegationController(row)`. Takeover preserves
+historical parent/source ids, redirects queued replies and moves the root chat
+for the selected one-level rows. It never cancels children or releases occupied
+slots, including unconfirmed cancellation slots. Controller queue draining must
+happen after takeover locks are released. Nested trees are refused.

@@ -172,7 +172,7 @@ row per leaf, not as a review round.
 
 ## Klucz i dopasowanie liścia
 
-- Klucz wiersza: `parentChatId` + `leafId` (`leaf_id`/`todo_id`).
+- Klucz wiersza: `parentChatId` + `leafId` (`leaf_id`/`todo_id`); po przejęciu `parentChatId` tego wiersza wskazuje nowego kontrolera. Historyczny rodzic delegacji pozostaje bez zmian. Stan rund, deadline i idempotencji jest przenoszony w całości. Wiersz chat-wide źródła pozostaje; limity celu łączą się przez najmniejszą dodatnią wartość (zero oznacza brak limitu).
 - Atrybucja joba do liścia (kolejność):
   1. pole `leafId` zapisane na rekordzie delegacji (ustawiane przy starcie z
      `leaf_id`/`todo_id` w żądaniu MCP/HTTP albo z linku parent→todo, gdy job

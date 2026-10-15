@@ -1,6 +1,7 @@
 {
   "comment": "file:function:class(control|identity|scope):reason \u2014 see tests/delegation-controller-guard.test.js",
   "entries": [
+    "lib/persist/delegation-workflows-persist.js:reassignDelegationWorkflows:identity:workflow row key is the controller chat id, not historical delegation ownership",
     "lib/agent-run-state.js:summarizeChatRunStates:control:chat index covers controller, historical parent and executor child; controller via accessor",
     "lib/chat-title-agent.js:ineligibleReason:identity:chat kind detection from delegationParentChatId",
     "lib/chat-title-dispatcher.js:getAutoTitleSkipReason:identity:chat kind detection from delegationParentChatId",
@@ -49,8 +50,7 @@
     "lib/delegation-tree-cancel.js:collectDelegationSubtreePostOrder:identity:subtree walk follows the executor-child chain of the starter (history)",
     "lib/delegation-tree-lock.js:resolveIncomingTreeRootId:identity:tree root resolved from the child chat delegationParentChatId (history)",
     "lib/delegation-tree-view.js:resolveViewpoint:identity:tree view links rows through the executor-child chain of the starter (history)",
-    "lib/delegation-tree-view.js:selectVisibleTreeRows:identity:tree view links rows through the executor-child chain of the starter (history)",
-    "lib/delegation-tree-view.js:toTreeNode:identity:tree view links rows through the executor-child chain of the starter (history)",
+    "lib/delegation-tree-view.js:toTreeNode:control:tree view links rows through the executor-child chain of the starter (history)",
     "lib/delegation-tree.js:evaluateDelegationDepthGate:identity:tree depth/root derive from the starter chain (history)",
     "lib/delegation-tree.js:readChatDelegationDepth:identity:tree depth/root derive from the starter chain (history)",
     "lib/delegation-tree.js:resolveRecordTreeFields:identity:tree depth/root derive from the starter chain (history)",
@@ -115,6 +115,9 @@
     "lib/workspace-watcher-cycle.js:reportWorkspaceWatcherCycle:identity:cycle attribution input uses the cycle chat id under the legacy field name",
     "lib/workspace-watcher-delegation-guard.js:validateWorkspaceWatcherParentDelegation:identity:parameter named parentChatId carries the caller (controller) chat id supplied by the caller",
     "lib/workspace-watcher-stats.js:summarizeWatcherDelegations:control:control decision routed through the accessor",
-    "lib/workspace-watcher.js:snapshotWorkspaceWatcher:control:control decision routed through the accessor"
+    "lib/workspace-watcher.js:snapshotWorkspaceWatcher:control:control decision routed through the accessor",
+    "lib/delegation-takeover.js:prepareOrchestrationTakeover:control:select transfer rows through delegationController; workflow parentChatId is the durable controller key",
+    "lib/delegation-takeover.js:executeOrchestrationTakeoverUnlocked:identity:child chat metadata mirrors the reassigned controller; no historical delegation identity is changed",
+    "lib/delegation-service.js:createDelegationService.orchestrationTakeover:identity:queue drain parameter parentChatId carries the completed takeover destination controller"
   ]
 }

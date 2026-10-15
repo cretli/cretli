@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Internal orchestration takeover journal and boot recovery, controller/workflow
+  transfer, conservative tree caps, and queued mailbox recipient CAS with a
+  lock-time recipient check. Public surface: MCP tool `todo_takeover` (the name
+  `orchestration_takeover` exceeds the 64-char bridge tool-name limit once
+  encoded) and `POST /api/chats/:id/orchestration-takeover`.
+
 - Delegation: automatic host verify after a completed implement/fix (`auto_after_implement`), `verify_pending` review start gate, and passed results inherited onto code reviews and their prompt. `CRETLI_AUTO_VERIFY_AFTER_IMPLEMENT=0` disables it.
 
 - **More accurate Codex cache statistics.** Response ids deduplicate repeated

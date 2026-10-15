@@ -1369,3 +1369,10 @@ only its todo while fresh work continues, a restart mid-cycle reconciles once
 without a duplicate cycle or claim, two processes are serialized by the lease,
 and `off`/`observe` start no agent. `tests/helpers/workspace-watcher-lease-child.js`
 is the second-process lease holder used by the cross-process case.
+
+### Orchestration takeover
+
+A takeover refuses an active Watcher cycle owned by the source or another
+caller (`takeover_watcher_cycle_active`). It does not change `activeCycles` or
+call `watcher_report`. Cycle ownership remains governed by `watcher_recover`
+and `watcher_report`, including the existing parent-delegation authorization.

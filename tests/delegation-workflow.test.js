@@ -18,6 +18,7 @@ import { updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import {
   getDelegationWorkflowsDataPath,
   loadDelegationWorkflows,
+  reassignDelegationWorkflows,
   upsertDelegationWorkflow,
 } from '../lib/persist/delegation-workflows-persist.js';
 import { UnsupportedDelegationSchemaError } from '../lib/persist/delegation-schema.js';
@@ -32,6 +33,25 @@ resetMockChatRuns();
 registerMockChatRunAdapter('opencode');
 
 const parentId = crypto.randomUUID();
+
+{
+  const from = crypto.randomUUID();
+  const to = crypto.randomUUID();
+  const leaf = crypto.randomUUID();
+  upsertDelegationWorkflow({ parentChatId: from, leafId: leaf, round: 3, deadlineAt: '2030-01-01T00:00:00.000Z', lastReviewer: 'reviewer', maxRounds: 9 });
+  upsertDelegationWorkflow({ parentChatId: from, treeBudgetTokens: 1000, treeBudgetCostUsd: 7 });
+  upsertDelegationWorkflow({ parentChatId: to, treeBudgetTokens: 0, treeBudgetCostUsd: 3 });
+  assert.equal(reassignDelegationWorkflows(from, to, [leaf]), 1);
+  assert.equal(reassignDelegationWorkflows(from, to, [leaf]), 0);
+  const moved = loadDelegationWorkflows().find((row) => row.parentChatId === to && row.leafId === leaf);
+  assert.equal(moved.round, 3);
+  assert.equal(moved.deadlineAt, '2030-01-01T00:00:00.000Z');
+  assert.equal(moved.lastReviewer, 'reviewer');
+  const caps = loadDelegationWorkflows().find((row) => row.parentChatId === to && !row.leafId);
+  assert.equal(caps.treeBudgetTokens, 1000);
+  assert.equal(caps.treeBudgetCostUsd, 3);
+  assert.equal(loadDelegationWorkflows().find((row) => row.parentChatId === from && !row.leafId).treeBudgetTokens, 1000);
+}
 
 {
   const first = applyDelegationWorkflowPatch({

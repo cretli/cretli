@@ -1225,3 +1225,7 @@ is recorded as an acknowledgement but never yields `manual`.
 - **`manualAccepted`** now counts only acceptances whose actor is `human`
   (§7.5). Earlier agent `accepted` acknowledgements no longer count, so the
   metric can drop versus previous releases.
+
+Orchestration takeover moves control only. The `review` field remains exclusively
+server-written from delegation records; takeover callers cannot write it.
+See [Orchestration takeover](ARCHITECTURE.md) for the recovery protocol.
