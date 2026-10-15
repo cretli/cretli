@@ -185,3 +185,19 @@ assert.equal(matching.canAccept, false);
 assert.equal(matching.isAccepted, true);
 
 console.log('delegation-card-model.test.js OK');
+
+// Plan-headroom snapshot is shown independently of a user pick reason.
+const headroomCard = buildDelegationCardModel({
+  ...inputRunning,
+  pickReason: 'chosen by operator',
+  planHeadroomSnapshot: {
+    level: 3,
+    hardFreePercent: 5,
+    windows: [{ type: 'five_hour', utilization: 10, resetsAt: '2026-09-18T12:00:00.000Z' }],
+  },
+});
+assert.equal(headroomCard.pickReason, 'chosen by operator');
+assert.equal(headroomCard.planHeadroom.level, 3);
+assert.equal(headroomCard.planHeadroom.windows[0].type, 'five_hour');
+assert.equal(buildDelegationCardModel(inputRunning).planHeadroom, null);
+assert.equal(buildDelegationCardModel({ ...inputRunning, planHeadroomSnapshot: { windows: 'x' } }).planHeadroom, null);

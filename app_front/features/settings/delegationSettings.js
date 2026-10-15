@@ -37,11 +37,13 @@ export const DELEGATION_SUBTAB_FIELDS = Object.freeze({
   ],
   models: [
     { field: 'empty_favorites', kind: 'enum', options: ['deny', 'all'] },
+    { field: 'plan_window_enabled', kind: 'bool' },
+    { field: 'plan_window_hard_free_percent', kind: 'int', min: 1, max: 20 },
   ],
 });
 
 /** @type {{ data: object | null, favorites: Array<{ harness: string, model: string, label: string }> }} */
-const state = { data: null, favorites: [] };
+const state = { data: null, favorites: [], bound: false };
 
 /**
  * @param {unknown} value

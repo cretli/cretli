@@ -511,3 +511,16 @@ No measured run exists in this repository. The pipeline was exercised with
 `no_go` (`not_measured`, `cost_unknown`). Consequently automatic keep-alive is **unavailable** until a
 measured report with a known tariff passes the gate; manual pings remain
 available as an explicit, bounded, user-paid action.
+
+## Plan-window mode in `model_pick`
+
+Enabled by default per workspace (Settings → Delegations → Models):
+
+- `plan_window_enabled` — soft 5h headroom tie-break plus the hard weekly
+  threshold. Off restores the legacy per-harness plan-limit penalties.
+- `plan_window_hard_free_percent` (1-20, default 5) — a weekly window
+  (`seven_day*`) with at most this much free excludes the model from
+  `model_pick` (`plan-window-exhausted`). Explicit named starts are unaffected.
+
+Candidates expose `plan_headroom_level`; a started delegation stores a
+`planHeadroomSnapshot` (shown on the delegation card) next to `pickReason`.

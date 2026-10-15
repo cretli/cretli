@@ -4794,6 +4794,12 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const pickReasonLabel = model.pickReason
       ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-pick-reason" title="${escapeHtml(model.pickReason)}">${escapeHtml(t('chat.delegationPickReason'))}: ${escapeHtml(model.pickReason)}</div>`
       : '';
+    const planHeadroomText = model.planHeadroom
+      ? model.planHeadroom.windows.map((w) => `${w.type} ${w.utilization}%`).join(', ')
+      : '';
+    const planHeadroomLabel = planHeadroomText
+      ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-plan-headroom" title="${escapeHtml(planHeadroomText)}">${escapeHtml(t('chat.delegationPlanHeadroom'))}: ${escapeHtml(t(`chat.delegationPlanHeadroomLevel.${model.planHeadroom.level}`))} (${escapeHtml(planHeadroomText)})</div>`
+      : '';
     const sessionResumeLabel = model.sessionResume
       ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-session-resume" title="${escapeHtml(model.sessionResume.reason)}">${escapeHtml(model.sessionResume.status === 'resumed'
         ? t('chat.delegationSessionResumed', { n: String(model.sessionResume.round) })
@@ -4805,15 +4811,18 @@ export function createSdkRichView(chat, mountEl, hooks) {
     content.innerHTML = [
       `<strong class="sdk-rich-delegation-title">${escapeHtml(t('chat.delegationCardTitle'))}</strong>`,
       `<div class="sdk-rich-delegation-meta">${escapeHtml(delegationStatusLabel(status))} ${unverified} ${uncertain} ${acceptedBadge}</div>`,
+      executorLabel ? `<div class="sdk-rich-delegation-meta">${escapeHtml(executorLabel)}${durationSec > 0 ? ` · ${escapeHtml(t('chat.delegationDuration', { seconds: String(durationSec) }))}` : ''}</div>` : duration,
+      sessionResumeLabel,
+      childGrantLabel,
+      `<details class="sdk-rich-delegation-details"${detailsOpen ? ' open' : ''}>`,
+      `<summary>${escapeHtml(t('chat.delegationDetails'))}</summary>`,
       attemptLabel,
       deliveryLabel,
       attemptsLabel,
-      executorLabel ? `<div class="sdk-rich-delegation-meta">${escapeHtml(executorLabel)}</div>` : '',
-      sessionResumeLabel,
       pickReasonLabel,
-      childGrantLabel,
+      planHeadroomLabel,
       sourceLabel,
-      duration,
+      '</details>',
       waiting,
       errorProse,
       renderHistoryCardProse(report),

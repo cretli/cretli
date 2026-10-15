@@ -8,6 +8,18 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Plan-window mode for `model_pick` (on by default).** Picks now prefer
+  harnesses with spare 5h plan headroom (within-band tie-break) and exclude
+  models whose weekly window (`seven_day*`) has at most 5% free. This changes
+  default rotation. Settings → Delegations → Models: `plan_window_enabled` and
+  `plan_window_hard_free_percent` (1-20, default 5); turning the mode off
+  restores the legacy plan-limit penalties exactly. Delegation cards show the
+  plan-headroom snapshot taken at start, even with a custom `pick_reason`.
+
+- Global harness usage-limit reset notifications for Claude, Codex and other
+  harnesses, with a Notifications setting, in-app notices and device push. Missed
+  resets survive server restarts; estimated retry times are labelled explicitly.
+
 - Internal orchestration takeover journal and boot recovery, controller/workflow
   transfer, conservative tree caps, and queued mailbox recipient CAS with a
   lock-time recipient check. Public surface: MCP tool `todo_takeover` (the name

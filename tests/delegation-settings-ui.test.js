@@ -42,7 +42,7 @@ test('subtabs expose every workspace and server delegation field', () => {
   for (const f of ['review_fanout', 'parallel_implement_fanout', 'review_allow_uncertified', 'code_review_phase', 'code_review_max_closures', 'reviewer_pair_enabled', 'reviewer_pair_members']) {
     assert.ok(review.includes(f), f);
   }
-  assert.deepEqual(DELEGATION_SUBTAB_FIELDS.models.map((s) => s.field), ['empty_favorites']);
+  assert.deepEqual(DELEGATION_SUBTAB_FIELDS.models.map((s) => s.field), ['empty_favorites', 'plan_window_enabled', 'plan_window_hard_free_percent']);
 });
 
 test('every field shows env default and a source badge; server fields are read-only', () => {
