@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import {
   applyClaudeHistoryContextUsage,
@@ -119,7 +120,12 @@ assert.equal(exactMissingTotal.totalTokens, 3862);
   assert.equal(reported.estimated, false);
   const estimatedOnly = resolveChatContextUsage({ _buffer: 'A'.repeat(4000) });
   assert.equal(estimatedOnly.estimated, true);
-  assert.equal(estimatedOnly.inputTokens, estimateTokensFromText('A'.repeat(4000)));
+  assert.equal(estimatedOnly.inputTokens, 1000); // ceil(4000 / 4), specified independently of the helper
+  assert.equal(estimateTokensFromText('A'.repeat(4001)), 1001);
+  assert.equal(estimateTokensFromText(''), 0);
+  const meterSource = readFileSync(new URL('../app_front/features/chat/chatContextMeter.js', import.meta.url), 'utf8');
+  assert.match(meterSource, /estimateTokensFromText,?\s*\n?.*from '.*sdk-context-advisory\.js'/s);
+  assert.doesNotMatch(meterSource, /\.length\s*\/\s*4/);
 }
 
 const claudeRunUsageChat = {

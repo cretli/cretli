@@ -111,11 +111,11 @@ host-side gate before the tool runs; plan-only prompts are noted separately.
 | Claude | `canUseTool` + `PreToolUse` deny | `lib/claude/claude-agent-ws.js:477`, `PreToolUse` deny `:437` | `permissionMode` from `resolveClaudePermissionMode`; no Cretli ask_user card |
 | Qwen | `canUseTool` | `lib/qwen/qwen-agent-ws.js:635` | `permissionMode` `plan` \| `yolo` at `:630` |
 | CodeBuddy | `canUseTool` (plan guard) | `lib/codebuddy/codebuddy-live-session.js:186` | Agent WS sets `permissionMode` `plan` \| `bypassPermissions` at `lib/codebuddy/codebuddy-agent-ws.js:265` |
-| Codex | `approvalPolicy: 'never'` (headless) | `lib/codex/codex-thread-options.js:53`, `docs/codex/SETUP.md:24` | No interactive Once/Always; plan is prompt-only |
+| Codex | `approvalPolicy: 'never'` (headless) | `lib/codex/codex-thread-options.js:53`, `docs/codex/SETUP.md:24` (`sandboxMode`), `docs/codex/SETUP.md:27` (`approvalPolicy`) | No interactive Once/Always; plan is prompt-only |
 | SDK (Cursor) | Host plan guard in tool executor | `lib/agent-harness/tool-executor.js:172-196` | No `canUseTool` in Cretli SDK path; Cursor runtime handles its own approvals |
-| DeepSeek (DSH) | Same as generic harness loop | `lib/agent-harness/llm-tool-loop.js:230` → `executeTool` | Plan/read-only guards only; no ask_user seam |
-| OpenRouter | Same | `lib/agent-harness/llm-tool-loop.js:230` | No dedicated permission callback |
-| Mistral | Same | `lib/agent-harness/llm-tool-loop.js:230` | No dedicated permission callback |
+| DeepSeek (DSH) | Same as generic harness loop | `lib/agent-harness/llm-tool-loop.js:271` → `executeTool` | Plan/read-only guards only; no ask_user seam |
+| OpenRouter | Same | `lib/agent-harness/llm-tool-loop.js:271` | No dedicated permission callback |
+| Mistral | Same | `lib/agent-harness/llm-tool-loop.js:271` | No dedicated permission callback |
 
 Future harness adapters should call `normalizePermissionRequest` at the row’s
 pre-exec decision point before emitting `ask_user` to the user or harness.

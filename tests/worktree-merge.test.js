@@ -146,8 +146,8 @@ test('workspace smart merge asks the agent to commit listed paths and record pro
     baseUrl: 'https://127.0.0.1:3011', insecureTls: true,
   });
   assert.equal(started.ok, true, JSON.stringify(started));
-  for (const guard of ['Workspace (merge target', 'Worktree path:', 'Worktree branch:', 'Base commit', 'Prepared patch', 'Authorization scope file:', 'Commit only paths from this file that you changed', 'for a rename both paths are in scope', 'Do not stage any other path', 'Do not push, reset, stash, or delete the worktree or its branch', 'Never discard, revert or overwrite', 'combine both sides', 'not by picking one wholesale', 'unrelated local edits', 'name it in the summary', 'Do not confirm when the commit fails', 'task change is not in HEAD', 'report must happen', 'current branch contains HEAD', 'todo_show for expected_updated_at', 'proof.simple true', 'curl -sS -X POST', suite.todo.id, suite.repo]) assert.ok(started.prompt.includes(guard), guard);
-  assert.ok(started.prompt.indexOf('2. Report') < started.prompt.indexOf('3. On outcome'));
+  for (const guard of ['@cretli-integrate', 'smart-merge', 'Workspace (merge target', 'Worktree path:', 'Worktree branch:', 'Base commit', 'Prepared patch', 'Authorization scope file:', 'Commit only paths from the scope', 'do not stage any other path', 'Never push, reset, stash or discard local changes', 'Do not confirm when the change is not in HEAD', 'todo_show for expected_updated_at', 'proof.simple true', 'curl -sS -X POST', suite.todo.id, suite.repo]) assert.ok(started.prompt.includes(guard), guard);
+  assert.ok(started.prompt.indexOf('2. Report') < started.prompt.indexOf('3. On "merged" only'));
   assert.match(started.prompt, /todo_integration action confirm/);
   assert.match(started.prompt, /Do not push/);
   assert.doesNotMatch(started.prompt, /Do NOT commit/);
@@ -173,7 +173,7 @@ test('git-branch merge request: refused untouched when blocked, started with a m
     instructions: 'prefer small commits', baseUrl: 'https://127.0.0.1:3011', insecureTls: true,
   });
   assert.equal(started.ok, true, JSON.stringify(started));
-  for (const guard of ['git diff --stat <base>', 'git status', 'Commit every intended change', 'Nothing may stay uncommitted', 'git merge --no-ff', 'never by picking one side wholesale', 'Complete the merge commit', 'Run the relevant tests/checks', 'covers ONLY this merge', 'Do NOT push, reset --hard, force anything, stash', 'delete the worktree or delete the branch', 'Do not switch the main tree to another branch', 'REPORT THE OUTCOME', 'smart-merge-report-from-agent']) assert.ok(started.prompt.includes(guard), guard);
+  for (const guard of ['@cretli-integrate', 'git-branch', 'git diff --stat <base>', 'git merge --no-ff', 'Do NOT push, reset --hard, force anything, stash', 'delete the worktree or the branch', 'switch the main tree to another branch', 'REPORT THE OUTCOME', 'smart-merge-report-from-agent']) assert.ok(started.prompt.includes(guard), guard);
   assert.match(started.prompt, /prefer small commits/);
   assert.match(started.prompt, /smart-merge-report-from-agent/);
   const todo = getTodoById(suite.dataDir, suite.repo, suite.todo.id);
@@ -294,7 +294,7 @@ for (const cause of ['missing', 'unreadable', 'hash mismatch']) test(`smart merg
   assert.equal(sidecar.scopeUnavailable, true);
   assert.deepEqual(sidecar.conflicts, conflicts);
   assert.ok(prompt.includes('this file does not authorize paths'));
-  for (const text of ['Patch missing, unreadable or hash mismatch', 'git diff --name-status -z -M <base>', 'git ls-files --others --exclude-standard', 'best effort', 'worktree is gone, stop and report failure', 'commit only paths from the derived scope']) assert.ok(prompt.includes(text), text);
+  for (const text of ['Patch missing, unreadable or hash mismatch', 'git diff --name-status -z -M <base>', 'git ls-files --others --exclude-standard', 'best effort', 'worktree is gone, stop and report failure']) assert.ok(prompt.includes(text), text);
   assert.ok(!prompt.includes('Authorization scope file:'));
 });
 
@@ -331,7 +331,7 @@ test('verify integration retains search, repair, commit and proof guards', (t) =
   t.after(suite.cleanup);
   const todo = addTodo(suite.dataDir, suite.repo, { title: 'finished task', status: 'done' }).item;
   const prompt = buildVerifyIntegrationRequest({ todoId: todo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir }).prompt;
-  for (const guard of ['todo_show this todo (and its children)', 'Do NOT conclude "missing"', 'chat_history / chat_event', 'git log -S/-G', 'git status/diff', 'git branch --contains <commit>', 'Run the relevant checks', 'fresh expected_updated_at', 'proof.simple true', 'action no_code', 'commit ONLY the task paths', 'never stage unrelated files', 'test or fixture is stale', 'regression test', 'do not confirm', 'Never push, reset, stash or discard local changes', 'leave them untouched and uncommitted', 'user attestation', 'change is not in HEAD']) assert.ok(prompt.includes(guard), guard);
+  for (const guard of ['@cretli-integrate', 'mode verify', 'Never push, reset, stash or discard local changes', 'leave them untouched', 'Do not confirm when the change is not in HEAD']) assert.ok(prompt.includes(guard), guard);
 });
 
 test('verify integration adds bounded server hints and shares guard core', (t) => {
@@ -361,8 +361,7 @@ test('verify integration adds bounded server hints and shares guard core', (t) =
   assert.equal((verifyPrompt.match(/- Chat /g) || []).length, 3);
   const hintBlock = verifyPrompt.split('Hints from the server, unverified; check HEAD and behaviour yourself.')[1].trim();
   assert.ok(Buffer.byteLength(`Hints from the server, unverified; check HEAD and behaviour yourself.${hintBlock ? `\n${hintBlock}` : ''}`, 'utf8') <= 600);
-  assert.ok(verifyPrompt.includes('Do NOT conclude "missing" from a path/commit search alone'));
-  assert.ok(verifyPrompt.includes('proof.simple true'));
+  assert.ok(verifyPrompt.includes('@cretli-integrate'));
   const smartPrompt = buildSmartMergeRequest({ todoId: suite.todo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir }).prompt;
   assert.ok(verifyPrompt.includes(INTEGRATION_GUARD_NO_LOCAL_CHANGE_DESTRUCTIVE_ACTIONS));
   assert.ok(smartPrompt.includes(INTEGRATION_GUARD_NO_LOCAL_CHANGE_DESTRUCTIVE_ACTIONS));

@@ -6,7 +6,7 @@
 
 import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import test, { after } from 'node:test';
@@ -20,7 +20,6 @@ import {
   logPromptDecorationMeasurement,
   resetPromptDecorationStatesForTests,
 } from '../lib/sdk/prompt-decoration.js';
-import { estimateTokensFromText } from '../lib/sdk/sdk-context-advisory.js';
 import {
   applyHarnessOutboundPrompt,
   applySdkHarnessOutboundPrompt,
@@ -67,7 +66,11 @@ test('hashPromptContent is deterministic and empty-safe', () => {
   assert.notEqual(hashPromptContent('abc'), hashPromptContent('abd'));
   assert.ok(estimatePromptTokens('12345678') === 2);
   assert.equal(estimatePromptTokens(''), 0);
-  assert.equal(estimatePromptTokens('abcd efgh'), estimateTokensFromText('abcd efgh'));
+  assert.equal(estimatePromptTokens('abcd efgh'), 3); // ceil(9 / 4), specified independently of the helper
+  assert.equal(estimatePromptTokens('a'), 1);
+  const src = readFileSync(new URL('../lib/sdk/prompt-decoration.js', import.meta.url), 'utf8');
+  assert.match(src, /import \{ estimateTokensFromText \} from '\.\/sdk-context-advisory\.js'/);
+  assert.doesNotMatch(src, /\.length\s*\/\s*4/);
 });
 
 test('first turn of a session emits the full static block and live volatile blocks', () => {
