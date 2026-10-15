@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- Delegation: automatic host verify after a completed implement/fix (`auto_after_implement`), `verify_pending` review start gate, and passed results inherited onto code reviews and their prompt. `CRETLI_AUTO_VERIFY_AFTER_IMPLEMENT=0` disables it.
+
 - **More accurate Codex cache statistics.** Response ids deduplicate repeated
   notices, cache writes/reasoning and thread-wide counters are preserved, and
   Cretli instruction/tool fingerprints help explain changes. Idle gaps are

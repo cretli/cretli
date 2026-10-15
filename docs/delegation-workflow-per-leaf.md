@@ -94,9 +94,19 @@ are prohibited. The reviewer first establishes a permitted inspection path. If n
 exists, the parent supplies the exact diff and relevant sources or chooses another
 eligible reviewer. Mutation guards remain unchanged.
 
-After every terminal **implement** or **fix** on a leaf, the orchestrator runs
-`delegation_verify` on that delegation id **before** starting a code review (or
-before handing partial work to the next executor). A failed verify sends the
+After a `completed` **implement** or **fix** the host starts the audited verify
+itself (`source: auto_after_implement`, ids mapped from the changed paths, full
+catalog when none map; disable with `CRETLI_AUTO_VERIFY_AFTER_IMPLEMENT=0`). A code
+review started while it runs is refused with retryable `verify_pending`; poll
+`delegation_show` (`verify_running`/`verify_pending`) and retry. A passed,
+non-stale result for the current revision is copied onto the review record
+(`inherited_from_implement`) and its output tail is added to the review prompt.
+The parent therefore calls `delegation_verify` only when the result is missing,
+stale or failed. The manual rule below still applies in those cases:
+
+After every terminal **implement** or **fix** on a leaf without such a result, the
+orchestrator runs `delegation_verify` on that delegation id **before** starting a
+code review (or before handing partial work to the next executor). A failed verify sends the
 orchestrator to fix with the test output; it must not start review or consume a
 review round. The server rejects a code review start when the latest implement/fix
 on the same leaf still has a failed verify for the current material revision

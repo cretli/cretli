@@ -15,6 +15,11 @@ if (process.env.CRETLI_DELEGATION_EMPTY_FAVORITES == null) {
   process.env.CRETLI_DELEGATION_EMPTY_FAVORITES = 'all';
 }
 
+// Auto verify spawns the catalog; tests opt in explicitly.
+if (process.env.CRETLI_AUTO_VERIFY_AFTER_IMPLEMENT == null) {
+  process.env.CRETLI_AUTO_VERIFY_AFTER_IMPLEMENT = '0';
+}
+
 export const ISOLATED_DATA_DIR = dir;
 
 /**
