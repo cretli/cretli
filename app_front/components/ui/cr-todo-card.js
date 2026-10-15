@@ -665,6 +665,33 @@ class CrTodoCard extends LitElement {
     `;
   }
 
+  /**
+   * Approval prompt kept above the tabs so a pending plan can be approved from
+   * any tab without scrolling to the bottom of a long plan.
+   */
+  _renderPlanApprovalBanner(item) {
+    const planMarkdown =
+      item?.plan && typeof item.plan === 'object' && typeof item.plan.markdown === 'string'
+        ? item.plan.markdown.trim()
+        : '';
+    const approvedAt = item?.plan && typeof item.plan.approvedAt === 'string' ? item.plan.approvedAt.trim() : '';
+    if (!planMarkdown || approvedAt || item?.status === 'done') return nothing;
+    return html`
+      <section class="todo-plan-approval-banner todo-attention" role="status" aria-live="polite">
+        <div><strong>${t('todo.planAwaitingApproval')}</strong></div>
+        <cr-bar-button
+          variant="primary"
+          class="todo-plan-approval-banner-btn"
+          @click=${() => this._emit('todo-plan-approve', { id: item.id, updatedAt: item.updatedAt })}
+        >${t('todo.planApprove')}</cr-bar-button>
+        <cr-bar-button
+          class="todo-plan-approval-banner-show"
+          @click=${() => { this.activeTab = 'plan'; }}
+        >${t('todo.planShow')}</cr-bar-button>
+      </section>
+    `;
+  }
+
   _renderPlanSection(item) {
     const planMarkdown =
       item?.plan && typeof item.plan === 'object' && typeof item.plan.markdown === 'string'
@@ -1198,6 +1225,7 @@ class CrTodoCard extends LitElement {
             ` : nothing}
           </section>
         ` : nothing}
+        ${this._renderPlanApprovalBanner(item)}
         ${isTodoAwaitingIntegration(item) ? this._renderAwaitingIntegration(item, id) : nothing}
         ${this._renderTabs()}
         <div class="todo-editor-panels">

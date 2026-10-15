@@ -2406,6 +2406,8 @@ export const pl = {
     planApprove: 'Zatwierdź plan',
     planApproved: 'Plan zatwierdzony',
     planApproveError: 'Nie udało się zatwierdzić planu',
+    planAwaitingApproval: 'Plan czeka na zatwierdzenie',
+    planShow: 'Pokaż plan',
     history: 'Historia',
     changelogPlan: 'Plan',
     changelogImplement: 'Implementacja',

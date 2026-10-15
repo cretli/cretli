@@ -14946,6 +14946,23 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   font-size: 0.85rem;
 }
 
+.todo-plan-approval-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cr-space-2);
+  margin: var(--cr-space-2) 0;
+  padding: var(--cr-space-2) var(--cr-space-3);
+  border: 1px solid var(--cr-success, #22c55e);
+  border-radius: var(--cr-radius-sm);
+  background: color-mix(in srgb, var(--cr-success, #22c55e) 10%, transparent);
+
+  > div {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
+
 .todo-attention p {
   margin: 0.15rem 0 0;
   font-size: 0.78rem;

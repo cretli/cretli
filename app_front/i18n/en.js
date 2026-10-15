@@ -2406,6 +2406,8 @@ export const en = {
     planApprove: 'Approve plan',
     planApproved: 'Plan approved',
     planApproveError: 'Could not approve the plan',
+    planAwaitingApproval: 'Plan is awaiting approval',
+    planShow: 'Show plan',
     history: 'History',
     changelogPlan: 'Plan',
     changelogImplement: 'Implementation',
