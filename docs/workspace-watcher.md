@@ -245,6 +245,15 @@ explicitly.
 - Claim selection prefers a compatible assignee, then sibling order, then the
   oldest update; leaves at the failure ceiling / identical-findings streak are
   skipped.
+- A leaf whose tree is driven by a chat outside the watcher is skipped
+  (`lib/workspace-watcher-tree-owner.js`). The tree is owned when any node is
+  stamped (`orchestratorChatId`, `chatId`, `claimedByChatId`) with a chat that
+  is running or controls an active delegation, when an active non-watcher
+  delegation runs on any node, or when the leaf or an ancestor carries the
+  `orchestratorChatId` of a non-watcher chat active in the last 30 minutes (a
+  manual orchestrator idle between turns). The reserve re-checks this against
+  the live todo rows, and a cycle never overwrites a non-watcher
+  `orchestratorChatId` on an ancestor; it authorizes through its own leaf.
 - A start failure rolls the reserve back, releases the claim and arms the
   backoff; an *uncertain* start keeps the cycle in `phase: 'starting'` and
   records `stopReason: cycle_start_uncertain` instead of guessing.
@@ -1021,6 +1030,9 @@ Common syndromes:
 - **`idle_no_work` / `ancestor_requires_worktree`** — the only ready leaves sit
   under a `worktree` ancestor while the watcher would run them in the project
   folder; see "Mode selection".
+- **`idle_no_work` / `tree_owned_by_live_orchestrator`** — the only ready leaves
+  belong to a tree another chat is driving (manual `todo_start` orchestrator or
+  a leaf chat with its own loop); see "Parallel cycles and claims".
 - **`stopped` / `loop_no_eligible_work`** — every ready todo is parked at the
   failure ceiling. Inspect `failures`, fix the blocker, then either
   `clear-stop` or retry the todo manually.
