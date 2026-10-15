@@ -25,6 +25,7 @@ import { pickNextWorkspaceReadyTodo } from '../lib/workspace-watcher.js';
 import { classifyWorkspaceDoingTodo } from '../lib/workspace-watcher-recovery.js';
 import { recoverWorkspaceWatcherTodo } from '../lib/workspace-watcher-todo-recover.js';
 import { startWorkspaceWatcherCycle, reportWorkspaceWatcherCycle } from '../lib/workspace-watcher-cycle.js';
+import { acquireIntegrationLock, integrationLockCoversTodo } from '../lib/integration-lock.js';
 import { releaseWorkspaceWatcherCycleTodoClaim } from '../lib/workspace-watcher-cycle-close.js';
 import { prepareWorkspaceWatcherExecution } from '../lib/workspace-watcher-worktree.js';
 import { applyWorktreeExecutionPatch, collectWorktreeExecutionDiff } from '../lib/worktree/git-worktree.js';
@@ -290,6 +291,32 @@ test('a worktree PASS records the result, keeps the todo doing and is replay-saf
   assert.equal(afterLost.status, 'doing');
   assert.equal(isTodoAwaitingIntegration(afterLost), true);
   assert.equal(Object.keys(getWorktreeRecord(todo.id, { dataDir: suite.dataDir }).results).length, 1);
+});
+
+test('cycle close is not gated: an active integration lock on the same todo still prepares its result', async (t) => {
+  const suite = makeSuite('locked-close');
+  t.after(suite.cleanup);
+  const todo = addReadyTodo(suite.dataDir, suite.repo, 'finish under lock', { executionMode: 'worktree' });
+  setAutopilotWorktree(suite.repo, suite.dataDir, suite.baseDir);
+  const chatId = await startCycle(suite, todo);
+  const record = getWorktreeRecord(todo.id, { dataDir: suite.dataDir });
+  fs.writeFileSync(path.join(record.worktreePath, 'feature.js'), 'export const x = 1;\n');
+  // A flow is integrating THIS todo right now; the cycle close must still run.
+  acquireIntegrationLock({ dataDir: suite.dataDir, workspaceFolder: suite.repo, owner: 'single', todoId: todo.id, chatId: 'chat-int' });
+  assert.equal(integrationLockCoversTodo({ dataDir: suite.dataDir, workspaceFolder: suite.repo, todoIds: [todo.id] }), true);
+
+  const cycleId = String(getWorkspaceWatcher(suite.repo, { dataDir: suite.dataDir }).activeCycles[0].cycleId);
+  const closed = reportPass(suite, chatId, todo, { cycleId, reportId: 'r-lock' });
+  assert.equal(closed.ok, true, closed.reason);
+  assert.equal(closed.closed, true);
+
+  const after = getTodoById(suite.dataDir, suite.repo, todo.id);
+  assert.equal(after.status, 'doing', 'the leaf is not returned to ready for a paid re-run');
+  assert.equal(isTodoAwaitingIntegration(after), true, 'the leaf stays eligible for smart-merge / bulk integrate');
+  const stored = getWorktreeRecord(todo.id, { dataDir: suite.dataDir });
+  assert.equal(stored.integrationState, 'ready');
+  assert.equal(Object.keys(stored.results).length, 1);
+  assert.equal(getWorkspaceWatcher(suite.repo, { dataDir: suite.dataDir }).activeCycles.length, 0);
 });
 
 test('a worktree integration result pins the cycle review evidence to the attempt', async (t) => {

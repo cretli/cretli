@@ -155,3 +155,130 @@ surface keeps partial, rejected and conflict records discoverable.
 
 The worktree execution, recovery, watcher claim, and sequential dependency
 guards in [todo-worktree-contract.md](todo-worktree-contract.md) remain binding.
+
+## 6. Bulk integrate (`lib/integrate-batch.js`)
+
+One agent chat integrates several todos strictly one after another, each on top
+of the already integrated HEAD. The server owns the queue (store:
+`data/integrate-batches.json`, batches plus one lock record per workspace).
+Nothing in a batch pushes, commits on the server's behalf, kills a run or
+discards worktree changes.
+
+### Eligibility
+
+`resolveBatchEntry` is the single resolver for create, dispatch and the
+read-only `batchEligibility { mode, reason }` field of every todo in the list
+payload. Any node resolves to the nearest ancestor owning a live worktree
+(`readIntegrationTarget`); duplicates and parent/child selections of one target
+collapse to the first entry (`aliased:<targetId>`).
+
+| mode | condition |
+| --- | --- |
+| `smart-merge` | live worktree, target awaiting integration, not `smart_merge_running` |
+| `verify` | `done`, no live worktree, not integrated / no-code |
+| `none` | reason: `not_found`, `not_eligible`, `already_integrated`, `busy`, `locked` |
+
+The order is the order the client sent; the server validates and dedupes but
+never reorders. A todo that changed since the click is skipped at dispatch.
+
+### Entry states and the outcome protocol
+
+`queued | running | awaiting_confirmation | merged | verified | failed |
+skipped | cancelled`. At most one entry is open. The entry's real prompt is built
+by the existing smart-merge / verify builders only when it is that entry's turn.
+
+`POST /api/integrate-batch/next` (public path, capability secret in the body):
+without `entryId` it returns the current or next entry; with `{ entryId,
+attempt, outcome }` it reports the entry and returns the following one. Answers
+carry an `action`: `entry`, `pending_confirm`, `resolved` (idempotent replay of a
+finished entry, no advance) or `stop` (`cancelled | paused | completed`).
+
+- A report of `merged | verified | no_code` is accepted only when the target todo
+  reads confirmed (`integrated` or `no_code_changes`); `rejected` never counts.
+  Otherwise the answer is `pending_confirm`; the third consecutive one fails the
+  entry as `unconfirmed`.
+- Smart-merge entries follow `fenced legacy report -> confirm -> next`; verify
+  entries follow `confirm or no-code -> next` and have no legacy report. The
+  legacy `smart-merge-report-from-agent` call never advances the batch; a valid
+  `merged` only moves the entry to `awaiting_confirmation`.
+- No-code guard: `no_code` is accepted for a verify entry, or a smart-merge entry
+  whose prepared result has no changed files; otherwise the entry fails as
+  `no_code_with_changes`. The guard classifies after the fact: the stored
+  `no_code_changes` state is not rewritten and is left for the human.
+
+### Capability and trust model
+
+Per epoch the server generates a random secret and stores only its hash; the
+secret is in the wrapper prompt. `next` validates it even for loopback callers
+(401); an old epoch answers 409 `stale_epoch`. The per-entry callback of a
+smart-merge entry additionally carries `{ batchId, entryId, attempt, epoch,
+token }`; a legacy report for a todo of an open entry without matching context,
+or from an old attempt/epoch, is rejected with 409 `batch_context_invalid` and
+changes nothing, including the heartbeat. Confirmation is an agent attestation
+recorded against the current HEAD and no-code is not git-checked; the batch
+trusts them exactly as the single flow does. Only a recorded liveness override
+can leave an old agent running; the entry is then flagged `override`.
+
+### Workspace lock
+
+One record per workspace `{ owner: 'batch' | 'single', batchId?, todoId, chatId,
+since }`. Taken by batch create and by single smart-merge / verify / git-branch
+merge; refused with 409 `integration_locked` at `POST /api/todos/:id/smart-merge`,
+`.../verify-integration`, `.../integration` (prepare, merge, apply),
+`POST /api/worktrees/:todoId/merge|reject|cleanup`. The Watcher cycle close is
+deliberately not gated (it only writes worktree records and patches). A `single`
+lock is released by the lib report / confirm / no-code / reject, lazily when its
+chat is confirmed idle (after a 60 s grace), or by `POST
+/api/integration-lock/clear`; a `batch` lock only by a terminal batch state.
+
+### Liveness, recovery and boundary
+
+`stalled` needs a stale heartbeat AND positive idle evidence from
+`probeChatRunLiveness` (`known && !busy`); every other result, including a
+restart, is unknown and keeps the lock. Resume and abandon need idle evidence or
+`forceLiveness`, which is recorded on the batch. Resume rotates the epoch first,
+clears the running marker, re-reads the open entry (already confirmed -> done,
+else re-queued) and returns a new wrapper prompt for a new chat. Cancel ends the
+queue; a running entry keeps the lock until it reports or the batch is abandoned.
+
+After a failed or unconfirmed entry the batch continues only from a safe
+boundary (`lib/integrate-batch-boundary.js`): nothing unmerged, no merge /
+rebase / cherry-pick / revert in progress, and the dirty-path fingerprint map
+equal to the snapshot taken at dispatch. Otherwise the batch is `paused`; resume
+re-checks and takes `entryAction: retry | skip`. Sequential siblings of a failed
+entry are skipped `blocked_by:<entryId>`.
+
+### Bulk integrate: fix-round additions
+
+- **Structural boundary everywhere.** Before any entry is built — batch create,
+  every dispatch (including the first) and every resume from `paused`,
+  `stalled` or a forced `running` takeover — the workspace must have no
+  unmerged paths and no merge / rebase / cherry-pick / revert in progress.
+  Create and resume answer `boundary_unsafe`; a dispatch pauses the batch with
+  `pausedReason: boundary_unsafe:<reasons>`. Dirty-path drift is additionally
+  compared only for a batch paused after a failed entry.
+- **`single` lock lifetime.** Released by report, confirm, no-code, reject,
+  invalidate, a failed chat start (together with the `smart_merge_running`
+  marker) and confirmed-idle evidence. A `single` lock that never got a chat is
+  reclaimable after 10 minutes. A lock whose chat liveness is unknown (e.g.
+  after a restart) or busy never expires: only positive idle evidence or the
+  explicit clear frees it.
+- **Gated actions.** `reject` and `invalidate` on `/api/todos/:id/integration`
+  answer 409 `integration_locked` while another flow owns the lock; the todo
+  that owns a `single` lock may still use them (which releases it). The
+  watcher cycle close is not gated (see below).
+- **Resume.** The agent chat is created before the epoch rotates; a chat that
+  cannot be created answers `chat_unavailable` and leaves the batch unchanged.
+  A repeated report of a settled entry answers `action: "resolved"` (documented
+  in the wrapper prompt). A verify entry reporting `no_code` fails with
+  `no_code_not_recorded` unless the no-code review was recorded.
+
+### Lock handling at the edges (bulk integrate)
+
+- The watcher cycle close is never gated by the lock: a cycle that closes as success
+  while a batch or single flow holds the lock still prepares / records its worktree
+  result and marks the todo ready for integration (it only writes worktree records and
+  patches, never the main workspace). The integration itself stays serialised by the lock.
+- `reject` / `invalidate` are guarded in library code (`refuseWhenIntegrationLockedForWriter`),
+  so REST and MCP share the check. Allowed writers: the todo owning a `single` lock and
+  the chat bound to the `batch` lock (the batch agent).

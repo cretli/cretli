@@ -105,6 +105,7 @@ function makePanel() {
         if (id === 'header-workspace-trigger') return { dataset: { workspaceFile: '', workspaceFolder: folder } };
         return null;
       },
+      querySelector: () => null,
     },
     getTodoWorkspaceFolder: () => folder,
     todoWorkspaceMatches: (candidate, active = folder) => todoWorkspaceMatches(candidate, active),
@@ -118,6 +119,7 @@ function makePanel() {
         return request.promise;
       },
       getAgentSdkStatus: async () => ({ ready: true }),
+      getIntegrateBatch: async () => ({ ok: true, batches: [] }),
     },
     localStorage: {
       getItem: (key) => storage.get(key) ?? null,
