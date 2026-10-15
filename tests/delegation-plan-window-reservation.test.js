@@ -18,6 +18,10 @@ import { isTerminalDelegationStatus } from '../lib/delegation-status.js';
 import { buildModelPickHistory } from '../lib/model-pick-history.js';
 import { recordPlanWindowReservation } from '../lib/plan-window-reservations.js';
 import { clearPlanWindowReservationCache } from '../lib/plan-window-reservations.js';
+import {
+  clearPlanWindowReservationQueue,
+  flushPlanWindowReservations,
+} from '../lib/plan-window-reservations.js';
 
 const HARNESS = 'opencode';
 const MODEL = 'opencode/test';
@@ -156,4 +160,28 @@ test('D8: with plan-window disabled the history sees the pure measurement, not t
   assert.equal(disabled.utilization, 88);
   assert.equal(disabled.utilizationEstimated, undefined);
   reset();
+});
+
+test('a reservation skipped for the whole local retry window waits in the queue and flushes later', async () => {
+  reset();
+  clearPlanWindowReservationQueue();
+  const { start } = setup();
+  const lock = `${RES_FILE}.lock`;
+  fs.writeFileSync(lock, 'other:token');
+  try {
+    const result = await start('pw-lock');
+    assert.equal(result.ok, true, JSON.stringify(result));
+    // Wait out the local retries (5 x 50 ms) plus a margin.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    // Still locked: nothing on disk, the payload waits in memory.
+    assert.deepEqual(flushPlanWindowReservations(), { flushed: 0, remaining: 1 });
+    assert.equal(readEntries().length, 0);
+    fs.rmSync(lock, { force: true });
+    assert.deepEqual(flushPlanWindowReservations(), { flushed: 1, remaining: 0 });
+    assert.equal(readEntries().length, 1);
+  } finally {
+    fs.rmSync(lock, { force: true });
+    clearPlanWindowReservationQueue();
+    reset();
+  }
 });

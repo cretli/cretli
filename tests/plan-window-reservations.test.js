@@ -176,6 +176,57 @@ test('picker read is served from a stat-validated cache and sees external writes
   assert.equal(second[0].estimatedPp, 6);
 }));
 
+test('cache sees an in-place rewrite with the same size and mtimeMs (nanosecond mtime)', (t) => withDir((dir) => {
+  const file = path.join(dir, FILE);
+  const key = reservationKey('h1', 'seven_day', week().resetsAt);
+  const storeFor = (id, pp) => JSON.stringify({
+    [key]: { createdAt: iso(NOW), updatedAt: iso(NOW), entries: { [id]: { pp, at: iso(NOW) } } },
+  });
+  const first = storeFor('aaaaaaaaaa', 3);
+  const second = storeFor('bbbbbbbbbb', 6);
+  assert.equal(first.length, second.length, 'the rewrite keeps the same byte length');
+  // Pin a whole-second mtime, then rewrite with the same mtimeMs but a larger
+  // sub-millisecond mtimeNs (1 microsecond apart).
+  const baseSeconds = 1700000000;
+  fs.writeFileSync(file, first);
+  fs.utimesSync(file, baseSeconds, baseSeconds);
+  const before = fs.statSync(file, { bigint: true });
+  assert.equal(applyPlanWindowReservations([week()], { now: NOW, dataDir: dir })[0].estimatedPp, 3);
+  fs.writeFileSync(file, second);
+  fs.utimesSync(file, baseSeconds + 1.1e-6, baseSeconds + 1.1e-6);
+  const after = fs.statSync(file, { bigint: true });
+  if (before.mtimeNs === after.mtimeNs) {
+    t.skip('filesystem does not expose sub-millisecond mtime');
+    return;
+  }
+  assert.equal(before.mtimeMs, after.mtimeMs, 'mtimeMs must stay identical across the rewrite');
+  assert.equal(applyPlanWindowReservations([week()], { now: NOW, dataDir: dir })[0].estimatedPp, 6);
+}));
+
+test('cache sees an atomic replace that reuses size and exact mtime (inode changes)', () => withDir((dir) => {
+  const file = path.join(dir, FILE);
+  const key = reservationKey('h1', 'seven_day', week().resetsAt);
+  const storeFor = (id, pp) => JSON.stringify({
+    [key]: { createdAt: iso(NOW), updatedAt: iso(NOW), entries: { [id]: { pp, at: iso(NOW) } } },
+  });
+  const baseSeconds = 1700000000;
+  fs.writeFileSync(file, storeFor('aaaaaaaaaa', 3));
+  fs.utimesSync(file, baseSeconds, baseSeconds);
+  const before = fs.statSync(file, { bigint: true });
+  assert.equal(applyPlanWindowReservations([week()], { now: NOW, dataDir: dir })[0].estimatedPp, 3);
+  // Atomic replace (same as `writeJsonAtomic`): a new file object with a new
+  // inode, then the very same size and mtime restored on it.
+  const tmp = path.join(dir, `${FILE}.rewrite.tmp`);
+  fs.writeFileSync(tmp, storeFor('bbbbbbbbbb', 6));
+  fs.renameSync(tmp, file);
+  fs.utimesSync(file, baseSeconds, baseSeconds);
+  const after = fs.statSync(file, { bigint: true });
+  assert.notEqual(before.ino, after.ino, 'the atomic replace must change the inode');
+  assert.equal(before.mtimeMs, after.mtimeMs);
+  assert.equal(before.mtimeNs, after.mtimeNs);
+  assert.equal(applyPlanWindowReservations([week()], { now: NOW, dataDir: dir })[0].estimatedPp, 6);
+}));
+
 test('two real writer processes never lose reservations', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pw-proc-'));
   const script = `

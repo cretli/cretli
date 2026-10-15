@@ -38,7 +38,7 @@ test('subtabs expose every workspace and server delegation field', () => {
     assert.ok(limits.includes(f), f);
   }
   const review = DELEGATION_SUBTAB_FIELDS.review.map((s) => s.field);
-  for (const f of ['review_fanout', 'parallel_implement_fanout', 'review_allow_uncertified', 'code_review_phase', 'code_review_max_closures', 'reviewer_pair_enabled', 'reviewer_pair_members']) {
+  for (const f of ['review_fanout', 'parallel_implement_fanout', 'review_allow_uncertified', 'code_review_phase', 'code_review_max_closures', 'reviewer_pair_enabled', 'reviewer_pair_members', 'reviewer_pair_strict']) {
     assert.ok(review.includes(f), f);
   }
   assert.deepEqual(DELEGATION_SUBTAB_FIELDS.models.map((s) => s.field), ['empty_favorites', 'plan_window_enabled', 'plan_window_hard_free_percent']);

@@ -731,6 +731,8 @@ export const en = {
     delegationHint_reviewer_pair_enabled: 'Use a fixed pair of reviewers (stored; applied by the review loop when enabled).',
     delegationField_reviewer_pair_members: 'Reviewer pair members',
     delegationHint_reviewer_pair_members: 'Two members chosen from Settings favorites, or none.',
+    delegationField_reviewer_pair_strict: 'Strict reviewer pair',
+    delegationHint_reviewer_pair_strict: 'No pair setup needed: the two reviewers the orchestrator gets first stay its pair until its work is done, and every later review re-enters their previous session instead of opening a new chat. A member whose subchat errors is replaced by a newly picked reviewer. Members chosen above win.',
     delegationField_plan_window_enabled: 'Plan-window mode',
     delegationHint_plan_window_enabled: 'Prefer harnesses with spare 5h plan headroom and skip models whose weekly window is nearly exhausted. Off restores the legacy plan-limit penalties.',
     delegationField_plan_window_hard_free_percent: 'Hard weekly threshold (% free)',

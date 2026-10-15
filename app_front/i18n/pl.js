@@ -731,6 +731,8 @@ export const pl = {
     delegationHint_reviewer_pair_enabled: 'Użyj stałej pary reviewerów (zapisywane; stosowane przez pętlę review po włączeniu).',
     delegationField_reviewer_pair_members: 'Członkowie pary reviewerów',
     delegationHint_reviewer_pair_members: 'Dwóch członków wybranych z ulubionych w Settings albo brak.',
+    delegationField_reviewer_pair_strict: 'Ścisła para reviewerów',
+    delegationHint_reviewer_pair_strict: 'Bez ustawiania pary: dwóch reviewerów wylosowanych jako pierwsi zostaje parą orkiestratora do końca jego pracy, a każde kolejne review wznawia ich sesję zamiast otwierać nowy chat. Członek, którego subchat padnie z błędem, jest zastępowany nowo wylosowanym. Członkowie wybrani wyżej mają pierwszeństwo.',
     delegationField_plan_window_enabled: 'Tryb okna planu',
     delegationHint_plan_window_enabled: 'Preferuj harnessy z zapasem 5h w planie i pomijaj modele z prawie wyczerpanym oknem tygodniowym. Wyłączenie przywraca dawne kary limitów planu.',
     delegationField_plan_window_hard_free_percent: 'Twardy próg tygodniowy (% wolnego)',

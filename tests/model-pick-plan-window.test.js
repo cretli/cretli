@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  newestReadingAgeMs,
   normalizeWindowType,
   planHeadroomLevel,
   PLAN_WINDOW_BONUS_STALE_MS,
@@ -33,6 +34,19 @@ test('normalizeWindowType strips the Codex bucket prefix and flags unknown suffi
   assert.deepEqual(normalizeWindowType('gpt-x:seven_day'), { limitId: 'gpt-x', type: 'seven_day', known: true });
   assert.equal(normalizeWindowType('gpt-x:primary_300').known, false);
   assert.equal(normalizeWindowType('secondary_60').type, '');
+});
+
+test('newestReadingAgeMs counts every harness row, including model-scoped windows', () => {
+  const rows = [
+    row({ rateLimitType: 'seven_day_opus', observedAt: iso(NOW - 2 * MIN) }),
+    row({ observedAt: iso(NOW - 40 * MIN) }),
+  ];
+  assert.equal(newestReadingAgeMs(rows, 'h1', NOW), 2 * MIN);
+  const bucket = [row({ rateLimitType: 'gpt-5:seven_day', observedAt: iso(NOW - MIN) })];
+  assert.equal(newestReadingAgeMs(bucket, 'h1', NOW), MIN);
+  // Another harness and unknown reading times do not contribute.
+  assert.equal(newestReadingAgeMs(rows, 'h2', NOW), null);
+  assert.equal(newestReadingAgeMs([row({ observedAt: 'n/a' })], 'h1', NOW), null);
 });
 
 test('headroom levels quantize free percent and reset urgency', () => {
@@ -153,6 +167,31 @@ test('model-scoped opus window penalises only Opus when enabled; legacy penalise
   assert.ok(byModel['claude-opus-5'] > 0);
   const off = run({ enabled: false });
   assert.ok(off.candidates.every((c) => c.plan_limit_penalty > 0));
+});
+
+test('scoped penalty is neutral for an unrecognized window type; legacy still counts it', () => {
+  // 92% stays below the hard weekly gate (95%) so only the soft penalty applies.
+  const planLimits = [row({ rateLimitType: 'secondary_60', utilization: 92 })];
+  const run = (cfg) => pick({
+    harnesses: [harness('h1')],
+    modelsByHarness: { h1: modelsFor('h1', 'claude-sonnet-5') },
+    history: { planLimits },
+    planWindowConfig: cfg,
+  });
+  assert.equal(run({ enabled: true }).candidates[0].plan_limit_penalty, 0);
+  assert.ok(run({ enabled: false }).candidates[0].plan_limit_penalty > 0);
+});
+
+test('scoped penalty never counts seven_day_oauth_apps; legacy keeps the per-harness behavior', () => {
+  const planLimits = [row({ rateLimitType: 'seven_day_oauth_apps', utilization: 92 })];
+  const run = (cfg) => pick({
+    harnesses: [harness('h1')],
+    modelsByHarness: { h1: modelsFor('h1', 'claude-sonnet-5') },
+    history: { planLimits },
+    planWindowConfig: cfg,
+  });
+  assert.equal(run({ enabled: true }).candidates[0].plan_limit_penalty, 0);
+  assert.ok(run({ enabled: false }).candidates[0].plan_limit_penalty > 0);
 });
 
 test('requestPlanLimitsRefresh is detached, deduplicated and only for old readings', async () => {

@@ -168,6 +168,12 @@ A member PASS that finishes first mutates nothing, and a late sibling result of
 an already resolved round is ignored. A lone PASS (degraded single reviewer)
 stays pending until the parent records PASS with `workflow_update`. Consequently
 `CRETLI_DELEGATION_CODE_REVIEW_MAX_CLOSURES` counts rounds, not jobs.
+
+Strict pair (`reviewer_pair_strict`, only with an active pair): a review start by
+a pool member that names no `resume_session_of` is resumed by the server into
+that member's newest finished review of the same controller, subject, leaf and
+executor config, in every mode. Every resume gate still applies and a refusal
+falls back to a new chat (`session_resume` records the reason).
 The `review_recheck_no_material_change` gate and independence checks are unchanged.
 
 Session resume (`resume_session_of`, see `docs/plan-reviewer-cooperation.md`) is

@@ -113,7 +113,9 @@ not an executor pool.
   any FAIL fails the round, both must PASS, the round counts once toward the
   closure cap (applied when the round resolves), and the implementer exclude
   still wins (`rotation.pool.degraded=true` → `picks[1]` is the replacement). Off or
-  incomplete = this loop unchanged.
+  incomplete = this loop unchanged. With `reviewer_pair_strict` the server
+  resumes each member's previous session itself: still pass no
+  `resume_session_of`, start no reviewers outside the pool.
 - After a child **PASS** on implement/fix, independently reproduce 1–2 claims
   (test or minimal repo). Child PASS without that evidence is `unspecified`.
   If the reviewer's `traits.review_can_run_tests` is `false` (no native shell or

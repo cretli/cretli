@@ -33,6 +33,7 @@ export const DELEGATION_SUBTAB_FIELDS = Object.freeze({
     { field: 'code_review_max_closures', kind: 'int', min: 0 },
     { field: 'reviewer_pair_enabled', kind: 'bool' },
     { field: 'reviewer_pair_members', kind: 'pair' },
+    { field: 'reviewer_pair_strict', kind: 'bool' },
   ],
   models: [
     { field: 'empty_favorites', kind: 'enum', options: ['deny', 'all'] },

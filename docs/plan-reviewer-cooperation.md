@@ -59,7 +59,9 @@ This resumed pair is **not** the opt-in reviewer *pool* (`reviewer_pair_enabled`
 / `reviewer_pair_members` in Settings → Delegations): the pool is two fixed
 members passed to `model_pick` as `prefer_models`, each started as a fresh
 review with no `resume_session_of` and no keep-alive. The two are independent
-mechanisms and may be used separately.
+mechanisms and may be used separately. The opt-in `reviewer_pair_strict` setting
+connects them: with an active pair the server fills `resume_session_of` itself
+for pool members (see `docs/delegation-workflow-per-leaf.md`).
 
 Contract per round:
 
