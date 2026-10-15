@@ -142,11 +142,16 @@ for (const transport of TRANSPORTS) {
   const capsRow = resolveDelegationAdapterCapabilities(transport, { review: true });
   assert.equal(capsRow.coverage, 'unit');
   if (transport === 'codex') {
+    // No pre-exec deny, but review runs in the Codex read-only sandbox.
     assert.equal(capsRow.preExecDeny, false, transport);
     assert.equal(capsRow.abortOnMutation, true, transport);
-    assert.equal(capsRow.hardReviewGuarantee, false, transport);
-    assert.equal(capsRow.deniesMutation, false, transport);
-    const refused = assertReviewAdapterAllowed(transport);
+    assert.equal(capsRow.sandboxReadOnly, true, transport);
+    assert.equal(capsRow.hardReviewGuarantee, true, transport);
+    assert.equal(capsRow.deniesMutation, true, transport);
+    const allowed = assertReviewAdapterAllowed(transport);
+    assert.equal(allowed.ok, true);
+    assert.equal(allowed.reviewUncertified, false);
+    const refused = assertReviewAdapterAllowed('acme-nosandbox');
     assert.equal(refused.ok, false);
     assert.equal(refused.code, 'review_uncertified');
     assert.match(refused.error, /Do not retry as assignment=implement/);
@@ -240,7 +245,7 @@ for (const transport of TRANSPORTS) {
 assert.equal(matrix.length, TRANSPORTS.length);
 assert.equal(matrix.every((row) => row.unit === 'pass'), true);
 assert.equal(matrix.every((row) => row.helper === 'pass'), true);
-assert.equal(matrix.find((row) => row.transport === 'codex')?.hardReviewGuarantee, false);
+assert.equal(matrix.find((row) => row.transport === 'codex')?.hardReviewGuarantee, true);
 assert.equal(matrix.find((row) => row.transport === 'opencode')?.hardReviewGuarantee, true);
 assert.equal(matrix.every((row) => row.live === 'deferred-no-paid-models'), true);
 assert.equal(matrix.some((row) => row.integration === 'pass-mock-adapter'), false);

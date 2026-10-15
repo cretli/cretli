@@ -46,6 +46,33 @@ const agentOptions = buildCodexClientOptions({
 assert.equal(agentOptions.threadOptions.sandboxMode, 'danger-full-access');
 assert.equal(agentOptions.threadOptions.model, 'gpt-5.6-sol');
 
+// Review delegations and Scout scans get the read-only sandbox: it is the hard
+// write block that certifies Codex reviews.
+const reviewOptions = buildCodexClientOptions({
+  cwd: '/tmp/codex-workspace',
+  sdkMode: 'agent',
+  reviewReadOnly: true,
+});
+assert.equal(reviewOptions.threadOptions.sandboxMode, 'read-only');
+assert.equal(reviewOptions.threadOptions.approvalPolicy, 'never');
+const scoutOptions = buildCodexClientOptions({
+  cwd: '/tmp/codex-workspace',
+  scoutReadOnly: true,
+});
+assert.equal(scoutOptions.threadOptions.sandboxMode, 'read-only');
+const implementOptions = buildCodexClientOptions({
+  cwd: '/tmp/codex-workspace',
+  sdkMode: 'agent',
+  reviewReadOnly: false,
+});
+assert.equal(implementOptions.threadOptions.sandboxMode, 'danger-full-access');
+process.env.CRETLI_DELEGATION_CODEX_REVIEW_SANDBOX = '0';
+const noSandboxReview = buildCodexClientOptions({ cwd: '/tmp/codex-workspace', reviewReadOnly: true });
+assert.equal(noSandboxReview.threadOptions.sandboxMode, 'danger-full-access', 'kill switch restores the old mode');
+const noSandboxScout = buildCodexClientOptions({ cwd: '/tmp/codex-workspace', scoutReadOnly: true });
+assert.equal(noSandboxScout.threadOptions.sandboxMode, 'read-only', 'Scout stays read-only regardless');
+delete process.env.CRETLI_DELEGATION_CODEX_REVIEW_SANDBOX;
+
 fs.writeFileSync(
   path.join(dataDir, 'config.json'),
   JSON.stringify({ codexAuthMode: 'chatgpt' }),

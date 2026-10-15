@@ -102,30 +102,43 @@ function seedInterrupted(parentChatId, interruptCode) {
 // and a hard-guarantee adapter stays certified.
 {
   delete process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED;
-  const refused = assertReviewAdapterAllowed('codex');
+  const refused = assertReviewAdapterAllowed('acme-nosandbox');
   assert.equal(refused.ok, false);
   assert.equal(refused.code, 'review_uncertified');
   assert.equal(refused.reviewUncertified, true);
 
   process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED = '1';
-  const allowed = assertReviewAdapterAllowed('codex');
+  const allowed = assertReviewAdapterAllowed('acme-nosandbox');
   assert.equal(allowed.ok, true);
   assert.equal(allowed.reviewUncertified, true);
 
   const certified = assertReviewAdapterAllowed('opencode');
   assert.equal(certified.ok, true);
   assert.equal(certified.reviewUncertified, false);
+
+  // Codex is certified through its read-only review sandbox.
+  delete process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED;
+  const codex = assertReviewAdapterAllowed('codex');
+  assert.equal(codex.ok, true);
+  assert.equal(codex.reviewUncertified, false);
+  const codexNoSandbox = assertReviewAdapterAllowed('codex', {
+    env: { CRETLI_DELEGATION_CODEX_REVIEW_SANDBOX: '0' },
+  });
+  assert.equal(codexNoSandbox.ok, false);
+  assert.equal(codexNoSandbox.code, 'review_uncertified');
 }
 
 // A review that only starts through the opt-in carries reviewUncertified on
 // the service result.
 {
+  // Codex without its read-only review sandbox has no hard write block.
   registerChatRunAdapter({
     transport: 'codex',
     getState: () => ({ runId: 'codex-run', busy: false, waitingForInput: false }),
     cancel: async () => {},
     start: async () => ({ accepted: true, runId: 'codex-run' }),
   });
+  process.env.CRETLI_DELEGATION_CODEX_REVIEW_SANDBOX = '0';
   process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED = '1';
   const parent = newParent('uncertified review');
   const started = await service.createAndStart({
@@ -139,6 +152,7 @@ function seedInterrupted(parentChatId, interruptCode) {
   assert.equal(started.ok, true, JSON.stringify(started));
   assert.equal(started.reviewUncertified, true);
   delete process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED;
+  delete process.env.CRETLI_DELEGATION_CODEX_REVIEW_SANDBOX;
   registerMockChatRunAdapter('opencode');
 }
 

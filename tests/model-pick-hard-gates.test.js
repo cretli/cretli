@@ -705,6 +705,8 @@ test('parity matrix: every hard gate admits/rejects the same pair in the picker 
     }),
   });
 
+  // Codex without its read-only review sandbox is the uncertified example.
+  process.env.CRETLI_DELEGATION_CODEX_REVIEW_SANDBOX = '0';
   assertParity({
     role: 'review',
     harnesses: [
@@ -729,6 +731,7 @@ test('parity matrix: every hard gate admits/rejects the same pair in the picker 
       modelRoles: ['review'],
     }),
   });
+  delete process.env.CRETLI_DELEGATION_CODEX_REVIEW_SANDBOX;
 });
 
 test('GPT Sol low: built-in/rolesDelta source, explicit passes all gates, automatic admits to the pool', async () => {
@@ -891,6 +894,7 @@ test('role membership: uncertified review membership bypass requires the live op
   const prev = process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED;
   try {
     process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED = '1';
+    process.env.CRETLI_DELEGATION_CODEX_REVIEW_SANDBOX = '0';
     const allowed = evaluateModelPickHardGates({
       role: 'review',
       harness: 'codex',
@@ -902,6 +906,7 @@ test('role membership: uncertified review membership bypass requires the live op
   } finally {
     if (prev === undefined) delete process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED;
     else process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED = prev;
+    delete process.env.CRETLI_DELEGATION_CODEX_REVIEW_SANDBOX;
   }
 });
 

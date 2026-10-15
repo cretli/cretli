@@ -63,10 +63,16 @@ registerMockChatRunAdapter('opencode');
   assert.equal(caps.hardReviewGuarantee, true);
   assert.equal(caps.canReadFiles, true);
   assert.equal(caps.coverage, 'unit');
+  // Codex has no pre-exec deny; its review runs in the read-only sandbox.
   const codex = resolveDelegationAdapterCapabilities('codex', { review: true });
   assert.equal(codex.preExecDeny, false);
   assert.equal(codex.abortOnMutation, true);
-  assert.equal(codex.deniesMutation, false);
+  assert.equal(codex.sandboxReadOnly, true);
+  assert.equal(codex.hardReviewGuarantee, true);
+  assert.equal(codex.deniesMutation, true);
+  const unknown = resolveDelegationAdapterCapabilities('acme-nosandbox', { review: true });
+  assert.equal(unknown.hardReviewGuarantee, false);
+  assert.equal(unknown.deniesMutation, false);
   assert.ok(listDelegationAdapterCapabilities().some((row) => row.transport === 'deepseek'));
 }
 

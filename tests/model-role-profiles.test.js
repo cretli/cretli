@@ -439,7 +439,7 @@ assert.equal(HARNESS_DELEGATION_TRAITS.opencode.review_can_run_tests, true);
 assert.equal(HARNESS_DELEGATION_TRAITS.codebuddy.review_can_run_tests, true);
 assert.equal(HARNESS_DELEGATION_TRAITS.openrouter.review_can_run_tests, true);
 assert.equal(HARNESS_DELEGATION_TRAITS.qwen.review_can_run_tests, true);
-assert.equal(HARNESS_DELEGATION_TRAITS.codex.review_can_run_tests, true);
+assert.equal(HARNESS_DELEGATION_TRAITS.codex.review_can_run_tests, false);
 assert.deepEqual([...resolveHarnessDelegationTraits('codex').known_failure_modes], ['usage_limit']);
 assert.deepEqual([...resolveHarnessDelegationTraits('opencode').known_failure_modes], ['adapter_incomplete']);
 assert.deepEqual([...resolveHarnessDelegationTraits('qwen').known_failure_modes], ['slow_read_loop']);
@@ -591,6 +591,8 @@ assert.deepEqual(
   ['no-favorites'],
 );
 
+// Codex without its read-only review sandbox is the uncertified example.
+process.env.CRETLI_DELEGATION_CODEX_REVIEW_SANDBOX = '0';
 const onlyUncertifiedReviewMcp = await createPickHandlers({
   async listHarnessCatalog() {
     return [{ id: 'codex', enabled: true, ready: true, can_delegate: true }];
@@ -610,6 +612,7 @@ assert.deepEqual(
   onlyUncertifiedReviewMcp.structuredContent.diagnosis.rows.find((row) => row.harness === 'codex').filter_reasons,
   ['review-adapter-blocked'],
 );
+delete process.env.CRETLI_DELEGATION_CODEX_REVIEW_SANDBOX;
 
 removeIsolatedDataDir();
 console.log('model-role-profiles.test.js OK');

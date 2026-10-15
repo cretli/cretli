@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Codex reviews are certified.** Review delegations on Codex start the
+  thread with the Codex `read-only` sandbox (a hard write block), so they no
+  longer need `CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED=1` and count like any
+  certified review. The sandbox also blocks the review-verify runner, so the
+  parent runs `delegation_verify`. `CRETLI_DELEGATION_CODEX_REVIEW_SANDBOX=0`
+  restores the previous unsandboxed, uncertified behaviour.
+
 - **Plan-window mode for `model_pick` (on by default).** Picks now prefer
   harnesses with spare 5h plan headroom (within-band tie-break) and exclude
   models whose weekly window (`seven_day*`) has at most 5% free. This changes

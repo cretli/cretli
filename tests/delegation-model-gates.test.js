@@ -83,6 +83,8 @@ assert.equal(evaluateDelegationModelGate({
 }).ok, true);
 
 // --- Uncertified review harness: both sides reject by default ----------------
+// Codex without its read-only review sandbox has no hard write block.
+process.env.CRETLI_DELEGATION_CODEX_REVIEW_SANDBOX = '0';
 const codexHarness = { id: 'codex', enabled: true, ready: true, can_delegate: true };
 const codexModels = {
   codex: { favorites_configured: true, items: [{ id: 'gpt-6-astra', roles: ['review'] }] },
@@ -126,6 +128,7 @@ try {
   assert.equal(allowedPick.pick.model, 'gpt-6-astra');
 } finally {
   delete process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED;
+  delete process.env.CRETLI_DELEGATION_CODEX_REVIEW_SANDBOX;
 }
 
 // --- High infra: demoted out of the top-2 unless the exception is passed ------

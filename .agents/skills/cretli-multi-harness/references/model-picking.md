@@ -53,7 +53,8 @@ before.
    Implement prefers cheaper eligible favorites — not Astra-first. **Review
    never selects a `*flash*` id** in `loop` / `fanout-review` (`model_pick`).
    Plan/review picks skip harnesses that would return `review_uncertified`
-   (Codex unless the uncertified flag is on). A **named** Flash id still starts
+   (any adapter without a hard write block, unless the uncertified flag is
+   on). A **named** Flash id still starts
    if it is a Settings favorite and the assignment is allowed. Empty Settings
    favorites for a harness are **unset**: no pick and, by default, no
    `delegation_start` from that harness (`model_list(..., enabled_only=true)`
@@ -83,9 +84,10 @@ harness 7d → model 7d → least-recently-used → id). CodeBuddy favorites (`h
 | `review` | quality .7, cost .2, speed .1; soft-exclude last implementer **and** last reviewer (fallback when empty) | `review` |
 | `fix` | speed .4, cost .4, quality .2 | `implement` |
 
-Review requires a hard pre-exec deny or a read-only sandbox. Codex is excluded
-unless `CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED=1`. DeepSeek review runs
-with DSH `read-only` sandbox + headless approval. Event abort is not a write
+Review requires a hard pre-exec deny or a read-only sandbox; an adapter without
+one is excluded unless `CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED=1`. Codex
+review runs with the Codex `read-only` sandbox and DeepSeek review with the DSH
+`read-only` sandbox + headless approval. Event abort is not a write
 block.
 
 ## 3. Fanout picks and review traits
@@ -111,7 +113,8 @@ Each `review` candidate carries `traits`: `review_can_run_tests` and its source
 `review_can_run_tests_source`, plus short `known_failure_modes` tags (for example
 `codex: usage_limit`, `opencode: adapter_incomplete`, `qwen: slow_read_loop`).
 `review_can_run_tests` is a **prior** by default: `true` for `claude`,
-`openrouter`, `mistral`, `opencode`, `codebuddy`, `qwen`, `codex`; `false` for `sdk` and
+`openrouter`, `mistral`, `opencode`, `codebuddy`, `qwen`; `false` for `sdk`,
+`codex` (its review read-only sandbox also blocks the runner's temp dir) and
 `deepseek` (deepseek's read-only dsh sandbox is unconfirmed until observed). The
 server refines the prior per harness from the last 30 days of review reports:
 at least **2** reports with a successful `node scripts/review-verify.js` trace
