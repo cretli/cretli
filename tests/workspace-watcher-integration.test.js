@@ -285,7 +285,7 @@ test('a worktree PASS records the result, keeps the todo doing and is replay-saf
     dataDir: suite.dataDir,
     now: T0 + 90_000,
   });
-  assert.equal(lostChatRelease, undefined);
+  assert.equal(lostChatRelease, false);
   const afterLost = getTodoById(suite.dataDir, suite.repo, todo.id);
   assert.equal(afterLost.status, 'doing');
   assert.equal(isTodoAwaitingIntegration(afterLost), true);

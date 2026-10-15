@@ -307,6 +307,40 @@ helper `lib/watcher-phases.js`) — may do. Defaults: `plan`, `review`,
   therefore cannot loop; an empty plan cycle counts as a failure, clears the
   request and retries under the backoff/failure ceiling.
 
+### Review gate
+
+Contract: [workspace-watcher-review-gate.md](workspace-watcher-review-gate.md).
+The rule "a leaf is `done` only after an independent review PASS" is checked on
+the server, scoped to Workspace Watcher cycles. The default (`off`) never reads
+`todo.review` and changes no flow.
+
+- **Gated callers:** a `done` write that carries an MCP integration token (with
+  or without a chat id) or a widget bearer, on a leaf of a live cycle or a leaf
+  with a `reviewWaits` marker. The in-process MCP tool passes the signed
+  `callerChatId`; `body.chatId` in REST is data, never identity. A browser
+  session (a human) is never gated.
+- **Condition:** `review.code` is `passed` with a known implementer and current
+  material, or `manual` (human acceptance); with `requireIndependentReview` a
+  `passed` review must be independent. A plan review never satisfies.
+- **`warn`:** the write passes; a `review_missing` decision ("Why?") and a todo
+  changelog note are recorded; the cycle outcome is unchanged.
+- **`enforce`:** the write is rejected (`VALIDATION`, reason `review_missing`).
+  A cycle that reports success without a qualifying review closes `blocked` /
+  `review_missing` (not `failure`), keeps `failures[todo]`, is exempt from the
+  blocked backoff and writes a durable `reviewWaits[todo]` marker
+  (`attempts`, `phase` review|fix, `worktree`, `materialRevision`).
+  - non-worktree leaf: released to `ready`; the next cycle is review-only (or a
+    fix cycle after a FAIL). Past `reviewGateMaxAttempts` it stays `doing` with
+    `review_gate_exhausted`.
+  - worktree leaf: claim released, status stays `doing`, no integration result
+    is created, `blockedReason = review_missing` is set after the release.
+- **Marker lifetime:** removed only by a qualifying PASS, or by a human action in
+  a browser session. MCP `todo_start`, `watcher_recover` and MCP-token REST
+  calls preserve it (and re-apply the label). Boot reconcile prunes markers of
+  done/missing todos and repairs a claim left by a crash.
+- **Recovery:** a held leaf (worktree, or past the cap) is `user_action`
+  (`review_gate`); it is never released to `ready` automatically.
+
 ### No commit / push / merge, no nested cycles
 
 - The cycle prompt encodes the hard rules: one cycle = this chat run only, never
@@ -763,6 +797,9 @@ Defaults from `defaultWorkspaceWatcherPolicy()`:
 | `cooldownMs` | `30000` | Minimum gap between cycles |
 | `backoffBaseMs` / `backoffCapMs` | `60000` / `6 h` | Exponential failure backoff |
 | `requirePlanApproval` | `true` | Plan gate (never auto-approved) |
+| `requireReviewForDone` | `off` | Review gate for agent `done` writes: `off` \| `warn` \| `enforce` (see [Review gate](#review-gate)) |
+| `requireIndependentReview` | `false` | With the gate on, a `passed` review must also be independent of the implementer |
+| `reviewGateMaxAttempts` | `2` | Unsatisfied closes per material revision (1–5) before `review_gate_exhausted` |
 | `phases` | `{ plan, review, implement: true, integrate: false }` | Phase scope, see [Phases](#phases) |
 | `allowedHarnesses` | `[]` | Empty = no restriction |
 | `pickRoles` | `plan, implement, review` | Roles the orchestrator may pick |

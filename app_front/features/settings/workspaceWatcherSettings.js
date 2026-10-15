@@ -89,6 +89,9 @@ const DEFAULT_POLICY = {
   backoffBaseMs: 60_000,
   backoffCapMs: 6 * 60 * 60_000,
   requirePlanApproval: true,
+  requireReviewForDone: 'off',
+  requireIndependentReview: false,
+  reviewGateMaxAttempts: 2,
   planApprovalScope: 'leaf',
   phases: { plan: true, review: true, implement: true, integrate: false },
   allowedHarnesses: [],
@@ -2197,6 +2200,18 @@ function renderWatcherPanel(root, data) {
       </section>
 
       <section class="watcher-section">
+        <h4 class="watcher-section-title">${escapeHtml(t('settings.watcherReviewGate'))}</h4>
+        <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherRequireReviewForDone'))}</span>
+          <select id="watcher-review-gate-mode">
+            ${['off', 'warn', 'enforce'].map((mode) => `<option value="${mode}"${(policy.requireReviewForDone || 'off') === mode ? ' selected' : ''}>${escapeHtml(t(`settings.watcherReviewGate_${mode}`))}</option>`).join('')}
+          </select>
+        </label>
+        <label class="cr-check"><input type="checkbox" id="watcher-review-gate-independent"${policy.requireIndependentReview === true ? ' checked' : ''}> ${escapeHtml(t('settings.watcherRequireIndependentReview'))}</label>
+        <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherReviewGateMaxAttempts'))}</span><input id="watcher-review-gate-attempts" type="number" min="1" max="5" value="${Number(policy.reviewGateMaxAttempts) || DEFAULT_POLICY.reviewGateMaxAttempts}"></label>
+        <p class="cr-hint">${escapeHtml(t('settings.watcherReviewGateHint'))}</p>
+      </section>
+
+      <section class="watcher-section">
         <h4 class="watcher-section-title">${escapeHtml(t('settings.watcherAllowedHarnesses'))}</h4>
         <p class="cr-hint">${escapeHtml(t('settings.watcherAllowedHarnessesHint'))}</p>
         <div class="watcher-check-list">${harnessChecks}</div>
@@ -2377,6 +2392,12 @@ function readWatcherForm(root) {
       backoffCapMs: Number(root.querySelector('#watcher-backoff-cap')?.value) || 0,
       requirePlanApproval: root.querySelector('#watcher-require-plan')?.checked !== false,
       planApprovalScope: root.querySelector('input[name="watcher-plan-scope"]:checked')?.value === 'root' ? 'root' : 'leaf',
+      requireReviewForDone: ['off', 'warn', 'enforce'].includes(root.querySelector('#watcher-review-gate-mode')?.value)
+        ? root.querySelector('#watcher-review-gate-mode').value
+        : DEFAULT_POLICY.requireReviewForDone,
+      requireIndependentReview: root.querySelector('#watcher-review-gate-independent')?.checked === true,
+      reviewGateMaxAttempts: Number(root.querySelector('#watcher-review-gate-attempts')?.value)
+        || DEFAULT_POLICY.reviewGateMaxAttempts,
       phases: Object.fromEntries(['plan', 'review', 'implement', 'integrate'].map((phase) => [
         phase,
         root.querySelector(`#watcher-phase-${phase}`)?.checked ?? DEFAULT_POLICY.phases[phase],
@@ -2461,6 +2482,10 @@ function validateWatcherForm(root) {
       errors.push(t('settings.watcherValidationScoutInterval'));
     }
   }
+  const reviewAttempts = Number(root.querySelector('#watcher-review-gate-attempts')?.value);
+  if (!Number.isInteger(reviewAttempts) || reviewAttempts < 1 || reviewAttempts > 5) {
+    errors.push(t('settings.watcherValidationReviewGateAttempts'));
+  }
   const scoutMaxPerDay = Number(root.querySelector('#watcher-scout-max-per-day')?.value);
   if (!Number.isInteger(scoutMaxPerDay) || scoutMaxPerDay < 0) {
     errors.push(t('settings.watcherValidationScoutMaxPerDay'));
@@ -2498,6 +2523,9 @@ function resetWatcherForm(root) {
   const cooldownOut = root.querySelector('#watcher-cooldown-out');
   if (cooldownOut) cooldownOut.textContent = formatCooldownLabel(DEFAULT_POLICY.cooldownMs);
   check('watcher-require-plan', DEFAULT_POLICY.requirePlanApproval);
+  set('watcher-review-gate-mode', DEFAULT_POLICY.requireReviewForDone);
+  check('watcher-review-gate-independent', DEFAULT_POLICY.requireIndependentReview);
+  set('watcher-review-gate-attempts', DEFAULT_POLICY.reviewGateMaxAttempts);
   for (const phase of ['plan', 'review', 'implement', 'integrate']) {
     check(`watcher-phase-${phase}`, DEFAULT_POLICY.phases[phase]);
   }

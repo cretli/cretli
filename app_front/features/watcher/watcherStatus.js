@@ -190,6 +190,13 @@ export function renderWatcherBarHtml(view, options = {}) {
  */
 export function formatWatcherDecisionReasonText(decision = {}) {
   const reason = String(decision?.reason ?? '').trim();
+  // Review-gate decisions carry `review_missing[:caller:detail]` or
+  // `review_gate_exhausted`; show the localized label with the raw detail.
+  if (reason === 'review_gate_exhausted') return t('todo.watcherReviewGateExhausted');
+  if (reason === 'review_missing' || reason.startsWith('review_missing:')) {
+    const detail = reason.slice('review_missing'.length).replace(/^:/, '');
+    return detail ? `${t('todo.watcherReviewMissing')} (${detail})` : t('todo.watcherReviewMissing');
+  }
   const unknownChats = Array.isArray(decision?.unknownChats) ? decision.unknownChats : [];
   const slotChats = Array.isArray(decision?.slotChats) ? decision.slotChats : [];
   const unknownPart = unknownChats
