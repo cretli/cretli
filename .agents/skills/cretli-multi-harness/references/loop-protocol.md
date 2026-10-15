@@ -107,6 +107,13 @@ not an executor pool.
   still failed for the same material (`verify_failed_before_review`).
 - **FAIL** or **conflict** on review → fix (if rounds remain), then review with
   `exclude_model` = last implementer/fixer, then the last reviewer.
+  Opt-in reviewer pool: when Settings → Delegations has `reviewer_pair_enabled`
+  with two `reviewer_pair_members`, pass them to `model_pick` as `prefer_models`
+  with `count=2` and start one fresh review per pick (no `resume_session_of`);
+  any FAIL fails the round, both must PASS, the round counts once toward the
+  closure cap (applied when the round resolves), and the implementer exclude
+  still wins (`rotation.pool.degraded=true` → `picks[1]` is the replacement). Off or
+  incomplete = this loop unchanged.
 - After a child **PASS** on implement/fix, independently reproduce 1–2 claims
   (test or minimal repo). Child PASS without that evidence is `unspecified`.
   If the reviewer's `traits.review_can_run_tests` is `false` (no native shell or
@@ -169,8 +176,8 @@ Tag rubric (the server rejects a contradictory payload with
 - `great` is accepted only at score **4–5**;
 - a review whose **FAIL was real** (the cycle proved it: FAIL → fix → PASS) is
   score **5** with `caught_bug` — **never** `missed_bug` at 5;
-- your own rating is telemetry: model ranking blends **`user` ratings only**, so
-  a parent cannot inflate the models it picked for itself.
+- ratings are autonomous: no human rates, so your ratings feed model ranking;
+  the anti-bias rule below stops you from inflating your own base model.
 
 Rules (the server enforces them; do not work around them):
 
@@ -182,22 +189,21 @@ Rules (the server enforces them; do not work around them):
 - **Immutable** — one rating per (job, rater). An identical replay succeeds
   (`replayed: true`), a changed payload is `CONFLICT`. There is no edit or
   delete; a mistake stays on record.
-- The **user** rates from the delegation card in the UI (weight 2× yours in the
-  aggregated mean). Never rate as the user.
+- The card shows your rating read-only; there is no manual rating UI.
 
-**Required** — call `delegation_rate` in these two cases, do not skip it:
+**Required** — rate **every** terminal job you read, as soon as you have
+judged its report (no human does this; ratings drive `model_pick`):
 
 1. after a review cycle **FAIL → fix → PASS**: rate the review job that issued
-   the FAIL **score 5 + `caught_bug`** (the cycle proved its findings were real);
-2. when you **reject a report** — `conflict`, an empty/thinking-dump body, or a
-   report you discard instead of acting on: rate that job down and tag why
-   (typically `missed_bug` / `false_positive`).
+   the FAIL **score 5 + `caught_bug`**;
+2. when you **reject a report** (`conflict`, empty/thinking-dump body, a report
+   you discard): rate it down and tag why (typically `missed_bug` /
+   `false_positive`);
+3. otherwise: rate by usefulness (PASS review, accepted implement/fix, a job
+   that failed on infra and forced a re-route).
 
-Every other rating (a PASS review, an implement/fix job, an infra failure you
-had to route around) is optional. Only **`user`** ratings (UI or
-`POST /api/delegations/:id/rate`) update `rating_avg_scored` / `rating_n_scored`
-and blend into `model_pick` observed quality; parent `delegation_rate` rows are
-telemetry and do not raise observed quality.
+`delegation_rate` rows update `rating_avg_scored` / `rating_n_scored` and blend
+into `model_pick` observed quality.
 
 ## Caps and tie-break
 

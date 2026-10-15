@@ -495,4 +495,247 @@ function applyCodeReviewFinishPatch(delegation, workflow) {
   assert.equal(workflow.codeReviewLastClosureRoundKey, '0::0');
 }
 
+// --- Reviewer pool: one round record, effect applied once at resolution ---
+{
+  const { saveDelegationSettings } = await import('../lib/persist/delegation-settings-persist.js');
+  const { clearDelegationEnvCache, resolveReviewerPool } = await import('../lib/delegation-settings.js');
+  const { buildCodeReviewWorkflowPatchOnStart } = await import('../lib/delegation-code-review-phase.js');
+  const poolWorkspace = '/tmp/reviewer-pool-ws';
+  const poolMembers = [{ harness: 'claude', model: 'rev-a' }, { harness: 'codex', model: 'rev-b' }];
+  const setPool = (enabled) => {
+    saveDelegationSettings(poolWorkspace, { reviewer_pair_enabled: enabled, reviewer_pair_members: poolMembers });
+    clearDelegationEnvCache();
+  };
+  setPool(true);
+  const seed = (name, fields = {}) => {
+    const parentChatId = crypto.randomUUID();
+    const leaf = crypto.randomUUID();
+    const workflow = applyDelegationWorkflowPatch({
+      parentChatId,
+      leafId: leaf,
+      codeReviewAuditDone: true,
+      codeReviewClosureCount: 2,
+      maxCodeReviewClosures: 9,
+      round: 1,
+      materialRevision: `rev-${name}`,
+      idempotencyKey: `pool-${name}-seed`,
+      ...fields,
+    });
+    return { parentChatId, leafId: leaf, workflow, name };
+  };
+  const mkJob = (ctx, model, verdict, mode = 'closure') => ({
+    id: crypto.randomUUID(),
+    parentChatId: ctx.parentChatId,
+    leafId: ctx.leafId,
+    workspaceFolder: poolWorkspace,
+    status: 'completed',
+    reviewSubject: 'code',
+    reviewMode: mode,
+    report: `VERDICT: ${verdict}\n${verdict === 'FAIL' ? 'F1 STILL_OPEN' : 'F1 FIXED'}`,
+    reportVerdict: verdict,
+    executor: { transport: model === 'rev-a' ? 'claude' : 'codex', model },
+  });
+  const start = (ctx, job, mode = 'closure') => {
+    const patch = buildCodeReviewWorkflowPatchOnStart(ctx.workflow, {
+      delegationId: job.id,
+      mode,
+      workspaceFolder: poolWorkspace,
+    });
+    if (patch) {
+      ctx.workflow = applyDelegationWorkflowPatch({
+        ...patch,
+        parentChatId: ctx.parentChatId,
+        leafId: ctx.leafId,
+        idempotencyKey: `start-${job.id}`,
+        countReview: false,
+      });
+    }
+  };
+  const finish = (ctx, job) => {
+    ctx.workflow = applyCodeReviewFinishPatch(job, ctx.workflow);
+  };
+  const round = (name, first, second, fields) => {
+    const ctx = seed(name, fields);
+    const a = mkJob(ctx, 'rev-a', first);
+    const b = mkJob(ctx, 'rev-b', second);
+    start(ctx, a);
+    start(ctx, b);
+    finish(ctx, a);
+    finish(ctx, b);
+    return ctx.workflow;
+  };
+  // Seeded with count>=1: a failed round is count+1 regardless of finish order.
+  let wf = round('ff', 'FAIL', 'FAIL');
+  assert.equal(wf.codeReviewClosureCount, 3, 'FF counts one closure on top of the seed');
+  assert.equal(wf.codeReviewAuditDone, true);
+  wf = round('fp', 'FAIL', 'PASS');
+  assert.equal(wf.codeReviewClosureCount, 3, 'FP: sibling PASS does not erase the FAIL');
+  assert.equal(wf.codeReviewAuditDone, true);
+  wf = round('pf', 'PASS', 'FAIL');
+  assert.equal(wf.codeReviewClosureCount, 3, 'PF: PASS finishing first does not reset the counter');
+  assert.equal(wf.codeReviewAuditDone, true);
+  wf = round('pp', 'PASS', 'PASS');
+  assert.equal(wf.codeReviewClosureCount, 0, 'PP resets the counter');
+  assert.equal(wf.codeReviewAuditDone, false);
+  assert.ok(wf.codeReviewClosureEpoch >= 1);
+
+  // A lone PASS mutates nothing until the round resolves.
+  {
+    const ctx = seed('lone');
+    const a = mkJob(ctx, 'rev-a', 'PASS');
+    const b = mkJob(ctx, 'rev-b', 'PASS');
+    start(ctx, a);
+    start(ctx, b);
+    const epochBefore = ctx.workflow.codeReviewClosureEpoch;
+    finish(ctx, a);
+    assert.equal(ctx.workflow.codeReviewClosureCount, 2);
+    assert.equal(ctx.workflow.codeReviewAuditDone, true);
+    assert.equal(ctx.workflow.codeReviewClosureEpoch, epochBefore);
+    finish(ctx, b);
+    assert.equal(ctx.workflow.codeReviewClosureCount, 0);
+  }
+
+  // start -> finish -> start(second member / replacement) -> finish sequences.
+  {
+    const ctx = seed('seq-pf');
+    const a = mkJob(ctx, 'rev-a', 'PASS');
+    const b = mkJob(ctx, 'rev-b', 'FAIL');
+    start(ctx, a);
+    finish(ctx, a);
+    start(ctx, b);
+    assert.ok(ctx.workflow.codeReviewPoolRound, 'a later start must not clear the unresolved round record');
+    finish(ctx, b);
+    assert.equal(ctx.workflow.codeReviewClosureCount, 3);
+    assert.equal(ctx.workflow.codeReviewAuditDone, true);
+  }
+  {
+    const ctx = seed('seq-fp');
+    const a = mkJob(ctx, 'rev-a', 'FAIL');
+    const b = mkJob(ctx, 'rev-b', 'PASS');
+    start(ctx, a);
+    finish(ctx, a);
+    start(ctx, b);
+    finish(ctx, b);
+    assert.equal(ctx.workflow.codeReviewClosureCount, 3, 'late sibling PASS does not reset');
+    assert.equal(ctx.workflow.codeReviewAuditDone, true);
+  }
+  {
+    const ctx = seed('seq-ff');
+    const a = mkJob(ctx, 'rev-a', 'FAIL');
+    const b = mkJob(ctx, 'rev-b', 'FAIL');
+    start(ctx, a);
+    finish(ctx, a);
+    start(ctx, b);
+    finish(ctx, b);
+    assert.equal(ctx.workflow.codeReviewClosureCount, 3, 'FF started sequentially counts +1, not +2');
+  }
+  {
+    // Replacement after an infra failure of one member (no credible result).
+    const ctx = seed('replace');
+    const a = mkJob(ctx, 'rev-a', 'PASS');
+    const lost = { ...mkJob(ctx, 'rev-b', 'PASS'), status: 'failed', report: '', reportVerdict: '', error: 'quota exceeded' };
+    const replacement = mkJob(ctx, 'rev-b', 'PASS');
+    start(ctx, a);
+    start(ctx, lost);
+    finish(ctx, a);
+    finish(ctx, lost);
+    assert.equal(ctx.workflow.codeReviewClosureCount, 2, 'infra failure leaves the round open');
+    start(ctx, replacement);
+    finish(ctx, replacement);
+    assert.equal(ctx.workflow.codeReviewClosureCount, 0, 'replacement PASS resolves the round as PASS');
+  }
+
+  // Setting flipped off mid-round: the round keeps the pool semantics it started with.
+  {
+    const ctx = seed('flip');
+    const a = mkJob(ctx, 'rev-a', 'PASS');
+    const b = mkJob(ctx, 'rev-b', 'FAIL');
+    start(ctx, a);
+    start(ctx, b);
+    setPool(false);
+    finish(ctx, a);
+    assert.equal(ctx.workflow.codeReviewClosureCount, 2, 'PASS first still does not reset after the flip');
+    finish(ctx, b);
+    assert.equal(ctx.workflow.codeReviewClosureCount, 3);
+    assert.equal(ctx.workflow.codeReviewAuditDone, true);
+    setPool(true);
+  }
+  // Setting switched on mid-round (round started without a pool): legacy accounting.
+  {
+    setPool(false);
+    const ctx = seed('flip-on');
+    const a = mkJob(ctx, 'rev-a', 'FAIL');
+    start(ctx, a);
+    assert.equal(ctx.workflow.codeReviewPoolRound, null);
+    setPool(true);
+    finish(ctx, a);
+    assert.equal(ctx.workflow.codeReviewClosureCount, 3);
+  }
+
+  // Audit mode: FAIL wins, a sibling PASS cannot reset auditDone/epoch afterwards.
+  {
+    const ctx = seed('audit-fp', { codeReviewAuditDone: false, codeReviewClosureCount: 0 });
+    const a = mkJob(ctx, 'rev-a', 'FAIL', 'audit');
+    const b = mkJob(ctx, 'rev-b', 'PASS', 'audit');
+    start(ctx, a, 'audit');
+    start(ctx, b, 'audit');
+    finish(ctx, b);
+    assert.equal(ctx.workflow.codeReviewAuditDone, false, 'audit PASS first mutates nothing');
+    finish(ctx, a);
+    assert.equal(ctx.workflow.codeReviewAuditDone, true);
+    const epochAfterFail = ctx.workflow.codeReviewClosureEpoch;
+    assert.equal(ctx.workflow.codeReviewAuditReviewer, 'claude/rev-a');
+    const late = mkJob(ctx, 'rev-b', 'PASS', 'audit');
+    start(ctx, late, 'audit');
+    finish(ctx, late);
+    assert.equal(ctx.workflow.codeReviewAuditDone, true);
+    assert.equal(ctx.workflow.codeReviewClosureEpoch, epochAfterFail);
+  }
+  {
+    const ctx = seed('audit-pp', { codeReviewAuditDone: false, codeReviewClosureCount: 1 });
+    const a = mkJob(ctx, 'rev-a', 'PASS', 'audit');
+    const b = mkJob(ctx, 'rev-b', 'PASS', 'audit');
+    start(ctx, a, 'audit');
+    start(ctx, b, 'audit');
+    finish(ctx, a);
+    finish(ctx, b);
+    assert.equal(ctx.workflow.codeReviewClosureCount, 0);
+    assert.equal(ctx.workflow.codeReviewAuditDone, false);
+  }
+
+  // MAX_CLOSURES counts rounds: three failed pool rounds (two jobs each) exhaust a cap of 3.
+  {
+    const ctx = seed('cap', { codeReviewClosureCount: 0, maxCodeReviewClosures: 3 });
+    for (let i = 1; i <= 3; i += 1) {
+      ctx.workflow = applyDelegationWorkflowPatch({
+        parentChatId: ctx.parentChatId,
+        leafId: ctx.leafId,
+        round: i,
+        materialRevision: `cap-${i}`,
+        idempotencyKey: `cap-material-${i}`,
+        countReview: false,
+      });
+      const a = mkJob(ctx, 'rev-a', 'FAIL');
+      const b = mkJob(ctx, 'rev-b', 'FAIL');
+      start(ctx, a);
+      start(ctx, b);
+      finish(ctx, a);
+      finish(ctx, b);
+      assert.equal(ctx.workflow.codeReviewClosureCount, i, `after pool round ${i}`);
+      assert.equal(
+        ctx.workflow.stopReason === DELEGATION_WORKFLOW_STOP_CLOSURE_ROUNDS_EXHAUSTED,
+        i === 3,
+        'cap reached only after the third round',
+      );
+    }
+  }
+
+  assert.equal(resolveReviewerPool('/tmp/no-settings-ws').active, false);
+  assert.equal(resolveReviewerPool(poolWorkspace).members.length, 2);
+  const poolOff = '/tmp/reviewer-pool-off-ws';
+  saveDelegationSettings(poolOff, { reviewer_pair_enabled: true, reviewer_pair_members: [] });
+  clearDelegationEnvCache();
+  assert.equal(resolveReviewerPool(poolOff).active, false, 'incomplete members = inactive');
+}
+
 console.log('delegation-code-review-phase.test.js OK');

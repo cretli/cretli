@@ -155,6 +155,21 @@ full regression gate (`CRETLI_DELEGATION_CODE_REVIEW_PHASE=0` disables the
 split). The orchestrator should create separate todos for `FOLLOW_UP` and
 `OUT_OF_SCOPE` items instead of expanding the current leaf.
 
+Opt-in reviewer pool: with `reviewer_pair_enabled` and a complete
+`reviewer_pair_members` (Settings → Delegations) the parent passes the two
+members to `model_pick` as `prefer_models` with `count=2` and runs two fresh
+review jobs per round (no resume). The workflow row keeps one round record
+(`codeReviewPoolRound`: round key, epoch, mode, members' results) captured when
+the round starts, so a later settings change or a replacement start does not
+reclassify it. The counter/audit/epoch effect is applied once, when the round
+resolves: any FAIL resolves it as a failed round (closure count +1; audit mode
+sets `codeReviewAuditDone`), two distinct PASS resolve it as PASS (counter reset).
+A member PASS that finishes first mutates nothing, and a late sibling result of
+an already resolved round is ignored. A lone PASS (degraded single reviewer)
+stays pending until the parent records PASS with `workflow_update`. Consequently
+`CRETLI_DELEGATION_CODE_REVIEW_MAX_CLOSURES` counts rounds, not jobs.
+The `review_recheck_no_material_change` gate and independence checks are unchanged.
+
 Session resume (`resume_session_of`, see `docs/plan-reviewer-cooperation.md`) is
 optional, off by default and not wired into this flow: a closure review whose
 named audit session is of a different `reviewMode` falls back to a new chat

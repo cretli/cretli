@@ -57,6 +57,10 @@ and `queued=<ISO of the current attempt>`.
    round in which a different reviewer validly FAILed, plus rows with
    `uncertified=true` when a certified pick exists. `uncertified=unknown` is not
    excluded. Keep one reviewer whose FAIL drove the rewrite.
+   Opt-in reviewer pool (`reviewer_pair_enabled` + two `reviewer_pair_members`):
+   also pass the members as `prefer_models` with `count=2`; excludes above still
+   win and a member lost to them is replaced by the normal pick (`picks[1]`).
+   Off = unchanged.
 6. If `model_pick` returns no candidate, drop exclusions one at a time
    (`uncertified=true` rows first, then ascending round time, then ascending
    session) until a pick exists, and report the relaxation as a deviation

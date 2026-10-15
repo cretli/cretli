@@ -50,3 +50,21 @@ assert.match(leaf, /STOP for human approval/);
 assert.match(leaf, /do not start child delegations/);
 assert.ok(!leaf.includes(TODO_EXECUTION_WORKFLOW));
 console.log('OK: TODO execution prompts preserve scope, review, continuation and approval gates');
+
+// Opt-in reviewer pool: off = unchanged, on = extra instruction.
+{
+  const { buildReviewerPoolInstruction } = await import('../lib/todo-execution-prompt.js');
+  const members = [{ harness: 'claude', model: 'rev-a' }, { harness: 'codex', model: 'rev-b' }];
+  const instruction = buildReviewerPoolInstruction(members);
+  assert.match(instruction, /REVIEWER POOL/);
+  assert.match(instruction, /claude\/rev-a, codex\/rev-b/);
+  assert.match(instruction, /prefer_models/);
+  assert.match(instruction, /count=2/, 'the pool pick must ask for both reviewers');
+  assert.match(instruction, /exclude_models/, 'a replacement excludes the surviving member');
+  assert.match(instruction, /Do not use resume_session_of/);
+  assert.ok(instruction.length > 100);
+  const off = buildTodoAgentInitialPrompt({ id, title: 'T', status: 'ready' }, 'chat-1', 'https://x', { hasChildren: true });
+  const on = buildTodoAgentInitialPrompt({ id, title: 'T', status: 'ready' }, 'chat-1', 'https://x', { hasChildren: true, reviewerPool: members });
+  assert.ok(!off.includes('REVIEWER POOL'));
+  assert.match(on, /REVIEWER POOL/);
+}

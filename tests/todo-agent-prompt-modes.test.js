@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolveProjectPath } from '../lib/runtime-paths.js';
 import { TODO_EXECUTION_WORKFLOW } from '../lib/todo-execution-prompt.js';
-import { buildTodoAgentInitialPrompt, buildTodoFullOrchestratorPrompt } from '../lib/todo-agent.js';
+import { buildTodoAgentInitialPrompt, buildTodoFullOrchestratorPrompt, buildTodoRefineInitialPrompt } from '../lib/todo-agent.js';
 
 const todo = { id: 'abc', title: 'T', status: 'ready', plan: { markdown: 'P' } };
 const a = buildTodoAgentInitialPrompt(todo, 'c1', 'http://x', { hasChildren: true });
@@ -68,4 +68,19 @@ assert.doesNotMatch(disabledPlan, /Run the skill @cretli-todo-refine-loop/);
 const disabledImplementation = buildTodoFullOrchestratorPrompt(largeTodo, 'chat', { phases: { implement: false } });
 assert.match(disabledImplementation, /phase_disabled:implement/);
 assert.doesNotMatch(disabledImplementation, /3\. Implementation/);
+// Opt-in reviewer pool: switch off = unchanged prompts, on = extra instruction.
+{
+  const members = [{ harness: 'claude', model: 'rev-a' }, { harness: 'codex', model: 'rev-b' }];
+  const refineOff = buildTodoRefineInitialPrompt(largeTodo, 'chat');
+  assert.equal(buildTodoRefineInitialPrompt(largeTodo, 'chat', { reviewerPool: [] }), refineOff);
+  assert.ok(!refineOff.includes('REVIEWER POOL'));
+  const refineOn = buildTodoRefineInitialPrompt(largeTodo, 'chat', { reviewerPool: members });
+  assert.match(refineOn, /REVIEWER POOL/);
+  assert.match(refineOn, /claude\/rev-a, codex\/rev-b/);
+  assert.doesNotMatch(refineOn, /resume_session_of\)/);
+  assert.equal(refineOn.replace(/REVIEWER POOL[\s\S]*?\n\n(?=Finish with)/, ''), refineOff);
+  const fullOff = buildTodoFullOrchestratorPrompt(largeTodo, 'chat', {});
+  assert.equal(buildTodoFullOrchestratorPrompt(largeTodo, 'chat', { reviewerPool: [] }), fullOff);
+  assert.match(buildTodoFullOrchestratorPrompt(largeTodo, 'chat', { reviewerPool: members }), /REVIEWER POOL/);
+}
 console.log('todo-agent-prompt-modes: all passed');

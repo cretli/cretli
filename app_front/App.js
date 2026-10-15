@@ -177,6 +177,7 @@ import { initVoiceModeButton } from './features/voice/voiceModeButton.js';
 import { initUsageSettings, refreshUsageSettings } from './features/usage/usageSettings.js';
 import { initApprovalBrokerSettings, refreshApprovalBrokerSettings } from './features/approval/approvalBrokerSettings.js';
 import { initDelegationCenter, refreshDelegationCenter } from './features/delegations/delegationCenter.js';
+import { initDelegationSettings, refreshDelegationSettings } from './features/settings/delegationSettings.js';
 import { initInstallPrompt } from './features/pwa/installPrompt.js';
 import { initPwaUpdatePrompt } from './features/pwa/pwaUpdatePrompt.js';
 import { initPageBackgroundGrace } from './lib/pageBackgroundGrace.js';
@@ -1387,7 +1388,10 @@ function refreshSettingsTabPanels(tabId) {
   if (tabId === 'harness-opencode-approvals') void refreshApprovalBrokerSettings();
   if (tabId === 'chat') refreshModelSettingsPanel();
   if (tabId === 'usage') void refreshUsageSettings();
-  if (tabId === 'delegations') void refreshDelegationCenter();
+  if (tabId === 'delegations') {
+    void refreshDelegationCenter();
+    void refreshDelegationSettings();
+  }
   if (tabId === 'widgets') {
     void ensurePanelReady('widget').then(() => callLoadedPanel('widget', 'refreshWidgetPanel'));
   }
@@ -2439,6 +2443,7 @@ function bootApp() {
     measureStartupStep('initSettingsTabs', () => initSettingsTabs());
     measureStartupStep('initUsageSettings', () => initUsageSettings());
     measureStartupStep('initDelegationCenter', () => initDelegationCenter());
+    measureStartupStep('initDelegationSettings', () => initDelegationSettings());
     // GitHub only needs to exist to hide/show its tab — load after first paint.
     const scheduleIdle = typeof requestIdleCallback === 'function'
       ? (fn) => requestIdleCallback(fn, { timeout: 4000 })

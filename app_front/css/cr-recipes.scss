@@ -54,6 +54,12 @@
     width: 100%;
     max-width: none;
   }
+
+  // Secondary actions (e.g. "use default") keep their content width.
+  cr-bar-button.cr-field-action {
+    width: auto;
+    align-self: flex-start;
+  }
 }
 
 .cr-field-label,
@@ -150,6 +156,27 @@ cr-bar-textarea + .cr-row {
 
   &.is-error {
     color: var(--cr-danger-text);
+  }
+
+  &[data-tone='error'] {
+    color: var(--cr-error);
+  }
+}
+
+// Small pill used for value provenance (workspace / env / default).
+.cr-badge {
+  display: inline-block;
+  padding: 0 var(--cr-space-2);
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--cr-text-muted);
+  background: var(--cr-surface);
+
+  &[data-delegation-source='workspace'] {
+    border-color: var(--cr-accent);
+    color: var(--cr-accent);
   }
 }
 

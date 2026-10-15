@@ -145,3 +145,19 @@ next different candidate under the existing retry rule. If no cheaper model
 is eligible, use the normal eligibility/blocked rules rather than silently
 inventing a cheaper option. Explain the exceptional reason briefly to the
 user when selecting a premium model.
+
+## Reviewer pool (`prefer_models`, opt-in)
+
+When `reviewer_pair_enabled` is on with a complete `reviewer_pair_members`
+(Settings → Delegations), review picks pass the two members as `prefer_models`
+(`[{ harness, model }, ...]`) and `count=2`: `picks[0]` and `picks[1]` are the
+round's two reviewers (with `count=1` the survivor is returned again, never a
+replacement). The picker never reads settings. Hard excludes (implementer,
+`exclude_model(s)`, closure limits, lockouts) always win: a member removed by
+them is replaced by the normal pick in `picks[1]` and the response carries
+`rotation.pool = { members, honoured, degraded, missing }`. With no surviving
+member the normal pick and the existing relaxation path apply. On infra/quota
+failure of one member call `model_pick` again WITHOUT `prefer_models`, with
+`exclude_models` = failed member + surviving member + implementer and `count=1`,
+within the existing single retry; never block.
+Omitting `prefer_models` leaves picks unchanged.

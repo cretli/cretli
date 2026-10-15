@@ -762,6 +762,81 @@ assert.deepEqual(
 assert.notEqual(bandPick.candidates[1].harness, bandPick.pick.harness, 'the infra fallback prefers a different harness');
 assert.equal(bandPick.candidates[1].in_band, true);
 
+// --- Reviewer pool (prefer_models): opt-in, hard excludes win ---
+{
+  const poolHarnesses = ['pa', 'pb', 'pc'].map((id) => ({ id, enabled: true, ready: true, can_delegate: true }));
+  const poolModels = {};
+  for (const id of ['pa', 'pb', 'pc']) {
+    poolModels[id] = {
+      favorites_configured: true,
+      items: [{ id: `m-${id}`, roles: ['review'], cost_tier: 2, quality_tier: 4, speed_tier: 3 }],
+    };
+  }
+  const members = [{ harness: 'pb', model: 'm-pb' }, { harness: 'pc', model: 'm-pc' }];
+  const base = { role: 'review', harnesses: poolHarnesses, modelsByHarness: poolModels, rotation: 'off' };
+  const plain = selectModelPick(base);
+  assert.equal(plain.pick.harness, 'pa', 'without a pool the normal pick wins');
+  assert.equal(plain.rotation.pool, undefined, 'off = no pool telemetry');
+  const honoured = selectModelPick({ ...base, preferModels: members, count: 2 });
+  assert.notEqual(honoured.pick.harness, 'pa', 'pool member beats the better-ranked non-member');
+  assert.deepEqual(honoured.picks.map((row) => row.harness).sort(), ['pb', 'pc']);
+  assert.equal(honoured.rotation.pool.degraded, false);
+  assert.equal(honoured.rotation.pool.honoured, 2);
+  const implementerPool = selectModelPick({
+    ...base,
+    preferModels: members,
+    count: 2,
+    excludeModels: ['m-pb'],
+  });
+  assert.ok(!implementerPool.picks.some((row) => row.model === 'm-pb'), 'implementer exclude wins over the pool');
+  assert.equal(implementerPool.picks[0].harness, 'pc');
+  assert.equal(implementerPool.picks[1].harness, 'pa', 'lost member replaced by the normal pick');
+  assert.equal(implementerPool.rotation.pool.degraded, true);
+  assert.deepEqual(implementerPool.rotation.pool.missing, ['pb/m-pb']);
+  // Documented flow: count=1 with prefer_models returns the survivor again, so
+  // the prompt requires count=2; an infra replacement is a normal pick that
+  // excludes the failed member, the survivor and the implementer.
+  const survivorOnly = selectModelPick({ ...base, preferModels: members, excludeModels: ['m-pb'] });
+  assert.equal(survivorOnly.pick.harness, 'pc', 'count=1 returns the surviving member, not a replacement');
+  const infraReplacement = selectModelPick({ ...base, excludeModels: ['m-pb', 'm-pc', 'm-pa-implementer'] });
+  assert.equal(infraReplacement.pick.harness, 'pa', 'replacement comes from a normal pick with the survivor excluded');
+  assert.ok(!infraReplacement.rotation.pool);
+  const noPoolSurvivor = selectModelPick({
+    ...base,
+    preferModels: members,
+    excludeModels: ['m-pb', 'm-pc'],
+  });
+  assert.equal(noPoolSurvivor.ok, true, 'no pool survivor falls back to the normal pick');
+  assert.equal(noPoolSurvivor.pick.harness, 'pa');
+  assert.equal(noPoolSurvivor.rotation.pool.degraded, true);
+  const none = selectModelPick({
+    ...base,
+    preferModels: members,
+    excludeModels: ['m-pa', 'm-pb', 'm-pc'],
+  });
+  assert.equal(none.ok, false, 'hard excludes leave no candidate');
+  assert.equal(none.code, 'MODEL_UNAVAILABLE');
+  // Soft last-reviewer exclude is relaxed for the pool, hard ones are not.
+  const softHistory = {
+    hardExcludeModels: [],
+    softExcludeModels: ['m-pb'],
+    excludeModels: ['m-pb'],
+  };
+  const softPool = selectModelPick({ ...base, preferModels: members, count: 2, history: softHistory });
+  assert.deepEqual(softPool.picks.map((row) => row.harness).sort(), ['pb', 'pc'], 'pool reuses the last reviewer');
+  assert.equal(softPool.rotation.pool.degraded, false);
+  const relaxedNormal = selectModelPick({
+    role: 'review',
+    harnesses: [poolHarnesses[1]],
+    modelsByHarness: { pb: poolModels.pb },
+    rotation: 'off',
+    preferModels: members,
+    history: softHistory,
+  });
+  assert.equal(relaxedNormal.ok, true, 'existing relaxation path still applies');
+  assert.match(relaxedNormal.pick.reason, /history exclude relaxed/);
+}
+
 // --- Delegations cache self-heals after a store write ---
 const cacheChat = `cache-chat-${process.pid}`;
 const cacheBefore = buildModelPickHistory({ role: 'implement', chatId: cacheChat, harnesses: ['deepseek'] });

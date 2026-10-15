@@ -55,6 +55,12 @@ stable pair into a loop is a separate human decision: todo
 `8ed03f09-b5e7-418e-afea-ad26a2df2d66`. A pair is a fan-out of `count=2`; each
 slot names its own earlier delegation.
 
+This resumed pair is **not** the opt-in reviewer *pool* (`reviewer_pair_enabled`
+/ `reviewer_pair_members` in Settings → Delegations): the pool is two fixed
+members passed to `model_pick` as `prefer_models`, each started as a fresh
+review with no `resume_session_of` and no keep-alive. The two are independent
+mechanisms and may be used separately.
+
 Contract per round:
 
 - Always a **new delegation, attempt, report, verdict and material id**. A retry

@@ -616,8 +616,14 @@ body:has(#settings-panel.active) #settings-panel.panel {
 }
 
 #settings-panel:has(.settings-section[data-settings-tab='workspace']:not([hidden])) .cr-page-footer,
-#settings-panel:has(.settings-section[data-settings-tab='workspace']:not([hidden])) .settings-workspace-save-row {
+#settings-panel:has(.settings-section[data-settings-tab='workspace']:not([hidden])) .settings-workspace-save-row,
+#settings-panel .settings-section[data-settings-tab='delegations']:not([hidden]) .cr-page-footer {
   display: flex;
+}
+
+/* A display-setting class must never defeat the [hidden] toggle of a delegation subpanel. */
+[data-delegation-panel][hidden] {
+  display: none;
 }
 
 .settings-workspace-folder-list {
@@ -8024,6 +8030,24 @@ cr-sdk-block.sdk-rich-opencode-question--resolved {
   box-shadow: inset 0 0 0 1px var(--cr-accent);
 }
 
+.sdk-rich-opencode-permission-decided-by {
+  display: inline-block;
+  margin-bottom: var(--cr-space-1);
+  border: 1px solid var(--cr-border-strong);
+  color: var(--cr-text-muted);
+  cursor: help;
+
+  &[data-decided-by='advisor'] {
+    border-color: var(--cr-accent);
+    color: var(--cr-accent);
+  }
+
+  &[data-decided-by='user'] {
+    border-color: var(--cr-success);
+    color: var(--cr-success);
+  }
+}
+
 .sdk-rich-opencode-permission-advisor-panel {
   margin: var(--cr-space-2) 0;
   padding: var(--cr-space-2);
@@ -8315,41 +8339,6 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
   margin-top: var(--cr-space-1);
 }
 
-.sdk-rich-delegation-rate-label {
-  color: var(--cr-text-muted);
-  font-size: 0.85em;
-}
-
-.sdk-rich-delegation-stars {
-  display: flex;
-  gap: var(--cr-space-1);
-}
-
-.sdk-rich-delegation-star {
-  min-width: var(--cr-control-height);
-  min-height: var(--cr-control-height);
-  padding: 0 var(--cr-space-1);
-  border: 1px solid var(--cr-border-strong);
-  border-radius: var(--cr-radius-sm);
-  background: var(--cr-control-bg);
-  color: var(--cr-text-muted);
-  cursor: pointer;
-}
-
-.sdk-rich-delegation-star.is-active,
-.sdk-rich-delegation-rate-tag.is-active {
-  border-color: var(--cr-accent);
-  color: var(--cr-accent);
-}
-
-.sdk-rich-delegation-star:disabled,
-.sdk-rich-delegation-rate-tag:disabled,
-.sdk-rich-delegation-rate-submit:disabled,
-.sdk-rich-delegation-rate-note-input:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
 .sdk-rich-delegation-rate-tags {
   display: flex;
   flex-wrap: wrap;
@@ -8359,28 +8348,10 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
 .sdk-rich-delegation-rate-tag {
   display: inline-flex;
   align-items: center;
-  min-height: var(--cr-control-height);
   padding: 0 var(--cr-space-2);
   border: 1px solid var(--cr-border-strong);
   border-radius: 999px;
-  background: var(--cr-control-bg);
-  color: var(--cr-text);
-  cursor: pointer;
-}
-
-.sdk-rich-delegation-rate-note-input {
-  width: 100%;
-  max-width: 28rem;
-  min-height: var(--cr-control-height);
-  padding: 0 var(--cr-space-2);
-  border: 1px solid var(--cr-border-strong);
-  border-radius: var(--cr-radius-sm);
-  background: var(--cr-control-bg);
-  color: var(--cr-text);
-}
-
-.sdk-rich-delegation-rate-error {
-  color: var(--cr-error);
+  color: var(--cr-text-muted);
 }
 
 .sdk-rich-delegation-rate-stars {

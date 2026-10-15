@@ -753,6 +753,9 @@
           <cr-bar-button variant="primary" id="approval-advisor-save-btn" data-i18n="settings.approvalAdvisorSave">Save advisor</cr-bar-button>
           <span id="approval-advisor-save-status" class="cr-status" role="status" aria-live="polite"></span>
         </div>
+        <p class="settings-hint" data-i18n="settings.approvalAdvisorOpenCodeCardsHint">The external advisor applies only to OpenCode permission cards left for you. It never executes Once, Always or Reject on its own in advisory mode; daily quota may skip assessments when exhausted.</p>
+        <h4 class="settings-subsection-title" data-i18n="settings.approvalAuditStatsTitle">Last 7 days</h4>
+        <div class="cr-card" id="approval-audit-stats" role="status" aria-live="polite"></div>
         <h4 class="settings-subsection-title" data-i18n="settings.approvalAdvisorKeyTitle">Advisor API key</h4>
         <p id="approval-advisor-key-source-hint" class="settings-hint" role="status" aria-live="polite"></p>
         <div class="cr-field">
@@ -1897,6 +1900,13 @@
         </div>
       </section>
       <section class="settings-section" data-settings-tab="delegations" role="tabpanel">
+        <div id="delegation-subtabs" class="cr-tabs" role="tablist">
+          <button type="button" class="cr-tab active" data-delegation-subtab="center" role="tab" aria-selected="true" data-i18n="settings.delegationSubtab_center">Center</button>
+          <button type="button" class="cr-tab" data-delegation-subtab="limits" role="tab" aria-selected="false" data-i18n="settings.delegationSubtab_limits">Limits</button>
+          <button type="button" class="cr-tab" data-delegation-subtab="review" role="tab" aria-selected="false" data-i18n="settings.delegationSubtab_review">Review</button>
+          <button type="button" class="cr-tab" data-delegation-subtab="models" role="tab" aria-selected="false" data-i18n="settings.delegationSubtab_models">Models</button>
+        </div>
+        <div data-delegation-panel="center">
         <h3 class="settings-section-title" data-i18n="settings.delegationsCenterTitle">Delegation center</h3>
         <p class="settings-hint" data-i18n="settings.delegationsCenterHint">Runtime health, stuck jobs, and repair actions for this workspace. Prompt text is never shown here.</p>
         <div id="delegation-runtime-health" class="delegation-center-health" aria-live="polite"></div>
@@ -1912,6 +1922,10 @@
           <cr-bar-button id="delegation-center-more" hidden data-i18n="settings.delegationsLoadMore">Load more</cr-bar-button>
         </div>
         <p id="delegation-center-status" class="cr-hint" aria-live="polite"></p>
+        </div>
+        <div data-delegation-panel="limits" hidden><div id="settings-delegation-limits-root" class="cr-page"></div></div>
+        <div data-delegation-panel="review" hidden><div id="settings-delegation-review-root" class="cr-page"></div></div>
+        <div data-delegation-panel="models" hidden><div id="settings-delegation-models-root" class="cr-page"></div></div>
       </section>
       <section class="settings-section" data-settings-tab="widgets" hidden role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.widgetsTitle">Page widgets</h3>
@@ -1984,6 +1998,7 @@
       <section class="settings-section" data-settings-tab="watcher" hidden role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.watcherTitle">Workspace Watcher</h3>
         <p class="settings-hint" data-i18n="settings.watcherHint">One deterministic guard per workspace. Observe logs idle work; autopilot starts one short-lived orchestrator cycle that delegates implementation and review. Autopilot is off by default and never commits or pushes.</p>
+        <p class="settings-hint"><a href="#" data-delegation-subtab-link="limits" data-i18n="settings.delegationOptionsLinkLimits">Delegation limits (depth, slots, deadlines)</a> · <a href="#" data-delegation-subtab-link="review" data-i18n="settings.delegationOptionsLinkReview">Review options (fanout, reviewer pair)</a></p>
         <div id="settings-watcher-root" class="watcher-settings-root"></div>
       </section>
       <section class="settings-section" data-settings-tab="usage" hidden role="tabpanel">
@@ -2171,6 +2186,7 @@
             <div id="usage-workflow" aria-live="polite"></div>
           </div>
         </div>
+        <p class="settings-hint"><a href="#" data-delegation-subtab-link="models" data-i18n="settings.delegationOptionsLinkModels">Delegation model options (empty favorites)</a> · <a href="#" data-delegation-subtab-link="review" data-i18n="settings.delegationOptionsLinkReview">Review options (fanout, reviewer pair)</a></p>
         <div class="settings-usage-delegation-stats">
           <div class="settings-usage-table-head">
             <h4 class="settings-usage-subtitle" id="delegation-stats-title" data-i18n="delegationStats.title">Model × role outcomes</h4>
