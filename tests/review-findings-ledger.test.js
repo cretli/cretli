@@ -224,6 +224,26 @@ const newLeaf = () => crypto.randomUUID();
   assert.equal(recordReviewFindings(input).recorded, false);
 }
 
+// FU-E(2): findings are scrubbed at write time, not only on the read route.
+{
+  const leafId = newLeaf();
+  const result = recordReviewFindings({
+    workspaceFolder: ISOLATED_DATA_DIR,
+    leafId,
+    delegationId: 'privacy-write-scrub',
+    mode: 'audit',
+    findings: [f('F1', 'NEW', {
+      files: ['/home/alice/proj/lib/a.js', 'lib/b.js', 'C:\\Users\\Jan Kowalski\\proj\\lib\\c.js'],
+      summary: 'Token leaked in `/home/alice/proj/lib/a.js`',
+    })],
+  });
+  assert.equal(result.recorded, true);
+  const entry = byKey(getReviewFindingsLedger(ISOLATED_DATA_DIR, leafId))[result.keys[0]];
+  assert.deepEqual(entry.files, ['lib/a.js', 'lib/b.js', 'lib/c.js'], 'private file heads are scrubbed before storing');
+  assert.equal(entry.summary, 'Token leaked in `lib/a.js`', 'summary is scrubbed before storing');
+  assert.ok(!/alice|Jan|Kowalski/.test(JSON.stringify(entry)), 'no name survives in the stored entry');
+}
+
 // Delegation record round-trip: reviewFindings survives create + patch + reload.
 {
   const parent = makeParent('roundtrip');
