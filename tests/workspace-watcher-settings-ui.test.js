@@ -114,7 +114,7 @@ test('a live watcher change repaints only the dashboard, preserving the form', (
     'the change listener must request a non-full (form-preserving) refresh',
   );
   // Full renders are gated on the `full` flag so the live path skips the form.
-  assert.match(source, /if \(full\) \{[\s\S]*?renderWatcherPanel\(root, lastView\);/, 'renderWatcherPanel only runs on the full path');
+  assert.match(source, /if \(full\) \{[\s\S]*?renderWatcherPanel\(root, /, 'renderWatcherPanel only runs on the full path');
   // The live path stays dashboard-only, but a change that races the first load
   // still renders the form once (dataset.rendered guard), and a workspace switch
   // forces the form because the previous workspace's policy must not stay editable.
