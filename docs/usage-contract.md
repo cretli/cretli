@@ -36,6 +36,28 @@ Every event produced by `createUsageEvent` carries:
 A child run's model comes from the child payload. It is never inherited from
 the parent model (`resolveChildUsageModel`).
 
+### Price provenance (`pricing`)
+
+Every event whose `usd` was computed by `priceUsage` carries an optional,
+additive `pricing` block (not part of the schema version bump; legacy events
+simply lack it):
+
+| Field | Meaning |
+| --- | --- |
+| `source` | `token_rates` (static table, model-prefix match), `provider_fallback` (generic per-provider row for an unlisted model; always `estimated: true`), `openrouter_pricing`, `reported` (provider-reported `reportedUsd`) or `none` (unpriced). |
+| `ratesVersion` / `ratesCapturedAt` | Version label and review date of the table (`TOKEN_RATES_VERSION`, `TOKEN_RATES_CAPTURED_AT`). |
+| `rates` | Snapshot of the per-million rates actually applied (`textInput`, `cachedInput`, `cacheWrite`, `audioInput`, `textOutput`, `audioOutput`), enough to reproduce `usd` without the current table. |
+| `charRatePerMillion` / `minuteRate` | Applied TTS / STT rates, when used. |
+| `reportedUsd` | Echo of the reported cost when `source` is `reported`. |
+| `reason` | Why an event is unpriced (`unknown_model`) when `source` is `none`. |
+
+Rules: the block is written once at record time and is never recomputed. Changing
+`TOKEN_RATES` affects only events recorded afterwards; history is repriced only
+by an explicit migration. A model the table does not know yields `usd: null`
+with `pricing.reason = 'unknown_model'` unless the provider has a labelled
+fallback row (`openrouter`, `google`, `openai`), which is flagged
+`provider_fallback` + `estimated: true` and so stays out of `totalUsd`.
+
 ## 2. Harness matrix
 
 `usageShape`: raw = adapter must translate provider snake_case; resolved =
