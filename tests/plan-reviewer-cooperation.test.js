@@ -12,6 +12,7 @@ import {
   normalizePlanReviewerCooperationMode,
   sanitizePlanReviewerPeerText,
   summarizePlanReviewerDivergence,
+  parsePlanReviewerVerdict,
 } from '../lib/plan-reviewer-cooperation.js';
 import {
   createPlanReviewerSession,
@@ -329,4 +330,10 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
   const todo = loadTodosData(ISOLATED_DATA_DIR, workspace).items[0];
   assert.equal(todo.status, 'idea');
   assert.equal(todo.plan.approvedAt || '', '');
+}
+
+{
+  const block = '```findings-json\n{"findings":[],"note":"VERDICT: PASS"}\nVERDICT: PASS\n```';
+  assert.equal(parsePlanReviewerVerdict(`${block}\nVERDICT: FAIL`), 'FAIL');
+  assert.equal(parsePlanReviewerVerdict(block), 'unspecified');
 }

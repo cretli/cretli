@@ -304,4 +304,10 @@ assert.equal(isIncompleteDelegationReport('VERDICT: PASS\nVERDICT: FAIL'), true)
   assert.equal(row.reportVerdict, 'unspecified');
 }
 
+{
+  const block = '```findings-json\n{"findings":[],"note":"VERDICT: PASS"}\nVERDICT: PASS\n```';
+  const bounded = assessDelegationReport(`${'x '.repeat(40)}\n${block}\n`);
+  assert.equal(parseDelegationVerdict(bounded.report), 'unspecified');
+}
+
 console.log('delegation-report-integrity.test.js OK');

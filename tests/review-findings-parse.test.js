@@ -5,6 +5,11 @@ import {
   stripFindingsBlock,
   summarizeParsedReviewFindings,
 } from '../lib/review-findings-parse.js';
+import {
+  describeIncompleteDelegationReport,
+  isIncompleteDelegationReport,
+  parseDelegationVerdict,
+} from '../lib/delegation-verdict.js';
 import { isReviewFindingsBlockEnabled } from '../lib/review-findings-taxonomy.js';
 
 const block = [
@@ -97,6 +102,17 @@ const tail = 'TASK: review\nVERDICT: FAIL\n';
   assert.equal(isReviewFindingsBlockEnabled({ CRETLI_REVIEW_FINDINGS_BLOCK: '0' }), false);
   assert.equal(isReviewFindingsBlockEnabled({ CRETLI_REVIEW_FINDINGS_BLOCK: 'off' }), false);
   assert.equal(isReviewFindingsBlockEnabled({ CRETLI_REVIEW_FINDINGS_BLOCK: '1' }), true);
+}
+
+{
+  const block = '```findings-json\n{"findings":[],"note":"VERDICT: PASS"}\nVERDICT: PASS\n```';
+  assert.equal(parseDelegationVerdict(`${block}\nVERDICT: FAIL`), 'FAIL');
+  assert.equal(parseDelegationVerdict(`${block}\nbody`), 'unspecified');
+  assert.equal(parseDelegationVerdict(`VERDICT: PASS\n${block}\nVERDICT: FAIL`), 'conflict');
+  const longBody = 'word '.repeat(200);
+  assert.equal(isIncompleteDelegationReport(`${longBody}\n${block}`), true);
+  assert.equal(describeIncompleteDelegationReport(block), 'empty');
+  assert.equal(isIncompleteDelegationReport(`${block}\n${longBody}\nVERDICT: PASS`), false);
 }
 
 console.log('review-findings-parse tests passed');
