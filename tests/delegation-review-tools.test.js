@@ -48,12 +48,10 @@ const cwdMarker = path.join(projectRoot, 'review-verify-cwd-pwned.txt');
 fs.rmSync(projectMarker, { force: true });
 fs.rmSync(cwdMarker, { force: true });
 
-// Review contract: plain `node tests/**/*.test.js` is allowed (isolated data dir).
-const plainTestAllowed = await executeTool('run_terminal_command', {
-  command: 'node tests/conversation-fork.test.js',
-}, { cwd: projectRoot, mode: 'agent', assignment: 'review' });
-assert.equal(plainTestAllowed.ok, true, plainTestAllowed.error);
+// Review contract: direct test files are denied here (tool-executor sets
+// denyReviewTestRun); tests run only through the host-owned review-verify catalog.
 for (const command of [
+  'node tests/conversation-fork.test.js',
   'node tests/../scripts/x.js',
   'node ../x.test.js',
   'node tests/foo.test.js > out.txt',
