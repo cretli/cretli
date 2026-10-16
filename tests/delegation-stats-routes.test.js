@@ -105,6 +105,11 @@ assert.equal(reviewRow.verdict_fail_rate, 0);
 // --- L6: priced statistics (cost_per_pass, price_per_1m, per level) ---------
 assert.ok(body.priced_stats && Array.isArray(body.priced_stats.by_level), 'priced_stats.by_level is present');
 assert.equal(body.priced_stats.attribution.url, 'https://artificialanalysis.ai/', 'AA attribution credit is exposed');
+// Cost-proxy quality report aggregated from the persisted pick records.
+assert.ok(body.cost_proxy_quality, 'cost_proxy_quality block is present');
+assert.equal(body.cost_proxy_quality.unit, 'rcu');
+assert.equal(body.cost_proxy_quality.historyShareTarget, 0.6, 'the >=60% history target is reported');
+assert.equal(typeof body.cost_proxy_quality.n, 'number');
 assert.ok('cost_per_pass' in implementRow && 'price_per_1m' in implementRow, 'outcome rows carry cost_per_pass and price_per_1m');
 assert.ok(implementRow.price_per_1m && 'source' in implementRow.price_per_1m && 'captured_at' in implementRow.price_per_1m,
   'price_per_1m names its source and captured_at');

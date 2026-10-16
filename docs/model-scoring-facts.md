@@ -469,8 +469,10 @@ picked pair and the audit candidates in `lib/model-pick-cost-proxy.js`.
   `basis: empty` and a `null` value.
 - **Tokens.** Median `tokens_in`/`tokens_out` of delegation history per
   (model, role, level) when n >= 5 (`tokenSource: history`), else the median per
-  role (`role`), else a configured constant (`constant`). Effort is counted once,
-  only in the token volume of the `role`/`constant` sources
+  (model, role) when n >= 5 (still `history`, so history stays reachable for rows
+  without a persisted level), else the median per role (`role`), else a
+  configured constant (`constant`). Effort is counted once, only in the token
+  volume of the `role`/`constant` sources
   (`costProxy.effortTokenMultiplier`), identically for `rate` and `tier_table`.
 - **Journal.** The decision log stores `{ unit, level, selected, candidates[] }`
   with `candidateId`, `value`, `basis`, `tokenSource` and `tier` only. It never
@@ -480,6 +482,11 @@ picked pair and the audit candidates in `lib/model-pick-cost-proxy.js`.
   error of the tier table over rated models and the error on the held-out
   OpenRouter-priced set. Both calibration errors need n >= 5 rated models and are
   otherwise reported as `undetermined`; the target is <= 25%.
+  `buildCostProxyQualityReportFromRecords` aggregates the persisted
+  `record.costProxy` estimates the same way and is exposed as the
+  `cost_proxy_quality` block of `GET /api/delegations/stats`; the exact rate of a
+  `basis: rate` entry is re-resolved network-free so the calibration half stays
+  measurable even though the journal keeps only the closed field list.
 
 ### Benchmark audit and shadow signal (plan v10 §2.5, audited 2026-10-14)
 

@@ -10,6 +10,7 @@ import {
   TIER_RATE_TABLE,
   buildCostProxyForPick,
   buildCostProxyQualityReport,
+  buildCostProxyQualityReportFromRecords,
   collectTokenSamples,
   estimateCostProxy,
   leaveOneOutCalibrationError,
@@ -181,4 +182,125 @@ test('pick journals cost_proxy with basis/tokenSource and does not alter selecti
   assert.ok(['rate', 'tier_table', 'empty'].includes(record.costProxy.selected.basis));
   assert.ok(['history', 'role', 'constant'].includes(record.costProxy.selected.tokenSource));
   assert.ok(!JSON.stringify(record.costProxy).includes('usd'));
+});
+
+test('(model, role) history is reachable even without a persisted level', () => {
+  const model = 'claude-sonnet-5-5';
+  // Rows written before the level was journaled have no `complexity`.
+  const noLevel = Array.from({ length: 5 }, () => ({
+    role: 'implement',
+    executor: { model },
+    metrics: { tokens_in: 800, tokens_out: 160 },
+  }));
+  const samples = collectTokenSamples(noLevel, roleOfRow);
+  const asked = estimateCostProxy({ harness: 'claude', model, role: 'implement', level: 'standard', samples });
+  assert.equal(asked.tokenSource, 'history');
+  assert.deepEqual(asked.tokens, { input: 800, output: 160 });
+  const askedWithoutLevel = estimateCostProxy({ harness: 'claude', model, role: 'implement', samples });
+  assert.equal(askedWithoutLevel.tokenSource, 'history');
+  // A different model still falls back to the all-role median.
+  const other = estimateCostProxy({ harness: 'claude', model: 'claude-haiku-5-5', role: 'implement', samples });
+  assert.equal(other.tokenSource, 'role');
+});
+
+test('selected marks the real pick and is null when the primary pair is unusable', () => {
+  const picked = buildCostProxyForPick({
+    pickResult: {
+      pick: { harness: 'claude', model: 'claude-opus-5-5' },
+      picks: [{ harness: 'claude', model: 'claude-opus-5-5' }],
+      candidates: [{ harness: 'claude', model: 'claude-sonnet-5-5' }],
+    },
+    role: 'review', level: 'standard', rows: [], roleOfRow,
+  });
+  assert.equal(picked.selected.candidateId, 'claude/claude-opus-5-5');
+  const noPrimary = buildCostProxyForPick({
+    pickResult: { picks: [{ harness: '', model: '' }], candidates: [{ harness: 'claude', model: 'claude-sonnet-5-5' }] },
+    role: 'review', level: 'standard', rows: [], roleOfRow,
+  });
+  assert.equal(noPrimary.selected, null);
+  assert.equal(noPrimary.candidates.length, 1);
+  assert.equal(noPrimary.candidates[0].candidateId, 'claude/claude-sonnet-5-5');
+});
+
+test('quality report from persisted records collects candidates and falls back to selected', () => {
+  const records = {
+    a: {
+      id: 'a',
+      costProxy: {
+        unit: 'rcu',
+        level: 'standard',
+        selected: null,
+        candidates: [
+          { candidateId: 'claude/claude-opus-5-5', value: 1, basis: 'rate', tokenSource: 'history', tier: 4 },
+          { candidateId: 'openrouter/acme/x', value: 1, basis: 'tier_table', tokenSource: 'role', tier: 3 },
+        ],
+      },
+    },
+    b: {
+      id: 'b',
+      costProxy: {
+        unit: 'rcu',
+        level: '',
+        selected: { candidateId: 'claude/claude-sonnet-5-5', value: 1, basis: 'rate', tokenSource: 'history', tier: 2 },
+        candidates: [],
+      },
+    },
+    c: { id: 'c' },
+  };
+  const report = buildCostProxyQualityReportFromRecords(records);
+  assert.equal(report.n, 3);
+  assert.equal(report.tokenSourceHistoryShare, 0.6667);
+  assert.equal(report.historyShareMet, true);
+  assert.equal(buildCostProxyQualityReportFromRecords(null).n, 0);
+});
+
+test('quality report from records hydrates exact rates so leave-one-out is measurable', () => {
+  const candidates = [
+    ['claude/claude-opus-5-5', 4],
+    ['claude/opus', 4],
+    ['claude/claude-sonnet-5-5', 2],
+    ['claude/sonnet', 2],
+    ['claude/claude-haiku-5-5', 1],
+    ['claude/haiku', 1],
+  ].map(([candidateId, tier]) => ({ candidateId, value: 1, basis: 'rate', tokenSource: 'history', tier }));
+  const records = { p: { id: 'p', costProxy: { unit: 'rcu', level: '', selected: null, candidates } } };
+  const report = buildCostProxyQualityReportFromRecords(records);
+  assert.equal(report.n, 6);
+  assert.equal(report.leaveOneOut.undetermined, false);
+  assert.equal(report.leaveOneOut.n, 6);
+  assert.equal(report.leaveOneOut.meanAbsError, 0);
+});
+
+test('a throwing openrouter pricing getter degrades to no costProxy and keeps the pick', () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cp-')), 'picks.json');
+  const base = {
+    role: 'implement',
+    purpose: 'test',
+    chatId: 'c-openrouter',
+    harnesses: [{ id: 'openrouter', enabled: true, ready: true, can_delegate: true }],
+    delegations: [],
+    modelsByHarness: {
+      openrouter: { favorites_configured: true, items: [{ id: 'acme/x', roles: ['implement'], cost_tier: 3, quality_tier: 3, speed_tier: 3 }] },
+    },
+    now: Date.parse('2026-10-14T12:00:00Z'),
+    shadow: false,
+    explore: false,
+    file,
+  };
+  const ok = pickAndPersistModelForPurpose({
+    ...base,
+    openrouterPricingFor: () => ({ prompt: '0.000001', completion: '0.000004' }),
+  });
+  assert.equal(ok.ok, true, JSON.stringify(ok.error || ok.diagnosis || {}).slice(0, 300));
+  assert.equal(ok.pick.harness, 'openrouter');
+  assert.equal(ok.costProxy.selected.basis, 'rate');
+
+  const throwing = pickAndPersistModelForPurpose({
+    ...base,
+    chatId: 'c-openrouter-throw',
+    openrouterPricingFor: () => { throw new Error('pricing cache exploded'); },
+  });
+  assert.equal(throwing.ok, true, 'a proxy failure never fails the pick');
+  assert.equal(throwing.costProxy, null);
+  assert.deepEqual(throwing.pick, ok.pick);
 });
