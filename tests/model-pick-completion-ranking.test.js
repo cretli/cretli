@@ -148,6 +148,12 @@ const stickyHistory = buildModelPickHistory({
   delegations,
   harnesses: ['sdk', 'qwen'],
   now: Date.parse('2026-10-01T12:00:00.000Z'),
+  // Inject empty stores so the result never depends on the machine's data/
+  // (active usage lockouts, plan limits, fresh limit hits, ratings).
+  lockouts: [],
+  planLimits: [],
+  freshLimitHits: {},
+  ratings: [],
 });
 assert.ok(stickyHistory.leafSticky, 'leaf sticky executor is resolved');
 assert.equal(stickyHistory.leafSticky.key, 'sdk/composer-2.5');
