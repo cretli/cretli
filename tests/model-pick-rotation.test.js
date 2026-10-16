@@ -265,14 +265,19 @@ assert.ok(freshLimit.candidates.find((row) => row.harness === 'a').plan_limit_pe
 
 // --- Plan-limit penalty: proportional, not a 90% cliff -----------------------
 // The shared plan contract is percent, including small fractional percentages.
-// A row without a forecast keeps today's no-data behavior: 0 below 90 and the
-// PLAN_LIMIT_PENALTY floor at/above it.
+// The rows below carry no window type, so these assertions pin the legacy
+// per-harness behavior: plan-window mode is explicitly OFF here (the default
+// mode scopes rows by type and treats an untyped row as neutral; see the
+// plan-window assertions after the loop). A row without a forecast keeps the
+// legacy no-data behavior: 0 below 90 and the PLAN_LIMIT_PENALTY floor
+// at/above it.
 const planPenaltyFor = (planLimits) => selectModelPick({
   role: 'implement',
   harnesses: exploreHarnesses,
   modelsByHarness: exploreModels,
   rotation: 'balanced',
   explore: false,
+  planWindowConfig: { enabled: false },
   history: { planLimits },
 }).candidates.find((row) => row.harness === 'a').plan_limit_penalty;
 
@@ -283,6 +288,21 @@ for (const utilization of [0.8, 1, 12, 70, 89.9, 90, 100]) {
     `no forecast: utilization ${utilization} keeps today's ${utilization >= 90 ? 'floor' : 'no-data'} penalty`,
   );
 }
+
+// Plan-window mode is the default: the same untyped 90% row is neutral because
+// the mode only counts rows with a recognized window type.
+assert.equal(
+  selectModelPick({
+    role: 'implement',
+    harnesses: exploreHarnesses,
+    modelsByHarness: exploreModels,
+    rotation: 'balanced',
+    explore: false,
+    history: { planLimits: [{ harness: 'a', utilization: 90, resetsAt: '2099-01-01T00:00:00Z' }] },
+  }).candidates.find((row) => row.harness === 'a').plan_limit_penalty,
+  0,
+  'plan-window ON treats an untyped row as neutral',
+);
 
 // A projection that exhausts before its reset penalises a window below 90%.
 const nearExhaustionRow = {
@@ -317,12 +337,14 @@ assert.equal(planPenaltyFor([{ ...nearExhaustionRow, stale: true }]), 0, 'a stal
 
 // The forecast signal is what carries the penalty when utilization is low:
 // harness A (near exhaustion) must lose to the same-quality harness B (healthy).
+// These rows are untyped, so the legacy per-harness mode is pinned here too.
 const forecastTie = selectModelPick({
   role: 'implement',
   harnesses: exploreHarnesses,
   modelsByHarness: exploreModels,
   rotation: 'balanced',
   explore: false,
+  planWindowConfig: { enabled: false },
   history: {
     planLimits: [
       nearExhaustionRow,
