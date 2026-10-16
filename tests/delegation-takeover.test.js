@@ -10,6 +10,7 @@ import { createDelegationService, reconcileTakeoversOnBoot, flushDelegationOutbo
 import { createMailboxMessage, getMailboxMessageById, updateMailboxMessage, loadMailboxMessages } from '../lib/persist/delegation-mailbox-persist.js';
 import { deliverMailboxToCurrentRecipient, drainChatMailbox, enqueueMailboxMessage, sendDelegationReply, withChatLock } from '../lib/delegation-mailbox.js';
 import { getMockChatRun, getMockChatRunStartCount, registerMockChatRunAdapter, resetMockChatRuns, seedMockChatRun, hangNextMockChatRunStart } from '../lib/chat-run/mock-adapter.js';
+import { canChatCancelDelegationTree, collectDelegationSubtreePostOrder } from '../lib/delegation-tree-cancel.js';
 import { canChatControlDelegation } from '../lib/delegation-control.js';
 import { summarizeDelegationTreeUsage } from '../lib/delegation-workflow-budget.js';
 import { recordUsage } from '../lib/usage/usage-ledger.js';
@@ -138,8 +139,28 @@ for (const phase of ['started', 'rows', 'workflows', 'mailbox', 'todo', 'done'])
 }
 {
   const f = fixture();
-  createDelegationRecord({ parentChatId: f.child.id, workspaceFolder: workspace, leafId: f.todo.id, depth: 2, executor: { transport: 'opencode', model: 'test' } });
-  assert.equal((await service.orchestrationTakeover(f.input)).code, 'takeover_nested_tree_unsupported');
+  const grand = mk();
+  const nested = createDelegationRecord({ parentChatId: f.child.id, childChatId: grand.id, workspaceFolder: workspace, leafId: f.todo.id, depth: 2, executor: { transport: 'opencode', model: 'test' } });
+  const result = await service.orchestrationTakeover(f.input);
+  assert.equal(result.ok, true);
+  assert.equal(result.moved.delegations, 2);
+  for (const id of [f.job.id, nested.id]) {
+    const row = getDelegationById(id);
+    assert.equal(row.controllerChatId, f.to.id);
+    assert.equal(row.rootChatId, f.to.id);
+    assert.equal(canChatCancelDelegationTree(row, f.to.id), true);
+    assert.equal(canChatCancelDelegationTree(row, f.from.id), false);
+  }
+  assert.equal(getDelegationById(nested.id).parentChatId, f.child.id);
+  assert.equal(getDelegationById(f.job.id).parentChatId, f.from.id);
+  for (const id of [f.child.id, grand.id]) {
+    const chat = loadChats().find((row) => row.id === id);
+    assert.equal(chat.delegationParentChatId, f.to.id);
+    assert.equal(chat.delegationRootChatId, f.to.id);
+  }
+  assert.equal(getDelegationWorkflow(f.to.id).treeBudgetTokens, 1000);
+  const order = collectDelegationSubtreePostOrder({ start: getDelegationById(f.job.id), rows: [getDelegationById(f.job.id), getDelegationById(nested.id)] });
+  assert.deepEqual(order.map((row) => row.id), [nested.id, f.job.id]);
 }
 {
   const f = fixture();

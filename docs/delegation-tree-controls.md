@@ -332,6 +332,6 @@ the delegation from its controller. No operation moves control yet; rows without
 
 The controller is read through `delegationController(row)`. Takeover preserves
 historical parent/source ids, redirects queued replies and moves the root chat
-for the selected one-level rows. It never cancels children or releases occupied
+for the selected rows, including nested rows (depth > 1) controlled by child chats of selected rows. It never cancels children or releases occupied
 slots, including unconfirmed cancellation slots. Controller queue draining must
-happen after takeover locks are released. Nested trees are refused.
+happen after takeover locks are released. Nested trees are taken over whole: every row gets `controllerChatId`/`rootChatId` = new orchestrator and every descendant chat gets `delegationParentChatId`/`delegationRootChatId` = new orchestrator (depth and grant kept). Workflow rows keyed by nested child chats stay in place; the tree budget moves with the root chat-wide row.
