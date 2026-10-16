@@ -3,6 +3,9 @@
  * sticky leaf executor after a completed job on the same leaf.
  */
 
+// Must run before lib imports so CRETLI_DATA_DIR points at a fresh temp dir:
+// real data/ lockouts would otherwise empty the picker pool (MODEL_UNAVAILABLE).
+import './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import { buildModelPickHistory } from '../lib/model-pick-history.js';
 import { selectModelPick } from '../lib/model-role-profiles.js';
