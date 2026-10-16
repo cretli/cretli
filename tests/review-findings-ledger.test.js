@@ -6,6 +6,7 @@ import { syncCodeReviewWorkflowAfterFinish } from '../lib/delegation-service.js'
 import { resetReviewRoundResolutionState } from '../lib/review-round-resolution.js';
 import {
   applyRejectedReviewFindings,
+  closeReviewFindingsCycle,
   getReviewFindingsLedger,
   getReviewFindingsLedgerDataPath,
   listOpenReviewFindings,
@@ -260,3 +261,59 @@ const newLeaf = () => crypto.randomUUID();
 }
 
 console.log('review-findings-ledger tests passed');
+
+// Durable closed-round identity: ids evicted by the 64-id cap must stay closed (F4).
+{
+  const leafId = newLeaf();
+  const ws = ISOLATED_DATA_DIR;
+  const old = Date.now() - 100000;
+  const iso = (offset) => new Date(old + offset).toISOString();
+  const evictedId = 'late-evicted-0';
+  const rec = (id, createdAt, findings = [f('F1', 'NEW')]) => recordReviewFindings({
+    workspaceFolder: ws, leafId, delegationId: id, mode: 'audit', createdAt, findings,
+  });
+  // Cycle 1 holds the retry case: recorded in cycle 1, re-recorded after later cycles.
+  assert.equal(rec('retry-1', iso(0)).recorded, true);
+  closeReviewFindingsCycle({ workspaceFolder: ws, leafId, roundId: 'round-0', memberIds: ['retry-1', evictedId] });
+  // Push well over the cap with further closed rounds (3 ids per round -> > 64 total).
+  for (let round = 1; round <= 30; round += 1) {
+    closeReviewFindingsCycle({
+      workspaceFolder: ws, leafId, roundId: `round-${round}`, memberIds: [`m-${round}-a`, `m-${round}-b`],
+    });
+  }
+  let item = getReviewFindingsLedger(ws, leafId);
+  assert.ok(item.closedMemberIds.length <= 64, 'closed ids stay capped');
+  assert.ok(!item.closedMemberIds.includes(evictedId), 'the early id was evicted by the cap');
+  assert.ok(item.closedEvictedThroughAt, 'eviction leaves a durable watermark');
+  const cycleNow = item.cycle;
+  const entriesBefore = item.entries.length;
+
+  // (b) late finish of the evicted member is refused and creates nothing.
+  const late = rec(evictedId, iso(1));
+  assert.deepEqual([late.recorded, late.reason], [false, 'closed_round_member']);
+  item = getReviewFindingsLedger(ws, leafId);
+  assert.equal(item.entries.length, entriesBefore);
+  assert.equal(item.delegations[evictedId], undefined);
+  assert.equal(listOpenReviewFindings(ws, leafId).filter((e) => e.cycle === cycleNow).length, 0);
+
+  // (d) the identity is read back from disk, not process memory.
+  const onDisk = JSON.parse(fs.readFileSync(getReviewFindingsLedgerDataPath(), 'utf8'));
+  const stored = JSON.stringify(onDisk).includes('closedEvictedThroughAt');
+  assert.ok(stored, 'watermark is persisted');
+  assert.equal(rec(evictedId, iso(2)).reason, 'closed_round_member');
+
+  // (c) a legitimate new review created after the watermark still records in the current cycle.
+  const fresh = rec('fresh-1', new Date(Date.now() + 5000).toISOString());
+  assert.equal(fresh.recorded, true);
+  assert.deepEqual(fresh.keys, [`R${cycleNow}A1-F1`]);
+
+  // (e) retry of a delegation recorded in cycle 1 stays in its original cycle.
+  const retry = rec('retry-1', iso(0), [f('F1', 'NEW', { summary: 'retried' })]);
+  assert.equal(retry.recorded, true);
+  assert.deepEqual(retry.keys, ['R1A1-F1']);
+  item = getReviewFindingsLedger(ws, leafId);
+  assert.equal(item.delegations['retry-1'].cycle, 1);
+
+  // Legacy callers without createdAt keep the id-list-only behavior (no throw, no false refusal).
+  assert.equal(rec('legacy-no-created-at', undefined).recorded, true);
+}
