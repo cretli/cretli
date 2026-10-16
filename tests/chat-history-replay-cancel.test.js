@@ -10,10 +10,13 @@ import {
   HISTORY_REPLAY_SYNC_HEAD,
 } from '../app_front/lib/chatHistoryReplayLifecycle.js';
 import { createChatHistoryReplayGenerationGate } from '../app_front/lib/chatHistoryReplayGenerationGate.js';
-import { monoNow, resetChatPerfBudget } from '../app_front/lib/chatPerfBudget.js';
+import { resetChatPerfBudget } from '../app_front/lib/chatPerfBudget.js';
 import { UI_FREEZE_REPLAY_BATCH_APPLY_TARGET_MS } from '../app_front/lib/uiFreezeRenderBudgets.js';
 import { createDefaultSchedulerYieldDeps } from '../app_front/lib/schedulerYield.js';
 import { __resetUiFreezeCountersForTest } from '../app_front/lib/uiFreezeCounters.js';
+
+/** Deterministic clock: only simulated apply work advances it, never wall time. */
+let fakeClockMs = 0;
 
 /** @typedef {{ pending: Array<() => void>, flush: () => void }} FrameScheduler */
 
@@ -46,6 +49,7 @@ function yieldDepsFrom(scheduler) {
   const deps = createDefaultSchedulerYieldDeps();
   deps.MessageChannel = undefined;
   deps.scheduler = undefined;
+  deps.now = () => fakeClockMs;
   deps.setTimeoutFn = (fn) => {
     scheduler.pending.push(fn);
     return scheduler.pending.length;
@@ -82,10 +86,8 @@ function createLifecycleHarness(on) {
 
 /** @param {number} delayMs */
 function spinForMs(delayMs) {
-  const deadline = monoNow() + delayMs;
-  while (monoNow() < deadline) {
-    // Busy-wait so time-sliced replay yields before finishing the tail.
-  }
+  // Advance the injected clock so time-sliced replay yields before finishing the tail.
+  fakeClockMs += delayMs;
 }
 
 /** @param {number} total */

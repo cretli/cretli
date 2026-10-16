@@ -19,9 +19,10 @@ import {
   getViewAppliedSeq,
   resetViewAppliedSeqMemoryForTests,
 } from '../app_front/features/chat/chatHistoryConvergence.js';
-import { monoNow, resetChatPerfBudget } from '../app_front/lib/chatPerfBudget.js';
+import { resetChatPerfBudget } from '../app_front/lib/chatPerfBudget.js';
 import { UI_FREEZE_REPLAY_BATCH_APPLY_TARGET_MS } from '../app_front/lib/uiFreezeRenderBudgets.js';
 import { __resetUiFreezeCountersForTest } from '../app_front/lib/uiFreezeCounters.js';
+import { createDefaultSchedulerYieldDeps } from '../app_front/lib/schedulerYield.js';
 
 /** @param {number} count */
 function makeSeqRecords(count) {
@@ -59,18 +60,23 @@ resetViewAppliedSeqMemoryForTests();
   gate.activate(run.generation);
   lifecycle.noteSyncApplied(run.generation, HISTORY_REPLAY_SYNC_HEAD);
   let applied = HISTORY_REPLAY_SYNC_HEAD;
+  // Deterministic clock: each applied record costs exactly 2 ms, independent of wall time.
+  let fakeClockMs = 0;
+  const deps = createDefaultSchedulerYieldDeps();
+  deps.MessageChannel = undefined;
+  deps.scheduler = undefined;
+  deps.setTimeoutFn = (fn) => setTimeout(fn, 0);
+  deps.now = () => fakeClockMs;
   const tailPromise = runHistoryReplayAsyncTail({
     records,
     startIndex: HISTORY_REPLAY_SYNC_HEAD,
     replayGeneration: run.generation,
     lifecycle,
     scheduleFrame: (cb) => cb(),
+    deps,
     isCancelled: () => !gate.isActive(run.generation),
     applyHistoryRecord: () => {
-      const deadline = monoNow() + 2;
-      while (monoNow() < deadline) {
-        /* slow apply so the first slice yields before the full tail */
-      }
+      fakeClockMs += 2;
       applied += 1;
     },
     finalizeTail: () => {},
