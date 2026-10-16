@@ -165,6 +165,20 @@ test('empty and locked creates are refused; a running smart merge refuses create
   assert.equal(busy.reason, 'busy');
 });
 
+test('a stale smart-merge marker of a dead agent does not block create', (t) => {
+  const world = makeWorld('stale-marker', 2);
+  t.after(world.cleanup);
+  const stale = getTodoById(world.dataDir, world.repo, world.todos[1].id);
+  updateTodo(world.dataDir, world.repo, stale.id, {
+    status: stale.status,
+    strictStatus: true,
+    integration: { ...stale.integration, reason: SMART_MERGE_RUNNING, updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() },
+  });
+  const created = createIntegrateBatch({ dataDir: world.dataDir, workspaceFolder: world.repo, todoIds: [world.todos[0].id], deps: world.deps });
+  assert.notEqual(created.reason, 'busy');
+  assert.equal(created.ok, true);
+});
+
 test('batchEligibility matches the resolver for smart-merge, verify and none', (t) => {
   const world = makeWorld('elig', 1);
   t.after(world.cleanup);
