@@ -47,12 +47,13 @@
     'deepseek',
     'mistral',
     'zai',
+    'mimo',
     'qwen',
     'claude',
     'codex',
   ];
 
-  var HARNESS_SUBTAB_SUFFIXES = ['keys', 'models', 'stats'];
+  var HARNESS_SUBTAB_SUFFIXES = ['keys', 'models', 'approvals', 'stats'];
 
   /**
    * @returns {string[]}
@@ -65,7 +66,6 @@
         ids.push('harness-' + harnessId + '-' + HARNESS_SUBTAB_SUFFIXES[s]);
       }
     }
-    ids.push('harness-opencode-approvals');
     return ids;
   }
 
@@ -89,6 +89,11 @@
     'workspace',
     'connection',
     'harness',
+    'harness-overview-plugins',
+    'harness-overview-diagnostics',
+    'harness-overview-roles',
+    'harness-overview-statistics',
+    'harness-overview-sources',
     'harness-sdk',
     'harness-openrouter',
     'harness-opencode',
@@ -96,6 +101,7 @@
     'harness-deepseek',
     'harness-mistral',
     'harness-zai',
+    'harness-mimo',
     'harness-qwen',
     'harness-codex',
     'harness-claude',
