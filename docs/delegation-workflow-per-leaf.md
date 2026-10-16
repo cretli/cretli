@@ -116,16 +116,47 @@ Verify results are stored on the implement/fix record (`verify_result.material_r
 The server also refuses to re-run the same reviewer (same transport and base
 model; an effort suffix does not make a different reviewer) on unchanged
 material (`review_recheck_no_material_change`, HTTP 409, no delegation row is
-created). For `review_subject=code` unchanged means no implement/fix was queued
-since that reviewer's last usable review; for `review_subject=plan` it means the
-plan of the todo named by `leaf_id` is unchanged: the server stores that todo's
-plan revision key (hash of `plan.updatedAt` + `plan.markdown`) on the review row
-as `todoPlanRevisionKey` and compares it on the next start, whatever the
-delegation source (`task_text`, history message or saved chat plan; the chat
-plan revision is not used). A plan start is allowed when the todo or its plan is
-missing, or when the earlier review row carries no key. A different base model, an exchange-phase start tied to an
-independent row, and `allow_recheck=true` are not refused. `review_subject=other`
-is not covered.
+created). What "unchanged" means depends on the subject:
+
+- `review_subject=code`: the start resolves the live leaf-scoped material
+  revision and the review row stores it as `reviewedMaterialRevision`. When both
+  the live revision and the one on the reviewer's last usable review are known,
+  a different revision admits the start, including a direct edit made without
+  any implement/fix delegation. Legacy rows or leaves without a captured
+  material base fall back to the row rule: no implement/fix was queued since
+  that review.
+- `review_subject=plan`: the plan of the todo named by `leaf_id` is unchanged.
+  The gate compares a content-only key (hash of `plan.markdown`, stored as
+  `todoPlanContentKey`), so saving or approving a plan without changing its text
+  does not re-admit a rerun, while a markdown change does. Legacy rows that only
+  carry `todoPlanRevisionKey` (hash of `plan.updatedAt` + `plan.markdown`) fall
+  back to comparing that key. This holds whatever the delegation source
+  (`task_text`, history message or saved chat plan; the chat plan revision is not
+  used). A plan start is allowed when the todo or its plan is missing, or when
+  the earlier review row carries no key.
+- `review_subject=other` is intentionally uncovered: it has no material notion
+  and is never refused by this gate.
+
+A reviewer attempt cancelled by the wait limit (`run_deadline_exceeded`) is not a
+usable prior review (same notion as the review snapshot), so rerunning the same
+reviewer after a timeout needs no `allow_recheck`. A different base model, an
+exchange-phase start tied to an independent row, and `allow_recheck=true` are not
+refused.
+
+Known limitation (plan-write race): the plan key is read once, before the start
+commits. A plan write that lands between that read and the row creation is not
+re-checked; the row records the key read at gate time, so the next start compares
+against that older key and is simply admitted (fail-open). No lock is taken; a
+stale read can only admit an extra review, never block one.
+
+### Exit path after `reviewer_timeout`
+
+A round whose reviewer timed out resolves to `unknown` / `reviewer_timeout` and
+never closes with a substitute PASS: sibling PASSes do not form a quorum without
+it. The orchestrator (or skill) leaves that state in one of two ways: start a new
+review round (the timed-out attempt is not a usable prior review, so the same
+reviewer may be rerun, or pick another reviewer), or escalate to an explicit human
+acceptance of the leaf. An orchestrator must not set the review result itself.
 
 ## Two-phase code review (audit + closure)
 
@@ -322,8 +353,11 @@ row per leaf, not as a review round.
 - Domyślny limit czasu pojedynczego joba (review/fix 20 min, implement 40 min od
   `startedAt`) działa tylko gdy job ma `runDefaultLimitActive` (nowe przebiegi po
   wdrożeniu). Jawny `deadline_at` liścia albo `deadline_at`/`deadlineAt` przy
-  `delegation_start` wygrywa z domyślnym; przy obu jawnych źródłach obowiązuje
-  wcześniejszy moment. Po przekroczeniu domyślnego limitu joba:
+  `delegation_start` wygrywa z domyślnym dla implement/fix; przy obu jawnych
+  źródłach obowiązuje wcześniejszy moment. Dla wierszy review limit
+  recenzenta (`CRETLI_REVIEW_REVIEWER_WAIT_MS`) jest górną granicą:
+  efektywny termin to `min(jawny, startedAt + limit)`, więc jawny termin może
+  go tylko skrócić; `0` wyłącza tę granicę. Po przekroczeniu domyślnego limitu joba:
   `interrupt_code=run_deadline_exceeded` (nie liczy się jako runda review).
   Anulowanie przez `deadline_at` liścia kończy się zwykłym cancel bez tego kodu.
   Slot do `slot_occupied=false`. `delegation_show` / `delegation_list` pokazują

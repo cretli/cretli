@@ -509,3 +509,31 @@ test('F4: retry clears attempt-scoped deadline evidence (cancelCause / runDeadli
   assert.equal(after.attempts.length, 1);
   finishDelegation(after, { status: 'cancelled' });
 });
+
+test('reviewer wait is an upper bound for review rows, not for implement rows', async () => {
+  const startedAt = '2026-10-12T10:00:00.000Z';
+  const startedMs = Date.parse(startedAt);
+  const far = '2099-01-01T00:00:00.000Z';
+  const early = new Date(startedMs + 10000).toISOString();
+  const rowOf = (assignment, runDeadlineAt) => ({
+    id: `row-${crypto.randomUUID()}`, assignment, startedAt, runDefaultLimitActive: true, runDeadlineAt,
+  });
+  await withEnv({ [WAIT_ENV]: '60000' }, () => {
+    // Explicit far-future deadline on a review row is still capped by the wait.
+    assert.equal(resolveEffectiveRunDeadlineEpoch(rowOf('review', far)), startedMs + 60000);
+    // An explicit deadline earlier than the cap still wins.
+    assert.equal(resolveEffectiveRunDeadlineEpoch(rowOf('review', early)), startedMs + 10000);
+    // Implement rows keep the explicit-deadline-wins behaviour.
+    assert.equal(resolveEffectiveRunDeadlineEpoch(rowOf('implement', far)), Date.parse(far));
+  });
+  await withEnv({ [WAIT_ENV]: '0' }, () => {
+    // wait=0 disables the cap: the explicit deadline stands (or none).
+    assert.equal(resolveEffectiveRunDeadlineEpoch(rowOf('review', far)), Date.parse(far));
+    assert.equal(resolveEffectiveRunDeadlineEpoch(rowOf('review', '')), null);
+  });
+  await withEnv({ [WAIT_ENV]: '60000' }, () => {
+    // Without the default-limit marker no cap applies.
+    const noMarker = { ...rowOf('review', far), runDefaultLimitActive: false };
+    assert.equal(resolveEffectiveRunDeadlineEpoch(noMarker), Date.parse(far));
+  });
+});

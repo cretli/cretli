@@ -542,13 +542,25 @@ Rules:
   deadline is cancelled through the run-deadline cancel path and is not usable.
   By default that deadline is `CRETLI_REVIEW_REVIEWER_WAIT_MS` (default: the
   review/fix run limit, 20 minutes; `0` disables); an explicit `deadline_at` or
-  workflow deadline replaces the default limit. A terminal such attempt (`interruptCode` or `cancelCause`
+  workflow deadline can only shorten it (see the upper-bound rule below). A terminal such attempt (`interruptCode` or `cancelCause`
   `run_deadline_exceeded`, also after `cancel_unconfirmed`) resolves the round to
   `unknown` / `reviewer_timeout`. It is never ignorable, so sibling PASSes do not
   close the round (C4/C5 unchanged). A persisted FAIL/BLOCKED on such an attempt
   still resolves the round to `failed` by the §4.5 ordering. `cancelling` is non-terminal, so the round
   waits at most the wait limit plus `CRETLI_DELEGATION_CANCELLING_TIMEOUT_MS`;
   the two settings are independent.
+- The reviewer wait is an upper bound for review rows: when the row carries the
+  default-limit marker (`runDefaultLimitActive`) and the wait is greater than 0,
+  the effective deadline is `min(explicit deadline, startedAt + wait)`. An
+  explicit `deadline_at` can shorten but never extend it; implement/fix rows keep
+  "explicit wins".
+- AC2 / `cancel_unconfirmed`: for review rows `cancel_unconfirmed` is practically
+  unreachable. A busy reviewer that ignores the cancel settles as
+  `review_cancel_stuck` with the slot released, and a timed-out one carries
+  `run_deadline_exceeded`. Criterion: a review attempt never holds a slot
+  indefinitely; any terminal timed-out attempt (including a hypothetical
+  `cancel_unconfirmed` escalation) resolves the round to `unknown` /
+  `reviewer_timeout` and is not usable.
 
 ### 5.5 Generation and stable comparison — SETTLED
 
