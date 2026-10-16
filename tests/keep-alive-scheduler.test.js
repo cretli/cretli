@@ -21,7 +21,7 @@ import { buildWorkflowBreakdown } from '../lib/usage/workflow-breakdown.js';
 const T0 = 1_000_000_000_000;
 const MIN = 60 * 1000;
 
-// ---- policy: limits are clamped, off by default, budget optional for manual.
+// ---- policy: limits are clamped, off by default, every plan has a positive budget.
 {
   const limits = normalizeKeepAliveLimits({ maxPings: 999, minIntervalMs: 1, maxDurationMs: 1e12, budgetUsd: 999 }, T0);
   assert.equal(limits.maxPings, 10);
@@ -30,7 +30,9 @@ const MIN = 60 * 1000;
   assert.equal(limits.budgetUsd, 5);
   const defaults = normalizeKeepAliveLimits({}, T0);
   assert.equal(defaults.maxPings, 3);
-  assert.equal(defaults.budgetUsd, null);
+  assert.equal(defaults.budgetUsd, 5);
+  assert.equal(normalizeKeepAliveLimits({ budgetUsd: -3 }, T0).budgetUsd, 5);
+  assert.equal(normalizeKeepAliveLimits({ budgetUsd: 0.5 }, T0).budgetUsd, 0.5);
 }
 
 // ---- policy: availability states a reason; auto never silently weaker.
@@ -363,7 +365,7 @@ for (const [patch, reason] of [
   assert.deepEqual(replayed, first);
   assert.equal(h.state.startCalls.length, 1);
   // Same request id on the wire: the provider-side lookup can dedupe too.
-  assert.equal(first.ping.requestId, 'keepalive:del-1:k1');
+  assert.match(first.ping.requestId, /^keepalive:del-1:[0-9a-f]{8}:k1$/);
 }
 
 // ---- caps: ping count, interval and deadline bound a manual plan too.
@@ -419,3 +421,47 @@ for (const [patch, reason] of [
 }
 
 console.log('keep-alive-scheduler tests passed');
+
+// ---- F2: a re-created plan never reuses a previous plan's request id.
+{
+  const h = createHarness();
+  const ids = [];
+  for (let i = 0; i < 2; i += 1) {
+    h.scheduler.configure({ controllerChatId: 'ctrl', delegationId: 'del-1', mode: 'manual' });
+    const result = await h.scheduler.ping({ controllerChatId: 'ctrl', delegationId: 'del-1', idempotencyKey: 'same-key' });
+    assert.equal(result.ok, true);
+    ids.push(result.ping.requestId);
+    h.scheduler.stop({ controllerChatId: 'ctrl', delegationId: 'del-1' });
+    h.state.now += 10 * MIN;
+  }
+  assert.notEqual(ids[0], ids[1]);
+  assert.equal(h.state.startCalls.length, 2);
+  // Automatic pings carry the nonce too (seq restarts at 1 per plan).
+  const auto1 = createHarness();
+  const auto2 = createHarness();
+  for (const x of [auto1, auto2]) {
+    cfg(x);
+    x.state.now = T0 + 4 * MIN + 10_000;
+    await x.scheduler.tick();
+  }
+  assert.match(auto1.state.startCalls[0].requestId, /^keepalive:del-1:[0-9a-f]{8}:auto-1$/);
+  assert.notEqual(auto1.state.startCalls[0].requestId, auto2.state.startCalls[0].requestId);
+}
+
+// ---- F3: no explicit budget still yields a positive cap; manual stops on cost.
+{
+  const h = createHarness();
+  const configured = h.scheduler.configure({ controllerChatId: 'ctrl', delegationId: 'del-1', mode: 'manual', limits: { minIntervalMs: 30_000 } });
+  assert.equal(configured.ok, true);
+  assert.equal(configured.plan.limits.budgetUsd, 5);
+  // Accepted but no usage evidence: the cost is unknown, so the next manual ping stops.
+  assert.equal((await h.scheduler.ping({ controllerChatId: 'ctrl', delegationId: 'del-1', idempotencyKey: 'a' })).ok, true);
+  h.state.now += 10 * MIN;
+  await h.scheduler.tick();
+  h.state.now += 10 * MIN;
+  const next = await h.scheduler.ping({ controllerChatId: 'ctrl', delegationId: 'del-1', idempotencyKey: 'b' });
+  assert.equal(next.ok, false);
+  assert.equal(h.state.startCalls.length, 1);
+}
+assert.equal(decide({ forced: true }, { mode: 'manual', unknownCostPings: 1 }).reason, S.COST_UNKNOWN);
+assert.equal(decide({ forced: true }, { mode: 'manual', spentUsd: 1 }).reason, S.BUDGET_EXHAUSTED);

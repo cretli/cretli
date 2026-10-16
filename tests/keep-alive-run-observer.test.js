@@ -29,3 +29,15 @@ await startChatRun({ chatId: chat.id, prompt: 'ping', mode: 'agent', deps: { kee
 assert.deepEqual(seen[1], { chatId: chat.id, origin: 'keep_alive' });
 off();
 console.log('keep-alive-run-observer.test.js OK');
+
+// ---- F1: the ping run is started in the enforced read-only mode.
+{
+  const { buildKeepAlivePingRun, KEEP_ALIVE_PING_MODE } = await import('../lib/usage/keep-alive-service.js');
+  const run = buildKeepAlivePingRun({ chatId: 'child-1', prompt: 'ping', requestId: 'keepalive:d:n:k' });
+  assert.equal(run.mode, 'plan');
+  assert.equal(KEEP_ALIVE_PING_MODE, 'plan');
+  assert.equal(run.chatId, 'child-1');
+  assert.equal(run.requestId, 'keepalive:d:n:k');
+  assert.equal(run.deps.keepAlive, true);
+  assert.equal(run.deps.assignment, undefined);
+}
