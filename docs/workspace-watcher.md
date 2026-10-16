@@ -1262,7 +1262,7 @@ worktrees are strictly sequential; the order is the user's choice.
 merge --no-ff <branch>` on the target branch (the branch checked out in the
 main tree when the merge started, stored as `integration.targetBranch` with
 `integration.mergeMode = git-branch`), resolves conflicts, runs the checks and
-reports through `POST /api/smart-merge-report-from-agent`. A `merged` report is
+reports through the MCP tool `smart_merge_report` (fallback: `POST /api/smart-merge-report-from-agent`). A `merged` report is
 never trusted alone: the server requires that the branch moved past its base,
 that nothing is left uncommitted in the worktree and that the branch tip is an
 ancestor of the target tip. Only then the integration proof is recorded and the

@@ -56,8 +56,9 @@ for this one integration; it never extends to anything else.
    missing, derive scope with `git diff --name-status -z -M <base>` plus
    `git ls-files --others --exclude-standard` in the worktree; if the worktree
    is gone, report failure. Do not stage any other path.
-6. Report with the callback from the prompt (`merged` or `failed`, one short
-   line). The report must happen while the todo is still awaiting integration.
+6. Report with the MCP tool `smart_merge_report` (arguments are in the prompt;
+   `merged` or `failed`, one short line); use the curl callback only when MCP
+   is unavailable. The report must happen while the todo is still awaiting integration.
 7. On `merged` only, with the change in HEAD: `todo_show` for
    `expected_updated_at`, check the current branch contains HEAD, then
    `todo_integration` action `confirm` with `proof.simple` true.
@@ -69,7 +70,8 @@ for this one integration; it never extends to anything else.
 2. In the main folder run `git merge --no-ff <branch>` while the target branch
    is checked out; resolve conflicts, complete the merge commit.
 3. Run the relevant tests and fix what the merge broke.
-4. Report with the callback (`merged` or `failed`).
+4. Report with `smart_merge_report` (`merged` or `failed`); curl callback only
+   as fallback.
 
 This is an explicit user-requested exception to "agents do not commit or
 merge". It covers only this merge.

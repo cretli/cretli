@@ -72,7 +72,7 @@ setBuiltinMcpRuntimeDeps({
 const names = CRETILI_MCP_TOOL_DEFS.map((tool) => tool.name);
 for (const name of [
   'chat_list', 'chat_show', 'chat_history', 'chat_event',
-  'todo_list', 'todo_show', 'todo_create', 'todo_update', 'todo_integration',
+  'todo_list', 'todo_show', 'todo_create', 'todo_update', 'todo_integration', 'smart_merge_report',
   'chat_plan_show', 'delegation_list', 'delegation_show', 'delegation_verify', 'delegation_wait', 'delegation_start', 'delegation_cancel',
   'delegation_reply', 'delegation_inbox', 'workflow_show', 'workflow_update',
   'delegation_rate', 'delegation_ack', 'todo_takeover',
@@ -88,6 +88,7 @@ assert.ok(BUILTIN_MCP_READ_TOOLS.includes('chat_history'));
 assert.ok(BUILTIN_MCP_READ_TOOLS.includes('chat_event'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('todo_create'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('todo_integration'));
+assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('smart_merge_report'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_start'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_verify'));
 assert.ok(BUILTIN_MCP_MUTATING_TOOLS.includes('delegation_reply'));
@@ -184,6 +185,13 @@ const badIntegrationAction = await handlersA.todo_integration({
   expected_updated_at: updatedAt,
 });
 assert.equal(badIntegrationAction.isError, true);
+
+const badMergeOutcome = await handlersA.smart_merge_report({ todo_id: todoId, outcome: 'maybe' });
+assert.equal(badMergeOutcome.isError, true);
+
+const mergeNotAwaiting = await handlersA.smart_merge_report({ todo_id: todoId, outcome: 'merged' });
+assert.equal(mergeNotAwaiting.isError, true);
+assert.match(mergeNotAwaiting.content[0].text, /not_ready/);
 
 const noCodeNotDone = await handlersA.todo_integration({
   todo_id: todoId,
