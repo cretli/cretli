@@ -35,6 +35,7 @@ try {
   const beforeIntegration = await previousModule('lib/workspace-watcher-integration.js');
   const beforeMailbox = await previousModule('lib/delegation-mailbox.js');
   const beforeBranch = await previousModule('lib/worktree-merge.js');
+  const beforeTodoAgent = await previousModule('lib/todo-agent.js');
   const { buildGitBranchMergePrompt } = await import('../lib/worktree-merge.js');
   const files = Array.from({ length: 60 }, (_, i) => `src/file-${String(i).padStart(2, '0')}.txt`);
   const todo = addTodo(dataDir, workspace, { title: 'Fixture task', status: 'doing', body: files.join('\n'), plan: { markdown: 'Read the files and implement the task.\n' + files.join('\n') } }).item;
@@ -77,7 +78,7 @@ try {
   measure('buildHarnessHandoffPrompt', buildHarnessHandoffPrompt(fork));
   measure('buildAgentAnalysisPrompt', buildAgentAnalysisPrompt('Inspect current status.', sourceChatId));
   measure('buildForkInitialPrompt', buildForkInitialPrompt(fork));
-  measure('buildTodoAgentInitialPrompt', buildTodoAgentInitialPrompt(todo, chatId, 'https://localhost:3011'));
+  measure('buildTodoAgentInitialPrompt', buildTodoAgentInitialPrompt(todo, chatId, 'https://localhost:3011'), beforeTodoAgent.buildTodoAgentInitialPrompt(todo, chatId, 'https://localhost:3011'));
   measure('buildApprovedPlanImplementPrompt', buildApprovedPlanImplementPrompt(chatId));
   measure('buildChatPlanPromptContext', buildChatPlanPromptContext({ cwd: workspace, chatId }));
   console.log(JSON.stringify({ baseline, fixture: '60 ASCII paths, 60-line final report, saved plan, one memory entry; fresh codex Agent decoration in isolated workspace', rows }, null, 2));

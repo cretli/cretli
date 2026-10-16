@@ -45,3 +45,26 @@ before orchestrating, even when the TODO belongs to a different project. An
 inspection response only points to the protocol; it does not authorize execution.
 Manual review assignments also load the live body and plan through `todo_show`
 and follow all detail cursors rather than embedding a copy of either field.
+
+## Ordering and status
+
+Siblings run sequentially in `sibling_index` order; parallel execution needs an
+explicit parent `run_mode`. A parent status is derived from its children at every
+depth and is never forced done. Statuses move `idea -> ready -> doing -> done`;
+the executor sets `doing` after approval and marks a leaf `done` itself only when
+all acceptance criteria are met and required verification passes. Reopening a
+child reopens its ancestors.
+
+## When the Cretli MCP tools are unavailable
+
+A missing or broken MCP bridge is not permission to guess. Do not treat a plan
+copied into a start prompt, an earlier chat, or a cached transcript as live, and
+do not post a hand-built `set-todo-from-agent` payload. Instead:
+
+1. Read this protocol and, for the subtree path,
+   [todo-execution-prompt.js](../lib/todo-execution-prompt.js) directly from the
+   filesystem.
+2. Gather read-only evidence with the local file, search and git tools.
+3. Report a concrete blocker: the failing MCP call, the command or file that
+   failed, and what remains unknown. Leave the TODO status, plan approval and
+   `review` field untouched.

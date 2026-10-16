@@ -44,6 +44,11 @@ for (const prompt of [
   assert.match(prompt, /todo_show, including every body\/plan page/);
   assert.match(prompt, /Never infer approval from status doing/);
   assert.match(prompt, /Plan: saved and approved/);
+  assert.match(prompt, /Siblings run sequentially in sibling order/);
+  assert.match(prompt, /Status transitions: idea -> ready -> doing -> done/);
+  assert.match(prompt, /MCP todo_update contract/);
+  assert.match(prompt, /MCP tools are unavailable/);
+  assert.match(prompt, /report a concrete blocker/);
   assert.ok(!prompt.includes(TODO_EXECUTION_WORKFLOW));
 }
 const direct = buildTodoAgentInitialPrompt(largeTodo, 'chat', '');
@@ -60,8 +65,15 @@ const protocol = readFileSync(resolveProjectPath('docs', 'todo-direct-executor-p
 assert.ok(direct.includes(resolveProjectPath('docs', 'todo-direct-executor-protocol.md')));
 assert.match(protocol, /expected_updated_at/);
 assert.match(protocol, /Never write the server-owned `review`/);
-assert.match(protocol, /all\n   acceptance criteria are met and required verification passes/);
+assert.match(protocol, /all\n {3}acceptance criteria are met and required verification passes/);
 assert.match(protocol, /must\nnot start implementation or review delegations/);
+// The canonical protocol carries the durable ordering, status and MCP-unavailable detail.
+assert.match(protocol, /## Ordering and status/);
+assert.match(protocol, /idea -> ready -> doing -> done/);
+assert.match(protocol, /## When the Cretli MCP tools are unavailable/);
+assert.match(protocol, /hand-built `set-todo-from-agent` payload/);
+assert.match(protocol, /read-only evidence with the local file, search and git tools/);
+assert.match(protocol, /Leave the TODO status, plan approval and/);
 const disabledPlan = buildTodoFullOrchestratorPrompt(todo, 'chat', { phases: { plan: false } });
 assert.match(disabledPlan, /phase_disabled:plan/);
 assert.doesNotMatch(disabledPlan, /Run the skill @cretli-todo-refine-loop/);

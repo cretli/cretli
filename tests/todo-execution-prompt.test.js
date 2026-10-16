@@ -38,6 +38,9 @@ assert.match(TODO_EXECUTION_WORKFLOW, /run delegation_verify on that delegation 
 assert.match(TODO_EXECUTION_WORKFLOW, /workflow_update rejected_findings=\[\{key, reason: false_positive\|wont_fix\|duplicate\|out_of_scope_elsewhere, note\}\]/);
 assert.match(TODO_EXECUTION_WORKFLOW, /OUT_OF_SCOPE and gets its own todo, never a false_positive/);
 assert.match(TODO_EXECUTION_WORKFLOW, /`LESSONS CHECKED`[^.]*never acceptance criteria/);
+assert.match(TODO_EXECUTION_WORKFLOW, /Cretli MCP tools are unavailable/);
+assert.match(TODO_EXECUTION_WORKFLOW, /report a concrete blocker \(which call failed, what remains unknown\)/);
+assert.match(TODO_EXECUTION_WORKFLOW, /Never guess live state, invent a status transition, or execute a copied plan/);
 assert.equal(stripTodoExecutionWorkflow(extractTodoRefsFromMessage(sent).text), 'Dodatkowe wymagania\nKontynuuj to zadanie.');
 assert.equal(stripTodoExecutionWorkflow('Ordinary message'), 'Ordinary message');
 assert.equal(stripTodoExecutionWorkflow(`Earlier user text\n\n${TODO_EXECUTION_WORKFLOW}`), 'Earlier user text');

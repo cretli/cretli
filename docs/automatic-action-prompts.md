@@ -27,7 +27,7 @@ production chat start. Plan-only uses the watcher builder's plan-gate variant.
 | `buildHarnessHandoffPrompt` | 3497 | 3497 | 11696 | 11696 | Follow-up 4608f545: same transcript with continuation and harness parameters. |
 | `buildAgentAnalysisPrompt` | 401 | 401 | 8600 | 8600 | No change: already uses source chat pointer; user-provided status/message stays inline. |
 | `buildForkInitialPrompt` | 3526 | 3526 | 11725 | 11725 | Follow-up 4608f545: dispatch shares fork/handoff contract; analysis variant already small. |
-| `buildTodoAgentInitialPrompt` | 3919 | 3919 | 12118 | 12118 | Follow-up 9179bf1f: body/plan/previous chats derivable via todo_show; retain workflow/callback. |
+| `buildTodoAgentInitialPrompt` | 3919 | 1584 | 12726 | 10391 | Changed: body/plan/previous-chat copies → paginated `todo_show` pointers; todo/chat ids, `cretli-ref`, approval gate, sequential workflow, status transitions, update contract and MCP-unavailable fallback pointer retained. |
 | `buildApprovedPlanImplementPrompt` | 129 | 129 | 8328 | 8328 | No change: already a plan-file pointer. |
 | `buildChatPlanPromptContext` | 1309 | 1309 | 9508 | 9508 | No change here: plan text duplicates a readable file; generic decoration belongs to 20a8d8ed. |
 
