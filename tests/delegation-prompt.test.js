@@ -194,6 +194,10 @@ for (const executionMode of ['plan', 'agent']) {
     process.env.CRETLI_REVIEW_LESSONS = '0';
     // Flag off: lessons passed in change nothing.
     assert.equal(build({ assignment: 'implement', reviewLessons: { audience: 'implementer', lessons } }), implementBase);
+    // Divergent settings: the caller-resolved flag wins over the prompt's ambient env.
+    const divergent = { assignment: 'implement', reviewLessons: { audience: 'implementer', lessons } };
+    assert.match(build({ ...divergent, reviewLessonsEnabled: true }), /\[KNOWN REVIEW LESSONS\]/);
+    assert.equal(build({ ...divergent, reviewLessonsEnabled: false }), implementBase);
     // Rollout defaults (flag unset): implementer on, reviewer suppress off; no lessons stays byte-identical.
     delete process.env.CRETLI_REVIEW_LESSONS;
     assert.equal(build({ assignment: 'implement', reviewLessons: { audience: 'implementer', lessons: [] } }), implementBase);

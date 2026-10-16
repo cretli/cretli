@@ -273,7 +273,7 @@ prompt is byte-identical to the previous one.
   `active` lessons of the audience, never `candidate`/`retired`. Lessons whose
   `pathGlobs` miss every known path (paths named in the leaf text) and lessons
   restricted to other models are dropped. Ranking: path-glob match > category
-  keyword hits in the leaf text > evidence count > recency.
+  keyword hits in the leaf text > lesson effectiveness > evidence count > recency.
 - Budget: at most 6 lessons and 1500 characters per block (same idea as the
   workspace-memory prompt budget).
 - Blocks: implement/fix get `[KNOWN REVIEW LESSONS]` (`do`/`avoid`) and report a

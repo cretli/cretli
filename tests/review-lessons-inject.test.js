@@ -40,7 +40,7 @@ const ctx = { cwd: folder, assignment: 'implement', model: 'm', sourceText: 'fix
 const previous = process.env.CRETLI_REVIEW_LESSONS;
 try {
   process.env.CRETLI_REVIEW_LESSONS = '0';
-  assert.deepEqual(resolveRunReviewLessons(record, ctx), { reviewLessons: null, injectedLessonIds: [] });
+  assert.deepEqual(resolveRunReviewLessons(record, ctx), { reviewLessons: null, injectedLessonIds: [], enabled: false });
   // Default (flag unset): implementers get lessons.
   delete process.env.CRETLI_REVIEW_LESSONS;
   assert.deepEqual(resolveRunReviewLessons(record, ctx).injectedLessonIds, [active.id]);

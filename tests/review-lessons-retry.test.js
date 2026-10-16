@@ -36,7 +36,7 @@ function lessonsBlock(prompt) {
 // Flag off: a started run still pins an (empty) exposure.
 {
   const previousFlag = process.env.CRETLI_REVIEW_LESSONS;
-  delete process.env.CRETLI_REVIEW_LESSONS;
+  process.env.CRETLI_REVIEW_LESSONS = '0';
   const off = await service.createAndStart({
     parentChatId: newParent('lessons off').id,
     executor: { transport: 'opencode', model: 'opencode/test' },
@@ -49,7 +49,8 @@ function lessonsBlock(prompt) {
   assert.deepEqual(offRow.injectedLessonIds, []);
   assert.ok(offRow.lessonsInjectedAt);
   updateDelegationRecord(offRow.id, { status: 'completed', finishedAt: new Date().toISOString(), slotHeldBy: '' });
-  if (previousFlag !== undefined) process.env.CRETLI_REVIEW_LESSONS = previousFlag;
+  if (previousFlag === undefined) delete process.env.CRETLI_REVIEW_LESSONS;
+  else process.env.CRETLI_REVIEW_LESSONS = previousFlag;
 }
 
 const previous = process.env.CRETLI_REVIEW_LESSONS;
