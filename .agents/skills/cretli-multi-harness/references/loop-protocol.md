@@ -228,6 +228,16 @@ deadline (ISO-8601): `deadline_at: "2026-09-20T22:00:00.000Z"` — the worker
 requests cancel and the parent waits for `slot_occupied=false`. Do not burn
 remaining rounds after the same-findings stop.
 
+## Rejected findings and lessons
+
+When you reject a reviewer finding, record it with `workflow_update`
+`rejected_findings: [{ key, reason, note }]` (`reason`: `false_positive`,
+`wont_fix`, `duplicate`, `out_of_scope_elsewhere`; `key` from the
+`[FINDING KEYS]` table). `false_positive` means the finding is wrong; real work
+outside the leaf is `OUT_OF_SCOPE` and goes into its own todo. Read the
+`LESSONS CHECKED` section of implementer reports, but never treat lessons as
+acceptance criteria. See `docs/review-lessons.md`.
+
 ## Handoff (parent model switch)
 
 If this chat is handed to another harness, put these 10 lines in the first

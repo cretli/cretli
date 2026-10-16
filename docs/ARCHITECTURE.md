@@ -894,6 +894,13 @@ a leaf, adding a child or moving unfinished work under a completed parent
 reopens the affected ancestors. Parent status changes also advance their CAS
 tokens. Reads repair legacy inconsistent statuses without rewriting the file.
 
+### Review lessons
+
+The review loop records structured findings in a server ledger, distils recurring
+ones into per-workspace lessons and injects active lessons into implement/fix
+(and, opt-in, plan-review and audit-review) prompts. Overview, safety
+invariants, env flags and MCP tools: [review-lessons.md](review-lessons.md).
+
 ### Todo review status
 
 Each todo carries a server-written `review` snapshot (per subject `code`/`plan`:

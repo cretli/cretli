@@ -1952,6 +1952,34 @@ export async function getUsageWorkflowBreakdown(query = {}) {
 }
 
 /**
+ * Review findings ledger of one todo leaf (scrubbed read model).
+ *
+ * @param {string} leafId
+ * @param {{ workspaceFolder?: string }} [query]
+ * @returns {Promise<{ ok: boolean, seq?: number, rejectReasons?: string[], findings?: object[], error?: string, code?: string }>}
+ */
+export async function getReviewFindings(leafId, query = {}) {
+  const params = new URLSearchParams({ leafId: String(leafId || '') });
+  if (query.workspaceFolder) params.set('workspaceFolder', String(query.workspaceFolder));
+  return apiFetchJson(`/api/review-findings?${params}`, undefined, `getReviewFindings:${leafId}`);
+}
+
+/**
+ * Human rejection of one finding. `expectedSeq` is the CAS token from the last read;
+ * a 409 `CONFLICT` means the ledger moved and the caller must reload.
+ *
+ * @param {{ workspaceFolder?: string, leafId: string, key: string, reason: string, note?: string, expectedSeq?: number }} payload
+ * @returns {Promise<{ ok: boolean, changed?: boolean, seq?: number, error?: string, code?: string }>}
+ */
+export async function postRejectReviewFinding(payload) {
+  return apiFetchJson('/api/review-findings/reject', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  }, `postRejectReviewFinding:${payload?.key || ''}`);
+}
+
+/**
  * Model × role delegation outcomes from GET /api/delegations/stats.
  *
  * Same scope gate as the delegations list (workspace + widget installation):

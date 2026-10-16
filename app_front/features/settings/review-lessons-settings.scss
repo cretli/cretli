@@ -1,0 +1,83 @@
+/* Settings -> Delegations -> Lessons. Layout only; colors come from tokens. */
+
+.cr-lessons-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+  margin-top: var(--cr-space-2);
+}
+
+.cr-lesson {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+  min-width: 0;
+}
+
+.cr-lesson-text {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.cr-lesson-badges,
+.cr-lesson-evidence-list,
+.cr-lesson-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cr-space-1);
+}
+
+.cr-lesson-evidence-link {
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+  color: var(--cr-accent);
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0 var(--cr-space-2);
+  cursor: pointer;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.cr-lessons-stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+  margin-bottom: var(--cr-space-2);
+}
+
+.cr-lessons-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--cr-space-2);
+}
+
+.cr-lessons-metric {
+  display: flex;
+  flex-direction: column;
+}
+
+.cr-lessons-trend {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 2.5rem;
+}
+
+.cr-lessons-trend-bar {
+  flex: 1 1 0;
+  max-width: 1.5rem;
+  background: var(--cr-accent);
+  border-radius: var(--cr-radius-sm) var(--cr-radius-sm) 0 0;
+}
+
+.cr-lessons-tabs {
+  margin-top: var(--cr-space-2);
+}
+
+@media (max-width: 600px) {
+  .cr-lesson-actions cr-bar-button {
+    flex: 1 1 auto;
+  }
+}

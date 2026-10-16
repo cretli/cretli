@@ -110,3 +110,122 @@ for (const executionMode of ['plan', 'agent']) {
   assert.match(built.prompt, /Do not implement\. Do not edit files/);
   assert.match(built.prompt, /TASK: audit\|implement\|review/);
 }
+
+// Findings keys table: prompt sources and ordering.
+{
+  const ledgerFindings = [{
+    key: 'R1A1-F1', priority: 'P1', category: 'missing-test', files: ['lib/a.js'], summary: 'No test for guard',
+  }];
+  const build = (input) => buildDelegationExecutorPrompt({
+    sourceKind: 'text', taskText: 'Review', executionMode: 'agent', ...input,
+  });
+  const closure = build({
+    assignment: 'review',
+    reviewMode: 'closure',
+    workflowRow: { openFindingsText: 'F1 (P1) STILL_OPEN guard missing' },
+    watcherFindingsText: 'WATCHER finding about caller',
+    openLedgerFindings: ledgerFindings,
+  });
+  assert.equal(closure.ok, true);
+  const text = closure.prompt;
+  assert.ok(text.indexOf('F1 (P1) STILL_OPEN guard missing') < text.indexOf('[FINDING KEYS]'), 'keys follow prior findings');
+  assert.match(text, /WATCHER finding about caller/);
+  assert.match(text, /\| R1A1-F1 \| P1 \| missing-test \|/);
+
+  // Reviewer omitted the JSON block: no ledger entries -> prior text only, no keys.
+  const noKeys = build({
+    assignment: 'review',
+    reviewMode: 'closure',
+    workflowRow: { openFindingsText: 'F1 (P1) STILL_OPEN guard missing' },
+    watcherFindingsText: 'WATCHER finding about caller',
+    openLedgerFindings: [],
+  });
+  assert.match(noKeys.prompt, /F1 \(P1\) STILL_OPEN guard missing/);
+  assert.match(noKeys.prompt, /WATCHER finding about caller/);
+  assert.doesNotMatch(noKeys.prompt, /\[FINDING KEYS\]\n/);
+
+  // Fixer receives the same prior findings (orchestrator/Watcher text) plus keys.
+  const fix = build({
+    assignment: 'fix',
+    workflowRow: { findingsText: 'orchestrator findings_text' },
+    watcherFindingsText: 'WATCHER finding about caller',
+    openLedgerFindings: ledgerFindings,
+  });
+  assert.match(fix.prompt, /orchestrator findings_text/);
+  assert.match(fix.prompt, /WATCHER finding about caller/);
+  assert.ok(fix.prompt.indexOf('orchestrator findings_text') < fix.prompt.indexOf('[FINDING KEYS]'));
+
+  // Empty prior text + open ledger entries: closure lists the keys, not "No open findings".
+  const emptyPrior = build({ assignment: 'review', reviewMode: 'closure', workflowRow: {}, openLedgerFindings: ledgerFindings });
+  assert.match(emptyPrior.prompt, /\| R1A1-F1 \|/);
+  assert.doesNotMatch(emptyPrior.prompt, /No open findings were recorded/);
+
+  // Flag off: no keys table even with ledger entries.
+  const previous = process.env.CRETLI_REVIEW_FINDINGS_BLOCK;
+  process.env.CRETLI_REVIEW_FINDINGS_BLOCK = '0';
+  try {
+    const off = build({
+      assignment: 'review', reviewMode: 'closure', workflowRow: { openFindingsText: 'F1 open' }, openLedgerFindings: ledgerFindings,
+    });
+    assert.doesNotMatch(off.prompt, /\[FINDING KEYS\]\n/);
+    assert.doesNotMatch(off.prompt, /\[FINDINGS BLOCK\]/);
+  } finally {
+    if (previous === undefined) delete process.env.CRETLI_REVIEW_FINDINGS_BLOCK;
+    else process.env.CRETLI_REVIEW_FINDINGS_BLOCK = previous;
+  }
+}
+
+// Review lessons: byte-identical when off/empty; per-audience blocks only.
+{
+  const previous = process.env.CRETLI_REVIEW_LESSONS;
+  const lessons = [
+    { id: 'l1', audience: 'implementer', kind: 'do', category: 'missing-test', text: 'Add a regression test.' },
+  ];
+  const suppress = [
+    { id: 's1', audience: 'reviewer', kind: 'suppress', category: 'style-convention', text: 'Ignore quote style.' },
+    { id: 's2', audience: 'reviewer', kind: 'suppress', category: 'security', text: 'Ignore token handling.' },
+  ];
+  const build = (input) => buildDelegationExecutorPrompt({
+    sourceKind: 'text', taskText: 'Do work', executionMode: 'agent', ...input,
+  }).prompt;
+  const implementBase = build({ assignment: 'implement' });
+  const auditBase = build({ assignment: 'review', reviewMode: 'audit' });
+  try {
+    process.env.CRETLI_REVIEW_LESSONS = '0';
+    // Flag off: lessons passed in change nothing.
+    assert.equal(build({ assignment: 'implement', reviewLessons: { audience: 'implementer', lessons } }), implementBase);
+    // Rollout defaults (flag unset): implementer on, reviewer suppress off; no lessons stays byte-identical.
+    delete process.env.CRETLI_REVIEW_LESSONS;
+    assert.equal(build({ assignment: 'implement', reviewLessons: { audience: 'implementer', lessons: [] } }), implementBase);
+    assert.match(build({ assignment: 'implement', reviewLessons: { audience: 'implementer', lessons } }), /\[KNOWN REVIEW LESSONS\]/);
+    assert.equal(build({ assignment: 'review', reviewMode: 'audit', reviewLessons: { audience: 'reviewer', lessons: suppress } }), auditBase);
+    process.env.CRETLI_REVIEW_LESSONS = '1';
+    // Flag on but no lessons: byte-identical.
+    assert.equal(build({ assignment: 'implement', reviewLessons: { audience: 'implementer', lessons: [] } }), implementBase);
+    assert.equal(build({ assignment: 'implement', reviewLessons: null }), implementBase);
+    const impl = build({ assignment: 'implement', reviewLessons: { audience: 'implementer', lessons } });
+    assert.match(impl, /\[KNOWN REVIEW LESSONS\]\n[^\n]*\n- L1: Add a regression test\./);
+    assert.match(impl, /LESSONS CHECKED/);
+    assert.doesNotMatch(impl, /KNOWN FALSE POSITIVES/);
+    // Reviewer audience: false positives only, security never listed.
+    const audit = build({ assignment: 'review', reviewMode: 'audit', reviewLessons: { audience: 'reviewer', lessons: suppress } });
+    assert.match(audit, /\[KNOWN FALSE POSITIVES\]/);
+    assert.match(audit, /Ignore quote style\./);
+    assert.doesNotMatch(audit, /Ignore token handling\./);
+    assert.match(audit, /P1 and security findings are never suppressed/);
+    assert.doesNotMatch(audit, /KNOWN REVIEW LESSONS/);
+    // Implementer lessons never reach a reviewer; suppressions never reach an implementer.
+    assert.equal(build({ assignment: 'review', reviewMode: 'audit', reviewLessons: { audience: 'implementer', lessons } }), auditBase);
+    assert.equal(build({ assignment: 'implement', reviewLessons: { audience: 'reviewer', lessons: suppress } }), implementBase);
+    // Closure reviews get no lessons block.
+    assert.doesNotMatch(build({ assignment: 'review', reviewMode: 'closure', reviewLessons: { audience: 'reviewer', lessons: suppress } }), /KNOWN FALSE POSITIVES/);
+    // Planner lessons reach plan reviewers only.
+    const planner = [{ id: 'p1', kind: 'do', category: 'other', text: 'Name the test files.' }];
+    const planReview = build({ assignment: 'review', reviewSubject: 'plan', reviewLessons: { audience: 'planner', lessons: planner } });
+    assert.match(planReview, /\[KNOWN PLANNING LESSONS\]/);
+    assert.doesNotMatch(build({ assignment: 'implement', reviewLessons: { audience: 'planner', lessons: planner } }), /KNOWN PLANNING LESSONS/);
+  } finally {
+    if (previous === undefined) delete process.env.CRETLI_REVIEW_LESSONS;
+    else process.env.CRETLI_REVIEW_LESSONS = previous;
+  }
+}

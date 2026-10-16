@@ -21,6 +21,7 @@ import { renderMarkdownHtml } from '../../lib/render-markdown.js';
 import { isWorkspaceWatcherRetryableBlockedTodo } from '../../../lib/workspace-watcher-blocked-reason.js';
 import { isTodoAwaitingIntegration } from '../../../lib/todo-integration-state.js';
 import './cr-todo-review-badge.js';
+import './cr-todo-review-findings.js';
 import { buildTodoStageView } from '../../features/todo/todoStageView.js';
 import { resolveTodoReviewParentChatId } from '../../features/todo/todoReviewStart.js';
 import './cr-bar-select.js';
@@ -946,6 +947,7 @@ class CrTodoCard extends LitElement {
             <div class="todo-overview-card-head"><strong>${t('todo.sectionReview')}</strong></div>
             ${item.review ? html`<cr-todo-review-badge detail .item=${item} .hasChildren=${this.hasChildren}></cr-todo-review-badge>` : nothing}
             ${this._renderReviewStartActions(item)}
+            ${!this.hasChildren && item?.id ? html`<cr-todo-review-findings .todoId=${String(item.id)}></cr-todo-review-findings>` : nothing}
           </section>
         ` : nothing}
         ${this._renderManualModeHint(item)}

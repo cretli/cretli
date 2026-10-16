@@ -180,6 +180,7 @@ import { initUsageSettings, refreshUsageSettings } from './features/usage/usageS
 import { initApprovalBrokerSettings, refreshApprovalBrokerSettings } from './features/approval/approvalBrokerSettings.js';
 import { initDelegationCenter, refreshDelegationCenter } from './features/delegations/delegationCenter.js';
 import { initDelegationSettings, refreshDelegationSettings } from './features/settings/delegationSettings.js';
+import { initReviewLessonsSettings, refreshReviewLessonsSettings } from './features/settings/reviewLessonsSettings.js';
 import { initInstallPrompt } from './features/pwa/installPrompt.js';
 import { initPwaUpdatePrompt } from './features/pwa/pwaUpdatePrompt.js';
 import { initPageBackgroundGrace } from './lib/pageBackgroundGrace.js';
@@ -1395,7 +1396,8 @@ function refreshSettingsTabPanels(tabId) {
   if (tabId === 'chat') refreshModelSettingsPanel();
   if (tabId === 'usage') void refreshUsageSettings();
   if (tabId === 'delegations') void refreshDelegationCenter();
-  if (isDelegationSettingsTab(tabId) && tabId !== 'delegations') void refreshDelegationSettings();
+  if (tabId === 'delegations-lessons') void refreshReviewLessonsSettings();
+  else if (isDelegationSettingsTab(tabId) && tabId !== 'delegations') void refreshDelegationSettings();
   if (tabId === 'widgets') {
     void ensurePanelReady('widget').then(() => callLoadedPanel('widget', 'refreshWidgetPanel'));
   }
@@ -2453,6 +2455,7 @@ function bootApp() {
     measureStartupStep('initUsageSettings', () => initUsageSettings());
     measureStartupStep('initDelegationCenter', () => initDelegationCenter());
     measureStartupStep('initDelegationSettings', () => initDelegationSettings());
+    measureStartupStep('initReviewLessonsSettings', () => initReviewLessonsSettings({ openTodo }));
     // GitHub only needs to exist to hide/show its tab — load after first paint.
     const scheduleIdle = typeof requestIdleCallback === 'function'
       ? (fn) => requestIdleCallback(fn, { timeout: 4000 })

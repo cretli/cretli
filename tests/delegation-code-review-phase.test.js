@@ -738,4 +738,72 @@ function applyCodeReviewFinishPatch(delegation, workflow) {
   assert.equal(resolveReviewerPool(poolOff).active, false, 'incomplete members = inactive');
 }
 
+
+// Findings block isolation: the block never changes verdicts, hashes or prior-findings text.
+{
+  const blockWith = (status, summary) => [
+    '```findings-json',
+    JSON.stringify({ findings: [
+      { id: 'F1', status: 'FIXED', priority: 'P1', category: 'missing-test', summary: 'fixed' },
+      { id: 'F9', status, priority: 'P2', category: 'style-convention', summary },
+    ] }),
+    '```',
+  ].join('\n');
+  // FIXED + FOLLOW_UP P2 (summary even mentions STILL_OPEN) stays PASS.
+  const passReport = `F1 FIXED with tests.\n${blockWith('FOLLOW_UP', 'was STILL_OPEN in an earlier draft (P2)')}\nTASK: review\nVERDICT: PASS\n`;
+  assert.equal(reconcileClosureReviewVerdict(passReport, 'PASS'), 'PASS');
+  assert.equal(resolveEffectiveCodeReviewReportVerdict({
+    reviewMode: 'closure', reviewSubject: 'code', report: passReport,
+  }), 'PASS');
+  // Prose STILL_OPEN still FAILs, with or without the block.
+  const failReport = `F1 STILL_OPEN - guard missing.\n${blockWith('FOLLOW_UP', 'nit (P2)')}\nTASK: review\nVERDICT: PASS\n`;
+  assert.equal(reconcileClosureReviewVerdict(failReport, 'PASS'), 'FAIL');
+
+  // Findings hash and openFindingsText are identical with and without the block.
+  const prose = 'F1 (P1) STILL_OPEN guard missing in lib/a.js\nTASK: review\nVERDICT: FAIL\n';
+  const withBlock = `F1 (P1) STILL_OPEN guard missing in lib/a.js\n${blockWith('NEW', 'something new')}\nTASK: review\nVERDICT: FAIL\n`;
+  const applyReport = (reportText) => applyDelegationWorkflowPatch({
+    parentChatId: crypto.randomUUID(),
+    leafId: crypto.randomUUID(),
+    reportText,
+    idempotencyKey: `iso-${crypto.randomUUID()}`,
+  });
+  const plain = applyReport(prose);
+  const blocked = applyReport(withBlock);
+  assert.equal(blocked.findingsHash, plain.findingsHash);
+  assert.equal(blocked.openFindingsText, plain.openFindingsText);
+  assert.equal(blocked.findingsText, plain.findingsText);
+  assert.equal(blocked.lastVerdict, 'FAIL');
+  assert.doesNotMatch(blocked.openFindingsText, /findings-json/);
+}
+
+// Flag 0: audit / closure prompt blocks are byte-identical to the legacy text.
+{
+  const env = { CRETLI_REVIEW_FINDINGS_BLOCK: '0' };
+  assert.equal(buildAuditReviewPromptBlock('Acceptance line', { env }), [
+    '[CODE REVIEW AUDIT]',
+    'This is the first code review of this leaf. Perform a full scoped audit against the leaf acceptance criteria below.',
+    'Record every in-scope finding with a stable ID (for example F1, F2) and a priority (P1 blocking, P2/P3 non-blocking).',
+    'Mark observations outside this leaf scope as OUT_OF_SCOPE; they must not change your VERDICT.',
+    'Do not perform a closure-only pass; inspect the implementation and tests needed to judge the leaf criteria.',
+    '[LEAF ACCEPTANCE CRITERIA]\nAcceptance line',
+    'Tell the orchestrator to create separate todos for any OUT_OF_SCOPE follow-ups instead of fixing them in this leaf.',
+  ].join('\n'));
+  const ledgerFindings = [{ key: 'R1A1-F1', priority: 'P1', category: 'other', files: [], summary: 's' }];
+  assert.equal(buildClosureReviewPromptBlock({ openFindingsText: 'F1 open' }, '', { env, ledgerFindings }), [
+    '[CODE REVIEW CLOSURE]',
+    'This is a closure review after a fix. Do not run a fresh full audit of the whole leaf.',
+    'Work only from the open findings table below: for each prior finding state FIXED or STILL_OPEN with file/test evidence.',
+    'Re-check regressions introduced by the fix. New findings block VERDICT: PASS only when they are P1 or a regression caused by the fix.',
+    'Other new findings belong in a FOLLOW_UP section and must not change VERDICT when all audit findings are FIXED.',
+    'Tell the orchestrator to create separate todos for FOLLOW_UP and OUT_OF_SCOPE items instead of expanding this leaf.',
+    '[OPEN FINDINGS]\nF1 open',
+  ].join('\n'));
+  // Flag on: one example object and the findings-json request appear before TASK/VERDICT.
+  const on = buildAuditReviewPromptBlock('Acceptance line', { env: {} });
+  assert.match(on, /\[FINDINGS BLOCK\]/);
+  assert.match(on, /```findings-json/);
+  assert.match(on, /"category": "missing-test"/);
+}
+
 console.log('delegation-code-review-phase.test.js OK');

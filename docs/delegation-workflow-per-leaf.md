@@ -335,3 +335,27 @@ its `dataDir`. On a timeout, first use a fresh result, otherwise wait while
 If the run is still active without fresh evidence after those waits, report
 "no confirmation yet". An older result is not evidence for the timed-out call.
 Pass pagination `cursor` values only by copying the previous `next_cursor`.
+
+## Review findings ledger
+
+Code reviews also feed a durable, server-side findings ledger keyed by
+workspace + leaf (`lib/persist/review-findings-ledger-persist.js`). It is
+additive: the workflow row, verdicts, findings hash and `same_findings` are
+computed from the prose report exactly as before (the optional
+` ```findings-json ` block is stripped first). The ledger cycle closes only on a
+resolved PASS round (`onReviewRoundResolved`), independent of
+`codeReviewClosureEpoch`. `workflow_update.rejected_findings` records
+orchestrator rejections and is included in the patch idempotency fingerprint.
+See `docs/review-lessons.md` for keys, outcomes and the
+`CRETLI_REVIEW_FINDINGS_BLOCK` flag.
+
+## Review lessons prompt blocks
+
+By default the implementer audience is on (planner and reviewer are opt-in;
+`CRETLI_REVIEW_LESSONS=0` disables all, see `docs/review-lessons.md`). When
+active lessons match, the executor prompt carries one
+extra block after the leaf acceptance criteria: `[KNOWN REVIEW LESSONS]`
+(implement/fix, with a `LESSONS CHECKED` report section), `[KNOWN FALSE
+POSITIVES]` (audit code review) or `[KNOWN PLANNING LESSONS]` (plan review).
+Selection and budget: `docs/review-lessons.md`. The injected lesson ids are
+stored on the delegation record as `injectedLessonIds`.

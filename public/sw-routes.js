@@ -111,6 +111,7 @@
     'delegations-limits',
     'delegations-review',
     'delegations-models',
+    'delegations-lessons',
     'widgets',
     'mcp',
     'execution',
