@@ -281,6 +281,21 @@ Given the fresh attempts of the current round:
 | else every **deciding** reviewer is a usable `PASS` and every verify obligation is satisfied | `passed` |
 | else (some deciding attempt is cancelled / unusable, no FAIL/BLOCKED; or only infra / non-deciding attempts) | `unknown` |
 
+**Baseline-aware verify.** The gate status `verifyResult.status` stays `passed|failed`.
+The host classifies failing ids against the leaf's `leafMaterial.baseCommit`
+(`lib/review-verify-baseline.js`): ids that also fail at the base are
+`preexistingFailures`, ids that pass or are absent at the base are `newFailures`.
+Status is `failed` only when `newFailures` is non-empty. A `passed` verify with
+`preexistingFailures` keeps the round `passed` with `stateReason:
+verify_preexisting_failures`; the optional reviewer field `verifyPreexisting`
+(count, only when > 0) lets the UI show "passed (N pre-existing test failures)".
+When the baseline is unavailable (`baseline.source = unavailable`: project-mode
+leaf, no git, failing control id, budget expiry) the raw outcome stands and a
+failure is `verify_failed` as before. Flaky ids are reported in `flakyFailures`
+and do not block. Budgets: sync `delegation_verify` baseline <= 25 s; auto
+verify baseline <= 90 s; per test file 60 s (+5 s kill grace); the 5-minute
+`verifyPending` marker stays the hard bound for the review-start gate.
+
 Fan-out `passed` ignores infrastructure-only siblings (`isStructuredInfraDelegationOutcome`,
 `interruptCode` of `cancel_unconfirmed` or `review_cancel_stuck`, or a
 `Transport not started` start error; an empty report alone is never infra, §5.3).
@@ -423,7 +438,7 @@ body. Consequences:
 ```jsonc
 {
   "state": "none|pending|passed|failed|manual|stale|unknown",
-  "stateReason": "fresh_review|verify_missing|no_verdict|reviewer_timeout|history_truncated|implement_queued_after_review|…",
+  "stateReason": "fresh_review|verify_preexisting_failures|verify_missing|no_verdict|reviewer_timeout|history_truncated|implement_queued_after_review|…",
   "subject": "code|plan|other",
   "subjectSource": "explicit|default|unknown",
   "round": {

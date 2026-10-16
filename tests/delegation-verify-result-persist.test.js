@@ -55,6 +55,24 @@ assert.equal(dirty.verifyResult.status, 'failed');
 assert.equal(dirty.verifyResult.verdict, '', 'an invalid verdict is not persisted');
 assert.equal(dirty.verifyResult.exitCode, 1, 'exit code falls back to the status');
 
+// Baseline classification fields round-trip; legacy records carry none.
+assert.equal(reloaded.verifyResult.baseline, undefined, 'legacy record has no classification');
+const classified = updateDelegationRecord(created.id, {
+  verifyResult: {
+    status: 'passed',
+    rawOk: false,
+    newFailures: [],
+    preexistingFailures: ['notices'],
+    flakyFailures: [],
+    baseline: { source: 'base-commit', baseCommit: 'abc', reason: '' },
+    results: [{ id: 'notices', ok: false, durationMs: 5, outputTail: 'boom' }],
+  },
+});
+assert.deepEqual(classified.verifyResult.preexistingFailures, ['notices']);
+assert.equal(classified.verifyResult.baseline.source, 'base-commit');
+assert.equal(getDelegationById(created.id).verifyResult.results[0].id, 'notices');
+assert.equal(getDelegationById(created.id).verifyResult.status, 'passed');
+
 // A non-review legacy record defaults the policy fields instead of undefined.
 const legacy = createDelegationRecord({
   parentChatId: 'verify-parent',

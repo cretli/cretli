@@ -2498,6 +2498,7 @@ export const en = {
     reviewVerdict: { pass: 'PASS', fail: 'FAIL', blocked: 'BLOCKED', conflict: 'conflict', unspecified: 'no verdict', none: '—' },
     reviewVerify: {
       passed: 'passed',
+      passedPreexisting: 'passed ({count} pre-existing test failures)',
       failed: 'failed',
       missing: 'missing',
       notRequired: 'not required',
