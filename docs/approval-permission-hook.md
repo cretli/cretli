@@ -231,3 +231,55 @@ a verified Cretli pre-execution approval/reply channel. Their Permissions tabs
 explain this limitation instead of offering switches that cannot control those
 native tools. Their existing mode restrictions continue to apply. Adding a tab
 or saving category preferences does not introduce a native approval channel.
+
+## Harness-neutral PermissionDecision and engine
+
+`lib/approval/permission-decision.js` defines the canonical `PermissionDecision`
+and `lib/approval/permission-engine.js` the single ordered pipeline. Both are
+pure (no fs/path, no harness imports); harness adapters only intercept a call
+before execution and apply the returned decision.
+
+### PermissionDecision fields
+
+`harness`, `workspace`, `chatId`, `runId`, `requestId`, `permission` (tool
+name), `category`, `grantScope`, `state`, `source`, `risk`, `categories`,
+`policyVersion`, `reason`, `reply`, `shadow`, `notifyUser`.
+
+- `state`: `allow_once | allow_always | deny | ask_user | shadow_allow`
+- `source`: `hard_block | user_category | user_grant | broker | advisor | manual | default`
+- `category` (user-facing): `files | mcp | shell | web | other`
+- `categories` (risk): `mutation | network | secrets | privilege | destructive | expansion`
+- `reason` is a fixed machine-readable code (`plan_or_review_guard`,
+  `high_risk_<risk category>`, `advisor_failed`, ... optionally `shadow_` prefixed);
+  free text collapses to `invalid_reason`.
+- An unknown state, source or category fails closed to `ask_user` / `default`.
+  `reply` is derived from `state`; a shadow decision never carries a reply.
+
+### Ordered pipeline (first decisive stage wins)
+
+1. Hard block (Plan / review / Scout) -> `deny`, `hard_block`. Beats everything.
+2. User category settings and persistent grants for the harness + workspace ->
+   `user_category` / `user_grant`. A deny always applies; an allow never widens
+   a high-risk request.
+3. Broker local classification (`off | shadow | local_reads`) -> `allow_once`,
+   `ask_user` (high risk is final) or `deny`, source `broker`.
+4. Advisor outcome supplied by the caller: may only narrow a non-high ask to a
+   single `allow_once`; failure / timeout / bad JSON -> `ask_user`, `advisor`.
+5. Manual card -> `ask_user`, `manual`.
+
+Not wired yet: the persistent grant store and the category settings UI. The
+engine accepts `settings` / `grants` as inputs and skips stage 2 when absent.
+The risk classifier itself still lives in `lib/opencode/opencode-permission.js`
+(`classifyOpenCodePermissionRisk`); moving it to a neutral module is a later step.
+
+### Per-harness coverage (today)
+
+| Harness | Pre-exec control | Status |
+| --- | --- | --- |
+| OpenCode | `permission.asked` + HTTP reply through the broker | Controlled |
+| Claude | none through this engine yet | Gap |
+| Qwen, OpenRouter, Mistral, Z.AI SDK, MiMo | none yet | Gap |
+| Codex, Cursor SDK, CodeBuddy, DeepSeek | real pre-exec channel not yet verified | Gap (needs SDK/CLI/hook investigation) |
+
+Only OpenCode is wired to the engine; no other harness is claimed as controlled
+without a real pre-exec hook.
