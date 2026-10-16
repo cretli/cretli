@@ -48,10 +48,20 @@ const cwdMarker = path.join(projectRoot, 'review-verify-cwd-pwned.txt');
 fs.rmSync(projectMarker, { force: true });
 fs.rmSync(cwdMarker, { force: true });
 
-const writingTestDenied = await executeTool('run_terminal_command', {
+// Review contract: plain `node tests/**/*.test.js` is allowed (isolated data dir).
+const plainTestAllowed = await executeTool('run_terminal_command', {
   command: 'node tests/conversation-fork.test.js',
 }, { cwd: projectRoot, mode: 'agent', assignment: 'review' });
-assert.equal(writingTestDenied.ok, false);
+assert.equal(plainTestAllowed.ok, true, plainTestAllowed.error);
+for (const command of [
+  'node tests/../scripts/x.js',
+  'node ../x.test.js',
+  'node tests/foo.test.js > out.txt',
+]) {
+  const denied = await executeTool('run_terminal_command', { command },
+    { cwd: projectRoot, mode: 'agent', assignment: 'review' });
+  assert.equal(denied.ok, false, command);
+}
 assert.equal(fs.existsSync(projectMarker), false);
 assert.equal(fs.existsSync(cwdMarker), false);
 
