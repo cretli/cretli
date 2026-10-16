@@ -218,6 +218,9 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- MCP `todo_update` with a changed plan now stales plan-reviewer sessions and
+  resyncs the todo review snapshot (`plan-edit`), matching the REST and
+  plan-sync paths, so a plan rewrite opens a new plan review round immediately.
 - DeepSeek package updates now re-resolve the vendor's locked prerelease peer
   dependencies before installation, avoiding stale-lock `ERESOLVE` failures
   without bypassing peer checks. Failed resolution restores the original manifest

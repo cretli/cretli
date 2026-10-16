@@ -858,7 +858,9 @@ The snapshot is recomputed (and written if `decisionKey` changed) on:
 4. a human/agent acknowledgement (`acknowledge`);
 5. retry;
 6. cancel;
-7. server restart repair.
+7. server restart repair;
+8. a plan revision write (REST, MCP `todo_update`, plan sync), source `plan-edit` /
+   `plan-sync` (§4.3).
 
 The read surfaces (`todo_list`, `todo_show`, REST list, the panel) only read
 the persisted snapshot.
