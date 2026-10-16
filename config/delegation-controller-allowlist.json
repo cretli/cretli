@@ -121,6 +121,8 @@
     "lib/workspace-watcher-cycle-usage.js:buildCycleUsageMembership:control:cycle membership attributed to the controller via the accessor; sourceChatId fallback unchanged",
     "lib/workspace-watcher-cycle-usage.js:normalizeWorkspaceWatcherCycleUsage:control:control decision routed through the accessor",
     "lib/workspace-watcher-cycle.js:startWorkspaceWatcherCycle:identity:cycle orchestrator chat id passed under the legacy option name for the reviewer policy prompt",
+
+    "lib/workspace-watcher-cycle.js:reportWorkspaceWatcherCycleLocked:identity:cycle attribution input uses the cycle chat id under the legacy field name",
     "lib/workspace-watcher-delegation-guard.js:validateWorkspaceWatcherParentDelegation:identity:parameter named parentChatId carries the caller (controller) chat id supplied by the caller",
     "lib/workspace-watcher-stats.js:summarizeWatcherDelegations:control:control decision routed through the accessor",
     "lib/workspace-watcher.js:snapshotWorkspaceWatcher:control:control decision routed through the accessor",
@@ -142,5 +144,14 @@
     "lib/workspace-watcher-cycle.js:reportWorkspaceWatcherCycleLocked:identity:cycle orchestrator chat id passed under the legacy option name",
     "lib/workspace-watcher-review-gate.js:classifyReviewGateCaller:identity:delegation-edge parentChatId is compared for attribution of the gate caller",
     "lib/delegation-service.js:findInheritableImplementVerify:control:control decision routed through the accessor"
+
+    "lib/delegation-service.js:findInheritableImplementVerify:control:control decision routed through the accessor (controller match for the inheritable implement evidence)",
+    "lib/delegation-session-resume.js:findPairResumeSource:control:control decision routed through the accessor (controller match for the resume source row)",
+    "lib/delegation-session-resume.js:inspectDelegationSessionResume:control:control decision routed through the accessor (controller gate for the resume source row)",
+    "lib/delegation-settings.js:resolveReviewerPool:identity:options.parentChatId names the orchestrator chat whose learned reviewer pair is read; store key, not delegation ownership",
+    "lib/persist/reviewer-pairs-persist.js:hasFailedSubchat:control:control decision routed through the accessor (controller match for the reviewer pair owner)",
+    "lib/persist/reviewer-pairs-persist.js:readReviewerPairMembers:identity:parameter named parentChatId is the store key of the orchestrator pair; no delegation ownership decision",
+    "lib/persist/reviewer-pairs-persist.js:addReviewerPairMember:identity:parameter named parentChatId is the store key of the orchestrator pair; no delegation ownership decision",
+    "lib/workspace-watcher-review-gate.js:classifyReviewGateCaller:identity:walks the executor-child chain of the delegation starter (history/attribution only)"
   ]
 }
