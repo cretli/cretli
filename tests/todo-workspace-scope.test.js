@@ -8,9 +8,28 @@ import {
   todoWorkspaceMatches,
 } from '../app_front/features/todo/todoWorkspaceScope.js';
 import {
+  isBatchSelectableItem,
   parseTodoIntegrationFilter,
   TODO_INTEGRATION_PENDING_FILTERS,
 } from '../app_front/features/todo/todoTreeView.js';
+import {
+  buildBatchRequestIds,
+  buildBatchSelection,
+  captureBatchScope,
+  createLatestRequestGate,
+  createOwnedPendingGuard,
+  describeBatchFailure,
+  findBatchEntryForTodo,
+  isActiveBatchStatus,
+  isBatchScopeCurrent,
+  isTerminalBatchStatus,
+  localizeBatchReason,
+  pruneBatchSelection,
+  resolveBatchControls,
+  resolveBatchToTrack,
+  resolveResumeAgentNeed,
+  summarizeBatchEntries,
+} from '../app_front/features/todo/todoBatchSelection.js';
 
 function deferred() {
   let resolve;
@@ -129,6 +148,23 @@ function makePanel() {
     parseTodoRootStatusFilter: () => null,
     parseTodoIntegrationFilter,
     TODO_INTEGRATION_PENDING_FILTERS,
+    isBatchSelectableItem,
+    buildBatchRequestIds,
+    buildBatchSelection,
+    captureBatchScope,
+    createLatestRequestGate,
+    createOwnedPendingGuard,
+    describeBatchFailure,
+    findBatchEntryForTodo,
+    isActiveBatchStatus,
+    isBatchScopeCurrent,
+    isTerminalBatchStatus,
+    localizeBatchReason,
+    pruneBatchSelection,
+    resolveBatchControls,
+    resolveBatchToTrack,
+    resolveResumeAgentNeed,
+    summarizeBatchEntries,
     filterTodoItemsByRootStatus: (items) => items,
     parseReviewListFilter: () => '',
     filterTodoItemsByReviewState: (items) => items,
