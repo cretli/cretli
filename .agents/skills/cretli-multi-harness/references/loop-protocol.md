@@ -105,6 +105,11 @@ not an executor pool.
   review in `loop` → stop (success). **PASS** on fix → `delegation_verify`, then
   review again. Do not start review while verify for the latest implement/fix is
   still failed for the same material (`verify_failed_before_review`).
+  On a failed verify read `newFailures` vs `preexistingFailures`: only
+  `newFailures` (or every failure when `baseline.source` is `unavailable`) go to
+  a fix round; for preexisting failures create ONE follow-up todo (idempotency
+  key from the sorted id set) instead of looping. Never mark a leaf done while
+  `newFailures` exist.
 - **FAIL** or **conflict** on review → fix (if rounds remain), then review with
   `exclude_model` = last implementer/fixer, then the last reviewer.
   Opt-in reviewer pool: when Settings → Delegations has `reviewer_pair_enabled`

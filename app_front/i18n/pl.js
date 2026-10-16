@@ -2498,6 +2498,7 @@ export const pl = {
     reviewVerdict: { pass: 'PASS', fail: 'FAIL', blocked: 'BLOCKED', conflict: 'konflikt', unspecified: 'brak werdyktu', none: '—' },
     reviewVerify: {
       passed: 'zaliczone',
+      passedPreexisting: 'zaliczone ({count} istniejących wcześniej błędów testów)',
       failed: 'niezaliczone',
       missing: 'brak',
       notRequired: 'niewymagane',

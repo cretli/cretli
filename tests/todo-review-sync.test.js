@@ -814,3 +814,38 @@ test('runtime wrapper applies a legacy plan timestamp when rows are supplied for
   });
   assert.equal(snapshot.plan.state, 'passed');
 });
+
+test('a passed verify with only pre-existing failures keeps the round passed and says so', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const review = reviewRow({
+    startedAt: t(3),
+    verifyRequired: true,
+    reviewCanRunTests: false,
+    verifyResult: {
+      status: 'passed',
+      attemptId: 'attempt',
+      recordedAt: t(4),
+      preexistingFailures: ['model-pick-rotation', 'notices'],
+      newFailures: [],
+    },
+  });
+  const code = subjectSnapshot([impl, review]);
+  assert.equal(code.state, 'passed');
+  assert.equal(code.stateReason, 'verify_preexisting_failures');
+  assert.equal(code.reviewers[0].verifyStatus, 'passed');
+  assert.equal(code.reviewers[0].verifyPreexisting, 2);
+});
+
+test('a failed verify with new failures still fails even when pre-existing ones are listed', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const review = reviewRow({
+    startedAt: t(3),
+    verifyRequired: true,
+    reviewCanRunTests: false,
+    verifyResult: { status: 'failed', attemptId: 'attempt', recordedAt: t(4), newFailures: ['x'], preexistingFailures: ['y'] },
+  });
+  const code = subjectSnapshot([impl, review]);
+  assert.equal(code.state, 'failed');
+  assert.equal(code.stateReason, 'verify_failed');
+  assert.equal(code.reviewers[0].verifyPreexisting, undefined);
+});

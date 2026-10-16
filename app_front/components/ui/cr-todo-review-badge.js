@@ -325,7 +325,7 @@ class CrTodoReviewBadge extends LitElement {
       <li class="reviewer">
         <span>${model || t('todo.reviewDetails.unknownModel')}</span>
         <span>${t(resolveVerdictKey(row.verdict))}</span>
-        <span>${t('todo.reviewDetails.verify')}: ${t(resolveVerifyStatusKey(row.verifyStatus))}</span>
+        <span>${t('todo.reviewDetails.verify')}: ${Number(row.verifyPreexisting) > 0 && row.verifyStatus === 'passed' ? t('todo.reviewVerify.passedPreexisting', { count: Number(row.verifyPreexisting) }) : t(resolveVerifyStatusKey(row.verifyStatus))}</span>
         ${independence ? html`<span>${t(independence)}</span>` : nothing}
         ${linkable ? html`
           <button

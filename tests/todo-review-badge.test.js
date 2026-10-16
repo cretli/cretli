@@ -222,3 +222,12 @@ test('accept sends the context pinned when the card appeared, unchanged', async 
   assert.equal(seen[0].body.todoRevision, 'r1');
   assert.equal(seen[0].body.materialRevision, '', 'an empty captured revision is sent, not dropped');
 });
+
+test('pre-existing verify failures are labelled via i18n keys in en and pl, never literals', () => {
+  const en = fs.readFileSync(new URL('../app_front/i18n/en.js', import.meta.url), 'utf8');
+  const pl = fs.readFileSync(new URL('../app_front/i18n/pl.js', import.meta.url), 'utf8');
+  assert.match(en, /passedPreexisting: 'passed \(\{count\} pre-existing test failures\)'/);
+  assert.match(pl, /passedPreexisting: '/);
+  assert.match(componentSource, /todo\.reviewVerify\.passedPreexisting/);
+  assert.match(componentSource, /row\.verifyPreexisting/);
+});
