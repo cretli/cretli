@@ -199,11 +199,20 @@ assert.equal(seededFork.fullCopiedText.includes(ASK_TASK_LATER), true);
 assert.equal(seededFork.fullCopiedText.includes('mailbox arrows'), false);
 assert.equal(seededFork.fullFork.initialPrompt.includes('queued-mail'), false);
 assert.equal(seededFork.fullFork.initialPrompt.includes(seededFork.ask.id), true);
+// A persisted source uses the MCP pointer; the saved transcript is not embedded.
+assert.match(seededFork.fullFork.initialPrompt, /MCP HISTORY POINTER/);
+assert.match(seededFork.fullFork.initialPrompt, /chat_history\(\{ chat: "/);
+assert.equal(seededFork.fullFork.initialPrompt.includes(ASK_TASK_ASSISTANT), false);
+assert.equal(seededFork.fullFork.initialPrompt.includes(ASK_TASK_USER), false);
 assert.equal(seededFork.partialCopiedText.includes(ASK_TASK_USER), true);
 assert.equal(seededFork.partialCopiedText.includes(ASK_TASK_ASSISTANT), true);
 assert.equal(seededFork.partialCopiedText.includes(ASK_TASK_LATER), false);
 assert.equal(seededFork.partialFork.initialPrompt.includes(ASK_TASK_LATER), false);
+assert.equal(seededFork.partialFork.initialPrompt.includes(ASK_TASK_ASSISTANT), false);
 assert.match(seededFork.partialFork.initialPrompt, /only through event seq/);
+// Partial pointer is bounded to the fork cutoff (headSeq 2 -> before_seq 3).
+assert.match(seededFork.partialFork.initialPrompt, /never read past event seq 2/);
+assert.match(seededFork.partialFork.initialPrompt, /before_seq: 3/);
 assert.equal(seededFork.partialCopiedText.includes(DELEGATION_TASK_ASSISTANT), false);
 assert.equal(fs.existsSync(newerTranscript), true);
 assert.match(fs.readFileSync(newerTranscript, 'utf8'), /FOREIGN_DELEGATION_MARKER/);

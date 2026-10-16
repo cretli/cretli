@@ -2089,7 +2089,11 @@ async function executeHarnessSwitch(chat, nextHarness, nextModel, choice) {
   const includeContext = choice.includeContext === true;
   let handoffPrompt = '';
   if (includeContext) {
-    const sourceText = await readChatTranscriptForHandoff(chat);
+    // The source chat is persisted server-side and readable through Cretli MCP,
+    // so the handoff carries a compact history pointer instead of a copied
+    // transcript. Keep the inline read only for a chat that was never saved.
+    const historyPointer = Boolean(chat.id);
+    const sourceText = historyPointer ? '' : await readChatTranscriptForHandoff(chat);
     handoffPrompt = buildHarnessHandoffPrompt({
       sourceText,
       fromHarness: currentHarness,
@@ -2098,6 +2102,7 @@ async function executeHarnessSwitch(chat, nextHarness, nextModel, choice) {
       toModel: nextModel,
       sourceChatId: chat.id,
       sourceChatTitle: chat.title,
+      historyPointer,
     });
   }
   const oldChatId = chat.id;

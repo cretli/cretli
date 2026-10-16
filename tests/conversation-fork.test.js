@@ -87,6 +87,93 @@ assert.match(partialForkPrompt, /up to the fork point\.$/m);
 assert.match(partialForkPrompt, /only through event seq 4/);
 assert.equal(partialForkPrompt.includes('full conversation'), false);
 
+// Persisted source: the fork prompt carries an MCP history pointer, not the transcript.
+const pointerForkPrompt = buildConversationForkPrompt('User: start\nAgent: reply', 'Continue here', {
+  historyPointer: true,
+  sourceChatId: 'aaaaaaaa-1111-2222-3333-444444444444',
+  sourceChatTitle: 'Ask',
+  copiedThroughSeq: 12,
+});
+assert.match(pointerForkPrompt, /CONVERSATION FORK CONTEXT/);
+assert.match(pointerForkPrompt, /MCP HISTORY POINTER/);
+assert.match(pointerForkPrompt, /Source chat: "Ask" aaaaaaaa-1111-2222-3333-444444444444/);
+assert.match(pointerForkPrompt, /Copied history through event seq 12/);
+assert.match(pointerForkPrompt, /chat_history\(\{ chat: "aaaaaaaa-1111-2222-3333-444444444444" \}\)/);
+assert.match(pointerForkPrompt, /chat_show\(\{ chat: "aaaaaaaa-1111-2222-3333-444444444444" \}\)/);
+assert.equal(pointerForkPrompt.includes('User: start'), false);
+assert.equal(pointerForkPrompt.includes('Agent: reply'), false);
+assert.match(pointerForkPrompt, /Continue here$/);
+assert.match(pointerForkPrompt, /cretli-ref chat=<uuid> seq=<n>/);
+assert.match(pointerForkPrompt, /chat_event/);
+assert.equal(parseInheritedPrompt(pointerForkPrompt).kind, 'fork');
+assert.equal(parseInheritedPrompt(pointerForkPrompt).followUp, 'Continue here');
+
+// A pointer flag without a chat id cannot help: keep the inline fallback.
+const pointerWithoutId = buildConversationForkPrompt('User: start', 'Continue', {
+  historyPointer: true,
+});
+assert.match(pointerWithoutId, /User: start/);
+assert.equal(pointerWithoutId.includes('MCP HISTORY POINTER'), false);
+
+// Partial fork pointer is bounded and never exposes the inline transcript.
+const pointerChildChatId = 'bbbbbbbb-1111-2222-3333-444444444444';
+const pointerPartialPrompt = buildConversationForkPrompt(
+  'User: start\nAgent: reply\nAFTER_CUTOFF_MARKER',
+  '',
+  {
+    historyPointer: true,
+    partial: true,
+    sourceChatId: 'aaaaaaaa-1111-2222-3333-444444444444',
+    copiedThroughSeq: 4,
+    historyPointerChatId: pointerChildChatId,
+  }
+);
+assert.match(pointerPartialPrompt, /up to the fork point\.$/m);
+assert.match(pointerPartialPrompt, /only through event seq 4/);
+assert.match(pointerPartialPrompt, /never read past event seq 4/);
+assert.match(pointerPartialPrompt, /before_seq: 5/);
+assert.match(pointerPartialPrompt, new RegExp(pointerChildChatId));
+assert.equal(pointerPartialPrompt.includes('User: start'), false);
+assert.equal(pointerPartialPrompt.includes('AFTER_CUTOFF_MARKER'), false);
+assert.equal(pointerPartialPrompt.includes('full conversation'), false);
+
+// Handoff pointer replaces the transcript but keeps harness labels and guards.
+const pointerHandoff = buildHarnessHandoffPrompt({
+  sourceText: 'User: start\nAgent: mid-task',
+  fromHarness: 'qwen',
+  toHarness: 'sdk',
+  fromModel: 'qwen3.8-flash',
+  toModel: 'auto',
+  historyPointer: true,
+  sourceChatId: 'aaaaaaaa-1111-2222-3333-444444444444',
+  sourceChatTitle: 'Ask',
+});
+assert.match(pointerHandoff, /HARNESS HANDOFF CONTEXT/);
+assert.match(pointerHandoff, /MCP HISTORY POINTER/);
+assert.match(pointerHandoff, /Previous harness: qwen \(qwen3\.8-flash\)/);
+assert.match(pointerHandoff, /Your harness: sdk \(auto\)/);
+assert.match(pointerHandoff, /chat_history/);
+assert.equal(pointerHandoff.includes('User: start'), false);
+assert.equal(pointerHandoff.includes('Agent: mid-task'), false);
+assert.match(pointerHandoff, /Continue the unfinished work of the source chat/);
+assert.match(pointerHandoff, /newest transcript file/);
+
+const crossHarnessPointer = buildForkInitialPrompt({
+  sourceText: 'User: start\nAgent: should not appear',
+  fromHarness: 'qwen',
+  toHarness: 'opencode',
+  fromModel: 'qwen3',
+  toModel: 'opencode/glm-4.6',
+  historyPointer: true,
+  sourceChatId: 'aaaaaaaa-1111-2222-3333-444444444444',
+  sourceChatTitle: 'Ask',
+  copiedThroughSeq: 9,
+});
+assert.match(crossHarnessPointer, /HARNESS HANDOFF CONTEXT/);
+assert.match(crossHarnessPointer, /MCP HISTORY POINTER/);
+assert.equal(crossHarnessPointer.includes('User: start'), false);
+assert.equal(crossHarnessPointer.includes('should not appear'), false);
+
 const partialHandoffPrompt = buildHarnessHandoffPrompt({
   sourceText: 'User: start',
   fromHarness: 'qwen',
@@ -195,6 +282,27 @@ assert.equal(crossHarnessAnalyze.includes('taking over this task'), false);
 assert.equal(crossHarnessAnalyze.includes('User: start'), false);
 assert.equal(crossHarnessAnalyze.includes('Agent: should not appear'), false);
 assert.match(crossHarnessAnalyze, /Diagnose the agent\.$/);
+
+// The analyze dispatch must stay transcript-free even with pointer options.
+const analyzeWithPointer = buildForkInitialPrompt({
+  sourceText: 'User: start\nAgent: should not appear',
+  message: 'Diagnose the agent.',
+  fromHarness: 'qwen',
+  toHarness: 'opencode',
+  fromModel: 'qwen3',
+  toModel: 'opencode/glm-4.6',
+  analyze: true,
+  historyPointer: true,
+  sourceChatId: 'aaaaaaaa-1111-2222-3333-444444444444',
+  sourceChatTitle: 'Ask',
+  copiedThroughSeq: 7,
+});
+assert.match(analyzeWithPointer, /AGENT ANALYSIS CONTEXT/);
+assert.equal(analyzeWithPointer.includes('MCP HISTORY POINTER'), false);
+assert.equal(analyzeWithPointer.includes('HARNESS HANDOFF CONTEXT'), false);
+assert.equal(analyzeWithPointer.includes('User: start'), false);
+assert.equal(analyzeWithPointer.includes('Agent: should not appear'), false);
+assert.match(analyzeWithPointer, /Diagnose the agent\.$/);
 
 const sourceChatId = randomUUID();
 const targetChatId = randomUUID();

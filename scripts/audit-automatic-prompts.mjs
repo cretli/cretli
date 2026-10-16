@@ -57,7 +57,9 @@ try {
   const cycle = { workspaceFolder: workspace, todo, cycleId: 'fixture-cycle', memory, watcher: { policy: {} }, decision: { planOnly: false } };
   const signals = { resolvedBase: record.baseCommit, diff: collectWorktreeExecutionDiff({ worktreePath: record.worktreePath, baseCommit: record.baseCommit }).patch, log: git(workspace, ['log', '--oneline', '-20']), changedFiles: files, existingTodos: [todo], memory };
   const scout = { workspaceFolder: workspace, scanId: 'fixture-scan', submitToken: 'fixture-token', signals };
-  const fork = { sourceText: report, message: 'Continue.', sourceChatId, copiedThroughSeq: 42, fromHarness: 'codex', toHarness: 'claude' };
+  const fork = { sourceText: report, message: 'Continue.', sourceChatId, copiedThroughSeq: 42, fromHarness: 'codex', toHarness: 'claude', historyPointer: true };
+  // Inline fallback, kept byte-compatible for unsaved/unavailable sources.
+  const forkInline = { ...fork, historyPointer: false };
   writeChatPlanFile({ cwd: workspace, chatId, markdown: todo.plan.markdown });
   const rows = [];
   function measure(name, after, before = after) {
@@ -74,10 +76,10 @@ try {
   measure('buildWorkspaceMemoryPromptBlock', buildWorkspaceMemoryPromptBlock(memory));
   measure('buildScoutPrompt', buildScoutPrompt(scout));
   measure('buildScoutPromptForProfile', buildScoutPromptForProfile({}, { ...scout, matchedFiles: files }));
-  measure('buildConversationForkPrompt', buildConversationForkPrompt(report, 'Continue.', fork));
-  measure('buildHarnessHandoffPrompt', buildHarnessHandoffPrompt(fork));
+  measure('buildConversationForkPrompt', buildConversationForkPrompt(report, 'Continue.', fork), buildConversationForkPrompt(report, 'Continue.', forkInline));
+  measure('buildHarnessHandoffPrompt', buildHarnessHandoffPrompt(fork), buildHarnessHandoffPrompt(forkInline));
   measure('buildAgentAnalysisPrompt', buildAgentAnalysisPrompt('Inspect current status.', sourceChatId));
-  measure('buildForkInitialPrompt', buildForkInitialPrompt(fork));
+  measure('buildForkInitialPrompt', buildForkInitialPrompt(fork), buildForkInitialPrompt(forkInline));
   measure('buildTodoAgentInitialPrompt', buildTodoAgentInitialPrompt(todo, chatId, 'https://localhost:3011'), beforeTodoAgent.buildTodoAgentInitialPrompt(todo, chatId, 'https://localhost:3011'));
   measure('buildApprovedPlanImplementPrompt', buildApprovedPlanImplementPrompt(chatId));
   measure('buildChatPlanPromptContext', buildChatPlanPromptContext({ cwd: workspace, chatId }));

@@ -12,6 +12,12 @@ catalog/configuration. Memory and chat-plan rows measure the block as a standalo
 input to the same decorator, so those are diagnostic sizes, not an additional
 production chat start. Plan-only uses the watcher builder's plan-gate variant.
 
+The `buildConversationForkPrompt`, `buildHarnessHandoffPrompt` and
+`buildForkInitialPrompt` rows were re-measured after the 4608f545 history-pointer
+change: `After` uses `historyPointer: true` (persisted source) and `Before` is the
+retained inline fallback. That run moved the shared decoration baseline by +608
+bytes, so only those three `Decorated` values come from the newer run.
+
 | Builder | Before | After | Decorated before | Decorated after | Decision / derivable block |
 | --- | ---: | ---: | ---: | ---: | --- |
 | `buildSmartMergeRequest` | 3602 | 2830 | 11801 | 11029 | Changed: verified patch → scope sidecar; fixed prompt size. |
@@ -23,10 +29,10 @@ production chat start. Plan-only uses the watcher builder's plan-gate variant.
 | `buildWorkspaceMemoryPromptBlock` | 159 | 159 | 8358 | 8358 | No change: bounded, ordered prior decisions are selected context, not raw repo data. |
 | `buildScoutPrompt` | 14482 | 14482 | 22681 | 22681 | Follow-up d488034f: diff/log/markers, todo/memory lists derivable; cross-consumer scope work exceeds 150 lines. |
 | `buildScoutPromptForProfile` | 15985 | 15985 | 24184 | 24184 | Follow-up d488034f: same signals plus matched paths; preserve configured authorization scope. |
-| `buildConversationForkPrompt` | 3297 | 3297 | 11496 | 11496 | Follow-up 4608f545: saved transcript derivable; preserve fork cutoff and unavailable-history fallback. |
-| `buildHarnessHandoffPrompt` | 3497 | 3497 | 11696 | 11696 | Follow-up 4608f545: same transcript with continuation and harness parameters. |
+| `buildConversationForkPrompt` | 3297 | 1203 | 12104 | 10010 | Changed: persisted source → compact MCP history pointer (source id/title, cutoff, guards); inline transcript fallback retained. |
+| `buildHarnessHandoffPrompt` | 3497 | 1369 | 12304 | 10176 | Changed: same pointer with harness labels; partial fork bounded by `before_seq: cutoff + 1`. |
 | `buildAgentAnalysisPrompt` | 401 | 401 | 8600 | 8600 | No change: already uses source chat pointer; user-provided status/message stays inline. |
-| `buildForkInitialPrompt` | 3526 | 3526 | 11725 | 11725 | Follow-up 4608f545: dispatch shares fork/handoff contract; analysis variant already small. |
+| `buildForkInitialPrompt` | 3526 | 1398 | 12333 | 10205 | Changed: dispatch routes fork/handoff to the pointer path; analyze branch stays transcript-free. |
 | `buildTodoAgentInitialPrompt` | 3919 | 1584 | 12726 | 10391 | Changed: body/plan/previous-chat copies → paginated `todo_show` pointers; todo/chat ids, `cretli-ref`, approval gate, sequential workflow, status transitions, update contract and MCP-unavailable fallback pointer retained. |
 | `buildApprovedPlanImplementPrompt` | 129 | 129 | 8328 | 8328 | No change: already a plan-file pointer. |
 | `buildChatPlanPromptContext` | 1309 | 1309 | 9508 | 9508 | No change here: plan text duplicates a readable file; generic decoration belongs to 20a8d8ed. |
