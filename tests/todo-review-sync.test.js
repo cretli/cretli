@@ -1044,3 +1044,27 @@ test('fixed pair: an attempt whose snapshot selection is not fixed_pair never co
   const code = subjectSnapshot([impl, a, b], 'code', { codeReviewerPolicy: { selection: 'fixed_pair' } });
   assert.equal(code.state, 'pending');
 });
+
+const PROVIDER_503 = 'API error occurred: Status 503 {"type":"unreachable_backend","raw_status_code":503}';
+
+test('provider 503 failed reviewer does not block a usable PASS sibling', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const failed503 = reviewRow({
+    startedAt: t(2),
+    status: 'failed',
+    error: PROVIDER_503,
+    report: 'worked through several tool calls before the provider died',
+    reportVerdict: '',
+  });
+  const pass = reviewRow({ startedAt: t(3) });
+  const code = subjectSnapshot([impl, failed503, pass]);
+  assert.equal(code.state, 'passed');
+  assert.equal(code.stateReason, 'fresh_review');
+});
+
+test('provider 503 failed reviewer alone leaves the round unknown', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const failed503 = reviewRow({ startedAt: t(2), status: 'failed', error: PROVIDER_503, report: '', reportVerdict: '' });
+  const code = subjectSnapshot([impl, failed503]);
+  assert.equal(code.state, 'unknown');
+});

@@ -450,6 +450,11 @@ body. Consequences:
 - a report that merely mentions a rate limit is not infra;
 - `adapter_after_terminal` entries are not a new failure
   (`lib/model-pick-history.js:352`).
+- a **provider 5xx** error (observed shape `Status 503` with
+  `unreachable_backend`) in the structured `error` / `errors[]` is classified
+  as infra, like a timeout or `Transport not started`, so §4.5 ignores that
+  attempt when a sibling decides the round. The pattern is narrow: 4xx
+  validation errors are not infra, and the report body is never read.
 
 ### 5.4 Snapshot shape — SETTLED
 
