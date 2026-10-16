@@ -180,6 +180,14 @@ leaf. That stop is actionable: the parent reports it as blocked, and
 restored. Consequently `CRETLI_DELEGATION_CODE_REVIEW_MAX_CLOSURES` counts
 rounds, not jobs.
 
+Per-todo override: a todo may carry `reviewer_pair` (`{ enabled?, members? }`),
+set through `todo_update`, REST `PATCH /api/todos/:id`, or `todo_create`. A
+complete pair with `enabled:true` takes precedence over workspace reviewer
+settings for that todo; `enabled:false` disables the fixed pool, and an absent
+or malformed value keeps workspace behavior. The selected pair remains sticky
+for the todo, while hard exclusions such as the implementer still win and mark
+the pool degraded when a replacement is needed.
+
 ### Reviewer policy per review kind (`reviewer_policy`)
 
 Settings → Delegations → Review holds one policy per review subject, **plan** and

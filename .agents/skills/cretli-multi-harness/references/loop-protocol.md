@@ -121,6 +121,11 @@ not an executor pool.
   incomplete = this loop unchanged. With `reviewer_pair_strict` the server
   resumes each member's previous session itself: still pass no
   `resume_session_of`, start no reviewers outside the pool.
+  Per-todo override: the todo field `reviewer_pair` (`{ enabled, members }`, set
+  via `todo_update`) beats the workspace setting — `enabled:true` with two
+  members forces that pair for the todo, `enabled:false` switches the pool off
+  for it, absent/malformed keeps the workspace behavior. The pair is the same
+  for every round of the todo's orchestrator chat (strict pairs are keyed by it).
 - After a child **PASS** on implement/fix, independently reproduce 1–2 claims
   (test or minimal repo). Child PASS without that evidence is `unspecified`.
   If the reviewer's `traits.review_can_run_tests` is `false` (no native shell or
