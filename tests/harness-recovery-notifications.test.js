@@ -1,6 +1,7 @@
 import { ISOLATED_DATA_DIR, removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
-import { writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, after } from 'node:test';
 import {
@@ -85,4 +86,25 @@ test('a deduplicated persisted notification does not send another push', async (
   });
   assert.equal(pushed, false);
   assert.equal(listHarnessRecoveryNotices({ now: now + 600_000 }).length, 0);
+});
+
+test('a Codex usage-limit row with an upsell message still gets a recovery notice', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'cretli-recovery-codex-'));
+  try {
+    const expired = new Date(Date.now() - 1000).toISOString();
+    const codexMessage = "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/codex/settings/usage), visit https://chatgpt.com/codex/settings/usage to purchase more credits.";
+    writeFileSync(path.join(dir, 'harness-usage-limits.json'), JSON.stringify([
+      { harness: 'codex', model: '', message: codexMessage, code: 'usage_limit', resetSource: 'fallback-ttl', resetAt: expired },
+      { harness: 'deepseek', model: '', message: 'Insufficient Balance', code: 'insufficient_balance', resetAt: expired },
+      { harness: 'legacy', model: '', message: codexMessage, resetAt: expired },
+      { harness: 'legacy-balance', model: '', message: 'Insufficient Balance', resetAt: expired },
+    ]));
+    const notices = listHarnessRecoveryNotices({ now: Date.now(), dataDir: dir });
+    const harnesses = notices.map((row) => row.harness).sort();
+    assert.deepEqual(harnesses, ['codex', 'legacy']);
+    assert.equal(harnesses.includes('deepseek'), false, 'a genuine balance row is not a recovery notice');
+    assert.equal(harnesses.includes('legacy-balance'), false, 'a code-less balance row is not a recovery notice');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

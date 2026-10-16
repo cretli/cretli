@@ -4,15 +4,18 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
+  isInsufficientBalanceMessage,
   isModelUnavailableMessage,
   isUsageLimitMessage,
   noteHarnessUsageLimit,
   noteUnclassifiedRunError,
   getHarnessUsageLimit,
+  listHarnessUsageLimits,
   readHarnessUsageLimitHistory,
   clearHarnessUsageLimit,
   selectUsageLimitMessage,
 } from '../lib/harness-usage-limits.js';
+import { classifyDelegationFailure } from '../lib/delegation-failure-class.js';
 import { selectModelPick } from '../lib/model-role-profiles.js';
 import { resolveDataPath, resolveProjectPath } from '../lib/runtime-paths.js';
 
@@ -79,6 +82,68 @@ assert.equal(isUsageLimitMessage('permission denied'), false);
   } finally {
     rmSync(qwenDir, { recursive: true, force: true });
   }
+}
+
+// --- Codex: account-wide usage limit, never an empty balance ----------------
+// A real Codex limit carries an upsell ("...to purchase more credits or try
+// again at 1:01 PM"). That phrase must not classify the account as out of
+// credit: the row stays a usage limit, keeps the harness-wide scope a Codex
+// plan window requires, and uses the stated clock (or the 1h TTL without one).
+{
+  const codexMessage = "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/codex/settings/usage?utm_source=chatgpt), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 1:01 PM.";
+  assert.equal(isInsufficientBalanceMessage(codexMessage), false, 'the upsell is not a no-balance message');
+  const codexDir = mkdtempSync(path.join(tmpdir(), 'cretli-codex-usage-limit-'));
+  try {
+    assert.equal(noteHarnessUsageLimit({
+      harness: 'codex',
+      model: 'gpt-5-codex',
+      message: codexMessage,
+      dataDir: codexDir,
+    }), true);
+    const locked = getHarnessUsageLimit({ harness: 'codex', model: 'gpt-5-codex', dataDir: codexDir });
+    assert.equal(locked?.code, 'usage_limit');
+    assert.equal(locked?.model, '', 'a Codex plan window is account-wide');
+    assert.equal(locked?.resetSource, 'provider-message');
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date(locked.resetAt));
+    const clock = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+    assert.equal(`${clock.hour}:${clock.minute}`, '13:01', 'the stated clock drives the reset');
+    const sibling = getHarnessUsageLimit({ harness: 'codex', model: 'sibling-model', dataDir: codexDir });
+    assert.equal(sibling?.model, '', 'the account-wide lockout also covers sibling models');
+    assert.equal(sibling?.code, 'usage_limit');
+  } finally {
+    rmSync(codexDir, { recursive: true, force: true });
+  }
+
+  // Without a stated clock the row keeps the 1h usage-limit TTL, not 6h.
+  const codexTtlDir = mkdtempSync(path.join(tmpdir(), 'cretli-codex-usage-limit-ttl-'));
+  try {
+    const beforeTtl = Date.now();
+    assert.equal(noteHarnessUsageLimit({
+      harness: 'codex',
+      model: 'gpt-5-codex',
+      message: "You've hit your usage limit. Upgrade to Pro, visit https://chatgpt.com/codex/settings/usage to purchase more credits.",
+      dataDir: codexTtlDir,
+    }), true);
+    const locked = getHarnessUsageLimit({ harness: 'codex', model: 'gpt-5-codex', dataDir: codexTtlDir });
+    const ttlDelta = new Date(locked.resetAt).getTime() - beforeTtl;
+    assert.equal(locked.code, 'usage_limit');
+    assert.ok(ttlDelta > 59 * 60 * 1000 && ttlDelta <= 61 * 60 * 1000, 'clock-less codex keeps the 1h TTL');
+  } finally {
+    rmSync(codexTtlDir, { recursive: true, force: true });
+  }
+}
+
+// The delegation classifier keeps a Codex quota harness-wide, even though the
+// phrase that used to trigger the balance branch is gone.
+{
+  const codexMessage = "You've hit your usage limit. Upgrade to Pro, visit https://chatgpt.com/codex/settings/usage to purchase more credits.";
+  const failure = classifyDelegationFailure({ harness: 'codex', error: codexMessage });
+  assert.equal(failure.failureClass, 'quota');
+  assert.equal(failure.scope, 'harness');
+  assert.equal(failure.harnessWide, true);
+  assert.equal(classifyDelegationFailure({ harness: 'deepseek', error: 'Insufficient Balance' }).scope, 'harness');
 }
 
 // A rejected model id is not a quota problem, but it must lock that one model
@@ -248,6 +313,71 @@ assert.equal(readHarnessUsageLimitHistory({ harness: 'claude' }).length, 1);
     assert.ok(ttlDelta > 59 * 60 * 1000 && ttlDelta <= 61 * 60 * 1000, 'clock-less keeps the 1h TTL');
   } finally {
     rmSync(resetDir, { recursive: true, force: true });
+  }
+}
+
+// --- OpenAI/Codex states its window reset as "try again at <clock>" ---
+// The same message also mentions purchasing credits, so the balance path used
+// to hold the whole harness for a synthetic 6h even though the provider named
+// the moment its 5-hour window reopens. The stated clock must win, and a bare
+// duration ("in 20 minutes") must never be read as a wall clock.
+{
+  const retryDir = mkdtempSync(path.join(tmpdir(), 'cretli-limits-retry-clock-'));
+  const durationDir = mkdtempSync(path.join(tmpdir(), 'cretli-limits-retry-duration-'));
+  try {
+    const message = "You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), "
+      + 'visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 1:01 PM.';
+    assert.equal(noteHarnessUsageLimit({ harness: 'codex', model: 'auto', message, dataDir: retryDir }), true);
+    const row = getHarnessUsageLimit({ harness: 'codex', model: 'gpt-6-luna', dataDir: retryDir });
+    assert.equal(row.model, '', 'a Codex account window blocks the whole harness');
+    assert.equal(row.resetSource, 'provider-message', 'the stated retry clock beats the 6h balance TTL');
+    const parts = new Intl.DateTimeFormat('en-CA', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+      .formatToParts(new Date(row.resetAt));
+    const clock = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+    assert.equal(`${clock.hour}:${clock.minute}`, '13:01', 'resetAt is the stated 1:01 PM clock');
+
+    assert.equal(noteHarnessUsageLimit({
+      harness: 'codex', model: 'auto', message: "You’ve hit your usage limit. Try again in 20 minutes.", dataDir: durationDir,
+    }), true);
+    const durationRow = getHarnessUsageLimit({ harness: 'codex', model: 'auto', dataDir: durationDir });
+    assert.equal(durationRow.resetSource, 'fallback-ttl', 'a duration is not a wall clock');
+  } finally {
+    rmSync(retryDir, { recursive: true, force: true });
+    rmSync(durationDir, { recursive: true, force: true });
+  }
+}
+
+// --- An account-wide plan window locks the whole harness ---
+// A Claude `five_hour` / `seven_day` rejection is one window shared by every
+// model: scoping the lockout to the model the SDK named left the sibling models
+// selectable while the provider rejected them all. A family window keeps its
+// model scope.
+{
+  const windowDir = mkdtempSync(path.join(tmpdir(), 'cretli-limits-account-window-'));
+  try {
+    const resetAt = new Date(Date.now() + 3 * 3600 * 1000).toISOString();
+    assert.equal(noteHarnessUsageLimit({
+      harness: 'claude', model: 'claude-sonnet-5-5::effort=low', source: 'rate-limit-event',
+      status: 'rejected', resetAt, rateLimitType: 'five_hour', authMode: 'subscription',
+      code: 'rate_limit_five_hour', dataDir: windowDir,
+    }), true);
+    const row = listHarnessUsageLimits(windowDir).find((entry) => entry.harness === 'claude');
+    assert.equal(row.model, '', 'an account-wide window locks the harness, not the named model');
+    assert.equal(row.code, 'rate_limit_five_hour');
+    assert.equal(
+      getHarnessUsageLimit({ harness: 'claude', model: 'claude-opus-5-5::effort=low', dataDir: windowDir })?.code,
+      'rate_limit_five_hour',
+      'a sibling Claude model is blocked too',
+    );
+
+    assert.equal(noteHarnessUsageLimit({
+      harness: 'claude', model: 'claude-sonnet-5-5::effort=low', source: 'rate-limit-event',
+      status: 'rejected', resetAt, rateLimitType: 'seven_day_sonnet', authMode: 'subscription', dataDir: windowDir,
+    }), true);
+    const family = listHarnessUsageLimits(windowDir).find((entry) => entry.rateLimitType === 'seven_day_sonnet');
+    assert.equal(family.model, 'claude-sonnet-5-5::effort=low', 'a family window keeps its model scope');
+  } finally {
+    rmSync(windowDir, { recursive: true, force: true });
   }
 }
 
