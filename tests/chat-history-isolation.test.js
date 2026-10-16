@@ -224,7 +224,10 @@ const cliPayload = path.join(cliDataDir, 'payload.json');
 const cliResult = path.join(cliDataDir, 'result.json');
 const cliTranscript = path.join(cliWorkspace, 'agent-transcripts', 'agent-newer-delegation.jsonl');
 const prodChatsPath = path.join(repoRoot, 'data', 'chats.json');
-const prodChatsMtime = fs.existsSync(prodChatsPath) ? fs.statSync(prodChatsPath).mtimeMs : 0;
+// Non-racy canary: in a clean worktree the production chats file does not exist,
+// so a child that ignored CRETLI_DATA_DIR would create it. When a live server
+// already owns that file the check is skipped.
+const prodChatsExistedBeforeCli = fs.existsSync(prodChatsPath);
 fs.writeFileSync(cliPayload, JSON.stringify({
   workspaceFolder: cliWorkspace,
   extraTranscriptAbs: cliTranscript,
@@ -253,8 +256,18 @@ assert.equal(cliRecord.partial.partial, true);
 assert.match(cliRecord.full.copiedText, /three mode buttons/);
 assert.doesNotMatch(cliRecord.full.copiedText, /queued-mail/);
 assert.doesNotMatch(cliRecord.partial.copiedText, /keyboard shortcut/);
-const prodChatsMtimeAfter = fs.existsSync(prodChatsPath) ? fs.statSync(prodChatsPath).mtimeMs : 0;
-assert.equal(prodChatsMtimeAfter, prodChatsMtime);
+// Deterministic isolation proof: the child reports the data dir it actually
+// resolved from CRETLI_DATA_DIR, and it must be the scratch dir, not data/.
+const cliDataDirResolved = fs.realpathSync(cliDataDir);
+assert.equal(fs.realpathSync(cliRecord.resolvedDataDir), cliDataDirResolved);
+const cliChatsResolved = fs.realpathSync(cliRecord.chatsPath);
+assert.equal(cliChatsResolved, path.join(cliDataDirResolved, 'chats.json'));
+assert.equal(path.relative(cliDataDirResolved, cliChatsResolved).startsWith('..'), false);
+assert.notEqual(path.resolve(cliRecord.chatsPath), path.resolve(prodChatsPath));
+// Skipped in the main checkout where a live server owns the production file.
+if (!prodChatsExistedBeforeCli) {
+  assert.equal(fs.existsSync(prodChatsPath), false);
+}
 fs.rmSync(cliDataDir, { recursive: true, force: true });
 fs.rmSync(cliWorkspace, { recursive: true, force: true });
 
