@@ -10441,6 +10441,9 @@ export function initChatPanel() {
     window.addEventListener('cretli-opencode-models-changed', (event) => {
       const detail = event?.detail;
       applyOpenCodeEnabledModels(detail?.opencodeChatEnabledModels || []);
+      // The combined picker caches per-row `settingsDisabled`; rebuild it so a just-saved model shows up without a reload.
+      syncNewChatAgentModelPicker();
+      syncSdkModeBarPicker(sharedSdkModeBar, chats.find((c) => c.id === activeChatId) || null);
     });
     window.addEventListener('cretli-codebuddy-models-changed', (event) => {
       const detail = event?.detail;

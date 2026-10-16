@@ -46,6 +46,7 @@ export const pl = {
   },
   settings: {
     back: 'Wstecz',
+    close: 'Zamknij',
     loading: 'Ładowanie…',
     saving: 'Zapisywanie…',
     tabsWorkspace: 'Workspace',
