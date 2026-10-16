@@ -411,6 +411,18 @@ test('an external change to a registered worktree is detected and never adopted'
   assert.ok(fs.existsSync(created.record.worktreePath), 'external change is reported, never deleted');
 });
 
+test('server leaf checkpoint commits do not count as an external change', (t) => {
+  const { repo, config, registryOptions } = setup(t);
+  const created = ensureWorktree({ todoId: TODO_A, workspaceFolder: repo, mode: 'worktree', config, registryOptions });
+  fs.writeFileSync(path.join(created.record.worktreePath, 'leaf.txt'), 'leaf\n');
+  git(created.record.worktreePath, ['add', 'leaf.txt']);
+  git(created.record.worktreePath, ['commit', '-qm', `Cretli leaf checkpoint for ${TODO_A}`]);
+
+  assert.equal(verifyWorktreeRecord(created.record).ok, true);
+  const reused = ensureWorktree({ todoId: TODO_A, workspaceFolder: repo, mode: 'worktree', config, registryOptions });
+  assert.equal(reused.reused, true);
+});
+
 test('releaseWorktree closes the live record, keeps the directory and is refused while an agent runs', (t) => {
   const { repo, config, registryOptions } = setup(t);
   const { record } = ensureWorktree({ todoId: TODO_A, workspaceFolder: repo, mode: 'worktree', config, registryOptions });
