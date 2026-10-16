@@ -474,16 +474,31 @@ runCase('E2E: a vanished orchestrator room closes after grace and the next todo 
   assert.ok(added.length > 0, 'the full slot is recorded');
   assert.ok(added.every((entry) => entry.kind !== 'start_cycle'), 'a full slot is not logged as start_cycle');
   assert.equal(added.at(-1).reason, 'cycle_active');
-  const later = await runWorkspaceWatcherAutopilot({
+  // The grace-expiry pass closes the vanished cycle and arms the failure
+  // backoff in the same pass, so no new cycle can start yet: a vanished-room
+  // close is a cycle failure (failures[todo]++), not an infrastructure no-op.
+  const closed = await runWorkspaceWatcherAutopilot({
     dataDir,
     now: T0 + 30_000 + (2 * 60 * 1000),
     token: 'e2e-gone',
     deps,
   });
-  assert.equal(later.closed, 1, 'grace expiry closes the vanished cycle');
-  assert.equal(later.started, 1, 'the next ready todo starts once the slot is free');
+  assert.equal(closed.closed, 1, 'grace expiry closes the vanished cycle');
+  assert.equal(closed.started, 0, 'the vanished close arms the failure backoff before any start');
+  assert.equal(
+    getWorkspaceWatcher(cwd, { dataDir }).failures[claimedId],
+    1,
+    'a vanished-room close records a failure for its todo',
+  );
+  // Once the failure backoff has expired, fresh work starts normally.
+  const after = await runWorkspaceWatcherAutopilot({
+    dataDir,
+    now: T0 + 30_000 + (2 * 60 * 1000) + 120_000,
+    token: 'e2e-gone',
+    deps,
+  });
+  assert.equal(after.started, 1, 'the next ready todo starts once the failure backoff expires');
   assert.equal(getTodoById(dataDir, cwd, pendingId).status, 'doing');
-  assert.equal(getWorkspaceWatcher(cwd, { dataDir }).failures[claimedId], undefined);
 });
 
 runCase('E2E: an orphaned doing leaf is recovered and started exactly once', async () => {
