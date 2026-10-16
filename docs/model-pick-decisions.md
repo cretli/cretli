@@ -43,7 +43,7 @@ body (or any free text) cannot reach the journal.
 | `leaf_size_small` / `leaf_size_large` | Result of `classifyLeafSize`; large raises to at least `standard`. |
 | `few_files` / `many_files` | Existing file paths named in the leaf; more than 6 raises to `demanding`. |
 | `risk_keywords` | Security, auth, migration, schema, concurrency, encryption, secret, credential, data loss, breaking change and similar words (Polish: `migracja`, `kontrakt`, `bezpiecze*`); raises to at least `standard`. |
-| `review_fail_history` | Not wired yet (needs a review-FAIL counter in model-pick history). Classifier support: at least 2 review FAILs (`history.reviewFailCount`) gives `demanding`. |
+| `review_fail_history` | `history.reviewFailCount` is a per-leaf count of real review delegations (plan-mode `review` rows excluded) whose report carries a `VERDICT: FAIL` line. At least 2 review FAILs make the leaf `demanding`. |
 | `role_floor_standard` | `review`/`plan` role or `sourceKind=plan`; never below `standard`. |
 | `explicit_heavy` | `heavy: true` on the pick; `demanding`. |
 | `explicit_level` | The `complexity` parameter overrides the heuristic level. |
