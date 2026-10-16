@@ -104,7 +104,9 @@ test('i18n keys used by the module exist in pl and en', () => {
 test('Save footer is revealed for the delegations section and statuses are styled', () => {
   const appScss = read('app_front/css/app.scss');
   const recipes = read('app_front/css/cr-recipes.scss');
-  assert.match(appScss, /#settings-panel \.settings-section\[data-settings-tab\^='delegations'\]:not\(\[hidden\]\) \.cr-page-footer/);
+  assert.match(appScss, /#settings-delegation-footer \{\s*display: flex;/);
+  assert.match(appScss, /data-settings-tab='delegations-limits'/);
+  assert.match(read('public/index.html'), /id="settings-delegation-footer"/);
   // A bare `#settings-panel:has(...delegations...) .cr-page-footer` would also match #settings-workspace-save-row.
   assert.doesNotMatch(appScss, /#settings-panel:has\(\.settings-section\[data-settings-tab='delegations'\][^)]*\)\)? \.cr-page-footer/);
   assert.match(recipes, /&\.is-error \{\s*color: var\(--cr-danger-text\)/);

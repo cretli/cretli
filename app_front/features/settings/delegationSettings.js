@@ -8,6 +8,7 @@
  */
 
 import { t, getCurrentLang } from '../../i18n/index.js';
+import { readBarInputLiveValue } from '../../components/ui/read-bar-input-live-value.js';
 import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 import { getWatcherWorkspaceFolder, scopeWatcherRequestToWorkspace } from '../watcher/watcherWorkspaceScope.js';
 
@@ -43,7 +44,9 @@ export const DELEGATION_SUBTAB_FIELDS = Object.freeze({
 });
 
 /** @type {{ data: object | null, favorites: Array<{ harness: string, model: string, label: string }> }} */
-const state = { data: null, favorites: [], bound: false };
+const state = { data: null, favorites: [], favoritesAt: 0, favoritesPromise: null, dirty: new Set() };
+/** Favorites change rarely; reuse them across tab entries for this long. */
+const FAVORITES_TTL_MS = 60_000;
 
 /**
  * @param {unknown} value
@@ -116,24 +119,23 @@ function renderField(spec, data) {
   } else if (spec.kind === 'fanout' || spec.kind === 'enum') {
     const options = spec.kind === 'fanout' ? ['1', '2'] : spec.options;
     const label = (opt) => (spec.kind === 'enum' ? t(`settings.delegationEnum_${field}_${opt}`) : opt);
-    control = `<select id="${id}" data-delegation-field="${field}"${dis}>${options.map((opt) => `<option value="${esc(opt)}"${String(value) === opt ? ' selected' : ''}>${esc(label(opt))}</option>`).join('')}</select>`;
+    control = `<cr-bar-select id="${id}" data-delegation-field="${field}" data-options="${esc(JSON.stringify(options.map((opt) => ({ value: opt, label: label(opt) }))))}" value="${esc(value)}"${dis}></cr-bar-select>`;
   } else if (spec.kind === 'pair') {
     const members = Array.isArray(value) ? value : [];
     const slot = (index) => {
       const current = members[index] ? `${members[index].harness}${PAIR_SEPARATOR}${members[index].model}` : '';
       const known = state.favorites.some((fav) => `${fav.harness}${PAIR_SEPARATOR}${fav.model}` === current);
-      const options = [`<option value="">${esc(t('settings.delegationSettingsNone'))}</option>`];
+      const options = [{ value: '', label: t('settings.delegationSettingsNone') }];
       // A saved member that left the favorites stays selectable so it is not dropped silently.
-      if (current && !known) options.push(`<option value="${esc(current)}" selected>${esc(`${members[index].harness} / ${members[index].model}`)}</option>`);
+      if (current && !known) options.push({ value: current, label: `${members[index].harness} / ${members[index].model}` });
       for (const fav of state.favorites) {
-        const optValue = `${fav.harness}${PAIR_SEPARATOR}${fav.model}`;
-        options.push(`<option value="${esc(optValue)}"${optValue === current ? ' selected' : ''}>${esc(`${fav.harness} / ${fav.label}`)}</option>`);
+        options.push({ value: `${fav.harness}${PAIR_SEPARATOR}${fav.model}`, label: `${fav.harness} / ${fav.label}` });
       }
-      return `<select id="${id}-${index}" data-delegation-pair-member="${index}">${options.join('')}</select>`;
+      return `<cr-bar-select id="${id}-${index}" data-delegation-pair-member="${index}" data-options="${esc(JSON.stringify(options))}" value="${esc(current)}"${dis}></cr-bar-select>`;
     };
     control = `<div class="cr-row">${slot(0)}${slot(1)}</div>`;
   } else {
-    control = `<input id="${id}" type="number" data-delegation-field="${field}" min="${spec.min ?? 0}"${spec.max != null ? ` max="${spec.max}"` : ''} value="${esc(value)}"${dis}>`;
+    control = `<cr-bar-input id="${id}" type="number" data-delegation-field="${field}" min="${spec.min ?? 0}"${spec.max != null ? ` max="${spec.max}"` : ''} value="${esc(value)}"${dis}></cr-bar-input>`;
   }
   const label = spec.kind === 'bool' ? '' : `<span class="cr-field-label">${esc(t(`settings.delegationField_${field}`))}</span>`;
   const reset = !readOnly && source === 'workspace'
@@ -168,10 +170,6 @@ function renderSubtab(tab, data) {
       <p class="cr-hint">${esc(t(`settings.delegationSettings_${tab}Hint`))}</p>
       ${fields}
       ${extra}
-      <p class="cr-status" data-delegation-status="${tab}" data-tone=""></p>
-    </div>
-    <div class="cr-page-footer cr-row">
-      <cr-bar-button variant="primary" data-delegation-save="${tab}">${esc(t('settings.delegationSettingsSave'))}</cr-bar-button>
     </div>`;
 }
 
@@ -184,12 +182,14 @@ function getRoot(tab) {
 }
 
 /**
+ * Status text lives in the shared footer, outside the scroll box.
+ *
  * @param {HTMLElement} root
  * @param {string} text
  * @param {'error' | 'success' | ''} tone
  */
 function setStatus(root, text, tone = '') {
-  const el = root.querySelector('[data-delegation-status]');
+  const el = document.getElementById('settings-delegation-status');
   if (!el) return;
   el.textContent = text;
   el.dataset.tone = tone;
@@ -205,8 +205,29 @@ function renderAll(only) {
   for (const tab of Object.keys(DELEGATION_SUBTAB_FIELDS)) {
     if (only && tab !== only) continue;
     const root = getRoot(tab);
-    if (root) root.innerHTML = renderSubtab(tab, state.data);
+    if (!root) continue;
+    root.innerHTML = renderSubtab(tab, state.data);
+    root.querySelectorAll('cr-bar-select[data-options]').forEach((el) => {
+      el.options = JSON.parse(el.dataset.options || '[]');
+    });
   }
+}
+
+/**
+ * Repaint only subtabs with no unsaved edits, so a refresh never wipes input.
+ */
+function renderCleanTabs() {
+  for (const tab of Object.keys(DELEGATION_SUBTAB_FIELDS)) {
+    if (!state.dirty.has(tab)) renderAll(tab);
+  }
+}
+
+/**
+ * @param {Element & { value?: unknown }} el
+ * @returns {string}
+ */
+function readControlValue(el) {
+  return el.localName === 'cr-bar-input' ? readBarInputLiveValue(el) : String(el.value ?? '');
 }
 
 /** Re-render all subtabs but keep unsaved control values (language change). */
@@ -216,7 +237,7 @@ function rerenderPreservingEdits() {
     const root = getRoot(tab);
     if (!root) continue;
     snapshot[tab] = [...root.querySelectorAll('[data-delegation-field], [data-delegation-pair-member]')]
-      .map((el) => ({ el: el.dataset.delegationField ? `[data-delegation-field="${el.dataset.delegationField}"]` : `[data-delegation-pair-member="${el.dataset.delegationPairMember}"]`, value: el.value, checked: el.checked, type: el.type }));
+      .map((el) => ({ el: el.dataset.delegationField ? `[data-delegation-field="${el.dataset.delegationField}"]` : `[data-delegation-pair-member="${el.dataset.delegationPairMember}"]`, value: readControlValue(el), checked: el.checked, type: el.type }));
   }
   renderAll();
   for (const [tab, items] of Object.entries(snapshot)) {
@@ -232,19 +253,28 @@ function rerenderPreservingEdits() {
 
 /**
  * Enabled favorites across harnesses, for the reviewer pair selectors.
+ * Cached for FAVORITES_TTL_MS and de-duplicated while in flight, so repeated
+ * tab entries do not re-issue the per-harness requests.
  *
  * @returns {Promise<Array<{ harness: string, model: string, label: string }>>}
  */
-async function loadFavorites() {
-  const catalog = await api('/api/harness-catalog/harnesses');
-  const harnesses = (catalog.json?.items || []).map((item) => String(item?.id || '')).filter(Boolean);
-  const lists = await Promise.all(harnesses.map(async (harness) => {
-    const res = await api(`/api/harness-catalog/models?harness=${encodeURIComponent(harness)}&enabled_only=1`);
-    return (res.json?.items || [])
-      .filter((item) => item && item.id)
-      .map((item) => ({ harness, model: String(item.id), label: String(item.label || item.id) }));
-  }));
-  return lists.flat();
+function loadFavorites() {
+  if (state.favoritesAt && Date.now() - state.favoritesAt < FAVORITES_TTL_MS) return Promise.resolve(state.favorites);
+  if (state.favoritesPromise) return state.favoritesPromise;
+  state.favoritesPromise = (async () => {
+    const catalog = await api('/api/harness-catalog/harnesses');
+    const harnesses = (catalog.json?.items || []).map((item) => String(item?.id || '')).filter(Boolean);
+    const lists = await Promise.all(harnesses.map(async (harness) => {
+      const res = await api(`/api/harness-catalog/models?harness=${encodeURIComponent(harness)}&enabled_only=1`);
+      return (res.json?.items || [])
+        .filter((item) => item && item.id)
+        .map((item) => ({ harness, model: String(item.id), label: String(item.label || item.id) }));
+    }));
+    state.favorites = lists.flat();
+    state.favoritesAt = Date.now();
+    return state.favorites;
+  })().finally(() => { state.favoritesPromise = null; });
+  return state.favoritesPromise;
 }
 
 /**
@@ -272,12 +302,12 @@ function readSubtab(root, tab) {
     if (!el) continue;
     if (spec.kind === 'bool') values[spec.field] = el.checked === true;
     else if (spec.kind === 'int' || spec.kind === 'fanout') {
-      const num = Number.parseInt(String(el.value), 10);
+      const num = Number.parseInt(readControlValue(el), 10);
       if (!Number.isSafeInteger(num) || num < (spec.min ?? 1) || (spec.max != null && num > spec.max)) {
         error = t('settings.delegationSettingsInvalidNumber', { field: t(`settings.delegationField_${spec.field}`) });
       }
       values[spec.field] = num;
-    } else values[spec.field] = String(el.value);
+    } else values[spec.field] = readControlValue(el);
   }
   return { values, error };
 }
@@ -302,7 +332,8 @@ export async function refreshDelegationSettings() {
   }
   state.data = json;
   state.favorites = favorites;
-  renderAll();
+  // Tabs with unsaved edits keep their controls; the rest pick up fresh values.
+  renderCleanTabs();
 }
 
 /**
@@ -314,6 +345,7 @@ async function savePatch(root, patch, tab) {
   const { status, json } = await api(API_PATH, { method: 'PATCH', body: patch });
   if (status !== 200 || !json?.ok) return setStatus(root, json?.error || t('settings.delegationSettingsSaveFailed'), 'error');
   state.data = json;
+  state.dirty.delete(tab);
   // Only the saved subtab is repainted so unsaved edits elsewhere survive.
   renderAll(tab);
   setStatus(root, t('settings.delegationSettingsSaved'), 'success');
@@ -340,14 +372,23 @@ export function initDelegationSettings() {
         await savePatch(root, { [reset.dataset.delegationReset]: null }, tab);
         return;
       }
-      if (!target.closest(`[data-delegation-save="${tab}"]`)) return;
-      const { values, error } = readSubtab(root, tab);
-      if (error) return setStatus(root, error, 'error');
-      const patch = buildDelegationPatch(state.data?.effective, values);
-      if (Object.keys(patch).length === 0) return setStatus(root, t('settings.delegationSettingsNoChanges'));
-      return savePatch(root, patch, tab);
     });
+    const markDirty = () => state.dirty.add(tab);
+    root.addEventListener('input', markDirty);
+    root.addEventListener('change', markDirty);
+    root.addEventListener('cr-change', markDirty);
   }
+  // The Save footer is a sibling of the scroll box and saves the visible subtab.
+  document.getElementById('settings-delegation-save')?.addEventListener('click', async () => {
+    const tab = Object.keys(DELEGATION_SUBTAB_FIELDS).find((key) => !getRoot(key)?.closest('[hidden]'));
+    const root = tab ? getRoot(tab) : null;
+    if (!root) return;
+    const { values, error } = readSubtab(root, tab);
+    if (error) return setStatus(root, error, 'error');
+    const patch = buildDelegationPatch(state.data?.effective, values);
+    if (Object.keys(patch).length === 0) return setStatus(root, t('settings.delegationSettingsNoChanges'));
+    return savePatch(root, patch, tab);
+  });
   // Links from Usage / Watcher (no second write path, just navigation).
   document.addEventListener('click', (event) => {
     const link = event.target instanceof Element ? event.target.closest('[data-delegation-subtab-link]') : null;

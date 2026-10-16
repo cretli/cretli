@@ -615,9 +615,14 @@ body:has(#settings-panel.active) #settings-panel.panel {
   white-space: pre-wrap;
 }
 
-#settings-panel:has(.settings-section[data-settings-tab='workspace']:not([hidden])) .cr-page-footer,
-#settings-panel:has(.settings-section[data-settings-tab='workspace']:not([hidden])) .settings-workspace-save-row,
-#settings-panel .settings-section[data-settings-tab^='delegations']:not([hidden]) .cr-page-footer {
+#settings-panel:has(.settings-section[data-settings-tab='workspace']:not([hidden])) .cr-page-footer:not(#settings-delegation-footer),
+#settings-panel:has(.settings-section[data-settings-tab='workspace']:not([hidden])) .settings-workspace-save-row {
+  display: flex;
+}
+
+/* Delegation Save footer: a sibling of the scroll box, shown for editable subtabs only. */
+#settings-panel:has(.settings-section:is([data-settings-tab='delegations-limits'], [data-settings-tab='delegations-review'], [data-settings-tab='delegations-models']):not([hidden])) #settings-delegation-footer {
+  display: flex;
   display: flex;
 }
 
