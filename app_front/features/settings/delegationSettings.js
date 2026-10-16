@@ -31,6 +31,7 @@ export const DELEGATION_SUBTAB_FIELDS = Object.freeze({
   review: [
     { field: 'review_fanout', kind: 'fanout' },
     { field: 'review_allow_uncertified', kind: 'bool' },
+    { field: 'codex_review_sandbox', kind: 'bool' },
     { field: 'code_review_phase', kind: 'bool' },
     { field: 'code_review_max_closures', kind: 'int', min: 0 },
     { field: 'reviewer_policy', kind: 'reviewer_policy' },
@@ -52,7 +53,7 @@ export const DELEGATION_LEGACY_FIELDS = Object.freeze(['reviewer_pair_enabled', 
 export const REVIEWER_POLICY_SUBJECTS = Object.freeze(['plan', 'code']);
 
 /** @type {{ data: object | null, favorites: Array<{ harness: string, model: string, label: string }> }} */
-const state = { data: null, favorites: [], favoritesAt: 0, favoritesPromise: null, dirty: new Set() };
+const state = { data: null, favorites: [], harnesses: [], favoritesAt: 0, favoritesPromise: null, dirty: new Set() };
 /** Favorites change rarely; reuse them across tab entries for this long. */
 const FAVORITES_TTL_MS = 60_000;
 
@@ -364,6 +365,35 @@ function renderField(spec, data) {
 }
 
 /**
+ * Read-only per-harness review certification (global env layer from the
+ * harness catalog); the allow-uncertified opt-in comes from the effective value.
+ *
+ * @param {object} data
+ * @returns {string}
+ */
+function renderReviewCertification(data) {
+  const rows = (state.harnesses || []).filter((row) => row && row.id && typeof row.review_certified === 'boolean');
+  if (rows.length === 0) return '';
+  const optIn = data.effective?.review_allow_uncertified === true;
+  const items = rows.map((row) => {
+    const certified = row.review_certified === true;
+    const reason = row.review_certification_reason
+      ? t(`settings.reviewCertReason_${row.review_certification_reason}`)
+      : t('settings.reviewCertReason_none');
+    const status = certified ? t('settings.reviewCertCertified') : t('settings.reviewCertUncertified');
+    const tests = row.review_can_run_tests ? t('settings.reviewCertTestsYes') : t('settings.reviewCertTestsNo');
+    const optInText = !certified && optIn ? ` · ${esc(t('settings.reviewCertOptInOn'))}` : '';
+    return `<li data-review-cert="${esc(row.id)}"><strong>${esc(row.label || row.id)}</strong>: ${esc(status)} (${esc(reason)}) · ${esc(tests)}${optInText}</li>`;
+  }).join('');
+  return `
+    <div class="cr-field" data-review-certification>
+      <span class="cr-field-label">${esc(t('settings.reviewCertTitle'))}</span>
+      <p class="cr-hint">${esc(t('settings.reviewCertHint'))}</p>
+      <ul class="cr-hint">${items}</ul>
+    </div>`;
+}
+
+/**
  * @param {string} tab
  * @param {object} data
  * @returns {string}
@@ -385,6 +415,7 @@ function renderSubtab(tab, data) {
     <div class="cr-page-body">
       <p class="cr-hint">${esc(t(`settings.delegationSettings_${tab}Hint`))}</p>
       ${fields}
+      ${tab === 'review' ? renderReviewCertification(data) : ''}
       ${extra}
     </div>`;
 }
@@ -499,6 +530,7 @@ function loadFavorites() {
         .filter((item) => item && item.id)
         .map((item) => ({ harness, model: String(item.id), label: String(item.label || item.id) }));
     }));
+    state.harnesses = catalog.json?.items || [];
     state.favorites = lists.flat();
     state.favoritesAt = Date.now();
     return state.favorites;

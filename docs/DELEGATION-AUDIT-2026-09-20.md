@@ -1,5 +1,8 @@
 # Audyt delegacji Cretli — 2026-09-20
 
+> Historical audit. Note: Codex review certification landed on 2026-10-15 (read-only sandbox for review runs), so statements below that Codex is uncertified are outdated.
+
+
 ## Zakres i wynik
 
 Ocena bieżącego drzewa roboczego, w tym istniejących niezacommitowanych zmian. Analiza kodu, 32 pliki testowe delegacji/katalogu/MCP oraz rzeczywista delegacja audytu przez `delegation_start`. Użyty skill: `.cursor/skills/cretli-multi-harness/SKILL.md`. Zakres zadania użytkownika to audyt i plan, nie wdrożenie poprawek.

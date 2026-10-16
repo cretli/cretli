@@ -87,7 +87,9 @@ harness 7d → model 7d → least-recently-used → id). CodeBuddy favorites (`h
 Review requires a hard pre-exec deny or a read-only sandbox; an adapter without
 one is excluded unless `CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED=1`. Codex
 review runs with the Codex `read-only` sandbox and DeepSeek review with the DSH
-`read-only` sandbox + headless approval. Event abort is not a write
+`read-only` sandbox + headless approval. `harness_list` shows each harness's
+certification (`review=certified:<reason>` / `review=uncertified`); Codex turns
+uncertified only when `codex_review_sandbox` is off. Event abort is not a write
 block.
 
 ## 3. Fanout picks and review traits

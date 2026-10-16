@@ -19,6 +19,12 @@ All notable changes to this project are documented here. The format is based on
   card renders the level, cost factor, measurement time, measured/estimated
   basis, slack and the reason an ineligible window did not count. Follows
   `plan_window_enabled`.
+- **`codex_review_sandbox` delegation setting and review-certification
+  visibility.** The Codex review sandbox is now editable per workspace in
+  Settings -> Delegations -> Review, and the Codex thread and the review
+  certification gate read the same resolved delegation env so they cannot
+  disagree. `harness_list`, the harness catalog and the Review subtab show
+  per-harness review certification.
 
 - **Codex reviews are certified.** Review delegations on Codex start the
   thread with the Codex `read-only` sandbox (a hard write block), so they no

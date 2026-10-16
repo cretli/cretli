@@ -88,3 +88,12 @@ assert.equal(fs.existsSync(homeConfig), true);
 assert.match(fs.readFileSync(homeConfig, 'utf8'), /cli_auth_credentials_store\s*=\s*"file"/);
 
 console.log('codex-thread-options.test.js OK');
+
+const reviewSandboxOn = buildCodexClientOptions({ cwd: '/tmp/codex-workspace', reviewReadOnly: true, env: {} });
+assert.equal(reviewSandboxOn.threadOptions.sandboxMode, 'read-only');
+const reviewSandboxOff = buildCodexClientOptions({
+  cwd: '/tmp/codex-workspace',
+  reviewReadOnly: true,
+  env: { CRETLI_DELEGATION_CODEX_REVIEW_SANDBOX: '0' },
+});
+assert.equal(reviewSandboxOff.threadOptions.sandboxMode, 'danger-full-access');
