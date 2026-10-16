@@ -27,8 +27,8 @@ bytes, so only those three `Decorated` values come from the newer run.
 | `buildWorkspaceWatcherCyclePrompt` | 5485 | 5485 | 18030 | 18030 | No change: already points to watcher/todo snapshots; bounded memory/history and policy guards. |
 | `buildWorkspaceWatcherCyclePromptPlan` | 3555 | 3555 | 16100 | 16100 | No change: same builder in plan-only mode; approval and delegation contracts retained. |
 | `buildWorkspaceMemoryPromptBlock` | 159 | 159 | 8358 | 8358 | No change: bounded, ordered prior decisions are selected context, not raw repo data. |
-| `buildScoutPrompt` | 14482 | 14482 | 22681 | 22681 | Follow-up d488034f: diff/log/markers, todo/memory lists derivable; cross-consumer scope work exceeds 150 lines. |
-| `buildScoutPromptForProfile` | 15985 | 15985 | 24184 | 24184 | Follow-up d488034f: same signals plus matched paths; preserve configured authorization scope. |
+| `buildScoutPrompt` | 14482 | 5766 | 23289 | 14573 | Changed: diff/log/markers/todos/memory behind scoped git/MCP pointers. |
+| `buildScoutPromptForProfile` | 15985 | 7099 | 24792 | 15906 | Changed: diff/log/markers/todos/memory behind scoped git/MCP pointers. |
 | `buildConversationForkPrompt` | 3297 | 1203 | 12104 | 10010 | Changed: persisted source → compact MCP history pointer (source id/title, cutoff, guards); inline transcript fallback retained. |
 | `buildHarnessHandoffPrompt` | 3497 | 1369 | 12304 | 10176 | Changed: same pointer with harness labels; partial fork bounded by `before_seq: cutoff + 1`. |
 | `buildAgentAnalysisPrompt` | 401 | 401 | 8600 | 8600 | No change: already uses source chat pointer; user-provided status/message stays inline. |
@@ -70,6 +70,35 @@ selects a documented best-effort fallback: read `git diff --name-status -z -M
 <base>` and `git ls-files --others --exclude-standard` in the worktree. Stop and
 report if the worktree is gone. The result record/hash and `changedFiles` are
 unchanged. Fallback cannot recover an unavailable original patch snapshot.
+
+## Scout pointer contract
+
+Both Scout prompt builders no longer inline the derivable repository snapshot
+(`git diff`, `git log`, TODO/FIXME/HACK markers, the todo list and Workspace
+Memory). They emit compact trusted host pointers that the Scout resolves with a
+live read, so a bigger diff/log/list does not grow the prompt at all.
+
+- Pointer lines are trusted host text; the host never wraps them in the
+  `<<<UNTRUSTED_SIGNAL_DATA>>>` block. Only the remaining host-only signals
+  (`failingTests`, `errorLogs`, `priorFindings`, `changedFiles`) stay wrapped.
+- Scope preservation: each git pointer carries the pathspec from
+  `buildScoutGitPathspecArgs(scope)`. A pointer is emitted only when the profile
+  `sources` allow that signal (an absent `sources` means all sources, matching
+  `collectScoutSignalsForProfile`). When the pathspec is empty — scope absent
+  (e.g. this audit fixture) or a scope with no include/exclude — the pointer
+  restricts reads to the inline in-scope file list instead of emitting a bare
+  git command, so a pointer can never reveal out-of-scope changes.
+- The live workspace tree and the canonical MCP stores (`todo_list`,
+  `wmem_list`) are the source of truth; the inline snapshot only scopes the
+  scan.
+- Fallback: when a pointer cannot be read (no git, empty resolved base, MCP tool
+  unavailable), read the inline in-scope files directly and never scan outside
+  the configured include/exclude. The "scope matched no files" branch still
+  blocks a whole-repository scan.
+
+`collectScoutSignalsForProfile` and `buildScoutSignalsBlock` keep their shape
+and remain the full snapshot/consumer API; the preview UI, dedupe and runner
+still read all signals.
 
 ## Mailbox contract
 

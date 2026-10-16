@@ -877,8 +877,8 @@ test('the 500-entry cap evicts the least recently updated record, with createdAt
   assert.equal(refreshDoc.entries.some((row) => row.id === 'id-001'), false, 'the next oldest leaves instead');
 });
 
-test('the scout signal preview sees the 100 most recently updated facts', async () => {
-  const { buildScoutSignalsBlock } = await import('../lib/workspace-watcher-scout.js');
+test('the scout memory pointer defers to the live MCP read instead of inlining facts', async () => {
+  const { buildScoutSignalPointers } = await import('../lib/workspace-watcher-scout.js');
   const dataDir = freshDataDir('scout-order');
   const ws = freshWorkspace('scout-order');
   for (let i = 0; i < 100; i += 1) {
@@ -888,14 +888,15 @@ test('the scout signal preview sees the 100 most recently updated facts', async 
       value: `stale-${String(i).padStart(3, '0')}`,
     }, { dataDir, now: T0 + i });
   }
-  // An old entry refreshed late and a genuinely new one must both own the first
-  // 100 preview slots; the first stale entry falls out of the window.
   addWorkspaceMemory(ws, { type: 'finding', key: 'fresh-area', value: 'already explored' }, { dataDir, now: T0 + 100_000 });
   addWorkspaceMemory(ws, { type: 'context', key: 'area-000', value: 'refreshed-000' }, { dataDir, now: T0 + 100_001 });
-  const block = buildScoutSignalsBlock({ memory: listWorkspaceMemory(ws, { dataDir, now: T0 + 200_000 }) }).join('\n');
-  assert.match(block, /refreshed-000/, 'the refreshed old fact is present');
-  assert.match(block, /already explored/, 'the new fact is present');
-  assert.doesNotMatch(block, /stale-001\b/, 'a stale fact without a refresh falls outside the preview window');
+  const memory = listWorkspaceMemory(ws, { dataDir, now: T0 + 200_000 });
+  assert.ok(memory.some((entry) => entry.value === 'refreshed-000'), 'the refreshed old fact is readable live');
+  assert.ok(memory.some((entry) => entry.value === 'already explored'), 'the new fact is readable live');
+  // The prompt no longer carries the facts; it points at the live MCP read.
+  const pointers = buildScoutSignalPointers({ memory }).join('\n');
+  assert.match(pointers, /wmem_list/, 'the prompt points at the live memory read');
+  assert.doesNotMatch(pointers, /refreshed-000|stale-001\b/, 'the prompt no longer embeds memory bodies');
 });
 
 test('wmem_add upserts by key and supports permanent transient blockers', async () => {

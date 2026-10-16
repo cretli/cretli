@@ -36,6 +36,7 @@ try {
   const beforeMailbox = await previousModule('lib/delegation-mailbox.js');
   const beforeBranch = await previousModule('lib/worktree-merge.js');
   const beforeTodoAgent = await previousModule('lib/todo-agent.js');
+  const beforeScout = await previousModule('lib/workspace-watcher-scout.js');
   const { buildGitBranchMergePrompt } = await import('../lib/worktree-merge.js');
   const files = Array.from({ length: 60 }, (_, i) => `src/file-${String(i).padStart(2, '0')}.txt`);
   const todo = addTodo(dataDir, workspace, { title: 'Fixture task', status: 'doing', body: files.join('\n'), plan: { markdown: 'Read the files and implement the task.\n' + files.join('\n') } }).item;
@@ -74,8 +75,8 @@ try {
   measure('buildWorkspaceWatcherCyclePrompt', buildWorkspaceWatcherCyclePrompt(cycle));
   measure('buildWorkspaceWatcherCyclePromptPlan', buildWorkspaceWatcherCyclePromptPlan({ ...cycle, decision: { planOnly: true } }).prompt);
   measure('buildWorkspaceMemoryPromptBlock', buildWorkspaceMemoryPromptBlock(memory));
-  measure('buildScoutPrompt', buildScoutPrompt(scout));
-  measure('buildScoutPromptForProfile', buildScoutPromptForProfile({}, { ...scout, matchedFiles: files }));
+  measure('buildScoutPrompt', buildScoutPrompt(scout), beforeScout.buildScoutPrompt(scout));
+  measure('buildScoutPromptForProfile', buildScoutPromptForProfile({}, { ...scout, matchedFiles: files }), beforeScout.buildScoutPromptForProfile({}, { ...scout, matchedFiles: files }));
   measure('buildConversationForkPrompt', buildConversationForkPrompt(report, 'Continue.', fork), buildConversationForkPrompt(report, 'Continue.', forkInline));
   measure('buildHarnessHandoffPrompt', buildHarnessHandoffPrompt(fork), buildHarnessHandoffPrompt(forkInline));
   measure('buildAgentAnalysisPrompt', buildAgentAnalysisPrompt('Inspect current status.', sourceChatId));

@@ -17,6 +17,7 @@ import {
   WORKSPACE_SCOUT_CATEGORIES,
   defaultWorkspaceWatcherPolicy,
   getWorkspaceWatcher,
+  normalizeWorkspaceScoutProfile,
   normalizeWorkspaceWatcherPolicy,
   normalizeWorkspaceWatcherRow,
   upsertWorkspaceWatcher,
@@ -27,6 +28,8 @@ import { addWorkspaceMemory } from '../lib/persist/workspace-memory-persist.js';
 import {
   acceptScoutFindings,
   buildScoutPrompt,
+  buildScoutPromptForProfile,
+  buildScoutSignalPointers,
   buildScoutSignalsBlock,
   collectScoutSignals,
   computeScoutSchedule,
@@ -215,10 +218,69 @@ runCase('collectScoutSignals gathers git/markers/todos/memory read-only', () => 
   assert.equal(signals.memory.length, 1);
 
   const block = buildScoutSignalsBlock(signals).join('\n');
-  assert.match(block, /existing todos/);
-  assert.match(block, /workspace memory/);
+  // Derivable bodies are pointers now: the inline block keeps only host-only data.
+  assert.doesNotMatch(block, /TODO: fix/);
+  assert.doesNotMatch(block, /existing todos/);
+  assert.doesNotMatch(block, /workspace memory/);
   assert.match(block, /UNTRUSTED_SIGNAL_DATA/);
+  assert.match(block, /changed files/);
   assert.match(signals.failingTests, /unavailable|FAIL/i);
+
+  const pointers = buildScoutSignalPointers(signals).join('\n');
+  assert.match(pointers, /git diff/);
+  assert.match(pointers, /todo_list/);
+  assert.match(pointers, /wmem_list/);
+  assert.doesNotMatch(pointers, /UNTRUSTED_SIGNAL_DATA/);
+});
+
+runCase('scout signal pointers preserve scope and never leak derivable bodies', () => {
+  const scope = { mode: 'changes', base: 'main', include: ['lib/**'], exclude: ['lib/legacy/**'] };
+  const bigDiff = `diff --git a/lib/a.js b/lib/a.js\n+${'secret-diff-line\n'.repeat(2000)}`;
+  const signals = {
+    resolvedBase: 'main',
+    scope,
+    sources: ['diff', 'gitHistory', 'todoMarkers'],
+    diff: bigDiff,
+    log: 'abc123 commit body',
+    markers: ['lib/a.js:3: // TODO: secret marker body'],
+    changedFiles: ['lib/a.js'],
+    existingTodos: [{ id: 't1', title: 'secret todo body', status: 'ready' }],
+    memory: [{ type: 'context', key: 'secret-key', value: 'secret memory body' }],
+  };
+  const profile = normalizeWorkspaceScoutProfile({
+    id: 'pointer-test',
+    name: 'Pointer test',
+    scope,
+    sources: signals.sources,
+  }, { now: 0 });
+  const prompt = buildScoutPromptForProfile(profile, { workspaceFolder: '/ws', signals });
+  assert.doesNotMatch(prompt, /secret-diff-line/);
+  assert.doesNotMatch(prompt, /abc123 commit body/);
+  assert.doesNotMatch(prompt, /secret marker body/);
+  assert.doesNotMatch(prompt, /secret todo body/);
+  assert.doesNotMatch(prompt, /secret memory body/);
+  assert.ok(prompt.includes('git diff main -- lib/** :(exclude)lib/legacy/**'));
+  assert.ok(prompt.includes('git log --oneline -20 -- lib/** :(exclude)lib/legacy/**'));
+  assert.match(prompt, /todo_list/);
+  assert.match(prompt, /wmem_list/);
+
+  // A bigger derivable diff must not grow the prompt at all.
+  const smallPrompt = buildScoutPromptForProfile(profile, {
+    workspaceFolder: '/ws',
+    signals: { ...signals, diff: 'tiny' },
+  });
+  assert.equal(Buffer.byteLength(prompt), Buffer.byteLength(smallPrompt));
+
+  // Scope absent (legacy/audit fixture): pointers must restrict reads to the
+  // inline in-scope file list rather than emit a bare git command.
+  const legacyPrompt = buildScoutPrompt({
+    workspaceFolder: '/ws',
+    scanId: 'scan-1',
+    signals: { resolvedBase: 'main', diff: bigDiff, changedFiles: ['lib/a.js'] },
+  });
+  assert.doesNotMatch(legacyPrompt, /secret-diff-line/);
+  assert.ok(legacyPrompt.includes('git diff main'));
+  assert.match(legacyPrompt, /restricted to the in-scope files listed in this prompt/);
 });
 
 /* ---------------------------------------------------------------- prompt */
@@ -231,11 +293,12 @@ runCase('buildScoutPrompt is read-only and carries categories + signals', () => 
     maxFindings: 3,
     signals: { diff: 'diff --git a/x b/x', existingTodos: [{ id: '1', title: 'T', status: 'ready' }] },
   });
-  assert.match(prompt, /PLAN mode/);
+  assert.doesNotMatch(prompt, /PLAN mode/i);
+  assert.match(prompt, /host blocks/i);
   assert.match(prompt, /bug, security/);
   assert.match(prompt, /at most 3/);
   assert.match(prompt, /scout_findings/);
-  assert.match(prompt, /existing todos/);
+  assert.match(prompt, /existing todos/i);
   assert.match(prompt, /UNTRUSTED DATA/);
 });
 
