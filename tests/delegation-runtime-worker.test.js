@@ -607,7 +607,8 @@ registerMockChatRunAdapter('opencode');
   registerMockChatRunAdapter('opencode');
 }
 
-// Boot: starting with unknown liveness and no run id keeps the occupied slot.
+// Boot: starting with unknown liveness and no run id is terminalised as
+// server_restart (the previous process is dead, so the slot must free).
 {
   registerChatRunAdapter({
     transport: 'opencode',
@@ -626,11 +627,12 @@ registerMockChatRunAdapter('opencode');
   });
   await reconcileDelegationsOnBoot();
   const after = getDelegationById(job.id);
-  assert.equal(after.status, 'starting');
+  assert.equal(after.status, 'interrupted');
+  assert.equal(after.interruptCode, 'server_restart');
   registerMockChatRunAdapter('opencode');
 }
 
-// Boot: starting with unknown liveness and a run id also keeps the slot.
+// Boot: starting with unknown liveness and a run id is terminalised too.
 {
   registerChatRunAdapter({
     transport: 'opencode',
@@ -650,7 +652,8 @@ registerMockChatRunAdapter('opencode');
   });
   await reconcileDelegationsOnBoot();
   const after = getDelegationById(job.id);
-  assert.equal(after.status, 'starting');
+  assert.equal(after.status, 'interrupted');
+  assert.equal(after.interruptCode, 'server_restart');
   registerMockChatRunAdapter('opencode');
 }
 
