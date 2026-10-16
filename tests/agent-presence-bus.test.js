@@ -124,6 +124,67 @@ assert.equal(session.messages.at(-1).type, 'chatsChanged');
   assert.deepEqual(deltas().at(-1).cleared, ['second']);
 }
 
+// One summarize per flush, however many distinct scopes owe a snapshot.
+{
+  __resetAgentPresenceBusForTest();
+  __clearChatListUpdateClientsForTest();
+  __setWatcherPresenceForTest(() => []);
+  const busyRow = { state: 'busy', runId: 'r', delegationId: '', delegationStatus: '', attention: false, waitingAgentCount: 0 };
+  let live = { a: busyRow, b: busyRow, c: busyRow };
+  let calls = 0;
+  __setPresenceSummarizeForTest(() => { calls += 1; return live; });
+  const sockets = ['a', 'b', 'c', 'd'].map((id) => {
+    const ws = socket();
+    ws.bufferedAmount = 0;
+    subscribeChatListUpdates(ws, { kind: 'widget', chatIds: [id] });
+    return ws;
+  });
+  const frames = (ws) => ws.messages.filter((row) => row.type === 'agentPresence');
+  calls = 0;
+  // Every socket is over the backpressure threshold, so each distinct scope owes a snapshot.
+  for (const ws of sockets) ws.bufferedAmount = 1e9;
+  scheduleAgentPresenceRefresh();
+  flushAgentPresenceNow();
+  for (const ws of sockets) ws.bufferedAmount = 0;
+  calls = 0;
+  // A scoped refresh summarizes ids once; the owed snapshots add exactly one more full summarize.
+  scheduleAgentPresenceRefresh(['a']);
+  flushAgentPresenceNow();
+  assert.equal(calls, 2, 'one scoped diff + one shared snapshot map, not one per scope');
+  for (const ws of sockets) assert.equal(frames(ws).at(-1).snapshot, true);
+  // An unscoped refresh reuses its own full map for the snapshots: a single summarize.
+  for (const ws of sockets) ws.bufferedAmount = 1e9;
+  live = { a: busyRow, b: busyRow };
+  scheduleAgentPresenceRefresh();
+  flushAgentPresenceNow();
+  for (const ws of sockets) ws.bufferedAmount = 0;
+  calls = 0;
+  live = { a: busyRow };
+  scheduleAgentPresenceRefresh();
+  flushAgentPresenceNow();
+  assert.equal(calls, 1, 'unscoped flush summarizes once for the delta and all owed scopes');
+  assert.ok(frames(sockets[0]).at(-1).states.a);
+
+  // A dirty event between flushes is never served from stale state.
+  const before = frames(sockets[0]).length;
+  live = {};
+  scheduleAgentPresenceRefresh(['a']);
+  flushAgentPresenceNow();
+  assert.deepEqual(frames(sockets[0]).at(-1).cleared, ['a']);
+  assert.equal(frames(sockets[0]).length, before + 1);
+
+  // busy -> idle -> busy within one coalesce window: the final state is what is emitted,
+  // and separate flushes each emit their own frame.
+  live = { a: busyRow };
+  scheduleAgentPresenceRefresh(['a']);
+  flushAgentPresenceNow();
+  assert.ok(frames(sockets[0]).at(-1).states.a);
+  live = {};
+  scheduleAgentPresenceRefresh(['a']);
+  flushAgentPresenceNow();
+  assert.deepEqual(frames(sockets[0]).at(-1).cleared, ['a']);
+}
+
 __resetAgentPresenceBusForTest();
 __resetAgentPresenceHooksForTest();
 __clearChatListUpdateClientsForTest();
