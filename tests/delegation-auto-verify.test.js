@@ -7,6 +7,7 @@ import { addChat } from '../lib/persist/chats-persist.js';
 import { createDelegationRecord, getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { inspectImplementVerifyBeforeReview } from '../lib/delegation-implement-verify-gate.js';
 import { startAutoVerifyAfterImplement } from '../lib/delegation-service.js';
+import { isAutoVerifyChainInFlight, resetAutoVerifyChainsForTests, trackAutoVerifyChain } from '../lib/auto-verify-inflight.js';
 import { isReviewVerifyInFlight } from '../lib/sdk/sdk-review-verify.js';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 
@@ -81,4 +82,24 @@ test('hook records result, ids and clears the marker', async () => {
   } finally {
     process.env.CRETLI_AUTO_VERIFY_AFTER_IMPLEMENT = '0';
   }
+});
+
+test('gate stays blocked while a registered auto-verify chain is in flight past the marker age', async () => {
+  const { parent, leafId, row } = makeImplement();
+  const old = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  updateDelegationRecord(row.id, { verifyPending: { since: old, revision: 'r-chain' } });
+  const input = { parentChatId: parent.id, assignment: 'review', executionMode: 'agent', reviewSubject: 'code', leafId };
+  assert.equal(inspectImplementVerifyBeforeReview(input).ok, true, 'expired marker without a chain opens the gate');
+  let release;
+  const promise = new Promise((resolve) => { release = resolve; });
+  trackAutoVerifyChain({ delegationId: row.id, projectRoot: repo.dir, materialRevision: 'r-chain', promise });
+  assert.equal(isAutoVerifyChainInFlight({ delegationId: row.id, projectRoot: repo.dir, materialRevision: 'r-chain' }), true);
+  const blocked = inspectImplementVerifyBeforeReview(input);
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.retryable, true);
+  release();
+  await promise;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(inspectImplementVerifyBeforeReview(input).ok, true);
+  resetAutoVerifyChainsForTests();
 });
