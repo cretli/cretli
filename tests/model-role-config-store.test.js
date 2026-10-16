@@ -286,7 +286,10 @@ test('weights/rotation/adaptive deltas round-trip and show in the diff', () => {
   const after = readModelRoleConfig({ filePath });
   assert.deepEqual(after.weights.plan, { cost: 0.1, quality: 0.8, speed: 0.1 });
   assert.deepEqual(after.rotation, { band: 0.2, mode: 'off' });
-  assert.deepEqual(after.adaptive, { enabled: false });
+  // Adaptive tuning knobs are normalized with defaults; only `enabled` was in the delta.
+  assert.equal(after.adaptive.enabled, false);
+  assert.equal(after.adaptive.completionMinN, 10);
+  assert.equal(after.adaptive.completionMinRate, 0.8);
   assert.ok(result.diff.weights?.plan);
   assert.ok(result.diff.rotation);
   assert.ok(result.diff.adaptive);

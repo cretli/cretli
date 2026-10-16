@@ -22,6 +22,8 @@ import {
 import {
   BENCHMARK_FETCH_DAILY_BUDGET,
   fetchBenchmarkSourceSnapshot,
+  readBenchmarkFetchCount,
+  readBenchmarkFetchErrors,
   parseArtificialAnalysisModels,
 } from '../lib/benchmark-fetch.js';
 import { getArtificialAnalysisApiKey } from '../lib/benchmark-api-key.js';
@@ -285,6 +287,25 @@ test('provider 429 and bad payloads are reported without leaking the key', async
   assert.equal(empty.code, 'empty_response');
   assert.ok(!JSON.stringify([limited, empty]).includes('aa-secret-key'));
   assert.deepEqual(parseArtificialAnalysisModels(null), []);
+});
+
+test('failed fetches spend budget and bump the error counter; successes only spend budget', async () => {
+  const usageFile = tmp('usage.json');
+  const base = { enabled: true, apiKey: 'k', now: NOW, usageFile, termsRecord: AA_TERMS, force: true };
+  const read = { sourceId: 'artificial-analysis', now: NOW, usageFile };
+  const ok = await fetchBenchmarkSourceSnapshot({ ...base, fetchImpl: fakeFetch(200, AA_BODY, []) });
+  assert.equal(ok.ok, true);
+  assert.equal(readBenchmarkFetchCount(read), 1);
+  assert.equal(readBenchmarkFetchErrors(read), 0);
+  const http = await fetchBenchmarkSourceSnapshot({ ...base, fetchImpl: fakeFetch(500, {}, []) });
+  assert.equal(http.code, 'http_error');
+  const network = await fetchBenchmarkSourceSnapshot({ ...base, fetchImpl: async () => { throw new Error('down'); } });
+  assert.equal(network.code, 'network_error');
+  assert.equal(readBenchmarkFetchCount(read), 3, 'failed attempts still count against the provider budget');
+  assert.equal(readBenchmarkFetchErrors(read), 2);
+  const refused = await fetchBenchmarkSourceSnapshot({ ...base, enabled: false });
+  assert.equal(refused.code, 'source_disabled');
+  assert.equal(readBenchmarkFetchErrors(read), 2, 'refusals before the network are not errors');
 });
 
 test('self-hosted Artificial Analysis fetching needs no terms confirmation', async () => {

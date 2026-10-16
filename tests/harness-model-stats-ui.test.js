@@ -62,6 +62,16 @@ test('render: proxy rows never show a currency sign, attribution is credited', (
   assert.match(out, /Artificial Analysis/);
 });
 
+test('render: a non-http(s) attribution URL never becomes an href', () => {
+  for (const url of ['javascript:alert(1)', 'data:text/html,<b>x</b>', 'not a url']) {
+    const bad = { ...payload, priced_stats: { ...payload.priced_stats, attribution: { text: 'x', url } } };
+    const out = renderHarnessModelStatsHtml(buildHarnessModelStatsViewModel(bad), t);
+    assert.doesNotMatch(out, /<a [^>]*href=/, `no anchor for ${url}`);
+    assert.doesNotMatch(out, /href="(javascript|data):/i);
+    assert.match(out, /Artificial Analysis/);
+  }
+});
+
 test('empty payload renders the empty hint', () => {
   const out = renderHarnessModelStatsHtml(buildHarnessModelStatsViewModel({ ok: true }), t);
   assert.match(out, /No finished delegations/);

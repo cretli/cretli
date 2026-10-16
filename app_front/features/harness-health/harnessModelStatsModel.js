@@ -9,6 +9,22 @@
 const LEVEL_ORDER = Object.freeze({ trivial: 0, standard: 1, demanding: 2, unknown: 3 });
 
 /**
+ * Only http(s) URLs may become an anchor `href`; anything else (javascript:,
+ * data:, malformed) is rendered as plain escaped text.
+ *
+ * @param {string} value
+ * @returns {boolean}
+ */
+function isHttpUrl(value) {
+  try {
+    const { protocol } = new URL(String(value));
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * @param {unknown} value
  * @returns {string}
  */
@@ -195,9 +211,12 @@ export function renderHarnessModelStatsHtml(model, t) {
   parts.push('</tbody></table></div>');
   if (model.truncated) parts.push(`<p class="settings-hint">${h(t('harnessModelStats.truncated'))}</p>`);
   if (model.attribution) {
+    const url = model.attribution.url;
+    const link = isHttpUrl(url)
+      ? `<a href="${h(url)}" target="_blank" rel="noopener noreferrer">Artificial Analysis</a> `
+      : 'Artificial Analysis ';
     parts.push(`<p class="harness-model-stats-attribution">${h(t('harnessModelStats.attributionPrefix'))} `
-      + `<a href="${h(model.attribution.url)}" target="_blank" rel="noopener noreferrer">Artificial Analysis</a> `
-      + `(${h(model.attribution.url)})</p>`);
+      + `${link}(${h(url)})</p>`);
   }
   parts.push('</div>');
   return parts.join('');

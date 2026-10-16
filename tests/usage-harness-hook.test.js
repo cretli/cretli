@@ -266,7 +266,10 @@ test('run events classify errors and aborts', () => {
 
 test('room-kernel forwards every error variant so the reset clock wins the lockout', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'cretli-kernel-reset-clock-'));
+  const previousAuthMode = process.env.CRETLI_CLAUDE_AUTH_MODE;
   try {
+    // Plan lockouts from error text only apply to subscription sessions.
+    process.env.CRETLI_CLAUDE_AUTH_MODE = 'subscription';
     const kernel = createAgentRoomKernel({
       transport: 'claude',
       persistHistory: () => {},
@@ -295,6 +298,39 @@ test('room-kernel forwards every error variant so the reset clock wins the locko
     const clock = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
     assert.equal(`${clock.hour}:${clock.minute}`, '01:50', 'the kernel must lock until the stated clock');
   } finally {
+    if (previousAuthMode === undefined) delete process.env.CRETLI_CLAUDE_AUTH_MODE;
+    else process.env.CRETLI_CLAUDE_AUTH_MODE = previousAuthMode;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('room-kernel ignores usage-limit error text for api-key claude sessions', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'cretli-kernel-apikey-gate-'));
+  const previousAuthMode = process.env.CRETLI_CLAUDE_AUTH_MODE;
+  try {
+    process.env.CRETLI_CLAUDE_AUTH_MODE = 'api-key';
+    const kernel = createAgentRoomKernel({
+      transport: 'claude',
+      persistHistory: () => {},
+      recordUsage: () => {},
+      usageDataDir: dir,
+    });
+    const room = kernel.createRoomState({
+      sessionKey: 'apikey-sess',
+      chatId: 'apikey-chat',
+      modelId: 'claude-sonnet-4-5',
+    });
+    kernel.broadcastRoom(room, {
+      type: 'sdkRunFinished',
+      runId: 'run-apikey',
+      status: 'error',
+      lastErrorMessage: "You've hit your session limit · resets 1:50am (Europe/Warsaw)",
+    });
+    const locked = getHarnessUsageLimit({ harness: 'claude', model: 'claude-sonnet-4-5', dataDir: dir });
+    assert.equal(locked, null, 'api-key sessions have no plan window to lock');
+  } finally {
+    if (previousAuthMode === undefined) delete process.env.CRETLI_CLAUDE_AUTH_MODE;
+    else process.env.CRETLI_CLAUDE_AUTH_MODE = previousAuthMode;
     rmSync(dir, { recursive: true, force: true });
   }
 });
