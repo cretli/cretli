@@ -46,6 +46,30 @@ const window30 = (s) => s.workspaces[0].windows['30d'];
   assert.equal(w.findings.P1, 1);
 }
 
+// Historical pool rounds stay grouped after the parent PASS cleared the live
+// record: round 1 [PASS, FAIL] then round 2 [PASS, PASS] = 2 rounds, no first pass.
+{
+  const leaf = crypto.randomUUID();
+  const a = row(leaf, { report: report('PASS'), reportVerdict: 'PASS' });
+  const b = row(leaf, { report: report('FAIL'), reportVerdict: 'FAIL' });
+  const c = row(leaf, { report: report('PASS'), reportVerdict: 'PASS' });
+  const d = row(leaf, { report: report('PASS'), reportVerdict: 'PASS' });
+  const workflow = {
+    parentChatId: 'p1',
+    leafId: leaf,
+    workspaceFolder: WS,
+    codeReviewPoolRound: null,
+    codeReviewPoolHistory: [
+      { key: '0::0', epoch: 1, mode: 'audit', pool: true, started: [a.id, b.id], resolved: 'FAIL' },
+      { key: '0::0', epoch: 2, mode: 'closure', pool: true, started: [c.id, d.id], resolved: 'PASS' },
+    ],
+  };
+  const w = window30(stats([a, b, c, d], [workflow]));
+  assert.equal(w.codeReview.leavesPassed, 1);
+  assert.equal(w.codeReview.roundsToPass.max, 2);
+  assert.equal(w.codeReview.firstPassRate, 0);
+}
+
 // Plan review over 3 revisions = 3 rounds.
 {
   const leaf = crypto.randomUUID();

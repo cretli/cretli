@@ -883,4 +883,48 @@ function leafTerminalJob(parentChatId, leafId, assignment, report = '') {
   assert.equal(raised.ok, true);
 }
 
+// Pool-round history: a replaced/cleared round is archived, deduped and bounded.
+{
+  const parentChatId = crypto.randomUUID();
+  const leafId = crypto.randomUUID();
+  const findRow = () => loadDelegationWorkflows()
+    .find((row) => row.parentChatId === parentChatId && row.leafId === leafId);
+  const record = (started, resolved = '') => ({
+    key: '0::0', epoch: 1, mode: 'audit', pool: true, started, results: {}, superseded: [], resolved,
+  });
+
+  applyDelegationWorkflowPatch({ parentChatId, leafId, codeReviewPoolRound: record(['a']), idempotencyKey: 'hist-1', countReview: false });
+  applyDelegationWorkflowPatch({ parentChatId, leafId, codeReviewPoolRound: record(['a'], 'FAIL'), idempotencyKey: 'hist-1-resolve', countReview: false });
+  assert.equal(findRow().codeReviewPoolHistory.length, 0, 'updating the same record does not archive');
+
+  applyDelegationWorkflowPatch({ parentChatId, leafId, codeReviewPoolRound: { ...record(['b']), key: '1::' }, idempotencyKey: 'hist-2', countReview: false });
+  assert.equal(findRow().codeReviewPoolHistory.length, 1, 'a replaced round is archived');
+  assert.deepEqual(findRow().codeReviewPoolHistory[0].started, ['a']);
+  assert.equal(findRow().codeReviewPoolHistory[0].resolved, 'FAIL');
+
+  applyDelegationWorkflowPatch({ parentChatId, leafId, codeReviewPoolRound: null, idempotencyKey: 'hist-3', countReview: false });
+  assert.equal(findRow().codeReviewPoolHistory.length, 2, 'a cleared round is archived');
+
+  applyDelegationWorkflowPatch({
+    parentChatId,
+    leafId,
+    codeReviewPoolRound: null,
+    codeReviewPoolHistory: [record(['a'], 'FAIL'), record(['a'], 'PASS')],
+    idempotencyKey: 'hist-dedupe',
+    countReview: false,
+  });
+  assert.equal(findRow().codeReviewPoolHistory.length, 1, 'dedupe by (key, epoch, started)');
+  assert.equal(findRow().codeReviewPoolHistory[0].resolved, 'PASS', 'the newest value wins');
+
+  applyDelegationWorkflowPatch({
+    parentChatId,
+    leafId,
+    codeReviewPoolRound: null,
+    codeReviewPoolHistory: Array.from({ length: 25 }, (_, i) => record([`member-${i}`])),
+    idempotencyKey: 'hist-bound',
+    countReview: false,
+  });
+  assert.equal(findRow().codeReviewPoolHistory.length, 20, 'history is bounded');
+}
+
 console.log('delegation-workflow.test.js OK');

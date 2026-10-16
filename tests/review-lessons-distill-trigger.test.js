@@ -55,8 +55,8 @@ const lessonsOf = (category) => listLessons(ISOLATED_DATA_DIR).filter((row) => r
   seedRecurring('i18n');
   const parent = makeParent();
   const leafId = crypto.randomUUID();
-  const a = makeReview({ parentId: parent.id, leafId, verdict: 'PASS' });
-  const b = makeReview({ parentId: parent.id, leafId, verdict: 'PASS' });
+  const a = makeReview({ parentId: parent.id, leafId, verdict: 'PASS', model: 'rev-a' });
+  const b = makeReview({ parentId: parent.id, leafId, verdict: 'PASS', model: 'rev-b' });
   seedPool(parent, leafId, [a.id, b.id]);
   await finish(a);
   assert.equal(lessonsOf('i18n').length, 0, 'lone PASS is pending');

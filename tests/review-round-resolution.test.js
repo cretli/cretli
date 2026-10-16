@@ -17,14 +17,15 @@ resetReviewRoundResolutionState();
 subscribeReviewRoundResolved((leaf, round) => fired.push({ leaf, round }));
 const reset = () => { fired = []; };
 const newLeaf = () => crypto.randomUUID();
-const poolRecord = (ids) => ({
+const poolRecord = (ids, overrides = {}) => ({
   key: '0::0', epoch: 0, mode: 'audit', pool: true, started: ids, results: {}, superseded: [], resolved: '',
+  ...overrides,
 });
-const seedPool = (parent, leafId, ids) => applyDelegationWorkflowPatch({
+const seedPool = (parent, leafId, ids, overrides = {}) => applyDelegationWorkflowPatch({
   parentChatId: parent.id,
   leafId,
   workspaceFolder: parent.workspace,
-  codeReviewPoolRound: poolRecord(ids),
+  codeReviewPoolRound: poolRecord(ids, overrides),
   idempotencyKey: `seed-${crypto.randomUUID()}`,
   countReview: false,
 });
@@ -76,8 +77,8 @@ const parentPass = (parent, leafId) => applyParentWorkflowUpdate({
 {
   const parent = makeParent();
   const leafId = newLeaf();
-  const a = makeReview({ parentId: parent.id, leafId, verdict: 'PASS' });
-  const b = makeReview({ parentId: parent.id, leafId, verdict: 'PASS' });
+  const a = makeReview({ parentId: parent.id, leafId, verdict: 'PASS', model: 'rev-a' });
+  const b = makeReview({ parentId: parent.id, leafId, verdict: 'PASS', model: 'rev-b' });
   seedPool(parent, leafId, [a.id, b.id]);
   syncCodeReviewWorkflowAfterFinish(a);
   assert.equal(fired.length, 0);
@@ -95,8 +96,8 @@ const parentPass = (parent, leafId) => applyParentWorkflowUpdate({
 {
   const parent = makeParent();
   const leafId = newLeaf();
-  const a = makeReview({ parentId: parent.id, leafId, verdict: 'PASS' });
-  const b = makeReview({ parentId: parent.id, leafId, verdict: 'PASS' });
+  const a = makeReview({ parentId: parent.id, leafId, verdict: 'PASS', model: 'rev-a' });
+  const b = makeReview({ parentId: parent.id, leafId, verdict: 'PASS', model: 'rev-b' });
   seedPool(parent, leafId, [a.id, b.id]);
   syncCodeReviewWorkflowAfterFinish(a);
   assert.equal(fired.length, 0);
@@ -114,6 +115,17 @@ const parentPass = (parent, leafId) => applyParentWorkflowUpdate({
   assert.equal(fired[0].round.verdict, 'PASS');
   syncCodeReviewWorkflowAfterFinish(b);
   assert.equal(fired.length, 1, 'late member after parent PASS does not fire again');
+  // The parent-closed round is archived as PASS so stats still count it.
+  const closed = getDelegationWorkflow(parent.id, leafId);
+  assert.equal(closed.codeReviewPoolRound, null);
+  assert.equal(closed.codeReviewPoolHistory.length, 1);
+  assert.equal(closed.codeReviewPoolHistory[0].resolved, 'PASS');
+  assert.deepEqual(
+    resolveReviewRounds({
+      delegations: listDelegationsForController(parent.id), leafId, workflow: closed,
+    }).rounds.map((r) => r.verdict),
+    ['PASS'],
+  );
   reset();
 }
 
@@ -172,6 +184,47 @@ const parentPass = (parent, leafId) => applyParentWorkflowUpdate({
     if (prior === undefined) delete process.env.CRETLI_DELEGATION_CODE_REVIEW_PHASE;
     else process.env.CRETLI_DELEGATION_CODE_REVIEW_PHASE = prior;
   }
+  reset();
+}
+
+// Two real pool rounds (FAIL then PASS) stay separate after the parent PASS
+// cleared the live record into the durable history.
+{
+  const parent = makeParent();
+  const leafId = newLeaf();
+  const a = makeReview({ parentId: parent.id, leafId, verdict: 'PASS', model: 'rev-a' });
+  const b = makeReview({ parentId: parent.id, leafId, verdict: 'FAIL', model: 'rev-b' });
+  seedPool(parent, leafId, [a.id, b.id]);
+  syncCodeReviewWorkflowAfterFinish(a);
+  syncCodeReviewWorkflowAfterFinish(b);
+  assert.deepEqual(fired.map((f) => f.round.verdict), ['FAIL'], 'round 1 resolves FAIL');
+
+  const afterRound1 = getDelegationWorkflow(parent.id, leafId);
+  const c = makeReview({ parentId: parent.id, leafId, verdict: 'PASS', model: 'rev-a' });
+  const d = makeReview({ parentId: parent.id, leafId, verdict: 'PASS', model: 'rev-b' });
+  seedPool(parent, leafId, [c.id, d.id], {
+    key: '0::0',
+    epoch: afterRound1.codeReviewClosureEpoch,
+    mode: 'closure',
+  });
+  syncCodeReviewWorkflowAfterFinish(c);
+  syncCodeReviewWorkflowAfterFinish(d);
+  assert.deepEqual(fired.map((f) => f.round.verdict), ['FAIL', 'PASS'], 'round 2 resolves PASS');
+
+  parentPass(parent, leafId);
+  const cleared = getDelegationWorkflow(parent.id, leafId);
+  assert.equal(cleared.codeReviewPoolRound, null, 'parent PASS clears the live record');
+  assert.equal(cleared.codeReviewPoolHistory.length, 2, 'both rounds are archived');
+  assert.deepEqual(fired.map((f) => f.round.verdict), ['FAIL', 'PASS'], 'live notifications unchanged');
+
+  const { rounds, pending } = resolveReviewRounds({
+    delegations: listDelegationsForController(parent.id),
+    leafId,
+    workflow: cleared,
+  });
+  assert.deepEqual(rounds.map((r) => r.verdict), ['FAIL', 'PASS'], 'two separate rounds after the clear');
+  assert.ok(rounds.every((r) => r.source === 'pool'));
+  assert.equal(pending, null);
   reset();
 }
 
