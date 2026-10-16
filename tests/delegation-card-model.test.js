@@ -198,6 +198,26 @@ assert.equal(headroomCard.planHeadroom.windows[0].type, 'five_hour');
 assert.equal(buildDelegationCardModel(inputRunning).planHeadroom, null);
 assert.equal(buildDelegationCardModel({ ...inputRunning, planHeadroomSnapshot: { windows: 'x' } }).planHeadroom, null);
 
+// Weekly pace snapshot sits next to headroom; missing/malformed records yield null.
+const paceCard = buildDelegationCardModel({
+  ...inputRunning,
+  planPaceSnapshot: {
+    level: -1,
+    costFactor: 2,
+    observedAt: '2026-09-18T10:00:00.000Z',
+    windows: [{
+      type: 'seven_day', utilization: 60, elapsedPct: 20, slackPct: -40,
+      eligible: true, reason: '', resetsAt: '2026-09-25T10:00:00.000Z',
+    }],
+  },
+});
+assert.equal(paceCard.planPace.level, -1);
+assert.equal(paceCard.planPace.costFactor, 2);
+assert.equal(paceCard.planPace.windows[0].type, 'seven_day');
+assert.equal(buildDelegationCardModel(inputRunning).planPace, null);
+assert.equal(buildDelegationCardModel({ ...inputRunning, planPaceSnapshot: { windows: 'x' } }).planPace, null);
+assert.equal(buildDelegationCardModel({ ...inputRunning, planPaceSnapshot: { level: 0, windows: [{ type: 'seven_day' }] } }).planPace, null);
+
 // Plan A (5a7ead50) A6: the card explains why this executor was chosen —
 // picker/continuation/manual source, controller context, a fallback's failure
 // class and any active exclusion with scope and expiry.

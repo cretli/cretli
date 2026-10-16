@@ -8,6 +8,18 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Weekly pace in `model_pick`.** The picker compares weekly plan usage
+  (`seven_day*`) with elapsed window time. A harness more than 10 pp above even
+  burn gets a penalty scaled by model cost tier (expensive models avoided
+  first, cheaper ones or another harness preferred); it is max-ed with the
+  forecast penalty, capped at 0.5, and never rejects a sole candidate. Pace
+  also orders candidates inside the score band, and the chosen pair's pace
+  snapshot is shown on the delegation card. The snapshot is taken at pick time
+  (the same `now`/plan-limits and the same +1 zeroing as the decision) and the
+  card renders the level, cost factor, measurement time, measured/estimated
+  basis, slack and the reason an ineligible window did not count. Follows
+  `plan_window_enabled`.
+
 - **Codex reviews are certified.** Review delegations on Codex start the
   thread with the Codex `read-only` sandbox (a hard write block), so they no
   longer need `CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED=1` and count like any

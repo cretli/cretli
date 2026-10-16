@@ -112,6 +112,7 @@ import {
   parseDelegationHistoryPayload,
 } from '../features/chat/chatDelegations.js';
 import { buildDelegationCardModel } from '../../lib/delegation-card-model.js';
+import { buildPlanPaceLine } from './delegation-plan-pace-line.js';
 import { isActiveDelegationStatus } from '../../lib/delegation-status.js';
 import { parseRelatedChatPayload } from '../../lib/chat-relation-payload.js';
 import {
@@ -4934,6 +4935,13 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const planHeadroomLabel = planHeadroomText
       ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-plan-headroom" title="${escapeHtml(planHeadroomText)}">${escapeHtml(t('chat.delegationPlanHeadroom'))}: ${escapeHtml(t(`chat.delegationPlanHeadroomLevel.${model.planHeadroom.level}`))} (${escapeHtml(planHeadroomText)})</div>`
       : '';
+    // Weekly pace: level, cost factor, measurement time, measured/estimated
+    // basis, slack and the neutrality reason of an ineligible window. The body
+    // stays compact; the tooltip carries the per-window measurement detail.
+    const planPaceLine = model.planPace ? buildPlanPaceLine(model.planPace, t) : { summary: '', detail: '' };
+    const planPaceLabel = planPaceLine.summary
+      ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-plan-pace" title="${escapeHtml(planPaceLine.detail)}">${escapeHtml(planPaceLine.summary)}</div>`
+      : '';
     // Reviewer session decision: same chat + new round, or why a new chat opened.
     const sessionReasonCode = model.sessionResume?.reasonCode || model.reviewerPolicy?.reuse?.reasonCode || '';
     const sessionReason = reviewerSessionLabel('chat.delegationSessionReasons', sessionReasonCode)
@@ -4970,6 +4978,7 @@ export function createSdkRichView(chat, mountEl, hooks) {
       pickReasonLabel,
       selectionLabel,
       planHeadroomLabel,
+      planPaceLabel,
       reviewerPolicyLabel,
       sourceLabel,
       '</details>',

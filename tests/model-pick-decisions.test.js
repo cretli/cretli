@@ -54,6 +54,45 @@ test('persistModelPickProposal stores bounded candidates and pickId', () => {
   assert.equal(loaded.picks[0].harness, 'a');
 });
 
+test('persistModelPickProposal keeps a bounded pick-time planPace snapshot', () => {
+  const file = tempPickFile();
+  const persisted = persistModelPickProposal({
+    role: 'implement',
+    pickResult: { pick: { harness: 'a', model: 'm-a' }, picks: [{ harness: 'a', model: 'm-a' }] },
+    planPace: {
+      level: 7,
+      costFactor: 9,
+      observedAt: '2026-01-01T12:00:00.000Z',
+      windows: [
+        {
+          type: 'seven_day', utilization: 60, measuredUtilization: 57, estimatedPp: 3,
+          elapsedPct: 20, slackPct: -40, eligible: true, reason: '',
+          readingObservedAt: '2026-01-01T11:59:00.000Z',
+        },
+        // A known window with an unreliable reading survives with its reason.
+        { type: 'seven_day_opus', utilization: null, eligible: false, reason: 'stale' },
+        { type: 'bad', utilization: 'x' },
+      ],
+    },
+    file,
+  });
+  const loaded = getModelPickRecord(persisted.pickId, { file });
+  assert.equal(loaded.planPace.level, 1, 'level clamped to the pace range');
+  assert.equal(loaded.planPace.costFactor, 2, 'cost factor clamped');
+  assert.equal(loaded.planPace.windows.length, 2, 'malformed window dropped');
+  assert.equal(loaded.planPace.windows[0].readingObservedAt, '2026-01-01T11:59:00.000Z');
+  assert.equal(loaded.planPace.windows[0].measuredUtilization, 57);
+  assert.equal(loaded.planPace.windows[0].slackPct, -40);
+  assert.equal(loaded.planPace.windows[1].utilization, null);
+  assert.equal(loaded.planPace.windows[1].reason, 'stale');
+  const legacy = persistModelPickProposal({
+    role: 'implement',
+    pickResult: { pick: { harness: 'b', model: 'm-b' }, picks: [{ harness: 'b', model: 'm-b' }] },
+    file,
+  });
+  assert.equal(getModelPickRecord(legacy.pickId, { file }).planPace, null);
+});
+
 test('valid pick_id links as auto selected', () => {
   const file = tempPickFile();
   const persisted = persistModelPickProposal({
