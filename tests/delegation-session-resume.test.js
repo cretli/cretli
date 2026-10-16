@@ -97,6 +97,42 @@ function gateInput(source, rows, overrides = {}) {
   assert.equal(next.childChatId, slotA.childChatId);
 }
 
+// --- full round chain: a newer resumed row is not superseded by its source --
+{
+  // The whole history is present: the original review (slotA), the resumed
+  // round on slotA's chat (roundTwo) and the peer (slotB). Resuming roundTwo
+  // must chain forward from slotA's chat; the OLDER slotA row must not report
+  // `resume_source_superseded` just because it shares the chat.
+  const slotA = reviewRow({ queuedAt: '2026-02-01T00:00:00Z' });
+  const roundTwo = reviewRow({
+    childChatId: slotA.childChatId,
+    queuedAt: '2026-02-02T00:00:00Z',
+    sessionResume: {
+      requested: true,
+      status: 'resumed',
+      reasonCode: R.RESUMED,
+      reason: 'ok',
+      sourceDelegationId: slotA.id,
+      round: 2,
+      sessionGeneration: 0,
+    },
+  });
+  const slotB = reviewRow({
+    queuedAt: '2026-02-01T12:00:00Z',
+    executor: { transport: 'claude', model: 'claude-sonnet-5-5', options: {} },
+  });
+  const rows = [slotA, roundTwo, slotB];
+  const next = inspectDelegationSessionResume(gateInput(roundTwo, rows));
+  assert.equal(next.resume, true);
+  assert.notEqual(next.reasonCode, R.SOURCE_SUPERSEDED);
+  assert.equal(next.round, 3);
+  assert.equal(next.childChatId, slotA.childChatId);
+  // The negative path stays covered: naming the older row still supersedes.
+  const stale = inspectDelegationSessionResume(gateInput(slotA, rows));
+  assert.equal(stale.resume, false);
+  assert.equal(stale.reasonCode, R.SOURCE_SUPERSEDED);
+}
+
 // --- hard exclusions force a new chat with a reason; the peer stays --------
 {
   const slotA = reviewRow();

@@ -65,6 +65,27 @@ assert.equal(second.sessionResume.round, 2);
 assert.match(getMockChatRun(second.childChatId).prompt, /\[RESUMED REVIEW ROUND 2\]/);
 assert.equal(getDelegationById(first.id).sessionResume, null, 'the earlier round is never rewritten');
 
+// The prompt-build step writes the cache contract onto the PERSISTED record
+// (lib/delegation-service.js after buildDelegationExecutorPrompt), not just onto
+// the returned prompt object.
+const firstRecord = getDelegationById(first.id);
+const secondRecord = getDelegationById(second.id);
+assert.match(firstRecord.promptPrefixFingerprint, /^[0-9a-f]{16}$/, 'first round records the 16-char prefix fingerprint');
+assert.match(secondRecord.promptPrefixFingerprint, /^[0-9a-f]{16}$/, 'resumed round records the 16-char prefix fingerprint');
+assert.equal(
+  secondRecord.promptPrefixFingerprint,
+  firstRecord.promptPrefixFingerprint,
+  'a resumed round keeps the same stable prefix fingerprint',
+);
+assert.ok(
+  Number.isInteger(firstRecord.promptCacheGeneration) && firstRecord.promptCacheGeneration >= 0,
+  'the record carries a non-negative prompt cache generation',
+);
+assert.ok(
+  Number.isInteger(secondRecord.promptCacheGeneration) && secondRecord.promptCacheGeneration >= 0,
+  'the resumed record carries a non-negative prompt cache generation',
+);
+
 // A concurrent start naming the same session never shares the live chat.
 const third = await startReview('round two (racer)', { resumeSessionOf: first.id });
 assert.equal(third.sessionResume?.status, 'fallback');
