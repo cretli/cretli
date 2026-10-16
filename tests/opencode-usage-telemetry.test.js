@@ -134,3 +134,26 @@ test('sync-wrapped message.updated.1 unwraps and yields usage', () => {
   assert.ok(resolved);
   assert.equal(resolved.delta.input, 10);
 });
+
+test('sync-wrapped event type strips any numeric version suffix', () => {
+  const syncWrapper = (type) => ({
+    type: 'sync',
+    id: 'sync-suffix',
+    syncEvent: {
+      type,
+      data: { tokens: { input: 1, output: 2 } },
+    },
+  });
+
+  // OpenCode SDK v2 can bump the sync suffix beyond `.1`.
+  const suffix2 = unwrapOpenCodeStreamEvent(syncWrapper('session.next.step.ended.2'));
+  assert.equal(suffix2?.type, 'session.next.step.ended');
+
+  // A type without a suffix is returned unchanged.
+  const noSuffix = unwrapOpenCodeStreamEvent(syncWrapper('session.next.step.ended'));
+  assert.equal(noSuffix?.type, 'session.next.step.ended');
+
+  // The original `.1` form keeps working.
+  const suffix1 = unwrapOpenCodeStreamEvent(syncWrapper('message.updated.1'));
+  assert.equal(suffix1?.type, 'message.updated');
+});

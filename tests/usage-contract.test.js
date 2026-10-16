@@ -141,6 +141,15 @@ test('Claude resolved camelCase is used as-is; CodeBuddy raw snake_case is resol
   assert.equal(legacyClaude.cacheWrite, 50);
 });
 
+test('CodeBuddy usage resolution returns null when the event carries no usage', () => {
+  // A usage-shaped event without a `usage` bag must not invent a zero measurement.
+  assert.equal(resolveHarnessUsageTokens('codebuddy', { type: 'usage' }), null);
+  assert.equal(resolveHarnessUsageTokens('codebuddy', { type: 'usage', usage: null }), null);
+  // A null/undefined event is handled at the boundary as well.
+  assert.equal(resolveHarnessUsageTokens('codebuddy', null), null);
+  assert.equal(resolveHarnessUsageTokens('codebuddy', undefined), null);
+});
+
 test('first new event carries schema and normalization versions plus contract fields', () => {
   const event = createUsageEvent({
     harness: 'claude',
