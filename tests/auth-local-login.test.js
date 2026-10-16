@@ -106,4 +106,13 @@ const authedStatus = await statusWithToken.json();
 assert.equal(authedStatus.localLogin, true);
 assert.equal(authedStatus.authRequired, true);
 
+// Tooling cookie/CSRF login is permanently an agent channel, even without a later marker.
+const { CretliApiClient } = await import('../lib/remote-api-client.js');
+const { resolveDelegationAckActorFromRequest } = await import('../lib/delegation-ack-actor.js');
+const tooling = new CretliApiClient({ baseUrl, password: 'test-password-123' });
+await tooling.login();
+__reloadSessionsFromDiskForTest();
+assert.equal(resolveDelegationAckActorFromRequest({ headers: { cookie: tooling.sessionCookie } }), 'agent');
+assert.equal(resolveDelegationAckActorFromRequest({ headers: { cookie: passwordLogin.headers.get('set-cookie'), 'x-human': '1' } }), 'human');
+
 await new Promise((resolve) => server.close(resolve));

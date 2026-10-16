@@ -207,6 +207,7 @@ test('scope=server fields are visible but not writable', async () => {
 test('model_pick review adapter gate honors the workspace override of env=1', async () => {
   const { buildModelPickFavoriteDiagnosis } = await import('../lib/model-role-profiles.js');
   const workspace = tempDir('cretli-deleg-pick-ws-');
+  // Codex is certified for review (read-only sandbox), so use a harness that still lacks a hard guarantee.
   const previous = process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED;
   process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED = '1';
   try {
@@ -214,8 +215,8 @@ test('model_pick review adapter gate honors the workspace override of env=1', as
       role: 'review',
       checkReviewAdapter: true,
       workspaceFolder: workspace,
-      harnesses: [{ id: 'codex', enabled: true, ready: true, can_delegate: true }],
-      modelsByHarness: { codex: { items: [], favorites_configured: false } },
+      harnesses: [{ id: 'cursor', enabled: true, ready: true, can_delegate: true }],
+      modelsByHarness: { cursor: { items: [], favorites_configured: false } },
     };
     const reasons = (value) => buildModelPickFavoriteDiagnosis(value, { checkReviewAdapter: true })
       .rows.flatMap((row) => row.filter_reasons);
@@ -230,4 +231,11 @@ test('model_pick review adapter gate honors the workspace override of env=1', as
     else process.env.CRETLI_DELEGATION_REVIEW_ALLOW_UNCERTIFIED = previous;
     fs.rmSync(workspace, { recursive: true, force: true });
   }
+});
+
+test('settings view exposes the effective server recovery policy beside model selection', () => {
+  const view = resolveDelegationSettingsView({ workspaceFolder: '/tmp/recovery-view' });
+  assert.equal(view.recovery.startupLockoutMs, 2 * 3600000);
+  assert.equal(view.recovery.extendedLockoutMs, 12 * 3600000);
+  assert.equal(view.recovery.escalationWindowMs, 24 * 3600000);
 });

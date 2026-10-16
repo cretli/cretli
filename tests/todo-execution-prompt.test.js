@@ -69,6 +69,29 @@ console.log('OK: TODO execution prompts preserve scope, review, continuation and
   assert.match(instruction, /exclude_models/, 'a replacement excludes the surviving member');
   assert.match(instruction, /Do not use resume_session_of/);
   assert.ok(instruction.length > 100);
+  const perSubject = buildReviewerPoolInstruction(members, { policies: [
+    { subject: 'plan', selection: 'fixed_pair', session: 'leaf', known: [{ harness: 'claude', model: 'rev-a' }, { harness: 'codex', model: 'rev-b' }] },
+    { subject: 'code', selection: 'fixed_pair', session: 'orchestrator', known: [{ harness: 'claude', model: 'rev-a' }, { harness: 'qwen', model: 'rev-c' }] },
+  ] });
+  assert.doesNotMatch(perSubject, /fixed pool of two/, 'subject-specific pairs must not be collapsed into one pair');
+  assert.match(perSubject, /plan review: fixed pair claude\/rev-a, codex\/rev-b/);
+  assert.match(perSubject, /code review: fixed pair claude\/rev-a, qwen\/rev-c/);
+  assert.match(perSubject, /matching review_subject and count=2/);
+  assert.doesNotMatch(perSubject, /claude\/rev-a, codex\/rev-b, qwen\/rev-c/);
+  // F9: the outside-pair contract must match the server (fresh chat, pair kept).
+  assert.doesNotMatch(perSubject, /server rejects a reviewer outside the pair/);
+  assert.match(perSubject, /NOT rejected/);
+  assert.match(perSubject, /reuse_not_pool_member/);
+  assert.match(perSubject, /never changes the configured pair/);
+  // F11: fixed-pair policy lines extend, never replace, the pool safeguards.
+  assert.match(perSubject, /never pick the implementer as a reviewer/);
+  assert.match(perSubject, /rotation\.pool\.degraded=true/);
+  assert.match(perSubject, /exclude_models = \[the failed member, the surviving member, the implementer\]/);
+  const autoOnly = buildReviewerPoolInstruction([], { policies: [
+    { subject: 'code', selection: 'auto', session: 'fresh', known: [] },
+  ] });
+  assert.match(autoOnly, /code review: automatic reviewer selection/);
+  assert.doesNotMatch(autoOnly, /never pick the implementer as a reviewer/, 'no fixed pool means no pool safeguards');
   const off = buildTodoAgentInitialPrompt({ id, title: 'T', status: 'ready' }, 'chat-1', 'https://x', { hasChildren: true });
   const on = buildTodoAgentInitialPrompt({ id, title: 'T', status: 'ready' }, 'chat-1', 'https://x', { hasChildren: true, reviewerPool: members });
   assert.ok(!off.includes('REVIEWER POOL'));

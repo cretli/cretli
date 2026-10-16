@@ -197,3 +197,56 @@ assert.equal(headroomCard.planHeadroom.level, 3);
 assert.equal(headroomCard.planHeadroom.windows[0].type, 'five_hour');
 assert.equal(buildDelegationCardModel(inputRunning).planHeadroom, null);
 assert.equal(buildDelegationCardModel({ ...inputRunning, planHeadroomSnapshot: { windows: 'x' } }).planHeadroom, null);
+
+// Plan A (5a7ead50) A6: the card explains why this executor was chosen —
+// picker/continuation/manual source, controller context, a fallback's failure
+// class and any active exclusion with scope and expiry.
+const legacySelection = buildDelegationCardModel(inputDone);
+assert.deepEqual(legacySelection.selection, {
+  origin: 'unknown',
+  detail: '',
+  startContext: 'legacy_ad_hoc',
+  startContextSource: '',
+  continuationOf: '',
+  uiActionProof: false,
+  pickFallbackFrom: '',
+  fallbackFailureClass: '',
+  exclusion: null,
+});
+const explainedSelection = buildDelegationCardModel({
+  ...inputDone,
+  pickOrigin: 'unknown',
+  pickOriginDetail: 'continuation',
+  startContext: 'automatic',
+  startContextSource: 'todo_execution_chat',
+  continuationOf: 'prev-delegation-id',
+  uiActionProof: true,
+  pickFallbackFrom: 'failed-predecessor',
+  fallbackFailureClass: 'transient_transport',
+  executorExclusion: {
+    failureClass: 'model_unavailable',
+    scope: 'model',
+    reason: 'model_unavailable',
+    expiresAt: '2026-09-18T12:00:00.000Z',
+  },
+});
+assert.equal(explainedSelection.selection.origin, 'unknown');
+assert.equal(explainedSelection.selection.detail, 'continuation');
+assert.equal(explainedSelection.selection.startContext, 'automatic');
+assert.equal(explainedSelection.selection.startContextSource, 'todo_execution_chat');
+assert.equal(explainedSelection.selection.continuationOf, 'prev-delegation-id');
+assert.equal(explainedSelection.selection.uiActionProof, true);
+assert.equal(explainedSelection.selection.fallbackFailureClass, 'transient_transport');
+assert.deepEqual(explainedSelection.selection.exclusion, {
+  failureClass: 'model_unavailable',
+  scope: 'model',
+  reason: 'model_unavailable',
+  expiresAt: '2026-09-18T12:00:00.000Z',
+});
+const autoSelection = buildDelegationCardModel({ ...inputDone, pickOrigin: 'auto', startContext: 'automatic' });
+assert.equal(autoSelection.selection.origin, 'auto');
+assert.equal(autoSelection.selection.startContext, 'automatic');
+assert.equal(autoSelection.selection.detail, '');
+assert.equal(autoSelection.selection.exclusion, null);
+
+assert.equal(explainedSelection.selection.pickFallbackFrom, 'failed-predecessor');

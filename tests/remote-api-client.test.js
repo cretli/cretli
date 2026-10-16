@@ -9,6 +9,7 @@ const CHATS = [
 ];
 
 const server = http.createServer((req, res) => {
+  assert.equal(req.headers['x-cretli-agent'], '1', 'HTTP tooling identifies its restricted agent channel, including login');
   const cookie = req.headers.cookie || '';
   const url = new URL(req.url, 'http://localhost');
   const reply = (status, body, headers = {}) => {

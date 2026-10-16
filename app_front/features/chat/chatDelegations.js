@@ -289,7 +289,7 @@ export async function startDelegationFromParent(parentChat, values) {
     return { ok: false, error: t('chat.unknownError') };
   }
   const sourceKind = String(values.sourceKind || '').trim() === 'message' ? 'message' : 'plan';
-  const executionMode = String(values.executionMode || '').trim();
+  const executionMode = String(values.executionMode || parentChat.sdkMode || 'agent').trim();
   let planRevision = Number(values.planRevision);
   if (sourceKind !== 'message' && (!Number.isFinite(planRevision) || planRevision <= 0)) {
     try {
@@ -309,7 +309,7 @@ export async function startDelegationFromParent(parentChat, values) {
   );
   let data;
   try {
-    data = await api.postChatDelegation(parentChat.id, {
+    data = await api.postManualChatDelegation(parentChat.id, {
       executor: { transport: values.harness, model: values.model },
       planRevision: sourceKind === 'message' ? undefined : planRevision,
       idempotencyKey,
@@ -321,6 +321,7 @@ export async function startDelegationFromParent(parentChat, values) {
         ? await hashTextSha256(values.textSnapshot)
         : ''),
       executionMode,
+      assignment: executionMode === 'plan' ? 'review' : 'implement',
     });
   } catch {
     return { ok: false, error: t('chat.serverConnectionError') };

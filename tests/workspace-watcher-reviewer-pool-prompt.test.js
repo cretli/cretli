@@ -162,9 +162,15 @@ test('watcher cycle start resolves the saved pool into the orchestrator prompt',
 
   const off = await startCyclePrompt('pool-off', false);
   assert.ok(!off.includes('REVIEWER POOL'), 'switch off adds no instruction');
+  assert.ok(!off.includes('EFFECTIVE REVIEWER POLICY'), 'switch off adds no policy instruction');
   const on = await startCyclePrompt('pool-on', true);
-  assert.match(on, /REVIEWER POOL/);
+  // The cycle caller resolves the same per-subject policy as the manual TODO
+  // and full-mode paths, so a saved legacy pair arrives as the unified
+  // fixed-pair instruction (with the shared pool safeguards).
+  assert.match(on, /EFFECTIVE REVIEWER POLICY/);
+  assert.match(on, /fixed pair claude\/rev-a, codex\/rev-b/);
   assert.match(on, /claude\/rev-a, codex\/rev-b/);
   assert.match(on, /prefer_models/);
   assert.match(on, /count=2/);
+  assert.match(on, /never pick the implementer as a reviewer/);
 });

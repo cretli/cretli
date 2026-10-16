@@ -1,5 +1,6 @@
 /**
- * Settings → Delegations subtabs (Limits / Review / Models).
+ * Settings → Delegations subtabs (Limits / Review / Models). The Review subtab
+ * holds the Reviewers and Session continuation groups, per review subject.
  *
  * One GET `/api/delegation-settings` feeds all three panels; Save sends a PATCH
  * with only the fields the operator changed. This is the single write path for
@@ -25,16 +26,14 @@ export const DELEGATION_SUBTAB_FIELDS = Object.freeze({
     { field: 'cancelling_timeout_ms', kind: 'int', min: 1 },
     { field: 'global_limit', kind: 'int', min: 0 },
     { field: 'queue_max', kind: 'int', min: 0 },
+    { field: 'parallel_implement_fanout', kind: 'fanout' },
   ],
   review: [
     { field: 'review_fanout', kind: 'fanout' },
-    { field: 'parallel_implement_fanout', kind: 'fanout' },
     { field: 'review_allow_uncertified', kind: 'bool' },
     { field: 'code_review_phase', kind: 'bool' },
     { field: 'code_review_max_closures', kind: 'int', min: 0 },
-    { field: 'reviewer_pair_enabled', kind: 'bool' },
-    { field: 'reviewer_pair_members', kind: 'pair' },
-    { field: 'reviewer_pair_strict', kind: 'bool' },
+    { field: 'reviewer_policy', kind: 'reviewer_policy' },
   ],
   models: [
     { field: 'empty_favorites', kind: 'enum', options: ['deny', 'all'] },
@@ -42,6 +41,15 @@ export const DELEGATION_SUBTAB_FIELDS = Object.freeze({
     { field: 'plan_window_hard_free_percent', kind: 'int', min: 1, max: 20 },
   ],
 });
+
+/**
+ * Stored only for rollback / `review:other`; superseded by `reviewer_policy`
+ * and shown as a read-only migration summary instead of controls.
+ */
+export const DELEGATION_LEGACY_FIELDS = Object.freeze(['reviewer_pair_enabled', 'reviewer_pair_members', 'reviewer_pair_strict']);
+
+/** Review subjects with their own reviewer policy (`other` stays legacy-only). */
+export const REVIEWER_POLICY_SUBJECTS = Object.freeze(['plan', 'code']);
 
 /** @type {{ data: object | null, favorites: Array<{ harness: string, model: string, label: string }> }} */
 const state = { data: null, favorites: [], favoritesAt: 0, favoritesPromise: null, dirty: new Set() };
@@ -101,6 +109,205 @@ export function buildDelegationPatch(baseline, current) {
   return patch;
 }
 
+
+/**
+ * Stored shape of one policy entry (what PATCH sends back).
+ *
+ * @param {object} entry view entry or form value
+ * @returns {{ selection: string, members_source: string, members: Array<{ harness: string, model: string }>, session: string }}
+ */
+export function toStoredPolicy(entry) {
+  const selection = entry?.selection === 'fixed_pair' ? 'fixed_pair' : 'auto';
+  const membersSource = entry?.members_source === 'configured' ? 'configured' : 'learned';
+  return {
+    selection,
+    members_source: selection === 'auto' ? 'learned' : membersSource,
+    members: selection === 'fixed_pair' && membersSource === 'configured'
+      ? (Array.isArray(entry?.members) ? entry.members : []).map((m) => ({ harness: m.harness, model: m.model }))
+      : [],
+    session: ['leaf', 'orchestrator'].includes(entry?.session) ? entry.session : 'fresh',
+  };
+}
+
+/**
+ * One-line effective summary, e.g. "Code review: fixed pair; reuse sessions
+ * within this subtask". Pure so it can be tested and refreshed live.
+ *
+ * @param {string} subject plan | code
+ * @param {object} entry
+ * @returns {string}
+ */
+export function summarizeReviewerPolicy(subject, entry) {
+  const stored = toStoredPolicy(entry);
+  const who = stored.selection === 'auto'
+    ? t('settings.reviewerSummaryAuto')
+    : stored.members_source === 'configured' ? t('settings.reviewerSummaryConfigured') : t('settings.reviewerSummaryLearned');
+  const sessionText = t(`settings.reviewerSummarySession_${stored.session}`);
+  return t('settings.reviewerSummary', { subject: t(`settings.reviewerSubject_${subject}`), who, session: sessionText });
+}
+
+/**
+ * @param {string} subject
+ * @param {object} entry
+ * @returns {string}
+ */
+function renderPolicyBlock(subject, entry) {
+  const stored = toStoredPolicy(entry);
+  const select = (key, options, value) => `<cr-bar-select data-policy-subject="${subject}" data-policy-key="${key}" data-options="${esc(JSON.stringify(options.map((opt) => ({ value: opt, label: t(`settings.reviewerOption_${key}_${opt}`) }))))}" value="${esc(value)}"></cr-bar-select>`;
+  const members = stored.members;
+  const slot = (index) => {
+    const current = members[index] ? `${members[index].harness}${PAIR_SEPARATOR}${members[index].model}` : '';
+    const known = state.favorites.some((fav) => `${fav.harness}${PAIR_SEPARATOR}${fav.model}` === current);
+    const options = [{ value: '', label: t('settings.delegationSettingsNone') }];
+    if (current && !known) options.push({ value: current, label: `${members[index].harness} / ${members[index].model}` });
+    for (const fav of state.favorites) options.push({ value: `${fav.harness}${PAIR_SEPARATOR}${fav.model}`, label: `${fav.harness} / ${fav.label}` });
+    return `<cr-bar-select data-policy-subject="${subject}" data-policy-member="${index}" data-options="${esc(JSON.stringify(options))}" value="${esc(current)}"></cr-bar-select>`;
+  };
+  const sourceKey = entry?.source === 'policy' ? 'policy' : 'legacy';
+  return `
+    <section class="cr-card" data-reviewer-policy="${subject}">
+      <h3 class="cr-field-label">${esc(t(`settings.reviewerSubject_${subject}_heading`))}</h3>
+      <div class="cr-field">
+        <span class="cr-field-label">${esc(t('settings.reviewerSelectionLabel'))}</span>
+        ${select('selection', ['auto', 'fixed_pair'], stored.selection)}
+        <p class="cr-hint">${esc(t('settings.reviewerSelectionHint'))}</p>
+      </div>
+      <div class="cr-field" data-policy-show="fixed_pair">
+        <span class="cr-field-label">${esc(t('settings.reviewerMembersLabel'))}</span>
+        ${select('members_source', ['learned', 'configured'], stored.members_source)}
+        <div class="cr-row" data-policy-show="configured">${slot(0)}${slot(1)}</div>
+        <p class="cr-hint">${esc(t('settings.reviewerMembersHint'))}</p>
+      </div>
+      <div class="cr-field">
+        <span class="cr-field-label">${esc(t('settings.reviewerSessionLabel'))}</span>
+        ${select('session', ['fresh', 'leaf', 'orchestrator'], stored.session)}
+        <p class="cr-hint">${esc(t('settings.reviewerSessionHint'))}</p>
+      </div>
+      <p class="cr-hint"><span class="cr-badge" data-policy-source="${sourceKey}">${esc(t(`settings.reviewerSource_${sourceKey}`))}</span>
+        <strong data-policy-summary="${subject}">${esc(summarizeReviewerPolicy(subject, entry))}</strong></p>
+    </section>`;
+}
+
+/**
+ * @param {object} data API response
+ * @returns {string}
+ */
+function renderReviewerPolicy(data) {
+  const view = data.reviewerPolicy || {};
+  const migration = view.migration || {};
+  const notices = [
+    migration.notice === 'strict_leaf_reuse' ? `<p class="cr-hint" data-reviewer-migration-notice>${esc(t('settings.reviewerMigrationStrict'))}</p>` : '',
+    migration.applied && migration.notice !== 'strict_leaf_reuse' ? `<p class="cr-hint" data-reviewer-migration-notice>${esc(t('settings.reviewerMigrationPair'))}</p>` : '',
+  ].join('');
+  const reset = data.source?.reviewer_policy === 'workspace'
+    ? `<cr-bar-button class="cr-field-action" data-delegation-reset="reviewer_policy">${esc(t('settings.delegationSettingsUseDefault'))}</cr-bar-button>`
+    : '';
+  return `
+    <div class="cr-field" data-delegation-row="reviewer_policy">
+      <span class="cr-field-label">${esc(t('settings.reviewerGroupTitle'))}</span>
+      <p class="cr-hint">${esc(t('settings.reviewerScopeHint'))}</p>
+      <p class="cr-hint">${esc(t('settings.reviewerImplementFixNote'))}</p>
+      ${notices}
+      ${REVIEWER_POLICY_SUBJECTS.map((subject) => renderPolicyBlock(subject, view[subject])).join('')}
+      <p class="cr-hint">${esc(t('settings.reviewerFallbackHint'))}</p>
+      ${reset}
+    </div>`;
+}
+
+/** Show/hide the conditional controls of every policy block from its current values. */
+export function applyReviewerPolicyVisibility(root) {
+  root.querySelectorAll('[data-reviewer-policy]').forEach((block) => {
+    const selection = String(block.querySelector('[data-policy-key="selection"]')?.value || 'auto');
+    const source = String(block.querySelector('[data-policy-key="members_source"]')?.value || 'learned');
+    block.querySelectorAll('[data-policy-show]').forEach((el) => {
+      const need = el.dataset.policyShow;
+      el.hidden = need === 'fixed_pair' ? selection !== 'fixed_pair' : !(selection === 'fixed_pair' && source === 'configured');
+    });
+    const subject = block.dataset.reviewerPolicy;
+    const summary = block.querySelector('[data-policy-summary]');
+    if (summary) summary.textContent = summarizeReviewerPolicy(subject, readPolicyBlock(block));
+  });
+}
+
+/**
+ * @param {Element} block
+ * @returns {{ selection: string, members_source: string, members: Array<{ harness: string, model: string }>, session: string }}
+ */
+function readPolicyBlock(block) {
+  const members = [0, 1]
+    .map((index) => String(block.querySelector(`[data-policy-member="${index}"]`)?.value || ''))
+    .filter(Boolean)
+    .map((raw) => {
+      const [harness, model] = raw.split(PAIR_SEPARATOR);
+      return { harness, model };
+    });
+  return toStoredPolicy({
+    selection: block.querySelector('[data-policy-key="selection"]')?.value,
+    members_source: block.querySelector('[data-policy-key="members_source"]')?.value,
+    members,
+    session: block.querySelector('[data-policy-key="session"]')?.value,
+  });
+}
+
+/**
+ * Stored-shape baseline of the reviewer policy as displayed (migrated or saved).
+ *
+ * @param {object | undefined} view API `reviewerPolicy`
+ * @returns {Record<string, object>}
+ */
+export function reviewerPolicyBaseline(view) {
+  return Object.fromEntries(REVIEWER_POLICY_SUBJECTS.map((subject) => [subject, toStoredPolicy(view?.[subject])]));
+}
+
+/**
+ * Subjects to persist: those changed against the baseline, plus subjects that
+ * are already saved explicitly (so an untouched saved subject is kept). A
+ * subject still derived from the legacy fields is omitted, so saving plan does
+ * not silently pin the code subject.
+ *
+ * @param {object | undefined} view API `reviewerPolicy`
+ * @param {Record<string, object>} baseline stored-shape baseline
+ * @param {Record<string, object>} current form values per subject
+ * @returns {Record<string, object>}
+ */
+export function selectReviewerPolicySubjects(view, baseline, current) {
+  const out = {};
+  for (const [subject, policy] of Object.entries(current || {})) {
+    const savedExplicitly = view?.[subject]?.source === 'policy';
+    if (savedExplicitly || JSON.stringify(policy) !== JSON.stringify(baseline?.[subject])) out[subject] = policy;
+  }
+  return out;
+}
+
+/**
+ * Policy value from the rendered blocks plus a validation error, if any. Only
+ * the subjects that should be written are returned (see
+ * `selectReviewerPolicySubjects`).
+ *
+ * @param {HTMLElement} root
+ * @returns {{ value: Record<string, object>, error: string }}
+ */
+function readReviewerPolicy(root) {
+  const baseline = reviewerPolicyBaseline(state.data?.reviewerPolicy);
+  const view = state.data?.reviewerPolicy || {};
+  const current = {};
+  let error = '';
+  root.querySelectorAll('[data-reviewer-policy]').forEach((block) => {
+    const policy = readPolicyBlock(block);
+    const subject = block.dataset.reviewerPolicy;
+    if (policy.selection === 'fixed_pair' && policy.members_source === 'configured') {
+      const same = policy.members.length === 2
+        && policy.members[0].harness === policy.members[1].harness
+        && String(policy.members[0].model).split('::')[0] === String(policy.members[1].model).split('::')[0];
+      if (policy.members.length !== 2 || same) {
+        error = t('settings.reviewerNeedsTwoDistinct', { subject: t(`settings.reviewerSubject_${subject}`) });
+      }
+    }
+    current[subject] = policy;
+  });
+  return { value: selectReviewerPolicySubjects(view, baseline, current), error };
+}
+
 /**
  * @param {{ field: string, kind: string, min?: number, max?: number, options?: string[] }} spec
  * @param {object} data API response
@@ -108,6 +315,7 @@ export function buildDelegationPatch(baseline, current) {
  */
 function renderField(spec, data) {
   const { field } = spec;
+  if (spec.kind === 'reviewer_policy') return renderReviewerPolicy(data);
   const value = data.effective?.[field];
   const readOnly = data.scope?.[field] === 'server';
   const source = data.source?.[field] || 'default';
@@ -162,8 +370,16 @@ function renderField(spec, data) {
  */
 function renderSubtab(tab, data) {
   const fields = DELEGATION_SUBTAB_FIELDS[tab].map((spec) => renderField(spec, data)).join('');
+  const recovery = data.recovery || {};
   const extra = tab === 'models'
-    ? `<p class="cr-hint"><a href="#" data-delegation-stats-link="1">${esc(t('settings.delegationSettingsModelStatsLink'))}</a></p>`
+    ? `<div class="cr-field" data-delegation-recovery>
+        <span class="cr-field-label">${esc(t('settings.delegationRecoveryTitle'))}</span>
+        <p class="cr-hint">${esc(t('settings.delegationRecoveryPolicy', {
+          first: Number(recovery.startupLockoutMs || 0) / 3600000,
+          repeated: Number(recovery.extendedLockoutMs || 0) / 3600000,
+          window: Number(recovery.escalationWindowMs || 0) / 3600000,
+        }))}</p>
+      </div><p class="cr-hint"><a href="#" data-delegation-stats-link="1">${esc(t('settings.delegationSettingsModelStatsLink'))}</a></p>`
     : '';
   return `
     <div class="cr-page-body">
@@ -210,6 +426,7 @@ function renderAll(only) {
     root.querySelectorAll('cr-bar-select[data-options]').forEach((el) => {
       el.options = JSON.parse(el.dataset.options || '[]');
     });
+    applyReviewerPolicyVisibility(root);
   }
 }
 
@@ -230,14 +447,25 @@ function readControlValue(el) {
   return el.localName === 'cr-bar-input' ? readBarInputLiveValue(el) : String(el.value ?? '');
 }
 
+/**
+ * @param {HTMLElement} el
+ * @returns {string}
+ */
+function selectorOfControl(el) {
+  if (el.dataset.delegationField) return `[data-delegation-field="${el.dataset.delegationField}"]`;
+  if (el.dataset.delegationPairMember) return `[data-delegation-pair-member="${el.dataset.delegationPairMember}"]`;
+  if (el.dataset.policyKey) return `[data-policy-subject="${el.dataset.policySubject}"][data-policy-key="${el.dataset.policyKey}"]`;
+  return `[data-policy-subject="${el.dataset.policySubject}"][data-policy-member="${el.dataset.policyMember}"]`;
+}
+
 /** Re-render all subtabs but keep unsaved control values (language change). */
 function rerenderPreservingEdits() {
   const snapshot = {};
   for (const tab of Object.keys(DELEGATION_SUBTAB_FIELDS)) {
     const root = getRoot(tab);
     if (!root) continue;
-    snapshot[tab] = [...root.querySelectorAll('[data-delegation-field], [data-delegation-pair-member]')]
-      .map((el) => ({ el: el.dataset.delegationField ? `[data-delegation-field="${el.dataset.delegationField}"]` : `[data-delegation-pair-member="${el.dataset.delegationPairMember}"]`, value: readControlValue(el), checked: el.checked, type: el.type }));
+    snapshot[tab] = [...root.querySelectorAll('[data-delegation-field], [data-delegation-pair-member], [data-policy-key], [data-policy-member]')]
+      .map((el) => ({ el: selectorOfControl(el), value: readControlValue(el), checked: el.checked, type: el.type }));
   }
   renderAll();
   for (const [tab, items] of Object.entries(snapshot)) {
@@ -248,6 +476,7 @@ function rerenderPreservingEdits() {
       if (item.type === 'checkbox') el.checked = item.checked;
       else el.value = item.value;
     }
+    if (root) applyReviewerPolicyVisibility(root);
   }
 }
 
@@ -286,6 +515,14 @@ function readSubtab(root, tab) {
   let error = '';
   for (const spec of DELEGATION_SUBTAB_FIELDS[tab]) {
     if (state.data?.scope?.[spec.field] === 'server') continue;
+    if (spec.kind === 'reviewer_policy') {
+      const policy = readReviewerPolicy(root);
+      if (policy.error) error = policy.error;
+      // Nothing changed and nothing was explicitly saved: omit the field so the
+      // PATCH never pins a legacy-derived subject by accident.
+      if (Object.keys(policy.value).length > 0) values[spec.field] = policy.value;
+      continue;
+    }
     if (spec.kind === 'pair') {
       const members = [0, 1]
         .map((index) => String(root.querySelector(`[data-delegation-pair-member="${index}"]`)?.value || ''))
@@ -373,7 +610,10 @@ export function initDelegationSettings() {
         return;
       }
     });
-    const markDirty = () => state.dirty.add(tab);
+    const markDirty = () => {
+      state.dirty.add(tab);
+      applyReviewerPolicyVisibility(root);
+    };
     root.addEventListener('input', markDirty);
     root.addEventListener('change', markDirty);
     root.addEventListener('cr-change', markDirty);
@@ -385,7 +625,7 @@ export function initDelegationSettings() {
     if (!root) return;
     const { values, error } = readSubtab(root, tab);
     if (error) return setStatus(root, error, 'error');
-    const patch = buildDelegationPatch(state.data?.effective, values);
+    const patch = buildDelegationPatch({ ...state.data?.effective, reviewer_policy: reviewerPolicyBaseline(state.data?.reviewerPolicy) }, values);
     if (Object.keys(patch).length === 0) return setStatus(root, t('settings.delegationSettingsNoChanges'));
     return savePatch(root, patch, tab);
   });

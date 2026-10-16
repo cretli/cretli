@@ -7,11 +7,12 @@
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTodoReviewSnapshot, computeTodoReviewSnapshotForTodo } from '../lib/todo-review-sync.js';
+import { buildTodoReviewSnapshot, computeTodoReviewSnapshotForTodo, evaluateTodoLeafAutoClose } from '../lib/todo-review-sync.js';
 import { buildDelegationQualityCycles } from '../lib/delegation-cycle-outcomes.js';
 import { resolveEffectiveCodeReviewReportVerdict } from '../lib/delegation-code-review-phase.js';
 import { isIncompleteDelegationReport } from '../lib/delegation-verdict.js';
 import { createDelegationRecord, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
+import { saveDelegationSettings } from '../lib/persist/delegation-settings-persist.js';
 
 const WORKSPACE = '/tmp/leaf-snapshot-workspace';
 const LEAF = 'aaaaaaaa-1111-4111-8111-111111111111';
@@ -848,4 +849,198 @@ test('a failed verify with new failures still fails even when pre-existing ones 
   assert.equal(code.state, 'failed');
   assert.equal(code.stateReason, 'verify_failed');
   assert.equal(code.reviewers[0].verifyPreexisting, undefined);
+});
+
+// ---- F16/F17: a fixed-pair code review never passes without two members ----
+
+const fixedPairReview = (id, transport, model, membership, startedAt, extra = {}) => reviewRow({
+  id,
+  startedAt,
+  executor: { transport, model },
+  reviewerPolicy: { selection: 'fixed_pair', membership },
+  pickOrigin: 'auto',
+  ...extra,
+});
+
+test('fixed pair: one member PASS stays pending and is not auto-close eligible (F16)', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const review = fixedPairReview('pair-one', 'claude', 'claude-opus-5-5::effort=medium', 'member', t(3));
+  const rows = [impl, review];
+  const code = subjectSnapshot(rows);
+  assert.equal(code.state, 'pending');
+  assert.equal(code.stateReason, 'pair_reviewer_pending');
+  assert.notEqual(code.state, 'passed');
+  const close = evaluateTodoLeafAutoClose({
+    todo: { id: LEAF, status: 'doing' },
+    items: [],
+    rows,
+    isLiveWorktree: () => false,
+  });
+  assert.equal(close.eligible, false);
+  assert.equal(close.reason, 'review_pending');
+});
+
+test('fixed pair: two distinct member PASSes resolve as passed', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const a = fixedPairReview('pair-a', 'claude', 'claude-opus-5-5', 'member', t(3));
+  const b = fixedPairReview('pair-b', 'codex', 'rev-b', 'member', t(4));
+  const code = subjectSnapshot([impl, a, b]);
+  assert.equal(code.state, 'passed');
+  assert.equal(code.stateReason, 'fresh_review');
+});
+
+test('fixed pair: two PASSes from one reviewer identity (DEGRADED) stay pending', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const a = fixedPairReview('deg-a', 'claude', 'claude-opus-5-5::effort=low', 'member', t(3));
+  const b = fixedPairReview('deg-b', 'claude', 'opus::effort=high', 'member', t(4));
+  const code = subjectSnapshot([impl, a, b]);
+  assert.equal(code.state, 'pending');
+  assert.equal(code.stateReason, 'pair_reviewer_pending');
+});
+
+test('fixed pair: an outside-pool PASS never supplies the second member (F17)', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const a = fixedPairReview('out-a', 'claude', 'rev-a', 'member', t(3));
+  const outsider = fixedPairReview('out-c', 'deepseek', 'rev-outside', 'outside_pool', t(4));
+  const pendingCode = subjectSnapshot([impl, a, outsider]);
+  assert.equal(pendingCode.state, 'pending');
+  assert.equal(pendingCode.stateReason, 'pair_reviewer_pending');
+  const b = fixedPairReview('out-b', 'codex', 'rev-b', 'member', t(5));
+  const passedCode = subjectSnapshot([impl, a, outsider, b]);
+  assert.equal(passedCode.state, 'passed');
+});
+
+test('fixed pair: a reviewer with no resolvable identity never supplies the second PASS', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const a = fixedPairReview('blank-a', 'claude', 'rev-a', 'member', t(3));
+  const blank = reviewRow({
+    id: 'blank-b',
+    startedAt: t(4),
+    executor: {},
+    reviewerPolicy: { selection: 'fixed_pair', membership: 'member' },
+  });
+  const code = subjectSnapshot([impl, a, blank]);
+  assert.equal(code.state, 'pending');
+  assert.equal(code.stateReason, 'pair_reviewer_pending');
+});
+
+// ---- FU-1: eligibility must be reconstructed from the persisted snapshot ----
+
+test('fixed pair: a PASS with no reviewerPolicy snapshot never supplies the second member (FU-1)', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const member = fixedPairReview('nosnap-a', 'claude', 'rev-a', 'member', t(3));
+  // Legacy PASS: the attempt predates the policy snapshot (or the start path
+  // never wrote one), so its eligibility cannot be reconstructed.
+  const legacy = reviewRow({ id: 'nosnap-legacy', startedAt: t(4) });
+  const pending = subjectSnapshot([impl, member, legacy]);
+  assert.equal(pending.state, 'pending');
+  assert.equal(pending.stateReason, 'pair_reviewer_pending');
+  const second = fixedPairReview('nosnap-b', 'codex', 'rev-b', 'member', t(5));
+  const passed = subjectSnapshot([impl, member, legacy, second]);
+  assert.equal(passed.state, 'passed');
+  assert.equal(passed.stateReason, 'fresh_review');
+});
+
+test('fixed pair: a pickOrigin=unknown member never counts toward the pair (FU-1)', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const unknownOrigin = fixedPairReview('orig-a', 'claude', 'rev-a', 'member', t(3), { pickOrigin: 'unknown' });
+  const known = fixedPairReview('orig-b', 'codex', 'rev-b', 'member', t(4), { pickOrigin: 'auto' });
+  const pending = subjectSnapshot([impl, unknownOrigin, known]);
+  assert.equal(pending.state, 'pending');
+  assert.equal(pending.stateReason, 'pair_reviewer_pending');
+  const third = fixedPairReview('orig-c', 'deepseek', 'rev-c', 'member', t(5), { pickOrigin: 'manual' });
+  const passed = subjectSnapshot([impl, unknownOrigin, known, third]);
+  assert.equal(passed.state, 'passed');
+  assert.equal(passed.stateReason, 'fresh_review');
+});
+
+test('fixed pair: known pickOrigin members still count toward the pair', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const a = fixedPairReview('known-a', 'claude', 'claude-opus-5-5', 'member', t(3), { pickOrigin: 'auto' });
+  const b = fixedPairReview('known-b', 'codex', 'rev-b', 'member', t(4), { pickOrigin: 'manual' });
+  const code = subjectSnapshot([impl, a, b]);
+  assert.equal(code.state, 'passed');
+  assert.equal(code.stateReason, 'fresh_review');
+});
+
+test('fixed pair: a live fixed_pair code policy holds an all-legacy round pending (FU-1)', () => {
+  saveDelegationSettings(WORKSPACE, {
+    reviewer_policy: { code: { selection: 'fixed_pair', members_source: 'learned', session: 'fresh' } },
+  }, { dataDir: ISOLATED_DATA_DIR });
+  try {
+    const impl = materialRow({ queuedAt: t(1) });
+    // Every attempt is legacy: no reviewerPolicy snapshot to derive the pair from.
+    const legacyPass = reviewRow({ id: 'live-legacy-pass', startedAt: t(3) });
+    const snapshot = computeTodoReviewSnapshotForTodo({
+      todo: { id: LEAF, workspaceFolder: WORKSPACE },
+      rows: [impl, legacyPass],
+      now: NOW,
+      dataDir: ISOLATED_DATA_DIR,
+    });
+    assert.equal(snapshot.code.state, 'pending');
+    assert.equal(snapshot.code.stateReason, 'pair_reviewer_pending');
+  } finally {
+    saveDelegationSettings(WORKSPACE, { reviewer_policy: null }, { dataDir: ISOLATED_DATA_DIR });
+  }
+});
+
+test('fixed pair: non-pair reviews remain unaffected (FU-1)', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const autoSnapshot = reviewRow({
+    id: 'nonpair-auto',
+    startedAt: t(3),
+    reviewerPolicy: { selection: 'auto', membership: 'member' },
+  });
+  const code = subjectSnapshot([impl, autoSnapshot], 'code', { codeReviewerPolicy: { selection: 'auto' } });
+  assert.equal(code.state, 'passed');
+  assert.equal(code.stateReason, 'fresh_review');
+  // The pair gate is code-only: a single plan PASS still resolves the plan
+  // subject even when the attempt carries a fixed_pair snapshot.
+  const planPass = reviewRow({
+    id: 'nonpair-plan',
+    startedAt: t(4),
+    reviewSubject: 'plan',
+    pickRole: 'plan',
+    reviewerPolicy: { selection: 'fixed_pair', membership: 'member' },
+  });
+  const plan = subjectSnapshot([planPass], 'plan');
+  assert.equal(plan.state, 'passed');
+});
+
+test('fixed pair: an unknown-origin member blocks auto-close (FU-1)', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const a = fixedPairReview('close-a', 'claude', 'rev-a', 'member', t(3), { pickOrigin: 'auto' });
+  const unknown = fixedPairReview('close-b', 'codex', 'rev-b', 'member', t(4), { pickOrigin: 'unknown' });
+  const rows = [impl, a, unknown];
+  const code = subjectSnapshot(rows);
+  assert.equal(code.state, 'pending');
+  assert.equal(code.stateReason, 'pair_reviewer_pending');
+  const close = evaluateTodoLeafAutoClose({
+    todo: { id: LEAF, status: 'doing' },
+    items: [],
+    rows,
+    isLiveWorktree: () => false,
+  });
+  assert.equal(close.eligible, false);
+  assert.equal(close.reason, 'review_pending');
+});
+
+test('fixed pair: an empty or unrecognized pickOrigin is never eligible (FU-1)', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const empty = fixedPairReview('eo-a', 'claude', 'rev-a', 'member', t(3), { pickOrigin: '' });
+  const odd = fixedPairReview('eo-b', 'codex', 'rev-b', 'member', t(4), { pickOrigin: 'weird' });
+  const code = subjectSnapshot([impl, empty, odd]);
+  assert.equal(code.state, 'pending');
+  assert.equal(code.stateReason, 'pair_reviewer_pending');
+});
+
+test('fixed pair: an attempt whose snapshot selection is not fixed_pair never counts (FU-1)', () => {
+  const impl = materialRow({ queuedAt: t(1) });
+  const a = fixedPairReview('sel-a', 'claude', 'rev-a', 'member', t(3), { pickOrigin: 'auto' });
+  const b = fixedPairReview('sel-b', 'codex', 'rev-b', 'member', t(4), {
+    pickOrigin: 'auto',
+    reviewerPolicy: { selection: 'auto', membership: 'member' },
+  });
+  const code = subjectSnapshot([impl, a, b], 'code', { codeReviewerPolicy: { selection: 'fixed_pair' } });
+  assert.equal(code.state, 'pending');
 });

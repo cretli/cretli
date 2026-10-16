@@ -13,12 +13,14 @@ import {
   buildCodeReviewWorkflowPatchOnFinish,
   resolveCodeReviewPhaseWorkflowIdempotencyKey,
   DELEGATION_WORKFLOW_STOP_CLOSURE_ROUNDS_EXHAUSTED,
+  DELEGATION_WORKFLOW_STOP_REVIEWER_POOL_DEGRADED,
   inspectDelegationCodeReviewStart,
   isCredibleCodeReviewTerminal,
   reconcileClosureReviewVerdict,
   resolveDelegationCodeReviewMode,
   resolveEffectiveCodeReviewReportVerdict,
 } from '../lib/delegation-code-review-phase.js';
+import { normalizeCodeReviewPoolRound } from '../lib/delegation-pool-round.js';
 import { buildModelPickHistory } from '../lib/model-pick-history.js';
 import { selectModelPick } from '../lib/model-role-profiles.js';
 
@@ -804,6 +806,390 @@ function applyCodeReviewFinishPatch(delegation, workflow) {
   assert.match(on, /\[FINDINGS BLOCK\]/);
   assert.match(on, /```findings-json/);
   assert.match(on, /"category": "missing-test"/);
+}
+
+// --- F2 regression: a LEARNED fixed pair opens the two-reviewer round ------
+{
+  const { saveDelegationSettings } = await import('../lib/persist/delegation-settings-persist.js');
+  const { clearDelegationEnvCache, resolveReviewerPool } = await import('../lib/delegation-settings.js');
+  const { buildCodeReviewWorkflowPatchOnStart } = await import('../lib/delegation-code-review-phase.js');
+  const { addReviewerPairMember } = await import('../lib/persist/reviewer-pairs-persist.js');
+  const learnedWs = `/tmp/reviewer-pool-learned-ws-${crypto.randomUUID()}`;
+  saveDelegationSettings(learnedWs, {
+    reviewer_policy: { code: { selection: 'fixed_pair', members_source: 'learned', session: 'leaf' } },
+  });
+  clearDelegationEnvCache();
+  const parentChatId = crypto.randomUUID();
+  const leafId = crypto.randomUUID();
+  const learnedWorkflow = applyDelegationWorkflowPatch({
+    parentChatId,
+    leafId,
+    codeReviewAuditDone: true,
+    codeReviewClosureCount: 1,
+    round: 1,
+    materialRevision: 'learned-rev',
+    idempotencyKey: 'learned-seed',
+  });
+  // One learned member: the pair is incomplete, not off.
+  addReviewerPairMember(parentChatId, { harness: 'claude', model: 'rev-a' }, 'code');
+  const oneMember = resolveReviewerPool(learnedWs, { subject: 'code', parentChatId, delegations: [] });
+  assert.equal(oneMember.active, false);
+  assert.equal(oneMember.incomplete, true, 'one learned member is an incomplete fixed pair');
+  const startPatch = buildCodeReviewWorkflowPatchOnStart(learnedWorkflow, {
+    delegationId: 'learned-a',
+    mode: 'closure',
+    workspaceFolder: learnedWs,
+    parentChatId,
+    delegations: [],
+  });
+  assert.ok(startPatch?.codeReviewPoolRound, 'a learned fixed pair opens the two-reviewer round');
+  assert.equal(startPatch.codeReviewPoolRound.pool, true);
+  assert.deepEqual(startPatch.codeReviewPoolRound.started, ['learned-a']);
+  // The second member completes the pair; the pool becomes active.
+  addReviewerPairMember(parentChatId, { harness: 'codex', model: 'rev-b' }, 'code');
+  const complete = resolveReviewerPool(learnedWs, { subject: 'code', parentChatId, delegations: [] });
+  assert.equal(complete.active, true);
+  assert.equal(complete.incomplete, false);
+}
+
+// --- F10 regression: one eligible reviewer is bounded, never a false PASS --
+{
+  const { saveDelegationSettings } = await import('../lib/persist/delegation-settings-persist.js');
+  const { clearDelegationEnvCache } = await import('../lib/delegation-settings.js');
+  const { buildCodeReviewWorkflowPatchOnStart } = await import('../lib/delegation-code-review-phase.js');
+  const degradeWs = `/tmp/reviewer-pool-degrade-ws-${crypto.randomUUID()}`;
+  saveDelegationSettings(degradeWs, {
+    reviewer_pair_enabled: true,
+    reviewer_pair_members: [{ harness: 'claude', model: 'rev-a' }, { harness: 'codex', model: 'rev-b' }],
+  });
+  clearDelegationEnvCache();
+  const parentChatId = crypto.randomUUID();
+  const leaf = crypto.randomUUID();
+  let wf = applyDelegationWorkflowPatch({
+    parentChatId,
+    leafId: leaf,
+    workspaceFolder: degradeWs,
+    codeReviewAuditDone: true,
+    codeReviewClosureCount: 0,
+    maxCodeReviewClosures: 4,
+    round: 1,
+    materialRevision: 'degrade-rev',
+    idempotencyKey: 'degrade-seed',
+  });
+  const mkJob = (model) => ({
+    id: crypto.randomUUID(),
+    parentChatId,
+    leafId: leaf,
+    workspaceFolder: degradeWs,
+    status: 'completed',
+    reviewSubject: 'code',
+    reviewMode: 'closure',
+    report: 'VERDICT: PASS\nF1 FIXED',
+    reportVerdict: 'PASS',
+    executor: { transport: model === 'rev-a' ? 'claude' : 'codex', model },
+  });
+  const start = (job) => {
+    const patch = buildCodeReviewWorkflowPatchOnStart(wf, {
+      delegationId: job.id,
+      mode: 'closure',
+      workspaceFolder: degradeWs,
+      parentChatId,
+      reviewer: { transport: job.executor.transport, model: job.executor.model },
+    });
+    if (patch) {
+      wf = applyDelegationWorkflowPatch({
+        ...patch,
+        parentChatId,
+        leafId: leaf,
+        idempotencyKey: `degrade-start-${job.id}`,
+        countReview: false,
+      });
+    }
+  };
+  const first = mkJob('rev-a');
+  const duplicate = mkJob('rev-a');
+  start(first);
+  wf = applyCodeReviewFinishPatch(first, wf);
+  assert.equal(normalizeCodeReviewPoolRound(wf.codeReviewPoolRound).resolved, '', 'one PASS stays pending, not approved');
+  assert.equal(wf.stopReason, '');
+  start(duplicate);
+  wf = applyCodeReviewFinishPatch(duplicate, wf);
+  const record = normalizeCodeReviewPoolRound(wf.codeReviewPoolRound);
+  assert.equal(record.resolved, 'DEGRADED', 'two PASS from one reviewer identity never resolve as approval');
+  assert.equal(record.degradedReason, 'reviewer_pool_single_reviewer');
+  assert.equal(wf.codeReviewClosureCount, 0, 'a degraded round advances no closure');
+  assert.equal(wf.codeReviewAuditDone, true, 'a degraded round does not flip the audit phase');
+  assert.equal(wf.stopReason, DELEGATION_WORKFLOW_STOP_REVIEWER_POOL_DEGRADED);
+  const blocked = inspectDelegationCodeReviewStart({
+    assignment: 'review', reviewSubject: 'code', leafId: leaf, workflow: wf,
+  });
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.code, DELEGATION_WORKFLOW_STOP_REVIEWER_POOL_DEGRADED);
+  assert.match(blocked.error, /second distinct reviewer/);
+  const resumed = inspectDelegationCodeReviewStart({
+    assignment: 'review', reviewSubject: 'code', leafId: leaf, workflow: wf, resumeRounds: true,
+  });
+  assert.equal(resumed.ok, true, 'an explicit resume can retry the degraded round');
+  // Two DISTINCT reviewers still resolve as PASS.
+  let ok = applyDelegationWorkflowPatch({
+    parentChatId,
+    leafId: leaf,
+    workspaceFolder: degradeWs,
+    codeReviewAuditDone: true,
+    codeReviewClosureCount: 0,
+    maxCodeReviewClosures: 4,
+    round: 2,
+    materialRevision: 'degrade-rev-2',
+    idempotencyKey: 'degrade-seed-2',
+    clearStop: true,
+  });
+  const distinctA = mkJob('rev-a');
+  const distinctB = mkJob('rev-b');
+  const startOk = (job) => {
+    const patch = buildCodeReviewWorkflowPatchOnStart(ok, {
+      delegationId: job.id,
+      mode: 'closure',
+      workspaceFolder: degradeWs,
+      parentChatId,
+      reviewer: { transport: job.executor.transport, model: job.executor.model },
+    });
+    if (patch) {
+      ok = applyDelegationWorkflowPatch({
+        ...patch,
+        parentChatId,
+        leafId: leaf,
+        idempotencyKey: `degrade-start-ok-${job.id}`,
+        countReview: false,
+      });
+    }
+  };
+  startOk(distinctA);
+  startOk(distinctB);
+  ok = applyCodeReviewFinishPatch(distinctA, ok);
+  ok = applyCodeReviewFinishPatch(distinctB, ok);
+  assert.equal(normalizeCodeReviewPoolRound(ok.codeReviewPoolRound).resolved, 'PASS');
+  assert.equal(ok.codeReviewClosureCount, 0);
+}
+
+// --- F15 regression: effort suffix and Claude alias never make a 2nd reviewer -
+{
+  const { saveDelegationSettings } = await import('../lib/persist/delegation-settings-persist.js');
+  const { clearDelegationEnvCache } = await import('../lib/delegation-settings.js');
+  const { buildCodeReviewWorkflowPatchOnStart } = await import('../lib/delegation-code-review-phase.js');
+  const aliasWs = `/tmp/reviewer-pool-alias-ws-${crypto.randomUUID()}`;
+  saveDelegationSettings(aliasWs, {
+    reviewer_pair_enabled: true,
+    reviewer_pair_members: [
+      { harness: 'claude', model: 'claude-opus-5-5' },
+      { harness: 'codex', model: 'rev-b' },
+    ],
+  });
+  clearDelegationEnvCache();
+  const parentChatId = crypto.randomUUID();
+  const leaf = crypto.randomUUID();
+  let wf = applyDelegationWorkflowPatch({
+    parentChatId,
+    leafId: leaf,
+    workspaceFolder: aliasWs,
+    codeReviewAuditDone: true,
+    codeReviewClosureCount: 0,
+    maxCodeReviewClosures: 4,
+    round: 1,
+    materialRevision: 'alias-rev',
+    idempotencyKey: 'alias-seed',
+  });
+  const mkAliasJob = (model, transport = 'claude') => ({
+    id: crypto.randomUUID(),
+    parentChatId,
+    leafId: leaf,
+    workspaceFolder: aliasWs,
+    status: 'completed',
+    reviewSubject: 'code',
+    reviewMode: 'closure',
+    report: 'VERDICT: PASS\nF1 FIXED',
+    reportVerdict: 'PASS',
+    executor: { transport, model },
+  });
+  const startAlias = (job) => {
+    const patch = buildCodeReviewWorkflowPatchOnStart(wf, {
+      delegationId: job.id,
+      mode: 'closure',
+      workspaceFolder: aliasWs,
+      parentChatId,
+      reviewer: { transport: job.executor.transport, model: job.executor.model },
+    });
+    if (patch) {
+      wf = applyDelegationWorkflowPatch({
+        ...patch,
+        parentChatId,
+        leafId: leaf,
+        idempotencyKey: `alias-start-${job.id}`,
+        countReview: false,
+      });
+    }
+  };
+  // One reviewer, two spellings: numbered id at low effort and the `opus` alias
+  // at high effort. Canonical identity must merge them.
+  const numbered = mkAliasJob('claude-opus-5-5::effort=low');
+  const aliased = mkAliasJob('opus::effort=high');
+  startAlias(numbered);
+  startAlias(aliased);
+  wf = applyCodeReviewFinishPatch(numbered, wf);
+  wf = applyCodeReviewFinishPatch(aliased, wf);
+  const aliasRecord = normalizeCodeReviewPoolRound(wf.codeReviewPoolRound);
+  assert.equal(
+    aliasRecord.resolved,
+    'DEGRADED',
+    'effort/alias variants of one reviewer must never resolve as a two-reviewer PASS',
+  );
+  assert.equal(aliasRecord.degradedReason, 'reviewer_pool_single_reviewer');
+  assert.equal(wf.codeReviewClosureCount, 0, 'a degraded alias round advances no closure');
+  assert.equal(wf.stopReason, DELEGATION_WORKFLOW_STOP_REVIEWER_POOL_DEGRADED);
+}
+
+// --- F17 regression: an outsider never supplies the fixed pair's 2nd PASS ----
+{
+  const { saveDelegationSettings } = await import('../lib/persist/delegation-settings-persist.js');
+  const { clearDelegationEnvCache } = await import('../lib/delegation-settings.js');
+  const { buildCodeReviewWorkflowPatchOnStart } = await import('../lib/delegation-code-review-phase.js');
+  const outsiderWs = `/tmp/reviewer-pool-outsider-ws-${crypto.randomUUID()}`;
+  saveDelegationSettings(outsiderWs, {
+    reviewer_pair_enabled: true,
+    reviewer_pair_members: [
+      { harness: 'claude', model: 'rev-a' },
+      { harness: 'codex', model: 'rev-b' },
+    ],
+  });
+  clearDelegationEnvCache();
+  const parentChatId = crypto.randomUUID();
+  const leaf = crypto.randomUUID();
+  let wf = applyDelegationWorkflowPatch({
+    parentChatId,
+    leafId: leaf,
+    workspaceFolder: outsiderWs,
+    codeReviewAuditDone: true,
+    codeReviewClosureCount: 0,
+    maxCodeReviewClosures: 4,
+    round: 1,
+    materialRevision: 'outsider-rev',
+    idempotencyKey: 'outsider-seed',
+  });
+  const mkMember = (harness, model, membership) => ({
+    id: crypto.randomUUID(),
+    parentChatId,
+    leafId: leaf,
+    workspaceFolder: outsiderWs,
+    status: 'completed',
+    reviewSubject: 'code',
+    reviewMode: 'closure',
+    report: 'VERDICT: PASS\nF1 FIXED',
+    reportVerdict: 'PASS',
+    executor: { transport: harness, model },
+    reviewerPolicy: { selection: 'fixed_pair', membership },
+  });
+  const startMember = (job) => {
+    const patch = buildCodeReviewWorkflowPatchOnStart(wf, {
+      delegationId: job.id,
+      mode: 'closure',
+      workspaceFolder: outsiderWs,
+      parentChatId,
+      reviewer: { transport: job.executor.transport, model: job.executor.model },
+    });
+    if (patch) {
+      wf = applyDelegationWorkflowPatch({
+        ...patch,
+        parentChatId,
+        leafId: leaf,
+        idempotencyKey: `outsider-start-${job.id}`,
+        countReview: false,
+      });
+    }
+  };
+  const memberA = mkMember('claude', 'rev-a', 'member');
+  const outsider = mkMember('deepseek', 'rev-outside', 'outside_pool');
+  const memberB = mkMember('codex', 'rev-b', 'member');
+  startMember(memberA);
+  startMember(outsider);
+  wf = applyCodeReviewFinishPatch(memberA, wf);
+  wf = applyCodeReviewFinishPatch(outsider, wf);
+  let record = normalizeCodeReviewPoolRound(wf.codeReviewPoolRound);
+  assert.equal(record.resolved, '', 'member PASS + outside-pool PASS must stay pending');
+  assert.equal(record.memberships[outsider.id], 'outside_pool');
+  assert.equal(wf.codeReviewClosureCount, 0, 'an unresolved pair round advances no closure');
+  // The second real member resolves the round; the outsider neither helped nor
+  // blocked it.
+  startMember(memberB);
+  wf = applyCodeReviewFinishPatch(memberB, wf);
+  record = normalizeCodeReviewPoolRound(wf.codeReviewPoolRound);
+  assert.equal(record.resolved, 'PASS');
+  assert.equal(wf.codeReviewClosureCount, 0);
+}
+
+// --- F15 regression: missing reviewer identity never fabricates a 2nd member -
+{
+  const { saveDelegationSettings } = await import('../lib/persist/delegation-settings-persist.js');
+  const { clearDelegationEnvCache } = await import('../lib/delegation-settings.js');
+  const { buildCodeReviewWorkflowPatchOnStart } = await import('../lib/delegation-code-review-phase.js');
+  const blankWs = `/tmp/reviewer-pool-blank-ws-${crypto.randomUUID()}`;
+  saveDelegationSettings(blankWs, {
+    reviewer_pair_enabled: true,
+    reviewer_pair_members: [
+      { harness: 'claude', model: 'rev-a' },
+      { harness: 'codex', model: 'rev-b' },
+    ],
+  });
+  clearDelegationEnvCache();
+  const parentChatId = crypto.randomUUID();
+  const leaf = crypto.randomUUID();
+  let wf = applyDelegationWorkflowPatch({
+    parentChatId,
+    leafId: leaf,
+    workspaceFolder: blankWs,
+    codeReviewAuditDone: true,
+    codeReviewClosureCount: 0,
+    maxCodeReviewClosures: 4,
+    round: 1,
+    materialRevision: 'blank-rev',
+    idempotencyKey: 'blank-seed',
+  });
+  const mkBlank = () => ({
+    id: crypto.randomUUID(),
+    parentChatId,
+    leafId: leaf,
+    workspaceFolder: blankWs,
+    status: 'completed',
+    reviewSubject: 'code',
+    reviewMode: 'closure',
+    report: 'VERDICT: PASS\nF1 FIXED',
+    reportVerdict: 'PASS',
+    executor: {},
+  });
+  const startBlank = (job) => {
+    const patch = buildCodeReviewWorkflowPatchOnStart(wf, {
+      delegationId: job.id,
+      mode: 'closure',
+      workspaceFolder: blankWs,
+      parentChatId,
+    });
+    if (patch) {
+      wf = applyDelegationWorkflowPatch({
+        ...patch,
+        parentChatId,
+        leafId: leaf,
+        idempotencyKey: `blank-start-${job.id}`,
+        countReview: false,
+      });
+    }
+  };
+  const first = mkBlank();
+  const second = mkBlank();
+  startBlank(first);
+  startBlank(second);
+  wf = applyCodeReviewFinishPatch(first, wf);
+  wf = applyCodeReviewFinishPatch(second, wf);
+  const blankRecord = normalizeCodeReviewPoolRound(wf.codeReviewPoolRound);
+  assert.equal(blankRecord.resolved, 'DEGRADED', 'identity-less PASSes must not fabricate an approval');
+  assert.equal(wf.codeReviewClosureCount, 0);
 }
 
 console.log('delegation-code-review-phase.test.js OK');

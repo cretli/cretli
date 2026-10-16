@@ -210,7 +210,18 @@ updateDelegationRecord(firstAttempt.body.delegation.id, {
   finishedAt: new Date().toISOString(),
   error: 'usage limit',
 });
-const fallbackBody = startBody(parent6, fallbackPick.pickId, {
+// A fallback needs a fresh decision made after the failed attempt ended, and the
+// pick must propose the fallback executor itself.
+const freshFallbackPick = persistModelPickProposal({
+  role: 'implement',
+  chatId: parent6.id,
+  workspaceFolder: workspace,
+  pickResult: {
+    pick: { harness: 'codebuddy', model: 'hy3' },
+    picks: [{ harness: 'codebuddy', model: 'hy3' }],
+  },
+});
+const fallbackBody = startBody(parent6, freshFallbackPick.pickId, {
   executor: { transport: 'codebuddy', model: 'hy3' },
   pickFallbackFrom: firstAttempt.body.delegation.id,
   leafId: FALLBACK_LEAF,
@@ -232,12 +243,13 @@ assert.notEqual(
 );
 assert.notEqual(fallbackStart.body.delegation.id, firstAttempt.body.delegation.id, 'fallback is its own job');
 assert.ok(getDelegationById(fallbackStart.body.delegation.id), 'fallback job is persisted');
-const fallbackSlots = getModelPickRecord(fallbackPick.pickId).slots;
-assert.equal(fallbackSlots['0'].delegationId, firstAttempt.body.delegation.id, 'slot 0 stays with the first attempt');
+const firstSlots = getModelPickRecord(fallbackPick.pickId).slots;
+assert.equal(firstSlots['0'].delegationId, firstAttempt.body.delegation.id, 'the first pick keeps its own slot');
+const fallbackSlots = getModelPickRecord(freshFallbackPick.pickId).slots;
 assert.equal(
-  fallbackSlots[`fallback:${firstAttempt.body.delegation.id}`].delegationId,
+  fallbackSlots['0'].delegationId,
   fallbackStart.body.delegation.id,
-  'the fallback reserves its own slot, never aliasing slot 0',
+  'the fallback reserves the selected executor slot of its fresh pick',
 );
 finish(fallbackStart.body.delegation.id);
 
@@ -246,14 +258,14 @@ finish(fallbackStart.body.delegation.id);
 const rowsBeforeDup = listDelegationsForController(parent6.id).length;
 const dupFallback = await invoke('POST', '/api/chats/:id/delegations', {
   params: { id: parent6.id },
-  body: startBody(parent6, fallbackPick.pickId, {
+  body: startBody(parent6, freshFallbackPick.pickId, {
     executor: { transport: 'codebuddy', model: 'hy3' },
     pickFallbackFrom: firstAttempt.body.delegation.id,
     leafId: FALLBACK_LEAF,
   }),
 });
 assert.equal(dupFallback.status, 409, JSON.stringify(dupFallback.body));
-assert.equal(dupFallback.body.code, 'slot_taken');
+assert.equal(dupFallback.body.code, 'fallback_already_used');
 assert.equal(listDelegationsForController(parent6.id).length, rowsBeforeDup, 'a refused reservation leaves no orphan row');
 
 // --- Fallback leaf mismatch: same parent chat but leafId must match -------------
@@ -275,11 +287,20 @@ assert.equal(priorLeafA.status, 201, JSON.stringify(priorLeafA.body));
 updateDelegationRecord(priorLeafA.body.delegation.id, {
   status: 'failed',
   finishedAt: new Date().toISOString(),
-  error: 'transient',
+  error: 'usage limit',
+});
+const leafMismatchPickFresh = persistModelPickProposal({
+  role: 'implement',
+  chatId: parentLeafMismatch.id,
+  workspaceFolder: workspace,
+  pickResult: {
+    pick: { harness: 'codebuddy', model: 'hy3' },
+    picks: [{ harness: 'codebuddy', model: 'hy3' }],
+  },
 });
 const leafMismatchFallback = await invoke('POST', '/api/chats/:id/delegations', {
   params: { id: parentLeafMismatch.id },
-  body: startBody(parentLeafMismatch, leafMismatchPick.pickId, {
+  body: startBody(parentLeafMismatch, leafMismatchPickFresh.pickId, {
     executor: { transport: 'codebuddy', model: 'hy3' },
     pickFallbackFrom: priorLeafA.body.delegation.id,
     leafId: 'deadbeef00000002',
@@ -293,7 +314,7 @@ assert.equal(
 );
 assert.equal(leafMismatchFallback.body.delegation.pickLinkStatus, 'rejected-link');
 assert.equal(
-  getModelPickRecord(leafMismatchPick.pickId).slots[`fallback:${priorLeafA.body.delegation.id}`],
+  getModelPickRecord(leafMismatchPickFresh.pickId).slots['0'],
   undefined,
   'invalid fallback must not reserve a fallback slot',
 );
@@ -317,11 +338,20 @@ assert.equal(priorNoLeaf.status, 201, JSON.stringify(priorNoLeaf.body));
 updateDelegationRecord(priorNoLeaf.body.delegation.id, {
   status: 'failed',
   finishedAt: new Date().toISOString(),
-  error: 'transient',
+  error: 'usage limit',
+});
+const leafMissingPickFresh = persistModelPickProposal({
+  role: 'implement',
+  chatId: parentLeafMissing.id,
+  workspaceFolder: workspace,
+  pickResult: {
+    pick: { harness: 'codebuddy', model: 'hy3' },
+    picks: [{ harness: 'codebuddy', model: 'hy3' }],
+  },
 });
 const leafMissingFallback = await invoke('POST', '/api/chats/:id/delegations', {
   params: { id: parentLeafMissing.id },
-  body: startBody(parentLeafMissing, leafMissingPick.pickId, {
+  body: startBody(parentLeafMissing, leafMissingPickFresh.pickId, {
     executor: { transport: 'codebuddy', model: 'hy3' },
     pickFallbackFrom: priorNoLeaf.body.delegation.id,
     leafId: FALLBACK_LEAF,
@@ -335,18 +365,41 @@ assert.equal(
 );
 assert.equal(leafMissingFallback.body.delegation.pickLinkStatus, 'rejected-link');
 assert.equal(
-  getModelPickRecord(leafMissingPick.pickId).slots[`fallback:${priorNoLeaf.body.delegation.id}`],
+  getModelPickRecord(leafMissingPickFresh.pickId).slots['0'],
   undefined,
   'missing leaf on prior attempt must not get a fallback slot',
 );
 finish(leafMissingFallback.body.delegation.id);
+
+// A failed attempt that has not used its fallback yet, on the executor the
+// "same executor" claim below tries to reuse.
+const sameExecParent = makeParent();
+const sameExecPick = persistModelPickProposal({
+  role: 'implement',
+  chatId: sameExecParent.id,
+  workspaceFolder: workspace,
+  pickResult: {
+    pick: { harness: 'opencode', model: 'opencode/test' },
+    picks: [{ harness: 'opencode', model: 'opencode/test' }],
+  },
+});
+const sameExecAttempt = await invoke('POST', '/api/chats/:id/delegations', {
+  params: { id: sameExecParent.id },
+  body: startBody(sameExecParent, sameExecPick.pickId),
+});
+assert.equal(sameExecAttempt.status, 201, JSON.stringify(sameExecAttempt.body));
+updateDelegationRecord(sameExecAttempt.body.delegation.id, {
+  status: 'failed',
+  finishedAt: new Date().toISOString(),
+  error: 'usage limit',
+});
 
 // --- Fake fallback claims are rejected-link, never auto -----------------------
 for (const [label, fromId, executor] of [
   ['unknown id', 'delegation-does-not-exist', { transport: 'codebuddy', model: 'hy3' }],
   ['arbitrary text', 'whatever', { transport: 'codebuddy', model: 'hy3' }],
   ['pick id instead of delegation', fallbackPick.pickId, { transport: 'codebuddy', model: 'hy3' }],
-  ['same executor', firstAttempt.body.delegation.id, { transport: 'opencode', model: 'opencode/test' }],
+  ['same executor', sameExecAttempt.body.delegation.id, { transport: 'opencode', model: 'opencode/test' }],
 ]) {
   const fakeParent = makeParent();
   const fakePick = persistModelPickProposal({

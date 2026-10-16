@@ -318,11 +318,15 @@ test('finishDelegation does not record startup lockout after post-first-event pr
   }
 });
 
-test('finishDelegation records startup lockout after adapter timeout', () => {
+test('finishDelegation records startup lockout after adapter timeout when retries are disabled', () => {
   const dataDir = ISOLATED_DATA_DIR;
   const { wsA } = createStartupLockoutWorkspacePair();
   const prevLockoutMs = process.env.CRETLI_STARTUP_FAILURE_LOCKOUT_MS;
+  const prevRetryCount = process.env.CRETLI_STARTUP_FAILURE_RETRIES;
   process.env.CRETLI_STARTUP_FAILURE_LOCKOUT_MS = '7200000';
+  // The service scheduler normally retries a transient startup failure before
+  // the lockout; this test pins the disabled-retry path (immediate lockout).
+  process.env.CRETLI_STARTUP_FAILURE_RETRIES = '0';
   const model = `mimo-model-x-${process.pid}`;
   try {
     const delegation = createDelegationRecord({
@@ -356,6 +360,8 @@ test('finishDelegation records startup lockout after adapter timeout', () => {
   } finally {
     if (prevLockoutMs === undefined) delete process.env.CRETLI_STARTUP_FAILURE_LOCKOUT_MS;
     else process.env.CRETLI_STARTUP_FAILURE_LOCKOUT_MS = prevLockoutMs;
+    if (prevRetryCount === undefined) delete process.env.CRETLI_STARTUP_FAILURE_RETRIES;
+    else process.env.CRETLI_STARTUP_FAILURE_RETRIES = prevRetryCount;
     clearHarnessStartupFailureLockout({ harness: 'opencode', model, dataDir, workspaceFolder: wsA });
   }
 });

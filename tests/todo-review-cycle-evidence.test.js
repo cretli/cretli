@@ -180,3 +180,13 @@ test('a prefix leaf id is attributed to the full leaf', () => {
   assert.equal(evidence.outcome, 'PASS');
   assert.equal(evidence.verified, true);
 });
+
+test('FU-1: a legacy single PASS under a live fixed_pair policy is not verified', () => {
+  const rows = [implementRow(), reviewRow()];
+  const base = { cycleId: 'c1', parentChatId: CHAT, leafId: LEAF, rows, now: Date.parse('2026-01-01T01:00:00.000Z') };
+  const withPolicy = buildCycleReviewEvidence({ ...base, codeReviewerPolicy: { selection: 'fixed_pair' } });
+  assert.equal(withPolicy.verified, false);
+  assert.equal(withPolicy.outcome, 'unknown');
+  const without = buildCycleReviewEvidence(base);
+  assert.equal(without.verified, true);
+});

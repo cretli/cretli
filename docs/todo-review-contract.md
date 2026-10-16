@@ -316,6 +316,37 @@ jobs stuck in `cancelling` past the deadline are finished as `review_cancel_stuc
 rule; the todo snapshot is intentionally more lenient on infra retries so a
 replacement review can close the leaf.
 
+A **fixed-pair code round** adds one condition before `passed`. When any
+deciding attempt of the round carries
+`reviewerPolicy.selection === 'fixed_pair'`, **or the workspace currently
+enforces a `fixed_pair` code policy** (`lib/reviewer-policy.js`
+`resolveReviewerPolicy({ subject: 'code' })`), the round needs two **distinct
+eligible reviewer identities**. A lone member PASS stays `pending`
+(`pair_reviewer_pending`), an `outside_pool` PASS never supplies the second
+member, and two PASSes from one canonical identity (effort/alias variants, or
+the workflow `reviewer_pool_degraded` round) stay `pending`, never `passed`.
+Identity matching reuses the shared canonical model identity
+(`lib/model-identity.js`), so a second PASS from the same reviewer at another
+effort is not a second reviewer. A fresh human acceptance still yields `manual`
+(§7); the pair gate only blocks the automatic `passed` path.
+
+Eligibility is reconstructed from each attempt's persisted `reviewerPolicy`
+snapshot and pick provenance (`docs/todo-review-contract.md` §5.1,
+`snap_fu1`). A PASS counts as an eligible pair member **only** when its attempt
+carries a snapshot with `selection=fixed_pair` and `membership` `member` or
+`learning` **and** a recognized `pickOrigin` (`auto` or `manual`; an empty,
+`unknown` or unrecognized origin is never eligible). The live `fixed_pair`
+code policy is passed to every recomputation (snapshot, auto-close hook, cycle
+evidence), so an all-legacy round cannot pass. When eligibility cannot be
+reconstructed — the attempt has **no `reviewerPolicy` snapshot** (legacy data,
+a policy-resolver miss, or a start path that never wrote one) or its
+`pickOrigin` is `unknown` (the pick bypassed the policy picker) — that PASS must
+**never** supply one of the two required identities. The round stays `pending`
+with reason `pair_reviewer_pending` (it never silently falls through to
+`passed`). Non-pair code reviews and the `plan` / `other` subjects are
+unaffected: `pairRequired` is gated on the code subject and on a `fixed_pair`
+selection, so a single PASS still resolves a normal round.
+
 ### 4.6 Transition table — SETTLED
 
 | Event | Precondition | Resulting `state` | Notes |
@@ -371,6 +402,8 @@ The writer MUST capture, per attempt, at least:
 | `leafId` | record defaults | leaf binding (§2.4) |
 | `status`, `taskOutcome`, `error` | existing | terminal + infra classification |
 | `executor.transport`, `executor.model` | existing | independence (§9) |
+| `pickOrigin` | `snapshotDelegationAttempt` | fixed-pair eligibility (§4.5): `unknown` means the pick bypassed the policy picker, so the attempt cannot supply a pair member identity |
+| `reviewerPolicy.selection`, `reviewerPolicy.membership` | start path (`lib/delegation-service.js`) | fixed-pair membership of this attempt (§4.5) |
 
 `snapshotDelegationAttempt` (`lib/delegation-attempt.js:9`) already captures
 `acknowledgedAt` (line 23) plus status, `runId`, timestamps, `report`, `error`,
@@ -438,7 +471,7 @@ body. Consequences:
 ```jsonc
 {
   "state": "none|pending|passed|failed|manual|stale|unknown",
-  "stateReason": "fresh_review|verify_preexisting_failures|verify_missing|no_verdict|reviewer_timeout|history_truncated|implement_queued_after_review|…",
+  "stateReason": "fresh_review|verify_preexisting_failures|pair_reviewer_pending|verify_missing|no_verdict|reviewer_timeout|history_truncated|implement_queued_after_review|…",
   "subject": "code|plan|other",
   "subjectSource": "explicit|default|unknown",
   "round": {

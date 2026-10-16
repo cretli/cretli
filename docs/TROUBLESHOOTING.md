@@ -202,11 +202,22 @@ the reverse, would silently orphan OpenCode and harness/PTY processes.
 ## Delegation startup failures (first-event timeout, transport not started)
 
 When a delegated executor never reaches its first event (OpenCode first-event
-timeout) or the transport fails to start, Cretli records a short **startup-failure lockout** for that harness/model
-pair (`startup_failure`, default 2 h). `model_pick` skips the pair and reports
-`startup-failure` with `lockout_reset_at` in diagnosis; a second startup failure
-within 24 h extends the block to 12 h. A later **successful** run on the same pair
-clears only that startup lockout (usage/quota lockouts stay).
+timeout) or the transport fails to start, Cretli makes a bounded **server-side
+retry** before recording any lockout: by default one automatic retry with a fresh
+`attemptId` (same child chat and slot) after a short delay. The lockout
+(`startup_failure`, default 2 h) is written only after every attempt fails.
+`model_pick` skips the pair and reports `startup-failure` with `lockout_reset_at`
+in diagnosis; a second startup failure within 24 h extends the block to 12 h. A
+later **successful** run on the same pair clears only that startup lockout
+(usage/quota lockouts stay).
+
+The retry covers both the synchronous accept path and the asynchronous run
+bridge (including a first-event timeout after the start was accepted). It is
+skipped when the run has an explicit deadline in the past, when the job was
+cancelled or is no longer the same attempt, or when the failed attempt is not
+confirmed stopped and idle. Success means a real execution, not just accepting a
+start; a retry that starts successfully leaves no lockout row at all. A server
+restart during the delay leaves the job `interrupted` (no retry resumes).
 
 Explicit **named** `delegation_start` calls may still use a cooling-down pair;
 the response includes a `warning` with `reset_at`. Starts bound to `pick_id` stay
@@ -233,6 +244,8 @@ Tune or disable startup lockouts:
 | `CRETLI_STARTUP_FAILURE_LOCKOUT_MS` / `startupFailureLockoutMs` | 2 h | Base lockout; `0` disables new startup lockouts |
 | `CRETLI_STARTUP_FAILURE_LOCKOUT_EXTENDED_MS` / `startupFailureLockoutExtendedMs` | 12 h | Repeat failure within the escalation window |
 | `CRETLI_STARTUP_FAILURE_LOCKOUT_ESCALATION_MS` / `startupFailureLockoutEscalationMs` | 24 h | Window for the extended duration |
+| `CRETLI_STARTUP_FAILURE_RETRIES` / `startupFailureRetries` | 1 | Bounded server-side startup retries before any lockout (fresh attempt); clamp 0–3, `0` disables. Covers the synchronous accept path and the async run bridge (first-event timeout after accept). |
+| `CRETLI_STARTUP_FAILURE_RETRY_DELAY_MS` / `startupFailureRetryDelayMs` | 2 s | Delay before each retry; clamp 0–10 s. A restart during the delay leaves the job `interrupted`. |
 | `OPENCODE_DELEGATED_FIRST_EVENT_TIMEOUT_MS` / `delegatedSdkRunFirstEventTimeoutSeconds` | 2 min | Delegation OpenCode first-event wait only |
 
 Substantive review FAIL, usage limits, cancel, and deadline outcomes do **not**

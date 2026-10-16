@@ -153,6 +153,82 @@ Reservation and counters:
   immediately before the synchronous record create, so two starts cannot both
   pass the `workspace_busy` gate across the pick reservation await.
 
+## Failure classes, exclusion scope and recovery
+
+`lib/delegation-failure-class.js` classifies a failed run from structured error
+text: `transient_transport`, `model_unavailable`, `auth`, `quota`,
+`harness_outage`, `unknown`. The class drives lockout scope and bounded fallback eligibility; the single blacklist
+stays the shared lockout store (`lib/harness-usage-limits.js`,
+`lib/delegation-startup-lockout-policy.js`).
+
+| Class | Lockout row | Scope | Expiry |
+|---|---|---|---|
+| `transient_transport` (startup/first-event timeout) | `code=startup_failure` | workspace + harness + canonical model | 2 h, 12 h on a repeat inside 24 h (unchanged defaults) |
+| `model_unavailable` (incl. Codex "selected model may not be available") | `code=model_unavailable` | workspace + canonical model for delegation evidence; legacy provider rows remain model-scoped; siblings stay eligible | 24 h |
+| `quota` | usage-limit row | model, or whole harness only for credit exhaustion | provider reset, else TTL |
+| `auth`, proven `harness_outage` | separate shared-store row | workspace + harness | startup policy TTL (2 h default); success does not erase auth |
+| `unknown` | none | never excludes or authorizes infrastructure fallback | n/a |
+
+Rows carry `failureClass`, `scope` and `expiresAt`; an expired row stops
+excluding candidates. A technically successful completion of the same
+harness/model in the same workspace clears only the matching
+`startup_failure` row (`clearHarnessStartupFailureLockout`, called from
+`finishDelegation`); quota/auth rows and other models are untouched. User
+exclusions (model overrides) stay separate and authoritative. Old failures are
+therefore never prose-only blacklists: eligibility is recomputed by every new
+`model_pick`, so a recovered model returns to the candidate set (not
+guaranteed to win).
+
+**Bounded fallback.** `pick_fallback_from` is valid only for a real earlier
+delegation of the same controller and leaf that is `failed`, no longer holds
+its slot (`slot_occupied=false`) and ran on a different executor. The fallback
+reserves its own `fallback:<id>` slot, so a second fallback from the same
+attempt is `slot_taken`, and the same idempotency key replays. The fallback
+executor still comes from a new `model_pick` (`pick_id`). No paid probes and
+no blind same-model retries. The row stores `fallbackFailureClass`.
+
+## Automatic start context
+
+Server-owned, never taken from a request body:
+
+| `startContext` | Meaning |
+|---|---|
+| `automatic` | Controller launched by the server: TODO execution/continue/full/refine (even when clicked by a user) and Watcher cycles. Persisted in `data/delegation-start-context.json` when the parent is created, before any child can start. Older parents are derived once from durable evidence (Watcher active cycle, `pickPurpose=watcher-orchestrator`, the TODO's server-written `chatId`) and then persisted; a caller-editable `orchestrator_chat_id` alone is only a hint. |
+| `human_ad_hoc` | Reserved marker for a persisted human ad-hoc chat (same behavior as legacy). |
+| `legacy_ad_hoc` | No execution evidence. Existing ad-hoc behavior is unchanged; shown on the card with unknown provenance. |
+
+In an `automatic` context `delegation_start` needs one of:
+
+1. a current `pick_id` that links as `auto` (valid, unexpired, same chat and
+   workspace, role and executor match, slot not yet taken);
+2. `continuation_of`: a **completed** earlier delegation of the same controller,
+   leaf, role family and executor, with a free slot. Recorded as
+   `pickOrigin=unknown`, `pickOriginDetail=continuation`, `continuationOf=<id>`
+   (never fabricated as auto/manual); every current gate and lockout still
+   applies; or
+3. a single-use UI action proof (below).
+
+Otherwise it fails before any row, queue entry or slot is touched with
+`automatic_start_requires_pick` or `automatic_pick_rejected` (409).
+`manual_source` is audit text only: in an automatic context it is ignored when
+a valid pick is present and does not exempt the start.
+
+HTTP tooling (`CretliApiClient`) identifies its agent channel at login. The server persists that session restriction, so dropping a later header cannot turn that session into a human. Agent markers only restrict access; no caller marker grants human authority.
+
+**UI action proof.** `POST /api/chats/:id/delegation-ui-actions` (human browser
+session only; MCP/widget/integration identities get 403) mints an action bound
+to chat, workspace, role, executor (and optional task hash), expiring after two
+minutes. `createAndStart` verifies it after the idempotency replay and consumes
+it after all gates pass, right before the slot is reserved: the start is
+recorded `pickOrigin=manual`, `pickOriginDetail=ui`, `uiActionProof=true`. Reuse,
+expiry, a foreign chat/workspace or another role/executor/task yields a typed
+403 (`ui_action_used|unknown|expired|foreign|mismatch|forbidden`). The exception
+is per action: later agent starts in the same automatic parent are still gated.
+
+The delegation card shows source (picker / continuation / manual / fallback),
+controller context, fallback failure class and any active exclusion with scope
+and expiry.
+
 Delegation rows store: `pickId`, `pickOrigin`, `pickOriginDetail`,
 `pickLinkStatus`, `pickRole`. `pickRole` is the **requested** role captured
 before assignment normalization, so a real `fix` job stays `fix`; legacy rows
@@ -231,3 +307,7 @@ labelled as such). The level is read from the persisted pick-record complexity
 (`unknown` when absent). The decision journal is unchanged and these values
 never influence `model_pick`. Shown in Settings -> Harness -> "Model prices and
 statistics". Detail: `docs/model-scoring-facts.md` ("Priced statistics").
+
+Infrastructure fallback starts require a fresh `pick_id`. The controller lock and persisted `pickFallbackFrom` enforce one fallback across different picks and concurrent requests. Idempotency replay returns the existing job; a fallback cannot itself authorize another fallback.
+
+Settings → Delegations → Models shows the effective server recovery durations alongside model selection. It is a read-only view of the existing startup policy; it does not create a second settings or lockout store.

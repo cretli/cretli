@@ -59,9 +59,15 @@ This resumed pair is **not** the opt-in reviewer *pool* (`reviewer_pair_enabled`
 / `reviewer_pair_members` in Settings → Delegations): the pool is two fixed
 members passed to `model_pick` as `prefer_models`, each started as a fresh
 review with no `resume_session_of` and no keep-alive. The two are independent
-mechanisms and may be used separately. The opt-in `reviewer_pair_strict` setting
-connects them: with an active pair the server fills `resume_session_of` itself
-for pool members (see `docs/delegation-workflow-per-leaf.md`).
+mechanisms and may be used separately. The per-subject `reviewer_policy` (plan /
+code, `session=leaf|orchestrator`) connects them: the server fills
+`resume_session_of` itself for pair members (see
+`docs/delegation-workflow-per-leaf.md`). `session=orchestrator` is an approved,
+opt-in **extension of the former same-leaf contract**: a reviewer chat may be
+re-entered from another leaf of the same controller after every gate passes.
+Plan cooperation sessions stay revision-bound and are not affected: a new plan
+version always gets a new cooperation session; only the harness chat history may
+be resumed.
 
 Contract per round:
 

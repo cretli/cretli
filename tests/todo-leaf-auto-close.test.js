@@ -14,6 +14,7 @@ import { withWorkspaceWatchersFileLock } from '../lib/persist/workspace-watchers
 import { worktreeRegistryPath, writeWorktreeRegistry } from '../lib/persist/worktree-registry-persist.js';
 import { buildLiveWorktreePredicate } from '../lib/todo-worktree-manual.js';
 import { evaluateTodoLeafAutoClose, isTodoLeafAutoCloseEnabled } from '../lib/todo-review-sync.js';
+import { saveDelegationSettings } from '../lib/persist/delegation-settings-persist.js';
 import { closeTodoLeafAfterReview, syncTodoReviewTarget } from '../lib/todo-review-sync-hooks.js';
 
 let seq = 0;
@@ -379,5 +380,21 @@ test('T8: concurrent processes produce exactly one transition', async () => {
     const saved = loadTodosData(ISOLATED_DATA_DIR, project).items.find((r) => r.id === leaf.id);
     assert.equal(saved.status, 'done');
     assert.equal(saved.changelog.filter((e) => /Auto-closed/.test(e.text)).length, 1);
+  }
+});
+
+test('FU-1: live fixed_pair policy holds an all-legacy round open in the hook', () => {
+  const project = makeProject();
+  const leaf = makeLeaf(project);
+  saveDelegationSettings(project, {
+    reviewer_policy: { code: { selection: 'fixed_pair', members_source: 'learned', session: 'fresh' } },
+  }, { dataDir: ISOLATED_DATA_DIR });
+  try {
+    const result = close(project, leaf.id, passedRows(leaf.id));
+    assert.equal(result.closed, false);
+    assert.equal(result.reason, 'review_pending');
+    assert.equal(statusOf(project, leaf.id), 'doing');
+  } finally {
+    saveDelegationSettings(project, { reviewer_policy: null }, { dataDir: ISOLATED_DATA_DIR });
   }
 });

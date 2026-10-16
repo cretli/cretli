@@ -376,6 +376,8 @@ const PRIOR_ATTEMPT = {
   id: 'prior-1',
   parentChatId: 'chat-fb',
   leafId: 'leaf-1',
+  status: 'failed',
+  finishedAt: '2000-01-01T00:00:00.000Z',
   executor: { transport: 'a', model: 'm-a' },
 };
 
@@ -383,12 +385,15 @@ function fallbackPick(file) {
   return persistModelPickProposal({
     role: 'implement',
     chatId: 'chat-fb',
-    pickResult: { pick: { harness: 'a', model: 'm-a' }, picks: [{ harness: 'a', model: 'm-a' }] },
+    pickResult: {
+      pick: { harness: 'a', model: 'm-a' },
+      picks: [{ harness: 'a', model: 'm-a' }, { harness: 'z', model: 'm-z' }],
+    },
     file,
   });
 }
 
-test('fallback to another executor needs a real earlier attempt and gets its own slot', () => {
+test('fallback to another proposed executor needs a real earlier attempt and keeps the picked slot', () => {
   const file = tempPickFile();
   const persisted = fallbackPick(file);
   const base = {
@@ -407,7 +412,43 @@ test('fallback to another executor needs a real earlier attempt and gets its own
   assert.equal(fields.pickOrigin, 'auto');
   assert.equal(fields.pickOriginDetail, 'fallback');
   assert.equal(fields.pickLinkStatus, 'linked');
-  assert.equal(fields.selectionSlot, 'fallback:prior-1', 'own slot, never slot 0');
+  assert.equal(fields.selectionSlot, 1, 'the slot of the proposed executor');
+});
+
+test('fallback executor outside the pick proposals is rejected', () => {
+  const file = tempPickFile();
+  const persisted = fallbackPick(file);
+  const fields = resolveDelegationPickLinkFields({
+    pickId: persisted.pickId,
+    harness: 'q',
+    model: 'm-q',
+    assignment: 'implement',
+    executionMode: 'agent',
+    parentChatId: 'chat-fb',
+    leafId: 'leaf-1',
+    pickFallbackFrom: 'prior-1',
+    fallbackFromRecord: PRIOR_ATTEMPT,
+    file,
+  });
+  assert.equal(fields.pickLinkStatus, 'rejected-link');
+});
+
+test('fallback with a pick older than the failed run is rejected', () => {
+  const file = tempPickFile();
+  const persisted = fallbackPick(file);
+  const fields = resolveDelegationPickLinkFields({
+    pickId: persisted.pickId,
+    harness: 'z',
+    model: 'm-z',
+    assignment: 'implement',
+    executionMode: 'agent',
+    parentChatId: 'chat-fb',
+    leafId: 'leaf-1',
+    pickFallbackFrom: 'prior-1',
+    fallbackFromRecord: { ...PRIOR_ATTEMPT, finishedAt: new Date(Date.now() + 60_000).toISOString() },
+    file,
+  });
+  assert.equal(fields.pickLinkStatus, 'rejected-link');
 });
 
 test('fake fallback claims are rejected-link, not auto', () => {
@@ -432,6 +473,8 @@ test('fake fallback claims are rejected-link, not auto', () => {
     'missing leaf on new start': { leafId: '' },
     'missing leaf on prior record': { fallbackFromRecord: { ...PRIOR_ATTEMPT, leafId: '' } },
     'same executor (no change)': { harness: 'a', model: 'm-a' },
+    'prior attempt still running': { fallbackFromRecord: { ...PRIOR_ATTEMPT, status: 'running' } },
+    'prior attempt completed': { fallbackFromRecord: { ...PRIOR_ATTEMPT, status: 'completed' } },
   };
   for (const [label, override] of Object.entries(cases)) {
     const fields = resolveDelegationPickLinkFields({ ...base, ...override });

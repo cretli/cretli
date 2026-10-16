@@ -164,6 +164,15 @@ import {
 } from '../features/chat/timeoutProgressSeries.js';
 import { planRelatedChatChildBackfill } from '../features/chat/relatedChatBackfill.js';
 
+/** Translate a persisted reviewer session code, with legacy text as fallback. */
+function reviewerSessionLabel(prefix, value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const key = `${prefix}.${text}`;
+  const translated = t(key);
+  return translated === key ? text : translated;
+}
+
 /** @type {import('highlight.js').HLJSApi | null} */
 let hljsEngine = null;
 /** @type {Promise<import('highlight.js').HLJSApi> | null} */
@@ -4907,16 +4916,42 @@ export function createSdkRichView(chat, mountEl, hooks) {
     const pickReasonLabel = model.pickReason
       ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-pick-reason" title="${escapeHtml(model.pickReason)}">${escapeHtml(t('chat.delegationPickReason'))}: ${escapeHtml(model.pickReason)}</div>`
       : '';
+    const sel = model.selection;
+    const selectionParts = sel ? [
+      `${t('chat.delegationSelectionSource')}: ${t(`chat.delegationSelectionOrigin.${sel.detail === 'continuation' ? 'continuation' : sel.detail === 'fallback' ? 'fallback' : sel.origin === 'auto' ? 'auto' : sel.origin === 'manual' ? 'manual' : 'unknown'}`)}`,
+      `${t('chat.delegationSelectionContext')}: ${t(`chat.delegationSelectionStartContext.${sel.startContext}`)}`,
+      sel.continuationOf ? `${t('chat.delegationSelectionContinuation')}: ${sel.continuationOf.slice(0, 8)}` : '',
+      sel.pickFallbackFrom ? `${t('chat.delegationSelectionFallbackFrom')}: ${sel.pickFallbackFrom.slice(0, 8)}` : '',
+      sel.fallbackFailureClass ? `${t('chat.delegationSelectionFallbackClass')}: ${sel.fallbackFailureClass}` : '',
+      sel.exclusion ? `${t('chat.delegationSelectionExclusion')}: ${sel.exclusion.failureClass} / ${sel.exclusion.scope}${sel.exclusion.expiresAt ? ` (${t('chat.delegationSelectionUntil')} ${sel.exclusion.expiresAt})` : ''}` : '',
+    ].filter(Boolean) : [];
+    const selectionLabel = selectionParts.length
+      ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-selection" title="${escapeHtml(selectionParts.join(' · '))}">${selectionParts.map((part) => escapeHtml(part)).join('<br>')}</div>`
+      : '';
     const planHeadroomText = model.planHeadroom
       ? model.planHeadroom.windows.map((w) => `${w.type} ${w.utilization}%`).join(', ')
       : '';
     const planHeadroomLabel = planHeadroomText
       ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-plan-headroom" title="${escapeHtml(planHeadroomText)}">${escapeHtml(t('chat.delegationPlanHeadroom'))}: ${escapeHtml(t(`chat.delegationPlanHeadroomLevel.${model.planHeadroom.level}`))} (${escapeHtml(planHeadroomText)})</div>`
       : '';
-    const sessionResumeLabel = model.sessionResume
-      ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-session-resume" title="${escapeHtml(model.sessionResume.reason)}">${escapeHtml(model.sessionResume.status === 'resumed'
-        ? t('chat.delegationSessionResumed', { n: String(model.sessionResume.round) })
-        : t('chat.delegationSessionFallback', { code: model.sessionResume.reasonCode }))}</div>`
+    // Reviewer session decision: same chat + new round, or why a new chat opened.
+    const sessionReasonCode = model.sessionResume?.reasonCode || model.reviewerPolicy?.reuse?.reasonCode || '';
+    const sessionReason = reviewerSessionLabel('chat.delegationSessionReasons', sessionReasonCode)
+      || model.sessionResume?.reason || model.reviewerPolicy?.reuse?.reason || '';
+    const sessionStatus = model.sessionResume?.status || model.reviewerPolicy?.reuse?.status || '';
+    const sessionResumeText = sessionStatus === 'resumed'
+      ? t('chat.delegationSessionResumed', { n: String(model.sessionResume?.round || 2) })
+      : sessionStatus === 'fresh'
+        ? t('chat.delegationSessionFresh', { reason: sessionReason })
+        : sessionStatus ? t('chat.delegationSessionFallback', { code: model.sessionResume?.reasonCode || model.reviewerPolicy?.reuse?.reasonCode || '' }) : '';
+    const sessionResumeLabel = sessionResumeText
+      ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-session-resume" title="${escapeHtml(sessionReason)}">${escapeHtml(sessionResumeText)}${sessionStatus === 'fallback' && sessionReason ? `<br>${escapeHtml(sessionReason)}` : ''}</div>`
+      : '';
+    const reviewerPolicyLabel = model.reviewerPolicy
+      ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-reviewer-policy">${escapeHtml(t('chat.delegationReviewerPolicy', {
+        session: reviewerSessionLabel('chat.delegationReviewerSessions', model.reviewerPolicy.session) || '-',
+        membership: reviewerSessionLabel('chat.delegationReviewerMembership', model.reviewerPolicy.membership) || '-',
+      }))}</div>`
       : '';
     const childGrantLabel = model.allowChildDelegations
       ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-child-grant">${escapeHtml(t('chat.delegationChildGrant'))}</div>`
@@ -4933,7 +4968,9 @@ export function createSdkRichView(chat, mountEl, hooks) {
       deliveryLabel,
       attemptsLabel,
       pickReasonLabel,
+      selectionLabel,
       planHeadroomLabel,
+      reviewerPolicyLabel,
       sourceLabel,
       '</details>',
       waiting,

@@ -739,6 +739,17 @@ export async function getHarnessCatalog() {
   return dedupeGetJson('/api/harness-catalog/harnesses', 'getHarnessCatalog');
 }
 
+/** Mint a single-use action before submitting a direct human executor selection. */
+export async function postManualChatDelegation(id, payload) {
+  const action = await apiFetchJson(`/api/chats/${encodeURIComponent(id)}/delegation-ui-actions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, role: payload.assignment || 'implement' }),
+  }, `mintChatDelegationAction:${id}`);
+  if (!action?.ok) return action;
+  return postChatDelegation(id, { ...payload, uiActionId: action.uiActionId });
+}
+
 export async function postChatDelegation(id, payload) {
   if (!id) return { ok: false, error: 'Missing chat id' };
   return apiFetchJson(`/api/chats/${encodeURIComponent(id)}/delegations`, {

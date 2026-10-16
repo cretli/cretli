@@ -3378,7 +3378,7 @@ async function startTodoReview(item, subject, harness, model) {
   const todoId = String(item.id);
   setStatus(t('todo.reviewStarting'));
   try {
-    const data = await api.postChatDelegation(resolveTodoReviewParentChatId(item), {
+    const data = await api.postManualChatDelegation(resolveTodoReviewParentChatId(item), {
       executor: { transport: harness, model },
       idempotencyKey: `todo-review:${todoId}:${subject}:${Date.now()}:${Math.random().toString(16).slice(2)}`,
       sourceKind: 'text',

@@ -155,26 +155,90 @@ full regression gate (`CRETLI_DELEGATION_CODE_REVIEW_PHASE=0` disables the
 split). The orchestrator should create separate todos for `FOLLOW_UP` and
 `OUT_OF_SCOPE` items instead of expanding the current leaf.
 
-Opt-in reviewer pool: with `reviewer_pair_enabled` and a complete
-`reviewer_pair_members` (Settings → Delegations) the parent passes the two
+Opt-in reviewer pool: with a fixed pair (`reviewer_policy`, or the legacy
+`reviewer_pair_enabled` + complete `reviewer_pair_members`; Settings → Delegations) the parent passes the two
 members to `model_pick` as `prefer_models` with `count=2` and runs two fresh
 review jobs per round (no resume). The workflow row keeps one round record
-(`codeReviewPoolRound`: round key, epoch, mode, members' results) captured when
-the round starts, so a later settings change or a replacement start does not
-reclassify it. The counter/audit/epoch effect is applied once, when the round
-resolves: any FAIL resolves it as a failed round (closure count +1; audit mode
-sets `codeReviewAuditDone`), two distinct PASS resolve it as PASS (counter reset).
-A member PASS that finishes first mutates nothing, and a late sibling result of
-an already resolved round is ignored. A lone PASS (degraded single reviewer)
-stays pending until the parent records PASS with `workflow_update`. Consequently
-`CRETLI_DELEGATION_CODE_REVIEW_MAX_CLOSURES` counts rounds, not jobs.
+(`codeReviewPoolRound`: round key, epoch, mode, members' results and reviewer
+identities) captured when the round starts, so a later settings change or a
+replacement start does not reclassify it. The counter/audit/epoch effect is
+applied once, when the round resolves: any FAIL resolves it as a failed round
+(closure count +1; audit mode sets `codeReviewAuditDone`), two distinct PASS
+resolve it as PASS (counter reset). Only distinct reviewer **canonical**
+identities count (same harness + base model; an effort suffix or a Claude moving
+alias never creates a second identity, and an `outside_pool` reviewer never
+supplies one of the pair's two PASS results): a second PASS from the same
+reviewer never resolves the round as approval. A
+member PASS that finishes first mutates nothing, and a late sibling result of
+an already resolved round is ignored. A lone PASS stays pending while a second
+distinct member can still arrive; if two credible PASS results come from the
+same reviewer identity (the fixed pair never obtained a second eligible
+reviewer), the round resolves `DEGRADED` with
+`stop_reason=reviewer_pool_degraded`, advances no counter and never approves the
+leaf. That stop is actionable: the parent reports it as blocked, and
+`resume_rounds` on `workflow_update` clears it once reviewer eligibility is
+restored. Consequently `CRETLI_DELEGATION_CODE_REVIEW_MAX_CLOSURES` counts
+rounds, not jobs.
 
-Strict pair (`reviewer_pair_strict`, only with an active pair): a review start by
-a pool member that names no `resume_session_of` is resumed by the server into
-that member's newest finished review of the same controller, subject, leaf and
-executor config, in every mode. Every resume gate still applies and a refusal
-falls back to a new chat (`session_resume` records the reason).
-The `review_recheck_no_material_change` gate and independence checks are unchanged.
+### Reviewer policy per review kind (`reviewer_policy`)
+
+Settings → Delegations → Review holds one policy per review subject, **plan** and
+**code** (`review:other` keeps the legacy `reviewer_pair_*` behavior and is not
+configurable in the new UI). Each entry has:
+
+| field | values | meaning |
+| --- | --- | --- |
+| `selection` | `auto` \| `fixed_pair` | `auto`: `model_pick` chooses each reviewer. `fixed_pair`: the same two reviewers every round. |
+| `members_source` | `learned` \| `configured` | `learned`: the first two distinct reviewers of a controller (orchestrator chat) and subject become its pair (`reviewer-pairs.json`, partitioned per subject; an errored member is evicted, a verdict FAIL never evicts). `configured`: two chosen favorites (same harness + base model = one reviewer; effort never makes a second reviewer). |
+| `session` | `fresh` \| `leaf` \| `orchestrator` | `fresh`: new chat per review. `leaf`: re-enter the member's earlier session of the same leaf. `orchestrator`: any leaf of the same controller. |
+
+One resolver (`lib/reviewer-policy.js`) feeds manual TODO start/continue, full mode,
+refine, Watcher cycle prompts (`resolveReviewerPoliciesForPrompt`), MCP
+`model_pick` and the server start path, so every route sees the same effective
+policy. `model_pick` has no default `review_subject`: it injects a fixed pair as
+`prefer_models` only when the caller passes `review_subject=plan|code` explicitly.
+Without it no pair is injected (the picker never guesses a subject, so a plan
+review cannot silently receive the code pair). **The server enforces it** in
+`createAndStart` for every review start, including from an older running
+orchestrator; prompts only mirror it. A running job keeps the snapshot stored on
+it (`delegation.reviewerPolicy`: subject, revision, selection, session, members,
+membership, reuse decision).
+
+Reuse rules (every gate of `inspectDelegationSessionResume` still applies):
+
+- A reviewed round is always a NEW delegation, attempt, report, verdict and material
+  id, even when `childChatId` is reused. No earlier PASS is inherited.
+- The first known member is reused while the pair is still being learned; a
+  reviewer outside a complete pair is started fresh (`reuse_not_pool_member`) and
+  never redefines the pair.
+- Audit and closure never share a session (`phase_changed`, both directions);
+  with a same-phase candidate available it wins over a newer other-phase one.
+- A session whose chat also ran implement/fix work is never reused
+  (`resume_implementation_history`); independence is judged against every
+  implementer of the *current* leaf.
+- Execution folder, execution mode, options, effort, permissions, root/depth,
+  adapter support, lockouts, busy/claimed/reset/missing sessions and peer-opinion
+  (exchange) contamination fall back to ONE fresh chat with a durable reason.
+  The fallback never relaxes read-only, independence or model gates.
+- Every review records its decision (`reuse_fresh_by_policy`, `reuse_first_session`,
+  `reuse_learning_pair`, `reuse_no_eligible_source`, `reuse_not_pool_member`,
+  `resumed`, or a `resume_*` fallback code) on `sessionResume` (when a policy asked
+  for reuse) and always on `reviewerPolicy.reuse`; the delegation card shows
+  "same chat, round N" or the reason a new chat opened.
+- Implement/fix children always start in a new chat; this policy never covers
+  them (a separate explicit policy would be required).
+
+Migration (read-time, deterministic, idempotent; legacy fields stay stored so a
+reset or downgrade keeps working): `strict` -> `fixed_pair` + `session=leaf` (the
+boundary strict mode really enforced; `members_source=configured` with a stored
+pair, else `learned`); `enabled` + complete pair without strict -> `fixed_pair`,
+`configured`, `fresh`; anything else -> `auto`, `fresh`. Orchestrator-wide reuse
+is a new opt-in (the Settings view shows a notice). Saving a `reviewer_policy`
+overrides the derived value per subject; clearing it returns to the derivation.
+Learned pairs migrate lazily per controller and subject: the legacy mixed pair is
+filtered to the members that actually reviewed that subject (original order, at
+most two); rows without a plan/code subject infer nothing and stay in the legacy
+`other` pair.
 
 Session resume (`resume_session_of`, see `docs/plan-reviewer-cooperation.md`) is
 optional, off by default and not wired into this flow: a closure review whose
@@ -295,6 +359,7 @@ row per leaf, not as a review round.
 | `workflow_rounds_exhausted` | `round >= max_rounds` |
 | `workflow_stopped` | twardy `stop_reason` (np. `same_findings`, `blocked`, `closure_rounds_exhausted`) |
 | `closure_rounds_exhausted` | wyczerpany domyślny limit rund closure (1 audyt + 2 closure); `resume_rounds` podnosi stop |
+| `reviewer_pool_degraded` | stała para nie uzyskała drugiego różnego recenzenta (dwa PASS-y z tej samej tożsamości); runda nie jest zatwierdzona, `resume_rounds` ponawia po przywróceniu kwalifikowalności |
 | `workflow_budget_exhausted` | zmierzony koszt/tokeny osiągnęły budżet liścia |
 
 ## Controller key
