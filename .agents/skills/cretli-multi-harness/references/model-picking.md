@@ -151,6 +151,8 @@ is eligible, use the normal eligibility/blocked rules rather than silently
 inventing a cheaper option. Explain the exceptional reason briefly to the
 user when selecting a premium model.
 
+**cost_ceiling:** `model_pick` returning `reason: cost_ceiling` (rejected list holds `cost_ceiling`, `cost_policy.premium_hint === 'premium:true'`) means every candidate is above the cost ceiling. Report it and ask the human to re-run explicitly with `premium: true` (or a named premium model); never silently escalate to an expensive model.
+
 ## Reviewer pool (`prefer_models`, opt-in)
 
 When `reviewer_pair_enabled` is on with a complete `reviewer_pair_members`

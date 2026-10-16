@@ -14,7 +14,9 @@ import {
   normalizeCostPolicyRecord,
   resolveEffectivePolicyMode,
 } from '../lib/model-pick-cost-policy.js';
-import { applyCostPolicyLayer, loadCanaryOutcomeCounters } from '../lib/model-pick-cost-policy-layer.js';
+import {
+  applyCostPolicyLayer, loadCanaryOutcomeCounters, buildCanaryOutcomeCounters, clearCanaryOutcomeCache,
+} from '../lib/model-pick-cost-policy-layer.js';
 import { summarizeCostPolicy } from '../lib/mcp/builtin/catalog-tools.js';
 import { pickModelForPurpose } from '../lib/model-pick-service.js';
 import { buildCostProxyForPick } from '../lib/model-pick-cost-proxy.js';
@@ -155,6 +157,7 @@ test('(c) review: MODEL_UNAVAILABLE reason cost_ceiling instead of a silent expe
   assert.equal(r.code, 'MODEL_UNAVAILABLE');
   assert.equal(r.reason, 'cost_ceiling');
   assert.ok(r.cost_policy.rejected.length >= 1);
+  assert.equal(r.cost_policy.premium_hint, 'premium:true');
   // Two different base models stay available for a refine loop.
   const pool = [cand('opus-x', 4, 5), cand('sonnet-x', 3, 4), cand('weak', 2, 3)];
   const p = pickModelForPurpose(base(pool, { role: 'review', costPolicyConfig: enforce }));
@@ -173,6 +176,7 @@ test('(c) quality floor relaxes by one only for implement/fix trivial/standard',
   const exp = pickModelForPurpose(base([cand('opus-x', 4, 5)], { costPolicyConfig: enforce }));
   assert.equal(exp.ok, false);
   assert.equal(exp.reason, 'cost_ceiling');
+  assert.ok(JSON.stringify(exp.cost_policy.rejected).includes('cost_ceiling'));
 });
 
 test('(d) enforce: tier 5 only for demanding + heavy/premium; manual_only never', () => {
@@ -184,6 +188,9 @@ test('(d) enforce: tier 5 only for demanding + heavy/premium; manual_only never'
   assert.equal(standardPremium.pick.model, 'sonnet-x'); // not demanding
   const heavy = pickModelForPurpose(base(pool, { role: 'review', heavy: true, costPolicyConfig: cfg }));
   assert.equal(heavy.pick.model, 'astra');
+  const onlyTier5 = pickModelForPurpose(base([cand('astra', 5, 5)], { role: 'review', complexity: 'demanding', costPolicyConfig: cfg }));
+  assert.equal(onlyTier5.reason, 'cost_ceiling');
+  assert.equal(onlyTier5.cost_policy.premium_hint, 'premium:true');
   const prem = pickModelForPurpose(base(pool, { role: 'review', complexity: 'demanding', premium: true, costPolicyConfig: cfg }));
   assert.equal(prem.pick.model, 'astra');
   const manual = normalizeCostPolicyConfig({
@@ -289,6 +296,7 @@ function storedOutcomes(kind, canaryBad, controlBad) {
         delegations.push({ pickId: id, assignment: 'implement', status: 'completed', report: 'Done.' });
         delegations.push({
           assignment: 'review', leafId: `leaf-${id}`, status: 'completed',
+          createdAt: new Date(t0 + 5000).toISOString(),
           report: isBad ? 'findings\nVERDICT: FAIL' : 'VERDICT: PASS',
         });
       }
@@ -351,4 +359,74 @@ test('(L3 F5) invalid canaryStartedAt fails safe to shadow/rolled_back', () => {
 test('(L3 F3) MCP cost_policy summary is compact and closed', () => {
   const s = summarizeCostPolicy({ mode: 'enforce', configured: 'enforce', bucket: 'canary', wouldChange: true, applied: true, rejected: [{}] });
   assert.deepEqual(s, { mode: 'enforce', configured: 'enforce', canary_bucket: true, decision: 'changed' });
+});
+
+// ---- L3 canary follow-ups: N1 scoping, N3 cached reads ----
+
+const verdictOf = (r) => (/VERDICT: FAIL/.test(r) ? 'FAIL' : 'PASS');
+const joinCounters = (reviewAt, pickAt = t0 + 1000) => buildCanaryOutcomeCounters({
+  startedAtMs: t0,
+  records: [{ id: 'p1', role: 'implement', leafId: 'L', createdAt: new Date(pickAt).toISOString(), costPolicy: { bucket: 'canary' } }],
+  delegations: [
+    { pickId: 'p1', assignment: 'implement', status: 'completed' },
+    { assignment: 'review', leafId: 'L', report: 'VERDICT: FAIL', createdAt: reviewAt === undefined ? undefined : new Date(reviewAt).toISOString() },
+  ],
+  isInfra: () => false,
+  parseVerdict: verdictOf,
+}).canary;
+
+test('(N1) pre-canary review FAIL is not counted and does not roll back', () => {
+  assert.equal(joinCounters(t0 - 60_000).failReview, 0);
+  const { records, delegations } = storedOutcomes('review', 2, 2);
+  for (const d of delegations) if (d.assignment === 'review') d.createdAt = new Date(t0 - 1000).toISOString();
+  const bad = storedOutcomes('review', 25, 2);
+  for (const d of bad.delegations) if (d.assignment === 'review') d.createdAt = new Date(t0 - 1000).toISOString();
+  const out = applyCostPolicyLayer({
+    role: 'implement', chatId: 'c', complexityLevel: 'standard', costPolicyConfig: enforceCanary,
+    costPolicyState: startedState(), costPolicyRecords: bad.records, costPolicyDelegations: bad.delegations,
+    now: t0 + 60_000, leafExists: false,
+  }, firstOk, () => firstOk);
+  assert.equal(out.cost_policy.phase, 'canary');
+  assert.ok(records.length && delegations.length);
+});
+
+test('(N1) review without createdAt never counts', () => {
+  assert.equal(joinCounters(undefined).failReview, 0);
+});
+
+test('(N1) in-window review before the pick record is not attributed to it', () => {
+  assert.equal(joinCounters(t0 + 500, t0 + 1000).failReview, 0);
+});
+
+test('(N1) in-window review after the pick record is attributed and can roll back', () => {
+  assert.equal(joinCounters(t0 + 2000, t0 + 1000).failReview, 1);
+  const { records, delegations } = storedOutcomes('review', 15, 2);
+  const out = applyCostPolicyLayer({
+    role: 'implement', chatId: 'c', complexityLevel: 'standard', costPolicyConfig: enforceCanary,
+    costPolicyState: startedState(), costPolicyRecords: records, costPolicyDelegations: delegations,
+    now: t0 + 60_000, leafExists: false,
+  }, firstOk, () => firstOk);
+  assert.equal(out.cost_policy.phase, 'rolled_back');
+});
+
+test('(N3) pick records are read once per unchanged file and re-read on change', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-cache-'));
+  const file = path.join(dir, 'picks.json');
+  fs.writeFileSync(file, '{}');
+  let reads = 0;
+  const readRecords = () => {
+    reads += 1;
+    return { a: { id: 'a', createdAt: new Date(t0 + 1).toISOString(), costPolicy: { bucket: 'canary' } } };
+  };
+  clearCanaryOutcomeCache();
+  const call = () => loadCanaryOutcomeCounters({ startedAtMs: t0, recordsFile: file, readRecords, delegations: [] });
+  call(); call(); call();
+  assert.equal(reads, 1);
+  fs.writeFileSync(file, '{"changed":true}');
+  call();
+  assert.equal(reads, 2);
+  clearCanaryOutcomeCache();
+  call();
+  assert.equal(reads, 3);
+  fs.rmSync(dir, { recursive: true, force: true });
 });

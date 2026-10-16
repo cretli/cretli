@@ -62,6 +62,7 @@ read that skill in full; read only the two sections this loop needs:
    true, exclude_models? })`; forward the returned `pickId` as `pick_id` on both
    starts. A tier 4+ pick needs a `pick_reason`. Rotation rules:
    `references/round-protocol.md`.
+   If the pick fails with `cost_ceiling`: Report it and ask the human to re-run explicitly with `premium: true` (or a named premium model); never silently escalate to an expensive model.
 3. **Start both reviews** — `delegation_start` with `assignment: "review"`,
    `review_subject: "plan"`, `leaf_id: <root id>`, a distinct
    `idempotency_key` per reviewer and version, and the shared `task_text`

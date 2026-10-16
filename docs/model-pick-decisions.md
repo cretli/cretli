@@ -78,6 +78,7 @@ Rejection reasons are a closed list: `cost_ceiling`, `tier5_not_allowed`,
 
 When no candidate is left the pick fails with `MODEL_UNAVAILABLE` and
 `reason: cost_ceiling` plus the rejected list (suggestion `premium:true`).
+The orchestrator, refine/review loops and the Workspace Scout must report this and ask the human to re-run explicitly with `premium: true` (or a named premium model); they never silently escalate to an expensive model.
 Before that, the quality floor is relaxed by one tier **only** for
 implement/fix trivial/standard; the ceiling and review/plan floors never relax.
 
