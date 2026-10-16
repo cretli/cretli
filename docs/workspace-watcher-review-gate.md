@@ -433,9 +433,11 @@ unchanged.
    `DONE` cannot bypass the gate.
 9. `warn` records its changelog note in the `afterWrite` callback, after the
    caller's write succeeded; it never bumps the CAS token before the write.
-10. C1/C3 evaluate the gate for `success`, `blocked` and `failure` reports. An
-    unsatisfied `enforce` gate writes the marker for all three (FAIL -> `phase=fix`).
-    A `blocked` report closes as `blocked`/`review_missing` (backoff-exempt); a
+10. C1/C3 evaluate the gate for `success` and `failure` reports. An
+    unsatisfied `enforce` gate writes the marker for both (FAIL -> `phase=fix`).
+    A reported `blocked` is never reinterpreted: it keeps `cycle_blocked`
+    (`reported_blocked`) and the blocked backoff, writes no marker and consumes no
+    attempt, because the real cause may not be review-related (e.g. no access). A
     `failure` report keeps outcome `failure` and its failure count, but the marker
     and release rules (tables A/B) still apply. `warn` only judges `success`.
 11. `releaseWorkspaceWatcherCycleTodoClaim` returns whether it released; boot

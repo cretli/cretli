@@ -42,6 +42,7 @@ import {
   releaseWorkspaceWatcherCycleTodoClaim,
   resolveWorkspaceWatcherCycleBlockedReasonCode,
   resolveWorkspaceWatcherCycleCloseOutcome,
+  resolveWorkspaceWatcherCycleReviewGate,
 } from '../lib/workspace-watcher-cycle-close.js';
 import {
   evaluateReviewGate,
@@ -1031,12 +1032,12 @@ function closeWithReport(cwd, dataDir, input) {
   return getWorkspaceWatcher(cwd, { dataDir });
 }
 
-test('F3: blocked report on a gated leaf writes the marker, closes blocked/review_missing, leaf released to ready', () => {
+test('F3: unreviewed success report on a gated leaf writes the marker, closes blocked/review_missing, leaf released to ready', () => {
   const dataDir = freshDataDir('f3-blocked');
   const cwd = makeWorkspace('f3-blocked');
   setAutopilot(cwd, dataDir);
   const leaf = addClaimedLeaf(cwd, dataDir, 'orch-1');
-  const row = closeWithReport(cwd, dataDir, { n: 1, todoId: leaf.id, outcome: 'blocked', message: 'no passing review' });
+  const row = closeWithReport(cwd, dataDir, { n: 1, todoId: leaf.id, outcome: 'success', message: 'done, no passing review' });
   assert.equal(row.reviewWaits[leaf.id].attempts, 1);
   assert.equal(row.reviewWaits[leaf.id].phase, 'review');
   assert.equal(row.cycleChats.at(-1).outcome, 'blocked');
@@ -1045,13 +1046,13 @@ test('F3: blocked report on a gated leaf writes the marker, closes blocked/revie
   assert.equal(getTodoById(dataDir, cwd, leaf.id).status, 'ready');
 });
 
-test('F3: blocked report after a review FAIL sets phase=fix', () => {
+test('F3: unreviewed success report after a review FAIL sets phase=fix', () => {
   const dataDir = freshDataDir('f3-fail');
   const cwd = makeWorkspace('f3-fail');
   setAutopilot(cwd, dataDir);
   const leaf = addClaimedLeaf(cwd, dataDir, 'orch-1');
   writeCodeReview(cwd, dataDir, leaf.id, { state: 'failed' });
-  const row = closeWithReport(cwd, dataDir, { n: 1, todoId: leaf.id, outcome: 'blocked' });
+  const row = closeWithReport(cwd, dataDir, { n: 1, todoId: leaf.id, outcome: 'success' });
   assert.equal(row.reviewWaits[leaf.id].phase, 'fix');
 });
 
@@ -1084,8 +1085,8 @@ test('F3: blocked/failure reports with a satisfied gate, in off, and in warn mod
   assert.deepEqual(closeWithReport(cwd, dataDir, { n: 3, todoId: offLeaf.id, outcome: 'blocked' }).reviewWaits, {});
 });
 
-test('F3: blocked report on a worktree-marked leaf keeps it doing with review_missing; failure too', () => {
-  for (const outcome of ['blocked', 'failure']) {
+test('F3: unreviewed success report on a worktree-marked leaf keeps it doing with review_missing; failure too', () => {
+  for (const outcome of ['success', 'failure']) {
     const dataDir = freshDataDir(`f3-wt-${outcome}`);
     const cwd = makeWorkspace(`f3-wt-${outcome}`);
     setAutopilot(cwd, dataDir);
@@ -1108,7 +1109,7 @@ test('F3/F6: a released non-worktree gated leaf is reselected through the real s
   const cwd = makeWorkspace('f3-resel');
   setAutopilot(cwd, dataDir);
   const leaf = addClaimedLeaf(cwd, dataDir, 'orch-1');
-  const row = closeWithReport(cwd, dataDir, { n: 1, todoId: leaf.id, outcome: 'blocked' });
+  const row = closeWithReport(cwd, dataDir, { n: 1, todoId: leaf.id, outcome: 'success' });
   const snapshot = snapshotWorkspaceWatcher({
     workspaceFolder: cwd,
     dataDir,
@@ -1144,4 +1145,30 @@ test('F5: boot reconcile only lists a leaf as released when the release actually
   assert.deepEqual(out.released, [plain.id]);
   assert.equal(getTodoById(dataDir, cwd, fenced.id).claimedByChatId, 'dead-chat');
   assert.equal(getTodoById(dataDir, cwd, plain.id).claimedByChatId, undefined);
+});
+
+test('enforce: a blocked report with a non-review cause keeps reported_blocked and its backoff', () => {
+  const unsatisfied = resolveWorkspaceWatcherCycleCloseOutcome({
+    cycle: { todoIds: ['t'] },
+    row: {},
+    todo: { id: 't', status: 'doing' },
+    reportedOutcomeRaw: 'blocked',
+    leafOutcomes: { primaryOutcome: 'attempted' },
+    reviewGateUnsatisfied: true,
+  });
+  assert.equal(unsatisfied.closeOutcome, 'blocked');
+  assert.equal(unsatisfied.closeReason, 'cycle_blocked');
+  assert.equal(unsatisfied.countIncompleteFailure, true);
+  assert.equal(resolveWorkspaceWatcherCycleBlockedReasonCode({
+    closeOutcome: 'blocked', closeReason: unsatisfied.closeReason, planOnly: false, todoOutcomes: [{ outcome: 'attempted' }],
+  }), 'reported_blocked');
+  const gate = resolveWorkspaceWatcherCycleReviewGate({
+    row: { policy: { reviewGate: 'enforce' } },
+    cycle: { todoIds: ['t'] },
+    todo: { id: 't', status: 'doing' },
+    reportedOutcome: 'blocked',
+    at: T0,
+  });
+  assert.equal(gate.unsatisfied, false);
+  assert.equal(gate.reviewWaits, null);
 });
