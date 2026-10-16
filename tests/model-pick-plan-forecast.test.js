@@ -25,6 +25,18 @@ const models = {
 const NOW = Date.parse('2026-01-01T00:00:00Z');
 const FUTURE = '2099-01-01T00:00:00Z';
 
+// The default scoped plan-window mode drops rows without a recognized window
+// type, so every fixture row needs one to reach the forecast penalty.
+const WINDOW_TYPE = 'seven_day';
+
+/**
+ * @param {object[]} planLimits
+ * @returns {object[]}
+ */
+function withWindowType(planLimits) {
+  return planLimits.map((row) => ({ rateLimitType: WINDOW_TYPE, ...row }));
+}
+
 /**
  * @param {object[]} planLimits
  * @returns {number}
@@ -37,7 +49,7 @@ function penaltyFor(planLimits) {
     rotation: 'balanced',
     explore: false,
     now: NOW,
-    history: { planLimits },
+    history: { planLimits: withWindowType(planLimits) },
   });
   assert.equal(result.ok, true, 'a plan penalty never removes the only candidate');
   assert.equal(result.candidates[0].harness, 'a');
@@ -241,7 +253,7 @@ const tiePick = selectModelPick({
   explore: false,
   now: NOW,
   history: {
-    planLimits: [
+    planLimits: withWindowType([
       {
         harness: 'a',
         utilization: 72,
@@ -256,7 +268,7 @@ const tiePick = selectModelPick({
         confidence: 'high',
         forecast: forecast({ percentPerHour: 1 }),
       },
-    ],
+    ]),
   },
 });
 assert.equal(tiePick.pick.harness, 'b', 'A with a near-exhaustion forecast loses to a healthy B');
