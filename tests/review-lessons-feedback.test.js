@@ -6,10 +6,11 @@ import crypto from 'node:crypto';
 import { applyDelegationWorkflowPatch, applyParentWorkflowUpdate } from '../lib/delegation-workflow.js';
 import { syncCodeReviewWorkflowAfterFinish } from '../lib/delegation-service.js';
 import { createDelegationRecord } from '../lib/persist/delegations-persist.js';
-import { applyRejectedReviewFindings, closeReviewFindingsCycle, recordReviewFindings } from '../lib/persist/review-findings-ledger-persist.js';
+import { applyRejectedReviewFindings, closeReviewFindingsCycle, getReviewFindingsLedger, recordReviewFindings } from '../lib/persist/review-findings-ledger-persist.js';
 import { getReviewLessonsDataPath } from '../lib/persist/review-lessons-persist.js';
 import { distillReviewLessons } from '../lib/review-lessons-distill.js';
-import { applyRoundFeedback, decideLessonTransition, drainLessonFeedback, listWorkspaceFiles, resolveFeedbackOptions, setLessonDemotionNotifier } from '../lib/review-lessons-feedback.js';
+import { applyRoundFeedback, computeRoundFeedback, decideLessonTransition, drainLessonFeedback, listWorkspaceFiles, resolveFeedbackOptions, setLessonDemotionNotifier } from '../lib/review-lessons-feedback.js';
+import { scoutGlobToRegExp } from '../lib/workspace-scout-glob.js';
 import { lessonEffectiveness, selectReviewLessons } from '../lib/review-lessons-select.js';
 import { addLesson, listLessons, ReviewLessonsError, updateLesson } from '../lib/review-lessons-service.js';
 import { resetReviewRoundResolutionState } from '../lib/review-round-resolution.js';
@@ -32,6 +33,15 @@ const review = (leafId, id, ids = [], createdAt = iso(-1000)) => ({ id, assignme
 const round = (id, verdict, memberIds = [id]) => ({ id, verdict, memberIds, source: 'single', resolvedAt: iso() });
 const apply = (ws, leafId, r, delegations, extra = {}) => applyRoundFeedback({ leafId, workspaceFolder: ws, parentChatId: 'p' }, r, { delegations, files: null, ...extra });
 const stats = (ws, id) => get(ws, id).stats;
+
+// Defect 3: compiled globs are memoized so a walk never recompiles a glob per file.
+{
+  const first = scoutGlobToRegExp('lib/memoized/**');
+  assert.equal(scoutGlobToRegExp('lib/memoized/**'), first, 'a compiled glob is reused, not rebuilt');
+  // The cache is bounded: filling it with distinct globs evicts the oldest entry.
+  for (let i = 0; i < 5000; i += 1) scoutGlobToRegExp(`cache-probe-${i}/**`);
+  assert.notEqual(scoutGlobToRegExp('lib/memoized/**'), first, 'the compiled-glob cache stays bounded');
+}
 
 // Counter transitions: recurred vs cleanAfterInjection, injected once per round, non-injected untouched.
 {
@@ -103,6 +113,18 @@ const stats = (ws, id) => get(ws, id).stats;
     assert.deepEqual(decideLessonTransition(row, st, { now, options, files }), expected, name);
   }
   assert.equal(resolveFeedbackOptions({}, { CRETLI_REVIEW_LESSONS_RETIRE_MIN_INJECTIONS: '3' }).minInjections, 3, 'thresholds are configurable');
+  // Defect 4: a listing built for different globs must never retire a lesson whose globs changed after it.
+  const changed = { ...base, pathGlobs: ['changed/**'] };
+  assert.equal(
+    decideLessonTransition(changed, { injected: 0, recurred: 0 }, { now, options, files: ['lib/a.js'], listedGlobs: new Set(['gone/**']) }),
+    null,
+    'a glob the listing did not cover is never stale',
+  );
+  assert.deepEqual(
+    decideLessonTransition(changed, { injected: 0, recurred: 0 }, { now, options, files: ['lib/a.js'], listedGlobs: new Set(['changed/**']) }),
+    { status: 'retired', reason: 'stale_paths' },
+    'a covered glob with no file still retires',
+  );
   // End to end through the store: retired keeps status + reason, and is not reactivated by later rounds.
   const ws = newWorkspace(); const leafId = crypto.randomUUID();
   const stale = lesson(ws, { pathGlobs: ['gone/**'] }); const fine = lesson(ws);
@@ -209,6 +231,23 @@ const suppressLesson = (ws) => {
   assert.equal(get(ws2, s2.id).statusReason, 'suppressed_real_issue');
 }
 
+// Defect 5: re-recording a delegation keeps the first-recorded timestamp of each finding key.
+{
+  const ws = newWorkspace(); const leafId = crypto.randomUUID();
+  const suppress = suppressLesson(ws);
+  record(ws, leafId, 'rev-old', [finding('F1', { status: 'FIXED' })]);
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  const reviewerCreatedAt = iso(0);
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  // Same delegation, new report hash: the ledger replaces the entries but must keep the original time.
+  recordReviewFindings({ workspaceFolder: ws, leafId, delegationId: 'rev-old', attemptId: 'a', mode: 'audit', reportHash: 'changed', findings: [finding('F1', { status: 'FIXED' })] });
+  const ledger = getReviewFindingsLedger(ws, leafId);
+  const delegations = [review(leafId, 'rev-a', [suppress.id], reviewerCreatedAt)];
+  const plan = computeRoundFeedback({ leafId, round: round('rev-a', 'FAIL', ['rev-old', 'rev-a']), delegations, ledger, lessons: listLessons(ws) });
+  assert.equal(plan.realIssue.has(suppress.id), false, 'a re-recorded old finding never demotes the suppress lesson');
+  assert.ok(ledger.entries[0].recordedAt, 'findings keep their first-recorded timestamp');
+}
+
 // Stale-path walk: nested data/ is walked, a truncated walk retires nothing, a missing path still retires.
 {
   const ws = newWorkspace();
@@ -234,6 +273,40 @@ const suppressLesson = (ws) => {
   assert.equal(get(ws3, absent.id).status, 'active', 'truncated walk retires nothing');
   // Early exit: once every glob matched the cut-off does not matter.
   assert.deepEqual(listWorkspaceFiles(ws3, { maxFiles: 2, globs: ['lib/**'] }).length > 0, true);
+}
+
+// Defect 1 + 6: skipped roots are unverifiable and bare directory globs are never stale.
+{
+  const ws = newWorkspace();
+  const put = (rel) => { const f = path.join(ws, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, 'x'); };
+  put('src/components/Button.js'); put('data/tracked.js'); put('dist/bundle.js');
+  const bareDir = addLesson(ws, { audience: 'implementer', kind: 'avoid', category: 'missing-test', text: `Directory glob ${crypto.randomUUID()}.`, pathGlobs: ['src/components'], activate: true });
+  assert.deepEqual(get(ws, bareDir.id).pathGlobs, ['src/components/**'], 'a bare directory glob is normalized on save');
+  const rootData = lesson(ws, { pathGlobs: ['data/**'] });
+  const rootDist = lesson(ws, { pathGlobs: ['dist/**'] });
+  const stale = lesson(ws, { pathGlobs: ['nothing-here/**'] });
+  apply(ws, crypto.randomUUID(), round('dirs', 'PASS'), [], { files: undefined });
+  assert.equal(get(ws, bareDir.id).status, 'active', 'a bare directory glob matches files below it');
+  assert.equal(get(ws, rootData.id).status, 'active', 'a glob into skipped root data/ is unverifiable, not stale');
+  assert.equal(get(ws, rootDist.id).status, 'active', 'a glob into skipped root dist/ is unverifiable, not stale');
+  assert.equal(get(ws, stale.id).status, 'retired', 'a glob with no file anywhere still retires');
+}
+
+// Defect 2: an unreadable directory or an unhandled symlink makes the listing unknown.
+{
+  const ws = newWorkspace();
+  const put = (rel) => { const f = path.join(ws, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, 'x'); };
+  put('lib/a.js'); put('other/b.js');
+  const realReaddir = fs.readdirSync;
+  fs.readdirSync = (dir, options) => {
+    if (String(dir).endsWith(`${path.sep}other`)) throw new Error('EACCES');
+    return realReaddir(dir, options);
+  };
+  try {
+    assert.equal(listWorkspaceFiles(ws, { globs: ['other/**'] }), null, 'an unreadable directory makes the listing unknown');
+  } finally { fs.readdirSync = realReaddir; }
+  fs.symlinkSync(path.join(ws, 'lib/a.js'), path.join(ws, 'linked.js'));
+  assert.equal(listWorkspaceFiles(ws, { globs: ['linked.js'] }), null, 'an unhandled symlink makes the listing unknown');
 }
 
 // A real bug outside an earlier leaf's scope is still reported: suppress is built only from false_positive.
