@@ -11,12 +11,13 @@ import {
   resolveReviewerReportLinkState,
   shouldShowLeafReviewBadge,
 } from '../app_front/features/todo/todoReviewBadge.js';
+import { readAppScssSource } from './helpers/app-scss-source.js';
 
 const componentSource = fs.readFileSync(
   new URL('../app_front/components/ui/cr-todo-review-badge.js', import.meta.url),
   'utf8',
 );
-const appScss = fs.readFileSync(new URL('../app_front/css/app.scss', import.meta.url), 'utf8');
+const appScss = readAppScssSource();
 
 const reviewer = (over = {}) => ({
   delegationId: 'd1', harness: 'codex', model: 'gpt-x', verdict: 'PASS', ...over,

@@ -1,8 +1,13 @@
 {
   "id": "keep-alive-review-pair",
-  "version": "1",
+  "version": "2",
   "rounds": 3,
   "materialIds": ["round-1", "round-2", "round-3"],
+  "material": [
+    { "id": "round-1", "file": "material/round-1.md", "sha256": "d1b57d74ed2a98f24d7850dacdc635979b68d93df6138403adc5fa815a786646" },
+    { "id": "round-2", "file": "material/round-2.md", "sha256": "98d1403f46e9711d8c14af487e2839c9c0b28d51a48764ec1fd4a525465df901" },
+    { "id": "round-3", "file": "material/round-3.md", "sha256": "8fca5deb01f73571a99e82998c850dd9167c4ffcd6e02248729987a3b24ac59c" }
+  ],
   "seededBugs": [
     "off-by-one-in-pager",
     "unchecked-null-owner",
@@ -11,6 +16,14 @@
     "swallowed-error-in-retry",
     "wrong-sort-direction"
   ],
+  "bugMarkers": [
+    { "id": "off-by-one-in-pager", "material": "round-1", "snippet": "const offset = page * PAGE_SIZE;" },
+    { "id": "unchecked-null-owner", "material": "round-1", "snippet": "const owner = await db.get('users', account.ownerId);" },
+    { "id": "stale-cache-after-update", "material": "round-2", "snippet": "await db.update('accounts', id, { name, updatedAt: Date.now() });" },
+    { "id": "missing-await-on-save", "material": "round-2", "snippet": "db.insert('audit', {" },
+    { "id": "swallowed-error-in-retry", "material": "round-3", "snippet": "log.error('upload gave up', lastError?.message);" },
+    { "id": "wrong-sort-direction", "material": "round-3", "snippet": "sort((a, b) => a.updatedAt - b.updatedAt)" }
+  ],
   "participants": ["reviewerA", "reviewerB", "coordinator"],
-  "note": "Synthetic task description used to compare fresh, reuse and reuse+keep-alive arms on identical material. It measures resume capability, not a real review loop."
+  "note": "Synthetic task description used to compare fresh, reuse and reuse+keep-alive arms on identical material. It measures resume capability, not a real review loop. The material files carry the six seeded bugs (see bugMarkers); their sha256 is part of the report provenance."
 }

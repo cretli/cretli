@@ -1,8 +1,10 @@
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import { syncCodeReviewWorkflowAfterFinish } from '../lib/delegation-service.js';
 import { applyRejectedReviewFindings } from '../lib/persist/review-findings-ledger-persist.js';
+import { getReviewLessonsDataPath } from '../lib/persist/review-lessons-persist.js';
 import { addLesson, listLessons, updateLesson } from '../lib/review-lessons-service.js';
 import { makeParent, makeReview } from './helpers/review-round-fixtures.js';
 
@@ -82,4 +84,36 @@ const statusOnly = updateLesson(ws, scoped.id, { status: 'active' }, scoped.revi
 assert.deepEqual(statusOnly.pathGlobs, ['lib/**']);
 assert.deepEqual(statusOnly.appliesToModels, ['m1']);
 assert.equal(listLessons(ws).length, 5);
+
+// FU-D: update validates only the fields a patch touches, so a legacy row stored
+// with an invalid category and a malformed appliesToModels can always be retired
+// — while an explicitly invalid patch value still fails with VALIDATION.
+const legacyRow = {
+  id: 'legacy-lesson-row', audience: 'reviewer', kind: 'do', text: 'Legacy lesson stored before the guard.',
+  category: 'legacy-category', appliesToModels: 'broken', pathGlobs: [], checkable: false, checkHint: '',
+  status: 'candidate', origin: 'manual', evidence: [], stats: { injected: 0, recurred: 0, cleanAfterInjection: 0 },
+  revision: 1, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+};
+const lessonsFile = getReviewLessonsDataPath(ws);
+const lessonsDoc = JSON.parse(fs.readFileSync(lessonsFile, 'utf8'));
+lessonsDoc.lessons.push(legacyRow);
+fs.writeFileSync(lessonsFile, JSON.stringify(lessonsDoc));
+const retiredLegacy = updateLesson(ws, legacyRow.id, { status: 'retired', retired_reason: 'obsolete' }, legacyRow.revision);
+assert.equal(retiredLegacy.status, 'retired');
+assert.equal(retiredLegacy.retiredReason, 'obsolete');
+assert.equal(listLessons(ws).find((row) => row.id === legacyRow.id).status, 'retired', 'the retire patch is persisted');
+assert.throws(() => updateLesson(ws, legacyRow.id, { category: 'not-a-category' }, retiredLegacy.revision), { code: 'VALIDATION' });
+assert.throws(() => updateLesson(ws, legacyRow.id, { applies_to_models: 'm1' }, retiredLegacy.revision), { code: 'VALIDATION' });
+assert.throws(() => updateLesson(ws, legacyRow.id, { applies_to_models: [' '] }, retiredLegacy.revision), { code: 'VALIDATION' });
+assert.throws(() => updateLesson(ws, legacyRow.id, { retired_reason: 42 }, retiredLegacy.revision), { code: 'VALIDATION' });
+assert.throws(() => updateLesson(ws, legacyRow.id, { evidence: [{ ledgerKey: 'x' }] }, retiredLegacy.revision), { code: 'VALIDATION' });
+assert.throws(() => updateLesson(ws, legacyRow.id, { evidence: 'nope' }, retiredLegacy.revision), { code: 'VALIDATION' });
+// A retire must name a reason, and a live suppress row keeps its evidence guard.
+assert.throws(() => updateLesson(ws, statusOnly.id, { status: 'retired' }, statusOnly.revision), { code: 'VALIDATION' });
+assert.throws(() => updateLesson(ws, statusOnly.id, { status: 'retired', retired_reason: 42 }, statusOnly.revision), { code: 'VALIDATION' });
+// addLesson stays strict about the whole new row.
+assert.throws(() => addLesson(ws, { ...doLesson, text: 'Models must be a list.', appliesToModels: 'm1' }), { code: 'VALIDATION' });
+assert.throws(() => addLesson(ws, { ...doLesson, text: 'Model ids must be non-empty.', appliesToModels: [''] }), { code: 'VALIDATION' });
+assert.throws(() => addLesson(ws, { ...doLesson, text: 'Evidence refs must name a leaf.', evidence: [{ ledgerKey: 'x' }] }), { code: 'VALIDATION' });
+assert.throws(() => addLesson(ws, { ...doLesson, text: 'Reason must be a string.', retiredReason: 7 }), { code: 'VALIDATION' });
 console.log('review-lessons-service tests passed');

@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { en } from '../app_front/i18n/en.js';
 import { pl } from '../app_front/i18n/pl.js';
+import { readAppScssSource } from './helpers/app-scss-source.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -24,7 +25,7 @@ const cardSource = read('app_front/features/harness-health/harnessHealthCard.js'
 const cacheSource = read('app_front/features/harness-health/harnessHealthCache.js');
 const harnessSource = read('app_front/harnessSettings.js');
 const apiSource = read('app_front/api.js');
-const scss = read('app_front/css/app.scss');
+const scss = readAppScssSource();
 
 test('every harnessHealth.* key used by the UI exists in en and pl', () => {
   const keys = new Set();

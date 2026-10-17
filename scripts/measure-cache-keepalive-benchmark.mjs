@@ -15,6 +15,15 @@
  *   node scripts/measure-cache-keepalive-benchmark.mjs --simulate
  *   node scripts/measure-cache-keepalive-benchmark.mjs --observations obs.json [--out file]
  *   node scripts/measure-cache-keepalive-benchmark.mjs --emit-template
+ *   node scripts/measure-cache-keepalive-benchmark.mjs --verify-material
+ *
+ * `--verify-material` resolves the fixture material files, checks that each one
+ * exists, hashes to the sha256 in fixture.json and contains its seeded bugs, then
+ * exits (non-zero with the problems on mismatch). `--observations` and
+ * `--simulate` run the same check first and refuse to build a report on a
+ * mismatch; the report's provenance (fixture id/version, per-material sha256,
+ * collector, collectedAt) is written by this script from the verified files and
+ * any `provenance` inside an observations file is ignored.
  *
  * `--simulate` only exercises the pipeline; its gate is always `no_go`.
  * `--out` writes the report that the scheduler reads (default
@@ -26,13 +35,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   buildKeepAliveBenchmarkReport,
+  buildKeepAliveProvenance,
   evaluateKeepAliveGate,
   simulateKeepAliveObservations,
+  verifyKeepAliveFixtureMaterial,
 } from '../lib/usage/keep-alive-benchmark.js';
 import { resolveKeepAliveBenchmarkPath } from '../lib/usage/keep-alive-gate.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const fixturePath = path.join(root, 'tests/fixtures/keep-alive-benchmark/fixture.json');
+const fixtureDir = path.join(root, 'tests/fixtures/keep-alive-benchmark');
+const fixturePath = path.join(fixtureDir, 'fixture.json');
 
 /**
  * @param {string[]} argv
@@ -59,18 +71,34 @@ if (args['emit-template']) {
   process.stdout.write(`${JSON.stringify(simulateKeepAliveObservations(fixture), null, 2)}\n`);
   process.exit(0);
 }
+const verification = verifyKeepAliveFixtureMaterial(fixture, { dir: fixtureDir });
+if (args['verify-material']) {
+  const out = { ok: verification.ok, problems: verification.problems, materials: verification.materials };
+  (verification.ok ? process.stdout : process.stderr).write(`${JSON.stringify(out, null, 2)}\n`);
+  process.exit(verification.ok ? 0 : 1);
+}
 let observations;
+if (args.observations || args.simulate) {
+  if (!verification.ok) {
+    console.error(`Fixture material verification failed:\n- ${verification.problems.join('\n- ')}`);
+    process.exit(1);
+  }
+}
 if (args.observations) {
   observations = JSON.parse(fs.readFileSync(String(args.observations), 'utf8'));
-  observations.fixture = observations.fixture || fixture;
+  // The fixture is always the verified one; observations cannot bring their own provenance.
+  observations.fixture = fixture;
 } else if (args.simulate) {
   observations = simulateKeepAliveObservations(fixture);
 } else {
-  console.error('Pass --observations <file>, --simulate or --emit-template.');
+  console.error('Pass --observations <file>, --simulate, --emit-template or --verify-material.');
   process.exit(2);
 }
-const report = buildKeepAliveBenchmarkReport(observations);
-const gate = evaluateKeepAliveGate(report);
+const report = buildKeepAliveBenchmarkReport({
+  ...observations,
+  provenance: buildKeepAliveProvenance(fixture, verification),
+});
+const gate = evaluateKeepAliveGate(report, { fixture, materialVerification: verification });
 const result = { ...report, gate };
 if (args.out) {
   const target = args.out === true ? resolveKeepAliveBenchmarkPath() : String(args.out);

@@ -29,27 +29,69 @@ test('measures the wait from user speech to the next tool, not the tool itself',
   assert.ok(actual.largestGapMs >= 21000);
 });
 
-test('computes p95 latency from user turns to tool, first audio and response end', () => {
-  const inputEntries = [];
-  for (let i = 0; i < 20; i += 1) {
-    const base = 1000 + i * 10000;
-    inputEntries.push({ ts: base, event: 'transcript', role: 'user', text: `u${i}` });
-    inputEntries.push({ ts: base + 100 + i, event: 'tool.start', name: 'get_cost' });
-    inputEntries.push({ ts: base + 110 + i, event: 'tool.call', name: 'get_cost', ok: true, durationMs: 1 });
-    inputEntries.push({ ts: base + 300 + i, event: 'response.first_audio' });
-    inputEntries.push({ ts: base + 301 + i, event: 'response.first_audio' });
-    inputEntries.push({ ts: base + 900 + i, event: 'response.end' });
-  }
-  const actual = diagnoseVoiceSessionLog({ sessionId: 's', entries: inputEntries });
-  assert.equal(actual.latency.userToToolStart.count, 20);
-  assert.equal(actual.latency.userToToolStart.p95, 118);
-  assert.equal(actual.latency.userToToolResult.p95, 128);
-  assert.equal(actual.latency.userToFirstAudio.count, 20);
-  assert.equal(actual.latency.userToFirstAudio.p95, 318);
-  assert.equal(actual.latency.userToResponseEnd.p50, 909);
+test('reports p95 first-audio latency and response duration', () => {
+  const inputSession = {
+    sessionId: 'diag-response-timing',
+    startedAt: 1000,
+    endedAt: 13000,
+    entries: [
+      { ts: 1000, event: 'session.start' },
+      { ts: 1500, event: 'response.first_audio', provider: 'openai', responseId: 'resp_1', latencyMs: 300 },
+      { ts: 3000, event: 'response.end', provider: 'openai', responseId: 'resp_1', durationMs: 1500 },
+      { ts: 4500, event: 'response.first_audio', provider: 'openai', responseId: 'resp_2', latencyMs: 700 },
+      { ts: 6000, event: 'response.end', provider: 'openai', responseId: 'resp_2', durationMs: 1500 },
+      { ts: 8000, event: 'response.first_audio', provider: 'gemini', latencyMs: 900 },
+      { ts: 9500, event: 'response.end', provider: 'gemini', durationMs: 1500 },
+      { ts: 10000, event: 'response.first_audio', provider: 'openai', responseId: 'resp_3', latencyMs: 2000 },
+      { ts: 12000, event: 'response.end', provider: 'openai', responseId: 'resp_3', durationMs: 2000 },
+    ],
+  };
+  const actual = diagnoseVoiceSessionLog(inputSession);
+
+  assert.equal(actual.responseTiming.responses, 4);
+  assert.deepEqual(actual.responseTiming.firstAudio, { count: 4, p50Ms: 700, p95Ms: 2000 });
+  assert.deepEqual(actual.responseTiming.end, { count: 4, p50Ms: 1500, p95Ms: 2000 });
+  // Existing fields are still reported.
+  assert.equal(actual.durationMs, 12000);
+  assert.equal(actual.userTurns, 0);
+  assert.equal(actual.largestGapMs, 0);
 });
 
-test('latency summaries are empty when the log has no timing events', () => {
-  const actual = diagnoseVoiceSessionLog({ sessionId: 's', entries: [] });
-  assert.deepEqual(actual.latency.userToFirstAudio, { count: 0, p50: null, p95: null });
+test('ignores malformed response timing samples', () => {
+  const actual = diagnoseVoiceSessionLog({
+    sessionId: 'diag-malformed',
+    startedAt: 1000,
+    endedAt: 5000,
+    entries: [
+      { ts: 1100, event: 'response.first_audio', provider: 'openai', responseId: 'resp_1', latencyMs: 'slow' },
+      { ts: 1200, event: 'response.first_audio', provider: 'openai', responseId: 'resp_2', latencyMs: -5 },
+      { ts: 1300, event: 'response.first_audio', provider: 'gemini', latencyMs: 250 },
+      { ts: 1400, event: 'response.end', provider: 'openai', responseId: 'resp_1', durationMs: undefined },
+      { ts: 1500, event: 'response.end', provider: 'gemini', durationMs: 800 },
+    ],
+  });
+
+  assert.deepEqual(actual.responseTiming.firstAudio, { count: 1, p50Ms: 250, p95Ms: 250 });
+  assert.deepEqual(actual.responseTiming.end, { count: 1, p50Ms: 800, p95Ms: 800 });
+  assert.equal(actual.responseTiming.responses, 1);
+});
+
+test('reports empty response timing for a session without responses', () => {
+  const actual = diagnoseVoiceSessionLog({
+    sessionId: 'diag-empty',
+    startedAt: 100,
+    endedAt: 200,
+    entries: [],
+  });
+
+  assert.deepEqual(actual.responseTiming, {
+    responses: 0,
+    firstAudio: { count: 0, p50Ms: null, p95Ms: null },
+    end: { count: 0, p50Ms: null, p95Ms: null },
+  });
+  assert.equal(actual.durationMs, 100);
+  assert.deepEqual(actual.toolCalls, []);
+  assert.deepEqual(actual.gaps, []);
+  assert.equal(actual.largestGapMs, 0);
+  assert.equal(actual.userTurns, 0);
 });

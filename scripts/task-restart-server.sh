@@ -27,6 +27,9 @@ export OLD_PID
 nohup bash -lc '
   set -u
 
+  # shellcheck source=lib/restart-log-guard.sh
+  . "${WORKSPACE_DIR}/scripts/lib/restart-log-guard.sh"
+
   {
     echo "[launcher] start $(date)"
     if [ -n "${OLD_PID}" ]; then
@@ -45,6 +48,17 @@ nohup bash -lc '
       sleep 1
     fi
 
+    # Rename the old log aside only after no listener remains AND the lsof
+    # probe ran successfully; a failed probe is inconclusive, so a surviving
+    # writer keeps its open file and the runtime cap bounds it instead.
+    LSOF_LISTENERS="$(lsof -ti:3011 2>/dev/null)"
+    LSOF_STATUS=$?
+    if restart_log_rotation_allowed "${LSOF_LISTENERS}" "${LSOF_STATUS}"; then
+      node "${WORKSPACE_DIR}/scripts/rotate-log.js" "${LOG_FILE}"
+    else
+      echo "[launcher] log rotation skipped (lsof listeners=[${LSOF_LISTENERS}] rc=${LSOF_STATUS})"
+    fi
+
     echo "[launcher] listeners before start:"
     lsof -nP -iTCP:3011 -sTCP:LISTEN 2>/dev/null || echo "(none)"
     echo "[launcher] start npm start (USE_HTTPS=1)"
@@ -59,6 +73,7 @@ nohup bash -lc '
     . "${SDK_ENV}"
     set +a
   fi
+  export CRETLI_SERVER_LOG_FILE="${LOG_FILE}"
   USE_HTTPS=1 npm start >> "${LOG_FILE}" 2>&1
 ' >/dev/null 2>&1 &
 

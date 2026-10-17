@@ -2,6 +2,7 @@
 // form found in review rounds 1-3 lives here so a classifier change is judged
 // against the whole matrix, not the latest hole.
 import assert from 'node:assert/strict';
+import { performance } from 'node:perf_hooks';
 import { containsPrivateData, redactPrivatePaths, scrubFindingFile } from '../lib/review-lessons-privacy.js';
 
 const MUST_REJECT = [
@@ -173,12 +174,73 @@ for (const input of ['C:\\Users\\Jan Kowalski\\a.js', '/home/Jan Kowalski/a.js',
   assert.ok(!redacted.includes('Jan') && !redacted.includes('Kowalski'), `${input} -> ${redacted} kept a name token`);
 }
 
+// Round 5 (F5): a profile name longer than two extra words must not leak its
+// tail. The conservative <=2-word budget only extends while the extra words
+// still look like a name (a capitalised word or a lowercase particle such as
+// `del`/`van`/`der`), so a path-shaped prose tail keeps the P1 guard below.
+const SPACED_PROFILE_VECTORS = [
+  // 4-word names.
+  ['C:\\Users\\Jean Claude Van Damme\\a.js', '<path>\\a.js', ['Jean', 'Claude', 'Van', 'Damme']],
+  ['/home/Maria del Carmen Garcia/a.js', '<path>/a.js', ['Maria', 'del', 'Carmen', 'Garcia']],
+  // 5-word names.
+  ['/home/Jean Claude Van Damme Picard/a.js', '<path>/a.js', ['Jean', 'Claude', 'Van', 'Damme', 'Picard']],
+  ['/Users/Maria del Carmen Garcia Lopez/a.js', '<path>/a.js', ['Maria', 'del', 'Carmen', 'Garcia', 'Lopez']],
+  // Lowercase name particles inside an otherwise capitalised name.
+  ['/home/Ana de la Cruz/a.js', '<path>/a.js', ['Ana', 'de', 'la', 'Cruz']],
+  ['/home/Jan van der Berg/a.js', '<path>/a.js', ['Jan', 'van', 'der', 'Berg']],
+  // Longer names: the bounded extension (`{0,6}`) still covers them, i.e. the
+  // ReDoS fix must not re-open the F5 tail leak.
+  ['/home/Jean Claude Van Damme De La Cruz/a.js', '<path>/a.js', ['Jean', 'Claude', 'Van', 'Damme', 'De', 'La', 'Cruz']],
+  ['/home/Ana Maria de la Cruz van der Berg/a.js', '<path>/a.js', ['Ana', 'Maria', 'de', 'la', 'Cruz', 'van', 'der', 'Berg']],
+];
+for (const [input, expected, names] of SPACED_PROFILE_VECTORS) {
+  const redacted = redactPrivatePaths(input);
+  assert.equal(containsPrivateData(input), true, input);
+  assert.equal(redacted, expected, input);
+  for (const name of names) assert.ok(!redacted.includes(name), `${input} -> ${redacted} kept '${name}'`);
+}
+// The P1 guard is unchanged: prose that merely follows a home path survives even
+// though a path separator follows it, because the extension needs name-like
+// words only.
+assert.equal(redactPrivatePaths('Path /home/u leaks in lib/x.js'), 'Path <path> leaks in lib/x.js');
+assert.equal(redactPrivatePaths('see /home/jan for details'), 'see <path> for details');
+assert.equal(redactPrivatePaths('Token leaked in `/home/alice/proj/lib/a.js`'), 'Token leaked in `lib/a.js`');
+assert.equal(redactPrivatePaths('Open /home/u then see src/a.js'), 'Open <path> then see src/a.js');
+// Safe-direction FU-D false positives: these redact a little too much, which is
+// deliberately preferred over leaking a private location.
+assert.equal(redactPrivatePaths('/users/me'), '<path>');
+assert.equal(redactPrivatePaths('/home'), '<path>');
+assert.equal(redactPrivatePaths('//cdn.x/y.js'), '<path>');
+
 // Round 4 (FU-E): private address ranges redact to `<lan-ip>`.
 assert.equal(redactPrivatePaths('Connect to fd00::1'), 'Connect to <lan-ip>');
 assert.equal(redactPrivatePaths('host fc00:1234::abcd is private'), 'host <lan-ip> is private');
 assert.equal(redactPrivatePaths('host fe80::1 is link-local'), 'host <lan-ip> is link-local');
 assert.equal(redactPrivatePaths('host 100.64.0.5 is CGNAT'), 'host <lan-ip> is CGNAT');
 assert.equal(redactPrivatePaths('host 100.127.255.254 is CGNAT'), 'host <lan-ip> is CGNAT');
+
+// Round 6 (F1): the spaced-profile extension must not backtrack catastrophically.
+// A probe run with no closing separator is the worst case: overlapping
+// alternatives under an unbounded repetition explored ~2^n splits, so 40
+// name-like words took tens of seconds while grading server text
+// synchronously. The alternatives are now disjoint (lower-case particles) and
+// the repetition is bounded to `{0,6}`, so this is a linear scan.
+const TIMING_CEILING_MS = 50;
+const TIMING_VECTORS = [
+  // `De`/`Le` were the double-matching words: a case-insensitive particle branch
+  // and the capitalised branch both accepted them.
+  ['capitalised particle repeated (De)', '/home/u a b ' + 'De '.repeat(40)],
+  ['capitalised particle repeated (Le)', '/home/u a b ' + 'Le '.repeat(40)],
+  ['mixed capitalised particles', '/home/u a b ' + 'De Le Van Der '.repeat(10)],
+];
+for (const [label, input] of TIMING_VECTORS) {
+  const startedAt = performance.now();
+  const redacted = redactPrivatePaths(input);
+  const elapsedMs = performance.now() - startedAt;
+  assert.ok(elapsedMs < TIMING_CEILING_MS, `${label}: redaction took ${elapsedMs.toFixed(1)}ms (ceiling ${TIMING_CEILING_MS}ms)`);
+  // Timing must not come from skipping the work: the head is still redacted.
+  assert.equal(redacted.slice(0, '<path>'.length), '<path>', label);
+}
 
 // Finding files: repo-relative tails survive, private heads are re-anchored or dropped.
 const FILES = {

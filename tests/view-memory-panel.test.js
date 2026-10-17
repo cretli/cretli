@@ -12,6 +12,7 @@ import {
   writeViewMemorySlice,
 } from '../app_front/app/appShell/viewMemory.js';
 import { parseSpaRoute } from '../lib/spa-routes.js';
+import { createLatestRequestGate, createOwnedPendingGuard } from '../app_front/features/todo/todoBatchSelection.js';
 import * as todoTreeView from '../app_front/features/todo/todoTreeView.js';
 import * as worktreeListView from '../app_front/features/git/worktreeListView.js';
 
@@ -118,6 +119,10 @@ function makeTodoPanelHarness() {
     },
     getTodoWorkspaceFolder: () => '/a',
     todoWorkspaceMatches: (candidate, active = '/a') => candidate === active,
+    // Module-scope batch guards; the real factories keep the panel on its
+    // production path instead of local stubs.
+    createLatestRequestGate,
+    createOwnedPendingGuard,
     isViewContextScopedAccessAllowed: () => true,
     getViewContextState: () => null,
     reportViewContextResourceConflict: () => ({ ok: true }),

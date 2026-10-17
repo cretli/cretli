@@ -16,7 +16,7 @@ export const USAGE_METRICS = Object.freeze(['tokens', 'usd', 'runs']);
 export const USAGE_GROUPS = Object.freeze(['harness', 'model']);
 /** Sortable table columns. */
 export const USAGE_SORT_KEYS = Object.freeze(['usd', 'tokens', 'runs', 'successRate', 'p95']);
-/** Palette size defined by `.settings-usage-series-0..7` in app.scss. */
+/** Palette size defined by `.settings-usage-series-0..7` in css/features/settings/_usage.scss. */
 export const USAGE_SERIES_PALETTE_SIZE = 8;
 
 /**

@@ -1,0 +1,410 @@
+/* Kib — radial menu opened by a long press (pull-down refresh) */
+.kib-radial-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  background: rgba(0, 0, 0, 0.35);
+  display: none;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.kib-radial-layer--visible {
+  display: block;
+}
+
+body.kib-radial-active {
+  touch-action: none;
+  overflow: hidden;
+}
+
+.kib-radial-hub {
+  position: fixed;
+  width: 320px;
+  height: 320px;
+  margin-left: -160px;
+  margin-top: -160px;
+  pointer-events: none;
+  --kib-center-size: 88px;
+  --kib-option-size: 42px;
+  --kib-option-base: 74px;
+  --kib-option-step: 56px;
+}
+
+.kib-radial-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: var(--kib-center-size);
+  height: var(--kib-center-size);
+  border-radius: 50%;
+  background: rgba(40, 40, 40, 0.95);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0.35rem;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+}
+
+.kib-radial-center-arc {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.kib-radial-center-arc-text {
+  fill: rgba(255, 255, 255, 0.88);
+  font-size: 8px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.kib-radial-center-arc-textpath {
+  text-anchor: middle;
+}
+
+.kib-radial-center-icon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.35rem;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.9);
+  transition: color 0.12s ease;
+}
+
+.kib-radial-hint {
+  font-size: 0.65rem;
+  line-height: 1.25;
+  color: #ccc;
+}
+
+.kib-radial-options {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.kib-radial-option {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--kib-option-size);
+  height: var(--kib-option-size);
+  border-radius: 999px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  background: rgba(24, 24, 24, 0.94);
+  color: rgba(255, 255, 255, 0.9);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  transform-origin: center;
+  transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
+
+  .mdi {
+    font-size: 1rem;
+    line-height: 1;
+  }
+
+  small {
+    font-size: 0.5rem;
+    line-height: 1;
+    opacity: 0.9;
+  }
+
+  &.kib-radial-option--up {
+    transform: translate(
+      -50%,
+      calc(-50% - (var(--kib-option-base) + (var(--kib-level) - 1) * var(--kib-option-step)))
+    );
+  }
+
+  &.kib-radial-option--down {
+    transform: translate(
+      -50%,
+      calc(-50% + (var(--kib-option-base) + (var(--kib-level) - 1) * var(--kib-option-step)))
+    );
+  }
+
+  &.kib-radial-option--left {
+    transform: translate(
+      calc(-50% - (var(--kib-option-base) + (var(--kib-level) - 1) * var(--kib-option-step))),
+      -50%
+    );
+  }
+
+  &.kib-radial-option--right {
+    transform: translate(
+      calc(-50% + (var(--kib-option-base) + (var(--kib-level) - 1) * var(--kib-option-step))),
+      -50%
+    );
+  }
+}
+
+.kib-radial-option--hot {
+  border-color: #4caf50;
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.25), 0 3px 12px rgba(0, 0, 0, 0.45);
+
+  &.kib-radial-option--up {
+    transform: translate(
+        -50%,
+        calc(-50% - (var(--kib-option-base) + (var(--kib-level) - 1) * var(--kib-option-step)))
+      )
+      scale(1.07);
+  }
+
+  &.kib-radial-option--down {
+    transform: translate(
+        -50%,
+        calc(-50% + (var(--kib-option-base) + (var(--kib-level) - 1) * var(--kib-option-step)))
+      )
+      scale(1.07);
+  }
+
+  &.kib-radial-option--left {
+    transform: translate(
+        calc(-50% - (var(--kib-option-base) + (var(--kib-level) - 1) * var(--kib-option-step))),
+        -50%
+      )
+      scale(1.07);
+  }
+
+  &.kib-radial-option--right {
+    transform: translate(
+        calc(-50% + (var(--kib-option-base) + (var(--kib-level) - 1) * var(--kib-option-step))),
+        -50%
+      )
+      scale(1.07);
+  }
+}
+
+body.theme-light .kib-radial-layer {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+body.theme-light .kib-radial-center {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+body.theme-light .kib-radial-hint {
+  color: #444;
+}
+
+body.theme-light .kib-radial-center-icon {
+  color: rgba(0, 0, 0, 0.78);
+}
+
+body.theme-light .kib-radial-center-arc-text {
+  fill: rgba(0, 0, 0, 0.72);
+}
+
+body.theme-light .kib-radial-option {
+  background: rgba(255, 255, 255, 0.96);
+  color: rgba(0, 0, 0, 0.75);
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+body.theme-light .kib-radial-option--hot {
+  border-color: #2e7d32;
+  box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.22), 0 3px 10px rgba(0, 0, 0, 0.25);
+}
+
+/* Kib + xterm + chat: suppress the native context menu on the canvas and on xterm's hidden textarea (long presses often land there) */
+body.kib-radial-xterm-touch .xterm .xterm-screen canvas,
+body.kib-radial-xterm-touch .xterm .xterm-screen,
+body.kib-radial-xterm-touch #chat-panel .xterm .xterm-helper-textarea {
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+
+body.kib-radial-xterm-touch #chat-panel .xterm .xterm-helper-textarea {
+  border: 0 !important;
+}
+
+body.kib-radial-xterm-touch #chat-panel .chat-tab-pane .terminal-viewport-wrap,
+body.kib-radial-xterm-touch #terminal-panel .terminal-tab-pane .terminal-viewport-wrap {
+  -webkit-touch-callout: none !important;
+}
+
+/* Chat fullscreen mode (pseudo-fullscreen) */
+body.chat-fullscreen-active {
+  .header,
+  .tabs {
+    display: none !important;
+  }
+
+  #chat-panel {
+    position: fixed;
+    inset: 0;
+    left: var(--sidebar-dock-width, 0px);
+    z-index: 1100;
+    display: flex !important;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 100vh;
+    min-height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
+    background: var(--cr-bg);
+  }
+
+  #chat-panel .chat-layout {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #chat-panel .chat-main {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #chat-panel .chat-tab-pane {
+    padding-top: 0;
+  }
+
+  #chat-panel .sdk-rich-chat-mount {
+    padding-top: 0;
+  }
+
+  #send-bar-extra-container {
+    z-index: 1110;
+  }
+
+  .chat-fullscreen-menu-btn {
+    display: inline-flex;
+  }
+
+  .chat-fullscreen-btn[data-fullscreen='on'] {
+    font-size: 1.1rem;
+  }
+}
+
+/* Embedded mode (widget): the same tab/panel mechanism as the main UI, just with fewer panels. */
+body.embed-mode {
+  margin: 0;
+  overflow: hidden;
+
+  #settings-panel,
+  #agents-panel,
+  #git-panel,
+  #github-panel,
+  #logs-panel,
+  #instances-panel,
+  #tests-panel,
+  #workspace-picker-modal,
+  #connection-status-dialog,
+  #restart-server-loading-modal,
+  #tasks-reconnect-modal,
+  #app-sidebar,
+  #header-menu-btn,
+  #chat-fullscreen-menu-btn,
+  #chat-intent-summary-btn,
+  #chat-monitor-agent-btn,
+  #chat-fullscreen-btn,
+  #chat-reset-context-btn,
+  .tabs {
+    display: none !important;
+  }
+
+  .header-right > #header-settings-btn {
+    display: none;
+  }
+
+  /* The bell does not inherit the settings-button hide above; keep embed consistent. */
+  .header-right > #header-notifications-btn {
+    display: none;
+  }
+
+  #header-context-title {
+    display: none !important;
+  }
+
+  #embed-chat-switcher {
+    display: inline-flex !important;
+  }
+
+  #chat-panel,
+  #chat-panel .chat-layout,
+  #chat-panel .chat-main {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Keep the send bar in the pane. Desktop position:fixed is relative to the
+     iframe viewport and can land below the visible widget panel. */
+  #chat-panel .chat-pane-toolbar.chat-send-bar {
+    position: sticky;
+    bottom: 0;
+    left: auto;
+    right: auto;
+    z-index: 2;
+    width: 100%;
+    flex-shrink: 0;
+    margin: auto 0 0;
+  }
+}
+
+/* Temporary overrides for elements that do not use the design tokens yet. */
+body.theme-light {
+  .connection-status.connection-status-disconnected {
+    background: #999;
+  }
+
+  .panel {
+    background: #f3f3f3;
+  }
+
+  .todo-field-input {
+    background: #fff;
+    color: #333;
+    border-color: #bbb;
+
+    &:focus {
+      background: #fff;
+      border-color: #006ab1;
+      box-shadow: 0 0 0 1px rgba(0, 106, 177, 0.25);
+    }
+  }
+
+  .theme-select,
+  .terminal-font-size-select,
+  .quick-commands-textarea,
+  .chat-settings-select-floating-trigger,
+  input[type='text'],
+  input[type='password'],
+  select,
+  textarea {
+    background: #fff;
+    color: #333;
+    border-color: #bbb;
+  }
+
+  select.bar-select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  }
+
+  .chat-terminal-statebar {
+    background: #f4f4f4;
+    border-color: #d4d4d4;
+    color: #5f6368;
+  }
+}

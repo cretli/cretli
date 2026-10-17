@@ -15,7 +15,7 @@ import {
   evaluateKeepAliveAvailability,
   normalizeKeepAliveLimits,
 } from '../lib/usage/keep-alive-policy.js';
-import { createKeepAliveScheduler } from '../lib/usage/keep-alive-scheduler.js';
+import { createKeepAliveScheduler, KEEP_ALIVE_STATE_LIMITS } from '../lib/usage/keep-alive-scheduler.js';
 import { buildWorkflowBreakdown } from '../lib/usage/workflow-breakdown.js';
 
 const T0 = 1_000_000_000_000;
@@ -167,6 +167,7 @@ function createHarness(overrides = {}) {
     resolveRates: () => state.rates,
     loadGate: () => state.gate,
     audit: (entry) => state.audit.push(entry),
+    ...(overrides.extraDeps || {}),
   });
   return { state, scheduler };
 }
@@ -465,3 +466,125 @@ console.log('keep-alive-scheduler tests passed');
 }
 assert.equal(decide({ forced: true }, { mode: 'manual', unknownCostPings: 1 }).reason, S.COST_UNKNOWN);
 assert.equal(decide({ forced: true }, { mode: 'manual', spentUsd: 1 }).reason, S.BUDGET_EXHAUSTED);
+
+// ---- F5: a ping superseded mid-flight is accounted honestly and never revives the plan.
+for (const [name, interfere, expectStop] of [
+  ['plan stopped mid-flight', (h) => h.scheduler.stop({ controllerChatId: 'ctrl', delegationId: 'del-1' }), S.USER_STOPPED],
+  ['session reset mid-flight', (h) => { h.state.generation = 1; }, S.SESSION_RESET],
+  ['plan re-created mid-flight', (h) => {
+    h.scheduler.stop({ controllerChatId: 'ctrl', delegationId: 'del-1' });
+    h.scheduler.configure({ controllerChatId: 'ctrl', delegationId: 'del-1', mode: 'manual' });
+  }, null],
+]) {
+  const h = createHarness();
+  cfg(h);
+  h.state.now = T0 + 4 * MIN + 10_000;
+  h.state.startImpl = async () => {
+    interfere(h);
+    return { accepted: true, runId: 'run-late' };
+  };
+  const [result] = await h.scheduler.tick();
+  assert.equal(result.action, 'ping', name);
+  assert.equal(result.ok, false, name);
+  assert.equal(h.state.startCalls.length, 1, `${name}: paid once`);
+  const view = h.scheduler.status({ controllerChatId: 'ctrl' }).plans[0];
+  if (expectStop) {
+    assert.equal(view.status, 'stopped', name);
+    assert.equal(view.stopReason, expectStop, name);
+  } else {
+    // The NEW plan is untouched by the old plan's request.
+    assert.equal(view.status, 'active', name);
+    assert.equal(view.pingsDone, 0, name);
+    assert.equal(view.pings.length, 0, name);
+    assert.equal(view.budget.spentUsd, 0, name);
+    continue;
+  }
+  assert.equal(view.pingsDone, 0, `${name}: no pingsDone drift`);
+  assert.equal(view.budget.spentUsd, 0, `${name}: no budget drift`);
+  assert.equal(view.pings.length, 1, name);
+  assert.equal(view.pings[0].status, 'superseded', name);
+  assert.equal(view.pings[0].effective, null, name);
+  assert.equal(view.pings[0].costUsd, null, name);
+  assert.equal(view.pings[0].runId, 'run-late', `${name}: run id kept for cost attribution`);
+  assert.ok(h.scheduler.getAudit().some((e) => e.event === 'ping_superseded' && e.runId === 'run-late'), name);
+  // A later settle pass must not turn it into an effective / priced ping.
+  h.state.usage = { events: 1, usd: 0.5, estimated: false, cachedInputTokens: 1000, contextTokens: null };
+  const after = h.scheduler.status({ controllerChatId: 'ctrl' }).plans[0];
+  assert.equal(after.pings[0].status, 'superseded', name);
+  assert.equal(after.budget.spentUsd, 0, name);
+  assert.equal(after.status, 'stopped', `${name}: not resurrected`);
+}
+// A failing request on a stopped plan reports superseded, not a fresh error stop.
+{
+  const h = createHarness();
+  cfg(h);
+  h.state.now = T0 + 4 * MIN + 10_000;
+  h.state.startImpl = async () => {
+    h.scheduler.stop({ controllerChatId: 'ctrl', delegationId: 'del-1' });
+    throw Object.assign(new Error('boom'), { code: 'transport' });
+  };
+  const [result] = await h.scheduler.tick();
+  assert.equal(result.ok, false);
+  assert.equal(h.scheduler.status({ controllerChatId: 'ctrl' }).plans[0].stopReason, S.USER_STOPPED);
+}
+// A manual ping on an already stopped plan never reaches the provider.
+{
+  const h = createHarness();
+  h.scheduler.configure({ controllerChatId: 'ctrl', delegationId: 'del-1', mode: 'manual' });
+  h.scheduler.stop({ controllerChatId: 'ctrl', delegationId: 'del-1' });
+  const out = await h.scheduler.ping({ controllerChatId: 'ctrl', delegationId: 'del-1', idempotencyKey: 'late' });
+  assert.equal(out.code, 'stopped');
+  assert.equal(h.state.startCalls.length, 0);
+}
+
+// ---- F6: the replay map is bounded (oldest first) and keeps the guarantee for live keys.
+{
+  const h = createHarness();
+  const cap = KEEP_ALIVE_STATE_LIMITS.maxReplayEntries;
+  const first = h.scheduler.configure({ controllerChatId: 'ctrl', delegationId: 'del-1', mode: 'manual', idempotencyKey: 'k-0' });
+  assert.equal(first.ok, true);
+  // Replayed while still bounded: the very same result object.
+  assert.equal(h.scheduler.configure({ controllerChatId: 'ctrl', delegationId: 'del-1', mode: 'manual', idempotencyKey: 'k-0' }), first);
+  // OFF configures succeed repeatedly and each key is remembered.
+  for (let i = 1; i <= cap + 5; i += 1) {
+    h.scheduler.configure({ controllerChatId: 'ctrl', delegationId: 'del-1', mode: 'off', idempotencyKey: `k-${i}` });
+  }
+  assert.ok(h.scheduler.replaySize() <= cap);
+  // The newest key still replays; the evicted oldest one is evaluated afresh.
+  const newest = h.scheduler.configure({ controllerChatId: 'ctrl', delegationId: 'del-1', mode: 'off', idempotencyKey: `k-${cap + 5}` });
+  assert.equal(newest.mode, 'off');
+  const evicted = h.scheduler.configure({ controllerChatId: 'ctrl', delegationId: 'del-1', mode: 'manual', idempotencyKey: 'k-0' });
+  assert.notEqual(evicted, first);
+}
+
+// ---- F6: a restart reports `server_restart` for persisted plans and never resumes them.
+{
+  let stored = null;
+  const first = createHarness({ extraDeps: { savePlans: (rows) => { stored = JSON.parse(JSON.stringify(rows)); } } });
+  cfg(first);
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].status, 'active');
+  assert.equal('inFlight' in stored[0], false);
+  // "Restart": a new scheduler loads the snapshot.
+  const second = createHarness({ extraDeps: { loadPlans: () => stored, savePlans: (rows) => { stored = JSON.parse(JSON.stringify(rows)); } } });
+  const view = second.scheduler.status({ controllerChatId: 'ctrl' }).plans[0];
+  assert.equal(view.status, 'stopped');
+  assert.equal(view.stopReason, S.SERVER_RESTART);
+  assert.equal(view.nextAttemptAt, null);
+  second.state.now = T0 + 4 * MIN + 10_000;
+  assert.deepEqual(await second.scheduler.tick(), []);
+  assert.equal(second.state.startCalls.length, 0);
+  assert.equal((await second.scheduler.ping({ controllerChatId: 'ctrl', delegationId: 'del-1' })).code, 'stopped');
+  assert.ok(second.scheduler.getAudit().some((e) => e.event === 'plan_stopped' && e.reason === S.SERVER_RESTART));
+  // The stopped state is persisted, and an already stopped plan keeps its own reason.
+  assert.equal(stored[0].stopReason, S.SERVER_RESTART);
+  const userStopped = createHarness({ extraDeps: { savePlans: (rows) => { stored = JSON.parse(JSON.stringify(rows)); } } });
+  cfg(userStopped);
+  userStopped.scheduler.stop({ controllerChatId: 'ctrl', delegationId: 'del-1' });
+  const third = createHarness({ extraDeps: { loadPlans: () => stored } });
+  assert.equal(third.scheduler.status({ controllerChatId: 'ctrl' }).plans[0].stopReason, S.USER_STOPPED);
+  // A broken store never breaks construction.
+  const broken = createHarness({ extraDeps: { loadPlans: () => { throw new Error('io'); }, savePlans: () => { throw new Error('io'); } } });
+  assert.equal(cfg(broken).ok, true);
+}
+assert.equal(createKeepAliveScheduler.length, 1);

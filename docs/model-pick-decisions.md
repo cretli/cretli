@@ -47,6 +47,13 @@ body (or any free text) cannot reach the journal.
 | `role_floor_standard` | `review`/`plan` role or `sourceKind=plan`; never below `standard`. |
 | `explicit_heavy` | `heavy: true` on the pick; `demanding`. |
 | `explicit_level` | The `complexity` parameter overrides the heuristic level. |
+| `explicit_level_invalid` | The `complexity` parameter was non-empty but not `trivial\|standard\|demanding`; it was ignored and the heuristic level kept. The raw value is never stored. |
+
+For `review` and `plan` picks with a leaf todo the response carries `leaf_size`
+and the `leaf_size_*` signals; `implement` already computed its leaf size for
+the flash policy and the `leaf=` pick-reason suffix. A `fix` pick deliberately
+computes no leaf size at all: its candidate selection must stay unchanged, so it
+never emits `leaf_size` or a `leaf_size_*` signal.
 
 Inputs reach the classifier in memory only (`leafBody`, `leafSize`, `heavy`,
 `complexity`, `source_kind`); the stored record keeps `level` and `signals` and

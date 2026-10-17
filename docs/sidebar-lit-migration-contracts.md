@@ -18,7 +18,7 @@ Shadow DOM to chat rows or workspace groups in stages 6.3–6.5.
   the document tree.
 - Status updates patch rows via `querySelector` + `className` / `dataset` in `chat.js`
   (no Lit render pass).
-- Global layout lives in `app_front/css/app.scss` (grid columns, harness icons, activity
+- Global layout lives in `app_front/css/features/sidebar/_sidebar.scss` (grid columns, harness icons, activity
   chip width). Shadow DOM would break `::part` migration cost and duplicate tokens.
 
 Lit row components are **hosts in the existing tree**, not encapsulated islands.
@@ -127,7 +127,7 @@ No new composed shadow events in 6.3–6.5.
 
 ## CSS contract
 
-Global rules in `app_front/css/app.scss` (approx. lines 11231–11914) assume:
+Global rules in `app_front/css/features/sidebar/_sidebar.scss` assume:
 
 - `.sidebar-chat-item` flex/grid layout and nest indent via `--sidebar-nest-level`
 - State dot: `.sidebar-chat-item-state--*`
@@ -166,7 +166,7 @@ contract and all consumers.
 | `app_front/features/sidebar/sidebarChatStatus.js` | 15, 90 | `ACTIVITY_LABEL_CLASS`, awaiting class string |
 | `app_front/features/sidebar/sidebarSwipe.js` | 467 | Ignore hidden/subchat-hidden targets |
 | `app_front/App.js` | 2048 | Wires `patchTransientVisualStates` hook from `chat.js` |
-| `app_front/css/app.scss` | 11231–11914 | Row layout, states, actions, grid breakpoints |
+| `app_front/css/features/sidebar/_sidebar.scss` | whole partial | Row layout, states, actions, grid breakpoints |
 
 **Note:** `app_front/features/chat/chatView.js` uses `.chat-list-item[data-chat-id]` in the
 modal drawer — parallel contract, not sidebar row class.

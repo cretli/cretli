@@ -154,3 +154,30 @@ test('countLeafReviewFails is pure and leaf-scoped', () => {
   assert.equal(countLeafReviewFails(rows, ''), 0);
   assert.equal(countLeafReviewFails(null, 'leaf-1'), 0);
 });
+
+function failCounts(reports) {
+  const rows = reports.map((report) => delegationRow({ report }));
+  const history = buildModelPickHistory({
+    role: 'implement', chatId: 'chat-1', leafId: 'leaf-1',
+    delegations: rows, lockouts: [], planLimits: [], now: NOW,
+  });
+  return { direct: countLeafReviewFails(rows, 'leaf-1'), viaHistory: history.reviewFailCount };
+}
+
+test('FAIL in prose without a VERDICT line is not counted', () => {
+  const r = failCounts(['The review did not FAIL any check.']);
+  assert.equal(r.direct, 0);
+  assert.equal(r.viaHistory, 0);
+});
+
+test('a bare FAIL string without a VERDICT line is not counted', () => {
+  const r = failCounts(['FAIL', 'status: FAIL']);
+  assert.equal(r.direct, 0);
+  assert.equal(r.viaHistory, 0);
+});
+
+test('compact "TASK: review VERDICT: FAIL" and a real VERDICT line are counted', () => {
+  const r = failCounts(['TASK: review VERDICT: FAIL', 'notes\nVERDICT: FAIL']);
+  assert.equal(r.direct, 2);
+  assert.equal(r.viaHistory, 2);
+});

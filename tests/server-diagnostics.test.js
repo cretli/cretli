@@ -166,6 +166,28 @@ test('removes expired daily files on startup', (context) => {
   assert.throws(() => statSync(oldFile), { code: 'ENOENT' });
 });
 
+test('keeps daily files inside the retention window while pruning only expired ones', (context) => {
+  const dataDir = createTempDirectory();
+  const keptFile = path.join(dataDir, `server-diagnostics-${new Date().toISOString().slice(0, 10)}.jsonl`);
+  const expiredFile = path.join(dataDir, 'server-diagnostics-2000-01-01.jsonl');
+  const unrelatedFile = path.join(dataDir, 'server-diagnostics-not-a-date.jsonl');
+  writeFileSync(keptFile, '{}\n');
+  writeFileSync(expiredFile, '{}\n');
+  writeFileSync(unrelatedFile, '{}\n');
+  const recorder = createRecorder(dataDir, { retentionDays: 2 });
+  context.after(() => {
+    recorder.stop();
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+  recorder.start();
+  assert.throws(() => statSync(expiredFile), { code: 'ENOENT' });
+  // The kept file also receives the startup record, so only its existence and
+  // non-empty content are asserted.
+  assert.ok(statSync(keptFile).size > 0);
+  // A filename that does not parse as a date is never treated as expired.
+  assert.equal(statSync(unrelatedFile).size, 3);
+});
+
 test('does not append beyond the per-day size cap', (context) => {
   const dataDir = createTempDirectory();
   const date = new Date().toISOString().slice(0, 10);

@@ -26,9 +26,12 @@ import {
 import { collectVoiceStateSnapshot, executeRealtimeTool } from './realtimeTools.js';
 import { createVoiceCostTracker } from './voiceCost.js';
 import { createPendingEndSession } from './voiceEndSession.js';
-import { createVoiceResponseTiming } from './voiceResponseTiming.js';
+import {
+  appendVoiceResponseTiming,
+  appendVoiceSessionEvent,
+  getVoiceSessionLogId,
+} from './voiceSessionLog.js';
 import { createVoiceStateSync } from './voiceStateSync.js';
-import { appendVoiceSessionEvent, getVoiceSessionLogId } from './voiceSessionLog.js';
 
 const TRACE_REALTIME_EVENTS = new Set([
   'session.created',
@@ -103,7 +106,6 @@ export function createRealtimeSession(callbacks = {}) {
   let itemIds = [];
   /** @type {ReturnType<typeof setTimeout>|0} */
   let idleTimer = 0;
-  const responseTiming = createVoiceResponseTiming();
   const stateSync = createVoiceStateSync({
     getSnapshot: collectVoiceStateSnapshot,
     sendItem: ({ id, text }) => sendEvent({
@@ -112,6 +114,8 @@ export function createRealtimeSession(callbacks = {}) {
     }),
     deleteItem: (id) => sendEvent({ type: 'conversation.item.delete', item_id: id }),
   });
+  /** Last user speech end — the meaningful first-audio reference for a reply. */
+  let lastSpeechStoppedAt = 0;
 
   function touchIdle() {
     if (idleTimer) window.clearTimeout(idleTimer);
@@ -165,7 +169,7 @@ export function createRealtimeSession(callbacks = {}) {
     handledCalls.clear();
     itemIds = [];
     stateSync.reset();
-    responseTiming.reset();
+    lastSpeechStoppedAt = 0;
     if (idleTimer) window.clearTimeout(idleTimer);
     idleTimer = 0;
   }
@@ -272,9 +276,32 @@ export function createRealtimeSession(callbacks = {}) {
       });
     }
 
-    if (type === 'response.created') responseTiming.markStart();
-    if (type === 'output_audio_buffer.started' || type === 'response.output_audio.delta') {
-      responseTiming.markAudio();
+    if (type === 'input_audio_buffer.speech_stopped') {
+      lastSpeechStoppedAt = Date.now();
+      return;
+    }
+    if (type === 'response.created') {
+      appendVoiceResponseTiming('start', {
+        provider: 'openai',
+        responseId: String(payload?.response?.id || ''),
+        userSpeechEndedAt: lastSpeechStoppedAt,
+      });
+      // The following response must not inherit this speech end reference.
+      lastSpeechStoppedAt = 0;
+      return;
+    }
+    // WebRTC playback starts on `output_audio_buffer.started`; the delta events
+    // are the fallback when a session does deliver them. Timing is idempotent
+    // per response, so a later delta cannot log a second first audio.
+    if (
+      type === 'output_audio_buffer.started'
+      || type === 'response.output_audio.delta'
+      || type === 'response.audio.delta'
+    ) {
+      appendVoiceResponseTiming('first_audio', {
+        provider: 'openai',
+        responseId: String(payload?.response_id || payload?.response?.id || ''),
+      });
       return;
     }
     if (type === 'conversation.item.created' && payload?.item?.id) {
@@ -311,13 +338,16 @@ export function createRealtimeSession(callbacks = {}) {
       return;
     }
     if (type === 'response.done') {
+      appendVoiceResponseTiming('end', {
+        provider: 'openai',
+        responseId: String(payload?.response?.id || ''),
+      });
       if (cost && payload?.response?.usage) cost.addUsage(payload.response.usage);
       // Drop earlier items so their audio is not sent (and billed) again.
       const stale = itemIds.splice(0, Math.max(0, itemIds.length - KEEP_RECENT_ITEMS));
       for (const itemId of stale) {
         sendEvent({ type: 'conversation.item.delete', item_id: itemId });
       }
-      responseTiming.markEnd();
       // Pruning never touches the state item; sync re-sends it if it was lost or changed.
       void stateSync.sync();
       touchIdle();

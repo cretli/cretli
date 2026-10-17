@@ -53,5 +53,5 @@ export const SIDEBAR_CHAT_ROW_CONTRACT_SOURCES = [
   'app_front/features/sidebar/sidebarChatDrag.js',
   'app_front/features/sidebar/sidebarChatOrder.js',
   'app_front/features/sidebar/sidebarChatStatus.js',
-  'app_front/css/app.scss',
+  'app_front/css/features/sidebar/_sidebar.scss',
 ];

@@ -5,7 +5,6 @@ import { en } from '../app_front/i18n/en.js';
 import { pl } from '../app_front/i18n/pl.js';
 import { REALTIME_TOOL_NAMES, executeRealtimeTool } from '../app_front/features/voice/realtimeTools.js';
 import { listVoiceCommandIds } from '../app_front/features/voice/voiceCommandCatalog.js';
-import { createVoiceResponseTiming } from '../app_front/features/voice/voiceResponseTiming.js';
 import { createVoiceStateSync, formatVoiceState } from '../app_front/features/voice/voiceStateSync.js';
 import {
   VOICE_ACTIONS,
@@ -126,25 +125,9 @@ test('state is re-sent when the provider drops it and after reconnect', async ()
   assert.equal(sent[2].text, sent[1].text);
 });
 
-test('response timing emits one first_audio and one end per response', () => {
-  const events = [];
-  const timing = createVoiceResponseTiming({ emit: (kind) => events.push(kind) });
-  timing.markEnd();
-  timing.markStart();
-  timing.markAudio();
-  timing.markAudio();
-  timing.markEnd();
-  timing.markEnd();
-  timing.markAudio();
-  timing.markEnd();
-  assert.deepEqual(events, ['first_audio', 'end', 'first_audio', 'end']);
-});
-
-test('each provider session wires response timing and state sync exactly once', () => {
+test('each provider session resets state sync on reconnect', () => {
   for (const file of ['realtimeSession.js', 'geminiLiveSession.js']) {
     const source = fs.readFileSync(new URL(`../app_front/features/voice/${file}`, import.meta.url), 'utf8');
-    assert.equal(source.match(/responseTiming\.markEnd\(\)/g)?.length, 1, `${file} markEnd`);
-    assert.equal(source.match(/responseTiming\.markAudio\(\)/g)?.length, 1, `${file} markAudio`);
     assert.ok(source.includes('stateSync.reset()'), `${file} resets state on reconnect`);
   }
 });

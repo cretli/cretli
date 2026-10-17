@@ -376,6 +376,24 @@ test('shared context sample API filters by harness/chat and keeps billing tokens
   assert.equal(invalid.statusCode, 400);
 });
 
+test('context-cache-series exposes the cache regression signal', async () => {
+  const dataDir = mkdtempSync(path.join(tmpdir(), 'cretli-regression-api-'));
+  const base = Date.now() - 10 * 60 * 1000;
+  const record = (step, cacheReadTokens) => recordHarnessContextSample({
+    dataDir, harness: 'codex', room: { chatId: 'reg-chat', _runId: 'reg-run' },
+    event: { observedAt: new Date(base + step * 60 * 1000).toISOString(), usage: { inputTokens: 10000, outputTokens: 100, totalTokens: 10100, cacheReadTokens }, contextWindowTokens: 100000 },
+  });
+  record(0, 9000);
+  record(1, 9000);
+  const warm = await callRoute('GET', '/api/usage/context-cache-series', { dataDir, query: { chatId: 'reg-chat' } });
+  assert.equal(warm.body.regression.status, 'ok');
+  record(2, 0);
+  const lost = await callRoute('GET', '/api/usage/context-cache-series', { dataDir, query: { chatId: 'reg-chat' } });
+  assert.equal(lost.body.regression.status, 'regression');
+  const empty = await callRoute('GET', '/api/usage/context-cache-series', { dataDir, query: { chatId: 'nobody' } });
+  assert.equal(empty.body.regression.status, 'insufficient_data');
+});
+
 test('shared context sample API rejects restricted callers before reading the store', async () => {
   const app = createFakeApp();
   registerUsageRoutes(app);

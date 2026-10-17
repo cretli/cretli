@@ -216,7 +216,9 @@ token }`; a legacy report for a todo of an open entry without matching context,
 or from an old attempt/epoch, is rejected with 409 `batch_context_invalid` and
 changes nothing, including the heartbeat. Confirmation is an agent attestation
 recorded against the current HEAD and no-code is not git-checked; the batch
-trusts them exactly as the single flow does. Only a recorded liveness override
+trusts them exactly as the single flow does. Both are lock-guarded like the other
+writers (see Workspace lock): only the batch chat that owns the lock may confirm
+or record no-code through MCP. Only a recorded liveness override
 can leave an old agent running; the entry is then flagged `override`.
 
 ### Workspace lock
@@ -227,9 +229,31 @@ merge; refused with 409 `integration_locked` at `POST /api/todos/:id/smart-merge
 `.../verify-integration`, `.../integration` (prepare, merge, apply),
 `POST /api/worktrees/:todoId/merge|reject|cleanup`. The Watcher cycle close is
 deliberately not gated (it only writes worktree records and patches). A `single`
-lock is released by the lib report / confirm / no-code / reject, lazily when its
-chat is confirmed idle (after a 60 s grace), or by `POST
-/api/integration-lock/clear`; a `batch` lock only by a terminal batch state.
+lock is released by a failed lib report / confirm / no-code / reject /
+invalidate, lazily when its chat is confirmed idle (after a 60 s grace), or by
+`POST /api/integration-lock/clear`; a `batch` lock only by a terminal batch
+state. A `merged` report keeps the lock: the confirm that follows releases it,
+so another flow (e.g. a batch) cannot start in the window between the report and
+the attestation.
+
+#### Confirm and no-code writers
+
+`confirm` and `no-code` write integration evidence only (never the working tree)
+but are serialised by the same lock as the other writers:
+`confirmWorkspaceTodoIntegration` and `markTodoIntegrationNoCode` call
+`refuseWhenIntegrationLockedForWriter` first and answer
+`{ ok: false, reason: 'integration_locked', lock }` like reject / invalidate.
+Allowed writers are the todo owning a `single` lock (or the todo its tree
+resolves to) and the chat bound to a `batch` lock, i.e. the batch agent that the
+MCP call identifies as `callerChatId`; a caller with no chat id is refused while
+a batch owns the lock. With no lock nothing is refused.
+
+The human UI attestation is the one exemption: the REST route
+`POST /api/todos/:id/integration` passes `humanAttested: true` for `confirm` and
+`no-code` only (not for reject / invalidate), so the operator's click keeps
+working while an agent flow owns the lock. The MCP path
+(`recordTodoIntegration`) never sets it, so a non-owning agent is refused
+instead of silently writing evidence.
 
 ### Liveness, recovery and boundary
 
@@ -257,16 +281,18 @@ entry are skipped `blocked_by:<entryId>`.
   Create and resume answer `boundary_unsafe`; a dispatch pauses the batch with
   `pausedReason: boundary_unsafe:<reasons>`. Dirty-path drift is additionally
   compared only for a batch paused after a failed entry.
-- **`single` lock lifetime.** Released by report, confirm, no-code, reject,
-  invalidate, a failed chat start (together with the `smart_merge_running`
-  marker) and confirmed-idle evidence. A `single` lock that never got a chat is
+- **`single` lock lifetime.** Released by a failed report, confirm, no-code,
+  reject, invalidate, a failed chat start (together with the `smart_merge_running`
+  marker) and confirmed-idle evidence. A `merged` report keeps the lock until the
+  confirm releases it. A `single` lock that never got a chat is
   reclaimable after 10 minutes. A lock whose chat liveness is unknown (e.g.
   after a restart) or busy never expires: only positive idle evidence or the
   explicit clear frees it.
-- **Gated actions.** `reject` and `invalidate` on `/api/todos/:id/integration`
-  answer 409 `integration_locked` while another flow owns the lock; the todo
-  that owns a `single` lock may still use them (which releases it). The
-  watcher cycle close is not gated (see below).
+- **Gated actions.** `reject`, `invalidate`, `confirm` and `no-code` on
+  `/api/todos/:id/integration` answer 409 `integration_locked` while another
+  flow owns the lock; the todo that owns a `single` lock may still use them
+  (which releases it). The human REST `confirm` / `no-code` attestation is
+  exempt. The watcher cycle close is not gated (see below).
 - **Resume.** The agent chat is created before the epoch rotates; a chat that
   cannot be created answers `chat_unavailable` and leaves the batch unchanged.
   A repeated report of a settled entry answers `action: "resolved"` (documented
@@ -279,6 +305,8 @@ entry are skipped `blocked_by:<entryId>`.
   while a batch or single flow holds the lock still prepares / records its worktree
   result and marks the todo ready for integration (it only writes worktree records and
   patches, never the main workspace). The integration itself stays serialised by the lock.
-- `reject` / `invalidate` are guarded in library code (`refuseWhenIntegrationLockedForWriter`),
-  so REST and MCP share the check. Allowed writers: the todo owning a `single` lock and
-  the chat bound to the `batch` lock (the batch agent).
+- `reject` / `invalidate` / `confirm` / `no-code` are guarded in library code
+  (`refuseWhenIntegrationLockedForWriter`), so REST and MCP share the check.
+  Allowed writers: the todo owning a `single` lock and the chat bound to the
+  `batch` lock (the batch agent). The REST `confirm` / `no-code` human
+  attestation is exempt (`humanAttested: true`); the MCP path never sets it.

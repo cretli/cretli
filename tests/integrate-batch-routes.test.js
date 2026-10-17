@@ -82,6 +82,29 @@ test('the next callback is a public path and integrate-batch is not captured by 
   assert.equal(row.batchEligibility.mode, 'smart-merge');
 });
 
+test('the human confirm / no-code attestation stays usable while a batch owns the lock', async (t) => {
+  const world = await startWorld('human-lock');
+  t.after(world.close);
+  const created = await world.call('POST', '/api/todos/integrate-batch', {
+    todoIds: [world.todos[0].id], workspaceFolder: world.repo, agentTransport: 'opencode',
+  });
+  assert.equal(created.status, 200, JSON.stringify(created.body));
+  // The operator's REST no-code review is exempt from the batch lock.
+  const plain = addTodo(world.dataDir, world.repo, { title: 'docs only', status: 'done' }).item;
+  const noCode = await world.call('POST', `/api/todos/${plain.id}/integration`, {
+    action: 'no-code', expectedUpdatedAt: plain.updatedAt, reason: 'docs only',
+  });
+  assert.equal(noCode.status, 200, JSON.stringify(noCode.body));
+  assert.equal(getTodoById(world.dataDir, world.repo, plain.id).integration.noCodeReason, 'docs only');
+  // ... and so is the operator's confirm of the batch target.
+  const target = getTodoById(world.dataDir, world.repo, world.todos[0].id);
+  const confirmed = await world.call('POST', `/api/todos/${world.todos[0].id}/integration`, {
+    action: 'confirm', expectedUpdatedAt: target.updatedAt, proof: { simple: true },
+  });
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+  assert.equal(getTodoById(world.dataDir, world.repo, world.todos[0].id).status, 'done');
+});
+
 test('batch create opens one chat, gates the mutating routes and the callback fences reports', async (t) => {
   const world = await startWorld('gate');
   t.after(world.close);

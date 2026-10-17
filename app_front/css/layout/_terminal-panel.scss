@@ -1,0 +1,148 @@
+/* Terminal panel: flex column, no horizontal overflow (on mobile xterm must not be clipped on the right). */
+#terminal-panel {
+  min-height: 0;
+  overflow: hidden;
+  overflow-x: hidden;
+
+  &.active {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+.terminal-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Shared panel toolbar (Terminal, Tasks, Agents, Chat) — scrolls horizontally on mobile */
+.panel-toolbar {
+  --subbar-control-height: var(--cr-toolbar-control-height);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--cr-toolbar-gap);
+  padding: var(--cr-toolbar-padding-y) var(--cr-toolbar-padding-x);
+  background: var(--cr-surface);
+  border-bottom: 1px solid var(--cr-border);
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+
+  & > * {
+    flex-shrink: 0;
+  }
+
+  cr-bar-button,
+  cr-icon-button,
+  cr-bar-select {
+    align-self: center;
+  }
+}
+
+/* Terminal toolbar — plain .panel-toolbar, no overrides needed */
+
+.terminal-tabs {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.terminal-tab-pane {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0.5rem;
+  flex-direction: column;
+  min-width: 0;
+  box-sizing: border-box;
+
+  &.active {
+    display: flex;
+  }
+}
+
+/* Shared dictation/send bar — same background and border as in Chat */
+.terminal-send-bar-wrap {
+  flex-shrink: 0;
+  background: var(--cr-surface);
+  border-top: 1px solid var(--cr-border);
+  padding: var(--cr-toolbar-padding-y) var(--cr-toolbar-padding-x);
+
+  .chat-pane-toolbar.chat-send-bar {
+    margin-bottom: 0;
+    background: transparent;
+    border: none;
+    padding: 0;
+    width: 100%;
+    flex-wrap: nowrap;
+  }
+}
+
+.terminal-viewport-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  /* Width constrained along the whole chain so xterm (fit) cannot overflow the screen on mobile. */
+  min-width: 0;
+  max-width: 100%;
+
+  & > div {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+}
+
+/* Terminal panel: box model only. Desktop/mobile send-bar reserve is set below. */
+#terminal-panel .terminal-viewport-wrap {
+  box-sizing: border-box;
+}
+
+/* Terminal container — padding only; font and cell grid come exclusively from xterm (term.options, FitAddon).
+   Isolated from body styles and box-drawing kept intact: nothing inherited, line-height 1 (xterm sets the row
+   container to "normal", which would add vertical gaps). */
+.xterm {
+  padding: 0.5rem;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+/* Remove vertical gaps between rows, otherwise box-drawing frames break apart. */
+.xterm .xterm-rows {
+  line-height: 1 !important;
+}
+
+#tasks-panel {
+  display: none;
+  flex: 1;
+  overflow: hidden;
+  flex-direction: column;
+  min-height: 0;
+
+  &.active {
+    display: flex;
+  }
+}
+
+.tasks-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}

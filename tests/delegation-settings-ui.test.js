@@ -11,6 +11,7 @@ import { en } from '../app_front/i18n/en.js';
 import { pl } from '../app_front/i18n/pl.js';
 import { DELEGATION_SETTING_FIELDS } from '../lib/delegation-settings-schema.js';
 import { buildDelegationPatch, DELEGATION_LEGACY_FIELDS, DELEGATION_SUBTAB_FIELDS, summarizeReviewerPolicy, reviewerPolicyBaseline, selectReviewerPolicySubjects, toStoredPolicy } from '../app_front/features/settings/delegationSettings.js';
+import { readAppScssSource } from './helpers/app-scss-source.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
@@ -113,7 +114,7 @@ test('i18n keys used by the module exist in pl and en', () => {
 });
 
 test('Save footer is revealed for the delegations section and statuses are styled', () => {
-  const appScss = read('app_front/css/app.scss');
+  const appScss = readAppScssSource();
   const recipes = read('app_front/css/cr-recipes.scss');
   assert.match(appScss, /#settings-delegation-footer \{\s*display: flex;/);
   assert.match(appScss, /data-settings-tab='delegations-limits'/);

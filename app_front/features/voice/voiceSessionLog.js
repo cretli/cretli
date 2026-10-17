@@ -13,10 +13,18 @@ import {
   getActiveVoiceSessionId,
   setActiveVoiceSessionId,
 } from './voiceSessionContext.js';
+import {
+  VOICE_RESPONSE_END_EVENT,
+  VOICE_RESPONSE_FIRST_AUDIO_EVENT,
+  createVoiceResponseTimingTracker,
+} from './voiceResponseTiming.js';
 
 export const VOICE_SESSION_HISTORY_LS_KEY = 'cretli-voice-session-history';
 const LOCAL_MAX_ENTRIES = 200;
 const FLUSH_BATCH_SIZE = 24;
+
+/** Per-response streaming timing for the active session. */
+const responseTiming = createVoiceResponseTimingTracker();
 
 /**
  * @returns {string}
@@ -87,6 +95,7 @@ function rememberSessionHistory(item) {
  */
 export function startVoiceSessionLog(chatId, meta = {}) {
   const sessionId = createSessionId();
+  responseTiming.reset();
   activeState = {
     sessionId,
     startedAt: Date.now(),
@@ -145,18 +154,36 @@ export function appendVoiceSessionEvent(event, detail = {}) {
 }
 
 /**
- * Measurement-only events consumed by `diagnoseVoiceSessionLog` for p95 latency.
- * `response.first_audio` marks the first audio chunk of a response and
- * `response.end` the end of the response (provider `response.done` /
- * `turnComplete`).
+ * Logs per-response streaming latency (`response.first_audio` / `response.end`).
  *
- * @param {'first_audio'|'end'} kind
- * @param {Record<string, unknown>} [detail]
+ * It is a no-op when no session is recording, so provider code may call it
+ * unconditionally. Repeated calls for the same response are ignored: the first
+ * audio is logged at most once and every response ends at most once.
+ *
+ * @param {'start'|'first_audio'|'end'} phase
+ * @param {{ provider?: string, responseId?: string, userSpeechEndedAt?: number }} [detail]
  * @returns {void}
  */
-export function appendVoiceResponseTiming(kind, detail = {}) {
-  if (kind !== 'first_audio' && kind !== 'end') return;
-  appendVoiceSessionEvent(`response.${kind}`, detail);
+export function appendVoiceResponseTiming(phase, detail = {}) {
+  if (!activeState) return;
+  const name = String(phase || '').trim();
+  try {
+    if (name === 'start') {
+      responseTiming.begin(detail);
+      return;
+    }
+    if (name === 'first_audio') {
+      const timing = responseTiming.firstAudio(detail);
+      if (timing) appendVoiceSessionEvent(VOICE_RESPONSE_FIRST_AUDIO_EVENT, timing);
+      return;
+    }
+    if (name === 'end') {
+      const timing = responseTiming.end(detail);
+      if (timing) appendVoiceSessionEvent(VOICE_RESPONSE_END_EVENT, timing);
+    }
+  } catch {
+    // A timing measurement must never break a live voice session.
+  }
 }
 
 /**
@@ -191,12 +218,14 @@ export async function flushVoiceSessionLogNow(ended = false) {
  */
 export async function finishVoiceSessionLog(detail = {}) {
   if (!activeState) {
+    responseTiming.reset();
     clearActiveVoiceSessionId();
     return;
   }
   appendVoiceSessionEvent('session.end', detail);
   await flushVoiceSessionLogNow(true);
   activeState = null;
+  responseTiming.reset();
   clearActiveVoiceSessionId();
 }
 

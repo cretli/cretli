@@ -85,12 +85,24 @@ console.log('keep-alive-tools tests passed');
       { delegationId: 'fedcba98-0000', controllerChatId: 'ctrl', mode: 'manual', status: 'stopped', stopReason: 'budget_exhausted', lastDefer: null, budget: { pingsRemaining: 0, remainingUsd: 0, spentUsd: 1, costComplete: true, unknownCostPings: 0 } },
     ],
   }, { t, lang: 'en' });
-  assert.match(html, /Stopped: budget_exhausted/);
+  assert.match(html, /Stopped: budget exhausted/);
+  assert.doesNotMatch(html, /budget_exhausted/);
   assert.match(html, /no-go \(not_measured\)/);
   assert.match(html, /Unknown/);
   assert.match(html, /deferred: busy/);
   assert.match(html, /data-keepalive-stop="abcdef12-0000"/);
   assert.doesNotMatch(html, /data-keepalive-stop="fedcba98-0000"/);
+  // Every stop reason has a label in both languages; unknown codes fall back to the raw code.
+  const { KEEP_ALIVE_STOP_REASON } = await import('../lib/usage/keep-alive-policy.js');
+  const { keepAliveStopReasonLabel, KEEP_ALIVE_STOP_REASON_LABELED } = await import('../app_front/features/usage/usageInsightsView.js');
+  for (const code of Object.values(KEEP_ALIVE_STOP_REASON)) {
+    assert.ok(KEEP_ALIVE_STOP_REASON_LABELED.includes(code), `stop reason ${code} has no UI label mapping`);
+    assert.ok(en.usage[`keepAliveStopReason_${code}`], `en label for ${code}`);
+    assert.ok(pl.usage[`keepAliveStopReason_${code}`], `pl label for ${code}`);
+    assert.notEqual(keepAliveStopReasonLabel(code, t), code);
+  }
+  assert.equal(keepAliveStopReasonLabel('brand_new_reason', t), 'brand_new_reason');
+  assert.equal(keepAliveStopReasonLabel('', t), '—');
   for (const key of Object.keys(en.usage).filter((k) => k.startsWith('keepAlive'))) {
     assert.ok(pl.usage[key], `pl.usage.${key} missing`);
   }

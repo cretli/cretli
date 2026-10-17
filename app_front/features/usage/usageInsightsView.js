@@ -259,6 +259,26 @@ export function renderWorkflowBreakdownHtml(breakdown, options = {}) {
     + `<table class="settings-usage-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${unmatched}`;
 }
 
+/** Stop reason codes that have a translated label (`usage.keepAliveStopReason_<code>`). */
+export const KEEP_ALIVE_STOP_REASON_LABELED = Object.freeze([
+  'user_stopped', 'cancelled', 'workflow_ended', 'session_reset', 'chat_missing', 'budget_exhausted',
+  'cost_unknown', 'ping_limit', 'deadline', 'provider_limit', 'ineffective', 'error', 'not_needed',
+  'cache_expired', 'not_economic', 'server_restart', 'unavailable',
+]);
+
+/**
+ * Human label of a keep-alive stop reason; an unknown code falls back to itself.
+ *
+ * @param {string|null|undefined} reason
+ * @param {Function} t
+ * @returns {string}
+ */
+export function keepAliveStopReasonLabel(reason, t) {
+  const code = String(reason || '');
+  if (!code) return '—';
+  return KEEP_ALIVE_STOP_REASON_LABELED.includes(code) ? t(`usage.keepAliveStopReason_${code}`) : code;
+}
+
 /**
  * Keep-alive plans: mode, stop reason, remaining pings and budget, next attempt
  * and the benchmark gate. An unmeasured ping makes the remaining budget
@@ -287,7 +307,7 @@ export function renderKeepAliveHtml(view, options = {}) {
       : formatUsd(budget.remainingUsd);
     const state = plan.status === 'active'
       ? t('usage.keepAliveActive')
-      : t('usage.keepAliveStopped', { reason: plan.stopReason || '—' });
+      : t('usage.keepAliveStopped', { reason: keepAliveStopReasonLabel(plan.stopReason, t) });
     const defer = plan.lastDefer?.reason ? ` · ${escapeHtml(t('usage.keepAliveDeferred', { reason: plan.lastDefer.reason }))}` : '';
     const stop = plan.status === 'active'
       ? `<button type="button" class="settings-usage-btn" data-keepalive-stop="${escapeHtml(plan.delegationId)}" data-keepalive-controller="${escapeHtml(plan.controllerChatId)}">${escapeHtml(t('usage.keepAliveStop'))}</button>`

@@ -7,6 +7,7 @@
 import { appendFileSync, closeSync, mkdirSync, openSync } from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
+import { resolveRestartLogRotation, rotateLogIfNeeded } from '../lib/log-rotate.js';
 
 const pid = Number.parseInt(process.env.RESTART_PID || '', 10);
 const cwd = path.resolve(process.env.RESTART_CWD || process.cwd());
@@ -48,33 +49,50 @@ async function waitForProcessExit(targetPid, timeoutMs) {
   return !isProcessRunning(targetPid);
 }
 
+/**
+ * Stops the previous server and returns whether its PID is verified gone. The
+ * final wait result is returned rather than discarded, so the caller never
+ * rotates a log a surviving writer could still hold open.
+ *
+ * @returns {Promise<boolean>}
+ */
 async function stopOldServer() {
-  if (!isProcessRunning(pid)) return;
+  if (!isProcessRunning(pid)) return true;
   log(`Sending SIGTERM to PID ${pid}.`);
   try {
     process.kill(pid, 'SIGTERM');
   } catch {
-    return;
+    return !isProcessRunning(pid);
   }
-  if (await waitForProcessExit(pid, STOP_TIMEOUT_MS)) return;
+  if (await waitForProcessExit(pid, STOP_TIMEOUT_MS)) return true;
   log(`PID ${pid} did not exit in ${STOP_TIMEOUT_MS} ms; sending SIGKILL.`);
   try {
     process.kill(pid, 'SIGKILL');
   } catch {
-    return;
+    return !isProcessRunning(pid);
   }
-  await waitForProcessExit(pid, FORCE_STOP_TIMEOUT_MS);
+  return waitForProcessExit(pid, FORCE_STOP_TIMEOUT_MS);
 }
 
-function startNewServer() {
+/**
+ * @param {boolean} processGone
+ */
+function startNewServer(processGone) {
   mkdirSync(path.dirname(logFile), { recursive: true });
+  const decision = resolveRestartLogRotation({ processGone });
+  if (decision.rotate) {
+    rotateLogIfNeeded(logFile);
+  } else if (decision.reason) {
+    log(decision.reason);
+  }
   const logFd = openSync(logFile, 'a');
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   const child = spawn(npm, ['start'], {
     cwd,
     detached: true,
     stdio: ['ignore', logFd, logFd],
-    env: process.env,
+    // The runtime cap in server.js needs to know which file to bound.
+    env: { ...process.env, CRETLI_SERVER_LOG_FILE: logFile },
   });
   child.once('error', (err) => log(`Failed to start npm start: ${err.message}`));
   child.unref();
@@ -91,8 +109,8 @@ async function main() {
   mkdirSync(path.dirname(logFile), { recursive: true });
   log(`Starting restart for PID ${pid}.`);
   await sleep(RESPONSE_GRACE_MS);
-  await stopOldServer();
-  startNewServer();
+  const processGone = await stopOldServer();
+  startNewServer(processGone);
 }
 
 await main();

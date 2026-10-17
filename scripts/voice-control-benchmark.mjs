@@ -429,7 +429,7 @@ export function summarizeRuns(runs) {
   return {
     runs: runs.length,
     accuracy: scored.length ? scored.filter((run) => run.correct).length / scored.length : null,
-    p95LatencyMs: percentile(latencies, 95),
+    p95LatencyMs: percentile([...latencies].sort((a, b) => a - b), 95),
   };
 }
 
