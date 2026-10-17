@@ -19,10 +19,15 @@ import {
   openMicByDeviceId,
   playLiveOutputTest,
 } from './liveAudioRoute.js';
+import { createGeminiTurnTiming } from './geminiTurnTiming.js';
 import { executeRealtimeTool } from './realtimeTools.js';
 import { createVoiceCostTracker } from './voiceCost.js';
 import { createPendingEndSession } from './voiceEndSession.js';
-import { appendVoiceSessionEvent, getVoiceSessionLogId } from './voiceSessionLog.js';
+import {
+  appendVoiceResponseTiming,
+  appendVoiceSessionEvent,
+  getVoiceSessionLogId,
+} from './voiceSessionLog.js';
 
 const GEMINI_LIVE_WS =
   'wss://generativelanguage.googleapis.com/ws/' +
@@ -189,6 +194,7 @@ export function createGeminiLiveSession(callbacks = {}) {
   /** @type {ReturnType<typeof createVoiceCostTracker>|null} */
   let cost = null;
   const handledCalls = new Set();
+  const geminiTurnTiming = createGeminiTurnTiming();
   /** @type {ReturnType<typeof setTimeout>|0} */
   let idleTimer = 0;
 
@@ -264,6 +270,7 @@ export function createGeminiLiveSession(callbacks = {}) {
       player = null;
     }
     handledCalls.clear();
+    geminiTurnTiming.reset();
   }
 
   /**
@@ -323,25 +330,51 @@ export function createGeminiLiveSession(callbacks = {}) {
     if (payload?.usageMetadata && cost) {
       cost.addGeminiUsage(payload.usageMetadata);
     }
-    const inputText = String(payload?.serverContent?.inputTranscription?.text || '').trim();
+    const serverContent = payload?.serverContent;
+    const parts = Array.isArray(serverContent?.modelTurn?.parts) ? serverContent.modelTurn.parts : [];
+    const inputText = String(serverContent?.inputTranscription?.text || '').trim();
+    const outputText = String(serverContent?.outputTranscription?.text || '').trim();
+    // Gemini Live has no explicit "response created" event. The turn helper
+    // keeps input transcription out of the response start and carries the
+    // user-speech reference for the first-audio latency.
+    const hasAudio = parts.some((part) => part?.inlineData?.data || part?.inline_data?.data);
+    const turn = geminiTurnTiming.readFrame({
+      inputText: Boolean(inputText),
+      hasModelContent: parts.length > 0 || Boolean(outputText),
+      hasAudio,
+      completed: Boolean(
+        serverContent?.turnComplete || serverContent?.generationComplete || serverContent?.interrupted
+      ),
+    });
+    if (turn.start) {
+      appendVoiceResponseTiming('start', {
+        provider: 'gemini',
+        userSpeechEndedAt: turn.userSpeechEndedAt,
+      });
+    }
     if (inputText && typeof callbacks.onTranscript === 'function') {
       callbacks.onTranscript({ role: 'user', text: inputText });
       touchIdle();
     }
-    const outputText = String(payload?.serverContent?.outputTranscription?.text || '').trim();
     if (outputText && typeof callbacks.onTranscript === 'function') {
       callbacks.onTranscript({ role: 'assistant', text: outputText });
       touchIdle();
     }
-    const parts = payload?.serverContent?.modelTurn?.parts;
-    if (Array.isArray(parts) && player) {
+    if (turn.firstAudio) {
+      appendVoiceResponseTiming('first_audio', { provider: 'gemini' });
+    }
+    if (player) {
       for (const part of parts) {
         const data = part?.inlineData?.data || part?.inline_data?.data;
         if (!data) continue;
         void player.play(base64ToPcm16(data));
       }
     }
-    if (payload?.serverContent?.turnComplete || payload?.serverContent?.generationComplete) {
+    // A turn can report both completion flags; the tracker logs the end once.
+    if (turn.end) {
+      appendVoiceResponseTiming('end', { provider: 'gemini' });
+    }
+    if (serverContent?.turnComplete || serverContent?.generationComplete) {
       endSession.onComplete();
     }
   }
