@@ -169,10 +169,8 @@ test('i18n has PL and EN for every key the usage section uses', async () => {
 });
 
 test('usage styles use tokens only and have a mobile layout', () => {
-  const scss = fs.readFileSync(new URL('../app_front/css/app.scss', import.meta.url), 'utf8');
-  const start = scss.indexOf('/* TODO usage statistics');
-  assert.ok(start > 0);
-  const block = scss.slice(start);
+  const block = fs.readFileSync(new URL('../app_front/css/features/todo/_todo-usage.scss', import.meta.url), 'utf8');
+  assert.match(block, /TODO usage statistics/);
   assert.equal(/#[0-9a-fA-F]{3,6}\b/.test(block), false);
   assert.match(block, /@media \(max-width: 768px\)/);
 });

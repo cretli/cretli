@@ -6,7 +6,7 @@
  *    summed, the backend deliberately has no combined total);
  *  - `todo-id` empty -> workspace view: summary, model x role and a TODO table.
  *
- * Light DOM (global tokens + `.todo-usage-*` styles in app.scss). Data loading
+ * Light DOM (global tokens + `.todo-usage-*` styles in css/features/todo/_todo-usage.scss). Data loading
  * is delegated to `createTodoUsageController`, which aborts and ignores stale
  * responses. Nothing is fetched until `active` is true.
  */

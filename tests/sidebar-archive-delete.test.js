@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { readAppScssSource } from './helpers/app-scss-source.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -12,7 +13,7 @@ function readRepo(relPath) {
 
 const viewSource = readRepo('app_front/features/sidebar/sidebarView.js');
 const appSource = readRepo('app_front/App.js');
-const cssSource = readRepo('app_front/css/app.scss');
+const cssSource = readAppScssSource();
 
 /**
  * Top-level function body inside `createSidebarView` (2-space indented).

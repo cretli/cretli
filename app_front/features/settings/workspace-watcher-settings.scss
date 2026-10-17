@@ -1,5 +1,5 @@
 /* Workspace Watcher settings. Kept in its own file so the shared app.scss
-   stays untouched. */
+   and its partials stay untouched. */
 
 .watcher-tab-panel {
   min-width: 0;
@@ -63,6 +63,38 @@
 .watcher-grid textarea,
 .watcher-actions input {
   width: 100%;
+}
+
+.watcher-grid input:not([type='checkbox']):not([type='radio']):not([type='range']),
+.watcher-grid select,
+.watcher-actions input {
+  box-sizing: border-box;
+  height: var(--cr-control-height, 1.75rem);
+  padding: 0 var(--cr-space-2, 0.5rem);
+  color: var(--cr-text);
+  background: var(--cr-surface);
+  border: 1px solid var(--cr-border-strong, #444);
+  border-radius: var(--cr-radius-sm, 4px);
+  font: inherit;
+  transition: border-color var(--cr-transition, 120ms ease);
+}
+
+.watcher-grid input:focus,
+.watcher-grid select:focus,
+.watcher-actions input:focus {
+  outline: none;
+  border-color: var(--cr-accent, #007acc);
+}
+
+.watcher-duration {
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-2, 0.5rem);
+}
+
+.watcher-duration-unit {
+  color: var(--cr-text-muted, #858585);
+  white-space: nowrap;
 }
 
 .watcher-form textarea {

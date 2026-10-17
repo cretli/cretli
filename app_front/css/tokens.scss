@@ -1,7 +1,7 @@
 // Cretli — design tokens (single source of truth for UI/UX).
 // VS Code Dark+ palette, radius, spacing, typography, motion.
 // Lit components inherit var(--cr-*) through Shadow DOM.
-// Imported in app.scss (@use './tokens').
+// Imported first by the app.scss index (@use './tokens').
 
 :root,
 :root[data-theme='dark'] {

@@ -1,0 +1,179 @@
+/* TODO usage statistics (editor tab + workspace dialog). Values come from
+ * global tokens only, so the light theme follows without overrides. */
+.todo-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+  font-size: 0.82rem;
+}
+
+.todo-usage-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 0.75rem;
+}
+
+.todo-usage-status-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+}
+
+.todo-usage-state {
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+  color: var(--cr-text-muted);
+}
+
+.todo-usage-state--warn {
+  border-color: var(--cr-warn-border);
+  background: var(--cr-warn-bg);
+  color: var(--cr-warn);
+}
+
+.todo-usage-state--error {
+  border-color: var(--cr-error);
+  color: var(--cr-error);
+}
+
+.todo-usage-heading {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.todo-usage-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.todo-usage-tile {
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+}
+
+.todo-usage-tile dt {
+  color: var(--cr-text-muted);
+  font-size: 0.72rem;
+}
+
+.todo-usage-tile dd {
+  margin: 0.15rem 0 0;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A missing measurement is visibly different from a measured zero. */
+.todo-usage-value--missing {
+  color: var(--cr-text-muted);
+  font-style: italic;
+}
+
+.todo-usage-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.todo-usage-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.todo-usage-table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.todo-usage-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.todo-usage-caption {
+  padding: 0 0 0.3rem;
+  text-align: left;
+  font-weight: 600;
+}
+
+.todo-usage-table th,
+.todo-usage-table td {
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--cr-border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+
+.todo-usage-table th {
+  color: var(--cr-text-muted);
+  font-weight: 500;
+  font-size: 0.72rem;
+}
+
+.todo-usage-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.todo-usage-title {
+  overflow-wrap: anywhere;
+}
+
+.todo-usage-sub {
+  color: var(--cr-text-muted);
+}
+
+@media (max-width: 768px) {
+  .todo-usage-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Rows become labelled cards so nothing needs horizontal scrolling. */
+  .todo-usage-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .todo-usage-table,
+  .todo-usage-table tbody,
+  .todo-usage-table tr,
+  .todo-usage-table td {
+    display: block;
+  }
+
+  .todo-usage-table tr {
+    margin-bottom: 0.5rem;
+    border: 1px solid var(--cr-border-subtle);
+    border-radius: var(--cr-radius-sm);
+    background: var(--cr-surface);
+  }
+
+  .todo-usage-table td,
+  .todo-usage-table .num {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    text-align: right;
+  }
+
+  .todo-usage-table td::before {
+    content: attr(data-label);
+    color: var(--cr-text-muted);
+    text-align: left;
+  }
+}
