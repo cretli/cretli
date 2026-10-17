@@ -49,3 +49,26 @@ test('corrupt lesson file is reported and preserved for recovery', () => {
   assert.equal(fs.readFileSync(file, 'utf8'), '{broken');
   fs.rmSync(file);
 });
+
+// FU-D: patch normalisation touches only the fields the patch names, so a legacy
+// row (invalid category, malformed appliesToModels) is still retirable, while an
+// explicitly invalid patch value is refused.
+test('a legacy row is retirable and an invalid patch value still fails', () => {
+  const file = getReviewLessonsDataPath(ws, { dataDir });
+  fs.writeFileSync(file, JSON.stringify({
+    v: 1, workspaceFolder: ws, revision: 0, updatedAt: '',
+    lessons: [{
+      id: 'legacy-row', audience: 'reviewer', kind: 'do', text: 'Legacy row stored before the guard.',
+      category: 'legacy-category', appliesToModels: 'broken', pathGlobs: [], status: 'candidate',
+      evidence: [], revision: 1, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    }],
+  }));
+  const retired = updateReviewLesson(ws, 'legacy-row', { status: 'retired', retired_reason: 'obsolete' }, 1, { dataDir });
+  assert.equal(retired.status, 'retired');
+  assert.equal(retired.retiredReason, 'obsolete');
+  assert.equal(listReviewLessons(ws, { dataDir }).find((row) => row.id === 'legacy-row').status, 'retired');
+  assert.throws(() => updateReviewLesson(ws, 'legacy-row', { appliesToModels: 'broken' }, retired.revision, { dataDir }), { code: 'VALIDATION' });
+  assert.throws(() => updateReviewLesson(ws, 'legacy-row', { retiredReason: 7 }, retired.revision, { dataDir }), { code: 'VALIDATION' });
+  assert.throws(() => addReviewLesson(ws, { ...input, text: 'Model list.', appliesToModels: 'm1' }, { dataDir }), { code: 'VALIDATION' });
+  assert.throws(() => addReviewLesson(ws, { ...input, text: 'Reason type.', retiredReason: 7 }, { dataDir }), { code: 'VALIDATION' });
+});

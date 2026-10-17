@@ -324,13 +324,20 @@ the findings ledger. A single finding never becomes a lesson.
   `~/`, `C:\Users\x` / `C:/Users/x`, `file://` forms), UNC shares (`\\host\share`),
   a slash-less `home/x` only as the first segment, and private LAN addresses
   (`10.*`, `192.168.*`, `172.16-31.*`). Folders named `users/` or `home/` inside a
-  repo path are fine. Finding files are re-anchored at the first known top-level
-  folder (`lib`, `src`, ...) or dropped; a private path in a finding summary is
-  redacted to its repo-relative tail or `<path>` before it reaches the candidate
-  text. Known limitation: the re-anchor cut can expose a project directory name
-  (e.g. `src/acme-client`) in a prefix. The spec matrix (must-reject and
-  must-accept vectors) is `tests/review-lessons-privacy.test.js`; change the
-  classifier against that table, not against a single new case.
+  repo path are fine. A profile name containing spaces
+  (`C:\Users\Jan Kowalski\a.js`) is redacted as a whole: up to two extra words
+  unconditionally, then up to six more that still look like part of a name (a
+  capitalised word or a lowercase particle such as `de`/`van`/`der`), and only
+  when a path separator follows. Both counts are bounded and the name branches
+  are disjoint, so a long run of name-like prose cannot backtrack
+  catastrophically on server text. Finding files are re-anchored at the first
+  known top-level folder (`lib`, `src`, ...) or dropped; a private path in a
+  finding summary is redacted to its repo-relative tail or `<path>` before it
+  reaches the candidate text. Known limitation: the re-anchor cut can expose a
+  project directory name (e.g. `src/acme-client`) in a prefix. The spec matrix
+  (must-reject and must-accept vectors) is
+  `tests/review-lessons-privacy.test.js`; change the classifier against that
+  table, not against a single new case.
 - Trigger: a listener on `onReviewRoundResolved` runs once per resolved **PASS**
   round (single reviewer, two pool PASS, or a parent-resolved lone PASS). It is
   deferred to a microtask so findings rejected in the same workflow update are
