@@ -145,6 +145,21 @@ export function appendVoiceSessionEvent(event, detail = {}) {
 }
 
 /**
+ * Measurement-only events consumed by `diagnoseVoiceSessionLog` for p95 latency.
+ * `response.first_audio` marks the first audio chunk of a response and
+ * `response.end` the end of the response (provider `response.done` /
+ * `turnComplete`).
+ *
+ * @param {'first_audio'|'end'} kind
+ * @param {Record<string, unknown>} [detail]
+ * @returns {void}
+ */
+export function appendVoiceResponseTiming(kind, detail = {}) {
+  if (kind !== 'first_audio' && kind !== 'end') return;
+  appendVoiceSessionEvent(`response.${kind}`, detail);
+}
+
+/**
  * @param {boolean} ended
  * @returns {Promise<void>}
  */

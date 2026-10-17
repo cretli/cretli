@@ -19,9 +19,11 @@ import {
   openMicByDeviceId,
   playLiveOutputTest,
 } from './liveAudioRoute.js';
-import { executeRealtimeTool } from './realtimeTools.js';
+import { collectVoiceStateSnapshot, executeRealtimeTool } from './realtimeTools.js';
 import { createVoiceCostTracker } from './voiceCost.js';
 import { createPendingEndSession } from './voiceEndSession.js';
+import { createVoiceResponseTiming } from './voiceResponseTiming.js';
+import { createVoiceStateSync } from './voiceStateSync.js';
 import { appendVoiceSessionEvent, getVoiceSessionLogId } from './voiceSessionLog.js';
 
 const GEMINI_LIVE_WS =
@@ -191,6 +193,14 @@ export function createGeminiLiveSession(callbacks = {}) {
   const handledCalls = new Set();
   /** @type {ReturnType<typeof setTimeout>|0} */
   let idleTimer = 0;
+  const responseTiming = createVoiceResponseTiming();
+  // Gemini cannot delete history: a newer state turn supersedes the older one by its text.
+  const stateSync = createVoiceStateSync({
+    getSnapshot: collectVoiceStateSnapshot,
+    sendItem: ({ text }) => send({
+      clientContent: { turns: [{ role: 'user', parts: [{ text }] }], turnComplete: false },
+    }),
+  });
 
   function setStatus(next, detail = '') {
     status = next;
@@ -264,6 +274,8 @@ export function createGeminiLiveSession(callbacks = {}) {
       player = null;
     }
     handledCalls.clear();
+    stateSync.reset();
+    responseTiming.reset();
   }
 
   /**
@@ -312,10 +324,13 @@ export function createGeminiLiveSession(callbacks = {}) {
     }
     if (payload?.setupComplete) {
       setStatus('live');
+      stateSync.reset();
+      void stateSync.sync();
       touchIdle();
       return;
     }
     if (payload?.toolCall) {
+      responseTiming.markStart();
       void handleToolCall(payload.toolCall);
       touchIdle();
       return;
@@ -338,10 +353,13 @@ export function createGeminiLiveSession(callbacks = {}) {
       for (const part of parts) {
         const data = part?.inlineData?.data || part?.inline_data?.data;
         if (!data) continue;
+        responseTiming.markAudio();
         void player.play(base64ToPcm16(data));
       }
     }
     if (payload?.serverContent?.turnComplete || payload?.serverContent?.generationComplete) {
+      responseTiming.markEnd();
+      void stateSync.sync();
       endSession.onComplete();
     }
   }

@@ -23,9 +23,11 @@ import {
   playLiveOutputTest,
   remoteStreamFromTrackEvent,
 } from './liveAudioRoute.js';
-import { executeRealtimeTool } from './realtimeTools.js';
+import { collectVoiceStateSnapshot, executeRealtimeTool } from './realtimeTools.js';
 import { createVoiceCostTracker } from './voiceCost.js';
 import { createPendingEndSession } from './voiceEndSession.js';
+import { createVoiceResponseTiming } from './voiceResponseTiming.js';
+import { createVoiceStateSync } from './voiceStateSync.js';
 import { appendVoiceSessionEvent, getVoiceSessionLogId } from './voiceSessionLog.js';
 
 const TRACE_REALTIME_EVENTS = new Set([
@@ -101,6 +103,15 @@ export function createRealtimeSession(callbacks = {}) {
   let itemIds = [];
   /** @type {ReturnType<typeof setTimeout>|0} */
   let idleTimer = 0;
+  const responseTiming = createVoiceResponseTiming();
+  const stateSync = createVoiceStateSync({
+    getSnapshot: collectVoiceStateSnapshot,
+    sendItem: ({ id, text }) => sendEvent({
+      type: 'conversation.item.create',
+      item: { id, type: 'message', role: 'system', content: [{ type: 'input_text', text }] },
+    }),
+    deleteItem: (id) => sendEvent({ type: 'conversation.item.delete', item_id: id }),
+  });
 
   function touchIdle() {
     if (idleTimer) window.clearTimeout(idleTimer);
@@ -153,6 +164,8 @@ export function createRealtimeSession(callbacks = {}) {
     }
     handledCalls.clear();
     itemIds = [];
+    stateSync.reset();
+    responseTiming.reset();
     if (idleTimer) window.clearTimeout(idleTimer);
     idleTimer = 0;
   }
@@ -256,8 +269,18 @@ export function createRealtimeSession(callbacks = {}) {
       });
     }
 
+    if (type === 'response.created') responseTiming.markStart();
+    if (type === 'output_audio_buffer.started' || type === 'response.output_audio.delta') {
+      responseTiming.markAudio();
+      return;
+    }
     if (type === 'conversation.item.created' && payload?.item?.id) {
-      itemIds.push(String(payload.item.id));
+      // The state item is tracked by stateSync and must never be pruned with the history.
+      if (!stateSync.isStateItem(payload.item.id)) itemIds.push(String(payload.item.id));
+      return;
+    }
+    if (type === 'conversation.item.deleted') {
+      if (stateSync.markDeleted(String(payload?.item_id || ''))) void stateSync.sync();
       return;
     }
     if (type === 'response.function_call_arguments.done') {
@@ -291,6 +314,9 @@ export function createRealtimeSession(callbacks = {}) {
       for (const itemId of stale) {
         sendEvent({ type: 'conversation.item.delete', item_id: itemId });
       }
+      responseTiming.markEnd();
+      // Pruning never touches the state item; sync re-sends it if it was lost or changed.
+      void stateSync.sync();
       touchIdle();
       endSession.onComplete();
       return;
@@ -429,9 +455,15 @@ export function createRealtimeSession(callbacks = {}) {
       }
 
       setStatus('live');
+      // A fresh connection has no history: send the full state before the first turn.
+      stateSync.reset();
       if (channel) {
-        if (channel.readyState === 'open') applyLiveTurnDetection();
-        else channel.addEventListener('open', () => applyLiveTurnDetection(), { once: true });
+        const onOpen = () => {
+          applyLiveTurnDetection();
+          void stateSync.sync();
+        };
+        if (channel.readyState === 'open') onOpen();
+        else channel.addEventListener('open', onOpen, { once: true });
       }
       touchIdle();
       return true;

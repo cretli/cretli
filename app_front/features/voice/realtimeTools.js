@@ -10,6 +10,7 @@
  * cycle.
  */
 
+import { isVoiceActionId } from '../../../lib/voice/action-registry.js';
 import { getTasks } from '../../api.js';
 import { getChatSpeaker } from './chatSpeaker.js';
 import { toSpeakableText } from './speakableText.js';
@@ -22,7 +23,7 @@ import { resolveVoiceReadMode } from './voiceReadMatch.js';
 import { resolveVoiceSdkMode } from './voiceSdkMode.js';
 import { normalizeSdkMode } from '../../../lib/sdk/sdk-mode.js';
 import { matchTaskBySpokenLabel } from './voiceTaskMatch.js';
-import { setReadMode } from './voicePrefs.js';
+import { getReadMode, setReadMode } from './voicePrefs.js';
 import { getVoiceSessionUsd } from './voiceSessionState.js';
 import { formatUsd } from './voiceCost.js';
 import { appendVoiceSessionEvent } from './voiceSessionLog.js';
@@ -500,7 +501,8 @@ export const REALTIME_TOOL_NAMES = Object.keys(handlers);
  * @returns {Promise<object>} JSON-serialisable result sent back to the model
  */
 export async function executeRealtimeTool(name, args) {
-  const handler = handlers[name];
+  // The registry is the allow-list: a name outside it never reaches a handler.
+  const handler = isVoiceActionId(name) ? handlers[name] : null;
   if (!handler) return { ok: false, error: `Unknown tool: ${name}` };
   const startedAt = Date.now();
   const safeArgs = args && typeof args === 'object' ? args : {};
@@ -527,4 +529,31 @@ export async function executeRealtimeTool(name, args) {
     });
     return { ok: false, error: message };
   }
+}
+
+/**
+ * Live app state for the voice state block (see `voiceStateSync.js`).
+ *
+ * @returns {Promise<import('./voiceStateSync.js').VoiceStateSnapshot>}
+ */
+export async function collectVoiceStateSnapshot() {
+  const chatModule = await loadChatModule();
+  const chat = findActiveChat(chatModule);
+  const readMode = getReadMode();
+  if (!chat) return { readMode };
+  const permissions = Math.max(0, Number(chat._sdkServerPendingPermissionCount) || 0);
+  const questions = Math.max(0, Number(chat._sdkServerPendingQuestionCount) || 0);
+  const status = await handlers.get_chat_status();
+  return {
+    chatId: chat.id,
+    title: status?.title,
+    harness: status?.harness,
+    mode: status?.mode,
+    running: status?.state === 'active',
+    workspace: status?.workspace || '',
+    pendingApproval: permissions > 0
+      ? { kind: 'permission', count: permissions }
+      : questions > 0 ? { kind: 'question', count: questions } : null,
+    readMode,
+  };
 }

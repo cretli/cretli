@@ -28,3 +28,28 @@ test('measures the wait from user speech to the next tool, not the tool itself',
   assert.equal(listGap.gapMs, 21000);
   assert.ok(actual.largestGapMs >= 21000);
 });
+
+test('computes p95 latency from user turns to tool, first audio and response end', () => {
+  const inputEntries = [];
+  for (let i = 0; i < 20; i += 1) {
+    const base = 1000 + i * 10000;
+    inputEntries.push({ ts: base, event: 'transcript', role: 'user', text: `u${i}` });
+    inputEntries.push({ ts: base + 100 + i, event: 'tool.start', name: 'get_cost' });
+    inputEntries.push({ ts: base + 110 + i, event: 'tool.call', name: 'get_cost', ok: true, durationMs: 1 });
+    inputEntries.push({ ts: base + 300 + i, event: 'response.first_audio' });
+    inputEntries.push({ ts: base + 301 + i, event: 'response.first_audio' });
+    inputEntries.push({ ts: base + 900 + i, event: 'response.end' });
+  }
+  const actual = diagnoseVoiceSessionLog({ sessionId: 's', entries: inputEntries });
+  assert.equal(actual.latency.userToToolStart.count, 20);
+  assert.equal(actual.latency.userToToolStart.p95, 118);
+  assert.equal(actual.latency.userToToolResult.p95, 128);
+  assert.equal(actual.latency.userToFirstAudio.count, 20);
+  assert.equal(actual.latency.userToFirstAudio.p95, 318);
+  assert.equal(actual.latency.userToResponseEnd.p50, 909);
+});
+
+test('latency summaries are empty when the log has no timing events', () => {
+  const actual = diagnoseVoiceSessionLog({ sessionId: 's', entries: [] });
+  assert.deepEqual(actual.latency.userToFirstAudio, { count: 0, p50: null, p95: null });
+});
