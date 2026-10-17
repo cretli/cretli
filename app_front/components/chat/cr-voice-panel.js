@@ -369,7 +369,22 @@ class CrVoicePanel extends LitElement {
     }
   }
 
+  connectedCallback() {
+    super.connectedCallback();
+    window.addEventListener('cr-voice-mic-mute-request', this._onMicMuteRequest);
+  }
+
+  /** Lets the `app_settings` voice tool mute or unmute the live microphone. */
+  _onMicMuteRequest = (event) => {
+    const detail = event?.detail;
+    if (!detail || !this._session?.isLive()) return;
+    this._session.setMicMuted(detail.muted === true);
+    this.micMuted = detail.muted === true;
+    detail.handled = true;
+  };
+
   disconnectedCallback() {
+    window.removeEventListener('cr-voice-mic-mute-request', this._onMicMuteRequest);
     this._stopMicMonitor();
     this._stopAgentWatch();
     this._session?.stop();

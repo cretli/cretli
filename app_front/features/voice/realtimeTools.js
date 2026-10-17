@@ -10,7 +10,13 @@
  * cycle.
  */
 
-import { getTasks } from '../../api.js';
+import { isVoiceActionId } from '../../../lib/voice/action-registry.js';
+import {
+  getTasks,
+  getTodos,
+  getWorkspaceDelegations,
+  postDelegationCancel,
+} from '../../api.js';
 import { getChatSpeaker } from './chatSpeaker.js';
 import { toSpeakableText } from './speakableText.js';
 import { matchChatBySpokenTitle } from './voiceChatMatch.js';
@@ -22,7 +28,18 @@ import { resolveVoiceReadMode } from './voiceReadMatch.js';
 import { resolveVoiceSdkMode } from './voiceSdkMode.js';
 import { normalizeSdkMode } from '../../../lib/sdk/sdk-mode.js';
 import { matchTaskBySpokenLabel } from './voiceTaskMatch.js';
-import { setReadMode } from './voicePrefs.js';
+import { getReadMode, setReadMode } from './voicePrefs.js';
+import { getConnectionSnapshot as connectionSnapshotRef } from '../../connectionStatus.js';
+import { createAppToolHandlers, readActivePanelId } from './voiceAppTools.js';
+import {
+  collectPendingApprovals,
+  createApprovalToolHandlers,
+  readClosedPermissionRequestIds,
+  readPendingPermissionCards,
+} from '../approval/voiceApprovalTools.js';
+import { createWorkToolHandlers } from './voiceWorkTools.js';
+import { getTodoWorkspaceFolder } from '../todo/todoWorkspaceScope.js';
+import { resolveTodoStartHarness } from '../todo/todoTreeView.js';
 import { getVoiceSessionUsd } from './voiceSessionState.js';
 import { formatUsd } from './voiceCost.js';
 import { appendVoiceSessionEvent } from './voiceSessionLog.js';
@@ -109,8 +126,194 @@ async function readLastAnswerText(maxChars) {
   return speakable.length > maxChars ? speakable.slice(-maxChars) : speakable;
 }
 
+/**
+ * Real dependencies of the panel / settings / status tools. App modules are
+ * imported on demand so loading this file stays cheap (and DOM-free in tests).
+ */
+const appTools = createAppToolHandlers({
+  getDocument: () => (typeof document !== 'undefined' ? document : null),
+  async setTheme(value) {
+    (await import('../../theme.js')).setTheme(value);
+  },
+  getLang: () => (typeof document !== 'undefined' ? document.documentElement.getAttribute('lang') || '' : ''),
+  async setLang(value) {
+    await (await import('../../i18n/index.js')).setLang(value);
+  },
+  async getNotificationState() {
+    return (await import('../notifications/notificationStore.js')).getNotificationStore()?.getState() || null;
+  },
+  async fetchScout() {
+    const scope = await import('../watcher/watcherWorkspaceScope.js');
+    const { cretliApiFetch } = await import('../../lib/cretliApiRequest.js');
+    const scoped = scope.scopeWatcherRequestToWorkspace(
+      `/api/workspace-watcher/scout?status=pending&max=${8}`,
+      {},
+      scope.getWatcherWorkspaceFolder()
+    );
+    const res = await cretliApiFetch(scoped.path, { headers: { Accept: 'application/json' }, credentials: 'include' });
+    return { status: res.status, json: await res.json().catch(() => null) };
+  },
+  async fetchHealth() {
+    return (await import('../../api.js')).getHarnessHealth();
+  },
+  getConnection: () => connectionSnapshotRef(),
+  async getActiveChat() {
+    return findActiveChat(await loadChatModule());
+  },
+  requestMicMute(muted) {
+    if (typeof window === 'undefined') return false;
+    const detail = { muted, handled: false };
+    window.dispatchEvent(new CustomEvent('cr-voice-mic-mute-request', { detail }));
+    return detail.handled === true;
+  },
+});
+
+/**
+ * Pending permission requests for the active chat plus the other open chats.
+ * Rendered cards are scoped to the active chat's stream so a hidden chat's
+ * cards can never be attributed to the active one.
+ *
+ * @param {object} chatModule
+ * @returns {{ requests: Array<object>, total: number }}
+ */
+function collectApprovalSnapshot(chatModule) {
+  const chats = chatModule.getChatsList();
+  const active = findActiveChat(chatModule);
+  // `pane` carries data-chat-id, so cards from a hidden chat can never be read
+  // as the active chat's requests.
+  const root = active?.pane || active?._sdkRichView?.streamEl || active?._sdkRichView?.el || null;
+  return collectPendingApprovals({
+    chats,
+    activeChatId: active?.id || '',
+    cards: readPendingPermissionCards(root),
+    closedRequestIds: readClosedPermissionRequestIds(root),
+  });
+}
+
+/**
+ * @param {any} chat
+ * @returns {boolean} whether the chat socket can carry a permission reply
+ */
+function isChatSocketOpen(chat) {
+  if (!chat?.ws || typeof chat.ws.send !== 'function') return false;
+  return typeof WebSocket === 'undefined' || chat.ws.readyState === WebSocket.OPEN;
+}
+
+const approvalTools = createApprovalToolHandlers({
+  async getActiveChat() {
+    const chatModule = await loadChatModule();
+    const chat = findActiveChat(chatModule);
+    return chat ? { id: chat.id, title: chat.title } : null;
+  },
+  async listPendingApprovals() {
+    return collectApprovalSnapshot(await loadChatModule());
+  },
+  async replyToApproval({ chatId, requestId, answer }) {
+    // Defense in depth: the handler already narrowed this to once|reject, but
+    // nothing except those two replies may ever reach the socket.
+    if (answer !== 'once' && answer !== 'reject') {
+      return { ok: false, error: 'Voice can only answer once or reject.' };
+    }
+    const chatModule = await loadChatModule();
+    const chat = findActiveChat(chatModule);
+    if (!chat || chat.id !== chatId) {
+      return { ok: false, error: 'The active chat changed. Nothing was approved.' };
+    }
+    const snapshot = collectApprovalSnapshot(chatModule);
+    const pending = snapshot.requests.find(
+      (request) => request.requestId === requestId && request.chatId === chatId
+    );
+    if (!pending) {
+      return { ok: false, error: 'The permission request is no longer pending. Nothing was approved.' };
+    }
+    if (!isChatSocketOpen(chat)) {
+      return { ok: false, error: 'The chat connection is not ready. Nothing was approved.' };
+    }
+    // Same wire message the UI's permission buttons send.
+    chat.ws.send(JSON.stringify({ type: 'opencodePermissionReply', requestId, reply: answer }));
+    appendVoiceSessionEvent('tool.approval_reply', { chatId, requestId, reply: answer });
+    return { ok: true };
+  },
+});
+
+/**
+ * Scoped JSON call to the Workspace Watcher API (same scoping as the Todo bar).
+ *
+ * @param {string} path
+ * @param {{ method?: string }} [options]
+ * @returns {Promise<{ status: number, json: any }>}
+ */
+async function watcherRequest(path, options = {}) {
+  const scope = await import('../watcher/watcherWorkspaceScope.js');
+  const { cretliApiFetch } = await import('../../lib/cretliApiRequest.js');
+  const scoped = scope.scopeWatcherRequestToWorkspace(path, options, scope.getWatcherWorkspaceFolder());
+  const res = await cretliApiFetch(scoped.path, {
+    method: scoped.options.method || 'GET',
+    headers: { Accept: 'application/json' },
+    credentials: 'include',
+  });
+  return { status: res.status, json: await res.json().catch(() => null) };
+}
+
+/**
+ * Todo / Watcher / delegation tools. Harness and model for a started todo come
+ * from the todo's assignee and the new-chat harness select, never from a
+ * catalog listing.
+ */
+const workTools = createWorkToolHandlers({
+  async getContext() {
+    const chat = findActiveChat(await loadChatModule());
+    return { workspaceFolder: getTodoWorkspaceFolder(), chatId: chat?.id || '' };
+  },
+  async listTodos() {
+    const data = await getTodos(getTodoWorkspaceFolder());
+    return Array.isArray(data?.items) ? data.items : [];
+  },
+  async startTodo({ todo, context }) {
+    const trigger = typeof document !== 'undefined' ? document.getElementById('header-workspace-trigger') : null;
+    const workspaceFile = trigger?.dataset?.workspaceFile || '';
+    // Same folder the two-step confirmation was bound to (getContext), not the header trigger.
+    const workspaceFolder = context?.workspaceFolder || '';
+    if (!workspaceFile || !workspaceFolder) return { ok: false, error: 'No workspace is selected' };
+    const select = typeof document !== 'undefined' ? document.getElementById('chat-new-harness-select') : null;
+    const agentTransport = resolveTodoStartHarness(todo, String(select?.value || 'sdk').trim() || 'sdk');
+    const panel = await import('../../todoPanel.js');
+    const outcome = await panel.startTodoAgentForVoice(todo.id, { workspaceFile, workspaceFolder, agentTransport });
+    appendVoiceSessionEvent('tool.todo_start', { todoId: todo.id, ok: outcome?.ok === true });
+    if (!outcome?.ok) return { ok: false, error: outcome?.error || 'Could not start the todo' };
+    return { ok: true, state: 'started' };
+  },
+  async getWatcherView() {
+    const res = await watcherRequest('/api/workspace-watcher');
+    return res.json?.ok ? res.json : null;
+  },
+  async setWatcherPaused(paused) {
+    const res = await watcherRequest(`/api/workspace-watcher/${paused ? 'pause' : 'resume'}`, { method: 'POST' });
+    if (res.status >= 400 || res.json?.ok === false) {
+      return { ok: false, error: res.json?.error || 'Could not change the watcher' };
+    }
+    import('../watcher/watcherPanel.js').then((panel) => panel.refreshWatcherPanel()).catch(() => {});
+    return { ok: true };
+  },
+  async listDelegations() {
+    const data = await getWorkspaceDelegations({ workspaceFolder: getTodoWorkspaceFolder(), limit: 30 });
+    return Array.isArray(data?.delegations) ? data.delegations : [];
+  },
+  async cancelDelegation(id) {
+    const data = await postDelegationCancel(id);
+    appendVoiceSessionEvent('tool.delegation_cancel', { delegationId: id, ok: data?.ok !== false });
+    return data?.ok === false ? { ok: false, error: data.error } : { ok: true };
+  },
+});
+
 /** @type {Record<string, (args: object) => Promise<object>>} */
 const handlers = {
+  panel: appTools.panel,
+  app_settings: appTools.app_settings,
+  app_status: appTools.app_status,
+  approval: approvalTools.approval,
+  work: workTools.work,
+
   async send_prompt(args) {
     const text = String(args?.text || '').trim();
     if (!text) return { ok: false, error: 'Empty prompt' };
@@ -500,8 +703,11 @@ export const REALTIME_TOOL_NAMES = Object.keys(handlers);
  * @returns {Promise<object>} JSON-serialisable result sent back to the model
  */
 export async function executeRealtimeTool(name, args) {
-  const handler = handlers[name];
+  // The registry is the allow-list: a name outside it never reaches a handler.
+  const handler = isVoiceActionId(name) ? handlers[name] : null;
   if (!handler) return { ok: false, error: `Unknown tool: ${name}` };
+  // Any other tool between the two work steps closes the pending confirmation.
+  if (name !== 'work') workTools.cancelPending();
   const startedAt = Date.now();
   const safeArgs = args && typeof args === 'object' ? args : {};
   appendVoiceSessionEvent('tool.start', { name, args: safeArgs });
@@ -527,4 +733,45 @@ export async function executeRealtimeTool(name, args) {
     });
     return { ok: false, error: message };
   }
+}
+
+/**
+ * Live app state for the voice state block (see `voiceStateSync.js`).
+ *
+ * @returns {Promise<import('./voiceStateSync.js').VoiceStateSnapshot>}
+ */
+export async function collectVoiceStateSnapshot() {
+  const chatModule = await loadChatModule();
+  const chat = findActiveChat(chatModule);
+  const readMode = getReadMode();
+  const openPanel = readActivePanelId(typeof document !== 'undefined' ? document : null);
+  if (!chat) return { readMode, openPanel };
+  const approvals = collectApprovalSnapshot(chatModule);
+  const activeApprovals = approvals.requests.filter((request) => request.chatId === chat.id);
+  const permissions = Math.max(
+    0,
+    Number(chat._sdkServerPendingPermissionCount) || 0,
+    activeApprovals.length
+  );
+  const questions = Math.max(0, Number(chat._sdkServerPendingQuestionCount) || 0);
+  const status = await handlers.get_chat_status();
+  const onlyApproval = permissions === 1 && activeApprovals.length === 1 ? activeApprovals[0] : null;
+  return {
+    chatId: chat.id,
+    title: status?.title,
+    harness: status?.harness,
+    mode: status?.mode,
+    running: status?.state === 'active',
+    workspace: status?.workspace || '',
+    openPanel,
+    pendingApproval: permissions > 0
+      ? {
+        kind: 'permission',
+        count: permissions,
+        ...(activeApprovals[0]?.summary ? { summary: activeApprovals[0].summary } : {}),
+        ...(onlyApproval ? { requestId: onlyApproval.requestId } : {}),
+      }
+      : questions > 0 ? { kind: 'question', count: questions } : null,
+    readMode,
+  };
 }

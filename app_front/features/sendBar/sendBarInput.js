@@ -97,6 +97,14 @@ export function createSendBarInput(options) {
 
   function attachInputKeydown(el) {
     if (!el) return;
+    if (!el._sendBarCaretToEndBound) {
+      el._sendBarCaretToEndBound = true;
+      el.addEventListener('focus', () => {
+        if (typeof el.setSelectionRange !== 'function') return;
+        const end = el.value.length;
+        el.setSelectionRange(end, end);
+      });
+    }
     if (el._sendBarKeydownBound) return;
     el._sendBarKeydownBound = true;
     el.addEventListener('keydown', (e) => {

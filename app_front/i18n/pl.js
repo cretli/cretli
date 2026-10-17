@@ -2435,6 +2435,7 @@ export const pl = {
     commandsHint:
       'Mów naturalnie — nie trzeba recytować komend. Głos steruje interfejsem; kod pisze agent w czacie.',
     commandsGroup: {
+      app: 'Panele, ustawienia i status',
       chat: 'Czat',
       workspace: 'Projekty i foldery',
       agent: 'Agent, model i taski',
@@ -2465,7 +2466,12 @@ export const pl = {
       set_model: '„Ustaw model GPT”',
       switch_harness: '„Przełącz na Codex i kontynuuj” — zapyta o potwierdzenie',
       send_nav: '„Potwierdź” / „Odrzuć” / „W górę” / „W dół” — klawisze w terminalu',
+      approval: '„Jakie uprawnienia czekają?” / „Zatwierdź raz” / „Odrzuć” — tylko raz albo odrzuć',
+      work: '„Jakie todo są gotowe?” / „Uruchom todo logowania” — z potwierdzeniem / „Wstrzymaj watchera” / „Anuluj delegację” — z potwierdzeniem. Zatwierdzanie planu tylko w UI',
       set_read_mode: '„Wyłącz czytanie odpowiedzi” / „Czytaj na końcu” / „Na bieżąco”',
+      panel: '„Otwórz panel git” / „Który panel jest otwarty?”',
+      app_settings: '„Włącz ciemny motyw” / „Zmień język na angielski” / „Wycisz mikrofon”',
+      app_status: '„Są jakieś powiadomienia?” / „Co znalazł Scout?” / „Czy któryś harness ma błędy?” / „Jak pełny jest kontekst?”',
       get_cost: '„Ile kosztuje ta sesja?”',
       end_voice_mode: '„Zakończ tryb głosowy” / „Wyłącz głos”',
     },

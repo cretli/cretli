@@ -20,7 +20,7 @@ import {
   playLiveOutputTest,
 } from './liveAudioRoute.js';
 import { createGeminiTurnTiming } from './geminiTurnTiming.js';
-import { executeRealtimeTool } from './realtimeTools.js';
+import { collectVoiceStateSnapshot, executeRealtimeTool } from './realtimeTools.js';
 import { createVoiceCostTracker } from './voiceCost.js';
 import { createPendingEndSession } from './voiceEndSession.js';
 import {
@@ -28,6 +28,7 @@ import {
   appendVoiceSessionEvent,
   getVoiceSessionLogId,
 } from './voiceSessionLog.js';
+import { createVoiceStateSync } from './voiceStateSync.js';
 
 const GEMINI_LIVE_WS =
   'wss://generativelanguage.googleapis.com/ws/' +
@@ -197,6 +198,13 @@ export function createGeminiLiveSession(callbacks = {}) {
   const geminiTurnTiming = createGeminiTurnTiming();
   /** @type {ReturnType<typeof setTimeout>|0} */
   let idleTimer = 0;
+  // Gemini cannot delete history: a newer state turn supersedes the older one by its text.
+  const stateSync = createVoiceStateSync({
+    getSnapshot: collectVoiceStateSnapshot,
+    sendItem: ({ text }) => send({
+      clientContent: { turns: [{ role: 'user', parts: [{ text }] }], turnComplete: false },
+    }),
+  });
 
   function setStatus(next, detail = '') {
     status = next;
@@ -270,6 +278,7 @@ export function createGeminiLiveSession(callbacks = {}) {
       player = null;
     }
     handledCalls.clear();
+    stateSync.reset();
     geminiTurnTiming.reset();
   }
 
@@ -299,6 +308,9 @@ export function createGeminiLiveSession(callbacks = {}) {
       if (result?.endSession === true) wantEnd = true;
     }
     if (responses.length === 0) return;
+    // A tool may have changed app state (panel, chat, mode): refresh it before the model answers.
+    await stateSync.sync().catch(() => {});
+    if (myEpoch !== epoch) return;
     send({ toolResponse: { functionResponses: responses } });
     if (wantEnd) endSession.request({ skipCompletions: 1 });
   }
@@ -319,6 +331,8 @@ export function createGeminiLiveSession(callbacks = {}) {
     }
     if (payload?.setupComplete) {
       setStatus('live');
+      stateSync.reset();
+      void stateSync.sync();
       touchIdle();
       return;
     }
@@ -375,6 +389,7 @@ export function createGeminiLiveSession(callbacks = {}) {
       appendVoiceResponseTiming('end', { provider: 'gemini' });
     }
     if (serverContent?.turnComplete || serverContent?.generationComplete) {
+      void stateSync.sync();
       endSession.onComplete();
     }
   }

@@ -671,15 +671,43 @@ the same `realtimeTools.js` executor. Settings → **Test key** calls
 checked without opening a Live session.
 
 Tool calls arrive on the data channel, are deduplicated by `call_id`, executed by
-`realtimeTools.js` against the running app (`send_prompt`, `stop_agent`,
-`read_last_answer`, `get_chat_status`, `list_chats`, `switch_chat`, `create_chat`, `delete_chat`,
-`open_chat_sidebar`, `close_chat_sidebar`, `set_chat_mode`, `run_task`, `list_tasks`,
-`list_workspaces`, `switch_workspace`, `list_folders`, `switch_folder`, `close_chat`,
-`rename_chat`, `send_nav`, `list_models`, `set_model`, `switch_harness`, `fork_chat`,
-`set_read_mode`, `get_cost`, `end_voice_mode`), and
-answered with `function_call_output` plus an explicit `response.create` — without it the
-model waits silently. `realtimeTools.js` imports `chat.js` lazily, because the tools drive
-the running app that `chat.js` itself owns.
+`realtimeTools.js` against the running app, and answered with `function_call_output` plus
+an explicit `response.create` — without it the model waits silently. `realtimeTools.js`
+imports `chat.js` lazily, because the tools drive the running app that `chat.js` itself owns.
+
+The tool set is defined once in `lib/voice/action-registry.js` (`VOICE_ACTIONS`) and
+projected for OpenAI (`buildRealtimeTools`), Gemini (`toGeminiFunctionDeclarations`) and the
+help list (`voiceCommandCatalog.js`), so the schemas cannot drift. Core tools:
+`send_prompt`, `stop_agent`, `read_last_answer`, `get_chat_status`, `list_chats`,
+`switch_chat`, `create_chat`, `delete_chat`, `open_chat_sidebar`, `close_chat_sidebar`,
+`set_chat_mode`, `run_task`, `list_tasks`, `list_workspaces`, `switch_workspace`,
+`list_folders`, `switch_folder`, `close_chat`, `rename_chat`, `send_nav`, `list_models`,
+`set_model`, `switch_harness`, `fork_chat`, `set_read_mode`, `get_cost`, `end_voice_mode`.
+Five *family* tools carry an `action` enum with flat parameters to keep schema tokens low:
+
+| Tool | Actions | Risk |
+|---|---|---|
+| `panel` | `open` (chat, todo, files, git, github, browser, tasks, terminal, logs, tests, instances, agents), `status` | safe |
+| `app_settings` | `theme`, `language`, `mic` | safe |
+| `app_status` | `notifications`, `scout`, `health`, `context` | safe, read-only |
+| `approval` | `describe_pending`, `answer` (`once` / `reject` only, bound to `request_id` + chat) | confirm |
+| `work` | `todo_ready`, `todo_status`, `todo_start`, `watcher_status`, `watcher_pause`, `watcher_resume`, `delegation_status`, `delegation_cancel` | confirm for start/cancel |
+
+Handlers are dependency-injected modules (`voiceAppTools.js`, `voiceApprovalTools.js`,
+`voiceWorkTools.js`) bound in `realtimeTools.js` and unit-tested. Results are capped by
+`capVoiceResult` and carry `untrusted: true` when they contain user or agent text.
+Mutating actions (`todo_start`, `delegation_cancel`) use a two-step confirmation: step one
+resolves one id and binds it to the workspace folder and active chat; step two needs
+`confirm=true` and the same id within 60 s. Approval by voice answers only a `request_id`
+that `describe_pending` showed; always/harness grants and plan approval are UI-only.
+
+State sync (`voiceStateSync.js`): one compact state item (active chat, workspace, open
+panel, pending approval, read mode) lives in the conversation, is re-sent only when its
+text changes and is restored after a reconnect. Timing events (`voiceResponseTiming.js`)
+append one `response.first_audio` and one `response.end` per response to the session log,
+and the diagnose endpoint reports user→tool and user→audio p50/p95. Coverage, thresholds and
+the measurement protocol: `docs/voice-control-coverage.md` (benchmark:
+`scripts/voice-control-benchmark.mjs`).
 
 `enabledHarnesses` in `data/config.json` (Settings → Harness checkboxes) hides
 a backend from new chat, the mode bar, and voice tools. Omitting the key keeps
