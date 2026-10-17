@@ -103,3 +103,42 @@ test('gate stays blocked while a registered auto-verify chain is in flight past 
   assert.equal(inspectImplementVerifyBeforeReview(input).ok, true);
   resetAutoVerifyChainsForTests();
 });
+
+test('production auto-verify chain keeps the gate closed past the marker age until it settles', async () => {
+  const { parent, leafId, row } = makeImplement();
+  const previousEnv = process.env.CRETLI_AUTO_VERIFY_AFTER_IMPLEMENT;
+  process.env.CRETLI_AUTO_VERIFY_AFTER_IMPLEMENT = '1';
+  try {
+    let release;
+    let runnerInput = null;
+    const held = new Promise((resolve) => { release = resolve; });
+    const runner = (input) => { runnerInput = input; return held; };
+    const settled = startAutoVerifyAfterImplement(row, { runner });
+    assert.ok(settled, 'chain started');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(runnerInput, 'runner invoked with the production input');
+    assert.equal(runnerInput.projectRoot, repo.dir);
+    assert.ok(Array.isArray(runnerInput.ids) && runnerInput.ids.length > 0);
+    const pending = getDelegationById(row.id).verifyPending;
+    assert.ok(pending, 'marker persisted');
+    assert.equal(runnerInput.materialRevision, pending.revision);
+    updateDelegationRecord(row.id, {
+      verifyPending: { ...pending, since: new Date(Date.now() - 60 * 60 * 1000).toISOString() },
+    });
+    const input = { parentChatId: parent.id, assignment: 'review', executionMode: 'agent', reviewSubject: 'code', leafId };
+    assert.equal(isAutoVerifyChainInFlight({
+      delegationId: row.id, projectRoot: repo.dir, materialRevision: pending.revision,
+    }), true, 'registry key matches the production registration');
+    assert.equal(inspectImplementVerifyBeforeReview(input).ok, false, 'blocked by the live chain, not marker age');
+    release({ ok: true, output: 'ok' });
+    await settled;
+    assert.equal(isAutoVerifyChainInFlight({
+      delegationId: row.id, projectRoot: repo.dir, materialRevision: pending.revision,
+    }), false);
+    assert.equal(inspectImplementVerifyBeforeReview(input).ok, true, 'gate opens after the chain settles');
+  } finally {
+    if (previousEnv === undefined) delete process.env.CRETLI_AUTO_VERIFY_AFTER_IMPLEMENT;
+    else process.env.CRETLI_AUTO_VERIFY_AFTER_IMPLEMENT = previousEnv;
+    resetAutoVerifyChainsForTests();
+  }
+});
