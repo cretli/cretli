@@ -770,6 +770,10 @@ server.listen(PORT, BIND_HOST, () => {
   void import('./lib/usage/usage-maintenance.js')
     .then(({ startUsageMaintenance }) => startUsageMaintenance({ dataDir }))
     .catch((err) => console.warn('[cretli] usage maintenance startup failed:', err?.message || err));
+  // Daily DeepSeek balance reading (one current snapshot, no backfill).
+  void import('./lib/deepseek/deepseek-balance.js')
+    .then(({ startDeepSeekBalanceScheduler }) => startDeepSeekBalanceScheduler({ dataDir }))
+    .catch((err) => console.warn('[cretli] deepseek balance scheduler failed:', err?.message || err));
   if (FRONT_HOT_FALLBACK_ENABLED) installFrontBuildWatcher(__dirname, SERVER_INSTANCE_TOKEN);
   setInterval(() => runAgentsScheduler(wsRouterCtx), AGENTS_SCHEDULER_INTERVAL_MS);
   logServerReady({
