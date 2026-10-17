@@ -43,7 +43,7 @@ denominator of the coverage metric (§5).
 | Agents (`agents.js`, `agentsPanel.js`) | list/run agent definitions | gap | `agents.list` safe, `agents.run` confirm |
 | Watcher + Scout inbox (`features/watcher`, `scoutFindingsInboxView.js`) | status, list findings, accept/reject, start cycle | gap | `watcher.status`, `watcher.list_findings` safe; `accept/reject` confirm; mode changes (autopilot) confirm |
 | Delegations (`features/delegations`) | list, status, cancel | gap | `delegations.list` safe; `cancel` confirm |
-| Approval / grants (`features/approval`) | approve once, reject, always-allow grants | partial | once/reject via `send_nav` keys; **voice may only do `once|reject`**; always-allow / grants = not-for-voice (persistent privilege) |
+| Approval / grants (`features/approval`) | approve once, reject, always-allow grants | covered (once/reject) | once/reject via `approval` (bound to requestId + chat); always-allow / grants = not-for-voice (persistent privilege) |
 | Notifications (`features/notifications/notificationCenter.js`) | list, open, dismiss, mark read | gap | `notifications.list` (capped), `dismiss` safe |
 | Connection status / harness health (`connectionStatus.js`, `features/harness-health`) | connection state, harness errors/limits | gap | one read-only `status.summary`; diagnostics/benchmarks panels not-for-voice |
 | Quick commands (`quickCommands.js`) | run a saved command | gap | `quick.list`, `quick.run` (confirm when it sends keys) |
@@ -111,9 +111,11 @@ lists from the registry.
 ## 4. Session-state contract, confirmations, results
 
 **State block** (compact, ≤ ~150 tokens): `active_chat {id, title, harness, mode,
-running}`, `workspace`, `open_panel`, `pending_approval {kind, summary}|null`,
-`read_mode`. Injected as a system/`conversation.item` text at session start and
-whenever a field changes (debounced), not on every turn.
+running}`, `workspace`, `open_panel`, `pending_approval {kind, summary,
+requestId?, count?}|null`, `read_mode`. Injected as a system/`conversation.item`
+text at session start and whenever a field changes (debounced), not on every
+turn. `summary` and `requestId` come from the pending-permission list;
+`requestId` is present only when exactly one request is pending.
 
 - **After history pruning:** `realtimeSession.js` (~287–294) deletes all but the
   last `KEEP_RECENT_ITEMS` items on every `response.done`, so a state item would
@@ -140,7 +142,7 @@ model neither reads nor pays for large payloads (see `list_models` 12 KB case in
 ## 5. Measurement protocol
 
 ### 5.1 Corpus
-`tests/fixtures/voice-control-corpus.json`: 45 PL/EN utterances, each with the
+`tests/fixtures/voice-control-corpus.json`: 58 PL/EN utterances, each with the
 expected current tool (`tool`/`args`, `null` for gaps) and the target
 `family/action/args`; tags `ambiguous`, `diacritics` (e.g. „Refaktoryzacja
 żądań”, „Zażółć gęślą jaźń”), `confirm`, `gap`, `no_call`.
@@ -244,3 +246,102 @@ live run.
 Cost estimates assume ~3.5k prompt tokens × 225 sessions at text rates without
 cross-session cache hits, plus short outputs; they are guesses to size the
 approval, not measurements.
+
+## 7. Leaf 3: safe panel / settings / status tools
+
+Three family tools (risk `safe`, group `app`, required `action` enum, flat
+params) were added to `lib/voice/action-registry.js`; handlers live in
+`app_front/features/voice/voiceAppTools.js` (dependency-injected, unit-tested in
+`tests/voice-app-tools.test.js`) and are bound in `realtimeTools.js`.
+
+| Tool | Actions | Notes |
+|---|---|---|
+| `panel` | `open` (chat, todo, files, git, github, browser, tasks, terminal, logs, tests, instances, agents), `status` | `open` clicks the real `.tab[data-panel]` button, so the normal router path runs; hidden/unavailable tabs return an error. `status` returns the active panel (read from `.panel.active`) plus connection state for chat/terminal. |
+| `app_settings` | `theme` (dark/light/system), `language` (en/pl), `mic` (mute/unmute) | Read-aloud mode stays `set_read_mode`. `mic` reaches the live session through the `cr-voice-mic-mute-request` window event handled by `cr-voice-panel`. Spoken aliases (incl. Polish with diacritics) are resolved in `voiceAppMatch.js`. |
+| `app_status` | `notifications`, `scout`, `health`, `context` | Read-only: notification store state, `GET /api/workspace-watcher/scout?status=pending`, header connection snapshot + `GET /api/harnesses/health`, active chat context snapshot. |
+
+**Result caps** (`capVoiceResult`): lists <= 8 items, strings <= 120 chars,
+serialized <= 1200 bytes, `truncated: true` when anything was cut.
+
+**State block.** `collectVoiceStateSnapshot` now fills `openPanel` from the
+visible panel. Both provider sessions run `stateSync.sync()` after a tool
+returns and before the tool output / `response.create` (OpenAI) or
+`toolResponse` (Gemini) is sent, so the reply right after a state-changing tool
+sees fresh state (leaf 2 review F1). Limitation: a tool whose effect lands
+asynchronously after it returns (for example a panel whose router handler defers
+work) can still be reflected one turn late; the `response.done` sync remains as
+the backstop.
+
+**Schema-token budget** (`node scripts/voice-control-benchmark.mjs --tokens`,
+chars/4, threshold <= +25%):
+
+| Backend | Before (27 tools) | After (30 tools) | Delta | Limit |
+|---|---|---|---|---|
+| OpenAI mini / flagship tools | 2595 | 2997 | +15.5% | 3244 |
+| Gemini tools | 2278 | 2644 | +16.1% | 2848 |
+
+Within budget, so no further family merging was needed. Corpus: u38, u40, u41,
+u42 moved from `gap` to the new tools and u46-u52 added (52 utterances,
+`--validate` passes).
+
+## 8. Leaf 4: safe approval by voice
+
+One small family tool `approval` (group `agent`, `risk: 'confirm'`, required
+`action`, flat params) was added to `lib/voice/action-registry.js`. Handlers live
+in `app_front/features/approval/voiceApprovalTools.js` (dependency-injected,
+unit-tested in `tests/voice-approval-tools.test.js`) and are bound in
+`realtimeTools.js`.
+
+| Tool | Actions | Notes |
+|---|---|---|
+| `approval` | `describe_pending` (tool, chat, short summary, requestId), `answer` (`once` / `reject`) | `describe_pending` lists up to 8 waiting permission cards with `requestId` + `chatId`. `answer` resolves exactly one request and requires that request to still be pending and its chat to still be active. |
+
+**Why `risk: 'confirm'`.** Approving a permission is a security decision, so the
+two-step contract is `describe_pending` → `answer`, never a single bare yes. The
+answer itself is final for `once`/`reject`: there is no `confirm` argument.
+
+**Hard safety rules.**
+
+- The answer enum contains only `once` and `reject`. `always` and `harness`
+  (persistent grants) are absent from the schema and are rejected in the handler
+  before any dependency runs, so no grant can be written from voice.
+- An answer is bound to a concrete `requestId` and `chatId`. With more than one
+  pending request (including requests the server counts but the client cannot
+  name yet) a bare yes/no returns `needsClarification` and does nothing.
+- The bound chat must still be the active chat at answer time. A chat switch
+  between question and answer is a safe error; even switching to the chat that
+  owns the request requires a fresh `describe_pending` before answering.
+- The request must still be pending. Cards answered in the UI (`--answered`) or
+  resolved by the server (`--resolved`) are excluded, so a late answer does
+  nothing. The server-side permission guard remains the final duplicate-reply
+  defence.
+- Only `once` / `reject` are sent as the existing `opencodePermissionReply` wire
+  message, on the bound chat's socket. `send_nav` is unchanged for terminal/TUI
+  navigation.
+- `collectVoiceStateSnapshot` now fills `pending_approval.summary` and, when
+  exactly one request is pending, `pending_approval.requestId`, matching the
+  state-block contract in §4.
+
+**P3 fixes carried with this leaf** (`app_front/features/voice/voiceAppMatch.js`,
+tested in `tests/voice-app-tools.test.js`):
+
+- mic mute matching handles verb + noun: `włącz wyciszenie` = mute,
+  `wyłącz wyciszenie` = unmute, `odcisz` = unmute (previously the unmute verb
+  aliases matched first and inverted both phrases);
+- the bare word `agent` is no longer an alias of the agents panel; the singular
+  form resolves only with panel context (`panel agent`, `agent panel`), while
+  `agents` / `agenci` / `agentów` / `agenty` still match on their own.
+
+**Schema-token budget** (`node scripts/voice-control-benchmark.mjs --tokens`,
+chars/4, threshold <= +25%):
+
+| Backend | Before (30 tools) | After (31 tools) | Delta | Limit |
+|---|---|---|---|---|
+| OpenAI mini / flagship tools | 2997 | 3186 | +6.3% | 3244 (from 2595 baseline) |
+| Gemini tools | 2644 | 2821 | +6.7% | 2848 (from 2278 baseline) |
+
+The total prompt estimate moved from 3828 to 4080 tokens for OpenAI (baseline
+3426, +19.1%) and from 3475 to 3715 for Gemini (baseline 3109, +19.5%), still
+within the +25% threshold. Corpus: u53-u56 move approval from `gap` to the new
+tool, u57-u58 record the not-for-voice `always` request (58 utterances,
+`--validate` passes).

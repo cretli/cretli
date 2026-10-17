@@ -2435,6 +2435,7 @@ export const en = {
     commandsHint:
       'Speak naturally — you do not have to recite commands. Voice steers the UI; the coding agent writes the code.',
     commandsGroup: {
+      app: 'App panels, settings and status',
       chat: 'Chat',
       workspace: 'Projects and folders',
       agent: 'Agent, model, and tasks',
@@ -2465,7 +2466,11 @@ export const en = {
       set_model: '“Set the model to GPT”',
       switch_harness: '“Switch to Codex and continue” — asks for confirmation',
       send_nav: '“Confirm” / “Reject” / “Up” / “Down” — keys in the terminal',
+      approval: '“What approvals are waiting?” / “Allow it once” / “Reject it” — only once or reject',
       set_read_mode: '“Turn off read-aloud” / “Read when finished” / “Read as it streams”',
+      panel: '“Open the git panel” / “Which panel is open?”',
+      app_settings: '“Switch to dark theme” / “Change language to Polish” / “Mute the mic”',
+      app_status: '“Any notifications?” / “Scout findings?” / “Is any harness failing?” / “How full is the context?”',
       get_cost: '“How much does this session cost?”',
       end_voice_mode: '“End voice mode” / “Turn the voice off”',
     },

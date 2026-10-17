@@ -8,12 +8,13 @@
 
 import { VOICE_ACTIONS } from '../../../lib/voice/action-registry.js';
 
-/** @typedef {{ id: string, group: 'chat' | 'workspace' | 'agent' | 'session' }} VoiceCommandEntry */
+/** @typedef {{ id: string, group: 'chat' | 'workspace' | 'agent' | 'session' | 'app' }} VoiceCommandEntry */
 
 export const VOICE_COMMAND_GROUPS = /** @type {const} */ ([
   'chat',
   'workspace',
   'agent',
+  'app',
   'session',
 ]);
 

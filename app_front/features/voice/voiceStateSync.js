@@ -19,7 +19,7 @@ const MAX_TITLE_CHARS = 60;
  *   running?: boolean,
  *   workspace?: string,
  *   openPanel?: string,
- *   pendingApproval?: { kind: string, count?: number } | null,
+ *   pendingApproval?: { kind: string, count?: number, summary?: string, requestId?: string } | null,
  *   readMode?: string,
  * }} VoiceStateSnapshot
  */
@@ -43,8 +43,14 @@ export function formatVoiceState(snapshot) {
   const chat = state.chatId
     ? `${clip(state.title) || 'untitled'} (id ${clip(state.chatId)}, ${clip(state.harness) || 'sdk'}, ${clip(state.mode) || 'agent'}, ${state.running ? 'running' : 'idle'})`
     : 'none';
-  const pending = state.pendingApproval
-    ? `${clip(state.pendingApproval.kind)}${state.pendingApproval.count > 1 ? ` x${state.pendingApproval.count}` : ''}`
+  const pendingApproval = state.pendingApproval;
+  const pending = pendingApproval
+    ? [
+      clip(pendingApproval.kind),
+      pendingApproval.summary ? `"${clip(pendingApproval.summary)}"` : '',
+      pendingApproval.requestId ? `(request ${clip(pendingApproval.requestId)})` : '',
+      pendingApproval.count > 1 ? `x${pendingApproval.count}` : '',
+    ].filter(Boolean).join(' ')
     : 'none';
   return [
     'Current app state (replaces any earlier state message):',

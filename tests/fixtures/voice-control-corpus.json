@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "Expected calls use today's 27 flat tools (`tool`/`args`) and the target family/action shape (`target`). `tool: null` marks a coverage gap: baseline accuracy skips it, the post-registry run scores `target`. `args` are compared on listed keys only (case/diacritic-insensitive substring match); an entry with `argsAny` passes when any listed alternative matches, which keeps inherently ambiguous spoken input scorable. `--validate` also checks that every expected arg key exists in the tool schema and that enum values are legal.",
+  "note": "Expected calls use the flat registry tools (`tool`/`args`) and the target family/action shape (`target`). `tool: null` marks a coverage gap: baseline accuracy skips it, the post-registry run scores `target`. `args` are compared on listed keys only (case/diacritic-insensitive substring match); an entry with `argsAny` passes when any listed alternative matches, which keeps inherently ambiguous spoken input scorable. `--validate` also checks that every expected arg key exists in the tool schema and that enum values are legal.",
   "utterances": [
     { "id": "u01", "lang": "en", "text": "Tell the agent to add a unit test for the parser.", "tool": "send_prompt", "args": { "text": "unit test parser" }, "target": { "family": "core", "action": "send_prompt" } },
     { "id": "u02", "lang": "pl", "text": "Powiedz agentowi, żeby dodał test jednostkowy do parsera.", "tool": "send_prompt", "args": { "text": "test parser" }, "target": { "family": "core", "action": "send_prompt" } },
@@ -39,13 +39,26 @@
     { "id": "u35", "lang": "en", "text": "Read answers out loud sentence by sentence.", "tool": "set_read_mode", "args": { "mode": "stream" }, "target": { "family": "settings", "action": "set_read_mode" } },
     { "id": "u36", "lang": "pl", "text": "Ile kosztuje ta sesja głosowa?", "tool": "get_cost", "args": {}, "target": { "family": "core", "action": "get_cost" } },
     { "id": "u37", "lang": "pl", "text": "Zakończ tryb głosowy.", "tool": "end_voice_mode", "args": {}, "target": { "family": "core", "action": "end_voice_mode" } },
-    { "id": "u38", "lang": "en", "text": "Open the git panel and show me the status.", "tool": null, "target": { "family": "panel", "action": "open", "args": { "panel": "git" } }, "tags": ["gap"] },
+    { "id": "u38", "lang": "en", "text": "Open the git panel and show me the status.", "tool": "panel", "target": { "family": "panel", "action": "open", "args": { "panel": "git" } }, "args": { "action": "open", "panel": "git" } },
     { "id": "u39", "lang": "pl", "text": "Pokaż moje zadania todo.", "tool": null, "target": { "family": "todo", "action": "list" }, "tags": ["gap"] },
-    { "id": "u40", "lang": "en", "text": "What are the watcher findings waiting for review?", "tool": null, "target": { "family": "watcher", "action": "list_findings" }, "tags": ["gap"] },
-    { "id": "u41", "lang": "pl", "text": "Czy któryś harness ma problem z połączeniem?", "tool": null, "target": { "family": "status", "action": "harness_health" }, "tags": ["gap"] },
-    { "id": "u42", "lang": "en", "text": "Show unread notifications.", "tool": null, "target": { "family": "notifications", "action": "list" }, "tags": ["gap"] },
+    { "id": "u40", "lang": "en", "text": "What are the watcher findings waiting for review?", "tool": "app_status", "target": { "family": "watcher", "action": "list_findings" }, "args": { "action": "scout" } },
+    { "id": "u41", "lang": "pl", "text": "Czy któryś harness ma problem z połączeniem?", "tool": "app_status", "target": { "family": "status", "action": "harness_health" }, "tags": ["diacritics"], "args": { "action": "health" } },
+    { "id": "u42", "lang": "en", "text": "Show unread notifications.", "tool": "app_status", "target": { "family": "notifications", "action": "list" }, "args": { "action": "notifications" } },
     { "id": "u43", "lang": "pl", "text": "Znajdź czat, w którym rozmawialiśmy o migracji bazy.", "tool": null, "target": { "family": "chat", "action": "search", "args": { "query": "migracji bazy" } }, "tags": ["gap", "diacritics"] },
     { "id": "u44", "lang": "en", "text": "Start the todo about voice coverage.", "tool": null, "target": { "family": "todo", "action": "start", "risk": "confirm" }, "tags": ["gap", "confirm"] },
-    { "id": "u45", "lang": "pl", "text": "Zrób to.", "tool": null, "target": { "family": null, "action": "clarify" }, "tags": ["ambiguous", "no_call"] }
+    { "id": "u45", "lang": "pl", "text": "Zrób to.", "tool": null, "target": { "family": null, "action": "clarify" }, "tags": ["ambiguous", "no_call"] },
+    { "id": "u46", "lang": "pl", "text": "Otwórz panel plików.", "tool": "panel", "args": { "action": "open", "panel": "files" }, "target": { "family": "panel", "action": "open" }, "tags": ["diacritics"] },
+    { "id": "u47", "lang": "en", "text": "Which panel is open right now?", "tool": "panel", "args": { "action": "status" }, "target": { "family": "panel", "action": "status" } },
+    { "id": "u48", "lang": "pl", "text": "Włącz ciemny motyw.", "tool": "app_settings", "args": { "action": "theme", "value": "dark" }, "target": { "family": "app_settings", "action": "theme" }, "tags": ["diacritics"] },
+    { "id": "u49", "lang": "en", "text": "Change the interface language to Polish.", "tool": "app_settings", "args": { "action": "language", "value": "pl" }, "target": { "family": "app_settings", "action": "language" } },
+    { "id": "u50", "lang": "pl", "text": "Wycisz mikrofon.", "tool": "app_settings", "args": { "action": "mic", "value": "mute" }, "target": { "family": "app_settings", "action": "mic" } },
+    { "id": "u51", "lang": "pl", "text": "Ile mam nieprzeczytanych powiadomień?", "tool": "app_status", "args": { "action": "notifications" }, "target": { "family": "app_status", "action": "notifications" }, "tags": ["diacritics"] },
+    { "id": "u52", "lang": "en", "text": "How full is the context window of this chat?", "tool": "app_status", "args": { "action": "context" }, "target": { "family": "app_status", "action": "context" } },
+    { "id": "u53", "lang": "en", "text": "Which permission requests are waiting?", "tool": "approval", "args": { "action": "describe_pending" }, "target": { "family": "approval", "action": "describe_pending" } },
+    { "id": "u54", "lang": "pl", "text": "Jakie prośby o uprawnienia czekają?", "tool": "approval", "args": { "action": "describe_pending" }, "target": { "family": "approval", "action": "describe_pending" }, "tags": ["diacritics"] },
+    { "id": "u55", "lang": "en", "text": "Allow this permission request once.", "tool": "approval", "args": { "action": "answer", "answer": "once" }, "target": { "family": "approval", "action": "answer" } },
+    { "id": "u56", "lang": "pl", "text": "Odrzuć tę prośbę o uprawnienia.", "tool": "approval", "args": { "action": "answer", "answer": "reject" }, "target": { "family": "approval", "action": "answer" }, "tags": ["diacritics"] },
+    { "id": "u57", "lang": "en", "text": "Always allow this tool from now on.", "tool": null, "target": { "family": null, "action": "clarify" }, "tags": ["no_call"] },
+    { "id": "u58", "lang": "pl", "text": "Zawsze zezwalaj na to narzędzie.", "tool": null, "target": { "family": null, "action": "clarify" }, "tags": ["no_call", "diacritics"] }
   ]
 }

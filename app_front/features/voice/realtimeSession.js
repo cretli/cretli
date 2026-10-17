@@ -225,6 +225,9 @@ export function createRealtimeSession(callbacks = {}) {
     if (myEpoch !== epoch) return;
 
     if (typeof callbacks.onToolCall === 'function') callbacks.onToolCall({ name, args, result });
+    // A tool may have changed app state (panel, chat, mode): refresh it before the model answers.
+    await stateSync.sync().catch(() => {});
+    if (myEpoch !== epoch) return;
     const output = JSON.stringify(result);
     appendVoiceSessionEvent('rt.tool_output', {
       name,

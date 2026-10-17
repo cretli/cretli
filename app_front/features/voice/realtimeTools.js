@@ -24,6 +24,14 @@ import { resolveVoiceSdkMode } from './voiceSdkMode.js';
 import { normalizeSdkMode } from '../../../lib/sdk/sdk-mode.js';
 import { matchTaskBySpokenLabel } from './voiceTaskMatch.js';
 import { getReadMode, setReadMode } from './voicePrefs.js';
+import { getConnectionSnapshot as connectionSnapshotRef } from '../../connectionStatus.js';
+import { createAppToolHandlers, readActivePanelId } from './voiceAppTools.js';
+import {
+  collectPendingApprovals,
+  createApprovalToolHandlers,
+  readClosedPermissionRequestIds,
+  readPendingPermissionCards,
+} from '../approval/voiceApprovalTools.js';
 import { getVoiceSessionUsd } from './voiceSessionState.js';
 import { formatUsd } from './voiceCost.js';
 import { appendVoiceSessionEvent } from './voiceSessionLog.js';
@@ -110,8 +118,123 @@ async function readLastAnswerText(maxChars) {
   return speakable.length > maxChars ? speakable.slice(-maxChars) : speakable;
 }
 
+/**
+ * Real dependencies of the panel / settings / status tools. App modules are
+ * imported on demand so loading this file stays cheap (and DOM-free in tests).
+ */
+const appTools = createAppToolHandlers({
+  getDocument: () => (typeof document !== 'undefined' ? document : null),
+  async setTheme(value) {
+    (await import('../../theme.js')).setTheme(value);
+  },
+  getLang: () => (typeof document !== 'undefined' ? document.documentElement.getAttribute('lang') || '' : ''),
+  async setLang(value) {
+    await (await import('../../i18n/index.js')).setLang(value);
+  },
+  async getNotificationState() {
+    return (await import('../notifications/notificationStore.js')).getNotificationStore()?.getState() || null;
+  },
+  async fetchScout() {
+    const scope = await import('../watcher/watcherWorkspaceScope.js');
+    const { cretliApiFetch } = await import('../../lib/cretliApiRequest.js');
+    const scoped = scope.scopeWatcherRequestToWorkspace(
+      `/api/workspace-watcher/scout?status=pending&max=${8}`,
+      {},
+      scope.getWatcherWorkspaceFolder()
+    );
+    const res = await cretliApiFetch(scoped.path, { headers: { Accept: 'application/json' }, credentials: 'include' });
+    return { status: res.status, json: await res.json().catch(() => null) };
+  },
+  async fetchHealth() {
+    return (await import('../../api.js')).getHarnessHealth();
+  },
+  getConnection: () => connectionSnapshotRef(),
+  async getActiveChat() {
+    return findActiveChat(await loadChatModule());
+  },
+  requestMicMute(muted) {
+    if (typeof window === 'undefined') return false;
+    const detail = { muted, handled: false };
+    window.dispatchEvent(new CustomEvent('cr-voice-mic-mute-request', { detail }));
+    return detail.handled === true;
+  },
+});
+
+/**
+ * Pending permission requests for the active chat plus the other open chats.
+ * Rendered cards are scoped to the active chat's stream so a hidden chat's
+ * cards can never be attributed to the active one.
+ *
+ * @param {object} chatModule
+ * @returns {{ requests: Array<object>, total: number }}
+ */
+function collectApprovalSnapshot(chatModule) {
+  const chats = chatModule.getChatsList();
+  const active = findActiveChat(chatModule);
+  // `pane` carries data-chat-id, so cards from a hidden chat can never be read
+  // as the active chat's requests.
+  const root = active?.pane || active?._sdkRichView?.streamEl || active?._sdkRichView?.el || null;
+  return collectPendingApprovals({
+    chats,
+    activeChatId: active?.id || '',
+    cards: readPendingPermissionCards(root),
+    closedRequestIds: readClosedPermissionRequestIds(root),
+  });
+}
+
+/**
+ * @param {any} chat
+ * @returns {boolean} whether the chat socket can carry a permission reply
+ */
+function isChatSocketOpen(chat) {
+  if (!chat?.ws || typeof chat.ws.send !== 'function') return false;
+  return typeof WebSocket === 'undefined' || chat.ws.readyState === WebSocket.OPEN;
+}
+
+const approvalTools = createApprovalToolHandlers({
+  async getActiveChat() {
+    const chatModule = await loadChatModule();
+    const chat = findActiveChat(chatModule);
+    return chat ? { id: chat.id, title: chat.title } : null;
+  },
+  async listPendingApprovals() {
+    return collectApprovalSnapshot(await loadChatModule());
+  },
+  async replyToApproval({ chatId, requestId, answer }) {
+    // Defense in depth: the handler already narrowed this to once|reject, but
+    // nothing except those two replies may ever reach the socket.
+    if (answer !== 'once' && answer !== 'reject') {
+      return { ok: false, error: 'Voice can only answer once or reject.' };
+    }
+    const chatModule = await loadChatModule();
+    const chat = findActiveChat(chatModule);
+    if (!chat || chat.id !== chatId) {
+      return { ok: false, error: 'The active chat changed. Nothing was approved.' };
+    }
+    const snapshot = collectApprovalSnapshot(chatModule);
+    const pending = snapshot.requests.find(
+      (request) => request.requestId === requestId && request.chatId === chatId
+    );
+    if (!pending) {
+      return { ok: false, error: 'The permission request is no longer pending. Nothing was approved.' };
+    }
+    if (!isChatSocketOpen(chat)) {
+      return { ok: false, error: 'The chat connection is not ready. Nothing was approved.' };
+    }
+    // Same wire message the UI's permission buttons send.
+    chat.ws.send(JSON.stringify({ type: 'opencodePermissionReply', requestId, reply: answer }));
+    appendVoiceSessionEvent('tool.approval_reply', { chatId, requestId, reply: answer });
+    return { ok: true };
+  },
+});
+
 /** @type {Record<string, (args: object) => Promise<object>>} */
 const handlers = {
+  panel: appTools.panel,
+  app_settings: appTools.app_settings,
+  app_status: appTools.app_status,
+  approval: approvalTools.approval,
+
   async send_prompt(args) {
     const text = String(args?.text || '').trim();
     if (!text) return { ok: false, error: 'Empty prompt' };
@@ -540,10 +663,18 @@ export async function collectVoiceStateSnapshot() {
   const chatModule = await loadChatModule();
   const chat = findActiveChat(chatModule);
   const readMode = getReadMode();
-  if (!chat) return { readMode };
-  const permissions = Math.max(0, Number(chat._sdkServerPendingPermissionCount) || 0);
+  const openPanel = readActivePanelId(typeof document !== 'undefined' ? document : null);
+  if (!chat) return { readMode, openPanel };
+  const approvals = collectApprovalSnapshot(chatModule);
+  const activeApprovals = approvals.requests.filter((request) => request.chatId === chat.id);
+  const permissions = Math.max(
+    0,
+    Number(chat._sdkServerPendingPermissionCount) || 0,
+    activeApprovals.length
+  );
   const questions = Math.max(0, Number(chat._sdkServerPendingQuestionCount) || 0);
   const status = await handlers.get_chat_status();
+  const onlyApproval = permissions === 1 && activeApprovals.length === 1 ? activeApprovals[0] : null;
   return {
     chatId: chat.id,
     title: status?.title,
@@ -551,8 +682,14 @@ export async function collectVoiceStateSnapshot() {
     mode: status?.mode,
     running: status?.state === 'active',
     workspace: status?.workspace || '',
+    openPanel,
     pendingApproval: permissions > 0
-      ? { kind: 'permission', count: permissions }
+      ? {
+        kind: 'permission',
+        count: permissions,
+        ...(activeApprovals[0]?.summary ? { summary: activeApprovals[0].summary } : {}),
+        ...(onlyApproval ? { requestId: onlyApproval.requestId } : {}),
+      }
       : questions > 0 ? { kind: 'question', count: questions } : null,
     readMode,
   };

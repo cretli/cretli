@@ -304,6 +304,9 @@ export function createGeminiLiveSession(callbacks = {}) {
       if (result?.endSession === true) wantEnd = true;
     }
     if (responses.length === 0) return;
+    // A tool may have changed app state (panel, chat, mode): refresh it before the model answers.
+    await stateSync.sync().catch(() => {});
+    if (myEpoch !== epoch) return;
     send({ toolResponse: { functionResponses: responses } });
     if (wantEnd) endSession.request({ skipCompletions: 1 });
   }
