@@ -12,7 +12,8 @@ import {
   sanitizeComplexitySignals,
 } from '../lib/model-pick-complexity.js';
 import { persistModelPickProposal } from '../lib/model-pick-decisions.js';
-import { pickAndPersistModelForPurpose } from '../lib/model-pick-service.js';
+import { normalizeCostPolicyConfig } from '../lib/model-pick-cost-policy.js';
+import { pickAndPersistModelForPurpose, pickModelForPurpose } from '../lib/model-pick-service.js';
 import { getModelPickRecord } from '../lib/persist/model-pick-decisions-persist.js';
 
 const noExists = () => true;
@@ -139,4 +140,96 @@ test('model_pick MCP error envelope carries complexity', async () => {
   assert.ok(COMPLEXITY_LEVELS.includes(c.level));
   assert.ok(Array.isArray(c.signals));
   for (const s of c.signals) assert.ok(COMPLEXITY_SIGNALS.includes(s));
+});
+
+test('costPolicy:false still classifies the injected history and persists it', () => {
+  const file = tempFile();
+  const base = {
+    role: 'implement',
+    harnesses: [{ id: 'codex', enabled: true, ready: true, can_delegate: true }],
+    modelsByHarness: { codex: { favorites_configured: true, items: [{ id: 'gpt-5.6-sol' }, { id: 'gpt-6.1-sol' }] } },
+    now: Date.parse('2026-10-14T12:00:00Z'),
+    shadow: false,
+    explore: false,
+    // Two review FAILs force `demanding` through the review_fail_history signal.
+    history: { reviewFailCount: 2 },
+    file,
+  };
+  // The early return in `pickModelForPurpose` must classify the same history the
+  // cost policy layer would have classified.
+  const direct = pickModelForPurpose({ ...base, costPolicy: false });
+  assert.equal(direct.complexity?.level, 'demanding');
+  assert.ok(direct.complexity.signals.includes('review_fail_history'));
+  const picked = pickAndPersistModelForPurpose({ ...base, costPolicy: false });
+  assert.equal(picked.ok, true);
+  assert.equal(picked.complexity?.level, 'demanding');
+  assert.ok(picked.complexity.signals.includes('review_fail_history'));
+  const stored = getModelPickRecord(picked.pickId, { file });
+  assert.equal(stored.complexity.level, 'demanding');
+  assert.ok(stored.complexity.signals.includes('review_fail_history'));
+  assert.deepEqual(stored.complexity, picked.complexity);
+  // Skipping the policy must only skip the verdict, never change the selection.
+  const baseline = pickAndPersistModelForPurpose({ ...base });
+  assert.equal(baseline.ok, true);
+  assert.deepEqual(picked.pick, baseline.pick);
+  assert.deepEqual(stored.complexity, getModelPickRecord(baseline.pickId, { file }).complexity);
+});
+
+test('enforce re-run keeps the injected history and persists demanding complexity', () => {
+  const file = tempFile();
+  // Same object reference the caller injected: the re-run must not rebuild it.
+  const history = { reviewFailCount: 2 };
+  const expensive = { harness: 'claude', model: 'opus-x', cost_tier: 4, quality_tier: 5 };
+  const allowed = { harness: 'claude', model: 'sonnet-x', cost_tier: 3, quality_tier: 5 };
+  const calls = [];
+  const selectModelPick = (input) => {
+    calls.push({
+      history: input.history,
+      excludePairs: (input.excludePairs || []).map((row) => ({ ...row })),
+    });
+    const excluded = new Set((input.excludePairs || []).map((row) => `${row.harness}/${row.model}`));
+    const left = [expensive, allowed].filter((row) => !excluded.has(`${row.harness}/${row.model}`));
+    if (left.length === 0) return { ok: false, code: 'MODEL_UNAVAILABLE', error: 'none' };
+    return { ok: true, pick: left[0], picks: [left[0]], candidates: left };
+  };
+  // Implement/demanding ceiling lowered to 3 so the first pick (tier 4) is a
+  // cost_ceiling violation even though the history classifies the leaf demanding.
+  const costPolicyConfig = normalizeCostPolicyConfig({
+    mode: 'enforce',
+    canary: { enabled: false },
+    ceilings: { implement: { demanding: 3 } },
+  });
+  const picked = pickAndPersistModelForPurpose({
+    role: 'implement',
+    history,
+    selectModelPick,
+    costPolicyConfig,
+    costPolicyPersist: false,
+    costPolicyState: {
+      canaryStartedAt: '',
+      rolledBackAt: '',
+      rollbackReasons: [],
+      counters: { canary: { n: 0, noCandidate: 0 }, control: { n: 0, noCandidate: 0 } },
+    },
+    shadow: false,
+    explore: false,
+    now: Date.parse('2026-10-14T12:00:00Z'),
+    leafSize: 'small',
+    leafExists: () => true,
+    file,
+  });
+  assert.equal(picked.ok, true);
+  assert.equal(picked.pick.model, 'sonnet-x');
+  assert.equal(picked.cost_policy.mode, 'enforce');
+  // First call returns the violating pair + an allowed candidate; the enforced
+  // re-run is the second call and must receive the identical history object.
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].history, history);
+  assert.deepEqual(calls[1].excludePairs, [{ harness: 'claude', model: 'opus-x' }]);
+  assert.ok(picked.cost_policy.rejected.some((row) => row.reasons.includes('cost_ceiling')));
+  assert.equal(picked.complexity.level, 'demanding');
+  assert.ok(picked.complexity.signals.includes('review_fail_history'));
+  const stored = getModelPickRecord(picked.pickId, { file });
+  assert.equal(stored.complexity.level, 'demanding');
+  assert.ok(stored.complexity.signals.includes('review_fail_history'));
 });
