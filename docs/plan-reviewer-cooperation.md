@@ -128,11 +128,14 @@ What is and is not wired:
   (`promptPrefixFingerprint`, `promptCacheGeneration`). The report instructions
   sit in the stable head; a constant one-line `[REPORT REMINDER]` is appended after
   all per-round data (outside the prefix) so the report contract is also last.
-- Not wired: nothing calls `detectCacheRegression` automatically. It is a pure
-  helper over caller-supplied observations; no alert, UI or gate consumes it.
-- `hitRatioOf` assumes `inputTokens` already includes cache-read tokens; a harness
-  that reports them separately would yield ratios above 1 and must be normalized by
-  the caller.
+- Wired: `GET /api/usage/context-cache-series` returns a `regression` field.
+  `lib/usage/cache-regression-samples.js` maps the chat's stored context samples to
+  observations and runs `detectCacheRegression` on the newest one (observed TTL as
+  the idle limit). Missing cache metrics stay `insufficient_data`. No alert or gate
+  acts on it automatically; it is a read-only signal for the usage view.
+- `hitRatioOf` assumes `inputTokens` includes cache-read tokens unless the
+  observation sets `inputExcludesCacheRead`; the samples adapter sets it whenever
+  cache-read tokens exceed `inputTokens` (reported separately).
 - The cache generation lives in memory: after a server restart it restarts at 0,
   so reset detection is not deterministic across restarts (a resume after restart
   falls back via `resume_after_restart` / `resume_session_reset` when known).
