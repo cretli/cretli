@@ -284,7 +284,7 @@ export function createApprovalToolHandlers(deps) {
     const active = await deps.getActiveChat();
     describedChatId = active?.id ? String(active.id) : '';
     const snapshot = await pendingSnapshot();
-    describedRequestIds = new Set(snapshot.requests.map((request) => String(request.requestId)));
+    describedRequestIds = new Set();
     if (snapshot.total < 1) {
       return { ok: true, pending: 0, hint: 'No permission request is waiting.' };
     }
@@ -301,7 +301,11 @@ export function createApprovalToolHandlers(deps) {
     } else if (snapshot.total > 1) {
       result.hint = 'More than one request is pending. Ask which one; then answer with its request_id and chat_id.';
     }
-    return capVoiceResult(result);
+    const capped = capVoiceResult(result);
+    // Only requests the model was actually shown (after the result cap) are
+    // answerable; a row dropped by the cap needs a fresh describe.
+    describedRequestIds = new Set((capped.requests || []).map((request) => String(request.requestId)));
+    return capped;
   }
 
   async function answerApproval(args) {
@@ -344,6 +348,21 @@ export function createApprovalToolHandlers(deps) {
         error: 'That request was not described to the user. Call describe_pending, confirm with the user, then answer. Nothing was approved.',
       };
     }
+    // Consume the id before any await so two concurrent answers for the same
+    // request cannot both pass the described check; restore it when the answer
+    // was not delivered so the user can retry.
+    describedRequestIds.delete(requestId);
+    try {
+      const result = await decideApproval({ requestId, answer, active });
+      if (!result.ok) describedRequestIds.add(requestId);
+      return result;
+    } catch (err) {
+      describedRequestIds.add(requestId);
+      throw err;
+    }
+  }
+
+  async function decideApproval({ requestId, answer, active }) {
     const snapshot = await pendingSnapshot();
     const target = snapshot.requests.find((request) => request.requestId === requestId);
     if (!target) {
@@ -370,8 +389,6 @@ export function createApprovalToolHandlers(deps) {
         error: replied?.error || 'The permission request is no longer pending. Nothing was approved.',
       };
     }
-    // One voice answer per request: a repeat is refused until a fresh describe.
-    describedRequestIds.delete(requestId);
     return {
       ok: true,
       requestId: String(target.requestId),

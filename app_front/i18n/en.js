@@ -2467,6 +2467,7 @@ export const en = {
       switch_harness: '“Switch to Codex and continue” — asks for confirmation',
       send_nav: '“Confirm” / “Reject” / “Up” / “Down” — keys in the terminal',
       approval: '“What approvals are waiting?” / “Allow it once” / “Reject it” — only once or reject',
+      work: '“Which todos are ready?” / “Start the login todo” — asks for confirmation / “Pause the watcher” / “Cancel the delegation” — asks for confirmation. Plan approval is UI only',
       set_read_mode: '“Turn off read-aloud” / “Read when finished” / “Read as it streams”',
       panel: '“Open the git panel” / “Which panel is open?”',
       app_settings: '“Switch to dark theme” / “Change language to Polish” / “Mute the mic”',

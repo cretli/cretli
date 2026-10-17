@@ -456,3 +456,73 @@ test('send_nav keeps its TUI navigation behaviour', () => {
   assert.equal(resolveVoiceNavKey('enter'), 'enter');
   assert.equal(resolveVoiceNavKey('góra'), 'up');
 });
+
+test('only requests shown in the capped describe result are answerable', async () => {
+  const requests = Array.from({ length: 12 }, (_, i) => ({
+    requestId: `r${i}`, chatId: 'c1', chat: 'Chat', tool: 'bash', summary: `bash: command number ${i} ${'x'.repeat(60)}`,
+  }));
+  const replies = [];
+  const handlers = createApprovalToolHandlers({
+    getActiveChat: () => ({ id: 'c1', title: 'Chat' }),
+    listPendingApprovals: () => ({ requests, total: 12 }),
+    replyToApproval: (input) => { replies.push(input); return { ok: true }; },
+  });
+  const described = await handlers.approval({ action: 'describe_pending' });
+  assert.equal(described.truncated, true);
+  const shownIds = described.requests.map((request) => request.requestId);
+  assert.ok(shownIds.length <= 8 && shownIds.length < 12);
+  const hidden = await handlers.approval({ action: 'answer', request_id: 'r11', answer: 'once' });
+  assert.equal(hidden.ok, false);
+  assert.equal(hidden.needsClarification, true);
+  assert.equal(replies.length, 0);
+  const shown = await handlers.approval({ action: 'answer', request_id: shownIds[0], answer: 'once' });
+  assert.equal(shown.ok, true);
+  assert.equal(replies.length, 1);
+});
+
+test('two concurrent answers for the same request deliver exactly one reply', async () => {
+  const replies = [];
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const handlers = createApprovalToolHandlers({
+    getActiveChat: () => ({ id: 'c1', title: 'Chat' }),
+    listPendingApprovals: () => ({
+      requests: [{ requestId: 'r1', chatId: 'c1', chat: 'Chat', tool: 'bash', summary: 'bash: ls' }],
+      total: 1,
+    }),
+    async replyToApproval(input) { replies.push(input); await gate; return { ok: true }; },
+  });
+  await handlers.approval({ action: 'describe_pending' });
+  const first = handlers.approval({ action: 'answer', request_id: 'r1', answer: 'once' });
+  const second = handlers.approval({ action: 'answer', request_id: 'r1', answer: 'once' });
+  release();
+  const results = await Promise.all([first, second]);
+  assert.equal(replies.length, 1);
+  assert.deepEqual(results.map((r) => r.ok).sort(), [false, true]);
+});
+
+test('a failed or throwing send restores the request so the user can retry', async () => {
+  let mode = 'fail';
+  const replies = [];
+  const handlers = createApprovalToolHandlers({
+    getActiveChat: () => ({ id: 'c1', title: 'Chat' }),
+    listPendingApprovals: () => ({
+      requests: [{ requestId: 'r1', chatId: 'c1', chat: 'Chat', tool: 'bash', summary: 'bash: ls' }],
+      total: 1,
+    }),
+    replyToApproval(input) {
+      replies.push(input);
+      if (mode === 'throw') throw new Error('socket closed');
+      return mode === 'fail' ? { ok: false, error: 'offline' } : { ok: true };
+    },
+  });
+  await handlers.approval({ action: 'describe_pending' });
+  const failed = await handlers.approval({ action: 'answer', request_id: 'r1', answer: 'once' });
+  assert.equal(failed.ok, false);
+  mode = 'throw';
+  await assert.rejects(handlers.approval({ action: 'answer', request_id: 'r1', answer: 'once' }), /socket closed/);
+  mode = 'ok';
+  const retried = await handlers.approval({ action: 'answer', request_id: 'r1', answer: 'once' });
+  assert.equal(retried.ok, true);
+  assert.equal(replies.length, 3);
+});

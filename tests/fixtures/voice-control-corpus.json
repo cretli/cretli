@@ -59,6 +59,20 @@
     { "id": "u55", "lang": "en", "text": "Allow this permission request once.", "tool": "approval", "args": { "action": "answer", "answer": "once" }, "target": { "family": "approval", "action": "answer" } },
     { "id": "u56", "lang": "pl", "text": "Odrzuć tę prośbę o uprawnienia.", "tool": "approval", "args": { "action": "answer", "answer": "reject" }, "target": { "family": "approval", "action": "answer" }, "tags": ["diacritics"] },
     { "id": "u57", "lang": "en", "text": "Always allow this tool from now on.", "tool": null, "target": { "family": null, "action": "clarify" }, "tags": ["no_call"] },
-    { "id": "u58", "lang": "pl", "text": "Zawsze zezwalaj na to narzędzie.", "tool": null, "target": { "family": null, "action": "clarify" }, "tags": ["no_call", "diacritics"] }
+    { "id": "u58", "lang": "pl", "text": "Zawsze zezwalaj na to narzędzie.", "tool": null, "target": { "family": null, "action": "clarify" }, "tags": ["no_call", "diacritics"] },
+    { "id": "u59", "lang": "en", "text": "Which todos are ready to start?", "tool": "work", "args": {"action": "todo_ready"}, "target": { "family": "work", "action": "todo_ready" } },
+    { "id": "u60", "lang": "pl", "text": "Jakie zadania są gotowe do startu?", "tool": "work", "args": {"action": "todo_ready"}, "target": { "family": "work", "action": "todo_ready" }, "tags": ["diacritics"] },
+    { "id": "u61", "lang": "en", "text": "What is the status of the login todo?", "tool": "work", "args": {"action": "todo_status", "query": "login"}, "target": { "family": "work", "action": "todo_status" } },
+    { "id": "u62", "lang": "pl", "text": "Jaki jest status zadania naprawić logowanie?", "tool": "work", "args": {"action": "todo_status", "query": "logowanie"}, "target": { "family": "work", "action": "todo_status" }, "tags": ["diacritics"] },
+    { "id": "u63", "lang": "en", "text": "Start the dark theme todo.", "tool": "work", "args": {"action": "todo_start", "query": "dark theme"}, "target": { "family": "work", "action": "todo_start" } },
+    { "id": "u64", "lang": "pl", "text": "Uruchom zadanie z motywem ciemnym.", "tool": "work", "args": {"action": "todo_start", "query": "ciemnym"}, "target": { "family": "work", "action": "todo_start" }, "tags": ["diacritics"] },
+    { "id": "u65", "lang": "en", "text": "What is the watcher doing?", "tool": "work", "args": {"action": "watcher_status"}, "target": { "family": "work", "action": "watcher_status" } },
+    { "id": "u66", "lang": "pl", "text": "Wstrzymaj watchera.", "tool": "work", "args": {"action": "watcher_pause"}, "target": { "family": "work", "action": "watcher_pause" }, "tags": ["diacritics"] },
+    { "id": "u67", "lang": "en", "text": "Resume the watcher.", "tool": "work", "args": {"action": "watcher_resume"}, "target": { "family": "work", "action": "watcher_resume" } },
+    { "id": "u68", "lang": "pl", "text": "Wznów watchera.", "tool": "work", "args": {"action": "watcher_resume"}, "target": { "family": "work", "action": "watcher_resume" }, "tags": ["diacritics"] },
+    { "id": "u69", "lang": "en", "text": "Which delegations are running?", "tool": "work", "args": {"action": "delegation_status"}, "target": { "family": "work", "action": "delegation_status" } },
+    { "id": "u70", "lang": "pl", "text": "Anuluj tę delegację.", "tool": "work", "args": {"action": "delegation_cancel"}, "target": { "family": "work", "action": "delegation_cancel" }, "tags": ["diacritics"] },
+    { "id": "u71", "lang": "en", "text": "Approve the plan for this todo.", "tool": null, "target": { "family": null, "action": "clarify" }, "tags": ["no_call"] },
+    { "id": "u72", "lang": "pl", "text": "Zatwierdź plan tego zadania.", "tool": null, "target": { "family": null, "action": "clarify" }, "tags": ["no_call", "diacritics"] }
   ]
 }

@@ -8,6 +8,17 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Voice control covers most of the app.** The voice assistant can now open panels
+  (git, files, todo, tasks, logs, …), change theme/language/microphone, read
+  notifications, Scout findings, connection/harness health and context usage, answer a
+  pending permission request (allow once or reject — never "always"), and work with
+  Todos, the Watcher and delegations (ready todos, status, start a todo, pause/resume the
+  watcher, cancel a delegation). Starting a todo or cancelling a delegation needs a second
+  spoken confirmation; plan approval remains UI-only. Tool schemas are a single registry
+  shared by OpenAI and Gemini; the voice help list shows examples for every area. Schema
+  size grew about 7% (prompt prefix about 10%) — see `docs/voice-control-coverage.md`
+  (live accuracy/latency measurement is pending a human-run paid session).
+
 - **Weekly pace in `model_pick`.** The picker compares weekly plan usage
   (`seven_day*`) with elapsed window time. A harness more than 10 pp above even
   burn gets a penalty scaled by model cost tier (expensive models avoided

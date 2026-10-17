@@ -1,11 +1,12 @@
 # Voice control coverage, registry design and measurement protocol
 
-Status: leaf 1 of the voice-control coverage effort (audit + design + measurement
-baseline). No voice runtime behavior changes here; the only code changes are
-measurement instrumentation (`lib/voice/voice-session-diagnose.js`,
-`app_front/features/voice/voiceSessionLog.js`) and the benchmark harness
-(`scripts/voice-control-benchmark.mjs`, corpus in
-`tests/fixtures/voice-control-corpus.json`).
+Status: leaves 1-6 implemented. Offline thresholds (schema tokens, scenario
+cost) are met; the live thresholds (accuracy, p95) are **PENDING a human-run
+paid session** (todo de394295), see §10. Leaf 1 added the audit, design and
+measurement harness (`scripts/voice-control-benchmark.mjs`, corpus in
+`tests/fixtures/voice-control-corpus.json`); leaves 2-5 added the registry,
+state sync, panel/settings/status, approval and work tools; leaf 6 is the final
+measurement and docs (§10).
 
 ## 1. Coverage matrix
 
@@ -162,7 +163,7 @@ target, known tool names, every expected argument key present in that tool's
 schema, every enum value legal and every required argument present. A corpus
 entry that could never score fails here instead of after a paid run.
 
-### 5.2 Instrumentation (added, partly unwired)
+### 5.2 Instrumentation
 Existing: `tool.start`, `tool.call` (`durationMs`), `transcript`. New helper
 `appendVoiceResponseTiming(kind, detail)` in `voiceSessionLog.js` writes the new
 events `response.first_audio` and `response.end`; `diagnoseVoiceSessionLog`
@@ -170,14 +171,11 @@ returns `latency` with `{count, p50, p95}` for user→`tool.start`,
 user→`tool.call`, user→`response.first_audio` and user→`response.end`, where the
 end of an utterance is the user `transcript` event.
 
-**Not emitted yet.** Leaf scope forbids touching `realtimeSession.js` and the
-Gemini session code, so nothing calls `appendVoiceResponseTiming`:
-`response.first_audio` and `response.end` do not appear in real session logs, and
-the `userToFirstAudio` / `userToResponseEnd` p95 values (the
-`first_audio` / `response_end` p95 rows in a diagnosis) stay empty for every real
-session until a follow-up leaf wires exactly one call per provider (first audio
-chunk, and `response.done` / `turnComplete`). Until then the harness measures
-latency itself.
+**Wired in leaf 2.** `voiceResponseTiming.js` (used by `realtimeSession.js` and
+`geminiLiveSession.js`) emits exactly one `response.first_audio` (first audio
+chunk) and one `response.end` (`response.done` / `turnComplete`) per response, so
+real session diagnoses now carry `userToFirstAudio` / `userToResponseEnd` p95.
+The benchmark harness still measures utterance → tool result itself.
 
 ### 5.3 Metrics and thresholds (per backend: OpenAI mini, OpenAI flagship, Gemini)
 | Metric | How | Threshold vs baseline |
@@ -345,3 +343,158 @@ The total prompt estimate moved from 3828 to 4080 tokens for OpenAI (baseline
 within the +25% threshold. Corpus: u53-u56 move approval from `gap` to the new
 tool, u57-u58 record the not-for-voice `always` request (58 utterances,
 `--validate` passes).
+
+## 9. Leaf 5: Todo, Watcher and delegations by voice
+
+One small family tool `work` (group `agent`, `risk: 'confirm'`, required
+`action`, flat params `id`, `query`, `confirm`) was added to
+`lib/voice/action-registry.js`. Handlers live in
+`app_front/features/voice/voiceWorkTools.js` (dependency-injected, unit-tested
+in `tests/voice-work-tools.test.js`) and are bound in `realtimeTools.js`.
+
+| Action | Risk | Notes |
+|---|---|---|
+| `todo_ready` | safe | Ready leaves (`listReadyTodoLeaves`), capped. |
+| `todo_status` | safe | By `id` or a diacritic-insensitive title fragment; several matches return candidates, never a silent pick. |
+| `todo_start` | confirm | Only `idea`/`ready` unblocked leaves. Harness comes from the todo assignee / new-chat harness select and the model is `auto`: no catalog listing. |
+| `watcher_status` | safe | mode, paused, stopReason, active cycles. |
+| `watcher_pause` / `watcher_resume` | safe | Reversible; the same endpoints as the Todo bar. |
+| `delegation_status` | safe | Active delegations, or one by `id`. |
+| `delegation_cancel` | confirm | Cancels one running delegation (no tree cancel by voice). |
+
+**Two-step confirm (like `requestId` in leaf 4).** Step one resolves ONE todo /
+delegation and binds the confirmation to its id, the workspace folder and the
+active chat. Step two needs `confirm=true` AND the same id. A bare yes, another
+id, a first call that already carries `confirm`, a workspace/chat change, a
+different intervening action or a window older than 60 s does nothing, and the
+first confirm attempt (successful or not) consumes the window. Todo and
+delegation text is returned with `untrusted: true` plus a note and is capped by
+`capVoiceResult` (<= 8 items, 120 chars, ~1.2 KB).
+
+**No plan approval by voice.** `plan.approvedAt` is human-only. The `work` enum
+has no such action, and `tests/voice-work-tools.test.js` asserts that the
+registry, OpenAI tools and Gemini declarations contain no approval/plan action.
+
+**Schema-token budget.** `work` costs about 170 tokens, so descriptions of
+existing tools were shortened (behavior and parameters unchanged; hints that
+duplicated the instructions were dropped). No tool was merged. The registry
+test expectation changed only from 31 to 32 tools and the tool-name list in
+`tests/voice-realtime-config.test.js` gained `work`.
+
+| Backend | Before (31 tools) | After (32 tools) | Limit |
+|---|---|---|---|
+| OpenAI mini / flagship tools | 3182 | 2698 | 3244 |
+| Gemini tools | 2818 | 2322 | 2848 |
+
+The total prompt estimate is 3685 (OpenAI) and 3309 (Gemini) tokens, below the
++25% totals (4282 / 3886). Corpus: u59-u70 cover the new actions (PL and EN,
+with diacritics), u71-u72 record the not-for-voice plan approval request
+(72 utterances, `--validate` passes).
+
+**P3 from the leaf-4 review.** `describedRequestIds` in
+`voiceApprovalTools.js` is now built from the capped `describe_pending` result,
+so the model can only answer requests it was actually shown (test: "only
+requests shown in the capped describe result are answerable").
+
+## 10. Leaf 6: final measurement vs baseline
+
+Protocol: leaf-1 harness, same 72-utterance corpus (`--validate` passes), same
+20-turn prefix model. Commands: `node scripts/voice-control-benchmark.mjs
+--tokens` and `--validate`. Offline numbers are chars/4 estimates of the schema +
+instruction prefix, comparable only with the §6.1 baseline (same method).
+
+### 10.1 Offline results (measured now)
+| Backend | Metric | Baseline | Final | Change | Threshold | Result |
+|---|---|---|---|---|---|---|
+| OpenAI mini / flagship | Tool schema tokens | 2595 | 2790 | +7.5% | <= +25% (3244) | met |
+| OpenAI mini / flagship | Instruction tokens (EN / PL) | 831 / 830 | 987 / 987 | +18.8% / +18.9% | (part of total) | - |
+| OpenAI mini / flagship | Schema + instructions | 3426 | 3777 | +10.2% | <= +25% (4282) | met |
+| Gemini | Tool schema tokens | 2278 | 2414 | +6.0% | <= +25% (2848) | met |
+| Gemini | Schema + instructions | 3109 | 3401 | +9.4% | <= +25% (3886) | met |
+| OpenAI mini | 20-turn prefix cost | ≈ $0.0060 | $0.00657 | +9.5% (tokens +10.2%) | <= +15% | met |
+| OpenAI flagship | 20-turn prefix cost | ≈ $0.0397 | $0.04381 | +10.3% | <= +15% | met |
+| Gemini | 20-turn prefix cost | n/a | n/a | n/a | <= +15% | not computable offline |
+
+The prefix cost scales linearly with prefix tokens (1 uncached + 19 cached
+turns), so the cost change equals the token change (+10.2%) for any rate.
+Caveats: (1) the baseline cost figures in §6.1 are rounded; the percentage uses
+the token ratio, which is exact for this model. (2) **N1 (leaf-1 review):**
+`usage-rates.js` has no Gemini text-token rate, and the Gemini replay requests
+AUDIO responses while the cost model uses text rates; a Gemini scenario cost
+must come from the live ledger, not from this table. (3) This is a prefix-only
+estimate: result sizes (capped by `capVoiceResult`, ≤ 8 items / ~1.2 KB) and the
+single state item (`voiceStateSync.js`, re-sent only on change) are not in it;
+the live scenario run measures them.
+
+### 10.2 Live results — PENDING human-run (todo de394295)
+Nothing below was measured by an agent; no number is invented. Baseline for the
+comparison is the pre-change commit (leaf-1 start), run with the same command.
+| Backend | Accuracy (>= baseline − 2 pp) | p95 latency (<= +10%) | 20-turn scenario cost (<= +15%) |
+|---|---|---|---|
+| OpenAI mini | PENDING human-run (todo de394295), est. ≈ $0.5-1 | PENDING | PENDING |
+| OpenAI flagship | PENDING human-run (todo de394295), est. ≈ $3-4 | PENDING | PENDING |
+| Gemini | PENDING human-run (todo de394295), est. ≈ $1 | PENDING | PENDING |
+
+Commands (run once on the baseline commit and once on this branch, same
+`VOICE_BENCH_REPEATS`, >= 5 for a comparable p95; cap $5 per run):
+```
+VOICE_BENCH_APPROVE_PAID=1 OPENAI_API_KEY=... VOICE_BENCH_REPEATS=5 VOICE_BENCH_OUTPUT=mini.json \
+  node scripts/voice-control-benchmark.mjs --live openai-mini
+VOICE_BENCH_APPROVE_PAID=1 OPENAI_API_KEY=... VOICE_BENCH_REPEATS=5 VOICE_BENCH_OUTPUT=flagship.json \
+  node scripts/voice-control-benchmark.mjs --live openai-flagship
+VOICE_BENCH_APPROVE_PAID=1 GEMINI_API_KEY=... VOICE_BENCH_REPEATS=5 VOICE_BENCH_OUTPUT=gemini.json \
+  node scripts/voice-control-benchmark.mjs --live gemini
+```
+Risk to watch in accuracy: the corpus grew from 58 to 72 utterances (new
+families); compare the original 58 ids against the baseline, and report the new
+ids separately. Short-description tools (leaf 5) are the likeliest regression.
+
+### 10.3 Coverage (report only)
+Definition: voice-reachable actions / voice-suitable actions from the §1 audit.
+The audit estimate ("~45 suitable, 24 covered") is replaced by an explicit
+count of the audit rows. "Reachable" means a registry action with a handler
+(32 registry tools incl. the families `panel`, `app_settings`, `app_status`,
+`approval`, `work`); "partial" (panel can only be opened) is not counted.
+| Area | Before | Now |
+|---|---|---|
+| Chat / workspace / task / voice core (§1 covered rows) | 24 | 24 |
+| Todo list / show / start | 0 | 3 (`work` todo_ready, todo_status, todo_start) |
+| Panels: files, browser, logs, tests | 0 | 4 (`panel open`) |
+| Watcher status, Scout findings | 0 | 2 (`work` watcher_status, `app_status scout`) |
+| Delegations list, cancel | 0 | 2 (`work` delegation_status, delegation_cancel) |
+| Notifications list, connection/harness health | 0 | 2 (`app_status`) |
+| Theme setting | 0 | 1 (`app_settings`) |
+| Approval once / reject | 0 | 1 (`approval`) |
+| **Total reachable** | **24** | **39** |
+| Partial (panel open only): git, github, instances, agents | 0 | 4 |
+| Still gaps: chat search, steer/queue, restore from archive, todo status change, tasks stop, Scout accept/reject, notification dismiss, quick commands, widgets panel, voice prefs | 10 | 10 |
+Denominator: 24 + 29 enumerated gap rows = 53 (the earlier "~45" was a rough
+estimate). Coverage: **24/53 = 45% before, 39/53 = 74% now** (43/53 = 81% with
+partials). Beyond the audit: watcher pause/resume, language and mic settings,
+`app_status context`, `panel status` (not in the denominator).
+
+### 10.4 Status, known limitations, follow-ups
+- Threshold status: schema tokens and scenario-cost (offline) **met**. Accuracy
+  and p95: **PENDING human-run, not evaluated**; no deviation is recorded
+  because nothing exceeded a threshold in the measured data. If the live run
+  exceeds one, record it here as "deviation for human decision".
+- Local fast path (stop / yes / no) was **not added**: the offline data shows no
+  token or cost pressure, and approval safety (§8) must stay model-mediated
+  with `request_id` binding.
+- Known limitations: plan approval is UI only; `todo_start` and
+  `delegation_cancel` need a second confirmation with the same id (60 s window,
+  same workspace and chat); always/harness grants are not available by voice;
+  Gemini scenario cost is not computable offline (N1).
+- Follow-ups: run §10.2; add the gaps in §10.3; add a Gemini text/audio rate to
+  `usage-rates.js` so the offline Gemini estimate becomes possible.
+
+### 10.5 Polish items closed in leaf 6
+- `answerApproval` consumes the described `request_id` before any await (two
+  concurrent answers deliver one reply) and restores it when the send fails or
+  throws, so the user can retry.
+- `startTodo` uses the workspace folder bound at confirm step one (the
+  `WorkContext` passed to the dependency), not the header trigger.
+- Voice todo start logic lives in `features/todo/todoVoiceStart.js` with
+  injected dependencies and is tested behaviorally (prompt handed over after
+  start; dirty worktree, not-ready, SDK and network failures start nothing);
+  `todoPanel.js` keeps its UI behavior.

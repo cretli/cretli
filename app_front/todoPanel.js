@@ -2,6 +2,7 @@ import * as api from './core/api/index.js';
 import { openTodoAgentChat, openTodoAgentStartModal, getChatsList, getTerminalStateMetaPublic } from './chat.js';
 import { resolveTodoStatusIcon } from './features/todo/todoStatusIcon.js';
 import './components/ui/cr-todo-review-badge.js';
+import { startTodoForVoice } from './features/todo/todoVoiceStart.js';
 import { createTodoReviewRefresher } from './features/todo/todoReviewRefresh.js';
 import {
   filterTodoItemsByReviewState,
@@ -3492,6 +3493,34 @@ async function startTodoAgentOnce(todoId, options = {}) {
   } catch {
     setStatus(t('todo.networkError'), true);
   }
+}
+
+/**
+ * Voice entry point for starting a todo agent. Uses the same API call, prepare
+ * polling and chat opening as `startTodoAgentOnce`, but never opens a dialog:
+ * a dirty worktree or a missing SDK key is reported back as a short error.
+ * `ok: true` means the chat was opened and its initial prompt was handed over.
+ *
+ * @param {string} todoId
+ * @param {{ agentTransport?: string, workspaceFile: string, workspaceFolder: string }} options
+ * @returns {Promise<{ ok: boolean, error?: string, code?: string }>}
+ */
+export async function startTodoAgentForVoice(todoId, options) {
+  return startTodoForVoice(todoId, options, {
+    findItem,
+    resolveHarness: (item) => resolveTodoStartHarness(item),
+    isSdkReady: () => sdkReady,
+    startAgent: (id, body) => api.postTodoStartAgent(id, body),
+    pollStatus: (id, workspaceFolder) => pollTodoStartAgentStatus(id, workspaceFolder, false),
+    renderList,
+    openChat: openTodoAgentChat,
+    showChatPanel: () => showPanelFn('chat'),
+    messages: {
+      sdkRequiresApiKey: t('todo.sdkRequiresApiKey'),
+      startFailed: t('todo.startAgentFailed'),
+      networkError: t('todo.networkError'),
+    },
+  });
 }
 
 /** Show full TODO errors and optional prepare output as text in one scrollable dialog. */

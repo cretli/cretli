@@ -19,7 +19,7 @@ import { REALTIME_TOOLS, buildRealtimeClientSecretBody } from '../lib/voice/real
 test('registry ids are unique and every entry is well formed', () => {
   const ids = listVoiceActionIds();
   assert.equal(new Set(ids).size, ids.length);
-  assert.equal(ids.length, 31);
+  assert.equal(ids.length, 32);
   for (const action of VOICE_ACTIONS) {
     assert.ok(['safe', 'confirm'].includes(action.risk), action.id);
     assert.ok(action.description.length > 0, action.id);

@@ -2467,6 +2467,7 @@ export const pl = {
       switch_harness: '„Przełącz na Codex i kontynuuj” — zapyta o potwierdzenie',
       send_nav: '„Potwierdź” / „Odrzuć” / „W górę” / „W dół” — klawisze w terminalu',
       approval: '„Jakie uprawnienia czekają?” / „Zatwierdź raz” / „Odrzuć” — tylko raz albo odrzuć',
+      work: '„Jakie todo są gotowe?” / „Uruchom todo logowania” — z potwierdzeniem / „Wstrzymaj watchera” / „Anuluj delegację” — z potwierdzeniem. Zatwierdzanie planu tylko w UI',
       set_read_mode: '„Wyłącz czytanie odpowiedzi” / „Czytaj na końcu” / „Na bieżąco”',
       panel: '„Otwórz panel git” / „Który panel jest otwarty?”',
       app_settings: '„Włącz ciemny motyw” / „Zmień język na angielski” / „Wycisz mikrofon”',

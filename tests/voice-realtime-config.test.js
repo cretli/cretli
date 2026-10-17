@@ -125,6 +125,7 @@ test('the tool set matches the frontend executor', () => {
     'rename_chat',
     'send_nav',
     'approval',
+    'work',
     'list_models',
     'set_model',
     'switch_harness',
