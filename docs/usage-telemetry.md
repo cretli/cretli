@@ -479,11 +479,21 @@ due-ness check, never a stop or deferral.
 
 ### Restart, dedupe, audit
 
-Plans live in memory. A restart drops them and nothing is caught up; a long
-suspend inside a live process is evaluated once and ends as `cache_expired`, not
-as a burst. At most one ping per plan is in flight, request ids are
-deterministic (`keepalive:<delegationId>:<key>`) and replayed manual calls
-return the first result, so two paid requests are never created. Every plan
+Plans live in memory; a minimal snapshot is also written to
+`data/keep-alive-plans.json`. After a restart every restored plan is shown as
+stopped with `server_restart` and is never resumed or caught up; a long suspend
+inside a live process is evaluated once and ends as `cache_expired`, not as a
+burst. At most one ping per plan is in flight, request ids are deterministic
+(`keepalive:<delegationId>:<plan nonce>:<key>`) and replayed manual calls
+return the first result (the replay map is bounded, oldest key evicted first),
+so two paid requests are never created. The plan's nonce, active state and
+session generation are captured before a ping is issued and re-checked when the
+request returns: a ping superseded mid-flight (plan stopped or re-created,
+session reset) is kept as a `superseded` entry with its run id for cost
+attribution, is not counted in `pingsDone`, adds no cost or effectiveness claim,
+is audited as `ping_superseded` and never revives the plan. Cancel and session
+reset are detected by the next evaluation (`cancelled`, `session_reset`); there
+is no separate push hook. Every plan
 event (created/refused/requested/deferred/failed/settled/stopped) is audited
 (bounded in-memory log plus a `[keep-alive]` console line).
 
@@ -501,7 +511,7 @@ and not reported as unmatched.
 `keepalive_ping`, `keepalive_stop` (mutating, blocked in Plan/Ask).
 REST: `GET /api/usage/keep-alive` (overview), `POST /api/usage/keep-alive`
 (`status|configure|ping|stop`). Settings → Usage shows plans with mode, stop
-reason, last deferral, pings left, budget left (or "Unknown"), spent, a stop
+reason (translated label; an unknown code is shown raw), last deferral, pings left, budget left (or "Unknown"), spent, a stop
 button and the benchmark gate.
 
 ### Benchmark and go/no-go gate
@@ -511,7 +521,23 @@ compares **fresh**, **reuse** and **reuse + keep-alive** on the same fixture
 version (`tests/fixtures/keep-alive-benchmark/fixture.json`) for both reviewers
 and the coordinator, including every ping's cost, wall time and the seeded bugs
 found. `--emit-template` prints the observation shape; `--simulate` only
-exercises the pipeline and can never open the gate.
+exercises the pipeline and can never open the gate. `--verify-material` checks
+the fixture material and exits non-zero on a problem; `--observations` and
+`--simulate` run the same check first and refuse to build a report on a mismatch.
+
+**Fixture material and provenance.** The fixture carries real review material
+(`tests/fixtures/keep-alive-benchmark/material/round-*.md`) with the six seeded
+bugs; `fixture.json` records per material `{id, file, sha256}` and, per seeded
+bug, a `bugMarkers` snippet that must be present in its file. The runner writes
+the report's `provenance` itself from the verified files: fixture id and
+version, per-material id and sha256, `collector` (`measure-cache-keepalive-benchmark`
+v1) and `collectedAt`; provenance inside an observations file is ignored. The
+declared `source` alone is not trusted: the gate refuses `go` with
+`provenance_missing` (absent, incomplete, unknown collector, or no fixture to
+verify against) or `material_hash_mismatch` (fixture id/version, material ids or
+sha256 differ from `fixture.json`, or the files on disk no longer match). The
+provenance proves *which material* was measured, not that the token and cost
+figures were produced honestly; those still come from real usage records.
 
 The gate is `go` only for a **measured** report with identical fixture versions,
 all three participants in every arm, a known tariff for every cost (pings
@@ -530,7 +556,7 @@ a valid outcome and keeps `auto` unavailable.
 
 No measured run exists in this repository. The pipeline was exercised with
 `--simulate` only: source `simulated`, tariff unknown, all costs unknown, gate
-`no_go` (`not_measured`, `cost_unknown`). Consequently automatic keep-alive is **unavailable** until a
+`no_go` (`not_measured`, `cost_unknown`; a measured report would also need provenance). Consequently automatic keep-alive is **unavailable** until a
 measured report with a known tariff passes the gate; manual pings remain
 available as an explicit, bounded, user-paid action.
 
