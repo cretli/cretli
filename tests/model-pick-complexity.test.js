@@ -127,6 +127,51 @@ test('every persisted pick carries level + signals, selection unchanged', () => 
   assert.deepEqual(Object.keys(stored.complexity).sort(), ['level', 'signals']);
 });
 
+/**
+ * A review delegation row whose report carries a FAIL verdict. Used to prove the
+ * pick's internally-built history reaches the complexity classifier.
+ *
+ * @param {{ leafId?: string }} [overrides]
+ * @returns {object}
+ */
+function reviewFailRow(overrides = {}) {
+  const { leafId = 'leaf-1' } = overrides;
+  return {
+    id: `d-${Math.random().toString(16).slice(2)}`,
+    controllerChatId: 'chat-1',
+    executor: { transport: 'codex', model: 'gpt-5.6-sol' },
+    assignment: 'review',
+    executionMode: 'agent',
+    status: 'completed',
+    report: 'Findings...\nVERDICT: FAIL',
+    createdAt: '2026-10-14T11:00:00Z',
+    leafId,
+  };
+}
+
+test('internally-built pick history drives the complexity classification', () => {
+  const file = tempFile();
+  const picked = pickAndPersistModelForPurpose({
+    role: 'implement',
+    leafId: 'leaf-1',
+    leafBody: 'Fix typo in lib/a.js',
+    leafSize: 'small',
+    harnesses: [{ id: 'codex', enabled: true, ready: true, can_delegate: true }],
+    modelsByHarness: { codex: { favorites_configured: true, items: [{ id: 'gpt-5.6-sol' }, { id: 'gpt-6.1-sol' }] } },
+    now: Date.parse('2026-10-14T12:00:00Z'),
+    shadow: false,
+    explore: false,
+    // No `history` injected: the pick builds it from these rows internally and
+    // must classify that exact object, not the undefined `input.history`.
+    delegations: [reviewFailRow(), reviewFailRow()],
+    file,
+  });
+  assert.equal(picked.ok, true);
+  assert.equal(picked.history.reviewFailCount, 2, 'the returned history counted both FAILs');
+  assert.equal(picked.complexity.level, 'demanding');
+  assert.ok(picked.complexity.signals.includes('review_fail_history'));
+});
+
 test('model_pick MCP error envelope carries complexity', async () => {
   const { createCretliMcpToolHandlers } = await import('../lib/mcp/mcp-builtin-tools.js');
   const client = {
