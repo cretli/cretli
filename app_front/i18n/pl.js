@@ -955,6 +955,8 @@ export const pl = {
     watcherMaxSameFindings: 'Max tych samych findings',
     watcherCooldown: 'Cooldown między cyklami',
     watcherBackoffBaseMs: 'Backoff bazowy (ms)',
+    watcherBackoffBase: 'Backoff bazowy',
+    watcherBackoffCap: 'Backoff maksymalny',
     watcherBackoffCapMs: 'Backoff maks. (ms)',
     watcherQuietStart: 'Cisza od (UTC HH:MM)',
     watcherQuietEnd: 'Cisza do (UTC HH:MM)',

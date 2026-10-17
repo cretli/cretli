@@ -955,6 +955,8 @@ export const en = {
     watcherMaxSameFindings: 'Max identical findings',
     watcherCooldown: 'Cooldown between cycles',
     watcherBackoffBaseMs: 'Backoff base (ms)',
+    watcherBackoffBase: 'Backoff base',
+    watcherBackoffCap: 'Backoff cap',
     watcherBackoffCapMs: 'Backoff cap (ms)',
     watcherQuietStart: 'Quiet from (UTC HH:MM)',
     watcherQuietEnd: 'Quiet until (UTC HH:MM)',

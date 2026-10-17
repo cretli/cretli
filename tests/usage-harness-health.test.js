@@ -295,7 +295,10 @@ test('room-kernel turns a rejected rate-limit event into a lockout and a plan sn
     assert.equal(history.length, 1);
     assert.equal(history[0].source, 'rate-limit-event');
     assert.equal(history[0].code, 'rate_limit_five_hour');
-    assert.equal(history[0].model, 'claude-sonnet-4-5');
+    // `five_hour` is the account window, not the model: the lockout blocks every
+    // Claude model, so history records the harness-wide marker instead of the id
+    // the room happened to use.
+    assert.equal(history[0].model, 'auto');
 
     const plan = readHarnessPlanLimits('claude', { dataDir });
     assert.equal(plan.length, 1);
@@ -376,7 +379,7 @@ test('buildClaudeNoticePayload carries plan fields end-to-end into the health sn
     const history = readHarnessUsageLimitHistory({ harness: 'claude', dataDir });
     assert.equal(history.length, 1);
     assert.equal(history[0].code, 'rate_limit_five_hour');
-    assert.equal(history[0].model, 'claude-sonnet-4-5');
+    assert.equal(history[0].model, 'auto', 'the account window locks the harness, not one model');
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }

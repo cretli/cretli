@@ -525,6 +525,10 @@ function quietHoursActive(quiet) {
  */
 function formatCooldownLabel(ms) {
   const value = Number(ms) || 0;
+  if (value >= 3_600_000) {
+    const hours = value / 3_600_000;
+    return `${Number.isInteger(hours) ? hours : hours.toFixed(1)} ${t('settings.watcherHourUnit')}`;
+  }
   if (value < 60_000) {
     // The slider stores seconds as milliseconds, so sub-minute values must be
     // divided down; rendering the raw ms value produced "30000 s".
@@ -533,6 +537,27 @@ function formatCooldownLabel(ms) {
   }
   const minutes = value / 60_000;
   return `${Number.isInteger(minutes) ? minutes : minutes.toFixed(1)} ${t('settings.watcherMinuteUnit')}`;
+}
+
+/**
+ * Render a duration field edited in minutes (the policy stores ms) with a live
+ * human-readable hint, so nobody has to type 21600000.
+ *
+ * @param {{ id: string, labelKey: string, ms: number }} opts
+ * @returns {string}
+ */
+function renderDurationField({ id, labelKey, ms }) {
+  const minutes = Math.round(((Number(ms) || 0) / 60_000) * 100) / 100;
+  return `<label class="cr-field"><span class="cr-field-label">${escapeHtml(t(labelKey))}</span>`
+    + `<span class="watcher-duration"><input id="${id}" type="number" inputmode="decimal" min="0" step="0.5" value="${minutes}" data-watcher-duration>`
+    + `<span class="watcher-duration-unit">${escapeHtml(t('settings.watcherMinuteUnit'))}</span></span>`
+    + `<span class="cr-hint" data-watcher-duration-out="${id}">≈ ${escapeHtml(formatCooldownLabel(Number(ms) || 0))}</span></label>`;
+}
+
+/** Read a minutes-based duration field back as whole milliseconds. */
+function readDurationMs(root, id) {
+  const minutes = Number(root.querySelector(`#${id}`)?.value);
+  return Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes * 60_000) : 0;
 }
 
 /**
@@ -2167,8 +2192,8 @@ function renderWatcherPanel(root, data) {
           <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherMaxParallelProject'))}</span><input id="watcher-max-parallel-project" type="number" min="0" max="10" value="${Number(policy.maxParallelProject) || 0}"><span class="cr-hint">${escapeHtml(t('settings.watcherMaxParallelProjectHint'))}</span></label>
           <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherMaxFailures'))}</span><input id="watcher-max-failures" type="number" min="0" value="${Number(policy.maxConsecutiveFailures) || 0}"></label>
           <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherMaxSameFindings'))}</span><input id="watcher-max-findings" type="number" min="0" value="${Number(policy.maxSameFindings) || 0}"></label>
-          <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherBackoffBaseMs'))}</span><input id="watcher-backoff-base" type="number" min="0" value="${Number(policy.backoffBaseMs) || 0}"></label>
-          <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherBackoffCapMs'))}</span><input id="watcher-backoff-cap" type="number" min="0" value="${Number(policy.backoffCapMs) || 0}"></label>
+          ${renderDurationField({ id: 'watcher-backoff-base', labelKey: 'settings.watcherBackoffBase', ms: policy.backoffBaseMs })}
+          ${renderDurationField({ id: 'watcher-backoff-cap', labelKey: 'settings.watcherBackoffCap', ms: policy.backoffCapMs })}
           <label class="cr-field watcher-wide"><span class="cr-field-label">${escapeHtml(t('settings.watcherCooldown'))} · <span id="watcher-cooldown-out" class="watcher-slider-out">${escapeHtml(formatCooldownLabel(cooldownMs))}</span></span><input id="watcher-cooldown" type="range" min="${COOLDOWN_MIN_MS}" max="${cooldownMax}" step="${COOLDOWN_STEP_MS}" value="${cooldownMs}"></label>
         </div>
       </section>
@@ -2318,6 +2343,12 @@ function renderWatcherPanel(root, data) {
 
   paintWatcherRuntimeControl(root);
 
+  root.querySelectorAll('[data-watcher-duration]').forEach((input) => {
+    input.addEventListener('input', () => {
+      const out = root.querySelector(`[data-watcher-duration-out="${input.id}"]`);
+      if (out) out.textContent = `≈ ${formatCooldownLabel(readDurationMs(root, input.id))}`;
+    });
+  });
   const cooldownInput = root.querySelector('#watcher-cooldown');
   cooldownInput?.addEventListener('input', () => {
     const out = root.querySelector('#watcher-cooldown-out');
@@ -2388,8 +2419,8 @@ function readWatcherForm(root) {
       maxConsecutiveFailures: Number(root.querySelector('#watcher-max-failures')?.value) || 0,
       maxSameFindings: Number(root.querySelector('#watcher-max-findings')?.value) || 0,
       cooldownMs: Number(root.querySelector('#watcher-cooldown')?.value) || 0,
-      backoffBaseMs: Number(root.querySelector('#watcher-backoff-base')?.value) || 0,
-      backoffCapMs: Number(root.querySelector('#watcher-backoff-cap')?.value) || 0,
+      backoffBaseMs: readDurationMs(root, 'watcher-backoff-base'),
+      backoffCapMs: readDurationMs(root, 'watcher-backoff-cap'),
       requirePlanApproval: root.querySelector('#watcher-require-plan')?.checked !== false,
       planApprovalScope: root.querySelector('input[name="watcher-plan-scope"]:checked')?.value === 'root' ? 'root' : 'leaf',
       requireReviewForDone: ['off', 'warn', 'enforce'].includes(root.querySelector('#watcher-review-gate-mode')?.value)
@@ -2517,8 +2548,11 @@ function resetWatcherForm(root) {
   set('watcher-max-parallel-project', DEFAULT_POLICY.maxParallelProject);
   set('watcher-max-failures', DEFAULT_POLICY.maxConsecutiveFailures);
   set('watcher-max-findings', DEFAULT_POLICY.maxSameFindings);
-  set('watcher-backoff-base', DEFAULT_POLICY.backoffBaseMs);
-  set('watcher-backoff-cap', DEFAULT_POLICY.backoffCapMs);
+  [['watcher-backoff-base', DEFAULT_POLICY.backoffBaseMs], ['watcher-backoff-cap', DEFAULT_POLICY.backoffCapMs]].forEach(([id, ms]) => {
+    set(id, ms / 60_000);
+    const out = root.querySelector(`[data-watcher-duration-out="${id}"]`);
+    if (out) out.textContent = `≈ ${formatCooldownLabel(ms)}`;
+  });
   set('watcher-cooldown', DEFAULT_POLICY.cooldownMs);
   const cooldownOut = root.querySelector('#watcher-cooldown-out');
   if (cooldownOut) cooldownOut.textContent = formatCooldownLabel(DEFAULT_POLICY.cooldownMs);

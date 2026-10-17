@@ -74,7 +74,7 @@ test('the watcher panel keeps every guardrail field wired to the policy', () => 
     'watcher-quiet-end',
   ];
   for (const id of fields) {
-    assert.ok(source.includes(`id="${id}"`), `missing ${id}`);
+    assert.ok(source.includes(`id="${id}"`) || source.includes(`id: '${id}'`), `missing ${id}`);
   }
 });
 
