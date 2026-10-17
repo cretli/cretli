@@ -233,3 +233,128 @@ test('enforce re-run keeps the injected history and persists demanding complexit
   assert.equal(stored.complexity.level, 'demanding');
   assert.ok(stored.complexity.signals.includes('review_fail_history'));
 });
+
+test('invalid complexity override is reported by code, raw value not echoed', () => {
+  const r = classifyTaskComplexity({ role: 'implement', leafBody: 'x', leafSize: 'small', complexity: 'HUGE-SECRET' });
+  assert.ok(r.signals.includes('explicit_level_invalid'));
+  assert.ok(!r.signals.includes('explicit_level'));
+  assert.ok(!JSON.stringify(r).includes('SECRET'));
+  const ok = classifyTaskComplexity({ role: 'implement', leafBody: 'x', leafSize: 'small', complexity: 'standard' });
+  assert.ok(!ok.signals.includes('explicit_level_invalid'));
+});
+
+test('review_fail_history from wired history is persisted via pickAndPersistModelForPurpose', async () => {
+  const { buildModelPickHistory } = await import('../lib/model-pick-history.js');
+  const file = tempFile();
+  const now = Date.parse('2026-10-14T12:00:00Z');
+  const rows = [1, 2].map((n) => ({
+    id: `d-${n}`, controllerChatId: 'chat-1', leafId: 'leaf-1', assignment: 'review',
+    executionMode: 'agent', status: 'completed', report: 'x\nVERDICT: FAIL',
+    executor: { transport: 'deepseek', model: 'deepseek-flash' }, createdAt: '2026-10-14T11:00:00Z',
+  }));
+  const history = buildModelPickHistory({
+    role: 'implement', chatId: 'chat-1', leafId: 'leaf-1', delegations: rows, lockouts: [], planLimits: [], now,
+  });
+  const picked = pickAndPersistModelForPurpose({
+    role: 'implement', leafBody: 'x', leafSize: 'small', history, leafId: 'leaf-1', chatId: 'chat-1',
+    harnesses: [{ id: 'codex', enabled: true, ready: true, can_delegate: true }],
+    modelsByHarness: { codex: { favorites_configured: true, items: [{ id: 'gpt-5.6-sol' }, { id: 'gpt-6.1-sol' }] } },
+    now, shadow: false, explore: false, file,
+  });
+  assert.equal(picked.complexity.level, 'demanding');
+  assert.ok(picked.complexity.signals.includes('review_fail_history'));
+  const stored = getModelPickRecord(picked.pickId, { file });
+  assert.equal(stored.complexity.level, 'demanding');
+  assert.ok(stored.complexity.signals.includes('review_fail_history'));
+  assert.ok(!fs.readFileSync(file, 'utf8').includes('VERDICT'));
+});
+
+test('model_pick leaf_size signals fire for review/plan roles', async () => {
+  const { createCretliMcpToolHandlers } = await import('../lib/mcp/mcp-builtin-tools.js');
+  const { addTodo } = await import('../lib/persist/todos-persist.js');
+  const { setBuiltinMcpRuntimeDeps } = await import('../lib/mcp/builtin/runtime-deps.js');
+  const dataDir = process.env.CRETLI_DATA_DIR;
+  setBuiltinMcpRuntimeDeps({ dataDir, workspaceDirForAgent: () => '', taskRuns: new Map(), agentRuns: new Map() });
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'cx-ws-'));
+  fs.mkdirSync(path.join(ws, 'lib'));
+  fs.writeFileSync(path.join(ws, 'lib', 'a.js'), '');
+  const cases = [['No file list here', 'large'], ['Fix lib/a.js', 'small']];
+  for (const [body, size] of cases) {
+    const todo = addTodo(dataDir, ws, { title: `t-${size}`, body, idempotencyKey: `cx-${size}` });
+    const todoId = todo.item?.id || todo.id;
+    for (const role of ['review', 'plan']) {
+      const client = {
+        async listHarnessCatalog() { return []; },
+        async listHarnessModels() { return []; },
+        async getTodo() { return { body }; },
+      };
+      const handlers = createCretliMcpToolHandlers(client, { chatId: 'cx-leaf', workspaceFolder: ws, mode: 'agent', builtinClient: client });
+      const res = await handlers.model_pick({ role, todo_id: todoId });
+      const sc = res.structuredContent;
+      assert.equal(sc.leaf_size, size, `${role} ${size}`);
+      assert.ok(sc.complexity.signals.includes(`leaf_size_${size}`), `${role} ${size} signal`);
+    }
+  }
+});
+
+test('model_pick fix role computes no leaf size, so its selection inputs stay unchanged', async () => {
+  const { createCretliMcpToolHandlers } = await import('../lib/mcp/mcp-builtin-tools.js');
+  const { addTodo } = await import('../lib/persist/todos-persist.js');
+  const { setBuiltinMcpRuntimeDeps } = await import('../lib/mcp/builtin/runtime-deps.js');
+  const dataDir = process.env.CRETLI_DATA_DIR;
+  setBuiltinMcpRuntimeDeps({ dataDir, workspaceDirForAgent: () => '', taskRuns: new Map(), agentRuns: new Map() });
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'cx-fix-ws-'));
+  fs.mkdirSync(path.join(ws, 'lib'));
+  fs.writeFileSync(path.join(ws, 'lib', 'a.js'), '');
+  // F6: a plain body (no existing file path, so `classifyLeafSize` would say
+  // `large`) and a one-file body (which would say `small`) must classify the
+  // same for `fix`, because `fix` computes no leaf size at all. Before the fix
+  // the first raised the level to `standard`, changing enforced cost-policy
+  // eligibility.
+  const bodies = ['Update behavior', 'Fix lib/a.js'];
+  for (let index = 0; index < bodies.length; index += 1) {
+    const body = bodies[index];
+    const todo = addTodo(dataDir, ws, { title: `t-fix-${index}`, body, idempotencyKey: `cx-fix-${index}` });
+    const todoId = todo.item?.id || todo.id;
+    const client = {
+      async listHarnessCatalog() { return []; },
+      async listHarnessModels() { return []; },
+      async getTodo() { return { body }; },
+    };
+    const handlers = createCretliMcpToolHandlers(client, { chatId: 'cx-fix', workspaceFolder: ws, mode: 'agent', builtinClient: client });
+    const res = await handlers.model_pick({ role: 'fix', todo_id: todoId });
+    const sc = res.structuredContent;
+    assert.equal(sc.leaf_size, null, `${body}: no leaf_size`);
+    assert.ok(!sc.complexity.signals.includes('leaf_size_large'), `${body}: no leaf_size_large`);
+    assert.ok(!sc.complexity.signals.includes('leaf_size_small'), `${body}: no leaf_size_small`);
+    assert.equal(sc.complexity.level, 'trivial', `${body}: leaf size must not raise the fix level`);
+    if (sc.pick) assert.ok(!String(sc.pick.reason || '').includes('leaf='), `${body}: no leaf= suffix`);
+  }
+});
+
+test('model_pick review/plan responses carry no leaf= reason suffix or flash exclusion', async () => {
+  const { createCretliMcpToolHandlers } = await import('../lib/mcp/mcp-builtin-tools.js');
+  const { addTodo } = await import('../lib/persist/todos-persist.js');
+  const { setBuiltinMcpRuntimeDeps } = await import('../lib/mcp/builtin/runtime-deps.js');
+  const dataDir = process.env.CRETLI_DATA_DIR;
+  setBuiltinMcpRuntimeDeps({ dataDir, workspaceDirForAgent: () => '', taskRuns: new Map(), agentRuns: new Map() });
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'cx-rp-ws-'));
+  const body = 'No file list here';
+  const todo = addTodo(dataDir, ws, { title: 't-rp', body, idempotencyKey: 'cx-rp' });
+  const todoId = todo.item?.id || todo.id;
+  for (const role of ['review', 'plan']) {
+    const client = {
+      async listHarnessCatalog() { return [{ id: 'codex', enabled: true, ready: true, can_delegate: true }]; },
+      async listHarnessModels() { return { favorites_configured: true, items: [{ id: 'gpt-5.6-sol', roles: [role] }] }; },
+      async getTodo() { return { body }; },
+    };
+    const handlers = createCretliMcpToolHandlers(client, { chatId: 'cx-rp', workspaceFolder: ws, mode: 'agent', builtinClient: client });
+    const res = await handlers.model_pick({ role, todo_id: todoId });
+    assert.notEqual(res.isError, true, `${role}: ${res.content?.[0]?.text}`);
+    const sc = res.structuredContent;
+    assert.equal(sc.leaf_size, 'large', `${role}: leaf size present`);
+    const reason = String(sc.pick?.reason || '');
+    assert.ok(!reason.includes('leaf='), `${role}: no leaf= suffix (${reason})`);
+    assert.ok(!reason.includes('flash_excluded'), `${role}: no flash exclusion (${reason})`);
+  }
+});
