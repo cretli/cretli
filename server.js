@@ -96,6 +96,9 @@ import { purgeBrowserScreenshotRoot } from './lib/browser/screenshot-file.js';
 import { getWorkspacePolicy } from './lib/browser/policy-store.js';
 import { configureBrowserAgentRuntime } from './lib/browser/agent-tools.js';
 import { createServerDiagnostics } from './lib/server-diagnostics.js';
+import { createHttpTimingLog, isHttpTimingExcludedPath, resolveHttpTimingMinMs } from './lib/http-timing-log.js';
+import { resolvePositiveIntEnv, startLogCapTimer } from './lib/log-rotate.js';
+import { warnLargeDataFiles } from './lib/data-dir-size-warning.js';
 import { buildShutdownOriginSnapshot } from './lib/shutdown-origin.js';
 import { publishMemoryMonitorAlerts } from './lib/notifications/memory-monitor-producer.js';
 import { startHarnessRecoveryNotifications } from './lib/notifications/harness-recovery-producer.js';
@@ -183,6 +186,15 @@ process.on('unhandledRejection', (reason) => {
   if (outcome.terminate && !outcome.shutdownCalled) process.exit(1);
 });
 serverDiagnostics.start();
+
+// Bound a redirected server log when a launcher told us where it is. A plain
+// `npm start` in a terminal leaves CRETLI_SERVER_LOG_FILE unset, so this is a
+// no-op there.
+startLogCapTimer(String(process.env.CRETLI_SERVER_LOG_FILE || '').trim() || undefined, {
+  intervalMs: resolvePositiveIntEnv(process.env, 'CRETLI_LOG_CAP_CHECK_MS', 60_000),
+  maxBytes: resolvePositiveIntEnv(process.env, 'CRETLI_SERVER_LOG_MAX_BYTES', 10 * 1024 * 1024),
+  keep: 3,
+});
 let serverRestartScheduled = false;
 const FRONT_HMR_ENV_RAW = readEnvAlias({
   current: 'CRETLI_FRONT_HMR',
@@ -211,6 +223,9 @@ const PUBLIC_DIR = String(process.env.CRETLI_PUBLIC_DIR || '').trim() || path.jo
 const INDEX_HTML_PATH = path.join(PUBLIC_DIR, 'index.html');
 const LOGIN_HTML_PATH = path.join(PUBLIC_DIR, 'login.html');
 const dataDir = resolveDataPath();
+// One startup warning per top-level data file past the size threshold; the same
+// list is available from `GET /api/diagnostics/server`.
+warnLargeDataFiles(dataDir);
 const keyPath = process.env.SSL_KEY_PATH || path.join(dataDir, 'key.pem');
 const certPath = process.env.SSL_CERT_PATH || path.join(dataDir, 'cert.pem');
 let useHttps = false;
@@ -289,13 +304,23 @@ app.use((req, res, next) => {
   ensureStickyInstanceCookie(req, res, getServerInstanceId(), { secure: useHttps });
   next();
 });
+// Leveled timing: measure every API request, but only surface slow ones. The
+// debug flag switches the slow line to `[http-timing]`; the warn path stays
+// active (with a rate budget) when the flag is off.
+const httpTimingLog = createHttpTimingLog({ minMs: resolveHttpTimingMinMs(process.env) });
 app.use((req, res, next) => {
-  if (!isApiRequestPath(String(req?.path || '')) || !isHttpTimingEnabled()) return next();
-  const requestId = randomSessionId();
+  const requestPath = String(req?.path || '');
+  if (!isApiRequestPath(requestPath) || isHttpTimingExcludedPath(requestPath)) return next();
   const startedAt = Date.now();
-  console.log('[http-timing] start', requestId, req.method, req.originalUrl || req.url || req.path);
   res.on('finish', () => {
-    console.log('[http-timing] end', requestId, res.statusCode, Date.now() - startedAt + 'ms', req.method, req.originalUrl || req.url || req.path);
+    httpTimingLog.record({
+      method: req.method,
+      url: req.originalUrl || req.url || requestPath,
+      path: requestPath,
+      statusCode: res.statusCode,
+      durationMs: Date.now() - startedAt,
+      timingEnabled: isHttpTimingEnabled(),
+    });
   });
   next();
 });
