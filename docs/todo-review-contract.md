@@ -907,11 +907,22 @@ channel, never a new socket. The frame carries identifiers only:
 
 ### 11.1 The caps — SETTLED (as they exist)
 
-- `MAX_ATTEMPT_HISTORY = 20` (`lib/delegation-retention.js:12`);
-  `applyDelegationRetention` trims to `attempts.slice(-20)` (line 46).
-- A finished delegation is archived after `DELEGATION_RETENTION_MS` = 30 days
-  (line 10); archival clears `sourceText`/`planMarkdown` and truncates
-  `report` to 2000 chars (lines 56-58).
+- `MAX_ATTEMPT_HISTORY = 20` (`lib/delegation-retention.js`);
+  `applyDelegationRetention` trims to `attempts.slice(-20)`.
+- A finished, fully delivered delegation (no undelivered outbox item, no
+  queued/failed/uncertain mailbox row, no held slot, accept not `uncertain`) is
+  archived after `DELEGATION_TRIM_AFTER_MS` (3 days, env
+  `CRETLI_DELEGATION_TRIM_AFTER_MS`) when its leaf is `done` or it has no leaf,
+  and after `DELEGATION_RETENTION_MS` = 30 days otherwise (including a leaf
+  that is missing from the workspace todos or unreadable). Archival clears
+  `sourceText`/`planMarkdown` and truncates `report` to 2000 chars; when
+  `reportVerdict` was empty it is first parsed from the FULL report, so the
+  verdict survives the cut. Rows are never deleted. A retry of an archived job
+  without task text is refused (`delegation_archived`).
+- Delivered mailbox bodies are trimmed to a preview after the same 3 days
+  (not for a live job). The row keeps `bodyHash` (sha256 of the trimmed-off
+  body under the replay normalization), `bodyLength` and `bodyTrimmedAt`, so an
+  idempotent replay still matches and a changed body still conflicts.
 
 ### 11.2 Loss of history must surface as `unknown` — SETTLED
 
@@ -1270,8 +1281,9 @@ is recorded as an acknowledgement but never yields `manual`.
   stale only when an implement/fix was queued or started after it. Edits outside
   a delegation, requirement edits, and manual worktree changes are not
   detected (§6.2).
-- **Retention.** Finished delegations are archived after 30 days (report cut to
-  2000 chars) and attempt history is capped at 20 (§11.1). When a referenced
+- **Retention.** Finished, delivered delegations are archived after 3 days
+  once their leaf is done (30 days otherwise), with the report cut to 2000
+  chars and the verdict kept; attempt history is capped at 20 (§11.1). When a referenced
   attempt is gone the subject becomes `unknown` (`history_truncated`), not
   `passed`. Archived jobs whose leaf attribution lived in the cleared
   `sourceText` cannot be attributed at all.

@@ -115,7 +115,9 @@ registerMockChatRunAdapter('opencode');
   assert.ok(String(oldIntent.deliveredAt || '').trim());
   const replies = loadMailboxMessages().filter((x) => x.delegationId === a.id);
   assert.equal(replies.some((row) => String(row.body || '').includes('REPORT A')), true);
-  assert.equal(String(oldIntent.snapshot?.report || '').includes('REPORT A'), true);
+  // Once delivered, the intent keeps only its ids; the report lives in the reply above.
+  assert.deepEqual(oldIntent.snapshot, { attemptId: a.attemptId, eventId: String(oldIntent.snapshot?.eventId || '') });
+  assert.equal(String(oldIntent.snapshot?.report || ''), '');
 }
 
 {

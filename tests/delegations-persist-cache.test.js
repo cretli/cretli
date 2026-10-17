@@ -56,7 +56,9 @@ try {
   delegationReads = 0;
   const after = loadDelegations();
   assert.equal(after.length, 6);
-  assert.equal(delegationReads, 1);
+  // A write re-seeds the cache, so the next read does not re-parse the file.
+  assert.equal(delegationReads, 0);
+  assert.equal(after.at(-1).workspaceFolder, '/tmp/cretli-cache-test');
   console.log('delegations-persist-cache.test.js ok');
 } finally {
   fs.readFileSync = originalRead;

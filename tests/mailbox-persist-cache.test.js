@@ -32,7 +32,11 @@ try {
   mailboxReads = 0;
   const after = loadMailboxMessages();
   assert.equal(after.length, 2);
-  assert.equal(mailboxReads, 1);
+  // A write re-seeds the cache, so the next read does not re-parse the file.
+  assert.equal(mailboxReads, 0);
+  assert.equal(after[1].body, 'next');
+  after[1].body = 'mutated';
+  assert.equal(loadMailboxMessages()[1].body, 'next');
   console.log('mailbox-persist-cache.test.js ok');
 } finally {
   fs.readFileSync = originalRead;

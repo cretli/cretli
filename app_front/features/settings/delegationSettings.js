@@ -53,7 +53,7 @@ export const DELEGATION_LEGACY_FIELDS = Object.freeze(['reviewer_pair_enabled', 
 export const REVIEWER_POLICY_SUBJECTS = Object.freeze(['plan', 'code']);
 
 /** @type {{ data: object | null, favorites: Array<{ harness: string, model: string, label: string }> }} */
-const state = { data: null, favorites: [], harnesses: [], favoritesAt: 0, favoritesPromise: null, dirty: new Set() };
+const state = { data: null, favorites: [], harnesses: [], favoritesAt: 0, favoritesPromise: null, favoritesPaintedFor: null, dirty: new Set() };
 /** Favorites change rarely; reuse them across tab entries for this long. */
 const FAVORITES_TTL_MS = 60_000;
 
@@ -148,6 +148,21 @@ export function summarizeReviewerPolicy(subject, entry) {
 }
 
 /**
+ * Options of one reviewer-pair member select: none, the saved member when it
+ * left the favorites (so it is not dropped silently), then every favorite.
+ *
+ * @param {string} current `harness<sep>model` or ''
+ * @returns {Array<{ value: string, label: string }>}
+ */
+function memberSelectOptions(current) {
+  const options = [{ value: '', label: t('settings.delegationSettingsNone') }];
+  const known = state.favorites.some((fav) => `${fav.harness}${PAIR_SEPARATOR}${fav.model}` === current);
+  if (current && !known) options.push({ value: current, label: current.split(PAIR_SEPARATOR).join(' / ') });
+  for (const fav of state.favorites) options.push({ value: `${fav.harness}${PAIR_SEPARATOR}${fav.model}`, label: `${fav.harness} / ${fav.label}` });
+  return options;
+}
+
+/**
  * @param {string} subject
  * @param {object} entry
  * @returns {string}
@@ -158,10 +173,7 @@ function renderPolicyBlock(subject, entry) {
   const members = stored.members;
   const slot = (index) => {
     const current = members[index] ? `${members[index].harness}${PAIR_SEPARATOR}${members[index].model}` : '';
-    const known = state.favorites.some((fav) => `${fav.harness}${PAIR_SEPARATOR}${fav.model}` === current);
-    const options = [{ value: '', label: t('settings.delegationSettingsNone') }];
-    if (current && !known) options.push({ value: current, label: `${members[index].harness} / ${members[index].model}` });
-    for (const fav of state.favorites) options.push({ value: `${fav.harness}${PAIR_SEPARATOR}${fav.model}`, label: `${fav.harness} / ${fav.label}` });
+    const options = memberSelectOptions(current);
     return `<cr-bar-select data-policy-subject="${subject}" data-policy-member="${index}" data-options="${esc(JSON.stringify(options))}" value="${esc(current)}"></cr-bar-select>`;
   };
   const sourceKey = entry?.source === 'policy' ? 'policy' : 'legacy';
@@ -333,13 +345,7 @@ function renderField(spec, data) {
     const members = Array.isArray(value) ? value : [];
     const slot = (index) => {
       const current = members[index] ? `${members[index].harness}${PAIR_SEPARATOR}${members[index].model}` : '';
-      const known = state.favorites.some((fav) => `${fav.harness}${PAIR_SEPARATOR}${fav.model}` === current);
-      const options = [{ value: '', label: t('settings.delegationSettingsNone') }];
-      // A saved member that left the favorites stays selectable so it is not dropped silently.
-      if (current && !known) options.push({ value: current, label: `${members[index].harness} / ${members[index].model}` });
-      for (const fav of state.favorites) {
-        options.push({ value: `${fav.harness}${PAIR_SEPARATOR}${fav.model}`, label: `${fav.harness} / ${fav.label}` });
-      }
+      const options = memberSelectOptions(current);
       return `<cr-bar-select id="${id}-${index}" data-delegation-pair-member="${index}" data-options="${esc(JSON.stringify(options))}" value="${esc(current)}"${dis}></cr-bar-select>`;
     };
     control = `<div class="cr-row">${slot(0)}${slot(1)}</div>`;
@@ -471,6 +477,23 @@ function renderCleanTabs() {
 }
 
 /**
+ * Tabs with unsaved edits are not repainted, but their reviewer-pair selects
+ * still need the favorites that arrived after the first paint. Only the option
+ * lists change; each select keeps the value the user picked.
+ */
+function refreshDirtyMemberOptions() {
+  for (const tab of state.dirty) {
+    const root = getRoot(tab);
+    if (!root) continue;
+    root.querySelectorAll('cr-bar-select[data-policy-member], cr-bar-select[data-delegation-pair-member]').forEach((el) => {
+      const options = memberSelectOptions(String(el.value || ''));
+      el.dataset.options = JSON.stringify(options);
+      el.options = options;
+    });
+  }
+}
+
+/**
  * @param {Element & { value?: unknown }} el
  * @returns {string}
  */
@@ -587,7 +610,9 @@ export async function refreshDelegationSettings() {
     const root = getRoot(tab);
     if (root) root.textContent = t('settings.delegationSettingsLoading');
   }
-  const [{ status, json }, favorites] = await Promise.all([api(API_PATH), loadFavorites().catch(() => [])]);
+  // Favorites fan out one request per harness; they must not hold the first paint.
+  const favoritesLoad = loadFavorites().catch(() => null);
+  const { status, json } = await api(API_PATH);
   if (status !== 200 || !json?.ok) {
     for (const tab of Object.keys(DELEGATION_SUBTAB_FIELDS)) {
       const root = getRoot(tab);
@@ -600,9 +625,15 @@ export async function refreshDelegationSettings() {
     return;
   }
   state.data = json;
-  state.favorites = favorites;
   // Tabs with unsaved edits keep their controls; the rest pick up fresh values.
   renderCleanTabs();
+  const favorites = await favoritesLoad;
+  // Repaint once the reviewer-pair options arrive (cached favorites need no repaint).
+  if (favorites && favorites !== state.favoritesPaintedFor) {
+    state.favoritesPaintedFor = favorites;
+    renderCleanTabs();
+    refreshDirtyMemberOptions();
+  }
 }
 
 /**

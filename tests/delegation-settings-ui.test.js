@@ -189,3 +189,15 @@ test('saving one review subject does not pin a legacy-derived subject', () => {
     ['plan', 'code'],
   );
 });
+
+test('favorites do not hold the first paint and reach tabs with unsaved edits', () => {
+  // Settings render as soon as /api/delegation-settings answers.
+  assert.doesNotMatch(source, /Promise\.all\(\[api\(API_PATH\), loadFavorites\(\)/);
+  assert.match(source, /const favoritesLoad = loadFavorites\(\)\.catch\(\(\) => null\);\s*const \{ status, json \} = await api\(API_PATH\);/);
+  // Clean tabs repaint; dirty tabs only get fresh reviewer-pair options.
+  assert.match(source, /renderCleanTabs\(\);\s*refreshDirtyMemberOptions\(\);/);
+  assert.match(source, /function refreshDirtyMemberOptions\(\) \{[\s\S]*?for \(const tab of state\.dirty\)[\s\S]*?memberSelectOptions\(String\(el\.value \|\| ''\)\)/);
+  // Both pair renderers and the dirty refresh share one option builder
+  // (its definition plus the two renderer calls).
+  assert.equal(source.match(/memberSelectOptions\(current\)/g)?.length, 3);
+});
