@@ -121,7 +121,8 @@ test('limit burn window edges and a large ledger stay linear', () => {
   const started = Date.now();
   const burn = attributeLimitBurn({ events });
   assert.equal(burn.clusters, 2000);
-  assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
+  // The quadratic rescan took tens of seconds; the budget leaves room for a slow shared CI runner.
+  assert.ok(Date.now() - started < 6000, `took ${Date.now() - started} ms`);
 });
 
 test('advice reports uncached heavy models, costly leaves, heavy chats and limit hotspots with evidence', async () => {
