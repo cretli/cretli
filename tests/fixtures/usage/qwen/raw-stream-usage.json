@@ -1,0 +1,11 @@
+{
+  "_note": "Sanitized shape, not a live capture. Two assistant messages (tool loop) then a run-level result.",
+  "records": [
+    {"type": "assistant", "session_id": "qwen-sess-1", "message": {"role": "assistant", "usage": {"input_tokens": 1000, "output_tokens": 50, "cache_read_input_tokens": 400}}},
+    {"type": "assistant", "session_id": "qwen-sess-1", "message": {"role": "assistant", "usage": {"input_tokens": 1200, "output_tokens": 30, "cache_read_input_tokens": 900}}},
+    {"type": "result", "subtype": "success", "session_id": "qwen-sess-1", "is_error": false, "duration_ms": 1500, "num_turns": 2,
+     "usage": {"input_tokens": 1200, "output_tokens": 30, "cache_read_input_tokens": 900},
+     "modelUsage": {"qwen-model-x": {"inputTokens": 2200, "outputTokens": 80, "cacheReadInputTokens": 1300, "cacheCreationInputTokens": 0, "webSearchRequests": 0, "contextWindow": 1000000}}}
+  ],
+  "resultOnlyRecord": {"type": "result", "subtype": "success", "session_id": "qwen-sess-1", "is_error": false, "duration_ms": 900, "usage": {"input_tokens": 500, "output_tokens": 20, "cache_read_input_tokens": 100}}
+}

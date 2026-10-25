@@ -1,0 +1,18 @@
+{
+  "items": [
+    { "leafId": "leaf-a", "assignment": "implement", "executionMode": "agent", "status": "completed", "report": "done", "createdAt": "2026-10-01T10:00:00.000Z" },
+    { "leafId": "leaf-a", "assignment": "review", "executionMode": "agent", "status": "completed", "report": "ok\nVERDICT: PASS", "createdAt": "2026-10-01T11:00:00.000Z" },
+
+    { "leafId": "leaf-b", "assignment": "implement", "executionMode": "agent", "status": "completed", "report": "done", "createdAt": "2026-10-01T10:00:00.000Z" },
+    { "leafId": "leaf-b", "assignment": "review", "executionMode": "agent", "status": "completed", "report": "bug\nVERDICT: FAIL", "createdAt": "2026-10-01T11:00:00.000Z" },
+    { "leafId": "leaf-b", "assignment": "implement", "executionMode": "agent", "status": "completed", "report": "fixed", "createdAt": "2026-10-01T12:00:00.000Z" },
+    { "leafId": "leaf-b", "assignment": "review", "executionMode": "agent", "status": "completed", "report": "ok\nVERDICT: PASS", "createdAt": "2026-10-01T13:00:00.000Z" },
+
+    { "leafId": "leaf-c", "assignment": "implement", "executionMode": "agent", "status": "completed", "report": "done", "createdAt": "2026-10-01T10:00:00.000Z" },
+    { "leafId": "leaf-c", "assignment": "review", "executionMode": "agent", "status": "completed", "report": "bug\nVERDICT: FAIL", "createdAt": "2026-10-01T11:00:00.000Z" },
+    { "leafId": "leaf-c", "assignment": "implement", "executionMode": "agent", "status": "completed", "report": "fixed", "createdAt": "2026-10-01T12:00:00.000Z" },
+    { "leafId": "leaf-c", "assignment": "review", "executionMode": "agent", "status": "completed", "report": "bug\nVERDICT: FAIL", "createdAt": "2026-10-01T13:00:00.000Z" },
+    { "leafId": "leaf-c", "assignment": "implement", "executionMode": "agent", "status": "completed", "report": "fixed", "createdAt": "2026-10-01T16:00:00.000Z" },
+    { "leafId": "leaf-c", "assignment": "review", "executionMode": "agent", "status": "completed", "report": "ok\nVERDICT: PASS", "createdAt": "2026-10-01T17:00:00.000Z" }
+  ]
+}

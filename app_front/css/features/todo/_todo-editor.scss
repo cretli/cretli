@@ -1,0 +1,494 @@
+/* TODO editor: compact state line, Overview cards, attention banners. */
+.todo-item-stateline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.todo-item-copy-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.todo-item-copy-menu {
+  position: absolute;
+  top: calc(100% + 0.2rem);
+  left: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 10rem;
+  padding: 0.25rem;
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 35%);
+}
+
+.todo-item-copy-menu .todo-item-copy {
+  justify-content: flex-start;
+  min-height: 2rem;
+}
+
+.todo-item-state-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 1.6rem;
+  padding: 0 0.45rem;
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  background: transparent;
+  color: var(--cr-text-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.todo-item-state-chip[data-tone='success'] {
+  color: var(--cr-success);
+  border-color: var(--cr-success);
+}
+
+.todo-item-state-chip[data-tone='accent'] {
+  color: var(--cr-accent);
+  border-color: var(--cr-accent);
+}
+
+.todo-item-state-chip[data-tone='error'] {
+  color: var(--cr-error);
+  border-color: var(--cr-error);
+}
+
+.todo-overview-card {
+  margin: 0;
+  padding: var(--cr-space-2) var(--cr-space-3);
+}
+
+.todo-overview-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.5rem;
+}
+
+.todo-overview-card-sub {
+  font-size: 0.75rem;
+  color: var(--cr-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.todo-overview-details {
+  flex: 1 1 100%;
+  font-size: 0.8rem;
+}
+
+.todo-overview-details summary {
+  cursor: pointer;
+  color: var(--cr-text-muted);
+}
+
+.todo-overview-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cr-space-2);
+  flex: 1 1 100%;
+}
+
+.todo-overview-card-actions:empty {
+  display: none;
+}
+
+/* Alerts that need a decision stay in the fixed header; keep them short. */
+.todo-attention {
+  flex: 0 0 auto;
+  margin: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+/* Phones: the editor is a full-height sheet, so the active panel gets the
+ * remaining height instead of a boxed dialog with a long header. */
+@media (max-width: 640px) {
+  .todo-editor-dialog {
+    --cr-dialog-max-width: 100vw !important;
+  }
+
+  .todo-editor-dialog .todo-item {
+    max-height: calc(100dvh - 5.5rem);
+    padding: 0.45rem;
+  }
+}
+
+.todo-attention {
+  font-size: 0.8rem;
+}
+
+.todo-attention strong {
+  font-size: 0.85rem;
+}
+
+.todo-plan-approval-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cr-space-2);
+  margin: var(--cr-space-2) 0;
+  padding: var(--cr-space-2) var(--cr-space-3);
+  border: 1px solid var(--cr-success, #22c55e);
+  border-radius: var(--cr-radius-sm);
+  background: color-mix(in srgb, var(--cr-success, #22c55e) 10%, transparent);
+
+  > div {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
+
+.todo-attention p {
+  margin: 0.15rem 0 0;
+  font-size: 0.78rem;
+  color: var(--cr-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.todo-recovery-alert.todo-attention {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cr-space-2);
+  padding: var(--cr-space-2) var(--cr-space-3);
+  border: 1px solid color-mix(in srgb, var(--cr-warn) 45%, transparent);
+  border-radius: var(--cr-radius-sm);
+  background: color-mix(in srgb, var(--cr-warn) 8%, var(--cr-surface));
+}
+
+.todo-overview-card-head strong {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.todo-overview-card p {
+  font-size: 0.78rem;
+}
+
+/* The panel already scrolls; a nested scroll box inside it traps swipes. */
+.todo-editor-dialog .todo-item-plan-body {
+  max-height: none;
+  overflow: visible;
+}
+
+@media (max-width: 640px) {
+  .todo-editor-dialog .todo-item-title::part(control) {
+    padding: 0.15rem 0.4rem;
+    font-size: 0.85rem;
+    line-height: 1.25;
+  }
+
+  /* Let the meta line wrap so the integration label is never cut off. */
+  .todo-row-meta {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+}
+
+/* The dialog already frames the editor: drop the card's own border, padding and
+ * background so the content is not boxed twice. */
+.todo-editor-dialog .todo-item {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.todo-editor-dialog .todo-editor-tabs {
+  margin: 0;
+}
+
+.todo-item-plan-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+
+/* TODO editor readability: a clear surface hierarchy (dialog -> section cards ->
+ * inset fields) and text that keeps >= 4.5:1 on the dark surfaces. */
+.todo-editor-dialog .todo-item {
+  gap: 0.65rem;
+  padding-top: var(--cr-space-2);
+  border-top: 1px solid var(--cr-border);
+}
+
+.todo-editor-dialog .todo-item-title::part(control),
+.todo-editor-dialog .todo-item-status-select::part(control),
+.todo-editor-dialog .todo-item-body-edit::part(control) {
+  background: var(--cr-surface-inset);
+  border-color: var(--cr-border-control);
+  color: var(--cr-text-strong);
+}
+
+.todo-editor-dialog .todo-item-idbadge,
+.todo-editor-dialog .todo-item-meta-line,
+.todo-editor-dialog .todo-overview-card-sub,
+.todo-editor-dialog .todo-overview-details summary,
+.todo-editor-dialog .todo-item-chat-sub,
+.todo-editor-dialog .cr-hint {
+  color: var(--cr-text-subtle);
+}
+
+.todo-editor-dialog .todo-overview-metarow {
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-2);
+}
+
+.todo-editor-dialog .todo-item-info {
+  color: var(--cr-text-subtle);
+  font-size: 1.1rem;
+  cursor: help;
+}
+
+.todo-editor-dialog .todo-overview-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+  padding: var(--cr-space-3);
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-surface-2);
+  color: var(--cr-text);
+}
+
+.todo-editor-dialog .todo-overview-card.todo-integration-alert {
+  border-color: var(--cr-info-border);
+  background: var(--cr-info-bg);
+}
+
+.todo-editor-dialog .todo-overview-card-head strong,
+.todo-editor-dialog .todo-integration-alert strong {
+  color: var(--cr-text-strong);
+}
+
+.todo-editor-dialog .todo-overview-state[data-tone='info'] {
+  color: var(--cr-info);
+}
+
+.todo-editor-dialog .todo-overview-state[data-tone='success'] {
+  color: var(--cr-success);
+}
+
+.todo-editor-dialog .todo-overview-card p,
+.todo-editor-dialog .todo-integration-alert p {
+  color: var(--cr-text);
+}
+
+.todo-editor-dialog .todo-editor-tabs {
+  gap: 0.15rem;
+  border-bottom: 1px solid var(--cr-border);
+}
+
+.todo-editor-dialog .todo-editor-tab {
+  color: var(--cr-text-subtle);
+}
+
+.todo-editor-dialog .todo-editor-tab[aria-selected='true'] {
+  color: var(--cr-text-strong);
+  font-weight: 600;
+  background: var(--cr-surface-translucent-hover);
+}
+
+.todo-editor-dialog .todo-overview-card,
+.todo-editor-dialog .todo-overview-card.todo-integration-alert {
+  align-items: stretch;
+  text-align: left;
+}
+
+.todo-editor-dialog .todo-overview-card-actions {
+  justify-content: flex-start;
+}
+
+.todo-editor-dialog .todo-overview-metarow {
+  align-items: flex-start;
+}
+
+.todo-editor-dialog .todo-overview-metarow .todo-item-meta-line {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Wrapped meta chips: spacing instead of "·" separators, which would otherwise
+ * start a wrapped line. */
+.todo-editor-dialog .todo-item-meta-line {
+  gap: 0.2rem 0.9rem;
+}
+
+.todo-editor-dialog .todo-item-meta-line > * + *::before {
+  content: none;
+}
+
+/* Edge-to-edge tab bar: the item bleeds into the dialog padding and gives it
+ * back as inline padding, so only the tabs (and the header rule) touch the
+ * window edges while the rest of the content keeps its gutter. */
+.todo-editor-dialog .todo-item {
+  margin-inline: calc(-1 * var(--cr-overlay-panel-padding, 1rem));
+  padding-inline: var(--cr-overlay-panel-padding, 1rem);
+}
+
+.todo-editor-dialog .todo-editor-tabs {
+  margin-inline: calc(-1 * var(--cr-overlay-panel-padding, 1rem));
+  padding-inline: var(--cr-overlay-panel-padding, 1rem);
+  scroll-padding-inline: var(--cr-overlay-panel-padding, 1rem);
+}
+
+/* State line: every control shares one height, radius and baseline. */
+.todo-item-stateline {
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.todo-item-stateline .todo-item-copy,
+.todo-item-stateline .todo-item-state-chip,
+.todo-item-stateline .todo-item-git-chip {
+  box-sizing: border-box;
+  min-height: 2rem;
+  padding: 0 0.55rem;
+  border: 1px solid var(--cr-border-control);
+  border-radius: var(--cr-radius-sm);
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.todo-item-stateline .todo-item-copy-toggle {
+  min-width: 2rem;
+  justify-content: center;
+}
+
+.todo-item-stateline .todo-item-state-chip[data-tone='success'] {
+  border-color: var(--cr-success);
+}
+
+.todo-item-stateline .todo-item-state-chip[data-tone='accent'] {
+  border-color: var(--cr-accent);
+}
+
+.todo-item-stateline .todo-item-idbadge {
+  margin-right: 0.15rem;
+}
+
+/* Chats tab actions: the two buttons and the harness picker share one height. */
+.todo-item-actions.todo-item-chat-actions {
+  align-items: stretch;
+}
+
+.todo-item-chat-actions .todo-item-newchat-harness {
+  align-self: stretch;
+}
+
+.todo-item-chat-actions cr-bar-button::part(control),
+.todo-item-chat-actions cr-bar-select::part(control) {
+  box-sizing: border-box;
+  min-height: 2.5rem;
+  height: 100%;
+}
+
+/* With many chats the actions would sit far below the fold; keep them reachable. */
+.todo-item-tabpanel--chats .todo-item-chat-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  padding: 0.5rem 0;
+  background: var(--cr-overlay-panel-bg, var(--cr-surface));
+}
+
+/* Task list loading state: spinning refresh button and placeholder rows. */
+@keyframes todo-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes todo-skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.todo-refresh--loading .mdi {
+  animation: todo-loading-spin 0.9s linear infinite;
+}
+
+.todo-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.todo-skeleton-row {
+  min-height: 2.9rem;
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  padding: 0.65rem 0.75rem;
+  background: var(--cr-surface-translucent);
+}
+
+.todo-skeleton-row span {
+  display: block;
+  width: var(--todo-skeleton-width, 80%);
+  height: 0.8rem;
+  border-radius: var(--cr-radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--cr-surface-2) 25%,
+    var(--cr-surface-raised) 50%,
+    var(--cr-surface-2) 75%
+  );
+  background-size: 300% 100%;
+  animation: todo-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .todo-refresh--loading .mdi,
+  .todo-skeleton-row span {
+    animation: none;
+  }
+}
+
+/* Save feedback inside the editor modal. */
+.todo-save-state {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--cr-text-subtle);
+}
+
+.todo-save-state[data-state='saved'] {
+  color: var(--cr-success);
+}
+
+.todo-save-state[data-state='error'] {
+  color: var(--cr-error);
+}
+
+.todo-save-state[hidden] {
+  display: none;
+}
+
+/* Long lists: let the browser skip layout and paint for rows far outside the
+ * viewport (cheap alternative to JS virtualization; rows stay in the DOM, so
+ * drag targets, find-in-page and focus keep working). The intrinsic size keeps
+ * the scrollbar stable until a row is first rendered. */
+.todo-rows > .todo-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 3.4rem;
+}

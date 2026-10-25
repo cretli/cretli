@@ -1,0 +1,473 @@
+import { normalizeSdkRunStatus } from '../../../lib/sdk/sdk-run-outcome.ts';
+
+/**
+ * Harness chat status badge (SDK / OpenCode / OpenRouter).
+ * Uses protocol signals only — not PTY buffer heuristics.
+ *
+ * Priority table applied by `resolveHarnessChatStateMeta` (highest first):
+ *   1. pending question / permission          -> awaiting (needs action)
+ *   2. server run state waiting / attention   -> awaiting / attention
+ *   3. server run state busy                  -> active (tool label when the
+ *      server sent an activity key, generic label otherwise)
+ *   4. local agent active with a queued count -> active (queue label)
+ *   5. local agent active (fallback)          -> active (generic label)
+ *   6. connecting / reconnecting              -> connecting (mode bar) or idle
+ *      during the sidebar grace window
+ *   7. idle / disconnected                    -> ready (idle) or disconnected
+ * Work reported by the server always outranks a transient connection state, so a
+ * WebSocket reconnect never masks an agent that is still running.
+ *
+ * `surface: 'sidebar'` is the sidebar-row variant: no `syncing` overlay, a
+ * background chat without a socket shows idle instead of disconnected, and
+ * `connecting` appears only after `SIDEBAR_CONNECTING_GRACE_MS` of continuous
+ * connecting. The active chat mode bar keeps using the default `'bar'` surface.
+ */
+
+/** @typedef {{ tone: string, label: string }} ChatStatusMeta */
+
+/** Sidebar rows hide a short-lived `connecting` blink until this grace elapses. */
+export const SIDEBAR_CONNECTING_GRACE_MS = 1500;
+
+// English mirrors the default locale; callers that pass a `translate` function
+// (the app) never reach these, so they only cover direct/test usage.
+const FALLBACK_LABELS = {
+  'status.connecting': 'Connecting…',
+  'status.disconnected': 'Disconnected',
+  'status.agentWorking': 'Agent working',
+  'status.agentWorkingQueued': 'Agent working · queue: {count}',
+  'status.needsAction': 'Needs action',
+  'status.ready': 'Ready',
+  'chat.historySyncing': 'Syncing messages…',
+  'chat.delegationStatus.completed': 'Completed',
+  'chat.delegationStatus.failed': 'Failed',
+  'chat.delegationStatus.interrupted': 'Interrupted',
+  'chat.delegationStatus.interrupted_restart': 'Interrupted after restart',
+  'chat.delegationStatus.resuming': 'Resuming',
+  'chat.delegationStatus.waiting': 'Waiting',
+  'chat.delegationStatus.unknown': 'Unknown',
+  'chat.runFailed': 'Run failed',
+  'status.finishedUnread': 'Finished — not read yet',
+  'status.finishedRead': 'Finished — read',
+  'chat.delegationWaitingForAgents': 'Waiting for {n} agents',
+  'chat.presenceActivity.read': 'Read {arg}',
+  'chat.presenceActivity.grep': 'Grep {arg}',
+  'chat.presenceActivity.search': 'Search {arg}',
+  'chat.presenceActivity.bash': 'Bash',
+  'chat.presenceActivity.write': 'Write {arg}',
+  'chat.presenceActivity.edit': 'Edit {arg}',
+  'chat.presenceActivity.thinking': 'Thinking',
+};
+
+/**
+ * @param {string} key
+ * @param {Record<string, string|number>|null} [vars]
+ * @returns {string}
+ */
+function translateFallback(key, vars = null) {
+  let label = FALLBACK_LABELS[key] || key;
+  if (!vars) return label;
+  for (const [name, value] of Object.entries(vars)) {
+    label = label.split(`{${name}}`).join(String(value));
+  }
+  return label;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number}
+ */
+function readQueuedCount(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  return Math.round(numeric);
+}
+
+/**
+ * @param {object|null|undefined} chat
+ * @returns {{ hasPendingQuestion: boolean, hasPendingPermission: boolean }}
+ */
+export function readHarnessPendingFlags(chat) {
+  const hasPendingQuestion =
+    chat?._opencodePendingQuestion != null
+    || Number(chat?._sdkServerPendingQuestionCount || 0) > 0;
+  const hasPendingPermission =
+    chat?._opencodePendingPermission != null
+    || Number(chat?._sdkServerPendingPermissionCount || 0) > 0;
+  return { hasPendingQuestion, hasPendingPermission };
+}
+
+/**
+ * True when the harness still has live work, even if the local socket is down.
+ *
+ * @param {object|null|undefined} chat
+ * @returns {boolean}
+ */
+/**
+ * Protocol busy/queued signals — excludes local `_agentState`, which is itself
+ * driven by the idle timer.
+ *
+ * @param {object|null|undefined} chat
+ * @returns {boolean}
+ */
+export function hasProtocolAgentRun(chat) {
+  if (!chat) return false;
+  if (chat._sdkServerBusy === true) return true;
+  if (chat._serverRunState?.state === 'busy') return true;
+  if (readQueuedCount(chat._sdkServerQueuedCount) > 0) return true;
+  return readQueuedCount(chat._sdkRichView?.queuedCount) > 0;
+}
+
+/** Parent presence while child delegations are in flight (excludes waiting_for_input). */
+const IN_FLIGHT_CHILD_DELEGATION_STATUSES = new Set([
+  'queued',
+  'starting',
+  'running',
+  'cancelling',
+]);
+
+/**
+ * Server run row rewritten to `waiting` while child jobs still run (see
+ * `summarizeChatRunStates`). Distinct from a stale `waiting` row that only
+ * means the harness needs user input.
+ *
+ * @param {object | null | undefined} serverRunState
+ * @returns {boolean}
+ */
+export function hasServerRunInFlightChildWork(serverRunState) {
+  if (!serverRunState || typeof serverRunState !== 'object') return false;
+  const inFlightChildCount = serverRunState.inFlightChildCount;
+  if (inFlightChildCount !== undefined && inFlightChildCount !== null) {
+    const parsed = Number(inFlightChildCount);
+    if (Number.isFinite(parsed) && parsed > 0) return true;
+  }
+  const status = String(serverRunState.delegationStatus || '').trim().toLowerCase();
+  return IN_FLIGHT_CHILD_DELEGATION_STATUSES.has(status);
+}
+
+/**
+ * Keep the idle timer from flipping to idle while the harness still has work.
+ * Must not use `_agentState === 'active'` or the timer never settles.
+ *
+ * @param {object|null|undefined} chat
+ * @returns {boolean}
+ */
+export function hasKeepAliveHarnessWork(chat) {
+  if (!chat) return false;
+  if (hasProtocolAgentRun(chat)) return true;
+  const pending = readHarnessPendingFlags(chat);
+  if (pending.hasPendingQuestion || pending.hasPendingPermission) return true;
+  return chat._serverRunState?.state === 'waiting';
+}
+
+/**
+ * True when the harness still has live work, even if the local socket is down.
+ *
+ * @param {object|null|undefined} chat
+ * @returns {boolean}
+ */
+export function hasLiveHarnessWork(chat) {
+  if (!chat) return false;
+  if (hasActiveAgentRun(chat)) return true;
+  const pending = readHarnessPendingFlags(chat);
+  if (pending.hasPendingQuestion || pending.hasPendingPermission) return true;
+  return chat._serverRunState?.state === 'waiting';
+}
+
+/**
+ * True when the agent is in an active run (busy or queued), not waiting on the user.
+ *
+ * @param {object|null|undefined} chat
+ * @returns {boolean}
+ */
+export function hasActiveAgentRun(chat) {
+  if (!chat) return false;
+  if (chat._agentState === 'active') return true;
+  return hasProtocolAgentRun(chat);
+}
+
+/**
+ * Archive-safe "a run is actually in flight" check (contract completed in 3.1).
+ *
+ * `hasActiveAgentRun` is `_agentState === 'active' || hasProtocolAgentRun(chat)`.
+ * The client-only `_agentState` leg starts on real harness output, but
+ * `scheduleAgentIdleTransition` keeps it alive for as long as
+ * `hasKeepAliveHarnessWork` is true, and that helper includes a pending
+ * question/permission and `_serverRunState.state === 'waiting'`. On top of that
+ * the global agent-states feed reports `attention` for *finished, unacknowledged*
+ * delegations. So `hasActiveAgentRun` alone cannot tell "running now" from
+ * "non-idle because a waiting/attention row is pending", which is exactly the
+ * ambiguity the archived-monitoring gate must not inherit.
+ *
+ * This predicate keeps the protocol busy/queued run and the local `_agentState`
+ * fallback, but lets an explicit non-run presence (stale waiting / attention /
+ * pending question / pending permission) veto the local flag. A server-confirmed
+ * run (`hasProtocolAgentRun`) always wins. A parent `waiting` row driven by
+ * in-flight child delegations (`inFlightChildCount` or an in-flight
+ * `delegationStatus`, never `waiting_for_input` alone) counts as a run even when
+ * the parent's own run state was folded to `waiting`.
+ *
+ * @param {object|null|undefined} chat
+ * @returns {boolean}
+ */
+export function hasConfirmedAgentRun(chat) {
+  if (!chat) return false;
+  if (hasProtocolAgentRun(chat)) return true;
+  if (hasServerRunInFlightChildWork(chat._serverRunState)) return true;
+  if (!hasActiveAgentRun(chat)) return false;
+  const state = chat._serverRunState?.state;
+  if (state === 'waiting' || state === 'attention') return false;
+  const pending = readHarnessPendingFlags(chat);
+  if (pending.hasPendingQuestion || pending.hasPendingPermission) return false;
+  return true;
+}
+
+/**
+ * History replay may omit FINISHED. Close leftover running tiles unless the
+ * protocol still reports a live run.
+ *
+ * @param {object|null|undefined} chat
+ * @returns {boolean}
+ */
+export function shouldCloseLiveTurnAfterHistoryReplay(chat) {
+  return !hasProtocolAgentRun(chat);
+}
+
+/**
+ * History catch-up on the mode bar. Overrides stale generating/connecting.
+ *
+ * @param {boolean} isInFlight
+ * @param {(key: string, vars?: Record<string, string|number>|null) => string} [translate]
+ * @returns {ChatStatusMeta | null}
+ */
+export function overlayHistorySyncingMeta(isInFlight, translate) {
+  if (isInFlight !== true) return null;
+  const tFn = typeof translate === 'function' ? translate : translateFallback;
+  return {
+    tone: 'syncing',
+    labelKey: 'chat.historySyncing',
+    label: tFn('chat.historySyncing'),
+  };
+}
+
+/**
+ * Mode-bar label: history catch-up wins over generating/connecting.
+ *
+ * @param {boolean} isInFlight
+ * @param {ChatStatusMeta | null | undefined} fallbackMeta
+ * @param {(key: string, vars?: Record<string, string|number>|null) => string} [translate]
+ * @returns {ChatStatusMeta | null}
+ */
+export function resolveChatStatusWithHistorySync(isInFlight, fallbackMeta, translate) {
+  const overlay = overlayHistorySyncingMeta(isInFlight, translate);
+  if (overlay) return overlay;
+  return fallbackMeta || null;
+}
+
+/**
+ * @param {string} tone
+ * @returns {'disconnected' | 'idle' | 'awaiting' | 'waiting' | 'active'}
+ */
+export function resolveChatListDotState(tone) {
+  if (tone === 'disconnected') return 'disconnected';
+  if (tone === 'idle' || tone === 'finished' || tone === 'seen') return 'idle';
+  if (
+    tone === 'awaiting'
+    || tone === 'waiting'
+    || tone === 'attention'
+    || tone === 'approval'
+    || tone === 'question'
+    || tone === 'textarea'
+    || tone === 'choice'
+  ) {
+    return 'awaiting';
+  }
+  return 'active';
+}
+
+/**
+ * @param {object} input
+ * @param {(key: string, vars?: Record<string, string|number>|null) => string} translate
+ * @returns {ChatStatusMeta | null}
+ */
+function resolveLiveHarnessStateMeta(input, translate) {
+  if (input.hasPendingQuestion === true || input.hasPendingPermission === true) {
+    return { tone: 'awaiting', label: translate('status.needsAction') };
+  }
+  if (String(input.agent || 'idle') !== 'active') return null;
+  const queuedCount = readQueuedCount(input.queuedCount);
+  if (queuedCount > 0) {
+    return { tone: 'active', label: translate('status.agentWorkingQueued', { count: queuedCount }) };
+  }
+  return { tone: 'active', label: translate('status.agentWorking') };
+}
+
+/**
+ * @param {object | null | undefined} serverRunState
+ * @param {(key: string, vars?: Record<string, string|number>|null) => string} translate
+ * @returns {ChatStatusMeta | null}
+ */
+function resolveServerRunStateMeta(serverRunState, translate) {
+  if (!serverRunState || typeof serverRunState !== 'object') return null;
+  const state = String(serverRunState.state || '');
+  const recoveryStatus = String(serverRunState.recoveryStatus || '').trim();
+  if (state === 'waiting') {
+    if (recoveryStatus === 'waiting') {
+      return { tone: 'awaiting', label: translate('chat.delegationStatus.waiting'), status: 'waiting' };
+    }
+    if (recoveryStatus === 'interrupted' || recoveryStatus === 'interrupted_restart' || recoveryStatus === 'unknown') {
+      // Recovery needing the user outranks the generic waiting-for-agents label.
+      const key = `chat.delegationStatus.${recoveryStatus}`;
+      const label = translate(key);
+      return { tone: 'attention', label: label === key ? recoveryStatus : label, status: recoveryStatus };
+    }
+    const waitingCount = Number(serverRunState.waitingAgentCount) || 0;
+    if (waitingCount > 0) {
+      return { tone: 'waiting', label: translate('chat.delegationWaitingForAgents', { n: String(waitingCount) }) };
+    }
+    return { tone: 'awaiting', label: translate('status.needsAction') };
+  }
+  if (state === 'busy') {
+    if (recoveryStatus === 'resuming') {
+      return { tone: 'active', label: translate('chat.delegationStatus.resuming'), status: 'resuming' };
+    }
+    const activityKey = typeof serverRunState.activityKey === 'string'
+      ? serverRunState.activityKey.trim()
+      : '';
+    if (activityKey) {
+      const arg = typeof serverRunState.activityArg === 'string' ? serverRunState.activityArg : '';
+      const key = `chat.presenceActivity.${activityKey}`;
+      let label = translate(key, { arg });
+      if (!arg) label = label.replace(/\s*\{arg\}\s*/g, '').trim();
+      return {
+        tone: 'active',
+        label: label === key ? activityKey : label,
+        activityKey,
+      };
+    }
+    return { tone: 'active', label: translate('status.agentWorking') };
+  }
+  if (state === 'attention') {
+    const rawStatus = String(
+      recoveryStatus || serverRunState.delegationStatus || 'completed',
+    );
+    const status = !recoveryStatus
+      && rawStatus === 'interrupted'
+      && serverRunState.interruptCode === 'server_restart'
+      ? 'interrupted_restart'
+      : rawStatus;
+    const key = `chat.delegationStatus.${status}`;
+    const label = translate(key);
+    return { tone: 'attention', label: label === key ? status : label, status };
+  }
+  return null;
+}
+
+/**
+ * @param {object} [input]
+ * @param {string} [input.connection]
+ * @param {string} [input.agent]
+ * @param {boolean} [input.hasPendingQuestion]
+ * @param {boolean} [input.hasPendingPermission]
+ * @param {number} [input.queuedCount]
+ * @param {object | null} [input.serverRunState]
+ * @param {'bar' | 'sidebar'} [input.surface] Sidebar-row variant (default 'bar').
+ * @param {number} [input.connectingForMs] Sidebar: continuous connecting time.
+ * @param {boolean} [input.socketExpected] Sidebar: false when the background
+ *   policy deliberately keeps this chat without a socket, so a missing socket is
+ *   normal idle rather than a connection error.
+ * @param {(key: string, vars?: Record<string, string|number>|null) => string} [input.translate]
+ * @returns {ChatStatusMeta}
+ */
+export function resolveHarnessChatStateMeta(input = {}) {
+  const translate = typeof input.translate === 'function' ? input.translate : translateFallback;
+  const surface = input.surface === 'sidebar' ? 'sidebar' : 'bar';
+  const connection = String(input.connection || 'disconnected');
+
+  // 1. Pending question / permission outranks every other signal.
+  const pending = input.hasPendingQuestion === true || input.hasPendingPermission === true;
+  if (pending) {
+    return { tone: 'awaiting', label: translate('status.needsAction') };
+  }
+
+  // 2./3. Server run state: waiting / attention, then busy (with or without tool label).
+  const serverMeta = resolveServerRunStateMeta(input.serverRunState, translate);
+  const serverState = String(input.serverRunState?.state || '');
+  if (serverMeta && (serverState === 'waiting' || serverState === 'attention')) {
+    const staleArchivedSidebar =
+      surface === 'sidebar'
+      && input.socketExpected === false
+      && !hasServerRunInFlightChildWork(input.serverRunState)
+      // A persisted recovery row (interrupted / unknown / waiting / resuming)
+      // is never stale archive noise: keep it visible on background chats.
+      && !String(input.serverRunState?.recoveryStatus || '').trim();
+    if (!staleArchivedSidebar) return serverMeta;
+  } else if (serverMeta) {
+    return serverMeta;
+  }
+
+  if (normalizeSdkRunStatus(input.lastRunStatus) === 'error') {
+    return {
+      tone: 'attention',
+      label: translate('chat.runFailed'),
+      status: 'failed',
+    };
+  }
+
+  // 4. Local queue count only when the server is not reporting busy work.
+  const queuedCount = readQueuedCount(input.queuedCount);
+  if (queuedCount > 0 && String(input.agent || 'idle') === 'active') {
+    return { tone: 'active', label: translate('status.agentWorkingQueued', { count: queuedCount }) };
+  }
+
+  // 5. Local agent run fallback.
+  const liveMeta = resolveLiveHarnessStateMeta(input, translate);
+  if (liveMeta) return liveMeta;
+
+  // 6. Connection fallback — reached only when no work signal exists.
+  if (connection === 'connecting' || connection === 'reconnecting') {
+    if (surface === 'sidebar') {
+      const connectingForMs = Number(input.connectingForMs) || 0;
+      if (connectingForMs < SIDEBAR_CONNECTING_GRACE_MS) {
+        return { tone: 'idle', label: translate('status.ready') };
+      }
+    }
+    return { tone: 'connecting', label: translate('status.connecting') };
+  }
+  if (connection === 'disconnected') {
+    if (surface === 'sidebar' && input.socketExpected === false) {
+      return { tone: 'idle', label: translate('status.ready') };
+    }
+    return { tone: 'disconnected', label: translate('status.disconnected') };
+  }
+  const agent = String(input.agent || 'idle');
+  if (agent === 'disconnected') {
+    return { tone: 'disconnected', label: translate('status.disconnected') };
+  }
+  return { tone: 'idle', label: translate('status.ready') };
+}
+
+/** How long a read "finished" check stays on a row before it settles to plain idle. */
+export const FINISHED_READ_VISIBLE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Finished-run marker for an otherwise idle row: green check until the chat is opened,
+ * grey check for {@link FINISHED_READ_VISIBLE_MS} afterwards. Returns null when the row
+ * has no finished run to show.
+ *
+ * @param {{ lastFinishedAt?: string, lastSeenAt?: string, archivedAt?: string } | null | undefined} chat
+ * @param {{ now?: number, translate?: (key: string) => string }} [options]
+ * @returns {ChatStatusMeta | null}
+ */
+export function resolveFinishedReadMeta(chat, options = {}) {
+  if (!chat || chat.archivedAt) return null;
+  const finishedAt = Date.parse(String(chat.lastFinishedAt || ''));
+  if (!Number.isFinite(finishedAt)) return null;
+  const translate = typeof options.translate === 'function' ? options.translate : translateFallback;
+  const seenAt = Date.parse(String(chat.lastSeenAt || ''));
+  if (!Number.isFinite(seenAt) || seenAt < finishedAt) {
+    return { tone: 'finished', label: translate('status.finishedUnread') };
+  }
+  const now = Number.isFinite(options.now) ? options.now : Date.now();
+  if (now - finishedAt > FINISHED_READ_VISIBLE_MS) return null;
+  return { tone: 'seen', label: translate('status.finishedRead') };
+}

@@ -1,0 +1,159 @@
+import { signal } from '@lit-labs/signals';
+import { subscribe } from '../../state/index.js';
+import { normalizeAgentTransport } from '../../../lib/agent-transport.js';
+import {
+  readLocalStorageSafe,
+  writeLocalStorageSafe,
+} from './chatLocalStorage.js';
+
+export const CHAT_PRESETS_STORAGE_KEY = 'cretli-chat-favorite-presets';
+
+/**
+ * @typedef {{ harness: string, model: string }} ChatPreset
+ */
+
+/**
+ * @param {unknown} value
+ * @returns {string}
+ */
+function normalizeModel(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim();
+}
+
+/**
+ * @param {unknown} value
+ * @returns {ChatPreset|null}
+ */
+export function normalizeChatPreset(value) {
+  if (!value || typeof value !== 'object') return null;
+  const model = normalizeModel(value.model);
+  if (!model) return null;
+  const harness = normalizeAgentTransport(value.harness);
+  return {
+    harness,
+    model,
+  };
+}
+
+/**
+ * @param {ChatPreset} preset
+ * @returns {string}
+ */
+export function chatPresetKey(preset) {
+  const normalized = normalizeChatPreset(preset);
+  if (!normalized) return '';
+  return `${normalized.harness}\u0000${normalized.model}`;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {ChatPreset[]}
+ */
+function normalizePresetList(value) {
+  const rows = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object' && Array.isArray(value.items)
+      ? value.items
+      : [];
+  const seen = new Set();
+  const result = [];
+  for (const row of rows) {
+    const preset = normalizeChatPreset(row);
+    const key = preset ? chatPresetKey(preset) : '';
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(preset);
+  }
+  return result;
+}
+
+/**
+ * @param {string} [storageKey]
+ */
+export function createChatPresetsStore(storageKey = CHAT_PRESETS_STORAGE_KEY) {
+  const presets = signal(/** @type {ChatPreset[] | null} */ (null));
+
+  function ensureLoaded() {
+    if (presets.get()) return;
+    let parsed = [];
+    try {
+      const raw = readLocalStorageSafe(storageKey, '');
+      if (raw) parsed = JSON.parse(raw);
+    } catch (_) {
+      parsed = [];
+    }
+    presets.set(normalizePresetList(parsed));
+    const migratedJson = JSON.stringify(presets.get());
+    let storedJson = '';
+    try {
+      storedJson = readLocalStorageSafe(storageKey, '');
+    } catch (_) {
+      storedJson = '';
+    }
+    if (storedJson && migratedJson !== storedJson) {
+      writeLocalStorageSafe(storageKey, migratedJson, 'chatPresets');
+    }
+  }
+
+  function getPresets() {
+    ensureLoaded();
+    return presets.get().map((preset) => ({ ...preset }));
+  }
+
+  function commit(next) {
+    presets.set(normalizePresetList(next));
+    writeLocalStorageSafe(storageKey, JSON.stringify(presets.get()), 'chatPresets');
+  }
+
+  /** @param {unknown} value */
+  function isFavorite(value) {
+    const preset = normalizeChatPreset(value);
+    if (!preset) return false;
+    return getPresets().some((row) => chatPresetKey(row) === chatPresetKey(preset));
+  }
+
+  /**
+   * @param {unknown} value
+   * @returns {boolean} Whether the preset is favorite after the change.
+   */
+  function toggleFavorite(value) {
+    const preset = normalizeChatPreset(value);
+    if (!preset) return false;
+    const key = chatPresetKey(preset);
+    const current = getPresets();
+    const index = current.findIndex((row) => chatPresetKey(row) === key);
+    if (index >= 0) {
+      current.splice(index, 1);
+      commit(current);
+      return false;
+    }
+    commit([...current, preset]);
+    return true;
+  }
+
+  /** @param {unknown} value */
+  function removeFavorite(value) {
+    const preset = normalizeChatPreset(value);
+    if (!preset) return false;
+    const key = chatPresetKey(preset);
+    const current = getPresets();
+    const next = current.filter((row) => chatPresetKey(row) !== key);
+    if (next.length === current.length) return false;
+    commit(next);
+    return true;
+  }
+
+  return {
+    onChange(listener) {
+      ensureLoaded();
+      return subscribe(presets, listener);
+    },
+    getPresets,
+    isFavorite,
+    toggleFavorite,
+    removeFavorite,
+  };
+}
+
+export const chatPresetsStore = createChatPresetsStore();

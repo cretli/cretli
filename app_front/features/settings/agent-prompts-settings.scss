@@ -1,0 +1,34 @@
+/* Settings -> Delegations -> Prompts. Layout only; colors come from tokens. */
+
+.cr-prompts-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+  margin-bottom: var(--cr-space-2);
+}
+
+.cr-prompts-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cr-space-2);
+}
+
+.cr-prompts-text {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--cr-font-mono);
+  resize: vertical;
+}
+
+.cr-prompts-preview {
+  margin-bottom: var(--cr-space-2);
+}
+
+.cr-prompts-pre {
+  max-height: 24rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--cr-font-mono);
+  font-size: var(--cr-font-size-xs);
+}

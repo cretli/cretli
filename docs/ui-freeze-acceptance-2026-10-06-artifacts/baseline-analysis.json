@@ -1,0 +1,1483 @@
+{
+ "path": "/tmp/tracew/Trace-20261006T151320.json/Trace-20261006T151320.json",
+ "main_pid": 44408,
+ "main_tid": 66256,
+ "main_thread_name": "CrRendererMain",
+ "thread_pool": "named=1 total_threads=19",
+ "base_ts": 278172339770,
+ "duration_s": 35.791,
+ "long_tasks": 114,
+ "long_tasks_ms": 25065.204,
+ "long_tasks_blocking_ms": 19365.204,
+ "longest_task_ms": 3361.514,
+ "event_durations": [
+  [
+   "RunTask",
+   13736,
+   29587.543
+  ],
+  [
+   "v8.callFunction",
+   7164,
+   14239.792
+  ],
+  [
+   "v8::Debugger::AsyncTaskRun",
+   2323,
+   13514.47
+  ],
+  [
+   "RunMicrotasks",
+   450,
+   13470.971
+  ],
+  [
+   "PageAnimator::serviceScriptedAnimations",
+   324,
+   13338.503
+  ],
+  [
+   "FireAnimationFrame",
+   1825,
+   13195.41
+  ],
+  [
+   "UpdateLayoutTree",
+   2214,
+   10658.0
+  ],
+  [
+   "Commit",
+   322,
+   7346.882
+  ],
+  [
+   "Layout",
+   793,
+   3117.632
+  ],
+  [
+   "LocalFrameView::performLayout",
+   793,
+   2445.242
+  ],
+  [
+   "PrePaint",
+   664,
+   2247.012
+  ],
+  [
+   "WidgetBaseInputHandler::OnHandleInputEvent",
+   72,
+   1975.473
+  ],
+  [
+   "WebFrameWidgetImpl::HandleInputEvent",
+   72,
+   1973.756
+  ],
+  [
+   "FunctionCall",
+   8755,
+   1118.276
+  ],
+  [
+   "Paint",
+   809,
+   425.619
+  ],
+  [
+   "ParseHTML",
+   4824,
+   286.071
+  ],
+  [
+   "EventDispatch",
+   2945,
+   245.165
+  ],
+  [
+   "V8.StackGuard",
+   694,
+   185.748
+  ],
+  [
+   "V8.HandleInterrupts",
+   694,
+   185.249
+  ],
+  [
+   "TimerFire",
+   153,
+   166.184
+  ],
+  [
+   "CppGC.IncrementalSweep",
+   5998,
+   153.023
+  ],
+  [
+   "EvaluateScript",
+   8,
+   151.67
+  ],
+  [
+   "V8.InvokeApiInterruptCallbacks",
+   1,
+   131.851
+  ],
+  [
+   "CpuProfiler::StartProfiling",
+   1,
+   130.943
+  ],
+  [
+   "Layerize",
+   322,
+   112.9
+  ],
+  [
+   "CppGC.MarkTransitiveClosureWithDeadline",
+   1495,
+   74.335
+  ],
+  [
+   "CppGC.IncrementalMark",
+   1469,
+   69.671
+  ],
+  [
+   "CppGC.MarkTransitiveClosure",
+   1324,
+   68.753
+  ],
+  [
+   "v8.callAsConstructor",
+   1659,
+   66.68
+  ],
+  [
+   "CppGC.SweepInTask",
+   15,
+   64.996
+  ]
+ ],
+ "long_task_timeline": [
+  [
+   0.012,
+   134.9
+  ],
+  [
+   3.646,
+   61.5
+  ],
+  [
+   3.714,
+   66.6
+  ],
+  [
+   6.723,
+   55.5
+  ],
+  [
+   6.942,
+   70.1
+  ],
+  [
+   7.193,
+   80.4
+  ],
+  [
+   7.474,
+   93.7
+  ],
+  [
+   7.732,
+   93.5
+  ],
+  [
+   8.012,
+   117.3
+  ],
+  [
+   8.328,
+   116.3
+  ],
+  [
+   9.71,
+   67.9
+  ],
+  [
+   9.868,
+   54.8
+  ],
+  [
+   9.992,
+   76.2
+  ],
+  [
+   10.089,
+   50.2
+  ],
+  [
+   10.155,
+   52.9
+  ],
+  [
+   10.277,
+   57.6
+  ],
+  [
+   10.346,
+   51.7
+  ],
+  [
+   10.415,
+   50.6
+  ],
+  [
+   10.534,
+   75.0
+  ],
+  [
+   10.621,
+   53.8
+  ],
+  [
+   10.692,
+   55.3
+  ],
+  [
+   10.808,
+   68.0
+  ],
+  [
+   11.096,
+   72.1
+  ],
+  [
+   11.346,
+   75.8
+  ],
+  [
+   11.612,
+   67.1
+  ],
+  [
+   11.681,
+   56.2
+  ],
+  [
+   11.863,
+   86.2
+  ],
+  [
+   11.956,
+   60.3
+  ],
+  [
+   12.024,
+   59.1
+  ],
+  [
+   12.086,
+   57.9
+  ],
+  [
+   12.148,
+   78.8
+  ],
+  [
+   12.227,
+   64.6
+  ],
+  [
+   12.297,
+   62.0
+  ],
+  [
+   12.362,
+   60.6
+  ],
+  [
+   12.424,
+   92.2
+  ],
+  [
+   12.517,
+   68.2
+  ],
+  [
+   12.592,
+   59.8
+  ],
+  [
+   12.652,
+   56.9
+  ],
+  [
+   12.71,
+   85.0
+  ],
+  [
+   12.799,
+   66.1
+  ],
+  [
+   12.866,
+   60.6
+  ],
+  [
+   12.928,
+   66.4
+  ],
+  [
+   12.995,
+   101.4
+  ],
+  [
+   13.104,
+   584.7
+  ],
+  [
+   13.689,
+   221.1
+  ],
+  [
+   13.91,
+   108.5
+  ],
+  [
+   14.05,
+   1486.3
+  ],
+  [
+   15.541,
+   167.2
+  ],
+  [
+   15.718,
+   113.8
+  ],
+  [
+   15.837,
+   133.0
+  ],
+  [
+   15.978,
+   182.0
+  ],
+  [
+   16.177,
+   144.3
+  ],
+  [
+   16.321,
+   175.3
+  ],
+  [
+   16.497,
+   129.8
+  ],
+  [
+   16.628,
+   122.5
+  ],
+  [
+   16.755,
+   128.2
+  ],
+  [
+   16.883,
+   321.9
+  ],
+  [
+   17.205,
+   135.0
+  ],
+  [
+   17.348,
+   1424.2
+  ],
+  [
+   18.781,
+   144.7
+  ],
+  [
+   18.944,
+   155.9
+  ],
+  [
+   19.1,
+   181.8
+  ],
+  [
+   19.283,
+   148.2
+  ],
+  [
+   19.437,
+   132.7
+  ],
+  [
+   19.57,
+   171.2
+  ],
+  [
+   19.742,
+   131.9
+  ],
+  [
+   19.875,
+   146.7
+  ],
+  [
+   20.039,
+   195.9
+  ],
+  [
+   20.235,
+   1217.5
+  ],
+  [
+   21.453,
+   672.8
+  ],
+  [
+   22.126,
+   277.9
+  ],
+  [
+   22.449,
+   3361.5
+  ],
+  [
+   25.811,
+   153.0
+  ],
+  [
+   25.964,
+   418.0
+  ],
+  [
+   26.395,
+   243.3
+  ],
+  [
+   26.649,
+   274.4
+  ],
+  [
+   26.933,
+   247.0
+  ],
+  [
+   27.19,
+   262.8
+  ],
+  [
+   27.457,
+   252.5
+  ],
+  [
+   27.715,
+   382.3
+  ],
+  [
+   28.097,
+   267.4
+  ],
+  [
+   28.397,
+   270.4
+  ],
+  [
+   28.668,
+   406.0
+  ],
+  [
+   29.075,
+   259.5
+  ],
+  [
+   29.342,
+   241.7
+  ],
+  [
+   29.583,
+   468.1
+  ],
+  [
+   30.052,
+   139.5
+  ],
+  [
+   30.204,
+   513.9
+  ],
+  [
+   30.772,
+   137.1
+  ],
+  [
+   30.913,
+   125.4
+  ],
+  [
+   31.039,
+   222.8
+  ],
+  [
+   31.323,
+   156.9
+  ],
+  [
+   31.49,
+   158.7
+  ],
+  [
+   31.679,
+   177.5
+  ],
+  [
+   31.862,
+   179.8
+  ],
+  [
+   32.046,
+   179.8
+  ],
+  [
+   32.235,
+   238.7
+  ],
+  [
+   32.48,
+   160.8
+  ],
+  [
+   32.647,
+   170.8
+  ],
+  [
+   32.82,
+   159.1
+  ],
+  [
+   33.009,
+   207.9
+  ],
+  [
+   33.225,
+   180.8
+  ],
+  [
+   33.408,
+   180.3
+  ],
+  [
+   33.591,
+   178.1
+  ],
+  [
+   33.776,
+   190.3
+  ],
+  [
+   33.998,
+   192.6
+  ],
+  [
+   34.197,
+   200.6
+  ],
+  [
+   34.401,
+   172.2
+  ],
+  [
+   34.579,
+   189.3
+  ],
+  [
+   34.797,
+   184.7
+  ],
+  [
+   34.989,
+   199.3
+  ],
+  [
+   35.189,
+   179.3
+  ],
+  [
+   35.379,
+   199.9
+  ],
+  [
+   35.581,
+   165.1
+  ]
+ ],
+ "counters_first": {
+  "nodes": 33093,
+  "documents": 11,
+  "jsEventListeners": 2865,
+  "jsHeapSizeUsed": 44827800,
+  "layoutObjects": null
+ },
+ "counters_last": {
+  "nodes": 509961,
+  "documents": 10,
+  "jsEventListeners": 15502,
+  "jsHeapSizeUsed": 113444320,
+  "layoutObjects": null
+ },
+ "counters_max": {
+  "nodes": 509961,
+  "documents": 13,
+  "jsEventListeners": 15502,
+  "jsHeapSizeUsed": 118129580,
+  "layoutObjects": 0
+ },
+ "interactions": [
+  {
+   "t": 23.961822,
+   "max_duration_ms": 2448.764,
+   "max_queue_ms": 1849.5699999999997,
+   "types": [
+    "pointerdown",
+    "pointerup",
+    "click"
+   ]
+  },
+  {
+   "t": 20.70433,
+   "max_duration_ms": 1737.537,
+   "max_queue_ms": 760.9939999999988,
+   "types": [
+    "pointerdown",
+    "pointerup",
+    "click"
+   ]
+  },
+  {
+   "t": 13.220021,
+   "max_duration_ms": 815.338,
+   "max_queue_ms": 469.0519999999997,
+   "types": [
+    "pointerdown",
+    "pointerup",
+    "click"
+   ]
+  },
+  {
+   "t": 29.458266,
+   "max_duration_ms": 764.893,
+   "max_queue_ms": 126.02799999999843,
+   "types": [
+    "pointerdown",
+    "pointerup",
+    "click"
+   ]
+  },
+  {
+   "t": 16.859302,
+   "max_duration_ms": 520.305,
+   "max_queue_ms": 24.44499999999971,
+   "types": [
+    "pointerdown",
+    "pointerup",
+    "click"
+   ]
+  },
+  {
+   "t": 9.310785,
+   "max_duration_ms": 110.099,
+   "max_queue_ms": 0.9850000000005821,
+   "types": [
+    "pointerdown",
+    "pointerup",
+    "click"
+   ]
+  },
+  {
+   "t": 5.783642,
+   "max_duration_ms": 35.661,
+   "max_queue_ms": 3.2950000000000728,
+   "types": [
+    "pointerdown",
+    "pointerup",
+    "click"
+   ]
+  }
+ ],
+ "max_interaction_ms": 2448.764,
+ "max_interaction_queue_ms": 1849.57,
+ "layout_by_stack": [
+  [
+   "UpdateLayoutTree",
+   "captureInsertScroll > runViewApplyWithOrder > applyHistoryRecord > replayHistoryRecordsChunkedImpl",
+   789,
+   6354.294,
+   51.777
+  ],
+  [
+   "UpdateLayoutTree",
+   "(no JS stack)",
+   360,
+   2420.418,
+   455.845
+  ],
+  [
+   "Layout",
+   "(no JS stack)",
+   166,
+   1522.886,
+   376.379
+  ],
+  [
+   "UpdateLayoutTree",
+   "isScrollableNearBottom > applySdkEventCore > applySdkEvent > eval > withIsolatedRenderState > runViewApplyWithOrder",
+   145,
+   1238.706,
+   20.284
+  ],
+  [
+   "Layout",
+   "captureInsertScroll > runViewApplyWithOrder > applyHistoryRecord > replayHistoryRecordsChunkedImpl",
+   338,
+   1013.193,
+   272.156
+  ],
+  [
+   "Layout",
+   "isScrollableNearBottom > applySdkEventCore > applySdkEvent > eval > runViewApplyWithOrder > applyHistoryRecord",
+   111,
+   336.56,
+   14.147
+  ],
+  [
+   "UpdateLayoutTree",
+   "isScrollableNearBottom > applySdkEventCore > applySdkEvent > eval > runViewApplyWithOrder > applyHistoryRecord",
+   118,
+   239.798,
+   7.416
+  ],
+  [
+   "Layout",
+   "isScrollableNearBottom > applySdkEventCore > applySdkEvent > eval > withIsolatedRenderState > runViewApplyWithOrder",
+   110,
+   156.356,
+   5.266
+  ],
+  [
+   "UpdateLayoutTree",
+   "measureSendBarReserve > getActiveChatSendBarReserve > syncChatSendBarReserveNow > eval",
+   12,
+   153.103,
+   29.305
+  ],
+  [
+   "UpdateLayoutTree",
+   "isNearBottom > updateStickFromScroll",
+   115,
+   108.504,
+   3.936
+  ],
+  [
+   "ParseHTML",
+   "renderDelegationCard > eval > withIsolatedRenderState > runViewApplyWithOrder > applyHistoryRecord > replayHistoryRecordsChunkedImpl",
+   72,
+   66.376,
+   42.784
+  ],
+  [
+   "ParseHTML",
+   "renderMailboxCard > eval > withIsolatedRenderState > runViewApplyWithOrder > applyHistoryRecord > replayHistoryRecordsChunkedImpl",
+   36,
+   61.843,
+   41.634
+  ],
+  [
+   "Layout",
+   "measureSendBarReserve > getActiveChatSendBarReserve > syncChatSendBarReserveNow > eval",
+   11,
+   61.833,
+   9.974
+  ],
+  [
+   "ParseHTML",
+   "createToolBody > applySdkEventCore > applySdkEvent > eval > runViewApplyWithOrder > applyHistoryRecord",
+   1602,
+   50.782,
+   0.419
+  ],
+  [
+   "UpdateLayoutTree",
+   "stickScrollToBottom > applySdkEventCore > applySdkEvent > eval > runViewApplyWithOrder > applyHistoryRecord",
+   40,
+   44.05,
+   2.104
+  ],
+  [
+   "ParseHTML",
+   "createToolBody > applySdkEventCore > applySdkEvent > eval > withIsolatedRenderState > runViewApplyWithOrder",
+   938,
+   43.289,
+   0.154
+  ],
+  [
+   "UpdateLayoutTree",
+   "isNearBottom > updateStickFromScroll > eval",
+   566,
+   35.466,
+   4.473
+  ],
+  [
+   "UpdateLayoutTree",
+   "eval",
+   55,
+   20.662,
+   3.801
+  ],
+  [
+   "ParseHTML",
+   "applySdkEventCore > applySdkEvent > eval > withIsolatedRenderState > runViewApplyWithOrder > applyHistoryRecord",
+   370,
+   17.55,
+   0.31
+  ],
+  [
+   "UpdateLayoutTree",
+   "renderPassBody > render > eval",
+   1,
+   16.999,
+   16.999
+  ],
+  [
+   "ParseHTML",
+   "applySdkEventCore > applySdkEvent > eval > runViewApplyWithOrder > applyHistoryRecord > replayHistoryRecordsChunkedImpl",
+   318,
+   11.659,
+   0.212
+  ],
+  [
+   "ParseHTML",
+   "createTodoRow > eval > renderList > eval",
+   588,
+   10.344,
+   0.1
+  ],
+  [
+   "UpdateLayoutTree",
+   "prependHistoryRecordsImpl > loadOlderHistoryPage",
+   4,
+   9.767,
+   3.278
+  ],
+  [
+   "UpdateLayoutTree",
+   "applySidebarWidth > applyVisibility > openSidebar > toggleSidebar",
+   1,
+   9.689,
+   9.689
+  ],
+  [
+   "Layout",
+   "stickScrollToBottom > applySdkEventCore > applySdkEvent > eval > runViewApplyWithOrder > applyHistoryRecord",
+   28,
+   6.363,
+   0.439
+  ]
+ ],
+ "requests": [
+  {
+   "t": 3.350063,
+   "url": "https://localhost:3011/api/chats/c8077649-3054-4e8a-b15f-8d45e2223504/history?tail=80&before=323",
+   "finish_t": 3.373971,
+   "bytes": 176388
+  },
+  {
+   "t": 3.484257,
+   "url": "https://localhost:3011/api/uploads/d215e5cc-aef8-4f9b-b23d-6710badeb847.jpg",
+   "finish_t": 3.489381,
+   "bytes": 102719
+  },
+  {
+   "t": 3.632276,
+   "url": "https://localhost:3011/api/chats/c8077649-3054-4e8a-b15f-8d45e2223504/history?tail=80&before=216",
+   "finish_t": 3.645698,
+   "bytes": 222647
+  },
+  {
+   "t": 5.884559,
+   "url": "https://localhost:3011/api/settings",
+   "finish_t": 5.915118,
+   "bytes": 14027
+  },
+  {
+   "t": 5.915674,
+   "url": "https://localhost:3011/api/workspace",
+   "finish_t": 6.007715,
+   "bytes": 842
+  },
+  {
+   "t": 5.920783,
+   "url": "https://localhost:3011/api/chats/b9021354-4a82-4571-bfd8-cf5a5225f110/diag",
+   "finish_t": 6.038393,
+   "bytes": 1867
+  },
+  {
+   "t": 5.921655,
+   "url": "https://localhost:3011/api/github/info",
+   "finish_t": 6.009061,
+   "bytes": 74
+  },
+  {
+   "t": 6.006935,
+   "url": "https://localhost:3011/api/chats/agent-states",
+   "finish_t": 6.051219,
+   "bytes": 214649
+  },
+  {
+   "t": 6.015416,
+   "url": "https://localhost:3011/api/chats/b9021354-4a82-4571-bfd8-cf5a5225f110/history?tail=80",
+   "finish_t": 6.052129,
+   "bytes": 31915
+  },
+  {
+   "t": 6.025938,
+   "url": "https://localhost:3011/api/chats/f9f6294e-5491-474b-9f07-518ce257cf80/history?tail=80",
+   "finish_t": 6.068047,
+   "bytes": 786677
+  },
+  {
+   "t": 6.037917,
+   "url": "https://localhost:3011/api/uploads/88ed25d7-543c-48ab-8e29-d17f9c25f1b0.jpg",
+   "finish_t": 6.057381,
+   "bytes": 99287
+  },
+  {
+   "t": 6.039608,
+   "url": "https://localhost:3011/api/client-instances/commands?clientInstanceId=38366744-0220-4edb-b430-62b6d5afb29a",
+   "finish_t": 6.104661,
+   "bytes": 110
+  },
+  {
+   "t": 6.053601,
+   "url": "https://localhost:3011/api/chats/history-revisions?ids=ccd98555-cbff-4971-a847-e68d7bd0f5a0%2Cdbae55ac-a61c-442b-b6c8-23904045772d%2C3a4ea32b-be52-4caa-a265-b87bcc033e58%2C5efde0fd-4f30-4d11-a5c2-474a19c866be%2C55fcec1a-7cc3-498c-be62-b5438e2e1229%2Cce9879c6-5383-4c0b-88d6-c87b6d191172%2Ce858ab4f-cc6f-46bd-9668-515e5a418fae%2C280839cf-4777-4fe9-b31d-4e62186f01a9%2C15dfaddd-abbd-41ab-9252-89d01ac55766%2Ce70a1d27-2c96-4c30-a8a3-44dc85b9fd1d%2Cd315007a-71e0-4e02-8713-71e3775bf6bd%2C5f05ad65-b785-4d66-9de1-e5e75e939f50%2C163975fb-4b09-486a-95c6-1edcead500dd%2C0f6bf10e-a4f9-4c1c-ad82-929dcf637815%2C55cb2e6d-d17b-47e3-b6a0-64a8d074e5da%2C9b938a07-e608-428f-94fa-c5e753557efb%2Cd7796b6a-c682-4548-903c-77bb6d8c1b66%2Cc7a896fa-5c03-4cf3-ad31-38ace1617b94%2C2d07b79e-1267-4da7-bec7-0753d5515f1e%2C97d9c724-c905-4a0d-bc67-ea5c15ac7858%2C53d8cbd3-2312-4c68-882e-9b42216c64f5%2C39614037-e3ca-49df-a069-bc795405f788%2C593fe8c3-8080-4368-a282-9f6e253c7199%2C58aa2efc-18de-4e16-9c9c-1477ac349960%2Cd488344b-2646-4e4e-bad8-adbd2f44b4c4%2C8123d441-d9e5-4cf7-b447-3c008e048d9a%2C9b437ba8-16f1-4454-894d-f01f087281f1%2C33de2246-007b-40f9-ab91-b705438484a1%2C4a8afcd9-1540-4ea5-abc3-99e5adadf26d%2C6fe39cbe-ab49-4c41-8938-45571a51af64%2C431d672c-a9bd-4acd-b455-cad1ff37dd9b%2C20822b39-3686-4fa4-9b62-10228e98ba1c",
+   "finish_t": 6.092599,
+   "bytes": 4361
+  },
+  {
+   "t": 6.104381,
+   "url": "https://localhost:3011/api/chats/history-revisions?ids=024e68e9-0a62-4ca2-b731-495225b055d9%2C83b68731-3fea-439b-ac95-01862e5b1fc0%2Cb74c0e0e-e703-4491-a0ba-d451ec58d06f%2Cb898978c-36fb-4dd9-9d55-e878f8ce5f76%2Ccb879f7e-667a-47d1-b1aa-6828c8edc29c%2C54b94408-a08a-46b9-90f3-ed0c8a2a0cf1%2Ceceeefda-c629-4a85-b004-a6605440a124%2Cf5390e00-17a2-4c27-b13c-a8f4458284b4%2C3f369272-e00f-438f-a9d5-facbe435872a%2C339baa28-9bbe-4125-b081-6b308ab56722%2Cc3b9de3e-4c6c-434b-ac5d-d56d2225758b%2Cb7d2a505-9dbe-47e2-8b3a-db4c8e57a06c%2Ce3841ff7-e703-428a-b525-dd8e6e43231e%2Ca48b42c7-8afd-4122-ac4b-c169e649b16d%2C01561b05-775c-42bd-b6e6-ef3b4e92fe66%2C8a5e4442-2a42-4993-abe8-4e7ace585336%2C7c207fb9-4da8-4bc4-b226-781a1ced5269%2Cb8a4d6a3-e796-48a7-bfc7-8b1e0b892937%2C45449381-dbe6-4926-8a88-8c64a6e7b2ff%2Cc6d5639f-6234-471b-b096-bfd6527d560b%2C7ae9eb89-3c4e-4dd4-a68a-db72b6c7cb74%2C086afc66-010b-40c5-a7cd-47bccfcfe4ad%2Cf4f8252c-4383-485b-973d-6ba4ec16c714%2C68856866-ee28-422e-ab6e-fa6b2e2d97fa%2C1bc7a49e-812b-4a78-a416-161ba0ec2e56%2C0c395299-5b80-4bef-a1ed-f8c78762ba7a%2Ca7b011f4-c772-4543-a946-024c5b70c584%2C95deac11-2e52-4eaa-8049-e83fa0efe522%2C43b1b716-beaa-4936-9d9e-7411aaa7c1d3%2C7baeae02-1bfe-4164-8b87-d221e4c32251%2Ce2086040-7df0-4e51-b283-7961a84d2a71%2C3ff0d5f4-855f-45b0-8ec7-9ef52c29bf15",
+   "finish_t": 6.1354,
+   "bytes": 4371
+  },
+  {
+   "t": 6.174642,
+   "url": "https://localhost:3011/api/chats/history-revisions?ids=d99926c3-e889-4d6b-8b0c-f3ebfb66736e%2C976978b4-7313-4a4f-a757-05a895ac2631%2C28d68852-4170-4c8d-b644-b19ad0b5e4ea%2C21dad843-e884-431f-abf6-c6f9f4b83fe4%2C35587df8-0bad-4cbf-a0ec-6ccfd8f12d9d%2C2b303f8e-e084-44dc-b66d-39fa0914acb0%2C7e8c0e81-4cd8-4417-8774-20728db4fe9b%2C38d9bd80-f0b4-4c95-ae9b-aa06e04dcedb%2Cb856f621-813e-4ed9-8402-332b6a4b96c1%2C97383823-5370-42c3-803c-4ab858ae673b%2C0e44cbc7-c06f-4db2-91f5-2211cd69d9c1%2Cab6e8a35-7f5e-4aca-b2cf-90a0550a8c77%2C03c1ff88-2754-449f-8d87-5ea302de80ce%2C92935e33-1fa0-412e-a489-017fa388247d%2C06c0157d-54de-4744-9a7b-a1c7afa8cc20%2Ced605793-20c6-4d57-b19c-375923835f97%2C005dc12e-44b7-4046-9659-200931e4ae37%2Cb42687e4-2d6f-4727-a577-a918ff328d47%2Cd0a073f7-0640-49df-8710-ed6980268dab%2Cc6fd8bc3-5ff2-4a3a-9ffc-174b650968ae%2C0022e3b3-5d7e-46c2-b1c8-8df0df893578%2Cfd7e0fb2-400c-4ff1-957a-a9f511184ddf%2C73345514-97f0-4f3f-9921-202a3ba64afd%2C2dc416bc-ccf3-4df3-996c-e94d5dca5d9f%2C37797eb2-0a99-4c35-808e-76f26bd9d410%2C75560357-39db-4818-8cb0-d95100bc83d8%2Cd29214db-5cc7-4a0c-9edd-c083078c677a%2C17263210-f75e-4d8a-bd9b-dfb1ab665ecb%2Cf1356749-5711-48ca-8b3f-9520964cad62%2C087bdb26-13dc-4ee3-9200-a0db828a3daf%2Ccde65ea1-870b-4afd-8ffc-a89d25f74267%2C61862885-26e0-4429-ab7c-0d00d94565db",
+   "finish_t": 6.225533,
+   "bytes": 4362
+  },
+  {
+   "t": 6.224859,
+   "url": "https://localhost:3011/api/health",
+   "finish_t": 6.243287,
+   "bytes": 239
+  },
+  {
+   "t": 6.242363,
+   "url": "https://localhost:3011/api/chats/history-revisions?ids=3b2d235d-d8d8-47e3-9549-2119ed1ac532%2Cb3a48be3-7a25-4780-8a4c-c29e4fa12cbe%2Ca81c7ac3-169c-4209-a620-97c36c42b887%2C4d49a05d-6afe-4946-891a-3be49ea2f447%2C7929cf4a-5933-4210-96b2-ef9f5d9ce084%2Cb274e5aa-05bd-4d12-a886-a924452d09ab%2C391be541-fe56-48e4-ab8e-118df60a631c%2Cdd4c22e4-3dc3-4b18-9b89-9cdd5d36229d%2C693c8c7a-99a5-4b5b-8ec4-679f51db90f2%2C10dfa744-22d3-4e04-bbb1-f969f9fa4b34%2Cea24f502-d11d-44e3-b009-d3d9484f78d9%2C589c3c17-0038-4a6c-bc57-b5c71335a941%2C1ecbc5b4-ebaf-42d4-a335-2907d5360a74%2Cc2a5b407-a3c4-49f6-9871-1318396f190b%2Cf103bec9-c1d9-4970-8f7d-42cefd7f5efd%2Cc2e4969b-9cea-4987-bc64-cd6b1561745c%2C612163d1-be07-45f1-89ab-8d2cf26dcd1c%2C7b10b8bb-9e1c-4ee5-bcdd-08a25458da77%2C0498a0a2-f061-4aa3-ae3a-e282f9115921%2Cc8077649-3054-4e8a-b15f-8d45e2223504%2Cf2401a76-a22d-42df-9ff1-ba6196852f63%2Cbcbc35f7-d6a7-4038-b2a0-a16c8565235b%2C018d6986-f234-4dab-b7e2-68ac1819eab0%2C796d46e6-9f08-486e-891f-61594a2b8a6f%2C3c36a970-5014-4550-89ec-833ba576587e%2C276f4df5-09f1-4b67-a594-6dcdd5e87603%2C2e51b6f0-c906-4f9d-8078-081bd9169e4c%2Cf9f6294e-5491-474b-9f07-518ce257cf80%2C6a9e30da-33c8-4c0d-b837-024a5db4656a%2C16537b9f-0639-459a-abc6-3b05ae64cc8b%2C8075beaf-e085-4cb0-b0e9-585f1985727e%2Ca2564601-fc83-4c82-bd8d-5521711008d6",
+   "finish_t": 6.249253,
+   "bytes": 4374
+  },
+  {
+   "t": 6.249681,
+   "url": "https://localhost:3011/api/chats/history-revisions?ids=c7c5d512-de80-4aa8-ba05-688ccfd54770%2C899bef26-2f60-45c3-a489-4aa6e4b0137b%2Cfda6582c-7762-4083-8e69-f202fa8e9043%2Cac7af903-6d44-4a73-be7a-15dc648aae64%2Cdfdc2a0b-ece0-4655-a7e0-d3582867dbb7%2C2466fb63-a0c8-46b4-b11d-d6ea455712f1%2C4a107ab8-01cd-44a5-8aba-955a070245ed%2C209ca1de-32c8-4a7a-98ff-683bc9987181%2Cff81e0ce-ea6a-4b68-85c0-558f7d106ce4%2C7a2c3b84-ba93-4e47-9bba-57d1bb332d3c%2C96f8d4b8-c47b-4a70-8fd4-e2c3293d7252%2C550a6a7f-d643-4231-a56b-052cab469b6c%2C6fc0e7d8-b45c-49c1-88f6-2ce0c6f64e7c%2Cbd7a01bf-015c-481e-af60-74e0f783ef42%2Cfa0f4d26-c181-4e23-94af-d5d321ab071c%2C6ff59600-6c28-48b0-ad09-a2c327fd79bd%2C453749f1-fb18-4084-85eb-00929453433d%2Ca2a73469-c63d-499d-9f16-f371e7dafaa4%2Cd8778743-59f7-4d0a-ae69-99234af5a07d%2C926fbdbf-bd45-4d1c-9c42-cbfb7c4e8ef9%2C3130a391-16e6-4efe-84be-702f481436a9%2C62dc3cf2-9f7b-4cc7-89a1-f6bec1bbd90e%2C6fa1cd21-6ad0-4ad2-8fba-1f316cecc02c%2C21cae4fe-97b7-47be-a4de-76fc2a9b8a0c%2C03a4fa76-e594-4b27-b510-414b677ffebb%2C3efc7e2e-fe9a-45ed-b8a3-91d842b31f91%2Ca2e8d29f-51cf-4341-8ad8-bbcf1a092032",
+   "finish_t": 6.272002,
+   "bytes": 3688
+  },
+  {
+   "t": 6.272904,
+   "url": "https://localhost:3011/api/chats/history-batch",
+   "finish_t": 6.396855,
+   "bytes": 3189
+  },
+  {
+   "t": 6.817479,
+   "url": "https://localhost:3011/api/chats/history-batch",
+   "finish_t": 6.900828,
+   "bytes": 149613
+  },
+  {
+   "t": 9.397019,
+   "url": "https://localhost:3011/api/chats",
+   "finish_t": 9.530226,
+   "bytes": 194883
+  },
+  {
+   "t": 9.428465,
+   "url": "https://localhost:3011/api/chats/95deac11-2e52-4eaa-8049-e83fa0efe522/history?tail=80",
+   "finish_t": 9.531596,
+   "bytes": 131546
+  },
+  {
+   "t": 11.082835,
+   "url": "https://localhost:3011/api/health",
+   "finish_t": 11.236778,
+   "bytes": 239
+  },
+  {
+   "t": 12.021926,
+   "url": "https://localhost:3011/api/chats/95deac11-2e52-4eaa-8049-e83fa0efe522/history?since=5683&limit=2000",
+   "finish_t": 12.144474,
+   "bytes": 159
+  },
+  {
+   "t": 22.440999,
+   "url": "https://localhost:3011/api/chats/agent-states",
+   "finish_t": 26.645207,
+   "bytes": 214649
+  },
+  {
+   "t": 22.441997,
+   "url": "https://localhost:3011/api/client-instances/heartbeat",
+   "finish_t": 26.644379,
+   "bytes": 507
+  },
+  {
+   "t": 22.442681,
+   "url": "https://localhost:3011/api/client-instances/commands?clientInstanceId=38366744-0220-4edb-b430-62b6d5afb29a",
+   "finish_t": 26.644125,
+   "bytes": 110
+  },
+  {
+   "t": 26.932495,
+   "url": "https://localhost:3011/api/chats/history-revisions?ids=ccd98555-cbff-4971-a847-e68d7bd0f5a0%2Cdbae55ac-a61c-442b-b6c8-23904045772d%2C3a4ea32b-be52-4caa-a265-b87bcc033e58%2C5efde0fd-4f30-4d11-a5c2-474a19c866be%2C55fcec1a-7cc3-498c-be62-b5438e2e1229%2Cce9879c6-5383-4c0b-88d6-c87b6d191172%2Ce858ab4f-cc6f-46bd-9668-515e5a418fae%2C280839cf-4777-4fe9-b31d-4e62186f01a9%2C15dfaddd-abbd-41ab-9252-89d01ac55766%2Ce70a1d27-2c96-4c30-a8a3-44dc85b9fd1d%2Cd315007a-71e0-4e02-8713-71e3775bf6bd%2C5f05ad65-b785-4d66-9de1-e5e75e939f50%2C163975fb-4b09-486a-95c6-1edcead500dd%2C0f6bf10e-a4f9-4c1c-ad82-929dcf637815%2C55cb2e6d-d17b-47e3-b6a0-64a8d074e5da%2C9b938a07-e608-428f-94fa-c5e753557efb%2Cd7796b6a-c682-4548-903c-77bb6d8c1b66%2Cc7a896fa-5c03-4cf3-ad31-38ace1617b94%2C2d07b79e-1267-4da7-bec7-0753d5515f1e%2C97d9c724-c905-4a0d-bc67-ea5c15ac7858%2C53d8cbd3-2312-4c68-882e-9b42216c64f5%2C39614037-e3ca-49df-a069-bc795405f788%2C593fe8c3-8080-4368-a282-9f6e253c7199%2C58aa2efc-18de-4e16-9c9c-1477ac349960%2Cd488344b-2646-4e4e-bad8-adbd2f44b4c4%2C8123d441-d9e5-4cf7-b447-3c008e048d9a%2C9b437ba8-16f1-4454-894d-f01f087281f1%2C33de2246-007b-40f9-ab91-b705438484a1%2C4a8afcd9-1540-4ea5-abc3-99e5adadf26d%2C6fe39cbe-ab49-4c41-8938-45571a51af64%2C431d672c-a9bd-4acd-b455-cad1ff37dd9b%2C20822b39-3686-4fa4-9b62-10228e98ba1c",
+   "finish_t": 30.759187,
+   "bytes": 4361
+  },
+  {
+   "t": 29.586372,
+   "url": "https://localhost:3011/api/workspace-watcher",
+   "finish_t": 30.763895,
+   "bytes": 50938
+  },
+  {
+   "t": 29.587081,
+   "url": "https://localhost:3011/api/agent-sdk",
+   "finish_t": 31.277667,
+   "bytes": 240412
+  },
+  {
+   "t": 29.587712,
+   "url": "https://localhost:3011/api/todos",
+   "finish_t": 30.771035,
+   "bytes": 1241565
+  },
+  {
+   "t": 30.912084,
+   "url": "https://localhost:3011/api/chats/history-revisions?ids=024e68e9-0a62-4ca2-b731-495225b055d9%2C83b68731-3fea-439b-ac95-01862e5b1fc0%2Cb74c0e0e-e703-4491-a0ba-d451ec58d06f%2Cb898978c-36fb-4dd9-9d55-e878f8ce5f76%2Ccb879f7e-667a-47d1-b1aa-6828c8edc29c%2C54b94408-a08a-46b9-90f3-ed0c8a2a0cf1%2Ceceeefda-c629-4a85-b004-a6605440a124%2Cf5390e00-17a2-4c27-b13c-a8f4458284b4%2C3f369272-e00f-438f-a9d5-facbe435872a%2C339baa28-9bbe-4125-b081-6b308ab56722%2Cc3b9de3e-4c6c-434b-ac5d-d56d2225758b%2Cb7d2a505-9dbe-47e2-8b3a-db4c8e57a06c%2Ce3841ff7-e703-428a-b525-dd8e6e43231e%2Ca48b42c7-8afd-4122-ac4b-c169e649b16d%2C01561b05-775c-42bd-b6e6-ef3b4e92fe66%2C8a5e4442-2a42-4993-abe8-4e7ace585336%2C7c207fb9-4da8-4bc4-b226-781a1ced5269%2Cb8a4d6a3-e796-48a7-bfc7-8b1e0b892937%2C45449381-dbe6-4926-8a88-8c64a6e7b2ff%2Cc6d5639f-6234-471b-b096-bfd6527d560b%2C7ae9eb89-3c4e-4dd4-a68a-db72b6c7cb74%2C086afc66-010b-40c5-a7cd-47bccfcfe4ad%2Cf4f8252c-4383-485b-973d-6ba4ec16c714%2C68856866-ee28-422e-ab6e-fa6b2e2d97fa%2C1bc7a49e-812b-4a78-a416-161ba0ec2e56%2C0c395299-5b80-4bef-a1ed-f8c78762ba7a%2Ca7b011f4-c772-4543-a946-024c5b70c584%2C95deac11-2e52-4eaa-8049-e83fa0efe522%2C43b1b716-beaa-4936-9d9e-7411aaa7c1d3%2C7baeae02-1bfe-4164-8b87-d221e4c32251%2Ce2086040-7df0-4e51-b283-7961a84d2a71%2C3ff0d5f4-855f-45b0-8ec7-9ef52c29bf15",
+   "finish_t": 32.479116,
+   "bytes": 4371
+  },
+  {
+   "t": 31.322402,
+   "url": "https://localhost:3011/api/health",
+   "finish_t": 32.478894,
+   "bytes": 239
+  },
+  {
+   "t": 32.642121,
+   "url": "https://localhost:3011/api/chats/history-revisions?ids=d99926c3-e889-4d6b-8b0c-f3ebfb66736e%2C976978b4-7313-4a4f-a757-05a895ac2631%2C28d68852-4170-4c8d-b644-b19ad0b5e4ea%2C21dad843-e884-431f-abf6-c6f9f4b83fe4%2C35587df8-0bad-4cbf-a0ec-6ccfd8f12d9d%2C2b303f8e-e084-44dc-b66d-39fa0914acb0%2C7e8c0e81-4cd8-4417-8774-20728db4fe9b%2C38d9bd80-f0b4-4c95-ae9b-aa06e04dcedb%2Cb856f621-813e-4ed9-8402-332b6a4b96c1%2C97383823-5370-42c3-803c-4ab858ae673b%2C0e44cbc7-c06f-4db2-91f5-2211cd69d9c1%2Cab6e8a35-7f5e-4aca-b2cf-90a0550a8c77%2C03c1ff88-2754-449f-8d87-5ea302de80ce%2C92935e33-1fa0-412e-a489-017fa388247d%2C06c0157d-54de-4744-9a7b-a1c7afa8cc20%2Ced605793-20c6-4d57-b19c-375923835f97%2C005dc12e-44b7-4046-9659-200931e4ae37%2Cb42687e4-2d6f-4727-a577-a918ff328d47%2Cd0a073f7-0640-49df-8710-ed6980268dab%2Cc6fd8bc3-5ff2-4a3a-9ffc-174b650968ae%2C0022e3b3-5d7e-46c2-b1c8-8df0df893578%2Cfd7e0fb2-400c-4ff1-957a-a9f511184ddf%2C73345514-97f0-4f3f-9921-202a3ba64afd%2C2dc416bc-ccf3-4df3-996c-e94d5dca5d9f%2C37797eb2-0a99-4c35-808e-76f26bd9d410%2C75560357-39db-4818-8cb0-d95100bc83d8%2Cd29214db-5cc7-4a0c-9edd-c083078c677a%2C17263210-f75e-4d8a-bd9b-dfb1ab665ecb%2Cf1356749-5711-48ca-8b3f-9520964cad62%2C087bdb26-13dc-4ee3-9200-a0db828a3daf%2Ccde65ea1-870b-4afd-8ffc-a89d25f74267%2C61862885-26e0-4429-ab7c-0d00d94565db",
+   "finish_t": 32.979244,
+   "bytes": 4362
+  },
+  {
+   "t": 33.218283,
+   "url": "https://localhost:3011/api/chats/history-revisions?ids=3b2d235d-d8d8-47e3-9549-2119ed1ac532%2Cb3a48be3-7a25-4780-8a4c-c29e4fa12cbe%2Ca81c7ac3-169c-4209-a620-97c36c42b887%2C4d49a05d-6afe-4946-891a-3be49ea2f447%2C7929cf4a-5933-4210-96b2-ef9f5d9ce084%2Cb274e5aa-05bd-4d12-a886-a924452d09ab%2C391be541-fe56-48e4-ab8e-118df60a631c%2Cdd4c22e4-3dc3-4b18-9b89-9cdd5d36229d%2C693c8c7a-99a5-4b5b-8ec4-679f51db90f2%2C10dfa744-22d3-4e04-bbb1-f969f9fa4b34%2Cea24f502-d11d-44e3-b009-d3d9484f78d9%2C589c3c17-0038-4a6c-bc57-b5c71335a941%2C1ecbc5b4-ebaf-42d4-a335-2907d5360a74%2Cc2a5b407-a3c4-49f6-9871-1318396f190b%2Cf103bec9-c1d9-4970-8f7d-42cefd7f5efd%2Cc2e4969b-9cea-4987-bc64-cd6b1561745c%2C612163d1-be07-45f1-89ab-8d2cf26dcd1c%2C7b10b8bb-9e1c-4ee5-bcdd-08a25458da77%2C0498a0a2-f061-4aa3-ae3a-e282f9115921%2Cc8077649-3054-4e8a-b15f-8d45e2223504%2Cf2401a76-a22d-42df-9ff1-ba6196852f63%2Cbcbc35f7-d6a7-4038-b2a0-a16c8565235b%2C018d6986-f234-4dab-b7e2-68ac1819eab0%2C796d46e6-9f08-486e-891f-61594a2b8a6f%2C3c36a970-5014-4550-89ec-833ba576587e%2C276f4df5-09f1-4b67-a594-6dcdd5e87603%2C2e51b6f0-c906-4f9d-8078-081bd9169e4c%2Cf9f6294e-5491-474b-9f07-518ce257cf80%2C6a9e30da-33c8-4c0d-b837-024a5db4656a%2C16537b9f-0639-459a-abc6-3b05ae64cc8b%2C8075beaf-e085-4cb0-b0e9-585f1985727e%2Ca2564601-fc83-4c82-bd8d-5521711008d6",
+   "finish_t": 33.588636,
+   "bytes": 4374
+  },
+  {
+   "t": 33.769761,
+   "url": "https://localhost:3011/api/chats/history-revisions?ids=c7c5d512-de80-4aa8-ba05-688ccfd54770%2C899bef26-2f60-45c3-a489-4aa6e4b0137b%2Cfda6582c-7762-4083-8e69-f202fa8e9043%2Cac7af903-6d44-4a73-be7a-15dc648aae64%2Cdfdc2a0b-ece0-4655-a7e0-d3582867dbb7%2C2466fb63-a0c8-46b4-b11d-d6ea455712f1%2C4a107ab8-01cd-44a5-8aba-955a070245ed%2C209ca1de-32c8-4a7a-98ff-683bc9987181%2Cff81e0ce-ea6a-4b68-85c0-558f7d106ce4%2C7a2c3b84-ba93-4e47-9bba-57d1bb332d3c%2C96f8d4b8-c47b-4a70-8fd4-e2c3293d7252%2C550a6a7f-d643-4231-a56b-052cab469b6c%2C6fc0e7d8-b45c-49c1-88f6-2ce0c6f64e7c%2Cbd7a01bf-015c-481e-af60-74e0f783ef42%2Cfa0f4d26-c181-4e23-94af-d5d321ab071c%2C6ff59600-6c28-48b0-ad09-a2c327fd79bd%2C453749f1-fb18-4084-85eb-00929453433d%2Ca2a73469-c63d-499d-9f16-f371e7dafaa4%2Cd8778743-59f7-4d0a-ae69-99234af5a07d%2C926fbdbf-bd45-4d1c-9c42-cbfb7c4e8ef9%2C3130a391-16e6-4efe-84be-702f481436a9%2C62dc3cf2-9f7b-4cc7-89a1-f6bec1bbd90e%2C6fa1cd21-6ad0-4ad2-8fba-1f316cecc02c%2C21cae4fe-97b7-47be-a4de-76fc2a9b8a0c%2C03a4fa76-e594-4b27-b510-414b677ffebb%2C3efc7e2e-fe9a-45ed-b8a3-91d842b31f91%2Ca2e8d29f-51cf-4341-8ad8-bbcf1a092032",
+   "finish_t": 34.190708,
+   "bytes": 3688
+  },
+  {
+   "t": 34.399221,
+   "url": "https://localhost:3011/api/chats/history-batch",
+   "finish_t": 34.769224,
+   "bytes": 3185
+  },
+  {
+   "t": 35.58059,
+   "url": "https://localhost:3011/api/chats/history-batch"
+  }
+ ],
+ "profile_samples": 101930,
+ "profile_nodes": 3114,
+ "key_functions": [
+  {
+   "ms_incl": 12450.515,
+   "ms_self": 0.029,
+   "fn": "replayHistoryRecordsChunkedImpl @ lib/sdk-rich-view.js:4503"
+  },
+  {
+   "ms_incl": 12428.515,
+   "ms_self": 0.217,
+   "fn": "applyHistoryRecord @ lib/sdk-rich-view.js:3596"
+  },
+  {
+   "ms_incl": 12428.091,
+   "ms_self": 30.807,
+   "fn": "runViewApplyWithOrder @ lib/sdk-rich-view.js:3573"
+  },
+  {
+   "ms_incl": 7394.956,
+   "ms_self": 11.081,
+   "fn": "captureInsertScroll @ lib/sdk-rich-view.js:1511"
+  },
+  {
+   "ms_incl": 2973.0,
+   "ms_self": 11.917,
+   "fn": "applySdkEventCore @ lib/sdk-rich-view.js:3079"
+  },
+  {
+   "ms_incl": 1371.263,
+   "ms_self": 3.504,
+   "fn": "isScrollableNearBottom @ lib/sdk-rich-view.js:938"
+  },
+  {
+   "ms_incl": 896.056,
+   "ms_self": 10.967,
+   "fn": "applySdkEventCore @ lib/sdk-rich-view.js:3079"
+  },
+  {
+   "ms_incl": 548.224,
+   "ms_self": 1.054,
+   "fn": "isScrollableNearBottom @ lib/sdk-rich-view.js:938"
+  },
+  {
+   "ms_incl": 211.883,
+   "ms_self": 7.703,
+   "fn": "renderDelegationCard @ lib/sdk-rich-view.js:3816"
+  },
+  {
+   "ms_incl": 190.606,
+   "ms_self": 2.853,
+   "fn": "renderMailboxCard @ lib/sdk-rich-view.js:4138"
+  },
+  {
+   "ms_incl": 88.126,
+   "ms_self": 0.0,
+   "fn": "renderMarkdownSource @ lib/sdk-rich-view.js:204"
+  },
+  {
+   "ms_incl": 84.152,
+   "ms_self": 0.0,
+   "fn": "renderMarkdownSource @ lib/sdk-rich-view.js:204"
+  },
+  {
+   "ms_incl": 49.173,
+   "ms_self": 0.0,
+   "fn": "runViewApplyWithOrder @ lib/sdk-rich-view.js:3573"
+  },
+  {
+   "ms_incl": 49.173,
+   "ms_self": 0.0,
+   "fn": "applyHistoryRecord @ lib/sdk-rich-view.js:3596"
+  },
+  {
+   "ms_incl": 45.712,
+   "ms_self": 0.085,
+   "fn": "applySdkEventCore @ lib/sdk-rich-view.js:3079"
+  },
+  {
+   "ms_incl": 37.823,
+   "ms_self": 0.0,
+   "fn": "(anonymous) @ features/sidebar/sidebarView.js:2224"
+  },
+  {
+   "ms_incl": 34.885,
+   "ms_self": 0.0,
+   "fn": "replayHistoryRecords @ lib/sdk-rich-view.js:5232"
+  },
+  {
+   "ms_incl": 33.688,
+   "ms_self": 0.0,
+   "fn": "replayHistoryRecords @ lib/sdk-rich-view.js:5232"
+  },
+  {
+   "ms_incl": 29.054,
+   "ms_self": 0.061,
+   "fn": "applyHistoryRecord @ lib/sdk-rich-view.js:3596"
+  },
+  {
+   "ms_incl": 28.993,
+   "ms_self": 0.0,
+   "fn": "runViewApplyWithOrder @ lib/sdk-rich-view.js:3573"
+  },
+  {
+   "ms_incl": 23.955,
+   "ms_self": 0.0,
+   "fn": "renderPassBody @ features/sidebar/sidebarView.js:1746"
+  },
+  {
+   "ms_incl": 23.955,
+   "ms_self": 0.0,
+   "fn": "render @ features/sidebar/sidebarView.js:1714"
+  },
+  {
+   "ms_incl": 23.85,
+   "ms_self": 0.007,
+   "fn": "applySdkEventCore @ lib/sdk-rich-view.js:3079"
+  },
+  {
+   "ms_incl": 22.232,
+   "ms_self": 0.015,
+   "fn": "applyHistoryRecord @ lib/sdk-rich-view.js:3596"
+  },
+  {
+   "ms_incl": 22.217,
+   "ms_self": 0.0,
+   "fn": "runViewApplyWithOrder @ lib/sdk-rich-view.js:3573"
+  },
+  {
+   "ms_incl": 18.961,
+   "ms_self": 0.0,
+   "fn": "renderPassBody @ features/sidebar/sidebarView.js:1746"
+  },
+  {
+   "ms_incl": 18.961,
+   "ms_self": 0.0,
+   "fn": "render @ features/sidebar/sidebarView.js:1714"
+  },
+  {
+   "ms_incl": 18.868,
+   "ms_self": 0.0,
+   "fn": "openSidebar @ features/sidebar/sidebarView.js:518"
+  },
+  {
+   "ms_incl": 18.868,
+   "ms_self": 0.0,
+   "fn": "toggleSidebar @ features/sidebar/sidebarView.js:532"
+  },
+  {
+   "ms_incl": 18.861,
+   "ms_self": 0.059,
+   "fn": "applySdkEventCore @ lib/sdk-rich-view.js:3079"
+  },
+  {
+   "ms_incl": 18.781,
+   "ms_self": 0.0,
+   "fn": "applyVisibility @ features/sidebar/sidebarView.js:471"
+  },
+  {
+   "ms_incl": 15.902,
+   "ms_self": 0.016,
+   "fn": "onSidebarBodyClick @ features/sidebar/sidebarView.js:2275"
+  },
+  {
+   "ms_incl": 15.886,
+   "ms_self": 0.02,
+   "fn": "selectChatRow @ features/sidebar/sidebarView.js:2201"
+  },
+  {
+   "ms_incl": 14.305,
+   "ms_self": 0.0,
+   "fn": "applySidebarWidth @ features/sidebar/sidebarView.js:281"
+  },
+  {
+   "ms_incl": 13.868,
+   "ms_self": 0.0,
+   "fn": "finishSelect @ features/sidebar/sidebarView.js:2208"
+  },
+  {
+   "ms_incl": 12.907,
+   "ms_self": 0.0,
+   "fn": "isScrollableNearBottom @ lib/sdk-rich-view.js:938"
+  },
+  {
+   "ms_incl": 10.166,
+   "ms_self": 0.0,
+   "fn": "renderSignature @ features/sidebar/sidebarView.js:1497"
+  },
+  {
+   "ms_incl": 9.819,
+   "ms_self": 0.0,
+   "fn": "activateChatPanelTab @ features/sidebar/sidebarView.js:2020"
+  },
+  {
+   "ms_incl": 8.317,
+   "ms_self": 0.0,
+   "fn": "replayHistoryRecordsChunkedImpl @ lib/sdk-rich-view.js:4503"
+  },
+  {
+   "ms_incl": 8.28,
+   "ms_self": 0.0,
+   "fn": "runViewApplyWithOrder @ lib/sdk-rich-view.js:3573"
+  }
+ ],
+ "replay_clusters": [
+  {
+   "start_s": 20.238,
+   "ms": 624.224,
+   "samples": 1218
+  },
+  {
+   "start_s": 13.107,
+   "ms": 471.237,
+   "samples": 918
+  },
+  {
+   "start_s": 26.652,
+   "ms": 215.626,
+   "samples": 465
+  },
+  {
+   "start_s": 25.969,
+   "ms": 212.987,
+   "samples": 453
+  },
+  {
+   "start_s": 28.671,
+   "ms": 205.083,
+   "samples": 438
+  },
+  {
+   "start_s": 29.079,
+   "ms": 198.035,
+   "samples": 419
+  },
+  {
+   "start_s": 28.401,
+   "ms": 196.811,
+   "samples": 429
+  },
+  {
+   "start_s": 28.101,
+   "ms": 189.683,
+   "samples": 406
+  },
+  {
+   "start_s": 27.193,
+   "ms": 187.652,
+   "samples": 405
+  },
+  {
+   "start_s": 22.129,
+   "ms": 184.643,
+   "samples": 403
+  }
+ ],
+ "capture_clusters": [
+  {
+   "start_s": 20.434,
+   "ms": 324.101,
+   "samples": 608
+  },
+  {
+   "start_s": 13.408,
+   "ms": 170.907,
+   "samples": 314
+  },
+  {
+   "start_s": 13.205,
+   "ms": 146.231,
+   "samples": 276
+  },
+  {
+   "start_s": 11.434,
+   "ms": 26.944,
+   "samples": 72
+  },
+  {
+   "start_s": 29.113,
+   "ms": 26.315,
+   "samples": 51
+  },
+  {
+   "start_s": 27.223,
+   "ms": 25.454,
+   "samples": 50
+  },
+  {
+   "start_s": 26.154,
+   "ms": 24.837,
+   "samples": 48
+  },
+  {
+   "start_s": 28.107,
+   "ms": 24.644,
+   "samples": 48
+  },
+  {
+   "start_s": 22.153,
+   "ms": 24.206,
+   "samples": 48
+  },
+  {
+   "start_s": 26.103,
+   "ms": 24.119,
+   "samples": 48
+  }
+ ],
+ "scroll_bottom_clusters": [
+  {
+   "start_s": 27.077,
+   "ms": 24.793,
+   "samples": 49
+  },
+  {
+   "start_s": 27.25,
+   "ms": 24.639,
+   "samples": 49
+  },
+  {
+   "start_s": 28.158,
+   "ms": 24.551,
+   "samples": 48
+  },
+  {
+   "start_s": 29.252,
+   "ms": 24.498,
+   "samples": 47
+  },
+  {
+   "start_s": 29.081,
+   "ms": 24.429,
+   "samples": 49
+  },
+  {
+   "start_s": 28.75,
+   "ms": 23.434,
+   "samples": 47
+  },
+  {
+   "start_s": 28.496,
+   "ms": 23.418,
+   "samples": 46
+  },
+  {
+   "start_s": 27.487,
+   "ms": 23.109,
+   "samples": 46
+  },
+  {
+   "start_s": 27.874,
+   "ms": 22.672,
+   "samples": 46
+  },
+  {
+   "start_s": 27.585,
+   "ms": 22.575,
+   "samples": 46
+  }
+ ]
+}

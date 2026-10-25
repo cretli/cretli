@@ -1,0 +1,11 @@
+{
+  "apiVersion": 1,
+  "id": "leakylight",
+  "version": "1.0.0",
+  "hostMin": "0.1.0",
+  "label": "Leaky light",
+  "description": "Test-only plugin whose light entry violates the import ban.",
+  "origin": "builtin-optional",
+  "entries": { "light": "./light.js" },
+  "capabilities": { "status": true }
+}

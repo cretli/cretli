@@ -1,0 +1,230 @@
+{
+  "title": "Cretli: dalsze kroki po B2 (TS + core harnessy)",
+  "key": "cretli-next-steps-2026-10-22",
+  "status": "idea",
+  "body": "Drzewo kolejnych kroków po zamknięciu punktów wejścia B2 (2026-10-22). Źródła: docs/ts-migration-and-core-harnesses-plan.md, docs/harness-coupling-inventory.json, docs/test-baseline-triage-2026-10-21.md. Wszystko ma status idea: Watcher w autopilocie nie podejmie niczego, dopóki nie przestawisz zadania na ready.",
+  "children": [
+    {
+      "title": "Cretli jako serwer MCP dla zewnętrznych klientów",
+      "key": "external-mcp-access-2026-10-22",
+      "status": "idea",
+      "body": "Opcja w Ustawieniach → MCP: „Udostępnij narzędzia Cretli zewnętrznym klientom” (Claude Code, Cursor, inne). Istnieje już: tokeny integracji (lib/mcp/mcp-integration-token.js, HMAC, 12 h, przypięte do czatu), endpointy /api/mcp/bridge/tools i /api/mcp/bridge/call oraz klient stdio scripts/cretli-mcp.js --bridge. Brakuje tokenu dla klienta spoza czatu, zarządzania nim i gotowej konfiguracji do skopiowania. Uwaga: narzędzia w trybie agent dają shell i zapis plików, więc domyślnie wyłączone, z odwołaniem i audytem.",
+      "children": [
+        {
+          "title": "Token klienta zewnętrznego: zakres, ważność, odwołanie",
+          "key": "external-mcp-token-2026-10-22",
+          "status": "done",
+          "body": "Nowy scope tokenu external obok session/builtin: przypięty do workspace i trybu (plan/ask/agent), z nazwą klienta, datą ważności i listą odwołanych identyfikatorów. Przechowywać tylko skrót, a sam token pokazać raz przy tworzeniu. Zrobione 2026-10-22: lib/mcp/mcp-external-clients.js (token cmx1.<id>.<sekret>, w pliku tylko sha256, chmod 600, tryby plan/agent, ważność 1-365 dni, odwołanie)."
+        },
+        {
+          "title": "Transport: natywny endpoint Streamable HTTP /mcp",
+          "key": "external-mcp-http-transport-2026-10-22",
+          "status": "done",
+          "body": "Serwer MCP po HTTP (SDK @modelcontextprotocol/sdk już jest w zależnościach) z autoryzacją Bearer, żeby klient łączył się po URL bez lokalnego Node 22 i bez kopii repo. Ścieżka stdio przez scripts/cretli-mcp.js --bridge zostaje jako alternatywa. Zrobione 2026-10-22: lib/routes/mcp-external-routes.js, bezstanowy StreamableHTTPServerTransport pod /mcp, tylko serwer builtin-cretli, test tests/mcp-external.test.js z prawdziwym klientem SDK."
+        },
+        {
+          "title": "Ustawienia: włącznik, lista klientów, konfiguracja do skopiowania",
+          "key": "external-mcp-settings-ui-2026-10-22",
+          "status": "done",
+          "body": "Sekcja w Settings → MCP: włącznik (domyślnie wyłączony), tworzenie klienta (nazwa, workspace, tryb, ważność), lista z ostatnim użyciem i odwołaniem, gotowe snippety dla .mcp.json Claude Code, Cursora i komendy claude mcp add. Zrobione 2026-10-22: app_front/features/settings/externalMcpSettings.js w panelu MCP, przełączniki externalMcpEnabled/externalMcpAllowLan, snippet .mcp.json i komenda claude mcp add."
+        },
+        {
+          "title": "Bezpieczeństwo i audyt dostępu zewnętrznego",
+          "key": "external-mcp-security-2026-10-22",
+          "status": "idea",
+          "body": "Domyślnie tylko localhost (LAN jako świadome opt-in, jak bind serwera), limit częstotliwości, wpis audytu przy każdym wywołaniu narzędzia przez klienta zewnętrznego, broker zatwierdzeń dla trybu ask, wpis w SECURITY.md. Już jest (2026-10-22): domyślnie wyłączone, tylko localhost bez opt-in LAN, odrzucanie nagłówka Origin, linia logu [mcp-external] przy każdym wywołaniu. Zostało: limit częstotliwości, trwały audyt wywołań, tryb ask z brokerem zatwierdzeń, wpis w SECURITY.md."
+        }
+      ]
+    },
+    {
+      "title": "Stabilizacja testów bazowych",
+      "key": "baseline-tests-2026-10-22",
+      "status": "idea",
+      "body": "23 pliki testów padają na czystym kodzie (docs/test-baseline-triage-2026-10-21.md). Każdy pada deterministycznie także osobno. Cel: zielony `npm test` na Node 22, żeby pełny zestaw znów był wiarygodną bramką.",
+      "children": [
+        {
+          "title": "Naprawić niepoprawny JSON allowlisty kontrolera delegacji",
+          "key": "fix-delegation-allowlist-json-2026-10-22",
+          "status": "idea",
+          "body": "config/delegation-controller-allowlist.json jest niepoprawnym JSON-em od 018b3d72: brakuje przecinka po wpisie findInheritableImplementVerify (l. 146), a wpis jest zduplikowany (l. 148). Dodać przecinek, usunąć duplikat, uruchomić tests/delegation-controller-guard.test.js."
+        },
+        {
+          "title": "Zamienić surowe font-size w app.scss na tokeny",
+          "key": "app-scss-font-tokens-2026-10-22",
+          "status": "idea",
+          "body": "app_front/css/app.scss l. 39, 69, 96, 101 (0.78rem, 0.85rem, 0.8rem, 0.8rem) od c03a0f14 łamią ui-tokens-lint. Użyć --cr-font-size-*, sprawdzić tests/ui-tokens-lint.test.js."
+        },
+        {
+          "title": "Decyzja: przycisk wyciszenia czatu w sidebarze",
+          "key": "decide-sidebar-mute-button-2026-10-22",
+          "status": "idea",
+          "body": "tests/sidebar-delegation.test.js:69 oczekuje klasy sidebar-chat-mute-btn, której sidebarView.js nigdy nie miał (test z 727d243b razem z chatMuteStore). Zdecydować: dodać przycisk w sidebarze albo usunąć oczekiwanie z testu."
+        },
+        {
+          "title": "Zaktualizować nieaktualne testy (15 plików)",
+          "key": "update-stale-tests-2026-10-22",
+          "status": "idea",
+          "body": "Testy przypinają strukturę, która urosła: architecture-acceptance (manifest stage7), chat-list-title-patch i persisted-local-chat-state-ui (forceRefresh), delegation-code-review-phase, delegation-list-compact, delegation-workflow, harness-snapshot-registry, model-alias-policy, orchestrator-leaf-resolution, reviewer-policy, recovery-contract, sidebar-chat-status, todos-persist-cache, view-memory-panel, watcher-panel-workspace-race, worktree-todo-mode. Konkretne poprawki w docs/test-baseline-triage-2026-10-21.md."
+        },
+        {
+          "title": "Testy czekające na unref()-owane timery",
+          "key": "unref-timer-tests-2026-10-22",
+          "status": "idea",
+          "body": "storage-coordinator.test.js i can-use-tool-permission-flow.test.js czekają na timer z unref() (lib/storage/coordinator.js:708, lib/approval/can-use-tool-permission.ts:225), więc pętla zdarzeń kończy się przed rozstrzygnięciem. Trzymać ref'owany handle w teście albo użyć mock.timers."
+        },
+        {
+          "title": "CI dla gałęzi next/*",
+          "key": "ci-next-branches-2026-10-22",
+          "status": "idea",
+          "body": ".github/workflows/ci.yml uruchamia się tylko dla push na main/master i PR do nich, więc pushe na next/* nie są sprawdzane. Dodać next/** do on.push.branches albo otwierać draft PR."
+        }
+      ]
+    },
+    {
+      "title": "Dokończenie B2: pozostałe sprzężenia z harnessami",
+      "key": "b2-remaining-coupling-2026-10-22",
+      "status": "idea",
+      "body": "Punkty wejścia są zrobione (9/9), ale kod współdzielony nadal ma 6937 odwołań do harnessów nie-core i 263 gałęzie po transporcie. Kolejność według hotspotów z docs/harness-coupling-inventory.json.",
+      "children": [
+        {
+          "title": "Guard PTY legacy w ws-router: zai/mimo i rejestr",
+          "key": "ws-router-pty-guard-2026-10-22",
+          "status": "idea",
+          "body": "lib/ws/ws-router.ts, ścieżka /ws-agent z resumeId: guard zamyka czaty 9 harnessów kodem 4000, ale pomija zai i mimo, więc te czaty trafiają do PTY. Zdecydować, czy to przeoczenie, potem przepiąć guard na rejestr providerów. Uwaga: tests/ws-agent-local-resume-guard.test.js przypina tekst gałęzi."
+        },
+        {
+          "title": "UI czatu: metadane harnessów z jednego rejestru frontu",
+          "key": "chat-ui-harness-registry-2026-10-22",
+          "status": "idea",
+          "body": "Najwięcej gałęzi zostało w app_front/chat.js (63), chatModelSelect.js (41), sdk-transport-labels.js (24), harnessSettings.js, firstRunSetup.js, newChatHarnessStatus.js, cr-sdk-mode-bar.js. Frontowy rejestr metadanych harnessu (etykieta, ikona, możliwości, nazwa zdarzenia odświeżenia modeli) zamiast porównań po id. chat.js dzielić tylko wzdłuż szwów (vertical V4 z ADR-0001)."
+        },
+        {
+          "title": "lanSettings.js: ekran ustawień harnessu ze schematu",
+          "key": "lan-settings-schema-2026-10-22",
+          "status": "idea",
+          "body": "app_front/lanSettings.js ma 511 odwołań, głównie pola kluczy API per harness. Moduły lib/<id>/<id>-settings.js już opisują pola po stronie serwera, więc dodać im settingsSchema (pola, typy, walidacja, i18n) i renderować sekcje ze schematu."
+        },
+        {
+          "title": "i18n: klucze harnessów w paczkach harnessów",
+          "key": "harness-i18n-bundles-2026-10-22",
+          "status": "idea",
+          "body": "app_front/i18n/en.js i pl.js mają około 630 odwołań do harnessów. Wydzielić klucze per harness, żeby plugin wnosił własne tłumaczenia."
+        },
+        {
+          "title": "Fałszywy transport testowy zamiast opencode/deepseek",
+          "key": "fake-test-transport-2026-10-22",
+          "status": "idea",
+          "body": "45% odwołań (335 plików) to testy rdzenia, które używają opencode/deepseek jako przykładowych transportów (delegacje, watcher, recovery). Dodać fixture transportu testowego w rejestrze i przełączyć na niego testy rdzenia, zanim harnessy wyjdą do pluginów."
+        },
+        {
+          "title": "Cykl życia opencode za hookiem providera",
+          "key": "opencode-lifecycle-hook-2026-10-22",
+          "status": "idea",
+          "body": "server.js (37 odwołań, env CRETLI_OPENCODE_INSTANCE_FOLDER) i lib/memory-monitor.js (55) znają opencode wprost. Przenieść start/stop/monitoring procesów za hook processLifecycle w deskryptorze providera."
+        }
+      ]
+    },
+    {
+      "title": "B3: wyprowadzenie harnessów nie-core do pluginów",
+      "key": "b3-plugins-2026-10-22",
+      "status": "idea",
+      "body": "Po B2 harness to zestaw plików własnych i wpisów w 4 composition rootach (providers, backends, mcp/adapters/index, harnessModelSettingsPanels). B3 zamienia te wpisy na ładowanie przez lib/agent-harness/harness-plugin-loader.ts. Kolejność wg inwentarza: od najsłabiej sprzężonych.",
+      "children": [
+        {
+          "title": "Podpiąć loader pluginów w boot",
+          "key": "wire-plugin-loader-2026-10-22",
+          "status": "idea",
+          "body": "harness-plugin-loader.js nie jest podpięty. Decyzja: nowy origin builtin-optional albo local z katalogiem w repo. Plugin musi dostarczać osobne lekkie wejście dla backendu/ustawień/adaptera MCP i ciężkie dla runtime, bo inaczej wraca cykl TDZ room-kernel."
+        },
+        {
+          "title": "Pilot: mistral jako plugin",
+          "key": "pilot-mistral-plugin-2026-10-22",
+          "status": "idea",
+          "body": "Mistral jest najsłabiej sprzężony (15 plików własnych, około 2k linii). Przenieść do harnesses/mistral/ z harness-plugin.json, usunąć wpisy z composition rootów, zweryfikować włączanie i wyłączanie."
+        },
+        {
+          "title": "qwen, codebuddy, deepseek jako pluginy",
+          "key": "plugins-qwen-codebuddy-deepseek-2026-10-22",
+          "status": "idea",
+          "body": "Po pilocie: to samo dla qwen, codebuddy i deepseek. Testy harnessów idą razem z nimi, a CI ma job core i job optional."
+        },
+        {
+          "title": "Harness czatu OpenRouter jako plugin (klient zostaje)",
+          "key": "plugin-openrouter-chat-2026-10-22",
+          "status": "idea",
+          "body": "Decyzja D2: klient OpenRouter (model-pick, tytuły, cost proxy, usage) zostaje w rdzeniu jako lib/providers/openrouter, a do pluginu idą tylko openrouter-agent-ws i openrouter-agent-loop."
+        },
+        {
+          "title": "Klaster opencode + zai + mimo",
+          "key": "plugin-opencode-cluster-2026-10-22",
+          "status": "idea",
+          "body": "zai i mimo działają przez runtime opencode (opencode-zai-api-key, opencode-mimo-api-key). Wyprowadzać razem, na końcu, po hooku cyklu życia opencode."
+        },
+        {
+          "title": "B4: zgodność danych dla wyłączonych pluginów",
+          "key": "b4-disabled-plugin-data-2026-10-22",
+          "status": "idea",
+          "body": "Czat z transportem wyłączonego pluginu otwiera się tylko do odczytu, z komunikatem „włącz plugin X”, a historia zostaje nietknięta. Watcher i model_pick pomijają wyłączone harnessy, delegacja zwraca harness_unavailable, zapisane klucze API nie są kasowane."
+        }
+      ]
+    },
+    {
+      "title": "Ścieżka TypeScript",
+      "key": "ts-path-2026-10-22",
+      "status": "idea",
+      "body": "A0 (ratchet) i A1 (poziom strict, 17 plików) są zrobione. Dalej zgodnie z planem.",
+      "children": [
+        {
+          "title": "Kolejne kontrakty w poziomie strict",
+          "key": "strict-tier-contracts-2026-10-22",
+          "status": "idea",
+          "body": "Dopisywać do tsconfig.strict.json: kształty rekordów lib/persist/* (todo, chat, delegacja), typedefy delegation-* i workspace-watcher* (bez rename, V5 z ADR-0001), protokół WebSocket współdzielony z frontem."
+        },
+        {
+          "title": "A2: pierwsze pliki .ts i lib/shared-types",
+          "key": "a2-first-ts-files-2026-10-22",
+          "status": "idea",
+          "body": "Podbić engines.node do >=22.18 (natywne usuwanie typów, sprawdzić Termux i Docker), dodać @types/ws, nowe pliki pisać w .ts, przekonwertować liście (model-facts, usage, credit-ledger), a wspólne typy domenowe przenieść do lib/shared-types."
+        },
+        {
+          "title": "A3: core harnessy w TS",
+          "key": "a3-core-harnesses-ts-2026-10-22",
+          "status": "idea",
+          "body": "Po B3: lib/agent-harness, lib/claude, lib/codex i lib/sdk do .ts ze strict per katalog."
+        },
+        {
+          "title": "A4: front z esbuild-loader",
+          "key": "a4-front-esbuild-2026-10-22",
+          "status": "idea",
+          "body": "esbuild-loader w webpack.*.js (tylko transpilacja), konwersja per feature. chat.js poza tym krokiem, bo jego podział należy do V4."
+        },
+        {
+          "title": "A5: strict globalnie",
+          "key": "a5-global-strict-2026-10-22",
+          "status": "idea",
+          "body": "Gdy baseline w lib/ będzie bliski zera: strict w tsconfig.json, potem noUncheckedIndexedAccess."
+        }
+      ]
+    },
+    {
+      "title": "Szybsze testy",
+      "key": "faster-tests-2026-10-22",
+      "status": "idea",
+      "body": "Pełny zestaw to około 1087 plików i 40 minut, a test:affected przy gęstym grafie importów wybiera do 470 plików.",
+      "children": [
+        {
+          "title": "Równoległy runner testów",
+          "key": "parallel-test-runner-2026-10-22",
+          "status": "idea",
+          "body": "scripts/run-unit-tests.mjs --jobs N: osobny CRETLI_DATA_DIR na plik (porażki bazowe odtwarzają się osobno, więc izolacja nie zmienia wyników). Ryzyko: testy ze stałymi portami, więc najpierw zrobić ich listę."
+        },
+        {
+          "title": "Node 22 w środowisku deweloperskim",
+          "key": "dev-node22-2026-10-22",
+          "status": "idea",
+          "body": "Lokalnie jest Node 20.20, a testy wymagają >=22.16 (node:sqlite). Dodać .nvmrc albo engines-strict i opisać to w CONTRIBUTING.md."
+        }
+      ]
+    }
+  ]
+}

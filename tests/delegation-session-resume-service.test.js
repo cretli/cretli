@@ -1,0 +1,109 @@
+/**
+ * Start-path integration of the optional session resume: the second review
+ * re-enters the first reviewer's chat as a NEW delegation, falls back with a
+ * recorded reason when it cannot, and never lets two starts share a session.
+ */
+import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
+import './fixtures/fake-transport.js';
+import { confirmDurableFinish } from './helpers/delegation-durable-finish.js';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { addChat, updateChat } from '../lib/persist/chats-persist.js';
+import { getDelegationById } from '../lib/persist/delegations-persist.js';
+import { saveDelegationSettings } from '../lib/persist/delegation-settings-persist.js';
+import { createDelegationService, finishDelegation } from '../lib/delegation-service.js';
+import { registerMockChatRunAdapter, resetMockChatRuns, getMockChatRun, patchMockChatRun } from '../lib/chat-run/mock-adapter.ts';
+import { stopDelegationRuntimeWorker } from '../lib/delegation-runtime-worker.js';
+
+resetMockChatRuns();
+registerMockChatRunAdapter('testfake');
+stopDelegationRuntimeWorker();
+
+const workspace = ISOLATED_DATA_DIR;
+const service = createDelegationService({
+  workspaceDirForAgent: () => workspace,
+  dataDir: workspace,
+  isModelAvailable: () => true,
+});
+const parent = addChat(randomUUID(), 'resume-parent', null, workspace, 'testfake/test', {
+  agentTransport: 'testfake',
+  sdkMode: 'agent',
+});
+saveDelegationSettings(workspace, {
+  reviewer_policy: { plan: { selection: 'auto', session: 'leaf' } },
+}, { dataDir: workspace });
+
+async function startReview(text, overrides = {}) {
+  const result = await service.createAndStart({
+    parentChatId: parent.id,
+    sourceKind: 'text',
+    taskText: text,
+    executor: { transport: 'testfake', model: 'testfake/test' },
+    idempotencyKey: randomUUID(),
+    executionMode: 'agent',
+    assignment: 'review',
+    reviewSubject: 'plan',
+    returnWhenStarting: false,
+    ...overrides,
+  });
+  assert.equal(result.ok, true, result.error || 'start failed');
+  return result.delegation;
+}
+
+async function finish(row, verdict = 'PASS') {
+  // A finished run releases the chat; the mock keeps `busy` until told otherwise.
+  patchMockChatRun(row.childChatId, { busy: false });
+  const done = finishDelegation(row, { status: 'completed', report: `TASK: review\nVERDICT: ${verdict}\nok` });
+  return confirmDurableFinish(done);
+}
+
+// First session under an enabled policy: a recorded fresh decision.
+const first = await startReview('round one');
+assert.equal(first.sessionResume.status, 'fresh');
+assert.equal(first.sessionResume.reasonCode, 'reuse_first_session');
+await finish(first);
+updateChat(first.childChatId, { opencodeSessionId: 'oc-session-1' });
+
+// Explicit resume: same chat, new delegation/attempt, round 2.
+const second = await startReview('round two', { resumeSessionOf: first.id });
+assert.equal(second.sessionResume?.status, 'resumed', JSON.stringify(second.sessionResume));
+assert.equal(second.childChatId, first.childChatId);
+assert.notEqual(second.id, first.id);
+assert.notEqual(second.attemptId, first.attemptId);
+assert.equal(second.sessionResume.round, 2);
+assert.match(getMockChatRun(second.childChatId).prompt, /\[RESUMED REVIEW ROUND 2\]/);
+assert.equal(getDelegationById(first.id).sessionResume.status, 'fresh', 'the earlier round is never rewritten');
+
+// The prompt-build step writes the cache contract onto the PERSISTED record
+// (lib/delegation-service.js after buildDelegationExecutorPrompt), not just onto
+// the returned prompt object.
+const firstRecord = getDelegationById(first.id);
+const secondRecord = getDelegationById(second.id);
+assert.match(firstRecord.promptPrefixFingerprint, /^[0-9a-f]{16}$/, 'first round records the 16-char prefix fingerprint');
+assert.match(secondRecord.promptPrefixFingerprint, /^[0-9a-f]{16}$/, 'resumed round records the 16-char prefix fingerprint');
+assert.equal(
+  secondRecord.promptPrefixFingerprint,
+  firstRecord.promptPrefixFingerprint,
+  'a resumed round keeps the same stable prefix fingerprint',
+);
+assert.ok(
+  Number.isInteger(firstRecord.promptCacheGeneration) && firstRecord.promptCacheGeneration >= 0,
+  'the record carries a non-negative prompt cache generation',
+);
+assert.ok(
+  Number.isInteger(secondRecord.promptCacheGeneration) && secondRecord.promptCacheGeneration >= 0,
+  'the resumed record carries a non-negative prompt cache generation',
+);
+
+// A concurrent start naming the same session never shares the live chat.
+const third = await startReview('round two (racer)', { resumeSessionOf: first.id });
+assert.equal(third.sessionResume?.status, 'fallback');
+assert.equal(third.sessionResume.reasonCode, 'resume_session_claimed');
+assert.notEqual(third.childChatId, first.childChatId);
+
+// A missing pointer target is a recorded fallback, not an error.
+const missing = await startReview('round x', { resumeSessionOf: randomUUID() });
+assert.equal(missing.sessionResume.reasonCode, 'resume_source_not_found');
+assert.notEqual(missing.childChatId, first.childChatId);
+
+console.log('delegation-session-resume-service.test.js OK');

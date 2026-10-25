@@ -1,0 +1,284 @@
+/**
+ * Helpers for waiting on OpenCode async prompt completion via SSE events.
+ */
+
+import {
+  formatOpenCodeSessionError,
+  isOpenCodeEventForSession,
+  readOpenCodeEventSessionId,
+} from './opencode-event-normalizer.js';
+import { loadSettings } from '../../lib/persist/settings.js';
+import {
+  createDelegationAdapterTimeoutError,
+  DELEGATION_ADAPTER_TIMEOUT_CODE,
+  isDelegationAdapterTimeout,
+  tagDelegationAdapterTimeout,
+} from '../../lib/delegation-adapter-error.js';
+import { OPENCODE_INSTANCE_LIMIT_CODE } from './opencode-server-manager.js';
+
+const DEFAULT_PROMPT_TIMEOUT_MS = 600000;
+const MIN_PROMPT_TIMEOUT_MS = 60000;
+const MAX_PROMPT_TIMEOUT_MS = 7200000;
+const DEFAULT_FIRST_EVENT_TIMEOUT_MS = 180000;
+
+/**
+ * @returns {number}
+ */
+export function resolveOpenCodePromptTimeoutMs() {
+  const fromEnv = Number.parseInt(String(process.env.OPENCODE_PROMPT_TIMEOUT_MS ?? ''), 10);
+  if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv;
+  const settings = loadSettings();
+  const idleSec = Number.parseInt(String(settings.sdkRunIdleTimeoutSeconds ?? ''), 10);
+  if (Number.isFinite(idleSec) && idleSec > 0) {
+    return Math.min(MAX_PROMPT_TIMEOUT_MS, Math.max(MIN_PROMPT_TIMEOUT_MS, idleSec * 1000));
+  }
+  return DEFAULT_PROMPT_TIMEOUT_MS;
+}
+
+/**
+ * @returns {number}
+ */
+export function resolveOpenCodeFirstEventTimeoutMs() {
+  const fromEnv = Number.parseInt(String(process.env.OPENCODE_FIRST_EVENT_TIMEOUT_MS ?? ''), 10);
+  if (Number.isFinite(fromEnv) && fromEnv > 0) {
+    return Math.min(MAX_PROMPT_TIMEOUT_MS, Math.max(MIN_PROMPT_TIMEOUT_MS, fromEnv));
+  }
+  const settings = loadSettings();
+  const fromSettingsSec = Number.parseInt(String(settings.sdkRunFirstEventTimeoutSeconds ?? ''), 10);
+  if (Number.isFinite(fromSettingsSec) && fromSettingsSec > 0) {
+    const fromSettingsMs = fromSettingsSec * 1000;
+    return Math.min(MAX_PROMPT_TIMEOUT_MS, Math.max(MIN_PROMPT_TIMEOUT_MS, fromSettingsMs));
+  }
+  return DEFAULT_FIRST_EVENT_TIMEOUT_MS;
+}
+
+export { resolveOpenCodeDelegatedFirstEventTimeoutMs } from '../../lib/delegation-startup-lockout-policy.js';
+
+/**
+ * @param {any} room
+ */
+export function bumpOpenCodePromptRunActivity(room) {
+  room?._promptRunWaiter?.bumpActivity?.();
+}
+
+/**
+ * @param {unknown} event
+ * @param {{ opencodeSessionId?: string }} [context]
+ * @returns {boolean}
+ */
+export function shouldBumpOpenCodePromptRunActivity(event, context = {}) {
+  if (!event || typeof event !== 'object') return false;
+  if (!isOpenCodeEventForSession(event, context.opencodeSessionId)) return false;
+  if (readOpenCodeEventSessionId(event)) return true;
+  const type = String(/** @type {{ type?: unknown }} */ (event).type || '').toLowerCase();
+  return type.startsWith('session.')
+    || type.startsWith('permission.')
+    || type.includes('tool');
+}
+
+/**
+ * @param {any} room
+ * @param {number} [timeoutMs]
+ * @param {number} [firstEventTimeoutMs]
+ * @returns {Promise<{ status: 'completed' | 'error' | 'cancelled', message?: string }>}
+ */
+export function createOpenCodePromptRunWaiter(
+  room,
+  timeoutMs = resolveOpenCodePromptTimeoutMs(),
+  firstEventTimeoutMs = resolveOpenCodeFirstEventTimeoutMs()
+) {
+  if (room?._promptRunWaiter?.reject) {
+    room._promptRunWaiter.reject(new Error('Prompt superseded'));
+  }
+  return new Promise((resolve, reject) => {
+    /** @type {ReturnType<typeof setTimeout> | null} */
+    let timer = null;
+    let hasSeenFirstEvent = false;
+    const safeTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? timeoutMs
+      : resolveOpenCodePromptTimeoutMs();
+    const safeFirstEventTimeoutMs = Number.isFinite(firstEventTimeoutMs) && firstEventTimeoutMs > 0
+      ? firstEventTimeoutMs
+      : 0;
+    /**
+     * @param {number} delayMs
+     * @param {string} timeoutMessage
+     */
+    const scheduleTimeout = (delayMs, timeoutMessage) => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (room._promptRunWaiter) room._promptRunWaiter = null;
+        reject(createDelegationAdapterTimeoutError(timeoutMessage));
+      }, delayMs);
+    };
+    const schedulePromptTimeout = () => {
+      scheduleTimeout(safeTimeoutMs, 'OpenCode prompt timed out');
+    };
+    const scheduleFirstEventTimeout = () => {
+      if (safeFirstEventTimeoutMs <= 0) {
+        schedulePromptTimeout();
+        return;
+      }
+      scheduleTimeout(safeFirstEventTimeoutMs, 'OpenCode prompt first event timed out');
+    };
+    room._promptRunWaiter = {
+      resolve: (result) => {
+        if (timer) clearTimeout(timer);
+        room._promptRunWaiter = null;
+        resolve(result);
+      },
+      reject: (err) => {
+        if (timer) clearTimeout(timer);
+        room._promptRunWaiter = null;
+        reject(err instanceof Error ? err : new Error(String(err)));
+      },
+      bumpActivity: () => {
+        if (!hasSeenFirstEvent) {
+          hasSeenFirstEvent = true;
+        }
+        schedulePromptTimeout();
+      },
+    };
+    scheduleFirstEventTimeout();
+  });
+}
+
+/**
+ * @param {any} room
+ * @param {{ status: 'completed' | 'error' | 'cancelled', message?: string }} result
+ */
+export function notifyOpenCodePromptRunEnd(room, result) {
+  const waiter = room?._promptRunWaiter;
+  if (!waiter?.resolve) return;
+  waiter.resolve(result);
+}
+
+/**
+ * Observe the waiter immediately, including while prompt submission is pending.
+ * A stalled HTTP request must not hide the first-event timeout or a stop.
+ * @param {Promise<{ status: 'completed' | 'error' | 'cancelled', message?: string }>} waiter
+ * @param {() => Promise<unknown>} submit
+ * @param {() => void} onAccepted
+ * @returns {Promise<{ status: 'completed' | 'error' | 'cancelled', message?: string }>}
+ */
+export function submitOpenCodePromptAndWait(waiter, submit, onAccepted) {
+  let settled = false;
+  const observedWaiter = waiter.finally(() => { settled = true; });
+  const submission = Promise.resolve().then(submit).then(() => {
+    if (!settled) onAccepted();
+    return observedWaiter;
+  });
+  return Promise.race([observedWaiter, submission]);
+}
+
+/**
+ * Settle a run whose OpenCode session abort was acknowledged. After an abort
+ * the server may never emit a usable idle event (an aborted tool stays "open",
+ * or a permission/question is still pending), and `resolveOpenCodePromptRunFromEvent`
+ * deliberately ignores idle in both cases, so the prompt waiter would sit until
+ * the prompt timeout while the delegation stays `cancelling`. Call this ONLY
+ * after `session.abort` succeeded or the owned process has confirmed its exit:
+ * a failed abort without proof of exit must leave the run busy.
+ *
+ * @param {any} room
+ * @returns {{ questionIds: string[], permissionIds: string[], settledWaiter: boolean }}
+ */
+export function settleOpenCodePromptRunAfterAbort(room) {
+  const questionIds = room?._pendingOpenCodeQuestions instanceof Map
+    ? [...room._pendingOpenCodeQuestions.keys()].map(String)
+    : [];
+  const permissionIds = room?._pendingOpenCodePermissions instanceof Map
+    ? [...room._pendingOpenCodePermissions.keys()].map(String)
+    : [];
+  if (questionIds.length) room._pendingOpenCodeQuestions.clear();
+  if (permissionIds.length) room._pendingOpenCodePermissions.clear();
+  const settledWaiter = Boolean(room?._promptRunWaiter?.resolve);
+  if (settledWaiter) notifyOpenCodePromptRunEnd(room, { status: 'cancelled' });
+  return { questionIds, permissionIds, settledWaiter };
+}
+
+/**
+ * @param {any} room
+ * @param {unknown} err
+ */
+export function rejectOpenCodePromptRun(room, err) {
+  const waiter = room?._promptRunWaiter;
+  if (!waiter?.reject) return;
+  waiter.reject(err);
+}
+
+/**
+ * @param {unknown} event
+ * @param {{ opencodeSessionId?: string, hasPendingUserInput?: boolean, hasOpenTools?: boolean }} [context]
+ * @returns {{ status: 'completed' | 'error', message?: string } | null}
+ */
+export function resolveOpenCodePromptRunFromEvent(event, context = {}) {
+  if (!event || typeof event !== 'object') return null;
+  if (!isOpenCodeEventForSession(event, context.opencodeSessionId)) return null;
+  const type = typeof event.type === 'string' ? event.type : '';
+  const properties = event.properties && typeof event.properties === 'object'
+    ? event.properties
+    : event.data && typeof event.data === 'object'
+      ? event.data
+      : null;
+  if (!properties) return null;
+  if (type === 'session.error') {
+    return {
+      status: 'error',
+      message: formatOpenCodeSessionError(properties.error),
+    };
+  }
+  const status = properties.status && typeof properties.status === 'object'
+    ? /** @type {Record<string, unknown>} */ (properties.status)
+    : null;
+  const isIdle = type === 'session.idle' || (type === 'session.status' && status?.type === 'idle');
+  if (!isIdle) return null;
+  if (context.hasPendingUserInput === true) return null;
+  if (context.hasOpenTools === true) return null;
+  return { status: 'completed' };
+}
+
+// A Cretli-requested stop ends as cancelled, whatever error the adapter reports.
+export function buildOpenCodeRunErrorEvents({
+  runId,
+  message,
+  err = null,
+  cancelled = false,
+  planGuardTriggered = false,
+  remaining,
+}) {
+  if (cancelled) {
+    return [{
+      type: 'sdkRunFinished',
+      runId,
+      status: planGuardTriggered ? 'plan_guard_cancelled' : 'cancelled',
+      lastErrorMessage: '',
+      remaining,
+    }];
+  }
+  const tagged = tagDelegationAdapterTimeout(err);
+  const isTimeout = isDelegationAdapterTimeout(tagged) || isDelegationAdapterTimeout({ message });
+  const errorMessage = message || 'OpenCode session error';
+  // The opt-in instance cap refuses a create; keep that actionable code instead
+  // of folding it into the generic `opencode_error`.
+  const isInstanceLimit = err?.code === OPENCODE_INSTANCE_LIMIT_CODE;
+  const code = isTimeout
+    ? DELEGATION_ADAPTER_TIMEOUT_CODE
+    : isInstanceLimit
+      ? OPENCODE_INSTANCE_LIMIT_CODE
+      : 'opencode_error';
+  const publicMessage = isTimeout && !errorMessage.includes(DELEGATION_ADAPTER_TIMEOUT_CODE)
+    ? `[${DELEGATION_ADAPTER_TIMEOUT_CODE}] ${errorMessage}`
+    : errorMessage;
+  return [
+    { type: 'sdkError', code, message: publicMessage },
+    {
+      type: 'sdkRunFinished',
+      runId,
+      status: 'error',
+      lastErrorCode: code,
+      lastErrorMessage: publicMessage,
+      remaining,
+    },
+  ];
+}

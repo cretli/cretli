@@ -1,0 +1,5 @@
+{
+  "_note": "Sanitized shape of an OpenCode v2 sync-wrapped session.next.step.ended event.",
+  "event": {"type":"sync","syncEvent":{"type":"session.next.step.ended.1","data":{"timestamp":1760000000000,"sessionID":"ses_fixture_0002","assistantMessageID":"msg_fixture_0002","finish":"stop","cost":0.002,"tokens":{"input":800,"output":40,"reasoning":10,"cache":{"read":600,"write":0}}}}},
+  "expectedDelta": {"input":800,"output":40,"reasoning":10,"cacheRead":600,"cacheWrite":0}
+}

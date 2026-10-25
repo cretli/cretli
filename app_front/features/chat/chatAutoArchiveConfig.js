@@ -1,0 +1,118 @@
+/**
+ * Cached chat auto-archive configuration for synchronous UI reads.
+ *
+ * The Settings section owns the settings fetch (`chatAutoArchiveSettings.js`)
+ * and pushes the normalized value here; the sidebar countdown reads it while
+ * patching rows, where awaiting a fetch is not an option. Disabled until the
+ * first successful load, so no countdown can appear before the operator opts in.
+ */
+
+/**
+ * @typedef {{ enabled: boolean, idleMs: number, skipFavorites: boolean }} ChatAutoArchiveConfig
+ */
+
+const UNIT_MS = Object.freeze({
+  minutes: 60_000,
+  hours: 60 * 60_000,
+  days: 24 * 60 * 60_000,
+});
+
+/** @type {ChatAutoArchiveConfig} */
+const DISABLED = Object.freeze({ enabled: false, idleMs: 0, skipFavorites: true });
+
+/** @type {ChatAutoArchiveConfig} */
+let current = DISABLED;
+/** @type {Set<(config: ChatAutoArchiveConfig) => void>} */
+const listeners = new Set();
+
+/**
+ * Accept either a server settings block (`idleMs`) or a `{ idleValue, idleUnit }`
+ * pair, and always return a safe `{ enabled, idleMs }`.
+ *
+ * @param {object | null | undefined} input
+ * @returns {ChatAutoArchiveConfig}
+ */
+export function normalizeChatAutoArchiveConfig(input) {
+  const cfg = /** @type {Record<string, any>} */ (input && typeof input === 'object' ? input : {});
+  let idleMs = Number(cfg.idleMs);
+  if (!Number.isFinite(idleMs) || idleMs <= 0) {
+    const unitMs = UNIT_MS[cfg.idleUnit];
+    const value = Math.round(Number(cfg.idleValue));
+    idleMs = unitMs && Number.isFinite(value) && value > 0 ? value * unitMs : 0;
+  }
+  if (!Number.isFinite(idleMs) || idleMs <= 0) idleMs = 0;
+  // Mirrors the server default: favorites are protected unless explicitly off.
+  return { enabled: cfg.enabled === true, idleMs, skipFavorites: cfg.skipFavorites !== false };
+}
+
+/**
+ * Store the latest configuration and notify listeners when it actually changed.
+ *
+ * @param {object | null | undefined} input
+ * @returns {void}
+ */
+export function setChatAutoArchiveConfig(input) {
+  const next = normalizeChatAutoArchiveConfig(input);
+  if (
+    next.enabled === current.enabled
+    && next.idleMs === current.idleMs
+    && next.skipFavorites === current.skipFavorites
+  ) return;
+  current = next;
+  for (const listener of listeners) {
+    try {
+      listener(current);
+    } catch (_) {
+      // A bad listener must never break the settings save path.
+    }
+  }
+}
+
+/**
+ * @returns {ChatAutoArchiveConfig}
+ */
+export function getChatAutoArchiveConfig() {
+  return current;
+}
+
+/**
+ * @param {(config: ChatAutoArchiveConfig) => void} listener
+ * @returns {() => void}
+ */
+export function subscribeChatAutoArchiveConfig(listener) {
+  if (typeof listener !== 'function') return () => {};
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/** @type {(chatId: string) => boolean} */
+let favoriteResolver = () => false;
+
+/**
+ * Register how the sidebar countdown asks whether a chat is starred (the chat
+ * favorites store lives in `chat.js`).
+ *
+ * @param {((chatId: string) => boolean) | null} fn
+ * @returns {void}
+ */
+export function setChatAutoArchiveFavoriteResolver(fn) {
+  favoriteResolver = typeof fn === 'function' ? fn : () => false;
+}
+
+/**
+ * @param {string} chatId
+ * @returns {boolean}
+ */
+export function isChatAutoArchiveFavorite(chatId) {
+  try {
+    return favoriteResolver(String(chatId || '')) === true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Test seam: restore the disabled default. */
+export function __resetChatAutoArchiveConfigForTest() {
+  current = DISABLED;
+  favoriteResolver = () => false;
+}

@@ -1,0 +1,60 @@
+{
+  "profile": "data-backup-v1",
+  "manifestFormatVersion": 1,
+  "archiveContractRevision": "2026-10-13.1",
+  "archiveId": "c3d4e5f6-a7b8-4901-8234-567890abcdef",
+  "createdAt": "2026-10-13T12:30:00Z",
+  "cretliVersion": "0.4.1",
+  "persistence": {
+    "backend": "mixed-json-sqlite",
+    "schemaVersions": {
+      "settings": 1,
+      "chat-history": 2,
+      "delegations": 3,
+      "recovery": 1
+    },
+    "bootstrapMarker": "data/.cretli-storage-bootstrap.json"
+  },
+  "categories": [
+    {
+      "categoryId": "settings-projection",
+      "path": "stores/settings/portable.json",
+      "byteSize": 2048,
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "storeId": "settings",
+      "backend": "json-settings",
+      "schemaVersion": 1,
+      "recordCounts": { "sections": 4 }
+    },
+    {
+      "categoryId": "recovery-sqlite",
+      "path": "stores/recovery/recovery.sqlite",
+      "byteSize": 65536,
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "storeId": "recovery",
+      "backend": "sqlite-wal",
+      "schemaVersion": 1,
+      "recordCounts": { "intents": 3, "queueRows": 12 }
+    }
+  ],
+  "omissions": [
+    {
+      "path": "mcp-secrets.json",
+      "storeId": "mcp-config",
+      "reason": "secret"
+    },
+    {
+      "path": "sessions.json",
+      "reason": "retained_path"
+    },
+    {
+      "path": "usage/ledger.journal",
+      "storeId": "usage-ledger",
+      "reason": "optional_category_skipped"
+    }
+  ],
+  "totals": {
+    "uncompressedBytes": 67584,
+    "categoryCount": 2
+  }
+}

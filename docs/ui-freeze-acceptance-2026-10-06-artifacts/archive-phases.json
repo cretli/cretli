@@ -1,0 +1,131 @@
+{
+ "main": [
+  1983586,
+  1983586
+ ],
+ "base": 243375043016,
+ "marks": [
+  [
+   0.098,
+   "archive-open-click"
+  ],
+  [
+   5.543,
+   "archive-done"
+  ]
+ ],
+ "long_tasks": [
+  {
+   "t": 0.001,
+   "ms": 97.79,
+   "phase": "(none)",
+   "sub": [
+    [
+     "CpuProfiler::StartProfiling",
+     1,
+     97.13,
+     97.13
+    ]
+   ]
+  },
+  {
+   "t": 0.486,
+   "ms": 54.91,
+   "phase": "archive-open-click",
+   "sub": [
+    [
+     "ProxyMain::BeginMainFrame",
+     1,
+     54.87,
+     54.87
+    ],
+    [
+     "FireAnimationFrame",
+     1,
+     54.34,
+     54.34
+    ],
+    [
+     "v8.callFunction",
+     1,
+     54.32,
+     54.32
+    ],
+    [
+     "FunctionCall",
+     1,
+     54.21,
+     54.21
+    ]
+   ]
+  },
+  {
+   "t": 2.86,
+   "ms": 73.51,
+   "phase": "archive-open-click",
+   "sub": [
+    [
+     "WidgetBaseInputHandler::OnHandleInputEvent",
+     2,
+     73.42,
+     72.39
+    ],
+    [
+     "LatencyInfo.Flow",
+     2,
+     73.41,
+     72.38
+    ],
+    [
+     "EventDispatch",
+     1,
+     69.0,
+     69.0
+    ],
+    [
+     "v8.callFunction",
+     1,
+     68.92,
+     68.92
+    ],
+    [
+     "FunctionCall",
+     1,
+     64.09,
+     64.09
+    ],
+    [
+     "LocalFrameView::RunStyleAndLayoutLifecyclePhases",
+     1,
+     2.81,
+     2.81
+    ],
+    [
+     "UpdateLayoutTree",
+     1,
+     1.85,
+     1.85
+    ],
+    [
+     "MinorGC",
+     1,
+     1.29,
+     1.29
+    ],
+    [
+     "V8.GCScavenger",
+     1,
+     1.26,
+     1.26
+    ],
+    [
+     "V8.GC_SCAVENGER",
+     1,
+     1.25,
+     1.25
+    ]
+   ]
+  }
+ ],
+ "intervals": []
+}

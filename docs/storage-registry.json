@@ -1,0 +1,970 @@
+{
+  "registryVersion": 1,
+  "generatedAt": "2026-10-13T00:00:00.000Z",
+  "ownerTodoId": "7a287da9-a8ce-4058-8379-3dde2e4a0504",
+  "consumerTodoId": "5cf09e77-8278-497e-bd97-91227686ac06",
+  "contractDoc": "docs/storage-contract.md",
+  "runtimeMatrix": {
+    "minNode": "22.18.0",
+    "enginesNode": "22.18.0",
+    "verifiedNode": "22.23.2",
+    "bundledSqlite": "3.51.3",
+    "sqliteApi": "node:sqlite.DatabaseSync",
+    "notes": "A2 raised package engines to >=22.18 (lib/storage/runtime-check.js enforces Node and bundled SQLite >= 3.51.0); A1 matrix records tested pair."
+  },
+  "lockOrderHint": [
+    "store.recovery",
+    "store.usage-journal",
+    "store.delegations",
+    "store.workspace-watchers",
+    "store.todos",
+    "store.workspace-memory",
+    "store.chats",
+    "store.chat-history",
+    "store.chat-title-history",
+    "store.delegation-mailbox",
+    "store.delegation-workflows",
+    "store.delegation-ratings",
+    "store.mcp-config",
+    "store.config-settings",
+    "store.workspaces",
+    "store.auth-sessions",
+    "store.worktree-registry",
+    "store.sidebar-layout",
+    "store.workspace-watcher-cycles",
+    "store.model-pick-decisions",
+    "store.model-pick-explore",
+    "store.model-pick-overrides",
+    "store.model-role-profiles",
+    "store.benchmark-snapshots",
+    "store.notification-center",
+    "store.push-subscriptions",
+    "store.widget-installations",
+    "store.approval-audit",
+    "store.harness-usage-limits"
+  ],
+  "inventoryGaps": [
+    {
+      "id": "gap.workspace-folders-direct-write",
+      "paths": ["<workspace>/.cursor/** (non-data)"],
+      "writers": ["lib/workspace-folders.js writeFileSync"],
+      "blocksConsistentSnapshot": false,
+      "note": "Workspace-scoped editor files; outside data/ managed set until B1 classifies workspace exports."
+    },
+    {
+      "id": "gap.webpack-cli-watch-lock",
+      "paths": ["webpack-cli-watch-lock.json"],
+      "writers": ["lib/webpack-cli-watch-lock.js"],
+      "blocksConsistentSnapshot": true,
+      "note": "Runtime lock under data/; writer not yet registered on a store row — fails full data-dir snapshot until B6 gates it."
+    },
+    {
+      "id": "gap.harness-provider-homes",
+      "paths": ["claude-home/", "codex-home/", "codebuddy-home/", "dsh-home/", "qwen-home/", "sdk-agent-store/", "npm-cache/_npx/"],
+      "writers": ["harness CLI installers", "lib/claude/*", "lib/codex/*", "lib/sdk/*"],
+      "blocksConsistentSnapshot": false,
+      "note": "Retained harness homes per BACKUP-03; excluded from application-state consolidation."
+    },
+    {
+      "id": "gap.plan-limit-history-direct",
+      "paths": ["usage/plan-limits.jsonl", "usage/limits.jsonl", "usage/unclassified-errors.jsonl"],
+      "writers": ["lib/usage/plan-limit-history.ts", "lib/harness-usage-limits.js"],
+      "blocksConsistentSnapshot": true,
+      "note": "Auxiliary usage JSONL writers bypass usage-persist module inventory — snapshot must quiesce or add store rows in A2."
+    },
+    {
+      "id": "gap.delegation-json-shadow",
+      "paths": ["delegations.json"],
+      "writers": ["lib/persist/delegation-migrate.js", "lib/model-pick-history.js (read-only stat)"],
+      "blocksConsistentSnapshot": true,
+      "note": "When backend=sqlite, delegations.json is a marker; stale JSON rewrite would be an unknown writer — migration owns marker updates."
+    }
+  ],
+  "stores": [
+    {
+      "id": "store.recovery",
+      "domainOwner": "lib/recovery/recovery-store.ts",
+      "backend": { "kind": "sqlite-wal-full", "schemaVersion": 3, "file": "recovery.sqlite" },
+      "bootstrapMarker": { "path": "recovery.sqlite", "detect": "file-exists", "metaTable": "recovery_meta" },
+      "managedPaths": ["recovery.sqlite", "recovery.sqlite-wal", "recovery.sqlite-shm"],
+      "retainedPaths": [],
+      "lockOrderRank": 10,
+      "locks": ["single-writer DatabaseSync per process", "recovery_owner_lease row CAS"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "sqlite-commit-full" },
+      "secrets": { "classification": "metadata-only-no-prompts", "exportBoundary": "include-in-app-backup" },
+      "rawValidator": "recovery-store migrate + schema version check",
+      "adapters": {
+        "export": "sqlite-backup-api",
+        "snapshot": "sqlite-backup-api-or-clean-close",
+        "flush": "transaction-commit",
+        "restore": "file-replace-plus-integrity-check",
+        "migration": "in-place schema migration"
+      },
+      "durability": { "mode": "synchronous=FULL", "wal": true },
+      "ackClasses": ["executable-intent-before-launch", "post-commit-queue-drain"],
+      "writers": {
+        "known": [
+          { "channel": "background", "module": "lib/recovery/recovery-lifecycle.ts" },
+          { "channel": "background", "module": "lib/recovery/recovery-queue.ts" },
+          { "channel": "ws", "module": "chat-run / delegation services via recovery APIs" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.usage-journal",
+      "domainOwner": "lib/persist/usage-persist.js",
+      "backend": { "kind": "jsonl-append", "schemaVersion": 1, "indexFile": "usage/ledger-index.json" },
+      "bootstrapMarker": { "path": "usage/", "detect": "directory-exists" },
+      "managedPaths": ["usage/*.jsonl", "usage/ledger-index.json", "usage/.ledger.lock/**"],
+      "retainedPaths": [],
+      "lockOrderRank": 20,
+      "locks": ["usage/.ledger.lock inter-process", "in-process ledgerCache"],
+      "buffers": { "inMemoryCache": true, "flushStrategy": "append-fsync-then-index" },
+      "secrets": { "classification": "operational-metrics", "exportBoundary": "logical-export-with-privacy-rules" },
+      "rawValidator": "envelope v1 + CRC trailing line",
+      "adapters": {
+        "export": "journal-tail-replay",
+        "snapshot": "copy-jsonl-and-index-quiesced",
+        "flush": "fsync-append-line",
+        "restore": "replay-journal-rebuild-index",
+        "migration": "retain-by-default-unless-A1-gate"
+      },
+      "durability": { "mode": "per-record-fsync", "authoritative": true },
+      "ackClasses": ["post-commit-accounting"],
+      "writers": {
+        "known": [
+          { "channel": "background", "module": "lib/usage/usage-ledger.ts" },
+          { "channel": "http", "module": "lib/routes/usage-routes.js" },
+          { "channel": "background", "module": "lib/usage/usage-retention.ts" },
+          { "channel": "background", "module": "harness usage hooks" }
+        ],
+        "unknownGaps": ["usage/plan-limits.jsonl — see inventoryGaps"]
+      }
+    },
+    {
+      "id": "store.delegations",
+      "domainOwner": "lib/persist/delegations-persist.js",
+      "backend": {
+        "kind": "json-with-sqlite-lock",
+        "schemaVersion": 2,
+        "alternateBackend": { "kind": "sqlite-wal-full", "file": "delegations.sqlite", "schemaVersion": 1 },
+        "selector": "CRETLI_DELEGATION_STORE env + getDelegationStoreBackend()"
+      },
+      "bootstrapMarker": { "path": "delegations.json", "detect": "v-field", "sqliteMarker": "delegations.sqlite" },
+      "managedPaths": ["delegations.json", "delegations.sqlite", "delegations.sqlite-wal", "delegations.sqlite-shm", "delegation-owner.lock/**"],
+      "retainedPaths": [],
+      "lockOrderRank": 30,
+      "locks": ["delegation-owner-lock", "sqlite transaction when backend=sqlite"],
+      "buffers": { "inMemoryCache": true, "flushStrategy": "read-modify-write-document-or-upsert" },
+      "secrets": { "classification": "prompt-metadata-not-content", "exportBoundary": "logical-export" },
+      "rawValidator": "delegation-schema assertDelegationsJsonSchemaVersion",
+      "adapters": {
+        "export": "logical-json-or-sqlite-dump",
+        "snapshot": "owner-lock-then-copy",
+        "flush": "atomic-rename-or-sqlite-commit",
+        "restore": "delegation-migrate markers",
+        "migration": "lib/persist/delegation-migrate.js"
+      },
+      "durability": { "mode": "atomic-rename-or-sqlite-wal-full" },
+      "ackClasses": ["post-commit-delegation-record"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "lib/routes/delegation-routes.js" },
+          { "channel": "ws", "module": "lib/delegation-service.js" },
+          { "channel": "background", "module": "lib/workspace-watcher*.js" },
+          { "channel": "subprocess", "module": "delegation child harness (via server APIs only)" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.workspace-watchers",
+      "domainOwner": "lib/persist/workspace-watchers-persist.js",
+      "backend": { "kind": "json-with-sqlite-lock", "schemaVersion": 2, "lockFile": "workspace-watchers.lock.sqlite" },
+      "bootstrapMarker": { "path": "workspace-watchers.json", "detect": "v>=2" },
+      "managedPaths": ["workspace-watchers.json", "workspace-watchers.lock.sqlite"],
+      "retainedPaths": [],
+      "lockOrderRank": 40,
+      "locks": ["workspace-watchers.lock.sqlite empty-db writer lock", "withWorkspaceWatchersFileLock reentrant"],
+      "buffers": { "inMemoryCache": true, "flushStrategy": "CAS revision then atomic rename" },
+      "secrets": { "classification": "operational", "exportBoundary": "include" },
+      "rawValidator": "WORKSPACE_WATCHERS_SCHEMA_VERSION normalizer",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "file-lock-then-copy-json",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit-watcher-row"],
+      "writers": {
+        "known": [
+          { "channel": "background", "module": "lib/workspace-watcher.js tick" },
+          { "channel": "http", "module": "lib/routes/workspace-watcher-routes.js" },
+          { "channel": "background", "module": "lib/workspace-watcher-scout.js" },
+          { "channel": "background", "module": "lib/workspace-watcher-integration.js" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.todos",
+      "domainOwner": "lib/persist/todos-persist.js",
+      "backend": { "kind": "json-document-per-key", "schemaVersion": 3, "pathPattern": "todos/<workspaceKey>.json" },
+      "bootstrapMarker": { "path": "todos/", "detect": "directory-exists" },
+      "managedPaths": ["todos/*.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 50,
+      "locks": ["shared workspace-watchers.lock.sqlite via withWorkspaceWatchersFileLock"],
+      "buffers": { "inMemoryCache": true, "flushStrategy": "read-modify-write full document" },
+      "secrets": { "classification": "user-content-in-titles", "exportBoundary": "workspace-scoped-export" },
+      "rawValidator": "todo document version + tree invariants",
+      "adapters": {
+        "export": "logical-json-per-workspace",
+        "snapshot": "watcher-lock-then-copy",
+        "flush": "atomic-rename",
+        "restore": "per-file-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit-todo-cas"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "lib/routes/todos-routes.js" },
+          { "channel": "mcp", "module": "todo MCP tools" },
+          { "channel": "background", "module": "lib/workspace-watcher*.js claims" },
+          { "channel": "background", "module": "lib/todo-review-backfill.js" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.workspace-memory",
+      "domainOwner": "lib/persist/workspace-memory-persist.js",
+      "backend": { "kind": "json-document-per-key", "schemaVersion": 1, "pathPattern": "workspace-memory/<workspaceKey>.json" },
+      "bootstrapMarker": { "path": "workspace-memory/", "detect": "directory-exists" },
+      "managedPaths": ["workspace-memory/*.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 55,
+      "locks": ["workspace-watchers.lock.sqlite"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "CAS revision atomic rename" },
+      "secrets": { "classification": "operational-facts", "exportBoundary": "workspace-scoped" },
+      "rawValidator": "WORKSPACE_MEMORY_SCHEMA_VERSION",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "watcher-lock-then-copy",
+        "flush": "atomic-rename",
+        "restore": "per-file-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit-memory-upsert"],
+      "writers": {
+        "known": [
+          { "channel": "mcp", "module": "wmem MCP tools" },
+          { "channel": "background", "module": "lib/workspace-watcher-scout.js" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.chats",
+      "domainOwner": "lib/persist/chats-persist.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "chats.json" },
+      "bootstrapMarker": { "path": "chats.json", "detect": "file-exists" },
+      "managedPaths": ["chats.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 60,
+      "locks": ["in-process synchronous RMW — no cross-process lock"],
+      "buffers": { "inMemoryCache": true, "flushStrategy": "rewrite entire collection" },
+      "secrets": { "classification": "metadata", "exportBoundary": "logical-export" },
+      "rawValidator": "chats list shape",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "atomic-rename-no-fsync-protocol" },
+      "ackClasses": ["post-commit-chat-metadata"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "lib/routes/chats-routes.js" },
+          { "channel": "ws", "module": "harness chat lifecycle" },
+          { "channel": "background", "module": "lib/workspace-watcher-pinned-chat.js" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.chat-history",
+      "domainOwner": "lib/persist/chat-history-persist.js",
+      "backend": { "kind": "json-document-per-key", "schemaVersion": 1, "pathPattern": "chat-history/<chatId>.json" },
+      "bootstrapMarker": { "path": "chat-history/", "detect": "directory-exists" },
+      "managedPaths": ["chat-history/*.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 65,
+      "locks": ["in-process per-chat — concurrent chats unserialized cross-process"],
+      "buffers": { "inMemoryCache": true, "flushStrategy": "load full doc append/coalesce rewrite" },
+      "secrets": { "classification": "prompts-and-tool-output", "exportBoundary": "chat-export-redaction-options" },
+      "rawValidator": "headSeq monotonic + event shape",
+      "adapters": {
+        "export": "logical-json-per-chat",
+        "snapshot": "quiesce-writes-per-chat-or-stop-server",
+        "flush": "atomic-rename",
+        "restore": "per-file-replace",
+        "migration": "planned-a3a-incremental-sqlite"
+      },
+      "durability": { "mode": "atomic-rename-no-fsync-protocol" },
+      "ackClasses": ["provisional-stream-ui", "post-commit-persisted-history"],
+      "writers": {
+        "known": [
+          { "channel": "ws", "module": "lib/agent-harness/* append paths" },
+          { "channel": "http", "module": "history HTTP APIs" },
+          { "channel": "background", "module": "lib/persist/chat-history-persist.js batch flush" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.chat-title-history",
+      "domainOwner": "lib/persist/chat-title-history-persist.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "chat-title-history.json" },
+      "bootstrapMarker": { "path": "chat-title-history.json", "detect": "file-exists" },
+      "managedPaths": ["chat-title-history.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 70,
+      "locks": ["in-process RMW"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "rewrite document" },
+      "secrets": { "classification": "metadata", "exportBoundary": "include" },
+      "rawValidator": "v1 chats map",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit"],
+      "writers": {
+        "known": [
+          { "channel": "background", "module": "title generation / chat rename hooks" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.delegation-mailbox",
+      "domainOwner": "lib/persist/delegation-mailbox-persist.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "delegation-mailbox.json" },
+      "bootstrapMarker": { "path": "delegation-mailbox.json", "detect": "file-exists" },
+      "managedPaths": ["delegation-mailbox.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 80,
+      "locks": ["delegation-owner-lock when coupled migration"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "atomic rename" },
+      "secrets": { "classification": "operational", "exportBoundary": "include" },
+      "rawValidator": "MAILBOX_JSON_SCHEMA_VERSION",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "owner-lock-copy",
+        "flush": "atomic-rename",
+        "restore": "delegation-migrate",
+        "migration": "delegation-migrate sqlite mailbox tables"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit-mailbox"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "delegation inbox/outbox routes" },
+          { "channel": "background", "module": "delegation ack/delivery" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.delegation-workflows",
+      "domainOwner": "lib/persist/delegation-workflows-persist.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "delegation-workflows.json" },
+      "bootstrapMarker": { "path": "delegation-workflows.json", "detect": "file-exists" },
+      "managedPaths": ["delegation-workflows.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 90,
+      "locks": ["in-process RMW"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "atomic rename" },
+      "secrets": { "classification": "operational", "exportBoundary": "include" },
+      "rawValidator": "workflows document shape",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "workflow routes" },
+          { "channel": "background", "module": "lib/workspace-watcher-cycle-close.js" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.delegation-ratings",
+      "domainOwner": "lib/persist/delegation-ratings-persist.js",
+      "backend": { "kind": "jsonl-append", "schemaVersion": 1, "file": "delegation-ratings.jsonl" },
+      "bootstrapMarker": { "path": "delegation-ratings.jsonl", "detect": "file-exists" },
+      "managedPaths": ["delegation-ratings.jsonl"],
+      "retainedPaths": [],
+      "lockOrderRank": 100,
+      "locks": ["append-only single-writer assumption"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "append line" },
+      "secrets": { "classification": "operational", "exportBoundary": "include" },
+      "rawValidator": "line-json per record",
+      "adapters": {
+        "export": "jsonl-copy",
+        "snapshot": "stop-server-tail-copy",
+        "flush": "append",
+        "restore": "file-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "append-no-fsync-protocol" },
+      "ackClasses": ["post-append"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "delegation_rate MCP/HTTP" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.mcp-config",
+      "domainOwner": "lib/persist/mcp-persist.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "journal": "mcp-tx.json" },
+      "bootstrapMarker": { "path": "mcp.json", "detect": "file-exists" },
+      "managedPaths": ["mcp.json", "mcp-secrets.json", "mcp-tx.json", "mcp-integration-secret.json"],
+      "retainedPaths": ["mcp/dsh-mcp-bridge.yml", "mcp/dsh-mcp-bridge.yml.meta.json", "mcp/dsh-runtime.cordis.patch.yml"],
+      "lockOrderRank": 110,
+      "locks": ["in-process writeQueue serial async writes"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "two-phase journal then atomic files" },
+      "secrets": { "classification": "credentials-in-mcp-secrets", "exportBoundary": "exclude-secrets-from-ordinary-export" },
+      "rawValidator": "MCP_SCHEMA_VERSION + revision CAS",
+      "adapters": {
+        "export": "logical-json-split-public-secret",
+        "snapshot": "flush journal then copy",
+        "flush": "mcp-tx roll-forward",
+        "restore": "atomic multi-file with journal recovery",
+        "migration": "planned-settings-domain"
+      },
+      "durability": { "mode": "atomic-rename-plus-journal" },
+      "ackClasses": ["post-commit-revision"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "MCP settings routes" },
+          { "channel": "background", "module": "lib/mcp/mcp-integration-token.js" },
+          { "channel": "background", "module": "harnesses/deepseek/mcp-deepseek-patch.js (harness spawn; non-atomic writeFileSync into mcp/)" },
+          { "channel": "background", "module": "harnesses/deepseek/dsh-runtime-patch.js (harness spawn; non-atomic writeFileSync into mcp/)" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.config-settings",
+      "domainOwner": "lib/persist/settings.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "config.json" },
+      "bootstrapMarker": { "path": "config.json", "detect": "file-exists" },
+      "managedPaths": ["config.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 120,
+      "locks": ["in-process RMW"],
+      "buffers": { "inMemoryCache": true, "flushStrategy": "rewrite config.json" },
+      "secrets": { "classification": "non-credential-settings", "exportBoundary": "settings-export-strip-credentials" },
+      "rawValidator": "settings normalizers (workspace registry sections)",
+      "adapters": {
+        "export": "logical-settings-export",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "planned-versioned-settings-sections"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit-settings"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "settings routes" },
+          { "channel": "background", "module": "lib/persist/workspace-route-keys.js" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.workspaces",
+      "domainOwner": "lib/persist/workspaces-store.js",
+      "backend": {
+        "kind": "sqlite-wal-full",
+        "schemaVersion": 1,
+        "file": "workspaces.sqlite",
+        "migrations": "WORKSPACE_MIGRATIONS in lib/storage/migrations.js"
+      },
+      "bootstrapMarker": {
+        "path": "workspaces.sqlite",
+        "detect": "file-exists"
+      },
+      "managedPaths": [
+        "workspaces.sqlite",
+        "workspaces.sqlite-wal",
+        "workspaces.sqlite-shm"
+      ],
+      "retainedPaths": [],
+      "lockOrderRank": 125,
+      "locks": [
+        "sqlite BEGIN IMMEDIATE transaction"
+      ],
+      "buffers": {
+        "inMemoryCache": true,
+        "flushStrategy": "per-save transaction; read view cached by PRAGMA data_version"
+      },
+      "secrets": {
+        "classification": "non-credential-settings",
+        "exportBoundary": "settings-export-strip-credentials"
+      },
+      "rawValidator": "workspaces-0001 schema constraints + settings sanitizers (workspace registry, sidebar overlay, route keys)",
+      "adapters": {
+        "export": "exportWorkspaceSettingsToConfigShape (config.json-shaped rollback export, backup contract B1)",
+        "snapshot": "stop-server-copy or sqlite backup API",
+        "flush": "sqlite-commit",
+        "restore": "atomic-replace of workspaces.sqlite",
+        "migration": "one-time takeover of workspaces/workspaceSidebarConfig/workspaceRouteKeys/additionalCursorContextDirs from config.json (migrateWorkspaceSettingsFromConfig)"
+      },
+      "durability": {
+        "mode": "sqlite-wal-full"
+      },
+      "ackClasses": [
+        "post-commit-settings"
+      ],
+      "writers": {
+        "known": [
+          {
+            "channel": "http",
+            "module": "lib/routes/settings-routes.js (via saveSettings)"
+          },
+          {
+            "channel": "mcp",
+            "module": "lib/mcp/builtin/workspace-registry-tools.js (via saveSettings)"
+          },
+          {
+            "channel": "background",
+            "module": "lib/persist/workspace-route-keys.js (via saveSettings)"
+          }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.auth-sessions",
+      "domainOwner": "lib/auth.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "files": ["auth.json", "sessions.json"] },
+      "bootstrapMarker": { "path": "auth.json", "detect": "file-exists" },
+      "managedPaths": [],
+      "retainedPaths": ["auth.json", "sessions.json"],
+      "lockOrderRank": 130,
+      "locks": ["in-process sessions Map + periodic sweep"],
+      "buffers": { "inMemoryCache": true, "flushStrategy": "rewrite sessions.json" },
+      "secrets": { "classification": "credential-boundary", "exportBoundary": "never-in-app-data-export" },
+      "rawValidator": "auth scrypt params + session TTL",
+      "adapters": {
+        "export": "none-operator-only",
+        "snapshot": "excluded-from-ordinary-backup",
+        "flush": "atomic-rename",
+        "restore": "operator-manual",
+        "migration": "none"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit-session"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "login/logout routes" },
+          { "channel": "background", "module": "session sweep timer" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.worktree-registry",
+      "domainOwner": "lib/persist/worktree-registry-persist.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "worktree-registry.json" },
+      "bootstrapMarker": { "path": "worktree-registry.json", "detect": "file-exists" },
+      "managedPaths": ["worktree-registry.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 140,
+      "locks": ["in-process mutateWorktreeRegistry"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "atomic rename" },
+      "secrets": { "classification": "paths-metadata", "exportBoundary": "include" },
+      "rawValidator": "registry document shape",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "worktrees routes" },
+          { "channel": "background", "module": "lib/worktree-manager.js" },
+          { "channel": "background", "module": "lib/workspace-watcher-integration.js" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.sidebar-layout",
+      "domainOwner": "lib/persist/sidebar-layout.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "sidebar-layout.json" },
+      "bootstrapMarker": { "path": "sidebar-layout.json", "detect": "file-exists" },
+      "managedPaths": ["sidebar-layout.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 150,
+      "locks": ["in-process"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "atomic rename" },
+      "secrets": { "classification": "ui-preferences", "exportBoundary": "include" },
+      "rawValidator": "layout shape",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "sidebar layout API" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.workspace-watcher-cycles",
+      "domainOwner": "lib/persist/workspace-watcher-cycle-metrics-persist.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "workspace-watcher-cycles.json" },
+      "bootstrapMarker": { "path": "workspace-watcher-cycles.json", "detect": "file-exists" },
+      "managedPaths": ["workspace-watcher-cycles.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 160,
+      "locks": ["in-process RMW separate from watcher lock"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "atomic rename" },
+      "secrets": { "classification": "metrics", "exportBoundary": "include" },
+      "rawValidator": "cycle metrics schema",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit"],
+      "writers": {
+        "known": [
+          { "channel": "background", "module": "lib/workspace-watcher-cycle-metrics.js" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.model-pick-decisions",
+      "domainOwner": "lib/persist/model-pick-decisions-persist.js",
+      "backend": { "kind": "json-with-sqlite-lock", "schemaVersion": 1, "lockFile": "model-pick-decisions.lock.sqlite" },
+      "bootstrapMarker": { "path": "model-pick-decisions.json", "detect": "file-exists" },
+      "managedPaths": ["model-pick-decisions.json", "model-pick-decisions.lock.sqlite", "model-pick-shadow-comparisons.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 170,
+      "locks": ["model-pick-decisions.lock.sqlite"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "RMW under lock" },
+      "secrets": { "classification": "operational", "exportBoundary": "include" },
+      "rawValidator": "decisions document normalizer",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "lock-then-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit"],
+      "writers": {
+        "known": [
+          { "channel": "background", "module": "lib/model-pick-decisions.js" },
+          { "channel": "background", "module": "lib/workspace-watcher-orchestrator.js" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.model-pick-explore",
+      "domainOwner": "lib/persist/model-pick-explore-persist.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "model-pick-explore.json" },
+      "bootstrapMarker": { "path": "model-pick-explore.json", "detect": "file-exists" },
+      "managedPaths": ["model-pick-explore.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 180,
+      "locks": ["in-process"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "atomic rename" },
+      "secrets": { "classification": "operational", "exportBoundary": "include" },
+      "rawValidator": "explore document",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit"],
+      "writers": {
+        "known": [
+          { "channel": "background", "module": "lib/model-pick-explore.js" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.model-pick-overrides",
+      "domainOwner": "lib/persist/model-pick-overrides-persist.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "model-pick-overrides.json" },
+      "bootstrapMarker": { "path": "model-pick-overrides.json", "detect": "file-exists" },
+      "managedPaths": ["model-pick-overrides.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 190,
+      "locks": ["in-process"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "atomic rename" },
+      "secrets": { "classification": "operational", "exportBoundary": "include" },
+      "rawValidator": "overrides document",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "model pick settings" },
+          { "channel": "background", "module": "lib/workspace-watcher-orchestrator.js" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.model-role-profiles",
+      "domainOwner": "lib/model-role-config-store.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "model-role-profiles.json" },
+      "bootstrapMarker": { "path": "model-role-profiles.json", "detect": "file-exists" },
+      "managedPaths": ["model-role-profiles.json", "model-score-heuristics.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 200,
+      "locks": ["in-process"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "atomic rename" },
+      "secrets": { "classification": "operational", "exportBoundary": "include" },
+      "rawValidator": "role profiles normalizer",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "harness/model settings routes" },
+          { "channel": "background", "module": "lib/harness-models-snapshot.js" }
+        ],
+        "unknownGaps": ["harness-models-snapshot temp write — verify quiesce"]
+      }
+    },
+    {
+      "id": "store.benchmark-snapshots",
+      "domainOwner": "lib/persist/benchmark-snapshots-persist.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "benchmark-snapshots.json" },
+      "bootstrapMarker": { "path": "benchmark-snapshots.json", "detect": "file-exists" },
+      "managedPaths": ["benchmark-snapshots.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 210,
+      "locks": ["in-process"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "atomic rename" },
+      "secrets": { "classification": "operational", "exportBoundary": "include" },
+      "rawValidator": "benchmark snapshot schema",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "benchmark routes" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.notification-center",
+      "domainOwner": "lib/notifications/notification-store.ts",
+      "backend": { "kind": "json-document", "schemaVersion": 2, "file": "notification-center.json" },
+      "bootstrapMarker": { "path": "notification-center.json", "detect": "file-exists" },
+      "managedPaths": ["notification-center.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 220,
+      "locks": ["in-process RMW"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "atomic rename with prune" },
+      "secrets": { "classification": "operational", "exportBoundary": "include" },
+      "rawValidator": "NOTIFICATION_STORE_SCHEMA_VERSION",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit-notification"],
+      "writers": {
+        "known": [
+          { "channel": "background", "module": "notification producers" },
+          { "channel": "http", "module": "notification routes" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.push-subscriptions",
+      "domainOwner": "lib/push.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "files": ["push-subscriptions.json", "vapid-keys.json"] },
+      "bootstrapMarker": { "path": "push-subscriptions.json", "detect": "file-exists" },
+      "managedPaths": ["push-subscriptions.json"],
+      "retainedPaths": ["vapid-keys.json"],
+      "lockOrderRank": 230,
+      "locks": ["in-process"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "atomic rename" },
+      "secrets": { "classification": "vapid-private-key", "exportBoundary": "credential-boundary" },
+      "rawValidator": "subscription endpoint shape",
+      "adapters": {
+        "export": "operator-only",
+        "snapshot": "copy-subscriptions-only",
+        "flush": "atomic-rename",
+        "restore": "manual",
+        "migration": "none"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "push subscribe routes" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.widget-installations",
+      "domainOwner": "lib/widget/widget-installations.ts",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "widget-installations.json" },
+      "bootstrapMarker": { "path": "widget-installations.json", "detect": "file-exists" },
+      "managedPaths": ["widget-installations.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 240,
+      "locks": ["in-process RMW"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "atomic rename" },
+      "secrets": { "classification": "token-secret-in-document", "exportBoundary": "exclude-from-ordinary-export" },
+      "rawValidator": "widget document version",
+      "adapters": {
+        "export": "operator-only",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "planned-settings-domain"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "widget installation routes" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.approval-audit",
+      "domainOwner": "lib/approval/approval-audit.ts",
+      "backend": { "kind": "jsonl-append", "schemaVersion": 1, "pathPattern": "approvals/approval-audit.jsonl" },
+      "bootstrapMarker": { "path": "approvals/", "detect": "directory-exists" },
+      "managedPaths": ["approvals/approval-audit.jsonl"],
+      "retainedPaths": [],
+      "lockOrderRank": 250,
+      "locks": ["append-only"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "append" },
+      "secrets": { "classification": "audit-metadata", "exportBoundary": "include" },
+      "rawValidator": "line-json audit record",
+      "adapters": {
+        "export": "jsonl-copy",
+        "snapshot": "stop-server-copy",
+        "flush": "append",
+        "restore": "file-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "append-no-fsync-protocol" },
+      "ackClasses": ["post-append"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "approval routes" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.harness-usage-limits",
+      "domainOwner": "lib/harness-usage-limits.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "harness-usage-limits.json" },
+      "bootstrapMarker": { "path": "harness-usage-limits.json", "detect": "file-exists" },
+      "managedPaths": ["harness-usage-limits.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 260,
+      "locks": ["in-process"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "atomic rename" },
+      "secrets": { "classification": "operational", "exportBoundary": "include" },
+      "rawValidator": "limits document",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "planned-cretli-sqlite"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit"],
+      "writers": {
+        "known": [
+          { "channel": "background", "module": "lib/harness-usage-limits.js" },
+          { "channel": "http", "module": "usage limit routes" }
+        ],
+        "unknownGaps": ["usage/limits.jsonl side channel — see inventoryGaps"]
+      }
+    }
+  ]
+}

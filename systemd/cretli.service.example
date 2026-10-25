@@ -1,0 +1,54 @@
+# Cretli server — user service with automatic process restart.
+#
+# Copy to ~/.config/systemd/user/cretli.service and adjust WorkingDirectory /
+# ExecStart / PATH. See docs/server-diagnostics.md ("Process supervision").
+#
+# What this unit does and does NOT do:
+#  - Restart=always restarts a process that EXITED or was killed. It does not
+#    detect a process that is alive but hung (event loop stuck, port accepting
+#    nothing). Cretli does not implement sd_notify, so Type=notify and
+#    WatchdogSec= are NOT usable here. Hang detection is an external probe of
+#    GET /api/health (see the docs), not a unit option.
+#  - `systemctl stop` is an intentional stop: systemd never restarts a unit
+#    that was stopped through systemctl, even with Restart=always.
+
+[Unit]
+Description=Cretli server
+After=network.target
+# Restart-storm protection: at most 5 starts per 10 minutes, then the unit
+# enters "failed" (start-limit-hit) and stays down until
+# `systemctl --user reset-failed cretli.service`.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+# Cretli listens on its port directly and never calls sd_notify, so "simple"
+# or "exec" are the valid types (no notify/watchdog support). This example
+# uses "simple": the unit is "active" as soon as the process is forked, NOT
+# when the port is bound. "exec" only waits for the exec to succeed, so it
+# does not make the port ready either. Readiness is probed via /api/health.
+Type=simple
+WorkingDirectory=/path/to/cretli
+ExecStart=/usr/bin/npm start
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# Persistent state (chats, settings, delegation store, TLS cert, logs). The
+# StateDirectory is created by systemd under $XDG_STATE_HOME (user unit) or
+# /var/lib (system unit) and survives restarts and reboots; %S expands to that
+# base. Secrets belong in the ignored .env file, never in this unit.
+StateDirectory=cretli
+Environment=CRETLI_DATA_DIR=%S/cretli
+Restart=always
+RestartSec=10
+# SIGTERM triggers Cretli's graceful shutdown (child processes, chat flush,
+# delegation drain: bounded waits of a few seconds each). Give it room before
+# systemd escalates to SIGKILL.
+KillSignal=SIGTERM
+KillMode=control-group
+TimeoutStopSec=45
+StandardOutput=journal
+StandardError=journal
+UMask=0077
+
+[Install]
+WantedBy=default.target

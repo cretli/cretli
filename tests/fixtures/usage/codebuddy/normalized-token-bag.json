@@ -1,0 +1,4 @@
+{
+  "_note": "Bag for the m1 usage {input_tokens:100,output_tokens:10,cache_read_input_tokens:20} via resolveClaudeResultUsage + fromClaudeUsage.",
+  "tokens": {"textInput":100,"textOutput":10,"audioInput":0,"audioOutput":0,"cachedInput":20,"cacheWrite":0,"reasoning":0}
+}

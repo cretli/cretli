@@ -1,0 +1,717 @@
+/**
+ * WebSocket rooms for the CodeBuddy Agent SDK harness — SDK-compatible event protocol.
+ */
+
+import { randomUUID } from 'crypto';
+import { rejectArchivedRoomPrompt } from '../../lib/chat-message-guard.js';
+import {
+  getChatByCursorSessionId,
+  setChatCodeBuddySessionId,
+  updateChat,
+} from '../../lib/persist/chats-persist.js';
+import { resolveExecutionFolderForChat } from '../../lib/execution-folder.js';
+import { beginEnforcedSdkMode, clearEnforcedSdkMode, normalizeSdkMode, readEnforcedSdkMode, toNativeAgentMode } from '../../lib/sdk/sdk-mode.ts';
+import { buildAgentHelloPayload } from '../../lib/sdk/sdk-ws-handshake.ts';
+import { sendSdkChatNotFoundAndClose } from '../../lib/sdk/sdk-ws-chat-gone.ts';
+import { buildUserEvent } from '../../lib/agent-harness/event-normalizer.ts';
+import {
+  readClientDisplayText,
+  resolvePromptUiText,
+  resolveQueuedPromptUiText,
+} from '../../lib/prompt-ui-text.js';
+import {
+  setActiveSelection,
+  readClientSkillSelection,
+  withSkillSelection,
+} from '../../lib/skills/skill-selection.js';
+import { handleQueueControlMessage } from '../../lib/agent-harness/queue-controls.ts';
+import { createCodeBuddyUsageState, normalizeCodeBuddyMessage } from './codebuddy-event-normalizer.js';
+import { createAgentRoomKernel } from '../../lib/agent-harness/room-kernel.ts';
+import { isCodeBuddyChat } from '../../lib/agent-transport.js';
+import {
+  resolvePlanModeSdkEventDecision,
+  resolveReadOnlyGuardUserMessage,
+} from '../../lib/sdk/sdk-plan-guard.ts';
+import { resolvePlanGuardMcpServerIdentity } from '../../lib/mcp/mcp-session.js';
+import { SCOUT_READ_ONLY_MESSAGE, isScoutReadOnlyChatId } from '../../lib/workspace-scout-chat.js';
+import { trackSdkRoomRunOutcome } from '../../lib/sdk/sdk-run-outcome.ts';
+import { decorateHarnessPrompt } from '../../lib/sdk/harness-plan-prompt.ts';
+import { bindHarnessPlanSync } from '../../lib/sdk/harness-plan-sync.ts';
+import { bindRoomToDelegation, noteDelegationRoomEvent, readRoomDelegationAssignment, syncRoomDelegationAssignment } from '../../lib/delegation-run-bridge.js';
+import { confirmDelegationReportsFromRoom } from '../../lib/delegation-report-context.js';
+import { bindRoomRecoveryLifecycle, registerKernelChatRunAdapter } from '../../lib/chat-run/kernel-adapter.ts';
+import { drainOnePendingPrompt } from '../../lib/agent-harness/pending-prompt-drain.ts';
+import { registerPendingPromptRoomSource } from '../../lib/agent-harness/pending-prompt-resume.ts';
+import { canAcceptNewRun } from '../../lib/update-gate.js';
+import { msg } from '../../lib/messages.js';
+import { buildAgentEnvMask } from '../../lib/agent-env.js';
+import { buildCodeBuddyProcessEnv, getEffectiveCodeBuddyApiKey } from './codebuddy-api-key.js';
+import { isCodeBuddyCliFound, resolveCodeBuddyCliForSpawn } from './codebuddy-cli.js';
+import { loadCodeBuddySdk } from './codebuddy-sdk.js';
+import {
+  describeUnavailableCodeBuddyModel,
+  resolveCodeBuddyRunModel,
+  resolveDefaultCodeBuddyModel,
+} from './codebuddy-models.js';
+import { isModelUnavailableMessage } from '../../lib/harness-usage-limits.js';
+import {
+  closeCodeBuddyLiveSession,
+  createCodeBuddyLiveSession,
+  isCodeBuddyLiveSessionOpen,
+} from './codebuddy-live-session.js';
+import { buildMcpRuntimeContext, markMcpConfigApplied, prepareHarnessMcp } from '../../lib/mcp/mcp-session.js';
+import { CONTEXT_RESTART_REASON, advanceRoomContextEpoch, recordContextRestart } from '../../lib/usage/context-restarts.ts';
+import { toCodeBuddyMcpServers } from '../../lib/mcp/mcp-vendor-map.js';
+import { waitForMcpBridgeToolsListed } from '../../lib/mcp/mcp-bridge-ready.js';
+import {
+  MCP_ORCHESTRATOR_ERROR_CODES,
+  ORCHESTRATOR_MCP_CONTRACT_TOOLS,
+  isWorkspaceWatcherOrchestratorChat,
+} from '../../lib/mcp/mcp-orchestrator-contract.js';
+import { MCP_CRETILI_BRIDGE_RUNTIME } from '../../lib/mcp/mcp-tool-names.js';
+import { loadMcpDocument } from '../../lib/persist/mcp-persist.js';
+
+/**
+ * @param {string} [value]
+ * @returns {boolean}
+ */
+function isResumableCodeBuddySessionId(value) {
+  const id = String(value || '').trim();
+  if (!id) return false;
+  return id.toLowerCase() !== 'current';
+}
+
+/**
+ * @param {any} room
+ * @returns {Promise<void>}
+ */
+async function interruptActiveQuery(room) {
+  const query = room?._activeQuery;
+  if (query && typeof query.interrupt === 'function') {
+    try {
+      await query.interrupt();
+    } catch (err) {
+      console.warn('[codebuddy-ws] interrupt failed:', err?.message || err);
+    }
+  }
+  const session = room?._liveSession;
+  if (!isCodeBuddyLiveSessionOpen(session) || !session?.transport) return;
+  if (typeof session.transport.sendControlRequest !== 'function') return;
+  try {
+    await session.transport.sendControlRequest({
+      subtype: 'interrupt',
+      reason: 'User interrupt',
+    });
+  } catch (err) {
+    console.warn('[codebuddy-ws] live interrupt failed:', err?.message || err);
+  }
+}
+
+function abortCodeBuddyRoom(room) {
+  if (room) room.cancelled = true;
+  void interruptActiveQuery(room);
+  closeCodeBuddyLiveSession(room?._liveSession);
+  if (room) room._liveSession = null;
+}
+
+const kernel = createAgentRoomKernel({
+  transport: 'codebuddy',
+  logLabel: 'codebuddy-ws',
+  goneMessage: 'CodeBuddy chat not found for this session.',
+  abortRoom: abortCodeBuddyRoom,
+  afterBroadcast(room, payload) {
+    trackSdkRoomRunOutcome(room, payload);
+    noteDelegationRoomEvent(room, payload);
+  },
+});
+const codeBuddyRooms = kernel.rooms;
+registerPendingPromptRoomSource(() => codeBuddyRooms.values());
+const {
+  broadcastRoom,
+  applySdkModeIfChanged,
+  persistRoomEvent,
+  flushPersistBuffer,
+  sendRoomState,
+  attachClient,
+  detachClient,
+  scheduleEventLogReplay,
+} = kernel;
+
+/**
+ * @param {string} sessionKey
+ */
+export function disposeCodeBuddyRoom(sessionKey) {
+  kernel.disposeRoom(sessionKey);
+}
+
+/**
+ * @param {string} sessionKey
+ * @param {string} model
+ */
+export function syncCodeBuddyRoomModelFromChat(sessionKey, model) {
+  const room = codeBuddyRooms.get(sessionKey);
+  if (!room) return;
+  const nextModel = String(model || '').trim();
+  if (nextModel && nextModel !== room.modelId) {
+    closeCodeBuddyLiveSession(room._liveSession);
+    room._liveSession = null;
+    room._liveSessionKey = '';
+    room.modelId = nextModel;
+  }
+}
+
+/**
+ * @param {Record<string, unknown>} event
+ * @param {any} room
+ * @returns {boolean}
+ */
+function applyPlanGuardIfNeeded(event, room) {
+  const mode = readEnforcedSdkMode(room);
+  const assignment = room.delegationAssignment;
+  const scoutReadOnly = isScoutReadOnlyChatId(room?.chatId);
+  const decision = resolvePlanModeSdkEventDecision({
+    transport: 'codebuddy',
+    mode,
+    assignment,
+    event,
+    scoutReadOnly,
+    projectRoot: room.cwd,
+    mcpServer: resolvePlanGuardMcpServerIdentity({ room, harness: 'codebuddy', event }),
+  });
+  if (!decision.notify) return false;
+  if (decision.abortRun) {
+    room.cancelled = true;
+    room._planGuardTriggered = true;
+    void interruptActiveQuery(room);
+  }
+  const notificationKey = JSON.stringify([event.name, event.args ?? event.input ?? event.arguments]);
+  room._guardNotifications ??= new Set();
+  if (room._guardNotifications.has(notificationKey)) return true;
+  room._guardNotifications.add(notificationKey);
+  broadcastRoom(room, {
+    type: 'sdkPlanGuard',
+    message: scoutReadOnly ? SCOUT_READ_ONLY_MESSAGE : resolveReadOnlyGuardUserMessage(mode, assignment),
+    toolName: typeof event.name === 'string' ? event.name : '',
+  });
+  return true;
+}
+
+export function liveSessionKeyParts(room) {
+  return {
+    model: resolveCodeBuddyRunModel(room.modelId),
+    cwd: String(room.cwd || ''),
+    mode: normalizeSdkMode(room.sdkMode),
+    revision: String(loadMcpDocument().revision),
+    // The bridge token pins the delegation attempt.
+    attemptId: String(room.delegationAttemptId || ''),
+  };
+}
+
+export function liveSessionKey(room) {
+  const parts = liveSessionKeyParts(room);
+  return [parts.model, parts.cwd, parts.mode, parts.revision, parts.attemptId].join('\0');
+}
+
+/**
+ * @param {{ model: string, cwd: string, mode: string, revision: string, attemptId?: string } | undefined} previous
+ * @param {{ model: string, cwd: string, mode: string, revision: string, attemptId?: string }} next
+ * @returns {string}
+ */
+function liveSessionRestartReason(previous, next) {
+  if (!previous) return CONTEXT_RESTART_REASON.PROCESS_RECREATED;
+  if (previous.model !== next.model) return CONTEXT_RESTART_REASON.MODEL_CHANGE;
+  if (previous.mode !== next.mode) return CONTEXT_RESTART_REASON.MODE_CHANGE;
+  if (previous.revision !== next.revision) return CONTEXT_RESTART_REASON.MCP_REVISION;
+  if (previous.attemptId !== next.attemptId) return CONTEXT_RESTART_REASON.SESSION_DROP;
+  if (previous.cwd !== next.cwd) return CONTEXT_RESTART_REASON.SESSION_DROP;
+  return CONTEXT_RESTART_REASON.PROCESS_RECREATED;
+}
+
+/**
+ * @param {any} room
+ */
+function dropLiveSession(room) {
+  closeCodeBuddyLiveSession(room._liveSession);
+  room._liveSession = null;
+  room._liveSessionKey = '';
+  room._liveSessionKeyParts = null;
+}
+
+/**
+ * @param {any} room
+ * @returns {Promise<object>}
+ */
+async function ensureLiveSession(room) {
+  const nextKeyParts = liveSessionKeyParts(room);
+  if (isCodeBuddyLiveSessionOpen(room._liveSession) && room._liveSessionKey === liveSessionKey(room)) {
+    return room._liveSession;
+  }
+  if (isCodeBuddyLiveSessionOpen(room._liveSession)) {
+    recordContextRestart({
+      chatId: room.chatId,
+      harness: 'codebuddy',
+      reason: liveSessionRestartReason(room._liveSessionKeyParts, nextKeyParts),
+    });
+  }
+  dropLiveSession(room);
+  const sdk = await loadCodeBuddySdk();
+  const mcpContext = buildMcpRuntimeContext({
+    chat: getChatByCursorSessionId(room.sessionKey) || { id: room.chatId, workspaceFolder: room.cwd, agentTransport: 'codebuddy' },
+    room,
+    harness: 'codebuddy',
+    mode: room.sdkMode,
+  });
+  const mcpPrep = prepareHarnessMcp(mcpContext);
+  const mcpServers = toCodeBuddyMcpServers(mcpPrep.mcpServers);
+  const sessionStartedAt = Date.now();
+  const orchestratorContract = room.watcherOrchestrator === true ? ORCHESTRATOR_MCP_CONTRACT_TOOLS : [];
+  const session = createCodeBuddyLiveSession({
+    sdk,
+    model: resolveCodeBuddyRunModel(room.modelId),
+    pathToCodebuddyCode: resolveCodeBuddyCliForSpawn(),
+    env: buildQueryEnv(),
+    cwd: room.cwd,
+    permissionMode: toNativeAgentMode(room.sdkMode) === 'plan' ? 'plan' : 'bypassPermissions',
+    conversationMode: room.sdkMode,
+    assignment: room.delegationAssignment,
+    chatId: room.chatId,
+    readAssignment: () => readRoomDelegationAssignment(room),
+    mcpServers,
+    // Only the managed bridge reports readiness; without it there is nothing to wait for.
+    waitForMcpReady: mcpServers[MCP_CRETILI_BRIDGE_RUNTIME]
+      ? () => waitForMcpBridgeToolsListed(mcpContext.chatId, { since: sessionStartedAt })
+      : undefined,
+    // A watcher orchestrator is refused when the bridge is not provably ready
+    // with the full contract; ordinary chats keep waiting without blocking.
+    mcpContractTools: orchestratorContract,
+    onMcpBlock: (info) => {
+      room._mcpGateBlock = info;
+    },
+  });
+  room._liveSession = session;
+  room._liveSessionKey = liveSessionKey(room);
+  room._liveSessionKeyParts = nextKeyParts;
+  markMcpConfigApplied(mcpContext, mcpPrep.servers, mcpPrep.revision);
+  return session;
+}
+
+/**
+ * @param {any} room
+ * @param {unknown} message
+ */
+function handleNormalizedMessage(room, message) {
+  const items = normalizeCodeBuddyMessage(message, room._codeBuddyUsageState);
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
+    if (item.kind === 'session' && isResumableCodeBuddySessionId(item.sessionId)) {
+      room.codebuddySessionId = item.sessionId;
+      if (room.chatId) setChatCodeBuddySessionId(room.chatId, item.sessionId);
+      continue;
+    }
+    if (item.kind === 'usage' && item.usage && typeof item.usage === 'object') {
+      room._lastUsagePayload = {
+        inputTokens: (room._lastUsagePayload?.inputTokens || 0) + (Number(item.usage.input_tokens) || 0),
+        outputTokens: (room._lastUsagePayload?.outputTokens || 0) + (Number(item.usage.output_tokens) || 0),
+      };
+      /** @type {Record<string, unknown>} */
+      const usageEvent = { type: 'usage', usage: item.usage };
+      if (item.totalCostUsd != null) usageEvent.totalCostUsd = item.totalCostUsd;
+      if (item.durationMs != null) usageEvent.durationMs = item.durationMs;
+      broadcastRoom(room, { type: 'sdkEvent', event: usageEvent });
+      continue;
+    }
+    if (item.kind === 'notice') {
+      // Native compaction rewrites the prompt prefix and destroys the cache;
+      // bump the context epoch so the ledger does not mix the two epochs.
+      if (item.noticeType === 'compact') advanceRoomContextEpoch(room, 'compact_boundary');
+      broadcastRoom(room, { type: 'sdkEvent', event: item });
+      continue;
+    }
+    if (item.kind === 'result') {
+      room._lastResult = item;
+      if (isResumableCodeBuddySessionId(item.sessionId)) {
+        room.codebuddySessionId = item.sessionId;
+        if (room.chatId) setChatCodeBuddySessionId(room.chatId, item.sessionId);
+      }
+      continue;
+    }
+    if (applyPlanGuardIfNeeded(item, room)) {
+      // The plan guard already handled this item. `continue` skips only that
+      // item and lets the remaining entries of the same normalized message be
+      // processed; `return` would drop them. A cancelled run is still honored
+      // by the explicit check right after the guard.
+      if (room.cancelled) return;
+      continue;
+    }
+    broadcastRoom(room, { type: 'sdkEvent', event: item });
+  }
+}
+
+/**
+ * The SDK spawns the CLI with `{ ...process.env, ...options.env }`, so keys the
+ * allowlist would drop are masked with `undefined` (empty mask when the allowlist
+ * is off); the explicit CodeBuddy env is applied last.
+ * @returns {Record<string, string | undefined>}
+ */
+export function buildQueryEnv() {
+  return { ...buildAgentEnvMask('codebuddy'), ...buildCodeBuddyProcessEnv() };
+}
+
+
+/**
+ * @param {any} room
+ * @param {object} chat
+ */
+function bindCodeBuddyPromptRunner(room, chat) {
+  void chat;
+  if (!Array.isArray(room.pendingPrompts)) room.pendingPrompts = [];
+  /**
+   * @param {string} text
+   * @param {string} [modeOverride]
+   * @param {string} [displayText]
+   */
+  function enqueuePrompt(text, modeOverride, displayText = '', selection = null) {
+    const uiText = resolvePromptUiText(text, displayText);
+    const item = {
+      text,
+      mode: normalizeSdkMode(modeOverride || room.sdkMode),
+    };
+    if (uiText && uiText !== text) item.displayText = uiText;
+    withSkillSelection(item, selection);
+    room.pendingPrompts.push(item);
+    broadcastRoom(room, { type: 'sdkQueued', text: uiText || text }, { log: false });
+    sendRoomState(room);
+  }
+
+  /**
+   * @returns {void}
+   */
+  function drainQueue() {
+    drainOnePendingPrompt(room, (/** @type {any} */ next) => {
+      void runPrompt(next.text, next.mode, true, next.displayText, next.selection);
+    });
+  }
+
+  /**
+   * @param {string} text
+   * @param {string} [modeOverride]
+   * @param {boolean} [fromQueue]
+   * @param {string} [displayText]
+   * @param {unknown} [selection] Explicit skill IDs / mention policy of this prompt.
+   */
+  async function runPrompt(text, modeOverride, fromQueue = false, displayText = '', selection = null) {
+    if (rejectArchivedRoomPrompt(room, broadcastRoom)) return;
+    const trimmed = String(text || '').trim();
+    if (!trimmed) return;
+    const uiText = resolvePromptUiText(trimmed, displayText);
+    if (room.busy) {
+      enqueuePrompt(trimmed, modeOverride, displayText, selection);
+      return;
+    }
+    if (!canAcceptNewRun()) {
+      if (fromQueue === true) {
+        room.pendingPrompts.unshift(withSkillSelection({
+          text: trimmed,
+          mode: normalizeSdkMode(modeOverride || room.sdkMode),
+          ...(uiText && uiText !== trimmed ? { displayText: uiText } : {}),
+        }, selection));
+        return;
+      }
+      broadcastRoom(room, {
+        type: 'sdkError',
+        code: 'update_in_progress',
+        message: msg(null, 'update.notAcceptingRuns'),
+      });
+      return;
+    }
+    room.busy = true;
+    setActiveSelection(room, selection);
+    room.cancelled = false;
+    room._planGuardTriggered = false;
+    room._guardNotifications = new Set();
+    room._mcpGateBlock = null;
+    room._lastResult = null;
+    room._codeBuddyUsageState = createCodeBuddyUsageState();
+    const runId = randomUUID();
+    room.currentRun = { id: runId, startedAt: Date.now() };
+    const mode = normalizeSdkMode(modeOverride || room.sdkMode);
+    room.sdkMode = mode;
+    beginEnforcedSdkMode(room, mode);
+    syncRoomDelegationAssignment(room);
+    broadcastRoom(room, {
+      type: 'sdkPromptStarted',
+      runId,
+      text: uiText,
+      fromQueue: fromQueue === true,
+      remaining: room.pendingPrompts.length,
+    });
+    broadcastRoom(room, { type: 'sdkBusy', busy: true }, { log: false });
+    sendRoomState(room);
+    persistRoomEvent(room, { kind: 'localUser', text: uiText }, true);
+    broadcastRoom(room, { type: 'sdkEvent', event: buildUserEvent(uiText) });
+    broadcastRoom(room, {
+      type: 'sdkRunProgress',
+      runId,
+      phase: 'setup',
+      transport: 'codebuddy',
+    }, { log: false });
+    let status = 'completed';
+    let errorMessage = '';
+    let mcpGateErrorCode = '';
+    try {
+      const session = await ensureLiveSession(room);
+      room._activeQuery = session;
+      await session.send(decorateHarnessPrompt(room, trimmed, 'codebuddy'));
+      broadcastRoom(room, {
+        type: 'sdkRunProgress',
+        runId,
+        phase: 'stream',
+        transport: 'codebuddy',
+      }, { log: false });
+      confirmDelegationReportsFromRoom(room);
+      for await (const message of session.stream()) {
+        if (room.cancelled) {
+          await interruptActiveQuery(room);
+          break;
+        }
+        handleNormalizedMessage(room, message);
+      }
+      if (room._planGuardTriggered) {
+        status = 'plan_guard_cancelled';
+        errorMessage = resolveReadOnlyGuardUserMessage(mode, room.delegationAssignment);
+      } else if (room.cancelled) {
+        status = 'cancelled';
+      } else if (room._lastResult && room._lastResult.status === 'error') {
+        status = 'error';
+        errorMessage = String(room._lastResult.errorMessage || room._lastResult.resultText || 'CodeBuddy run failed');
+      }
+    } catch (err) {
+      dropLiveSession(room);
+      const errCode = String(err?.code || '');
+      if (errCode === MCP_ORCHESTRATOR_ERROR_CODES.NOT_READY || errCode === MCP_ORCHESTRATOR_ERROR_CODES.TOOLS_MISSING) {
+        mcpGateErrorCode = errCode;
+      }
+      if (room.cancelled || room._planGuardTriggered) {
+        status = room._planGuardTriggered ? 'plan_guard_cancelled' : 'cancelled';
+      } else {
+        status = 'error';
+        errorMessage = err?.message ? String(err.message) : String(err);
+      }
+    } finally {
+      room._activeQuery = null;
+      room.busy = false;
+      room.currentRun = null;
+      clearEnforcedSdkMode(room);
+      broadcastRoom(room, { type: 'sdkBusy', busy: false }, { log: false });
+      const gateBlock = room._mcpGateBlock || null;
+      room._mcpGateBlock = null;
+      if (gateBlock || mcpGateErrorCode) {
+        // The first model request was refused: report it as a failed run so the
+        // watcher closes the cycle with the concrete reason instead of editing
+        // files itself or reporting nothing.
+        status = 'error';
+        if (!errorMessage) errorMessage = gateBlock?.message || 'Cretli MCP bridge is not ready.';
+        if (!mcpGateErrorCode) mcpGateErrorCode = gateBlock?.code || MCP_ORCHESTRATOR_ERROR_CODES.NOT_READY;
+      }
+      const failed = !!errorMessage && status === 'error';
+      const errorCode = mcpGateErrorCode
+        || (isModelUnavailableMessage(errorMessage) ? 'model_unavailable' : 'codebuddy_error');
+      // The raw provider body stays inside the text, so the shared run-error
+      // hook still recognises it and locks the model out of automatic picks.
+      const shownMessage = failed && errorCode === 'model_unavailable'
+        ? describeUnavailableCodeBuddyModel(resolveCodeBuddyRunModel(room.modelId), errorMessage)
+        : errorMessage;
+      const finished = {
+        type: 'sdkRunFinished',
+        runId,
+        status,
+        lastErrorMessage: shownMessage,
+      };
+      if (failed) finished.lastErrorCode = errorCode;
+      broadcastRoom(room, finished);
+      if (failed) {
+        broadcastRoom(room, {
+          type: 'sdkError',
+          code: errorCode,
+          message: shownMessage,
+        });
+      }
+      sendRoomState(room);
+      flushPersistBuffer(room);
+      drainQueue();
+    }
+  }
+
+
+  async function cancelCurrentRun() {
+    room.cancelled = true;
+    await interruptActiveQuery(room);
+  }
+  room.startPrompt = runPrompt;
+  room.drainQueue = drainQueue;
+  room.cancelCurrentRun = cancelCurrentRun;
+  bindRoomRecoveryLifecycle({ room, chat: getChatByCursorSessionId(room.sessionKey), transport: 'codebuddy' });
+}
+
+/**
+ * @param {string} sessionKey
+ * @param {{ workspaceDirForAgent?: Function, todoSyncDataDir?: string, delegationId?: string, attemptId?: string }} [deps]
+ */
+export function ensureCodeBuddyRoom(sessionKey, deps = {}) {
+  if (!getEffectiveCodeBuddyApiKey()) {
+    return {
+      error: 'Missing CodeBuddy API key (CODEBUDDY_API_KEY or Settings → Harness → CodeBuddy).',
+      code: 'missing_api_key',
+    };
+  }
+  if (!isCodeBuddyCliFound()) {
+    return {
+      error: 'CodeBuddy CLI not found. Install `codebuddy` or set CODEBUDDY_CODE_PATH.',
+      code: 'missing_cli',
+    };
+  }
+  const chat = getChatByCursorSessionId(sessionKey);
+  if (!chat) {
+    return { error: 'CodeBuddy chat not found for this session.', code: 'chat_not_found' };
+  }
+  if (!isCodeBuddyChat(chat)) {
+    return { error: 'CodeBuddy chat not found for this session.', code: 'invalid_session' };
+  }
+  const cwd = resolveExecutionFolderForChat(chat, deps.workspaceDirForAgent);
+  if (!cwd) {
+    return { error: 'Missing workspace directory.', code: 'no_cwd' };
+  }
+  let room = codeBuddyRooms.get(sessionKey);
+  if (!room) {
+    room = kernel.createRoomState({
+      sessionKey,
+      chatId: chat.id,
+      chatTitle: chat.title || chat.id,
+      cwd,
+      modelId: chat.model || resolveDefaultCodeBuddyModel(),
+      sdkMode: normalizeSdkMode(chat.sdkMode),
+      cancelled: false,
+      codebuddySessionId: typeof chat.codebuddySessionId === 'string' ? chat.codebuddySessionId : '',
+      currentRun: null,
+      _activeQuery: null,
+      _liveSession: null,
+      _lastResult: null,
+      _planGuardTriggered: false,
+    });
+    codeBuddyRooms.set(sessionKey, room);
+  } else {
+    room.cwd = cwd;
+    room.modelId = chat.model || room.modelId || resolveDefaultCodeBuddyModel();
+    room.sdkMode = normalizeSdkMode(chat.sdkMode);
+    if (typeof chat.codebuddySessionId === 'string' && isResumableCodeBuddySessionId(chat.codebuddySessionId)) {
+      room.codebuddySessionId = chat.codebuddySessionId.trim();
+    }
+  }
+  bindHarnessPlanSync(room, deps);
+  bindRoomToDelegation(room, deps);
+  // The cycle chat carries `pickPurpose: 'watcher-orchestrator'` from `addChat`;
+  // the MCP gate is strict only for that role, never for an ordinary chat.
+  room.watcherOrchestrator = isWorkspaceWatcherOrchestratorChat(chat);
+  bindCodeBuddyPromptRunner(room, chat);
+  return { room, chat };
+}
+
+/**
+ * @param {import('ws').WebSocket} ws
+ * @param {string} sessionKey
+ * @param {{ workspaceDirForAgent: (p: string | null) => string, todoSyncDataDir?: string }} deps
+ */
+export async function handleCodeBuddyAgentWebSocket(ws, sessionKey, deps) {
+  const ensured = ensureCodeBuddyRoom(sessionKey, deps);
+  if ('error' in ensured) {
+    if (ensured.code === 'chat_not_found') {
+      sendSdkChatNotFoundAndClose(ws, ensured.error);
+      return;
+    }
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({
+        type: 'sdkError',
+        code: ensured.code,
+        message: ensured.error,
+      }));
+    }
+    ws.close();
+    return;
+  }
+  const { room, chat } = ensured;
+  attachClient(room, ws);
+  const hello = buildAgentHelloPayload({
+    transport: 'codebuddy',
+    sessionKey,
+    modelId: room.modelId,
+    sdkMode: room.sdkMode,
+    eventStreamId: room.eventStreamId,
+    busy: !!room.busy,
+    queuedPrompts: room.pendingPrompts.map((item) => resolveQueuedPromptUiText(item)),
+  });
+  if (ws.readyState === 1) ws.send(JSON.stringify(hello));
+  sendRoomState(room);
+  scheduleEventLogReplay(room, ws);
+
+  ws.on('message', (raw) => {
+    let msg;
+    try {
+      msg = JSON.parse(Buffer.from(raw).toString('utf8'));
+    } catch {
+      return;
+    }
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.type === 'ping') {
+      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'pong' }));
+      return;
+    }
+    if (msg.type === 'cancel') {
+      void room.cancelCurrentRun();
+      return;
+    }
+    if (handleQueueControlMessage(room, msg, { broadcast: broadcastRoom })) return;
+    if (msg.type === 'setSdkMode') {
+      applySdkModeIfChanged(room, msg.mode, {
+        chatId: chat.id,
+        updateChat,
+        onChanged: (_previous, _next) => {
+          if (!room.busy) dropLiveSession(room);
+        },
+      });
+      return;
+    }
+    if (msg.type === 'send' && typeof msg.text === 'string') {
+      void room.startPrompt(msg.text, msg.mode, false, readClientDisplayText(msg), readClientSkillSelection(msg));
+    }
+  });
+
+  ws.on('close', () => {
+    detachClient(room, ws, sessionKey);
+  });
+}
+
+registerKernelChatRunAdapter({
+  transport: 'codebuddy',
+  rooms: codeBuddyRooms,
+  ensureRoom: ensureCodeBuddyRoom,
+});
+
+/**
+ * @param {string} sessionKey
+ * @returns {Record<string, unknown> | null}
+ */
+export function getCodeBuddyRoomDiag(sessionKey) {
+  const room = codeBuddyRooms.get(sessionKey);
+  if (!room) return null;
+  return {
+    transport: 'codebuddy',
+    busy: !!room.busy,
+    modelId: room.modelId,
+    clients: room.clients.size,
+    eventSeq: room.eventSeq,
+    codebuddySessionId: room.codebuddySessionId || '',
+    lastRunId: room.lastRunId || null,
+    lastRunStatus: room.lastRunStatus || null,
+    queuedCount: Array.isArray(room.pendingPrompts) ? room.pendingPrompts.length : 0,
+  };
+}

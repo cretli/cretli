@@ -1,0 +1,41 @@
+{
+  "_note": "fromCodexUsage bag and parseCodexContextUsage output. Raw input_tokens INCLUDES cache; bag textInput excludes it.",
+  "rawUsage": {
+    "input_tokens": 1000,
+    "cached_input_tokens": 400,
+    "cache_write_input_tokens": 50,
+    "output_tokens": 250,
+    "reasoning_output_tokens": 30
+  },
+  "tokens": {
+    "textInput": 550,
+    "textOutput": 250,
+    "audioInput": 0,
+    "audioOutput": 0,
+    "cachedInput": 400,
+    "cacheWrite": 50,
+    "reasoning": 30
+  },
+  "contextUsage": {
+    "type": "context_usage",
+    "source": "codex-cli",
+    "model": "codex-model-x",
+    "usage": {
+      "inputTokens": 1300,
+      "outputTokens": 70,
+      "totalTokens": 1370,
+      "cacheReadTokens": 1100,
+      "reasoningTokens": 10
+    },
+    "contextWindowTokens": 258400,
+    "observedAt": "2026-01-01T00:00:04.000Z",
+    "sessionUsage": {
+      "inputTokens": 2300,
+      "outputTokens": 120,
+      "totalTokens": 2420,
+      "cacheReadTokens": 1500,
+      "cacheWriteTokens": null,
+      "reasoningTokens": 20
+    }
+  }
+}

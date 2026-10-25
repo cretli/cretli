@@ -1,0 +1,268 @@
+import assert from 'node:assert/strict';
+import {
+  formatOpenCodeSessionError,
+  normalizeOpenCodeEvent,
+} from '../opencode-event-normalizer.js';
+import { createDelegationAdapterTimeoutError } from '../../../lib/delegation-adapter-error.js';
+import {
+  buildOpenCodeRunErrorEvents,
+  createOpenCodePromptRunWaiter,
+  bumpOpenCodePromptRunActivity,
+  notifyOpenCodePromptRunEnd,
+  resolveOpenCodeFirstEventTimeoutMs,
+  resolveOpenCodePromptRunFromEvent,
+  resolveOpenCodePromptTimeoutMs,
+  shouldBumpOpenCodePromptRunActivity,
+  submitOpenCodePromptAndWait,
+} from '../opencode-prompt-run.js';
+
+assert.ok(resolveOpenCodePromptTimeoutMs() >= 60000);
+assert.ok(resolveOpenCodeFirstEventTimeoutMs() >= 180000);
+const previousFirstEventTimeoutEnv = process.env.OPENCODE_FIRST_EVENT_TIMEOUT_MS;
+process.env.OPENCODE_FIRST_EVENT_TIMEOUT_MS = '45000';
+assert.equal(resolveOpenCodeFirstEventTimeoutMs(), 60000);
+process.env.OPENCODE_FIRST_EVENT_TIMEOUT_MS = '90000';
+assert.equal(resolveOpenCodeFirstEventTimeoutMs(), 90000);
+if (previousFirstEventTimeoutEnv === undefined) {
+  delete process.env.OPENCODE_FIRST_EVENT_TIMEOUT_MS;
+} else {
+  process.env.OPENCODE_FIRST_EVENT_TIMEOUT_MS = previousFirstEventTimeoutEnv;
+}
+
+assert.equal(
+  formatOpenCodeSessionError({
+    name: 'APIError',
+    data: { message: 'Billing required', isRetryable: false },
+  }),
+  'Billing required',
+);
+
+assert.equal(
+  formatOpenCodeSessionError({
+    name: 'ProviderAuthError',
+    data: { providerID: 'opencode', message: 'Invalid API key' },
+  }),
+  'Invalid API key',
+);
+
+const errorEvents = normalizeOpenCodeEvent({
+  type: 'session.error',
+  properties: {
+    sessionID: 'sess-1',
+    error: {
+      name: 'APIError',
+      data: { message: 'Model not available', isRetryable: false },
+    },
+  },
+}, { opencodeSessionId: 'sess-1' });
+assert.equal(errorEvents[0].kind, 'error');
+assert.match(errorEvents[0].message, /Model not available/);
+
+assert.deepEqual(
+  resolveOpenCodePromptRunFromEvent({
+    type: 'session.error',
+    properties: {
+      sessionID: 'sess-1',
+      error: { data: { message: 'No payment method' } },
+    },
+  }, { opencodeSessionId: 'sess-1' }),
+  { status: 'error', message: 'No payment method' },
+);
+
+const room = {};
+const waiter = createOpenCodePromptRunWaiter(room, 5000);
+const resolved = resolveOpenCodePromptRunFromEvent({
+  type: 'session.idle',
+  properties: { sessionID: 'sess-2' },
+}, { opencodeSessionId: 'sess-2' });
+assert.deepEqual(resolved, { status: 'completed' });
+assert.equal(
+  resolveOpenCodePromptRunFromEvent({
+    type: 'session.idle',
+    properties: { sessionID: 'sess-2' },
+  }, { opencodeSessionId: 'sess-2', hasPendingUserInput: true }),
+  null,
+);
+assert.equal(
+  shouldBumpOpenCodePromptRunActivity({
+    type: 'session.status',
+    properties: { status: { type: 'busy' } },
+  }, { opencodeSessionId: 'sess-1' }),
+  true,
+);
+assert.equal(
+  resolveOpenCodePromptRunFromEvent({
+    type: 'session.idle',
+    properties: { sessionID: 'sess-2' },
+  }, { opencodeSessionId: 'sess-2', hasOpenTools: true }),
+  null,
+);
+notifyOpenCodePromptRunEnd(room, resolved);
+const result = await waiter;
+assert.equal(result.status, 'completed');
+
+assert.equal(
+  shouldBumpOpenCodePromptRunActivity({
+    type: 'message.part.updated',
+    properties: { sessionID: 'sess-1' },
+  }, { opencodeSessionId: 'sess-1' }),
+  true,
+);
+assert.equal(
+  shouldBumpOpenCodePromptRunActivity({
+    type: 'message.part.updated',
+    properties: { sessionID: 'sess-2' },
+  }, { opencodeSessionId: 'sess-1' }),
+  false,
+);
+assert.equal(
+  shouldBumpOpenCodePromptRunActivity({
+    type: 'message.part.updated',
+    properties: { sessionId: 'sess-1' },
+  }, { opencodeSessionId: 'sess-1' }),
+  true,
+);
+assert.equal(
+  shouldBumpOpenCodePromptRunActivity({
+    type: 'message.part.updated',
+    properties: {},
+  }, { opencodeSessionId: 'sess-1' }),
+  false,
+);
+assert.equal(
+  shouldBumpOpenCodePromptRunActivity({
+    type: 'message.part.updated',
+    properties: { sessionID: 'sess-other' },
+  }, {}),
+  false,
+);
+assert.equal(
+  resolveOpenCodePromptRunFromEvent({
+    type: 'session.idle',
+    properties: { sessionID: 'sess-other' },
+  }, {}),
+  null,
+);
+
+const room2 = {};
+const slowWaiter = createOpenCodePromptRunWaiter(room2, 200);
+let timedOut = false;
+slowWaiter.catch(() => { timedOut = true; });
+await new Promise((r) => setTimeout(r, 50));
+bumpOpenCodePromptRunActivity(room2);
+await new Promise((r) => setTimeout(r, 160));
+assert.equal(timedOut, false);
+notifyOpenCodePromptRunEnd(room2, { status: 'completed' });
+await slowWaiter;
+
+const room3 = {};
+const firstEventWaiter = createOpenCodePromptRunWaiter(room3, 5000, 35);
+const firstEventTimeoutMessage = await firstEventWaiter
+  .then(() => '')
+  .catch((err) => (err instanceof Error ? err.message : String(err)));
+assert.match(firstEventTimeoutMessage, /first event timed out/i);
+const firstEventCode = await createOpenCodePromptRunWaiter({}, 5000, 35)
+  .then(() => '')
+  .catch((err) => err?.code || '');
+assert.equal(firstEventCode, 'adapter_timeout');
+
+// A delegation whose prompt submission never returns and that emits no event
+// must end with an explicit adapter_timeout error, not hang in `running`.
+const roomStalled = {};
+const stalledOutcome = await submitOpenCodePromptAndWait(
+  createOpenCodePromptRunWaiter(roomStalled, 5000, 35),
+  () => new Promise(() => {}),
+  () => {},
+).then(() => null, (err) => err);
+assert.equal(stalledOutcome?.code, 'adapter_timeout');
+assert.match(stalledOutcome.message, /first event timed out/i);
+assert.equal(roomStalled._promptRunWaiter, null, 'the waiter is released after the timeout');
+
+const room4 = {};
+const firstEventBumpedWaiter = createOpenCodePromptRunWaiter(room4, 180, 35);
+await new Promise((r) => setTimeout(r, 20));
+bumpOpenCodePromptRunActivity(room4);
+await new Promise((r) => setTimeout(r, 120));
+notifyOpenCodePromptRunEnd(room4, { status: 'completed' });
+const bumpedResult = await firstEventBumpedWaiter;
+assert.equal(bumpedResult.status, 'completed');
+
+assert.deepEqual(
+  buildOpenCodeRunErrorEvents({
+    runId: 'run-aborted',
+    message: 'Aborted',
+    err: new Error('Aborted'),
+    cancelled: true,
+    remaining: 0,
+  }),
+  [{ type: 'sdkRunFinished', runId: 'run-aborted', status: 'cancelled', lastErrorMessage: '', remaining: 0 }],
+);
+assert.deepEqual(
+  buildOpenCodeRunErrorEvents({
+    runId: 'run-plan-guard',
+    message: 'Aborted',
+    cancelled: true,
+    planGuardTriggered: true,
+    remaining: 2,
+  }),
+  [{ type: 'sdkRunFinished', runId: 'run-plan-guard', status: 'plan_guard_cancelled', lastErrorMessage: '', remaining: 2 }],
+);
+assert.deepEqual(
+  buildOpenCodeRunErrorEvents({ runId: 'run-error', message: 'No payment method', remaining: 0 }),
+  [
+    { type: 'sdkError', code: 'opencode_error', message: 'No payment method' },
+    {
+      type: 'sdkRunFinished',
+      runId: 'run-error',
+      status: 'error',
+      lastErrorCode: 'opencode_error',
+      lastErrorMessage: 'No payment method',
+      remaining: 0,
+    },
+  ],
+);
+assert.deepEqual(
+  buildOpenCodeRunErrorEvents({
+    runId: 'run-instance-limit',
+    message: 'OpenCode instance limit reached (2). Close an idle OpenCode chat.',
+    err: Object.assign(new Error('limit'), { code: 'opencode_instance_limit' }),
+    remaining: 0,
+  }),
+  [
+    {
+      type: 'sdkError',
+      code: 'opencode_instance_limit',
+      message: 'OpenCode instance limit reached (2). Close an idle OpenCode chat.',
+    },
+    {
+      type: 'sdkRunFinished',
+      runId: 'run-instance-limit',
+      status: 'error',
+      lastErrorCode: 'opencode_instance_limit',
+      lastErrorMessage: 'OpenCode instance limit reached (2). Close an idle OpenCode chat.',
+      remaining: 0,
+    },
+  ],
+);
+const timeoutMessage = 'OpenCode prompt timed out';
+assert.deepEqual(
+  buildOpenCodeRunErrorEvents({
+    runId: 'run-timeout',
+    message: timeoutMessage,
+    err: createDelegationAdapterTimeoutError(timeoutMessage),
+    remaining: 0,
+  }),
+  [
+    { type: 'sdkError', code: 'adapter_timeout', message: `[adapter_timeout] ${timeoutMessage}` },
+    {
+      type: 'sdkRunFinished',
+      runId: 'run-timeout',
+      status: 'error',
+      lastErrorCode: 'adapter_timeout',
+      lastErrorMessage: `[adapter_timeout] ${timeoutMessage}`,
+      remaining: 0,
+    },
+  ],
+);
+
+console.log('opencode-prompt-run.test.js OK');

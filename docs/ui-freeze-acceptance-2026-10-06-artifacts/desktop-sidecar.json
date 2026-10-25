@@ -1,0 +1,636 @@
+{
+ "scenario": "desktop",
+ "baseUrl": "https://127.0.0.1:3011",
+ "startedAt": "2026-10-06T16:39:28.728Z",
+ "viewport": {
+  "width": 1920,
+  "height": 525
+ },
+ "steps": [
+  {
+   "name": "trace-start",
+   "atMs": 129
+  },
+  {
+   "name": "A-heavy-open",
+   "atMs": 140,
+   "chat": "f9f6294e-5491-474b-9f07-518ce257cf80"
+  },
+  {
+   "name": "B-scroll-top",
+   "atMs": 9237
+  },
+  {
+   "name": "C-sidebar-open",
+   "atMs": 12251
+  },
+  {
+   "name": "D-rapid-switch",
+   "atMs": 15289
+  },
+  {
+   "name": "D-other-chat",
+   "atMs": 15302,
+   "other": "0a61315b-cedd-4b7a-bcb4-232bef5e2a93"
+  },
+  {
+   "name": "E-panel-switch",
+   "atMs": 18475
+  },
+  {
+   "name": "F-report-open",
+   "atMs": 21597,
+   "chat": "95deac11-2e52-4eaa-8049-e83fa0efe522"
+  },
+  {
+   "name": "G-longturn-open",
+   "atMs": 28370,
+   "chat": "b6c301d6-6c2e-4924-a86b-8d9323186841"
+  },
+  {
+   "name": "H-archive-open",
+   "atMs": 36244
+  },
+  {
+   "name": "trace-stop",
+   "atMs": 40177
+  }
+ ],
+ "samples": [
+  {
+   "label": "A-after-heavy",
+   "atMs": 9235,
+   "metrics": {
+    "Nodes": 17347,
+    "Documents": 2,
+    "JSEventListeners": 1709,
+    "LayoutObjects": 392,
+    "JSHeapUsedSize": 47036540,
+    "LayoutCount": 46,
+    "RecalcStyleCount": 632,
+    "LayoutDuration": 0.082434,
+    "RecalcStyleDuration": 0.080163,
+    "ScriptDuration": 0.243714,
+    "TaskDuration": 1.168585
+   },
+   "cards": 25,
+   "elements": 4153,
+   "activeChat": "f9f6294e-5491-474b-9f07-518ce257cf80",
+   "sidebarVisible": false,
+   "archiveRows": 0,
+   "archiveHeaders": 2,
+   "counters": {
+    "windowMs": 1000,
+    "epoch": 1791304771,
+    "counters": {},
+    "spans": {},
+    "mountedRows": {
+     "last": 0,
+     "max": 0
+    },
+    "pending": {
+     "batches": 1,
+     "setTrue": 0,
+     "setFalse": 0,
+     "net": 0,
+     "lastBatchNet": 204
+    },
+    "monitoring": {},
+    "monitoringCandidates": {}
+   }
+  },
+  {
+   "label": "B-after-scroll",
+   "atMs": 12249,
+   "metrics": {
+    "Nodes": 17448,
+    "Documents": 2,
+    "JSEventListeners": 1721,
+    "LayoutObjects": 440,
+    "JSHeapUsedSize": 47224624,
+    "LayoutCount": 52,
+    "RecalcStyleCount": 817,
+    "LayoutDuration": 0.088182,
+    "RecalcStyleDuration": 0.099044,
+    "ScriptDuration": 0.245299,
+    "TaskDuration": 1.265713
+   },
+   "cards": 26,
+   "elements": 4159,
+   "activeChat": "f9f6294e-5491-474b-9f07-518ce257cf80",
+   "sidebarVisible": false,
+   "archiveRows": 0,
+   "archiveHeaders": 2,
+   "counters": {
+    "windowMs": 1000,
+    "epoch": 1791304771,
+    "counters": {},
+    "spans": {},
+    "mountedRows": {
+     "last": 0,
+     "max": 0
+    },
+    "pending": {
+     "batches": 1,
+     "setTrue": 0,
+     "setFalse": 0,
+     "net": 0,
+     "lastBatchNet": 204
+    },
+    "monitoring": {},
+    "monitoringCandidates": {}
+   }
+  },
+  {
+   "label": "C-after-sidebar-pin",
+   "atMs": 15287,
+   "metrics": {
+    "Nodes": 17728,
+    "Documents": 8,
+    "JSEventListeners": 1721,
+    "LayoutObjects": 1338,
+    "JSHeapUsedSize": 53813616,
+    "LayoutCount": 59,
+    "RecalcStyleCount": 1017,
+    "LayoutDuration": 0.110496,
+    "RecalcStyleDuration": 0.151465,
+    "ScriptDuration": 0.322713,
+    "TaskDuration": 1.565206
+   },
+   "cards": 26,
+   "elements": 4158,
+   "activeChat": "f9f6294e-5491-474b-9f07-518ce257cf80",
+   "sidebarVisible": true,
+   "archiveRows": 0,
+   "archiveHeaders": 2,
+   "counters": {
+    "windowMs": 1000,
+    "epoch": 1791304771,
+    "counters": {},
+    "spans": {},
+    "mountedRows": {
+     "last": 0,
+     "max": 0
+    },
+    "pending": {
+     "batches": 1,
+     "setTrue": 0,
+     "setFalse": 0,
+     "net": 0,
+     "lastBatchNet": 204
+    },
+    "monitoring": {},
+    "monitoringCandidates": {}
+   }
+  },
+  {
+   "label": "D-after-switch",
+   "atMs": 18473,
+   "metrics": {
+    "Nodes": 21777,
+    "Documents": 5,
+    "JSEventListeners": 2003,
+    "LayoutObjects": 1297,
+    "JSHeapUsedSize": 50518000,
+    "LayoutCount": 70,
+    "RecalcStyleCount": 1173,
+    "LayoutDuration": 0.125294,
+    "RecalcStyleDuration": 0.191795,
+    "ScriptDuration": 0.923531,
+    "TaskDuration": 2.668681
+   },
+   "cards": 26,
+   "elements": 4563,
+   "activeChat": "f9f6294e-5491-474b-9f07-518ce257cf80",
+   "sidebarVisible": true,
+   "archiveRows": 0,
+   "archiveHeaders": 2,
+   "counters": {
+    "windowMs": 1000,
+    "epoch": 1791304784,
+    "counters": {
+     "boot-cache.hydrate.attempts": 2,
+     "cache.reads": 4,
+     "storage.reads": 4,
+     "cache.builds": 2,
+     "cache.writes": 2,
+     "poll.passes": 1,
+     "poll.eligibleChats": 357,
+     "poll.monitoredChats": 206,
+     "poll.visibleChats": 24,
+     "history.replay.starts": 1,
+     "history.replay.batches": 4
+    },
+    "spans": {
+     "boot-cache.hydrate": {
+      "count": 2,
+      "totalMs": 0.19999998807907104,
+      "maxMs": 0.09999999403953552,
+      "lastMs": 0.09999999403953552
+     },
+     "boot-cache.build": {
+      "count": 2,
+      "totalMs": 0.7000000178813934,
+      "maxMs": 0.4000000059604645,
+      "lastMs": 0.30000001192092896
+     },
+     "history.replay": {
+      "count": 1,
+      "totalMs": 88.5,
+      "maxMs": 88.5,
+      "lastMs": 88.5
+     },
+     "sidebar.archive.render": {
+      "count": 1,
+      "totalMs": 0,
+      "maxMs": 0,
+      "lastMs": 0
+     }
+    },
+    "mountedRows": {
+     "last": 24,
+     "max": 24
+    },
+    "pending": {
+     "batches": 1,
+     "setTrue": 0,
+     "setFalse": 0,
+     "net": 0,
+     "lastBatchNet": 0
+    },
+    "monitoring": {
+     "attention|archived=false": 203,
+     "recent|archived=false": 2,
+     "active|archived=false": 1,
+     "live|archived=false": 2,
+     "waiting|archived=false": 1,
+     "busy|archived=false": 1
+    },
+    "monitoringCandidates": {
+     "attention|archived=false": 203,
+     "recent|archived=false": 2,
+     "active|archived=false": 1,
+     "live|archived=false": 2,
+     "waiting|archived=false": 1,
+     "busy|archived=false": 1
+    }
+   }
+  },
+  {
+   "label": "E-after-panel",
+   "atMs": 21596,
+   "metrics": {
+    "Nodes": 21873,
+    "Documents": 5,
+    "JSEventListeners": 2075,
+    "LayoutObjects": 1297,
+    "JSHeapUsedSize": 57769016,
+    "LayoutCount": 79,
+    "RecalcStyleCount": 1227,
+    "LayoutDuration": 0.135581,
+    "RecalcStyleDuration": 0.223809,
+    "ScriptDuration": 1.098453,
+    "TaskDuration": 3.033752
+   },
+   "cards": 26,
+   "elements": 4601,
+   "activeChat": "f9f6294e-5491-474b-9f07-518ce257cf80",
+   "sidebarVisible": true,
+   "archiveRows": 0,
+   "archiveHeaders": 2,
+   "counters": {
+    "windowMs": 1000,
+    "epoch": 1791304788,
+    "counters": {
+     "boot-cache.hydrate.attempts": 1,
+     "cache.reads": 2,
+     "storage.reads": 2
+    },
+    "spans": {
+     "boot-cache.hydrate": {
+      "count": 1,
+      "totalMs": 0.30000001192092896,
+      "maxMs": 0.30000001192092896,
+      "lastMs": 0.30000001192092896
+     },
+     "sidebar.archive.render": {
+      "count": 1,
+      "totalMs": 0.09999999403953552,
+      "maxMs": 0.09999999403953552,
+      "lastMs": 0.09999999403953552
+     }
+    },
+    "mountedRows": {
+     "last": 24,
+     "max": 24
+    },
+    "pending": {
+     "batches": 0,
+     "setTrue": 0,
+     "setFalse": 0,
+     "net": 0,
+     "lastBatchNet": 0
+    },
+    "monitoring": {},
+    "monitoringCandidates": {}
+   }
+  },
+  {
+   "label": "F-after-report",
+   "atMs": 28368,
+   "metrics": {
+    "Nodes": 18084,
+    "Documents": 6,
+    "JSEventListeners": 1784,
+    "LayoutObjects": 1671,
+    "JSHeapUsedSize": 45709552,
+    "LayoutCount": 119,
+    "RecalcStyleCount": 1713,
+    "LayoutDuration": 0.194594,
+    "RecalcStyleDuration": 0.391716,
+    "ScriptDuration": 1.885226,
+    "TaskDuration": 4.945778
+   },
+   "cards": 33,
+   "elements": 4286,
+   "activeChat": "95deac11-2e52-4eaa-8049-e83fa0efe522",
+   "sidebarVisible": true,
+   "archiveRows": 0,
+   "archiveHeaders": 2,
+   "counters": {
+    "windowMs": 1000,
+    "epoch": 1791304792,
+    "counters": {
+     "poll.passes": 1,
+     "poll.eligibleChats": 357,
+     "poll.monitoredChats": 206,
+     "poll.visibleChats": 24,
+     "ui.pendingRefreshes": 1
+    },
+    "spans": {
+     "history.poll.apply": {
+      "count": 1,
+      "totalMs": 0.09999999403953552,
+      "maxMs": 0.09999999403953552,
+      "lastMs": 0.09999999403953552
+     }
+    },
+    "mountedRows": {
+     "last": 0,
+     "max": 0
+    },
+    "pending": {
+     "batches": 1,
+     "setTrue": 205,
+     "setFalse": 0,
+     "net": 205,
+     "lastBatchNet": 205
+    },
+    "monitoring": {
+     "attention|archived=false": 203,
+     "active|archived=false": 1,
+     "recent|archived=false": 3,
+     "live|archived=false": 2,
+     "waiting|archived=false": 1,
+     "busy|archived=false": 1
+    },
+    "monitoringCandidates": {
+     "attention|archived=false": 203,
+     "active|archived=false": 1,
+     "recent|archived=false": 3,
+     "live|archived=false": 2,
+     "waiting|archived=false": 1,
+     "busy|archived=false": 1
+    }
+   }
+  },
+  {
+   "label": "G-after-longturn",
+   "atMs": 36241,
+   "metrics": {
+    "Nodes": 20331,
+    "Documents": 6,
+    "JSEventListeners": 1948,
+    "LayoutObjects": 2566,
+    "JSHeapUsedSize": 58537456,
+    "LayoutCount": 155,
+    "RecalcStyleCount": 1873,
+    "LayoutDuration": 0.23847,
+    "RecalcStyleDuration": 0.468087,
+    "ScriptDuration": 2.300739,
+    "TaskDuration": 6.109089
+   },
+   "cards": 80,
+   "elements": 4555,
+   "activeChat": null,
+   "sidebarVisible": true,
+   "archiveRows": 0,
+   "archiveHeaders": 2,
+   "counters": {
+    "windowMs": 1000,
+    "epoch": 1791304803,
+    "counters": {
+     "sidebar.layout.frames": 3,
+     "sidebar.layout.skipped": 2
+    },
+    "spans": {
+     "sidebar.layout.apply": {
+      "count": 1,
+      "totalMs": 0.30000001192092896,
+      "maxMs": 0.30000001192092896,
+      "lastMs": 0.30000001192092896
+     }
+    },
+    "mountedRows": {
+     "last": 25,
+     "max": 25
+    },
+    "pending": {
+     "batches": 0,
+     "setTrue": 0,
+     "setFalse": 0,
+     "net": 0,
+     "lastBatchNet": 0
+    },
+    "monitoring": {},
+    "monitoringCandidates": {}
+   }
+  },
+  {
+   "label": "H-after-archive",
+   "atMs": 39575,
+   "metrics": {
+    "Nodes": 19952,
+    "Documents": 6,
+    "JSEventListeners": 1960,
+    "LayoutObjects": 2341,
+    "JSHeapUsedSize": 56001028,
+    "LayoutCount": 158,
+    "RecalcStyleCount": 1904,
+    "LayoutDuration": 0.241645,
+    "RecalcStyleDuration": 0.481247,
+    "ScriptDuration": 2.425972,
+    "TaskDuration": 6.325443
+   },
+   "cards": 80,
+   "elements": 4555,
+   "activeChat": null,
+   "sidebarVisible": true,
+   "archiveRows": 0,
+   "archiveHeaders": 2,
+   "counters": {
+    "windowMs": 1000,
+    "epoch": 1791304808,
+    "counters": {
+     "sidebar.layout.frames": 3,
+     "sidebar.layout.skipped": 2
+    },
+    "spans": {
+     "sidebar.layout.apply": {
+      "count": 1,
+      "totalMs": 0.20000001788139343,
+      "maxMs": 0.20000001788139343,
+      "lastMs": 0.20000001788139343
+     },
+     "sidebar.archive.render": {
+      "count": 1,
+      "totalMs": 0,
+      "maxMs": 0,
+      "lastMs": 0
+     }
+    },
+    "mountedRows": {
+     "last": 25,
+     "max": 25
+    },
+    "pending": {
+     "batches": 0,
+     "setTrue": 0,
+     "setFalse": 0,
+     "net": 0,
+     "lastBatchNet": 0
+    },
+    "monitoring": {},
+    "monitoringCandidates": {}
+   }
+  }
+ ],
+ "longTasks": [
+  {
+   "start": 225,
+   "duration": 129
+  },
+  {
+   "start": 562,
+   "duration": 82
+  },
+  {
+   "start": 960,
+   "duration": 143
+  }
+ ],
+ "errors": [
+  {
+   "kind": "pageerror",
+   "text": "TypeError: Cannot read properties of undefined (reading 'catch')",
+   "atMs": 480
+  },
+  {
+   "kind": "console",
+   "text": "An SSL certificate error occurred when fetching the script.",
+   "atMs": 811
+  },
+  {
+   "kind": "pageerror",
+   "text": "TypeError: Cannot read properties of undefined (reading 'catch')",
+   "atMs": 21897
+  },
+  {
+   "kind": "console",
+   "text": "An SSL certificate error occurred when fetching the script.",
+   "atMs": 21899
+  },
+  {
+   "kind": "pageerror",
+   "text": "TypeError: Cannot read properties of undefined (reading 'catch')",
+   "atMs": 28738
+  },
+  {
+   "kind": "console",
+   "text": "An SSL certificate error occurred when fetching the script.",
+   "atMs": 28741
+  }
+ ],
+ "marks": [
+  {
+   "name": "start",
+   "atMs": 125
+  },
+  {
+   "name": "A-heavy-open",
+   "atMs": 136
+  },
+  {
+   "name": "A-heavy-done",
+   "atMs": 9236
+  },
+  {
+   "name": "B-scroll",
+   "atMs": 9237
+  },
+  {
+   "name": "B-done",
+   "atMs": 12249
+  },
+  {
+   "name": "C-sidebar",
+   "atMs": 12250
+  },
+  {
+   "name": "C-done",
+   "atMs": 15287
+  },
+  {
+   "name": "D-switch",
+   "atMs": 15288
+  },
+  {
+   "name": "D-done",
+   "atMs": 18473
+  },
+  {
+   "name": "E-panel",
+   "atMs": 18474
+  },
+  {
+   "name": "E-done",
+   "atMs": 21596
+  },
+  {
+   "name": "F-report",
+   "atMs": 21597
+  },
+  {
+   "name": "F-done",
+   "atMs": 28368
+  },
+  {
+   "name": "G-longturn",
+   "atMs": 28369
+  },
+  {
+   "name": "G-done",
+   "atMs": 36241
+  },
+  {
+   "name": "H-archive",
+   "atMs": 36243
+  },
+  {
+   "name": "H-done",
+   "atMs": 39575
+  }
+ ],
+ "endMarkMs": 43163,
+ "offline": false
+}

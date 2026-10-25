@@ -1,0 +1,1088 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "scripts/architecture-manifest-stage7.mjs",
+  "baseCommit": "065f3d54a1c330b43cc8b0ba74a55e851970a932",
+  "note": "Compute after the last documentation edit. This file is excluded from its own list. Nothing here edits the root plan or its approval state.",
+  "count": 168,
+  "entries": [
+    {
+      "path": ".agents/skills/cretli-multi-harness/SKILL.md",
+      "group": "source",
+      "sha256": "c2e233d83144f3faff859bd17d46000caeadfbe28eeb0c7ce3f9e2b1f5df0b1a",
+      "bytes": 5717
+    },
+    {
+      "path": ".cursorignore",
+      "group": "source",
+      "sha256": "a8e1922d7a83c616a61876588b98f67f0ae71516907c19d56d11ac2cf9ff67c9",
+      "bytes": 392
+    },
+    {
+      "path": ".rgignore",
+      "group": "source",
+      "sha256": "4c9170951b3902ed1fe0d13f229f4aa8e8fe39d415dd69878168b3e9baae7bcf",
+      "bytes": 217
+    },
+    {
+      "path": "CHANGELOG.md",
+      "group": "source",
+      "sha256": "b631ca89f52ed08d53a9c846e73d211adb8a736e80122b78c58dcbd120959343",
+      "bytes": 185455
+    },
+    {
+      "path": "README.md",
+      "group": "source",
+      "sha256": "889602f41e9ba8610fb26f50099f013037f6e75d68f4db0a7cdf0bef5e73ced6",
+      "bytes": 13381
+    },
+    {
+      "path": "app_front/api.js",
+      "group": "source",
+      "sha256": "53902c09745500b2f04ae7014f90ff4f95e384a00d58e3add5112f18cb819e4f",
+      "bytes": 115857
+    },
+    {
+      "path": "app_front/chat.js",
+      "group": "source",
+      "sha256": "6f05a1c3c5ad3c1d9fd6927784118807df3b7738e681f86995789ce9fa0b45de",
+      "bytes": 432889
+    },
+    {
+      "path": "app_front/features/chat/chatListLiveSync.js",
+      "group": "source",
+      "sha256": "540a2a27321352f355301b8aac408fd48377b4734eb728f0413580c1a254618d",
+      "bytes": 6983
+    },
+    {
+      "path": "app_front/features/chat/chatListSyncClient.js",
+      "group": "source",
+      "sha256": "59dcf71a3c560681243c058290fdce2ec32b4fd1cde64340147f6e9a80beb719",
+      "bytes": 13693
+    },
+    {
+      "path": "app_front/features/chat/chatTransport.js",
+      "group": "source",
+      "sha256": "cc13749c76f4455a635a5a8f46926a72f42ce2dbb26fd26730d131fb1ef90d4c",
+      "bytes": 99317
+    },
+    {
+      "path": "app_front/lib/sdk-chat-history-store.js",
+      "group": "source",
+      "sha256": "3bc0dd43e6a4e4ddb1080ab5182353b0c2c70113e95712cc7eec1191eea380d4",
+      "bytes": 65990
+    },
+    {
+      "path": "app_front/lib/viewFlags.js",
+      "group": "source",
+      "sha256": "326521422c101e73936c6f52ec69d7a81a2107399847e13b94d273cb2b5e0f67",
+      "bytes": 1069
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "group": "document",
+      "sha256": "0023ec542ecebda7dc6c95c23953178460a211ac5fb150e99b91172fd059d677",
+      "bytes": 103998
+    },
+    {
+      "path": "docs/INSTALL.md",
+      "group": "document",
+      "sha256": "b12dae625f9d5792130d192269bf7bfb2e1d99441e9b8f647b1271e186e306cf",
+      "bytes": 9327
+    },
+    {
+      "path": "docs/RELEASING.md",
+      "group": "document",
+      "sha256": "8c996d0e0d1f2c65bfcfac4377a20d7a751c5a396417005ccb382d08bde65646",
+      "bytes": 1952
+    },
+    {
+      "path": "docs/architecture-acceptance.json",
+      "group": "document",
+      "sha256": "4e744a9940c9bfcd3536322cd3a7a9faedfbebefaf83bc57e047b703ee459a81",
+      "bytes": 17397
+    },
+    {
+      "path": "docs/architecture-acceptance.md",
+      "group": "document",
+      "sha256": "8a64e6a699fee95f86a3959521141e381f0699df700fd86b3bf906f209be5b3f",
+      "bytes": 11315
+    },
+    {
+      "path": "docs/architecture-baseline-storage-harness.json",
+      "group": "document",
+      "sha256": "98566a0ee106b51cff729a98e923c95eaa1572126670aa150faf1e88f3840bb4",
+      "bytes": 17320
+    },
+    {
+      "path": "docs/architecture-baseline.md",
+      "group": "document",
+      "sha256": "59733ebec92a778beaa8914332267147bcaa41c498259504c87750041041532c",
+      "bytes": 15139
+    },
+    {
+      "path": "docs/architecture-chat-catalog-contract.md",
+      "group": "document",
+      "sha256": "2dad4597e22626990e62d05b1afb767ca43810347a9c3dcaf47439715d11f19e",
+      "bytes": 7349
+    },
+    {
+      "path": "docs/architecture-chat-list-bench.json",
+      "group": "document",
+      "sha256": "e03d2737a6cbe018835083db56bc3f5ba7d4e75960238c79bf89aeb56cf17adf",
+      "bytes": 2245
+    },
+    {
+      "path": "docs/architecture-dependency-cycles.json",
+      "group": "document",
+      "sha256": "06155a90d6afbb98baca632269ee131f434a38911c7027e6e69995f71493ecee",
+      "bytes": 4706
+    },
+    {
+      "path": "docs/architecture-frontend-baseline.md",
+      "group": "document",
+      "sha256": "0a9336aa7917507226f14b2eb1eb26f6304329991d550d15e05056733deaaf5c",
+      "bytes": 4525
+    },
+    {
+      "path": "docs/architecture-http-baseline.json",
+      "group": "document",
+      "sha256": "fbbd43df0c8e8971b3b60f9e269925b275250f14963ade7d9c69b6dca32f7696",
+      "bytes": 11455
+    },
+    {
+      "path": "docs/architecture-http-baseline.md",
+      "group": "document",
+      "sha256": "c08d67be43e680fc4af74ddf205703b7a50d74e710e8a13aae24ba0027c353dd",
+      "bytes": 5755
+    },
+    {
+      "path": "docs/architecture-list-sync-contract.md",
+      "group": "document",
+      "sha256": "79beb8a67eb907507491052aec627b865408f1c4824c7bb26044ac740f68d6f5",
+      "bytes": 9543
+    },
+    {
+      "path": "docs/architecture-readiness-matrix.json",
+      "group": "document",
+      "sha256": "296125bb0d55f52cd68adef530d43020e5703962d5b1b4930c4a7a0829461c93",
+      "bytes": 18289
+    },
+    {
+      "path": "docs/architecture-readiness-matrix.md",
+      "group": "document",
+      "sha256": "e0bb175a381d50e794d7e890651428d06c261e77a760e83f45af7f846f4afa9d",
+      "bytes": 16488
+    },
+    {
+      "path": "docs/architecture-stall-profile.json",
+      "group": "document",
+      "sha256": "a8e1467b5f925b42c697117cb3d502e5f487bc6f5338b2c0c436b7f279d636be",
+      "bytes": 27554
+    },
+    {
+      "path": "docs/architecture-stall-profile.md",
+      "group": "document",
+      "sha256": "18ec2b249904b7d910607605faea79e8cb7234917a729197b260c64076f29535",
+      "bytes": 18763
+    },
+    {
+      "path": "docs/architecture-sync-io-inventory.json",
+      "group": "document",
+      "sha256": "adbcebf84880a44a0f1d45cc838ba4c2027a3280679750a0fb7ec80cc6143a1f",
+      "bytes": 37977
+    },
+    {
+      "path": "docs/architecture-system-map.md",
+      "group": "document",
+      "sha256": "2baf45c18bb2437ff5cce6e9f2a22ba890d32c072a9d38c240e2d04de3c16b43",
+      "bytes": 13745
+    },
+    {
+      "path": "docs/architecture-target-adr.md",
+      "group": "document",
+      "sha256": "14543d9a2a0b69dec06b5906eb152bcfeba2bfc76808eacdaa43ebaec10d557a",
+      "bytes": 9032
+    },
+    {
+      "path": "docs/architecture-vertical-dag.md",
+      "group": "document",
+      "sha256": "6a35760f40e717228f11e19033698ed2cc72ec053d85f8adefe5a52a30f67e05",
+      "bytes": 26798
+    },
+    {
+      "path": "docs/delegation-workflow-per-leaf.md",
+      "group": "document",
+      "sha256": "db2848296dd26274068d4372e8f339b35323ed2a9716c5ce71d6e9b2e71da1a1",
+      "bytes": 59590
+    },
+    {
+      "path": "docs/storage-baseline.md",
+      "group": "document",
+      "sha256": "3f8147e0807e347d964b8caad8415b91441d8b42c86831fa7dc37372484fd672",
+      "bytes": 7187
+    },
+    {
+      "path": "docs/storage-callers.md",
+      "group": "document",
+      "sha256": "1a6e1486965c770ea0ce74fedf2b1cfebbd2a960cce184650f52a1aa57f29196",
+      "bytes": 9978
+    },
+    {
+      "path": "docs/storage-gates.md",
+      "group": "document",
+      "sha256": "8b23bcb7d39e8566bf64fc9d646d152f562742c0c7a0293e3fcd79d667ae336e",
+      "bytes": 9280
+    },
+    {
+      "path": "docs/storage-registry.json",
+      "group": "document",
+      "sha256": "591649eb914691592364d03ddeb8a37aadebd95c39f6e16f76f0da0f7598369d",
+      "bytes": 39968
+    },
+    {
+      "path": "docs/storage-registry.md",
+      "group": "document",
+      "sha256": "b5d9d118452ea40107d73effa5871e68a032c03fdab0a246c9f0092b9ec01c53",
+      "bytes": 5140
+    },
+    {
+      "path": "lib/agent-finished-push.js",
+      "group": "source",
+      "sha256": "c732363d1b481a495c69e488c9428d84025c270a926b9ea0d6d33b94689c79c1",
+      "bytes": 8064
+    },
+    {
+      "path": "lib/approval/can-use-tool-adapter.ts",
+      "group": "source",
+      "sha256": "a3093ae669ebff401d6efee50031de8f04f10522880fb133182293d18f6dfaf3",
+      "bytes": 8090
+    },
+    {
+      "path": "lib/chat-catalog.js",
+      "group": "source",
+      "sha256": "8eff6b89f5cc616e44a55234db604abf5a332c5d515e1c5ad545fc22cfbff7c9",
+      "bytes": 12063
+    },
+    {
+      "path": "lib/chat-list-dto.js",
+      "group": "source",
+      "sha256": "309003aaa98e9512a437e0822127b7d9740901881250a9d939143a1ed3f624f8",
+      "bytes": 2433
+    },
+    {
+      "path": "lib/chat-list-sync.js",
+      "group": "source",
+      "sha256": "e555fa78daf7afae0c71ef8eb8112271e23dd9fa6333150fedb0be7b2d5d9cd6",
+      "bytes": 10178
+    },
+    {
+      "path": "lib/chat-relation-history.js",
+      "group": "source",
+      "sha256": "e8ff8959235192626267032263561ebea246945a1def62e1d7f77fbccd2789a6",
+      "bytes": 3514
+    },
+    {
+      "path": "lib/chat-title-backfill.js",
+      "group": "source",
+      "sha256": "8412d4a496f97d20bca29b8343636d599c2fe83b6960c3fd63acf12ddcb69408",
+      "bytes": 5419
+    },
+    {
+      "path": "lib/chat-title-service.js",
+      "group": "source",
+      "sha256": "e90fac2b737d4ddaf2deac2ff876ad3a56d7363c8a3b36cca2208a3fea2631d3",
+      "bytes": 11966
+    },
+    {
+      "path": "lib/context-compression-source.js",
+      "group": "source",
+      "sha256": "f2e380cd35657c7d569c9e1357f4fb9617eda17108aa5d184db4de6b35db4253",
+      "bytes": 2937
+    },
+    {
+      "path": "lib/conversation-fork-execute.js",
+      "group": "source",
+      "sha256": "c99b88c12e06ad308b36bebfa4794149029c1d03d46c2a3920684f6d452b6c42",
+      "bytes": 6934
+    },
+    {
+      "path": "lib/delegation-mailbox.js",
+      "group": "source",
+      "sha256": "96c3fdb2990d567a80023123e07ed07eb8845dd764d83fbcee7468e6f351ac6c",
+      "bytes": 47046
+    },
+    {
+      "path": "lib/delegation-metrics.js",
+      "group": "source",
+      "sha256": "a2f22b094d198e978cf1934817ec0247316e78988e14330449917c0f1ff5406f",
+      "bytes": 13375
+    },
+    {
+      "path": "lib/delegation-review-verify-plan.js",
+      "group": "source",
+      "sha256": "b959ad8ad28f646d67fecc64115baa75e077f2413c24c609daa30e5837f43da8",
+      "bytes": 10204
+    },
+    {
+      "path": "lib/delegation-run-bridge.js",
+      "group": "source",
+      "sha256": "78e6393bba36ba3a7d8bcda448c046f825daed044ec2b0f30e0f21d757dec648",
+      "bytes": 31090
+    },
+    {
+      "path": "lib/delegation-runtime-worker.js",
+      "group": "source",
+      "sha256": "62109b06b6ab7bb876078066dee7af28c34e0dc3a3f5d56d8f2c8422c04b8c53",
+      "bytes": 27385
+    },
+    {
+      "path": "lib/delegation-service.js",
+      "group": "source",
+      "sha256": "291b144291b513d5e3eb65b3ff30928965932f0555245012c45cb1b03c5af64d",
+      "bytes": 282000
+    },
+    {
+      "path": "lib/delegation-source.js",
+      "group": "source",
+      "sha256": "fd7d7d1e2f84ab7d7f9158242425213d819148f22381c5600ab9de02996bbc99",
+      "bytes": 3116
+    },
+    {
+      "path": "lib/files-list.js",
+      "group": "source",
+      "sha256": "da29b516524cf6c33b9ccac7681478755e9e0f54e7788e902239ca4f9efcb495",
+      "bytes": 3591
+    },
+    {
+      "path": "lib/mcp/builtin/delegation-tools.js",
+      "group": "source",
+      "sha256": "819d615af44bad0c60a16070bda2fd763e21c6ec07984ea13e18a8f5a51914a9",
+      "bytes": 90148
+    },
+    {
+      "path": "lib/mcp/mcp-inprocess-client.js",
+      "group": "source",
+      "sha256": "95b48e60da69c58eabe30b10e6607e801d63fabe7f730a01e6760af899669b9c",
+      "bytes": 56134
+    },
+    {
+      "path": "lib/persist/chat-history-persist.js",
+      "group": "source",
+      "sha256": "51cc0f0e2191fa80a020a13ae03ca256c095caf44fe202ffa7bb8eafebce48c4",
+      "bytes": 21650
+    },
+    {
+      "path": "lib/persist/chat-title-history-persist.js",
+      "group": "source",
+      "sha256": "e8471b1588177b85d083483afac80760390331a591e638e0b812cf2490fbac4c",
+      "bytes": 3338
+    },
+    {
+      "path": "lib/persist/chats-persist.js",
+      "group": "source",
+      "sha256": "0d37dbf572213803a29bf82a0faa96105e12122c7a28ab2f3cbb7d959d53fc35",
+      "bytes": 49087
+    },
+    {
+      "path": "lib/persist/delegations-persist.js",
+      "group": "source",
+      "sha256": "3c937962d636f432a3ef653d6da9bbc9824f1ad562bcc30226347caa0a66a2c4",
+      "bytes": 68437
+    },
+    {
+      "path": "lib/routes/chats-routes.js",
+      "group": "source",
+      "sha256": "87a60a5932b1b230fa619b6d242d4580dacf117ed2494a1c80cb03e3ce2ea0fd",
+      "bytes": 62247
+    },
+    {
+      "path": "lib/routes/delegations-routes.js",
+      "group": "source",
+      "sha256": "2e0da207a22258d5497196ce02eeb88b87ba98066146b2724c8f1d239b0c6e5a",
+      "bytes": 50625
+    },
+    {
+      "path": "lib/storage/chat-history-store.js",
+      "group": "source",
+      "sha256": "12047215c616df1d49ec809eae75c87bd97ac3f176421d7364c50a51db185adc",
+      "bytes": 57392
+    },
+    {
+      "path": "lib/storage/chat-history-store.md",
+      "group": "source",
+      "sha256": "2aa795523284f23672f4e3069ba9a66058f6bf1f8510427e6391df24b0c6a482",
+      "bytes": 22321
+    },
+    {
+      "path": "lib/storage/command-receipts.js",
+      "group": "source",
+      "sha256": "6d9f113964992a7607c23a231cb73896c38ef54ba4ed5ad03e971e43259e88ad",
+      "bytes": 23224
+    },
+    {
+      "path": "lib/storage/coordinator.js",
+      "group": "source",
+      "sha256": "a9fabc4302f55c418d840b0b9f737f07c5c8f5edb016d080b2553c3e072611b4",
+      "bytes": 30822
+    },
+    {
+      "path": "lib/storage/coordinator.md",
+      "group": "source",
+      "sha256": "16460f103ae69aee6aabf11812cba57971c532834d5f7a14920f994cd3658431",
+      "bytes": 8457
+    },
+    {
+      "path": "lib/storage/db-lifecycle.js",
+      "group": "source",
+      "sha256": "a7a7b5a75087cd173e2483e640598632cc8413bd184c83626a22f61b0effe3ec",
+      "bytes": 25977
+    },
+    {
+      "path": "lib/storage/errors.js",
+      "group": "source",
+      "sha256": "09b3a523a797b193719f3c5acca3552999c33535073f861b71c32cbd9b0996c6",
+      "bytes": 7050
+    },
+    {
+      "path": "lib/storage/fair-queue.js",
+      "group": "source",
+      "sha256": "8c097c83d8f7ceaba1a19bfcf2aa2d9a1e2b7497f820efd857d70a8b875230dc",
+      "bytes": 12110
+    },
+    {
+      "path": "lib/storage/group-commit.js",
+      "group": "source",
+      "sha256": "b24d79d9ba46f6cb6994f251a4b638062576cad229df85a9cb1c95dca1e86860",
+      "bytes": 29541
+    },
+    {
+      "path": "lib/storage/group-commit.md",
+      "group": "source",
+      "sha256": "dac6833ace84e95e1fb3c5b96111d1153b047339d26daa6f64b6787d4e2d3338",
+      "bytes": 15953
+    },
+    {
+      "path": "lib/storage/handler-sql-guard.js",
+      "group": "source",
+      "sha256": "382cf210fc435e0060406bc215aa3b10fab5dc3c39670e8f0d9a647455e25df0",
+      "bytes": 7368
+    },
+    {
+      "path": "lib/storage/migration-runner.js",
+      "group": "source",
+      "sha256": "418a9e22ed1bdc8a3a7cab20c0f50b27a273983d6dbe5c33886ba7875d75b731",
+      "bytes": 29471
+    },
+    {
+      "path": "lib/storage/migration-runner.md",
+      "group": "source",
+      "sha256": "7602cde64ae6a997e89c455481a8bafc7c8401a2b6db9f29f62c9de756284819",
+      "bytes": 5245
+    },
+    {
+      "path": "lib/storage/migrations.js",
+      "group": "source",
+      "sha256": "692a9ad9c5b59748af230e0a8349cd1960efc4b0e8938ba3df348d143d0b8a3e",
+      "bytes": 7945
+    },
+    {
+      "path": "lib/storage/receipts.md",
+      "group": "source",
+      "sha256": "862e3b483d8733aef96ab8c4e17f0ad493892a64ebe06068fc4316232fadd5eb",
+      "bytes": 13307
+    },
+    {
+      "path": "lib/storage/runtime-check.js",
+      "group": "source",
+      "sha256": "a51624dd1c52991dfce0d64106a2ed32580c11558c3352a9c088dac44403a399",
+      "bytes": 5518
+    },
+    {
+      "path": "lib/storage/schema/0001-core.js",
+      "group": "source",
+      "sha256": "5d44a114e0eebbcd1a013a5f69728867da2cea922dfaf1935a26d46406e31504",
+      "bytes": 1921
+    },
+    {
+      "path": "lib/storage/schema/0002-fencing.js",
+      "group": "source",
+      "sha256": "85ba97f0576645f936c4eaec5afedf0d23ff15f1e482f2ea131e577ed1d1add1",
+      "bytes": 778
+    },
+    {
+      "path": "lib/storage/schema/0003-chat-history.js",
+      "group": "source",
+      "sha256": "69807edf81ee17596196dfd0b8da257740efed021cbe8b0ef3b93ab863795c6d",
+      "bytes": 4449
+    },
+    {
+      "path": "lib/storage/sqlite-errors.js",
+      "group": "source",
+      "sha256": "99637655123ed265328f4ef248b636f43eac4cf3608c067bbd4fa21be76d04f9",
+      "bytes": 5422
+    },
+    {
+      "path": "lib/storage/sqlite-worker.js",
+      "group": "source",
+      "sha256": "24662b12b9a772aad97524814223c252472d8235817b66a55d236ef1f7d0df89",
+      "bytes": 37026
+    },
+    {
+      "path": "lib/storage/worker-host.js",
+      "group": "source",
+      "sha256": "9f287f2ccf30b9472b2952ee69e5cb9aaaed26cdc6364b79373c0bcf44cd90fb",
+      "bytes": 43300
+    },
+    {
+      "path": "lib/storage/worker-protocol.md",
+      "group": "source",
+      "sha256": "212540d9d1e0ce51f671714f236ab6ed7351196e0deabd64946a6eabc6e5ff54",
+      "bytes": 17740
+    },
+    {
+      "path": "lib/storage/worker-wire.js",
+      "group": "source",
+      "sha256": "41ebcaf12904ce9e65b3226706122ae3902f13a9b47150f43b002da92f0dc9d0",
+      "bytes": 2189
+    },
+    {
+      "path": "lib/todo-execution-prompt.js",
+      "group": "source",
+      "sha256": "b47a993b28ef4347b692fcca52da82ff20b16253f4176aa4cbf00b41d2875b1e",
+      "bytes": 20319
+    },
+    {
+      "path": "lib/todo-plan-sync.js",
+      "group": "source",
+      "sha256": "94e817b37a905f65e7aed8c90bc733cc7a184c8431a1227addee5a977d13621b",
+      "bytes": 13093
+    },
+    {
+      "path": "lib/workspace-watcher-cycle.js",
+      "group": "source",
+      "sha256": "46c2455514e738bd615801279e2a7beda11803ca92fcf6e8adb7b25ebb302b9d",
+      "bytes": 115146
+    },
+    {
+      "path": "lib/workspace-watcher-pinned-chat.js",
+      "group": "source",
+      "sha256": "17abb723a8cdd5e59667c520716556ed113371d47417275a394e755d40edda49",
+      "bytes": 9527
+    },
+    {
+      "path": "lib/workspace-watcher.js",
+      "group": "source",
+      "sha256": "e161e373c1c7b65711b53eb80975e39a7c281399b27763d311dc1451e4a11f21",
+      "bytes": 125646
+    },
+    {
+      "path": "lib/worktree/git-worktree.ts",
+      "group": "source",
+      "sha256": "95ee61ad7c13d5873dedb66dc360bc74dcac768df7d62b55927034a0f528b0fd",
+      "bytes": 41273
+    },
+    {
+      "path": "package-lock.json",
+      "group": "source",
+      "sha256": "dedece5bb8e3e06e09d8ef386cec2bfd2399cfb69d707c255287f3f700b35edc",
+      "bytes": 612135
+    },
+    {
+      "path": "package.json",
+      "group": "source",
+      "sha256": "f3d57e739b5c85fdba549c56b892afd6cd8e8022da74afebd6878aadbb4fd83f",
+      "bytes": 18339
+    },
+    {
+      "path": "scripts/architecture-chat-list-bench.mjs",
+      "group": "script",
+      "sha256": "7a9266a5be81b1589c208b0d3c59640e8acf1eb2a32a13a32eb5a9d3f0cf2e49",
+      "bytes": 5622
+    },
+    {
+      "path": "scripts/architecture-dependency-cycles.mjs",
+      "group": "script",
+      "sha256": "25dafb9160f3ed3d82cdf15bd89ecb0d809682e067c61069b7096dca30600434",
+      "bytes": 7349
+    },
+    {
+      "path": "scripts/architecture-http-bench.mjs",
+      "group": "script",
+      "sha256": "9d9125ab7c87270148d28ca0dddf2d3257e2653c5e475c075357ab9b903f1333",
+      "bytes": 7561
+    },
+    {
+      "path": "scripts/architecture-http-fixture.mjs",
+      "group": "script",
+      "sha256": "0d678aa2e68a115e17895dd598a82fb57c537166b14a1010e48dcd15c1a4d46a",
+      "bytes": 6824
+    },
+    {
+      "path": "scripts/architecture-manifest-stage7.mjs",
+      "group": "script",
+      "sha256": "1288b08167ba4cf9e3d5977efdef3bbf0242ee7b2eab131211963347b5d2bb2e",
+      "bytes": 5385
+    },
+    {
+      "path": "scripts/architecture-multi-instance-regression.mjs",
+      "group": "script",
+      "sha256": "681ba40d8c821dd40def8960d5db1b4f9cfffb88f0d81d55326383618064eed6",
+      "bytes": 3331
+    },
+    {
+      "path": "scripts/architecture-stall-profile.mjs",
+      "group": "script",
+      "sha256": "e075881019a4c4c4d93f9436e9d9d664332a5570af6a49d4c639bc674be6adbf",
+      "bytes": 39379
+    },
+    {
+      "path": "scripts/architecture-sync-io-inventory.mjs",
+      "group": "script",
+      "sha256": "4eae3eb8c51dfdfddfdcb0db84b058957b445de2ee7c437872d5bc0008fc1656",
+      "bytes": 3050
+    },
+    {
+      "path": "scripts/run-unit-tests.mjs",
+      "group": "script",
+      "sha256": "9c4fcaf5b64b4fede02a5c38928c3c5baeac6f2de5f58e518c33fddb133ad2a2",
+      "bytes": 10867
+    },
+    {
+      "path": "scripts/storage-chat-history-bench.mjs",
+      "group": "script",
+      "sha256": "cbd1328952316a59c16347ec1b32e4af9de44b497362c96b17ede8b30549db70",
+      "bytes": 40699
+    },
+    {
+      "path": "scripts/validate-evidence.mjs",
+      "group": "script",
+      "sha256": "535cfb44c21d912196cde10970910414a1b50137435f68d8061798e3afa38762",
+      "bytes": 3375
+    },
+    {
+      "path": "server.js",
+      "group": "source",
+      "sha256": "89355895a4b3fb0730d380efd9c512a153e6709da6b9f541b827cae560d4e6d8",
+      "bytes": 42825
+    },
+    {
+      "path": "tests/architecture-acceptance.test.js",
+      "group": "test",
+      "sha256": "46752817097ea262467b120bee9aaa8d2d5f910b7bf20ac01a9e6ec89a242297",
+      "bytes": 6309
+    },
+    {
+      "path": "tests/architecture-http-fixture.test.js",
+      "group": "test",
+      "sha256": "fb8e12a6c3a257bc459dedd001f458b9a943b60a46e6fe64193569348f37150e",
+      "bytes": 2067
+    },
+    {
+      "path": "tests/architecture-stall-profile.test.js",
+      "group": "test",
+      "sha256": "b9d3ccee59c7503fe88f80203485aed71fd8f061a0d7e9672d10e0c22e684cd4",
+      "bytes": 3923
+    },
+    {
+      "path": "tests/can-use-tool-adapter.test.js",
+      "group": "test",
+      "sha256": "c1307a9e09b5efbd310b5538a52379256d83e9434f9f4fd7428c87db1f0e7115",
+      "bytes": 7874
+    },
+    {
+      "path": "tests/chat-catalog-contract.test.js",
+      "group": "test",
+      "sha256": "1760ceecc77b2989dc97a86b347195e0aa59af834cc855739e58393b68737dca",
+      "bytes": 7113
+    },
+    {
+      "path": "tests/chat-catalog-pagination.test.js",
+      "group": "test",
+      "sha256": "5d8bc95225f2d7dad956436ebe1a64a1314398a68033d7eaa8f6614711a4a60e",
+      "bytes": 11641
+    },
+    {
+      "path": "tests/chat-history-cache.test.js",
+      "group": "test",
+      "sha256": "e95d5182bedc7a3a03f4b097d6245d9454fe67aa6f008a239765e430a4190d80",
+      "bytes": 3023
+    },
+    {
+      "path": "tests/chat-list-live-sync-delta.test.js",
+      "group": "test",
+      "sha256": "ea550058a2ecb6f736b775db6efd8a2ad80ed5d9348146c71a8ca2ea9dae2e25",
+      "bytes": 1471
+    },
+    {
+      "path": "tests/chat-list-sync-client.test.js",
+      "group": "test",
+      "sha256": "87900354e141517fea576a893be8526deabf9b72044da85569462ba5f458b8fe",
+      "bytes": 18870
+    },
+    {
+      "path": "tests/chat-list-sync.test.js",
+      "group": "test",
+      "sha256": "5454fd8175bf7df4528991c5624b3b63d897c6685332ce8458efb9d076e5c1d1",
+      "bytes": 12694
+    },
+    {
+      "path": "tests/chat-list-updates.test.js",
+      "group": "test",
+      "sha256": "6714013ed88b1c64e5852091213a9616c3a51b37f60c1ee66190821119daf993",
+      "bytes": 5588
+    },
+    {
+      "path": "tests/chat-relation-history.test.js",
+      "group": "test",
+      "sha256": "d114d53e946fe3a0069005a8c2ab768a5a68ee45e761757ea5bf4fb65bb4eb17",
+      "bytes": 4759
+    },
+    {
+      "path": "tests/chat-title-history.test.js",
+      "group": "test",
+      "sha256": "7cad5ca94e060c52dee2681e625e1f37a3d98a14d54b093c19522d8b0c72bacd",
+      "bytes": 6700
+    },
+    {
+      "path": "tests/conversation-fork.test.js",
+      "group": "test",
+      "sha256": "ebeba22802a65022b4b79f1f354f202d509740c0efdb9a56bbcebd8e1212cac1",
+      "bytes": 18584
+    },
+    {
+      "path": "tests/delegation-accept-cas.test.js",
+      "group": "test",
+      "sha256": "eceab46b360556eba70aad5c683979010213e6ad27e24c3036dc1ad4b8832462",
+      "bytes": 13777
+    },
+    {
+      "path": "tests/delegation-attempt-usage-metrics.test.js",
+      "group": "test",
+      "sha256": "6f8d3a473ce215b9e8e214dfb39ab7e134f5bd8e56bfa86aa639eae102c9b2c8",
+      "bytes": 28864
+    },
+    {
+      "path": "tests/delegation-audit-fixes.test.js",
+      "group": "test",
+      "sha256": "ae5c085139eba5a7040e93195b851361a250fef36e2d5062034c48e40d22523d",
+      "bytes": 14416
+    },
+    {
+      "path": "tests/delegation-controller-model.test.js",
+      "group": "test",
+      "sha256": "55866cc161b2eddb1ab8397bb0f1ec5eaa79502210fc0d9b8831f0f68f681e70",
+      "bytes": 9379
+    },
+    {
+      "path": "tests/delegation-delivery-acceptance.test.js",
+      "group": "test",
+      "sha256": "d1bccf63038e9dc19eb6f5ab523b63e39e2712e7c491cddfdb65bf825f724ba8",
+      "bytes": 6537
+    },
+    {
+      "path": "tests/delegation-flow.test.js",
+      "group": "test",
+      "sha256": "cea8e701a67e4f127d99c6947b17a9386d665b314747485dadeda30bb472078f",
+      "bytes": 18920
+    },
+    {
+      "path": "tests/delegation-list-compact.test.js",
+      "group": "test",
+      "sha256": "8483e2e64af1c33c1902b46070e9a4a0c389ece513abe77e68fbffee0558d12f",
+      "bytes": 15929
+    },
+    {
+      "path": "tests/delegation-list-metrics-dto.test.js",
+      "group": "test",
+      "sha256": "c090520d2cdda9776bd5597d790f77a5ee9434dec79217ef06f776a88b6c1d62",
+      "bytes": 2214
+    },
+    {
+      "path": "tests/delegation-outbox-concurrency.test.js",
+      "group": "test",
+      "sha256": "a035dca633d600f97ed29d8f95c0e99fd370adb02a9f89593714f15d30d49f0f",
+      "bytes": 6136
+    },
+    {
+      "path": "tests/delegation-phase3.test.js",
+      "group": "test",
+      "sha256": "d5df0b7b9969ba85a142cd3330a42e5c588bf7b810cd9c74fa209be3f8538cab",
+      "bytes": 16265
+    },
+    {
+      "path": "tests/delegation-reply-fencing.test.js",
+      "group": "test",
+      "sha256": "e46e5976ec9fbddf9bb29128cddc58854ad25b16bdd4c0c8b36e30156aa28e69",
+      "bytes": 6047
+    },
+    {
+      "path": "tests/delegation-review-continuation-run.test.js",
+      "group": "test",
+      "sha256": "53a76c56a00d5e1aad12d3492bca15a65f8b3d63c72e9c9f02bb29bf1b0bac18",
+      "bytes": 11860
+    },
+    {
+      "path": "tests/delegation-review-subject.test.js",
+      "group": "test",
+      "sha256": "d85f327e50762b9c68ae4a5bcde755c201d310a08ad2fdb2d524bf2a3c357994",
+      "bytes": 16357
+    },
+    {
+      "path": "tests/delegation-route-chat-index.test.js",
+      "group": "test",
+      "sha256": "b04dacf55f6a3f499ab0a2dc0d4d98bc338653d068a2d6dcbcc5053678f74f22",
+      "bytes": 4783
+    },
+    {
+      "path": "tests/delegation-takeover.test.js",
+      "group": "test",
+      "sha256": "d660f6db262945921dc88d7a27ce58a8f354eba06e1cca871137bcaf005aa509",
+      "bytes": 27529
+    },
+    {
+      "path": "tests/delegation-verify-manifest.test.js",
+      "group": "test",
+      "sha256": "b291033b74a712b3014afb44cccda8447cd7dedb72c7105c504a470f8b9a302b",
+      "bytes": 13597
+    },
+    {
+      "path": "tests/delegation-verify-result-persist.test.js",
+      "group": "test",
+      "sha256": "52649b03f65b056e1a329151abb4c06edd0558e2127557fcd93e745f7d509088",
+      "bytes": 4477
+    },
+    {
+      "path": "tests/e2e/sidebar-render-metrics.spec.js",
+      "group": "test",
+      "sha256": "c8b6a3534479db5f619aa7bb6f0b27d3b3455ae134e28b2b0a19861d80c5b497",
+      "bytes": 14046
+    },
+    {
+      "path": "tests/files-list-order.test.js",
+      "group": "test",
+      "sha256": "9934d4ebd608c3c485573c5dbdb649a0107503041c6759b5bd934360cab7c093",
+      "bytes": 2065
+    },
+    {
+      "path": "tests/fixtures/storage-chat-history-handlers.js",
+      "group": "test",
+      "sha256": "f6c78c1a8d4e98e6aba8e311c75dcbb36bf32946d5a26d4faea162d0acadf13f",
+      "bytes": 2930
+    },
+    {
+      "path": "tests/fixtures/storage-group-handlers.js",
+      "group": "test",
+      "sha256": "076b33d3352bfafcf18b882137b28fbee2523e0280bf306e88b47dfc40995964",
+      "bytes": 6274
+    },
+    {
+      "path": "tests/fixtures/storage-receipt-handlers.js",
+      "group": "test",
+      "sha256": "4b558ed67b4d70307b475f88a3ddff6d09f0197b68ed9e4e5f1c32788ace9e8a",
+      "bytes": 7308
+    },
+    {
+      "path": "tests/fixtures/storage-worker-async-handlers.js",
+      "group": "test",
+      "sha256": "66b7c574c0596cad1cf419c1390d03d63df90120327e7c55f8af701a6c762b59",
+      "bytes": 253
+    },
+    {
+      "path": "tests/fixtures/storage-worker-flaky-handlers.js",
+      "group": "test",
+      "sha256": "68bdbc6e9fe3175247bd5f4cb8ca773fd4e5cd3c042ddb0a189db304487ec3b4",
+      "bytes": 724
+    },
+    {
+      "path": "tests/fixtures/storage-worker-handlers.js",
+      "group": "test",
+      "sha256": "48114551f2eac46a3ef1d166000d3718fb1ead66c797575b861724b2c9a42a90",
+      "bytes": 3014
+    },
+    {
+      "path": "tests/harness-plan-sync.test.js",
+      "group": "test",
+      "sha256": "30a8b6a1254cae9a80b6b06f2ed8cd9604cf956e7e145ecb46b0246247d2cb51",
+      "bytes": 3832
+    },
+    {
+      "path": "tests/multi-instance-regression.test.js",
+      "group": "test",
+      "sha256": "3d4fc6a4e5a160bd7ae24f0fb2393e1895ba28dbf0fee638008c813be70349e5",
+      "bytes": 6920
+    },
+    {
+      "path": "tests/review-reviewer-wait.test.js",
+      "group": "test",
+      "sha256": "7fc44489745f424b1ed4b7959bb2b6dfc7e1a1db00d7f5d7eaab3c6ed4cbf2b6",
+      "bytes": 26366
+    },
+    {
+      "path": "tests/sdk-context-stats.test.js",
+      "group": "test",
+      "sha256": "d4bf6b0310685f3ea8e87f0fcd7117c6af87f2c700c949aa38b4683a99d6a47f",
+      "bytes": 7397
+    },
+    {
+      "path": "tests/storage-callers-contract.test.js",
+      "group": "test",
+      "sha256": "cde747c85e60e7e1b93975e6058dc083c20bdf694683f21300c5dbf4b1f9af5a",
+      "bytes": 7561
+    },
+    {
+      "path": "tests/storage-chat-history-store.test.js",
+      "group": "test",
+      "sha256": "e756766150fa9b0fd82bf5a08bef711930456edb3e3c8c13fd9907026e7b2dcf",
+      "bytes": 37151
+    },
+    {
+      "path": "tests/storage-command-receipts.test.js",
+      "group": "test",
+      "sha256": "5e6849b83c3ee5462e977b120b346d2f0e2da38d14f5a7a36b56c81efb74d1cb",
+      "bytes": 25876
+    },
+    {
+      "path": "tests/storage-coordinator.test.js",
+      "group": "test",
+      "sha256": "788d6da2a86017d4c45ec71e486541b9827a704180b63a0029694dab835017d0",
+      "bytes": 40155
+    },
+    {
+      "path": "tests/storage-db-lifecycle.test.js",
+      "group": "test",
+      "sha256": "c635c82c82bd7a0aaaea780694cddfc0da81b4160a5b79260543c01e1123a900",
+      "bytes": 42788
+    },
+    {
+      "path": "tests/storage-group-commit.test.js",
+      "group": "test",
+      "sha256": "492c1240ce3d671193437f202f63a6b89168f67c5852e69dae7a23626f70d7d8",
+      "bytes": 41241
+    },
+    {
+      "path": "tests/storage-migration-runner.test.js",
+      "group": "test",
+      "sha256": "17a0fe94745dd63ed2a326f3b479d7b7ab4ef7ec29601abef83f03390752cec2",
+      "bytes": 24599
+    },
+    {
+      "path": "tests/storage-runtime-check.test.js",
+      "group": "test",
+      "sha256": "44973c5db3b22c39fa1e8c15eee68de4646ece5bf3dd5fdfceaa2bee0367eb2e",
+      "bytes": 12623
+    },
+    {
+      "path": "tests/storage-worker-host.test.js",
+      "group": "test",
+      "sha256": "81fd18a1f565535124aa857f31fb3658aeef944fbf8bac4ca6e499d1f4a65af4",
+      "bytes": 37008
+    },
+    {
+      "path": "tests/storage-worker-queue.test.js",
+      "group": "test",
+      "sha256": "94b6f5420e4e7da1ba8a660ecc00b8a711faa4c3168a93732793c24749bd4998",
+      "bytes": 12902
+    },
+    {
+      "path": "tests/sw-shell-assets.test.js",
+      "group": "test",
+      "sha256": "870233603c81d4cf1f33b060cb45d248c9b461742f1f8ef7da8488d0d5e5f957",
+      "bytes": 2134
+    },
+    {
+      "path": "tests/todo-execution-prompt.test.js",
+      "group": "test",
+      "sha256": "8845cc2b714ec85cd23c5d9f57ee3208afd1d5bd27fac609853a83507cd4acca",
+      "bytes": 10327
+    },
+    {
+      "path": "tests/todo-plan-sync.test.js",
+      "group": "test",
+      "sha256": "436dd591cffb11de2f75d9f974f263c70f0da305dfb1d8fb7ef314d51dd4ea6f",
+      "bytes": 13214
+    },
+    {
+      "path": "tests/todo-review-sync-hooks.test.js",
+      "group": "test",
+      "sha256": "ce0bdd52016c7796000e107d0a22fcfffe185f8c63bfd7d95d5099b872b660f5",
+      "bytes": 35308
+    },
+    {
+      "path": "tests/workspace-watcher-pinned-chat.test.js",
+      "group": "test",
+      "sha256": "4514264d971bf91f326de93e38f264c7052c4fcec2e638b0317e8e4634e387b0",
+      "bytes": 8922
+    }
+  ],
+  "planV6Comparison": [
+    {
+      "path": "docs/architecture-target-adr.md",
+      "planV6Sha256": "07ee6f761d8f02a08f3e4ce0a32fd1668441c5ba7f45b7b703c948fd09c47c41",
+      "currentSha256": "14543d9a2a0b69dec06b5906eb152bcfeba2bfc76808eacdaa43ebaec10d557a",
+      "stale": true
+    },
+    {
+      "path": "docs/architecture-system-map.md",
+      "planV6Sha256": "a16b32764dbc26143970ded91eddd1303f88255601f9f4cd1f1716ee9ab01529",
+      "currentSha256": "2baf45c18bb2437ff5cce6e9f2a22ba890d32c072a9d38c240e2d04de3c16b43",
+      "stale": true
+    },
+    {
+      "path": "docs/architecture-vertical-dag.md",
+      "planV6Sha256": "a35904c1fea5e4ee843f99112c3ca27196d03686af9a12452c9296fe9c4802e0",
+      "currentSha256": "6a35760f40e717228f11e19033698ed2cc72ec053d85f8adefe5a52a30f67e05",
+      "stale": true
+    },
+    {
+      "path": "docs/architecture-baseline.md",
+      "planV6Sha256": "360503e567a28ced9b3425ec2cddc163aa81f85e9667361b04bdc12be0420a10",
+      "currentSha256": "59733ebec92a778beaa8914332267147bcaa41c498259504c87750041041532c",
+      "stale": true
+    },
+    {
+      "path": "docs/architecture-sync-io-inventory.json",
+      "planV6Sha256": "032722d033467c1d4b39ff273e31b042b83112b3d3791ca562946c99e249a93c",
+      "currentSha256": "adbcebf84880a44a0f1d45cc838ba4c2027a3280679750a0fb7ec80cc6143a1f",
+      "stale": true
+    },
+    {
+      "path": "docs/architecture-chat-list-bench.json",
+      "planV6Sha256": "e03d2737a6cbe018835083db56bc3f5ba7d4e75960238c79bf89aeb56cf17adf",
+      "currentSha256": "e03d2737a6cbe018835083db56bc3f5ba7d4e75960238c79bf89aeb56cf17adf",
+      "stale": false
+    },
+    {
+      "path": "docs/architecture-baseline-storage-harness.json",
+      "planV6Sha256": "98566a0ee106b51cff729a98e923c95eaa1572126670aa150faf1e88f3840bb4",
+      "currentSha256": "98566a0ee106b51cff729a98e923c95eaa1572126670aa150faf1e88f3840bb4",
+      "stale": false
+    },
+    {
+      "path": "scripts/architecture-sync-io-inventory.mjs",
+      "planV6Sha256": "f46e4e1afb421dc69504b169a4ee5d7d403d75b9263eb6661745331d5a46a20c",
+      "currentSha256": "4eae3eb8c51dfdfddfdcb0db84b058957b445de2ee7c437872d5bc0008fc1656",
+      "stale": true
+    },
+    {
+      "path": "scripts/architecture-chat-list-bench.mjs",
+      "planV6Sha256": "7a9266a5be81b1589c208b0d3c59640e8acf1eb2a32a13a32eb5a9d3f0cf2e49",
+      "currentSha256": "7a9266a5be81b1589c208b0d3c59640e8acf1eb2a32a13a32eb5a9d3f0cf2e49",
+      "stale": false
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "planV6Sha256": "c5c5794bb110c5355f5cb8b1017a145abe17302be55d45aafca05ed11b24752c",
+      "currentSha256": "0023ec542ecebda7dc6c95c23953178460a211ac5fb150e99b91172fd059d677",
+      "stale": true
+    }
+  ],
+  "staleInPlanV6": [
+    "docs/architecture-target-adr.md",
+    "docs/architecture-system-map.md",
+    "docs/architecture-vertical-dag.md",
+    "docs/architecture-baseline.md",
+    "docs/architecture-sync-io-inventory.json",
+    "scripts/architecture-sync-io-inventory.mjs",
+    "docs/ARCHITECTURE.md"
+  ]
+}

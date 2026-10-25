@@ -1,0 +1,461 @@
+/* Todo > Watcher tab: status card, automation card and the "Why?" log.
+ * Each block is a card in the tab's scroll box (.todo-scroll pads the edges),
+ * matching the spacing of the List and Blocked tabs. */
+
+.todo-watcher-bar,
+.todo-watcher-automation,
+.todo-watcher-why {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+  padding: var(--cr-space-3);
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-surface-translucent);
+  font-size: var(--cr-font-size-sm);
+}
+
+.todo-watcher-bar[hidden],
+.todo-watcher-automation[hidden],
+.todo-watcher-why[hidden] {
+  display: none;
+}
+
+.todo-watcher-card-head,
+.todo-watcher-automation-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--cr-space-2);
+}
+
+.todo-watcher-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cr-space-1);
+  color: var(--cr-text);
+  font-size: var(--cr-font-size-md);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.todo-watcher-title .mdi {
+  color: var(--cr-accent);
+  font-size: 1.1rem;
+}
+
+.todo-watcher-status {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--cr-space-2);
+  margin: 0;
+  padding: var(--cr-space-2);
+  border-radius: var(--cr-radius-sm);
+  background: color-mix(in srgb, var(--cr-text) 5%, transparent);
+  color: var(--cr-text);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.todo-watcher-status-dot {
+  flex: 0 0 auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-top: 0.35rem;
+  border-radius: 50%;
+  background: var(--cr-text-muted);
+}
+
+.todo-watcher-status[data-state='working'] .todo-watcher-status-dot { background: var(--cr-accent); }
+.todo-watcher-status[data-state='waiting'] .todo-watcher-status-dot { background: var(--cr-warn); }
+.todo-watcher-status[data-state='blocked'] .todo-watcher-status-dot { background: var(--cr-error); }
+.todo-watcher-status[data-state='off'] { color: var(--cr-text-muted); }
+
+.todo-watcher-pill {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--cr-primary);
+  color: #fff;
+  font-size: var(--cr-font-size-xs);
+  font-weight: 600;
+}
+
+.todo-watcher-pill[data-tone='paused'] {
+  background: var(--cr-warn-bg);
+  border: 1px solid var(--cr-warn-border);
+  color: var(--cr-warn);
+}
+
+/* Label / value rows shared by the status card and the automation card. */
+.todo-watcher-props {
+  display: grid;
+  grid-template-columns: minmax(7rem, max-content) 1fr;
+  align-items: center;
+  gap: var(--cr-space-2) var(--cr-space-3);
+  margin: 0;
+}
+
+.todo-watcher-props dt {
+  color: var(--cr-text-muted);
+}
+
+.todo-watcher-props dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.todo-watcher-props select {
+  width: 100%;
+  max-width: 18rem;
+}
+
+.todo-watcher-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cr-space-1);
+}
+
+.todo-watcher-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cr-space-2);
+  padding-top: var(--cr-space-2);
+  border-top: 1px solid var(--cr-border-subtle);
+}
+
+.todo-watcher-btn,
+.todo-watcher-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cr-space-1);
+  min-height: var(--cr-control-height);
+  padding: 0 var(--cr-space-2);
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  background: transparent;
+  color: var(--cr-text);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--cr-transition);
+}
+
+.todo-watcher-btn:hover:not(:disabled),
+.todo-watcher-link:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.todo-watcher-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.todo-watcher-btn[aria-expanded='true'] {
+  border-color: var(--cr-accent);
+}
+
+.todo-watcher-link {
+  font-family: var(--cr-font-mono);
+  font-size: var(--cr-font-size-xs);
+}
+
+.todo-watcher-link .mdi {
+  font-family: inherit;
+}
+
+.todo-watcher-spacer {
+  flex: 1 1 auto;
+}
+
+/* Why? log: recovery table, then the decisions. */
+.todo-watcher-why {
+  gap: var(--cr-space-3);
+}
+
+.todo-watcher-why-block + .todo-watcher-why-block {
+  padding-top: var(--cr-space-3);
+  border-top: 1px solid var(--cr-border-subtle);
+}
+
+.todo-watcher-why-heading {
+  margin: 0 0 var(--cr-space-2);
+  color: var(--cr-text-muted);
+  font-size: var(--cr-font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.todo-watcher-why-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--cr-font-size-xs);
+}
+
+.todo-watcher-why-table th,
+.todo-watcher-why-table td {
+  padding: var(--cr-space-1) var(--cr-space-2);
+  border-bottom: 1px solid var(--cr-border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+
+.todo-watcher-why-table th {
+  color: var(--cr-text-muted);
+  font-weight: 600;
+}
+
+.todo-watcher-why-at {
+  white-space: nowrap;
+  color: var(--cr-text-muted);
+}
+
+.todo-watcher-why-kind {
+  font-weight: 600;
+}
+
+.todo-watcher-why-reason {
+  overflow-wrap: anywhere;
+}
+
+.todo-watcher-why-empty,
+.todo-watcher-error {
+  margin: 0;
+  color: var(--cr-text-muted);
+}
+
+/* Phones: each table row becomes a small stacked entry instead of three
+ * squeezed columns. */
+@media (max-width: 640px) {
+  .todo-watcher-why-table thead {
+    display: none;
+  }
+
+  .todo-watcher-why-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--cr-space-2);
+    padding: var(--cr-space-2) 0;
+    border-bottom: 1px solid var(--cr-border-subtle);
+  }
+
+  .todo-watcher-why-table td {
+    padding: 0;
+    border: 0;
+  }
+
+  /* Recovery rows: title on its own line, state as a muted tag below it. */
+  .todo-watcher-why-table td:first-child.todo-watcher-why-kind {
+    flex: 1 0 100%;
+  }
+
+  .todo-watcher-why-table td:nth-child(2).todo-watcher-why-kind {
+    color: var(--cr-accent);
+    font-weight: normal;
+  }
+
+  .todo-watcher-why-table td.todo-watcher-why-reason {
+    flex: 1 0 100%;
+    color: var(--cr-text-muted);
+  }
+
+  .todo-watcher-btn,
+  .todo-watcher-link {
+    min-height: 2.25rem;
+  }
+}
+
+/* Automation card. */
+.todo-watcher-automation-row {
+  display: grid;
+  grid-template-columns: minmax(7rem, 11rem) 1fr;
+  gap: var(--cr-space-3);
+  padding: var(--cr-space-1) 0;
+  border-bottom: 1px solid var(--cr-border-subtle);
+}
+
+.todo-watcher-automation-row:last-of-type {
+  border-bottom: 0;
+}
+
+.todo-watcher-automation-label {
+  color: var(--cr-text-muted);
+}
+
+.todo-watcher-automation-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Row status text stays frameless like the other row indicators; a frame on
+ * the right of a todo row is reserved for actions. */
+.todo-row-badge[data-kind='claimed'] {
+  color: var(--cr-accent);
+}
+
+.todo-row-badge[data-kind='queued'] {
+  opacity: 0.8;
+}
+
+/* Blocked tab: one card per todo, grouped by category. Text wraps so a long
+ * title or reason never forces horizontal scrolling on a phone. */
+.todo-blocked-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-3);
+}
+
+.todo-blocked-section[hidden] {
+  display: none;
+}
+
+.todo-blocked-empty {
+  margin: 0;
+  color: var(--cr-text-muted);
+  font-size: var(--cr-font-size-sm);
+}
+
+.todo-blocked-group-head {
+  margin-bottom: var(--cr-space-2);
+  padding-inline: var(--cr-space-1);
+}
+
+.todo-blocked-group-title {
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-2);
+  margin: 0;
+  color: var(--cr-text-muted);
+  font-size: var(--cr-font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.todo-blocked-count {
+  min-width: 1.25rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--cr-surface);
+  border: 1px solid var(--cr-border);
+  color: var(--cr-text);
+  font-size: var(--cr-font-size-xs);
+  line-height: 1.1rem;
+  text-align: center;
+  letter-spacing: 0;
+}
+
+.todo-blocked-group[data-category='review_fail'] .todo-blocked-count,
+.todo-blocked-group[data-category='infra'] .todo-blocked-count {
+  border-color: var(--cr-error);
+  color: var(--cr-error);
+}
+
+.todo-blocked-hint {
+  margin: var(--cr-space-1) 0 0;
+  color: var(--cr-text-muted);
+  font-size: var(--cr-font-size-xs);
+  line-height: 1.35;
+}
+
+.todo-blocked-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.todo-blocked-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+  min-width: 0;
+  padding: var(--cr-space-2);
+  border: 1px solid var(--cr-border-subtle);
+  border-left: 3px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface-translucent);
+}
+
+.todo-blocked-group[data-category='human'] .todo-blocked-item { border-left-color: var(--cr-warn); }
+.todo-blocked-group[data-category='review_fail'] .todo-blocked-item,
+.todo-blocked-group[data-category='infra'] .todo-blocked-item { border-left-color: var(--cr-error); }
+.todo-blocked-group[data-category='stale_worktree'] .todo-blocked-item { border-left-color: var(--cr-accent); }
+
+.todo-blocked-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cr-text);
+  font: inherit;
+  font-size: var(--cr-font-size-md);
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.todo-blocked-title:hover,
+.todo-blocked-title:focus-visible {
+  color: var(--cr-accent);
+  text-decoration: underline;
+}
+
+.todo-blocked-detail {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  margin: 0;
+  color: var(--cr-text-muted);
+  font-size: var(--cr-font-size-sm);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.todo-blocked-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--cr-space-2);
+  margin-top: var(--cr-space-1);
+}
+
+.todo-blocked-action {
+  padding: 0 var(--cr-space-3);
+  min-height: var(--cr-control-height);
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  background: transparent;
+  color: var(--cr-text);
+  font-size: var(--cr-font-size-sm);
+  cursor: pointer;
+  transition: background var(--cr-transition);
+}
+
+.todo-blocked-action:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.todo-blocked-action[data-primary] {
+  border-color: var(--cr-primary);
+  background: var(--cr-primary);
+  color: #fff;
+}
+
+.todo-blocked-action[data-primary]:hover {
+  background: var(--cr-primary-hover);
+}
+
+@media (max-width: 640px) {
+  .todo-blocked-action {
+    min-height: 2.25rem;
+  }
+}
+

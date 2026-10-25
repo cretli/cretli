@@ -1,0 +1,6294 @@
+{
+ "experiment": "A1 bounded SQLite physical-layout experiment",
+ "generatedAt": "2026-10-23T12:07:17.980Z",
+ "env": {
+  "node": "v22.23.2",
+  "sqlite": "3.51.3",
+  "platform": "linux-x64",
+  "fsType": "ext2/ext3",
+  "defaultPageSize": 4096,
+  "codeRevision": "509b955e987306ac068855b43db327784ddf4806",
+  "storageCodeSha256": "ae8a49d337213a1c1f1e49f8fdacd80ab2892c448b0b3eddfb34937c059e3169"
+ },
+ "shape": {
+  "chats": 100,
+  "eventsPerChat": 200,
+  "appendRounds": 1,
+  "retention": 2000,
+  "seed": 20261013,
+  "mediumDefinition": true
+ },
+ "inputSha256": "85e2f0e082a94d19126fffd97ab86d6bda53eb5dce09f22d40abe22b43d0d745",
+ "frozenThresholds": {
+  "apiAppendWallMs": {
+   "p95": 120,
+   "p99": 250
+  },
+  "workerQueueWaitPlusExecuteMs": {
+   "p95": 80,
+   "p99": 180
+  },
+  "historyPageQueryMs": {
+   "p95": 40,
+   "p99": 90
+  },
+  "eventLoopDelayMs": {
+   "p99": 25,
+   "max": 100,
+   "monitorResolutionMs": 1
+  },
+  "queueAgeMs": {
+   "steadyP95": 200,
+   "burstMax": 2000
+  },
+  "bytesWrittenPct": {
+   "maxPercentOfJsonRewriteBytes": 25
+  },
+  "fullCheckpointStallP99Ms": 500,
+  "startup": {
+   "maxMultipleOfRemeasuredJsonColdLoad": 2,
+   "minSamplesPerVariantCase": 15
+  }
+ },
+ "frozenThresholdsSha256": "48b2e9ce8a97946a829e85970fe0a3298f51d16b90aad3fe82adb02f4d684c3c",
+ "method": {
+  "samplesPerVariantCase": 15,
+  "order": "per round a seeded shuffle of all variant x case units (and the JSON denominator); each unit = 3 fresh child processes on 3 separate copies",
+  "cache": "warm OS page cache; cold-disk restart NOT measured",
+  "tailPerChat": 5
+ },
+ "skippedDuplicateCandidates": [],
+ "json": {
+  "rewriteBytes": 686034168,
+  "rewriteBytesPer1000Events": 34301708.4,
+  "coldLoad": {
+   "rawMs": [
+    9.252085999999998,
+    9.241098000000001,
+    10.163229000000001,
+    9.096283999999997,
+    9.263537,
+    9.490673999999999,
+    9.517292000000005,
+    9.232370000000003,
+    12.148134999999996,
+    8.996341000000001,
+    8.800999000000004,
+    9.149955999999996,
+    8.731999000000002,
+    9.085628,
+    9.213724999999997
+   ],
+   "failures": [],
+   "n": 15,
+   "median": 9.232,
+   "p95": 12.148,
+   "p99": 12.148,
+   "min": 8.732,
+   "max": 12.148,
+   "valid": true,
+   "requested": 15,
+   "input": "same synthetic stream, final pretty-printed documents, one file per chat, retention 2000"
+  }
+ },
+ "startupBudgetMs": 18.464,
+ "screeningNote": "GO means \"shortlisted by screening\" only; it is not a production PASS and A3a stays NO-GO. Shortlisting would still require one full run of the four frozen workloads against the JSON baseline.",
+ "variants": {
+  "baseline": {
+   "requestedPageSize": "default(4096)",
+   "effectivePageSize": 4096,
+   "pageCount": 5307,
+   "freelistCount": 0,
+   "bytesByObject": {
+    "chat_history_dedupe": {
+     "bytes": 4481024,
+     "pages": 1094
+    },
+    "chat_history_epochs": {
+     "bytes": 4096,
+     "pages": 1
+    },
+    "chat_history_event_extra": {
+     "bytes": 4096,
+     "pages": 1
+    },
+    "chat_history_events": {
+     "bytes": 7802880,
+     "pages": 1905
+    },
+    "chat_history_events_chat_seq": {
+     "bytes": 630784,
+     "pages": 154
+    },
+    "chat_history_meta": {
+     "bytes": 4096,
+     "pages": 1
+    },
+    "chat_history_producers": {
+     "bytes": 12288,
+     "pages": 3
+    },
+    "chat_history_stage": {
+     "bytes": 4096,
+     "pages": 1
+    },
+    "chat_history_stage_chat": {
+     "bytes": 4096,
+     "pages": 1
+    },
+    "chat_history_stage_fragment": {
+     "bytes": 4096,
+     "pages": 1
+    },
+    "chat_history_state": {
+     "bytes": 12288,
+     "pages": 3
+    },
+    "command_receipts": {
+     "bytes": 7905280,
+     "pages": 1930
+    },
+    "command_receipts_created_at": {
+     "bytes": 839680,
+     "pages": 205
+    },
+    "schema_version": {
+     "bytes": 4096,
+     "pages": 1
+    },
+    "sqlite_schema": {
+     "bytes": 16384,
+     "pages": 4
+    },
+    "storage_dataset_binding": {
+     "bytes": 4096,
+     "pages": 1
+    },
+    "storage_fencing": {
+     "bytes": 4096,
+     "pages": 1
+    }
+   },
+   "identity": {
+    "cleanDiff": [],
+    "pendingDiff": [],
+    "pass": true
+   },
+   "fixture": {
+    "pending": {
+     "method": "copy of db+wal taken while the real host was open and idle after acknowledged appends; no checkpoint ran on the copy; proof = events visible with the WAL minus events in the main file alone (probe copies)",
+     "walFrames": 1240,
+     "walPageSize": 4096,
+     "walBytes": 5108832,
+     "mainOnlyEvents": 20384,
+     "withWalEvents": 20520,
+     "pendingEvents": 136,
+     "tailEventsAppended": 520,
+     "epilogueCommits": 20,
+     "proven": true
+    },
+    "cleanExportSha256": "21842371061a6c959777e171483e7bbfc5bb7c8dd1934b36c0cc8aaa9677d194",
+    "pendingExportSha256": "a0307643c22fb6f52d8974d5a5cead83047d77de8b0ff460e41aebbd20efa6c9",
+    "tables": {
+     "chat_history_dedupe": {
+      "rows": 20000,
+      "sha256": "a5711757c2bff9b19237a65660a400feeeeba705c26ee977a4b123a3b0e01474"
+     },
+     "chat_history_epochs": {
+      "rows": 100,
+      "sha256": "5c60ba91dae8ff14cf8c98cff45d0944d0f9520ec3fd7bfda0d68577706a0e88"
+     },
+     "chat_history_event_extra": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     "chat_history_events": {
+      "rows": 20000,
+      "sha256": "6b3cef5ff0c46f91db5fa1b4dfeb620a2f5c43907be9f71ac9dbffd98a539724"
+     },
+     "chat_history_meta": {
+      "rows": 100,
+      "sha256": "7e39894c6ea65e95c1ed381ef75ab021f8bbfa59a5e529b52750c999d0a81695"
+     },
+     "chat_history_producers": {
+      "rows": 100,
+      "sha256": "5b271e45820e8efa8a3fcff9cd40204ce9395a37ff2b5b167abc6eef70c1bc6a"
+     },
+     "chat_history_stage": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     "chat_history_stage_fragment": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     "chat_history_state": {
+      "rows": 100,
+      "sha256": "13d6a3fde911cdfcde080c50b58d78ecaef120d29a2c8042a0898b04dc370c82"
+     },
+     "command_receipts": {
+      "rows": 20000,
+      "sha256": "a027c38261d4f500a94316e49756b6f9424696f73c813b14245d455c2014f318"
+     },
+     "schema_version": {
+      "rows": 6,
+      "sha256": "e00a1590596df62360d0ec7df38ae20067517a82b7c0c0c933e321755465215b"
+     },
+     "storage_dataset_binding": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     "storage_fencing": {
+      "rows": 1,
+      "sha256": "5b9ef60ef93e56ebd0303a60faaba66ce705663cdf788211c220d6a19996f473"
+     }
+    },
+    "maskedColumns": [
+     "chat_history_dedupe.created_at",
+     "chat_history_epochs.created_at",
+     "chat_history_events.created_at",
+     "chat_history_meta.deleted_at",
+     "chat_history_producers.created_at",
+     "chat_history_producers.retired_at",
+     "chat_history_stage.created_at",
+     "chat_history_state.updated_at",
+     "command_receipts.created_at",
+     "schema_version.applied_at",
+     "storage_dataset_binding.bound_at"
+    ]
+   },
+   "generationScreening": {
+    "events": 20000,
+    "elapsedMs": 19324.814330999998,
+    "appendLatencyMs": {
+     "n": 20000,
+     "median": 60.507,
+     "p95": 75.71,
+     "p99": 83.902,
+     "min": 49.089,
+     "max": 89.365,
+     "valid": true
+    },
+    "queryLatencyMs": {
+     "n": 200,
+     "median": 0.312,
+     "p95": 0.508,
+     "p99": 0.619,
+     "min": 0.245,
+     "max": 0.891,
+     "valid": true
+    },
+    "workerRequestMs": {
+     "n": 313,
+     "p50": 19.808571999999913,
+     "p95": 34.92840400000023,
+     "p99": 42.2475400000003,
+     "max": 47.854621999998926,
+     "sum": 6473.017483000016
+    },
+    "workerExecuteMs": {
+     "n": 313,
+     "p50": 19.538626000000477,
+     "p95": 34.739800999999716,
+     "p99": 41.775736999999936,
+     "max": 47.272281999999905,
+     "sum": 6396.962956000001
+    },
+    "queueAgeMs": {
+     "n": 313,
+     "p50": 0.006844999999884749,
+     "p95": 0.017413999999916996,
+     "p99": 0.025517000000036205,
+     "max": 0.0420319999975618
+    },
+    "eventLoopDelayMs": {
+     "n": 17608,
+     "monitorResolutionMs": 1,
+     "p99": 1.666047,
+     "max": 4.349951
+    },
+    "fullCheckpoint": {
+     "ms": 0.22432199999821023,
+     "busy": 0,
+     "n": 1
+    },
+    "bytesWritten": 27180504,
+    "bytesWrittenPer1000Events": 1359025.2
+   },
+   "verdict": {
+    "verdict": "NO-GO",
+    "reasons": [
+     "clean: A1 start median 24.209 ms > 18.464 ms (2x JSON cold load)",
+     "pendingWal: A1 start median 56.817 ms > 18.464 ms (2x JSON cold load)"
+    ],
+    "unverified": [],
+    "outstandingBeforeAnyProductionDecision": [
+     "burst queue-age max (not run)",
+     "FULL checkpoint stall p99 (n=1 < 30)",
+     "small/growing/mixed workloads (not run)"
+    ],
+    "bytesWrittenPercentOfJson": 3.962
+   },
+   "cases": {
+    "clean": {
+     "n": 15,
+     "a1OpenBarrierColdPage": {
+      "n": 15,
+      "median": 24.209,
+      "p95": 27.91,
+      "p99": 27.91,
+      "min": 22.794,
+      "max": 27.91,
+      "valid": true
+     },
+     "a1Open": {
+      "n": 15,
+      "median": 22.996,
+      "p95": 26.238,
+      "p99": 26.238,
+      "min": 21.407,
+      "max": 26.238,
+      "valid": true
+     },
+     "a1Barrier": {
+      "n": 15,
+      "median": 0.063,
+      "p95": 0.097,
+      "p99": 0.097,
+      "min": 0.06,
+      "max": 0.097,
+      "valid": true
+     },
+     "a1ColdPage": {
+      "n": 15,
+      "median": 1.193,
+      "p95": 1.575,
+      "p99": 1.575,
+      "min": 1.009,
+      "max": 1.575,
+      "valid": true
+     },
+     "e2eSpawnToReadyPlusColdPage": {
+      "n": 15,
+      "median": 67.856,
+      "p95": 74.748,
+      "p99": 74.748,
+      "min": 65.389,
+      "max": 74.748,
+      "valid": true
+     },
+     "e2eSpawnToReady": {
+      "n": 15,
+      "median": 65.602,
+      "p95": 72.531,
+      "p99": 72.531,
+      "min": 62.756,
+      "max": 72.531,
+      "valid": true
+     },
+     "e2eColdPage": {
+      "n": 15,
+      "median": 2.328,
+      "p95": 3.024,
+      "p99": 3.024,
+      "min": 2.151,
+      "max": 3.024,
+      "valid": true
+     },
+     "e2eWorkerOpen": {
+      "n": 15,
+      "median": 23.185,
+      "p95": 26.885,
+      "p99": 26.885,
+      "min": 22.023,
+      "max": 26.885,
+      "valid": true
+     },
+     "e2eWorkerBarrier": {
+      "n": 15,
+      "median": 0.046,
+      "p95": 0.074,
+      "p99": 0.074,
+      "min": 0.044,
+      "max": 0.074,
+      "valid": true
+     },
+     "components": {
+      "roOpenMs": {
+       "n": 15,
+       "median": 0.163,
+       "p95": 0.848,
+       "p99": 0.848,
+       "min": 0.15,
+       "max": 0.848,
+       "valid": true
+      },
+      "peeksMs": {
+       "n": 15,
+       "median": 0.399,
+       "p95": 0.471,
+       "p99": 0.471,
+       "min": 0.358,
+       "max": 0.471,
+       "valid": true
+      },
+      "integrityMs": {
+       "n": 15,
+       "median": 16.454,
+       "p95": 17.42,
+       "p99": 17.42,
+       "min": 15.603,
+       "max": 17.42,
+       "valid": true
+      },
+      "foreignKeyMs": {
+       "n": 15,
+       "median": 4.266,
+       "p95": 4.495,
+       "p99": 4.495,
+       "min": 3.522,
+       "max": 4.495,
+       "valid": true
+      },
+      "roCloseMs": {
+       "n": 15,
+       "median": 0.676,
+       "p95": 0.834,
+       "p99": 0.834,
+       "min": 0.595,
+       "max": 0.834,
+       "valid": true
+      },
+      "rwOpenMs": {
+       "n": 15,
+       "median": 0.068,
+       "p95": 0.101,
+       "p99": 0.101,
+       "min": 0.055,
+       "max": 0.101,
+       "valid": true
+      },
+      "walPragmaMs": {
+       "n": 15,
+       "median": 0.191,
+       "p95": 0.233,
+       "p99": 0.233,
+       "min": 0.173,
+       "max": 0.233,
+       "valid": true
+      },
+      "migrationsMs": {
+       "n": 15,
+       "median": 0.24,
+       "p95": 0.348,
+       "p99": 0.348,
+       "min": 0.192,
+       "max": 0.348,
+       "valid": true
+      },
+      "barrierMs": {
+       "n": 15,
+       "median": 0.068,
+       "p95": 0.134,
+       "p99": 0.134,
+       "min": 0.062,
+       "max": 0.134,
+       "valid": true
+      },
+      "componentsTotalMs": {
+       "n": 15,
+       "median": 22.472,
+       "p95": 24.521,
+       "p99": 24.521,
+       "min": 20.967,
+       "max": 24.521,
+       "valid": true
+      }
+     },
+     "componentsNote": "components are a separate run on its own copy; medians are never summed to replace the direct totals above",
+     "ratioToJsonColdLoad": {
+      "a1": 2.622292027729636,
+      "e2e": 7.350086655112651
+     },
+     "checks": {
+      "allSamplesCompleted": true,
+      "pageSizeEffective": true,
+      "integrityForeignKeyOk": true,
+      "f29BarrierBusy0AllFramesCheckpointed": true,
+      "walTruncatedAfterBarrier": true,
+      "walFullSynchronous": true,
+      "pendingProven": true
+     },
+     "failures": 0,
+     "rawSamplesMs": [
+      {
+       "round": 0,
+       "order": 4,
+       "a1Total": 25.718788999999994,
+       "a1Open": 24.460575,
+       "a1Barrier": 0.06352300000000355,
+       "a1ColdPage": 1.1946909999999917,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5307,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 67.81417900000001,
+       "e2eStart": 65.28919400000001,
+       "e2eColdPage": 2.524985000000001,
+       "e2ePhases": {
+        "spawnToReadyMs": 63.589266,
+        "registryMs": 15.737874000000005,
+        "openMs": 22.712826000000007,
+        "barrierMs": 0.04475599999999247,
+        "threadOverheadMs": 25.093809999999998
+       },
+       "componentsTotal": 22.46071499999998,
+       "components": {
+        "integrityMs": 16.23668200000001,
+        "foreignKeyMs": 4.4875689999999935,
+        "barrierMs": 0.0660609999999906
+       }
+      },
+      {
+       "round": 1,
+       "order": 9,
+       "a1Total": 24.208520999999998,
+       "a1Open": 23.136924,
+       "a1Barrier": 0.0625479999999925,
+       "a1ColdPage": 1.0090490000000045,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5307,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 67.85571,
+       "e2eStart": 65.60213300000001,
+       "e2eColdPage": 2.253576999999993,
+       "e2ePhases": {
+        "spawnToReadyMs": 63.79961800000001,
+        "registryMs": 16.105764000000008,
+        "openMs": 22.416279000000003,
+        "barrierMs": 0.04417100000000573,
+        "threadOverheadMs": 25.233403999999993
+       },
+       "componentsTotal": 21.942729999999983,
+       "components": {
+        "integrityMs": 15.880927000000007,
+        "foreignKeyMs": 4.160866000000013,
+        "barrierMs": 0.068294999999992
+       }
+      },
+      {
+       "round": 2,
+       "order": 16,
+       "a1Total": 27.910496000000002,
+       "a1Open": 26.238472999999992,
+       "a1Barrier": 0.09661100000001,
+       "a1ColdPage": 1.575412,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5307,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 73.225441,
+       "e2eStart": 70.897479,
+       "e2eColdPage": 2.3279619999999994,
+       "e2ePhases": {
+        "spawnToReadyMs": 69.157982,
+        "registryMs": 18.873312000000013,
+        "openMs": 23.934831000000003,
+        "barrierMs": 0.059180999999995265,
+        "threadOverheadMs": 26.290657999999993
+       },
+       "componentsTotal": 24.52071699999997,
+       "components": {
+        "integrityMs": 17.346364,
+        "foreignKeyMs": 4.494763999999989,
+        "barrierMs": 0.08519299999998964
+       }
+      },
+      {
+       "round": 3,
+       "order": 24,
+       "a1Total": 23.308436,
+       "a1Open": 21.914447999999993,
+       "a1Barrier": 0.06282300000000873,
+       "a1ColdPage": 1.3311649999999986,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5307,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 66.756587,
+       "e2eStart": 64.605425,
+       "e2eColdPage": 2.1511619999999994,
+       "e2ePhases": {
+        "spawnToReadyMs": 62.961998,
+        "registryMs": 15.854059000000007,
+        "openMs": 22.111557999999988,
+        "barrierMs": 0.07408399999999915,
+        "threadOverheadMs": 24.922297000000007
+       },
+       "componentsTotal": 21.60675700000001,
+       "components": {
+        "integrityMs": 16.04083,
+        "foreignKeyMs": 3.8283210000000025,
+        "barrierMs": 0.07403399999999749
+       }
+      },
+      {
+       "round": 4,
+       "order": 25,
+       "a1Total": 25.407851,
+       "a1Open": 24.252654999999997,
+       "a1Barrier": 0.06375500000000045,
+       "a1ColdPage": 1.0914410000000032,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5307,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 69.275511,
+       "e2eStart": 67.094106,
+       "e2eColdPage": 2.181404999999998,
+       "e2ePhases": {
+        "spawnToReadyMs": 65.458246,
+        "registryMs": 16.421164000000005,
+        "openMs": 23.32497500000001,
+        "barrierMs": 0.0572169999999943,
+        "threadOverheadMs": 25.654889999999995
+       },
+       "componentsTotal": 21.986598,
+       "components": {
+        "integrityMs": 16.021900000000002,
+        "foreignKeyMs": 4.066904999999991,
+        "barrierMs": 0.06349999999999056
+       }
+      },
+      {
+       "round": 5,
+       "order": 35,
+       "a1Total": 24.104922999999992,
+       "a1Open": 22.745293999999994,
+       "a1Barrier": 0.06261100000000397,
+       "a1ColdPage": 1.2970179999999942,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5307,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 74.437374,
+       "e2eStart": 71.720225,
+       "e2eColdPage": 2.7171490000000063,
+       "e2ePhases": {
+        "spawnToReadyMs": 70.006745,
+        "registryMs": 16.912806000000003,
+        "openMs": 26.884523,
+        "barrierMs": 0.04436700000000826,
+        "threadOverheadMs": 26.165048999999982
+       },
+       "componentsTotal": 23.947565000000004,
+       "components": {
+        "integrityMs": 17.420192999999998,
+        "foreignKeyMs": 4.463098000000002,
+        "barrierMs": 0.06567700000000798
+       }
+      },
+      {
+       "round": 6,
+       "order": 38,
+       "a1Total": 24.252122999999997,
+       "a1Open": 22.996216000000004,
+       "a1Barrier": 0.06319700000000239,
+       "a1ColdPage": 1.192709999999991,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5307,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 66.351134,
+       "e2eStart": 63.327161,
+       "e2eColdPage": 3.023972999999998,
+       "e2ePhases": {
+        "spawnToReadyMs": 61.642016000000005,
+        "registryMs": 14.54364600000001,
+        "openMs": 22.023349999999994,
+        "barrierMs": 0.04660499999999956,
+        "threadOverheadMs": 25.028415000000003
+       },
+       "componentsTotal": 20.966541000000007,
+       "components": {
+        "integrityMs": 15.678044,
+        "foreignKeyMs": 3.5223640000000103,
+        "barrierMs": 0.06280900000000145
+       }
+      },
+      {
+       "round": 7,
+       "order": 48,
+       "a1Total": 24.99460700000001,
+       "a1Open": 23.628616,
+       "a1Barrier": 0.06113200000000063,
+       "a1ColdPage": 1.3048590000000075,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5307,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 69.281979,
+       "e2eStart": 66.779109,
+       "e2eColdPage": 2.5028700000000015,
+       "e2ePhases": {
+        "spawnToReadyMs": 64.99599899999998,
+        "registryMs": 15.858055000000007,
+        "openMs": 23.26974299999999,
+        "barrierMs": 0.04519900000001087,
+        "threadOverheadMs": 25.823001999999974
+       },
+       "componentsTotal": 22.704363000000008,
+       "components": {
+        "integrityMs": 16.652241000000004,
+        "foreignKeyMs": 4.274364999999989,
+        "barrierMs": 0.06184000000000367
+       }
+      },
+      {
+       "round": 8,
+       "order": 49,
+       "a1Total": 24.542552,
+       "a1Open": 23.385599,
+       "a1Barrier": 0.0719619999999992,
+       "a1ColdPage": 1.0849910000000023,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5307,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 74.74752899999997,
+       "e2eStart": 72.53138299999999,
+       "e2eColdPage": 2.2161459999999806,
+       "e2ePhases": {
+        "spawnToReadyMs": 70.467997,
+        "registryMs": 18.764201999999997,
+        "openMs": 23.39963999999999,
+        "barrierMs": 0.04608100000000093,
+        "threadOverheadMs": 28.258074000000008
+       },
+       "componentsTotal": 22.435029999999998,
+       "components": {
+        "integrityMs": 16.461712,
+        "foreignKeyMs": 4.255184999999997,
+        "barrierMs": 0.0629380000000026
+       }
+      },
+      {
+       "round": 9,
+       "order": 57,
+       "a1Total": 24.057133999999998,
+       "a1Open": 22.976937,
+       "a1Barrier": 0.06190999999999747,
+       "a1ColdPage": 1.0182870000000008,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5307,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 69.27051700000001,
+       "e2eStart": 67.090356,
+       "e2eColdPage": 2.1801610000000125,
+       "e2ePhases": {
+        "spawnToReadyMs": 65.413772,
+        "registryMs": 16.29664799999999,
+        "openMs": 23.243358,
+        "barrierMs": 0.04519499999999255,
+        "threadOverheadMs": 25.82857100000001
+       },
+       "componentsTotal": 23.13258599999996,
+       "components": {
+        "integrityMs": 17.031532999999996,
+        "foreignKeyMs": 4.2256499999999875,
+        "barrierMs": 0.06763699999999062
+       }
+      },
+      {
+       "round": 10,
+       "order": 63,
+       "a1Total": 25.808701999999997,
+       "a1Open": 24.624031000000002,
+       "a1Barrier": 0.06433699999999476,
+       "a1ColdPage": 1.1203339999999997,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5307,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 71.85001400000002,
+       "e2eStart": 69.47936000000001,
+       "e2eColdPage": 2.370654000000002,
+       "e2ePhases": {
+        "spawnToReadyMs": 67.223698,
+        "registryMs": 16.719477000000012,
+        "openMs": 24.11517400000001,
+        "barrierMs": 0.05587699999999529,
+        "threadOverheadMs": 26.33316999999998
+       },
+       "componentsTotal": 23.177641000000015,
+       "components": {
+        "integrityMs": 17.009790000000002,
+        "foreignKeyMs": 4.273278000000005,
+        "barrierMs": 0.1335509999999971
+       }
+      },
+      {
+       "round": 11,
+       "order": 70,
+       "a1Total": 23.897727000000003,
+       "a1Open": 22.626699000000002,
+       "a1Barrier": 0.05966800000000205,
+       "a1ColdPage": 1.211359999999999,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5307,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 66.79397900000001,
+       "e2eStart": 64.60308,
+       "e2eColdPage": 2.1908990000000017,
+       "e2ePhases": {
+        "spawnToReadyMs": 62.757544,
+        "registryMs": 14.645583000000002,
+        "openMs": 23.155781000000005,
+        "barrierMs": 0.045343000000002576,
+        "threadOverheadMs": 24.910836999999994
+       },
+       "componentsTotal": 22.533528000000004,
+       "components": {
+        "integrityMs": 16.453625000000002,
+        "foreignKeyMs": 4.266029000000003,
+        "barrierMs": 0.06760600000001205
+       }
+      },
+      {
+       "round": 12,
+       "order": 76,
+       "a1Total": 22.794234000000003,
+       "a1Open": 21.407399999999996,
+       "a1Barrier": 0.08727000000000373,
+       "a1ColdPage": 1.2995640000000037,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5307,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 65.388587,
+       "e2eStart": 62.756383,
+       "e2eColdPage": 2.6322040000000015,
+       "e2ePhases": {
+        "spawnToReadyMs": 61.032464,
+        "registryMs": 13.303006999999994,
+        "openMs": 22.40326900000001,
+        "barrierMs": 0.047471000000001595,
+        "threadOverheadMs": 25.278716999999993
+       },
+       "componentsTotal": 20.986540000000012,
+       "components": {
+        "integrityMs": 15.603114999999995,
+        "foreignKeyMs": 3.6183030000000045,
+        "barrierMs": 0.07954300000000103
+       }
+      },
+      {
+       "round": 13,
+       "order": 81,
+       "a1Total": 23.931992,
+       "a1Open": 22.821333000000003,
+       "a1Barrier": 0.06282999999999106,
+       "a1ColdPage": 1.0478290000000072,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5307,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 66.727096,
+       "e2eStart": 64.310536,
+       "e2eColdPage": 2.416560000000004,
+       "e2ePhases": {
+        "spawnToReadyMs": 62.663417,
+        "registryMs": 15.022252000000009,
+        "openMs": 23.025385999999997,
+        "barrierMs": 0.04511700000000474,
+        "threadOverheadMs": 24.57066199999999
+       },
+       "componentsTotal": 23.120246000000023,
+       "components": {
+        "integrityMs": 17.072584000000006,
+        "foreignKeyMs": 4.280121000000008,
+        "barrierMs": 0.0719919999999945
+       }
+      },
+      {
+       "round": 14,
+       "order": 85,
+       "a1Total": 23.213561999999996,
+       "a1Open": 22.016099999999994,
+       "a1Barrier": 0.06224000000000274,
+       "a1ColdPage": 1.1352219999999988,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5307,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 67.44659600000001,
+       "e2eStart": 65.21178800000001,
+       "e2eColdPage": 2.234808000000001,
+       "e2ePhases": {
+        "spawnToReadyMs": 63.060842,
+        "registryMs": 14.725613999999993,
+        "openMs": 23.185271,
+        "barrierMs": 0.046875,
+        "threadOverheadMs": 25.103082000000008
+       },
+       "componentsTotal": 22.471647000000004,
+       "components": {
+        "integrityMs": 16.149318,
+        "foreignKeyMs": 4.489986999999999,
+        "barrierMs": 0.06541800000000819
+       }
+      }
+     ]
+    },
+    "pendingWal": {
+     "n": 15,
+     "a1OpenBarrierColdPage": {
+      "n": 15,
+      "median": 56.817,
+      "p95": 68.737,
+      "p99": 68.737,
+      "min": 49.174,
+      "max": 68.737,
+      "valid": true
+     },
+     "a1Open": {
+      "n": 15,
+      "median": 28.194,
+      "p95": 29.933,
+      "p99": 29.933,
+      "min": 25.726,
+      "max": 29.933,
+      "valid": true
+     },
+     "a1Barrier": {
+      "n": 15,
+      "median": 27.841,
+      "p95": 40.48,
+      "p99": 40.48,
+      "min": 20.117,
+      "max": 40.48,
+      "valid": true
+     },
+     "a1ColdPage": {
+      "n": 15,
+      "median": 1.265,
+      "p95": 2.02,
+      "p99": 2.02,
+      "min": 1.12,
+      "max": 2.02,
+      "valid": true
+     },
+     "e2eSpawnToReadyPlusColdPage": {
+      "n": 15,
+      "median": 102.813,
+      "p95": 170.982,
+      "p99": 170.982,
+      "min": 92.787,
+      "max": 170.982,
+      "valid": true
+     },
+     "e2eSpawnToReady": {
+      "n": 15,
+      "median": 100.555,
+      "p95": 168.174,
+      "p99": 168.174,
+      "min": 90.563,
+      "max": 168.174,
+      "valid": true
+     },
+     "e2eColdPage": {
+      "n": 15,
+      "median": 2.346,
+      "p95": 3.226,
+      "p99": 3.226,
+      "min": 2.191,
+      "max": 3.226,
+      "valid": true
+     },
+     "e2eWorkerOpen": {
+      "n": 15,
+      "median": 27.903,
+      "p95": 40.809,
+      "p99": 40.809,
+      "min": 25.995,
+      "max": 40.809,
+      "valid": true
+     },
+     "e2eWorkerBarrier": {
+      "n": 15,
+      "median": 26.904,
+      "p95": 96.524,
+      "p99": 96.524,
+      "min": 20.945,
+      "max": 96.524,
+      "valid": true
+     },
+     "components": {
+      "roOpenMs": {
+       "n": 15,
+       "median": 0.159,
+       "p95": 0.52,
+       "p99": 0.52,
+       "min": 0.157,
+       "max": 0.52,
+       "valid": true
+      },
+      "peeksMs": {
+       "n": 15,
+       "median": 1.464,
+       "p95": 1.63,
+       "p99": 1.63,
+       "min": 1.157,
+       "max": 1.63,
+       "valid": true
+      },
+      "integrityMs": {
+       "n": 15,
+       "median": 18.266,
+       "p95": 27.447,
+       "p99": 27.447,
+       "min": 17.631,
+       "max": 27.447,
+       "valid": true
+      },
+      "foreignKeyMs": {
+       "n": 15,
+       "median": 4.855,
+       "p95": 5.915,
+       "p99": 5.915,
+       "min": 4.293,
+       "max": 5.915,
+       "valid": true
+      },
+      "roCloseMs": {
+       "n": 15,
+       "median": 0.694,
+       "p95": 0.803,
+       "p99": 0.803,
+       "min": 0.568,
+       "max": 0.803,
+       "valid": true
+      },
+      "rwOpenMs": {
+       "n": 15,
+       "median": 0.062,
+       "p95": 0.126,
+       "p99": 0.126,
+       "min": 0.056,
+       "max": 0.126,
+       "valid": true
+      },
+      "walPragmaMs": {
+       "n": 15,
+       "median": 1.077,
+       "p95": 1.29,
+       "p99": 1.29,
+       "min": 0.873,
+       "max": 1.29,
+       "valid": true
+      },
+      "migrationsMs": {
+       "n": 15,
+       "median": 0.228,
+       "p95": 0.251,
+       "p99": 0.251,
+       "min": 0.197,
+       "max": 0.251,
+       "valid": true
+      },
+      "barrierMs": {
+       "n": 15,
+       "median": 28.958,
+       "p95": 38.107,
+       "p99": 38.107,
+       "min": 17.284,
+       "max": 38.107,
+       "valid": true
+      },
+      "componentsTotalMs": {
+       "n": 15,
+       "median": 57.442,
+       "p95": 65.736,
+       "p99": 65.736,
+       "min": 42.25,
+       "max": 65.736,
+       "valid": true
+      }
+     },
+     "componentsNote": "components are a separate run on its own copy; medians are never summed to replace the direct totals above",
+     "ratioToJsonColdLoad": {
+      "a1": 6.154354419410746,
+      "e2e": 11.136590121317159
+     },
+     "checks": {
+      "allSamplesCompleted": true,
+      "pageSizeEffective": true,
+      "integrityForeignKeyOk": true,
+      "f29BarrierBusy0AllFramesCheckpointed": true,
+      "walTruncatedAfterBarrier": true,
+      "walFullSynchronous": true,
+      "pendingProven": true
+     },
+     "failures": 0,
+     "rawSamplesMs": [
+      {
+       "round": 0,
+       "order": 3,
+       "a1Total": 55.63752699999999,
+       "a1Open": 28.443894999999998,
+       "a1Barrier": 25.858163000000005,
+       "a1ColdPage": 1.3354689999999891,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 5108832,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5458,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 96.85280000000002,
+       "e2eStart": 94.61883200000001,
+       "e2eColdPage": 2.2339680000000044,
+       "e2ePhases": {
+        "spawnToReadyMs": 92.94559899999999,
+        "registryMs": 15.602458999999996,
+        "openMs": 27.57187499999999,
+        "barrierMs": 24.886829000000006,
+        "threadOverheadMs": 24.884435999999994
+       },
+       "componentsTotal": 60.46628199999998,
+       "components": {
+        "integrityMs": 17.868356,
+        "foreignKeyMs": 4.528991999999988,
+        "barrierMs": 34.49709200000001
+       }
+      },
+      {
+       "round": 1,
+       "order": 8,
+       "a1Total": 51.468281,
+       "a1Open": 26.696643,
+       "a1Barrier": 23.395668,
+       "a1ColdPage": 1.3759699999999953,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 5108832,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5458,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 102.81327800000003,
+       "e2eStart": 100.555182,
+       "e2eColdPage": 2.258096000000023,
+       "e2ePhases": {
+        "spawnToReadyMs": 98.72959700000001,
+        "registryMs": 15.172202999999996,
+        "openMs": 26.471975999999998,
+        "barrierMs": 32.11421800000001,
+        "threadOverheadMs": 24.97120000000001
+       },
+       "componentsTotal": 53.740157000000025,
+       "components": {
+        "integrityMs": 18.046956,
+        "foreignKeyMs": 4.763255999999998,
+        "barrierMs": 27.121896000000007
+       }
+      },
+      {
+       "round": 2,
+       "order": 14,
+       "a1Total": 62.415015999999994,
+       "a1Open": 29.933002000000002,
+       "a1Barrier": 31.131882999999988,
+       "a1ColdPage": 1.3501310000000046,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 5108832,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5458,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 129.50879600000002,
+       "e2eStart": 127.15155700000001,
+       "e2eColdPage": 2.3572389999999928,
+       "e2ePhases": {
+        "spawnToReadyMs": 125.00771099999999,
+        "registryMs": 23.43983,
+        "openMs": 40.809115000000006,
+        "barrierMs": 26.903773,
+        "threadOverheadMs": 33.85499299999998
+       },
+       "componentsTotal": 58.64941099999999,
+       "components": {
+        "integrityMs": 19.928341000000003,
+        "foreignKeyMs": 5.6493679999999955,
+        "barrierMs": 28.867745999999997
+       }
+      },
+      {
+       "round": 3,
+       "order": 21,
+       "a1Total": 68.73655300000001,
+       "a1Open": 27.102837,
+       "a1Barrier": 40.480036999999996,
+       "a1ColdPage": 1.153679000000011,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 5108832,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5458,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 104.97745800000003,
+       "e2eStart": 101.751455,
+       "e2eColdPage": 3.22600300000002,
+       "e2ePhases": {
+        "spawnToReadyMs": 99.96661199999998,
+        "registryMs": 15.56046400000001,
+        "openMs": 26.706379999999996,
+        "barrierMs": 32.21677799999999,
+        "threadOverheadMs": 25.482989999999987
+       },
+       "componentsTotal": 56.119797000000005,
+       "components": {
+        "integrityMs": 18.267922999999996,
+        "foreignKeyMs": 5.150137000000001,
+        "barrierMs": 28.957986000000005
+       }
+      },
+      {
+       "round": 4,
+       "order": 26,
+       "a1Total": 51.25884200000001,
+       "a1Open": 28.535702000000008,
+       "a1Barrier": 21.602644999999995,
+       "a1ColdPage": 1.1204950000000053,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 5108832,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5458,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 107.426592,
+       "e2eStart": 105.121511,
+       "e2eColdPage": 2.3050810000000013,
+       "e2ePhases": {
+        "spawnToReadyMs": 103.42775900000001,
+        "registryMs": 15.641177999999996,
+        "openMs": 27.995985000000005,
+        "barrierMs": 35.099025,
+        "threadOverheadMs": 24.69157100000001
+       },
+       "componentsTotal": 57.44243700000002,
+       "components": {
+        "integrityMs": 18.541211000000004,
+        "foreignKeyMs": 4.854582000000008,
+        "barrierMs": 29.988937000000007
+       }
+      },
+      {
+       "round": 5,
+       "order": 32,
+       "a1Total": 57.15567299999999,
+       "a1Open": 28.181239000000005,
+       "a1Barrier": 27.840599999999995,
+       "a1ColdPage": 1.1338339999999931,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 5108832,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5458,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 94.99315800000001,
+       "e2eStart": 92.35769700000002,
+       "e2eColdPage": 2.6354609999999923,
+       "e2ePhases": {
+        "spawnToReadyMs": 90.609384,
+        "registryMs": 15.052311000000003,
+        "openMs": 27.902575,
+        "barrierMs": 22.594043999999997,
+        "threadOverheadMs": 25.060454000000007
+       },
+       "componentsTotal": 64.428675,
+       "components": {
+        "integrityMs": 18.095832,
+        "foreignKeyMs": 4.595552999999995,
+        "barrierMs": 38.107321999999996
+       }
+      },
+      {
+       "round": 6,
+       "order": 37,
+       "a1Total": 49.174424,
+       "a1Open": 27.831416000000004,
+       "a1Barrier": 20.117340999999996,
+       "a1ColdPage": 1.2256670000000014,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 5108832,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5458,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 109.91868500000001,
+       "e2eStart": 106.984666,
+       "e2eColdPage": 2.9340190000000064,
+       "e2ePhases": {
+        "spawnToReadyMs": 104.756022,
+        "registryMs": 19.319618000000006,
+        "openMs": 31.406873000000004,
+        "barrierMs": 24.147984000000008,
+        "threadOverheadMs": 29.881546999999983
+       },
+       "componentsTotal": 65.73613600000002,
+       "components": {
+        "integrityMs": 27.446528,
+        "foreignKeyMs": 5.475582000000003,
+        "barrierMs": 28.980837000000008
+       }
+      },
+      {
+       "round": 7,
+       "order": 46,
+       "a1Total": 54.409984,
+       "a1Open": 28.648052,
+       "a1Barrier": 24.334067000000005,
+       "a1ColdPage": 1.427864999999997,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 5108832,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5458,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 106.737492,
+       "e2eStart": 104.39121700000001,
+       "e2eColdPage": 2.3462749999999915,
+       "e2ePhases": {
+        "spawnToReadyMs": 102.724727,
+        "registryMs": 15.04777,
+        "openMs": 28.567061999999993,
+        "barrierMs": 34.349593999999996,
+        "threadOverheadMs": 24.760301000000013
+       },
+       "componentsTotal": 55.294625,
+       "components": {
+        "integrityMs": 18.461705999999992,
+        "foreignKeyMs": 5.140195000000006,
+        "barrierMs": 27.552948
+       }
+      },
+      {
+       "round": 8,
+       "order": 52,
+       "a1Total": 51.571332,
+       "a1Open": 26.843041999999997,
+       "a1Barrier": 23.377184999999997,
+       "a1ColdPage": 1.351105000000004,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 5108832,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5458,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 97.08770799999999,
+       "e2eStart": 94.63762700000001,
+       "e2eColdPage": 2.450080999999983,
+       "e2ePhases": {
+        "spawnToReadyMs": 92.92955300000001,
+        "registryMs": 16.782427,
+        "openMs": 30.02964,
+        "barrierMs": 20.945266000000004,
+        "threadOverheadMs": 25.17222000000001
+       },
+       "componentsTotal": 51.104693999999974,
+       "components": {
+        "integrityMs": 18.072126999999995,
+        "foreignKeyMs": 5.915042999999997,
+        "barrierMs": 23.370638999999997
+       }
+      },
+      {
+       "round": 9,
+       "order": 59,
+       "a1Total": 57.869741,
+       "a1Open": 28.278242,
+       "a1Barrier": 28.282407000000006,
+       "a1ColdPage": 1.3090919999999926,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 5108832,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5458,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 100.282276,
+       "e2eStart": 98.01537199999999,
+       "e2eColdPage": 2.266904000000011,
+       "e2ePhases": {
+        "spawnToReadyMs": 96.33577,
+        "registryMs": 15.425032000000002,
+        "openMs": 27.552622999999997,
+        "barrierMs": 27.882266000000016,
+        "threadOverheadMs": 25.475848999999982
+       },
+       "componentsTotal": 60.19240699999999,
+       "components": {
+        "integrityMs": 18.891790999999998,
+        "foreignKeyMs": 5.1785699999999935,
+        "barrierMs": 32.405486999999994
+       }
+      },
+      {
+       "round": 10,
+       "order": 62,
+       "a1Total": 63.17951600000001,
+       "a1Open": 28.86878,
+       "a1Barrier": 33.060546,
+       "a1ColdPage": 1.2501900000000035,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 5108832,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5458,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 170.981557,
+       "e2eStart": 168.17371,
+       "e2eColdPage": 2.8078470000000095,
+       "e2ePhases": {
+        "spawnToReadyMs": 166.43338699999998,
+        "registryMs": 16.136134,
+        "openMs": 27.470234000000005,
+        "barrierMs": 96.52359600000001,
+        "threadOverheadMs": 26.303422999999952
+       },
+       "componentsTotal": 51.25984400000001,
+       "components": {
+        "integrityMs": 18.266462999999995,
+        "foreignKeyMs": 4.544454999999999,
+        "barrierMs": 24.859791
+       }
+      },
+      {
+       "round": 11,
+       "order": 71,
+       "a1Total": 63.539133,
+       "a1Open": 29.151284999999994,
+       "a1Barrier": 33.12287500000001,
+       "a1ColdPage": 1.2649729999999977,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 5108832,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5458,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 103.12444299999999,
+       "e2eStart": 100.865015,
+       "e2eColdPage": 2.2594279999999856,
+       "e2ePhases": {
+        "spawnToReadyMs": 99.19042999999999,
+        "registryMs": 16.09054900000001,
+        "openMs": 28.796567999999994,
+        "barrierMs": 29.02300199999999,
+        "threadOverheadMs": 25.280310999999998
+       },
+       "componentsTotal": 59.37377200000002,
+       "components": {
+        "integrityMs": 19.089747000000003,
+        "foreignKeyMs": 5.343625000000003,
+        "barrierMs": 31.083702000000002
+       }
+      },
+      {
+       "round": 12,
+       "order": 75,
+       "a1Total": 56.81697299999999,
+       "a1Open": 25.725707,
+       "a1Barrier": 29.846853999999993,
+       "a1ColdPage": 1.244411999999997,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 5108832,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5458,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 96.297732,
+       "e2eStart": 93.631169,
+       "e2eColdPage": 2.6665629999999965,
+       "e2ePhases": {
+        "spawnToReadyMs": 91.832405,
+        "registryMs": 14.55487699999999,
+        "openMs": 25.995348000000007,
+        "barrierMs": 26.597953999999987,
+        "threadOverheadMs": 24.68422600000001
+       },
+       "componentsTotal": 42.25047100000001,
+       "components": {
+        "integrityMs": 17.631069000000004,
+        "foreignKeyMs": 4.293233000000001,
+        "barrierMs": 17.284363999999997
+       }
+      },
+      {
+       "round": 13,
+       "order": 83,
+       "a1Total": 63.855166,
+       "a1Open": 28.075835999999995,
+       "a1Barrier": 33.75930700000001,
+       "a1ColdPage": 2.020022999999995,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 5108832,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5458,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 92.787319,
+       "e2eStart": 90.56295399999999,
+       "e2eColdPage": 2.224365000000006,
+       "e2ePhases": {
+        "spawnToReadyMs": 88.75192899999999,
+        "registryMs": 14.323309999999992,
+        "openMs": 26.51794500000001,
+        "barrierMs": 23.967276999999996,
+        "threadOverheadMs": 23.94339699999999
+       },
+       "componentsTotal": 51.53569599999997,
+       "components": {
+        "integrityMs": 17.849643,
+        "foreignKeyMs": 4.426394000000002,
+        "barrierMs": 25.549789999999987
+       }
+      },
+      {
+       "round": 14,
+       "order": 86,
+       "a1Total": 54.037172,
+       "a1Open": 28.194486999999995,
+       "a1Barrier": 24.599569000000002,
+       "a1ColdPage": 1.2431160000000006,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 5108832,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 4096,
+        "page_count": 5458,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 100.74785399999999,
+       "e2eStart": 98.557166,
+       "e2eColdPage": 2.1906879999999944,
+       "e2ePhases": {
+        "spawnToReadyMs": 96.569186,
+        "registryMs": 16.17161,
+        "openMs": 29.479438000000002,
+        "barrierMs": 24.398292000000012,
+        "threadOverheadMs": 26.519845999999987
+       },
+       "componentsTotal": 57.55289399999998,
+       "components": {
+        "integrityMs": 18.198542999999994,
+        "foreignKeyMs": 4.634067000000002,
+        "barrierMs": 31.055076
+       }
+      }
+     ]
+    }
+   }
+  },
+  "page8192": {
+   "requestedPageSize": 8192,
+   "effectivePageSize": 8192,
+   "pageCount": 2626,
+   "freelistCount": 0,
+   "bytesByObject": {
+    "chat_history_dedupe": {
+     "bytes": 4521984,
+     "pages": 552
+    },
+    "chat_history_epochs": {
+     "bytes": 8192,
+     "pages": 1
+    },
+    "chat_history_event_extra": {
+     "bytes": 8192,
+     "pages": 1
+    },
+    "chat_history_events": {
+     "bytes": 7798784,
+     "pages": 952
+    },
+    "chat_history_events_chat_seq": {
+     "bytes": 630784,
+     "pages": 77
+    },
+    "chat_history_meta": {
+     "bytes": 8192,
+     "pages": 1
+    },
+    "chat_history_producers": {
+     "bytes": 8192,
+     "pages": 1
+    },
+    "chat_history_stage": {
+     "bytes": 8192,
+     "pages": 1
+    },
+    "chat_history_stage_chat": {
+     "bytes": 8192,
+     "pages": 1
+    },
+    "chat_history_stage_fragment": {
+     "bytes": 8192,
+     "pages": 1
+    },
+    "chat_history_state": {
+     "bytes": 8192,
+     "pages": 1
+    },
+    "command_receipts": {
+     "bytes": 7610368,
+     "pages": 929
+    },
+    "command_receipts_created_at": {
+     "bytes": 835584,
+     "pages": 102
+    },
+    "schema_version": {
+     "bytes": 8192,
+     "pages": 1
+    },
+    "sqlite_schema": {
+     "bytes": 24576,
+     "pages": 3
+    },
+    "storage_dataset_binding": {
+     "bytes": 8192,
+     "pages": 1
+    },
+    "storage_fencing": {
+     "bytes": 8192,
+     "pages": 1
+    }
+   },
+   "identity": {
+    "cleanDiff": [],
+    "pendingDiff": [],
+    "pass": true
+   },
+   "fixture": {
+    "pending": {
+     "method": "copy of db+wal taken while the real host was open and idle after acknowledged appends; no checkpoint ran on the copy; proof = events visible with the WAL minus events in the main file alone (probe copies)",
+     "walFrames": 1240,
+     "walPageSize": 8192,
+     "walBytes": 10187872,
+     "mainOnlyEvents": 20500,
+     "withWalEvents": 20520,
+     "pendingEvents": 20,
+     "tailEventsAppended": 520,
+     "epilogueCommits": 20,
+     "proven": true
+    },
+    "cleanExportSha256": "21842371061a6c959777e171483e7bbfc5bb7c8dd1934b36c0cc8aaa9677d194",
+    "pendingExportSha256": "a0307643c22fb6f52d8974d5a5cead83047d77de8b0ff460e41aebbd20efa6c9",
+    "tables": {
+     "chat_history_dedupe": {
+      "rows": 20000,
+      "sha256": "a5711757c2bff9b19237a65660a400feeeeba705c26ee977a4b123a3b0e01474"
+     },
+     "chat_history_epochs": {
+      "rows": 100,
+      "sha256": "5c60ba91dae8ff14cf8c98cff45d0944d0f9520ec3fd7bfda0d68577706a0e88"
+     },
+     "chat_history_event_extra": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     "chat_history_events": {
+      "rows": 20000,
+      "sha256": "6b3cef5ff0c46f91db5fa1b4dfeb620a2f5c43907be9f71ac9dbffd98a539724"
+     },
+     "chat_history_meta": {
+      "rows": 100,
+      "sha256": "7e39894c6ea65e95c1ed381ef75ab021f8bbfa59a5e529b52750c999d0a81695"
+     },
+     "chat_history_producers": {
+      "rows": 100,
+      "sha256": "5b271e45820e8efa8a3fcff9cd40204ce9395a37ff2b5b167abc6eef70c1bc6a"
+     },
+     "chat_history_stage": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     "chat_history_stage_fragment": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     "chat_history_state": {
+      "rows": 100,
+      "sha256": "13d6a3fde911cdfcde080c50b58d78ecaef120d29a2c8042a0898b04dc370c82"
+     },
+     "command_receipts": {
+      "rows": 20000,
+      "sha256": "a027c38261d4f500a94316e49756b6f9424696f73c813b14245d455c2014f318"
+     },
+     "schema_version": {
+      "rows": 6,
+      "sha256": "e00a1590596df62360d0ec7df38ae20067517a82b7c0c0c933e321755465215b"
+     },
+     "storage_dataset_binding": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     "storage_fencing": {
+      "rows": 1,
+      "sha256": "5b9ef60ef93e56ebd0303a60faaba66ce705663cdf788211c220d6a19996f473"
+     }
+    },
+    "maskedColumns": [
+     "chat_history_dedupe.created_at",
+     "chat_history_epochs.created_at",
+     "chat_history_events.created_at",
+     "chat_history_meta.deleted_at",
+     "chat_history_producers.created_at",
+     "chat_history_producers.retired_at",
+     "chat_history_stage.created_at",
+     "chat_history_state.updated_at",
+     "command_receipts.created_at",
+     "schema_version.applied_at",
+     "storage_dataset_binding.bound_at"
+    ]
+   },
+   "generationScreening": {
+    "events": 20000,
+    "elapsedMs": 18658.010427999998,
+    "appendLatencyMs": {
+     "n": 20000,
+     "median": 55.844,
+     "p95": 72.723,
+     "p99": 75.952,
+     "min": 49.017,
+     "max": 87.355,
+     "valid": true
+    },
+    "queryLatencyMs": {
+     "n": 200,
+     "median": 0.377,
+     "p95": 0.507,
+     "p99": 0.704,
+     "min": 0.278,
+     "max": 0.922,
+     "valid": true
+    },
+    "workerRequestMs": {
+     "n": 313,
+     "p50": 15.245467000000644,
+     "p95": 31.914261999998416,
+     "p99": 35.19736499999999,
+     "max": 45.36968400000114,
+     "sum": 5824.667574999992
+    },
+    "workerExecuteMs": {
+     "n": 313,
+     "p50": 15.043140000001586,
+     "p95": 31.723383999997168,
+     "p99": 35.002306000002136,
+     "max": 44.8363360000003,
+     "sum": 5749.97551400002
+    },
+    "queueAgeMs": {
+     "n": 313,
+     "p50": 0.006326000002445653,
+     "p95": 0.012223999998241197,
+     "p99": 0.0214269999996759,
+     "max": 0.04608200000075158
+    },
+    "eventLoopDelayMs": {
+     "n": 17031,
+     "monitorResolutionMs": 1,
+     "p99": 1.629183,
+     "max": 3.848191
+    },
+    "fullCheckpoint": {
+     "ms": 0.20825400000467198,
+     "busy": 0,
+     "n": 1
+    },
+    "bytesWritten": 31552632,
+    "bytesWrittenPer1000Events": 1577631.6
+   },
+   "verdict": {
+    "verdict": "NO-GO",
+    "reasons": [
+     "clean: A1 start median 22.784 ms > 18.464 ms (2x JSON cold load)",
+     "pendingWal: A1 start median 45.398 ms > 18.464 ms (2x JSON cold load)"
+    ],
+    "unverified": [],
+    "outstandingBeforeAnyProductionDecision": [
+     "burst queue-age max (not run)",
+     "FULL checkpoint stall p99 (n=1 < 30)",
+     "small/growing/mixed workloads (not run)"
+    ],
+    "bytesWrittenPercentOfJson": 4.599
+   },
+   "cases": {
+    "clean": {
+     "n": 15,
+     "a1OpenBarrierColdPage": {
+      "n": 15,
+      "median": 22.784,
+      "p95": 24.36,
+      "p99": 24.36,
+      "min": 21.815,
+      "max": 24.36,
+      "valid": true
+     },
+     "a1Open": {
+      "n": 15,
+      "median": 21.587,
+      "p95": 23.112,
+      "p99": 23.112,
+      "min": 20.701,
+      "max": 23.112,
+      "valid": true
+     },
+     "a1Barrier": {
+      "n": 15,
+      "median": 0.061,
+      "p95": 0.239,
+      "p99": 0.239,
+      "min": 0.058,
+      "max": 0.239,
+      "valid": true
+     },
+     "a1ColdPage": {
+      "n": 15,
+      "median": 1.12,
+      "p95": 1.266,
+      "p99": 1.266,
+      "min": 0.985,
+      "max": 1.266,
+      "valid": true
+     },
+     "e2eSpawnToReadyPlusColdPage": {
+      "n": 15,
+      "median": 67.324,
+      "p95": 73.058,
+      "p99": 73.058,
+      "min": 63.714,
+      "max": 73.058,
+      "valid": true
+     },
+     "e2eSpawnToReady": {
+      "n": 15,
+      "median": 64.93,
+      "p95": 70.465,
+      "p99": 70.465,
+      "min": 61.531,
+      "max": 70.465,
+      "valid": true
+     },
+     "e2eColdPage": {
+      "n": 15,
+      "median": 2.206,
+      "p95": 2.593,
+      "p99": 2.593,
+      "min": 2.143,
+      "max": 2.593,
+      "valid": true
+     },
+     "e2eWorkerOpen": {
+      "n": 15,
+      "median": 21.772,
+      "p95": 23.984,
+      "p99": 23.984,
+      "min": 20.824,
+      "max": 23.984,
+      "valid": true
+     },
+     "e2eWorkerBarrier": {
+      "n": 15,
+      "median": 0.046,
+      "p95": 0.211,
+      "p99": 0.211,
+      "min": 0.043,
+      "max": 0.211,
+      "valid": true
+     },
+     "components": {
+      "roOpenMs": {
+       "n": 15,
+       "median": 0.163,
+       "p95": 0.255,
+       "p99": 0.255,
+       "min": 0.151,
+       "max": 0.255,
+       "valid": true
+      },
+      "peeksMs": {
+       "n": 15,
+       "median": 0.42,
+       "p95": 0.666,
+       "p99": 0.666,
+       "min": 0.358,
+       "max": 0.666,
+       "valid": true
+      },
+      "integrityMs": {
+       "n": 15,
+       "median": 15.362,
+       "p95": 16.284,
+       "p99": 16.284,
+       "min": 14.757,
+       "max": 16.284,
+       "valid": true
+      },
+      "foreignKeyMs": {
+       "n": 15,
+       "median": 3.719,
+       "p95": 4.184,
+       "p99": 4.184,
+       "min": 3.292,
+       "max": 4.184,
+       "valid": true
+      },
+      "roCloseMs": {
+       "n": 15,
+       "median": 0.642,
+       "p95": 0.975,
+       "p99": 0.975,
+       "min": 0.535,
+       "max": 0.975,
+       "valid": true
+      },
+      "rwOpenMs": {
+       "n": 15,
+       "median": 0.061,
+       "p95": 0.067,
+       "p99": 0.067,
+       "min": 0.055,
+       "max": 0.067,
+       "valid": true
+      },
+      "walPragmaMs": {
+       "n": 15,
+       "median": 0.187,
+       "p95": 0.212,
+       "p99": 0.212,
+       "min": 0.175,
+       "max": 0.212,
+       "valid": true
+      },
+      "migrationsMs": {
+       "n": 15,
+       "median": 0.231,
+       "p95": 0.261,
+       "p99": 0.261,
+       "min": 0.19,
+       "max": 0.261,
+       "valid": true
+      },
+      "barrierMs": {
+       "n": 15,
+       "median": 0.066,
+       "p95": 0.129,
+       "p99": 0.129,
+       "min": 0.059,
+       "max": 0.129,
+       "valid": true
+      },
+      "componentsTotalMs": {
+       "n": 15,
+       "median": 20.766,
+       "p95": 22.329,
+       "p99": 22.329,
+       "min": 19.791,
+       "max": 22.329,
+       "valid": true
+      }
+     },
+     "componentsNote": "components are a separate run on its own copy; medians are never summed to replace the direct totals above",
+     "ratioToJsonColdLoad": {
+      "a1": 2.467937608318891,
+      "e2e": 7.292461005199307
+     },
+     "checks": {
+      "allSamplesCompleted": true,
+      "pageSizeEffective": true,
+      "integrityForeignKeyOk": true,
+      "f29BarrierBusy0AllFramesCheckpointed": true,
+      "walTruncatedAfterBarrier": true,
+      "walFullSynchronous": true,
+      "pendingProven": true
+     },
+     "failures": 0,
+     "rawSamplesMs": [
+      {
+       "round": 0,
+       "order": 1,
+       "a1Total": 22.927568000000008,
+       "a1Open": 21.842222000000007,
+       "a1Barrier": 0.06094099999999969,
+       "a1ColdPage": 1.0244050000000016,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2626,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 66.274044,
+       "e2eStart": 64.073824,
+       "e2eColdPage": 2.2002200000000016,
+       "e2ePhases": {
+        "spawnToReadyMs": 62.40256599999999,
+        "registryMs": 16.295767999999995,
+        "openMs": 20.824201000000002,
+        "barrierMs": 0.04410399999999015,
+        "threadOverheadMs": 25.238493000000005
+       },
+       "componentsTotal": 20.675007,
+       "components": {
+        "integrityMs": 15.361810000000006,
+        "foreignKeyMs": 3.6110820000000032,
+        "barrierMs": 0.06724499999999978
+       }
+      },
+      {
+       "round": 1,
+       "order": 10,
+       "a1Total": 22.352468000000002,
+       "a1Open": 21.115703999999994,
+       "a1Barrier": 0.09477800000000514,
+       "a1ColdPage": 1.1419860000000028,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2626,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 66.53397199999999,
+       "e2eStart": 64.243055,
+       "e2eColdPage": 2.290916999999993,
+       "e2ePhases": {
+        "spawnToReadyMs": 62.371461000000004,
+        "registryMs": 15.320225000000008,
+        "openMs": 21.744659999999996,
+        "barrierMs": 0.04688299999999401,
+        "threadOverheadMs": 25.259693000000006
+       },
+       "componentsTotal": 20.93618100000002,
+       "components": {
+        "integrityMs": 15.462581999999998,
+        "foreignKeyMs": 3.662694000000002,
+        "barrierMs": 0.06791199999999264
+       }
+      },
+      {
+       "round": 2,
+       "order": 18,
+       "a1Total": 23.398122000000008,
+       "a1Open": 22.234951000000002,
+       "a1Barrier": 0.06354899999999475,
+       "a1ColdPage": 1.0996220000000108,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2626,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 73.05821899999998,
+       "e2eStart": 70.46542399999998,
+       "e2eColdPage": 2.5927949999999953,
+       "e2ePhases": {
+        "spawnToReadyMs": 68.719199,
+        "registryMs": 18.091751000000002,
+        "openMs": 23.46670900000001,
+        "barrierMs": 0.04525800000000402,
+        "threadOverheadMs": 27.11548099999999
+       },
+       "componentsTotal": 22.329153000000012,
+       "components": {
+        "integrityMs": 16.284221999999993,
+        "foreignKeyMs": 4.183938000000012,
+        "barrierMs": 0.07086900000000185
+       }
+      },
+      {
+       "round": 3,
+       "order": 22,
+       "a1Total": 21.815163,
+       "a1Open": 20.772731000000007,
+       "a1Barrier": 0.05765399999999943,
+       "a1ColdPage": 0.9847779999999915,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2626,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 65.59642,
+       "e2eStart": 63.445102999999996,
+       "e2eColdPage": 2.1513169999999917,
+       "e2ePhases": {
+        "spawnToReadyMs": 61.639033,
+        "registryMs": 15.423472000000004,
+        "openMs": 21.242667999999995,
+        "barrierMs": 0.062447000000005914,
+        "threadOverheadMs": 24.910445999999993
+       },
+       "componentsTotal": 19.790578999999994,
+       "components": {
+        "integrityMs": 14.756854999999995,
+        "foreignKeyMs": 3.291539,
+        "barrierMs": 0.07393199999999922
+       }
+      },
+      {
+       "round": 4,
+       "order": 29,
+       "a1Total": 22.995869999999996,
+       "a1Open": 21.819907,
+       "a1Barrier": 0.0600159999999903,
+       "a1ColdPage": 1.1159470000000056,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2626,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 67.38313600000001,
+       "e2eStart": 64.929668,
+       "e2eColdPage": 2.453468000000001,
+       "e2ePhases": {
+        "spawnToReadyMs": 63.178331,
+        "registryMs": 15.846454000000008,
+        "openMs": 21.839186999999995,
+        "barrierMs": 0.04393500000000472,
+        "threadOverheadMs": 25.44875499999999
+       },
+       "componentsTotal": 21.005557000000003,
+       "components": {
+        "integrityMs": 15.425353999999992,
+        "foreignKeyMs": 3.528036,
+        "barrierMs": 0.0614050000000077
+       }
+      },
+      {
+       "round": 5,
+       "order": 36,
+       "a1Total": 24.359513000000007,
+       "a1Open": 23.112438999999995,
+       "a1Barrier": 0.06517000000000905,
+       "a1ColdPage": 1.181904000000003,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2626,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 66.97639199999999,
+       "e2eStart": 64.69483499999998,
+       "e2eColdPage": 2.2815570000000065,
+       "e2ePhases": {
+        "spawnToReadyMs": 63.029284,
+        "registryMs": 14.648173999999997,
+        "openMs": 23.983760000000004,
+        "barrierMs": 0.2109219999999965,
+        "threadOverheadMs": 24.186428
+       },
+       "componentsTotal": 21.693900000000006,
+       "components": {
+        "integrityMs": 15.713502000000005,
+        "foreignKeyMs": 4.1840329999999994,
+        "barrierMs": 0.09608200000000977
+       }
+      },
+      {
+       "round": 6,
+       "order": 42,
+       "a1Total": 22.797184999999992,
+       "a1Open": 21.67353599999999,
+       "a1Barrier": 0.05860200000000759,
+       "a1ColdPage": 1.0650469999999927,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2626,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 67.8583,
+       "e2eStart": 65.598171,
+       "e2eColdPage": 2.2601290000000063,
+       "e2ePhases": {
+        "spawnToReadyMs": 63.770115000000004,
+        "registryMs": 15.070965999999999,
+        "openMs": 22.024240000000006,
+        "barrierMs": 0.04603900000000749,
+        "threadOverheadMs": 26.628869999999992
+       },
+       "componentsTotal": 21.050551999999996,
+       "components": {
+        "integrityMs": 15.314048,
+        "foreignKeyMs": 4.005141000000009,
+        "barrierMs": 0.0644229999999908
+       }
+      },
+      {
+       "round": 7,
+       "order": 44,
+       "a1Total": 21.968089,
+       "a1Open": 20.881753999999994,
+       "a1Barrier": 0.06193800000001204,
+       "a1ColdPage": 1.0243969999999933,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2626,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 69.00245900000002,
+       "e2eStart": 66.80526,
+       "e2eColdPage": 2.197199000000012,
+       "e2ePhases": {
+        "spawnToReadyMs": 64.934192,
+        "registryMs": 16.471080999999998,
+        "openMs": 21.772395000000003,
+        "barrierMs": 0.13979100000000244,
+        "threadOverheadMs": 26.550924999999992
+       },
+       "componentsTotal": 21.307403999999984,
+       "components": {
+        "integrityMs": 15.693269999999998,
+        "foreignKeyMs": 3.893926999999991,
+        "barrierMs": 0.06459099999999296
+       }
+      },
+      {
+       "round": 8,
+       "order": 51,
+       "a1Total": 22.783826999999995,
+       "a1Open": 21.379089999999998,
+       "a1Barrier": 0.23926099999999906,
+       "a1ColdPage": 1.1654759999999982,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2626,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 69.423196,
+       "e2eStart": 67.199629,
+       "e2eColdPage": 2.2235670000000027,
+       "e2ePhases": {
+        "spawnToReadyMs": 65.531213,
+        "registryMs": 16.534361000000004,
+        "openMs": 22.506606000000005,
+        "barrierMs": 0.0916429999999906,
+        "threadOverheadMs": 26.398602999999994
+       },
+       "componentsTotal": 20.694366999999993,
+       "components": {
+        "integrityMs": 15.080241000000001,
+        "foreignKeyMs": 3.719180999999999,
+        "barrierMs": 0.06568599999999947
+       }
+      },
+      {
+       "round": 9,
+       "order": 58,
+       "a1Total": 22.822807000000005,
+       "a1Open": 21.586639999999996,
+       "a1Barrier": 0.06147300000000655,
+       "a1ColdPage": 1.1746940000000023,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2626,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 66.76656799999999,
+       "e2eStart": 64.560718,
+       "e2eColdPage": 2.205849999999998,
+       "e2ePhases": {
+        "spawnToReadyMs": 62.89678,
+        "registryMs": 15.597315999999992,
+        "openMs": 21.642077,
+        "barrierMs": 0.0482109999999949,
+        "threadOverheadMs": 25.609176000000012
+       },
+       "componentsTotal": 20.765726,
+       "components": {
+        "integrityMs": 15.253529999999998,
+        "foreignKeyMs": 3.835829000000004,
+        "barrierMs": 0.059252999999998224
+       }
+      },
+      {
+       "round": 10,
+       "order": 64,
+       "a1Total": 22.74935500000001,
+       "a1Open": 21.666173999999998,
+       "a1Barrier": 0.06877099999999814,
+       "a1ColdPage": 1.0144100000000122,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2626,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 68.565962,
+       "e2eStart": 66.271908,
+       "e2eColdPage": 2.2940540000000027,
+       "e2ePhases": {
+        "spawnToReadyMs": 64.60240099999999,
+        "registryMs": 16.604501000000013,
+        "openMs": 21.87587599999999,
+        "barrierMs": 0.0451049999999924,
+        "threadOverheadMs": 26.07691899999999
+       },
+       "componentsTotal": 20.183935000000012,
+       "components": {
+        "integrityMs": 14.983998999999997,
+        "foreignKeyMs": 3.4552560000000057,
+        "barrierMs": 0.06625599999999565
+       }
+      },
+      {
+       "round": 11,
+       "order": 68,
+       "a1Total": 21.885373,
+       "a1Open": 20.700827000000004,
+       "a1Barrier": 0.059522000000001185,
+       "a1ColdPage": 1.1250239999999962,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2626,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 68.486589,
+       "e2eStart": 66.295791,
+       "e2eColdPage": 2.190798000000001,
+       "e2ePhases": {
+        "spawnToReadyMs": 64.54539,
+        "registryMs": 15.782032000000001,
+        "openMs": 21.90792499999999,
+        "barrierMs": 0.04443799999999953,
+        "threadOverheadMs": 26.810995000000005
+       },
+       "componentsTotal": 21.74809300000001,
+       "components": {
+        "integrityMs": 15.854004000000003,
+        "foreignKeyMs": 3.7822949999999906,
+        "barrierMs": 0.06600699999999904
+       }
+      },
+      {
+       "round": 12,
+       "order": 74,
+       "a1Total": 22.433977,
+       "a1Open": 21.217749999999995,
+       "a1Barrier": 0.05820800000000759,
+       "a1ColdPage": 1.158018999999996,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2626,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 64.776635,
+       "e2eStart": 62.63375200000001,
+       "e2eColdPage": 2.1428829999999977,
+       "e2ePhases": {
+        "spawnToReadyMs": 60.831762,
+        "registryMs": 14.890300999999994,
+        "openMs": 21.645511,
+        "barrierMs": 0.043414999999995985,
+        "threadOverheadMs": 24.25253500000001
+       },
+       "componentsTotal": 20.30339300000002,
+       "components": {
+        "integrityMs": 14.760877,
+        "foreignKeyMs": 3.8744920000000036,
+        "barrierMs": 0.10057199999999966
+       }
+      },
+      {
+       "round": 13,
+       "order": 82,
+       "a1Total": 23.186307,
+       "a1Open": 21.720332,
+       "a1Barrier": 0.20033700000000465,
+       "a1ColdPage": 1.2656379999999956,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2626,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 63.71402500000001,
+       "e2eStart": 61.53094900000001,
+       "e2eColdPage": 2.183076,
+       "e2ePhases": {
+        "spawnToReadyMs": 59.847210000000004,
+        "registryMs": 14.168475999999998,
+        "openMs": 21.404585999999995,
+        "barrierMs": 0.043525999999999954,
+        "threadOverheadMs": 24.23062200000001
+       },
+       "componentsTotal": 20.633822000000002,
+       "components": {
+        "integrityMs": 15.467940999999996,
+        "foreignKeyMs": 3.3113380000000063,
+        "barrierMs": 0.06499500000001035
+       }
+      },
+      {
+       "round": 14,
+       "order": 88,
+       "a1Total": 22.25763299999999,
+       "a1Open": 21.078273000000003,
+       "a1Barrier": 0.05972500000000025,
+       "a1ColdPage": 1.1196349999999882,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2626,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 67.324496,
+       "e2eStart": 65.12008399999999,
+       "e2eColdPage": 2.204412000000005,
+       "e2ePhases": {
+        "spawnToReadyMs": 63.16801100000001,
+        "registryMs": 16.057991,
+        "openMs": 21.572197000000003,
+        "barrierMs": 0.12371899999999414,
+        "threadOverheadMs": 25.41410400000001
+       },
+       "componentsTotal": 20.22203900000001,
+       "components": {
+        "integrityMs": 15.013142000000002,
+        "foreignKeyMs": 3.3495440000000087,
+        "barrierMs": 0.12925099999999645
+       }
+      }
+     ]
+    },
+    "pendingWal": {
+     "n": 15,
+     "a1OpenBarrierColdPage": {
+      "n": 15,
+      "median": 45.398,
+      "p95": 52.721,
+      "p99": 52.721,
+      "min": 39.629,
+      "max": 52.721,
+      "valid": true
+     },
+     "a1Open": {
+      "n": 15,
+      "median": 23.485,
+      "p95": 25.567,
+      "p99": 25.567,
+      "min": 22.159,
+      "max": 25.567,
+      "valid": true
+     },
+     "a1Barrier": {
+      "n": 15,
+      "median": 20.133,
+      "p95": 28.067,
+      "p99": 28.067,
+      "min": 14.815,
+      "max": 28.067,
+      "valid": true
+     },
+     "a1ColdPage": {
+      "n": 15,
+      "median": 1.259,
+      "p95": 1.853,
+      "p99": 1.853,
+      "min": 1.125,
+      "max": 1.853,
+      "valid": true
+     },
+     "e2eSpawnToReadyPlusColdPage": {
+      "n": 15,
+      "median": 89.434,
+      "p95": 113.579,
+      "p99": 113.579,
+      "min": 84.306,
+      "max": 113.579,
+      "valid": true
+     },
+     "e2eSpawnToReady": {
+      "n": 15,
+      "median": 86.913,
+      "p95": 111.168,
+      "p99": 111.168,
+      "min": 81.537,
+      "max": 111.168,
+      "valid": true
+     },
+     "e2eColdPage": {
+      "n": 15,
+      "median": 2.252,
+      "p95": 2.843,
+      "p99": 2.843,
+      "min": 2.128,
+      "max": 2.843,
+      "valid": true
+     },
+     "e2eWorkerOpen": {
+      "n": 15,
+      "median": 23.394,
+      "p95": 24.414,
+      "p99": 24.414,
+      "min": 22.469,
+      "max": 24.414,
+      "valid": true
+     },
+     "e2eWorkerBarrier": {
+      "n": 15,
+      "median": 20.651,
+      "p95": 29.252,
+      "p99": 29.252,
+      "min": 16.854,
+      "max": 29.252,
+      "valid": true
+     },
+     "components": {
+      "roOpenMs": {
+       "n": 15,
+       "median": 0.169,
+       "p95": 0.186,
+       "p99": 0.186,
+       "min": 0.15,
+       "max": 0.186,
+       "valid": true
+      },
+      "peeksMs": {
+       "n": 15,
+       "median": 0.778,
+       "p95": 0.954,
+       "p99": 0.954,
+       "min": 0.705,
+       "max": 0.954,
+       "valid": true
+      },
+      "integrityMs": {
+       "n": 15,
+       "median": 16.213,
+       "p95": 16.941,
+       "p99": 16.941,
+       "min": 15.481,
+       "max": 16.941,
+       "valid": true
+      },
+      "foreignKeyMs": {
+       "n": 15,
+       "median": 3.979,
+       "p95": 4.707,
+       "p99": 4.707,
+       "min": 3.545,
+       "max": 4.707,
+       "valid": true
+      },
+      "roCloseMs": {
+       "n": 15,
+       "median": 0.664,
+       "p95": 0.801,
+       "p99": 0.801,
+       "min": 0.564,
+       "max": 0.801,
+       "valid": true
+      },
+      "rwOpenMs": {
+       "n": 15,
+       "median": 0.065,
+       "p95": 0.226,
+       "p99": 0.226,
+       "min": 0.056,
+       "max": 0.226,
+       "valid": true
+      },
+      "walPragmaMs": {
+       "n": 15,
+       "median": 0.566,
+       "p95": 0.639,
+       "p99": 0.639,
+       "min": 0.495,
+       "max": 0.639,
+       "valid": true
+      },
+      "migrationsMs": {
+       "n": 15,
+       "median": 0.227,
+       "p95": 0.339,
+       "p99": 0.339,
+       "min": 0.209,
+       "max": 0.339,
+       "valid": true
+      },
+      "barrierMs": {
+       "n": 15,
+       "median": 19.6,
+       "p95": 23.397,
+       "p99": 23.397,
+       "min": 16.07,
+       "max": 23.397,
+       "valid": true
+      },
+      "componentsTotalMs": {
+       "n": 15,
+       "median": 43.206,
+       "p95": 46.105,
+       "p99": 46.105,
+       "min": 37.842,
+       "max": 46.105,
+       "valid": true
+      }
+     },
+     "componentsNote": "components are a separate run on its own copy; medians are never summed to replace the direct totals above",
+     "ratioToJsonColdLoad": {
+      "a1": 4.917461005199307,
+      "e2e": 9.687391681109187
+     },
+     "checks": {
+      "allSamplesCompleted": true,
+      "pageSizeEffective": true,
+      "integrityForeignKeyOk": true,
+      "f29BarrierBusy0AllFramesCheckpointed": true,
+      "walTruncatedAfterBarrier": true,
+      "walFullSynchronous": true,
+      "pendingProven": true
+     },
+     "failures": 0,
+     "rawSamplesMs": [
+      {
+       "round": 0,
+       "order": 6,
+       "a1Total": 45.922551,
+       "a1Open": 23.781925,
+       "a1Barrier": 20.962227999999996,
+       "a1ColdPage": 1.1783980000000014,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 10187872,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2690,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 89.15685199999997,
+       "e2eStart": 86.913463,
+       "e2eColdPage": 2.243388999999979,
+       "e2ePhases": {
+        "spawnToReadyMs": 84.959447,
+        "registryMs": 15.374448000000001,
+        "openMs": 22.659321000000006,
+        "barrierMs": 22.039442000000008,
+        "threadOverheadMs": 24.886235999999982
+       },
+       "componentsTotal": 40.478719,
+       "components": {
+        "integrityMs": 15.481133999999997,
+        "foreignKeyMs": 3.5445759999999993,
+        "barrierMs": 18.963220000000007
+       }
+      },
+      {
+       "round": 1,
+       "order": 12,
+       "a1Total": 47.427606999999995,
+       "a1Open": 23.640265999999997,
+       "a1Barrier": 22.528126,
+       "a1ColdPage": 1.2592149999999975,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 10187872,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2690,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 113.579498,
+       "e2eStart": 111.168396,
+       "e2eColdPage": 2.4111019999999996,
+       "e2ePhases": {
+        "spawnToReadyMs": 109.50678400000001,
+        "registryMs": 22.512906,
+        "openMs": 24.03390999999999,
+        "barrierMs": 21.12938300000002,
+        "threadOverheadMs": 41.830585
+       },
+       "componentsTotal": 43.847559000000004,
+       "components": {
+        "integrityMs": 16.450789999999998,
+        "foreignKeyMs": 4.2101650000000035,
+        "barrierMs": 20.447821000000005
+       }
+      },
+      {
+       "round": 2,
+       "order": 17,
+       "a1Total": 46.880109999999995,
+       "a1Open": 25.567215999999995,
+       "a1Barrier": 19.857642,
+       "a1ColdPage": 1.4552520000000015,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 10187872,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2690,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 89.624464,
+       "e2eStart": 87.327939,
+       "e2eColdPage": 2.2965250000000026,
+       "e2ePhases": {
+        "spawnToReadyMs": 85.61302699999999,
+        "registryMs": 18.191563000000002,
+        "openMs": 23.811791,
+        "barrierMs": 17.25599100000001,
+        "threadOverheadMs": 26.353681999999978
+       },
+       "componentsTotal": 43.469285,
+       "components": {
+        "integrityMs": 16.940887000000004,
+        "foreignKeyMs": 4.389977000000002,
+        "barrierMs": 19.600277000000006
+       }
+      },
+      {
+       "round": 3,
+       "order": 19,
+       "a1Total": 44.553555,
+       "a1Open": 24.274990000000003,
+       "a1Barrier": 18.931537000000006,
+       "a1ColdPage": 1.3470279999999946,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 10187872,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2690,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 84.67974,
+       "e2eStart": 82.55144299999999,
+       "e2eColdPage": 2.1282970000000034,
+       "e2ePhases": {
+        "spawnToReadyMs": 80.75089399999999,
+        "registryMs": 15.815382,
+        "openMs": 22.468536,
+        "barrierMs": 17.284065999999996,
+        "threadOverheadMs": 25.182909999999993
+       },
+       "componentsTotal": 45.731415999999996,
+       "components": {
+        "integrityMs": 16.154397999999993,
+        "foreignKeyMs": 3.693016,
+        "barrierMs": 23.303953000000007
+       }
+      },
+      {
+       "round": 4,
+       "order": 28,
+       "a1Total": 46.367366999999994,
+       "a1Open": 23.278603999999994,
+       "a1Barrier": 21.832701999999998,
+       "a1ColdPage": 1.2560610000000025,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 10187872,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2690,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 88.910642,
+       "e2eStart": 86.691505,
+       "e2eColdPage": 2.2191369999999893,
+       "e2ePhases": {
+        "spawnToReadyMs": 84.86130299999999,
+        "registryMs": 15.132699000000002,
+        "openMs": 22.713044999999994,
+        "barrierMs": 22.03009,
+        "threadOverheadMs": 24.985468999999995
+       },
+       "componentsTotal": 44.35989700000001,
+       "components": {
+        "integrityMs": 15.851271000000004,
+        "foreignKeyMs": 3.629519000000002,
+        "barrierMs": 22.43492400000001
+       }
+      },
+      {
+       "round": 5,
+       "order": 34,
+       "a1Total": 52.720757,
+       "a1Open": 23.445377,
+       "a1Barrier": 28.066564,
+       "a1ColdPage": 1.2088159999999988,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 10187872,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2690,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 89.81090900000001,
+       "e2eStart": 87.61085,
+       "e2eColdPage": 2.20005900000001,
+       "e2ePhases": {
+        "spawnToReadyMs": 85.90784099999999,
+        "registryMs": 16.893704000000014,
+        "openMs": 24.169588999999988,
+        "barrierMs": 18.51139099999999,
+        "threadOverheadMs": 26.333157
+       },
+       "componentsTotal": 40.50706600000001,
+       "components": {
+        "integrityMs": 16.212860000000006,
+        "foreignKeyMs": 3.97861300000001,
+        "barrierMs": 17.792401999999996
+       }
+      },
+      {
+       "round": 6,
+       "order": 40,
+       "a1Total": 47.41093099999999,
+       "a1Open": 24.030067000000003,
+       "a1Barrier": 22.041083,
+       "a1ColdPage": 1.339780999999988,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 10187872,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2690,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 97.37712499999998,
+       "e2eStart": 95.09727099999998,
+       "e2eColdPage": 2.2798540000000003,
+       "e2ePhases": {
+        "spawnToReadyMs": 93.30046100000001,
+        "registryMs": 15.433717999999999,
+        "openMs": 23.480918000000003,
+        "barrierMs": 29.25170100000001,
+        "threadOverheadMs": 25.134124
+       },
+       "componentsTotal": 43.20609899999997,
+       "components": {
+        "integrityMs": 16.836900999999997,
+        "foreignKeyMs": 4.707322999999988,
+        "barrierMs": 18.770584999999997
+       }
+      },
+      {
+       "round": 7,
+       "order": 45,
+       "a1Total": 42.683361999999995,
+       "a1Open": 23.36643,
+       "a1Barrier": 18.027604999999994,
+       "a1ColdPage": 1.2893270000000001,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 10187872,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2690,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 93.400286,
+       "e2eStart": 91.05718099999999,
+       "e2eColdPage": 2.3431050000000084,
+       "e2ePhases": {
+        "spawnToReadyMs": 89.276314,
+        "registryMs": 16.581690999999992,
+        "openMs": 23.375162000000003,
+        "barrierMs": 23.43047999999999,
+        "threadOverheadMs": 25.888981000000015
+       },
+       "componentsTotal": 44.43571499999998,
+       "components": {
+        "integrityMs": 16.541534000000006,
+        "foreignKeyMs": 4.011867999999993,
+        "barrierMs": 21.358334999999997
+       }
+      },
+      {
+       "round": 8,
+       "order": 50,
+       "a1Total": 44.939722999999994,
+       "a1Open": 22.159403000000005,
+       "a1Barrier": 21.654939999999996,
+       "a1ColdPage": 1.1253799999999927,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 10187872,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2690,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 91.85174699999999,
+       "e2eStart": 89.57656799999998,
+       "e2eColdPage": 2.2751790000000085,
+       "e2ePhases": {
+        "spawnToReadyMs": 87.83462600000001,
+        "registryMs": 16.190506,
+        "openMs": 23.393864000000008,
+        "barrierMs": 22.757892,
+        "threadOverheadMs": 25.49236400000001
+       },
+       "componentsTotal": 45.690753000000015,
+       "components": {
+        "integrityMs": 16.723890000000004,
+        "foreignKeyMs": 3.957182000000003,
+        "barrierMs": 22.620693000000003
+       }
+      },
+      {
+       "round": 9,
+       "order": 60,
+       "a1Total": 45.79793299999999,
+       "a1Open": 24.448180999999998,
+       "a1Barrier": 20.132796999999997,
+       "a1ColdPage": 1.2169549999999987,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 10187872,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2690,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 88.55953800000002,
+       "e2eStart": 86.316852,
+       "e2eColdPage": 2.2426860000000204,
+       "e2ePhases": {
+        "spawnToReadyMs": 84.47723400000001,
+        "registryMs": 15.669280999999998,
+        "openMs": 24.414480999999995,
+        "barrierMs": 18.83345299999999,
+        "threadOverheadMs": 25.560019000000025
+       },
+       "componentsTotal": 37.84162199999998,
+       "components": {
+        "integrityMs": 15.763022,
+        "foreignKeyMs": 3.590536,
+        "barrierMs": 16.069846999999996
+       }
+      },
+      {
+       "round": 10,
+       "order": 61,
+       "a1Total": 45.398066,
+       "a1Open": 23.035427999999996,
+       "a1Barrier": 21.182905000000005,
+       "a1ColdPage": 1.1797329999999988,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 10187872,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2690,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 84.30636700000001,
+       "e2eStart": 81.53711600000001,
+       "e2eColdPage": 2.769250999999997,
+       "e2ePhases": {
+        "spawnToReadyMs": 79.84758899999999,
+        "registryMs": 13.859054,
+        "openMs": 22.64296300000001,
+        "barrierMs": 16.853965000000002,
+        "threadOverheadMs": 26.491606999999973
+       },
+       "componentsTotal": 46.10458100000002,
+       "components": {
+        "integrityMs": 16.268282,
+        "foreignKeyMs": 3.963850000000008,
+        "barrierMs": 23.396519999999995
+       }
+      },
+      {
+       "round": 11,
+       "order": 72,
+       "a1Total": 42.84896400000001,
+       "a1Open": 23.538899999999998,
+       "a1Barrier": 18.065754,
+       "a1ColdPage": 1.244310000000013,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 10187872,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2690,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 84.89872499999998,
+       "e2eStart": 82.65181999999999,
+       "e2eColdPage": 2.246904999999998,
+       "e2ePhases": {
+        "spawnToReadyMs": 80.996522,
+        "registryMs": 14.619155000000006,
+        "openMs": 23.297638000000006,
+        "barrierMs": 17.755791999999985,
+        "threadOverheadMs": 25.323937
+       },
+       "componentsTotal": 42.22236400000002,
+       "components": {
+        "integrityMs": 16.557199000000004,
+        "foreignKeyMs": 4.039783,
+        "barrierMs": 18.844969000000006
+       }
+      },
+      {
+       "round": 12,
+       "order": 78,
+       "a1Total": 42.876723000000005,
+       "a1Open": 22.558764000000004,
+       "a1Barrier": 18.465277999999998,
+       "a1ColdPage": 1.852681000000004,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 10187872,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2690,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 90.32769899999997,
+       "e2eStart": 88.10897799999998,
+       "e2eColdPage": 2.218720999999988,
+       "e2ePhases": {
+        "spawnToReadyMs": 86.428474,
+        "registryMs": 15.676811999999998,
+        "openMs": 23.499243000000007,
+        "barrierMs": 22.201364000000012,
+        "threadOverheadMs": 25.051054999999977
+       },
+       "componentsTotal": 39.80421200000001,
+       "components": {
+        "integrityMs": 16.088912999999998,
+        "foreignKeyMs": 4.074561000000003,
+        "barrierMs": 17.240161
+       }
+      },
+      {
+       "round": 13,
+       "order": 80,
+       "a1Total": 39.629380000000005,
+       "a1Open": 23.484590000000004,
+       "a1Barrier": 14.814759999999993,
+       "a1ColdPage": 1.3300300000000078,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 10187872,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2690,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 84.59664799999999,
+       "e2eStart": 82.34436699999998,
+       "e2eColdPage": 2.2522810000000106,
+       "e2ePhases": {
+        "spawnToReadyMs": 80.50747900000002,
+        "registryMs": 14.572210000000013,
+        "openMs": 23.94848800000001,
+        "barrierMs": 17.583573,
+        "threadOverheadMs": 24.403207999999992
+       },
+       "componentsTotal": 41.528230999999984,
+       "components": {
+        "integrityMs": 15.718038000000007,
+        "foreignKeyMs": 3.636555999999999,
+        "barrierMs": 19.96345799999999
+       }
+      },
+      {
+       "round": 14,
+       "order": 87,
+       "a1Total": 43.869048,
+       "a1Open": 22.437447,
+       "a1Barrier": 19.821696000000003,
+       "a1ColdPage": 1.6099049999999977,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 10187872,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 8192,
+        "page_count": 2690,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 89.434256,
+       "e2eStart": 86.59137999999999,
+       "e2eColdPage": 2.842876000000018,
+       "e2ePhases": {
+        "spawnToReadyMs": 84.77781099999999,
+        "registryMs": 16.257186000000004,
+        "openMs": 22.589746000000005,
+        "barrierMs": 20.650968000000006,
+        "threadOverheadMs": 25.27991099999997
+       },
+       "componentsTotal": 41.21440000000001,
+       "components": {
+        "integrityMs": 16.131248000000006,
+        "foreignKeyMs": 4.1281939999999935,
+        "barrierMs": 18.39924900000001
+       }
+      }
+     ]
+    }
+   }
+  },
+  "page16384": {
+   "requestedPageSize": 16384,
+   "effectivePageSize": 16384,
+   "pageCount": 1333,
+   "freelistCount": 0,
+   "bytesByObject": {
+    "chat_history_dedupe": {
+     "bytes": 4374528,
+     "pages": 267
+    },
+    "chat_history_epochs": {
+     "bytes": 16384,
+     "pages": 1
+    },
+    "chat_history_event_extra": {
+     "bytes": 16384,
+     "pages": 1
+    },
+    "chat_history_events": {
+     "bytes": 8159232,
+     "pages": 498
+    },
+    "chat_history_events_chat_seq": {
+     "bytes": 606208,
+     "pages": 37
+    },
+    "chat_history_meta": {
+     "bytes": 16384,
+     "pages": 1
+    },
+    "chat_history_producers": {
+     "bytes": 16384,
+     "pages": 1
+    },
+    "chat_history_stage": {
+     "bytes": 16384,
+     "pages": 1
+    },
+    "chat_history_stage_chat": {
+     "bytes": 16384,
+     "pages": 1
+    },
+    "chat_history_stage_fragment": {
+     "bytes": 16384,
+     "pages": 1
+    },
+    "chat_history_state": {
+     "bytes": 16384,
+     "pages": 1
+    },
+    "command_receipts": {
+     "bytes": 7651328,
+     "pages": 467
+    },
+    "command_receipts_created_at": {
+     "bytes": 851968,
+     "pages": 52
+    },
+    "schema_version": {
+     "bytes": 16384,
+     "pages": 1
+    },
+    "sqlite_schema": {
+     "bytes": 16384,
+     "pages": 1
+    },
+    "storage_dataset_binding": {
+     "bytes": 16384,
+     "pages": 1
+    },
+    "storage_fencing": {
+     "bytes": 16384,
+     "pages": 1
+    }
+   },
+   "identity": {
+    "cleanDiff": [],
+    "pendingDiff": [],
+    "pass": true
+   },
+   "fixture": {
+    "pending": {
+     "method": "copy of db+wal taken while the real host was open and idle after acknowledged appends; no checkpoint ran on the copy; proof = events visible with the WAL minus events in the main file alone (probe copies)",
+     "walFrames": 1126,
+     "walPageSize": 16384,
+     "walBytes": 18475440,
+     "mainOnlyEvents": 20320,
+     "withWalEvents": 20520,
+     "pendingEvents": 200,
+     "tailEventsAppended": 520,
+     "epilogueCommits": 20,
+     "proven": true
+    },
+    "cleanExportSha256": "21842371061a6c959777e171483e7bbfc5bb7c8dd1934b36c0cc8aaa9677d194",
+    "pendingExportSha256": "a0307643c22fb6f52d8974d5a5cead83047d77de8b0ff460e41aebbd20efa6c9",
+    "tables": {
+     "chat_history_dedupe": {
+      "rows": 20000,
+      "sha256": "a5711757c2bff9b19237a65660a400feeeeba705c26ee977a4b123a3b0e01474"
+     },
+     "chat_history_epochs": {
+      "rows": 100,
+      "sha256": "5c60ba91dae8ff14cf8c98cff45d0944d0f9520ec3fd7bfda0d68577706a0e88"
+     },
+     "chat_history_event_extra": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     "chat_history_events": {
+      "rows": 20000,
+      "sha256": "6b3cef5ff0c46f91db5fa1b4dfeb620a2f5c43907be9f71ac9dbffd98a539724"
+     },
+     "chat_history_meta": {
+      "rows": 100,
+      "sha256": "7e39894c6ea65e95c1ed381ef75ab021f8bbfa59a5e529b52750c999d0a81695"
+     },
+     "chat_history_producers": {
+      "rows": 100,
+      "sha256": "5b271e45820e8efa8a3fcff9cd40204ce9395a37ff2b5b167abc6eef70c1bc6a"
+     },
+     "chat_history_stage": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     "chat_history_stage_fragment": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     "chat_history_state": {
+      "rows": 100,
+      "sha256": "13d6a3fde911cdfcde080c50b58d78ecaef120d29a2c8042a0898b04dc370c82"
+     },
+     "command_receipts": {
+      "rows": 20000,
+      "sha256": "a027c38261d4f500a94316e49756b6f9424696f73c813b14245d455c2014f318"
+     },
+     "schema_version": {
+      "rows": 6,
+      "sha256": "e00a1590596df62360d0ec7df38ae20067517a82b7c0c0c933e321755465215b"
+     },
+     "storage_dataset_binding": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     "storage_fencing": {
+      "rows": 1,
+      "sha256": "5b9ef60ef93e56ebd0303a60faaba66ce705663cdf788211c220d6a19996f473"
+     }
+    },
+    "maskedColumns": [
+     "chat_history_dedupe.created_at",
+     "chat_history_epochs.created_at",
+     "chat_history_events.created_at",
+     "chat_history_meta.deleted_at",
+     "chat_history_producers.created_at",
+     "chat_history_producers.retired_at",
+     "chat_history_stage.created_at",
+     "chat_history_state.updated_at",
+     "command_receipts.created_at",
+     "schema_version.applied_at",
+     "storage_dataset_binding.bound_at"
+    ]
+   },
+   "generationScreening": {
+    "events": 20000,
+    "elapsedMs": 18845.754912999997,
+    "appendLatencyMs": {
+     "n": 20000,
+     "median": 57.541,
+     "p95": 76.307,
+     "p99": 83.733,
+     "min": 49.002,
+     "max": 87.956,
+     "valid": true
+    },
+    "queryLatencyMs": {
+     "n": 200,
+     "median": 0.366,
+     "p95": 0.49,
+     "p99": 0.695,
+     "min": 0.253,
+     "max": 1.023,
+     "valid": true
+    },
+    "workerRequestMs": {
+     "n": 313,
+     "p50": 16.819832000001043,
+     "p95": 35.73207299999922,
+     "p99": 42.429385000003094,
+     "max": 47.185040999997,
+     "sum": 5991.584540000033
+    },
+    "workerExecuteMs": {
+     "n": 313,
+     "p50": 16.534069000001182,
+     "p95": 35.23131100000319,
+     "p99": 41.98623000000225,
+     "max": 46.8985079999984,
+     "sum": 5911.032691000037
+    },
+    "queueAgeMs": {
+     "n": 313,
+     "p50": 0.007602000005135778,
+     "p95": 0.017402999998012092,
+     "p99": 0.021220999995421153,
+     "max": 0.057926000001316424
+    },
+    "eventLoopDelayMs": {
+     "n": 17135,
+     "monitorResolutionMs": 1,
+     "p99": 1.723391,
+     "max": 5.173247
+    },
+    "fullCheckpoint": {
+     "ms": 0.17223200000444194,
+     "busy": 0,
+     "n": 1
+    },
+    "bytesWritten": 41168936,
+    "bytesWrittenPer1000Events": 2058446.8
+   },
+   "verdict": {
+    "verdict": "NO-GO",
+    "reasons": [
+     "clean: A1 start median 22.692 ms > 18.464 ms (2x JSON cold load)",
+     "pendingWal: A1 start median 57.346 ms > 18.464 ms (2x JSON cold load)"
+    ],
+    "unverified": [],
+    "outstandingBeforeAnyProductionDecision": [
+     "burst queue-age max (not run)",
+     "FULL checkpoint stall p99 (n=1 < 30)",
+     "small/growing/mixed workloads (not run)"
+    ],
+    "bytesWrittenPercentOfJson": 6.001
+   },
+   "cases": {
+    "clean": {
+     "n": 15,
+     "a1OpenBarrierColdPage": {
+      "n": 15,
+      "median": 22.692,
+      "p95": 24.407,
+      "p99": 24.407,
+      "min": 21.625,
+      "max": 24.407,
+      "valid": true
+     },
+     "a1Open": {
+      "n": 15,
+      "median": 21.576,
+      "p95": 23.055,
+      "p99": 23.055,
+      "min": 20.534,
+      "max": 23.055,
+      "valid": true
+     },
+     "a1Barrier": {
+      "n": 15,
+      "median": 0.064,
+      "p95": 0.151,
+      "p99": 0.151,
+      "min": 0.058,
+      "max": 0.151,
+      "valid": true
+     },
+     "a1ColdPage": {
+      "n": 15,
+      "median": 1.082,
+      "p95": 1.274,
+      "p99": 1.274,
+      "min": 1.033,
+      "max": 1.274,
+      "valid": true
+     },
+     "e2eSpawnToReadyPlusColdPage": {
+      "n": 15,
+      "median": 68.51,
+      "p95": 74.552,
+      "p99": 74.552,
+      "min": 63.847,
+      "max": 74.552,
+      "valid": true
+     },
+     "e2eSpawnToReady": {
+      "n": 15,
+      "median": 66.154,
+      "p95": 72.4,
+      "p99": 72.4,
+      "min": 61.583,
+      "max": 72.4,
+      "valid": true
+     },
+     "e2eColdPage": {
+      "n": 15,
+      "median": 2.222,
+      "p95": 2.512,
+      "p99": 2.512,
+      "min": 2.055,
+      "max": 2.512,
+      "valid": true
+     },
+     "e2eWorkerOpen": {
+      "n": 15,
+      "median": 21.501,
+      "p95": 23.618,
+      "p99": 23.618,
+      "min": 20.436,
+      "max": 23.618,
+      "valid": true
+     },
+     "e2eWorkerBarrier": {
+      "n": 15,
+      "median": 0.045,
+      "p95": 0.049,
+      "p99": 0.049,
+      "min": 0.043,
+      "max": 0.049,
+      "valid": true
+     },
+     "components": {
+      "roOpenMs": {
+       "n": 15,
+       "median": 0.163,
+       "p95": 0.185,
+       "p99": 0.185,
+       "min": 0.155,
+       "max": 0.185,
+       "valid": true
+      },
+      "peeksMs": {
+       "n": 15,
+       "median": 0.394,
+       "p95": 0.414,
+       "p99": 0.414,
+       "min": 0.368,
+       "max": 0.414,
+       "valid": true
+      },
+      "integrityMs": {
+       "n": 15,
+       "median": 15.032,
+       "p95": 15.798,
+       "p99": 15.798,
+       "min": 14.639,
+       "max": 15.798,
+       "valid": true
+      },
+      "foreignKeyMs": {
+       "n": 15,
+       "median": 3.44,
+       "p95": 3.835,
+       "p99": 3.835,
+       "min": 3.162,
+       "max": 3.835,
+       "valid": true
+      },
+      "roCloseMs": {
+       "n": 15,
+       "median": 0.62,
+       "p95": 0.9,
+       "p99": 0.9,
+       "min": 0.518,
+       "max": 0.9,
+       "valid": true
+      },
+      "rwOpenMs": {
+       "n": 15,
+       "median": 0.06,
+       "p95": 0.118,
+       "p99": 0.118,
+       "min": 0.056,
+       "max": 0.118,
+       "valid": true
+      },
+      "walPragmaMs": {
+       "n": 15,
+       "median": 0.183,
+       "p95": 0.254,
+       "p99": 0.254,
+       "min": 0.172,
+       "max": 0.254,
+       "valid": true
+      },
+      "migrationsMs": {
+       "n": 15,
+       "median": 0.23,
+       "p95": 0.288,
+       "p99": 0.288,
+       "min": 0.194,
+       "max": 0.288,
+       "valid": true
+      },
+      "barrierMs": {
+       "n": 15,
+       "median": 0.067,
+       "p95": 0.39,
+       "p99": 0.39,
+       "min": 0.06,
+       "max": 0.39,
+       "valid": true
+      },
+      "componentsTotalMs": {
+       "n": 15,
+       "median": 20.346,
+       "p95": 21.764,
+       "p99": 21.764,
+       "min": 19.597,
+       "max": 21.764,
+       "valid": true
+      }
+     },
+     "componentsNote": "components are a separate run on its own copy; medians are never summed to replace the direct totals above",
+     "ratioToJsonColdLoad": {
+      "a1": 2.4579722703639515,
+      "e2e": 7.420927209705374
+     },
+     "checks": {
+      "allSamplesCompleted": true,
+      "pageSizeEffective": true,
+      "integrityForeignKeyOk": true,
+      "f29BarrierBusy0AllFramesCheckpointed": true,
+      "walTruncatedAfterBarrier": true,
+      "walFullSynchronous": true,
+      "pendingProven": true
+     },
+     "failures": 0,
+     "rawSamplesMs": [
+      {
+       "round": 0,
+       "order": 5,
+       "a1Total": 24.407298000000004,
+       "a1Open": 23.054824000000004,
+       "a1Barrier": 0.07871500000000253,
+       "a1ColdPage": 1.2737589999999983,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1333,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 68.51044599999999,
+       "e2eStart": 66.15427399999999,
+       "e2eColdPage": 2.356172000000001,
+       "e2ePhases": {
+        "spawnToReadyMs": 64.295996,
+        "registryMs": 16.878912999999997,
+        "openMs": 21.50103899999999,
+        "barrierMs": 0.04645999999999617,
+        "threadOverheadMs": 25.869584000000017
+       },
+       "componentsTotal": 20.145537000000004,
+       "components": {
+        "integrityMs": 14.917935,
+        "foreignKeyMs": 3.5181499999999915,
+        "barrierMs": 0.06432100000000673
+       }
+      },
+      {
+       "round": 1,
+       "order": 11,
+       "a1Total": 22.106108999999996,
+       "a1Open": 20.967249000000002,
+       "a1Barrier": 0.06640400000000568,
+       "a1ColdPage": 1.0724559999999883,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1333,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 74.551762,
+       "e2eStart": 72.400077,
+       "e2eColdPage": 2.1516850000000005,
+       "e2ePhases": {
+        "spawnToReadyMs": 70.420694,
+        "registryMs": 23.563063999999997,
+        "openMs": 21.561904999999996,
+        "barrierMs": 0.04568999999999335,
+        "threadOverheadMs": 25.25003500000001
+       },
+       "componentsTotal": 19.597339000000012,
+       "components": {
+        "integrityMs": 14.767654,
+        "foreignKeyMs": 3.1624650000000045,
+        "barrierMs": 0.06702999999998838
+       }
+      },
+      {
+       "round": 2,
+       "order": 15,
+       "a1Total": 23.718377000000004,
+       "a1Open": 22.500186,
+       "a1Barrier": 0.11809900000000084,
+       "a1ColdPage": 1.1000920000000036,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1333,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 72.947227,
+       "e2eStart": 70.43517299999999,
+       "e2eColdPage": 2.5120540000000062,
+       "e2ePhases": {
+        "spawnToReadyMs": 68.363766,
+        "registryMs": 17.927303999999992,
+        "openMs": 22.774102,
+        "barrierMs": 0.04442399999999225,
+        "threadOverheadMs": 27.617936000000014
+       },
+       "componentsTotal": 20.475985,
+       "components": {
+        "integrityMs": 15.032390999999997,
+        "foreignKeyMs": 3.6450420000000037,
+        "barrierMs": 0.07361099999999965
+       }
+      },
+      {
+       "round": 3,
+       "order": 23,
+       "a1Total": 21.624915999999992,
+       "a1Open": 20.533596999999993,
+       "a1Barrier": 0.05824900000000355,
+       "a1ColdPage": 1.033069999999995,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1333,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 65.37448300000001,
+       "e2eStart": 63.01389900000001,
+       "e2eColdPage": 2.360584000000003,
+       "e2ePhases": {
+        "spawnToReadyMs": 61.190621,
+        "registryMs": 15.599419999999995,
+        "openMs": 20.435556000000005,
+        "barrierMs": 0.0438570000000027,
+        "threadOverheadMs": 25.111787999999997
+       },
+       "componentsTotal": 20.346437999999992,
+       "components": {
+        "integrityMs": 15.217157999999998,
+        "foreignKeyMs": 3.303257000000002,
+        "barrierMs": 0.07699199999998996
+       }
+      },
+      {
+       "round": 4,
+       "order": 27,
+       "a1Total": 22.459321000000003,
+       "a1Open": 21.325817,
+       "a1Barrier": 0.06263800000000685,
+       "a1ColdPage": 1.0708659999999952,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1333,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 68.66457999999999,
+       "e2eStart": 66.378862,
+       "e2eColdPage": 2.2857179999999886,
+       "e2ePhases": {
+        "spawnToReadyMs": 64.54614900000001,
+        "registryMs": 16.006495,
+        "openMs": 22.19386399999999,
+        "barrierMs": 0.04851000000000738,
+        "threadOverheadMs": 26.297280000000015
+       },
+       "componentsTotal": 20.24408100000001,
+       "components": {
+        "integrityMs": 15.076836,
+        "foreignKeyMs": 3.3894710000000075,
+        "barrierMs": 0.07609999999999673
+       }
+      },
+      {
+       "round": 5,
+       "order": 33,
+       "a1Total": 22.409033,
+       "a1Open": 21.282135000000004,
+       "a1Barrier": 0.05947899999999606,
+       "a1ColdPage": 1.067419000000001,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1333,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 64.249753,
+       "e2eStart": 62.080253000000006,
+       "e2eColdPage": 2.1694999999999993,
+       "e2ePhases": {
+        "spawnToReadyMs": 60.423249,
+        "registryMs": 15.121070999999986,
+        "openMs": 20.633265999999992,
+        "barrierMs": 0.04406600000000083,
+        "threadOverheadMs": 24.62484600000002
+       },
+       "componentsTotal": 19.769633999999975,
+       "components": {
+        "integrityMs": 14.923975000000006,
+        "foreignKeyMs": 3.1634659999999926,
+        "barrierMs": 0.0634939999999915
+       }
+      },
+      {
+       "round": 6,
+       "order": 39,
+       "a1Total": 22.367717,
+       "a1Open": 21.243425000000002,
+       "a1Barrier": 0.0581979999999902,
+       "a1ColdPage": 1.0660940000000068,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1333,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 69.157328,
+       "e2eStart": 67.00667200000001,
+       "e2eColdPage": 2.150655999999998,
+       "e2ePhases": {
+        "spawnToReadyMs": 65.201699,
+        "registryMs": 16.390626999999995,
+        "openMs": 22.960043999999996,
+        "barrierMs": 0.04505499999999074,
+        "threadOverheadMs": 25.805973000000023
+       },
+       "componentsTotal": 20.38167100000001,
+       "components": {
+        "integrityMs": 14.996201999999997,
+        "foreignKeyMs": 3.6407759999999953,
+        "barrierMs": 0.06310399999999561
+       }
+      },
+      {
+       "round": 7,
+       "order": 43,
+       "a1Total": 22.692456000000007,
+       "a1Open": 21.575766,
+       "a1Barrier": 0.05958800000000508,
+       "a1ColdPage": 1.0571020000000004,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1333,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 68.762052,
+       "e2eStart": 66.49022599999999,
+       "e2eColdPage": 2.2718260000000043,
+       "e2ePhases": {
+        "spawnToReadyMs": 64.74086299999999,
+        "registryMs": 16.671153999999987,
+        "openMs": 21.177941000000004,
+        "barrierMs": 0.0448820000000012,
+        "threadOverheadMs": 26.846885999999998
+       },
+       "componentsTotal": 20.57240799999998,
+       "components": {
+        "integrityMs": 15.357183999999997,
+        "foreignKeyMs": 3.4346419999999966,
+        "barrierMs": 0.0636870000000016
+       }
+      },
+      {
+       "round": 8,
+       "order": 53,
+       "a1Total": 23.330944999999993,
+       "a1Open": 22.166554999999995,
+       "a1Barrier": 0.06161400000000583,
+       "a1ColdPage": 1.1027759999999915,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1333,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 67.96038400000002,
+       "e2eStart": 65.90580700000001,
+       "e2eColdPage": 2.054577000000009,
+       "e2ePhases": {
+        "spawnToReadyMs": 64.276389,
+        "registryMs": 15.65182,
+        "openMs": 23.61844099999999,
+        "barrierMs": 0.04529200000000344,
+        "threadOverheadMs": 24.960836
+       },
+       "componentsTotal": 20.24889500000002,
+       "components": {
+        "integrityMs": 14.788463,
+        "foreignKeyMs": 3.484213000000004,
+        "barrierMs": 0.05951600000000212
+       }
+      },
+      {
+       "round": 9,
+       "order": 55,
+       "a1Total": 23.028560999999996,
+       "a1Open": 21.79907,
+       "a1Barrier": 0.06895699999999749,
+       "a1ColdPage": 1.1605339999999984,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1333,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 68.64147200000001,
+       "e2eStart": 66.453427,
+       "e2eColdPage": 2.1880450000000025,
+       "e2ePhases": {
+        "spawnToReadyMs": 64.71966400000001,
+        "registryMs": 16.698490000000007,
+        "openMs": 21.193769000000003,
+        "barrierMs": 0.043323999999998364,
+        "threadOverheadMs": 26.784081
+       },
+       "componentsTotal": 20.55895000000001,
+       "components": {
+        "integrityMs": 15.341072000000004,
+        "foreignKeyMs": 3.440151,
+        "barrierMs": 0.09020399999999995
+       }
+      },
+      {
+       "round": 10,
+       "order": 66,
+       "a1Total": 22.774722000000004,
+       "a1Open": 21.651020999999993,
+       "a1Barrier": 0.08371700000000715,
+       "a1ColdPage": 1.039984000000004,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1333,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 69.144611,
+       "e2eStart": 66.874107,
+       "e2eColdPage": 2.2705040000000025,
+       "e2ePhases": {
+        "spawnToReadyMs": 65.06512699999999,
+        "registryMs": 16.200750999999997,
+        "openMs": 22.32354699999999,
+        "barrierMs": 0.04305500000000961,
+        "threadOverheadMs": 26.497773999999993
+       },
+       "componentsTotal": 20.65855200000003,
+       "components": {
+        "integrityMs": 15.797701000000004,
+        "foreignKeyMs": 3.2085290000000057,
+        "barrierMs": 0.06101200000000517
+       }
+      },
+      {
+       "round": 11,
+       "order": 67,
+       "a1Total": 22.202602999999996,
+       "a1Open": 21.015658000000002,
+       "a1Barrier": 0.06438699999999642,
+       "a1ColdPage": 1.122557999999998,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1333,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 67.87393,
+       "e2eStart": 65.652021,
+       "e2eColdPage": 2.2219089999999966,
+       "e2ePhases": {
+        "spawnToReadyMs": 63.864324999999994,
+        "registryMs": 16.261527,
+        "openMs": 22.099941,
+        "barrierMs": 0.044959000000005744,
+        "threadOverheadMs": 25.457897999999986
+       },
+       "componentsTotal": 20.705642999999988,
+       "components": {
+        "integrityMs": 15.449149999999996,
+        "foreignKeyMs": 3.5354499999999973,
+        "barrierMs": 0.06329399999999907
+       }
+      },
+      {
+       "round": 12,
+       "order": 73,
+       "a1Total": 23.496097,
+       "a1Open": 22.303793000000006,
+       "a1Barrier": 0.0672129999999953,
+       "a1ColdPage": 1.1250909999999976,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1333,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 65.46003300000001,
+       "e2eStart": 63.267896,
+       "e2eColdPage": 2.1921370000000024,
+       "e2ePhases": {
+        "spawnToReadyMs": 61.463933000000004,
+        "registryMs": 15.244219999999999,
+        "openMs": 20.856544999999997,
+        "barrierMs": 0.044489999999996144,
+        "threadOverheadMs": 25.318678000000013
+       },
+       "componentsTotal": 19.863532,
+       "components": {
+        "integrityMs": 14.638994000000004,
+        "foreignKeyMs": 3.515993999999992,
+        "barrierMs": 0.06938399999999945
+       }
+      },
+      {
+       "round": 13,
+       "order": 84,
+       "a1Total": 23.659452999999992,
+       "a1Open": 22.42655899999999,
+       "a1Barrier": 0.15116700000000094,
+       "a1ColdPage": 1.0817270000000008,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1333,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 63.846927,
+       "e2eStart": 61.583305,
+       "e2eColdPage": 2.263621999999998,
+       "e2ePhases": {
+        "spawnToReadyMs": 59.896412000000005,
+        "registryMs": 14.432298000000003,
+        "openMs": 21.005409,
+        "barrierMs": 0.04274099999999237,
+        "threadOverheadMs": 24.41596400000001
+       },
+       "componentsTotal": 19.655956999999994,
+       "components": {
+        "integrityMs": 14.713123000000003,
+        "foreignKeyMs": 3.2263559999999956,
+        "barrierMs": 0.06738500000000158
+       }
+      },
+      {
+       "round": 14,
+       "order": 89,
+       "a1Total": 22.057760000000002,
+       "a1Open": 20.872867999999997,
+       "a1Barrier": 0.06373700000000326,
+       "a1ColdPage": 1.1211550000000017,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 0,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1333,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 66.482623,
+       "e2eStart": 64.282288,
+       "e2eColdPage": 2.2003350000000097,
+       "e2ePhases": {
+        "spawnToReadyMs": 62.450556999999996,
+        "registryMs": 16.55525800000001,
+        "openMs": 20.957426999999996,
+        "barrierMs": 0.047561999999999216,
+        "threadOverheadMs": 24.890309999999992
+       },
+       "componentsTotal": 21.76374399999999,
+       "components": {
+        "integrityMs": 15.665551999999998,
+        "foreignKeyMs": 3.8346389999999957,
+        "barrierMs": 0.3899100000000004
+       }
+      }
+     ]
+    },
+    "pendingWal": {
+     "n": 15,
+     "a1OpenBarrierColdPage": {
+      "n": 15,
+      "median": 57.346,
+      "p95": 65.614,
+      "p99": 65.614,
+      "min": 54.004,
+      "max": 65.614,
+      "valid": true
+     },
+     "a1Open": {
+      "n": 15,
+      "median": 30.25,
+      "p95": 32.825,
+      "p99": 32.825,
+      "min": 27.183,
+      "max": 32.825,
+      "valid": true
+     },
+     "a1Barrier": {
+      "n": 15,
+      "median": 26.16,
+      "p95": 33.752,
+      "p99": 33.752,
+      "min": 23.388,
+      "max": 33.752,
+      "valid": true
+     },
+     "a1ColdPage": {
+      "n": 15,
+      "median": 1.334,
+      "p95": 1.498,
+      "p99": 1.498,
+      "min": 1.217,
+      "max": 1.498,
+      "valid": true
+     },
+     "e2eSpawnToReadyPlusColdPage": {
+      "n": 15,
+      "median": 102.109,
+      "p95": 110.7,
+      "p99": 110.7,
+      "min": 93.386,
+      "max": 110.7,
+      "valid": true
+     },
+     "e2eSpawnToReady": {
+      "n": 15,
+      "median": 99.81,
+      "p95": 108.392,
+      "p99": 108.392,
+      "min": 91.228,
+      "max": 108.392,
+      "valid": true
+     },
+     "e2eColdPage": {
+      "n": 15,
+      "median": 2.314,
+      "p95": 3.837,
+      "p99": 3.837,
+      "min": 2.158,
+      "max": 3.837,
+      "valid": true
+     },
+     "e2eWorkerOpen": {
+      "n": 15,
+      "median": 29.585,
+      "p95": 31.579,
+      "p99": 31.579,
+      "min": 26.405,
+      "max": 31.579,
+      "valid": true
+     },
+     "e2eWorkerBarrier": {
+      "n": 15,
+      "median": 26.744,
+      "p95": 33.4,
+      "p99": 33.4,
+      "min": 22.996,
+      "max": 33.4,
+      "valid": true
+     },
+     "components": {
+      "roOpenMs": {
+       "n": 15,
+       "median": 0.163,
+       "p95": 0.201,
+       "p99": 0.201,
+       "min": 0.153,
+       "max": 0.201,
+       "valid": true
+      },
+      "peeksMs": {
+       "n": 15,
+       "median": 3.222,
+       "p95": 3.542,
+       "p99": 3.542,
+       "min": 2.443,
+       "max": 3.542,
+       "valid": true
+      },
+      "integrityMs": {
+       "n": 15,
+       "median": 17.653,
+       "p95": 21.641,
+       "p99": 21.641,
+       "min": 16.798,
+       "max": 21.641,
+       "valid": true
+      },
+      "foreignKeyMs": {
+       "n": 15,
+       "median": 4.583,
+       "p95": 5.573,
+       "p99": 5.573,
+       "min": 3.862,
+       "max": 5.573,
+       "valid": true
+      },
+      "roCloseMs": {
+       "n": 15,
+       "median": 0.654,
+       "p95": 0.735,
+       "p99": 0.735,
+       "min": 0.547,
+       "max": 0.735,
+       "valid": true
+      },
+      "rwOpenMs": {
+       "n": 15,
+       "median": 0.065,
+       "p95": 0.129,
+       "p99": 0.129,
+       "min": 0.049,
+       "max": 0.129,
+       "valid": true
+      },
+      "walPragmaMs": {
+       "n": 15,
+       "median": 2.813,
+       "p95": 3.063,
+       "p99": 3.063,
+       "min": 2.091,
+       "max": 3.063,
+       "valid": true
+      },
+      "migrationsMs": {
+       "n": 15,
+       "median": 0.232,
+       "p95": 0.279,
+       "p99": 0.279,
+       "min": 0.195,
+       "max": 0.279,
+       "valid": true
+      },
+      "barrierMs": {
+       "n": 15,
+       "median": 27.542,
+       "p95": 37.681,
+       "p99": 37.681,
+       "min": 19.962,
+       "max": 37.681,
+       "valid": true
+      },
+      "componentsTotalMs": {
+       "n": 15,
+       "median": 57.376,
+       "p95": 66.641,
+       "p99": 66.641,
+       "min": 50.264,
+       "max": 66.641,
+       "valid": true
+      }
+     },
+     "componentsNote": "components are a separate run on its own copy; medians are never summed to replace the direct totals above",
+     "ratioToJsonColdLoad": {
+      "a1": 6.211655112651647,
+      "e2e": 11.060333622183709
+     },
+     "checks": {
+      "allSamplesCompleted": true,
+      "pageSizeEffective": true,
+      "integrityForeignKeyOk": true,
+      "f29BarrierBusy0AllFramesCheckpointed": true,
+      "walTruncatedAfterBarrier": true,
+      "walFullSynchronous": true,
+      "pendingProven": true
+     },
+     "failures": 0,
+     "rawSamplesMs": [
+      {
+       "round": 0,
+       "order": 2,
+       "a1Total": 57.34585,
+       "a1Open": 28.878237999999996,
+       "a1Barrier": 27.171293000000006,
+       "a1ColdPage": 1.296318999999997,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 18475440,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1367,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 102.109326,
+       "e2eStart": 99.810005,
+       "e2eColdPage": 2.299320999999992,
+       "e2ePhases": {
+        "spawnToReadyMs": 98.142101,
+        "registryMs": 15.917494999999988,
+        "openMs": 29.103561,
+        "barrierMs": 28.043620000000004,
+        "threadOverheadMs": 25.077425000000005
+       },
+       "componentsTotal": 54.965364,
+       "components": {
+        "integrityMs": 16.968427,
+        "foreignKeyMs": 4.297145999999998,
+        "barrierMs": 26.355454999999992
+       }
+      },
+      {
+       "round": 1,
+       "order": 7,
+       "a1Total": 56.26896299999999,
+       "a1Open": 28.182831,
+       "a1Barrier": 26.616614,
+       "a1ColdPage": 1.4695179999999937,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 18475440,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1367,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 104.79713700000002,
+       "e2eStart": 102.427592,
+       "e2eColdPage": 2.3695450000000164,
+       "e2ePhases": {
+        "spawnToReadyMs": 100.725777,
+        "registryMs": 16.361878000000004,
+        "openMs": 29.511534999999995,
+        "barrierMs": 29.71783099999999,
+        "threadOverheadMs": 25.134533000000005
+       },
+       "componentsTotal": 54.411491,
+       "components": {
+        "integrityMs": 17.581050999999995,
+        "foreignKeyMs": 4.561661000000001,
+        "barrierMs": 25.237674999999996
+       }
+      },
+      {
+       "round": 2,
+       "order": 13,
+       "a1Total": 62.341268,
+       "a1Open": 32.824681999999996,
+       "a1Barrier": 28.133863000000005,
+       "a1ColdPage": 1.3827229999999986,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 18475440,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1367,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 107.19020000000003,
+       "e2eStart": 104.813263,
+       "e2eColdPage": 2.3769370000000265,
+       "e2ePhases": {
+        "spawnToReadyMs": 103.12692800000002,
+        "registryMs": 19.33417,
+        "openMs": 31.211528,
+        "barrierMs": 27.62848600000001,
+        "threadOverheadMs": 24.95274400000001
+       },
+       "componentsTotal": 55.75069299999999,
+       "components": {
+        "integrityMs": 18.611091999999992,
+        "foreignKeyMs": 4.8737390000000005,
+        "barrierMs": 24.975129999999993
+       }
+      },
+      {
+       "round": 3,
+       "order": 20,
+       "a1Total": 65.614069,
+       "a1Open": 30.558204999999994,
+       "a1Barrier": 33.752346,
+       "a1ColdPage": 1.3035179999999968,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 18475440,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1367,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 98.61856700000001,
+       "e2eStart": 96.26496300000002,
+       "e2eColdPage": 2.35360399999999,
+       "e2ePhases": {
+        "spawnToReadyMs": 94.39100699999999,
+        "registryMs": 16.870702999999992,
+        "openMs": 29.584815000000006,
+        "barrierMs": 23.40496299999998,
+        "threadOverheadMs": 24.53052600000001
+       },
+       "componentsTotal": 57.63614899999998,
+       "components": {
+        "integrityMs": 17.652749999999997,
+        "foreignKeyMs": 4.709055000000006,
+        "barrierMs": 28.32804800000001
+       }
+      },
+      {
+       "round": 4,
+       "order": 30,
+       "a1Total": 54.389005,
+       "a1Open": 29.784127999999995,
+       "a1Barrier": 23.387882000000005,
+       "a1ColdPage": 1.2169949999999972,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 18475440,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1367,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 99.27942100000001,
+       "e2eStart": 96.98470599999999,
+       "e2eColdPage": 2.294715000000025,
+       "e2ePhases": {
+        "spawnToReadyMs": 95.22117500000002,
+        "registryMs": 15.715656999999993,
+        "openMs": 29.482441999999992,
+        "barrierMs": 25.571362000000008,
+        "threadOverheadMs": 24.451714000000024
+       },
+       "componentsTotal": 59.61860500000001,
+       "components": {
+        "integrityMs": 17.84396300000001,
+        "foreignKeyMs": 5.088842999999997,
+        "barrierMs": 29.430798999999993
+       }
+      },
+      {
+       "round": 5,
+       "order": 31,
+       "a1Total": 55.897765,
+       "a1Open": 30.250426999999995,
+       "a1Barrier": 24.359520000000003,
+       "a1ColdPage": 1.2878180000000015,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 18475440,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1367,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 103.60060900000002,
+       "e2eStart": 101.246554,
+       "e2eColdPage": 2.3540550000000167,
+       "e2ePhases": {
+        "spawnToReadyMs": 99.46986999999999,
+        "registryMs": 16.218986,
+        "openMs": 31.482062,
+        "barrierMs": 25.842491999999993,
+        "threadOverheadMs": 25.926329999999993
+       },
+       "componentsTotal": 66.641374,
+       "components": {
+        "integrityMs": 18.349160000000005,
+        "foreignKeyMs": 4.765839,
+        "barrierMs": 35.942314999999994
+       }
+      },
+      {
+       "round": 6,
+       "order": 41,
+       "a1Total": 56.70321499999999,
+       "a1Open": 30.686345999999993,
+       "a1Barrier": 24.740966999999998,
+       "a1ColdPage": 1.275902000000002,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 18475440,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1367,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 110.700295,
+       "e2eStart": 108.39167400000001,
+       "e2eColdPage": 2.308620999999988,
+       "e2ePhases": {
+        "spawnToReadyMs": 106.67744,
+        "registryMs": 15.32614199999999,
+        "openMs": 31.57871800000001,
+        "barrierMs": 33.40002099999998,
+        "threadOverheadMs": 26.372559000000024
+       },
+       "componentsTotal": 60.617197000000026,
+       "components": {
+        "integrityMs": 18.058485000000005,
+        "foreignKeyMs": 4.928826999999998,
+        "barrierMs": 30.25025000000001
+       }
+      },
+      {
+       "round": 7,
+       "order": 47,
+       "a1Total": 59.769132000000006,
+       "a1Open": 30.740615999999996,
+       "a1Barrier": 27.530123000000003,
+       "a1ColdPage": 1.4983930000000072,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 18475440,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1367,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 99.84589899999997,
+       "e2eStart": 97.49593999999999,
+       "e2eColdPage": 2.349958999999984,
+       "e2ePhases": {
+        "spawnToReadyMs": 95.61515200000001,
+        "registryMs": 15.275178000000011,
+        "openMs": 30.465896,
+        "barrierMs": 25.189197000000007,
+        "threadOverheadMs": 24.68488099999999
+       },
+       "componentsTotal": 57.37647599999999,
+       "components": {
+        "integrityMs": 17.89630900000001,
+        "foreignKeyMs": 4.5877359999999925,
+        "barrierMs": 27.737470000000002
+       }
+      },
+      {
+       "round": 8,
+       "order": 54,
+       "a1Total": 55.933018,
+       "a1Open": 29.995072,
+       "a1Barrier": 24.659277000000003,
+       "a1ColdPage": 1.2786689999999936,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 18475440,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1367,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 108.212219,
+       "e2eStart": 104.37560500000001,
+       "e2eColdPage": 3.8366139999999973,
+       "e2ePhases": {
+        "spawnToReadyMs": 102.40859500000002,
+        "registryMs": 18.552772000000004,
+        "openMs": 30.378020000000006,
+        "barrierMs": 28.518807999999993,
+        "threadOverheadMs": 24.958995000000016
+       },
+       "componentsTotal": 65.13036500000001,
+       "components": {
+        "integrityMs": 16.798346000000002,
+        "foreignKeyMs": 4.022972999999993,
+        "barrierMs": 37.681055
+       }
+      },
+      {
+       "round": 9,
+       "order": 56,
+       "a1Total": 60.255678,
+       "a1Open": 30.253806999999995,
+       "a1Barrier": 28.63942200000001,
+       "a1ColdPage": 1.362448999999998,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 18475440,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1367,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 108.30973600000002,
+       "e2eStart": 105.49557100000001,
+       "e2eColdPage": 2.8141650000000027,
+       "e2ePhases": {
+        "spawnToReadyMs": 103.398135,
+        "registryMs": 15.522835999999998,
+        "openMs": 31.033631999999997,
+        "barrierMs": 30.824951000000013,
+        "threadOverheadMs": 26.016715999999988
+       },
+       "componentsTotal": 59.07347300000002,
+       "components": {
+        "integrityMs": 21.640703000000002,
+        "foreignKeyMs": 5.573391999999998,
+        "barrierMs": 24.027720000000002
+       }
+      },
+      {
+       "round": 10,
+       "order": 65,
+       "a1Total": 57.95674400000001,
+       "a1Open": 31.01332,
+       "a1Barrier": 25.611204999999998,
+       "a1ColdPage": 1.3322190000000091,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 18475440,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1367,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 98.502833,
+       "e2eStart": 96.250826,
+       "e2eColdPage": 2.252006999999992,
+       "e2ePhases": {
+        "spawnToReadyMs": 94.534685,
+        "registryMs": 15.035340000000005,
+        "openMs": 28.916145999999998,
+        "barrierMs": 25.720877,
+        "threadOverheadMs": 24.862321999999992
+       },
+       "componentsTotal": 58.454162000000025,
+       "components": {
+        "integrityMs": 17.216889000000002,
+        "foreignKeyMs": 4.165300000000002,
+        "barrierMs": 30.115879000000007
+       }
+      },
+      {
+       "round": 11,
+       "order": 69,
+       "a1Total": 61.587149999999994,
+       "a1Open": 29.971762999999996,
+       "a1Barrier": 30.202319000000003,
+       "a1ColdPage": 1.4130679999999955,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 18475440,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1367,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 97.33353899999999,
+       "e2eStart": 95.01941799999999,
+       "e2eColdPage": 2.314121,
+       "e2ePhases": {
+        "spawnToReadyMs": 93.26616200000001,
+        "registryMs": 15.642422999999994,
+        "openMs": 29.528576,
+        "barrierMs": 22.995804000000007,
+        "threadOverheadMs": 25.099359000000007
+       },
+       "componentsTotal": 50.263979000000035,
+       "components": {
+        "integrityMs": 18.24731,
+        "foreignKeyMs": 4.583453000000006,
+        "barrierMs": 19.962121999999994
+       }
+      },
+      {
+       "round": 12,
+       "order": 77,
+       "a1Total": 54.003855,
+       "a1Open": 28.665301999999997,
+       "a1Barrier": 24.004447,
+       "a1ColdPage": 1.3341060000000056,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 18475440,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1367,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 93.38561299999999,
+       "e2eStart": 91.227572,
+       "e2eColdPage": 2.158040999999997,
+       "e2ePhases": {
+        "spawnToReadyMs": 89.574489,
+        "registryMs": 13.638565999999997,
+        "openMs": 26.405419999999992,
+        "barrierMs": 25.605978000000007,
+        "threadOverheadMs": 23.924525000000003
+       },
+       "componentsTotal": 53.629635999999984,
+       "components": {
+        "integrityMs": 16.814339999999994,
+        "foreignKeyMs": 3.862337999999994,
+        "barrierMs": 27.11072
+       }
+      },
+      {
+       "round": 13,
+       "order": 79,
+       "a1Total": 54.728852999999994,
+       "a1Open": 27.182639,
+       "a1Barrier": 26.160494999999997,
+       "a1ColdPage": 1.3857189999999946,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 18475440,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1367,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 99.50384500000001,
+       "e2eStart": 97.25356200000002,
+       "e2eColdPage": 2.250282999999996,
+       "e2ePhases": {
+        "spawnToReadyMs": 95.593693,
+        "registryMs": 14.915766000000005,
+        "openMs": 28.744048000000006,
+        "barrierMs": 26.744293000000013,
+        "threadOverheadMs": 25.189585999999977
+       },
+       "componentsTotal": 52.28552500000001,
+       "components": {
+        "integrityMs": 17.277733000000005,
+        "foreignKeyMs": 4.302869999999999,
+        "barrierMs": 24.828637999999998
+       }
+      },
+      {
+       "round": 14,
+       "order": 90,
+       "a1Total": 58.722429,
+       "a1Open": 31.360999,
+       "a1Barrier": 25.981616000000002,
+       "a1ColdPage": 1.379813999999996,
+       "a1F29": {
+        "busy": 0,
+        "log": 0,
+        "checkpointed": 0
+       },
+       "walBytesBefore": 18475440,
+       "walBytesAfter": 0,
+       "effective": {
+        "page_size": 16384,
+        "page_count": 1367,
+        "freelist_count": 0,
+        "journal_mode": "wal",
+        "synchronous": 2,
+        "foreign_keys": 1,
+        "mmap_size": 0,
+        "cache_size": -2000,
+        "wal_autocheckpoint": 1000
+       },
+       "verify": {
+        "integrityOk": true,
+        "foreignKeyViolations": 0
+       },
+       "e2eTotal": 107.656619,
+       "e2eStart": 105.36074300000001,
+       "e2eColdPage": 2.2958759999999927,
+       "e2ePhases": {
+        "spawnToReadyMs": 103.75035700000001,
+        "registryMs": 16.146136,
+        "openMs": 30.858351,
+        "barrierMs": 30.602962000000005,
+        "threadOverheadMs": 26.142908000000006
+       },
+       "componentsTotal": 57.02227499999997,
+       "components": {
+        "integrityMs": 17.500679999999996,
+        "foreignKeyMs": 4.561003999999997,
+        "barrierMs": 27.541731999999996
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ "supersededRun1": {
+  "note": "first full run; page8192 pending-WAL fixture was NOT proven (worker auto-checkpoint had backfilled the WAL); fixture fixed with an epilogue of 20 sequential commits and everything re-run",
+  "jsonColdLoadMs": [
+   9.284459000000005,
+   10.191526000000003,
+   9.307046999999997,
+   66.50951599999999,
+   103.84302099999996,
+   9.753647,
+   9.952451999999994,
+   10.275523,
+   8.934062000000004,
+   9.432210000000005,
+   9.193109999999997,
+   9.091166999999999,
+   9.315867999999995,
+   9.301266999999996,
+   8.929124999999999
+  ],
+  "variants": {
+   "baseline": {
+    "pendingProof": {
+     "method": "copy of db+wal taken while the real host was open and idle after acknowledged appends; no checkpoint ran on the copy; proof = events visible with the WAL minus events in the main file alone (probe copies)",
+     "walFrames": 1248,
+     "walPageSize": 4096,
+     "walBytes": 5141792,
+     "mainOnlyEvents": 20384,
+     "withWalEvents": 20500,
+     "pendingEvents": 116,
+     "tailEventsAppended": 500,
+     "proven": true
+    },
+    "verdict": "NO-GO",
+    "clean": {
+     "a1": {
+      "n": 15,
+      "median": 24.104,
+      "p95": 34.127,
+      "p99": 34.127,
+      "min": 22.436,
+      "max": 34.127,
+      "valid": true
+     },
+     "e2e": {
+      "n": 15,
+      "median": 70.767,
+      "p95": 610.683,
+      "p99": 610.683,
+      "min": 65.151,
+      "max": 610.683,
+      "valid": true
+     }
+    },
+    "pendingWal": {
+     "a1": {
+      "n": 15,
+      "median": 48.975,
+      "p95": 56.39,
+      "p99": 56.39,
+      "min": 40.344,
+      "max": 56.39,
+      "valid": true
+     },
+     "e2e": {
+      "n": 15,
+      "median": 100.277,
+      "p95": 288.71,
+      "p99": 288.71,
+      "min": 80.762,
+      "max": 288.71,
+      "valid": true
+     }
+    }
+   },
+   "page8192": {
+    "pendingProof": {
+     "method": "copy of db+wal taken while the real host was open and idle after acknowledged appends; no checkpoint ran on the copy; proof = events visible with the WAL minus events in the main file alone (probe copies)",
+     "walFrames": 1244,
+     "walPageSize": 8192,
+     "walBytes": 10220736,
+     "mainOnlyEvents": 20500,
+     "withWalEvents": 20500,
+     "pendingEvents": 0,
+     "tailEventsAppended": 500,
+     "proven": false
+    },
+    "verdict": "NO-GO",
+    "clean": {
+     "a1": {
+      "n": 15,
+      "median": 22.982,
+      "p95": 26.413,
+      "p99": 26.413,
+      "min": 21.314,
+      "max": 26.413,
+      "valid": true
+     },
+     "e2e": {
+      "n": 15,
+      "median": 66.346,
+      "p95": 92.628,
+      "p99": 92.628,
+      "min": 62.133,
+      "max": 92.628,
+      "valid": true
+     }
+    },
+    "pendingWal": {
+     "a1": {
+      "n": 15,
+      "median": 47.255,
+      "p95": 62.538,
+      "p99": 62.538,
+      "min": 43.36,
+      "max": 62.538,
+      "valid": true
+     },
+     "e2e": {
+      "n": 15,
+      "median": 96.779,
+      "p95": 129.682,
+      "p99": 129.682,
+      "min": 85.969,
+      "max": 129.682,
+      "valid": true
+     }
+    }
+   },
+   "page16384": {
+    "pendingProof": {
+     "method": "copy of db+wal taken while the real host was open and idle after acknowledged appends; no checkpoint ran on the copy; proof = events visible with the WAL minus events in the main file alone (probe copies)",
+     "walFrames": 1128,
+     "walPageSize": 16384,
+     "walBytes": 18508256,
+     "mainOnlyEvents": 20320,
+     "withWalEvents": 20500,
+     "pendingEvents": 180,
+     "tailEventsAppended": 500,
+     "proven": true
+    },
+    "verdict": "NO-GO",
+    "clean": {
+     "a1": {
+      "n": 15,
+      "median": 23.176,
+      "p95": 31.656,
+      "p99": 31.656,
+      "min": 21.481,
+      "max": 31.656,
+      "valid": true
+     },
+     "e2e": {
+      "n": 15,
+      "median": 67.241,
+      "p95": 558.428,
+      "p99": 558.428,
+      "min": 63.251,
+      "max": 558.428,
+      "valid": true
+     }
+    },
+    "pendingWal": {
+     "a1": {
+      "n": 15,
+      "median": 49.757,
+      "p95": 57.509,
+      "p99": 57.509,
+      "min": 39.855,
+      "max": 57.509,
+      "valid": true
+     },
+     "e2e": {
+      "n": 15,
+      "median": 95.485,
+      "p95": 113.11,
+      "p99": 113.11,
+      "min": 87.669,
+      "max": 113.11,
+      "valid": true
+     }
+    }
+   }
+  }
+ }
+}

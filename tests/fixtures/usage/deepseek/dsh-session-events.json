@@ -1,0 +1,14 @@
+{
+  "_note": "Sanitized DSH session.event shapes (assistant/message carries usage; text omitted). Not a live capture.",
+  "rootEvent": {
+    "method": "session.event",
+    "params": {
+      "sessionId": "dsh-fixture-root",
+      "event": {"type": "assistant/message", "data": {"usage": {"inputTokens": 400, "outputTokens": 50, "cacheReadTokens": 600, "reasoningTokens": 10}}}
+    }
+  },
+  "expectedBag": {"textInput":400,"textOutput":50,"audioInput":0,"audioOutput":0,"cachedInput":600,"cacheWrite":0,"reasoning":10},
+  "expectedBuckets": {"inputWithoutCache":400,"cacheRead":600,"cacheWrite":0,"outputWithoutReasoning":40,"reasoning":10},
+  "promptTokensForWindow": 1000,
+  "billedTotalTokens": 1050
+}

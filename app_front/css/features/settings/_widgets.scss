@@ -1,0 +1,131 @@
+/* Settings -> Page widgets tab. Font sizes come from --cr-font-size-*;
+   spacing comes from --cr-space-*. */
+
+.widget-installation-form {
+  display: grid;
+  gap: var(--cr-space-1);
+
+  > label {
+    margin-top: var(--cr-space-2);
+    font-size: var(--cr-font-size-xs);
+    line-height: 1.2;
+    color: var(--cr-text-subtle);
+
+    &:first-child {
+      margin-top: 0;
+    }
+  }
+
+}
+
+.widget-installation-permissions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--cr-space-1);
+  margin: var(--cr-space-2) 0 0;
+  padding: var(--cr-space-2);
+  border: 1px solid var(--cr-border);
+  border-radius: 2px;
+  font-size: var(--cr-font-size-sm);
+}
+
+.widget-installations-list {
+  display: grid;
+  gap: var(--cr-space-3);
+  margin-top: var(--cr-space-2);
+}
+
+.widget-installation-card {
+  padding: var(--cr-space-3);
+  border: 1px solid var(--cr-border);
+  border-radius: 2px;
+  background: var(--cr-surface);
+}
+
+.widget-installation-permissions-summary {
+  margin-top: var(--cr-space-1);
+}
+
+.widget-installation-edit {
+  display: grid;
+  gap: var(--cr-space-1);
+  margin: var(--cr-space-2) 0;
+  padding-top: var(--cr-space-2);
+  border-top: 1px solid var(--cr-border);
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.widget-panel-layout {
+  display: grid;
+  gap: var(--cr-space-3);
+  align-content: start;
+}
+
+.widget-panel-section {
+  padding: var(--cr-space-3);
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+}
+
+.widget-panel-form-section {
+  .widget-panel-subtitle {
+    margin: 0 0 var(--cr-space-1);
+  }
+
+  .settings-hint {
+    margin-bottom: var(--cr-space-2);
+  }
+}
+
+.widget-panel-title {
+  margin: 0 0 var(--cr-space-2);
+  font-size: var(--cr-font-size-xl);
+}
+
+.widget-panel-subtitle {
+  margin: 0 0 var(--cr-space-2);
+  font-size: var(--cr-font-size-lg);
+}
+
+.widget-panel-steps {
+  margin: var(--cr-space-3) 0;
+  padding-left: 1.25rem;
+
+  li {
+    margin: 0.35rem 0;
+  }
+}
+
+.widget-panel-notes {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: var(--cr-space-3);
+}
+
+.widget-panel-installation-group {
+  display: grid;
+  gap: var(--cr-space-3);
+  padding-bottom: var(--cr-space-4);
+  border-bottom: 1px solid var(--cr-border);
+
+  &:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+
+  h4 {
+    margin: 0;
+    font-size: var(--cr-font-size-lg);
+  }
+}
+
+/* Read-only script snippet: `.cr-form textarea` supplies box, border and
+   height; only the monospace face is layered on top (0,2,0 beats 0,1,1). */
+.cr-form .widget-panel-snippet {
+  font-family: var(--cr-font-mono);
+  font-size: var(--cr-font-size-xs);
+}

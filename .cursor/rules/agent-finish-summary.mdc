@@ -1,0 +1,30 @@
+---
+description: Agents from .cursor/agents must end with a one-line JSON title so the UI can update the run name.
+alwaysApply: true
+---
+# Finish summary (Agents panel)
+
+When you **finish work** as an agent launched from the Agents panel
+(`.cursor/agents`), **always print one JSON line with a `title` field** at the
+very end — a short summary of what you did (e.g. “Updated README and rules”,
+“Code review – 3 files”). The Cretli frontend parses this and updates the
+displayed run name.
+
+**Format (one line, at the end of the output):**
+```json
+{"title": "Short summary of what was done (max ~50 characters)"}
+```
+
+**Rules:**
+- Only **one** JSON line, **at the end** of your output (after every other
+  message, before you stop).
+- `title` is a string — a short name/summary (no raw quotes inside, or escape
+  `\"`).
+- No other text on that same line — the frontend looks for exactly this JSON.
+- If you omit it, the run name stays the default (the agent file name).
+
+**Example ending:**
+```
+... (your normal output) ...
+{"title": "Updated documentation in .cursor/rules"}
+```

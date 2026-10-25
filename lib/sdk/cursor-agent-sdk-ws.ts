@@ -1,0 +1,3617 @@
+/**
+ * WebSocket for @cursor/sdk chats — JSON event stream instead of PTY + ANSI parsing.
+ */
+
+import { SDK_START_PROMPT_ARGS } from '../chat-run/start-prompt-args.ts';
+import fs from 'fs';
+import path from 'path';
+import { randomUUID } from 'node:crypto';
+import { rejectArchivedRoomPrompt } from '../chat-message-guard.js';
+import { subscribeChatHistoryUpdates } from './sdk-history-updates.ts';
+import { subscribeChatListUpdates } from '../chat-list-updates.js';
+import { initAgentPresenceBus } from '../agent-presence-bus.js';
+import {
+  getChatByCursorSessionId as getChatByCursorSessionIdRaw,
+  setChatSdkAgentId,
+  updateChat as updateChatRaw,
+} from '../persist/chats-persist.js';
+import {
+  extractPlanTextFromSdkEvent,
+  noteRoomRunAssistantStreamEvent,
+  resetRoomRunAssistantStreamCapture,
+} from './sdk-plan-text.ts';
+import { pickRicherPlanMarkdown } from '../chat-plan-persist.js';
+import {
+  collectDelegationReportsForPrompt,
+  confirmDelegationReportsFromRoom,
+} from '../delegation-report-context.js';
+import { resolveSdkPlanCreateOptions } from '../agent-harness/harness-plan-policy.ts';
+import {
+  getSdkToolCallName,
+  resolvePlanModeSdkEventDecision,
+  resolveReadOnlyGuardUserMessage,
+} from './sdk-plan-guard.ts';
+import { resolvePlanGuardMcpServerIdentity } from '../mcp/mcp-session.js';
+import { CONTEXT_RESTART_REASON, recordContextRestart } from '../usage/context-restarts.ts';
+import { SCOUT_READ_ONLY_MESSAGE, isScoutReadOnlyChatId } from '../workspace-scout-chat.js';
+import {
+  normalizeCatalogModelValue,
+  resolveModelSelection,
+} from '../model-catalog.js';
+import {
+  SDK_INVALID_REGISTRY_MODEL_CODE,
+  SDK_INVALID_REGISTRY_MODEL_REASON,
+  SDK_STRICT_MODEL_UNSUPPORTED_CODE,
+  applySdkRegistryModelFallback,
+  buildSdkRegistryModelRecoveryRetryMessage,
+  buildSdkRegistryModelRejectedMessage,
+  buildStrictRegistryModelRejectedMessage,
+  isInvalidSdkRegistryModelError,
+  isSdkRunRegistryModelRejection,
+  quarantineRejectedSdkFavorite,
+  shouldRetrySdkRegistryModelRecovery,
+} from './sdk-registry-model-recovery.ts';
+import { appendChatHistoryEvents } from '../persist/chat-history-service.js';
+import { createHistoryFlusher } from '../persist/history-room-flusher.js';
+import { buildServerProducerId } from '../persist/history-pending-buffer.js';
+import { noteRoomRunFinishedForAutoTitle } from '../chat-title-dispatcher.js';
+import {
+  readSdkRunStreamStep,
+  resolveConfiguredSdkRunIdleTimeoutMs,
+  resolveSdkRunIdleTimeoutMs,
+  SDK_RUN_SETUP_PROGRESS_INTERVAL_MS,
+  withAbortOnly,
+} from './sdk-run-idle-guard.ts';
+import { hasOpenSdkRunTools } from './sdk-run-tool-activity.ts';
+import { buildSdkPromptMessage } from './sdk-prompt-images.ts';
+import { safeRecordUsage } from '../usage/usage-ledger.ts';
+import {
+  beginHarnessRun,
+  noteHarnessFirstOutput,
+  recordHarnessRunFinished,
+  recordHarnessUsageSnapshot,
+} from '../usage/harness-usage.ts';
+import { beginRunEndSnapshot, captureRunEnd } from '../usage/run-end-snapshot.js';
+import { loadSettings } from '../persist/settings.js';
+import { msg } from '../messages.js';
+import { isUserCancelledSetupMessage } from '../notices.js';
+import { executePageCommandForChat, getPageSessionForChat } from '../page-bridge.js';
+import {
+  BROWSER_AGENT_MUTATION_TOOLS,
+  BROWSER_AGENT_READ_TOOLS,
+  BROWSER_SYSTEM_OWNER_ID,
+  buildBrowserAgentTools,
+  getBrowserAgentRuntime,
+  resolveBrowserChatOwner,
+} from '../browser/agent-tools.js';
+import {
+  browserToolAnnotations,
+  chatHostToolAnnotations,
+  pageToolAnnotations,
+} from './sdk-tool-annotations.ts';
+import { resolveSdkCwdList } from './shared-cursor-context.ts';
+import { resolveInstructionDeliveryForTurn } from '../context/context-settings-runtime.ts';
+import {
+  applySdkHarnessOutboundPrompt,
+  recordOutboundContextManifest,
+  resolvePromptDecorationSessionKey,
+} from './harness-plan-prompt.ts';
+import {
+  applyCursorSdkIsolationConfig,
+  prepareSdkWorkspaceHistoryIsolation,
+  reloadSdkAgentForIgnore,
+} from './sdk-history-isolation.ts';
+import {
+  BACKPRESSURE_DRAIN_MAX_WAIT_MS,
+  BACKPRESSURE_DRAIN_POLL_MS,
+  getMaxClientBufferedAmount,
+  hasRoomBackpressure,
+  resolveBroadcastPriority,
+  shouldSendToClient,
+  WS_BACKPRESSURE_THRESHOLD_BYTES,
+} from './sdk-ws-transport.ts';
+import {
+  buildSdkRoomStatePayload,
+  ROOM_STATE_HEARTBEAT_INTERVAL_MS,
+} from './sdk-room-state.ts';
+import {
+  notifySdkClientsChatGone,
+  sendSdkChatNotFoundAndClose,
+} from './sdk-ws-chat-gone.ts';
+import {
+  extractSdkStreamStatusError,
+  isSdkRunFailureStatus,
+  normalizeSdkRunStatus,
+  persistSdkRunFinishedHistoryStatus,
+  readSdkRoomRunOutcome,
+  trackSdkRoomRunOutcome,
+} from './sdk-run-outcome.ts';
+import {
+  buildSdkAuthRecoveryRetryMessage,
+  buildSdkRateLimitRecoveryRetryMessage,
+  isSdkAuthenticationError,
+  isSdkRateLimitError,
+  shouldRetrySdkAuthRecovery,
+  shouldRetrySdkRateLimitRecovery,
+} from './sdk-auth-recovery.ts';
+import {
+  computeRateLimitRetryDelayMs,
+  computeSetupRetryDelayMs,
+  schedulePendingPromptRun,
+  SDK_AUTH_RECOVERY_RETRY_DELAY_MS,
+} from './sdk-retry-delay.ts';
+import {
+  buildSetupRetryMessage,
+  shouldRetrySetupFailure,
+} from './sdk-setup-retry.ts';
+import {
+  buildStuckRunRecoveryMessage,
+  buildStuckRunRecoveryRetryMessage,
+  resolveSdkRunAutoRecoveryGraceMs,
+  shouldRetryStuckRunRecovery,
+  shouldTriggerStuckRunRecovery,
+} from './sdk-run-auto-recovery.ts';
+import {
+  STEER_ACK_DELIVERED,
+  STEER_ACK_REVERT,
+  buildSdkSteerAckPayload,
+  buildSdkSteerErrorPayload,
+  requestSdkRunSteer,
+} from './sdk-run-steer.ts';
+import {
+  SDK_BACKGROUND_DECISIONS,
+  SDK_BACKGROUND_FOLLOWUP_POLL_INTERVAL_MS,
+  buildSdkBackgroundWorkPayload,
+  canFollowSdkRunToCompletion,
+  createSdkBackgroundWorkState,
+  decideSdkRunStreamEnd,
+  noteSdkBackgroundWorkEvent,
+  noteSdkRunTerminalStatus,
+  outstandingSdkBackgroundWork,
+  resetSdkBackgroundWorkState,
+  resolveRoomBackgroundFollowupBudgetMs,
+  sleepMs,
+} from './sdk-run-background.ts';
+import {
+  SDK_SYSTEM_PROMPT_UNAUTHORIZED_CODE,
+  applySdkSystemPromptOptions,
+  readSdkSystemPromptErrorDetail,
+  resolveSdkSystemPrompt,
+  sdkSystemPromptCacheKey,
+  shouldDropSdkSystemPromptAfterError,
+} from './sdk-system-prompt.ts';
+import { readEnvAlias } from '../env-alias.js';
+import {
+  estimateEffectiveUsageInputTokens,
+  findLastUsageEventPayload,
+  readReportedTokenCount,
+} from './sdk-context-advisory.ts';
+import { getServerInstanceId } from './sdk-instance-id.ts';
+import { resolveExecutionFolderForChat } from '../execution-folder.js';
+import {
+  isQueuedPromptText,
+  readClientDisplayText,
+  resolvePromptUiText,
+  resolveQueuedPromptUiText,
+} from '../prompt-ui-text.js';
+import {
+  normalizeSkillSelection,
+  readClientSkillSelection,
+  selectionRequestsSkill,
+  withSkillSelection,
+} from '../skills/skill-selection.js';
+import { recordSteerManifest } from '../context/context-send-manifest.ts';
+import { initSdkRoomBus, publishSdkRoomEvent } from './sdk-room-bus.ts';
+import {
+  buildSdkRoomOwnerMeta,
+  lookupSdkRoomOwner,
+  refreshSdkRoomOwner,
+  registerSdkRoomOwner,
+  unregisterSdkRoomOwner,
+} from './sdk-room-registry.ts';
+import {
+  applySequencedRemoteRoomEvent,
+  createSdkRemoteRoomStub,
+  isSdkRemoteRoomStub,
+} from './sdk-remote-room-stub.ts';
+import { scheduleSdkWsEventLogReplay } from './sdk-ws-handshake.ts';
+import { loadCursorSdk } from './cursor-sdk.ts';
+import { getEffectiveCursorApiKey } from './cursor-api-key.ts';
+import {
+  beginEnforcedSdkMode,
+  clearEnforcedSdkMode,
+  isReadOnlySdkMode,
+  normalizeSdkMode,
+  parseExplicitSdkMode,
+  toNativeAgentMode,
+} from './sdk-mode.ts';
+import { resolveDataPath } from '../runtime-paths.js';
+import { buildMcpRuntimeContext, markMcpConfigApplied, prepareHarnessMcp } from '../mcp/mcp-session.js';
+import {
+  enforceWatcherOrchestratorMcpGate,
+  isMcpOrchestratorErrorCode,
+  stampWatcherOrchestratorRoom,
+} from '../mcp/watcher-orchestrator-mcp-gate.js';
+import { disposeMcpContext } from '../mcp/mcp-service.js';
+import { toCursorMcpServers } from '../mcp/mcp-vendor-map.js';
+import { bindHarnessPlanSync } from './harness-plan-sync.ts';
+import { bindRoomToDelegation, noteDelegationRoomEvent, syncRoomDelegationAssignment, applyDelegationFinalReportRunFinished, applyDelegationFinalReportSdkEvent } from '../delegation-run-bridge.js';
+import { registerChatRunAdapter } from '../chat-run-service.js';
+import { drainOnePendingPrompt } from '../agent-harness/pending-prompt-drain.ts';
+import { registerMcpOwnerSource } from '../mcp/mcp-owner-registry.js';
+import { registerPendingPromptRoomSource } from '../agent-harness/pending-prompt-resume.ts';
+import { canAcceptNewRun } from '../update-gate.js';
+import { acceptSdkRoomPrompt } from './sdk-prompt-accept.ts';
+import { bindRoomRecoveryLifecycle } from '../chat-run/kernel-adapter.ts';
+import { noteChatRunFinished } from '../chat-run/chat-run-recovery.ts';
+import { syncTodoAfterSdkRunFinished } from '../todo-plan-sync.js';
+
+import type { RawData, WebSocket } from 'ws';
+import type { AgentOptions, Run } from '@cursor/sdk';
+import type { PendingPromptItem } from './sdk-retry-delay.ts';
+import type { SdkConversationMode } from './sdk-mode.ts';
+
+/** Room state is a loose bag shared with the room kernel; fields are added dynamically. */
+type SdkRoom = any;
+/** Chat row as read from persistence, plus the transport fields this module consults. */
+type SdkChatRow = NonNullable<ReturnType<typeof getChatByCursorSessionIdRaw>> & {
+  agentTransport?: string;
+  sdkMode?: string;
+  sdkAgentId?: string;
+  sdkSystemPrompt?: string | null;
+  widgetPinnedUrl?: string;
+  widgetInstallationId?: string;
+};
+/** Chat update patch, including the widget pin field the persistence JSDoc does not list yet. */
+type SdkChatPatch = Parameters<typeof updateChatRaw>[1] & { widgetPinnedUrl?: string };
+const getChatByCursorSessionId: (cursorSessionId: string) => SdkChatRow | null =
+  getChatByCursorSessionIdRaw;
+const updateChat: (id: string, updates: SdkChatPatch) => SdkChatRow | null = updateChatRaw;
+/** Minimal room shape needed to fan a payload out to WebSocket clients. */
+interface ClientRoom {
+  clients: Set<WebSocket>;
+  _backpressureSkipCount?: number;
+}
+/** Payload handed to `onRunFinished` once a run settles. */
+interface SdkRunFinishedInfo {
+  chatId: string;
+  chatTitle?: string;
+  status: string;
+  sdkMode: string;
+  room: SdkRoom;
+  [key: string]: unknown;
+}
+type SdkOnRunFinished = (info: SdkRunFinishedInfo) => unknown;
+/** Server-side hooks passed to `ensureSdkRoom` / the WebSocket handler. */
+interface SdkEnsureDeps {
+  workspaceDirForAgent?: (p: string | null) => string;
+  todoSyncDataDir?: string;
+  onRunFinished?: SdkOnRunFinished;
+  delegationId?: string;
+  attemptId?: string;
+  [key: string]: unknown;
+}
+/** Per-room settings resolved by `ensureSdkRoom`. */
+interface SdkRoomDeps {
+  cwd: string;
+  modelId: string;
+  modelSelection: unknown;
+  apiKey: string;
+  sdkMode: SdkConversationMode;
+  onRunFinished?: SdkOnRunFinished | null;
+  todoSyncDataDir?: string;
+}
+/** Queued prompt waiting for the room to become idle. */
+interface SdkPromptItem {
+  text: string;
+  mode?: string | null;
+  clientSentAt?: number | null;
+  displayText?: string;
+  scheduleAfterMs?: number;
+  [key: string]: unknown;
+}
+/** Input for an automatic retry that re-queues the failed prompt. */
+interface SdkAutoRetryInput {
+  text: string;
+  mode: string;
+  clientSentAt: number | null;
+  scheduleAfterMs?: number;
+  displayText?: string;
+  selection?: unknown;
+}
+/** Run settlement info fed to `buildSdkRunFinishedPayload`. */
+interface SdkRunFinishedInput {
+  runId: string;
+  status: string;
+  result?: unknown;
+  remaining: number;
+}
+/** `sdkRunFinished` WebSocket payload. */
+type SdkRunFinishedPayload = {
+  type: string;
+  runId: string;
+  status: string;
+  result: string;
+  remaining: number;
+  lastErrorCode?: string;
+  lastErrorMessage?: string;
+};
+/** Latency marks (epoch ms) collected while a prompt is sent and streamed. */
+interface SdkRunTimings {
+  clientSentAt: number | null;
+  requestReceivedAt: number;
+  agentReadyAt: number | null;
+  sendResolvedAt: number | null;
+  firstEventAt: number | null;
+  firstAssistantAt: number | null;
+}
+/** Input of the chat-run adapter `start`. */
+interface SdkStartRunInput {
+  chat: { cursorSessionId?: unknown };
+  prompt: string;
+  mode?: string;
+  requestId?: string;
+  displayText?: string;
+  deps?: object;
+}
+/** Settings parameter of `createSdkRemoteRoomStub` (typed narrower than the live room deps). */
+type RemoteStubDeps = Parameters<typeof createSdkRemoteRoomStub>[3];
+/** Input of the chat-run adapter `cancel`. */
+interface SdkCancelRunInput {
+  chat: { cursorSessionId?: unknown };
+  runId?: string;
+}
+/** Cursor agent handle returned by the SDK. */
+interface SdkAgent {
+  agentId?: string;
+  reload?: () => unknown;
+  [key: string]: any;
+}
+/** Tool definition handed to the SDK (`description` + schema + executor, plus extras). */
+type SdkToolDef = { description?: unknown; annotations?: unknown; [key: string]: unknown };
+/** WebSocket decorated with per-connection bookkeeping used by this module. */
+type SdkWs = WebSocket & {
+  _replayBatchTimer?: ReturnType<typeof setTimeout> | null;
+  _chatListScope?: object;
+};
+/** Error carrying a machine-readable code. */
+type CodedError = Error & { code?: string };
+
+const sdkRooms = new Map<string, SdkRoom>();
+registerPendingPromptRoomSource(() => sdkRooms.values());
+registerMcpOwnerSource('sdk', () => sdkRooms.entries());
+const SDK_LOCAL_STORE_ROOT = resolveDataPath('sdk-agent-store');
+
+/** How long an SDK room stays alive with no clients (page refresh / brief disconnect). */
+const ROOM_EMPTY_GRACE_MS = 90000;
+
+const DEFAULT_SDK_MODEL_ID = 'composer-2';
+
+const PAGE_TOOL_DEFINITIONS = Object.freeze({
+  page_get_context: ['getContext', 'context', 'Get the current URL, viewport, and the active/selected page element.'],
+  page_get_dom: ['getDom', 'dom', 'Get a simplified, redacted DOM of the page.'],
+  page_query_elements: ['queryElements', 'dom', 'Find page elements with a CSS selector.'],
+  page_get_computed_styles: ['getComputedStyles', 'dom', 'Get computed styles for the element matching a CSS selector.'],
+  page_get_console: ['getConsole', 'console', 'Get the latest redacted console entries and page errors.'],
+  page_get_network: ['getNetwork', 'network', 'Get the latest redacted fetch/XHR requests and performance entries.'],
+  page_take_screenshot: ['takeScreenshot', 'screenshot', 'Take a screenshot of the page after the browser confirmation.'],
+  page_click: ['click', 'interact', 'Click the element matching a CSS selector.'],
+  page_type: ['type', 'interact', 'Type text into the field matching a CSS selector.'],
+  page_select: ['select', 'interact', 'Choose a value in a select field.'],
+  page_scroll: ['scroll', 'interact', 'Scroll the page or a given element.'],
+  page_focus: ['focus', 'interact', 'Focus the given element.'],
+  page_reload: ['reload', 'navigate', 'Reload the host page.'],
+  page_navigate: ['navigate', 'navigate', 'Navigate within origins allowed by the installation.'],
+  page_wait_for: ['waitFor', 'interact', 'Wait until an element appears or a page condition is met.'],
+  page_pick_element: ['pickElement', 'interact', 'Start interactive element picking on the page.'],
+  page_press_key: ['pressKey', 'interact', 'Send a key (Enter, Tab, Escape, etc.) to an element or the active focus.'],
+  page_copy_text: ['copyText', 'interact', 'Copy text to the browser clipboard on the host page.'],
+  page_highlight: ['highlight', 'interact', 'Temporarily highlight the element matching a CSS selector.'],
+  page_hover: ['hover', 'interact', 'Simulate hovering the mouse over an element (mouseover/mousemove).'],
+  page_fill_form: ['fillForm', 'interact', 'Fill multiple form fields at once (selector + value/text/checked).'],
+  page_read_storage: ['readStorage', 'storage', 'Read localStorage or sessionStorage (read-only; sensitive keys are redacted).'],
+});
+
+export function buildPageCustomTools(sessionKey: string, mode: SdkConversationMode = 'agent') {
+  const session = getPageSessionForChat(sessionKey);
+  if (!session) return {};
+  const permissions = new Set(session.permissions);
+  return Object.fromEntries(
+    Object.entries(PAGE_TOOL_DEFINITIONS)
+      .filter(([, [, permission]]) => permissions.has(permission))
+      .filter(([, [, permission]]) => !isReadOnlySdkMode(mode) || !['interact', 'navigate'].includes(permission))
+      .map(([toolName, [command, permission, description]]) => [
+        toolName,
+        {
+          description,
+          annotations: pageToolAnnotations(toolName, permission, description),
+          inputSchema: {
+            type: 'object',
+            additionalProperties: true,
+          },
+          execute: async (args: Record<string, unknown>) => executePageCommandForChat(sessionKey, command, args || {}),
+        },
+      ]),
+  );
+}
+
+/**
+ * Agent tools for host-page chat binding (independent of page bridge connection).
+ *
+ * @param {string} sessionKey
+ * @param {'plan' | 'agent'} mode
+ * @returns {Record<string, object>}
+ */
+export function buildChatHostCustomTools(sessionKey: string, mode: SdkConversationMode = 'agent') {
+  if (isReadOnlySdkMode(mode)) return {};
+  const pinUrlDescription = 'Pin the current chat to the host page URL (widget embed). Optionally navigate the host to that URL when the page bridge is connected.';
+  return {
+    chat_pin_url: {
+      description: pinUrlDescription,
+      annotations: chatHostToolAnnotations('chat_pin_url', pinUrlDescription),
+      inputSchema: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'Full URL of the host page, e.g. http://192.0.2.10:8080/app/edit/5' },
+          navigate: { type: 'boolean', description: 'Whether to navigate the host page to this URL (default true)' },
+        },
+        required: ['url'],
+        additionalProperties: false,
+      },
+      execute: async (args: { url?: unknown; navigate?: unknown } = {}) => {
+        const url = typeof args.url === 'string' ? args.url.trim() : '';
+        if (!url) throw new Error('url is required');
+        const chat = getChatByCursorSessionId(sessionKey);
+        if (!chat?.id) throw new Error(`Chat not found for session: ${sessionKey}`);
+        const updated = updateChat(chat.id, { widgetPinnedUrl: url });
+        const shouldNavigate = args.navigate !== false;
+        const pageBound = Boolean(getPageSessionForChat(sessionKey));
+        let navigated = false;
+        let navigateError = '';
+        if (shouldNavigate && pageBound) {
+          try {
+            await executePageCommandForChat(sessionKey, 'navigate', { url });
+            navigated = true;
+          } catch (error) {
+            navigateError = error instanceof Error ? error.message : String(error);
+          }
+        }
+        return {
+          ok: true,
+          chatId: chat.id,
+          widgetPinnedUrl: updated?.widgetPinnedUrl || url,
+          pageBound,
+          navigated,
+          navigateError: navigateError || undefined,
+        };
+      },
+    },
+  };
+}
+
+/**
+ * MCP annotations for the built-in Browser tools, derived from the same
+ * read/mutation lists that gate which modes may receive them.
+ *
+ * @param {Record<string, object>} tools
+ * @returns {Record<string, object>}
+ */
+function withBrowserToolAnnotations(tools: Record<string, SdkToolDef>): Record<string, SdkToolDef> {
+  return Object.fromEntries(
+    Object.entries(tools).map(([name, def]) => [
+      name,
+      def && typeof def === 'object' && def.annotations === undefined
+        ? {
+            ...def,
+            annotations: browserToolAnnotations(
+              name,
+              BROWSER_AGENT_READ_TOOLS,
+              BROWSER_AGENT_MUTATION_TOOLS,
+              typeof def.description === 'string' ? def.description : ''
+            ),
+          }
+        : def,
+    ])
+  );
+}
+
+/**
+ * @param {string} sessionKey
+ * @param {'plan' | 'agent'} mode
+ * @returns {Record<string, object>}
+ */
+export function buildSdkCustomTools(sessionKey: string, mode: SdkConversationMode = 'agent') {
+  const room = sdkRooms.get(sessionKey);
+  const chat = getChatByCursorSessionId(sessionKey);
+  const runtime = getBrowserAgentRuntime();
+  const browserChatId = chat?.id || room?.chatId || '';
+  // A room without a live signed-in UI (server-side delegation or watcher run)
+  // acts as the dedicated system owner, never as the last login session that
+  // happened to attach to the chat. A widget-only chat stays fail-closed: the
+  // system owner must not widen an external integration.
+  const browserOwnerSessionId = room?.ownerSessionId
+    || resolveBrowserChatOwner(browserChatId, runtime?.manager)
+    || (chat?.widgetInstallationId ? '' : BROWSER_SYSTEM_OWNER_ID);
+  let browserTools: Record<string, SdkToolDef> = runtime?.manager
+    ? buildBrowserAgentTools({
+        manager: runtime.manager,
+        mode,
+        assignment: room?.delegationAssignment,
+        ownerSessionId: browserOwnerSessionId,
+        chatId: browserChatId,
+        scope: {
+          workspaceFile: chat?.workspaceFile || '',
+          workspaceFolder: chat?.workspaceFolder || '',
+          cwd: room?.cwd || '',
+        },
+      })
+    : {};
+  browserTools = withBrowserToolAnnotations(browserTools);
+  return {
+    ...buildPageCustomTools(sessionKey, mode),
+    ...buildChatHostCustomTools(sessionKey, mode),
+    ...browserTools,
+  };
+}
+
+function buildAutomaticPageContext(sessionKey: string) {
+  const session = getPageSessionForChat(sessionKey);
+  if (!session?.latestState || !session.permissions.includes('context')) return '';
+  const state = session.latestState;
+  const permissions = new Set(session.permissions);
+  const context: Record<string, unknown> = {
+    url: state.url,
+    title: state.title,
+    viewport: state.viewport,
+    activeElement: state.activeElement,
+    selectedElement: state.selectedElement,
+  };
+  if (permissions.has('dom')) context.dom = state.dom;
+  if (permissions.has('console')) context.console = state.console;
+  if (permissions.has('network')) context.network = state.network;
+  const serialized = JSON.stringify(context);
+  const limited = serialized.length > 64_000
+    ? `${serialized.slice(0, 64_000)}…`
+    : serialized;
+  return `[HOST PAGE CONTEXT]\n${limited}\n[/HOST PAGE CONTEXT]`;
+}
+
+async function loadSdkModule() {
+  return loadCursorSdk();
+}
+
+function ensureSessionLocalStore(room: SdkRoom, sessionKey: string, StoreCtor: new (dir: string) => unknown) {
+  if (!room || room.localStore || !StoreCtor || !sessionKey) return;
+  const normalizedSessionKey = String(sessionKey).trim();
+  if (!normalizedSessionKey) return;
+  const safeSessionKey = normalizedSessionKey.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const storeDir = path.join(SDK_LOCAL_STORE_ROOT, safeSessionKey);
+  try {
+    fs.mkdirSync(storeDir, { recursive: true });
+    room.localStore = new StoreCtor(storeDir);
+  } catch {
+    room.localStore = null;
+  }
+}
+
+/**
+ * @param {unknown} value
+ * @returns {unknown}
+ */
+function jsonSafe(value: unknown) {
+  try {
+    return JSON.parse(
+      JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))
+    );
+  } catch {
+    return { _serialization: 'failed', type: typeof value };
+  }
+}
+
+/**
+ * Waits until all connected clients drain their WS send buffers.
+ *
+ * @param {{ clients: Set<import('ws').WebSocket> }} room
+ * @param {number} [maxWaitMs]
+ * @returns {Promise<boolean>}
+ */
+async function waitForRoomBackpressureDrain(room: ClientRoom, maxWaitMs = BACKPRESSURE_DRAIN_MAX_WAIT_MS) {
+  if (!room?.clients?.size) return true;
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < maxWaitMs) {
+    if (!hasRoomBackpressure(room.clients, WS_BACKPRESSURE_THRESHOLD_BYTES)) return true;
+    await new Promise((resolve) => setTimeout(resolve, BACKPRESSURE_DRAIN_POLL_MS));
+  }
+  return !hasRoomBackpressure(room.clients, WS_BACKPRESSURE_THRESHOLD_BYTES);
+}
+
+/**
+ * @param {{ clients: Set<import('ws').WebSocket> }} room
+ * @param {Record<string, unknown>} payload
+ * @param {{ priority?: 'critical' | 'normal' }} [options]
+ * @returns {{ sent: number, skipped: number }}
+ */
+function broadcast(
+  room: ClientRoom,
+  payload: Record<string, unknown>,
+  options: { priority?: 'critical' | 'normal' } = {},
+) {
+  const priority = resolveBroadcastPriority(payload, options.priority);
+  const serialized = JSON.stringify(payload);
+  let sent = 0;
+  let skipped = 0;
+  for (const client of room.clients) {
+    if (!shouldSendToClient(client, priority, WS_BACKPRESSURE_THRESHOLD_BYTES)) {
+      skipped += 1;
+      continue;
+    }
+    try {
+      client.send(serialized);
+      sent += 1;
+    } catch {
+      skipped += 1;
+    }
+  }
+  if (skipped > 0) {
+    room._backpressureSkipCount = Number(room._backpressureSkipCount || 0) + skipped;
+  }
+  return { sent, skipped };
+}
+
+const ROOM_EVENT_LOG_MAX = 1200;
+
+/**
+ * Cursor SDK usage messages are per-turn; only a delta against the last
+ * snapshot within the same run is recorded (`beginHarnessRun` resets the
+ * baseline between runs).
+ *
+ * Late measurement (stage 3, `2d05fded`): the ledger recomputes the delta
+ * against the durable baseline (`baselineKey` + `snapshotTokens`), so a snapshot
+ * that arrives after `sdkRunFinished` (for example on an SDK reconnect) never
+ * double counts and never mints a second run. Inside the 24 h final-usage window
+ * the store also corrects the ended run's coverage without changing the run
+ * count; after the window the event is kept as a `stale` diagnostic instead of
+ * being re-counted.
+ *
+ * @param {any} room
+ * @param {Record<string, unknown>} payload
+ * @param {(partial: object) => unknown} [record]
+ */
+export function rememberRoomUsagePayload(room: SdkRoom, payload: Record<string, unknown>, record = safeRecordUsage) {
+  if (!room || !payload || payload.type !== 'sdkEvent') return;
+  const event = payload.event as Record<string, unknown> | null | undefined;
+  if (!event || typeof event !== 'object' || event.type !== 'usage') return;
+  if (!event.usage || typeof event.usage !== 'object') return;
+  room._lastUsagePayload = event.usage;
+  recordHarnessUsageSnapshot(room, 'sdk', event.usage, record);
+}
+
+/**
+ * One finished Cursor SDK run. Carries outcome/latency only: tokens were
+ * already recorded from usage deltas, so the run event must not add any.
+ *
+ * @param {any} room
+ * @param {Record<string, unknown>} payload
+ * @param {(partial: object) => unknown} [record]
+ * @returns {object|null}
+ */
+export function recordSdkRunTelemetry(room: SdkRoom, payload: Record<string, unknown>, record = safeRecordUsage) {
+  if (!payload || payload.type !== 'sdkRunFinished') return null;
+  return recordHarnessRunFinished(room, 'sdk', payload, record);
+}
+
+/** Cursor adapter for the canonical end hook; exported for focused tests. */
+export function captureCursorSdkRunEnd(room: SdkRoom, payload: Record<string, unknown>) {
+  return captureRunEnd({
+    room,
+    harness: 'sdk',
+    model: room?.modelId || room?.model || '',
+    sessionId: room?.sessionKey || room?.chatId || '',
+    payload,
+    dataDir: room?._todoSyncDataDir || undefined,
+  });
+}
+
+export function captureCursorSdkErrorOnly(room: SdkRoom, code: string, message: string, extra: Record<string, unknown> = {}) {
+  return captureCursorSdkRunEnd(room, {
+    type: 'sdkRunFinished',
+    runId: '',
+    status: code.includes('cancel') ? 'cancelled' : 'error',
+    result: message,
+    lastErrorCode: code,
+    lastErrorMessage: message,
+    ...extra,
+  });
+}
+
+/**
+ * Fallback usage capture for a finished Cursor SDK run. Some runs never emit a
+ * stream `usage` event but expose cumulative `Run.usage`; when the room saw no
+ * measurement, record that snapshot through the normal snapshot path (so the
+ * delta, baseline and delegationId handling are shared) tagged
+ * `usageSource: 'run.usage'`. When the provider reports nothing either, the
+ * absence is marked explicitly on the room instead of being silent.
+ *
+ * @param {any} room
+ * @param {{ usage?: unknown } | null | undefined} run
+ * @param {(partial: object) => unknown} [record]
+ * @returns {'stream'|'fallback'|'none'}
+ */
+export function recordSdkRunUsageFallback(room: SdkRoom, run: { usage?: unknown } | null | undefined, record = safeRecordUsage): 'stream' | 'fallback' | 'none' {
+  if (!room || room._runHadMeasurement === true) return 'stream';
+  let usage: unknown = null;
+  try {
+    usage = run?.usage ?? null;
+  } catch {
+    usage = null;
+  }
+  if (usage && typeof usage === 'object') {
+    const tagged = (partial: object) => record({ ...partial, usageSource: 'run.usage' });
+    if (recordHarnessUsageSnapshot(room, 'sdk', usage, tagged)) {
+      room._lastUsagePayload = usage;
+      room._runUsageFallback = true;
+      return 'fallback';
+    }
+  }
+  room._runUsageMissingReason = 'provider_reported_no_usage';
+  console.debug('[sdk] no usage reported by provider for run', room.delegationId || room.chatId || '');
+  return 'none';
+}
+
+function pushRoomEvent(room: SdkRoom, payload: Record<string, unknown>) {
+  if (!room) return payload;
+  if (!Array.isArray(room.eventLog)) room.eventLog = [];
+  room.eventSeq = Number.isFinite(room.eventSeq) ? room.eventSeq + 1 : 1;
+  room.lastEventAt = Date.now();
+  const sequencedPayload: Record<string, unknown> = { ...payload, roomEventSeq: room.eventSeq };
+  trackSdkRoomRunOutcome(room, sequencedPayload);
+  if (sequencedPayload.type === 'sdkPromptStarted') {
+    // Persist the durable run-start (and mint a runId when the transport has
+    // none) before any measurement of this run can be recorded.
+    beginHarnessRun(room, sequencedPayload, { persistRunStart: true, harness: 'sdk' });
+  }
+  noteHarnessFirstOutput(room, sequencedPayload);
+  rememberRoomUsagePayload(room, sequencedPayload);
+  recordSdkRunTelemetry(room, sequencedPayload);
+  room.eventLog.push({ seq: room.eventSeq, at: room.lastEventAt, payload: sequencedPayload });
+  if (room.eventLog.length > ROOM_EVENT_LOG_MAX) {
+    room.eventLog = room.eventLog.slice(-ROOM_EVENT_LOG_MAX);
+  }
+  persistRoomEventFromPayload(room, sequencedPayload);
+  return sequencedPayload;
+}
+
+const PERSIST_DEBOUNCE_MS = 250;
+const PERSIST_BUSY_INTERVAL_MS = 2000;
+
+/**
+ * Defers disk flush off the SDK stream hot path.
+ *
+ * @param {any} room
+ */
+function queuePersistFlush(room: SdkRoom) {
+  if (!room || room._persistFlushQueued) return;
+  room._persistFlushQueued = true;
+  setImmediate(() => {
+    room._persistFlushQueued = false;
+    void flushPersistBuffer(room);
+    if (room.busy && Array.isArray(room._persistBuf) && room._persistBuf.length > 0) {
+      schedulePersistFlush(room, false);
+    }
+  });
+}
+
+/**
+ * @param {any} room
+ * @param {boolean} [flushNow]
+ */
+function schedulePersistFlush(room: SdkRoom, flushNow = false) {
+  if (!room || !room.chatId || !room.sessionKey) return;
+  if (flushNow) {
+    if (room._persistTimer) {
+      clearTimeout(room._persistTimer);
+      room._persistTimer = null;
+    }
+    queuePersistFlush(room);
+    return;
+  }
+  if (room._persistTimer) return;
+  const delayMs = room.busy ? PERSIST_BUSY_INTERVAL_MS : PERSIST_DEBOUNCE_MS;
+  room._persistTimer = setTimeout(() => {
+    room._persistTimer = null;
+    queuePersistFlush(room);
+  }, delayMs);
+}
+
+/**
+ * Buffers history records for disk write, independent of WS connectivity.
+ * Server is the authoritative SDK history writer — clients only pull.
+ *
+ * @param {any} room
+ * @param {Record<string, unknown>} rec
+ * @param {boolean} [flushNow]
+ */
+function persistRoomEvent(room: SdkRoom, rec: Record<string, unknown>, flushNow = false) {
+  if (!room || !room.chatId || !room.sessionKey) return;
+  if (room._persistDiscarded) return;
+  if (!Array.isArray(room._persistBuf)) room._persistBuf = [];
+  const createdAt =
+    typeof rec?.createdAt === 'string' && rec.createdAt.trim()
+      ? rec.createdAt
+      : new Date().toISOString();
+  room._persistBuf.push({ rec: { ...rec, createdAt } });
+  historyFlusher.enqueue(room);
+  schedulePersistFlush(room, flushNow);
+}
+
+/**
+ * Durable flusher shared by every SDK room: records stay in the room (buffer or in-flight batch with its
+ * `retryToken`) until the history adapter acknowledged them. See persist/history-room-flusher.js.
+ */
+const historyFlusher = createHistoryFlusher({
+  label: 'sdk-ws',
+  append: (room, items, callOptions) => appendChatHistoryEvents(room.chatId, room.sessionKey, items, {
+    // One stable server producer per room, so a retried batch keeps its identity.
+    producerId: (room._historyProducerId ||= buildServerProducerId({ runId: String(room.sessionKey), attemptId: randomUUID() })),
+    ...callOptions,
+  }),
+});
+
+/**
+ * @param {any} room
+ * @returns {Promise<{ ok: boolean, pending: number, deadLettered: number }>} never rejects; await it when a caller
+ *   must not run ahead of the durable commit (stop, final flush, notifications)
+ */
+function flushPersistBuffer(room: SdkRoom) {
+  if (!room || !room.chatId || !room.sessionKey) return Promise.resolve({ ok: true, pending: 0, deadLettered: 0 });
+  room._flushHistory = () => historyFlusher.flush(room);
+  return historyFlusher.flush(room);
+}
+
+/**
+ * Map a WS payload to a history record and call persistRoomEvent.
+ * @param {any} room
+ * @param {Record<string, unknown>} payload
+ */
+function persistRoomEventFromPayload(room: SdkRoom, payload: Record<string, unknown>) {
+  if (!payload || typeof payload !== 'object') return;
+  const t = typeof payload.type === 'string' ? payload.type : '';
+  const roomEventSeq = Number(payload.roomEventSeq);
+  const source =
+    Number.isSafeInteger(roomEventSeq) && roomEventSeq > 0
+      ? { eventStreamId: room.eventStreamId, roomEventSeq }
+      : {};
+  if (t === 'sdkEvent' && payload.event && typeof payload.event === 'object') {
+    persistRoomEvent(room, { kind: 'sdk', event: payload.event, ...source });
+  } else if (t === 'sdkRunFinished') {
+    persistRoomEvent(
+      room,
+      {
+        kind: 'meta',
+        variant: 'runFinished',
+        payload: persistSdkRunFinishedHistoryStatus(payload),
+        ...source,
+      },
+      true
+    );
+  } else if (t === 'sdkQueued') {
+    // The queue is transient — do not persist it (localUser is created on send).
+  } else if (t === 'sdkQueueRemoved') {
+    const text = typeof payload.text === 'string' ? payload.text : '';
+    if (text) {
+      persistRoomEvent(
+        room,
+        { kind: 'meta', variant: 'queueRemoved', payload: text, ...source },
+        true
+      );
+    }
+  } else if (t === 'sdkMode') {
+    const mode = parseExplicitSdkMode(payload.mode);
+    if (mode) {
+      persistRoomEvent(room, { kind: 'meta', variant: 'mode', payload: mode, ...source }, true);
+    }
+  } else if (t === 'sdkError') {
+    const code = typeof payload.code === 'string' ? payload.code.trim() : '';
+    const message = typeof payload.message === 'string' ? payload.message.trim() : '';
+    const detail = message || code;
+    if (detail) {
+      persistRoomEvent(
+        room,
+        { kind: 'meta', variant: 'error', payload: detail, ...source },
+        true
+      );
+    }
+  }
+  // hello / sdkAgent / sdkPromptStarted / sdkBusy are not persisted
+  // (localUser is persisted separately in runPrompt; the rest is transient UI).
+}
+
+/**
+ * @param {any} room
+ * @param {Record<string, unknown>} note
+ * @param {string} runId
+ */
+function maybeBroadcastSdkBackgroundWork(room: SdkRoom, note: Record<string, unknown>, runId: string) {
+  if (!room || !note) return;
+  const openedId = typeof note.opened === 'string' ? note.opened : '';
+  const settledId = typeof note.settledId === 'string' ? note.settledId : '';
+  const cleared = note.cleared === true;
+  if (!openedId && !settledId && !cleared) return;
+  const outstanding = outstandingSdkBackgroundWork(room._sdkBackgroundWork);
+  broadcastRoom(
+    room,
+    buildSdkBackgroundWorkPayload({
+      outstanding,
+      openedId,
+      settledId,
+      phase: outstanding > 0 ? 'running' : 'idle',
+      runId,
+    })
+  );
+}
+
+/**
+ * @param {any} room
+ * @param {object} chat
+ * @returns {ReturnType<typeof resolveSdkSystemPrompt>}
+ */
+function resolveRoomSdkSystemPrompt(room: SdkRoom, chat: SdkChatRow) {
+  if (room?._sdkSystemPromptDropped === true) {
+    return { text: '', source: '', enabled: false, local: true };
+  }
+  return resolveSdkSystemPrompt({ settings: loadSettings(), chat, isLocalAgent: true });
+}
+
+/**
+ * @param {any} room
+ * @param {Record<string, unknown>} payload
+ * @param {{ log?: boolean, priority?: 'critical' | 'normal' }} [options]
+ */
+function broadcastRoom(
+  room: SdkRoom,
+  payload: Record<string, unknown>,
+  options: { log?: boolean; priority?: 'critical' | 'normal' } = {},
+) {
+  if (payload && typeof payload === 'object' && payload.type === 'sdkRunFinished') {
+    applyDelegationFinalReportRunFinished(room, payload);
+    noteChatRunFinished({ chatId: room.chatId, runId: payload.runId as string, status: payload.status as string });
+    // pushRoomEvent records the ledger finish and resets timing; snapshot first.
+    captureCursorSdkRunEnd(room, payload);
+  }
+  if (payload && typeof payload === 'object' && payload.type === 'sdkEvent') {
+    applyDelegationFinalReportSdkEvent(room, payload);
+  }
+  const outgoingPayload = options.log === false ? payload : pushRoomEvent(room, payload);
+  broadcast(room, outgoingPayload, { priority: options.priority });
+  if (room?.sessionKey) {
+    publishSdkRoomEvent(room.sessionKey, outgoingPayload);
+  }
+  noteDelegationRoomEvent(room, outgoingPayload);
+  noteRoomRunFinishedForAutoTitle(room, outgoingPayload);
+}
+
+function refreshSdkRoomOwnerLease(room: SdkRoom) {
+  if (!room?.sessionKey || isSdkRemoteRoomStub(room)) return;
+  void refreshSdkRoomOwner(room.sessionKey, buildSdkRoomOwnerMeta(room));
+}
+
+/**
+ * @param {import('ws').WebSocket} ws
+ * @param {any} room
+ */
+function sendRemoteRoomStubError(ws: WebSocket, room: SdkRoom) {
+  if (!ws || ws.readyState !== 1 || !room) return;
+  ws.send(
+    JSON.stringify({
+      type: 'sdkError',
+      code: 'remote_room_stub',
+      message:
+        'This chat run is owned by another server instance. Use sticky routing or wait for owner failover.',
+      ownerInstanceId: room.ownerInstanceId || null,
+    })
+  );
+}
+
+/**
+ * @param {string} sessionKey
+ * @param {import('../persist/chats-persist.js').ChatEntry} chat
+ * @param {any} stubRoom
+ * @param {{
+ *   cwd: string,
+ *   modelId: string,
+ *   modelSelection: unknown,
+ *   apiKey: string,
+ *   sdkMode: 'plan' | 'agent',
+ *   onRunFinished?: ((...args: unknown[]) => void) | null,
+ * }} deps
+ * @returns {any}
+ */
+function upgradeRemoteStubToLocalRoom(sessionKey: string, chat: SdkChatRow, stubRoom: SdkRoom, deps: SdkRoomDeps) {
+  const room = {
+    clients: stubRoom.clients,
+    agent: null,
+    cwd: deps.cwd,
+    modelId: deps.modelId,
+    modelSelection: deps.modelSelection,
+    apiKey: deps.apiKey,
+    sdkMode: deps.sdkMode,
+    busy: false,
+    currentRun: null,
+    pendingPrompts: Array.isArray(stubRoom.pendingPrompts) ? stubRoom.pendingPrompts : [],
+    eventStreamId: stubRoom.eventStreamId || randomUUID(),
+    eventSeq: Number.isFinite(stubRoom.eventSeq) ? stubRoom.eventSeq : 0,
+    eventLog: Array.isArray(stubRoom.eventLog) ? stubRoom.eventLog : [],
+    sessionKey,
+    chatId: chat.id || stubRoom.chatId || '',
+    chatTitle: chat.title || chat.id || stubRoom.chatTitle || '',
+    ownerSessionId: stubRoom.ownerSessionId || '',
+    onRunFinished: deps.onRunFinished || null,
+    _persistBuf: [],
+    _persistTimer: null,
+    _agentConnectPromise: null,
+    _agentModelId: null,
+    _agentMode: null,
+    lastRunTimings: null,
+    lastEventAt: stubRoom.lastEventAt || null,
+    _lastRequestedModelId:
+      typeof stubRoom._lastRequestedModelId === 'string' ? stubRoom._lastRequestedModelId : null,
+    _lastEffectiveModelId:
+      typeof stubRoom._lastEffectiveModelId === 'string' ? stubRoom._lastEffectiveModelId : null,
+    _strictModelRequested: stubRoom._strictModelRequested === true,
+    _lastModelFallback:
+      stubRoom._lastModelFallback && typeof stubRoom._lastModelFallback === 'object'
+        ? { ...stubRoom._lastModelFallback }
+        : null,
+  };
+  sdkRooms.set(sessionKey, room);
+  void registerSdkRoomOwner(sessionKey, buildSdkRoomOwnerMeta(room));
+  return room;
+}
+
+/**
+ * Resolves the room a mutating message may act on. A remote stub is upgraded to a
+ * local room only when the owner lease is gone. The registry lookup is async, so
+ * `sdkRooms` is re-read after it: a concurrent connection may already have
+ * upgraded the room, and a second upgrade would create a second local room.
+ *
+ * @param {string} sessionKey
+ * @param {any} chat
+ * @param {any} room Room this connection currently holds.
+ * @param {any} deps
+ * @param {() => void} notifyRemoteOwner Called when another live instance owns the room.
+ * @returns {Promise<{ ok: boolean, room: any, previousRoom: any, upgraded: boolean }>}
+ */
+async function resolveMutableSdkRoom(
+  sessionKey: string,
+  chat: SdkChatRow,
+  room: SdkRoom,
+  deps: SdkRoomDeps,
+  notifyRemoteOwner: () => void
+) {
+  const previousRoom = room;
+  if (!isSdkRemoteRoomStub(room)) return { ok: true, room, previousRoom, upgraded: false };
+  const owner = await lookupSdkRoomOwner(sessionKey);
+  // No await below: the check and the upgrade are atomic with respect to other connections.
+  const current = sdkRooms.get(sessionKey);
+  if (current && !isSdkRemoteRoomStub(current)) {
+    return { ok: true, room: current, previousRoom, upgraded: false };
+  }
+  if (owner?.instanceId && owner.instanceId !== getServerInstanceId()) {
+    notifyRemoteOwner();
+    return { ok: false, room, previousRoom, upgraded: false };
+  }
+  const upgradedRoom = upgradeRemoteStubToLocalRoom(sessionKey, chat, current || room, deps);
+  return { ok: true, room: upgradedRoom, previousRoom, upgraded: true };
+}
+
+/**
+ * Applies a sequenced room event received from another Node instance (Redis bus).
+ *
+ * @param {string} sessionKey
+ * @param {Record<string, unknown>} payload
+ */
+function ingestRemoteRoomEvent(sessionKey: string, payload: Record<string, unknown>) {
+  if (!sessionKey || !payload || typeof payload !== 'object') return;
+  let room = sdkRooms.get(sessionKey);
+  if (room && !isSdkRemoteRoomStub(room)) return;
+  if (!room) {
+    const chat = getChatByCursorSessionId(sessionKey);
+    if (!chat || chat.agentTransport !== 'sdk') return;
+    const cwd = resolveExecutionFolderForChat(chat, () => '') || '';
+    room = createSdkRemoteRoomStub(
+      sessionKey,
+      chat,
+      {
+        instanceId: null,
+        eventStreamId:
+          typeof payload.eventStreamId === 'string' ? payload.eventStreamId : null,
+        eventSeq: 0,
+        busy: false,
+      },
+      {
+        cwd,
+        modelId: normalizeCatalogModelValue(chat.model) || 'auto',
+        modelSelection: resolveSdkModelSelection(normalizeCatalogModelValue(chat.model) || 'auto'),
+        apiKey: getEffectiveCursorApiKey() || '',
+        sdkMode: normalizeSdkMode(chat.sdkMode) as RemoteStubDeps['sdkMode'],
+        onRunFinished: null,
+      }
+    );
+    sdkRooms.set(sessionKey, room);
+  }
+  // Only a remote stub reaches this point (a local owner returns above), and a
+  // newly created room is a stub too, so `applySequencedRemoteRoomEvent` can
+  // never take its `!isRemoteStub` branch here. Passing a `persist` handler
+  // would be dead code: the owner persists its own events through
+  // broadcastRoom -> pushRoomEvent -> persistRoomEventFromPayload.
+  applySequencedRemoteRoomEvent(room, payload, {
+    roomEventLogMax: ROOM_EVENT_LOG_MAX,
+    broadcast: (targetRoom, outgoingPayload) =>
+      broadcast(targetRoom, outgoingPayload, {
+        priority: resolveBroadcastPriority(outgoingPayload),
+      }),
+  });
+}
+
+// Test seam: the owner-side history write is the internal broadcastRoom ->
+// pushRoomEvent -> persistRoomEventFromPayload chain, which a unit test cannot
+// reach through the public API without a live Agent. Exporting the two real
+// production functions keeps the test on production code instead of a copy.
+export { broadcastRoom, flushPersistBuffer, resolveMutableSdkRoom, sdkRooms as sdkRoomsForTests };
+
+/**
+ * Initializes optional Redis pub-sub for multi-instance SDK rooms.
+ *
+ * @returns {Promise<{ mode: 'local' | 'redis', error?: string }>}
+ */
+export async function initSdkRoomTransport() {
+  return initSdkRoomBus({ onRemoteEvent: ingestRemoteRoomEvent });
+}
+
+export { getSdkRoomRegistryMode } from './sdk-room-registry.ts';
+
+/**
+ * Sends event-log replay in paced batches to avoid reconnect spikes.
+ *
+ * @param {any} room
+ * @param {import('ws').WebSocket} ws
+ */
+function scheduleEventLogReplay(room: SdkRoom, ws: SdkWs) {
+  if (!room || !ws) return;
+  cancelWsReplayBatch(ws);
+  const entries = Array.isArray(room.eventLog) ? room.eventLog : [];
+  scheduleSdkWsEventLogReplay({
+    entries,
+    send: (payload: Record<string, unknown>) => {
+      if (ws.readyState !== 1) {
+        cancelWsReplayBatch(ws);
+        return;
+      }
+      ws.send(JSON.stringify(payload));
+    },
+    setTimer: (fn: () => void, delayMs: number) => {
+      if (ws.readyState !== 1) {
+        cancelWsReplayBatch(ws);
+        return;
+      }
+      ws._replayBatchTimer = setTimeout(fn, delayMs);
+    },
+  });
+}
+
+/**
+ * @param {import('ws').WebSocket} ws
+ */
+function cancelWsReplayBatch(ws: SdkWs) {
+  if (!ws?._replayBatchTimer) return;
+  clearTimeout(ws._replayBatchTimer);
+  ws._replayBatchTimer = null;
+}
+
+/**
+ * @param {any} room
+ */
+function ensureRoomStateHeartbeat(room: SdkRoom) {
+  if (!room || room._roomStateHeartbeatTimer) return;
+  room._roomStateHeartbeatTimer = setInterval(() => {
+    if (!room.clients?.size) {
+      stopRoomStateHeartbeat(room);
+      return;
+    }
+    broadcastRoom(room, buildSdkRoomStatePayload(room), { log: false, priority: 'normal' });
+    refreshSdkRoomOwnerLease(room);
+  }, ROOM_STATE_HEARTBEAT_INTERVAL_MS);
+}
+
+/**
+ * @param {any} room
+ */
+function stopRoomStateHeartbeat(room: SdkRoom) {
+  if (!room?._roomStateHeartbeatTimer) return;
+  clearInterval(room._roomStateHeartbeatTimer);
+  room._roomStateHeartbeatTimer = null;
+}
+
+/**
+ * @param {any} room
+ */
+function sendSdkRoomState(room: SdkRoom) {
+  if (!room?.clients?.size) return;
+  broadcastRoom(room, buildSdkRoomStatePayload(room), { log: false, priority: 'normal' });
+}
+
+/**
+ * Optional notifier (PWA push) called after an agent run finishes.
+ * No onRunFinished means no-op (guard clause).
+ */
+function notifyRunFinished(room: SdkRoom, runId: string, status: string) {
+  if (!room || typeof room.onRunFinished !== 'function') return;
+  try {
+    room.onRunFinished({
+      chatId: room.chatId || '',
+      chatTitle: room.chatTitle || '',
+      sessionKey: room.sessionKey || '',
+      runId: runId || '',
+      status: String(status || ''),
+      sdkMode: room.sdkMode || '',
+      room,
+    });
+  } catch {
+    // notifier never breaks the run
+  }
+}
+
+const SDK_RUN_PROGRESS_INTERVAL_MS = 15000;
+const SDK_RUN_STREAM_POLL_INTERVAL_MS = 5000;
+
+/**
+ * @returns {number}
+ */
+function resolveRoomSdkRunIdleTimeoutMs() {
+  const configuredIdleTimeoutMs = resolveConfiguredSdkRunIdleTimeoutMs(
+    loadSettings().sdkRunIdleTimeoutSeconds
+  );
+  const envIdleTimeoutMs = readEnvAlias({
+    current: 'CRETLI_SDK_RUN_IDLE_TIMEOUT_MS',
+    legacy: 'CURSOR_REMOTE_SDK_RUN_IDLE_TIMEOUT_MS',
+  });
+  return resolveSdkRunIdleTimeoutMs(
+    envIdleTimeoutMs,
+    configuredIdleTimeoutMs
+  );
+}
+
+/**
+ * @param {any} room
+ */
+function stopSetupProgressReporter(room: SdkRoom) {
+  if (!room?._setupProgressTimer) return;
+  clearInterval(room._setupProgressTimer);
+  room._setupProgressTimer = null;
+}
+
+/**
+ * @param {any} room
+ * @param {(payload: Record<string, unknown>) => void} broadcast
+ * @param {number} setupTimeoutMs
+ */
+function startSetupProgressReporter(room: SdkRoom, broadcast: (payload: Record<string, unknown>) => void, idleBudgetMs: number) {
+  stopSetupProgressReporter(room);
+  const recoveryGraceEnv = readEnvAlias({
+    current: 'CRETLI_SDK_RUN_AUTO_RECOVERY_GRACE_MS',
+    legacy: 'CURSOR_REMOTE_SDK_RUN_AUTO_RECOVERY_GRACE_MS',
+  });
+  const recoveryGraceMs = resolveSdkRunAutoRecoveryGraceMs(
+    recoveryGraceEnv
+  );
+  room._setupProgressTimer = setInterval(() => {
+    if (!room?.busy || room.currentRun) {
+      stopSetupProgressReporter(room);
+      return;
+    }
+    const settings = loadSettings();
+    const startedAt = Number(room._setupStartedAt);
+    const idleForMs = Number.isFinite(startedAt) ? Math.max(0, Date.now() - startedAt) : 0;
+    const overBudget = idleForMs >= idleBudgetMs;
+    broadcast({
+      type: 'sdkRunProgress',
+      phase: overBudget ? 'setup_past_budget' : room._setupPhase || 'setup',
+      idleForMs,
+      remainingMs: overBudget ? 0 : Math.max(0, idleBudgetMs - idleForMs),
+      timeoutMs: idleBudgetMs,
+      overBudget,
+    });
+    if (shouldTriggerStuckRunRecovery(idleForMs, idleBudgetMs, recoveryGraceMs, settings)) {
+      room._stuckRecoveryTriggered = true;
+      if (room._setupAbort && typeof room._setupAbort.abort === 'function') {
+        room._setupAbort.abort();
+      }
+    }
+  }, SDK_RUN_SETUP_PROGRESS_INTERVAL_MS);
+}
+
+/**
+ * @param {any} room
+ */
+function resetAgentAfterSetupFailure(room: SdkRoom) {
+  if (!room?.agent) return;
+  try {
+    room.agent.close();
+  } catch {
+    // Ignore and continue with a fresh agent on retry.
+  }
+  room.agent = null;
+  room._agentModelId = null;
+  room._agentMode = null;
+}
+
+/**
+ * Resume keeps the same Cursor agent id; after a model change that agent may still
+ * have an active run bound to the previous model.
+ *
+ * @param {any} room
+ * @param {string} desiredModelId
+ * @returns {boolean}
+ */
+export function shouldSkipSdkAgentResumeForModelChange(room: SdkRoom, desiredModelId: string) {
+  const previousModelId = room?._agentModelId;
+  if (previousModelId == null || previousModelId === '') return false;
+  return previousModelId !== desiredModelId;
+}
+
+/**
+ * @param {any} room
+ * @param {string} sessionKey
+ */
+function clearSdkAgentBinding(room: SdkRoom, sessionKey: string) {
+  if (room?.agent) {
+    try {
+      room.agent.close();
+    } catch {
+      // Ignore and continue with a fresh agent.
+    }
+    room.agent = null;
+  }
+  room._agentModelId = null;
+  room._agentMode = null;
+  const currentChat = getChatByCursorSessionId(sessionKey);
+  if (currentChat?.id) {
+    setChatSdkAgentId(currentChat.id, null);
+  }
+}
+
+/**
+ * Keeps in-memory SDK room model in sync after PATCH /api/chats/:id.
+ *
+ * @param {string} sessionKey
+ * @param {string | undefined | null} modelValue
+ */
+export function syncSdkRoomModelFromChat(sessionKey: string, modelValue: string | null | undefined) {
+  if (!sessionKey) return;
+  const room = sdkRooms.get(sessionKey);
+  if (!room || isSdkRemoteRoomStub(room)) return;
+  const normalized = normalizeCatalogModelValue(modelValue) || 'auto';
+  const modelChanged = room.modelId !== normalized;
+  room.modelId = normalized;
+  room.modelSelection = resolveSdkModelSelection(normalized);
+  if (!modelChanged || room.busy) return;
+  if (shouldSkipSdkAgentResumeForModelChange(room, normalized) || room.agent) {
+    clearSdkAgentBinding(room, sessionKey);
+  }
+}
+
+/**
+ * @param {any} room
+ * @param {string} sessionKey
+ * @param {string} text
+ * @param {string | undefined | null} modeOverride
+ * @param {number | null} clientSentAt
+ * @param {number} idleForMs
+ * @param {number} budgetMs
+ * @returns {boolean}
+ */
+function tryScheduleStuckRunRecoveryRetry(room: SdkRoom, sessionKey: string, text: string, modeOverride: string | null | undefined, clientSentAt: number | null, idleForMs: number, budgetMs: number) {
+  if (!room?._stuckRecoveryTriggered) return false;
+  room._stuckRecoveryTriggered = false;
+  resetAgentAfterSetupFailure(room);
+  const currentChat = getChatByCursorSessionId(sessionKey);
+  if (currentChat?.id) {
+    setChatSdkAgentId(currentChat.id, null);
+  }
+  const stuckRetryCount = Number(room._stuckRecoveryRetries) || 0;
+  if (shouldRetryStuckRunRecovery(stuckRetryCount)) {
+    room._stuckRecoveryRetries = stuckRetryCount + 1;
+    const freshChat = getChatByCursorSessionId(sessionKey);
+    const retryMode = normalizeSdkMode(modeOverride ?? freshChat?.sdkMode ?? room.sdkMode);
+    const retryText = text.trim();
+    const retryItem: SdkPromptItem = { text: retryText, mode: retryMode, clientSentAt };
+    withSkillSelection(retryItem, room._activeSelection);
+    const retryUiText = resolvePromptUiText(retryText, room._activePromptUiText);
+    if (retryUiText && retryUiText !== retryText) retryItem.displayText = retryUiText;
+    room.pendingPrompts.unshift(retryItem);
+    broadcastRoom(room, {
+      type: 'sdkBusy',
+      message: buildStuckRunRecoveryRetryMessage(room._stuckRecoveryRetries),
+    });
+    return true;
+  }
+  room._stuckRecoveryRetries = 0;
+  captureCursorSdkErrorOnly(
+    room,
+    'run_stuck_auto_recovery',
+    buildStuckRunRecoveryMessage(idleForMs, budgetMs),
+    { runId: typeof room?.currentRun?.id === 'string' ? room.currentRun.id : '' }
+  );
+  broadcastRoom(room, {
+    type: 'sdkError',
+    code: 'run_stuck_auto_recovery',
+    message: buildStuckRunRecoveryMessage(idleForMs, budgetMs),
+  });
+  return true;
+}
+
+/**
+ * @param {any} room
+ */
+function clearCurrentRunDiagnostics(room: SdkRoom) {
+  if (!room) return;
+  room._currentRunStatusError = '';
+  room._currentRunAuthError = false;
+}
+
+/**
+ * @param {any} room
+ */
+function resetSdkAutomaticRetryCounters(room: SdkRoom) {
+  if (!room) return;
+  room._authRecoveryRetries = 0;
+  room._rateLimitRecoveryRetries = 0;
+  room._setupFailureRetries = 0;
+  room._registryModelRecoveryRetries = 0;
+}
+
+/**
+ * @param {any} room
+ * @param {{
+ *   text: string,
+ *   mode: string,
+ *   clientSentAt: number | null,
+ *   scheduleAfterMs?: number,
+ * }} input
+ */
+function unshiftAutomaticPromptRetry(room: SdkRoom, input: SdkAutoRetryInput) {
+  const text = input.text.trim();
+  const uiText = resolvePromptUiText(text, input.displayText || room._activePromptUiText);
+  const item: SdkPromptItem = {
+    text,
+    mode: input.mode,
+    clientSentAt: input.clientSentAt,
+    scheduleAfterMs: Math.max(0, Number(input.scheduleAfterMs) || 0),
+  };
+  if (uiText && uiText !== text) item.displayText = uiText;
+  withSkillSelection(item, input.selection || room._activeSelection);
+  room.pendingPrompts.unshift(item);
+}
+
+/**
+ * @param {string} message
+ * @returns {boolean}
+ */
+function broadcastSdkRateLimitError(room: SdkRoom, message: string) {
+  if (!isSdkRateLimitError(message)) return false;
+  broadcastRoom(room, {
+    type: 'sdkError',
+    code: 'cursor_rate_limit',
+    message: String(message || '').trim() || 'Cursor API rate limit exceeded. Wait a minute and try again.',
+  });
+  return true;
+}
+
+/**
+ * @param {any} room
+ * @param {unknown} event
+ */
+function captureSdkStreamStatusError(room: SdkRoom, event: unknown) {
+  const message = extractSdkStreamStatusError(event);
+  if (!message || !room) return;
+  room._currentRunStatusError = message;
+  if (isSdkAuthenticationError(message)) {
+    room._currentRunAuthError = true;
+  }
+}
+
+/**
+ * @param {any} room
+ * @param {unknown} runResult
+ * @returns {string}
+ */
+function resolveCurrentRunResult(room: SdkRoom, runResult: unknown) {
+  const rawResult = typeof runResult === 'string' ? runResult.trim() : '';
+  if (rawResult) return rawResult;
+  const statusError =
+    typeof room?._currentRunStatusError === 'string' ? room._currentRunStatusError.trim() : '';
+  return statusError;
+}
+
+/**
+ * Model value Cursor was asked for on the last turn. It still names the
+ * rejected variant after the fallback rewrites `_lastRequestedModelId`.
+ *
+ * @param {any} room
+ * @returns {string}
+ */
+function resolveRequestedSdkModelValue(room: SdkRoom) {
+  return normalizeCatalogModelValue(room?._lastRequestedModelId || room?.modelId) || '';
+}
+
+/**
+ * Run/send counterpart of the create/resume registry fallback. Cursor can
+ * reject a variant only after the prompt is sent (or while the run streams), so
+ * the same quarantine + Auto switch must run there too.
+ *
+ * @param {any} room
+ * @param {string} sessionKey
+ * @param {string} [reason]
+ * @returns {ReturnType<typeof applySdkRegistryModelFallback>}
+ */
+function recoverSdkRegistryModelFromRun(room: SdkRoom, sessionKey: string, reason = SDK_INVALID_REGISTRY_MODEL_REASON) {
+  const requestedModelId = resolveRequestedSdkModelValue(room);
+  const strictFast = room?._strictModelRequested === true || isStrictFastSdkModel(requestedModelId);
+  return applySdkRegistryModelFallback({
+    room,
+    requestedModelId,
+    strictFast,
+    reason,
+    updateChatModel: (modelValue) => {
+      const currentChat = getChatByCursorSessionId(sessionKey);
+      if (currentChat?.id) updateChat(currentChat.id, { model: modelValue });
+    },
+  });
+}
+
+/**
+ * @param {any} room
+ * @param {ReturnType<typeof applySdkRegistryModelFallback>} record
+ */
+function broadcastSdkRegistryModelFallback(room: SdkRoom, record: ReturnType<typeof applySdkRegistryModelFallback>) {
+  if (!record?.applied) return;
+  broadcastRoom(room, {
+    type: 'sdkModelFallback',
+    previousModelId: record.attemptedModelId,
+    modelId: record.fallbackModelId,
+  });
+}
+
+/**
+ * Reschedule the current prompt on Auto after a run/send registry rejection.
+ * Returns false when the recovery budget is spent, so the caller can surface
+ * the run error instead of looping on a model that cannot run.
+ *
+ * @param {any} room
+ * @param {string} sessionKey
+ * @param {string} text
+ * @param {string | undefined | null} modeOverride
+ * @param {number | null} clientSentAt
+ * @returns {boolean}
+ */
+function tryScheduleSdkRegistryModelRecoveryRetry(room: SdkRoom, sessionKey: string, text: string, modeOverride: string | null | undefined, clientSentAt: number | null) {
+  const retryCount = Number(room?._registryModelRecoveryRetries) || 0;
+  if (!shouldRetrySdkRegistryModelRecovery(retryCount)) return false;
+  room._registryModelRecoveryRetries = retryCount + 1;
+  resetAgentAfterSetupFailure(room);
+  clearSdkAgentBinding(room, sessionKey);
+  const freshChat = getChatByCursorSessionId(sessionKey);
+  const retryMode = normalizeSdkMode(modeOverride ?? freshChat?.sdkMode ?? room.sdkMode);
+  unshiftAutomaticPromptRetry(room, {
+    text,
+    mode: retryMode,
+    clientSentAt,
+    scheduleAfterMs: 0,
+  });
+  broadcastRoom(room, {
+    type: 'sdkBusy',
+    message: buildSdkRegistryModelRecoveryRetryMessage(room._registryModelRecoveryRetries),
+  });
+  return true;
+}
+
+function buildSdkRunFinishedPayload(room: SdkRoom, input: SdkRunFinishedInput) {
+  const resolvedResult = resolveCurrentRunResult(room, input.result);
+  const isAuthError =
+    room?._currentRunAuthError === true || isSdkAuthenticationError(resolvedResult);
+  const isRateLimitError = isSdkRateLimitError(resolvedResult);
+  // A streamed status error can arrive after assistant text, so check the
+  // captured status message as well as the run result for the registry text.
+  const statusError =
+    typeof room?._currentRunStatusError === 'string' ? room._currentRunStatusError.trim() : '';
+  const registryRejectionText = isInvalidSdkRegistryModelError(resolvedResult)
+    ? resolvedResult
+    : isInvalidSdkRegistryModelError(statusError)
+      ? statusError
+      : '';
+  const isRegistryModelError =
+    isSdkRunFailureStatus(input.status) && Boolean(registryRejectionText);
+  const payload: SdkRunFinishedPayload = {
+    type: 'sdkRunFinished',
+    runId: input.runId,
+    status: input.status,
+    result: resolvedResult,
+    remaining: input.remaining,
+  };
+  applyDelegationFinalReportRunFinished(room, payload);
+  const status = payload.status;
+  if (isAuthError) {
+    payload.lastErrorCode = 'cursor_auth_error';
+    payload.lastErrorMessage =
+      resolvedResult || 'Authentication error. Update the API key in Settings → Cursor API.';
+  } else if (isRateLimitError && isSdkRunFailureStatus(status)) {
+    payload.lastErrorCode = 'cursor_rate_limit';
+    payload.lastErrorMessage =
+      resolvedResult || 'Cursor API usage limit exceeded. Wait a minute and try again.';
+  } else if (isRegistryModelError) {
+    payload.lastErrorCode = SDK_INVALID_REGISTRY_MODEL_CODE;
+    payload.lastErrorMessage =
+      registryRejectionText || 'Cursor rejected the selected model variant. Retry with Auto.';
+  } else if (String(status || '').trim().toLowerCase() === 'cancelled' && !resolvedResult) {
+    payload.lastErrorCode = 'run_cancelled';
+  } else if (resolvedResult && isSdkRunFailureStatus(status)) {
+    payload.lastErrorMessage = resolvedResult;
+  }
+  return { payload, isAuthError, isRateLimitError, isRegistryModelError };
+}
+
+/**
+ * @param {any} room
+ * @param {string} sessionKey
+ * @param {string} text
+ * @param {string | undefined | null} modeOverride
+ * @param {number | null} clientSentAt
+ * @returns {boolean}
+ */
+function tryScheduleAuthRecoveryRetry(room: SdkRoom, sessionKey: string, text: string, modeOverride: string | null | undefined, clientSentAt: number | null) {
+  const retryCount = Number(room?._authRecoveryRetries) || 0;
+  if (!shouldRetrySdkAuthRecovery(retryCount)) {
+    return false;
+  }
+  room._authRecoveryRetries = retryCount + 1;
+  room.apiKey = getEffectiveCursorApiKey() || room.apiKey;
+  clearSdkAgentBinding(room, sessionKey);
+  resetAgentAfterSetupFailure(room);
+  const freshChat = getChatByCursorSessionId(sessionKey);
+  const retryMode = normalizeSdkMode(modeOverride ?? freshChat?.sdkMode ?? room.sdkMode);
+  unshiftAutomaticPromptRetry(room, {
+    text,
+    mode: retryMode,
+    clientSentAt,
+    scheduleAfterMs: SDK_AUTH_RECOVERY_RETRY_DELAY_MS,
+  });
+  broadcastRoom(room, {
+    type: 'sdkBusy',
+    message: buildSdkAuthRecoveryRetryMessage(room._authRecoveryRetries),
+  });
+  return true;
+}
+
+/**
+ * @param {any} room
+ * @param {string} sessionKey
+ * @param {string} text
+ * @param {string | undefined | null} modeOverride
+ * @param {number | null} clientSentAt
+ * @returns {boolean}
+ */
+function tryScheduleRateLimitRecoveryRetry(room: SdkRoom, sessionKey: string, text: string, modeOverride: string | null | undefined, clientSentAt: number | null) {
+  const retryCount = Number(room?._rateLimitRecoveryRetries) || 0;
+  if (!shouldRetrySdkRateLimitRecovery(retryCount)) {
+    return false;
+  }
+  room._rateLimitRecoveryRetries = retryCount + 1;
+  const freshChat = getChatByCursorSessionId(sessionKey);
+  const retryMode = normalizeSdkMode(modeOverride ?? freshChat?.sdkMode ?? room.sdkMode);
+  unshiftAutomaticPromptRetry(room, {
+    text,
+    mode: retryMode,
+    clientSentAt,
+    scheduleAfterMs: computeRateLimitRetryDelayMs(room._rateLimitRecoveryRetries),
+  });
+  broadcastRoom(room, {
+    type: 'sdkBusy',
+    message: buildSdkRateLimitRecoveryRetryMessage(room._rateLimitRecoveryRetries),
+  });
+  return true;
+}
+
+/**
+ * @param {any} room
+ * @param {string} sessionKey
+ * @param {string} text
+ * @param {string | undefined | null} modeOverride
+ * @param {number | null} clientSentAt
+ * @param {{
+ *   runId: string,
+ *   status: string,
+ *   result?: unknown,
+ *   remaining: number,
+ * }} input
+ * @returns {boolean} true when auth retry was scheduled and run-finished should be skipped
+ */
+function finishSdkRun(room: SdkRoom, sessionKey: string, text: string, modeOverride: string | null | undefined, clientSentAt: number | null, input: SdkRunFinishedInput) {
+  const { payload, isAuthError, isRateLimitError, isRegistryModelError } =
+    buildSdkRunFinishedPayload(room, input);
+  if (
+    isAuthError &&
+    isSdkRunFailureStatus(input.status) &&
+    tryScheduleAuthRecoveryRetry(room, sessionKey, text, modeOverride, clientSentAt)
+  ) {
+    clearCurrentRunDiagnostics(room);
+    return true;
+  }
+  if (
+    isRateLimitError &&
+    isSdkRunFailureStatus(input.status) &&
+    tryScheduleRateLimitRecoveryRetry(room, sessionKey, text, modeOverride, clientSentAt)
+  ) {
+    clearCurrentRunDiagnostics(room);
+    return true;
+  }
+  if (isRegistryModelError && isSdkRunFailureStatus(input.status)) {
+    const fallback = recoverSdkRegistryModelFromRun(room, sessionKey);
+    broadcastSdkRegistryModelFallback(room, fallback);
+    if (
+      fallback &&
+      !fallback.blockedByStrict &&
+      tryScheduleSdkRegistryModelRecoveryRetry(room, sessionKey, text, modeOverride, clientSentAt)
+    ) {
+      clearCurrentRunDiagnostics(room);
+      return true;
+    }
+    if (fallback?.blockedByStrict) {
+      payload.lastErrorCode = SDK_STRICT_MODEL_UNSUPPORTED_CODE;
+      payload.lastErrorMessage = buildStrictRegistryModelRejectedMessage(fallback.attemptedModelId);
+    }
+  }
+  if (!isAuthError && !isRateLimitError && !isSdkRunFailureStatus(payload.status)) {
+    resetSdkAutomaticRetryCounters(room);
+  }
+  broadcastRoom(room, payload);
+  notifyRunFinished(room, payload.runId, payload.status);
+  if (isAuthError && isSdkRunFailureStatus(input.status)) {
+    broadcastRoom(room, {
+      type: 'sdkError',
+      code: 'cursor_auth_error',
+      message:
+        payload.lastErrorMessage ||
+        'Authentication error. Update the API key in Settings → Cursor API.',
+    });
+  } else if (isRateLimitError && isSdkRunFailureStatus(input.status)) {
+    broadcastSdkRateLimitError(room, payload.lastErrorMessage || payload.result);
+  } else if (isRegistryModelError && isSdkRunFailureStatus(input.status)) {
+    broadcastRoom(room, {
+      type: 'sdkError',
+      code: payload.lastErrorCode || SDK_INVALID_REGISTRY_MODEL_CODE,
+      message: payload.lastErrorMessage || buildSdkRegistryModelRejectedMessage(''),
+    });
+  }
+  clearCurrentRunDiagnostics(room);
+  return false;
+}
+
+/**
+ * @param {string | undefined | null} model
+ * @returns {string}
+ */
+export function resolveSdkModelId(model: string | null | undefined) {
+  return resolveModelSelection(model, DEFAULT_SDK_MODEL_ID).id;
+}
+
+/**
+ * @param {string | undefined | null} model
+ * @returns {{ id: string, params?: Array<{ id: string, value: string }> }}
+ */
+export function resolveSdkModelSelection(model: string | null | undefined) {
+  return resolveModelSelection(model, DEFAULT_SDK_MODEL_ID);
+}
+
+/**
+ * Strict fast scenarios should never auto-fallback to another model.
+ *
+ * @param {string | undefined | null} model
+ * @returns {boolean}
+ */
+function isStrictFastSdkModel(model: string | null | undefined) {
+  const normalizedModel = normalizeCatalogModelValue(model) || '';
+  return normalizedModel.includes('::fast=true');
+}
+
+/**
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+function isUnsupportedSdkModelError(err: unknown) {
+  const message =
+    err && typeof err === 'object' && 'message' in err ? String(err.message || '') : String(err || '');
+  return message.includes('Cannot use this model:');
+}
+
+/**
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+function isAgentBusyError(err: unknown) {
+  const message =
+    err && typeof err === 'object' && 'message' in err ? String(err.message || '') : String(err || '');
+  const lower = message.toLowerCase();
+  if (!lower) return false;
+  return (
+    lower.includes('already has active run') ||
+    lower.includes('agent is busy') ||
+    lower.includes('agent_busy') ||
+    (lower.includes('active run') && lower.includes('agent'))
+  );
+}
+
+/**
+ * The Watcher MCP gate lists tools through the Cretli MCP pool for SDK sessions,
+ * so a closing room must release the pooled stdio children keyed to its session.
+ */
+function releaseSdkRoomMcp(sessionKey: string, room: SdkRoom) {
+  void disposeMcpContext({
+    sessionId: sessionKey,
+    chatId: (room as { chatId?: string }).chatId,
+    workspaceFolder: (room as { cwd?: string }).cwd,
+  });
+}
+
+/**
+ * Close the SDK room (no PTY — with no clients we release the agent in Node).
+ *
+ * @param {string} sessionKey - SDK chat cursorSessionId
+ */
+export function disposeSdkRoom(sessionKey: string) {
+  if (!sessionKey) {
+    return;
+  }
+  const room = sdkRooms.get(sessionKey);
+  if (!room) {
+    return;
+  }
+  if (room._shutdownTimer) {
+    clearTimeout(room._shutdownTimer);
+    room._shutdownTimer = null;
+  }
+  notifySdkClientsChatGone(room.clients, msg(null, 'sdk.chatNotFound'));
+  room.clients.clear();
+  if (room.agent) {
+    try {
+      room.agent.close();
+    } catch {
+      // ignore
+    }
+    room.agent = null;
+  }
+  room.currentRun = null;
+  room.busy = false;
+  stopRoomStateHeartbeat(room);
+  if (!isSdkRemoteRoomStub(room)) {
+    void unregisterSdkRoomOwner(sessionKey);
+  }
+  releaseSdkRoomMcp(sessionKey, room);
+  sdkRooms.delete(sessionKey);
+}
+
+/**
+ * Close the room only after the grace period — never during an active run.
+ * A page refresh then does not kill a live stream (after reconnect, broadcast
+ * continues to the new client).
+ *
+ * @param {string} sessionKey
+ */
+function scheduleRoomShutdown(sessionKey: string) {
+  const room = sdkRooms.get(sessionKey);
+  if (!room) {
+    return;
+  }
+  if (room._shutdownTimer) {
+    clearTimeout(room._shutdownTimer);
+    room._shutdownTimer = null;
+  }
+  room._shutdownTimer = setTimeout(() => {
+    const r = sdkRooms.get(sessionKey);
+    if (!r) {
+      return;
+    }
+    r._shutdownTimer = null;
+    if (r.clients.size > 0) {
+      return;
+    }
+    if (r.busy || r.serverHold) {
+      // The run is still active or a server-started delegation holds the room.
+      scheduleRoomShutdown(sessionKey);
+      return;
+    }
+    if (r.agent) {
+      try {
+        r.agent.close();
+      } catch {
+        // ignore
+      }
+      r.agent = null;
+    }
+    r.currentRun = null;
+    flushPersistBuffer(r);
+    stopRoomStateHeartbeat(r);
+    if (!isSdkRemoteRoomStub(r)) {
+      void unregisterSdkRoomOwner(sessionKey);
+    }
+    releaseSdkRoomMcp(sessionKey, r);
+    sdkRooms.delete(sessionKey);
+  }, ROOM_EMPTY_GRACE_MS);
+}
+
+function createLocalSdkRoom(sessionKey: string, chat: SdkChatRow, roomDeps: SdkRoomDeps) {
+  return {
+    clients: new Set(),
+    agent: null,
+    cwd: roomDeps.cwd,
+    modelId: roomDeps.modelId,
+    modelSelection: roomDeps.modelSelection,
+    apiKey: roomDeps.apiKey,
+    sdkMode: roomDeps.sdkMode,
+    busy: false,
+    currentRun: null,
+    pendingPrompts: [],
+    eventStreamId: randomUUID(),
+    eventSeq: 0,
+    eventLog: [],
+    sessionKey,
+    chatId: chat.id || '',
+    chatTitle: chat.title || chat.id || '',
+    ownerSessionId: '',
+    onRunFinished: roomDeps.onRunFinished,
+    _todoSyncDataDir: roomDeps.todoSyncDataDir,
+    _persistBuf: [],
+    _persistTimer: null,
+    _agentConnectPromise: null,
+    _agentModelId: null,
+    _agentMode: null,
+    lastRunTimings: null,
+    _lastRequestedModelId: null,
+    _lastEffectiveModelId: null,
+    _strictModelRequested: false,
+    _lastModelFallback: null,
+  };
+}
+
+function applySdkRoomFields(room: SdkRoom, sessionKey: string, chat: SdkChatRow, roomDeps: SdkRoomDeps) {
+  room.cwd = roomDeps.cwd;
+  room.modelId = roomDeps.modelId;
+  room.modelSelection = roomDeps.modelSelection;
+  room.apiKey = roomDeps.apiKey;
+  room.sdkMode = roomDeps.sdkMode;
+  if (!room.sessionKey) room.sessionKey = sessionKey;
+  if (!room.chatId && chat.id) room.chatId = chat.id;
+  if (!room.chatTitle && chat.title) room.chatTitle = chat.title;
+  if (!room.onRunFinished && roomDeps.onRunFinished) {
+    room.onRunFinished = roomDeps.onRunFinished;
+  }
+  if (roomDeps.todoSyncDataDir && !room._todoSyncDataDir) {
+    room._todoSyncDataDir = roomDeps.todoSyncDataDir;
+  }
+  if (typeof room._lastRequestedModelId === 'undefined') room._lastRequestedModelId = null;
+  if (typeof room._lastEffectiveModelId === 'undefined') room._lastEffectiveModelId = null;
+  if (typeof room._strictModelRequested === 'undefined') room._strictModelRequested = false;
+  if (typeof room._lastModelFallback === 'undefined') room._lastModelFallback = null;
+}
+
+/**
+ * Bind connect/start/cancel onto an SDK room for WS and server-side start.
+ * @param {any} room
+ * @param {object} chat
+ * @param {object} roomDeps
+ */
+function bindSdkPromptRunner(room: SdkRoom, chat: SdkChatRow, roomDeps: SdkRoomDeps) {
+  void roomDeps;
+  const sessionKey = room.sessionKey;
+  if (!Array.isArray(room.pendingPrompts)) room.pendingPrompts = [];
+  /**
+   * Connect the agent once per room. A shared Promise prevents a double
+   * create/resume when a prompt arrives while the connection is warming up.
+   *
+   * @param {'plan' | 'agent'} mode
+   * @returns {Promise<any>}
+   */
+  async function connectAgent(mode: SdkConversationMode) {
+    const desiredModelId = room.modelId;
+    const desiredModelSelection = room.modelSelection || resolveSdkModelSelection(desiredModelId);
+    const currentChat = getChatByCursorSessionId(sessionKey) || chat;
+    const mcpPrep = prepareHarnessMcp(buildMcpRuntimeContext({
+      chat: currentChat,
+      room,
+      harness: 'sdk',
+      mode,
+    }));
+    const resolvedSystemPrompt = resolveRoomSdkSystemPrompt(room, currentChat);
+    const systemPromptKey = sdkSystemPromptCacheKey(resolvedSystemPrompt);
+    if (
+      room.agent &&
+      room._agentModelId === desiredModelId &&
+      room._agentMode === mode &&
+      room._mcpRevision === mcpPrep.revision &&
+      // The bridge token pins the attempt; a new round needs a new bridge.
+      room._agentDelegationAttemptId === String(room.delegationAttemptId || '') &&
+      room._agentSystemPromptKey === systemPromptKey
+    ) {
+      return room.agent;
+    }
+    if (room.agent) {
+      // Reaching this block means at least one start-time input differs. Record
+      // why the SDK agent is rebuilt so the cache cost is visible per chat.
+      let reason: (typeof CONTEXT_RESTART_REASON)[keyof typeof CONTEXT_RESTART_REASON] =
+        CONTEXT_RESTART_REASON.PROCESS_RECREATED;
+      if (room._agentModelId !== desiredModelId) {
+        reason = CONTEXT_RESTART_REASON.MODEL_CHANGE;
+      } else if (room._agentMode !== mode) {
+        reason = CONTEXT_RESTART_REASON.MODE_CHANGE;
+      } else if (room._agentSystemPromptKey !== systemPromptKey) {
+        reason = CONTEXT_RESTART_REASON.SYSTEM_PROMPT_CHANGE;
+      } else if (room._mcpRevision !== mcpPrep.revision) {
+        reason = CONTEXT_RESTART_REASON.MCP_REVISION;
+      }
+      recordContextRestart({
+        chatId: currentChat?.id || room.chatId,
+        harness: 'sdk',
+        reason,
+        room,
+      });
+      try {
+        room.agent.close();
+      } catch {
+        // Continue with an agent using the current model and mode.
+      }
+      room.agent = null;
+    }
+    if (room._agentConnectPromise) {
+      await room._agentConnectPromise;
+      return connectAgent(mode);
+    }
+
+    const connectPromise = (async () => {
+      const sdkModule = await loadSdkModule();
+      const Agent = sdkModule.Agent;
+      applyCursorSdkIsolationConfig(sdkModule);
+      ensureSessionLocalStore(room, sessionKey, sdkModule.JsonlLocalAgentStore);
+      const cwdList = resolveSdkCwdList(room.cwd);
+      prepareSdkWorkspaceHistoryIsolation(cwdList);
+      const localOptions: Record<string, unknown> = {
+        // The SDK requires a single primary path here; extra roots go to `dirs`.
+        cwd: cwdList[0] || room.cwd,
+        // Load ambient project rules/skills from each workspace root (.cursor/*).
+        settingSources: ['project'],
+        customTools: buildSdkCustomTools(sessionKey, mode),
+      };
+      if (cwdList.length > 1) {
+        localOptions.dirs = cwdList.slice(1);
+      }
+      if (room.localStore) {
+        localOptions.store = room.localStore;
+      }
+      const cursorMcpServers = toCursorMcpServers(mcpPrep.mcpServers);
+      if (Object.keys(cursorMcpServers).length > 0) {
+        localOptions.mcpServers = cursorMcpServers;
+      }
+      const skipResumeForModelChange = shouldSkipSdkAgentResumeForModelChange(room, desiredModelId);
+      if (skipResumeForModelChange) {
+        clearSdkAgentBinding(room, sessionKey);
+      }
+      const resumeOpts: Record<string, unknown> = {
+        apiKey: room.apiKey,
+        model: desiredModelSelection,
+        local: localOptions,
+        mode: toNativeAgentMode(mode),
+        ...resolveSdkPlanCreateOptions(mode, room.delegationAssignment, {
+          scoutReadOnly: isScoutReadOnlyChatId(room?.chatId),
+        }),
+      };
+      if (Object.keys(cursorMcpServers).length > 0) {
+        resumeOpts.mcpServers = cursorMcpServers;
+      }
+      applySdkSystemPromptOptions(resumeOpts, resolvedSystemPrompt);
+      const persistedId =
+        !skipResumeForModelChange &&
+        currentChat?.sdkAgentId &&
+        String(currentChat.sdkAgentId).trim()
+          ? String(currentChat.sdkAgentId).trim()
+          : '';
+
+      /**
+       * @param {{ agentId?: string, reload?: Function }} agent
+       */
+      async function bindConnectedAgent(agent: SdkAgent) {
+        await reloadSdkAgentForIgnore(agent);
+        room.agent = agent;
+        room._agentModelId = desiredModelId;
+        room._agentMode = mode;
+        room._mcpRevision = mcpPrep.revision;
+        room._agentDelegationAttemptId = String(room.delegationAttemptId || '');
+        room._agentSystemPromptKey = systemPromptKey;
+        room._lastEffectiveModelId = desiredModelId;
+        markMcpConfigApplied(buildMcpRuntimeContext({
+          chat: currentChat,
+          room,
+          harness: 'sdk',
+          mode,
+        }), mcpPrep.servers, mcpPrep.revision);
+        return agent;
+      }
+
+      if (persistedId) {
+        try {
+          return await bindConnectedAgent(await Agent.resume(persistedId, resumeOpts as AgentOptions));
+        } catch {
+          // The guard clause below will create a new agent.
+        }
+      }
+
+      const createOpts: Record<string, unknown> = {
+        apiKey: room.apiKey,
+        model: desiredModelSelection,
+        local: localOptions,
+        mode: toNativeAgentMode(mode),
+        ...resolveSdkPlanCreateOptions(mode, room.delegationAssignment, {
+          scoutReadOnly: isScoutReadOnlyChatId(room?.chatId),
+        }),
+      };
+      if (Object.keys(cursorMcpServers).length > 0) {
+        createOpts.mcpServers = cursorMcpServers;
+      }
+      applySdkSystemPromptOptions(createOpts, resolvedSystemPrompt);
+      const created = await bindConnectedAgent(await Agent.create(createOpts as AgentOptions));
+      if (currentChat?.id) {
+        setChatSdkAgentId(currentChat.id, created.agentId);
+      }
+      return created;
+    })();
+    room._agentConnectPromise = connectPromise;
+
+    try {
+      return await connectPromise;
+    } finally {
+      if (room._agentConnectPromise === connectPromise) {
+        room._agentConnectPromise = null;
+      }
+    }
+  }
+
+
+  /**
+   * @param {string} rawText
+   * @param {string | undefined | null} [modeOverride]
+   * @param {number | null} [clientSentAt]
+   * @param {string} [displayText]
+   * @param {{ explicitSteer?: boolean }} [options]
+   * @returns {Promise<'delivered' | 'queued' | 'rejected'>}
+   */
+  async function steerPrompt(
+    rawText: string,
+    modeOverride?: string | null,
+    clientSentAt: number | null = null,
+    displayText = '',
+    options: { explicitSteer?: boolean, selection?: unknown } = {},
+  ): Promise<'delivered' | 'queued' | 'rejected'> {
+    const trimmed = typeof rawText === 'string' ? rawText.trim() : '';
+    const uiText = resolvePromptUiText(trimmed, displayText);
+    const selection = normalizeSkillSelection(options.selection);
+    const manifestChatId = String(room.chatId || '');
+    const noteSteer = (status: string) => recordSteerManifest({
+      chatId: manifestChatId,
+      transport: 'sdk',
+      text: trimmed,
+      status,
+    });
+    // A steer that asks for a skill must go through the full prompt builder, so
+    // it is never injected raw into the live run: it becomes an ordinary
+    // follow-up with the selection attached and the client keeps its text.
+    if (trimmed && selectionRequestsSkill(trimmed, selection)) {
+      const runId = room.currentRun && typeof room.currentRun.id === 'string' ? room.currentRun.id.trim() : '';
+      broadcastRoom(
+        room,
+        buildSdkSteerAckPayload({ runId, outcome: STEER_ACK_REVERT, text: uiText || trimmed })
+      );
+      enqueuePrompt(trimmed, modeOverride, clientSentAt, displayText, selection);
+      noteSteer('reverted_to_followup');
+      return 'queued';
+    }
+    const result = await requestSdkRunSteer({
+      run: room.currentRun,
+      busy: room.busy,
+      remoteRoom: isSdkRemoteRoomStub(room),
+      text: trimmed,
+    });
+    const runId =
+      result.runId ||
+      (room.currentRun && typeof room.currentRun.id === 'string' ? room.currentRun.id.trim() : '');
+    if (result.status === 'delivered') {
+      broadcastRoom(
+        room,
+        buildSdkSteerAckPayload({
+          runId,
+          outcome: STEER_ACK_DELIVERED,
+          text: uiText || trimmed,
+        })
+      );
+      persistRoomEvent(
+        room,
+        {
+          kind: 'localUser',
+          text: uiText || trimmed,
+          createdAt: new Date().toISOString(),
+        },
+        true
+      );
+      noteSteer('delivered');
+      return 'delivered';
+    }
+    if (result.status === 'queued') {
+      broadcastRoom(
+        room,
+        buildSdkSteerAckPayload({
+          runId,
+          outcome: STEER_ACK_REVERT,
+          text: uiText || trimmed,
+        })
+      );
+      enqueuePrompt(trimmed, modeOverride, clientSentAt, displayText, selection);
+      noteSteer('reverted_to_followup');
+      return 'queued';
+    }
+    broadcastRoom(
+      room,
+      buildSdkSteerErrorPayload({
+        code: result.code,
+        message: result.message,
+        runId,
+        text: uiText || trimmed,
+      })
+    );
+    if (!options.explicitSteer) {
+      enqueuePrompt(trimmed, modeOverride, clientSentAt, displayText, selection);
+    }
+    noteSteer(options.explicitSteer ? 'rejected' : 'rejected_then_queued');
+    return 'rejected';
+  }
+
+  /**
+   * @param {string} text
+   * @param {string | undefined | null} [modeOverride]
+   * @param {number | null} [clientSentAt]
+   * @param {string} [displayText]
+   */
+  function enqueuePrompt(text: string, modeOverride?: string | null, clientSentAt: number | null = null, displayText = '', selection: unknown = null) {
+    const freshChat = getChatByCursorSessionId(sessionKey);
+    const mode = normalizeSdkMode(modeOverride ?? freshChat?.sdkMode ?? room.sdkMode);
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const uiText = resolvePromptUiText(trimmed, displayText);
+    const item: SdkPromptItem = { text: trimmed, mode, clientSentAt };
+    if (uiText && uiText !== trimmed) item.displayText = uiText;
+    withSkillSelection(item, selection);
+    room.pendingPrompts.push(item);
+    broadcastRoom(room, {
+      type: 'sdkQueued',
+      position: room.pendingPrompts.length,
+      text: uiText || trimmed,
+    });
+  }
+
+  /**
+   * @param {string} text
+   * @param {string | undefined | null} [modeOverride]
+   * @param {boolean} [fromQueue]
+   * @param {number | null} [clientSentAt]
+   * @param {string} [displayText]
+   * @param {(run: object) => void} [onAccepted]
+   */
+  async function runPrompt(
+    text: string,
+    modeOverride?: string | null,
+    fromQueue = false,
+    clientSentAt: number | null = null,
+    displayText = '',
+    onAccepted?: (run: object) => void,
+    selection: unknown = null,
+  ) {
+    if (rejectArchivedRoomPrompt(room, broadcastRoom as (room: object, payload: object) => void)) return;
+    if (!text.trim()) {
+      return;
+    }
+    if (isSdkRemoteRoomStub(room)) {
+      return;
+    }
+    if (room.busy) {
+      await steerPrompt(text, modeOverride, clientSentAt, displayText, { selection });
+      return;
+    }
+    if (!canAcceptNewRun()) {
+      if (fromQueue === true) {
+        room.pendingPrompts.unshift(withSkillSelection({
+          text: text.trim(),
+          mode: normalizeSdkMode(modeOverride || room.sdkMode),
+          clientSentAt,
+          ...(displayText && displayText !== text.trim() ? { displayText } : {}),
+        }, selection));
+        return;
+      }
+      broadcastRoom(room, {
+        type: 'sdkError',
+        code: 'update_in_progress',
+        message: msg(null, 'update.notAcceptingRuns'),
+      });
+      return;
+    }
+    if (!fromQueue) {
+      resetSdkAutomaticRetryCounters(room);
+    }
+
+    // Reserve the room before async create/resume/send. Otherwise two quick
+    // prompts can both pass the guard and run in parallel.
+    room.busy = true;
+    refreshSdkRoomOwnerLease(room);
+    resetRoomRunAssistantStreamCapture(room);
+    room._currentRunPlanMarkdown = '';
+    clearCurrentRunDiagnostics(room);
+    if (!room._sdkBackgroundWork) room._sdkBackgroundWork = createSdkBackgroundWorkState();
+    resetSdkBackgroundWorkState(room._sdkBackgroundWork);
+    const setupAbort = new AbortController();
+    room._setupAbort = setupAbort;
+    const sdkRunIdleTimeoutMs = resolveRoomSdkRunIdleTimeoutMs();
+    const requestReceivedAt = Date.now();
+    room._runStartedAt = requestReceivedAt;
+    room._runHadMeasurement = false;
+    room._runOutputTokens = 0;
+    room._runOutputSeen = false;
+    beginRunEndSnapshot(room, { sessionId: sessionKey, startedAt: requestReceivedAt });
+    room._setupStartedAt = requestReceivedAt;
+    room._setupPhase = 'connecting';
+    startSetupProgressReporter(room, (payload: Record<string, unknown>) => broadcastRoom(room, payload), sdkRunIdleTimeoutMs);
+    const normalizedClientSentAt = Number(clientSentAt);
+    const timings: SdkRunTimings = {
+      clientSentAt: Number.isFinite(normalizedClientSentAt) ? normalizedClientSentAt : null,
+      requestReceivedAt,
+      agentReadyAt: null,
+      sendResolvedAt: null,
+      firstEventAt: null,
+      firstAssistantAt: null,
+    };
+    room.lastRunTimings = timings;
+    try {
+      const freshChat = getChatByCursorSessionId(sessionKey);
+      const mode = normalizeSdkMode(modeOverride ?? freshChat?.sdkMode ?? room.sdkMode);
+      beginEnforcedSdkMode(room, mode);
+      syncRoomDelegationAssignment(room);
+      const promptText = text.trim();
+      const uiText = resolvePromptUiText(promptText, displayText);
+      room._activePromptUiText = uiText;
+      const runSelection = normalizeSkillSelection(selection);
+      room._activeSelection = runSelection;
+      const modeChanged = room.sdkMode !== mode;
+      room.sdkMode = mode;
+      if (modeChanged && freshChat?.id) {
+        updateChat(freshChat.id, { sdkMode: mode });
+        broadcastRoom(room, { type: 'sdkMode', mode });
+      }
+      // UX: acknowledge send immediately (agent resume/create can take a few seconds).
+      broadcastRoom(room, {
+        type: 'sdkRunProgress',
+        phase: 'started',
+        idleForMs: 0,
+        remainingMs: null,
+        timeoutMs: null,
+      });
+      room.modelId = normalizeCatalogModelValue(freshChat?.model || room.modelId) || 'auto';
+      room.modelSelection = resolveSdkModelSelection(room.modelId);
+      room._lastRequestedModelId = room.modelId;
+      room._strictModelRequested = isStrictFastSdkModel(room.modelId);
+      try {
+        await withAbortOnly(connectAgent(mode), setupAbort.signal);
+      } catch (err) {
+        const rejectedRegistryVariant = isInvalidSdkRegistryModelError(err);
+        const unsupportedModel = isUnsupportedSdkModelError(err);
+        if (!rejectedRegistryVariant && !unsupportedModel) throw err;
+        const requestedModelId = room.modelId;
+        const fallbackReason = rejectedRegistryVariant ? 'invalid_registry_model' : 'unsupported_model';
+        if (rejectedRegistryVariant || unsupportedModel) {
+          quarantineRejectedSdkFavorite(requestedModelId);
+        }
+        const fallbackModelValue = 'auto';
+        const fallbackModelId = resolveSdkModelId(fallbackModelValue);
+        if (!fallbackModelId || fallbackModelId === resolveSdkModelId(room.modelId)) throw err;
+        if (room._strictModelRequested === true) {
+          // Strict fast means do not silently run a different model. Still
+          // quarantine the rejected favorite and make the next turn safe.
+          const currentChat = getChatByCursorSessionId(sessionKey) || chat;
+          room.modelId = fallbackModelValue;
+          room.modelSelection = resolveSdkModelSelection(fallbackModelValue);
+          room._lastRequestedModelId = fallbackModelValue;
+          room._strictModelRequested = false;
+          if (currentChat?.id) updateChat(currentChat.id, { model: fallbackModelValue });
+          room._lastModelFallback = {
+            attemptedModelId: requestedModelId,
+            fallbackModelId: fallbackModelValue,
+            applied: false,
+            blockedByStrict: true,
+            reason: fallbackReason,
+            at: Date.now(),
+          };
+          const strictError: CodedError = new Error(
+            buildStrictRegistryModelRejectedMessage(requestedModelId)
+          );
+          strictError.code = 'strict_model_unsupported';
+          throw strictError;
+        }
+        const previousModelId = room.modelId;
+        room.modelId = fallbackModelValue;
+        room.modelSelection = resolveSdkModelSelection(fallbackModelValue);
+        room._lastRequestedModelId = room.modelId;
+        room._strictModelRequested = isStrictFastSdkModel(room.modelId);
+        room._lastModelFallback = {
+          attemptedModelId: previousModelId,
+          fallbackModelId: fallbackModelValue,
+          applied: true,
+          blockedByStrict: false,
+          reason: fallbackReason,
+          at: Date.now(),
+        };
+        const currentChat = getChatByCursorSessionId(sessionKey) || chat;
+        if (currentChat?.id) updateChat(currentChat.id, { model: fallbackModelValue });
+        room.agent = null;
+        await withAbortOnly(connectAgent(mode), setupAbort.signal);
+        broadcastRoom(room, {
+          type: 'sdkModelFallback',
+          previousModelId,
+          modelId: fallbackModelValue,
+        });
+      }
+      timings.agentReadyAt = Date.now();
+      room._stuckRecoveryRetries = 0;
+      const mcpGateContext = buildMcpRuntimeContext({
+        chat: freshChat || chat,
+        room,
+        harness: 'sdk',
+        mode,
+      });
+      const mcpGatePrep = prepareHarnessMcp(mcpGateContext);
+      const mcpBlock = await enforceWatcherOrchestratorMcpGate({
+        chat: freshChat || chat,
+        room,
+        mcpPrep: mcpGatePrep,
+        mcpContext: mcpGateContext,
+        sessionStartedAt: requestReceivedAt,
+      });
+      if (mcpBlock) {
+        const gateError: CodedError = new Error(mcpBlock.message);
+        gateError.code = mcpBlock.code;
+        throw gateError;
+      }
+      broadcastRoom(room, {
+        type: 'sdkAgent',
+        agentId: room.agent.agentId,
+        modelId: room.modelId,
+        sdkMode: mode,
+      });
+      broadcastRoom(room, {
+        type: 'sdkPromptStarted',
+        text: uiText,
+        fromQueue: !!fromQueue,
+        remaining: room.pendingPrompts.length,
+      });
+      room._setupPhase = 'preparing';
+      // Record goes into the ordered buffer before SDK events. Disk write
+      // happens after the run and does not delay agent.send().
+      persistRoomEvent(room, {
+        kind: 'localUser',
+        text: uiText,
+        createdAt: new Date(requestReceivedAt).toISOString(),
+      });
+      const automaticPageContext = buildAutomaticPageContext(sessionKey);
+      const collectedReports = collectDelegationReportsForPrompt(room.chatId || chat.id);
+      room._delegationReportIdsInPrompt = collectedReports.ids;
+      // Static skills/rules go out once per session; volatile blocks only when
+      // they change. State lives on the room so a rebuilt room starts fresh.
+      const sdkInstructionDelivery = resolveInstructionDeliveryForTurn({
+        room,
+        cwd: room.cwd,
+        chatId: room.chatId || chat.id,
+        transport: 'sdk',
+      });
+      const promptWithPageContext = applySdkHarnessOutboundPrompt(promptText, {
+        cwd: room.cwd,
+        chatId: room.chatId || chat.id,
+        mode,
+        pageContext: automaticPageContext,
+        reportContext: collectedReports.text,
+        selection: runSelection,
+        sessionKey: resolvePromptDecorationSessionKey(room),
+        // Delivery on every turn unless the adapter has a retention proof and the owner opted in.
+        staticMode: sdkInstructionDelivery.staticMode,
+        previousState: room._promptDecorationState || null,
+        onState: (state) => {
+          room._promptDecorationState = state;
+        },
+      });
+      recordOutboundContextManifest({
+        cwd: room.cwd,
+        chatId: room.chatId || chat.id,
+        mode,
+        transport: 'sdk',
+        pageContext: automaticPageContext,
+        reportContext: collectedReports.text,
+        selection: runSelection,
+        prompt: promptText,
+        staticDelivery: sdkInstructionDelivery,
+      }, 'sdk', promptWithPageContext);
+      const sdkPrompt = await withAbortOnly(
+        buildSdkPromptMessage(promptWithPageContext),
+        setupAbort.signal
+      );
+      let run: Run | null = null;
+      room._setupPhase = 'sending';
+      const resolvedSystemPromptForSend = resolveRoomSdkSystemPrompt(room, freshChat || chat);
+      /**
+       * @param {boolean} [afterPromptDrop]
+       */
+      async function sendPromptToAgent(afterPromptDrop = false): Promise<Run> {
+        try {
+          return await withAbortOnly(
+            room.agent.send(sdkPrompt, {
+              mode,
+              customTools: buildSdkCustomTools(sessionKey, mode),
+            }),
+            setupAbort.signal
+          );
+        } catch (err) {
+          if (
+            !afterPromptDrop &&
+            shouldDropSdkSystemPromptAfterError(err, resolvedSystemPromptForSend)
+          ) {
+            room._sdkSystemPromptDropped = true;
+            const detail = readSdkSystemPromptErrorDetail(err);
+            broadcastRoom(room, {
+              type: 'sdkError',
+              code: SDK_SYSTEM_PROMPT_UNAUTHORIZED_CODE,
+              message: detail,
+            });
+            persistRoomEvent(
+              room,
+              {
+                kind: 'meta',
+                variant: 'error',
+                payload: detail,
+                createdAt: new Date().toISOString(),
+              },
+              true
+            );
+            try {
+              room.agent.close();
+            } catch {
+              // Rebind without the custom prompt on the next connectAgent call.
+            }
+            room.agent = null;
+            await withAbortOnly(connectAgent(mode), setupAbort.signal);
+            return sendPromptToAgent(true);
+          }
+          throw err;
+        }
+      }
+      try {
+        run = await sendPromptToAgent(false);
+        timings.sendResolvedAt = Date.now();
+        confirmDelegationReportsFromRoom(room);
+      } catch (err) {
+        if (!isAgentBusyError(err)) {
+          throw err;
+        }
+        broadcastRoom(room, {
+          type: 'sdkBusy',
+          message: msg(null, 'sdk.activeRunDetected'),
+        });
+        clearSdkAgentBinding(room, sessionKey);
+        await withAbortOnly(connectAgent(mode), setupAbort.signal);
+        run = await sendPromptToAgent(false);
+        timings.agentReadyAt = timings.agentReadyAt || Date.now();
+        timings.sendResolvedAt = Date.now();
+        confirmDelegationReportsFromRoom(room);
+      }
+      room._setupPhase = null;
+      room._setupStartedAt = null;
+      stopSetupProgressReporter(room);
+      room.currentRun = run;
+      if (run?.id && typeof run.id === 'string') {
+        room.lastRunId = run.id.trim();
+      }
+      onAccepted?.(run);
+      sendSdkRoomState(room);
+      let idleWithoutEventsMs = 0;
+      let lastProgressReportMs = 0;
+      let sdkEventCount = 0;
+      const streamPollTimeoutMs = Math.min(sdkRunIdleTimeoutMs, SDK_RUN_STREAM_POLL_INTERVAL_MS);
+      const streamRecoveryGraceEnv = readEnvAlias({
+        current: 'CRETLI_SDK_RUN_AUTO_RECOVERY_GRACE_MS',
+        legacy: 'CURSOR_REMOTE_SDK_RUN_AUTO_RECOVERY_GRACE_MS',
+      });
+      const recoveryGraceMs = resolveSdkRunAutoRecoveryGraceMs(
+        streamRecoveryGraceEnv
+      );
+      const streamIterator = run.stream()[Symbol.asyncIterator]();
+      while (true) {
+        const streamResult = await readSdkRunStreamStep(streamIterator, streamPollTimeoutMs);
+        if (streamResult.timedOut) {
+          if (hasOpenSdkRunTools(room)) {
+            idleWithoutEventsMs = 0;
+            continue;
+          }
+          idleWithoutEventsMs += streamPollTimeoutMs;
+          const overBudget = idleWithoutEventsMs >= sdkRunIdleTimeoutMs;
+          if (
+            idleWithoutEventsMs >= SDK_RUN_PROGRESS_INTERVAL_MS &&
+            idleWithoutEventsMs - lastProgressReportMs >= SDK_RUN_PROGRESS_INTERVAL_MS
+          ) {
+            broadcastRoom(room, {
+              type: 'sdkRunProgress',
+              phase: overBudget
+                ? 'awaiting_past_budget'
+                : sdkEventCount === 0
+                  ? 'awaiting_first_event'
+                  : 'awaiting_next_event',
+              idleForMs: idleWithoutEventsMs,
+              remainingMs: overBudget ? 0 : Math.max(0, sdkRunIdleTimeoutMs - idleWithoutEventsMs),
+              timeoutMs: sdkRunIdleTimeoutMs,
+              overBudget,
+            });
+            lastProgressReportMs = idleWithoutEventsMs;
+          }
+          if (shouldTriggerStuckRunRecovery(idleWithoutEventsMs, sdkRunIdleTimeoutMs, recoveryGraceMs, loadSettings())) {
+            room._stuckRecoveryTriggered = true;
+            if (typeof run.cancel === 'function') {
+              await run.cancel();
+            }
+            throw new Error(buildStuckRunRecoveryMessage(idleWithoutEventsMs, sdkRunIdleTimeoutMs));
+          }
+          continue;
+        }
+        const streamStep = streamResult.step as IteratorResult<unknown> | null | undefined;
+        if (!streamStep || streamStep.done) {
+          break;
+        }
+        idleWithoutEventsMs = 0;
+        lastProgressReportMs = 0;
+        const event = streamStep.value;
+        sdkEventCount += 1;
+        const eventAt = Date.now();
+        if (!timings.firstEventAt) {
+          timings.firstEventAt = eventAt;
+        }
+        await waitForRoomBackpressureDrain(room);
+        captureSdkStreamStatusError(room, event);
+        const bgNote = noteSdkBackgroundWorkEvent(room._sdkBackgroundWork, event);
+        maybeBroadcastSdkBackgroundWork(room, bgNote, run?.id || '');
+        broadcastRoom(room, { type: 'sdkEvent', event: jsonSafe(event) });
+        const planText = extractPlanTextFromSdkEvent(event);
+        if (planText) {
+          room._currentRunPlanMarkdown = pickRicherPlanMarkdown(room._currentRunPlanMarkdown, planText);
+        }
+        noteRoomRunAssistantStreamEvent(room, event);
+        if (
+          !timings.firstAssistantAt &&
+          event &&
+          typeof event === 'object' &&
+          (event as { type?: unknown }).type === 'assistant'
+        ) {
+          timings.firstAssistantAt = eventAt;
+          broadcastRoom(room, {
+            type: 'sdkTtft',
+            clientSentAt: timings.clientSentAt,
+            requestReceivedAt: timings.requestReceivedAt,
+            agentReadyAt: timings.agentReadyAt,
+            sendResolvedAt: timings.sendResolvedAt,
+            firstEventAt: timings.firstEventAt,
+            firstAssistantAt: timings.firstAssistantAt,
+            socketToServerMs:
+              timings.clientSentAt == null
+                ? null
+                : timings.requestReceivedAt - timings.clientSentAt,
+            agentSetupMs: timings.agentReadyAt - timings.requestReceivedAt,
+            sendCallMs: timings.sendResolvedAt - timings.agentReadyAt,
+            sendToFirstEventMs: timings.firstEventAt - timings.sendResolvedAt,
+            serverTtftMs: timings.firstAssistantAt - timings.requestReceivedAt,
+          });
+        }
+        const scoutReadOnly = isScoutReadOnlyChatId(room?.chatId);
+        const planDecision = resolvePlanModeSdkEventDecision({
+          transport: 'sdk',
+          mode,
+          assignment: room.delegationAssignment,
+          event,
+          scoutReadOnly,
+          projectRoot: room.cwd,
+          mcpServer: resolvePlanGuardMcpServerIdentity({ room, harness: 'sdk', event }),
+        });
+        if (planDecision.notify) {
+          broadcastRoom(room, {
+            type: 'sdkPlanGuard',
+            toolName: getSdkToolCallName(event) || 'unknown',
+            message: scoutReadOnly
+              ? SCOUT_READ_ONLY_MESSAGE
+              : resolveReadOnlyGuardUserMessage(mode, room.delegationAssignment),
+          });
+        }
+        if (planDecision.abortRun && room.currentRun && typeof room.currentRun.cancel === 'function') {
+          void room.currentRun.cancel();
+        }
+      }
+      const backgroundBudgetMs = resolveRoomBackgroundFollowupBudgetMs({
+        idleTimeoutMs: sdkRunIdleTimeoutMs,
+      });
+      let backgroundWaitedMs = 0;
+      while (true) {
+        if (typeof run.wait === 'function') {
+          try {
+            await Promise.race([
+              run.wait(),
+              sleepMs(SDK_BACKGROUND_FOLLOWUP_POLL_INTERVAL_MS),
+            ]);
+          } catch {
+            // The run may still deliver follow-up stream events after a wait error.
+          }
+        }
+        const outstanding = outstandingSdkBackgroundWork(room._sdkBackgroundWork);
+        const streamEndDecision = decideSdkRunStreamEnd({
+          runStatus: run.status,
+          outstanding,
+          waitedMs: backgroundWaitedMs,
+          budgetMs: backgroundBudgetMs,
+          canFollow: canFollowSdkRunToCompletion(run),
+        });
+        if (streamEndDecision === SDK_BACKGROUND_DECISIONS.FINISH) {
+          break;
+        }
+        if (streamEndDecision === SDK_BACKGROUND_DECISIONS.BUDGET_EXCEEDED) {
+          broadcastRoom(
+            room,
+            buildSdkBackgroundWorkPayload({
+              outstanding,
+              phase: 'budget_exceeded',
+              waitedMs: backgroundWaitedMs,
+              runId: run.id || '',
+            })
+          );
+          break;
+        }
+        backgroundWaitedMs += SDK_BACKGROUND_FOLLOWUP_POLL_INTERVAL_MS;
+        await sleepMs(SDK_BACKGROUND_FOLLOWUP_POLL_INTERVAL_MS);
+        const followIterator = run.stream()[Symbol.asyncIterator]();
+        let followIdleMs = 0;
+        while (true) {
+          const followStep = await readSdkRunStreamStep(followIterator, streamPollTimeoutMs);
+          if (followStep.timedOut) {
+            followIdleMs += streamPollTimeoutMs;
+            if (followIdleMs >= sdkRunIdleTimeoutMs) break;
+            continue;
+          }
+          const followIterStep = followStep.step as IteratorResult<unknown> | null | undefined;
+          if (!followIterStep || followIterStep.done) break;
+          followIdleMs = 0;
+          const followEvent = followIterStep.value;
+          sdkEventCount += 1;
+          await waitForRoomBackpressureDrain(room);
+          captureSdkStreamStatusError(room, followEvent);
+          const followBgNote = noteSdkBackgroundWorkEvent(room._sdkBackgroundWork, followEvent);
+          maybeBroadcastSdkBackgroundWork(room, followBgNote, run?.id || '');
+          broadcastRoom(room, { type: 'sdkEvent', event: jsonSafe(followEvent) });
+          const followPlanText = extractPlanTextFromSdkEvent(followEvent);
+          if (followPlanText) {
+            room._currentRunPlanMarkdown = pickRicherPlanMarkdown(
+              room._currentRunPlanMarkdown,
+              followPlanText
+            );
+          }
+          noteRoomRunAssistantStreamEvent(room, followEvent);
+        }
+      }
+      noteSdkRunTerminalStatus(room._sdkBackgroundWork);
+      if (outstandingSdkBackgroundWork(room._sdkBackgroundWork) > 0) {
+        broadcastRoom(
+          room,
+          buildSdkBackgroundWorkPayload({
+            outstanding: 0,
+            phase: 'idle',
+            runId: run.id || '',
+          })
+        );
+      }
+      recordSdkRunUsageFallback(room, run);
+      finishSdkRun(room, sessionKey, text, modeOverride, clientSentAt, {
+        runId: run.id,
+        status: run.status,
+        result: run.result ?? '',
+        remaining: room.pendingPrompts.length,
+      });
+    } catch (err) {
+      if (room.currentRun) {
+        if (
+          tryScheduleStuckRunRecoveryRetry(
+            room,
+            sessionKey,
+            text,
+            modeOverride,
+            clientSentAt,
+            sdkRunIdleTimeoutMs,
+            sdkRunIdleTimeoutMs
+          )
+        ) {
+          return;
+        }
+        const message = err && typeof err === 'object' && 'message' in err ? String(err.message) : String(err);
+        const runId =
+          room.currentRun &&
+          typeof room.currentRun === 'object' &&
+          typeof room.currentRun.id === 'string'
+            ? room.currentRun.id
+            : '';
+        if (isSdkRateLimitError(message)) {
+          if (tryScheduleRateLimitRecoveryRetry(room, sessionKey, text, modeOverride, clientSentAt)) {
+            clearCurrentRunDiagnostics(room);
+            return;
+          }
+          captureCursorSdkErrorOnly(room, 'cursor_rate_limit', message, { runId });
+          broadcastSdkRateLimitError(room, message);
+          clearCurrentRunDiagnostics(room);
+          return;
+        }
+        if (!isSdkRunRegistryModelRejection('error', message)) {
+          broadcastRoom(room, { type: 'sdkError', code: 'run_failed', message });
+        }
+        if (isSdkAuthenticationError(message)) {
+          if (tryScheduleAuthRecoveryRetry(room, sessionKey, text, modeOverride, clientSentAt)) {
+            clearCurrentRunDiagnostics(room);
+            return;
+          }
+          captureCursorSdkErrorOnly(room, 'cursor_auth_error', message, { runId });
+          broadcastRoom(room, {
+            type: 'sdkError',
+            code: 'cursor_auth_error',
+            message,
+          });
+          clearCurrentRunDiagnostics(room);
+          return;
+        }
+        finishSdkRun(room, sessionKey, text, modeOverride, clientSentAt, {
+          runId,
+          status: 'error',
+          result: message,
+          remaining: room.pendingPrompts.length,
+        });
+        return;
+      }
+      if (
+        tryScheduleStuckRunRecoveryRetry(
+          room,
+          sessionKey,
+          text,
+          modeOverride,
+          clientSentAt,
+          Math.max(0, Date.now() - requestReceivedAt),
+          sdkRunIdleTimeoutMs
+        )
+      ) {
+        return;
+      }
+      if (isAgentBusyError(err)) {
+        enqueuePrompt(text, modeOverride, clientSentAt, displayText);
+        return;
+      }
+      if (isInvalidSdkRegistryModelError(err)) {
+        // The registry can reject a variant only when the prompt reaches it,
+        // after create/resume succeeded. Quarantine the favorite and retry on
+        // Auto; a strict fast model is reported instead of silently switched.
+        const fallback = recoverSdkRegistryModelFromRun(room, sessionKey);
+        broadcastSdkRegistryModelFallback(room, fallback);
+        if (
+          fallback &&
+          !fallback.blockedByStrict &&
+          tryScheduleSdkRegistryModelRecoveryRetry(room, sessionKey, text, modeOverride, clientSentAt)
+        ) {
+          clearCurrentRunDiagnostics(room);
+          return;
+        }
+        resetAgentAfterSetupFailure(room);
+        const strictBlocked = fallback?.blockedByStrict === true;
+        const registryCode = strictBlocked ? SDK_STRICT_MODEL_UNSUPPORTED_CODE : SDK_INVALID_REGISTRY_MODEL_CODE;
+        const registryMessage = strictBlocked
+          ? buildStrictRegistryModelRejectedMessage(fallback.attemptedModelId)
+          : buildSdkRegistryModelRejectedMessage(fallback?.attemptedModelId);
+        captureCursorSdkErrorOnly(room, registryCode, registryMessage, {
+          providerRejectedBeforeGeneration: true,
+          errorSource: 'provider',
+        });
+        broadcastRoom(room, {
+          type: 'sdkError',
+          code: registryCode,
+          message: registryMessage,
+        });
+        clearCurrentRunDiagnostics(room);
+        return;
+      }
+      const message = err && typeof err === 'object' && 'message' in err ? String(err.message) : String(err);
+      const errorCode =
+        err && typeof err === 'object' && typeof (err as { code?: unknown }).code === 'string'
+          ? (err as { code: string }).code.trim()
+          : '';
+      if (isMcpOrchestratorErrorCode(errorCode)) {
+        resetAgentAfterSetupFailure(room);
+        room.lastErrorCode = errorCode;
+        broadcastRoom(room, { type: 'sdkError', code: errorCode, message });
+        broadcastRoom(room, {
+          type: 'sdkRunFinished',
+          runId: '',
+          status: 'error',
+          result: message,
+          lastErrorCode: errorCode,
+          lastErrorMessage: message,
+          remaining: room.pendingPrompts.length,
+        }, { log: true });
+        clearCurrentRunDiagnostics(room);
+        return;
+      }
+      if (errorCode === 'strict_model_unsupported') {
+        resetAgentAfterSetupFailure(room);
+        captureCursorSdkErrorOnly(room, 'strict_model_unsupported', message, {
+          providerRejectedBeforeGeneration: true,
+          errorSource: 'provider',
+        });
+        broadcastRoom(room, {
+          type: 'sdkError',
+          code: 'strict_model_unsupported',
+          message,
+        });
+        return;
+      }
+      const isSetupCancelled = isUserCancelledSetupMessage(message);
+      if (isSetupCancelled) {
+        resetAgentAfterSetupFailure(room);
+        captureCursorSdkErrorOnly(room, 'run_setup_cancelled', message, { errorSource: 'cancellation' });
+        broadcastRoom(room, {
+          type: 'sdkError',
+          code: 'run_setup_cancelled',
+          message,
+        });
+        return;
+      }
+      resetAgentAfterSetupFailure(room);
+      const currentChat = getChatByCursorSessionId(sessionKey) || chat;
+      if (currentChat?.id) {
+        setChatSdkAgentId(currentChat.id, null);
+      }
+      if (isSdkRateLimitError(message)) {
+        if (tryScheduleRateLimitRecoveryRetry(room, sessionKey, text, modeOverride, clientSentAt)) {
+          clearCurrentRunDiagnostics(room);
+          return;
+        }
+        captureCursorSdkErrorOnly(room, 'cursor_rate_limit', message, {
+          providerRejectedBeforeGeneration: true,
+          errorSource: 'provider',
+        });
+        broadcastSdkRateLimitError(room, message);
+        clearCurrentRunDiagnostics(room);
+        return;
+      }
+      if (isSdkAuthenticationError(message)) {
+        if (tryScheduleAuthRecoveryRetry(room, sessionKey, text, modeOverride, clientSentAt)) {
+          clearCurrentRunDiagnostics(room);
+          return;
+        }
+        captureCursorSdkErrorOnly(room, 'cursor_auth_error', message, {
+          providerRejectedBeforeGeneration: true,
+          errorSource: 'auth',
+        });
+        broadcastRoom(room, {
+          type: 'sdkError',
+          code: 'cursor_auth_error',
+          message,
+        });
+        clearCurrentRunDiagnostics(room);
+        return;
+      }
+      const retryCount = Number(room._setupFailureRetries) || 0;
+      if (shouldRetrySetupFailure(retryCount)) {
+        room._setupFailureRetries = retryCount + 1;
+        const freshChat = getChatByCursorSessionId(sessionKey);
+        const retryMode = normalizeSdkMode(modeOverride ?? freshChat?.sdkMode ?? room.sdkMode);
+        unshiftAutomaticPromptRetry(room, {
+          text,
+          mode: retryMode,
+          clientSentAt,
+          scheduleAfterMs: computeSetupRetryDelayMs(room._setupFailureRetries),
+        });
+        broadcastRoom(room, {
+          type: 'sdkBusy',
+          message: buildSetupRetryMessage(room._setupFailureRetries),
+        });
+        return;
+      }
+      room._setupFailureRetries = 0;
+      captureCursorSdkErrorOnly(room, 'run_setup_failed', message);
+      broadcastRoom(room, {
+        type: 'sdkError',
+        code: 'run_setup_failed',
+        message,
+      });
+    } finally {
+      stopSetupProgressReporter(room);
+      room._setupPhase = null;
+      room._setupStartedAt = null;
+      if (room._setupAbort === setupAbort) {
+        room._setupAbort = null;
+      }
+      room.currentRun = null;
+      room.busy = false;
+      clearEnforcedSdkMode(room);
+      refreshSdkRoomOwnerLease(room);
+      const drained = drainOnePendingPrompt(room, (next) => {
+        schedulePendingPromptRun(next as PendingPromptItem, (item: SdkPromptItem) => {
+          void runPrompt(item.text, item.mode, true, item.clientSentAt ?? null, item.displayText, undefined, item.selection);
+        });
+      });
+      if (!drained) {
+        setImmediate(() => {
+          if (room.busy) return;
+          flushPersistBuffer(room);
+        });
+      }
+    }
+  }
+
+
+  async function cancelCurrentRun() {
+    if (room._setupAbort && typeof room._setupAbort.abort === 'function') {
+      room._setupAbort.abort();
+    }
+    const run = room.currentRun;
+    if (run && typeof run.cancel === 'function') {
+      await run.cancel();
+    }
+  }
+
+  function drainQueue() {
+    drainOnePendingPrompt(room, (next) => {
+      schedulePendingPromptRun(next as PendingPromptItem, (item: SdkPromptItem) => {
+        void runPrompt(item.text, item.mode, true, item.clientSentAt ?? null, item.displayText, undefined, item.selection);
+      });
+    });
+  }
+
+  room.connectAgent = connectAgent;
+  room.startPrompt = runPrompt;
+  room.startPromptArgs = SDK_START_PROMPT_ARGS;
+  room.drainQueue = drainQueue;
+  room.steerPrompt = (text: string, modeOverride: string | null | undefined, clientSentAt: number | null, displayText: string | undefined, selection: unknown = null) =>
+    steerPrompt(text, modeOverride, clientSentAt, displayText, { explicitSteer: true, selection });
+  room.cancelCurrentRun = cancelCurrentRun;
+  bindRoomRecoveryLifecycle({ room, chat: getChatByCursorSessionId(room.sessionKey) as object, transport: 'sdk' });
+}
+
+/**
+ * Get or create a local SDK room without a WebSocket client.
+ * @param {string} sessionKey
+ * @param {{ workspaceDirForAgent?: Function, todoSyncDataDir?: string, onRunFinished?: Function, delegationId?: string, attemptId?: string }} [deps]
+ */
+export async function ensureSdkRoom(sessionKey: string, deps: SdkEnsureDeps = {}) {
+  const apiKey = getEffectiveCursorApiKey();
+  if (!apiKey) {
+    return { error: msg(null, 'sdk.noApiKey'), code: 'missing_api_key' };
+  }
+  const chat = getChatByCursorSessionId(sessionKey);
+  if (!chat) {
+    return { error: msg(null, 'sdk.chatNotFound'), code: 'chat_not_found' };
+  }
+  if (chat.agentTransport !== 'sdk') {
+    return { error: msg(null, 'sdk.chatNotFound'), code: 'invalid_session' };
+  }
+  const cwd = resolveExecutionFolderForChat(chat, deps.workspaceDirForAgent);
+  if (!cwd) {
+    return { error: msg(null, 'sdk.noWorkspaceDir'), code: 'no_cwd' };
+  }
+  const storedModelValue = normalizeCatalogModelValue(chat.model) || 'auto';
+  const modelSelection = resolveSdkModelSelection(storedModelValue);
+  const sdkMode = normalizeSdkMode(chat.sdkMode);
+  const todoSyncDataDir = typeof deps.todoSyncDataDir === 'string' ? deps.todoSyncDataDir : '';
+  const onRunFinished = typeof deps.onRunFinished === 'function'
+    ? deps.onRunFinished
+    : todoSyncDataDir
+      ? ({ chatId, status, sdkMode: finishedMode, room: finishedRoom }: SdkRunFinishedInfo) => {
+          void syncTodoAfterSdkRunFinished({
+            dataDir: todoSyncDataDir,
+            chatId,
+            status,
+            sdkMode: finishedMode,
+            room: finishedRoom,
+          }).catch(() => {});
+        }
+      : null;
+  const roomDeps = {
+    cwd,
+    modelId: storedModelValue,
+    modelSelection,
+    apiKey,
+    sdkMode,
+    onRunFinished,
+    todoSyncDataDir,
+  };
+  let room = sdkRooms.get(sessionKey);
+  if (!room) {
+    const owner = await lookupSdkRoomOwner(sessionKey);
+    const isRemoteOwned = owner?.instanceId && owner.instanceId !== getServerInstanceId();
+    if (isRemoteOwned) {
+      room = createSdkRemoteRoomStub(sessionKey, chat, owner, roomDeps as RemoteStubDeps);
+    } else {
+      room = createLocalSdkRoom(sessionKey, chat, roomDeps);
+      void registerSdkRoomOwner(sessionKey, buildSdkRoomOwnerMeta(room));
+    }
+    sdkRooms.set(sessionKey, room);
+  } else if (isSdkRemoteRoomStub(room)) {
+    applySdkRoomFields(room, sessionKey, chat, roomDeps);
+  } else {
+    applySdkRoomFields(room, sessionKey, chat, roomDeps);
+    void refreshSdkRoomOwner(sessionKey, buildSdkRoomOwnerMeta(room));
+  }
+  if (!Array.isArray(room.pendingPrompts)) room.pendingPrompts = [];
+  bindHarnessPlanSync(room, deps);
+  bindRoomToDelegation(room, deps);
+  stampWatcherOrchestratorRoom(room, chat, deps);
+  if (!isSdkRemoteRoomStub(room)) {
+    bindSdkPromptRunner(room, chat, roomDeps);
+  }
+  return { room, chat, roomDeps };
+}
+
+/**
+ * @param {{ chat: object, prompt: string, mode?: string, displayText?: string, deps?: object }} input
+ */
+export async function startSdkChatRun(input: SdkStartRunInput) {
+  const sessionKey = String(input.chat?.cursorSessionId || '').trim();
+  const ensured = await ensureSdkRoom(sessionKey, (input.deps || {}) as SdkEnsureDeps);
+  if ('error' in ensured) {
+    const error: CodedError = new Error(ensured.error);
+    error.code = ensured.code;
+    throw error;
+  }
+  const { room } = ensured;
+  if (isSdkRemoteRoomStub(room) || typeof room.startPrompt !== 'function') {
+    const error: CodedError = new Error('This chat run is owned by another server instance.');
+    error.code = 'remote_room_stub';
+    throw error;
+  }
+  if (room.busy) {
+    const error: CodedError = new Error('Recipient is busy');
+    error.code = 'recipient_busy';
+    throw error;
+  }
+  room.serverHold = true;
+  if (room._shutdownTimer) {
+    clearTimeout(room._shutdownTimer);
+    room._shutdownTimer = null;
+  }
+  return acceptSdkRoomPrompt(room, input);
+}
+
+/**
+ * @param {{ chat: object, runId?: string }} input
+ */
+export async function cancelSdkChatRun(input: SdkCancelRunInput) {
+  const sessionKey = String(input.chat?.cursorSessionId || '').trim();
+  const room = sdkRooms.get(sessionKey);
+  if (!room) return;
+  if (input.runId && room.currentRun?.id && room.currentRun.id !== input.runId) return;
+  if (typeof room.cancelCurrentRun === 'function') {
+    await room.cancelCurrentRun();
+    return;
+  }
+  if (room._setupAbort && typeof room._setupAbort.abort === 'function') {
+    room._setupAbort.abort();
+  }
+  const run = room.currentRun;
+  if (run && typeof run.cancel === 'function') {
+    await run.cancel();
+  }
+}
+
+registerChatRunAdapter({
+  transport: 'sdk',
+  start: startSdkChatRun,
+  cancel: cancelSdkChatRun,
+  getState({ chat, runId }: SdkCancelRunInput) {
+    const room = sdkRooms.get(String(chat?.cursorSessionId || ''));
+    if (!room) return null;
+    if (runId && room.currentRun?.id && room.currentRun.id !== runId) return null;
+    return {
+      runId: String(room.currentRun?.id || room.lastRunId || ''),
+      busy: !!room.busy,
+    };
+  },
+});
+
+/**
+ * @param {import('ws').WebSocket} ws
+ * @param {string} sessionKey
+ * @param {{ workspaceDirForAgent: (p: string | null) => string, todoSyncDataDir?: string, onRunFinished?: Function }} deps
+ */
+export async function handleAgentSdkWebSocket(ws: SdkWs, sessionKey: string, deps: SdkEnsureDeps) {
+  const ensured = await ensureSdkRoom(sessionKey, deps);
+  if ('error' in ensured) {
+    const code = ensured.code;
+    if (code === 'missing_api_key') {
+      if (ws.readyState === 1) {
+        ws.send(JSON.stringify({
+          type: 'sdkError',
+          code: 'missing_api_key',
+          message: msg(null, 'sdk.noApiKey'),
+        }));
+      }
+      ws.close();
+      return;
+    }
+    if (code === 'chat_not_found') {
+      sendSdkChatNotFoundAndClose(ws, msg(null, 'sdk.chatNotFound'));
+      return;
+    }
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({
+        type: 'sdkError',
+        code: code === 'no_cwd' ? 'no_cwd' : 'invalid_session',
+        message: code === 'no_cwd' ? msg(null, 'sdk.noWorkspaceDir') : msg(null, 'sdk.chatNotFound'),
+      }));
+    }
+    ws.close();
+    return;
+  }
+  let { room, chat, roomDeps } = ensured;
+
+  if (room._shutdownTimer) {
+    clearTimeout(room._shutdownTimer);
+    room._shutdownTimer = null;
+  }
+  room.clients.add(ws);
+  subscribeChatHistoryUpdates(room.chatId, ws);
+  initAgentPresenceBus();
+  subscribeChatListUpdates(ws, ws._chatListScope);
+  ensureRoomStateHeartbeat(room);
+
+  /**
+   * Upgrades a remote stub when owner lease expired, or rejects mutating ops.
+   *
+   * @returns {Promise<boolean>}
+   */
+  async function ensureRoomCanMutate() {
+    const resolved = await resolveMutableSdkRoom(sessionKey, chat, room, roomDeps, () =>
+      sendRemoteRoomStubError(ws, room)
+    );
+    if (!resolved.ok) return false;
+    room = resolved.room;
+    if (room !== resolved.previousRoom) room.clients.add(ws);
+    if (resolved.upgraded) {
+      bindSdkPromptRunner(room, chat, roomDeps);
+      ensureRoomStateHeartbeat(room);
+    }
+    return true;
+  }
+
+  if (ws.readyState === 1) {
+    const runOutcome = readSdkRoomRunOutcome(room);
+    ws.send(
+      JSON.stringify({
+        type: 'hello',
+        transport: 'cursor-sdk',
+        sessionKey,
+        agentId: room.agent?.agentId || null,
+        modelId: room.modelId,
+        sdkMode: room.sdkMode,
+        eventStreamId: room.eventStreamId,
+        replayTagged: true,
+        busy: !!room.busy,
+        hasCurrentRun: !!room.currentRun,
+        remoteStub: isSdkRemoteRoomStub(room),
+        ownerInstanceId: room.ownerInstanceId || null,
+        queuedPrompts: room.pendingPrompts.map((item: SdkPromptItem) => resolveQueuedPromptUiText(item)),
+        lastRunId: runOutcome.lastRunId || null,
+        lastRunStatus: runOutcome.lastRunStatus || null,
+        lastRunStatusNormalized: runOutcome.lastRunStatusNormalized || null,
+        lastErrorCode: runOutcome.lastErrorCode || null,
+        lastErrorMessage: runOutcome.lastErrorMessage || null,
+        requestedModelId: room._lastRequestedModelId || room.modelId || null,
+        effectiveModelId: room._lastEffectiveModelId || room._agentModelId || room.modelId || null,
+        strictModelRequested: room._strictModelRequested === true,
+        strictModelActive: isStrictFastSdkModel(room._lastRequestedModelId || room.modelId),
+        lastModelFallback:
+          room._lastModelFallback && typeof room._lastModelFallback === 'object'
+            ? room._lastModelFallback
+            : null,
+      })
+    );
+    if (Array.isArray(room.eventLog) && room.eventLog.length > 0) {
+      scheduleEventLogReplay(room, ws);
+    }
+    sendSdkRoomState(room);
+  }
+  ws.on('message', (raw: RawData) => {
+    let msg = null;
+    try {
+      msg = JSON.parse(raw.toString());
+    } catch {
+      return;
+    }
+    if (!msg || typeof msg !== 'object') {
+      return;
+    }
+    if (msg.type === 'ping') {
+      if (ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: 'pong' }));
+      }
+      return;
+    }
+    if (msg.type === 'warmup') {
+      if (room.busy || isSdkRemoteRoomStub(room) || typeof room.connectAgent !== 'function') return;
+      const currentChat = getChatByCursorSessionId(sessionKey) || chat;
+      room.modelId = normalizeCatalogModelValue(currentChat?.model || room.modelId) || 'auto';
+      room.modelSelection = resolveSdkModelSelection(room.modelId);
+      room.sdkMode = normalizeSdkMode(currentChat?.sdkMode || room.sdkMode);
+      if (shouldSkipSdkAgentResumeForModelChange(room, room.modelId)) {
+        clearSdkAgentBinding(room, sessionKey);
+      }
+      void room.connectAgent(room.sdkMode)
+        .then(() => room.connectAgent(room.sdkMode))
+        .then((agent: SdkAgent) => {
+          if (!agent || room.busy) return;
+          broadcastRoom(room, {
+            type: 'sdkAgent',
+            agentId: agent.agentId,
+            modelId: room.modelId,
+            sdkMode: room.sdkMode,
+          });
+        })
+        .catch(() => {});
+      return;
+    }
+    if (msg.type === 'cancel') {
+      void (typeof room.cancelCurrentRun === 'function' ? room.cancelCurrentRun() : Promise.resolve());
+      return;
+    }
+    if (msg.type === 'setSdkMode') {
+      void (async () => {
+        if (!(await ensureRoomCanMutate())) return;
+        const mode = normalizeSdkMode(msg.mode);
+        const previousMode = normalizeSdkMode(room.sdkMode);
+        room.sdkMode = mode;
+        const currentChat = getChatByCursorSessionId(sessionKey);
+        if (currentChat?.id) {
+          updateChat(currentChat.id, { sdkMode: mode });
+        }
+        if (previousMode !== mode && room.agent && !room.busy) {
+          try {
+            room.agent.close();
+          } catch {
+            // Guard clause: the SDK session resumes on the next prompt with the new mode.
+          }
+          room.agent = null;
+        }
+        if (previousMode !== mode) {
+          broadcastRoom(room, { type: 'sdkMode', mode });
+        }
+      })();
+      return;
+    }
+    if (msg.type === 'send' && typeof msg.text === 'string') {
+      void (async () => {
+        if (!(await ensureRoomCanMutate())) return;
+        void room.startPrompt(msg.text, msg.mode, false, msg.clientSentAt, readClientDisplayText(msg), undefined, readClientSkillSelection(msg));
+      })();
+      return;
+    }
+    if (msg.type === 'steer' && typeof msg.text === 'string') {
+      void (async () => {
+        if (!(await ensureRoomCanMutate())) return;
+        if (typeof room.steerPrompt === 'function') {
+          await room.steerPrompt(msg.text, msg.mode, msg.clientSentAt, readClientDisplayText(msg), readClientSkillSelection(msg));
+          return;
+        }
+        void room.startPrompt(msg.text, msg.mode, false, msg.clientSentAt, readClientDisplayText(msg), undefined, readClientSkillSelection(msg));
+      })();
+      return;
+    }
+    if (msg.type === 'queueRemove' && typeof msg.text === 'string') {
+      const target = String(msg.text).trim();
+      if (!target) return;
+      const idx = room.pendingPrompts.findIndex((item: SdkPromptItem) => isQueuedPromptText(item, target));
+      if (idx >= 0) {
+        room.pendingPrompts.splice(idx, 1);
+        broadcastRoom(room, { type: 'sdkQueueRemoved', text: target });
+      }
+      return;
+    }
+    if (msg.type === 'queueForceSend' && typeof msg.text === 'string') {
+      const target = String(msg.text).trim();
+      if (!target) return;
+      let idx = room.pendingPrompts.findIndex((item: SdkPromptItem) => isQueuedPromptText(item, target));
+      if (idx < 0) {
+        const freshChat = getChatByCursorSessionId(sessionKey);
+        const mode = normalizeSdkMode(freshChat?.sdkMode ?? room.sdkMode);
+        room.pendingPrompts.push({ text: target, mode, clientSentAt: null });
+        idx = room.pendingPrompts.length - 1;
+      }
+      const [item] = room.pendingPrompts.splice(idx, 1);
+      room.pendingPrompts.unshift(item);
+      if (room.currentRun && typeof room.currentRun.cancel === 'function') {
+        void room.currentRun.cancel();
+        return;
+      }
+      if (!room.busy) {
+        drainOnePendingPrompt(room, (next) => {
+          schedulePendingPromptRun(next as PendingPromptItem, (item: SdkPromptItem) => {
+            void room.startPrompt(item.text, item.mode, true, item.clientSentAt ?? null, item.displayText, undefined, item.selection);
+          });
+        });
+      }
+      return;
+    }
+  });
+
+  ws.on('close', () => {
+    cancelWsReplayBatch(ws);
+    room.clients.delete(ws);
+    if (room.clients.size === 0) {
+      scheduleRoomShutdown(sessionKey);
+    }
+  });
+}
+
+/**
+ * Returns a diagnostic snapshot of an SDK room (without leaking keys/functions).
+ *
+ * @param {string} sessionKey
+ * @returns {Record<string, unknown>|null}
+ */
+export function getSdkRoomDiag(sessionKey: string) {
+  if (!sessionKey) return null;
+  const room = sdkRooms.get(sessionKey);
+  if (!room) return null;
+  const now = Date.now();
+  const lastEventAt = Number.isFinite(room.lastEventAt) ? room.lastEventAt : null;
+  const lastEventAgoMs = lastEventAt ? now - lastEventAt : null;
+  const entries = Array.isArray(room.eventLog) ? room.eventLog : [];
+  const lastEntry = entries.length > 0 ? entries[entries.length - 1] : null;
+  const lastPayload = lastEntry?.payload && typeof lastEntry.payload === 'object' ? lastEntry.payload : null;
+  const recentPayloads = entries.slice(-5).map((entry: Record<string, unknown>) => {
+    const payload = entry?.payload && typeof entry.payload === 'object' ? entry.payload : null;
+    return payload;
+  }).filter(Boolean);
+  const recentEvents = recentPayloads.map((payload: Record<string, unknown>) => ({
+    type: typeof payload.type === 'string' ? payload.type : null,
+    status: typeof payload.status === 'string' ? payload.status : null,
+    code: typeof payload.code === 'string' ? payload.code : null,
+    message: typeof payload.message === 'string' ? payload.message.slice(0, 240) : null,
+    runId: typeof payload.runId === 'string' ? payload.runId : null,
+  }));
+  const lastRunEvent = [...recentPayloads].reverse().find((payload) => payload.type === 'sdkRunFinished') || null;
+  const lastErrorEvent = [...recentPayloads].reverse().find((payload) => payload.type === 'sdkError') || null;
+  const rawLastRunStatus =
+    typeof lastRunEvent?.status === 'string' ? lastRunEvent.status.trim() : '';
+  const normalizedLastRunStatus = normalizeSdkRunStatus(rawLastRunStatus);
+  const requestedModelId =
+    typeof room?._lastRequestedModelId === 'string' && room._lastRequestedModelId.trim()
+      ? room._lastRequestedModelId.trim()
+      : room.modelId || null;
+  const effectiveModelId =
+    typeof room?._lastEffectiveModelId === 'string' && room._lastEffectiveModelId.trim()
+      ? room._lastEffectiveModelId.trim()
+      : typeof room?._agentModelId === 'string' && room._agentModelId.trim()
+        ? room._agentModelId.trim()
+        : room.modelId || null;
+  const strictModelRequested = room?._strictModelRequested === true;
+  const strictModelActive = isStrictFastSdkModel(requestedModelId);
+  const rawLastModelFallback =
+    room?._lastModelFallback && typeof room._lastModelFallback === 'object'
+      ? room._lastModelFallback
+      : null;
+  const lastModelFallback = rawLastModelFallback
+    ? {
+        attemptedModelId:
+          typeof rawLastModelFallback.attemptedModelId === 'string'
+            ? rawLastModelFallback.attemptedModelId.trim()
+            : null,
+        fallbackModelId:
+          typeof rawLastModelFallback.fallbackModelId === 'string'
+            ? rawLastModelFallback.fallbackModelId.trim()
+            : null,
+        applied: rawLastModelFallback.applied === true,
+        blockedByStrict: rawLastModelFallback.blockedByStrict === true,
+        reason:
+          typeof rawLastModelFallback.reason === 'string'
+            ? rawLastModelFallback.reason.trim() || null
+            : null,
+        at: Number.isFinite(rawLastModelFallback.at) ? Number(rawLastModelFallback.at) : null,
+      }
+    : null;
+  const usagePayload = findLastUsageEventPayload(entries, room._lastUsagePayload);
+  const usageInputTokens = readReportedTokenCount(usagePayload?.inputTokens);
+  const usageOutputTokens = readReportedTokenCount(usagePayload?.outputTokens);
+  const usageTotalTokens = readReportedTokenCount(usagePayload?.totalTokens);
+  const usageCacheReadTokens = readReportedTokenCount(usagePayload?.cacheReadTokens);
+  const usageCacheWriteTokens = readReportedTokenCount(usagePayload?.cacheWriteTokens);
+  const usageReasoningTokens = readReportedTokenCount(usagePayload?.reasoningTokens);
+  const effectiveUsageInputTokens = estimateEffectiveUsageInputTokens(
+    usageInputTokens,
+    usageCacheReadTokens
+  );
+  const setupStartedAt = Number.isFinite(room._setupStartedAt) ? room._setupStartedAt : null;
+  const setupAgoMs = setupStartedAt ? now - setupStartedAt : null;
+  const stuckInSetup = !!room.busy && !room.currentRun;
+  return {
+    exists: true,
+    sessionKey,
+    isRemoteStub: isSdkRemoteRoomStub(room),
+    ownerInstanceId: room.ownerInstanceId || null,
+    busy: !!room.busy,
+    stuckInSetup,
+    setupPhase: stuckInSetup && typeof room._setupPhase === 'string' ? room._setupPhase : null,
+    setupAgoMs,
+    sdkMode: room.sdkMode || null,
+    modelId: room.modelId || null,
+    requestedModelId,
+    effectiveModelId,
+    strictModelRequested,
+    strictModelActive,
+    lastModelFallback,
+    agentId: room.agent?.agentId || null,
+    hasAgent: !!room.agent,
+    agentConnecting: !!room._agentConnectPromise,
+    hasCurrentRun: !!room.currentRun,
+    clients: room.clients ? room.clients.size : 0,
+    queuedCount: Array.isArray(room.pendingPrompts) ? room.pendingPrompts.length : 0,
+    queued: Array.isArray(room.pendingPrompts)
+      ? room.pendingPrompts.map((item: SdkPromptItem) => ({ text: item?.text || '', mode: item?.mode || null }))
+      : [],
+    eventLogCount: Array.isArray(room.eventLog) ? room.eventLog.length : 0,
+    lastEventAt,
+    lastEventAgoMs,
+    lastEventSeq: Number.isFinite(room.eventSeq) ? room.eventSeq : null,
+    lastEventType: lastEntry?.payload?.type || null,
+    lastEventStatus: typeof lastPayload?.status === 'string' ? lastPayload.status : null,
+    lastEventCode: typeof lastPayload?.code === 'string' ? lastPayload.code : null,
+    lastEventMessage: typeof lastPayload?.message === 'string' ? lastPayload.message.slice(0, 240) : null,
+    lastRunTimings:
+      room.lastRunTimings && typeof room.lastRunTimings === 'object'
+        ? { ...room.lastRunTimings }
+        : null,
+    lastRunStatus: rawLastRunStatus || null,
+    lastRunStatusNormalized: normalizedLastRunStatus || null,
+    lastRunId: typeof lastRunEvent?.runId === 'string' ? lastRunEvent.runId : null,
+    lastErrorCode: typeof lastErrorEvent?.code === 'string' ? lastErrorEvent.code : null,
+    lastErrorMessage: typeof lastErrorEvent?.message === 'string' ? lastErrorEvent.message.slice(0, 240) : null,
+    lastUsageInputTokens: Number.isFinite(effectiveUsageInputTokens)
+      ? effectiveUsageInputTokens
+      : Number.isFinite(usageInputTokens)
+        ? usageInputTokens
+        : null,
+    rawLastUsageInputTokens: Number.isFinite(usageInputTokens) ? usageInputTokens : null,
+    lastUsageOutputTokens: Number.isFinite(usageOutputTokens) ? usageOutputTokens : null,
+    lastUsageTotalTokens: Number.isFinite(usageTotalTokens) ? usageTotalTokens : null,
+    lastUsageCacheReadTokens: Number.isFinite(usageCacheReadTokens) ? usageCacheReadTokens : null,
+    lastUsageCacheWriteTokens: Number.isFinite(usageCacheWriteTokens) ? usageCacheWriteTokens : null,
+    lastUsageReasoningTokens: Number.isFinite(usageReasoningTokens) ? usageReasoningTokens : null,
+    recentEvents,
+    shutdownScheduled: !!room._shutdownTimer,
+    backpressureSkipCount: Number(room._backpressureSkipCount) || 0,
+    maxClientBufferedBytes: room.clients
+      ? getMaxClientBufferedAmount(room.clients)
+      : 0,
+    backpressureThresholdBytes: WS_BACKPRESSURE_THRESHOLD_BYTES,
+  };
+}

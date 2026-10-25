@@ -1,0 +1,19 @@
+{
+  "_note": "Sanitized shape of a DeepSeek chat-completions wire usage object (not a live capture). Values are invented.",
+  "wireUsage": {
+    "prompt_tokens": 1000,
+    "completion_tokens": 50,
+    "total_tokens": 1050,
+    "prompt_cache_hit_tokens": 600,
+    "prompt_cache_miss_tokens": 400,
+    "prompt_tokens_details": {"cached_tokens": 600},
+    "completion_tokens_details": {"reasoning_tokens": 10}
+  },
+  "dshTokenUsage": {
+    "inputTokens": 400,
+    "outputTokens": 50,
+    "totalTokens": 1050,
+    "cacheReadTokens": 600,
+    "reasoningTokens": 10
+  }
+}

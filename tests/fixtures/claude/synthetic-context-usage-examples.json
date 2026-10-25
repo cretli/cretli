@@ -1,0 +1,196 @@
+{
+  "_provenance": {
+    "class": "synthetic-contract-example",
+    "shapeSource": "@anthropic-ai/claude-agent-sdk 0.3.284 sdk.d.ts: SDKControlGetContextUsageResponse (sdk.d.ts:3933, [DECLARED] shape) and SDKContextUsage (sdk.d.ts:3763). The published reference page was NOT fetched.",
+    "status": "NOT OBSERVED ANYWHERE IN CRETLI. Cretli never calls getContextUsage() and never reads context_usage (0 occurrences in lib/, app_front/, server.js), so there is no production sample of either shape in this workspace. These objects exist to make the units and the denominator explicit before leaf a0003cfd picks this as its source.",
+    "sanitization": "paths, server names and model labels are generic placeholders"
+  },
+  "getContextUsageResponse": {
+    "comment": "Pull-only control reply per its declaration (a method returning a Promise). Field semantics of totalTokens/maxTokens/rawMaxTokens/percentage/apiUsage are [UNKNOWN]: no JSDoc in sdk.d.ts:3933-4023. Values are illustrative.",
+    "model": "claude-sonnet-5-5",
+    "totalTokens": 96000,
+    "maxTokens": 200000,
+    "rawMaxTokens": 200000,
+    "percentage": 48,
+    "categories": [
+      {
+        "name": "System prompt",
+        "tokens": 4200,
+        "color": "#007acc",
+        "kind": "used"
+      },
+      {
+        "name": "Tools",
+        "tokens": 7800,
+        "color": "#4ec9b0",
+        "kind": "used"
+      },
+      {
+        "name": "MCP tools (deferred)",
+        "tokens": 12000,
+        "color": "#858585",
+        "kind": "deferred",
+        "isDeferred": true
+      },
+      {
+        "name": "Messages",
+        "tokens": 84000,
+        "color": "#d4d4d4",
+        "kind": "used"
+      },
+      {
+        "name": "Autocompact buffer",
+        "tokens": 16000,
+        "color": "#f48771",
+        "kind": "buffer"
+      },
+      {
+        "name": "Free space",
+        "tokens": 88000,
+        "color": "#252526",
+        "kind": "free"
+      }
+    ],
+    "apiUsage": {
+      "input_tokens": 84000,
+      "output_tokens": 512,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 83000
+    },
+    "isAutoCompactEnabled": true,
+    "autoCompactThreshold": 160000,
+    "memoryFiles": [
+      {
+        "path": "QWEN.md",
+        "type": "Project",
+        "tokens": 1800
+      }
+    ],
+    "mcpTools": [
+      {
+        "name": "mcp__example__lookup",
+        "serverName": "example",
+        "tokens": 900,
+        "isLoaded": true
+      }
+    ],
+    "agents": [
+      {
+        "agentType": "general-purpose",
+        "source": "projectSettings",
+        "tokens": 600
+      }
+    ],
+    "gridRows": [],
+    "messageBreakdown": {
+      "toolCallTokens": 9000,
+      "toolResultTokens": 21000,
+      "attachmentTokens": 1500,
+      "assistantMessageTokens": 40000,
+      "userMessageTokens": 14000,
+      "redirectedContextTokens": 0,
+      "unattributedTokens": 0,
+      "toolCallsByType": [
+        {
+          "name": "Bash",
+          "callTokens": 400,
+          "resultTokens": 6000
+        }
+      ],
+      "attachmentsByType": [
+        {
+          "name": "file",
+          "tokens": 1500
+        }
+      ]
+    }
+  },
+  "unitDecisionsThisShapeCarries": {
+    "_note": "Renamed in round 3 from decisions to open questions: only the type is [DECLARED]; semantics are [UNKNOWN] unless stated.",
+    "totalTokens": "[DECLARED] number (sdk.d.ts:3944); semantics and unit [UNKNOWN] (no JSDoc); [INFERRED] tokens from the name",
+    "maxTokens": "[DECLARED] number; semantics [UNKNOWN] (whether it can be a compaction window is not established)",
+    "percentage": "[DECLARED] number (sdk.d.ts:3947); scale and rounding [UNKNOWN] for this response (no JSDoc). For the sibling SDKContextUsage.percentage the JSDoc reads 'Rounded total_tokens / raw_max_tokens, 0-100+' (sdk.d.ts:3777)",
+    "categories[].kind": "[DECLARED] closed enum used|free|buffer|deferred; JSDoc (sdk.d.ts:3940) says classify on kind, never on the English name",
+    "apiUsage": "[DECLARED] object|null (sdk.d.ts:4021); semantics [UNKNOWN] (no JSDoc)",
+    "freshness": "[UNKNOWN] the declaration has no observedAt/source field"
+  },
+  "contextUsageOnAssistantFrame": {
+    "comment": "SDKAssistantMessage.context_usage (sdk.d.ts:3652), [DECLARED]. Which turns carry it is [UNKNOWN] (not read in round 3). Values are illustrative.",
+    "type": "assistant",
+    "session_id": "sess-placeholder-1",
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Context report (markdown elided)"
+        }
+      ]
+    },
+    "context_usage": {
+      "model": "claude-opus-5-5",
+      "total_tokens": 243000,
+      "raw_max_tokens": 200000,
+      "percentage": 122,
+      "over_limit": {
+        "tokens_over": 43000,
+        "kind": "compaction_window"
+      },
+      "categories": [
+        {
+          "name": "Messages",
+          "tokens": 200000,
+          "kind": "used"
+        },
+        {
+          "name": "Free space",
+          "tokens": 0,
+          "kind": "free"
+        },
+        {
+          "name": "Autocompact buffer",
+          "tokens": 43000,
+          "kind": "buffer"
+        }
+      ],
+      "mcp_tools": [],
+      "memory_files": [],
+      "agents": []
+    },
+    "declaredWarnings": [
+      "[OBSERVED] JSDoc sdk.d.ts:3769: total_tokens is unclamped and may exceed raw_max_tokens when over limit",
+      "[OBSERVED] JSDoc sdk.d.ts:3781: over_limit.kind says how the window was resolved, not whether the API will accept the next request",
+      "[UNKNOWN] presence conditions of the field; absence of the field must not be read as zero context"
+    ]
+  },
+  "partialAndDegenerateReplies": {
+    "comment": "Cases a consumer must tolerate; all are consistent with the declared optionality.",
+    "examples": [
+      {
+        "case": "no skills contribute tokens",
+        "absentKeys": [
+          "skills"
+        ]
+      },
+      {
+        "case": "zero-token category rows are normal",
+        "note": "renderers typically hide them; do not treat a zero row as missing data"
+      },
+      {
+        "case": "autoCompactThreshold optional",
+        "absentKeys": [
+          "autoCompactThreshold",
+          "deferredBuiltinTools",
+          "systemTools",
+          "systemPromptSections",
+          "slashCommands",
+          "messageBreakdown"
+        ]
+      },
+      {
+        "case": "apiUsage may be null",
+        "apiUsage": null
+      }
+    ]
+  }
+}

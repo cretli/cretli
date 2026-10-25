@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "picks": {
+    "p1": {
+      "createdAt": "2026-10-01T09:00:00.000Z", "leafId": "leaf-a", "role": "implement",
+      "complexity": { "level": "trivial", "signals": ["leaf_size_small"] },
+      "complexityShadow": { "backendId": "basal", "backendVersion": "basal-1.5", "level": "trivial",
+        "levelProbs": { "trivial": 0.8, "standard": 0.2, "demanding": 0 },
+        "risk": "none", "domain": "backend", "needsTests": false, "confidenceBucket": "medium" }
+    },
+    "p2": {
+      "createdAt": "2026-10-01T09:00:00.000Z", "leafId": "leaf-b", "role": "implement",
+      "complexity": { "level": "demanding", "signals": ["many_files"] },
+      "complexityShadow": { "backendId": "basal", "backendVersion": "basal-1.5", "level": "standard",
+        "levelProbs": { "trivial": 0.1, "standard": 0.7, "demanding": 0.2 },
+        "risk": "contract", "domain": "backend", "needsTests": true, "confidenceBucket": "medium" }
+    },
+    "p3": {
+      "createdAt": "2026-10-01T09:00:00.000Z", "leafId": "leaf-c", "role": "implement",
+      "complexity": { "level": "standard", "signals": ["risk_keywords"] },
+      "complexityShadow": { "backendId": "basal", "backendVersion": "basal-1.5", "level": "standard",
+        "levelProbs": { "trivial": 0.1, "standard": 0.6, "demanding": 0.3 },
+        "risk": "security", "domain": "mixed", "needsTests": true, "confidenceBucket": "medium" }
+    },
+    "p4": {
+      "createdAt": "2026-10-01T15:00:00.000Z", "leafId": "leaf-c", "role": "fix",
+      "complexity": { "level": "demanding", "signals": ["review_fail_history"] }
+    },
+    "p5": {
+      "createdAt": "2026-10-01T09:00:00.000Z", "leafId": "leaf-unknown", "role": "implement",
+      "complexity": { "level": "standard", "signals": [] }
+    }
+  }
+}

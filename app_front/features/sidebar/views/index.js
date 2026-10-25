@@ -1,0 +1,11 @@
+export { createSidebarView, planWorkspaceRebuild, resolveSidebarHarnessIcon } from '../sidebarView.js';
+export { createSidebarChrome } from './sidebarChrome.js';
+export { createSidebarChatRows } from './sidebarChatRows.js';
+export { createSidebarWorkspaceGroups } from './sidebarWorkspaceGroups.js';
+export { createSidebarPinnedSection } from './sidebarPinnedSection.js';
+export { createSidebarSignature } from './sidebarSignature.js';
+export { createSidebarPatch } from './sidebarPatch.js';
+export { createSidebarRender } from './sidebarRender.js';
+export { createSidebarBodyEvents } from './sidebarBodyEvents.js';
+export { createSidebarGestures } from './sidebarGestures.js';
+export { onSidebarBodyKeydown, ensureChatListRovingTabindex, resolveNextItemIndex } from './sidebarBodyKeyboard.js';

@@ -1,0 +1,12 @@
+{
+  "apiVersion": 1,
+  "id": "codebuddy",
+  "version": "1.0.0",
+  "hostMin": "0.1.0",
+  "label": "CodeBuddy",
+  "description": "Tencent CodeBuddy Agent SDK (@tencent-ai/agent-sdk) plus the codebuddy CLI.",
+  "origin": "builtin-optional",
+  "defaultEnabled": true,
+  "entries": { "light": "./light.js", "heavy": "./heavy.js", "front": "./front.js" },
+  "capabilities": { "chat": true, "models": true }
+}

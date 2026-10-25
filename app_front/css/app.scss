@@ -1,0 +1,112 @@
+@use './tokens';
+@use './cr-recipes';
+@use './base/global';
+@use './features/settings/delegation';
+@use './features/settings/widgets';
+@use './features/settings/mcp';
+@use './layout/terminal-panel';
+@use './features/tasks/task-picker';
+@use './features/files/files-tree';
+@use './features/todo/todo-list';
+@use './features/todo/todo-card-and-dialog';
+@use './features/git/git-panel';
+@use './features/browser/browser-panel';
+@use './layout/debug-overlay';
+@use './features/chat/chat-toolbar-and-modals';
+@use './features/chat/new-chat-dialog';
+@use './features/chat/restart-modal-and-send-bar';
+@use './features/chat/sdk-rich-chat';
+@use './features/settings/usage';
+@use './features/settings/terminal';
+@use './features/settings/notifications';
+@use './features/chat/send-bar-extra';
+@use './layout/kib-fullscreen-embed';
+@use './features/sidebar/sidebar';
+@use './base/reduced-motion';
+@use './features/settings/harness';
+@use './features/todo/todo-editor';
+@use './features/todo/todo-usage';
+@use './features/settings/harness-diagnostics';
+
+.todo-lock-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--cr-border);
+  background: var(--cr-surface);
+  color: var(--cr-text-muted);
+  font-size: var(--cr-font-size-legacy-078);
+}
+
+.todo-lock-notice[hidden] {
+  display: none;
+}
+
+.todo-lock-notice-text {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+/* Chat recovery banner and per-run resume actions (sdk-rich view). */
+.sdk-rich-recovery-banner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+  margin: 0 0 var(--cr-space-2);
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--cr-border);
+  border-left: 3px solid var(--cr-warn);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+}
+
+.sdk-rich-recovery-banner[hidden] {
+  display: none;
+}
+
+.sdk-rich-recovery-banner-title {
+  font-size: var(--cr-font-size-md);
+  color: var(--cr-text);
+}
+
+.sdk-rich-recovery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+  min-width: 0;
+}
+
+.sdk-rich-recovery-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+}
+
+.sdk-rich-recovery-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cr-space-1);
+  min-width: 0;
+}
+
+.sdk-rich-recovery-status {
+  color: var(--cr-text-muted);
+  font-size: var(--cr-font-size-sm);
+}
+
+.sdk-rich-recovery-feedback {
+  margin: 0;
+  font-size: var(--cr-font-size-sm);
+  color: var(--cr-text-muted);
+}
+
+.sdk-rich-recovery-feedback[data-tone='error'] {
+  color: var(--cr-error);
+}
+
+.sdk-rich-recovery-feedback[data-tone='success'] {
+  color: var(--cr-success);
+}

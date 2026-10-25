@@ -1,0 +1,35 @@
+{
+  "profile": "data-backup-v1",
+  "manifestFormatVersion": 1,
+  "archiveContractRevision": "2026-10-13.1",
+  "archiveId": "d4e5f6a7-b8c9-4012-8345-678901234567",
+  "createdAt": "2025-06-01T08:00:00Z",
+  "cretliVersion": "0.3.0",
+  "persistence": {
+    "backend": "json-chat-history",
+    "schemaVersions": {
+      "chat-history": 1,
+      "settings": 1
+    },
+    "bootstrapMarker": "data/chat-history/.backend",
+    "legacyReaderId": "chat-history-json-v1",
+    "forwardMigrationId": "chat-history-to-sqlite-v2"
+  },
+  "categories": [
+    {
+      "categoryId": "chat-history-tree",
+      "path": "stores/chat-history/tree.tar",
+      "byteSize": 1048576,
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "storeId": "chat-history",
+      "backend": "json-documents",
+      "schemaVersion": 1,
+      "recordCounts": { "chats": 5, "events": 900 }
+    }
+  ],
+  "omissions": [],
+  "totals": {
+    "uncompressedBytes": 1048576,
+    "categoryCount": 1
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "cretli-front",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "devDependencies": {
+    "css-loader": "^7.1.5",
+    "esbuild-loader": "^4.5.0",
+    "mini-css-extract-plugin": "^2.10.1",
+    "sass": "^1.69.0",
+    "sass-loader": "^13.3.2",
+    "style-loader": "^3.3.3",
+    "webpack": "^5.110.3",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "@floating-ui/dom": "^1.7.6",
+    "@lit-labs/signals": "0.3.0",
+    "@mdi/font": "^7.4.47",
+    "@xterm/addon-canvas": "^0.7.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.4.0",
+    "highlight.js": "^11.11.1",
+    "lit": "^3.3.3",
+    "markdown-it": "^15.0.1",
+    "mermaid": "^11.16.0"
+  },
+  "scripts": {
+    "build": "node scripts/webpack-cli-watch.mjs --config webpack.prod.js --no-watch",
+    "build:dev": "node scripts/webpack-cli-watch.mjs --config webpack.dev.js --no-watch",
+    "watch:front": "node scripts/webpack-cli-watch.mjs --config webpack.dev.js",
+    "watch:widget": "node scripts/webpack-cli-watch.mjs --config webpack.widget.dev.js",
+    "dev": "npm run watch:front",
+    "dev:widget": "npm run watch:widget",
+    "build:widget": "webpack --config webpack.widget.dev.js --no-watch",
+    "prod": "node scripts/webpack-cli-watch.mjs --config webpack.prod.js --no-watch"
+  }
+}

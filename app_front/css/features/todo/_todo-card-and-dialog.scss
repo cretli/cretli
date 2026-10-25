@@ -1,0 +1,727 @@
+/* Compact worktree/branch chip on a task card; opens the Git panel. */
+.todo-item-git-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.72rem;
+  font-family: var(--cr-font-mono);
+  color: var(--cr-text-muted);
+  background: var(--cr-surface-inset);
+  border: 1px solid var(--cr-border-control);
+  border-radius: var(--cr-radius-sm);
+  cursor: pointer;
+  transition: var(--cr-transition);
+}
+
+.todo-item-git-chip:hover {
+  color: var(--cr-text);
+  border-color: var(--cr-accent);
+}
+
+.todo-row-mark[data-mark='ready'] {
+  color: var(--cr-success);
+}
+
+.todo-row--ready .todo-item-status-icon {
+  color: var(--cr-ready);
+}
+
+.todo-row--doing .todo-item-status-icon {
+  color: var(--cr-warn);
+}
+
+.todo-row--done .todo-item-status-icon,
+.todo-item-status-icon.mdi-check-decagram-outline {
+  color: var(--cr-success);
+}
+
+.todo-editor {
+  display: block;
+  min-width: 0;
+}
+
+/* The dialog keeps the header + tab bar fixed and scrolls only the active
+ * panel, so the whole card must not scroll a second time. */
+.todo-editor-dialog .todo-item {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* Leave room for the dialog title and padding so a short (landscape) viewport
+   * does not add a page scroll on top of the panel scroll. */
+  max-height: min(calc(100vh - 8rem), 44rem);
+  max-height: min(calc(100dvh - 8rem), 44rem);
+  overflow: hidden;
+}
+
+/* On phones the 44rem cap leaves most of the viewport empty and squeezes the
+ * editable panel (long header + worktree card). Let the editor grow into the
+ * height that is actually available. */
+@media (max-width: 768px) {
+  .todo-editor-dialog .todo-item {
+    max-height: calc(100vh - 8rem);
+    max-height: calc(100dvh - 8rem);
+  }
+}
+
+cr-todo-card.todo-card {
+  display: block;
+  min-width: 0;
+}
+
+.todo-editor-tabs {
+  flex: 0 0 auto;
+  margin: 0 -0.6rem;
+}
+
+/* The editor has only four short tabs; wrapping beats a hidden horizontal
+ * scroll on narrow screens (a clipped "Settings" tab reads as broken). */
+@media (max-width: 768px) {
+  .todo-editor-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .todo-editor-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .todo-editor-tabs .todo-editor-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}
+
+.todo-editor-panels {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.todo-item-tabpanel {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.todo-item-tabpanel[hidden] {
+  display: none !important;
+}
+
+.todo-item-tab-empty {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-item-settings-actions {
+  display: flex;
+  justify-content: flex-start;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--cr-border);
+}
+
+.todo-item-settings-actions cr-bar-button {
+  width: auto;
+}
+
+.todo-editor-label {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cr-text-muted);
+}
+
+.todo-editor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--cr-space-2);
+}
+
+.todo-editor-grid .cr-field {
+  min-width: 0;
+}
+
+.todo-editor-grid cr-bar-select,
+.todo-editor-grid cr-bar-input {
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .todo-editor-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.todo-item {
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: 6px;
+  padding: 0.6rem;
+  background: var(--cr-surface-translucent);
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.todo-item-head {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.todo-item-status-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.todo-item-status-select {
+  flex-shrink: 0;
+}
+
+.todo-item-status-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  font-size: 18px;
+  line-height: 18px;
+  text-align: center;
+  color: var(--cr-neutral);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .todo-item-status-icon.mdi-spin {
+    animation: none;
+  }
+}
+
+.todo-item--ready .todo-item-status-icon {
+  color: var(--cr-ready);
+}
+
+.todo-item--doing .todo-item-status-icon {
+  color: var(--cr-warn);
+}
+
+.todo-item--done .todo-item-status-icon {
+  color: var(--cr-success);
+}
+
+/* The dropdown panel is portaled to <body>, so it has to clear the cr-dialog
+   backdrop (z-index 20100) or it opens behind any modal that hosts a select.
+   The selector is compound on purpose: the panel also carries .chat-list-modal,
+   whose rule sits further down this file and would otherwise win on order. */
+.chat-list-modal.cr-bar-select-modal {
+  z-index: 20200;
+}
+
+.todo-item-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+}
+
+/* The title is a one-line field: auto-grow does not apply here and the native
+ * resize grip would sit on top of the last line of text. */
+.todo-item-title::part(control) {
+  resize: none;
+  font-weight: 500;
+  font-size: 0.82rem;
+}
+
+/* Same for the notes editor: cr-bar-textarea auto-grows, a manual grip would
+ * fight it and overlap the text. */
+.todo-item-body-edit::part(control) {
+  resize: none;
+}
+
+.todo-item-idbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface-inset);
+  flex: 0 0 auto;
+}
+
+.todo-item-idbadge {
+  font-family: var(--cr-font-mono, monospace);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  color: var(--cr-text-muted);
+}
+
+.todo-item-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface-translucent);
+  color: var(--cr-text);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.todo-item-copy:hover {
+  border-color: var(--cr-border-strong);
+  color: var(--cr-accent);
+}
+
+.todo-item-copy .mdi {
+  font-size: 0.95rem;
+}
+
+.todo-item-hint {
+  margin: 0;
+}
+
+.todo-item-meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.1rem;
+  font-size: 0.72rem;
+  color: var(--cr-text-muted);
+  flex: 0 0 auto;
+}
+
+/* Separator lives inside the following chip, so wrapping keeps "·" attached to
+ * it instead of leaving it alone at the end of the previous line. */
+.todo-item-meta-line > * + *::before {
+  content: '·';
+  margin-right: 0.4rem;
+  opacity: 0.6;
+}
+
+.todo-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.todo-item-body-tabs {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
+.todo-item-body-tab {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  background: transparent;
+  color: var(--cr-text-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.todo-item-body-tab[aria-pressed='true'],
+.todo-item-body-tab[aria-selected='true'] {
+  border-color: var(--cr-accent);
+  color: var(--cr-accent);
+  background: var(--cr-surface-translucent);
+}
+
+.todo-item-body-preview {
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-bg);
+  min-height: var(--cr-toolbar-control-height);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.todo-item-body-empty {
+  color: var(--cr-text-muted);
+}
+
+.todo-item-chats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.todo-item-chats-title {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cr-text-muted);
+}
+
+.todo-item-chats-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.todo-item-chat {
+  min-width: 0;
+}
+
+.todo-item-chat-link,
+.todo-item-chat--deleted {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-bg);
+  color: var(--cr-text);
+  text-decoration: none;
+  min-width: 0;
+}
+
+.todo-item-chat-link:hover {
+  border-color: var(--cr-border-strong);
+}
+
+.todo-item-chat-link .mdi {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-item-chat--deleted {
+  border-style: dashed;
+  background: var(--cr-surface-inset);
+  color: var(--cr-text-muted);
+  opacity: 0.75;
+}
+
+.todo-item-chat-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.todo-item-chat-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+}
+
+.todo-item-chat-sub {
+  font-size: 0.7rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-item-history-chat {
+  display: inline-block;
+  margin-right: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--cr-text);
+}
+
+.todo-editor-assignee {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+}
+
+.todo-item-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  color: var(--cr-accent);
+  font-size: 0.78rem;
+  text-decoration: none;
+  min-width: 0;
+}
+
+.todo-item-source:hover {
+  text-decoration: underline;
+}
+
+.todo-item-source span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-item-history-link {
+  color: var(--cr-text-muted);
+  text-decoration: none;
+}
+
+.todo-item-history-link:hover {
+  color: var(--cr-accent);
+  text-decoration: underline;
+}
+
+.todo-item-plan,
+.todo-item-history {
+  margin-top: 0.45rem;
+}
+
+/* The plan is the primary artifact of a task tree, so it sits above the notes
+   instead of hiding below a long note body. */
+.todo-item-plan:first-child {
+  margin-top: 0;
+}
+
+.todo-item-plan + .todo-item-body {
+  margin-top: 0.45rem;
+}
+
+.todo-item-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.25rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--cr-text-muted);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.todo-item-section-toggle:hover,
+.todo-item-section-toggle[aria-expanded='true'] {
+  color: var(--cr-text);
+}
+
+.todo-item-section-toggle .mdi:last-child {
+  margin-left: auto;
+}
+
+.todo-item-meta {
+  color: var(--cr-text-muted);
+  font-size: 0.85em;
+}
+
+.todo-item-plan-body {
+  margin: 0.25rem 0 0;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-bg);
+  border: 1px solid var(--cr-border);
+  max-height: 24rem;
+  overflow: auto;
+}
+
+.todo-item-plan-approved {
+  color: var(--cr-success, #22c55e);
+  font-size: 1em;
+}
+
+.todo-item-plan-approve-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--cr-radius-sm);
+  border: 1px solid var(--cr-success, #22c55e);
+  background: transparent;
+  color: var(--cr-success, #22c55e);
+  font: inherit;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover {
+    background: color-mix(in srgb, var(--cr-success, #22c55e) 12%, transparent);
+  }
+}
+
+.todo-item-plan-body.files-preview-markdown :is(h1, h2, h3, h4):first-child {
+  margin-top: 0;
+}
+
+.todo-item-history-list {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.todo-item-history-entry {
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--cr-radius-sm);
+  border: 1px solid var(--cr-border);
+  background: var(--cr-bg);
+  font-size: 0.82rem;
+}
+
+.todo-item-history-kind {
+  display: inline-block;
+  margin-right: 0.35rem;
+  color: var(--cr-accent);
+  font-weight: 600;
+}
+
+.todo-item-history-text {
+  color: var(--cr-text-muted);
+  white-space: pre-wrap;
+}
+
+.todo-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: flex-start;
+  margin-top: auto;
+  padding-top: 0.35rem;
+  min-height: calc(var(--cr-toolbar-control-height) + 0.35rem);
+  border-top: 1px solid var(--cr-border);
+}
+
+.todo-item-actions .todo-item-agent,
+.todo-item-actions .todo-item-delete,
+.todo-item-actions .todo-item-newchat {
+  display: inline-flex;
+  align-items: stretch;
+  justify-content: stretch;
+  width: auto;
+  white-space: nowrap;
+}
+
+.todo-item-delete {
+  order: 0;
+}
+
+.todo-item-newchat {
+  order: 1;
+  margin-left: auto;
+}
+
+.todo-item-newchat-harness {
+  order: 2;
+  align-self: center;
+}
+
+.todo-item-agent {
+  order: 3;
+  margin-left: 0;
+}
+
+.todo-composer .todo-add-btn {
+  min-height: var(--cr-toolbar-control-height);
+}
+
+.git-toolbar.panel-toolbar {
+  justify-content: space-between;
+}
+
+.git-toolbar-actions {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.git-toolbar-actions[hidden] {
+  display: none;
+}
+
+.git-status-badge {
+  font-size: 0.75rem;
+  color: var(--cr-text-muted);
+  border: 1px solid var(--cr-border-control);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  background: var(--cr-surface-inset);
+}
+
+.git-status-badge--ok {
+  color: var(--cr-info);
+  border-color: var(--cr-info-border);
+}
+
+.git-status-badge--warn {
+  color: var(--cr-warn);
+  border-color: var(--cr-warn-border);
+}
+
+.git-status-badge--error {
+  color: var(--cr-error);
+  border-color: var(--cr-error-border);
+}
+
+.git-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.git-info {
+  display: grid;
+  grid-template-columns: minmax(6rem, auto) 1fr;
+  gap: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+}
+
+.git-info-row {
+  display: contents;
+}
+
+.git-info-label {
+  color: var(--cr-text-muted);
+}
+
+.git-info-value {
+  color: var(--cr-text);
+  word-break: break-all;
+}
+
+.todo-row--deferred .todo-item-status-icon,
+.todo-item--deferred .todo-item-status-icon {
+  color: var(--cr-text-muted);
+}
+
+.todo-deferred-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cr-space-1) var(--cr-space-2);
+  min-width: 0;
+  font-size: var(--cr-font-size-sm);
+  color: var(--cr-text-muted);
+}
+
+.todo-deferred-overdue {
+  color: var(--cr-error);
+}
+
+.todo-deferred-reason {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

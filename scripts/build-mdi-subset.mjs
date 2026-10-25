@@ -1,0 +1,214 @@
+/**
+ * Builds a Material Design Icons subset limited to the icons this project uses.
+ *
+ * The full @mdi/font package ships a 394 KB woff2 and a 339 KB stylesheet with
+ * ~7000 classes; the app renders a few dozen icons. This script scans the
+ * sources, verifies every icon name against the upstream codepoint map and
+ * writes app_front/css/generated/{mdi-subset.css, mdi-subset.woff2}.
+ *
+ * Icon names assembled at runtime cannot be found by scanning, so they must be
+ * listed in DYNAMIC_ICONS below.
+ *
+ * Runs on every front build (BuildMdiSubsetPlugin in the webpack configs) and as
+ * a CLI via `npm run build:mdi-subset`. The plugin re-scans on each watch compile
+ * and skips writing when the icon set is unchanged.
+ */
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
+import subsetFont from 'subset-font';
+
+const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// npm workspaces usually hoist to the root, but keep the local path as a fallback.
+const MDI_DIR_CANDIDATES = [
+  path.join(ROOT_DIR, 'node_modules', '@mdi', 'font'),
+  path.join(ROOT_DIR, 'app_front', 'node_modules', '@mdi', 'font'),
+];
+const OUTPUT_DIR = path.join(ROOT_DIR, 'app_front', 'css', 'generated');
+const SCAN_DIRS = [path.join(ROOT_DIR, 'app_front'), path.join(ROOT_DIR, 'public')];
+const SCAN_EXTENSIONS = new Set(['.js', '.mjs', '.html', '.css', '.scss', '.json']);
+const SKIP_DIRECTORIES = new Set(['node_modules', 'dist', 'generated', '.git']);
+
+/** Icons whose class name is built at runtime and cannot be detected by scanning. */
+const DYNAMIC_ICONS = [
+  // features/sidebar/sidebarView.js concatenates 'mdi-chevron-' + right|down.
+  'chevron-right',
+  'chevron-down',
+];
+
+/** Utility classes from the upstream stylesheet that the app relies on. */
+const NON_ICON_CLASSES = new Set([
+  'mdi', 'mdi-set', 'mdi-18px', 'mdi-24px', 'mdi-36px', 'mdi-48px',
+  'mdi-dark', 'mdi-light', 'mdi-inactive', 'mdi-spin',
+  'mdi-rotate-45', 'mdi-rotate-90', 'mdi-rotate-135', 'mdi-rotate-180',
+  'mdi-rotate-225', 'mdi-rotate-270', 'mdi-rotate-315',
+  'mdi-flip-h', 'mdi-flip-v',
+  // Name of the generated stylesheet imported by App.js, not an icon.
+  'mdi-subset',
+]);
+
+async function resolveMdiDir() {
+  for (const candidate of MDI_DIR_CANDIDATES) {
+    try {
+      await fs.access(path.join(candidate, 'scss', '_variables.scss'));
+      return candidate;
+    } catch (_) {}
+  }
+  throw new Error('@mdi/font not found — run npm install first');
+}
+
+async function readIconCodepoints(mdiDir) {
+  const scssPath = path.join(mdiDir, 'scss', '_variables.scss');
+  const source = await fs.readFile(scssPath, 'utf8');
+  const map = new Map();
+  const iconLine = /^\s*"([a-z0-9-]+)":\s*([0-9A-F]{4,6}),?\s*$/gm;
+  let match = iconLine.exec(source);
+  while (match) {
+    map.set(match[1], parseInt(match[2], 16));
+    match = iconLine.exec(source);
+  }
+  if (map.size === 0) throw new Error(`No icon codepoints found in ${scssPath}`);
+  return map;
+}
+
+async function listSourceFiles(dir) {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith('.') && entry.name !== '.well-known') continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (SKIP_DIRECTORIES.has(entry.name)) continue;
+      files.push(...(await listSourceFiles(full)));
+      continue;
+    }
+    if (!SCAN_EXTENSIONS.has(path.extname(entry.name))) continue;
+    files.push(full);
+  }
+  return files;
+}
+
+async function collectUsedIcons() {
+  const used = new Set(DYNAMIC_ICONS);
+  const dynamicHits = [];
+  for (const dir of SCAN_DIRS) {
+    const files = await listSourceFiles(dir);
+    for (const file of files) {
+      const source = await fs.readFile(file, 'utf8');
+      for (const match of source.matchAll(/\bmdi-([a-z0-9-]+)/g)) {
+        const className = `mdi-${match[1]}`;
+        if (NON_ICON_CLASSES.has(className)) continue;
+        // A trailing dash means the name is completed at runtime, e.g.
+        // 'mdi-chevron-' + (collapsed ? 'right' : 'down').
+        if (match[1].endsWith('-')) {
+          dynamicHits.push(`${path.relative(ROOT_DIR, file)}: ${className}…`);
+          continue;
+        }
+        used.add(match[1]);
+      }
+    }
+  }
+  return { used, dynamicHits };
+}
+
+async function isSubsetUnchanged(cssPath, woffPath, icons) {
+  try {
+    await fs.access(woffPath);
+    const existingCss = await fs.readFile(cssPath, 'utf8');
+    const existingIcons = [...existingCss.matchAll(/^\.mdi-([a-z0-9-]+)::before \{ content:/gm)]
+      .map((match) => match[1])
+      .sort();
+    return existingIcons.length === icons.length
+      && existingIcons.every((name, index) => name === icons[index]);
+  } catch (_) {
+    return false;
+  }
+}
+
+function buildStylesheet(icons, codepoints) {
+  const faceRules = [
+    '/* Generated by scripts/build-mdi-subset.mjs — do not edit. */',
+    '@font-face {',
+    '  font-family: "Material Design Icons";',
+    '  src: url("./mdi-subset.woff2") format("woff2");',
+    '  font-weight: normal;',
+    '  font-style: normal;',
+    '  font-display: block;',
+    '}',
+    '',
+    '.mdi::before,',
+    '.mdi-set {',
+    '  display: inline-block;',
+    '  font: normal normal normal 24px/1 "Material Design Icons";',
+    '  font-size: inherit;',
+    '  text-rendering: auto;',
+    '  line-height: inherit;',
+    '  -webkit-font-smoothing: antialiased;',
+    '  -moz-osx-font-smoothing: grayscale;',
+    '}',
+    '',
+    // Used by the SDK tool spinner (lib/sdk-rich-view.js).
+    '.mdi-spin::before {',
+    '  animation: mdi-spin 2s infinite linear;',
+    '}',
+    '',
+    '@keyframes mdi-spin {',
+    '  0% { transform: rotate(0deg); }',
+    '  100% { transform: rotate(359deg); }',
+    '}',
+    '',
+  ];
+  const iconRules = icons.map((icon) => {
+    const hex = codepoints.get(icon).toString(16).toUpperCase().padStart(5, '0');
+    return `.mdi-${icon}::before { content: "\\${hex}"; }`;
+  });
+  return `${faceRules.join('\n')}${iconRules.join('\n')}\n`;
+}
+
+export async function buildMdiSubset() {
+  const mdiDir = await resolveMdiDir();
+  const codepoints = await readIconCodepoints(mdiDir);
+  const { used, dynamicHits } = await collectUsedIcons();
+
+  const missing = [...used].filter((icon) => !codepoints.has(icon)).sort();
+  if (missing.length > 0) {
+    console.error('[mdi-subset] Unknown icon names (typo, or renamed upstream):');
+    for (const icon of missing) console.error(`  - mdi-${icon}`);
+    throw new Error(
+      'Unknown mdi icon names — fix the name or add it to DYNAMIC_ICONS in scripts/build-mdi-subset.mjs.'
+    );
+  }
+  if (dynamicHits.length > 0) {
+    console.warn('[mdi-subset] Icon names built at runtime — make sure they are in DYNAMIC_ICONS:');
+    for (const hit of dynamicHits) console.warn(`  - ${hit}`);
+  }
+
+  const icons = [...used].sort();
+  const cssPath = path.join(OUTPUT_DIR, 'mdi-subset.css');
+  const woffPath = path.join(OUTPUT_DIR, 'mdi-subset.woff2');
+  if (await isSubsetUnchanged(cssPath, woffPath, icons)) {
+    console.log(`[mdi-subset] ${icons.length} icons, unchanged`);
+    return;
+  }
+  const glyphs = icons.map((icon) => String.fromCodePoint(codepoints.get(icon))).join('');
+  const fullFont = await fs.readFile(
+    path.join(mdiDir, 'fonts', 'materialdesignicons-webfont.woff2')
+  );
+  const subset = await subsetFont(fullFont, glyphs, { targetFormat: 'woff2' });
+
+  await fs.mkdir(OUTPUT_DIR, { recursive: true });
+  await fs.writeFile(woffPath, subset);
+  await fs.writeFile(cssPath, buildStylesheet(icons, codepoints), 'utf8');
+
+  const fullKb = Math.round(fullFont.length / 1024);
+  const subsetKb = Math.round(subset.length / 1024);
+  console.log(`[mdi-subset] ${icons.length} icons, font ${fullKb} KB -> ${subsetKb} KB`);
+}
+
+const isCli = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
+if (isCli) {
+  buildMdiSubset().catch((err) => {
+    console.error('[mdi-subset] failed:', err?.message || err);
+    process.exit(1);
+  });
+}

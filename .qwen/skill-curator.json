@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "auto-skill-cretli-delegation-review": {
+      "skillName": "cretli-delegation-review",
+      "firstSeenAt": "2026-10-10T17:28:33.960Z",
+      "lastActivityAt": "2026-10-13T10:55:36.791Z",
+      "useCount": 4,
+      "state": "active",
+      "pinned": false,
+      "lastUsedAt": "2026-10-13T10:55:36.791Z"
+    },
+    "auto-skill-cretli-delegation-report-delivery": {
+      "skillName": "cretli-delegation-report-delivery",
+      "firstSeenAt": "2026-10-12T12:43:41.799Z",
+      "lastActivityAt": "2026-10-12T12:43:41.799Z",
+      "useCount": 1,
+      "state": "active",
+      "pinned": false,
+      "lastUsedAt": "2026-10-12T12:43:41.799Z"
+    }
+  }
+}

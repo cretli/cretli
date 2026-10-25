@@ -1,0 +1,53 @@
+import './helpers/isolated-data-dir.js';
+import assert from 'node:assert/strict';
+import {
+  hasChatRunAdapter,
+  listChatRunAdapterTransports,
+} from '../lib/chat-run-service.js';
+import { isDelegationModelAvailable } from '../lib/delegation-executor.js';
+
+await import('../lib/sdk/cursor-agent-sdk-ws.ts');
+await import('../harnesses/opencode/opencode-agent-ws.js');
+await import('../harnesses/openrouter/openrouter-agent-ws.js');
+await import('../harnesses/codebuddy/codebuddy-agent-ws.js');
+await import('../harnesses/deepseek/deepseek-agent-ws.js');
+await import('../harnesses/qwen/qwen-agent-ws.js');
+await import('../lib/codex/codex-agent-ws.ts');
+
+const expectedTransports = [
+  'sdk',
+  'opencode',
+  'openrouter',
+  'codebuddy',
+  'deepseek',
+  'qwen',
+  'codex',
+];
+const actualTransports = listChatRunAdapterTransports();
+// CodeBuddy has a built-in native default catalog, so its synthetic
+// `<transport>/test` id is not available; use a real default id instead.
+const modelByTransport = { sdk: 'auto', codebuddy: 'hy3' };
+for (const transport of expectedTransports) {
+  assert.equal(hasChatRunAdapter(transport), true, `missing adapter ${transport}`);
+  assert.equal(actualTransports.includes(transport), true, `missing list entry ${transport}`);
+  assert.equal(
+    isDelegationModelAvailable({
+      transport,
+      model: modelByTransport[transport] || `${transport}/test`,
+      settings: {},
+    }),
+    true,
+    `model blocked for ${transport}`,
+  );
+}
+
+assert.equal(
+  isDelegationModelAvailable({
+    transport: 'codex',
+    model: 'codex/test',
+    settings: { enabledHarnesses: ['opencode'] },
+  }),
+  false,
+);
+
+console.log('sdk-chat-run-adapter.test.js OK');

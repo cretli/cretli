@@ -1,0 +1,132 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cretli.com/schemas/backup/conversations-manifest-v1.schema.json",
+  "title": "Cretli conversations ZIP manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile",
+    "manifestFormatVersion",
+    "archiveContractRevision",
+    "archiveId",
+    "createdAt",
+    "cretliVersion",
+    "categories",
+    "omissions"
+  ],
+  "properties": {
+    "profile": { "const": "conversations-v1" },
+    "manifestFormatVersion": { "type": "integer", "minimum": 1, "maximum": 1 },
+    "archiveContractRevision": { "type": "string", "minLength": 1 },
+    "archiveId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "createdAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "cretliVersion": { "type": "string", "minLength": 1 },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scope": { "type": "string", "enum": ["chat", "selection", "workspace", "all"] },
+        "chatIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "includeArchived": { "type": "boolean" },
+        "includeSubchats": { "type": "boolean" },
+        "workspaceId": { "type": "string" }
+      }
+    },
+    "attachments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "totalBytes", "indexPath"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "totalBytes": { "type": "integer", "minimum": 0 },
+        "indexPath": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sourceArchiveIds": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+        }
+      }
+    },
+    "categories": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/category" }
+    },
+    "omissions": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": { "$ref": "#/$defs/omission" }
+    }
+  },
+  "$defs": {
+    "category": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["categoryId", "path", "byteSize", "sha256", "role"],
+      "properties": {
+        "categoryId": { "type": "string", "minLength": 1 },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^/\\\\].*"
+        },
+        "byteSize": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "role": {
+          "type": "string",
+          "enum": ["json", "markdown", "attachment"]
+        },
+        "recordCounts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "storeId": { "type": "string" },
+        "schemaVersion": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "omission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "reason"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "secret",
+            "pruned_history",
+            "attachment_missing",
+            "operator_excluded",
+            "dependency_not_exported",
+            "corrupt_source",
+            "browser_unavailable"
+          ]
+        },
+        "rawSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "detail": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "reason": { "const": "corrupt_source" } },
+            "required": ["reason"]
+          },
+          "then": { "required": ["rawSha256"] }
+        }
+      ]
+    }
+  }
+}

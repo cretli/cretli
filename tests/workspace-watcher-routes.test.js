@@ -1,0 +1,467 @@
+/**
+ * Route tests for the Workspace Watcher API.
+ *
+ * Uses the isolated data dir helper and a temp cwd so no live project data is
+ * touched. Registering the routes on a tiny fake express app keeps the test
+ * free of HTTP and auth.
+ */
+import './helpers/isolated-data-dir.js';
+import assert from 'node:assert/strict';
+import fs, { mkdtempSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import os from 'node:os';
+import path from 'node:path';
+import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
+import {
+  WORKSPACE_WATCHER_MAX_FAILURES_ENTRIES,
+  WORKSPACE_WATCHER_MAX_FINDINGS_BY_TODO_ENTRIES,
+  WORKSPACE_WATCHER_MAX_STOP_REASON_LENGTH,
+  getWorkspaceWatcher,
+  mutateWorkspaceWatcherRow,
+  normalizeWorkspaceWatcherRow,
+} from '../lib/persist/workspace-watchers-persist.js';
+import { registerWorkspaceWatcherRoutes } from '../lib/routes/workspace-watcher-routes.js';
+import { WORKSPACE_WATCHER_PARKED_REASON } from '../lib/workspace-watcher-blocked-reason.js';
+import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
+
+let failed = 0;
+/** @type {Array<{ name: string, fn: Function }>} */
+const cases = [];
+
+function runCase(name, fn) {
+  cases.push({ name, fn });
+}
+
+function fail(name, err) {
+  failed += 1;
+  console.error('FAIL:', name);
+  console.error(err && err.stack ? err.stack : String(err));
+}
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const cwd = mkdtempSync(path.join(os.tmpdir(), 'cr-watcher-routes-'));
+const otherCwd = mkdtempSync(path.join(os.tmpdir(), 'cr-watcher-routes-other-'));
+const dataDir = path.join(cwd, 'data');
+
+/**
+ * @returns {{ invoke: (method: string, urlPath: string, req?: object) => Promise<{status: number, body: object}> }}
+ */
+function makeApp() {
+  /** @type {Map<string, Function>} */
+  const handlers = new Map();
+  const app = {
+    get(p, fn) { handlers.set(`GET ${p}`, fn); },
+    post(p, fn) { handlers.set(`POST ${p}`, fn); },
+    put(p, fn) { handlers.set(`PUT ${p}`, fn); },
+    patch(p, fn) { handlers.set(`PATCH ${p}`, fn); },
+    delete(p, fn) { handlers.set(`DELETE ${p}`, fn); },
+  };
+  registerWorkspaceWatcherRoutes(app, { dataDir, getCurrentCwd: () => cwd });
+  const invoke = (method, urlPath, req = {}) => {
+    const fn = handlers.get(`${method} ${urlPath}`);
+    if (!fn) throw new Error(`no handler ${method} ${urlPath}`);
+    return new Promise((resolve) => {
+      const res = {
+        statusCode: 200,
+        status(code) { this.statusCode = code; return this; },
+        json(body) { resolve({ status: this.statusCode, body }); },
+      };
+      fn({ params: {}, query: {}, body: {}, ...req }, res);
+    });
+  };
+  return { invoke };
+}
+
+function withApp(fn) {
+  return () => fn(makeApp().invoke);
+}
+
+runCase('GET returns an off default without creating a row', withApp(async (invoke) => {
+  const res = await invoke('GET', '/api/workspace-watcher');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.watcher.mode, 'off');
+  assert.equal(res.body.watcher.enabled, false);
+  assert.ok(res.body.snapshot);
+  assert.equal(res.body.snapshot.items, undefined);
+  assert.equal(res.body.snapshot.readyLeaves, undefined);
+  assert.ok(Array.isArray(res.body.snapshot.readyTodoIds));
+  assert.ok(res.body.guardrails);
+  // The additive Scout schedule: opted out for the default row, so no next scan.
+  assert.ok(res.body.scout, 'the HTTP view carries the Scout schedule');
+  assert.equal(res.body.scout.enabled, false);
+  assert.equal(res.body.scout.nextScanAt, 0);
+  assert.equal(res.body.scout.usedToday, 0);
+  // The additive cycle schedule: off mode, so no next cycle and no ETA.
+  assert.ok(res.body.schedule, 'the HTTP view carries the cycle schedule');
+  assert.equal(res.body.schedule.enabled, false);
+  assert.equal(res.body.schedule.nextCycleAt, 0);
+  assert.equal(res.body.schedule.blockedReason, 'mode_not_active');
+  assert.equal(getWorkspaceWatcher(cwd, { dataDir }), null, 'a read must not persist a row');
+}));
+
+runCase('GET only computes the worktree suggestion when asked', withApp(async (invoke) => {
+  const plain = await invoke('GET', '/api/workspace-watcher');
+  assert.equal(plain.body.executionSuggest, undefined, 'the live poll must not pay for git');
+  const asked = await invoke('GET', '/api/workspace-watcher', { query: { suggest: '1' } });
+  assert.equal(asked.status, 200);
+  assert.ok(asked.body.executionSuggest, 'the form fetch returns a suggestion');
+  // The temp cwd is not a Git repository, so the suggestion stays empty and the
+  // fail-closed validation is what refuses a worktree start.
+  assert.equal(asked.body.executionSuggest.available, false);
+  assert.equal(asked.body.executionSuggest.worktree.root, '');
+}));
+
+runCase('GET omits todo documents and keeps ready counts', withApp(async (invoke) => {
+  const doc = addTodo(dataDir, cwd, { title: 'Ready leaf', status: 'ready' });
+  const res = await invoke('GET', '/api/workspace-watcher');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.snapshot.items, undefined);
+  assert.equal(res.body.snapshot.readyLeaves, undefined);
+  assert.equal(res.body.snapshot.readyTodoCount, 1);
+  assert.deepEqual(res.body.snapshot.readyTodoIds, [doc.item.id]);
+  updateTodo(dataDir, cwd, doc.item.id, { status: 'done' });
+}));
+
+runCase('save-plan persists a draft, invalidates approval, and rejects stale or foreign todos', withApp(async (invoke) => {
+  const doc = addTodo(dataDir, cwd, { title: 'Draft route', status: 'idea' });
+  const todo = doc.items[0];
+  updateTodo(dataDir, cwd, todo.id, { plan: { markdown: 'Old plan', approvedAt: new Date().toISOString() } });
+  const current = getTodoById(dataDir, cwd, todo.id);
+  const body = { todoId: todo.id, expectedUpdatedAt: current.updatedAt, planMarkdown: 'New draft' };
+  const saved = await invoke('POST', '/api/workspace-watcher/save-plan', { body });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.item.plan.markdown, 'New draft');
+  assert.ok(!saved.body.item.plan.approvedAt);
+  assert.equal((await invoke('POST', '/api/workspace-watcher/save-plan', { body })).status, 409);
+  assert.equal((await invoke('POST', '/api/workspace-watcher/save-plan', {
+    body: { ...body, workspaceFolder: otherCwd },
+  })).status, 404);
+  updateTodo(dataDir, cwd, todo.id, { status: 'done' });
+}));
+
+runCase('PATCH merges a partial policy and preserves defaults', withApp(async (invoke) => {
+  const res = await invoke('PATCH', '/api/workspace-watcher', {
+    body: { mode: 'autopilot', policy: { maxParallel: 2, quietHours: { start: '22:00', end: '06:00' } } },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.watcher.mode, 'autopilot');
+  assert.equal(res.body.watcher.policy.maxParallel, 2);
+  assert.equal(res.body.watcher.policy.quietHours.start, '22:00');
+  // Untouched defaults survive the partial patch.
+  assert.equal(res.body.watcher.policy.maxCyclesPerDay, 20);
+  assert.equal(res.body.watcher.policy.requirePlanApproval, true);
+  assert.equal(res.body.watcher.policy.orchestrator.harness, '');
+  const read = await invoke('GET', '/api/workspace-watcher');
+  assert.equal(read.body.watcher.policy.maxParallel, 2);
+  assert.equal(read.body.watcher.policy.cooldownMs, 30_000);
+}));
+
+runCase('PATCH rejects an invalid mode with 400', withApp(async (invoke) => {
+  const res = await invoke('PATCH', '/api/workspace-watcher', { body: { mode: 'turbo' } });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.ok, false);
+}));
+
+runCase('PATCH stopReason stops the watcher; empty clears it', withApp(async (invoke) => {
+  await invoke('PATCH', '/api/workspace-watcher', { body: { mode: 'observe', stopReason: 'maintenance' } });
+  let read = await invoke('GET', '/api/workspace-watcher');
+  assert.equal(read.body.watcher.stopReason, 'maintenance');
+  await invoke('PATCH', '/api/workspace-watcher', { body: { stopReason: '' } });
+  read = await invoke('GET', '/api/workspace-watcher');
+  assert.equal(read.body.watcher.stopReason, '');
+}));
+
+runCase('PATCH paused toggles the global pause and preserves failures, backoff and findings', withApp(async (invoke) => {
+  await invoke('PATCH', '/api/workspace-watcher', { body: { mode: 'autopilot', paused: true } });
+  mutateWorkspaceWatcherRow(cwd, () => ({
+    failures: { todoX: 2 },
+    backoffUntil: '2026-01-01T00:01:00.000Z',
+    findings: { byTodo: { 'todo-a': { hash: 'keep', streak: 2 } } },
+  }), { dataDir });
+  let read = await invoke('GET', '/api/workspace-watcher');
+  assert.equal(read.body.watcher.paused, true);
+  assert.equal(read.body.guardrails.kind, 'paused');
+  assert.deepEqual(read.body.watcher.failures, { todoX: 2 });
+  assert.equal(read.body.watcher.backoffUntil, '2026-01-01T00:01:00.000Z');
+  assert.equal(read.body.watcher.findings.byTodo['todo-a'].hash, 'keep');
+
+  await invoke('PATCH', '/api/workspace-watcher', { body: { paused: false } });
+  read = await invoke('GET', '/api/workspace-watcher');
+  assert.equal(read.body.watcher.paused, false);
+  assert.deepEqual(read.body.watcher.failures, { todoX: 2 }, 'unpausing keeps the counters');
+  assert.equal(read.body.watcher.findings.byTodo['todo-a'].streak, 2);
+  // Leave the shared row clean for the later cases.
+  mutateWorkspaceWatcherRow(cwd, () => ({
+    failures: {},
+    backoffUntil: '',
+    findings: { byTodo: {} },
+  }), { dataDir });
+}));
+
+runCase('POST pause/resume/clear-stop return 503 when the watcher document is locked', withApp(async (invoke) => {
+  const routesSource = fs.readFileSync(
+    path.join(repoRoot, 'lib/routes/workspace-watcher-routes.js'),
+    'utf8',
+  );
+  assert.match(routesSource, /workspaceWatcherMutationStatus/);
+  for (const segment of [
+    '/api/workspace-watcher/pause',
+    '/api/workspace-watcher/resume',
+    '/api/workspace-watcher/clear-stop',
+  ]) {
+    const start = routesSource.indexOf(`app.post('${segment}'`);
+    assert.ok(start >= 0, `missing route ${segment}`);
+    const nextRoute = routesSource.indexOf('\n  app.', start + 10);
+    const chunk = routesSource.slice(start, nextRoute === -1 ? undefined : nextRoute);
+    assert.match(chunk, /workspaceWatcherMutationStatus\(err\)/);
+  }
+}));
+
+runCase('POST pause/resume/clear-stop and GET decisions expose the control surface', withApp(async (invoke) => {
+  await invoke('PATCH', '/api/workspace-watcher', { body: { mode: 'observe', stopReason: 'maintenance' } });
+  const paused = await invoke('POST', '/api/workspace-watcher/pause', { body: {} });
+  assert.equal(paused.status, 200);
+  assert.equal(paused.body.watcher.paused, true);
+  const resumed = await invoke('POST', '/api/workspace-watcher/resume', { body: {} });
+  assert.equal(resumed.status, 200);
+  assert.equal(resumed.body.watcher.paused, false);
+  const cleared = await invoke('POST', '/api/workspace-watcher/clear-stop', { body: {} });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.watcher.stopReason, '');
+  await invoke('POST', '/api/workspace-watcher/tick', { body: {} });
+  const decisions = await invoke('GET', '/api/workspace-watcher/decisions', { query: { limit: '5' } });
+  assert.equal(decisions.status, 200);
+  assert.ok(Array.isArray(decisions.body.decisions));
+  if (decisions.body.decisions.length) {
+    const row = decisions.body.decisions.at(-1);
+    assert.ok(row.at);
+    assert.ok(row.kind);
+    assert.ok('reason' in row);
+  }
+}));
+
+runCase('POST clear-stop unblocks a todo parked only by the findings loop', withApp(async (invoke) => {
+  // Reproduce the findings loop end state: the watcher stops with
+  // `loop_same_findings`, the findings memory is already cleared, and the todo
+  // carries the watcher park marker WITHOUT a `failures` entry. A plain
+  // stopReason clear would leave it blocked forever.
+  await invoke('PATCH', '/api/workspace-watcher', { body: { mode: 'autopilot' } });
+  const todo = addTodo(dataDir, cwd, { title: 'Findings parked route', status: 'ready' }).item;
+  updateTodo(dataDir, cwd, todo.id, { blockedReason: WORKSPACE_WATCHER_PARKED_REASON });
+  mutateWorkspaceWatcherRow(cwd, () => ({
+    stopReason: 'loop_same_findings',
+    failures: {},
+    backoffUntil: '',
+    findings: { byTodo: {} },
+  }), { dataDir });
+
+  const cleared = await invoke('POST', '/api/workspace-watcher/clear-stop', { body: {} });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.watcher.stopReason, '');
+  assert.ok(
+    cleared.body.unblockedTodoIds.includes(todo.id),
+    'clear-stop reports the findings-parked todo as unblocked',
+  );
+  const unblocked = getTodoById(dataDir, cwd, todo.id);
+  assert.equal(unblocked.blockedReason, undefined, 'the findings park marker is cleared');
+  assert.equal(unblocked.status, 'ready', 'the todo returns to the claimable state');
+  // Leave the shared row clean for the later cases.
+  updateTodo(dataDir, cwd, todo.id, { status: 'done' });
+}));
+
+runCase('claim-next refuses with no ready work and succeeds with a ready todo', withApp(async (invoke) => {
+  const empty = await invoke('POST', '/api/workspace-watcher/claim-next', { body: { claimedByChatId: 'chat-1' } });
+  assert.equal(empty.body.claimed, false);
+  assert.equal(empty.body.reason, 'no_ready_work');
+  addTodo(dataDir, cwd, { title: 'Route claim', status: 'ready' });
+  const claimed = await invoke('POST', '/api/workspace-watcher/claim-next', { body: { claimedByChatId: 'chat-1', ttlMs: 1000 } });
+  assert.equal(claimed.body.claimed, true);
+  assert.equal(claimed.body.item.claimedByChatId, 'chat-1');
+  assert.equal(claimed.body.item.status, 'doing');
+  assert.equal(Date.parse(claimed.body.item.claimLeaseUntil) - Date.parse(claimed.body.item.claimedAt), 1000);
+}));
+
+runCase('reset-plan-requests clears the anti-loop memory', withApp(async (invoke) => {
+  await invoke('PATCH', '/api/workspace-watcher', { body: { mode: 'autopilot' } });
+  await invoke('POST', '/api/workspace-watcher/reset-plan-requests', { body: {} });
+  const read = await invoke('GET', '/api/workspace-watcher');
+  assert.deepEqual(read.body.watcher.planRequests, {});
+}));
+
+runCase('PATCH caps stopReason length and bounded failures/findings maps', withApp(async (invoke) => {
+  await invoke('PATCH', '/api/workspace-watcher', { body: { mode: 'observe' } });
+  const longStop = 's'.repeat(WORKSPACE_WATCHER_MAX_STOP_REASON_LENGTH + 80);
+  const stopped = await invoke('PATCH', '/api/workspace-watcher', { body: { stopReason: longStop } });
+  assert.equal(stopped.body.watcher.stopReason.length, WORKSPACE_WATCHER_MAX_STOP_REASON_LENGTH);
+  /** @type {Record<string, number>} */
+  const failures = {};
+  for (let i = 0; i < WORKSPACE_WATCHER_MAX_FAILURES_ENTRIES + 25; i += 1) {
+    failures[`todo-fail-${i}`] = 2;
+  }
+  await invoke('PATCH', '/api/workspace-watcher', { body: { failures } });
+  const readFailures = await invoke('GET', '/api/workspace-watcher');
+  assert.equal(
+    Object.keys(readFailures.body.watcher.failures).length,
+    WORKSPACE_WATCHER_MAX_FAILURES_ENTRIES,
+  );
+  assert.equal(readFailures.body.watcher.failures['todo-fail-0'], undefined);
+  assert.equal(readFailures.body.watcher.failures[`todo-fail-${WORKSPACE_WATCHER_MAX_FAILURES_ENTRIES + 24}`], 2);
+  /** @type {Record<string, { hash: string, streak: number }>} */
+  const byTodo = {};
+  for (let i = 0; i < WORKSPACE_WATCHER_MAX_FINDINGS_BY_TODO_ENTRIES + 15; i += 1) {
+    byTodo[`todo-find-${i}`] = { hash: `h-${i}`, streak: 1 };
+  }
+  const normalized = normalizeWorkspaceWatcherRow({
+    workspaceFolder: cwd,
+    mode: 'observe',
+    findings: { byTodo },
+  });
+  assert.equal(
+    Object.keys(normalized.findings.byTodo).length,
+    WORKSPACE_WATCHER_MAX_FINDINGS_BY_TODO_ENTRIES,
+  );
+  assert.equal(normalized.findings.byTodo['todo-find-0'], undefined);
+  assert.ok(normalized.findings.byTodo[`todo-find-${WORKSPACE_WATCHER_MAX_FINDINGS_BY_TODO_ENTRIES + 14}`]);
+  await invoke('PATCH', '/api/workspace-watcher', { body: { stopReason: '', failures: {} } });
+}));
+
+runCase('findings route records a streak for identical hashes', withApp(async (invoke) => {
+  await invoke('PATCH', '/api/workspace-watcher', { body: { mode: 'observe' } });
+  const todoId = 'findings-route-todo';
+  await invoke('POST', '/api/workspace-watcher/findings', { body: { hash: 'find-1', todoId } });
+  const second = await invoke('POST', '/api/workspace-watcher/findings', { body: { hash: 'find-1', todoId } });
+  assert.equal(second.body.hash, 'find-1');
+  assert.equal(second.body.streak, 2);
+  const different = await invoke('POST', '/api/workspace-watcher/findings', { body: { hash: 'find-2', todoId } });
+  assert.equal(different.body.streak, 1);
+}));
+
+runCase('tick runs and reports a decision', withApp(async (invoke) => {
+  await invoke('PATCH', '/api/workspace-watcher', { body: { mode: 'observe' } });
+  const res = await invoke('POST', '/api/workspace-watcher/tick', { body: {} });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.ok(res.body.tick);
+  assert.ok(['idle_no_work', 'observe_ready', 'wait_active', 'snapshot_error'].includes(res.body.tick.action));
+}));
+
+runCase('run-cycle on a workspace without an autopilot row scans nothing', withApp(async (invoke) => {
+  const res = await invoke('POST', '/api/workspace-watcher/run-cycle', {
+    body: { workspaceFolder: otherCwd },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.scanned, 0);
+}));
+
+runCase('report accepts only the active cycle orchestrator and replays idempotently', withApp(async (invoke) => {
+  const doc = addTodo(dataDir, cwd, { title: 'Report route', status: 'doing' });
+  const todo = doc.items[0];
+  await invoke('PATCH', '/api/workspace-watcher', { body: { mode: 'autopilot' } });
+  mutateWorkspaceWatcherRow(cwd, () => ({
+    activeCycle: {
+      cycleId: 'route-cycle',
+      todoIds: [todo.id],
+      startedAt: new Date().toISOString(),
+      chatId: 'orch-route',
+      runId: 'run-route',
+      phase: 'running',
+    },
+  }), { dataDir });
+
+  const foreign = await invoke('POST', '/api/workspace-watcher/report', {
+    body: { outcome: 'success', sourceChatId: 'someone-else', cycleId: 'route-cycle' },
+  });
+  assert.equal(foreign.status, 403);
+  assert.equal(foreign.body.ok, false);
+  assert.equal(foreign.body.reason, 'not_orchestrator');
+  assert.ok(getWorkspaceWatcher(cwd, { dataDir }).activeCycle, 'a foreign chat cannot close the cycle');
+
+  const reported = await invoke('POST', '/api/workspace-watcher/report', {
+    body: { outcome: 'success', sourceChatId: 'orch-route', cycleId: 'route-cycle', reportId: 'route-report' },
+  });
+  assert.equal(reported.status, 200);
+  assert.equal(reported.body.closed, true);
+  assert.equal(getWorkspaceWatcher(cwd, { dataDir }).activeCycle, null);
+
+  const replay = await invoke('POST', '/api/workspace-watcher/report', {
+    body: { outcome: 'failure', sourceChatId: 'orch-route', cycleId: 'route-cycle', reportId: 'route-report' },
+  });
+  assert.equal(replay.status, 200);
+  assert.equal(replay.body.replayed, true);
+  assert.equal(replay.body.closed, undefined);
+}));
+
+runCase('POST todos/:id/recover returns conflict on stale revision', withApp(async (invoke) => {
+  const todo = addTodo(dataDir, cwd, { title: 'Recover route', status: 'ready' }).item;
+  updateTodo(dataDir, cwd, todo.id, { status: 'doing', orchestratorChatId: 'missing-orch' });
+  const res = await invoke('POST', '/api/workspace-watcher/todos/:id/recover', {
+    params: { id: todo.id },
+    body: { expectedUpdatedAt: 'stale-revision' },
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.outcome, 'conflict');
+}));
+
+runCase('POST todos/:id/release requires confirmUnknownRelease', withApp(async (invoke) => {
+  const todo = addTodo(dataDir, cwd, { title: 'Release route', status: 'ready' }).item;
+  updateTodo(dataDir, cwd, todo.id, { status: 'doing', orchestratorChatId: 'exec-release' });
+  const row = getTodoById(dataDir, cwd, todo.id);
+  const missingConfirm = await invoke('POST', '/api/workspace-watcher/todos/:id/release', {
+    params: { id: todo.id },
+    body: { expectedUpdatedAt: row.updatedAt },
+  });
+  assert.equal(missingConfirm.status, 400);
+  assert.equal(missingConfirm.body.error?.code, 'VALIDATION');
+  assert.equal(getTodoById(dataDir, cwd, todo.id).status, 'doing');
+}));
+
+runCase('POST todos/:id/release returns 409 on a stale revision and 422 for a non-doing todo', withApp(async (invoke) => {
+  const todo = addTodo(dataDir, cwd, { title: 'Release CAS route', status: 'ready' }).item;
+  updateTodo(dataDir, cwd, todo.id, { status: 'doing', orchestratorChatId: 'exec-release-cas' });
+  const stale = await invoke('POST', '/api/workspace-watcher/todos/:id/release', {
+    params: { id: todo.id },
+    body: { expectedUpdatedAt: '1970-01-01T00:00:00.000Z', confirmUnknownRelease: true },
+  });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.outcome, 'conflict');
+  assert.equal(getTodoById(dataDir, cwd, todo.id).status, 'doing');
+
+  const ready = addTodo(dataDir, cwd, { title: 'Release not doing route', status: 'ready' }).item;
+  const readyRow = getTodoById(dataDir, cwd, ready.id);
+  const notDoing = await invoke('POST', '/api/workspace-watcher/todos/:id/release', {
+    params: { id: ready.id },
+    body: { expectedUpdatedAt: readyRow.updatedAt, confirmUnknownRelease: true },
+  });
+  assert.equal(notDoing.status, 422);
+  assert.equal(notDoing.body.outcome, 'not-doing');
+  assert.equal(notDoing.body.error?.code, 'NOT_DOING');
+  assert.equal(getTodoById(dataDir, cwd, ready.id).status, 'ready');
+}));
+
+runCase('DELETE removes the watcher row', withApp(async (invoke) => {
+  await invoke('PATCH', '/api/workspace-watcher', { body: { mode: 'observe' } });
+  const removed = await invoke('DELETE', '/api/workspace-watcher');
+  assert.equal(removed.body.removed, true);
+  const again = await invoke('DELETE', '/api/workspace-watcher');
+  assert.equal(again.body.removed, false);
+}));
+
+// Cases are sequential: they share one watcher row, so an interleaved write
+// would make the assertions order-dependent.
+for (const { name, fn } of cases) {
+  try {
+    const result = fn();
+    if (result && typeof result.then === 'function') await result;
+    console.log('OK:', name);
+  } catch (err) {
+    fail(name, err);
+  }
+}
+removeIsolatedDataDir();
+if (failed > 0) {
+  console.error(`\n${failed} workspace watcher route test case(s) failed`);
+  process.exit(1);
+}
+console.log('\nworkspace watcher route tests passed');

@@ -1,0 +1,129 @@
+# E2E and UI preview: one browser? Evaluation
+
+Status: evaluation only, no behaviour change. Findings verified against the code
+on 2026-10-25.
+
+## Question
+
+Agents sometimes report "no Playwright browser downloaded in this environment"
+and fall back to `/usr/bin/chromium` for e2e specs, while the built-in Browser
+(`browser_*` MCP tools) works. Should the two paths be unified by (1) keeping
+the split and standardising Chromium detection, (2) extending the built-in
+Browser with a CDP endpoint for the test runner, or (3) adding Playwright as a
+dependency with a shared browser download?
+
+## 1. What each path does today
+
+### Built-in Browser (`lib/browser/`, MCP `browser_*`)
+
+- Server-side headless Chromium driven by **`playwright-core`**, which is
+  already a **runtime** dependency (`^1.63.0`). `@playwright/test` is a
+  devDependency and never on the server path (`docs/browser-runtime.md`).
+- Binary resolution (`lib/browser/runtime-detect.js`, `detectBrowserRuntime`):
+  `playwright.chromium.executablePath()` if the file exists, else
+  `CRETLI_BROWSER_EXECUTABLE_PATH`, else the first of
+  `SYSTEM_CHROMIUM_CANDIDATES` (`/usr/bin/chromium`, `chromium-browser`,
+  `google-chrome`, `google-chrome-stable`, `/opt/google/chrome/chrome`).
+  A system fallback is reported as `usingSystemChromium`.
+- Launch: `chromium.launch({ headless: true, args, env, proxy? })` with
+  `CHROMIUM_BASE_ARGS` (WebRTC UDP lock-down), a scrubbed environment
+  (`buildChromiumProcessEnv`), optional egress proxy, and `--no-sandbox` only
+  with `CRETLI_BROWSER_ALLOW_NO_SANDBOX=1`.
+- Each workspace session gets an isolated `browser.newContext()` with
+  `serviceWorkers: 'block'`, no persisted state without consent, and every
+  request passes the SSRF/URL policy (`url-policy.js`; Cretli's own origin
+  only with `allowSelfOrigin`).
+- Agents and the user's Browser panel interact through MCP tools, the
+  `/ws-browser` WebSocket (screencast) and HTTP routes, authenticated by the
+  Cretli session.
+
+### Playwright e2e (`playwright.config.js`, `playwright.*.config.js`, `tests/ui-smoke`)
+
+- Use `@playwright/test`'s own `chromium.launch` per worker; each config boots
+  its own isolated Cretli server (`webServer`) on its own port and data dir.
+- Executable selection is **duplicated and inconsistent**:
+  - `playwright.config.js`: `CHAT_E2E_CHROMIUM_EXECUTABLE_PATH` or undefined
+    (Playwright's own download; no system fallback).
+  - `playwright.chat-history-sync.config.js`: env (if it exists), else the
+    system candidates; never Playwright's download.
+  - `tests/ui-smoke/playwright.config.js`: env, else Playwright's download if
+    present, else system candidates (the most complete variant).
+- npm scripts use `PLAYWRIGHT_BROWSERS_PATH=0` (download inside
+  `node_modules`), CI installs via `npx playwright-core install --with-deps
+  chromium` into the default cache (`.github/workflows/ci.yml`,
+  `sdk-live-gate.yml` runs `test:e2e:browsers`).
+- Root cause of the reported failure: downloads live per user
+  (`~/.cache/ms-playwright` or `node_modules/playwright-core/.local-browsers`),
+  so a session running as another user (for example `root`) does not see them,
+  and configs without a system fallback fail with "Executable doesn't exist".
+
+## 2. Does the built-in Browser expose a CDP endpoint?
+
+**No.** Evidence in `lib/browser/`:
+
+- `runtime-detect.js` launches with `chromium.launch(...)`, which talks to
+  Chromium over an internal pipe. No `--remote-debugging-port`, no
+  `launchServer`, no `browserServer.wsEndpoint()`.
+- A repository-wide search finds no `remote-debugging`, `launchServer` or
+  `connectOverCDP`. CDP is used only **in-process** through
+  `context.newCDPSession(page)` for the debugger (`debugger.js`) and
+  screencast (`screencast.js`); those sessions are never reachable from
+  outside.
+- `/ws-browser` is a Cretli-protocol channel (JSON/binary frames for
+  screencast and input), not a CDP proxy.
+
+So a Playwright runner cannot `connectOverCDP` today. Adding it would be a new
+feature, not a configuration switch. (Servers were not launched for this check.)
+
+## 3. Options compared
+
+| | 1. Keep split + one resolver | 2. Expose CDP from the built-in Browser | 3. Add Playwright dep + shared browsers path |
+|---|---|---|---|
+| What | One shared `resolveChromiumExecutable()` (env, pinned Playwright, system) used by every config | New launch mode with a debugging port / `launchServer`, runner uses `connectOverCDP` | Ship browsers in a user-independent `PLAYWRIGHT_BROWSERS_PATH` |
+| Effort | Small (about 0.5 day): extract helper (e.g. `lib/` or `scripts/`), import from 6 configs, add a unit test | Large (about 2-4 weeks): endpoint lifecycle, auth, per-test context isolation, fixtures, tests, docs | Small-medium (about 1 day) for path + install script and docs |
+| Cost | No new code paths at runtime, no download | Ongoing maintenance of a second Browser mode; CDP semantics differ from launching (no per-test launch options, tracing/video limits, `connectOverCDP` fidelity is lower than `launch`) | `playwright-core` is already a dependency, so there is **no new package**; cost is a few hundred MB of disk and keeping browser revisions matched with two Playwright versions (core `1.63.0` vs test `1.62.1` already differ, see CI comment) |
+| Risk | Low; still two Chromium builds possible (system vs pinned) so rare UI differences | High; e2e would depend on the product Browser state, crash recovery, policy/egress limits and relaunch logic, making tests flaky and coupling product and test lifecycles | Low-medium; revision mismatch (the 1.62.1 vs 1.63.0 problem), shared dir permissions |
+| Security | No change | **Worst.** A CDP port gives full control of the browser, bypassing the SSRF policy (`context.route`), `allowSelfOrigin` gating, profile/context isolation and the agent vs operator split. Would need loopback-only bind, per-run token, and a policy to keep agents away. Sharing the profile between preview and tests risks leaking sessions and local-login credentials | Neutral; a shared writable browsers dir should be read-only for non-owners (supply-chain integrity) |
+| CI impact | None (CI already installs Chromium) | CI would need to start the Browser mode inside the test server and wait for it; larger change to every workflow | None if CI keeps its default cache install; only local/multi-user hosts change |
+| Fixes the reported symptom | Yes, if the resolver also covers the user-independent path | Yes, but disproportionately | Yes, for hosts that run the install once |
+
+Notes:
+
+- The "no new dependency" rule from the todo is largely moot for option 3:
+  Playwright (core and test) is already in `package.json`. What would be new is
+  an operational convention (shared download location), not a package.
+- Option 2 conflicts with the product's security model: the built-in Browser is
+  deliberately sandboxed by URL policy and per-workspace contexts, whereas e2e
+  needs unrestricted navigation to its own isolated test server (effectively
+  `allowSelfOrigin` permanently on) and per-test fresh contexts.
+
+## 4. Recommendation
+
+**Choose option 1 now, optionally combined with the operational part of
+option 3. Do not pursue option 2.**
+
+1. Extract a single `resolveChromiumExecutable()` and use it from
+   `playwright.config.js`, `tests/ui-smoke/playwright.config.js`,
+   `playwright.chat-history-sync.config.js` and the delegation configs.
+   Explicit order: `CHAT_E2E_CHROMIUM_EXECUTABLE_PATH` (if it exists), then
+   `CRETLI_BROWSER_EXECUTABLE_PATH`, then Playwright's own download for the
+   installed Playwright version, then the system candidates (reuse
+   `SYSTEM_CHROMIUM_CANDIDATES` from `lib/browser/runtime-detect.js` so the
+   Browser and e2e agree). Add a unit test and keep behaviour for a set env
+   variable unchanged.
+2. For hosts used by several users, document (in `docs/browser-runtime.md`) a
+   one-time `PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright npx playwright-core
+   install chromium` with a read-only shared directory; this needs no new
+   dependency and no code change.
+3. Keep the built-in Browser for preview and agent debugging, and Playwright
+   for e2e. They share a driver library, and after step 1 they share
+   executable discovery, which is the real overlap.
+
+Follow-up todo (needs the user's go-ahead, since it touches configs outside
+this evaluation): "Share `resolveChromiumExecutable` across Playwright
+configs". Estimated at half a day including a test.
+
+Agent and operator guidance (`.agents/skills/cretli-browser/SKILL.md`,
+OPERATOR-PLAYBOOK) is unchanged by this conclusion: agents keep using
+`browser_*` for previews and the project's Playwright configs for e2e, so
+neither file was edited.

@@ -1,0 +1,159 @@
+/**
+ * Harness-agnostic analysis of the shared context sample stream: turns one
+ * chat's samples into a time series and flags where the prompt cache broke.
+ * It reads only numeric fields, so any producer of context samples is covered.
+ */
+
+const MIN_CACHED_TOKENS = 2000;
+const BREAK_RATIO = 0.5;
+const TTL_GAP_MS = 5 * 60 * 1000;
+// A compaction shows as the context total collapsing between two consecutive samples.
+const COMPACTION_DROP_RATIO = 0.5;
+const MIN_COMPACTION_TOKENS = 5000;
+const PREFIX_CATEGORIES = ['systemPrompt', 'systemTools', 'mcpTools', 'memory', 'skills', 'instructions', 'agents', 'mcpInstructions'];
+
+function rowTokens(sample, id) {
+  const row = sample?.breakdown?.rows?.find((entry) => entry?.id === id);
+  return typeof row?.tokens === 'number' ? row.tokens : null;
+}
+
+/** True when a category that forms the cached prefix changed between two samples. */
+function hasPrefixChanged(previous, current) {
+  if (previous.prefixFingerprint && current.prefixFingerprint && previous.prefixFingerprint !== current.prefixFingerprint) return true;
+  return PREFIX_CATEGORIES.some((id) => {
+    const before = rowTokens(previous, id);
+    const after = rowTokens(current, id);
+    return before != null && after != null && before !== after;
+  });
+}
+
+/**
+ * Pick the most specific explanation available from neighbouring samples.
+ * @returns {'compaction'|'model_change'|'idle_gap'|'prefix_change'|'new_run'|'unknown'}
+ */
+function classifyBreak(previous, current) {
+  if (previous.model && current.model && previous.model !== current.model) return 'model_change';
+  if ((previous.contextEpoch ?? 0) !== (current.contextEpoch ?? 0)) return current.contextEpochReason === 'compaction' ? 'compaction' : 'context_reset';
+  const gap = Date.parse(current.observedAt) - Date.parse(previous.observedAt);
+  if (Number.isFinite(gap) && gap >= TTL_GAP_MS) return 'idle_gap';
+  if (hasPrefixChanged(previous, current)) return 'prefix_change';
+  if (previous.runId && current.runId && previous.runId !== current.runId) return 'new_run';
+  return 'unknown';
+}
+
+const MAX_JUMPS = 5;
+const MIN_JUMP_TOKENS = 2000;
+
+/** Per-category token map of one sample, or null when it carries no usable breakdown. */
+function categoryTokens(sample) {
+  const rows = sample?.breakdown?.rows;
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const result = {};
+  for (const row of rows) {
+    if (row?.id && typeof row.tokens === 'number' && Number.isFinite(row.tokens) && row.tokens >= 0) result[row.id] = row.tokens;
+  }
+  return Object.keys(result).length ? result : null;
+}
+
+/**
+ * Largest context growth steps between consecutive calls, each attributed to the
+ * category that grew the most. Steps across a context reset or compaction are skipped.
+ */
+function findGrowthJumps(points) {
+  const jumps = [];
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+    if (previous.contextEpoch !== current.contextEpoch) continue;
+    const delta = current.totalTokens - previous.totalTokens;
+    if (!(delta >= MIN_JUMP_TOKENS)) continue;
+    let topCategory = null;
+    let topDelta = 0;
+    if (previous.categories && current.categories) {
+      for (const [id, tokens] of Object.entries(current.categories) as [string, number][]) {
+        const grown = tokens - (previous.categories[id] ?? 0);
+        if (grown > topDelta) { topCategory = id; topDelta = grown; }
+      }
+    }
+    jumps.push({ index, observedAt: current.observedAt, delta, totalAfter: current.totalTokens, topCategory, topCategoryDelta: topCategory ? topDelta : null });
+  }
+  return jumps.sort((a, b) => b.delta - a.delta).slice(0, MAX_JUMPS).sort((a, b) => a.index - b.index);
+}
+
+/**
+ * @param {Array<Record<string, any>>} samples context samples of one chat
+ * @returns {{ points: Record<string, any>[], breaks: Record<string, any>[], compactions: Record<string, any>[], jumps: Record<string, any>[], latestBreakdown: Record<string, any>|null }}
+ */
+export function analyzeContextCacheSeries(samples) {
+  const distinct = new Map();
+  for (const sample of Array.isArray(samples) ? samples : []) {
+    distinct.set(sample.measurementId ? `${sample.chatId}:${sample.contextEpoch ?? 0}:${sample.measurementId}` : `${sample.chatId}:${sample.observedAt}`, sample);
+  }
+  const ordered = [...distinct.values()].sort((a, b) => a.observedAt.localeCompare(b.observedAt));
+  const points = ordered.map((sample) => ({
+    observedAt: sample.observedAt,
+    model: sample.model || '',
+    runId: sample.runId || '',
+    contextEpoch: sample.contextEpoch ?? 0,
+    totalTokens: sample.totalTokens,
+    inputTokens: sample.inputTokens,
+    outputTokens: sample.outputTokens ?? null,
+    cacheReadTokens: sample.cacheReadTokens ?? null,
+    cacheWriteTokens: sample.cacheWriteTokens ?? null,
+    contextWindowTokens: sample.contextWindowTokens ?? null,
+    fillPercent: sample.contextWindowTokens > 0 ? sample.totalTokens / sample.contextWindowTokens * 100 : null,
+    cachePercent: sample.cacheReadTokens != null && sample.inputTokens > 0 ? sample.cacheReadTokens / sample.inputTokens * 100 : null,
+    categories: categoryTokens(sample),
+  }));
+  const compactions = [];
+  for (let index = 1; index < ordered.length; index += 1) {
+    const previous = ordered[index - 1];
+    const current = ordered[index];
+    if (!(previous.totalTokens >= MIN_COMPACTION_TOKENS) || !(current.totalTokens <= previous.totalTokens * COMPACTION_DROP_RATIO)) continue;
+    if (previous.model && current.model && previous.model !== current.model) continue;
+    const epochChanged = (previous.contextEpoch ?? 0) !== (current.contextEpoch ?? 0);
+    const reason = epochChanged ? current.contextEpochReason : '';
+    compactions.push({
+      index, observedAt: current.observedAt, kind: 'compaction',
+      cause: epochChanged && reason !== 'compaction' ? 'context_reset' : 'compaction',
+      totalBefore: previous.totalTokens, totalAfter: current.totalTokens,
+      cacheReadBefore: previous.cacheReadTokens ?? null, cacheReadAfter: current.cacheReadTokens ?? null,
+      confidence: reason === 'compaction' ? 'confirmed' : 'inferred',
+      gapMs: Math.max(0, Date.parse(current.observedAt) - Date.parse(previous.observedAt)) || 0,
+    });
+  }
+  const breaks = [];
+  // Compare against the last real call: compaction emits a synthetic sample with no input and no cache.
+  let measured = null;
+  let measuredIndex = -1;
+  for (let index = 0; index < ordered.length; index += 1) {
+    const current = ordered[index];
+    if (!(current.inputTokens > 0)) continue;
+    const previous = measured;
+    const previousIndex = measuredIndex;
+    measured = current;
+    measuredIndex = index;
+    if (!previous) continue;
+    const before = previous.cacheReadTokens;
+    const after = current.cacheReadTokens;
+    if (before == null || after == null || before < MIN_CACHED_TOKENS) continue;
+    if (after >= before * BREAK_RATIO) continue;
+    // A smaller but still highly cached prompt is not a cache-reuse regression.
+    if (after / current.inputTokens >= (before / previous.inputTokens) * BREAK_RATIO) continue;
+    // Tokens that had to be processed again instead of being read from cache.
+    const rewritten = Math.max(0, current.inputTokens - after);
+    const compacted = compactions.some((entry) => entry.index > previousIndex && entry.index <= index);
+    breaks.push({
+      index, observedAt: current.observedAt, kind: 'cache_break', cause: compacted ? 'compaction' : classifyBreak(previous, current),
+      cacheReadBefore: before, cacheReadAfter: after, rewrittenTokens: rewritten,
+      uncachedInputTokens: rewritten, cacheWriteTokens: current.cacheWriteTokens ?? null, confidence: 'inferred',
+      gapMs: Math.max(0, Date.parse(current.observedAt) - Date.parse(previous.observedAt)) || 0,
+    });
+  }
+  // The newest sample that carries a breakdown, so details survive a page reload.
+  const withBreakdown = ordered.filter((sample) => sample.breakdown?.rows?.length).pop();
+  const latestBreakdown = withBreakdown
+    ? { ...withBreakdown.breakdown, observedAt: withBreakdown.observedAt, totalTokens: withBreakdown.totalTokens, contextWindowTokens: withBreakdown.contextWindowTokens ?? null }
+    : null;
+  return { points, breaks, compactions, jumps: findGrowthJumps(points), latestBreakdown };
+}

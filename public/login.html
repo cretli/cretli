@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#1e1e1e" />
+    <script>
+      (function () {
+        var preference = 'dark';
+        try {
+          var savedPreference =
+            localStorage.getItem('cretli-theme') || localStorage.getItem('cursor-remote-theme');
+          if (savedPreference === 'light' || savedPreference === 'system') {
+            preference = savedPreference;
+          }
+        } catch (error) {}
+
+        var useLight = preference === 'light';
+        if (preference === 'system') {
+          try {
+            useLight =
+              typeof window.matchMedia === 'function' &&
+              window.matchMedia('(prefers-color-scheme: light)').matches;
+          } catch (error) {}
+        }
+
+        var theme = useLight ? 'light' : 'dark';
+        var root = document.documentElement;
+        root.dataset.theme = theme;
+        root.style.colorScheme = theme;
+
+        var themeColor = document.querySelector('meta[name="theme-color"]');
+        if (themeColor) themeColor.content = useLight ? '#f3f3f3' : '#1e1e1e';
+
+        function applyBodyTheme() {
+          if (!document.body) return false;
+          document.body.classList.toggle('theme-light', useLight);
+          return true;
+        }
+
+        if (!applyBodyTheme()) {
+          document.addEventListener('DOMContentLoaded', applyBodyTheme, { once: true });
+        }
+      })();
+    </script>
+    <title>Cretli — sign in</title>
+    <meta name="application-name" content="Cretli" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <script>
+      (function () {
+        var params = new URLSearchParams(window.location.search || '');
+        var next = params.get('next') || '';
+        var widgetAuth = params.get('widgetAuth') === '1' || next.indexOf('/widget-authorize/') !== -1;
+        window.__crWidgetAuth = widgetAuth;
+        if (!widgetAuth) return;
+        document.addEventListener('DOMContentLoaded', function () {
+          document.querySelectorAll('link[rel="manifest"]').forEach(function (link) {
+            link.remove();
+          });
+        }, { once: true });
+      })();
+    </script>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" sizes="any" />
+    <link rel="icon" href="/icons/icon-192.png" type="image/png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Cretli" />
+    <!-- No vendor.css here: it is only the icon font and xterm styles, which the
+         login page does not use. Its own tokens live in login.css. -->
+    <link rel="stylesheet" href="/dist/app/login.css?v=__CR_ASSET_VERSION__" />
+  </head>
+  <body>
+    <div id="login-root"></div>
+    <script>
+      // PWA: register the service worker (offline login shell), but not during widget auth in iframe.
+      if ('serviceWorker' in navigator && !window.__crWidgetAuth) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js').catch(function () {});
+        });
+      }
+    </script>
+    <script src="/dist/app/vendor-login.bundle.js?v=__CR_ASSET_VERSION__"></script>
+    <script src="/dist/app/login.bundle.js?v=__CR_ASSET_VERSION__"></script>
+  </body>
+</html>

@@ -1,0 +1,189 @@
+import assert from 'node:assert/strict';
+import {
+  buildCatalogFromSdkStatusPayload,
+  buildVariantLabelFromParams,
+  decodeModelValue,
+  encodeModelValue,
+  enrichCatalogEntryLabels,
+  expandSdkModelsToCatalog,
+  expandSdkModelRow,
+  catalogFromModelsPayload,
+  countCatalogEnabledModels,
+  filterCatalogByEnabled,
+  mergeModelCatalogEntries,
+  normalizeChatEnabledModels,
+  resolveModelSelection,
+} from '../lib/model-catalog.js';
+
+assert.equal(encodeModelValue('gpt-5.2'), 'gpt-5.2');
+assert.equal(
+  encodeModelValue('gpt-5.2', [{ id: 'reasoning', value: 'high' }]),
+  'gpt-5.2::reasoning=high',
+);
+assert.deepEqual(decodeModelValue('auto'), { modelId: 'auto' });
+assert.deepEqual(decodeModelValue('gpt-5.2-high'), { modelId: 'gpt-5.2' });
+assert.deepEqual(decodeModelValue('gpt-5.2::reasoning=high'), {
+  modelId: 'gpt-5.2',
+  params: [{ id: 'reasoning', value: 'high' }],
+});
+assert.deepEqual(resolveModelSelection('auto', 'composer-2'), { id: 'composer-2' });
+assert.deepEqual(resolveModelSelection('gpt-5.2::reasoning=low'), {
+  id: 'gpt-5.2',
+  params: [{ id: 'reasoning', value: 'low' }],
+});
+
+const expanded = expandSdkModelRow({
+  id: 'gpt-5.2',
+  displayName: 'GPT-5.2',
+  variants: [
+    { displayName: 'High', params: [{ id: 'reasoning', value: 'high' }], isDefault: true },
+    { displayName: 'Low', params: [{ id: 'reasoning', value: 'low' }] },
+  ],
+});
+assert.equal(expanded.length, 2);
+assert.equal(expanded[0].value, 'gpt-5.2::reasoning=high');
+assert.equal(expanded[0].label, 'GPT-5.2 — High');
+assert.equal(expanded[1].value, 'gpt-5.2::reasoning=low');
+
+const opusLike = expandSdkModelRow({
+  id: 'claude-opus-4-8',
+  displayName: 'Opus 4.8',
+  parameters: [
+    { id: 'context', displayName: 'Context', values: [{ value: '300k', displayName: '300K' }] },
+    { id: 'effort', displayName: 'Effort', values: [{ value: 'high', displayName: 'High' }] },
+    { id: 'fast', displayName: 'Fast', values: [{ value: 'true', displayName: 'Fast' }] },
+  ],
+  variants: [
+    {
+      displayName: 'Opus 4.8',
+      params: [
+        { id: 'context', value: '300k' },
+        { id: 'effort', value: 'high' },
+        { id: 'fast', value: 'true' },
+      ],
+    },
+    {
+      displayName: 'Opus 4.8',
+      params: [
+        { id: 'context', value: '300k' },
+        { id: 'effort', value: 'low' },
+        { id: 'fast', value: 'false' },
+      ],
+    },
+  ],
+});
+assert.equal(opusLike.length, 2);
+assert.equal(opusLike[0].label, 'Opus 4.8 — 300K · High · Fast');
+assert.equal(opusLike[1].label, 'Opus 4.8 — 300K · Low');
+assert.equal(buildVariantLabelFromParams(
+  [{ id: 'fast', value: 'false' }],
+  [{ id: 'fast', displayName: 'Fast', values: [{ value: 'true', displayName: 'Fast' }] }],
+), 'Standard');
+
+// Cursor advertises both grok-4.7 context windows. Cretli mirrors the
+// advertised catalog: the 500k row is not hidden (the SDK room falls back if
+// Cursor's registry rejects it at run time).
+const grok47Rows = expandSdkModelsToCatalog([
+  {
+    id: 'grok-4.7',
+    displayName: 'Grok 4.7',
+    parameters: [
+      { id: 'context', displayName: 'Context', values: [{ value: '256k', displayName: '256K' }, { value: '500k', displayName: '500K' }] },
+      { id: 'reasoning_effort', displayName: 'Effort', values: [{ value: 'high', displayName: 'High' }] },
+      { id: 'fast', displayName: 'Fast', values: [{ value: 'true', displayName: 'Fast' }] },
+    ],
+    variants: [
+      { displayName: 'Grok 4.7  High', params: [{ id: 'context', value: '256k' }, { id: 'reasoning_effort', value: 'high' }, { id: 'fast', value: 'false' }] },
+      { displayName: 'Grok 4.7  High', params: [{ id: 'context', value: '500k' }, { id: 'reasoning_effort', value: 'high' }, { id: 'fast', value: 'false' }] },
+    ],
+  },
+]);
+assert.equal(grok47Rows.length, 2);
+assert.match(grok47Rows[0].value, /context=256k/);
+assert.match(grok47Rows[1].value, /context=500k/);
+// The repeated parent name in variant.displayName is dropped in favour of the
+// parameter label, so context (not a collision suffix) distinguishes the rows.
+assert.equal(grok47Rows[0].label, 'Grok 4.7 — 256K · High');
+assert.equal(grok47Rows[1].label, 'Grok 4.7 — 500K · High');
+assert.deepEqual(resolveModelSelection(grok47Rows[1].value), {
+  id: 'grok-4.7',
+  params: [
+    { id: 'context', value: '500k' },
+    { id: 'fast', value: 'false' },
+    { id: 'reasoning_effort', value: 'high' },
+  ],
+});
+
+const duplicateDisplayNames = expandSdkModelsToCatalog([
+  {
+    id: 'grok-4.7-standard',
+    displayName: 'Grok 4.7',
+    variants: [{ displayName: 'Extra High', params: [{ id: 'effort', value: 'xhigh' }] }],
+  },
+  {
+    id: 'grok-4.7-fast',
+    displayName: 'Grok 4.7',
+    variants: [{ displayName: 'Extra High', params: [{ id: 'effort', value: 'xhigh' }] }],
+  },
+]);
+assert.equal(duplicateDisplayNames.length, 2);
+assert.match(duplicateDisplayNames[0].label, /Extra High · grok-4\.7-standard/);
+assert.match(duplicateDisplayNames[1].label, /Extra High · grok-4\.7-fast/);
+
+const merged = mergeModelCatalogEntries(
+  [{ value: 'auto', label: 'Auto', modelId: 'auto' }],
+  [{ value: 'composer-2', label: 'Composer 2', modelId: 'composer-2' }],
+);
+assert.equal(merged.length, 2);
+
+assert.deepEqual(normalizeChatEnabledModels([' auto ', 'composer-2', 'composer-2']), [
+  'auto',
+  'composer-2',
+]);
+
+const catalog = [
+  { value: 'auto', label: 'Auto', modelId: 'auto' },
+  { value: 'composer-2', label: 'Composer 2', modelId: 'composer-2' },
+  { value: 'gpt-5.2::reasoning=high', label: 'GPT-5.2 — High', modelId: 'gpt-5.2' },
+];
+assert.equal(filterCatalogByEnabled(catalog, []).length, 3);
+assert.equal(filterCatalogByEnabled(catalog, ['auto', 'gpt-5.2::reasoning=high']).length, 2);
+assert.equal(filterCatalogByEnabled(catalog, ['gpt-5.2']).length, 0);
+assert.equal(filterCatalogByEnabled(catalog, ['removed-model', 'auto']).length, 1);
+assert.deepEqual(countCatalogEnabledModels(catalog, []), { enabled: 3, total: 3 });
+assert.deepEqual(countCatalogEnabledModels(catalog, ['auto', 'gpt-5.2::reasoning=high']), {
+  enabled: 2,
+  total: 3,
+});
+assert.deepEqual(countCatalogEnabledModels(catalog, ['gpt-5.2']), { enabled: 0, total: 3 });
+assert.deepEqual(
+  countCatalogEnabledModels(catalog, ['auto', 'removed-model', 'gpt-5.2']),
+  { enabled: 1, total: 3 },
+);
+assert.equal(catalogFromModelsPayload({ models: [{ id: 'openai/gpt-5' }] })[0].value, 'openai/gpt-5');
+assert.equal(catalogFromModelsPayload({ catalog: catalog }).length, 3);
+
+const fromEmptyCatalog = buildCatalogFromSdkStatusPayload({
+  catalog: [],
+  models: [{ value: 'composer-2', label: 'Composer 2' }],
+});
+assert.ok(fromEmptyCatalog.some((row) => row.value === 'composer-2'));
+assert.ok(fromEmptyCatalog.some((row) => row.value === 'auto'));
+
+const fromMissingPayload = buildCatalogFromSdkStatusPayload(null);
+assert.ok(fromMissingPayload.length > 0);
+assert.equal(fromMissingPayload[0].value, 'auto');
+
+const staleOpusRows = enrichCatalogEntryLabels([
+  {
+    value: 'claude-opus-4-7::context=300k,effort=high,fast=true,thinking=false',
+    label: 'Opus 4.7',
+    modelId: 'claude-opus-4-7',
+    group: 'Opus 4.7',
+    variantLabel: 'Opus 4.7',
+  },
+]);
+assert.equal(staleOpusRows[0].label, 'Opus 4.7 — 300k · High · Fast');
+assert.equal(staleOpusRows[0].variantLabel, '300k · High · Fast');
+
+console.log('All model-catalog tests passed.');

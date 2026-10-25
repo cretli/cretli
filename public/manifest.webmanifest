@@ -1,0 +1,64 @@
+{
+  "id": "/",
+  "name": "Cretli",
+  "short_name": "Cretli",
+  "description": "Self-hosted terminal and agent chat from a phone browser.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "any",
+  "lang": "en",
+  "dir": "auto",
+  "categories": ["productivity", "developer"],
+  "background_color": "#1e1e1e",
+  "theme_color": "#1e1e1e",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/monochrome-512.png", "sizes": "512x512", "type": "image/png", "purpose": "monochrome" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Chats",
+      "short_name": "Chats",
+      "description": "Open the chat panel",
+      "url": "/?source=pwa&panel=chat",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Terminal",
+      "short_name": "Terminal",
+      "description": "Open the terminal panel",
+      "url": "/?source=pwa&panel=terminal",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "New chat",
+      "short_name": "New chat",
+      "description": "Start a new chat with the Cursor SDK agent",
+      "url": "/?source=pwa&panel=chat&action=new",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/desktop.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Cretli on desktop"
+    },
+    {
+      "src": "/screenshots/mobile.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Cretli on phone"
+    }
+  ],
+  "prefer_related_applications": false
+}

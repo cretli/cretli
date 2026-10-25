@@ -1,0 +1,16 @@
+{
+  "_note": "Sanitized shape of OpenRouter SSE data lines (not a live capture). Values are invented; model/provider ids are placeholders.",
+  "lines": [
+    "data: {\"id\":\"gen-fixture-0001\",\"model\":\"example-vendor/example-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"x\"},\"finish_reason\":null}]}",
+    "data: {\"id\":\"gen-fixture-0001\",\"model\":\"example-vendor/example-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1000,\"completion_tokens\":50,\"total_tokens\":1050,\"prompt_tokens_details\":{\"cached_tokens\":600},\"completion_tokens_details\":{\"reasoning_tokens\":10},\"cost\":0.0012}}",
+    "data: [DONE]"
+  ],
+  "expectedUsage": {
+    "prompt_tokens": 1000,
+    "completion_tokens": 50,
+    "total_tokens": 1050,
+    "prompt_tokens_details": {"cached_tokens": 600},
+    "completion_tokens_details": {"reasoning_tokens": 10},
+    "cost": 0.0012
+  }
+}

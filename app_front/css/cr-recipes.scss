@@ -1,0 +1,351 @@
+// Layout recipes for Settings and later screens.
+// Controls stay in Lit (cr-bar-*, cr-checkbox, cr-icon-button).
+// Do not set --cr-control-height on a scrolling container.
+
+.cr-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.cr-page-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  width: 100%;
+}
+
+.cr-page-footer {
+  flex: 0 0 auto;
+  display: none;
+  align-items: center;
+  gap: var(--cr-space-2);
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.35rem var(--cr-space-3);
+  background: var(--cr-surface);
+  border-top: 1px solid var(--cr-border);
+  position: relative;
+  z-index: 3;
+
+  @media (min-width: 720px) {
+    padding-inline: max(var(--cr-space-4), calc((100% - 52rem) / 2 + var(--cr-space-4)));
+  }
+
+  cr-bar-button {
+    width: auto;
+  }
+}
+
+/* Settings footers are shown by settingsFooters.js (removes `hidden` for the
+   active tab); every other .cr-page-footer stays hidden unless the page opts in. */
+.cr-page-footer[data-settings-footer-for]:not([hidden]) {
+  display: flex;
+}
+
+.cr-field,
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+
+  cr-bar-input,
+  cr-bar-select,
+  cr-bar-textarea,
+  cr-bar-button {
+    width: 100%;
+    max-width: none;
+  }
+
+  // Secondary actions (e.g. "use default") keep their content width.
+  cr-bar-button.cr-field-action {
+    width: auto;
+    align-self: flex-start;
+  }
+}
+
+.cr-field-label,
+.settings-field-label {
+  font-size: 0.8rem;
+  color: var(--cr-text-subtle);
+}
+
+.cr-hint,
+.settings-hint {
+  margin: 0 0 var(--cr-space-2) 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--cr-text-muted);
+
+  &:empty {
+    display: none;
+    margin: 0;
+  }
+}
+
+.cr-field + .cr-hint,
+.cr-field + .settings-hint,
+.cr-row + .cr-hint,
+.cr-row + .settings-hint {
+  margin-top: var(--cr-space-3);
+}
+
+.cr-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+  border: 1px solid var(--cr-border);
+  border-radius: 2px;
+  padding: var(--cr-space-2);
+  background: var(--cr-surface);
+}
+
+cr-checkbox + .cr-row,
+cr-bar-input + .cr-row,
+cr-bar-select + .cr-row,
+cr-bar-textarea + .cr-row {
+  margin-top: var(--cr-space-3);
+}
+
+.cr-row,
+.settings-workspace-add-row,
+.settings-workspace-add-folder-row,
+.settings-workspace-sync-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--cr-space-2);
+
+  cr-bar-input,
+  cr-bar-select,
+  cr-bar-textarea {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  cr-bar-button,
+  cr-icon-button {
+    width: auto;
+    flex: 0 0 auto;
+  }
+}
+
+.cr-check,
+.settings-checkbox {
+  display: inline-flex;
+  align-items: center;
+  min-height: 0;
+  gap: var(--cr-space-2);
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--cr-text);
+
+  input[type='checkbox'] {
+    width: 16px;
+    height: 16px;
+    min-width: 16px;
+    min-height: 16px;
+    margin: 0;
+    accent-color: var(--cr-accent);
+  }
+}
+
+.cr-status,
+.lan-save-status,
+.quick-commands-save-status {
+  font-size: 0.75rem;
+  color: var(--cr-success);
+
+  &.is-error {
+    color: var(--cr-danger-text);
+  }
+
+  &[data-tone='error'] {
+    color: var(--cr-error);
+  }
+}
+
+// Small pill used for value provenance (workspace / env / default).
+.cr-badge {
+  display: inline-block;
+  padding: 0 var(--cr-space-2);
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  font-size: var(--cr-font-size-xs);
+  line-height: 1.4;
+  color: var(--cr-text-muted);
+  background: var(--cr-surface);
+
+  &[data-delegation-source='workspace'] {
+    border-color: var(--cr-accent);
+    color: var(--cr-accent);
+  }
+}
+
+.cr-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 0.5rem;
+  background: var(--cr-surface);
+  border-bottom: 1px solid var(--cr-border);
+  position: relative;
+  z-index: 2;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  flex-wrap: nowrap;
+
+  .cr-tab {
+    flex: 0 0 auto;
+    background: none;
+    border: none;
+    color: var(--cr-text-muted);
+    padding: 0.55rem 0.85rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+
+    &:hover {
+      color: var(--cr-text);
+    }
+
+    &.active,
+    &[aria-selected='true'] {
+      color: var(--cr-text);
+      border-bottom-color: var(--cr-accent);
+    }
+  }
+}
+
+// Opt-in native form controls that match the cr-bar-* primitives
+// (components/ui/cr-bar-input.js). Never restyles natives under .cr-field.
+// No !important here: the legacy mobile rule that forces 16px on text/password
+// inputs is kept on purpose (iOS zoom prevention) and wins there by design.
+.cr-form {
+  --cr-form-control-height: var(--cr-control-height);
+
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']),
+  select,
+  textarea {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    height: var(--cr-form-control-height);
+    padding: 0 0.5rem;
+    border: 1px solid var(--cr-field-border);
+    border-radius: var(--cr-radius-sm, 4px);
+    background: var(--cr-field-bg);
+    color: var(--cr-text);
+    font-family: inherit;
+    font-size: var(--cr-font-size-sm);
+    line-height: 1.2;
+    outline: none;
+    transition:
+      border-color var(--cr-transition, 120ms ease),
+      background var(--cr-transition, 120ms ease);
+
+    &::placeholder {
+      color: var(--cr-text-muted);
+    }
+
+    &:hover {
+      border-color: var(--cr-field-border-hover);
+    }
+
+    &:focus,
+    &:focus-visible {
+      outline: none;
+      border-color: var(--cr-field-focus-border);
+    }
+
+    &:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+  }
+
+  textarea {
+    height: auto;
+    min-height: calc(var(--cr-form-control-height) * 2);
+    padding: 0.35rem 0.5rem;
+    resize: vertical;
+  }
+}
+
+// Beats the legacy `body.theme-light input/select` rule (0,1,2) with (0,2,2).
+body.theme-light .cr-form {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']),
+  select,
+  textarea {
+    border-color: var(--cr-field-border);
+    background: var(--cr-field-bg);
+    color: var(--cr-text);
+
+    &:hover {
+      border-color: var(--cr-field-border-hover);
+    }
+
+    &:focus,
+    &:focus-visible {
+      border-color: var(--cr-field-focus-border);
+    }
+  }
+}
+
+// iOS zooms a focused field under 16px. The legacy mobile rule covers only
+// text/password inputs, so select/textarea get the size here.
+@media (max-width: 768px) {
+  .cr-form {
+    select,
+    textarea {
+      font-size: 16px;
+    }
+  }
+}
+
+// Small uppercase section heading (1-3 words), not for sentences.
+.cr-section-title {
+  margin: 0 0 var(--cr-space-2) 0;
+  font-size: var(--cr-font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cr-text-muted);
+}
+
+// Input + unit on one line, optional hint below.
+.cr-input-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cr-space-1) var(--cr-space-2);
+
+  > input,
+  > select {
+    flex: 1 1 8rem;
+    min-width: 0;
+    width: auto;
+  }
+
+  .cr-input-unit {
+    flex: 0 0 auto;
+    font-size: var(--cr-font-size-sm);
+    color: var(--cr-text-subtle);
+  }
+
+  .cr-hint {
+    flex: 1 1 100%;
+    margin: 0;
+  }
+}
+
+/* Options flagged `disabled` in a cr-bar-select list stay visible but inert. */
+.cr-bar-select-item.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

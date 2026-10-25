@@ -1,0 +1,89 @@
+/* Settings -> MCP tab.
+   Layout only: cr-bar-* and cr-searchable-select style themselves with the
+   shared --cr-field-* tokens, and cr-checkbox draws the checkboxes. Selects and
+   inputs share one full-width rule here, with no per-control width cap. */
+
+.mcp-settings-form {
+  margin-bottom: var(--cr-space-3);
+}
+
+.mcp-harness-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cr-space-1) var(--cr-space-3);
+}
+
+.mcp-server-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+}
+
+.mcp-server-card h4 {
+  margin: 0 0 var(--cr-space-1);
+  font-size: var(--cr-font-size-lg);
+}
+
+.mcp-settings-form > h4 {
+  margin: 0 0 var(--cr-space-2);
+  font-size: var(--cr-font-size-md);
+}
+
+.mcp-settings-form > cr-checkbox {
+  display: flex;
+  margin-bottom: var(--cr-space-1);
+}
+
+.mcp-settings-form cr-searchable-select,
+.mcp-settings-form cr-bar-select {
+  width: 100%;
+}
+
+.mcp-settings-form code {
+  word-break: break-all;
+}
+
+.external-mcp-client-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cr-space-2);
+}
+
+.external-mcp-client-head h4 {
+  margin: 0;
+}
+
+/* Client state; tones come from the shared theme tokens. */
+.external-mcp-badge {
+  flex: none;
+  padding: 0 var(--cr-space-2);
+  border-radius: var(--cr-radius-sm);
+  border: 1px solid var(--cr-border);
+  color: var(--cr-text-muted);
+  font-size: var(--cr-font-size-xs);
+  line-height: 1.6;
+}
+
+.external-mcp-badge[data-tone='success'] {
+  color: var(--cr-success);
+  border-color: var(--cr-success-border);
+  background: var(--cr-success-bg);
+}
+
+.external-mcp-badge[data-tone='warning'] {
+  color: var(--cr-warning);
+  border-color: var(--cr-warning);
+}
+
+.external-mcp-clients-head {
+  margin-top: var(--cr-space-3);
+}
+
+/* Export modal: keep long JSON lines scrollable inside the dialog. */
+.external-mcp-export-text {
+  max-height: 50vh;
+  overflow: auto;
+  white-space: pre;
+  user-select: text;
+}

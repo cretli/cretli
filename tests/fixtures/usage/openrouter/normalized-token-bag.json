@@ -1,0 +1,7 @@
+{
+  "_note": "Normalized bag for expectedUsage in raw-sse-usage-chunk.json (fromOpenRouterUsage).",
+  "tokens": {"textInput":400,"textOutput":50,"audioInput":0,"audioOutput":0,"cachedInput":600,"cacheWrite":0,"reasoning":0},
+  "buckets": {"inputWithoutCache":400,"cacheRead":600,"cacheWrite":0,"outputWithoutReasoning":50,"reasoning":0},
+  "promptTokensForWindow": 1000,
+  "billedTotalTokens": 1050
+}

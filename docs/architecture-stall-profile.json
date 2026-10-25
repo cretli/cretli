@@ -1,0 +1,865 @@
+{
+  "schema": 1,
+  "purpose": "V6 per-site main-thread stall profile and V8 Files/Terminal/Browser overhead (stage 6)",
+  "thresholds": {
+    "source": "docs/storage-gates.md (Event loop)",
+    "resolutionMs": 1,
+    "eventLoopP99Ms": 25,
+    "eventLoopMaxMs": 100
+  },
+  "idleFloorMs": {
+    "p50": 1.091,
+    "p99": 1.27,
+    "max": 1.58
+  },
+  "fixture": {
+    "size": 5000,
+    "profile": "full",
+    "seed": 20261017,
+    "chats": 5000,
+    "workspaces": 24,
+    "historyEvents": 30000,
+    "todos": 400,
+    "delegations": 600,
+    "usage": "not generated (no stable writer in this stage)"
+  },
+  "referenceMeasurements": {
+    "V8-files-list-20000-entries": {
+      "change": "lib/files-list.js: per-call String#localeCompare(..., { sensitivity: \"base\" }) replaced by one shared Intl.Collator",
+      "callMs": {
+        "n": 200,
+        "p50": 83.953,
+        "p95": 87.422,
+        "p99": 90.175,
+        "p99Label": "exploratory",
+        "max": 96.069
+      },
+      "eventLoopMs": {
+        "p50": 85.787,
+        "p99": 95.355,
+        "max": 101.777
+      }
+    }
+  },
+  "sites": [
+    {
+      "id": "AW-child-process-registry-uncontended",
+      "group": "atomics-wait",
+      "site": "lib/child-process-registry.js:130 (registry lock, uncontended register+unregister)",
+      "owner": "stage-6",
+      "requestPath": "yes",
+      "note": "registerChildProcess/unregisterChildProcess run on every terminal/agent PTY spawn and exit; uncontended path never reaches Atomics.wait.",
+      "status": "measured",
+      "callMs": {
+        "n": 1000,
+        "p50": 0.277,
+        "p95": 0.389,
+        "p99": 0.519,
+        "p99Label": "stable",
+        "max": 0.757
+      },
+      "eventLoopMs": {
+        "p50": 0.976,
+        "p99": 1.39,
+        "max": 1.538
+      },
+      "verdict": "within"
+    },
+    {
+      "id": "AW-child-process-registry-contended",
+      "group": "atomics-wait",
+      "site": "lib/child-process-registry.js:130 (registry lock held by another process for 40 ms)",
+      "owner": "stage-6",
+      "requestPath": "contention-only",
+      "note": "Stall is the holder critical-section time rounded up to the 25 ms poll step. Requires a second process touching the same registry (second server instance, CLI).",
+      "status": "measured",
+      "callMs": {
+        "n": 20,
+        "p50": 51.36,
+        "p95": 52.645,
+        "p99": 53.017,
+        "p99Label": "exploratory",
+        "max": 53.017
+      },
+      "eventLoopMs": {
+        "p50": 1.077,
+        "p99": 53.117,
+        "max": 53.608
+      },
+      "verdict": "exceeds (exploratory)"
+    },
+    {
+      "id": "AW-opencode-port-registry-uncontended",
+      "group": "atomics-wait",
+      "site": "lib/opencode/opencode-port-registry.js:83 (port registry lock, uncontended write+remove)",
+      "owner": "stage-6",
+      "requestPath": "no",
+      "note": "Runs when an OpenCode serve process is started/stopped, not per request.",
+      "status": "measured",
+      "callMs": {
+        "n": 1000,
+        "p50": 0.259,
+        "p95": 0.379,
+        "p99": 0.6,
+        "p99Label": "stable",
+        "max": 1.143
+      },
+      "eventLoopMs": {
+        "p50": 1.03,
+        "p99": 1.383,
+        "max": 1.663
+      },
+      "verdict": "within"
+    },
+    {
+      "id": "AW-opencode-port-registry-contended",
+      "group": "atomics-wait",
+      "site": "lib/opencode/opencode-port-registry.js:83 (port registry lock held by another process for 40 ms)",
+      "owner": "stage-6",
+      "requestPath": "contention-only",
+      "note": "Cross-process only; same poll-step arithmetic as the child-process registry.",
+      "status": "measured",
+      "callMs": {
+        "n": 20,
+        "p50": 51.126,
+        "p95": 52.468,
+        "p99": 52.84,
+        "p99Label": "exploratory",
+        "max": 52.84
+      },
+      "eventLoopMs": {
+        "p50": 1.075,
+        "p99": 52.462,
+        "max": 53.936
+      },
+      "verdict": "exceeds (exploratory)"
+    },
+    {
+      "id": "AW-usage-ledger-uncontended",
+      "group": "atomics-wait",
+      "site": "lib/persist/usage-persist.js:1389 (ledger lock; commitUsageEvent uncontended, includes journal append + index persist)",
+      "owner": "stage-6",
+      "requestPath": "yes",
+      "note": "commitUsageEvent runs at every harness run start/finish. Uncontended path never reaches Atomics.wait; the stall measured here is the synchronous journal+index fs work.",
+      "status": "measured",
+      "callMs": {
+        "n": 1000,
+        "p50": 7.415,
+        "p95": 11.952,
+        "p99": 13.848,
+        "p99Label": "stable",
+        "max": 16.22
+      },
+      "eventLoopMs": {
+        "p50": 7.451,
+        "p99": 13.894,
+        "max": 16.269
+      },
+      "verdict": "within"
+    },
+    {
+      "id": "AW-owner-lock-socket-probe",
+      "group": "atomics-wait",
+      "site": "lib/delegation-owner-lock.js:159 (isLockSocketLive, 80 ms Atomics.wait)",
+      "owner": "R3",
+      "requestPath": "startup",
+      "note": "READ-ONLY (recovery R3). Probed against a socket that IS listening in another process.",
+      "status": "measured",
+      "callMs": {
+        "n": 20,
+        "p50": 80.44,
+        "p95": 80.671,
+        "p99": 80.688,
+        "p99Label": "exploratory",
+        "max": 80.688
+      },
+      "eventLoopMs": {
+        "p50": 80.544,
+        "p99": 80.937,
+        "max": 80.937
+      },
+      "verdict": "exceeds (exploratory)",
+      "observed": {
+        "listeningSocketCalls": 23,
+        "reportedLive": 0
+      }
+    },
+    {
+      "id": "AW-delegation-sqlite-busy-retry",
+      "group": "atomics-wait",
+      "site": "lib/persist/delegation-sqlite.js:118 (busy retry, 50 ms Atomics.wait)",
+      "owner": "A2",
+      "requestPath": "contention-only",
+      "reason": "Storage-owned (A2 4fb174ca removes it with the sqlite-worker). Runs only when another process holds the SQLite database busy during open/migrate; by construction one 50 ms block per retry. Not driven here to avoid touching a storage-owned file path.",
+      "status": "not measured"
+    },
+    {
+      "id": "AW-workspace-watchers-lock-backoff",
+      "group": "atomics-wait",
+      "site": "lib/persist/workspace-watchers-persist.js:2916 (lock backoff, caller ms)",
+      "owner": "A4",
+      "requestPath": "contention-only",
+      "reason": "Storage-owned (A4 6e483edd). Private sleep helper reached only under cross-process lock contention; not exported, not driven.",
+      "status": "not measured"
+    },
+    {
+      "id": "AW-model-pick-decisions-lock-backoff",
+      "group": "atomics-wait",
+      "site": "lib/persist/model-pick-decisions-persist.js:51 (lock backoff, caller ms)",
+      "owner": "A4",
+      "requestPath": "contention-only",
+      "reason": "Storage-owned (A4/A5). Private sleep helper reached only under cross-process lock contention; not exported, not driven.",
+      "status": "not measured"
+    },
+    {
+      "id": "SC-git-cli-status",
+      "group": "sync-child",
+      "site": "lib/git-cli.js:30 runGitCommand(status --porcelain) via spawnSync",
+      "owner": "stage-6",
+      "requestPath": "yes",
+      "note": "lib/routes/git-routes.js calls it on /api/git/* requests (3-4 spawnSync per request). Fixture: 3000 tracked files, 20 dirty, 1 untracked, tmp repo.",
+      "status": "measured",
+      "callMs": {
+        "n": 200,
+        "p50": 3.446,
+        "p95": 10.184,
+        "p99": 10.811,
+        "p99Label": "exploratory",
+        "max": 11.004
+      },
+      "eventLoopMs": {
+        "p50": 3.471,
+        "p99": 10.854,
+        "max": 11.043
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "SC-git-cli-is-repo",
+      "group": "sync-child",
+      "site": "lib/git-cli.js:30 isGitRepo(rev-parse) via spawnSync",
+      "owner": "stage-6",
+      "requestPath": "yes",
+      "note": "Called before every git route handler. Fixture: 3000 tracked files, 20 dirty, 1 untracked, tmp repo.",
+      "status": "measured",
+      "callMs": {
+        "n": 200,
+        "p50": 1.479,
+        "p95": 2.262,
+        "p99": 3.738,
+        "p99Label": "exploratory",
+        "max": 4.298
+      },
+      "eventLoopMs": {
+        "p50": 1.499,
+        "p99": 3.785,
+        "max": 4.395
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "SC-worktree-run-git-status",
+      "group": "sync-child",
+      "site": "lib/worktree/git-worktree.ts:55 runGit(status) via execFileSync",
+      "owner": "stage-6",
+      "requestPath": "yes",
+      "note": "Worktree status/list routes and delegation integration. Fixture: 3000 tracked files, 20 dirty, 1 untracked, tmp repo.",
+      "status": "measured",
+      "callMs": {
+        "n": 200,
+        "p50": 3.216,
+        "p95": 3.887,
+        "p99": 4.165,
+        "p99Label": "exploratory",
+        "max": 4.563
+      },
+      "eventLoopMs": {
+        "p50": 3.242,
+        "p99": 4.188,
+        "max": 4.616
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "SC-worktree-dirty-paths",
+      "group": "sync-child",
+      "site": "lib/worktree/git-worktree.ts:55 listDirtyWorktreePaths",
+      "owner": "stage-6",
+      "requestPath": "no",
+      "note": "Leaf-checkpoint path (delegation cycle). Fixture: 3000 tracked files, 20 dirty, 1 untracked, tmp repo.",
+      "status": "measured",
+      "callMs": {
+        "n": 200,
+        "p50": 3.046,
+        "p95": 3.637,
+        "p99": 3.899,
+        "p99Label": "exploratory",
+        "max": 4.061
+      },
+      "eventLoopMs": {
+        "p50": 3.066,
+        "p99": 3.957,
+        "max": 4.09
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "SC-material-revision",
+      "group": "sync-child",
+      "site": "lib/delegation-material-revision.js:17,22 readDelegationMaterialRevision (2 execFileSync)",
+      "owner": "stage-6",
+      "requestPath": "yes",
+      "note": "Called from delegation-service review/verify gates and the delegation HTTP/MCP paths. Fixture: 3000 tracked files, 20 dirty, 1 untracked, tmp repo.",
+      "status": "measured",
+      "callMs": {
+        "n": 200,
+        "p50": 4.732,
+        "p95": 5.516,
+        "p99": 6.073,
+        "p99Label": "exploratory",
+        "max": 13.442
+      },
+      "eventLoopMs": {
+        "p50": 4.76,
+        "p99": 6.099,
+        "max": 13.468
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "SC-metrics-git-snapshot",
+      "group": "sync-child",
+      "site": "lib/delegation-metrics-git.js:17 captureGitSnapshot (3 execFileSync)",
+      "owner": "stage-6",
+      "requestPath": "yes",
+      "note": "Run start and run finish in delegation-run-bridge (delegation start/stop path). Fixture: 3000 tracked files, 20 dirty, 1 untracked, tmp repo.",
+      "status": "measured",
+      "callMs": {
+        "n": 200,
+        "p50": 7.428,
+        "p95": 10.421,
+        "p99": 11.747,
+        "p99Label": "exploratory",
+        "max": 12.961
+      },
+      "eventLoopMs": {
+        "p50": 7.463,
+        "p99": 11.796,
+        "max": 13.009
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "SC-tool-executor",
+      "group": "sync-child",
+      "site": "lib/agent-harness/tool-executor.js:320,333 spawnSync fallback",
+      "owner": "stage-6",
+      "requestPath": "no",
+      "reason": "Runs the model-requested shell command; duration is the external operation itself, not Cretli overhead.",
+      "status": "not measured"
+    },
+    {
+      "id": "SC-chats-routes-agent-cli",
+      "group": "sync-child",
+      "site": "lib/routes/chats-routes.js:1274 spawnSync(agent CLI create-chat)",
+      "owner": "stage-6",
+      "requestPath": "no",
+      "reason": "Requires the external agent CLI; time is dominated by the external binary.",
+      "status": "not measured"
+    },
+    {
+      "id": "SC-fork-title",
+      "group": "sync-child",
+      "site": "lib/fork-title.js:127,174 spawnSync(agent CLI)",
+      "owner": "stage-6",
+      "requestPath": "no",
+      "reason": "Requires the external agent CLI.",
+      "status": "not measured"
+    },
+    {
+      "id": "SC-codex-logout",
+      "group": "sync-child",
+      "site": "lib/codex/codex-device-login.js:182 spawnSync(codex logout)",
+      "owner": "other",
+      "requestPath": "no",
+      "reason": "Requires the external codex CLI; manual user action.",
+      "status": "not measured"
+    },
+    {
+      "id": "SC-zai-probe",
+      "group": "sync-child",
+      "site": "lib/zai/zai-sdk-runtime.js:26 spawnSync(python -c import zai)",
+      "owner": "other",
+      "requestPath": "no",
+      "reason": "Requires python + zai package; cached capability probe.",
+      "status": "not measured"
+    },
+    {
+      "id": "SC-sdk-history-isolation-probe",
+      "group": "sync-child",
+      "site": "lib/sdk/sdk-history-isolation-probe.ts:492 spawnSync(node fork CLI)",
+      "owner": "other",
+      "requestPath": "no",
+      "reason": "Requires the cursor SDK fork CLI; probe, not a request path.",
+      "status": "not measured"
+    },
+    {
+      "id": "SC-self-update",
+      "group": "sync-child",
+      "site": "lib/self-update.js:269 spawnSync(git)",
+      "owner": "other",
+      "requestPath": "no",
+      "reason": "Manual self-update action against the real checkout; not driven against the repository.",
+      "status": "not measured"
+    },
+    {
+      "id": "SC-shutdown-origin",
+      "group": "sync-child",
+      "site": "lib/shutdown-origin.js:47 execFileSync(ps)",
+      "owner": "stage-6",
+      "requestPath": "no",
+      "reason": "Runs once during shutdown (bounded by PS_TIMEOUT_MS); not a steady-state path.",
+      "status": "not measured"
+    },
+    {
+      "id": "SC-secret-scan",
+      "group": "sync-child",
+      "site": "lib/secret-scan.js:74 execFileSync(git)",
+      "owner": "other",
+      "requestPath": "no",
+      "reason": "Run on explicit commit/scan actions.",
+      "status": "not measured"
+    },
+    {
+      "id": "SC-todo-integration-proof",
+      "group": "sync-child",
+      "site": "lib/todo-integration-proof.js:63,116 execFileSync(git)",
+      "owner": "stage-6",
+      "requestPath": "no",
+      "reason": "Integration-proof confirm action only; two git calls per explicit user/orchestrator action.",
+      "status": "not measured"
+    },
+    {
+      "id": "SC-patch-scope",
+      "group": "sync-child",
+      "site": "lib/worktree/patch-scope.ts:127 execFileSync(git apply --numstat)",
+      "owner": "stage-6",
+      "requestPath": "no",
+      "reason": "Smart-merge patch analysis; per integration action.",
+      "status": "not measured"
+    },
+    {
+      "id": "SC-workspace-scout-git",
+      "group": "sync-child",
+      "site": "lib/workspace-scout-git.js:34 / lib/workspace-watcher-scout.js:315 execFileSync",
+      "owner": "stage-6",
+      "requestPath": "no",
+      "reason": "Scout scans run on the Watcher schedule, not per request.",
+      "status": "not measured"
+    },
+    {
+      "id": "SC-worktree-snapshot-commit",
+      "group": "sync-child",
+      "site": "lib/worktree/git-worktree.ts:184-239 createDirtyTreeSnapshot / createWorktreeLeafCheckpoint (execFileSync commit-tree)",
+      "owner": "stage-6",
+      "requestPath": "no",
+      "reason": "Mutating (writes git objects); per todo start / leaf PASS, off the request path of normal reads. Not driven to avoid mutation helpers in the profile.",
+      "status": "not measured"
+    },
+    {
+      "id": "FS-chats-load-copy",
+      "group": "sync-fs",
+      "site": "lib/persist/chats-persist.js loadChats() full copy (5000 chats)",
+      "owner": "A3b",
+      "requestPath": "yes",
+      "note": "Cached read; every call returns a full copy. Stage-1/3 request-local index addresses the per-request multiplier.",
+      "status": "measured",
+      "callMs": {
+        "n": 1000,
+        "p50": 0.446,
+        "p95": 0.487,
+        "p99": 0.554,
+        "p99Label": "stable",
+        "max": 0.829
+      },
+      "eventLoopMs": {
+        "p50": 0.91,
+        "p99": 1.421,
+        "max": 1.829
+      },
+      "verdict": "within"
+    },
+    {
+      "id": "FS-chats-update-one",
+      "group": "sync-fs",
+      "site": "lib/persist/chats-persist.js updateChat() (read copy + sync write of the whole chats.json, 5000 chats)",
+      "owner": "A3b",
+      "requestPath": "yes",
+      "note": "Writer is owned by storage A3b (metadata migration); measured only to attribute the stall.",
+      "status": "measured",
+      "callMs": {
+        "n": 300,
+        "p50": 7.748,
+        "p95": 10.285,
+        "p99": 11.262,
+        "p99Label": "exploratory",
+        "max": 14.224
+      },
+      "eventLoopMs": {
+        "p50": 7.778,
+        "p99": 11.297,
+        "max": 14.262
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "FS-write-json-atomic-large",
+      "group": "sync-fs",
+      "site": "lib/persist/atomic-write.js writeJsonAtomic (pretty-printed, 5000 chat objects)",
+      "owner": "other",
+      "requestPath": "yes",
+      "note": "Shared helper (JSON.stringify indent 2 + writeFileSync + renameSync, no fsync).",
+      "status": "measured",
+      "callMs": {
+        "n": 200,
+        "p50": 3.618,
+        "p95": 4.274,
+        "p99": 6.043,
+        "p99Label": "exploratory",
+        "max": 6.796
+      },
+      "eventLoopMs": {
+        "p50": 3.637,
+        "p99": 6.062,
+        "max": 6.828
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "FS-todos-add",
+      "group": "sync-fs",
+      "site": "lib/persist/todos-persist.js addTodo() (load + normalize + sync write of the workspace todo document)",
+      "owner": "A4",
+      "requestPath": "yes",
+      "note": "Todos document writer belongs to storage A4/A5; measured to attribute the stall. Document grows during the run (TODOS_MAX_ITEMS=2000).",
+      "status": "measured",
+      "callMs": {
+        "n": 300,
+        "p50": 1.291,
+        "p95": 1.691,
+        "p99": 2.013,
+        "p99Label": "exploratory",
+        "max": 4.892
+      },
+      "eventLoopMs": {
+        "p50": 1.364,
+        "p99": 5.415,
+        "max": 6.59
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "FS-todos-load",
+      "group": "sync-fs",
+      "site": "lib/persist/todos-persist.js loadTodosData() (read + normalize)",
+      "owner": "A4",
+      "requestPath": "yes",
+      "note": "Todo list/show routes.",
+      "status": "measured",
+      "callMs": {
+        "n": 300,
+        "p50": 0.022,
+        "p95": 0.03,
+        "p99": 0.044,
+        "p99Label": "exploratory",
+        "max": 0.075
+      },
+      "eventLoopMs": {
+        "p50": 0.987,
+        "p99": 1.06,
+        "max": 1.06
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "FS-delegation-create-sqlite",
+      "group": "sync-fs",
+      "site": "lib/persist/delegations-persist.js createDelegationRecord() (main-thread DatabaseSync write)",
+      "owner": "A2",
+      "requestPath": "yes",
+      "note": "Main-thread SQLite writer; A2 replaces it with the sqlite-worker. Measured to attribute the stall only.",
+      "status": "measured",
+      "callMs": {
+        "n": 300,
+        "p50": 0.09,
+        "p95": 0.261,
+        "p99": 10.56,
+        "p99Label": "exploratory",
+        "max": 15.593
+      },
+      "eventLoopMs": {
+        "p50": 1.002,
+        "p99": 16.564,
+        "max": 16.564
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "V5-tick-load-mailbox",
+      "group": "v5-runtime-tick",
+      "site": "lib/delegation-runtime-worker.js:~443 loadMailboxMessages() (3000 delivered rows, JSON backend default) read on every tick",
+      "owner": "A4",
+      "requestPath": "no",
+      "note": "The tick loads the WHOLE mailbox (all statuses) to time out dispatching rows and to find queued recipients. Storage-owned reader; measured for the V5 finding only.",
+      "status": "measured",
+      "callMs": {
+        "n": 300,
+        "p50": 3.972,
+        "p95": 4.427,
+        "p99": 4.812,
+        "p99Label": "exploratory",
+        "max": 5.49
+      },
+      "eventLoopMs": {
+        "p50": 4.004,
+        "p99": 4.94,
+        "max": 6.382
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "V5-tick-full",
+      "group": "v5-runtime-tick",
+      "site": "lib/delegation-runtime-worker.js tickDelegationRuntime({ drainMailbox: false }) (600 delegations, 3000 mailbox rows, 5000 chats)",
+      "owner": "R15",
+      "requestPath": "no",
+      "note": "Whole tick incl. the workspace watcher heartbeat in observe-off state. The scheduler/resume policy (R15) is read-only for this program; this only attributes the stall.",
+      "status": "measured",
+      "callMs": {
+        "n": 100,
+        "p50": 12.262,
+        "p95": 13.921,
+        "p99": 18.935,
+        "p99Label": "exploratory",
+        "max": 19.053
+      },
+      "eventLoopMs": {
+        "p50": 12.403,
+        "p99": 19.087,
+        "max": 19.677
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "V8-files-list-1000-entries",
+      "group": "v8-files",
+      "site": "lib/routes/files-routes.js GET /api/files/entries (one directory with 1000 entries; readdirSync + statSync per entry + sort, route handler)",
+      "owner": "stage-6",
+      "requestPath": "yes",
+      "note": "Cretli-side overhead only; the handler is fully synchronous and has no entry cap.",
+      "status": "measured",
+      "callMs": {
+        "n": 200,
+        "p50": 1.575,
+        "p95": 1.742,
+        "p99": 2.767,
+        "p99Label": "exploratory",
+        "max": 2.907
+      },
+      "eventLoopMs": {
+        "p50": 1.583,
+        "p99": 2.781,
+        "max": 3.234
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "V8-files-list-5000-entries",
+      "group": "v8-files",
+      "site": "lib/routes/files-routes.js GET /api/files/entries (one directory with 5000 entries; readdirSync + statSync per entry + sort, route handler)",
+      "owner": "stage-6",
+      "requestPath": "yes",
+      "note": "Cretli-side overhead only; the handler is fully synchronous and has no entry cap.",
+      "status": "measured",
+      "callMs": {
+        "n": 200,
+        "p50": 8.754,
+        "p95": 9.956,
+        "p99": 11.174,
+        "p99Label": "exploratory",
+        "max": 11.747
+      },
+      "eventLoopMs": {
+        "p50": 8.839,
+        "p99": 11.215,
+        "max": 11.788
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "V8-files-list-20000-entries",
+      "group": "v8-files",
+      "site": "lib/routes/files-routes.js GET /api/files/entries (one directory with 20000 entries; readdirSync + statSync per entry + sort, route handler)",
+      "owner": "stage-6",
+      "requestPath": "yes",
+      "note": "Cretli-side overhead only; the handler is fully synchronous and has no entry cap.",
+      "status": "measured",
+      "callMs": {
+        "n": 200,
+        "p50": 38.962,
+        "p95": 45.079,
+        "p99": 47.281,
+        "p99Label": "exploratory",
+        "max": 47.795
+      },
+      "eventLoopMs": {
+        "p50": 39.354,
+        "p99": 47.743,
+        "max": 48.267
+      },
+      "verdict": "exceeds (exploratory)"
+    },
+    {
+      "id": "V8-files-read-1mib",
+      "group": "v8-files",
+      "site": "lib/routes/files-routes.js GET /api/files/read (1 MiB file, the route cap)",
+      "owner": "stage-6",
+      "requestPath": "yes",
+      "note": "statSync x2 + readFileSync(1 MiB, utf8). Fully synchronous.",
+      "status": "measured",
+      "callMs": {
+        "n": 500,
+        "p50": 0.397,
+        "p95": 0.494,
+        "p99": 2.359,
+        "p99Label": "exploratory",
+        "max": 2.562
+      },
+      "eventLoopMs": {
+        "p50": 0.946,
+        "p99": 2.935,
+        "max": 3.353
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "V8-pty-ws-input-message",
+      "group": "v8-terminal",
+      "site": "lib/ws/pty-ws-handler.ts ws.on(message) type=input (JSON.parse + ptyProcess.write, stub pty)",
+      "owner": "stage-6",
+      "requestPath": "yes",
+      "note": "Stub pty: measures only Cretli frame handling, not the shell.",
+      "status": "measured",
+      "callMs": {
+        "n": 5000,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0.001,
+        "p99Label": "stable",
+        "max": 0.032
+      },
+      "eventLoopMs": {
+        "p50": 1,
+        "p99": 1.029,
+        "max": 1.029
+      },
+      "verdict": "within"
+    },
+    {
+      "id": "V8-pty-output-broadcast",
+      "group": "v8-terminal",
+      "site": "lib/pty-broadcast.js queuePtyOutput (4 KiB chunk -> 64 KiB ring buffer + 3 ws clients, JSON.stringify once)",
+      "owner": "stage-6",
+      "requestPath": "yes",
+      "note": "Stub pty output path. Ring buffer bounded at PTY_BUFFER_MAX=65536 bytes; per-client skip on backpressure (WS_BACKPRESSURE_THRESHOLD_BYTES).",
+      "status": "measured",
+      "callMs": {
+        "n": 5000,
+        "p50": 0.006,
+        "p95": 0.007,
+        "p99": 0.011,
+        "p99Label": "stable",
+        "max": 0.064
+      },
+      "eventLoopMs": {
+        "p50": 1,
+        "p99": 2.138,
+        "max": 2.138
+      },
+      "verdict": "within"
+    },
+    {
+      "id": "V8-browser-session-lifecycle",
+      "group": "v8-browser",
+      "site": "lib/browser/session-manager.js createSession + listTabs + closeSession (fake driver, no Chromium)",
+      "owner": "stage-6",
+      "requestPath": "yes",
+      "note": "Cretli bookkeeping only (limits, policy, tab registry, cleanup). Chromium launch/navigation time is external and NOT measured.",
+      "status": "measured",
+      "callMs": {
+        "n": 300,
+        "p50": 0.021,
+        "p95": 0.071,
+        "p99": 0.158,
+        "p99Label": "exploratory",
+        "max": 0.196
+      },
+      "eventLoopMs": {
+        "p50": 0.998,
+        "p99": 1.019,
+        "max": 1.019
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "V8-browser-describe-elements-200",
+      "group": "v8-browser",
+      "site": "lib/browser/session-manager.js describePageElementsBatch (200 nodes; the page-side scan body, run in Node here)",
+      "owner": "stage-6",
+      "requestPath": "yes",
+      "note": "The real scan runs inside the page; this measures the same function body on the Node side with synthetic nodes, so it is an upper-bound proxy for the descriptor-building cost only.",
+      "status": "measured",
+      "callMs": {
+        "n": 300,
+        "p50": 0.004,
+        "p95": 0.009,
+        "p99": 0.029,
+        "p99Label": "exploratory",
+        "max": 0.074
+      },
+      "eventLoopMs": {
+        "p50": 0.001,
+        "p99": 0.001,
+        "max": 0
+      },
+      "verdict": "within (exploratory)"
+    },
+    {
+      "id": "V8-browser-chromium-launch-navigate",
+      "group": "v8-browser",
+      "site": "Chromium launch / navigation / screenshot capture",
+      "owner": "stage-6",
+      "requestPath": "yes",
+      "status": "not measured",
+      "reason": "External operation (browser process); by definition excluded from Cretli overhead."
+    },
+    {
+      "id": "V8-terminal-real-shell",
+      "group": "v8-terminal",
+      "site": "Real PTY spawn + shell output latency",
+      "owner": "stage-6",
+      "requestPath": "yes",
+      "status": "not measured",
+      "reason": "node-pty spawn of a real shell is an external process; excluded. PTY spawn registration cost is covered by AW-child-process-registry-uncontended."
+    }
+  ],
+  "wallSeconds": 38.3,
+  "environment": {
+    "node": "v24.14.0",
+    "platform": "linux (WSL2)",
+    "profile": "full",
+    "seed": 20261017,
+    "eventLoopResolutionMs": 1,
+    "commit": "5970c63e41b70164d92d8ed8378ac588e0c27354"
+  }
+}

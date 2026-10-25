@@ -1,0 +1,663 @@
+/* Container: the textarea bar (in multiline mode) plus the expandable bar (▲). The textarea bar stays visible regardless of ▲. */
+.send-bar-extra-container {
+  position: fixed;
+  bottom: calc(
+    var(--cr-debug-overlay-height) +
+      max(
+        var(--chat-send-bar-reserve, 0px),
+        calc(2.55rem + var(--cr-keyboard-offset, 0px))
+      )
+  );
+  left: var(--sidebar-dock-width, 0px);
+  right: 0;
+  z-index: 99;
+  display: flex;
+  flex-direction: column-reverse;
+  pointer-events: none;
+  max-height: 50vh;
+}
+
+.send-bar-extra-container > * {
+  pointer-events: auto;
+}
+
+/* Chat context usage bar — full width, sitting above the top border of the input bar. */
+.chat-context-meter {
+  display: none;
+  flex-shrink: 0;
+  width: 100%;
+  height: 4px;
+  background: var(--cr-border-subtle);
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.chat-context-meter-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--cr-success);
+  transition: width 180ms ease, background 180ms ease;
+}
+
+.chat-context-meter.has-usage .chat-context-meter-fill {
+  min-width: 2px;
+}
+
+.chat-context-meter.is-warn .chat-context-meter-fill {
+  background: var(--cr-warn);
+}
+
+.chat-context-meter.is-danger .chat-context-meter-fill {
+  background: var(--cr-error);
+}
+
+.chat-context-meter.is-critical .chat-context-meter-fill,
+.chat-context-meter.is-overlimit .chat-context-meter-fill {
+  background: var(--cr-error);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cr-error) 35%, transparent);
+}
+
+.sdk-rich-context-advisory {
+  display: flex;
+  flex-shrink: 0;
+  width: 100%;
+  gap: 0.45rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin: 0.35rem 0;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--cr-warn-border);
+  border-radius: var(--cr-radius-md, 6px);
+  background: color-mix(in srgb, var(--cr-warn) 10%, var(--cr-surface));
+  color: var(--cr-text);
+  font-size: var(--cr-font-size-legacy-078);
+  line-height: 1.35;
+}
+
+.sdk-rich-context-advisory.is-danger {
+  border-color: var(--cr-error-border);
+  background: color-mix(in srgb, var(--cr-error) 10%, var(--cr-surface));
+}
+
+.sdk-rich-context-advisory.is-critical {
+  border-color: var(--cr-error-border);
+  background: color-mix(in srgb, var(--cr-error) 16%, var(--cr-surface));
+}
+
+.sdk-rich-context-advisory-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sdk-rich-context-advisory-actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.sdk-rich-context-advisory-action,
+.sdk-rich-context-advisory-dismiss {
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm, 4px);
+  background: var(--cr-surface);
+  color: var(--cr-text);
+  font: inherit;
+  font-size: var(--cr-font-size-legacy-074);
+  padding: 0.2rem 0.45rem;
+  cursor: pointer;
+}
+
+.sdk-rich-context-advisory-action {
+  border-color: var(--cr-primary);
+  background: var(--cr-primary);
+  color: #fff;
+}
+
+.chat-settings-legacy-compression {
+  margin-top: 0.35rem;
+  opacity: 0.85;
+}
+
+/* The bar must stay visible even when the extra controls above the send field are collapsed. */
+body:has(#chat-panel.active:not(.hide-send-field)) #chat-context-meter {
+  display: block;
+}
+
+#send-bar-textarea-wrap {
+  display: none;
+  flex-shrink: 0;
+  flex-direction: column;
+  padding: 0.35rem 0.5rem;
+  padding-bottom: max(0.35rem, env(safe-area-inset-bottom));
+  background: var(--cr-surface);
+  border-top: 1px solid var(--cr-border);
+  box-shadow: 0 -2px 6px var(--cr-shadow-soft);
+
+  &.is-visible {
+    display: flex;
+  }
+
+  .send-bar-textarea-bar {
+    flex-shrink: 0;
+    width: 100%;
+    padding: 0.25rem 0;
+    box-sizing: border-box;
+  }
+  .send-keys-input-fullwidth {
+    width: 100%;
+    min-height: 4em;
+    max-height: 12em;
+    resize: vertical;
+    box-sizing: border-box;
+    display: block;
+    padding: 0.35rem 0.5rem;
+    background: var(--cr-control-idle-bg);
+    color: var(--cr-text);
+    border: 1px solid var(--cr-border-subtle);
+    border-radius: var(--cr-radius-sm, 4px);
+    font-size: var(--cr-font-size-legacy-08);
+    line-height: 1.25;
+    font-family: inherit;
+
+    &::placeholder {
+      color: var(--cr-text-muted);
+    }
+
+    &:hover {
+      border-color: var(--cr-border-strong);
+    }
+
+    &:focus {
+      outline: none;
+      border-color: var(--cr-input-focus-border);
+    }
+  }
+}
+
+/* Shared bar with quick commands and special characters — at the bottom, above the dictation bar (Chat + Terminal). */
+#chat-extra-bar-wrap {
+  display: none;
+  flex-direction: column;
+  gap: 0;
+  padding: var(--cr-toolbar-padding-y) var(--cr-toolbar-padding-x);
+  padding-bottom: max(var(--cr-toolbar-padding-y), env(safe-area-inset-bottom));
+  background: var(--cr-surface);
+  border-top: 1px solid var(--cr-border);
+  box-shadow: 0 -2px 6px var(--cr-shadow-soft);
+  max-height: 40vh;
+  overflow-y: auto;
+
+  &.is-visible {
+    display: flex;
+  }
+
+  .send-bar-options-row {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid var(--cr-border);
+    gap: 0.35rem;
+  }
+
+  .send-bar-stop-action-row {
+    justify-content: flex-start;
+  }
+
+  .send-bar-options-label {
+    font-size: var(--cr-font-size-legacy-078);
+    color: var(--cr-text-muted);
+    white-space: nowrap;
+  }
+
+  .send-bar-extra-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+    box-sizing: border-box;
+    height: var(--cr-toolbar-control-height);
+    min-height: var(--cr-toolbar-control-height);
+    min-width: var(--cr-toolbar-control-height);
+    padding: 0 0.85rem;
+    background: var(--cr-control-idle-bg);
+    color: var(--cr-text);
+    border: 1px solid var(--cr-border-subtle);
+    border-radius: var(--cr-radius-sm, 4px);
+    cursor: pointer;
+    font-size: var(--cr-font-size-legacy-082);
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .send-bar-extra-action-btn:hover {
+    background: var(--cr-hover);
+    border-color: var(--cr-border-strong);
+  }
+
+  .send-bar-extra-stop-btn {
+    font-weight: 500;
+  }
+
+  .quick-commands-bar,
+  .extra-bar-context-picker,
+  .special-chars-bar {
+    border-bottom: none;
+    flex-shrink: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .extra-bar-context-picker {
+    border-bottom: 1px solid var(--cr-border);
+    padding: 0.35rem 0 0.25rem;
+  }
+
+  .extra-bar-context-picker-search {
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    height: var(--cr-toolbar-control-height);
+    padding: 0 0.5rem;
+    background: var(--cr-control-idle-bg);
+    color: var(--cr-text);
+    border: 1px solid var(--cr-border-subtle);
+    border-radius: var(--cr-radius-sm, 4px);
+    font-size: var(--cr-font-size-legacy-08);
+    font-family: inherit;
+    line-height: 1.2;
+
+    &::placeholder {
+      color: var(--cr-text-muted);
+    }
+
+    &:hover {
+      border-color: var(--cr-border-strong);
+    }
+
+    &:focus {
+      outline: none;
+      border-color: var(--cr-input-focus-border);
+    }
+  }
+
+  .extra-bar-context-picker-body {
+    margin-top: 0.35rem;
+    max-height: 28vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .extra-bar-context-picker-section + .extra-bar-context-picker-section {
+    margin-top: 0.35rem;
+  }
+
+  .extra-bar-context-picker-section-title {
+    margin: 0 0 0.25rem;
+    font-size: var(--cr-font-size-legacy-072);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--cr-text-muted);
+  }
+
+  .extra-bar-context-picker-row {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0.35rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 0.15rem;
+  }
+
+  .extra-bar-context-picker-empty {
+    margin: 0.15rem 0;
+    font-size: var(--cr-font-size-legacy-078);
+    color: var(--cr-text-muted);
+  }
+
+  .special-chars-bar {
+    border-top: 1px solid var(--cr-border);
+  }
+}
+
+.quick-commands-bar {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--cr-surface);
+  border-bottom: 1px solid var(--cr-border);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.quick-cmd-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: var(--cr-toolbar-control-height);
+  min-height: var(--cr-toolbar-control-height);
+  min-width: var(--cr-toolbar-control-height);
+  padding: 0 0.5rem;
+  background: var(--cr-control-idle-bg);
+  color: var(--cr-text);
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm, 4px);
+  font-size: var(--cr-font-size-legacy-08);
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover {
+    background: var(--cr-hover);
+    border-color: var(--cr-border-strong);
+  }
+
+  &:focus {
+    outline: none;
+    border-color: var(--cr-input-focus-border);
+  }
+}
+
+.special-chars-bar {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: var(--cr-surface);
+  border-bottom: 1px solid var(--cr-border);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.special-char-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: var(--cr-toolbar-control-height);
+  min-height: var(--cr-toolbar-control-height);
+  min-width: var(--cr-toolbar-control-height);
+  padding: 0 0.4rem;
+  background: var(--cr-control-idle-bg);
+  color: var(--cr-text-muted);
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm, 4px);
+  font-size: var(--cr-font-size-legacy-08);
+  line-height: 1;
+  font-family: inherit;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--cr-text);
+    border-color: var(--cr-border-strong);
+  }
+
+  &:focus {
+    outline: none;
+    border-color: var(--cr-input-focus-border);
+  }
+}
+
+@media (max-width: 768px) {
+  .header {
+    padding: 0.4rem 0.6rem;
+    font-size: var(--cr-font-size-legacy-085);
+  }
+
+  .tabs button {
+    padding: 0.5rem 0.75rem;
+    font-size: var(--cr-font-size-legacy-085);
+  }
+
+  /* Inactive panels keep a fallback height; the active one fills the flex shell. */
+  .panel.active {
+    height: auto;
+    max-height: none;
+    min-height: 0;
+  }
+
+  .chat-layout {
+    flex-direction: column;
+  }
+
+  .chat-main {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .todo-scroll {
+    padding: 0.45rem;
+    gap: 0.55rem;
+  }
+
+  .todo-composer {
+    padding: 0.6rem;
+  }
+
+  .todo-item-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .todo-item-status-wrap {
+    width: 100%;
+  }
+
+  .todo-item-status-select {
+    flex: 1;
+    width: 100%;
+    max-width: none;
+  }
+
+  .todo-item-actions {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .todo-item-agent,
+  .todo-item-delete,
+  .todo-item-newchat {
+    width: auto;
+  }
+
+  .todo-item-newchat {
+    margin-left: 0;
+  }
+
+  .todo-item-actions .todo-item-newchat,
+  .todo-item-actions .todo-item-agent {
+    flex: 1 1 auto;
+  }
+
+  .todo-item-idbar {
+    gap: 0.3rem;
+  }
+
+  .todo-item-copy span:last-child {
+    display: none;
+  }
+
+  .todo-item-body-preview {
+    max-height: 50vh;
+  }
+
+  .todo-row-badge,
+  .todo-row-mark {
+    max-width: 30%;
+  }
+
+  .todo-row-review {
+    max-width: 2.6rem;
+  }
+
+  .todo-cwd-hint {
+    display: none;
+  }
+
+  .todo-field-input {
+    font-size: var(--cr-font-size-legacy-08);
+  }
+
+  .chat-tab-pane {
+    padding: 0 0.35rem 0;
+  }
+
+  .chat-fullscreen-bar {
+    display: flex;
+  }
+
+  .chat-pane-toolbar {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+
+    .send-keys-wrap {
+      margin-left: 0;
+      width: 100%;
+    }
+
+    .send-keys-input {
+      flex: 1;
+      min-width: 0;
+      width: 100%;
+      max-width: none;
+    }
+  }
+
+  input[type="text"],
+  input[type="password"],
+  .send-keys-input,
+  .lan-settings-box input {
+    font-size: var(--cr-font-size-legacy-16px) !important;
+    padding: 0.4rem 0.5rem 0.4rem 0.55rem !important;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  /* Smaller prompt field, matching the chat blocks. */
+  .send-keys-input {
+    font-size: var(--cr-font-size-legacy-13px) !important;
+  }
+
+  /* iOS zooms the whole page in when a focused field is under 16px, which
+     breaks the layout mid-typing, so keep the larger size there. */
+  @supports (-webkit-touch-callout: none) {
+    .send-keys-input {
+      font-size: var(--cr-font-size-legacy-16px) !important;
+    }
+  }
+
+  .lan-settings-box {
+    flex-wrap: wrap;
+
+    input {
+      width: 100%;
+      max-width: 200px;
+    }
+  }
+
+  /* xterm width 100% with hidden overflow, so nothing spills out on the right. */
+  #terminal-panel .terminal-viewport-wrap,
+  .chat-tab-pane .terminal-viewport-wrap,
+  .tasks-tab-pane .terminal-viewport-wrap,
+  #agents-panel .agents-terminal-container {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-x: hidden;
+  }
+
+  #terminal-panel .terminal-tab-pane {
+    overflow-x: hidden;
+  }
+
+  #terminal-panel .terminal-viewport-wrap > div,
+  #terminal-panel .terminal-viewport-wrap .xterm {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  #chat-panel .terminal-viewport-wrap > div,
+  #chat-panel .terminal-viewport-wrap .xterm {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  /* Keep the send bar in the pane flex layout. position:fixed inside
+     overflow:hidden + 100vh is treated as absolute on iOS/PWA and lands
+     under the browser chrome / home indicator. sticky keeps it at the
+     pane bottom if a parent still overflows. */
+  #chat-panel .chat-pane-toolbar.chat-send-bar {
+    position: sticky;
+    bottom: 0;
+    left: auto;
+    right: auto;
+    z-index: 2;
+    margin: auto -0.35rem 0;
+    width: calc(100% + 0.7rem);
+    padding: var(--cr-toolbar-padding-y) var(--cr-toolbar-padding-x);
+    padding-bottom: max(var(--cr-toolbar-padding-y), env(safe-area-inset-bottom, 0px));
+    background: var(--cr-surface);
+    border-top: 1px solid var(--cr-border);
+    box-shadow: 0 -2px 8px var(--cr-shadow-soft);
+  }
+
+  #chat-panel .chat-tab-pane {
+    padding-bottom: var(--cr-keyboard-offset, 0px);
+  }
+
+  #chat-panel:not(.hide-send-field) .chat-tab-pane .terminal-viewport-wrap {
+    padding-bottom: 0;
+    // The composer occupies flex space; its absolute context stack needs its own reserve.
+    margin-bottom: var(--chat-send-context-reserve, 0px);
+  }
+
+  #chat-panel .sdk-rich-chat-mount {
+    padding: 0 0.14rem calc(0.08rem + 3px);
+  }
+
+  #terminal-panel .terminal-main {
+    padding-bottom: var(--cr-keyboard-offset, 0px);
+  }
+
+  #terminal-panel .terminal-send-bar-wrap {
+    position: sticky;
+    bottom: 0;
+    left: auto;
+    right: auto;
+    z-index: 2;
+    margin: 0;
+    padding: var(--cr-toolbar-padding-y) var(--cr-toolbar-padding-x);
+    padding-bottom: max(var(--cr-toolbar-padding-y), env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -2px 8px var(--cr-shadow-soft);
+
+    .send-keys-wrap {
+      margin-left: 0;
+      width: 100%;
+      flex: 1 1 auto;
+    }
+
+    .send-keys-input-slot {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .send-keys-input {
+      flex: 1;
+      min-width: 0;
+      width: 100%;
+      max-width: none;
+    }
+  }
+
+  #terminal-panel .terminal-tab-pane .terminal-viewport-wrap {
+    padding-bottom: 0;
+  }
+}

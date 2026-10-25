@@ -1,0 +1,490 @@
+{
+  "schemaVersion": 1,
+  "stage": "S8 602a6a25",
+  "rootPlan": "7ec86917-118f-4272-a7d6-d6cb2da3d7d8",
+  "runKind": "synthetic fixtures, single machine, no real browser/device",
+  "overallVerdict": "NOT ACCEPTED",
+  "overallReason": "Real browser/device acceptance, >=10 min mixed load, 20-cycle stability and every storage/recovery dependency (A2-A6, B4, R13-R20) are not done; no vertical is complete.",
+  "verticals": [
+    {
+      "id": "V0",
+      "name": "Request-local chat index",
+      "required": true,
+      "verdict": "NOT ACCEPTED",
+      "reason": "Uncommitted in the main checkout; commit needs an explicit user order.",
+      "deferred": false
+    },
+    {
+      "id": "V1",
+      "name": "Chat catalog read model",
+      "required": true,
+      "verdict": "NOT ACCEPTED",
+      "reason": "Store-level zero-copy reads need A2/A3b; only artifacts in worktree checkpoint commits.",
+      "deferred": false
+    },
+    {
+      "id": "V2",
+      "name": "Sidebar / list DTO and sync",
+      "required": true,
+      "verdict": "NOT ACCEPTED",
+      "reason": "No real browser run; recovery statuses (R13) and history parts (A3a) missing.",
+      "deferred": false
+    },
+    {
+      "id": "V3",
+      "name": "History page / search / replay",
+      "required": false,
+      "verdict": "BLOCKED",
+      "reason": "Blocked by A2 and A3a.",
+      "deferred": true
+    },
+    {
+      "id": "V4",
+      "name": "Frontend shared entity model",
+      "required": true,
+      "verdict": "NOT ACCEPTED",
+      "reason": "The experimental entity-store path was removed; a replacement needs a new contract and real desktop/mobile acceptance.",
+      "deferred": false
+    },
+    {
+      "id": "V5",
+      "name": "TODO / Watcher / delegation aggregates and runtime tick",
+      "required": false,
+      "verdict": "BLOCKED",
+      "reason": "Blocked by A4, A3b and R14-R20; tick still reads the whole mailbox.",
+      "deferred": true
+    },
+    {
+      "id": "V6",
+      "name": "Blocking primitives",
+      "required": true,
+      "verdict": "NOT ACCEPTED",
+      "reason": "Storage-owned Atomics.wait sites and owner-lock probe remain; 20000-entry directory listing P99 ~46 ms residual.",
+      "deferred": false
+    },
+    {
+      "id": "V7",
+      "name": "Boot / navigation / Settings",
+      "required": true,
+      "verdict": "NOT MEASURED",
+      "reason": "Needs cold/warm/offline browser baseline; only server GET /api/settings was measured.",
+      "deferred": false
+    },
+    {
+      "id": "V8",
+      "name": "Files / Terminal / Browser overhead",
+      "required": true,
+      "verdict": "NOT MEASURED",
+      "reason": "Cretli-side overhead measured on synthetic input; real shell and Chromium launch not measured.",
+      "deferred": false
+    },
+    {
+      "id": "V9",
+      "name": "Observability and fixtures",
+      "required": true,
+      "verdict": "NOT ACCEPTED",
+      "reason": "Fixtures and smoke exist; >=10 min mixed run and 20-cycle memory check not executed.",
+      "deferred": false
+    },
+    {
+      "id": "V10",
+      "name": "Migration integration and multi-instance compatibility",
+      "required": false,
+      "verdict": "BLOCKED",
+      "reason": "Every store cutover blocked by A3a/A3b/A4/A5/A6/B4; multi-instance regression set itself passes 18/18.",
+      "deferred": true
+    }
+  ],
+  "criteria": [
+    {
+      "required": true,
+      "deferred": false,
+      "id": "C1",
+      "name": "API page <=100 rows and <=128 KiB, default page (limit=100) only",
+      "verdict": "ACCEPTED",
+      "evidence": "responseBytes 35099-44103 at limit=100 only (exploratory n=200, synthetic). lib/chat-catalog.js clamps limit to 500 (CHAT_CATALOG_PAGE_MAX_LIMIT), so a limit=500 page (~190 KB / 500 rows) is NOT within the cap: cap enforcement stays OPEN (owner V1, separate todo)."
+    },
+    {
+      "required": true,
+      "deferred": false,
+      "id": "C2",
+      "name": "Response <=1 MiB for list endpoints",
+      "verdict": "NOT ACCEPTED",
+      "evidence": "legacy GET /api/chats returns 1499938 B at 5000 and 5372215 B at 20000 chats; unpaged endpoint still exists"
+    },
+    {
+      "id": "C3a",
+      "name": "Server-side page latency P95<=100 ms (baseline section 5 also P99<=250 ms)",
+      "required": true,
+      "deferred": false,
+      "verdict": "ACCEPTED",
+      "evidence": "P95 only: 20000 pageFirst P95 11.087 ms (rerun 10.987) <= 100 ms. P99 11.485 ms is NOT MEASURED against the P99<=250 ms budget (n=200 < 1000, exploratory)."
+    },
+    {
+      "id": "C3b",
+      "name": "Page latency before/after on identical data",
+      "required": true,
+      "deferred": false,
+      "verdict": "NOT MEASURED",
+      "evidence": "No pre-change baseline exists; the re-run of the same code (08c9699) is a repeat, not before/after. Only scopeLegacy -> scopeIndexed (29.2 -> 1.7 ms) has a same-data pair."
+    },
+    {
+      "required": true,
+      "deferred": false,
+      "id": "C4",
+      "name": "Event-loop P99<100 ms / max 500 ms (app) and P99<=25 ms / max<=100 ms (storage), 1 ms resolution",
+      "verdict": "NOT ACCEPTED",
+      "evidence": "Single sites within except contended locks (~53 ms), owner-lock probe (80.9 ms) and 20000-entry directory (event-loop P99 46.0, max 51.6 ms); no whole-app mixed run"
+    },
+    {
+      "required": true,
+      "deferred": false,
+      "id": "C5",
+      "name": "DOM <=5000 nodes / <=300 rendered rows",
+      "verdict": "NOT MEASURED",
+      "evidence": "The experimental entity-store path was removed; the established sidebar state and renderer remain in use. DOM nodes still need a browser (tests/e2e/sidebar-render-metrics.spec.js not run)."
+    },
+    {
+      "required": true,
+      "deferred": false,
+      "id": "C6",
+      "name": "Desktop/mobile cold/warm/offline/reconnect/multi-tab",
+      "verdict": "NOT MEASURED",
+      "evidence": "No real browser or device available"
+    },
+    {
+      "required": true,
+      "deferred": false,
+      "id": "C7",
+      "name": ">=50 interaction attempts and P99 from >=1000 samples (browser)",
+      "verdict": "NOT MEASURED",
+      "evidence": "Server-side benches use n=200; only loadWarm/scopeIndexed (n=1000) reach a stable P99"
+    },
+    {
+      "required": true,
+      "deferred": false,
+      "id": "C8",
+      "name": "Mixed test >=10 min with 3-5 streams + Watcher + bursts",
+      "verdict": "NOT MEASURED",
+      "evidence": "Not run"
+    },
+    {
+      "required": true,
+      "deferred": false,
+      "id": "C9",
+      "name": "Memory/listener/timer/subprocess stability after 20 cycles",
+      "verdict": "NOT MEASURED",
+      "evidence": "Not run"
+    },
+    {
+      "required": true,
+      "deferred": false,
+      "id": "C10",
+      "name": "Multi-instance regression set",
+      "verdict": "ACCEPTED",
+      "evidence": "node scripts/architecture-multi-instance-regression.mjs: 18/18 files passed, on in-memory Redis double only; stage 5/7 reviews pending, so ACCEPTED only on this material. Gaps: no stub WS error test, replay cap untested, Redis pub-sub untested, owner persistence only claimed (follow-up todo af2d01d2)."
+    },
+    {
+      "required": true,
+      "deferred": false,
+      "id": "C11",
+      "name": "Stage 2-6 contract tests",
+      "verdict": "ACCEPTED",
+      "evidence": "16 targeted test files, all pass, 0 fail; ACCEPTED only on this material: stage 2 review state unknown, stage 5 and 7 reviews pending. Contract tests only, not a substitute for the stage reviews."
+    },
+    {
+      "required": false,
+      "deferred": true,
+      "id": "C12",
+      "name": "Crash/retry/cancel/restore and durable ACK tests",
+      "verdict": "BLOCKED",
+      "evidence": "Durable ACK consumer and restore live in A3a / recovery R-items, not integrated; deferred (blocked) per DAG section 4."
+    },
+    {
+      "required": true,
+      "deferred": false,
+      "id": "C13",
+      "name": "Integration of stage 1-7 artifacts into the target branch",
+      "verdict": "NOT ACCEPTED",
+      "evidence": "Stage 1-6 artifacts are only in worktree checkpoint commits. Stage 7 and 8 files are UNTRACKED (no checkpoint); tests/architecture-acceptance.test.js depends on the untracked docs/architecture-readiness-matrix.json, so stage 8 cannot be integrated alone. Request-local chat index fix and mcp-vendor-map change are uncommitted in the main checkout."
+    },
+    {
+      "required": true,
+      "deferred": false,
+      "id": "C14",
+      "name": "Plan manifest up to date",
+      "verdict": "NOT ACCEPTED",
+      "evidence": "The stage-7 manifest is regenerated AFTER the last doc edit with `node scripts/architecture-manifest-stage7.mjs --write docs/architecture-manifest-stage7.json` and a test re-hashes every entry; the plan v6 manifest remains stale until a human approves plan v7."
+    },
+    {
+      "id": "C15",
+      "name": "Domain boundaries, sources of truth, retired duplicates, cleanup",
+      "required": true,
+      "deferred": false,
+      "verdict": "NOT ACCEPTED",
+      "evidence": "Legacy GET /api/chats + chatListLiveSync still exist beside /api/chats/page + chatListSyncClient, which is not wired; the established sidebar renderer remains active. Nothing retired."
+    },
+    {
+      "id": "C16",
+      "name": "Permanent perf smoke and observability without secrets",
+      "required": true,
+      "deferred": false,
+      "verdict": "NOT ACCEPTED",
+      "evidence": "lib/routes/health-routes.js samples the event loop at 20 ms vs the V9 1 ms contract; no secret-leak check on the observability output was run or reported."
+    },
+    {
+      "id": "C17",
+      "name": "Persist queue age budget (steady P95 <=200 ms, burst max <=2000 ms; baseline ~line 178)",
+      "required": true,
+      "deferred": false,
+      "verdict": "NOT MEASURED",
+      "evidence": "No queue-age measurement in any bench."
+    },
+    {
+      "id": "C18",
+      "name": "Scope tests (durable ACK / crash / restore / scope)",
+      "required": true,
+      "deferred": false,
+      "verdict": "NOT MEASURED",
+      "evidence": "Stage tests cover only owner lease, non-owner refusal, TTL failover and the read-only stub (multi-instance set) plus catalog scope lookups; durable ACK, crash and restore scope are not covered (see C12)."
+    },
+    {
+      "id": "C19",
+      "name": "Required-vs-deferred list",
+      "required": true,
+      "deferred": false,
+      "verdict": "ACCEPTED",
+      "evidence": "V3/V5/V10 and C12 are deferred/blocked (required:false, deferred:true) consistent with DAG section 4; every other vertical and criterion is required:true. Enforced by the test."
+    }
+  ],
+  "measurements": {
+    "http": {
+      "profile": "full",
+      "samplesPerEndpoint": 200,
+      "p99Label": "exploratory",
+      "sizes": {
+        "500": {
+          "listLive": {
+            "bytes": 157157,
+            "p50": 0.932,
+            "p95": 1.232,
+            "p99": 1.353,
+            "max": 5.849
+          },
+          "pageFirst": {
+            "bytes": 38174,
+            "p50": 0.358,
+            "p95": 0.527,
+            "p99": 0.708,
+            "max": 0.74
+          }
+        },
+        "5000": {
+          "listLive": {
+            "bytes": 1499938,
+            "p50": 6.248,
+            "p95": 9.505,
+            "p99": 11.814,
+            "max": 13.248
+          },
+          "pageFirst": {
+            "bytes": 38243,
+            "p50": 1.485,
+            "p95": 2.125,
+            "p99": 3.823,
+            "max": 5.963
+          }
+        },
+        "20000": {
+          "listLive": {
+            "bytes": 5372215,
+            "p50": 23.783,
+            "p95": 34.174,
+            "p99": 35.089,
+            "max": 35.667
+          },
+          "listFullIndex": {
+            "bytes": 7594586,
+            "p50": 26.988,
+            "p95": 37.041,
+            "p99": 40.175,
+            "max": 45.159
+          },
+          "pageFirst": {
+            "bytes": 38262,
+            "p50": 6.829,
+            "p95": 11.087,
+            "p99": 11.485,
+            "max": 15.059
+          },
+          "settings": {
+            "bytes": 6570,
+            "p50": 0.447,
+            "p95": 0.577,
+            "p99": 0.755,
+            "max": 1.264
+          }
+        }
+      }
+    },
+    "chatListBench": {
+      "20000": {
+        "loadWarm": {
+          "n": 1000,
+          "p50": 0.446,
+          "p95": 0.592,
+          "p99": 1.849,
+          "max": 3.977
+        },
+        "loadCold": {
+          "n": 30,
+          "p50": 10.672,
+          "p95": 16.169,
+          "max": 16.268
+        },
+        "scopeLegacy": {
+          "n": 30,
+          "p50": 29.248,
+          "p95": 32.618,
+          "max": 34.377
+        },
+        "scopeIndexed": {
+          "n": 1000,
+          "p50": 1.717,
+          "p95": 2.402,
+          "p99": 4.54,
+          "max": 5.63
+        }
+      }
+    },
+    "stallProfile": {
+      "files-list-20000": {
+        "callMsP99": 45.352,
+        "eventLoopMs": {
+          "n": 200,
+          "p99": 46.006,
+          "max": 51.642
+        }
+      },
+      "owner-lock-socket-probe": {
+        "n": 20,
+        "p99": 80.772,
+        "eventLoopMax": 80.937
+      },
+      "chats-load-copy": {
+        "n": 1000,
+        "p99": 0.569,
+        "eventLoopMax": 2.152
+      },
+      "runtime-tick-full": {
+        "n": 100,
+        "p99": 17.528,
+        "eventLoopMax": 17.76
+      },
+      "usage-ledger-uncontended": {
+        "first": {
+          "n": 1000,
+          "eventLoopMax": 42.2,
+          "p99": 13.2
+        },
+        "rerun": {
+          "n": 1000,
+          "callMsP99": 14.733,
+          "callMsMax": 18.633,
+          "eventLoopMax": 18.678
+        }
+      }
+    },
+    "rerun": {
+      "environment": "Node v24.14.0, Linux WSL2, one machine, synthetic fixtures seed 20261017, commit 08c9699",
+      "rawOutputsStoredInRepo": false,
+      "note": "Raw bench outputs of the rerun were written to a temporary directory outside the repo and are not stored; figures are not independently verifiable.",
+      "http20000": {
+        "listLive": {
+          "p50": 24.822,
+          "p95": 35.229,
+          "p99": 36.485,
+          "max": 37.495
+        },
+        "pageFirst": {
+          "p50": 6.888,
+          "p95": 10.987,
+          "p99": 11.754,
+          "max": 14.318
+        },
+        "settings": {
+          "p50": 0.458,
+          "p95": 0.654,
+          "p99": 0.796,
+          "max": 1.46
+        }
+      },
+      "chatList20000": {
+        "loadWarm": {
+          "p50": 0.45,
+          "p95": 0.941,
+          "p99": 2.056,
+          "max": 4.51
+        },
+        "scopeLegacy": {
+          "p50": 31.429,
+          "max": 40.445
+        },
+        "scopeIndexed": {
+          "p50": 1.827,
+          "p95": 2.34,
+          "p99": 4.988,
+          "max": 5.469
+        }
+      },
+      "sidebar20000": {
+        "reconcileMs": 13,
+        "searchMs": {
+          "p50": 4.005,
+          "p95": 6.249,
+          "max": 6.471
+        },
+        "maxRowsShowAllOrSearch": 303
+      }
+    }
+  },
+  "notAccepted": [
+    "Real browser/device runs (desktop/mobile, cold/warm/offline/reconnect/multi-tab)",
+    ">=50 interaction attempts and P99 from >=1000 browser samples",
+    ">=10 min mixed load with 3-5 streams, Watcher and bursts",
+    "Memory/listener/timer/subprocess stability after 20 cycles",
+    "Items blocked by A2-A6, B4 and R13-R20",
+    "20000-entry directory listing P99 ~46 ms residual",
+    "Runtime tick reading the whole mailbox — BLOCKED (A4 + R15)",
+    "loadChatsSnapshot copy growth with N — BLOCKED (A2)",
+    "Request-local chat index fix and mcp-vendor-map change uncommitted in the main checkout",
+    "Unpaged GET /api/chats exceeds the 1 MiB response cap at 5000+ chats",
+    "Plan v6 manifest stale until human-approved plan v7; stage-7 manifest is regenerated after the last doc edit",
+    "Stage 1-6 artifacts only in worktree checkpoint commits; stage 7 and 8 files untracked (no checkpoint)",
+    "C1: page cap enforcement at limit up to 500 (chat-catalog clamp) — OPEN, owner V1",
+    "C3a P99<=250 ms not measured (n=200); C3b before/after on identical data not measured (no pre-change baseline)",
+    "C5: 303 rows = 300 + active row + ancestors; cap exception for ancestors is an open human decision",
+    "C15: legacy GET /api/chats and chatListLiveSync remain beside the additive page/sync path; established sidebar renderer remains active",
+    "C16: health-routes event-loop sampling at 20 ms vs 1 ms contract; no secret check",
+    "C17: persist queue age not measured",
+    "C18: durable ACK / crash / restore scope tests not measured (see C12)"
+  ],
+  "materialBase": {
+    "evidenceHead": "08c9699cece4b315e8af094de6eae55fd607ccf7",
+    "note": "Stage 1-6 artifacts are in checkpoint commits up to this head; stage 7 and 8 files are untracked in the worktree (no checkpoint)."
+  },
+  "openItems": {
+    "reviewStates": "Stage 2 review unknown; stage 5 and 7 reviews pending (C10/C11 ACCEPTED only on that material)",
+    "multiInstanceGaps": "In-memory Redis double only; no stub WS error test; replay cap untested; Redis pub-sub untested; owner persistence only claimed",
+    "v7Risk": "sw.js network-first with a 3 s timeout (V7 risk, not measured)",
+    "ownerLockProbe": "owner-lock probe never reports a live socket (R3 follow-up)",
+    "followUpTodos": [
+      "0185d51d",
+      "41b8179c",
+      "9c45b1f5",
+      "70438662",
+      "c4ca43f3",
+      "af2d01d2"
+    ]
+  }
+}

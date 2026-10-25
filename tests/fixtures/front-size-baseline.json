@@ -1,0 +1,2652 @@
+{
+  "files": {
+    "app_front/app/appShell/app.js": {
+      "lines": 8,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/authBoot.js": {
+      "lines": 127,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/boot.js": {
+      "lines": 9,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/bootApp.js": {
+      "lines": 416,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/browserStorageTools.js": {
+      "lines": 324,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/embedMode.js": {
+      "lines": 60,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/embedWidgetBridge.js": {
+      "lines": 314,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/gitRouteScope.js": {
+      "lines": 49,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/headerChrome.js": {
+      "lines": 174,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/headerContextTitle.js": {
+      "lines": 80,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/headerLookups.js": {
+      "lines": 18,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/lazyPanelModules.js": {
+      "lines": 77,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/mobileKeyboard.js": {
+      "lines": 73,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/navigationResourceNotice.js": {
+      "lines": 72,
+      "innerHTML": 2
+    },
+    "app_front/app/appShell/panelControls.js": {
+      "lines": 61,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/panelLoader.js": {
+      "lines": 160,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/panelRegistry.js": {
+      "lines": 25,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/panelRouter.js": {
+      "lines": 410,
+      "innerHTML": 1
+    },
+    "app_front/app/appShell/routeResourceRestore.js": {
+      "lines": 278,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/runtime.js": {
+      "lines": 275,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/settingsTabs.js": {
+      "lines": 291,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/sidebarWiring.js": {
+      "lines": 173,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/spaNavigation.js": {
+      "lines": 453,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/spaNavigationBridge.js": {
+      "lines": 45,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/spaNavigationController.js": {
+      "lines": 126,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/startup.js": {
+      "lines": 55,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/storageStats.js": {
+      "lines": 294,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/viewContext.js": {
+      "lines": 568,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/viewContextBridge.js": {
+      "lines": 174,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/viewMemory.js": {
+      "lines": 162,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/viewMemoryBridge.js": {
+      "lines": 84,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/viewRouteStorage.js": {
+      "lines": 357,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/workspaceBranchBadge.js": {
+      "lines": 153,
+      "innerHTML": 0
+    },
+    "app_front/app/appShell/workspaceBranchMenu.js": {
+      "lines": 299,
+      "innerHTML": 1
+    },
+    "app_front/app/appShell/workspaceContext.js": {
+      "lines": 961,
+      "innerHTML": 1
+    },
+    "app_front/app/appShell/workspaceHelpers.js": {
+      "lines": 186,
+      "innerHTML": 1
+    },
+    "app_front/app/appShell/workspaceSettings.js": {
+      "lines": 872,
+      "innerHTML": 4
+    },
+    "app_front/app/appShell/workspaceWorktreeBar.js": {
+      "lines": 130,
+      "innerHTML": 1
+    },
+    "app_front/app/serverRestartCoordinator.js": {
+      "lines": 593,
+      "innerHTML": 0
+    },
+    "app_front/app/serverRestartState.js": {
+      "lines": 46,
+      "innerHTML": 0
+    },
+    "app_front/components/chat/cr-chat-diag.js": {
+      "lines": 242,
+      "innerHTML": 0
+    },
+    "app_front/components/chat/cr-sdk-block.js": {
+      "lines": 651,
+      "innerHTML": 0
+    },
+    "app_front/components/chat/cr-sdk-mode-bar.js": {
+      "lines": 1326,
+      "innerHTML": 2
+    },
+    "app_front/components/chat/cr-voice-panel.js": {
+      "lines": 1004,
+      "innerHTML": 0
+    },
+    "app_front/components/todo/cr-todo-row.js": {
+      "lines": 35,
+      "innerHTML": 0
+    },
+    "app_front/components/ui/cr-bar-button.js": {
+      "lines": 127,
+      "innerHTML": 0
+    },
+    "app_front/components/ui/cr-bar-input.js": {
+      "lines": 144,
+      "innerHTML": 0
+    },
+    "app_front/components/ui/cr-bar-select.js": {
+      "lines": 302,
+      "innerHTML": 2
+    },
+    "app_front/components/ui/cr-bar-textarea.js": {
+      "lines": 199,
+      "innerHTML": 0
+    },
+    "app_front/components/ui/cr-checkbox.js": {
+      "lines": 111,
+      "innerHTML": 0
+    },
+    "app_front/components/ui/cr-dialog.js": {
+      "lines": 201,
+      "innerHTML": 0
+    },
+    "app_front/components/ui/cr-fs-picker.js": {
+      "lines": 448,
+      "innerHTML": 0
+    },
+    "app_front/components/ui/cr-icon-button.js": {
+      "lines": 96,
+      "innerHTML": 0
+    },
+    "app_front/components/ui/cr-searchable-select.js": {
+      "lines": 719,
+      "innerHTML": 3
+    },
+    "app_front/components/ui/cr-storage-donut.js": {
+      "lines": 230,
+      "innerHTML": 0
+    },
+    "app_front/components/ui/cr-tabs.js": {
+      "lines": 116,
+      "innerHTML": 0
+    },
+    "app_front/components/ui/cr-todo-card.js": {
+      "lines": 1243,
+      "innerHTML": 0
+    },
+    "app_front/components/ui/cr-todo-review-badge.js": {
+      "lines": 582,
+      "innerHTML": 0
+    },
+    "app_front/components/ui/cr-todo-review-findings.js": {
+      "lines": 170,
+      "innerHTML": 0
+    },
+    "app_front/components/ui/index.js": {
+      "lines": 13,
+      "innerHTML": 0
+    },
+    "app_front/components/ui/read-bar-input-live-value.js": {
+      "lines": 16,
+      "innerHTML": 0
+    },
+    "app_front/config.js": {
+      "lines": 148,
+      "innerHTML": 0
+    },
+    "app_front/core/api/chats.js": {
+      "lines": 782,
+      "innerHTML": 0
+    },
+    "app_front/core/api/git.js": {
+      "lines": 144,
+      "innerHTML": 0
+    },
+    "app_front/core/api/index.js": {
+      "lines": 13,
+      "innerHTML": 0
+    },
+    "app_front/core/api/runtime.js": {
+      "lines": 287,
+      "innerHTML": 0
+    },
+    "app_front/core/api/settings.js": {
+      "lines": 166,
+      "innerHTML": 0
+    },
+    "app_front/core/api/system.js": {
+      "lines": 71,
+      "innerHTML": 0
+    },
+    "app_front/core/api/tasks.js": {
+      "lines": 45,
+      "innerHTML": 0
+    },
+    "app_front/core/api/todos.js": {
+      "lines": 537,
+      "innerHTML": 0
+    },
+    "app_front/core/api/usage.js": {
+      "lines": 749,
+      "innerHTML": 0
+    },
+    "app_front/core/api/voice.js": {
+      "lines": 246,
+      "innerHTML": 0
+    },
+    "app_front/core/api/workspace.js": {
+      "lines": 94,
+      "innerHTML": 0
+    },
+    "app_front/core/harness/harnessBadge.js": {
+      "lines": 34,
+      "innerHTML": 0
+    },
+    "app_front/core/harness/harnessUiRegistry.js": {
+      "lines": 292,
+      "innerHTML": 0
+    },
+    "app_front/core/logging/logger.js": {
+      "lines": 839,
+      "innerHTML": 4
+    },
+    "app_front/core/theme/theme.js": {
+      "lines": 151,
+      "innerHTML": 0
+    },
+    "app_front/embed/pageBridge.js": {
+      "lines": 1536,
+      "innerHTML": 0
+    },
+    "app_front/embed/pageUrlCompare.js": {
+      "lines": 5,
+      "innerHTML": 0
+    },
+    "app_front/embed/widget.js": {
+      "lines": 1221,
+      "innerHTML": 2
+    },
+    "app_front/embed/widgetHostClipboard.js": {
+      "lines": 85,
+      "innerHTML": 0
+    },
+    "app_front/embed/widgetHostNavigation.js": {
+      "lines": 178,
+      "innerHTML": 0
+    },
+    "app_front/embed/widgetHostPagePick.js": {
+      "lines": 98,
+      "innerHTML": 0
+    },
+    "app_front/embed/widgetHostScreenshot.js": {
+      "lines": 123,
+      "innerHTML": 0
+    },
+    "app_front/embed/widgetSession.js": {
+      "lines": 119,
+      "innerHTML": 0
+    },
+    "app_front/features/agents/agentsState.js": {
+      "lines": 123,
+      "innerHTML": 0
+    },
+    "app_front/features/agents/agentsViews.js": {
+      "lines": 172,
+      "innerHTML": 0
+    },
+    "app_front/features/agents/index.js": {
+      "lines": 2,
+      "innerHTML": 0
+    },
+    "app_front/features/agents/views/agentsPanel.js": {
+      "lines": 625,
+      "innerHTML": 2
+    },
+    "app_front/features/agents/views/agentsSettingsPanel.js": {
+      "lines": 69,
+      "innerHTML": 4
+    },
+    "app_front/features/approval/approvalBrokerSettings.js": {
+      "lines": 803,
+      "innerHTML": 0
+    },
+    "app_front/features/approval/cr-permission-grants.js": {
+      "lines": 144,
+      "innerHTML": 0
+    },
+    "app_front/features/approval/permissionPanelState.js": {
+      "lines": 19,
+      "innerHTML": 0
+    },
+    "app_front/features/approval/voiceApprovalTools.js": {
+      "lines": 410,
+      "innerHTML": 0
+    },
+    "app_front/features/browser/browserPanel.js": {
+      "lines": 1415,
+      "innerHTML": 7
+    },
+    "app_front/features/browser/browserWsClient.js": {
+      "lines": 804,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/agentPresenceStore.js": {
+      "lines": 206,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatActivityStore.js": {
+      "lines": 687,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatArchiveCatalog.js": {
+      "lines": 186,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatArchiveConfirm.js": {
+      "lines": 71,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatArchiveDataSource.js": {
+      "lines": 232,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatAutoArchiveConfig.js": {
+      "lines": 118,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatBackgroundPolicy.js": {
+      "lines": 456,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatBootDecision.js": {
+      "lines": 31,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatContextAdvisory.js": {
+      "lines": 111,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatContextBreakdownView.js": {
+      "lines": 66,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatContextCacheChartView.js": {
+      "lines": 309,
+      "innerHTML": 3
+    },
+    "app_front/features/chat/chatContextCacheCountdownView.js": {
+      "lines": 91,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatContextCompressionRecovery.js": {
+      "lines": 99,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatContextMeter.js": {
+      "lines": 713,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatContextPanelModel.js": {
+      "lines": 44,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatContextPlanLimitsView.js": {
+      "lines": 94,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatContextQuality.js": {
+      "lines": 172,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatController.js": {
+      "lines": 956,
+      "innerHTML": 4
+    },
+    "app_front/features/chat/chatDelegations.js": {
+      "lines": 362,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatDeleteConfirm.js": {
+      "lines": 15,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatDiagnostics.js": {
+      "lines": 663,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatHistoryConvergence.js": {
+      "lines": 875,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatHistoryConvergenceRun.js": {
+      "lines": 258,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatHistoryHttpMerge.js": {
+      "lines": 116,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatHistoryHydrationLive.js": {
+      "lines": 177,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatHistoryMountedParking.js": {
+      "lines": 111,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatHistorySyncPoll.js": {
+      "lines": 882,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatHistoryViewApply.js": {
+      "lines": 179,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatHistoryViewOrder.js": {
+      "lines": 218,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatHistoryWindowOrder.js": {
+      "lines": 99,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatHtmlUtils.js": {
+      "lines": 12,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatListExplicitReload.js": {
+      "lines": 97,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatListLiveSync.js": {
+      "lines": 169,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatListLoadFreshness.js": {
+      "lines": 267,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatListPendingBadges.js": {
+      "lines": 128,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatListResumeSync.js": {
+      "lines": 80,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatListScopedArchiveMerge.js": {
+      "lines": 27,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatListServerReconcile.js": {
+      "lines": 265,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatListSort.js": {
+      "lines": 152,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatListStateRefresh.js": {
+      "lines": 92,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatListSyncClient.js": {
+      "lines": 360,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatLocalBootAsyncHydrate.js": {
+      "lines": 169,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatLocalBootCache.js": {
+      "lines": 793,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatLocalBootLegacyMigration.js": {
+      "lines": 114,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatLocalBootSync.js": {
+      "lines": 400,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatLocalStorage.js": {
+      "lines": 85,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatMetadataCrossTab.js": {
+      "lines": 537,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatMetadataIdb.js": {
+      "lines": 914,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatMetadataIdbSchema.js": {
+      "lines": 169,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatModelSelect.js": {
+      "lines": 719,
+      "innerHTML": 1
+    },
+    "app_front/features/chat/chatOfflineBootSeed.js": {
+      "lines": 198,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatPendingRemoteHistoryFlag.js": {
+      "lines": 237,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatPersistenceAdapter.js": {
+      "lines": 347,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatPersistenceIdbAdapter.js": {
+      "lines": 386,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatPersistenceQueue.js": {
+      "lines": 430,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatPingPolicy.js": {
+      "lines": 149,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatPresets.js": {
+      "lines": 159,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatReferenceFork.js": {
+      "lines": 49,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatResumeAdviceBanner.js": {
+      "lines": 278,
+      "innerHTML": 1
+    },
+    "app_front/features/chat/chatResumePolicy.js": {
+      "lines": 227,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatSendBarLayout.js": {
+      "lines": 91,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatServerRecovery.js": {
+      "lines": 502,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatSessionBoundary.js": {
+      "lines": 62,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatSettingsPrefs.js": {
+      "lines": 175,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatStatusMeta.js": {
+      "lines": 473,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatStore.js": {
+      "lines": 125,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatTitleFork.js": {
+      "lines": 370,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatTitleParsing.js": {
+      "lines": 228,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatTransport.js": {
+      "lines": 1406,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatView.js": {
+      "lines": 472,
+      "innerHTML": 7
+    },
+    "app_front/features/chat/chatWidgetPin.js": {
+      "lines": 52,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/chatWsReconnectPolicy.js": {
+      "lines": 127,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/cr-chat-context-panel.js": {
+      "lines": 176,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/harnessModelUsage.js": {
+      "lines": 96,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/harnessOrderDrag.js": {
+      "lines": 148,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/harnessSettingsLoad.js": {
+      "lines": 26,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/history/index.js": {
+      "lines": 49,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/history/services/historyApply.js": {
+      "lines": 324,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/history/services/historyWindow.js": {
+      "lines": 451,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/history/services/inlineImages.js": {
+      "lines": 207,
+      "innerHTML": 1
+    },
+    "app_front/features/chat/history/services/markdownEngine.js": {
+      "lines": 255,
+      "innerHTML": 2
+    },
+    "app_front/features/chat/history/services/mountedWindow.js": {
+      "lines": 246,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/history/services/runLifecycle.js": {
+      "lines": 343,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/history/services/sdkEventApply.js": {
+      "lines": 479,
+      "innerHTML": 1
+    },
+    "app_front/features/chat/history/services/sdkEventNormalize.js": {
+      "lines": 211,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/history/services/streamBlocks.js": {
+      "lines": 374,
+      "innerHTML": 1
+    },
+    "app_front/features/chat/history/services/streamOrder.js": {
+      "lines": 419,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/history/services/viewApiHead.js": {
+      "lines": 436,
+      "innerHTML": 1
+    },
+    "app_front/features/chat/history/services/viewApiTail.js": {
+      "lines": 442,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/history/services/viewScroll.js": {
+      "lines": 317,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/history/state/viewShell.js": {
+      "lines": 171,
+      "innerHTML": 2
+    },
+    "app_front/features/chat/history/views/delegationCards.js": {
+      "lines": 464,
+      "innerHTML": 1
+    },
+    "app_front/features/chat/history/views/openCodeAdvisor.js": {
+      "lines": 406,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/history/views/openCodeInteractive.js": {
+      "lines": 249,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/history/views/recoveryWidgets.js": {
+      "lines": 342,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/history/views/relatedChatCards.js": {
+      "lines": 381,
+      "innerHTML": 1
+    },
+    "app_front/features/chat/history/views/toolBlocks.js": {
+      "lines": 572,
+      "innerHTML": 1
+    },
+    "app_front/features/chat/history/views/userBlocks.js": {
+      "lines": 475,
+      "innerHTML": 3
+    },
+    "app_front/features/chat/index.js": {
+      "lines": 2,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/modelDisplay.js": {
+      "lines": 148,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/modelFavoriteMarker.js": {
+      "lines": 100,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/newChatHarnessStatus.js": {
+      "lines": 375,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/newChatLocationOptions.js": {
+      "lines": 55,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/newChatModelOptions.js": {
+      "lines": 76,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/newChatUsageLimit.js": {
+      "lines": 31,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/newChatWorkspacePick.js": {
+      "lines": 67,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/pageResumeTrace.js": {
+      "lines": 206,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/persistedLocalChatState.js": {
+      "lines": 185,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/presenceFrameCoalescer.js": {
+      "lines": 54,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/recoveryActions.js": {
+      "lines": 216,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/recoveryConfirm.js": {
+      "lines": 84,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/relatedChatBackfill.js": {
+      "lines": 40,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/sdk-transport-labels.js": {
+      "lines": 60,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/sdkEventReplayGuard.js": {
+      "lines": 491,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/sdkRunOutcomeRecovery.js": {
+      "lines": 95,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/sdkStateResolver.js": {
+      "lines": 49,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatComposer.js": {
+      "lines": 358,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatContextCompression.js": {
+      "lines": 393,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatCreateFromModal.js": {
+      "lines": 311,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatCreation.js": {
+      "lines": 304,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatDebugLogs.js": {
+      "lines": 55,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatDeleteArchive.js": {
+      "lines": 405,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatHistorySync.js": {
+      "lines": 227,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatHost.js": {
+      "lines": 11,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatLifecycle.js": {
+      "lines": 426,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatMetadataPersistence.js": {
+      "lines": 90,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatOpenHydration.js": {
+      "lines": 249,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatResumeAdvice.js": {
+      "lines": 150,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatRichViewOptions.js": {
+      "lines": 190,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatSdkMode.js": {
+      "lines": 329,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatSelection.js": {
+      "lines": 445,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatSendHandlers.js": {
+      "lines": 129,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatSidebarHooks.js": {
+      "lines": 227,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatSidebarState.js": {
+      "lines": 437,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatSyncSetup.js": {
+      "lines": 88,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatTitlesOutput.js": {
+      "lines": 357,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatTransportSetup.js": {
+      "lines": 119,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatWidgetPin.js": {
+      "lines": 277,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/chatWorkspaceContext.js": {
+      "lines": 104,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/harnessModelCatalog.js": {
+      "lines": 155,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/harnessSwitch.js": {
+      "lines": 391,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/newChatHarnessState.js": {
+      "lines": 453,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/newChatHarnessStatus.js": {
+      "lines": 534,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/newChatLastSelection.js": {
+      "lines": 29,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/newChatLocation.js": {
+      "lines": 111,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/sdkHistoryQueue.js": {
+      "lines": 530,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/voiceChats.js": {
+      "lines": 262,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/voiceWorkspaces.js": {
+      "lines": 315,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/services/widgetHostCapture.js": {
+      "lines": 62,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/state/chatNavSequences.js": {
+      "lines": 11,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/state/chatRuntimeState.js": {
+      "lines": 35,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/state/chatShellState.js": {
+      "lines": 53,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/state/newChatModalState.js": {
+      "lines": 64,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/timeoutProgressSeries.js": {
+      "lines": 176,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/todoMention.js": {
+      "lines": 252,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/todoMentionPicker.js": {
+      "lines": 240,
+      "innerHTML": 2
+    },
+    "app_front/features/chat/transport/connection.js": {
+      "lines": 49,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/transport/events.js": {
+      "lines": 28,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/transport/frameHelpers.js": {
+      "lines": 80,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/transport/queue.js": {
+      "lines": 14,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/transport/resumption.js": {
+      "lines": 11,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/transport/socketMessages.js": {
+      "lines": 962,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/views/chatContextDetails.js": {
+      "lines": 174,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/views/chatMobileActions.js": {
+      "lines": 183,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/views/chatPane.js": {
+      "lines": 223,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/views/chatPanel.js": {
+      "lines": 869,
+      "innerHTML": 16
+    },
+    "app_front/features/chat/views/chatPanelHarnessEvents.js": {
+      "lines": 116,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/views/chatPanelModalWiring.js": {
+      "lines": 246,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/views/chatPanelSettings.js": {
+      "lines": 275,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/views/chatPanelToolbar.js": {
+      "lines": 213,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/views/chatPanelWindowEvents.js": {
+      "lines": 55,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/views/chatSettingsModal.js": {
+      "lines": 525,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/views/newChatModal.js": {
+      "lines": 504,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/views/newChatWorktreeRow.js": {
+      "lines": 56,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/watcherPinnedChat.js": {
+      "lines": 163,
+      "innerHTML": 0
+    },
+    "app_front/features/connection/connectionStatus.js": {
+      "lines": 122,
+      "innerHTML": 0
+    },
+    "app_front/features/connection/index.js": {
+      "lines": 2,
+      "innerHTML": 0
+    },
+    "app_front/features/connection/views/connectionStatusPanel.js": {
+      "lines": 245,
+      "innerHTML": 0
+    },
+    "app_front/features/delegations/delegationCenter.js": {
+      "lines": 491,
+      "innerHTML": 3
+    },
+    "app_front/features/files/components/filesPreview.js": {
+      "lines": 129,
+      "innerHTML": 0
+    },
+    "app_front/features/files/components/filesTree.js": {
+      "lines": 76,
+      "innerHTML": 0
+    },
+    "app_front/features/files/components/rootPicker.js": {
+      "lines": 140,
+      "innerHTML": 0
+    },
+    "app_front/features/files/index.js": {
+      "lines": 112,
+      "innerHTML": 0
+    },
+    "app_front/features/files/services/filesPrefs.js": {
+      "lines": 59,
+      "innerHTML": 0
+    },
+    "app_front/features/files/services/gitStatus.js": {
+      "lines": 96,
+      "innerHTML": 0
+    },
+    "app_front/features/files/services/highlight.js": {
+      "lines": 130,
+      "innerHTML": 0
+    },
+    "app_front/features/files/services/previewInteractions.js": {
+      "lines": 135,
+      "innerHTML": 0
+    },
+    "app_front/features/files/state/filesDom.js": {
+      "lines": 27,
+      "innerHTML": 0
+    },
+    "app_front/features/files/state/filesState.js": {
+      "lines": 19,
+      "innerHTML": 0
+    },
+    "app_front/features/files/views/previewView.js": {
+      "lines": 73,
+      "innerHTML": 0
+    },
+    "app_front/features/files/views/treeView.js": {
+      "lines": 73,
+      "innerHTML": 0
+    },
+    "app_front/features/git/gitContextBadge.js": {
+      "lines": 202,
+      "innerHTML": 0
+    },
+    "app_front/features/git/gitContextView.js": {
+      "lines": 205,
+      "innerHTML": 0
+    },
+    "app_front/features/git/gitPanel.js": {
+      "lines": 280,
+      "innerHTML": 0
+    },
+    "app_front/features/git/gitScope.js": {
+      "lines": 132,
+      "innerHTML": 0
+    },
+    "app_front/features/git/githubPanel.js": {
+      "lines": 276,
+      "innerHTML": 0
+    },
+    "app_front/features/git/index.js": {
+      "lines": 20,
+      "innerHTML": 0
+    },
+    "app_front/features/git/workspaceBranchView.js": {
+      "lines": 65,
+      "innerHTML": 0
+    },
+    "app_front/features/git/worktreeList.js": {
+      "lines": 668,
+      "innerHTML": 0
+    },
+    "app_front/features/git/worktreeListView.js": {
+      "lines": 94,
+      "innerHTML": 0
+    },
+    "app_front/features/harness-health/harnessBenchmarkSources.js": {
+      "lines": 172,
+      "innerHTML": 1
+    },
+    "app_front/features/harness-health/harnessBenchmarkSourcesModel.js": {
+      "lines": 165,
+      "innerHTML": 0
+    },
+    "app_front/features/harness-health/harnessDiagnostics.js": {
+      "lines": 194,
+      "innerHTML": 1
+    },
+    "app_front/features/harness-health/harnessDiagnosticsModel.js": {
+      "lines": 700,
+      "innerHTML": 0
+    },
+    "app_front/features/harness-health/harnessHealthCache.js": {
+      "lines": 105,
+      "innerHTML": 0
+    },
+    "app_front/features/harness-health/harnessHealthCard.js": {
+      "lines": 457,
+      "innerHTML": 4
+    },
+    "app_front/features/harness-health/harnessHealthModel.js": {
+      "lines": 528,
+      "innerHTML": 0
+    },
+    "app_front/features/harness-health/harnessModelRoleConfig.js": {
+      "lines": 353,
+      "innerHTML": 2
+    },
+    "app_front/features/harness-health/harnessModelRoleConfigModel.js": {
+      "lines": 401,
+      "innerHTML": 0
+    },
+    "app_front/features/harness-health/harnessModelStats.js": {
+      "lines": 72,
+      "innerHTML": 1
+    },
+    "app_front/features/harness-health/harnessModelStatsModel.js": {
+      "lines": 223,
+      "innerHTML": 0
+    },
+    "app_front/features/harness-health/harnessUnclassifiedModel.js": {
+      "lines": 142,
+      "innerHTML": 0
+    },
+    "app_front/features/harness-health/openUsageBilling.js": {
+      "lines": 63,
+      "innerHTML": 0
+    },
+    "app_front/features/instances/instancesPanel.js": {
+      "lines": 377,
+      "innerHTML": 0
+    },
+    "app_front/features/instances/services/instancesApi.js": {
+      "lines": 58,
+      "innerHTML": 0
+    },
+    "app_front/features/instances/views/instancesViews.js": {
+      "lines": 103,
+      "innerHTML": 0
+    },
+    "app_front/features/notifications/notificationCenter.js": {
+      "lines": 612,
+      "innerHTML": 0
+    },
+    "app_front/features/notifications/notificationConfirm.js": {
+      "lines": 88,
+      "innerHTML": 0
+    },
+    "app_front/features/notifications/notificationStore.js": {
+      "lines": 710,
+      "innerHTML": 0
+    },
+    "app_front/features/pwa/chatMuteStore.js": {
+      "lines": 204,
+      "innerHTML": 0
+    },
+    "app_front/features/pwa/inAppSignals.js": {
+      "lines": 996,
+      "innerHTML": 0
+    },
+    "app_front/features/pwa/installPrompt.js": {
+      "lines": 75,
+      "innerHTML": 0
+    },
+    "app_front/features/pwa/pushInbox.js": {
+      "lines": 442,
+      "innerHTML": 0
+    },
+    "app_front/features/pwa/pushPreferencesStore.js": {
+      "lines": 319,
+      "innerHTML": 0
+    },
+    "app_front/features/pwa/pushSubscription.js": {
+      "lines": 810,
+      "innerHTML": 0
+    },
+    "app_front/features/pwa/pushTestClient.js": {
+      "lines": 59,
+      "innerHTML": 0
+    },
+    "app_front/features/pwa/pwaUpdatePrompt.js": {
+      "lines": 306,
+      "innerHTML": 1
+    },
+    "app_front/features/pwa/swMessages.js": {
+      "lines": 73,
+      "innerHTML": 0
+    },
+    "app_front/features/pwa/wakeLock.js": {
+      "lines": 48,
+      "innerHTML": 0
+    },
+    "app_front/features/sendBar/contextPickerRecent.js": {
+      "lines": 156,
+      "innerHTML": 0
+    },
+    "app_front/features/sendBar/index.js": {
+      "lines": 2,
+      "innerHTML": 0
+    },
+    "app_front/features/sendBar/sendBarAttachments.js": {
+      "lines": 214,
+      "innerHTML": 2
+    },
+    "app_front/features/sendBar/sendBarContextPicker.js": {
+      "lines": 434,
+      "innerHTML": 5
+    },
+    "app_front/features/sendBar/sendBarContextStack.js": {
+      "lines": 23,
+      "innerHTML": 0
+    },
+    "app_front/features/sendBar/sendBarInput.js": {
+      "lines": 303,
+      "innerHTML": 0
+    },
+    "app_front/features/sendBar/sendBarMedia.js": {
+      "lines": 952,
+      "innerHTML": 3
+    },
+    "app_front/features/sendBar/sendBarPagePickMenu.js": {
+      "lines": 24,
+      "innerHTML": 0
+    },
+    "app_front/features/sendBar/sendBarSendMenu.js": {
+      "lines": 144,
+      "innerHTML": 0
+    },
+    "app_front/features/sendBar/sendBarTodoChip.js": {
+      "lines": 112,
+      "innerHTML": 1
+    },
+    "app_front/features/sendBar/views/sendBar.js": {
+      "lines": 440,
+      "innerHTML": 2
+    },
+    "app_front/features/settings/agentPromptsSettings.js": {
+      "lines": 172,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/appUpdateSettings.js": {
+      "lines": 201,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/autoTitleSettings.js": {
+      "lines": 161,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/browserPolicyOrigins.js": {
+      "lines": 32,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/chatAutoArchiveSettings.js": {
+      "lines": 172,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/dataBackupSettings.js": {
+      "lines": 497,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/delegationSettings.js": {
+      "lines": 876,
+      "innerHTML": 1
+    },
+    "app_front/features/settings/executionSettings.js": {
+      "lines": 170,
+      "innerHTML": 1
+    },
+    "app_front/features/settings/externalMcpSettings.js": {
+      "lines": 523,
+      "innerHTML": 3
+    },
+    "app_front/features/settings/harnessSettingsRenderer.js": {
+      "lines": 214,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/harnessVersionCard.js": {
+      "lines": 313,
+      "innerHTML": 1
+    },
+    "app_front/features/settings/harnessVersionModel.js": {
+      "lines": 367,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/localHarnessPlugins.js": {
+      "lines": 420,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/mcpOperatorFolders.js": {
+      "lines": 30,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/mcpOperatorSettings.js": {
+      "lines": 275,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/mcpSettings.js": {
+      "lines": 328,
+      "innerHTML": 3
+    },
+    "app_front/features/settings/models/claudeModelSettings.js": {
+      "lines": 444,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/models/codexModelSettings.js": {
+      "lines": 539,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/models/harnessModelSettingsPanels.js": {
+      "lines": 79,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/models/harnessSettings.js": {
+      "lines": 420,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/models/harnessSettingsSchemas.js": {
+      "lines": 71,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/models/lanCodexSettings.js": {
+      "lines": 188,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/models/lanCursorClaudeSettings.js": {
+      "lines": 247,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/models/lanProviderKeySettings.js": {
+      "lines": 194,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/models/lanSdkRunSettings.js": {
+      "lines": 162,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/models/lanSettings.js": {
+      "lines": 103,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/models/lanSnapshotHints.js": {
+      "lines": 241,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/models/modelSettings.js": {
+      "lines": 486,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/models/optionalHarnessPanels.js": {
+      "lines": 66,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/models/renderHtmlList.js": {
+      "lines": 10,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/reviewLessonsSettings.js": {
+      "lines": 425,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/sdkCustomSystemPromptSettings.js": {
+      "lines": 55,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/settingsFooters.js": {
+      "lines": 29,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/api.js": {
+      "lines": 62,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/bindings.js": {
+      "lines": 198,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/components/watcherPanel.js": {
+      "lines": 75,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/components/watcherRegion.js": {
+      "lines": 76,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/components/watcherRegions.js": {
+      "lines": 135,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/constants.js": {
+      "lines": 135,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/format.js": {
+      "lines": 112,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/overrides.js": {
+      "lines": 88,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/panelView.js": {
+      "lines": 285,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/policyForm.js": {
+      "lines": 373,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/refresh.js": {
+      "lines": 157,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/runtime.js": {
+      "lines": 188,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/safeHtml.js": {
+      "lines": 113,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/scoutEditor.js": {
+      "lines": 591,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/scoutFeed.js": {
+      "lines": 266,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/scoutProfiles.js": {
+      "lines": 222,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/store.js": {
+      "lines": 116,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/watcher/views.js": {
+      "lines": 193,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/workspaceWatcherSettings.js": {
+      "lines": 101,
+      "innerHTML": 0
+    },
+    "app_front/features/setup/firstRunSetup.js": {
+      "lines": 391,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/components/index.js": {
+      "lines": 7,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/cr-sidebar-archive-group.js": {
+      "lines": 554,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/cr-sidebar-chat-row.js": {
+      "lines": 129,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/cr-sidebar-subchat-group.ts": {
+      "lines": 111,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/cr-sidebar-workspace.js": {
+      "lines": 149,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/index.js": {
+      "lines": 3,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/services/index.js": {
+      "lines": 2,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/services/sidebarSearchService.js": {
+      "lines": 107,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/services/sidebarWorkspaceGroups.js": {
+      "lines": 21,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarArchiveChatRows.js": {
+      "lines": 91,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarArchiveCountdownClock.js": {
+      "lines": 55,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarArchiveGroupPass.js": {
+      "lines": 58,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarArchiveSidebarFocus.js": {
+      "lines": 335,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarArchiveVirtualFocus.js": {
+      "lines": 174,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarArchiveVirtualNavigation.js": {
+      "lines": 67,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarArchiveVirtualState.js": {
+      "lines": 48,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarArchiveVirtualizer.js": {
+      "lines": 244,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarChatArchiveCountdown.js": {
+      "lines": 127,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarChatDrag.js": {
+      "lines": 323,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarChatDragBlock.js": {
+      "lines": 173,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarChatDrop.js": {
+      "lines": 163,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarChatOrder.js": {
+      "lines": 69,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarChatRowModel.js": {
+      "lines": 173,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarChatRowMount.js": {
+      "lines": 59,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarChatRowPass.js": {
+      "lines": 92,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarChatRowRefreshBus.js": {
+      "lines": 34,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarChatRowVisualPatch.js": {
+      "lines": 75,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarChatStatus.js": {
+      "lines": 175,
+      "innerHTML": 3
+    },
+    "app_front/features/sidebar/sidebarChatStatusStability.js": {
+      "lines": 265,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarDock.js": {
+      "lines": 29,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarLayoutSync.js": {
+      "lines": 363,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarLitMigrationContract.js": {
+      "lines": 58,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarOnlyActiveFilter.js": {
+      "lines": 136,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarRenderMetrics.js": {
+      "lines": 444,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarSearch.js": {
+      "lines": 14,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarSubchatGroupPass.js": {
+      "lines": 57,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarSubchatGroups.js": {
+      "lines": 624,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarSwipe.js": {
+      "lines": 609,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarView.js": {
+      "lines": 299,
+      "innerHTML": 1
+    },
+    "app_front/features/sidebar/sidebarVisibleChats.js": {
+      "lines": 88,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarWidth.js": {
+      "lines": 28,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarWorkspaceDrag.js": {
+      "lines": 211,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarWorkspaceDragBlock.js": {
+      "lines": 24,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarWorkspaceModel.js": {
+      "lines": 103,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarWorkspaceMount.js": {
+      "lines": 105,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarWorkspaceOrder.js": {
+      "lines": 169,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarWorkspacePass.js": {
+      "lines": 51,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/sidebarWorkspaceSort.js": {
+      "lines": 77,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/state/index.js": {
+      "lines": 3,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/state/sidebarLayoutState.js": {
+      "lines": 153,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/state/sidebarPersistence.js": {
+      "lines": 82,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/state/sidebarRenderPass.js": {
+      "lines": 110,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/views/index.js": {
+      "lines": 11,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/views/sidebarBodyEvents.js": {
+      "lines": 377,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/views/sidebarBodyKeyboard.js": {
+      "lines": 94,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/views/sidebarChatRows.js": {
+      "lines": 175,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/views/sidebarChrome.js": {
+      "lines": 269,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/views/sidebarGestures.js": {
+      "lines": 144,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/views/sidebarHarnessIcon.js": {
+      "lines": 30,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/views/sidebarLitText.js": {
+      "lines": 30,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/views/sidebarPatch.js": {
+      "lines": 234,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/views/sidebarPinnedSection.js": {
+      "lines": 220,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/views/sidebarRebuildPlan.js": {
+      "lines": 26,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/views/sidebarRender.js": {
+      "lines": 391,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/views/sidebarSignature.js": {
+      "lines": 294,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/views/sidebarWorkspaceGroups.js": {
+      "lines": 209,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/workspaceAutopilotBadge.js": {
+      "lines": 274,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/workspaceChatMatch.js": {
+      "lines": 191,
+      "innerHTML": 0
+    },
+    "app_front/features/sidebar/workspaceWatcherToggle.js": {
+      "lines": 189,
+      "innerHTML": 0
+    },
+    "app_front/features/statusTests/views/statusTestsPanel.js": {
+      "lines": 343,
+      "innerHTML": 0
+    },
+    "app_front/features/tasks/index.js": {
+      "lines": 16,
+      "innerHTML": 0
+    },
+    "app_front/features/tasks/services/serverInstanceToken.js": {
+      "lines": 52,
+      "innerHTML": 0
+    },
+    "app_front/features/tasks/services/taskRunOutput.js": {
+      "lines": 108,
+      "innerHTML": 0
+    },
+    "app_front/features/tasks/services/tasksAutostart.js": {
+      "lines": 58,
+      "innerHTML": 0
+    },
+    "app_front/features/tasks/services/tasksDebug.js": {
+      "lines": 88,
+      "innerHTML": 0
+    },
+    "app_front/features/tasks/state/taskOrdering.js": {
+      "lines": 31,
+      "innerHTML": 0
+    },
+    "app_front/features/tasks/state/workspaceScope.js": {
+      "lines": 41,
+      "innerHTML": 0
+    },
+    "app_front/features/tasks/tasksPanel.js": {
+      "lines": 995,
+      "innerHTML": 0
+    },
+    "app_front/features/tasks/views/taskListView.js": {
+      "lines": 74,
+      "innerHTML": 0
+    },
+    "app_front/features/tasks/views/taskRowButtons.js": {
+      "lines": 49,
+      "innerHTML": 0
+    },
+    "app_front/features/tasks/views/tasksReconnectModal.js": {
+      "lines": 38,
+      "innerHTML": 0
+    },
+    "app_front/features/terminal/components/quickCommands.js": {
+      "lines": 105,
+      "innerHTML": 0
+    },
+    "app_front/features/terminal/components/specialChars.js": {
+      "lines": 57,
+      "innerHTML": 0
+    },
+    "app_front/features/terminal/index.js": {
+      "lines": 10,
+      "innerHTML": 0
+    },
+    "app_front/features/terminal/services/inputDispatch.js": {
+      "lines": 140,
+      "innerHTML": 0
+    },
+    "app_front/features/terminal/services/panelCopy.js": {
+      "lines": 65,
+      "innerHTML": 0
+    },
+    "app_front/features/terminal/services/terminalConnection.js": {
+      "lines": 109,
+      "innerHTML": 0
+    },
+    "app_front/features/terminal/services/terminalPanes.js": {
+      "lines": 124,
+      "innerHTML": 0
+    },
+    "app_front/features/terminal/services/terminalSettings.js": {
+      "lines": 84,
+      "innerHTML": 0
+    },
+    "app_front/features/terminal/services/terminalTheme.js": {
+      "lines": 74,
+      "innerHTML": 0
+    },
+    "app_front/features/terminal/services/terminalViewport.js": {
+      "lines": 151,
+      "innerHTML": 0
+    },
+    "app_front/features/terminal/state/terminalStore.js": {
+      "lines": 36,
+      "innerHTML": 0
+    },
+    "app_front/features/terminal/views/kibRadial.js": {
+      "lines": 721,
+      "innerHTML": 2
+    },
+    "app_front/features/terminal/views/terminalPanel.js": {
+      "lines": 239,
+      "innerHTML": 0
+    },
+    "app_front/features/terminal/views/terminalSelect.js": {
+      "lines": 139,
+      "innerHTML": 0
+    },
+    "app_front/features/terminal/views/terminalSendBar.js": {
+      "lines": 51,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/crTodoHistory.js": {
+      "lines": 153,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/crTodoUsage.js": {
+      "lines": 381,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/index.js": {
+      "lines": 12,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/planApprovalVisibility.js": {
+      "lines": 27,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/services/todoAgentStart.js": {
+      "lines": 377,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/services/todoBatchFlow.js": {
+      "lines": 326,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/services/todoCardActions.js": {
+      "lines": 337,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/services/todoDetail.js": {
+      "lines": 195,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/services/todoFieldHandlers.js": {
+      "lines": 220,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/services/todoIntegrationRules.js": {
+      "lines": 79,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/services/todoListRefresh.js": {
+      "lines": 183,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/services/todoPanelContext.js": {
+      "lines": 369,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/services/todoRowInteractions.js": {
+      "lines": 157,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/state/todoPanelState.js": {
+      "lines": 174,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/state/todoStage.js": {
+      "lines": 170,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoBatchActions.js": {
+      "lines": 266,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoBatchSelection.js": {
+      "lines": 390,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoBlockedView.js": {
+      "lines": 112,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoDetailCache.js": {
+      "lines": 30,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoFieldSaver.js": {
+      "lines": 107,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoOfflineState.js": {
+      "lines": 61,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoRecoveryView.js": {
+      "lines": 82,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoReviewAccept.js": {
+      "lines": 134,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoReviewBadge.js": {
+      "lines": 448,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoReviewRefresh.js": {
+      "lines": 86,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoReviewStart.js": {
+      "lines": 49,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoStageView.js": {
+      "lines": 93,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoStatusIcon.js": {
+      "lines": 63,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoTabCounts.js": {
+      "lines": 19,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoTreeView.js": {
+      "lines": 759,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoUsageController.js": {
+      "lines": 121,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoUsageView.js": {
+      "lines": 340,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoVoiceStart.js": {
+      "lines": 60,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/todoWorkspaceScope.js": {
+      "lines": 51,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/views/todoBatchView.js": {
+      "lines": 323,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/views/todoDialogs.js": {
+      "lines": 172,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/views/todoDomBuild.js": {
+      "lines": 55,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/views/todoEditor.js": {
+      "lines": 194,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/views/todoListRender.js": {
+      "lines": 262,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/views/todoPanel.js": {
+      "lines": 245,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/views/todoRowMenu.js": {
+      "lines": 550,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/views/todoRowPaint.js": {
+      "lines": 88,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/views/todoRowRender.js": {
+      "lines": 315,
+      "innerHTML": 0
+    },
+    "app_front/features/todo/views/todoToolbar.js": {
+      "lines": 562,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/billingCache.js": {
+      "lines": 48,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/billingController.js": {
+      "lines": 154,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/billingPanel.js": {
+      "lines": 362,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/billingSubscriptions.js": {
+      "lines": 114,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/billingView.js": {
+      "lines": 623,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/components/cr-usage-kpis.js": {
+      "lines": 54,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/delegationStatsView.js": {
+      "lines": 467,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/index.js": {
+      "lines": 3,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/planLimitsView.js": {
+      "lines": 166,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/services/usageSettingsPanel.js": {
+      "lines": 257,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/state/usageState.js": {
+      "lines": 12,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/usageCharts.js": {
+      "lines": 757,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/usageDom.js": {
+      "lines": 19,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/usageInsightsView.js": {
+      "lines": 381,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/usageLimitResumeView.js": {
+      "lines": 98,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/usageSettings.js": {
+      "lines": 995,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/usageViews.js": {
+      "lines": 120,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/views/delegationStatsPanel.js": {
+      "lines": 99,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/views/usageBreakdownView.js": {
+      "lines": 180,
+      "innerHTML": 0
+    },
+    "app_front/features/usage/views/usageInsightsPanel.js": {
+      "lines": 47,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/azureSpeechStatus.js": {
+      "lines": 27,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/chatSpeaker.js": {
+      "lines": 199,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/geminiKeyStatus.js": {
+      "lines": 25,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/geminiLiveSession.js": {
+      "lines": 653,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/geminiTurnTiming.js": {
+      "lines": 67,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/liveAudioRoute.js": {
+      "lines": 516,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/openAiKeyStatus.js": {
+      "lines": 29,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/realtimeSession.js": {
+      "lines": 637,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/realtimeTools.js": {
+      "lines": 784,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/recorder.js": {
+      "lines": 195,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/speakableText.js": {
+      "lines": 158,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/speechQueue.js": {
+      "lines": 112,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/ttsEngine.js": {
+      "lines": 320,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceAgentRunWatch.js": {
+      "lines": 82,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceAppMatch.js": {
+      "lines": 167,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceAppTools.js": {
+      "lines": 198,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceChatMatch.js": {
+      "lines": 73,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceCommandCatalog.js": {
+      "lines": 42,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceCost.js": {
+      "lines": 126,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceEndSession.js": {
+      "lines": 74,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceHarnessMatch.js": {
+      "lines": 28,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceLog.js": {
+      "lines": 47,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceModeButton.js": {
+      "lines": 64,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceModelListCompact.js": {
+      "lines": 73,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceModelMatch.js": {
+      "lines": 99,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceNavMatch.js": {
+      "lines": 25,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voicePrefs.js": {
+      "lines": 225,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceReadControls.js": {
+      "lines": 246,
+      "innerHTML": 1
+    },
+    "app_front/features/voice/voiceReadMatch.js": {
+      "lines": 20,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceResponseTiming.js": {
+      "lines": 146,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceSdkMode.js": {
+      "lines": 18,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceSessionContext.js": {
+      "lines": 28,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceSessionLog.js": {
+      "lines": 265,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceSessionState.js": {
+      "lines": 52,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceStateSync.js": {
+      "lines": 147,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceTaskMatch.js": {
+      "lines": 40,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceWorkTools.js": {
+      "lines": 422,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceWorkspaceMatch.js": {
+      "lines": 135,
+      "innerHTML": 0
+    },
+    "app_front/features/wakeups/wakeupsSettings.js": {
+      "lines": 182,
+      "innerHTML": 7
+    },
+    "app_front/features/wakeups/wakeupsView.js": {
+      "lines": 321,
+      "innerHTML": 0
+    },
+    "app_front/features/watcher/scoutFindingsInboxView.js": {
+      "lines": 493,
+      "innerHTML": 0
+    },
+    "app_front/features/watcher/scoutHistoryView.js": {
+      "lines": 424,
+      "innerHTML": 0
+    },
+    "app_front/features/watcher/scoutProfileEditorView.js": {
+      "lines": 1041,
+      "innerHTML": 0
+    },
+    "app_front/features/watcher/scoutProfilesView.js": {
+      "lines": 413,
+      "innerHTML": 0
+    },
+    "app_front/features/watcher/watcherAutomationView.js": {
+      "lines": 127,
+      "innerHTML": 0
+    },
+    "app_front/features/watcher/watcherDashboard.js": {
+      "lines": 450,
+      "innerHTML": 0
+    },
+    "app_front/features/watcher/watcherGetCoalesce.js": {
+      "lines": 67,
+      "innerHTML": 0
+    },
+    "app_front/features/watcher/watcherPanel.js": {
+      "lines": 350,
+      "innerHTML": 7
+    },
+    "app_front/features/watcher/watcherStatus.js": {
+      "lines": 320,
+      "innerHTML": 0
+    },
+    "app_front/features/watcher/watcherTimeline.js": {
+      "lines": 262,
+      "innerHTML": 0
+    },
+    "app_front/features/watcher/watcherWorkspaceScope.js": {
+      "lines": 88,
+      "innerHTML": 0
+    },
+    "app_front/features/widgets/index.js": {
+      "lines": 1,
+      "innerHTML": 0
+    },
+    "app_front/features/widgets/views/widgetPanel.js": {
+      "lines": 425,
+      "innerHTML": 0
+    },
+    "app_front/index.js": {
+      "lines": 1,
+      "innerHTML": 0
+    },
+    "app_front/lib/chat-timestamp.js": {
+      "lines": 20,
+      "innerHTML": 0
+    },
+    "app_front/lib/chatBufferStore.js": {
+      "lines": 243,
+      "innerHTML": 0
+    },
+    "app_front/lib/chatHistoryReplayApplySlice.js": {
+      "lines": 129,
+      "innerHTML": 0
+    },
+    "app_front/lib/chatHistoryReplayAsyncLoop.js": {
+      "lines": 124,
+      "innerHTML": 0
+    },
+    "app_front/lib/chatHistoryReplayFinalizeSlice.js": {
+      "lines": 78,
+      "innerHTML": 0
+    },
+    "app_front/lib/chatHistoryReplayGenerationGate.js": {
+      "lines": 124,
+      "innerHTML": 0
+    },
+    "app_front/lib/chatHistoryReplayLifecycle.js": {
+      "lines": 302,
+      "innerHTML": 0
+    },
+    "app_front/lib/chatHistoryReplayResult.js": {
+      "lines": 43,
+      "innerHTML": 0
+    },
+    "app_front/lib/chatIdsQuery.js": {
+      "lines": 107,
+      "innerHTML": 0
+    },
+    "app_front/lib/chatPerfBudget.js": {
+      "lines": 427,
+      "innerHTML": 0
+    },
+    "app_front/lib/chatStorageMigration.js": {
+      "lines": 39,
+      "innerHTML": 0
+    },
+    "app_front/lib/choiceDialog.js": {
+      "lines": 264,
+      "innerHTML": 0
+    },
+    "app_front/lib/clientInstance.js": {
+      "lines": 222,
+      "innerHTML": 0
+    },
+    "app_front/lib/clientInstanceCommands.js": {
+      "lines": 157,
+      "innerHTML": 0
+    },
+    "app_front/lib/clientInstanceHeartbeat.js": {
+      "lines": 138,
+      "innerHTML": 0
+    },
+    "app_front/lib/clipboard.js": {
+      "lines": 58,
+      "innerHTML": 0
+    },
+    "app_front/lib/context-seed-payload.js": {
+      "lines": 73,
+      "innerHTML": 0
+    },
+    "app_front/lib/cretliApiRequest.js": {
+      "lines": 238,
+      "innerHTML": 0
+    },
+    "app_front/lib/delegation-plan-pace-line.js": {
+      "lines": 115,
+      "innerHTML": 0
+    },
+    "app_front/lib/delegationHistoryCardReport.js": {
+      "lines": 410,
+      "innerHTML": 1
+    },
+    "app_front/lib/dropdown.js": {
+      "lines": 273,
+      "innerHTML": 0
+    },
+    "app_front/lib/favorites.js": {
+      "lines": 214,
+      "innerHTML": 0
+    },
+    "app_front/lib/format-server-uptime.js": {
+      "lines": 21,
+      "innerHTML": 0
+    },
+    "app_front/lib/freezeLogPersist.js": {
+      "lines": 140,
+      "innerHTML": 0
+    },
+    "app_front/lib/mobileClient.js": {
+      "lines": 21,
+      "innerHTML": 0
+    },
+    "app_front/lib/modal.js": {
+      "lines": 47,
+      "innerHTML": 0
+    },
+    "app_front/lib/pageBackgroundGrace.js": {
+      "lines": 55,
+      "innerHTML": 0
+    },
+    "app_front/lib/pageResumeCleanup.js": {
+      "lines": 268,
+      "innerHTML": 0
+    },
+    "app_front/lib/perfProbe.js": {
+      "lines": 129,
+      "innerHTML": 0
+    },
+    "app_front/lib/pwaFreezeDiagnostics.js": {
+      "lines": 379,
+      "innerHTML": 0
+    },
+    "app_front/lib/render-markdown.js": {
+      "lines": 246,
+      "innerHTML": 0
+    },
+    "app_front/lib/schedulerYield.js": {
+      "lines": 329,
+      "innerHTML": 0
+    },
+    "app_front/lib/sdk-chat-format.js": {
+      "lines": 252,
+      "innerHTML": 0
+    },
+    "app_front/lib/sdk-chat-history-store.js": {
+      "lines": 1712,
+      "innerHTML": 0
+    },
+    "app_front/lib/sdk-hljs.js": {
+      "lines": 26,
+      "innerHTML": 0
+    },
+    "app_front/lib/sdk-rich-view.js": {
+      "lines": 14,
+      "innerHTML": 0
+    },
+    "app_front/lib/sdkHistoryMountedWindow.js": {
+      "lines": 438,
+      "innerHTML": 0
+    },
+    "app_front/lib/sdkRichViewViewportBatch.js": {
+      "lines": 243,
+      "innerHTML": 0
+    },
+    "app_front/lib/sdkToolCallOutputPreview.js": {
+      "lines": 238,
+      "innerHTML": 0
+    },
+    "app_front/lib/sharedTypesCheck.ts": {
+      "lines": 13,
+      "innerHTML": 0
+    },
+    "app_front/lib/storageKeyAlias.js": {
+      "lines": 121,
+      "innerHTML": 0
+    },
+    "app_front/lib/uiFreezeCounters.js": {
+      "lines": 395,
+      "innerHTML": 0
+    },
+    "app_front/lib/uiFreezeRenderBudgets.js": {
+      "lines": 89,
+      "innerHTML": 0
+    },
+    "app_front/lib/uiFreezeTrace.js": {
+      "lines": 318,
+      "innerHTML": 0
+    },
+    "app_front/login/LoginApp.js": {
+      "lines": 434,
+      "innerHTML": 1
+    },
+    "app_front/scripts/webpack-cli-watch.mjs": {
+      "lines": 214,
+      "innerHTML": 0
+    },
+    "app_front/scripts/webpack-icon-subset-plugin.js": {
+      "lines": 15,
+      "innerHTML": 0
+    },
+    "app_front/shared/runPanels/runPanelEngine.js": {
+      "lines": 225,
+      "innerHTML": 0
+    },
+    "app_front/state/chatListRowsState.js": {
+      "lines": 83,
+      "innerHTML": 0
+    },
+    "app_front/state/configurationState.js": {
+      "lines": 49,
+      "innerHTML": 0
+    },
+    "app_front/state/harnessDomBridge.js": {
+      "lines": 24,
+      "innerHTML": 0
+    },
+    "app_front/state/index.js": {
+      "lines": 17,
+      "innerHTML": 0
+    },
+    "app_front/state/sharedState.js": {
+      "lines": 74,
+      "innerHTML": 0
+    },
+    "app_front/state/todoListState.js": {
+      "lines": 108,
+      "innerHTML": 0
+    },
+    "app_front/types/stylesheet-modules.d.ts": {
+      "lines": 3,
+      "innerHTML": 0
+    },
+    "app_front/webpack.common.js": {
+      "lines": 117,
+      "innerHTML": 0
+    },
+    "app_front/webpack.dev.js": {
+      "lines": 8,
+      "innerHTML": 0
+    },
+    "app_front/webpack.prod.js": {
+      "lines": 12,
+      "innerHTML": 0
+    },
+    "app_front/webpack.widget.dev.js": {
+      "lines": 24,
+      "innerHTML": 0
+    }
+  }
+}

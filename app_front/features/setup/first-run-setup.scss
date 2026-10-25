@@ -1,0 +1,31 @@
+cr-first-run-setup {
+  --cr-dialog-max-width: 26rem;
+}
+
+cr-first-run-setup .cr-field {
+  margin-bottom: var(--cr-space-3);
+}
+
+cr-first-run-setup .cr-field-label {
+  display: block;
+  margin-bottom: var(--cr-space-1);
+}
+
+cr-first-run-setup .cr-hint {
+  margin: 0 0 var(--cr-space-3);
+}
+
+cr-first-run-setup .message {
+  box-sizing: border-box;
+  margin: 0 0 var(--cr-space-3);
+  padding: var(--cr-space-2) var(--cr-space-3);
+  border-radius: var(--cr-radius-sm);
+  font-size: 0.85rem;
+  border: 1px solid transparent;
+}
+
+cr-first-run-setup .message[data-tone='error'] {
+  background: rgba(244, 135, 113, 0.12);
+  color: var(--cr-error);
+  border-color: rgba(244, 135, 113, 0.35);
+}

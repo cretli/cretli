@@ -1,0 +1,12 @@
+{
+  "apiVersion": 1,
+  "id": "defaultopt",
+  "version": "1.0.0",
+  "hostMin": "0.1.0",
+  "label": "Default optional",
+  "description": "Test-only repo plugin that loads when the env selection is unset.",
+  "origin": "builtin-optional",
+  "defaultEnabled": true,
+  "entries": { "light": "./light.js" },
+  "capabilities": { "status": true }
+}

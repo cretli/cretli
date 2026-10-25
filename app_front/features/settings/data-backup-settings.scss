@@ -1,0 +1,113 @@
+/* Settings -> Data and backups. Layout only; colors come from tokens. */
+
+.cr-backup-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-3);
+  min-width: 0;
+}
+
+.cr-backup-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+  min-width: 0;
+}
+
+.cr-backup-card .cr-row {
+  flex-wrap: wrap;
+}
+
+.cr-backup-card cr-bar-input {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.cr-backup-list,
+.cr-backup-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+  min-width: 0;
+}
+
+.cr-backup-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--cr-space-2);
+  padding-top: var(--cr-space-2);
+  border-top: 1px solid var(--cr-border-strong);
+}
+
+.cr-backup-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+  flex: 1 1 14rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cr-backup-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cr-space-1);
+}
+
+.cr-backup-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+  padding-left: var(--cr-space-3);
+  min-width: 0;
+}
+
+.cr-backup-entry-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cr-space-1);
+  overflow-wrap: anywhere;
+}
+
+.cr-backup-def,
+.cr-backup-diff {
+  font-family: var(--cr-font-mono);
+  font-size: var(--cr-font-size-xs);
+  overflow-wrap: anywhere;
+  color: var(--cr-text-muted);
+}
+
+.cr-backup-badge {
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  padding: 0 var(--cr-space-1);
+  font-size: var(--cr-font-size-xs);
+  color: var(--cr-text-muted);
+}
+
+.cr-backup-badge[data-kind='disabled'],
+.cr-backup-badge[data-kind='changed'] {
+  color: var(--cr-accent);
+  border-color: var(--cr-accent);
+}
+
+.cr-status[data-tone='error'] {
+  color: var(--cr-error);
+}
+
+.cr-status[data-tone='success'] {
+  color: var(--cr-success);
+}
+
+@media (max-width: 768px) {
+  .cr-backup-row-actions {
+    width: 100%;
+  }
+
+  .cr-backup-entry {
+    padding-left: 0;
+  }
+}

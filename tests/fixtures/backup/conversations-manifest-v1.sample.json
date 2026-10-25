@@ -1,0 +1,49 @@
+{
+  "profile": "conversations-v1",
+  "manifestFormatVersion": 1,
+  "archiveContractRevision": "2026-10-13.1",
+  "archiveId": "b2c3d4e5-f6a7-4890-b123-456789abcdef",
+  "createdAt": "2026-10-13T11:00:00Z",
+  "cretliVersion": "0.4.1",
+  "selection": {
+    "chatIds": ["chat-001"],
+    "includeArchived": false
+  },
+  "categories": [
+    {
+      "categoryId": "chat-metadata",
+      "path": "chats/chat-001/metadata.json",
+      "byteSize": 420,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "role": "json",
+      "storeId": "chats-metadata",
+      "schemaVersion": 1,
+      "recordCounts": { "chats": 1 }
+    },
+    {
+      "categoryId": "chat-history",
+      "path": "chats/chat-001/history.json",
+      "byteSize": 8192,
+      "sha256": "2c26b46b68ffc68ff99b4538771d59e3aa2643e26d8ad805536b828a00000000",
+      "role": "json",
+      "storeId": "chat-history",
+      "schemaVersion": 2,
+      "recordCounts": { "events": 42 }
+    },
+    {
+      "categoryId": "markdown-copy",
+      "path": "chats/chat-001/transcript.md",
+      "byteSize": 7500,
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "role": "markdown",
+      "recordCounts": { "lines": 120 }
+    }
+  ],
+  "omissions": [
+    {
+      "path": "uploads/chat-001/missing.png",
+      "reason": "attachment_missing",
+      "detail": "file not found at export time"
+    }
+  ]
+}

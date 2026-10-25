@@ -1,0 +1,110 @@
+---
+description: Cretli — agent operational rules. Full architecture is in docs/ARCHITECTURE.md.
+alwaysApply: true
+---
+# Cretli — agent operational rules
+
+Cretli is a Node.js (Express + WebSocket) server that exposes a **terminal** and
+**agent chat** (OpenCode, OpenRouter, or optional Cursor SDK) in the browser.
+Multiple devices can share the same session live.
+
+**Canonical architecture, HTTP/WS API, harness routing, and config:**
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). OpenCode setup:
+[harnesses/opencode/SETUP.md](harnesses/opencode/SETUP.md). Do not duplicate those tables
+in this rule.
+
+## Sub-chats on other models
+
+Cursor's built-in `Task` tool only lists Cursor-local models (`inherit`,
+`composer-2.5-fast`, and similar). That list is **not** the Cretli model catalog.
+
+When the user asks for a sub-chat, review, or verification on another harness or
+model (DeepSeek, OpenCode, Qwen, Codex, OpenRouter, CodeBuddy, or a Cursor model
+that is not on the `Task` list):
+
+1. Do **not** refuse or say the model is unavailable.
+2. Call `harness_list` if needed, then `model_list` with `enabled_only=true` for
+   that harness.
+3. Start the child with `delegation_start` (`task_text` for an ad-hoc prompt, or
+   a saved plan / history message). Use a Settings-enabled model id.
+4. Read the report with `delegation_show` / `delegation_inbox` and summarize it.
+
+Use Cursor `Task` only when the user wants a Cursor SDK subagent on a model that
+tool actually lists.
+
+A todo's `review` field is written only by the server from delegation records;
+never set it manually (`docs/todo-review-contract.md`).
+
+Default bind is **127.0.0.1**. LAN is opt-in (`npm run start:lan` /
+`CRETLI_BIND=0.0.0.0`). Runtime data lives in gitignored `data/` — never commit
+it. On WSL, LAN needs Windows portproxy (`scripts/wsl-port-forward.ps1`) and
+`CRETLI_LAN_HOST` / `LAN_HOST` set to the Windows LAN IP.
+
+## Starting the server from a Cursor agent
+
+When asked to start Cretli:
+
+- Always start **outside the sandbox** (`required_permissions: ["all"]`). In the
+  sandbox the process may start but the bind on port 3011 is invisible on
+  localhost/LAN.
+- Long-running process: `block_until_ms: 0` so the server keeps running after
+  the agent step ends.
+- Example: `npm start` in the project root with those options (HTTPS on
+  `https://localhost:3011` by default).
+
+If the page does not load, follow [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+before touching webpack. Short version:
+
+- Nothing on `127.0.0.1:3011` inside WSL → the process is dead (`SIGTERM` or
+  exit 137). Start it again outside the sandbox. That is not a compile error.
+- WSL `curl` to `127.0.0.1:3011` returns 200, but Windows `curl.exe` gets
+  `ERR_CONNECTION_RESET` → `netsh interface portproxy` sends 3011 to the WSL
+  eth address, and `npm start` only binds `127.0.0.1`. Either `npm run
+  start:lan`, or `socat` on the WSL IP forwarding to `127.0.0.1:3011`.
+- A cached shell plus “server is unavailable” is the same network break. The
+  service worker painted the page; `/api/health` never connected.
+- After a WSL restart, refresh the WSL IP (`wsl.exe hostname -I`), re-run
+  `scripts/wsl-port-forward.ps1`, and restart the forwarder. Restart the Node
+  process **inside WSL**.
+
+## Frontend build
+
+The front is usually rebuilt in the background by the VS Code/Cursor task
+`Cretli: build front (watch)` (`npm run watch:front` — one exclusive CLI
+webpack watcher per config; lock files live under `data/`).
+
+- Do **not** ask the user to run a build.
+- Do **not** run `npm run watch:front` / `npm run build:front:prod` after every
+  `app_front/` change — assume the watcher updates `public/dist/`.
+- `npm run build:front` is a **one-shot** dev build (`--no-watch`); use it when
+  the watcher is down or the user wants a single compile.
+- Manual watch restart only if the user asks or the watcher is clearly down.
+
+Default dev mode is the **external CLI watcher** (`npm run watch:front`, VS Code
+task `Cretli: build front (watch)`) writing `public/dist/app/`; the browser picks
+it up through the PWA update banner (`/api/health` `frontAssetVersion`). There is
+no in-process HMR: `npm start` must never load webpack into `server.js`.
+`CURSOR_REMOTE_FRONT_HOT_FALLBACK=0` disables the dist watcher (on by default).
+
+## Server restart vs brief disconnect
+
+`GET /api/settings` returns `serverInstanceToken` (UUID per process). The
+frontend stores it in `localStorage` and compares on reconnect: token changed →
+server restart; same token or no response → brief disconnect. Chat recovery:
+`app_front/features/chat/chatServerRecovery.js`. Task-run recovery:
+`app_front/tasks.js`.
+
+SDK auto-recovery: `CURSOR_REMOTE_SDK_RUN_AUTO_RECOVERY=0` disables killing
+stuck runs; `CURSOR_REMOTE_SDK_RUN_AUTO_RECOVERY_GRACE_MS` (default 60000) is
+the idle grace.
+
+## Known issue: `generating` appends new lines
+
+If the chat `generating` animation appends lines instead of overwriting:
+
+- PTY size must match xterm (`cols`/`rows` from the client, no fake min 80).
+- On `resize` in `server.js`, do **not** clamp the new size to the previous
+  `session.ptyCols/ptyRows` with `max(old, new)` — the PTY then cannot shrink.
+- Recompute PTY size from current `clientSizes` after a client disconnect.
+- Keep `safeFit(...)` on container resize in `app_front/chat.js` so xterm and
+  PTY stay aligned.

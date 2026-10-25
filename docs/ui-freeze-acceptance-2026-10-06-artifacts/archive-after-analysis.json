@@ -1,0 +1,534 @@
+{
+ "path": ".tmp/ui-freeze-52/traces/Trace-after-archive.json",
+ "main_pid": 1983586,
+ "main_tid": 1983586,
+ "main_thread_name": "CrRendererMain",
+ "thread_pool": "named=1 total_threads=11",
+ "base_ts": 243375043016,
+ "duration_s": 5.544,
+ "long_tasks": 3,
+ "long_tasks_ms": 226.2,
+ "long_tasks_blocking_ms": 76.2,
+ "longest_task_ms": 97.787,
+ "event_durations": [
+  [
+   "RunTask",
+   5810,
+   990.546
+  ],
+  [
+   "v8.callFunction",
+   1324,
+   709.45
+  ],
+  [
+   "FunctionCall",
+   1322,
+   662.159
+  ],
+  [
+   "ProxyMain::BeginMainFrame",
+   37,
+   585.975
+  ],
+  [
+   "FireAnimationFrame",
+   32,
+   544.615
+  ],
+  [
+   "WidgetBaseInputHandler::OnHandleInputEvent",
+   6,
+   97.616
+  ],
+  [
+   "LatencyInfo.Flow",
+   11,
+   97.606
+  ],
+  [
+   "CpuProfiler::StartProfiling",
+   1,
+   97.128
+  ],
+  [
+   "EventDispatch",
+   42,
+   89.645
+  ],
+  [
+   "TimerFire",
+   25,
+   60.573
+  ],
+  [
+   "MinorGC",
+   133,
+   39.198
+  ],
+  [
+   "V8.GCScavenger",
+   133,
+   36.588
+  ],
+  [
+   "V8.GC_SCAVENGER",
+   133,
+   35.173
+  ],
+  [
+   "V8.GC_SCAVENGER_SCAVENGE",
+   133,
+   32.751
+  ],
+  [
+   "UpdateLayoutTree",
+   56,
+   19.266
+  ],
+  [
+   "LocalFrameView::RunStyleAndLayoutLifecyclePhases",
+   73,
+   14.979
+  ],
+  [
+   "V8.GC_SCAVENGER_SCAVENGE_PARALLEL_PHASE",
+   133,
+   13.993
+  ],
+  [
+   "LocalFrameView::RunPaintLifecyclePhase",
+   46,
+   7.198
+  ],
+  [
+   "LocalFrameView::layout",
+   5,
+   6.012
+  ],
+  [
+   "Layout",
+   5,
+   5.995
+  ],
+  [
+   "PrePaint",
+   73,
+   5.83
+  ],
+  [
+   "Commit",
+   37,
+   5.829
+  ],
+  [
+   "LocalFrameView::performLayout",
+   5,
+   5.757
+  ],
+  [
+   "V8.GC_SCAVENGER_SCAVENGE_PARALLEL",
+   142,
+   5.757
+  ],
+  [
+   "EvaluateScript",
+   1,
+   4.728
+  ],
+  [
+   "Paint",
+   13,
+   3.534
+  ],
+  [
+   "V8.GC_SCAVENGER_SCAVENGE_ROOTS",
+   133,
+   2.914
+  ],
+  [
+   "LocalFrameView::RunCompositingInputsLifecyclePhase",
+   70,
+   2.913
+  ],
+  [
+   "HitTest",
+   33,
+   2.895
+  ],
+  [
+   "LocalFrameView::RunPrePaintLifecyclePhase",
+   68,
+   2.675
+  ]
+ ],
+ "long_task_timeline": [
+  [
+   0.001,
+   97.8
+  ],
+  [
+   0.486,
+   54.9
+  ],
+  [
+   2.86,
+   73.5
+  ]
+ ],
+ "counters_first": {
+  "nodes": 13584,
+  "documents": 5,
+  "jsEventListeners": 1519,
+  "jsHeapSizeUsed": 43669904.0,
+  "layoutObjects": null
+ },
+ "counters_last": {
+  "nodes": 13578,
+  "documents": 5,
+  "jsEventListeners": 1519,
+  "jsHeapSizeUsed": 45583328.0,
+  "layoutObjects": null
+ },
+ "counters_max": {
+  "nodes": 13744,
+  "documents": 5,
+  "jsEventListeners": 3879,
+  "jsHeapSizeUsed": 57265920.0,
+  "layoutObjects": 0
+ },
+ "interactions": [
+  {
+   "t": 2.85941,
+   "max_duration_ms": 80,
+   "max_queue_ms": 2,
+   "types": [
+    "pointerdown",
+    "pointerup",
+    "click"
+   ]
+  },
+  {
+   "t": 0.178109,
+   "max_duration_ms": 24,
+   "max_queue_ms": 3,
+   "types": [
+    "pointerdown",
+    "pointerup",
+    "click"
+   ]
+  }
+ ],
+ "max_interaction_ms": 80,
+ "max_interaction_queue_ms": 3,
+ "layout_by_stack": [
+  [
+   "UpdateLayoutTree",
+   "(no JS stack)",
+   40,
+   16.038,
+   1.95
+  ],
+  [
+   "Layout",
+   "(no JS stack)",
+   4,
+   4.729,
+   1.726
+  ],
+  [
+   "Layout",
+   "check",
+   1,
+   1.266,
+   1.266
+  ],
+  [
+   "UpdateLayoutTree",
+   "eval",
+   4,
+   0.852,
+   0.323
+  ],
+  [
+   "UpdateLayoutTree",
+   "check",
+   4,
+   0.644,
+   0.214
+  ],
+  [
+   "UpdateLayoutTree",
+   "renderPassBody",
+   3,
+   0.643,
+   0.267
+  ],
+  [
+   "UpdateLayoutTree",
+   "measureSendBarReserve",
+   2,
+   0.556,
+   0.331
+  ],
+  [
+   "UpdateLayoutTree",
+   "computeBox",
+   1,
+   0.325,
+   0.325
+  ],
+  [
+   "UpdateLayoutTree",
+   "expectHitTarget",
+   2,
+   0.208,
+   0.139
+  ],
+  [
+   "ParseHTML",
+   "_renderPanelItems",
+   6,
+   0.164,
+   0.054
+  ],
+  [
+   "ParseHTML",
+   "renderModelSelectOptions",
+   2,
+   0.106,
+   0.097
+  ],
+  [
+   "ParseHTML",
+   "applySidebarChatStatusEl",
+   2,
+   0.06,
+   0.049
+  ]
+ ],
+ "requests": [
+  {
+   "t": 0.18295,
+   "url": "https://127.0.0.1:3011/api/chats?includeArchived=1",
+   "finish_t": 0.33986,
+   "bytes": 1039275
+  },
+  {
+   "t": 0.262645,
+   "url": "https://127.0.0.1:3011/api/sidebar-layout",
+   "finish_t": 0.327889,
+   "bytes": 4681
+  },
+  {
+   "t": 2.941913,
+   "url": "https://127.0.0.1:3011/api/sidebar-layout",
+   "finish_t": 2.95048,
+   "bytes": 4632
+  }
+ ],
+ "profile_samples": 61651,
+ "profile_nodes": 1279,
+ "key_functions": [
+  {
+   "ms_incl": 430.397,
+   "ms_self": 1.683,
+   "fn": "patchTransientVisualStates @ features/sidebar/sidebarView.js:1647"
+  },
+  {
+   "ms_incl": 422.091,
+   "ms_self": 0.166,
+   "fn": "workspaceModel @ features/sidebar/sidebarView.js:851"
+  },
+  {
+   "ms_incl": 399.069,
+   "ms_self": 1.149,
+   "fn": "visibleChatsForWorkspace @ features/sidebar/sidebarView.js:700"
+  },
+  {
+   "ms_incl": 302.325,
+   "ms_self": 0.171,
+   "fn": "orderedChats @ features/sidebar/sidebarView.js:769"
+  },
+  {
+   "ms_incl": 268.444,
+   "ms_self": 19.605,
+   "fn": "(anonymous) @ features/sidebar/sidebarView.js:770"
+  },
+  {
+   "ms_incl": 72.376,
+   "ms_self": 0.0,
+   "fn": "onSidebarBodyClick @ features/sidebar/sidebarView.js:2279"
+  },
+  {
+   "ms_incl": 72.213,
+   "ms_self": 0.184,
+   "fn": "toggleArchiveSection @ features/sidebar/sidebarView.js:2131"
+  },
+  {
+   "ms_incl": 70.534,
+   "ms_self": 0.0,
+   "fn": "render @ features/sidebar/sidebarView.js:1718"
+  },
+  {
+   "ms_incl": 69.804,
+   "ms_self": 0.637,
+   "fn": "renderPassBody @ features/sidebar/sidebarView.js:1750"
+  },
+  {
+   "ms_incl": 66.652,
+   "ms_self": 5.892,
+   "fn": "chatsForWorkspace @ features/sidebar/sidebarView.js:748"
+  },
+  {
+   "ms_incl": 57.741,
+   "ms_self": 12.215,
+   "fn": "(anonymous) @ features/sidebar/sidebarView.js:759"
+  },
+  {
+   "ms_incl": 51.362,
+   "ms_self": 0.159,
+   "fn": "render @ features/sidebar/sidebarView.js:1718"
+  },
+  {
+   "ms_incl": 50.725,
+   "ms_self": 0.163,
+   "fn": "renderPassBody @ features/sidebar/sidebarView.js:1750"
+  },
+  {
+   "ms_incl": 45.526,
+   "ms_self": 9.814,
+   "fn": "chatBelongsToWorkspaceGroup @ features/sidebar/workspaceChatMatch.js:64"
+  },
+  {
+   "ms_incl": 35.149,
+   "ms_self": 0.639,
+   "fn": "renderSignature @ features/sidebar/sidebarView.js:1501"
+  },
+  {
+   "ms_incl": 27.79,
+   "ms_self": 0.0,
+   "fn": "visibleChatsForWorkspace @ features/sidebar/sidebarView.js:700"
+  },
+  {
+   "ms_incl": 27.135,
+   "ms_self": 0.163,
+   "fn": "renderSignature @ features/sidebar/sidebarView.js:1501"
+  },
+  {
+   "ms_incl": 26.711,
+   "ms_self": 0.0,
+   "fn": "expandSidebarWorkspaceSearchPool @ chat.js:5961"
+  },
+  {
+   "ms_incl": 22.69,
+   "ms_self": 0.364,
+   "fn": "buildWorkspaceChatTree @ features/sidebar/sidebarView.js:783"
+  },
+  {
+   "ms_incl": 21.676,
+   "ms_self": 0.0,
+   "fn": "collectRenderableChatIds @ features/sidebar/sidebarView.js:1365"
+  },
+  {
+   "ms_incl": 21.494,
+   "ms_self": 0.0,
+   "fn": "workspaceModel @ features/sidebar/sidebarView.js:851"
+  },
+  {
+   "ms_incl": 21.295,
+   "ms_self": 0.0,
+   "fn": "visibleChatsForWorkspace @ features/sidebar/sidebarView.js:700"
+  },
+  {
+   "ms_incl": 20.79,
+   "ms_self": 0.0,
+   "fn": "orderedChats @ features/sidebar/sidebarView.js:769"
+  },
+  {
+   "ms_incl": 19.717,
+   "ms_self": 0.163,
+   "fn": "collectRenderableChatIds @ features/sidebar/sidebarView.js:1365"
+  },
+  {
+   "ms_incl": 19.494,
+   "ms_self": 0.0,
+   "fn": "visibleChatsForWorkspace @ features/sidebar/sidebarView.js:700"
+  },
+  {
+   "ms_incl": 18.876,
+   "ms_self": 0.0,
+   "fn": "workspaceModel @ features/sidebar/sidebarView.js:851"
+  },
+  {
+   "ms_incl": 18.205,
+   "ms_self": 0.845,
+   "fn": "updateSidebarChatStates @ chat.js:3739"
+  },
+  {
+   "ms_incl": 18.066,
+   "ms_self": 0.0,
+   "fn": "visibleChatsForWorkspace @ features/sidebar/sidebarView.js:700"
+  },
+  {
+   "ms_incl": 17.714,
+   "ms_self": 0.329,
+   "fn": "(anonymous) @ features/sidebar/sidebarView.js:770"
+  },
+  {
+   "ms_incl": 17.209,
+   "ms_self": 0.0,
+   "fn": "orderedChats @ features/sidebar/sidebarView.js:769"
+  },
+  {
+   "ms_incl": 16.986,
+   "ms_self": 0.0,
+   "fn": "orderedChats @ features/sidebar/sidebarView.js:769"
+  },
+  {
+   "ms_incl": 16.725,
+   "ms_self": 4.017,
+   "fn": "groupSettledChildren @ features/sidebar/sidebarSubchatGroups.js:317"
+  },
+  {
+   "ms_incl": 16.05,
+   "ms_self": 0.0,
+   "fn": "orderedChats @ features/sidebar/sidebarView.js:769"
+  },
+  {
+   "ms_incl": 14.872,
+   "ms_self": 0.0,
+   "fn": "(anonymous) @ features/sidebar/sidebarView.js:770"
+  },
+  {
+   "ms_incl": 12.67,
+   "ms_self": 0.0,
+   "fn": "(anonymous) @ features/sidebar/sidebarView.js:1511"
+  },
+  {
+   "ms_incl": 11.058,
+   "ms_self": 0.359,
+   "fn": "classifySubchat @ features/sidebar/sidebarSubchatGroups.js:141"
+  },
+  {
+   "ms_incl": 10.508,
+   "ms_self": 0.0,
+   "fn": "workspaceModel @ features/sidebar/sidebarView.js:851"
+  },
+  {
+   "ms_incl": 9.835,
+   "ms_self": 1.324,
+   "fn": "isFavorite @ features/sidebar/sidebarView.js:787"
+  },
+  {
+   "ms_incl": 9.276,
+   "ms_self": 0.191,
+   "fn": "visibleChatsForWorkspace @ features/sidebar/sidebarView.js:700"
+  },
+  {
+   "ms_incl": 7.082,
+   "ms_self": 0.162,
+   "fn": "(anonymous) @ features/sidebar/sidebarView.js:1511"
+  }
+ ]
+}

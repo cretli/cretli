@@ -1,0 +1,13 @@
+{
+  "_note": "Sanitized shape, not a live capture. Main-thread tool loop: two API calls (message_start + assistant each), a compaction boundary, then the run-level result. No content blocks.",
+  "records": [
+    {"type": "stream_event", "session_id": "claude-sess-1", "event": {"type": "message_start", "message": {"id": "msg_a", "model": "claude-model-x", "usage": {"input_tokens": 10, "output_tokens": 1, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 900}}}},
+    {"type": "stream_event", "session_id": "claude-sess-1", "event": {"type": "message_delta", "usage": {"output_tokens": 40}}},
+    {"type": "assistant", "session_id": "claude-sess-1", "message": {"id": "msg_a", "model": "claude-model-x", "usage": {"input_tokens": 10, "output_tokens": 1, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 900}}},
+    {"type": "assistant", "session_id": "claude-sess-1", "message": {"id": "msg_b", "model": "claude-model-x", "usage": {"input_tokens": 5, "output_tokens": 30, "cache_read_input_tokens": 900, "cache_creation_input_tokens": 100, "cache_creation": {"ephemeral_5m_input_tokens": 100, "ephemeral_1h_input_tokens": 0}}}},
+    {"type": "system", "subtype": "compact_boundary", "session_id": "claude-sess-1", "compact_metadata": {"trigger": "auto", "pre_tokens": 5000, "post_tokens": 800}},
+    {"type": "result", "subtype": "success", "session_id": "claude-sess-1", "is_error": false, "duration_ms": 2100, "total_cost_usd": 0.01,
+     "usage": {"input_tokens": 15, "output_tokens": 70, "cache_read_input_tokens": 900, "cache_creation_input_tokens": 1000},
+     "modelUsage": {"claude-model-x": {"inputTokens": 15, "outputTokens": 70, "cacheReadInputTokens": 900, "cacheCreationInputTokens": 1000, "webSearchRequests": 0, "costUSD": 0.01, "contextWindow": 200000, "maxOutputTokens": 32000}}}
+  ]
+}

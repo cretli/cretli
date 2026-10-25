@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cretli.com/schemas/backup/data-backup-manifest-v1.schema.json",
+  "title": "Cretli data backup ZIP manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile",
+    "manifestFormatVersion",
+    "archiveContractRevision",
+    "archiveId",
+    "createdAt",
+    "cretliVersion",
+    "persistence",
+    "categories",
+    "omissions"
+  ],
+  "properties": {
+    "profile": { "const": "data-backup-v1" },
+    "manifestFormatVersion": { "type": "integer", "minimum": 1, "maximum": 1 },
+    "archiveContractRevision": { "type": "string", "minLength": 1 },
+    "archiveId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "createdAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "cretliVersion": { "type": "string", "minLength": 1 },
+    "persistence": { "$ref": "#/$defs/persistence" },
+    "categories": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/category" }
+    },
+    "omissions": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": { "$ref": "#/$defs/omission" }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "uncompressedBytes": { "type": "integer", "minimum": 0 },
+        "categoryCount": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "$defs": {
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backend", "schemaVersions"],
+      "properties": {
+        "backend": { "type": "string", "minLength": 1 },
+        "schemaVersions": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "bootstrapMarker": { "type": "string" },
+        "legacyReaderId": { "type": "string" },
+        "forwardMigrationId": { "type": "string" }
+      }
+    },
+    "category": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["categoryId", "path", "byteSize", "sha256"],
+      "properties": {
+        "categoryId": { "type": "string", "minLength": 1 },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^/\\\\].*"
+        },
+        "byteSize": { "type": "integer", "minimum": 0, "maximum": 536870912 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "storeId": { "type": "string" },
+        "backend": { "type": "string" },
+        "schemaVersion": { "type": "integer", "minimum": 0 },
+        "recordCounts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "omission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "reason"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "storeId": { "type": "string" },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "secret",
+            "machine",
+            "retained_path",
+            "operator_excluded",
+            "dependency_not_exported",
+            "corrupt_source",
+            "optional_category_skipped",
+            "browser_unavailable",
+            "usage_not_included"
+          ]
+        },
+        "rawSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "detail": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "reason": { "const": "corrupt_source" } },
+            "required": ["reason"]
+          },
+          "then": { "required": ["rawSha256"] }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,85 @@
+/* Settings -> Delegations tab (Center, Limits, Review, Models, Lessons).
+   Layout only: controls are cr-bar-* / cr-checkbox primitives and native
+   inputs/selects/textareas take their look from the opt-in `.cr-form` recipe on
+   each panel wrapper (public/index.html), the same way the Watcher panel does.
+   Font sizes come from --cr-font-size-*; spacing from --cr-space-*. */
+
+.delegation-center-health-list {
+  margin: 0 0 var(--cr-space-3);
+  padding-left: 1.2rem;
+  color: var(--cr-text);
+}
+
+.delegation-center-filters {
+  margin-bottom: var(--cr-space-3);
+  gap: var(--cr-space-2);
+  flex-wrap: wrap;
+}
+
+.delegation-center-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+}
+
+.delegation-center-card {
+  padding: var(--cr-space-3);
+}
+
+.delegation-center-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--cr-space-2);
+  margin-bottom: var(--cr-space-2);
+}
+
+.delegation-center-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cr-space-2);
+}
+
+.delegation-tree-panel {
+  margin-top: var(--cr-space-3);
+  padding-top: var(--cr-space-2);
+  border-top: 1px solid var(--cr-border-strong);
+}
+
+.delegation-tree-list,
+.delegation-tree-children {
+  list-style: none;
+  margin: 0;
+  padding-left: var(--cr-space-3);
+}
+
+.delegation-tree-node {
+  padding: var(--cr-space-1) 0;
+}
+
+.delegation-tree-node[data-slot-occupied='1'] > .delegation-tree-status {
+  color: var(--cr-accent);
+}
+
+.delegation-tree-status {
+  margin-right: var(--cr-space-2);
+  font-family: var(--cr-font-mono);
+}
+
+@media (max-width: 640px) {
+  .delegation-center-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .delegation-center-card-head {
+    flex-direction: column;
+  }
+
+  .delegation-center-actions {
+    flex-direction: column;
+  }
+
+  .delegation-center-actions cr-bar-button {
+    width: 100%;
+  }
+}

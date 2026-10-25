@@ -1,0 +1,425 @@
+{
+  "schema": 1,
+  "profile": "full",
+  "seed": "20261017",
+  "samplesPerEndpoint": 200,
+  "sizes": {
+    "500": {
+      "fixture": {
+        "size": 500,
+        "profile": "full",
+        "seed": 20261017,
+        "chats": 500,
+        "workspaces": 24,
+        "historyEvents": 30000,
+        "todos": 400,
+        "delegations": 600,
+        "usage": "not generated (no stable writer in this stage)"
+      },
+      "fileBytes": 172738,
+      "endpoints": {
+        "listLive": {
+          "method": "GET",
+          "url": "/api/chats",
+          "status": 200,
+          "responseBytes": 157157,
+          "n": 200,
+          "p50": 0.932,
+          "p95": 1.434,
+          "p99": 1.713,
+          "p99Label": "exploratory",
+          "max": 6.197
+        },
+        "listFullIndex": {
+          "method": "GET",
+          "url": "/api/chats?includeArchived=1",
+          "status": 200,
+          "responseBytes": 187636,
+          "n": 200,
+          "p50": 0.782,
+          "p95": 1.215,
+          "p99": 1.884,
+          "p99Label": "exploratory",
+          "max": 5.093
+        },
+        "pageFirst": {
+          "method": "GET",
+          "url": "/api/chats/page?limit=100",
+          "status": 200,
+          "responseBytes": 38174,
+          "n": 200,
+          "p50": 0.352,
+          "p95": 0.549,
+          "p99": 0.84,
+          "p99Label": "exploratory",
+          "max": 1.13
+        },
+        "pageScopedHotGroup": {
+          "method": "GET",
+          "url": "/api/chats/page?limit=100&workspaceFolder=<hot-workspace>",
+          "status": 200,
+          "responseBytes": 35323,
+          "n": 200,
+          "p50": 0.677,
+          "p95": 0.898,
+          "p99": 1.234,
+          "p99Label": "exploratory",
+          "max": 1.656
+        },
+        "pageArchivedOnly": {
+          "method": "GET",
+          "url": "/api/chats/page?limit=100&archived=only",
+          "status": 200,
+          "responseBytes": 44103,
+          "n": 200,
+          "p50": 0.326,
+          "p95": 0.432,
+          "p99": 0.631,
+          "p99Label": "exploratory",
+          "max": 0.887
+        },
+        "listSyncResync": {
+          "method": "GET",
+          "url": "/api/chats/sync?since=bench-epoch.1",
+          "status": 200,
+          "responseBytes": 162,
+          "n": 200,
+          "p50": 0.162,
+          "p95": 0.268,
+          "p99": 0.565,
+          "p99Label": "exploratory",
+          "max": 0.625
+        },
+        "pageListDto": {
+          "method": "GET",
+          "url": "/api/chats/page?limit=100&view=list&archived=tree",
+          "status": 200,
+          "responseBytes": 35099,
+          "n": 200,
+          "p50": 0.401,
+          "p95": 0.5,
+          "p99": 0.909,
+          "p99Label": "exploratory",
+          "max": 1.038
+        },
+        "settings": {
+          "method": "GET",
+          "url": "/api/settings",
+          "status": 200,
+          "responseBytes": 6570,
+          "n": 200,
+          "p50": 0.459,
+          "p95": 0.678,
+          "p99": 1.386,
+          "p99Label": "exploratory",
+          "max": 7.709
+        },
+        "titleHistory": {
+          "method": "GET",
+          "url": "/api/chats/chat-000250/title-history",
+          "status": 200,
+          "responseBytes": 98,
+          "n": 200,
+          "p50": 0.154,
+          "p95": 0.266,
+          "p99": 0.329,
+          "p99Label": "exploratory",
+          "max": 0.392
+        },
+        "seenNoop": {
+          "method": "POST",
+          "url": "/api/chats/chat-000250/seen",
+          "status": 200,
+          "responseBytes": 47,
+          "n": 200,
+          "p50": 0.219,
+          "p95": 0.323,
+          "p99": 0.417,
+          "p99Label": "exploratory",
+          "max": 0.635
+        }
+      }
+    },
+    "5000": {
+      "fixture": {
+        "size": 5000,
+        "profile": "full",
+        "seed": 20261017,
+        "chats": 5000,
+        "workspaces": 24,
+        "historyEvents": 30000,
+        "todos": 400,
+        "delegations": 600,
+        "usage": "not generated (no stable writer in this stage)"
+      },
+      "fileBytes": 1724513,
+      "endpoints": {
+        "listLive": {
+          "method": "GET",
+          "url": "/api/chats",
+          "status": 200,
+          "responseBytes": 1499938,
+          "n": 200,
+          "p50": 6.228,
+          "p95": 9.57,
+          "p99": 12.324,
+          "p99Label": "exploratory",
+          "max": 13.448
+        },
+        "listFullIndex": {
+          "method": "GET",
+          "url": "/api/chats?includeArchived=1",
+          "status": 200,
+          "responseBytes": 1847434,
+          "n": 200,
+          "p50": 6.714,
+          "p95": 11.043,
+          "p99": 12.201,
+          "p99Label": "exploratory",
+          "max": 13.341
+        },
+        "pageFirst": {
+          "method": "GET",
+          "url": "/api/chats/page?limit=100",
+          "status": 200,
+          "responseBytes": 38237,
+          "n": 200,
+          "p50": 1.467,
+          "p95": 1.797,
+          "p99": 2.523,
+          "p99Label": "exploratory",
+          "max": 3.371
+        },
+        "pageScopedHotGroup": {
+          "method": "GET",
+          "url": "/api/chats/page?limit=100&workspaceFolder=<hot-workspace>",
+          "status": 200,
+          "responseBytes": 35363,
+          "n": 200,
+          "p50": 4.445,
+          "p95": 5.089,
+          "p99": 5.348,
+          "p99Label": "exploratory",
+          "max": 5.398
+        },
+        "pageArchivedOnly": {
+          "method": "GET",
+          "url": "/api/chats/page?limit=100&archived=only",
+          "status": 200,
+          "responseBytes": 43881,
+          "n": 200,
+          "p50": 1.492,
+          "p95": 1.883,
+          "p99": 2.333,
+          "p99Label": "exploratory",
+          "max": 2.684
+        },
+        "listSyncResync": {
+          "method": "GET",
+          "url": "/api/chats/sync?since=bench-epoch.1",
+          "status": 200,
+          "responseBytes": 160,
+          "n": 200,
+          "p50": 1.097,
+          "p95": 1.319,
+          "p99": 1.987,
+          "p99Label": "exploratory",
+          "max": 2.039
+        },
+        "pageListDto": {
+          "method": "GET",
+          "url": "/api/chats/page?limit=100&view=list&archived=tree",
+          "status": 200,
+          "responseBytes": 35162,
+          "n": 200,
+          "p50": 2.095,
+          "p95": 2.527,
+          "p99": 3.117,
+          "p99Label": "exploratory",
+          "max": 3.273
+        },
+        "settings": {
+          "method": "GET",
+          "url": "/api/settings",
+          "status": 200,
+          "responseBytes": 6570,
+          "n": 200,
+          "p50": 0.46,
+          "p95": 0.736,
+          "p99": 1.044,
+          "p99Label": "exploratory",
+          "max": 5.332
+        },
+        "titleHistory": {
+          "method": "GET",
+          "url": "/api/chats/chat-002500/title-history",
+          "status": 200,
+          "responseBytes": 99,
+          "n": 200,
+          "p50": 1.075,
+          "p95": 1.58,
+          "p99": 2.416,
+          "p99Label": "exploratory",
+          "max": 6.934
+        },
+        "seenNoop": {
+          "method": "POST",
+          "url": "/api/chats/chat-002500/seen",
+          "status": 200,
+          "responseBytes": 47,
+          "n": 200,
+          "p50": 1.151,
+          "p95": 1.452,
+          "p99": 2.062,
+          "p99Label": "exploratory",
+          "max": 3.051
+        }
+      }
+    },
+    "20000": {
+      "fixture": {
+        "size": 20000,
+        "profile": "full",
+        "seed": 20261017,
+        "chats": 20000,
+        "workspaces": 24,
+        "historyEvents": 30000,
+        "todos": 400,
+        "delegations": 600,
+        "usage": "not generated (no stable writer in this stage)"
+      },
+      "fileBytes": 7111642,
+      "endpoints": {
+        "listLive": {
+          "method": "GET",
+          "url": "/api/chats",
+          "status": 200,
+          "responseBytes": 5372215,
+          "n": 200,
+          "p50": 25.081,
+          "p95": 35.832,
+          "p99": 37.626,
+          "p99Label": "exploratory",
+          "max": 40.841
+        },
+        "listFullIndex": {
+          "method": "GET",
+          "url": "/api/chats?includeArchived=1",
+          "status": 200,
+          "responseBytes": 7594586,
+          "n": 200,
+          "p50": 28.632,
+          "p95": 38.626,
+          "p99": 39.896,
+          "p99Label": "exploratory",
+          "max": 40.734
+        },
+        "pageFirst": {
+          "method": "GET",
+          "url": "/api/chats/page?limit=100",
+          "status": 200,
+          "responseBytes": 38266,
+          "n": 200,
+          "p50": 6.996,
+          "p95": 11.118,
+          "p99": 12.109,
+          "p99Label": "exploratory",
+          "max": 17.232
+        },
+        "pageScopedHotGroup": {
+          "method": "GET",
+          "url": "/api/chats/page?limit=100&workspaceFolder=<hot-workspace>",
+          "status": 200,
+          "responseBytes": 35369,
+          "n": 200,
+          "p50": 18.785,
+          "p95": 20.361,
+          "p99": 21.127,
+          "p99Label": "exploratory",
+          "max": 28.744
+        },
+        "pageArchivedOnly": {
+          "method": "GET",
+          "url": "/api/chats/page?limit=100&archived=only",
+          "status": 200,
+          "responseBytes": 43995,
+          "n": 200,
+          "p50": 6.753,
+          "p95": 10.987,
+          "p99": 11.62,
+          "p99Label": "exploratory",
+          "max": 15.51
+        },
+        "listSyncResync": {
+          "method": "GET",
+          "url": "/api/chats/sync?since=bench-epoch.1",
+          "status": 200,
+          "responseBytes": 163,
+          "n": 200,
+          "p50": 4.972,
+          "p95": 9.617,
+          "p99": 10.536,
+          "p99Label": "exploratory",
+          "max": 12.159
+        },
+        "pageListDto": {
+          "method": "GET",
+          "url": "/api/chats/page?limit=100&view=list&archived=tree",
+          "status": 200,
+          "responseBytes": 35191,
+          "n": 200,
+          "p50": 9.913,
+          "p95": 13.282,
+          "p99": 14.516,
+          "p99Label": "exploratory",
+          "max": 20.31
+        },
+        "settings": {
+          "method": "GET",
+          "url": "/api/settings",
+          "status": 200,
+          "responseBytes": 6570,
+          "n": 200,
+          "p50": 0.476,
+          "p95": 0.734,
+          "p99": 1.163,
+          "p99Label": "exploratory",
+          "max": 11.057
+        },
+        "titleHistory": {
+          "method": "GET",
+          "url": "/api/chats/chat-010000/title-history",
+          "status": 200,
+          "responseBytes": 100,
+          "n": 200,
+          "p50": 5.117,
+          "p95": 10.529,
+          "p99": 11.983,
+          "p99Label": "exploratory",
+          "max": 12.63
+        },
+        "seenNoop": {
+          "method": "POST",
+          "url": "/api/chats/chat-010000/seen",
+          "status": 200,
+          "responseBytes": 47,
+          "n": 200,
+          "p50": 5.3,
+          "p95": 11.5,
+          "p99": 12.016,
+          "p99Label": "exploratory",
+          "max": 12.653
+        }
+      }
+    }
+  },
+  "environment": {
+    "node": "v24.14.0",
+    "platform": "linux 6.6.114.1-microsoft-standard-WSL2",
+    "cpu": "Intel(R) Core(TM) i7-14700KF",
+    "cpuCount": 28,
+    "totalMemMb": 24029,
+    "commit": "457284f98f446ff265d47b22ca4198ec0b72504b",
+    "note": "Real Express + real chats routes over loopback HTTP; auth/widget middleware is not mounted. Isolated temp data dir."
+  }
+}

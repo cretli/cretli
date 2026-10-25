@@ -1,0 +1,1751 @@
+# Workspace Watcher
+
+The Workspace Watcher is a **deterministic, server-side guard** that runs one
+per workspace (keyed by the normalized workspace folder). It watches ready
+todos, live chats and delegations and, when autopilot is enabled, starts the
+next piece of work through the multi-harness loop. The guard itself contains
+**no LLM**: it only snapshots, decides and applies guardrails. The LLM runs in a
+short-lived orchestrator chat that the watcher starts for one cycle and then
+forgets.
+
+This document is the operator/debugging reference. The condensed architecture
+summary lives in [`ARCHITECTURE.md`](./ARCHITECTURE.md); this file adds the
+guarantees, the notification behavior and a practical `decisionLog` guide.
+
+## Contents
+
+- [Architecture](#architecture)
+- [Modes](#modes)
+- [Lifecycle of a cycle](#lifecycle-of-a-cycle)
+- [Guarantees](#guarantees)
+- [Workspace Memory](#workspace-memory)
+- [Scout](#scout)
+- [Worktree execution, Git context and integration](#worktree-execution-git-context-and-integration)
+- [Notifications](#notifications)
+- [Policy reference](#policy-reference)
+- [Control surfaces](#control-surfaces)
+- [Debugging through the decision log](#debugging-through-the-decision-log)
+- [Tests](#tests)
+
+## Architecture
+
+```
+todo / chat / delegation signals
+        │
+        ▼
+snapshotWorkspaceWatcher()      lib/workspace-watcher.js
+        │  ready leaves, busy/unknown chats, delegation slots, waiting chats
+        ▼
+decideWorkspaceWatcherAction()  lib/workspace-watcher.js   (pure)
+        │  guardrails: lib/workspace-watcher-guardrails.js  (pure)
+        ▼
+tickWorkspaceWatcher()          lib/workspace-watcher.js   (CAS write + lease)
+        │  records one bounded decision line
+        ▼
+runWorkspaceWatcherAutopilot()  lib/workspace-watcher-cycle.js
+        │  reconcile → tick → start
+        ▼
+startWorkspaceWatcherCycle()    lib/workspace-watcher-cycle.js
+        │  reserve (lease + activeCycles slot) → CAS claim todo → start chat run
+        ▼
+one short-lived orchestrator chat  (the parent of one multi-harness loop)
+        │  model_pick + delegation_start → implement / review / fix
+        ▼
+watcher_update action "report"  (tool: watcher_report)
+        │
+        ▼
+close cycle → release claim + lease → next tick may start the next cycle
+```
+
+The watcher store is optional. A corrupt or unreadable watcher document is
+reported in reconcile errors and never rethrown, so a damaged watcher file
+cannot degrade the delegation runtime; the bytes are left untouched for an
+operator to repair.
+
+| File | Role |
+|------|------|
+| `lib/persist/workspace-watchers-persist.js` | Durable row, singleton lease, bounded decision log, CAS document, cross-process file lock |
+| `lib/workspace-watcher.js` | Snapshot, pure decision, tick, boot reconcile, todo claim/release |
+| `lib/workspace-watcher-guardrails.js` | Pure budget / cooldown / backoff / quiet hours / loop guard |
+| `lib/workspace-watcher-cycle.js` | Start, report, reconcile and the autopilot pass |
+| `lib/workspace-watcher-cycle-close.js` | Shared close accounting (used by report, runtime reconcile and boot reconcile) |
+| `lib/workspace-watcher-orchestrator.js` | Resolve the cheap orchestrator harness/model (favorites, readiness, usage limits) |
+| `lib/workspace-watcher-prompt.js` | The single source of the one-cycle prompt contract |
+| `lib/workspace-watcher-control.js` | REST/MCP-facing control semantics |
+| `lib/routes/workspace-watcher-routes.js` | HTTP transport |
+| `lib/mcp/builtin/watcher-tools.js` | MCP tools |
+| `lib/workspace-watcher-event-schedule.js` | Debounced per-workspace pass (1.5 s) |
+| `lib/workspace-watcher-live.js` + `lib/agent-presence-bus.js` | Live fan-out over the existing chat-list WebSocket |
+
+### Durable state
+
+Each row stores: `mode`, `enabled`, `paused`, `stopReason`, `policy`, the
+singleton `lease`, up to `policy.maxParallel` entries in `activeCycles`,
+`cycleCount`, bounded `reports`, bounded `cycleChats`, `failures` (per todo),
+`findings`, `planRequests`, `cycles` (`{ day, count }`) `lastCycleAt`,
+`backoffUntil`, `infraBackoffUntil`, `infraStreaks`, `orchestratorCooldowns`,
+`notified` and the bounded `decisions` log. Each cycle record
+is `{ cycleId, todoIds, startedAt, chatId, runId, phase,
+startDeadlineAt, planOnly, mode, requestedHarness, requestedModel,
+requestedSource, reportedOutcome, reportedAt, reportId }`. `activeCycle`
+mirrors slot 0 for older servers that still read the v1 field only.
+
+`cycleId` is reserved **before** the adapter is asked to start and is reused as
+the chat-run `requestId`, so a retry replays instead of duplicating.
+
+`cycleCount` is a **monotonic row counter** incremented once per cycle closed
+through `buildWorkspaceWatcherCycleClosePatch` (a real report or reconcile). It
+does **not** count reservations rolled back before running, it is not per todo,
+and it is not a time window. Do not use it as a denominator for success or
+coverage rates; use the bounded `cycleChats` window for the dashboard display
+and the durable metrics store (below) for ratios.
+
+### Durable cycle-metrics store
+
+Comparing orchestrator models needs more history than the 20-slot `cycleChats`
+window, and it needs the cycles that never reached `running`. A separate file,
+`data/workspace-watcher-cycles.json`, keeps one record per `cycleId`:
+
+```
+{
+  v: 1,
+  collectionStartedAt,        // when the store was first written
+  updatedAt,
+  retention: { ms, maxRecords },
+  errors: { count, lastAt, lastCode, lastMessage, lastOperation } | null,
+  records: { "<cycleId>": record }
+}
+```
+
+A record carries `mode` (`plan`/`implement`), `orchestratorChatId`,
+`orchestratorRunId`, `todoIds`, the requested pair
+(`requestedHarness`/`requestedModel`/`requestedSource`), the confirmed
+`harness`, `startedAt`/`closedAt`, `phase`, `reachedRunning`,
+`closeSource` (`report`/`reconcile`/`abort`), `closeReason`, `reportedOutcome`,
+`closeOutcome` and `todoStatusAtClose`. **Unknown is `null`, never guessed**:
+a legacy cycle without a stored model keeps `requestedModel: null`, and the
+confirmed `model` stays `null` until usage telemetry provides it (a later
+work). The record is created at reservation, so a start that ends in `starting`
+is still counted; requests/run id are stamped as they resolve.
+
+#### Cycle results and TODO-leaf outcomes
+
+One Watcher cycle is one orchestrator attempt; a retry is a later cycle for the
+same claimed TODO (the durable identity is `cycleId`, and the claim is a separate
+field on the todo). A record therefore keeps the **claimed** and **reported** ids
+apart:
+
+- `claimedTodoIds` come from the Watcher claim (`todoIds` is kept as the same
+  claimed set for backward compatibility),
+- `reportedTodoIds` are only the report's ids that the workspace confirms exist,
+- `unknownReportedTodoIds` are reported ids that do not resolve in the workspace
+  — they are recorded but never counted as completed,
+- `todoOutcomes` is a per-leaf snapshot (`attempted`/`completed`/`blocked`/
+  `unknown`) taken from the TODO state at close, and `completedTodoIds` lists the
+  verified completions. A missing TODO or an unreadable store is `unknown`, not
+  a success.
+
+`reportedOutcome` is the model's claim and `closeOutcome` is the verified result;
+they stay separate fields on purpose. Plan-only cycles are a separate population
+(`planOnly: true`): their verified success is a **saved plan** (`planSaved`), not
+a `done` TODO, so their time/cost is never pooled with implementation cycles.
+Blocked reasons are derived only from structured fields (`planOnly`, the close
+decision reason, the Watcher stop reason, the per-leaf snapshot) and stored as
+`blockedReasonCode`; the free-text report message is never parsed. A
+multi-leaf cycle's cost stays at the cycle level and is not divided per leaf.
+
+Idempotency is by `cycleId` (the map key): a duplicate close returns the first
+record unchanged and never appends a second one. Retention is explicit in the
+document: `retention.ms` (default 30 days, matching the usage ledger) drops
+settled records by age and `retention.maxRecords` (2000) caps the file; live
+records (no `closedAt`) are never dropped by the cap. A metrics write is
+**telemetry**: a failure is recorded in `errors` and the event log but never
+interrupts a start, a rollback or a close.
+
+Usage correlation deliberately does **not** add a `cycleId` field to usage
+events in this step. The record already carries `orchestratorChatId` and
+`orchestratorRunId`, which are the natural join keys for the run-scoped usage
+ledger; a later leaf can derive workspace scope from the cycle and correlate by
+run key without a usage-event schema change. If that proves insufficient, adding
+`cycleId` to new usage events stays an explicit follow-up, not a silent
+inference.
+
+## Modes
+
+| Mode | Meaning | Writes | Starts agents |
+|------|---------|--------|---------------|
+| `off` | Default. Nothing happens. A missing row answers as `off`. | Never | No |
+| `observe` | Snapshots and records one decision; pushes an "idle, there is work" notification once per episode. | Yes (decision/heartbeat) | No |
+| `autopilot` | Everything `observe` does, plus it may reserve and start cycles (up to `maxParallel`). | Yes | Yes, under the guardrails |
+
+`off` is a **true no-op**: the tick returns without writing, and the autopilot
+pass only scans `autopilot` rows (`observe` is driven by the heartbeat). This is
+the regression contract covered by `tests/workspace-watcher-e2e.test.js`.
+
+Legacy `enabled: true|false` still maps to `observe|off`; autopilot must be set
+explicitly.
+
+## Lifecycle of a cycle
+
+1. **Trigger** — a debounced per-workspace pass (todo/chats/delegation events) or
+   the runtime worker heartbeat.
+2. **Reconcile** — each dead entry in `activeCycles` (chat confirmed idle/missing
+   and no live children) is closed independently; stale claims are released.
+3. **Snapshot** — ready leaves, busy/unknown chats, delegation slots, waiting
+   chats. The watcher's own cycle chat and its delegated children are excluded
+   from occupancy, so it never waits on work it started.
+4. **Decide** (`decideWorkspaceWatcherAction`, pure) — `observe_ready`, a
+   startable `start_cycle` / `plan_gate`, or a wait.
+5. **Reserve** — inside the cross-process lock: acquire the lease, append to
+   `activeCycles` with `phase: 'starting'` (and mirror slot 0 to `activeCycle`),
+   bump the UTC-day budget, and create the durable cycle-metrics record (so a
+   start that never reaches `running` is still counted).
+6. **Claim** — CAS `ready → doing` with `claimedByChatId`; a failure rolls the
+   reserve back and releases the claim.
+7. **Start** — resolve the orchestrator pair, stamp it on the metrics record and
+   the live slot, then create the orchestrator chat and start its run with the
+   cycle id as the request id. The lease is renewed while `starting`.
+8. **Run** — the orchestrator is the parent of exactly one multi-harness loop:
+   it uses `model_pick` + `delegation_start` for plan/implement/review/fix,
+   marks the todo done only after an independent review PASS, and **never**
+   commits, pushes, merges or starts the next cycle.
+9. **Report** — the orchestrator ends with `watcher_report` (or
+   `watcher_update` action `report`) carrying
+   `success | blocked | failure`. The report is idempotent: replaying the same
+   `report_id`/`reportId` is a no-op. A foreign chat cannot close the cycle.
+10. **Close** — `cycleCount` and `failures` are updated once, the claim is
+    released only if this chat still owns it, and the todo returns to `ready`
+    (or `blocked` at the failure ceiling). The shared row lease is dropped only
+    when no sibling slot is left: while another cycle is still live the lease
+    stays (closing one `maxParallel > 1` slot must not hand the workspace to a
+    second driver). The next tick may start the next todo.
+
+## Guarantees
+
+### Singleton lease (one watcher per workspace)
+
+- All watcher writes run under one reentrant **cross-process file lock** (a
+  lock database next to the watcher store).
+- The lease is `{ ownerPid, token, expiresAt }`. A live lease held by a different
+  token is **never stolen**; the same token renews; an expired lease is free.
+- Default TTL is 90 s; the cycle start path renews it until the start deadline
+  (120 s).
+- Two server processes (or a crash-restart pair) therefore cannot both drive a
+  workspace: the loser's tick aborts with `lease_held`. Covered by
+  `tests/workspace-watcher-e2e.test.js` (spawned lease holder) and
+  `tests/workspace-watcher.test.js` (cross-process CAS/lock tests).
+
+### Parallel cycles and claims (no duplicates)
+
+- `startWorkspaceWatcherCycle` refuses when `activeCycles.length >= maxParallel`
+  (`cycle_active`); the reserve mutator re-checks the cap inside the lock.
+- Closing one cycle keeps the row lease while any sibling cycle is still live.
+- The todo claim is a CAS on the live `updatedAt`: a `doing`/`done`/changed todo
+  is never overwritten, and a claim is only released by the chat that still owns
+  it (a newer owner is never disturbed).
+- Claim selection prefers a compatible assignee, then sibling order, then the
+  oldest update; leaves at the failure ceiling / identical-findings streak are
+  skipped.
+- A leaf whose tree is driven by a chat outside the watcher is skipped
+  (`lib/workspace-watcher-tree-owner.js`). The tree is owned when any node is
+  stamped (`orchestratorChatId`, `chatId`, `claimedByChatId`) with a chat that
+  is running or controls an active delegation, when an active non-watcher
+  delegation runs on any node, or when the leaf or an ancestor carries the
+  `orchestratorChatId` of a non-watcher chat active in the last 30 minutes (a
+  manual orchestrator idle between turns). The reserve re-checks this against
+  the live todo rows, and a cycle never overwrites a non-watcher
+  `orchestratorChatId` on an ancestor; it authorizes through its own leaf.
+  Edge-case decisions: see "External tree owner: edge-case decisions" under
+  Tests.
+- A start failure rolls the reserve back, releases the claim and arms the
+  backoff. The exception is a *transient* adapter refusal (`recipient_busy`,
+  `adapter_unavailable`): the claim and the daily budget are rolled back but no
+  failure is counted and no backoff is armed. Hot-loop guard: after
+  `WORKSPACE_WATCHER_MAX_TRANSIENT_START_REFUSALS` (5) consecutive transient
+  refusals for the same todo (in-memory streak, reset by a successful start, a
+  hard error or a restart) the next one counts as an ordinary failure with
+  backoff. An *uncertain* start keeps the cycle in `phase: 'starting'` and
+  records `stopReason: cycle_start_uncertain` instead of guessing.
+- After a cycle closes, its orchestrator chat is archived and recorded in
+  `cycleChats`. A late mailbox reply to that chat is marked delivered
+  (`skipped_cycle_closed`) and does not start another run. The chat's own
+  leftover busy tail does not count toward `maxParallel` unless it still holds
+  a todo claim or an active delegation. A truly external busy chat still fills
+  the slot, and unknown liveness (an adapter error on that chat, or any other
+  chat) still waits. Archive itself is refused (`CHAT_ARCHIVE_BUSY`) while the
+  orchestrator or a nested child still has a live run, so a busy cycle chat
+  stays in the sidebar until the run is idle.
+
+### Phases
+
+`policy.phases` (`plan`, `review`, `implement`, `integrate`) narrows what the
+watcher — and the per-todo "do everything" orchestrator (`mode: 'full'`, same
+helper `lib/watcher-phases.js`) — may do. Defaults: `plan`, `review`,
+`implement` on; `integrate` off.
+
+- **Per-todo override.** `watcher_phases` (partial booleans, set with
+  `todo_update` / `PATCH /api/todos/:id`) wins over the workspace policy and is
+  inherited by descendants (nearest ancestor wins). `{}` clears it.
+- **Not phases.** Approving a plan (`plan.approvedAt`) and confirming
+  integration (`todo_integration confirm`) stay human-only; no phase grants them.
+- **Pick-level.** A todo needs `plan` while its plan is unapproved and
+  `implement` once `approvedAt` is set (review state is not consulted, so
+  `review: false` never blocks a todo). A candidate whose needed phase is off is
+  skipped before the pick; when every ready leaf is skipped the decision is
+  `idle_no_work` with reason `phase_disabled:<phase>` (visible in "Why?" at
+  `GET /api/workspace-watcher/decisions`). No cycle, failure or backoff entry
+  is created.
+- **Guard.** Delegations are checked against the cycle todo's effective phases:
+  `plan` -> `plan`; `review` with `review_subject=plan` -> `review`;
+  `review_subject=code`, `implement`, `fix` -> `implement`. A refusal is
+  `watcher_phase_disabled`; the orchestrator reports `blocked` with a message
+  starting `phase_disabled:<phase>`, which closes as `phase_disabled` and is
+  exempt from `blockedBackoff`.
+- **`integrate` is prepare-only and prompt-enforced only.** There is no tool
+  guard for it: the prompt lists the prepare step (state `awaiting`) as the last
+  step of an `implement` cycle and states it must never apply, merge, commit or
+  push. With `integrate` off the step is absent. A standalone integrate-only
+  cycle does not exist.
+
+### Plan gate (never auto-approves)
+
+- With `requirePlanApproval` (the default), the first time an unapproved todo is
+  picked the watcher starts a **plan-only** cycle and records
+  `planRequests[todoId]`. Later ticks wait (`wait_plan_approval`).
+- The plan text is `plan.markdown` on the leaf or its nearest ancestor. When
+  that field is empty, the nearest container description is the plan. A
+  container already queued (`ready`, `doing`, or `done`) counts as accepted, so
+  its leaves are implemented instead of reported as `plan_missing`.
+- **Initiative leaves.** A leaf with no `## Leaf scope` section, a body of at
+  least 1200 characters, no saved `plan.markdown` on it or any ancestor and no
+  explicit `plan.approvedAt` in its chain gets a plan-only cycle first, even when
+  a queued container's description would otherwise count as accepted
+  (`isWatcherInitiativeLeaf` in `lib/workspace-watcher-guardrails.js`).
+- **Dependency gate (review/verify).** A dependency newly added to any
+  `package.json`, including subdirectories such as `desktop/package.json`, is a
+  review finding that needs human approval. This is enforced only through the
+  cycle prompt: the orchestrator tells the reviewer not to PASS it and reports
+  `blocked`. There is no deterministic server-side check yet;
+  `findNewPackageJsonDependencies` in `lib/workspace-watcher-guardrails.js` is a
+  helper that detects such additions in a unified diff (section-aware, version
+  bumps are ignored) but is not wired into any runtime path.
+- Approval is inherited. `plan.approvedAt` on the leaf or any ancestor,
+  including the top parent, unlocks the whole subtree. A closer unapproved
+  draft does not keep the leaf behind the plan gate, and it does not block
+  children in the todo tree. Sequential siblings still wait for earlier ones.
+- The orchestrator saves the draft with a real CAS (`save_plan`) and **never**
+  sets `plan.approvedAt`. Only a human approves via the UI/API. Plan cycles
+  therefore cannot loop; an empty plan cycle counts as a failure, clears the
+  request and retries under the backoff/failure ceiling.
+- **Plan re-review.** When the plan is saved and unapproved, `planRequests` holds
+  a request and the plan's review went `stale` with reason
+  `plan_edited_after_review`, the gate does not wait silently: it allows ONE
+  plan-only cycle (`plan_gate`, reason `plan_rereview`) that starts a single
+  `review` delegation with `review_subject: "plan"`. The plan version is the
+  plan revision key (`plan.updatedAt` + markdown); the watcher records it in
+  `planRequests["<planHolderId>#plan-review"]`, so a version gets exactly one
+  round, a failed round is not repeated, and a new edit allows a new one. The
+  standing request is never dropped by a re-review cycle (that would reopen plan
+  generation). Not triggered when the review is fresh, the plan is approved, or
+  `policy.phases.review` is `false`. The cycle never edits the plan and
+  **never sets `plan.approvedAt`**; approval stays human-only.
+  `reset_plan_requests` for a todo also clears its round marker.
+
+### Review gate
+
+Contract: [workspace-watcher-review-gate.md](workspace-watcher-review-gate.md).
+The rule "a leaf is `done` only after an independent review PASS" is checked on
+the server, scoped to Workspace Watcher cycles. The default (`off`) never reads
+`todo.review` and changes no flow.
+
+- **Gated callers:** a `done` write that carries an MCP integration token (with
+  or without a chat id) or a widget bearer, on a leaf of a live cycle or a leaf
+  with a `reviewWaits` marker. The in-process MCP tool passes the signed
+  `callerChatId`; `body.chatId` in REST is data, never identity. A browser
+  session (a human) is never gated.
+- **Condition:** `review.code` is `passed` with a known implementer and current
+  material, or `manual` (human acceptance); with `requireIndependentReview` a
+  `passed` review must be independent. A plan review never satisfies.
+- **`warn`:** the write passes; a `review_missing` decision ("Why?") and a todo
+  changelog note are recorded; the cycle outcome is unchanged.
+- **`enforce`:** the write is rejected (`VALIDATION`, reason `review_missing`).
+  A cycle that reports success without a qualifying review closes `blocked` /
+  `review_missing` (not `failure`), keeps `failures[todo]`, is exempt from the
+  blocked backoff and writes a durable `reviewWaits[todo]` marker
+  (`attempts`, `phase` review|fix, `worktree`, `materialRevision`).
+  - non-worktree leaf: released to `ready`; the next cycle is review-only (or a
+    fix cycle after a FAIL). Past `reviewGateMaxAttempts` it stays `doing` with
+    `review_gate_exhausted`.
+  - worktree leaf: claim released, status stays `doing`, no integration result
+    is created, `blockedReason = review_missing` is set after the release.
+- **Marker lifetime:** removed only by a qualifying PASS, or by a human action in
+  a browser session. MCP `todo_start`, `watcher_recover` and MCP-token REST
+  calls preserve it (and re-apply the label). Boot reconcile prunes markers of
+  done/missing todos and repairs a claim left by a crash.
+- **Recovery:** a held leaf (worktree, or past the cap) is `user_action`
+  (`review_gate`); it is never released to `ready` automatically.
+
+### No commit / push / merge, no nested cycles
+
+- The cycle prompt encodes the hard rules: one cycle = this chat run only, never
+  start another cycle, never commit/push/merge, complete a todo only after an
+  independent review PASS.
+- By default delegations are **one level deep** (`CRETLI_DELEGATION_MAX_DEPTH=1`):
+  a cycle child without an explicit grant cannot call `delegation_start`
+  (`nested_delegation_denied`). Multi-level trees are opt-in only (`allow_child_delegations`
+  on `delegation_start`, depth cap, optional `CRETLI_DELEGATION_TREE_SLOT_LIMIT`,
+  root-only `tree_budget_*` on `workflow_update`, and `delegation_cancel` with
+  `tree:true`). Watcher cycles still treat the orchestrator as the primary
+  planner: nested delegation is not the default autopilot path.
+
+### Guardrails
+
+Pure and clock-injected:
+
+- per-UTC-day cycle budget (`cycles.day` / `count`, resets at midnight UTC),
+- cooldown since `lastCycleAt`,
+- exponential backoff from the accumulated failures, capped by `backoffCapMs`,
+- UTC quiet hours (HH:MM, wraps midnight),
+- consecutive same-findings stop (`maxSameFindings`),
+- `allowedHarnesses` allow-list plus **real** usage-limit awareness
+  (`listHarnessUsageLimits`); a limited model is excluded, and an unlimited
+  allow-list still blocks harnesses under an active limit.
+- per-todo **blocked backoff** (`blockedBackoff[todoId] = { count, until }`): a
+  cycle that reports `blocked`, and a worktree preflight failure, are not
+  failures and never reach the failure ceiling, so each one delays the next pick
+  of that leaf instead. The delay starts at twice the longer of `cooldownMs` and
+  `backoffBaseMs`, doubles per consecutive occurrence and is capped by
+  `backoffCapMs`. Any other cycle outcome ends the streak, `clear-stop` wipes the
+  map, and a plan-only cycle is exempt so a plan approval restarts its leaf at
+  once. Other ready leaves stay eligible meanwhile.
+- **blocked reason code** (`watcher_report` `reason_code`, `reason_date`): a
+  `blocked` report may carry `waits_for_date` (+ a future `YYYY-MM-DD`),
+  `needs_human`, `needs_rescope` or `env_infra`. The code comes from an LLM, so
+  it is validated: unknown codes, and `waits_for_date` without a real future
+  date, count as unspecified. A durable `blockedReasonStreak[todoId] = { code,
+  count }` runs next to `blockedBackoff` and counts consecutive blocked reports
+  with the same non-infra code (plan-only, `phase_disabled` and `review_missing`
+  closes are excluded). On the second one: `waits_for_date` → the todo becomes
+  `deferred` with `deferredUntil` = the date; `needs_human` / `needs_rescope` →
+  the todo goes back to `idea` with the report text as `blockedReason`, and a
+  notice carrying that text is posted. `env_infra`, an unspecified code or any
+  other outcome resets the streak and leaves only the normal blocked backoff.
+
+### Orchestrator circuit breaker (infrastructure failure streaks)
+
+A cycle whose orchestrator run dies at once on the same harness and model must
+not keep burning the daily budget. The breaker is **cause based, not time
+based**.
+
+**History.** Each `cycleChats` entry carries `model`, `cause` and
+`runDurationMs`. `runDurationMs` is the real orchestrator run duration taken
+from the run-end snapshot (a `captureRunEnd` listener stamps it on the live slot of the
+orchestrator chat as `runEnd`), never `at - startedAt`: a 10 s failure that reconcile
+closes after the 2 min room-gone grace is still a 10 s failure. A start error
+after the pair was resolved also writes an entry (`closeReason: start_failed`).
+
+**Classification** (`classifyWorkspaceWatcherCycleInfraCause`):
+
+| Close | `cause` | Streak | Todo `failures` |
+| --- | --- | --- | --- |
+| `failure`, run error, `<= 60 s`, no output yet, no report | `infra:<code>` | **+1** | unchanged |
+| `success` | `success` | reset | cleared |
+| reported outcome / "todo incomplete" (`cycle_no_progress`) | `todo_incomplete` | reset | +1 |
+| run error but long, or after output | `long_failure` | reset | +1 |
+| run ended without a report | `run_ended_without_report` | reset | +1 |
+| run cancelled | `cancelled` | ignored | +1 |
+| no run-end snapshot | `unknown` | ignored | +1 |
+| `blocked`, restart-interrupted | `blocked` / `interrupted` | ignored | unchanged rules |
+
+A run increments a streak at most once (`runIds` dedupe). Closes are applied
+serially inside the row mutation, so with `maxParallel > 1` the result is the
+fold in close order.
+
+**Rule.** `N = 3` consecutive infra-failure cycles on the same
+`harness + model` put that model into `orchestratorCooldowns` for **2 h**
+(scope `model`). The whole harness is cooled (scope `harness`) only when the
+same `cause` is cooling down on at least two of its models. Cooled pairs are
+removed from the automatic orchestrator pool; the next cycle runs on another
+model. When nothing is left the autopilot stops with
+`stopReason: orchestrator_infra_failure_streak` and the existing `stopped`
+notification. An explicit `policy.orchestrator` (or explicit override) that
+points at a cooled pair is never swapped silently: the cycle start stops with
+the same `stopReason` and an `orchestrator_infra_stop` decision naming the pair
+and the cooldown end.
+
+**Backoff.** An infra failure does not raise `failures[todo]` and never blocks
+a todo. It arms `infraBackoffUntil` (`backoffBaseMs * 2^(streak-1)`, capped by
+`backoffCapMs`) from the **first** failure. Guardrails wait for
+`max(backoffUntil, infraBackoffUntil)` (`failure_backoff`). Start errors after the
+pair was resolved are infra failures too: history entry, streak and
+`infraBackoffUntil`, no todo failure.
+
+**State and reset.** `infraBackoffUntil`, `infraStreaks` and
+`orchestratorCooldowns` are persisted on the watcher row, so they survive a
+process restart; expiry is judged by wall clock. Clearing `stopReason` (plain
+clear or `clearWorkspaceWatcherLoopStop`) does **not** clear a cooldown - the
+next start would stop again for an explicit pair. Reset it explicitly with
+`resetWorkspaceWatcherOrchestratorCooldown({ workspaceFolder, harness?, model? })`
+(all cooldowns without a filter), or the `watcher_update` action
+`reset_orchestrator_cooldown` (optional `harness`/`model`); it also drops the matching streaks and
+`infraBackoffUntil` and logs `orchestrator_cooldown_reset`.
+
+**Why?** The decision log shows `orchestrator_model_cooldown`,
+`orchestrator_harness_cooldown` (reason = pair, TTL, cause),
+`orchestrator_infra_stop` and `orchestrator_cooldown_reset`; a waiting
+workspace reports `failure_backoff` until `infraBackoffUntil`.
+
+### Restart reconcile
+
+On boot and on every autopilot pass, `reconcileWorkspaceWatcherCycle` closes a
+cycle whose orchestrator chat is confirmed idle/missing and whose child
+delegations are terminal. The cycle identity is re-checked inside the write
+lock, so a race cannot drop a newer cycle. Unknown chat liveness keeps the cycle
+and blocks a new one rather than dropping work on ambiguity. A repeated
+reconcile is a no-op (no double failure, no double `cycleCount`).
+
+#### Interrupted by a server restart (`interrupted_restart`)
+
+A cycle slot records the process `instanceId` that reserved it. When the slot
+belongs to a dead process **and** the orchestrator room is absent from every
+adapter (or confirmed idle), the cycle closes as the neutral
+`interrupted_restart`: `failures` and `backoffUntil` are untouched, the todo
+claim, claim time and claim lease are released and the todo returns to `ready`
+(plan-only cycles too; plans are never approved and a pending plan request is
+released). The slot also skips the `starting` deadline and the room-gone grace,
+so it never holds `maxParallel` after a restart. The restart evidence is the
+slot token only (watcher cycles are not written to the recovery registry); a
+reported outcome, a legacy token-less slot, or a cycle of the live process
+that ended without a report stays a `failure` with backoff. A dead-instance
+cycle without a report whose todo is already `done` closes as `success`
+(`cycle_success`) and keeps no failure history. `unknown` liveness keeps
+holding the slot. See `docs/recovery-contract.md` (R11).
+
+#### Repairing restart-damaged history
+
+R11 stops *new* restart interruptions from counting as failures, but it does not
+undo old damage (for example the 2026-10-07 OOM + restart incident: false
+`failures`, `backoffUntil` and failure-ceiling `blockedReason`). The repair tool
+is operator-run only; the server never calls it.
+
+```bash
+# 1. Preview (default, read-only). At least one explicit restart instant is required.
+node scripts/workspace-watcher-history-repair.js --restart-at 2026-10-07T15:00:00Z [--restart-at ...] [--grace-minutes 30]
+# 2. Apply exactly what the preview showed (CAS token + previewId from step 1).
+node scripts/workspace-watcher-history-repair.js --restart-at ... --apply \
+  --revision <casToken.revision> --updated-at <casToken.updatedAt> --preview-id <previewId>
+```
+
+Module: `lib/workspace-watcher-history-repair.js`
+(`previewWorkspaceWatcherHistoryRepair`, `applyWorkspaceWatcherHistoryRepair`).
+
+- **Evidence rule.** A `cycleChats` entry is a restart artefact only if it was
+  closed as `failure` by `reconcile` with `closeReason` `cycle_room_gone` or
+  `missing_report`, its cycle metric carries no `reportedOutcome`, the cycle
+  SPANNED a restart (`startedAt < restartAt <= closedAt`) and it was closed
+  within the grace of that restart (default 30 min, hard max 6 h). A cycle that
+  started after, or closed before, the restart ran in one process and is
+  genuine, even with `missing_report`. Without `--restart-at` (a one-sided or
+  unbounded window is not accepted) or without `startedAt` the entry is
+  `insufficient_evidence`. A slot instance token, when an entry/metric carries
+  one, is attached as extra evidence but is not required (it is not persisted on
+  `cycleChats` today).
+- **Genuine failures stay.** Entries closed by a report/abort, or by reconcile
+  with another reason (`cycle_no_progress`, ...), are never touched.
+  `failures[todo]` drops by the number of artefact entries, never below the
+  visible genuine count. Row-level `backoffUntil` is cleared only when the
+  post-apply aggregate of ALL todos has no failures left; a failure-ceiling
+  `blockedReason` is cleared only when the corrected count is under
+  `maxConsecutiveFailures`. A loop-guard park and `stopReason` are left to the
+  existing clear-stop / retry actions.
+- **Apply safety.** Needs `--apply` plus the preview's store revision/`updatedAt`
+  and `previewId`; any store or todo change since the preview aborts with
+  `stale_preview` and writes nothing. Corrected entries are relabeled
+  `interrupted_restart`.
+- **Todo blocker CAS.** The row is committed first, then each todo is updated
+  with its own CAS and the result is stored in the audit record (`todoUpdate`:
+  `cleared`, `cas_miss`, `not_needed`, `cleared_on_retry`). After a `cas_miss` the
+  next preview re-proposes a blocked-only candidate bound to THAT record
+  (`retryOf`), only if it is the todo's most recent repair record, the todo still
+  carries the same blocker text the record saw and the failures are under the
+  ceiling. A successful retry marks the original record `cleared_on_retry`
+  (`retriedAt`), so it is never proposed again; a later, different blocker is
+  never touched. The CLI exits 2 when an apply ends with a `cas_miss`.
+- **Audit trail.** Each correction appends a `historyRepairs` record on the row
+  (idempotency key, actor, time, before/after, row-level failure totals,
+  evidence, `todoUpdate`). Corrected entries no longer qualify, so a second
+  apply is a no-op.
+- **Migration audit.** Store schema v2 predates this tool; rows written before
+  `closeSource`/`closeReason` existed, rows without `startedAt`, and rows closed
+  after the grace are listed under `insufficient_evidence` and never
+  auto-corrected.
+
+### Claims and blockers
+
+Failure-ceiling blockers are stored as `blockedReason` plus a changelog entry on
+an otherwise `ready` todo, not as a separate status. A manual status update clears
+them. Blocked leaves are not picked, so one stuck todo cannot crowd out fresh
+work.
+
+### Deferred todos
+
+`deferred` is a todo status for work parked on purpose (optional
+`deferredUntil` date and `deferredReason`). It replaces the old `[Na później]`
+title prefix: do not mark parked work through the title.
+
+- The Watcher never picks a deferred todo: only `ready` leaves are candidates,
+  and nothing resurrects a deferred todo automatically (not even a passed
+  `deferredUntil`; the UI only flags it as overdue).
+- A deferred sibling does not hold back later siblings of a sequential parent.
+- Deferring a container defers its open (`idea`/`ready`) descendants; restoring
+  it brings those back as `idea` drafts. A container whose children are all
+  `done` or `deferred` derives `deferred`.
+- Restore is an explicit patch to `idea` or `ready`; straight to `doing`/`done`
+  is a 409. A `done` todo cannot be deferred, and neither can a container with a
+  `doing` descendant or a leaf with a live claim.
+- A client that predates the status shows a deferred todo as `idea`.
+
+- **Move to later.** Deferring a leaf that has a parent can park it outside its
+  tree so the tree can finish: UI option in the defer dialog, REST/MCP patch
+  `move_to_later: true` (shared root titled `Na później`, created once and then
+  reused) or `move_to_later: "<rootId>"` (any other root). The old parent is
+  recorded in `sourceTodoId` plus a changelog note; roots, containers and leaves
+  already under the shared root are left in place. `restore_to_tree: true`
+  (UI: "Restore to tree") moves the leaf back under that parent when it still
+  exists (409 otherwise). Decisions are the pure `decideDeferredMove` /
+  `decideRestoreToTree` in `lib/todo-tree.js`, covered by
+  `tests/todo-deferred-move.test.js`.
+
+Covered end to end by `tests/todo-deferred-e2e.test.js`.
+
+### Non-blocking idea todos
+
+In a sequential tree an `idea` sibling normally holds back every later sibling,
+so a pile of parked ideas can freeze a whole tree. Set the per-todo boolean
+`nonBlocking: true` (REST `nonBlocking`/`non_blocking`; MCP `non_blocking` on
+`todo_create`/`todo_update`) to opt out:
+
+- Default is unchanged: without the flag an open `idea` still blocks.
+- Only `idea` nodes are skipped. Once the todo becomes `ready`/`doing` the flag
+  is ignored and it blocks again; open descendants of the node still block.
+- The Watcher and `todo_next_ready` use the same blocking logic
+  (`isTodoNodeBlocked`), so a later `ready` leaf is picked. The `idea` todo
+  itself is never picked.
+- A parent whose children are `idea` (non-blocking) plus `done` is never
+  derived `done`; the usual rules apply (some child `done` -> `doing`).
+- The flag is not exposed in the UI yet; set it through MCP or REST.
+
+Covered by `tests/todo-tree.test.js` and
+`tests/workspace-watcher-pick-nonblocking.test.js`.
+
+### Orphaned `doing` todos (recovery states)
+
+`releaseStaleWorkspaceTodoClaims` — the same reconcile that runs on boot, on
+every autopilot pass and before `claim_next` — classifies every `doing` row
+(`lib/workspace-watcher-recovery.js`). The state is computed, never stored, and
+is returned as `snapshot.doingStates` / `snapshot.recovery` by `watcher_status`
+and `GET /api/workspace-watcher`:
+
+| State | Meaning | Evidence (`evidence` / `reason`) |
+| --- | --- | --- |
+| `active` | a run or delegation slot holds the work | busy probe, occupied slot (`delegation_in_progress`, `run_stopping`), a cycle still `starting` |
+| `dependency` | the row aggregates children; its status follows them | `children` |
+| `user_action` | a human has to decide | `blockedReason`, last delegation reported `blocked`, executor chat idle but still open |
+| `recoverable` | executor confirmed finished or gone, no occupied slot | confirmed idle claim owner, deleted chat, idle **archived** chat |
+| `unknown` | liveness or identity cannot be confirmed | `state_missing`, `adapter_missing`, `adapter_error`, `run_mismatch`, `missing_identity` |
+
+Only `recoverable` is released (`doing` → `ready`, claim cleared) and it then
+starts through the normal cycle path. `unknown` never becomes `recoverable`
+because of age, a transport error or an expired `claimLeaseUntil` — the lease is
+written at claim time and never renewed, so it is not a liveness signal. A
+`doing` row without a claim is released only by an unpaused, unstopped
+autopilot; `off` and `observe` report it. The executor of an unclaimed row is
+resolved from a delegation `leafId`, the todo `chatId`, its `orchestratorChatId`
+or the nearest ancestor's; `linkedChatIds` never identifies an executor.
+
+#### Lease, unknown escalation and policy
+
+`claimLeaseUntil` is written once at claim time and **never renewed**; an expired
+lease alone never releases work. Liveness comes only from executor probes and
+cycle rules (`WORKSPACE_WATCHER_ROOM_GONE_GRACE_MS` applies only to the
+room-gone reconcile path in `workspace-watcher-cycle.js`, not to
+`state_missing` / `adapter_missing`).
+
+`unknown` rows stay `unknown` until probes can classify them. In **`observe`**
+and **`autopilot`**, after `policy.unknownEscalationObservations` consecutive
+heartbeat observations (default **6**, one per delegation-runtime tick ≈ **5s** →
+about **30s**), the operator gets a **deduplicated** push when the
+`(state, reason, evidence)` signature changes; signatures live in
+`watcher.unknownTodoEscalations`. The observe heartbeat only detects and
+reports — it does not claim, release, or restart. **`off`** performs no
+automatic escalation on heartbeat. **`paused`** or a non-empty **`stopReason`**
+suppresses escalation notify; quiet hours, daily cycle budget and the plan gate
+do **not** gate escalation reports (they only gate starting new cycles).
+Automatic **release** of recoverable rows (including unclaimed leaves) remains
+**autopilot-only**; there is no `allowUnclaimed` bypass.
+
+`policy.recoverIdleOpenChat` (default **false**) keeps the deliberate default:
+executor chat confirmed idle but still **open** stays `user_action`. When **true**,
+that case classifies as `recoverable` and may release through the same fenced
+path (still leaf-only, autopilot gates for unclaimed rows, CAS + revalidation).
+The flag never promotes `unknown` to `recoverable`.
+
+`policy.orphanDoingMinMs` (default **1800000** = 30 min, `0` disables) is the one
+age-based promotion of `unknown`: an **ownerless** `doing` leaf (`missing_identity`)
+becomes `recoverable` with reason `orphan_doing_idle` (evidence `idle_no_owner`)
+when it has no claim, no executor/orchestrator chat (own or inherited), no live
+worktree record, no occupied or related delegation slot, no active Watcher cycle
+listing it (race with a starting cycle) and no `blockedReason`, and its last
+update is older than the threshold. Probe errors and expired claim leases still
+never promote. Release uses the same fenced `recoverWorkspaceWatcherTodo` path
+(autopilot only for unclaimed rows, CAS + revalidation under the lock), writes the
+usual changelog note ("released abandoned work ... orphan_doing_idle") and a
+`orphan_doing_released` entry in the decision log.
+
+Automatic release and manual **Wznów** both call
+`recoverWorkspaceWatcherTodo` (`POST /api/workspace-watcher/todos/:id/recover`,
+MCP `watcher_recover`; formerly `watcher_recover_todo`, renamed to fit the harness tool-name limit). Responses distinguish `released`, `conflict`,
+`already-active`, `unknown`, `user-action` and `blocked`. A successful manual
+recover sets the todo to `ready` and **starts a new execution** on the next
+claim. Recovery CAS failures do **not** increment `watcher.failures`; only
+finished cycles with outcome `failure` do (same `maxConsecutiveFailures` ceiling
+and backoff as before).
+
+When liveness stays **`unknown`** (for example `state_missing` after a server
+restart), automatic reconcile still refuses to release. Operators may force
+release with confirmation: `releaseDoingWorkspaceWatcherTodo` via
+`POST /api/workspace-watcher/todos/:id/release` (body must include
+`confirmUnknownRelease: true` and `expectedUpdatedAt`) or MCP `watcher_update`
+action `release_unknown_todo` with `confirm_unknown_release: true`. The path
+clears claims, appends a changelog note, sets `ready`, and never bypasses
+integration/worktree `user_action` guards (`integration_ready`, `worktree_open`,
+blocked reports). The Todo editor shows **Release to ready** for `unknown`
+rows only (destructive, confirmed in the UI).
+
+The release is fenced. Each claim stores `execution` on the todo (`attemptId`,
+`key`, `todoRevision`, `source`, `chatId`, `cycleId`, `phase`, plus one
+`previous` attempt); the run id lives on the cycle row joined by `cycleId`. The
+decision is re-validated under the store lock against the todo revision, the
+attempt id, the delegation slots and the probe. A claim replayed by the same
+cycle returns the existing attempt, and a release from an older cycle cannot
+free a newer attempt. A corrupt watcher store is unknown state: nothing is
+released and the file is left untouched.
+
+## Workspace Memory
+
+Every orchestrator cycle starts with a clean context, so `Workspace Memory` is
+the small durable fact store that carries knowledge across cycles. It lives in
+`data/workspace-memory/<workspaceKey>.json` where `workspaceKey` is
+`workspaceKeyFromCwd(workspaceFolder)` — the same sha256-of-realpath identity
+todos use (no separate `workspaceId`).
+
+Each entry has a `type` (`decision`, `pattern`, `finding`, `blocker`,
+`context`), a short `key`, a `value`, and an optional `expiresAt` stamped from
+`ttl_ms`. Omission of a TTL is not always permanence: a recognized transient
+blocker key defaults to 24 h, `permanent: true` forces a permanent entry (and
+conflicts with an explicit TTL), and every other entry without a TTL stays
+permanent. Expired entries are hidden lazily on every read.
+
+A write is an **upsert on `type` + normalized `key`**: re-adding the same key
+updates that entry in place (new `value`, `source` and `expiresAt`; same `id`
+and `createdAt`, fresh `updatedAt`) and drops older historical duplicates of the
+same identity, while distinct blocker causes of one todo stay separate. The
+store is bounded (500 entries; the least recently updated record leaves, using
+`createdAt` as fallback and the id as a stable tie-break) and every write runs
+under the shared cross-process file lock with a document CAS, so parallel cycles
+cannot lose each other's facts.
+
+`buildWorkspaceWatcherCyclePrompt` renders the facts as a `WORKSPACE MEMORY`
+section capped at 8 entries and 3000 characters in total (header, separators and
+the omitted-count footer included). Relevance wins over age: facts that
+reference the cycle's todo, its ancestors or the plan target (`todoIds`, collected
+at cycle start) come first, then the newest global harness/model blocker per
+harness+model, then the remaining facts by type (blocker → decision → finding →
+pattern → context) and recency. Duplicate topics collapse to the newest
+`updatedAt` (falling back to `createdAt`), while distinct causes of the same todo
+stay separate. Long values are cut at a sentence (or word) boundary and marked
+with an ellipsis; entries beyond the budget are summarized with a pointer to the
+list tool. The optional previous-cycles section gets at most 1000 characters and
+the whole prompt is capped at 7000; a fixed contract that cannot fit that budget
+is refused at start with `prompt_too_long` instead of being shortened. The prompt
+also instructs the orchestrator to write the cycle's decisions, findings and
+blockers back with `wmem_add` before it reports. A Scout scan reads the same store
+with `wmem_list` before re-scanning a workspace.
+
+MCP tools (`lib/mcp/builtin/memory-tools.js`):
+
+- `wmem_add` — upsert one typed fact (`ttl_ms` / `permanent` optional)
+- `wmem_list` — paginated live facts, most recently updated first (`types` filter, `cursor`)
+- `wmem_delete` — remove one fact by id
+
+Blocker keys follow one shared convention (`lib/workspace-memory-key.js`):
+`blocker:todo:<uuid>:<cause>` or `blocker:harness:<harness>:<model-or-*>:<cause>`
+(the model is percent-encoded). Transient causes are `quota`, `rate_limit`,
+`slot_busy` and `model_unavailable`; they default to a 24 h TTL unless an
+explicit `ttl_ms` or `permanent: true` is given. Any other cause (and any legacy
+free-form key) stays permanent. Readers parse the convention for relevance and
+deduplication but never rewrite older, free-form keys.
+
+## Scout
+
+Scout is a **separate periodic read-only LLM scan** that proposes work. It is
+deliberately *not* a watcher cycle: it never enters `activeCycles`, never spends
+the `cycles`/`maxCyclesPerDay` budget, and never claims a todo. It has its own
+schedule and budget on the same row:
+
+- `lastScoutAt` — last scan start (ISO)
+- `scoutScans` — `{ day, count }` UTC-day budget, independent of `cycles`
+- `pendingScoutFindings[]` — proposals with a `status`
+  (`pending` / `accepted` / `rejected`)
+
+Implementation: `lib/workspace-watcher-scout.js` (`buildScoutPrompt`,
+`parseScoutFindings`, `collectScoutSignals`, `decideScoutRun`,
+`runWorkspaceWatcherScoutPass`). The delegation-runtime heartbeat calls
+`runWorkspaceWatcherScoutPass` after the autopilot pass, so the trigger is a
+cron-like watcher-loop pass rather than an event per code change.
+
+A scan:
+
+1. passes `decideScoutRun`: policy `scoutEnabled`, mode `observe`/`autopilot`,
+   not paused/stopped, outside quiet hours, `scoutIntervalHours` elapsed,
+   `scoutMaxPerDay` not exhausted;
+2. stamps `lastScoutAt`/`scoutScans` under the store lock (a failed start rolls
+   the stamp back) and gathers read-only signals: a diff against the resolved
+   profile base,
+   `git log --oneline -20`, TODO/FIXME/HACK markers in changed files, optional
+   test results and error logs, existing todos, prior review findings and
+   Workspace Memory;
+3. starts one host-enforced read-only `agent`-mode chat (`[Scout] <workspace>`) and asks it to submit
+   findings through `scout_findings` (or a fenced JSON block the runner
+   parses);
+4. dedupes the proposals against existing todos, pending/resolved findings and
+   Workspace Memory entries that mark an area as already explored, then stores
+   them as `pendingScoutFindings` and appends a notice to the pinned chat.
+
+### Git scope and diagnostics
+
+Changes scope combines tracked paths from `git diff` with new untracked paths
+from `git ls-files --others --exclude-standard`. Both pass through the same
+include/exclude matcher and existing file cap. The tracked diff contains only
+those matched paths and retains the existing signal-size cap. Untracked files
+are identified in the prompt so the read-only agent can inspect them directly.
+
+The default base remains `main`. Every explicit branch, tag or commit must
+resolve to a commit; an invalid explicit base blocks the scan. In a repository
+with `master` and no `main`, select `master` or explicitly choose `auto`.
+Only `auto` permits fallback, in the fixed order `main`, `master`, `HEAD`.
+Preview, prompts and scan history show the resolved name and commit. File
+listing and diff use that same pinned commit, even if the branch moves later.
+
+Git trusts only the repository containing the selected workspace via an exact,
+per-command `safe.directory`. It never writes global/repository configuration
+or uses `safe.directory=*`. Optional index locks, filesystem-monitor hooks,
+lazy fetching, external diff helpers and text conversion are disabled for these
+reads. Ownership errors, missing repositories/bases/executables, timeouts and
+other command failures retain diagnostics; they never become an empty result.
+
+Manual starts and scheduler starts both stop before launching a model when
+scope collection fails or genuinely matches no files. Their reservations and
+workspace/profile budgets are refunded. History records `failed` with a Git
+diagnostic for a scope error, or `skipped` for an empty scope. Preview exposes a
+scope error as a blocker and suppresses the misleading “no files” message.
+
+Categories: `bug`, `improvement`, `refactor`, `security`, `opportunity`,
+`documentation`. The `refactor` rubric carries extra heuristics (oversized
+file/function split candidates, duplicated blocks, mixed responsibilities, deep
+nesting) so a proposal is a small, behavior-preserving, independently reviewable
+seam rather than a rewrite.
+A finding is `{ id, title, category, rationale, plan_markdown, files[], status }`.
+When `policy.scoutAutoCreate` is true, submitting a finding immediately creates
+an `idea` todo (idempotent on the finding id) with its proposed plan as an
+unapproved draft. Otherwise, `accept` creates the TODO. `approvedAt` stays empty
+until a human approves the draft in the UI. A read-only scan runs in agent mode
+under the host's read-only tool policy; the
+`scout_findings` `list`/`submit` actions are the only mutating builtin
+MCP calls allowed there (accept/reject stay Agent-only).
+
+Settings → Workspace Watcher → Scout shows the schedule the heartbeat will use:
+`computeScoutSchedule()` (`lib/workspace-watcher-scout.js`) reuses the same
+`decideScoutRun` gate and exposes it as the additive `scout` field on
+`GET /api/workspace-watcher` (`nextScanAt`, `lastScoutAt`, `usedToday` /
+`maxPerDay` / `remainingToday`, `running` / `maxParallel`, `pendingFindings`,
+and the live `blockedReason`). A spent daily budget pushes `nextScanAt` to the
+next UTC midnight, while a live blocker (pause, quiet hours, parallel cap) is
+reported separately instead of moving the schedule. The panel renders it as a
+per-second countdown and a **Run scan now** button; that button calls
+`runWorkspaceWatcherScoutNow()` through `POST /api/workspace-watcher/scout`
+`{ action: 'run' }`, which bypasses the interval for the explicit run but still
+respects mode, quiet hours and the per-day budget.
+
+Settings → Workspace Watcher → Settings opens with the same "when / when next"
+view for the watcher itself: `computeWatcherSchedule()`
+(`lib/workspace-watcher-guardrails.js`) exposes the additive `schedule` field on
+`GET /api/workspace-watcher` (`lastCycleAt`, `nextCycleAt`, `cyclesToday` /
+`maxCyclesPerDay` / `remainingToday`, `running` / `maxParallel`, and the live
+`blockedReason`). `nextCycleAt` is the latest of the applicable gates — cooldown
+end, failure backoff, quiet-hours end and, when the daily budget is spent, the
+next UTC midnight — so the countdown reflects the earliest instant a cycle may
+start. Autopilot `off`/`observe`, a global pause and a loop `stopReason` have no
+ETA (`nextCycleAt = 0`). The panel renders it as a per-second countdown plus a
+one-line `next cycle` in the Status card; a reached parallel cap is reported as a
+blocker without inventing an ETA.
+
+### Scout profiles, migration and history
+
+A workspace now holds a **versioned `scoutProfiles` collection** instead of the
+old single implicit profile. The store schema was raised from v1 to
+`WORKSPACE_WATCHERS_SCHEMA_VERSION = 2`
+(`lib/persist/workspace-watchers-persist.js`); loading a v1 row lazily
+normalizes it into v2 in place.
+
+- **Migration** turns the previous configuration into exactly **one** general
+  profile (id `SCOUT_GENERAL_PROFILE_ID`, name "Scout ogólny"), preserving the
+  old prompt, categories, sources, schedule, limits and harnesses. A row that
+  already carries a `scoutProfiles` key (even `[]`) is never synthesized again,
+  so re-reading is idempotent and never duplicates the profile or its scans. New
+  workspaces read a **virtual, disabled** general profile and write nothing until
+  they are explicitly configured.
+- A **new profile defaults to `schedule=manual` and `enabled=false`** (the UI
+  toggle reads "Automated scans"). "Run now" still works on a non-archived
+  profile with `enabled=false` as long as the global workspace gates allow it, so
+  nothing auto-starts on its own.
+- **Per-profile state lives on the same row**: a `scoutSchedules` map
+  (`scoutId → { lastRunAt, nextRunAt, day, count }`, UTC-day counter), the
+  `activeScoutScans` collection (one record per `scanId`; MVP keeps at most one
+  unsettled scan per profile) and a bounded `scoutScanHistory` log (terminal
+  details kept for the last 100 scans per profile and up to 1000 per workspace;
+  active and `uncertain` records are never trimmed). The **shared** UTC-day budget
+  (`scoutScans` + `scoutMaxPerDay`) and `pendingScoutFindings` stay at the
+  workspace level, so a scan satisfies both the profile and the workspace limit.
+- **Fair scheduler**: the heartbeat selects the due enabled profiles in
+  oldest-`lastRunAt` order so a frequently-run profile cannot starve the others,
+  up to `scoutMaxParallel`. The reservation and both counters are bumped
+  atomically under the store lock; a failed start releases only its own
+  reservation.
+- **Dedup between profiles**: the same problem found by two profiles merges into
+  one proposal carrying two `sources[]`. Attribution (`scoutId`, `scoutRevision`,
+  `scanId`, `chatId`, `runId`, executor, time) is server-assigned from the active
+  scan, never from the model; a foreign chat/token submit is rejected and scan B's
+  attribution never leaks to scan A.
+- **Read-only**: the profile prompt states that the read-only contract is
+  *enforced by the host, not by this prompt*. The transport still starts the chat
+  in `agent` mode for harness compatibility, but the host tool policy blocks file
+  writes/edits, mutating shell, delegations, todo/configuration changes and every
+  other mutating MCP call **before** they run; only authenticated `submit` to the
+  scan's own record and read tools are allowed.
+
+### Backward compatibility for REST / MCP / remote clients
+
+Legacy clients keep working without knowing about profiles:
+
+- `GET/POST /api/workspace-watcher/scout` keep their existing shape; the optional
+  `scoutId` / `scout_id` is forwarded. `GET /scout` can filter findings by
+  `scoutId` without changing the legacy response.
+- The `activeScoutScan` singleton view is still mirrored for older servers that
+  read only that field, but `getActiveScoutScans` stops honoring it the moment the
+  `activeScoutScans` key exists (even when empty) — there is never a second
+  writer.
+- MCP `scout_findings` and `scout_profiles` (and their former long names
+  `watcher_scout_findings` / `watcher_scout_profiles`) route to the same handler
+  and are classified identically by every host gate (Plan, review, Scout).
+- The remote client (`lib/remote-api-client.js`) keeps `workspaceWatcherScout`
+  (legacy `GET`/`POST` plus submit token) and adds `workspaceWatcherScoutProfiles`
+  for the new profile surface.
+
+### Rollout, backup and restore (schema v1 → v2)
+
+Client **read** compatibility across versions is supported; **concurrent store
+writes by an old and a new server are not**. The migration is a one-way,
+in-place, lazy normalization of a shared file, so it must run under a single
+writer. There is **no safe downgrade** of a v2 store to a v1 writer and **no
+mixed-version operation**: v1 cannot read `scoutProfiles`/`activeScoutScans`, and
+the single `activeScoutScan` mirror cannot represent multiple concurrent scans.
+
+1. **Stop writers.** Set the watcher mode to `off` (or pause) and/or stop the
+   server so no heartbeat, autopilot pass or Scout pass can mutate the row, and
+   so no new scan starts.
+2. **Back up the data.** Copy the watcher store and its cross-process lock db
+   plus the related `data/workspace-memory/<workspaceKey>.json` and the todos
+   file. This copy is the **only** rollback path — record the timestamp.
+3. **Start exactly one v2 server.** The first read normalizes v1→v2 in place (one
+   general profile, `activeScoutScans`, schedules, history). **Verify the legacy
+   flow end to end** before enabling anything new: `GET /api/workspace-watcher`
+   shows the migrated general profile and its preserved state;
+   `POST /api/workspace-watcher/scout { action: 'run' }` starts a scan on the
+   migrated token, and a scan that was reserved **before** the migration can still
+   submit afterward.
+4. **Only then create/enable additional profiles.** Because a new profile is
+   manual + disabled, enabling multi-profile operation is an explicit operator
+   action, never an automatic side effect of the upgrade.
+
+**Restore / rollback:** to return to v1, stop the v2 server and restore the
+pre-migration copy from step 2. Do not attempt to "convert" a v2 store back to
+v1, and never run a v1 and a v2 writer against the same data directory at the
+same time.
+
+### Scout troubleshooting
+
+- **A profile will not start.** Check, in order: profile `enabled` / `archivedAt`
+  (an archived profile never starts, automatic or manual); the global gates
+  (mode `observe`/`autopilot`, not paused, no `stopReason`, outside quiet hours,
+  workspace `scoutMaxPerDay` and `scoutMaxParallel` headroom); an unsettled
+  active scan for that profile (MVP allows one per profile, reported as
+  `profile_scan_active`); an empty executor/harness intersection
+  (`executor_not_allowed`, or `read_only_unsupported_harness` when the chosen
+  harness cannot enforce read-only — that harness is excluded with a reason rather
+  than run unprotected); or a scope that matches no files (`skipped`, both the
+  profile and workspace budgets refunded).
+- **The daily counter is consumed but no findings landed.** A normal
+  `started=false` (no orchestrator / chat creation refused) **keeps** the
+  reservation stamp on purpose, so a missing model cannot make every heartbeat
+  retry the same scan. Only `global_starts_disabled` and a throw with a confirmed
+  non-acceptance **refund** it once. See the settlement table in
+  [`configurable-scouts.md`](./configurable-scouts.md).
+- **A slot stays occupied after a crash.** `reconcileScoutScans` runs on boot and
+  on every heartbeat — including while starts are off or the row is paused, so a
+  drain can finish. A crash before handoff refunds once; a launched or
+  `uncertain` scan stays occupied until liveness is confirmed idle and its review
+  ends. `readyForRestart` requires starts disabled plus no reservations,
+  in-flight, `unknown`, live scans or reviews and a readable store — it is never
+  inferred from `expiresAt` alone.
+
+### Machine-chat archive sweep
+
+Finished Scout and Watcher-cycle chats are hidden by a shared sweep that runs on
+**boot** (`reconcileWorkspaceWatchersOnBoot`) and on the **heartbeat** — both the
+autopilot pass (`runWorkspaceWatcherAutopilot`) and the Scout pass
+(`runWorkspaceWatcherScoutPass`), after the per-row `expireStaleActiveScoutScan`
+so an expired scan can never keep a stale chat around. Candidates are chats with
+`pickPurpose === 'scout'`, their delegation children (followed through
+`delegationParentChatId`) and the orchestrator chats recorded in a closed
+`cycleChats` window; every one goes through the shared `canArchive` gate
+(`lib/chat-archive-policy.js`), never a title match. The idle grace is 15 minutes
+from `updatedAt`, and a pinned chat, a chat with a live/unknown run, a chat still
+holding a delegation slot, or one inside the grace window is left visible
+(fail-closed). A chat that merely carries the `[Scout]` title is never a
+candidate. The sweep is best-effort: it never opens a cycle slot, never spends
+the daily budget and never breaks a tick.
+
+## Notifications
+
+The watcher pushes through the existing notification channel (no new socket).
+Actual behavior in code:
+
+| Push | When | Dedupe |
+|------|------|--------|
+| `idle_with_work` | `observe` sees ready work and no active agent | Once per episode via `idleNotifiedAt`; cleared when the episode ends |
+| `blocked` | A todo is parked at the failure ceiling or a findings loop | Once per todo transition (`markWorkspaceWatcherTodoBlocked`) |
+| `stopped` | `stopReason` is set (loop guard, uncertain start) or changes | Once per distinct stop reason (`notified.stopped`) |
+| `plan_approval` | A tick waits with `wait_plan_approval` | Once per todo (`notified.plan_approval`) |
+| `dead_container` | A `doing` todo whose open children are all `idea` (see below) | Once per episode (`notified.dead_container`, signature = container + idle-child ids); re-armed when no dead container remains |
+| cycle failure | A reconciled cycle ends without progress, or the orchestrator refuses / a start fails | Emitted with the event; the decision log is the durable record |
+
+`observe` never starts an agent, and no push is emitted from an `off` row.
+
+### Dead containers
+
+A `doing` todo with at least one not-done child where **every** not-done child is
+`idea` can never progress (nothing is ready). Done children are ignored; any
+other open status (`ready`, `doing`, `deferred`) means it is not dead. Each tick
+detects these (`findWorkspaceWatcherDeadContainers`), records one `dead_container`
+entry in the "Why?" log and pushes once per episode with the idle child titles.
+
+`policy.autoReadyDeadContainerChild` (default **false**): when on and the container
+or an ancestor has an approved plan (`plan.approvedAt`), the first idea child (by
+`siblingIndex`) is moved to `ready` with a changelog note.
+
+## Policy reference
+
+Defaults from `defaultWorkspaceWatcherPolicy()`:
+
+| Field | Default | Meaning |
+|-------|---------|---------|
+| `maxParallel` | `1` | Emergency safety valve (1-10): busy agents at/above it postpone a new start only while S1 reports danger (event-loop/route lag, load, low disk). Without an S1 source it stays a plain cap |
+| `maxParallelWorktree` | `0` | Separate cap for worktree leaves (0-10, `0` = no separate limit); `maxParallel` stays the overall ceiling |
+| `maxParallelProject` | `0` | Separate cap for leaves running in the project folder (0-10, `0` = no separate limit) |
+| `maxCyclesPerDay` | `20` | UTC-day cycle budget |
+| `maxConsecutiveFailures` | `3` | Failure ceiling before a todo is parked; `0` disables |
+| `maxSameFindings` | `2` | Identical review findings in a row before a stop; `0` disables |
+| `cooldownMs` | `30000` | Minimum gap between cycles |
+| `backoffBaseMs` / `backoffCapMs` | `60000` / `6 h` | Exponential failure backoff |
+| `requirePlanApproval` | `true` | Plan gate (never auto-approved) |
+| `requireReviewForDone` | `off` | Review gate for agent `done` writes: `off` \| `warn` \| `enforce` (see [Review gate](#review-gate)) |
+| `requireIndependentReview` | `false` | With the gate on, a `passed` review must also be independent of the implementer |
+| `reviewGateMaxAttempts` | `2` | Unsatisfied closes per material revision (1–5) before `review_gate_exhausted` |
+| `phases` | `{ plan, review, implement: true, integrate: false }` | Phase scope, see [Phases](#phases) |
+| `allowedHarnesses` | `[]` | Empty = no restriction |
+| `pickRoles` | `plan, implement, review` | Roles the orchestrator may pick |
+| `quietHours` | `{ start: '', end: '' }` | UTC window when the watcher waits |
+| `orchestrator` | `{ harness: '', model: '' }` | Empty = resolve a cheap `implement`-role pick; a set harness/model is a hard override |
+| `scoutEnabled` | `false` | Opt in to the separate periodic Scout scan |
+| `scoutIntervalHours` | `6` | Minimum gap between Scout scans (own schedule) |
+| `scoutAutoCreate` | `false` | Automatically creates an `idea` todo with an unapproved plan draft for each submitted finding |
+| `scoutCategories` | all six | Categories Scout may propose (`bug`, `improvement`, `refactor`, `security`, `opportunity`, `documentation`) |
+| `scoutMaxPerDay` | `4` | UTC-day scan budget (independent of `maxCyclesPerDay`); `0` disables |
+| `scoutMaxPerScan` | `10` | Maximum proposals kept per scan |
+
+### Execution pools
+
+`maxParallel` is the overall ceiling. `maxParallelWorktree` and
+`maxParallelProject` can narrow each pool independently; both default to `0`,
+which preserves the existing global-only policy. A worktree runs in its own
+folder and branch, so it does not compete with project tasks for files, but each
+checkout can still require a preparation command such as `npm ci` and its own
+agent process and model. Separate limits let the operator bound that cost.
+
+The watcher resolves each leaf's effective execution mode before choosing its
+pool, then freezes that task pool on the cycle. A settings or todo override
+change cannot move an active cycle to another pool. Planning consumes the same
+task pool even when it runs without creating a checkout. When a candidate's pool is full it tries an eligible leaf in the other
+pool. If none has room, the decision is `wait_active/worktree_parallel` or
+`wait_active/project_parallel`; a pool held by the watcher's own cycles is
+reported as `wait_active/cycle_active` with a `pool` marker. Unknown liveness
+continues to block globally, and untraceable busy tokens count as project work.
+
+The schedule and MCP status expose both pool counts and configured caps.
+A pool blocker is reported only after candidate selection has ruled out an
+eligible fallback; a full worktree pool alone does not stop project work.
+
+### Scheduler (priorities, fair share, safety valve)
+
+`lib/workspace-watcher-scheduler.js` is the decision layer behind the pick. It
+queues work instead of rejecting it:
+
+- **Priority classes** — continuation work (a leaf with checkpoint material or
+  a failed review, or `priority: high`) before normal work before background
+  work (`priority: low`).
+- **Fair share** — inside a class the tree with the fewest running leaves goes
+  first, then the tree served longest ago (`lastServedByTree`, stamped on the
+  watcher row when a cycle reserves its leaf), then the legacy order
+  (assignment, sibling position, oldest update).
+- **Safety valve** — `maxParallel` postpones a start (`wait_active`, reason
+  `stability_valve:<alarms>`) only when the busy count reaches it *and* S1
+  (`getLoadSnapshot`) reports `eventLoopP99`, `routeP95`, `loadAvg` or
+  `lowDisk`. Running work is never aborted. With no registered S1 source
+  (tests, embedded use) the reason is the legacy `max_parallel`.
+- **Infrastructure failures** — a close with `mcp_not_ready`,
+  `mcp_tools_missing`, or `missing_report`/`cycle_incomplete` while the event
+  loop or routes are saturated does not touch `failures` or the failure
+  backoff. A restart interruption was already neutral.
+- **Parallel scope** — a leaf in a `runMode: parallel` group needs a
+  `## Leaf scope` list; without one it waits while any sibling is `doing`.
+  `todo_create` returns a `parallel_scope_unknown` warning when it sees that,
+  and "Why?" names it (`rejections[]` carries the conflicting `conflictLeafId`).
+- **Idle labels** — an `idle_no_work` decision lists each rejected candidate
+  with the filter that dropped it (`blocked_backoff`, `failure_ceiling`,
+  `same_findings`, `phase_disabled:<phase>`, `ancestor_requires_worktree`,
+  `tree_owned_by_live_orchestrator`, `parallel_scope_unknown`,
+  `parallel_scope_collision`); the headline `reason` is the filter that rejected
+  the most candidates, so one backed-off leaf cannot label a pool that
+  something else blocks.
+
+Tests: `tests/workspace-watcher-scheduler.test.js`.
+
+## Control surfaces
+
+REST (`lib/routes/workspace-watcher-routes.js`):
+
+- `GET /api/workspace-watcher` — state + live snapshot (never creates a row);
+  the HTTP view adds the derived `guardrails`, `scout` and `schedule` blocks
+- `PATCH /api/workspace-watcher` — mode/policy/pause/stop patch
+- `GET /api/workspace-watcher/decisions?limit=50` — recent decision log
+- `GET /api/workspace-watcher/stats` — aggregated monitoring stats (throughput,
+  success rate, avg cycle time, stop reasons, top harnesses by delegation count
+  and verified pass rate) for the Settings dashboard; never creates a row
+- `DELETE /api/workspace-watcher` — remove the row
+- `POST /api/workspace-watcher/{pause,resume,clear-stop,tick,run-cycle,claim-next,reset-plan-requests,findings,report,save-plan}`
+- `GET /api/workspace-watcher/scout` — Scout proposals (`status`/`category`/`max`,
+  and the optional `scoutId` filter for per-profile findings)
+- `POST /api/workspace-watcher/scout` — `action=run` (default) starts a scan;
+  `list`/`accept`/`reject`/`submit` manage proposals; the legacy shape is kept and
+  an optional `scoutId` is forwarded so old clients are unaffected
+- Profile surface (same auth as the Watcher settings; agent scan keeps only the
+  allowed `list`/`submit`):
+  `GET/POST /api/workspace-watcher/scout/profiles`,
+  `GET/PATCH /api/workspace-watcher/scout/profiles/:id` (PATCH requires the profile
+  `revision` — CAS, stale returns 409 and changes nothing),
+  `POST /api/workspace-watcher/scout/profiles/:id/{duplicate,archive,preview,run,restore-diff,restore}`,
+  `POST /api/workspace-watcher/scout/profiles/{from-template,preview-draft}`,
+  `GET /api/workspace-watcher/scout/templates` and
+  `GET /api/workspace-watcher/scout/history` (newest-first, filtered by `scoutId`,
+  never exposes `submitToken`)
+
+MCP (`lib/mcp/builtin/watcher-tools.js`):
+
+- `watcher_status` / `watcher_show` (read-only)
+- `watcher_set` / `watcher_update` (actions: `configure`, `tick`,
+  `run_cycle`, `claim_next`, `reset_plan_requests`, `record_findings`,
+  `save_plan`, `report`)
+- `watcher_report` (outcome `success|blocked|failure`, idempotent)
+- `watcher_claim_next`
+- `scout_findings` (actions: `list`, `accept`, `reject`, `submit`). The read-only
+  scan starts in `agent` mode; `list`/`submit` are the only builtin MCP calls the
+  host allows a Scout chat (`accept`/`reject` stay operator-only), and `submit`
+  auto-fills `scan_id` + `submit_token` from the scan's own chat, never another
+  chat's
+- `scout_profiles` (actions: `list`, `get`, `create`, `update`, `duplicate`,
+  `archive`, `preview`, `history`, `run`, `templates`, `from_template`,
+  `restore_preview`, `restore`)
+
+Workspace Memory is exposed through `wmem_add` /
+`wmem_list` / `wmem_delete`
+(`lib/mcp/builtin/memory-tools.js`).
+
+Settings → Workspace Watcher and the Todo top bar drive the same control layer
+(`lib/workspace-watcher-control.js`). The Scout section edits `scoutMaxPerDay`
+(UTC-day scan budget; `0` disables scans) along with the interval and parallel cap.
+
+Both surfaces are scoped to the **active workspace folder** read from the header
+workspace picker (`app_front/features/watcher/watcherWorkspaceScope.js`): reads
+carry `?workspaceFolder=` and writes put `workspaceFolder` in the JSON body.
+Without it the API falls back to the server's global "current cwd", which can be
+a different workspace than the one the operator is looking at — a chat can carry
+its own workspace, and the settings panel stays mounted across workspace
+switches. The settings form rebuilds (never a dashboard-only repaint) when the
+active workspace changes, so a stale form can never Save its policy onto the
+wrong workspace.
+
+A **clone** is a single-folder view of a workspace file (`<file>#clone-<id>`), so
+its watcher is the row for that one folder — not the parent's default folder. The
+clone folder is what the header carries after selecting the clone group, so the
+settings form and the Todo bar resolve the clone row on their own; switching
+between the parent and its clone is a folder change and rebuilds the form.
+
+## Monitoring dashboard
+
+Settings → Workspace Watcher renders a monitoring dashboard
+(`app_front/features/watcher/watcherDashboard.js` + `watcherTimeline.js`) from
+the two reads above:
+
+- **Live status** — mode/pause, every `activeCycles[]` slot (todo, phase, running
+  duration, orchestrator-chat link), the active delegations (harness, status,
+  assignment, duration) and the latest decision.
+- **Timeline** — a Gantt-like track over the last hour / 24h / 7d. Each closed
+  cycle from `cycleChats` becomes a bar (`success`/`failure`/`blocked` tone);
+  live cycles grow to `now` as `running`. Overlapping cycles are greedily
+  assigned distinct lanes so `maxParallel > 1` concurrency is visible. Clicking a
+  bar opens its detail (todo, outcome, chat, duration).
+- **Statistics** — success rate, average cycle time, cycles in the window,
+  daily/weekly throughput (`cycleCount`-style buckets), the most common stop
+  reasons, and the top harnesses by delegation count with the verified pass rate
+  (`verifyResult.status`).
+- **Decisions** — the decision log with a filter-by-kind dropdown; the same data
+  powers the **Why?** button in the Todo tab top bar.
+- **Alerts** — an active `stopReason` with a **Clear stop** action, the
+  `backoffUntil` countdown with a **Clear backoff and failures** action that
+  releases the failure backoff in one click, and the quiet-hours end (UTC), all
+  repainted once per second client-side. The same reset is on the cycle-schedule
+  card's blocker line (Settings tab) and in the **Actions** tab, so an operator
+  does not have to hunt for it while the watcher is parked.
+
+`cycleChats` entries were extended with `startedAt` (mirrored from the live slot
+by `buildWorkspaceWatcherCycleClosePatch`) so a closed cycle has a real
+duration; `at` remains the close instant. The same bounded entry now also
+carries `mode`, the requested pair (`requestedHarness`/`requestedModel`/
+`requestedSource`) and `closeSource`, so the existing API keeps the orchestrator
+identity without a schema break. The list is still bounded by
+`WORKSPACE_WATCHER_MAX_CYCLE_CHATS` (20), so the dashboard shows the most recent
+20 cycles and a legacy entry without `startedAt` falls back to a point bar with
+no duration instead of a fake zero.
+
+The unbounded orchestrator-model history lives in the separate
+`data/workspace-watcher-cycles.json` store (see **Durable cycle-metrics store**):
+one record per `cycleId`, created at reservation and closed by
+`report`/`reconcile`/`abort`. It is the source for the per-model comparison and
+keeps starts that never reached `running`; `cycleChats` stays the bounded
+timeline feed. `readWorkspaceWatcherCycleMetricsStatus` exposes the store range
+(`collectionStartedAt`, oldest/newest start, counts) and the last telemetry
+error for the API/Settings leaves.
+
+Live updates reuse the existing chat-list WebSocket: the server emits
+`chatsChanged` with reason `workspace-watcher`, `chatListLiveSync` forwards it,
+and both the settings dashboard and the Todo watcher bar refetch on the
+`sharedState.onWatcherChanged` signal subscription (formerly a DOM event). Time-driven fields (countdowns,
+running durations) tick locally without refetching.
+
+## Debugging through the decision log
+
+Every tick that changes the outcome appends one bounded line (~50) to
+`row.decisions`; cycle closes append `cycle_completed` / `cycle_failed`, and a
+missing orchestrator appends `orchestrator_blocked`. This is the primary
+diagnostic and it answers "why is nothing running?".
+
+Repeated `idle_no_work` / `no_ready_work` lines are refreshed at most once every
+ten minutes. A change in the decision kind, reason, or readiness/activity/scout/
+unknown-liveness counters is recorded immediately.
+
+Read it with:
+
+- UI: Todo tab top bar → **Why?**
+- REST: `GET /api/workspace-watcher/decisions?limit=50`
+- MCP: `watcher_show` (recent decisions) or `watcher_status`
+
+When the server's backend sources changed on disk since this process started
+(content-hash manifest, see `lib/server-code-freshness.js`), every decision line
+also carries `backendCodeStale: true` and `backendCodeChangedFiles` (a count, never
+file paths), and the pinned-chat line adds "backend changed since start (N
+file(s)), restart may be required". The flag is only a hint: a lazy import may
+already have picked the change up, so it reads "may be required". An unmeasured
+backend (`unknown`) stamps nothing. This lets a cycle that misbehaves on an old
+server be read in **Why?** instead of looking like a logic bug.
+
+Each line has `at`, `kind`, `reason`, `readyTodoCount`, `activeAgentCount`,
+`shouldNotify` and `nextTodoId`. A `wait_active` / `max_parallel` line also
+stores `slotHolders`: the chat ids and `delegation:<id>` tokens that occupy the
+slot. The Todo **Why?** column, the settings dashboard and the pinned-chat
+decision line (`held by <id8>`, or `held by delegation:<id8>`) show them. A
+full cycle slot still uses `slotChats` (`cycle_active`).
+
+| `kind` | Meaning |
+|--------|---------|
+| `off` | Mode is off (no write) |
+| `paused` | Global pause; state is preserved |
+| `stopped` | `stopReason` set; clear it to resume |
+| `snapshot_error` | A store could not be read; the watcher waits |
+| `wait_active` | `maxParallel` reached (`slotHolders` names the chats / `delegation:<id>` tokens), or a chat has unknown liveness (adapter error, or a cold room a todo claim / delegation slot still traces) |
+| `idle_no_work` | No ready work (`no_ready_work`), or every candidate was rejected: `reason` is the dominant filter and `rejections[]` lists each one (see Scheduler) |
+| `observe_ready` | Observe saw work; no cycle started |
+| `start_cycle` | A normal cycle is allowed |
+| `plan_gate` | A plan-only cycle is allowed |
+| `wait_quiet_hours` | Inside the UTC quiet window |
+| `wait_budget` | UTC-day budget exhausted |
+| `wait_cooldown` | Within `cooldownMs` of the last cycle |
+| `backoff` | Failure backoff active |
+| `wait_same_findings` | Identical review findings loop |
+| `wait_harness_usage` | Every eligible favorite is usage-limited; `schedule.nextCycleAt` is the earliest reset among the allowed harnesses |
+| `wait_plan_approval` | Waiting for a human to approve the plan |
+| `cycle_completed` / `cycle_failed` | A cycle closed (with its outcome) |
+| `orchestrator_blocked` | No eligible orchestrator model was found |
+
+Common syndromes:
+
+- **`wait_active` with `unknownAgentCount > 0`** — "unknown" means a chat the
+  snapshot cannot confirm is *done*, and only for a real reason: an adapter
+  error (`adapter_error`, `probe_failed`, `run_mismatch`) or an absent room
+  (`state_missing`/`adapter_missing`) **when a work trace points at that chat**
+  (a todo it still claims, or a parent/child of a delegation slot that is still
+  occupied — including an unconfirmed `runStoppingAt` stop). A cold chat with no
+  room and no trace — an archived or historical chat, or every chat after a
+  server restart — is treated as idle, not unknown, so it never blocks a cycle;
+  a chat that no longer exists (`chat_missing`) is skipped outright. The
+  recorded decision carries an `unknownChats` list (`chatId` + `reason`, up to
+  three) that survives store normalization; the Todo "Why?" table and Settings
+  decision log append those chats to the reason column instead of showing only
+  `unknown_liveness`. This is a
+  deliberate conservative block for genuinely ambiguous liveness; resolve the
+  chat/run state instead of forcing a cycle.
+- **`wait_harness_usage`** — check favorites and active usage limits; the
+  allow-list is intersected with the real limits.
+- **`idle_no_work` / `blocked_backoff`** — the ready leaves are waiting out a
+  blocked backoff; `blockedBackoff` on the watcher row has the `until` instants.
+- **`idle_no_work` / `ancestor_requires_worktree`** — the only ready leaves sit
+  under a `worktree` ancestor while the watcher would run them in the project
+  folder; see "Mode selection".
+- **`idle_no_work` / `tree_owned_by_live_orchestrator`** — the only ready leaves
+  belong to a tree another chat is driving (manual `todo_start` orchestrator or
+  a leaf chat with its own loop); see "Parallel cycles and claims".
+- **`stopped` / `loop_no_eligible_work`** — every ready todo is parked at the
+  failure ceiling. Inspect `failures`, fix the blocker, then either
+  `clear-stop` or retry the todo manually.
+- **`stopped` / `loop_same_findings`** — the same review findings repeated.
+  Address the finding before clearing the stop.
+- **`cycle_start_uncertain`** — the adapter never confirmed the start; the cycle
+  stays `starting` and is retried/reconciled rather than duplicated.
+- **A cycle row that never closes** — check `activeCycles[].phase`; `starting`
+  with a future deadline is still in flight, otherwise reconcile probes the chat.
+
+Other useful views: `cycleCount`, `reports` (last 20), `cycleChats` (last 20,
+each with its outcome) and `lease` (who currently owns the workspace).
+
+## Worktree execution, Git context and integration
+
+This section describes the end-to-end flow from a leaf's execution-mode choice
+to the human integration decision, and the Git context indicator that makes the
+right branch visible.
+
+### Logical workspace vs execution folder
+
+- `workspaceFolder` is the **logical project identity**. Todos, claims, memory,
+  watcher policy, the plan gate and limits always live there.
+- `executionFolder` is where a runner, the write lock, the material revision and
+  test verification actually operate. For a chat it is stored on the chat record
+  (`executionFolder`, falling back to `workspaceFolder`); for a leaf it is frozen
+  in the worktree registry.
+- Worktrees live **outside** the project tree. Nothing here commits, merges or
+  pushes (the only exception is the explicit, user-started git-level merge chat
+  described under *Worktree list and git-level merge*); integration is manual and the branch is preserved until a human
+  decides.
+- **Per-leaf checkpoints (worktree only):** after an independent code review PASS
+  and `todo_update` closes the leaf, the server may commit a **leaf checkpoint**
+  on the prepared worktree branch (`cretli/todo/<root-id>` or the configured
+  prefix). It uses the same temporary-index snapshot technique as worktree
+  prepare (`Cretli leaf checkpoint for <leaf-id>`). The orchestrator still does
+  not commit; the target branch and main checkout stay untouched. A failed
+  checkpoint is logged on `todo.leafMaterial.lastCheckpoint.error` and does not
+  block `done`. Disable with `CRETLI_LEAF_MATERIAL_CHECKPOINT=0`. In
+  `execution_mode=project` the server never commits; it stores a path→content-hash
+  manifest at leaf start so reviewers diff only that leaf's delta.
+- **Worktree freshness:** before reusing a live, ready worktree the start path
+  checks how many commits `HEAD` is ahead of the worktree's frozen base. Above
+  `policy.worktree.maxBehindCommits` (default `50`, `0` disables) the pure
+  `decideWorktreeFreshness` decides: a stale worktree with **no** unintegrated
+  work (no dirty paths, no commits outside `HEAD`, or already integrated) is
+  released so the next start creates a fresh one (`workspace-watcher-worktree-stale-released`);
+  a stale worktree **with** work is never released: the server logs
+  `workspace-watcher-worktree-stale-integrate-or-move` ("integrate or move") and
+  saves a patch to `data/worktree-results/_carry/<todo>-<timestamp>.patch`.
+  A worktree held by an active agent is left alone. The check is advisory and
+  never blocks a start.
+
+### 1. Mode selection
+
+- The default mode and the worktree layout are **per-workspace execution
+  settings**, stored in `data/execution-settings.json` independently of the
+  watcher row (they exist even if the watcher was never enabled). Both the
+  Watcher cycle and the manual "Run todo" start read them. Precedence per field:
+  saved record > legacy `policy.executionMode` / `policy.worktree` > server
+  proposal (repository root, `<parent>/.cretli-worktrees`, sanitized folder name
+  as namespace, `<namespace>/todo/`, `t-`, prepare command detected from the
+  lockfile, mode `project`). An explicitly cleared `prepareCommand` stays empty.
+- The layout is edited in **Settings → Execution**: the default mode, an
+  absolute root outside the repository, a single-segment namespace, the branch
+  and directory prefixes, and the prepare argv (one argument per line — a shell
+  string is refused). `GET/PATCH /api/execution-settings` returns `saved`,
+  `effective` and `proposal`. A `worktree` start with an incomplete layout stays
+  fail-closed. `policy.executionMode` / `policy.worktree` in `watcher_set`,
+  `watcher_update` and `PATCH /api/workspace-watcher` remain accepted as an alias
+  and are written through to the execution settings store.
+- **Uncommitted changes at worktree start** in Settings → Execution stores
+  `worktree.dirtyPolicy` (execution settings): `block` (default) requires a clean repository;
+  `head` starts from the last commit and skips local changes; `snapshot` includes
+  tracked changes and non-ignored untracked files through a temporary Git index.
+  The project branch and index stay unchanged. This applies to new worktrees;
+  existing worktrees keep their frozen base. Manual starts can override this
+  policy explicitly with their own `dirtyPolicy`.
+- Empty fields are **prefilled from a server suggestion** computed from the
+  workspace (`GET /api/workspace-watcher?suggest=1`, `lib/execution-settings-suggest.js`):
+  the root is `<parent-of-repo>/.cretli-worktrees` (always outside the repository),
+  the namespace is the sanitized repository folder name, and `prepareCommand` is
+  detected from the lockfile present (`pnpm-lock.yaml`, `yarn.lock`,
+  `package-lock.json`, `composer.lock`, `go.sum`, `requirements.txt`, or a plain
+  `npm install` for a `package.json` without one). A saved value always wins over
+  the suggestion.
+- A start that resolves to `worktree` with an **incomplete layout derives and
+  persists the same suggestion** before creating the worktree, via
+  `ensureWorktreeLayoutForStart` (used by the manual Todo start and the autopilot
+  cycle). This keeps the per-workspace settings form an optional override instead
+  of a hard gate the operator must find first. `prepareCommand` is still never
+  invented; run the install from the settings form when the worktree needs it.
+  A workspace without a Git repository has no suggestion and stays fail-closed.
+- A leaf may override the default with its own `executionMode`:
+  `inherit` | `worktree` | `project`. The choice is visible in the TODO list and
+  in the task card settings tab.
+- `resolveWorkspaceWatcherExecutionMode` resolves leaf-over-policy. A plan-only
+  cycle never creates a worktree: it keeps the logical workspace.
+- The watcher never walks ancestors for the mode (contract §4.3, O1 open), but
+  `delegation_start` refuses a leaf whose ancestor requires a worktree when the
+  orchestrator chat runs in the project folder. A leaf that resolves to
+  `project` under such an ancestor is therefore **not eligible** for an
+  autopilot pick (`isWorkspaceWatcherLeafBehindWorktreeAncestor`): its cycle
+  could only report `blocked`. Start that tree by hand (`todo_start`, §2a) or
+  give the leaf its own `worktree` override.
+- A worktree that already exists is **frozen**: later policy or override changes
+  do not move an in-flight or retried leaf to another directory.
+
+### 2. Execution
+
+`prepareWorkspaceWatcherExecution` turns a claimed leaf into an execution folder:
+
+1. resolve the mode (leaf override, else policy default);
+2. for `worktree`, create or re-verify the persistent worktree at its frozen
+   base commit and register it in `data/worktree-registry.json`;
+3. run the declared `prepareCommand` **inside** the worktree (argv only — a
+   shell string is refused) and mark the record `active`;
+4. for `project`, keep the logical workspace.
+
+Fail-closed rules: a missing worktree layout that cannot be derived (no Git
+repository), a dirty logical tree, a foreign/orphaned worktree and a failed
+prepare all refuse the start. There is no silent fallback to `project` and no
+automatic secret or `data/` copy. Restart and retry reconcile the registry
+against Git instead of creating a second worktree.
+
+### 2a. Manual starts (Todo panel)
+
+A todo started by hand from the Todo panel (`POST /api/todos/:id/start-agent`)
+uses a **root-keyed** worktree:
+
+- the tree root is found by walking `parentId`; the root's `worktree`/`project`
+  override (else the policy default) decides the mode, and the requested leaf's
+  own `executionMode` is ignored for manual starts;
+- the root worktree is created/reused once and frozen as `executionFolder` on
+  every chat of the tree, so delegated implement/fix children inherit it and the
+  per-folder write lock does not collide with another tree in the main folder;
+- the Watcher keying is unchanged (it still keys by the claimed leaf). Mixing
+  the two is refused with HTTP 409 when the same direct line already has a live
+  record under a different id;
+- a long prepare answers `202 {state:'preparing'}` and the UI polls
+  `GET /api/todos/:id/start-agent/status`; a live frozen record or `project`
+  mode stays synchronous.
+
+Integration for a manually started tree is explicit on the root:
+`POST /api/todos/:id/integration` with `action=prepare` builds the root-level
+diff (all leaf siblings), records it with honest manual evidence and sets
+`integration.state=ready` while `status` stays `doing`; `confirm`/`reject` then
+behave exactly as in §4.
+
+### 3. Review
+
+The **current** review state of a leaf is persisted on the todo as
+`todo.review` and is documented in
+[`todo-review-contract.md`](todo-review-contract.md): subject (`code`/`plan`),
+per-attempt reviewers, independence, verify obligation, freshness and the human
+acceptance state. That snapshot and the per-cycle artifact below are separate
+scopes — the artifact is pinned to one cycle, the todo field is the latest
+recomputed state.
+
+Implement, review and fix share the **same** worktree for one leaf, so review
+sees exactly the material the implementer produced. A review PASS closes the
+execution cycle but does not make the change available to the next sequential
+sibling:
+
+- the execution folder is marked `execution_closed`;
+- the integration diff (tracked and untracked files, including new files) is
+  written as a patch outside the worktree;
+- a per-cycle result record is stored in the worktree registry (base commit,
+  head, branch, diff stat, changed files, review/test outcomes, patch hash);
+- the TODO gets an `integration` pointer with `state = ready` while its `status`
+  stays `doing`, so the scheduler cannot pick it up again.
+
+The result's `review` block is derived from the cycle's **own** delegations: an
+independent PASS with a satisfied verify records `outcome: 'PASS'`,
+`verified: true` and the concrete reviewer/implementer attempt ids plus the
+material revision; a cycle with no such PASS records `outcome: 'unknown'` /
+`verified: false` (never a hardcoded PASS). `integration.reviewOutcome` on the
+TODO pointer is historical artifact metadata copied from `result.review.outcome`
+— it is not `todo.review` and never overwrites it. `confirm`/`merge` are not a
+review acceptance: they neither create a review `passed` nor a `manual` state.
+
+The watcher itself does not decide review status and does not read it as a gate:
+the cycle orchestrator confirms it with `todo_show` before closing a leaf.
+Workspace Scout is outside the mechanism. Limits of the badge:
+[`todo-review-contract.md`](todo-review-contract.md) §17.
+
+### 4. Integration (manual)
+
+A human confirms or rejects through `POST /api/todos/:id/integration`
+(`action = prepare | confirm | reject`), exposed as the buttons on the task card
+(`prepare` is offered for a manually started worktree root):
+
+- **confirm** → `status = done`, `integration.state = integrated`; the sequential
+  sibling becomes ready. The worktree is still not removed automatically.
+- **reject** → `status = ready`, `integration.state = rejected` with a reason;
+  the worktree and patch are preserved so a retry reuses the frozen work.
+
+#### Worktree list and git-level merge
+
+The Git panel lists every task worktree of the workspace (`GET
+/api/worktrees/list`, `lib/worktree-list.js`). The registry is reconciled with
+`git worktree list` and the todo's integration pointer; each row carries a
+single `state` (`active`, `execution_closed`, `integration_ready`, `merging`,
+`integrated`, `rejected`, `missing`, `foreign`, `creating`, `cleaned`), the
+branch, base/head commits, commits ahead of the base, uncommitted files and the
+actions that are currently allowed. Paths always come from server records; the
+client only names a todo id. A worktree whose branch moved ahead of the frozen
+base (the agent committed) is shown as healthy, not as an external change.
+
+Actions per row:
+
+- **Diff** — stat + patch against the frozen base (read-only, size capped).
+- **Merge** — opens a summary dialog (branch -> target, base, diffstat,
+  uncommitted files, conflict forecast from `git merge-tree`, preflight
+  blockers, optional instructions) and then the same harness/model picker used
+  to start a TODO. The chat runs in the main project folder and is not bound to
+  the worktree.
+- **Reject** — `rejectWorkspaceTodoIntegration`; the worktree is kept.
+- **Clean up** — `removeWorktree`; an unintegrated worktree is a discard and
+  needs `discard: true` plus `confirmBranch` equal to the recorded branch. The
+  branch is only deleted on request and only with `git branch -d`, so unmerged
+  work is never lost.
+
+**Policy.** Elsewhere in Cretli agents never commit, push or merge. The merge
+chat is an explicit, user-initiated exception limited to that one chat, and the
+prompt says so; it never pushes. Pushing stays manual.
+
+**Preflight** (`lib/worktree-merge.js`, `preflightGitBranchMerge`) runs before
+anything is marked or prepared; a refusal leaves the todo untouched. It blocks
+on: a dirty main tree (files listed), a detached HEAD, a merge already in
+progress, the worktree branch being the checked-out branch, a missing branch or
+worktree directory, and any live chat run, delegation slot or watcher cycle in
+the main tree (`collectWorkspaceGitActivity`, the same guard branch switches
+use). The running merge chat itself holds that guard, so merges of several
+worktrees are strictly sequential; the order is the user's choice.
+
+**Outcome.** The agent commits the worktree changes on its branch, runs `git
+merge --no-ff <branch>` on the target branch (the branch checked out in the
+main tree when the merge started, stored as `integration.targetBranch` with
+`integration.mergeMode = git-branch`), resolves conflicts, runs the checks and
+reports through the MCP tool `smart_merge_report` (fallback: `POST /api/smart-merge-report-from-agent`). A `merged` report is
+never trusted alone: the server requires that the branch moved past its base,
+that nothing is left uncommitted in the worktree and that the branch tip is an
+ancestor of the target tip. Only then the integration proof is recorded and the
+todo is confirmed (`done`, `integration.state = integrated`). A refused proof
+keeps the todo awaiting integration with `integration.reason =
+git_merge_unverified: <why>`; a `failed` report keeps it with
+`smart_merge_failed: <summary>` so it can be retried.
+
+The TODO action **Integrate with workspace (agent)** is the other explicit
+exception. It still merges into a dirty workspace by hand (no `git merge`).
+The prompt then commits only the listed task paths and records integration
+proof with `todo_integration` `confirm` (`proof.simple`), because starting the
+action is the user's attestation. It never pushes and never stages other paths.
+A failed commit does not record proof; the report still marks the result applied.
+
+### 5. Git context indicator and panel
+
+The existing Git panel (`app_front/gitPanel.js`, `/api/git/*`, `/api/github/*`)
+is context-aware instead of relying only on the global `getCurrentCwd()`:
+
+- `GET /api/git/info?chatId=…` (or `?todoId=…&workspaceFolder=…`) resolves the
+  **authorized** execution folder from durable server records
+  (`lib/git-context.js`): a chat's stored `executionFolder`, or a leaf's worktree
+  registry entry; a cleaned/missing record falls back to the logical workspace.
+  A client-supplied execution folder is never trusted.
+- `file-diff`, `run` and the GitHub reads use the same resolved folder. A
+  `file-diff` path is validated against that folder (same real-path rule as
+  before), so a request cannot read or write outside the authorized repo/worktree.
+- A compact chip in the header (chat context) and on a task card (worktree
+  context) shows the branch and opens the panel; the panel then shows the
+  context (main project vs task worktree), branch, base commit, change count,
+  related task and integration state.
+- The scope lives in `app_front/features/git/gitScope.js` with a monotonic
+  revision. Every fetch captures the revision and the scope key and drops its
+  answer when either changed, so a late response for a previous chat/workspace
+  never overwrites the newer context.
+
+### Scenario: two independent TODOs
+
+With `policy.maxParallel = 2` (the default stays `1`), two ready leaves in the
+same workspace run independently:
+
+1. leaves A and B both resolve to `worktree` mode, each with its own frozen base;
+2. the watcher creates/reuses two worktrees and marks both records `active` — the
+   write lock serializes on the **execution folder**, so A and B do not block
+   each other, while a third parent in the same folder still does;
+3. the header chip follows the chat context, and each task card's Git chip opens
+   the panel scoped to that leaf's worktree, so their branches and diffs are never
+   confused;
+4. A's review passes and marks A `integration.state = ready` without exposing the
+   change to B; B continues in its own worktree;
+5. a human confirms A (A → `done`) and rejects B (B → `ready`, worktree kept);
+6. TODO, memory, policy and plan gates still live in the shared logical
+   workspace, so both leaves see the same task tree and the same human approvals.
+
+## Tests
+
+Run the focused suites:
+
+```
+node --test tests/workspace-watcher.test.js
+node --test tests/workspace-watcher-orchestrator.test.js
+node --test tests/workspace-watcher-tree-owner.test.js
+node tests/workspace-watcher-e2e.test.js
+node --test tests/workspace-watcher-routes.test.js
+node tests/workspace-watcher-pinned-chat.test.js
+node tests/watcher-pinned-chat-ui.test.js
+node --test tests/workspace-watcher-stats.test.js
+node --test tests/workspace-watcher-dashboard-ui.test.js
+node tests/workspace-watcher-settings-ui.test.js
+node tests/workspace-watcher-archive-sweep.test.js
+node --test tests/git-context.test.js
+node --test tests/git-routes-scope.test.js
+node --test tests/git-scope-ui.test.js
+node --test tests/worktree-merge.test.js
+node --test tests/worktrees-routes.test.js
+node --test tests/worktree-list-ui.test.js
+```
+
+`tests/git-context.test.js` covers authorized scope resolution (chat, task,
+worktree, fallbacks, conflicts) and path authorization.
+`tests/git-routes-scope.test.js` asserts the routes run in the resolved folder
+and reject a path outside it. `tests/git-scope-ui.test.js` covers the scope
+revision/stale-answer guard, the context view helpers and the UI wiring
+(header chip, panel chip, task chip).
+
+Scout (configurable profiles — stages 1–6) runs with its own suites; note the
+mixed runners (`node --test` for the `node:test` suites, plain `node` for the
+custom tally suites):
+
+```
+node tests/workspace-watcher-scout.test.js
+node tests/workspace-scout-profiles.test.js
+node tests/workspace-scout-profiles-api.test.js
+node tests/workspace-scout-scans.test.js
+node tests/workspace-scout-schedule.test.js
+node tests/workspace-scout-templates-scope.test.js
+node --test tests/workspace-scout-git-scope.test.js
+node --test tests/workspace-scout-scan-usage.test.js
+node --test tests/workspace-scout-profiles-ui.test.js
+node --test tests/workspace-scout-editor-ui.test.js
+node --test tests/workspace-scout-history-ui.test.js
+node --test tests/workspace-scout-inbox-ui.test.js
+```
+
+The full acceptance map for these suites against the spec criteria is in
+[`configurable-scouts-acceptance.md`](./configurable-scouts-acceptance.md); the
+profile feature spec is [`configurable-scouts.md`](./configurable-scouts.md).
+
+The durable per-workspace transcript (`pinnedChatId`), its persisted
+`variant: 'watcher'` notices and the pinned-mode command shell are documented in
+[`workspace-watcher-pinned-chat.md`](./workspace-watcher-pinned-chat.md).
+
+`tests/workspace-watcher-e2e.test.js` is the acceptance suite: three ready
+todos run sequentially through the mock chat-run adapter, a failed cycle blocks
+only its todo while fresh work continues, a restart mid-cycle reconciles once
+without a duplicate cycle or claim, two processes are serialized by the lease,
+and `off`/`observe` start no agent. `tests/helpers/workspace-watcher-lease-child.js`
+is the second-process lease holder used by the cross-process case.
+
+### Orchestration takeover
+
+A takeover refuses an active Watcher cycle owned by the source or another
+caller (`takeover_watcher_cycle_active`). It does not change `activeCycles` or
+call `watcher_report`. Cycle ownership remains governed by `watcher_recover`
+and `watcher_report`, including the existing parent-delegation authorization.
+
+### External tree owner: edge-case decisions
+
+- A chat stamped only as `chatId` (or `claimedByChatId`) on a done leaf blocks
+  the whole tree only while that chat is busy or controls an active delegation.
+  Accepted: the block is short-lived and avoids two writers in one worktree.
+- A todo created with `orchestrator_chat_id` set to its creator holds the tree
+  for 30 minutes after the creator chat's last activity (`recent_orchestrator`).
+  Accepted: it is the same rule as an idle manual orchestrator between turns.
+
+## Blocked view
+
+`GET /api/workspace-watcher/blocked` returns `{ total, groups: [{ cause, entries }] }`:
+the open todos that will not start, grouped by cause, each with a one-click
+action. The decision is a pure function (`lib/todo-blocked-view.js`, input rows +
+`doingStates` + `blockedBackoff` -> cause/action), rendered at the top of "Why?".
+
+| Cause | Meaning | Action |
+| --- | --- | --- |
+| `parked` | watcher-written `blockedReason` | Ready |
+| `backoff` | per-todo `blockedBackoff.until` is in the future | Open report |
+| `plan_unapproved` | parent plan has no approval on it or an ancestor | Open report |
+| `blocked_sibling` | an earlier sequential sibling is not done/deferred | Defer |
+| `orphan` | `parentId` points at a missing todo | Ready |
+| `dead_container` | `doing` row, recovery `recoverable` (chat gone/idle) | Ready |
+| `stale_worktree` | `doing` row waiting on an open/interrupted worktree | Open report |
+
+Ready/Defer patch the todo status (which also clears `blockedReason`); Open
+report opens the todo. Grouping nodes are never listed, only leaves.
+
+## Heartbeat persistence
+
+An idle tick by the lease owner (same token, no decision, park, notify or state
+change) is not written to `workspace-watchers.json` while more than half of the
+lease TTL remains on the stored lease. The lease is renewed once less than TTL/2
+is left, and any real state change persists immediately. As a result
+`lastTickAt` shown in the UI, MCP and guardrails has a resolution of about 45 s
+(TTL 90 s, so with a 20 s tick the lease is written on every 3rd tick) for an idle watcher.

@@ -1,0 +1,276 @@
+import * as api from '../../core/api/index.js';
+import { t } from '../../i18n/index.js';
+import { html, nothing, render } from 'lit';
+import { getGitScope } from './gitScope.js';
+
+let githubTabVisible = false;
+let expandedRunId = null;
+let showPanelFallback = null;
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = value || '—';
+}
+
+function setBadge(text, type) {
+  const badge = document.getElementById('github-status-badge');
+  if (!badge) return;
+  badge.textContent = text || '—';
+  badge.classList.remove('git-status-badge--ok', 'git-status-badge--warn', 'git-status-badge--error');
+  if (type) badge.classList.add(`git-status-badge--${type}`);
+}
+
+function formatDate(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function statusBadgeClass(status, conclusion) {
+  if (status === 'in_progress' || status === 'queued' || status === 'waiting') return 'warn';
+  if (conclusion === 'success') return 'ok';
+  if (conclusion === 'failure' || conclusion === 'timed_out' || conclusion === 'action_required') return 'error';
+  if (conclusion === 'cancelled' || conclusion === 'skipped' || conclusion === 'neutral') return 'warn';
+  return 'warn';
+}
+
+function runStatusLabel(status, conclusion) {
+  if (status && status !== 'completed') return status.replace(/_/g, ' ');
+  if (conclusion) return conclusion.replace(/_/g, ' ');
+  return status || '—';
+}
+
+function renderRepoInfo(info) {
+  if (!info?.ok) {
+    setBadge(t('github.noData'), 'error');
+    setText('github-info-repo', '—');
+    setText('github-info-remote', '—');
+    setText('github-info-token', '—');
+    return;
+  }
+  if (!info.isRepo) {
+    setBadge(t('github.noRepo'), 'warn');
+    setText('github-info-repo', '—');
+    setText('github-info-remote', '—');
+    setText('github-info-token', '—');
+    return;
+  }
+  if (!info.isGithub) {
+    setBadge(t('github.noGithubRemote'), 'warn');
+    setText('github-info-repo', '—');
+    setText('github-info-remote', '—');
+    setText('github-info-token', '—');
+    return;
+  }
+  setBadge(t('github.repoLinked'), 'ok');
+  setText('github-info-repo', `${info.owner}/${info.repo}`);
+  setText('github-info-remote', info.remoteUrl || '—');
+  const tokenLabel = info.githubTokenEffective
+    ? t('github.tokenConfigured')
+    : t('github.tokenMissing');
+  setText('github-info-token', tokenLabel);
+}
+
+export function renderRunsError(message) {
+  const list = document.getElementById('github-runs-list');
+  if (!list) return;
+  render(html`<div class="github-empty">${message || t('github.loadRunsFailed')}</div>`, list);
+}
+
+function renderRunsLoading() {
+  const list = document.getElementById('github-runs-list');
+  if (!list) return;
+  render(html`<div class="github-empty">${t('github.loadingRuns')}</div>`, list);
+}
+
+function renderRunJobs(runId, jobs, errorMessage) {
+  const container = document.getElementById(`github-run-jobs-${runId}`);
+  if (!container) return;
+  if (errorMessage) {
+    render(html`<div class="github-jobs-error">${errorMessage}</div>`, container);
+    return;
+  }
+  if (!Array.isArray(jobs) || !jobs.length) {
+    render(html`<div class="github-jobs-empty">${t('github.noJobs')}</div>`, container);
+    return;
+  }
+  render(html`${jobs.map((job) => renderJobCard(job))}`, container);
+}
+
+function renderJobCard(job) {
+  const badgeType = statusBadgeClass(job.status, job.conclusion);
+  const statusText = runStatusLabel(job.status, job.conclusion);
+  const failedSteps = (job.steps || []).filter((step) => step.conclusion === 'failure');
+  const stepsHtml = failedSteps.length
+    ? html`<ul class="github-failed-steps">${failedSteps.map((step) => html`<li>${step.name || t('github.step')}</li>`)}</ul>`
+    : nothing;
+  const showLogs = job.conclusion === 'failure' || job.conclusion === 'timed_out';
+  const logsBtn = showLogs
+    ? html`<button type="button" class="github-link-btn" data-github-job-logs=${job.id} @click=${() => loadJobLogs(job.id)}>${t('github.showLogs')}</button>`
+    : nothing;
+  const openLink = job.htmlUrl
+    ? html`<a class="github-link-btn" href=${job.htmlUrl} target="_blank" rel="noopener noreferrer">${t('github.openOnGithub')}</a>`
+    : nothing;
+  return html`
+    <article class="github-job-card">
+      <div class="github-job-head">
+        <strong>${job.name || 'Job'}</strong>
+        <span class="git-status-badge git-status-badge--${badgeType}">${statusText}</span>
+      </div>
+      <div class="github-job-meta">${formatDate(job.completedAt || job.startedAt)}</div>
+      ${stepsHtml}
+      <div class="github-job-actions">${logsBtn}${openLink}</div>
+      <pre id="github-job-logs-${job.id}" class="github-job-logs" hidden></pre>
+    </article>
+  `;
+}
+
+function renderRunsList(data) {
+  const list = document.getElementById('github-runs-list');
+  if (!list) return;
+  const runs = Array.isArray(data?.runs) ? data.runs : [];
+  if (!runs.length) {
+    render(html`<div class="github-empty">${t('github.noRuns')}</div>`, list);
+    return;
+  }
+  render(html`${runs.map((run) => renderRunCard(run))}`, list);
+  if (expandedRunId) {
+    const existing = document.getElementById(`github-run-jobs-${expandedRunId}`);
+    if (existing) loadRunJobs(expandedRunId);
+  }
+}
+
+function renderRunCard(run) {
+  const badgeType = statusBadgeClass(run.status, run.conclusion);
+  const statusText = runStatusLabel(run.status, run.conclusion);
+  const branch = run.headBranch ? `#${run.headBranch}` : '';
+  const sha = run.headSha ? `@${run.headSha}` : '';
+  const openLink = run.htmlUrl
+    ? html`<a class="github-link-btn" href=${run.htmlUrl} target="_blank" rel="noopener noreferrer" data-github-run-open @click=${(event) => event.stopPropagation()}>${t('github.openOnGithub')}</a>`
+    : nothing;
+  return html`
+    <article class="github-run-card">
+      <div class="github-run-head">
+        <button type="button" class="github-run-toggle" data-github-run-toggle=${run.id} aria-expanded=${expandedRunId === String(run.id)} @click=${() => toggleRunDetails(run.id)}>
+          <span class="github-run-name">${run.name || 'Workflow'}</span>
+          <span class="git-status-badge git-status-badge--${badgeType}">${statusText}</span>
+        </button>
+        ${openLink}
+      </div>
+      <div class="github-run-meta">
+        <span>${run.event || '—'}</span>
+        <span>${branch}${sha}</span>
+        <span>${formatDate(run.updatedAt || run.createdAt)}</span>
+      </div>
+      <div id="github-run-jobs-${run.id}" class="github-run-jobs" hidden></div>
+    </article>
+  `;
+}
+
+function toggleRunDetails(runId) {
+  const jobsEl = document.getElementById(`github-run-jobs-${runId}`);
+  if (!jobsEl) return;
+  const isOpen = !jobsEl.hidden;
+  document.querySelectorAll('.github-run-jobs').forEach((/** @type {HTMLElement} */ el) => {
+    el.hidden = true;
+    render(nothing, el);
+  });
+  document.querySelectorAll('.github-run-toggle').forEach((btn) => {
+    btn.setAttribute('aria-expanded', 'false');
+  });
+  if (isOpen) {
+    expandedRunId = null;
+    return;
+  }
+  expandedRunId = String(runId);
+  jobsEl.hidden = false;
+  const toggleBtn = document.querySelector(`[data-github-run-toggle="${runId}"]`);
+  if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
+  loadRunJobs(runId);
+}
+
+function loadRunJobs(runId) {
+  renderRunJobs(runId, [], '');
+  api.getGithubWorkflowRunJobs(runId, { scope: getGitScope() }).then((data) => {
+    if (!data?.ok) {
+      renderRunJobs(runId, [], data?.error || t('github.loadJobsFailed'));
+      return;
+    }
+    renderRunJobs(runId, data.jobs, '');
+  }).catch(() => {
+    renderRunJobs(runId, [], t('github.loadJobsFailed'));
+  });
+}
+
+function loadJobLogs(jobId) {
+  const pre = document.getElementById(`github-job-logs-${jobId}`);
+  if (!pre) return;
+  pre.hidden = false;
+  pre.textContent = t('github.loadingLogs');
+  api.getGithubWorkflowJobLogs(jobId, { scope: getGitScope() }).then((data) => {
+    if (!data?.ok) {
+      pre.textContent = data?.error || t('github.loadLogsFailed');
+      return;
+    }
+    pre.textContent = data.logs || t('github.noLogs');
+  }).catch(() => {
+    pre.textContent = t('github.loadLogsFailed');
+  });
+}
+
+export function isGithubTabVisible() {
+  return githubTabVisible;
+}
+
+export function setGithubPanelRouter(showPanel) {
+  showPanelFallback = typeof showPanel === 'function' ? showPanel : null;
+}
+
+export function updateGithubTabVisibility() {
+  return api.getGithubInfo(getGitScope()).then((info) => {
+    githubTabVisible = !!(info?.ok && info?.isGithub);
+    const tabBtn = document.querySelector('.tab[data-panel="github"]');
+    if (tabBtn) tabBtn.hidden = !githubTabVisible;
+    renderRepoInfo(info);
+    const panel = document.getElementById('github-panel');
+    if (!githubTabVisible && panel?.classList.contains('active') && showPanelFallback) {
+      showPanelFallback('git');
+    }
+    return info;
+  }).catch(() => {
+    githubTabVisible = false;
+    const tabBtn = document.querySelector('.tab[data-panel="github"]');
+    if (tabBtn) tabBtn.hidden = true;
+    renderRepoInfo(null);
+    return null;
+  });
+}
+
+export function refreshGithubPanel() {
+  renderRunsLoading();
+  return updateGithubTabVisibility().then((info) => {
+    if (!info?.isGithub) {
+      renderRunsError(t('github.noGithubRemote'));
+      return;
+    }
+    return api.getGithubWorkflowRuns({ scope: getGitScope() }).then((data) => {
+      if (!data?.ok) {
+        renderRunsError(data?.error || t('github.loadRunsFailed'));
+        return;
+      }
+      renderRunsList(data);
+    }).catch(() => {
+      renderRunsError(t('github.loadRunsFailed'));
+    });
+  });
+}
+
+export function initGithubPanel() {
+  const refreshBtn = document.getElementById('github-refresh-btn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', () => refreshGithubPanel());
+  }
+  updateGithubTabVisibility();
+}

@@ -1,0 +1,12 @@
+{
+  "apiVersion": 1,
+  "id": "mistral",
+  "version": "1.0.0",
+  "hostMin": "0.1.0",
+  "label": "Mistral AI",
+  "description": "Mistral AI models with server-side workspace tools via @mistralai/mistralai.",
+  "origin": "builtin-optional",
+  "defaultEnabled": true,
+  "entries": { "light": "./light.js", "heavy": "./heavy.js", "front": "./front.js" },
+  "capabilities": { "chat": true }
+}
