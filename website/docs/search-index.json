@@ -1,0 +1,13 @@
+[
+  {
+    "slug": "index",
+    "title": "Cretli documentation",
+    "description": "Start here to learn how to install and use Cretli, a browser terminal and agent chat for your own machine.",
+    "headings": [
+      {
+        "id": "where-to-go-next",
+        "text": "Where to go next"
+      }
+    ]
+  }
+]
