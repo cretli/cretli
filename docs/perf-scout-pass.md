@@ -12,7 +12,12 @@ Each phase is timed with `process.hrtime` and aggregated in memory
 phase and shortened workspace id (8 hex chars, no paths). Phases:
 `loadWorkspaceWatchers`, `reconcileScoutScans`, `expireStaleActiveScoutScan`,
 `archiveIdleScoutChats`, `selectDueScoutProfiles`, `runWorkspaceWatcherScout`,
-`sweepClosedWorkspaceWatcherCycles`.
+`sweepClosedWorkspaceWatcherCycles`. Each attempted scan also records
+`scoutAgentCount` around the workspace snapshot and a zero-duration
+`scoutOutcome_<reason>` counter (or `scoutOutcome_scanned` for a started scan).
+Outcome counters show why a due profile did not start; divide timed rows by
+`passes` to compare costs. An early workspace-level denial has no
+`scoutAgentCount` row because it skips the snapshot.
 
 - `getScoutPassPhaseStats()` / `resetScoutPassPhaseStats()` are exported from
   `lib/workspace-watcher-scout.js`.
@@ -27,6 +32,23 @@ diagnostics endpoint / `server-diagnostics-<day>.jsonl` in the data dir).
 `details.scoutPassPhases.passes` is the pass count in the window; divide each
 row's `totalMs` by `passes` for the per-pass cost, and sum rows per phase
 across workspaces.
+
+## Live diagnosis for the remaining cost
+
+The last production window before the new count and outcome counters (2026-10-25,
+10 passes) showed one due workspace with `runWorkspaceWatcherScout` at about
+144 ms/pass. `sweepClosedWorkspaceWatcherCycles` was about 17 ms/pass, below
+the 30 ms/pass gate for changing its chat reader. The due profile was mature,
+but the old counters did not reveal why its scan was denied.
+
+The next measurement requires at least two `scout-pass-phases` events and at
+least 10 passes after the server runs the instrumented code. Record per-pass
+`runWorkspaceWatcherScout`, `scoutAgentCount` and
+`sweepClosedWorkspaceWatcherCycles` times, plus `scoutOutcome_*` counts by
+short workspace id. The count share and outcomes determine whether to skip a
+denied snapshot, investigate an occupied Scout slot, or profile other CPU
+work. Repeat the same measurement after any selected change. No branch or
+improvement is inferred from the earlier window alone.
 
 ### CPU profile recipe
 
@@ -56,7 +78,7 @@ Median of 20 passes (this machine, empty queue):
 
 ## Gate decision
 
-The plan gates the fix on the dominant phase taking >= 30% of the pass **and**
+The original fixture plan gated the fix on the dominant phase taking >= 30% of the pass **and**
 >= 40 ms absolute. On the fixture the dominant phase
 (`runWorkspaceWatcherScout`) is 82% but only 19.4 ms, and the whole pass is
 23.6 ms, far from the 230-420 ms seen in production. The gate is **not met**,

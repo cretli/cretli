@@ -40,6 +40,34 @@ test('phase stats count every pass and reset clears them', async () => {
   assert.deepEqual(getScoutPassPhaseStats(), { passes: 0, rows: [] });
 });
 
+test('a denied scout records its agent count and outcome', async (context) => {
+  const dataDir = fixture(0);
+  context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const workspaceFolder = path.join(dataDir, 'active-workspace');
+  fs.mkdirSync(workspaceFolder);
+  const now = Date.parse('2026-02-02T12:00:00.000Z');
+  upsertWorkspaceWatcher(workspaceFolder, {
+    mode: 'observe',
+    lastScoutAt: new Date(now - 60_000).toISOString(),
+    policy: { scoutEnabled: true, scoutIntervalHours: 6 },
+  }, { dataDir });
+  resetScoutPassPhaseStats();
+  const result = await runWorkspaceWatcherScoutPass({
+    dataDir,
+    now,
+    deps: {
+      listDelegationsForController: () => [],
+      snapshotWorkspaceWatcher: () => ({ scoutAgentCount: 0 }),
+    },
+  });
+  assert.equal(result.started, 0);
+  assert.deepEqual(result.errors, []);
+  const rows = getScoutPassPhaseStats().rows;
+  assert.equal(rows.find((row) => row.phase === 'scoutAgentCount')?.count, 1);
+  assert.equal(rows.find((row) => row.phase === 'scoutOutcome_scan_interval')?.count, 1);
+  resetScoutPassPhaseStats();
+});
+
 test('diagnostics flush records a bounded, path-free scout-pass-phases event', async (context) => {
   const dataDir = fixture(3);
   const diagDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cr-scout-phases-diag-'));
