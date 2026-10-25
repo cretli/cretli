@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { test } from 'node:test';
 import { upsertWorkspaceWatcher } from '../lib/persist/workspace-watchers-persist.js';
 import { createServerDiagnostics } from '../lib/server-diagnostics.js';
@@ -10,6 +11,7 @@ import { timeScoutPhase } from '../lib/workspace-watcher-scout-phases.js';
 import {
   getScoutPassPhaseStats,
   resetScoutPassPhaseStats,
+  resetScoutScopeBackoff,
   runWorkspaceWatcherScoutPass,
 } from '../lib/workspace-watcher-scout.js';
 
@@ -105,4 +107,39 @@ test('instrumentation overhead stays small (median of 20 passes)', async () => {
   const readMs = Number(process.hrtime.bigint() - t0) / 1e6 / 1000;
   resetScoutPassPhaseStats();
   assert.ok(readMs < median(samples) * 0.05, `instrumentation ${readMs}ms vs pass ${median(samples)}ms`);
+});
+
+test('a persistent scope_error backs off before the agent count', async (context) => {
+  const dataDir = fixture(0);
+  context.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const workspaceFolder = path.join(dataDir, 'repo-without-main');
+  fs.mkdirSync(workspaceFolder);
+  const git = (...args) => execFileSync('git', args, { cwd: workspaceFolder, stdio: 'ignore' });
+  git('init', '-q', '-b', 'trunk');
+  fs.writeFileSync(path.join(workspaceFolder, 'a.txt'), 'a');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'init');
+  upsertWorkspaceWatcher(workspaceFolder, {
+    mode: 'observe',
+    policy: { scoutEnabled: true, scoutIntervalHours: 0 },
+  }, { dataDir });
+  resetScoutScopeBackoff();
+  resetScoutPassPhaseStats();
+  const deps = {
+    listDelegationsForController: () => [],
+    snapshotWorkspaceWatcher: () => ({ scoutAgentCount: 0 }),
+    runScout: () => ({ started: true }),
+  };
+  const now = Date.parse('2026-02-02T12:00:00.000Z');
+  const first = await runWorkspaceWatcherScoutPass({ dataDir, now, deps });
+  const second = await runWorkspaceWatcherScoutPass({ dataDir, now: now + 60_000, deps });
+  const rows = getScoutPassPhaseStats().rows;
+  const count = (phase) => rows.find((row) => row.phase === phase)?.count || 0;
+  assert.equal(first.errors.length, 1, 'first pass reports the scope error');
+  assert.equal(second.errors.length, 0, 'second pass is skipped by the backoff');
+  assert.equal(count('scoutOutcome_scope_error'), 1);
+  assert.equal(count('scoutOutcome_scope_error_backoff'), 1);
+  assert.equal(count('scoutAgentCount'), 1, 'backed-off pass skips the agent count');
+  resetScoutScopeBackoff();
+  resetScoutPassPhaseStats();
 });

@@ -33,6 +33,23 @@ diagnostics endpoint / `server-diagnostics-<day>.jsonl` in the data dir).
 row's `totalMs` by `passes` for the per-pass cost, and sum rows per phase
 across workspaces.
 
+## Scope-error backoff
+
+Operator window (9 passes, hot workspace): `runWorkspaceWatcherScout` 129
+ms/pass, of which `scoutAgentCount` 74 ms (57%), and `scoutOutcome_scope_error`
+in 9 of 9 passes (typically a configured base branch that does not exist).
+`sweepClosedWorkspaceWatcherCycles` was 22 ms/pass, below the 30 ms gate, so
+its chat reader is left unchanged.
+
+After a `scope_error` the profile enters an in-memory exponential backoff
+(5 min, doubling, capped at 60 min), keyed by workspace, profile and scope
+signature. While active, `runWorkspaceWatcherScout` returns
+`scope_error_backoff` before the agent-count snapshot (no `scoutAgentCount`
+row, `scoutOutcome_scope_error_backoff` counter). Editing the scope or profile
+revision, a manual run (`bypassInterval`), or a restart retries immediately; a
+successful scope resolution clears the entry. The underlying misconfiguration
+still needs fixing by the operator.
+
 ## Live diagnosis for the remaining cost
 
 The last production window before the new count and outcome counters (2026-10-25,
