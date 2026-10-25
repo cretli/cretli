@@ -41,7 +41,9 @@ instructions budget, repository-default restore and version history.
 - **Plan approval is human-only.** Never approve a plan. Agents inside Cretli
   cannot; an operator client could, but only does so on an explicit, current
   instruction from the user. Draft plans go into the todo `plan` field.
-- **Never push.** Commit locally only when the user agreed to commits.
+- **Never push.** Commit locally only when the user agreed to commits. Only the
+  user may publish; when they ask for it, publish through the clean public
+  history (see "Publishing" below), never from an older branch.
 - **Do not touch secrets.** No reading tokens/keys from `.env`, `data/*.json`,
   process environments or transcripts. Never overwrite `data/config.json`.
 - **Real-data operations** (migrations, deleting worktrees, cleaning user data)
@@ -467,3 +469,22 @@ bouncing a leaf.
   index afterwards (`git reset -- <leaf paths>`).
 - When a change alters how Cretli is operated, update this playbook in the
   same pass.
+
+## 11. Publishing (clean public history)
+
+The public repository starts from a single clean commit; older local branches
+(`next/2026-09-28` and the `cretli/todo/*` worktree branches) carry a private
+history and must never be pushed. Develop on `next/2026-10-25` (or a later
+branch that descends from the clean root `336add12`).
+
+- `.git/hooks/pre-push` refuses any push of a commit that does not descend from
+  the clean root, so `git push --all` or a stray old branch cannot republish the
+  old history. Hooks are not versioned: after a fresh clone, copy the hook back
+  or re-run the setup before pushing anything.
+- Publish a release by committing the tree (not the history) on top of the flat
+  public checkout, pushing from there, then tagging `vX.Y.Z` there. The release
+  workflow needs a green CI on that exact commit; hosted runners are slower and
+  have fewer resources than a developer machine (see `tests/helpers/time-budget.js`).
+- Keep private names, home paths and LAN addresses out of tracked files; the guard
+  test `tests/no-private-environment.test.js` fails the build when they return.
+  Extra local-only names go in `CRETLI_PRIVATE_TOKENS`, never in the repo.
