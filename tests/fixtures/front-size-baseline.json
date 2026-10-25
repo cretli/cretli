@@ -169,8 +169,12 @@
       "innerHTML": 0
     },
     "app_front/components/chat/cr-sdk-mode-bar.js": {
-      "lines": 1326,
+      "lines": 733,
       "innerHTML": 2
+    },
+    "app_front/components/chat/cr-sdk-mode-bar.styles.js": {
+      "lines": 598,
+      "innerHTML": 0
     },
     "app_front/components/chat/cr-voice-panel.js": {
       "lines": 1004,
