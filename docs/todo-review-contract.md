@@ -171,8 +171,9 @@ A review start with no preceding implement/fix for the leaf is allowed:
 - `implementer` is `null` and `independence` is `unknown`;
 - the state may still be `passed`/`failed`/`unknown` from the reviewer's own
   verdict, but a `passed` with `implementer === null` is **not**
-  gate-qualifying: the future review gate (a separate leaf) MUST additionally
-  require `implementer !== null` and `material.current === true`;
+  gate-qualifying when the Workspace Watcher policy uses
+  `requireReviewForDone: "enforce"`: the active gate requires
+  `implementer !== null` and `material.current === true`;
 - a code review with `implementer === null` SHOULD render with an explicit
   "no implementer" marker instead of a bare PASS.
 
@@ -894,8 +895,11 @@ same Claude alias canonicalization, so excluding `sonnet` also excludes
   `same_model_other_harness`, and `false` for `same_model_same_harness` and
   `unknown`.
 - A review-only round has `reference: 'none'` and `class: 'unknown'`.
-- The future review gate MUST require `independence.independent === true` in
-  addition to `passed` and `material.current`.
+- When `requireReviewForDone: "enforce"` and
+  `requireIndependentReview: true`, the Workspace Watcher gate MUST require
+  `independence.independent === true` in addition to `passed`, a non-null
+  implementer and current material. A `manual` human acceptance remains
+  qualifying without an implementer or independence evidence.
 
 ## 10. Write and concurrency (leaf body §10)
 
@@ -1088,11 +1092,14 @@ children:
   they were closed by an agent cycle or by a human. A `manual` state is a
   separate visual state.
 
-### 12.3 `done` is not blocked — SETTLED
+### 12.3 `done` transitions and the Watcher gate — SETTLED
 
-Nothing in this contract changes status transitions. A todo can reach `done`
-with `review.state = none`, `unknown` or `stale`. `done` is not gated (P10); the
-future review gate for autopilot is a separate leaf and is out of scope here.
+The default policy (`requireReviewForDone: "off"`) leaves status transitions
+unchanged, so a todo can reach `done` with `review.state = none`, `unknown` or
+`stale`. With `requireReviewForDone: "enforce"`, the Workspace Watcher rejects
+agent `done` writes without a qualifying current code review; browser-session
+human writes remain outside that gate. `warn` records the missing review but
+allows the write.
 The only exception is the flag-gated, default-off automatic leaf close described
 in §12.4.
 
@@ -1134,7 +1141,7 @@ touches any of them needs its own decision.
 | `manualAccepted` | the only deliberate metric change: counts `actor === 'human'` only (decision 6, §7.5) |
 | `usage-insights` / `model-stats` fields other than `manualAccepted` | unchanged |
 | Scout | untouched |
-| Autopilot review gate | separate leaf; `done` is not blocked here |
+| Autopilot review gate | Workspace Watcher policy gate; with `requireReviewForDone: "enforce"`, an agent `done` write without a qualifying code review is rejected |
 | Automatic leaf close | experimental, default off, §12.4 |
 | Widgets receiving a todo-change event | not in v1 (decision 7); only the existing Todo-panel channel |
 | Content fingerprint, logical-vs-worktree diff detection, requirement-edit invalidation | v2 candidates (§6.2, §6.4) |
