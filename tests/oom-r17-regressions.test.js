@@ -1,3 +1,4 @@
+import './helpers/default-optional-harnesses.js';
 /**
  * Regressions for the R17 review findings (OOM evidence, executor accounting,
  * launch gate). Each test names the finding it pins down.

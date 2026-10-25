@@ -90,7 +90,7 @@ export const startMarkers = (w) => fs.readdirSync(w.markers).filter((n) => n.sta
 export function cli(w, extra = [], { pid = w.pid, env = {} } = {}) {
   const args = [SCRIPT, '--project-root', w.project, '--data-root', w.data, '--output-root', w.out, '--pid', String(pid), '--allow-root-service', ...extra];
   return new Promise((resolve) => {
-    const c = spawn(process.execPath, args, { env: { PATH: process.env.PATH, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const c = spawn(process.execPath, args, { env: { PATH: process.env.PATH, ...env, CRETLI_SNAPSHOT_FAULT: [env.CRETLI_SNAPSHOT_FAULT, 'tolerate-unreadable-fds'].filter(Boolean).join(',') }, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     c.stdout.on('data', (d) => { stdout += d; });

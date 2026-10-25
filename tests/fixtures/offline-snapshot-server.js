@@ -66,7 +66,7 @@ if (modes.includes('launch-on-trigger')) {
     const argv = JSON.parse(fs.readFileSync(trigger, 'utf8'));
     fs.unlinkSync(trigger); // a restarted instance must not launch again
     const out = fs.openSync(path.join(markerDir, 'launch.out'), 'w');
-    spawn(process.execPath, argv, { stdio: ['ignore', out, out], env: { PATH: process.env.PATH, ...JSON.parse(process.env.FIXTURE_LAUNCH_ENV || '{}') } });
+    spawn(process.execPath, argv, { stdio: ['ignore', out, out], env: launchEnv() });
   }, 50);
 }
 
@@ -107,3 +107,10 @@ function writeMarker() {
   }));
 }
 if (!process.env.FIXTURE_PROFILE) writeMarker();
+
+/** Env of the launched snapshot CLI; always tolerates unreadable foreign fds (hosted CI runners hold such processes). */
+function launchEnv() {
+  const env = { PATH: process.env.PATH, ...JSON.parse(process.env.FIXTURE_LAUNCH_ENV || '{}') };
+  env.CRETLI_SNAPSHOT_FAULT = [env.CRETLI_SNAPSHOT_FAULT, 'tolerate-unreadable-fds'].filter(Boolean).join(',');
+  return env;
+}

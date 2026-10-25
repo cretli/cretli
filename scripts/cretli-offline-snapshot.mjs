@@ -499,7 +499,9 @@ function scanWriters(dataReal, excludedNames, allowed, policy = null) {
       fds = fs.readdirSync(`/proc/${pid}/fd`);
     } catch (err) {
       if (err.code === 'ENOENT' || err.code === 'ESRCH') continue;
-      if (readUids(pid)?.real !== myUid) unverifiable += 1;
+      // `tolerate-unreadable-fds` (test-only fault hook): hosted CI runners hold
+      // unreadable same-uid processes that no test fixture controls.
+      if (readUids(pid)?.real !== myUid || fault('tolerate-unreadable-fds')) unverifiable += 1;
       else scanFailed += 1;
       continue;
     }
@@ -1588,7 +1590,10 @@ async function detachLaunch(opts, pre) {
   for (const f of ['confirm-stop-all-sessions', 'confirm-archive-history', 'allow-root-service']) {
     if (opts[f.replace(/-([a-z])/g, (_, c) => c.toUpperCase())]) args.push(`--${f}`);
   }
-  const child = spawn(process.execPath, args, { detached: true, stdio: ['ignore', logFd, logFd], env: { PATH: process.env.PATH ?? '/usr/bin:/bin' } });
+  // The detached helper scans writers too: forward only the scan-tolerance test hook.
+  const helperEnv = { PATH: process.env.PATH ?? '/usr/bin:/bin' };
+  if (fault('tolerate-unreadable-fds')) helperEnv.CRETLI_SNAPSHOT_FAULT = 'tolerate-unreadable-fds';
+  const child = spawn(process.execPath, args, { detached: true, stdio: ['ignore', logFd, logFd], env: helperEnv });
   fs.closeSync(logFd);
   child.unref();
   await sleep(300);

@@ -15,6 +15,10 @@ paths = [
   '''(^|/)scripts/README\.md$''',
   '''(^|/)\.env\.example$''',
   '''(^|/)\.cretli-sdk\.env\.example$''',
+  # Design notes: todo idempotency keys and prose that the generic-api-key rule
+  # mistakes for credentials (no secrets live in these files).
+  '''(^|/)docs/cretli-next-steps\.todo\.json$''',
+  '''(^|/)docs/settings-backup-design\.md$''',
 ]
 regexes = [
   '''sk-or-v1-abc123456789''',

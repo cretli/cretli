@@ -152,7 +152,11 @@ test('disk guard refuses a new worktree below the floor and writes no record', a
   assert.equal(getWorktreeRecord(todoId, { dataDir: suite.dataDir }), null);
 });
 
-test('assertWorktreeDiskSpace: ok above floor, disabled by 0, defaults to 20', () => {
+test('assertWorktreeDiskSpace: ok above floor, disabled by 0, defaults to 20', (t) => {
+  // The test runner turns the floor off for hosted CI; this test pins the default.
+  const saved = process.env.CRETLI_WORKTREE_MIN_FREE_GB;
+  delete process.env.CRETLI_WORKTREE_MIN_FREE_GB;
+  t.after(() => { if (saved === undefined) delete process.env.CRETLI_WORKTREE_MIN_FREE_GB; else process.env.CRETLI_WORKTREE_MIN_FREE_GB = saved; });
   const statfs = () => ({ bavail: 30, bsize: GIB });
   assert.equal(assertWorktreeDiskSpace({ root: '/', config: {}, statfs }).ok, true);
   assert.equal(resolveMinFreeGb({}), 20);

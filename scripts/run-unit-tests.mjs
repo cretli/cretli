@@ -19,6 +19,18 @@ import { readFileSync } from 'node:fs';
 import { assertNodeVersion } from './node-version-check.mjs';
 
 /**
+ * Child env for a test file. The worktree free-disk floor (20 GB by default)
+ * is a production guard; hosted CI runners have less free space than that, so
+ * tests run with it off unless the caller sets CRETLI_WORKTREE_MIN_FREE_GB.
+ *
+ * @param {Record<string, string>} extra
+ * @returns {NodeJS.ProcessEnv}
+ */
+function testEnv(extra) {
+  return { CRETLI_WORKTREE_MIN_FREE_GB: '0', ...process.env, ...extra };
+}
+
+/**
  * Test files that must not overlap with any other file: they share state outside their own
  * CRETLI_DATA_DIR (the repo tree, fixed ports) or measure timing. With --jobs > 1 they run
  * one at a time after the parallel pool drains.
@@ -149,7 +161,7 @@ async function runFileBuffered(name) {
       const child = spawn(process.execPath, args, {
         cwd: projectRoot,
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, CRETLI_DATA_DIR: fileDataDir },
+        env: testEnv({ CRETLI_DATA_DIR: fileDataDir }),
       });
       child.stdout.on('data', (chunk) => chunks.push(chunk));
       child.stderr.on('data', (chunk) => chunks.push(chunk));
@@ -222,7 +234,7 @@ if (jobs > 1) {
       const child = spawn(process.execPath, args, {
         cwd: projectRoot,
         stdio: 'inherit',
-        env: { ...process.env, CRETLI_DATA_DIR: dataDir },
+        env: testEnv({ CRETLI_DATA_DIR: dataDir }),
       });
       let killTimer = null;
       const timeoutTimer = setTimeout(() => {
