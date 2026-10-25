@@ -11,13 +11,12 @@
  * Everything lives under one directory (default: a fresh temp dir): the Cretli
  * data dir, three fictional projects and a `.code-workspace` file that lists
  * them. The instance binds to 127.0.0.1 over plain HTTP with the password
- * `demo-password` and is stopped with Ctrl-C. Chats are not seeded: they need a
- * configured harness, so create two or three short ones by hand in the demo
- * workspace before taking the screenshot.
+ * `demo-password` and is stopped with Ctrl-C. Fictional chats, histories, a
+ * completed delegation and Usage are seeded offline before the server starts.
  *
  * Docker variant: see docker-compose.demo.yml (same data, container isolation).
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -33,6 +32,7 @@ function arg(name, fallback) {
 
 const port = Number.parseInt(arg('port', '3099'), 10);
 const dir = path.resolve(arg('dir', fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-demo-'))));
+if (dir === ROOT || dir.startsWith(`${ROOT}${path.sep}`)) throw new Error('Demo runtime must be outside the repository');
 const seedOnly = process.argv.includes('--seed-only');
 const dataDir = path.join(dir, 'data');
 const projects = path.join(dir, 'projects');
@@ -100,14 +100,24 @@ async function seedTodos(base, workspaceFolder) {
   const { res, json } = await request(base, 'POST', '/api/setup', { body: { password: PASSWORD } });
   if (!res.ok || !json?.csrfToken) throw new Error(`Setup failed: ${res.status} ${JSON.stringify(json)}`);
   const cookie = (res.headers.getSetCookie?.() || []).map((c) => c.split(';')[0]).join('; ');
-  const query = `?workspaceFolder=${encodeURIComponent(workspaceFolder)}`;
-  for (const todo of TODOS) {
+  const settings = await request(base, 'PATCH', '/api/settings', { body: { firstRunSetupDismissed: true, workspaces: [{ kind: "file", workspaceFile: path.join(dir, "acme.code-workspace") }], workspaceFile: path.join(dir, "acme.code-workspace"), workspaceFolder, workspaceSidebarConfig: { [path.join(dir, "acme.code-workspace")]: { folder: workspaceFolder, folders: Object.fromEntries(Object.keys(PROJECTS).map(name => [path.join(projects, name), { enabled: true }])) } } }, cookie, csrf: json.csrfToken });
+  if (!settings.res.ok) throw new Error(`Demo settings failed: ${settings.res.status}`);
+  const query = `?workspaceFolder=${encodeURIComponent(workspaceFolder)}&workspaceFile=${encodeURIComponent(path.join(dir, "acme.code-workspace"))}`;
+  async function create(todo) {
     const created = await request(base, 'POST', `/api/todos${query}`, { body: { ...todo, workspaceFolder, idempotencyKey: `demo-${todo.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` }, cookie, csrf: json.csrfToken });
-    if (!created.res.ok) console.error(`[demo] todo "${todo.title}" not seeded: ${created.res.status}`);
+    if (!created.res.ok) throw new Error(`Demo todo failed: ${created.res.status}`);
+    return created.json.item;
+  }
+  for (const todo of TODOS) await create(todo);
+  const parent = await create({ title: "Checkout redesign", status: "doing", body: "Improve the checkout experience." });
+  for (const [i, status] of ["done", "doing", "ready"].entries()) {
+    await create({ title: ["Design checkout form", "Implement validation", "Test checkout flow"][i], status, parent_id: parent.id });
   }
 }
 
 const workspaceFile = seedFiles();
+const seeded = spawnSync(process.execPath, [path.join(ROOT, "scripts/lib/demo-seed.mjs"), workspaceFile, path.join(projects, "acme-shop")], { env: { PATH: process.env.PATH, HOME: dir, CRETLI_DATA_DIR: dataDir }, stdio: "inherit" });
+if (seeded.status !== 0) process.exit(seeded.status || 1);
 console.log(`[demo] files in ${dir}`);
 if (seedOnly) process.exit(0);
 
@@ -117,7 +127,9 @@ const child = spawn(process.execPath, ['server.js'], {
   stdio: ['ignore', 'inherit', 'inherit'],
   env: {
     PATH: process.env.PATH,
-    HOME: process.env.HOME,
+    HOME: dir,
+    XDG_CONFIG_HOME: path.join(dir, "config"),
+    XDG_CACHE_HOME: path.join(dir, "cache"),
     NODE_ENV: 'production',
     PORT: String(port),
     CRETLI_BIND: '127.0.0.1',
@@ -126,14 +138,14 @@ const child = spawn(process.execPath, ['server.js'], {
     WORKSPACE_FILE: workspaceFile,
   },
 });
-child.on('exit', (code) => process.exit(code ?? 0));
+child.on('exit', (code) => process.exit(process.exitCode || code || 0));
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => child.kill(/** @type {NodeJS.Signals} */ (signal)));
 
 try {
   await waitUp(base);
   await seedTodos(base, path.join(projects, 'acme-shop'));
   console.log(`[demo] ready: ${base}  (password: ${PASSWORD})`);
-  console.log('[demo] create 2-3 short chats in the demo workspace, then take the screenshots. Ctrl-C to stop.');
+  console.log('[demo] Fictional demo content is ready. Ctrl-C to stop.');
 } catch (err) {
   console.error(`[demo] ${err.message}`);
   child.kill('SIGTERM');

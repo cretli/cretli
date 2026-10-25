@@ -46,6 +46,7 @@
     "build:widget": "npm run build:widget -w cretli-front",
     "build:mdi-subset": "node scripts/build-mdi-subset.mjs",
     "build:pwa-icons": "node scripts/generate-pwa-icons.mjs",
+    "docs:screenshots": "node scripts/generate-doc-screenshots.mjs",
     "build:pwa-screenshots": "node scripts/generate-pwa-screenshots.mjs",
     "gen-cert": "node scripts/generate-lan-cert.mjs",
     "test": "node scripts/run-unit-tests.mjs",
