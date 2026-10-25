@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildStatsCacheKey, createStatsTtlCache } from '../lib/stats-ttl-cache.js';
-import { EVENT_LOOP_LAG_WINDOW_MS, readEventLoopLag } from '../lib/routes/health-routes.js';
+import { EVENT_LOOP_LAG_WINDOW_MS, EVENT_LOOP_SAMPLE_RESOLUTION_MS, readEventLoopLag } from '../lib/routes/health-routes.js';
 
 function fakeClock() {
   let at = 1_000;
@@ -69,6 +69,10 @@ test('the cache key separates every scope of the caller', () => {
     buildStatsCacheKey('stats', { query: { leaf_id: 'leaf', workspaceFolder: '/ws/a' } }),
     buildStatsCacheKey('stats', { query: { workspaceFolder: '/ws/a', leafId: 'leaf' } }),
   );
+});
+
+test('event-loop sampling retains the resolution selected by the overhead benchmark', () => {
+  assert.equal(EVENT_LOOP_SAMPLE_RESOLUTION_MS, 20);
 });
 
 test('event-loop lag is read from a window, not reset by each health poll', () => {

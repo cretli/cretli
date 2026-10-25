@@ -57,6 +57,53 @@ The in-process log cannot record `SIGKILL`, kernel OOM kills, or host shutdown b
 
 See [Process supervision](#process-supervision) below for what the example's restart, stop, start-limit and state-directory options do. The example sets `NODE_ENV=production`, where Cretli exits after uncaught exceptions and unhandled rejections so systemd can restart it. In other modes those handlers record the error but keep the process alive. The unit runs as the logged-in user and inherits that user's `HOME`; keep credentials in Cretli's existing ignored `.env` file or runtime data, not in the unit file.
 
+## Event-loop delay sampling
+
+Measured on 2026-10-26 with Node **v22.23.4**. A temporary script outside the
+repository ran each scenario × variant three times, serially, in fresh isolated
+Node processes for 30 seconds per run (18 runs). Variants were `none` (no
+histogram), `monitorEventLoopDelay({ resolution: 20 })`, and resolution `1`,
+enabled before measurement. Idle had only a 10-second housekeeping interval and
+the measurement timer. HTTP added a local `http.createServer` returning JSON and
+a keep-alive client issuing requests on a 5 ms interval in the same process.
+Setup and teardown were outside the measured interval. Histogram p99/max covered
+the full 30-second run; production still rotates its histogram every 10 seconds.
+
+CPU is `(Δuser + Δsystem) / Δwall × 100`, using `process.cpuUsage()` and
+`process.hrtime.bigint()` in matching units, expressed as percent of one core.
+The table contains medians of three runs; overhead is the variant's median CPU
+minus the scenario's `none` median, in percentage points (pp). Delay columns are
+medians of the per-run p99/max in milliseconds, not pooled percentiles.
+
+| Resolution | Idle CPU (%) | Idle overhead (pp) | Idle p99 (ms) | Idle max (ms) | HTTP CPU (%) | HTTP overhead (pp) | HTTP p99 (ms) | HTTP max (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| none | 0.050 | 0.000 | n/a | n/a | 8.010 | 0.000 | n/a | n/a |
+| 20 ms | 0.218 | +0.168 | 20.382 | 23.151 | 8.386 | +0.377 | 21.004 | 21.266 |
+| 1 ms | 1.448 | +1.398 | 1.280 | 3.451 | 7.977 | −0.033 | 1.567 | 6.726 |
+
+HTTP median rates were 194.664 / 194.864 / 196.130 requests/s for none / 20 ms /
+1 ms; individual runs ranged from 176.764 to 196.495 requests/s, with no request
+errors. The baseline CPU range (maximum minus minimum of the three `none` runs)
+was 0.031 pp idle and 4.323 pp HTTP. The negative HTTP overhead estimate is within
+that baseline spread and does not establish a CPU saving.
+
+**Decision: retain 20 ms**, exported as `EVENT_LOOP_SAMPLE_RESOLUTION_MS`.
+Adopting 1 ms required idle overhead strictly below 1% of one core and HTTP
+overhead no more than 1 pp above idle overhead. The 1.398 pp idle overhead fails
+the first condition. In addition, the rule treats a baseline spread larger than
+the measured overhead as above the adoption limit; HTTP fails that noise check
+(4.323 pp spread versus −0.033 pp estimated overhead). The V9 1 ms requirement
+and C16 status remain unchanged. A human must decide whether to accept the
+measured cost of 1 ms or revise the V9 contract; this measurement does neither.
+
+The median p99 values (20.382/21.004 ms at 20 ms resolution and 1.280/1.567 ms at
+1 ms, idle/HTTP respectively) are all well below the default `eventLoopP99Ms`
+alarm threshold of **200 ms**. These measurements do not call for a threshold
+change. The threshold and its `CRETLI_HEALTH_EVENT_LOOP_P99_MS` override remain
+unchanged in `lib/server-health/thresholds.js`; any future threshold adjustment
+requires a separate decision. These short synthetic runs do not establish
+production tail behavior or satisfy the remaining V9 fixture/duration criteria.
+
 ## Process supervision
 
 `systemd/cretli.service.example` separates two problems that are easy to conflate:
@@ -68,7 +115,7 @@ See [Process supervision](#process-supervision) below for what the example's res
 
 `Restart=always` alone does **not** detect a hang: a live process never exits, so systemd sees a healthy unit. Cretli does not implement `sd_notify`, so `Type=notify` and `WatchdogSec=` would never receive a keep-alive and are deliberately not used.
 
-**Readiness and health.** `Type=simple` marks the unit active when the process is forked, before the port is bound. The only probe endpoint is the unauthenticated `GET /api/health` (JSON `{"ok":true,"serverInstanceToken":...,"startedAt":...}`), answered only after `server.listen`; there is no separate `/api/ready`. It is a liveness/readiness signal for the HTTP event loop, not a deep check of harnesses. Use `curl -fsk --max-time 5 https://127.0.0.1:3011/api/health` (`http://` when `USE_HTTPS=0`; `-k` because the default certificate is self-signed). To detect hangs, run that probe from a timer or monitor under the same user, require several consecutive failures, and then `systemctl --user try-restart cretli.service`. Do **not** let automatic probe code run `start` or a plain `restart`: those start a unit that the operator intentionally stopped and sidestep that deliberate stop, and repeated attempts consume the start-limit budget. `try-restart` only acts on a unit that is currently active, so an intentionally stopped unit stays stopped. If the probe finds the unit inactive or `failed` (for example `start-limit-hit`), it must only alert a human; after investigating the cause, run `systemctl --user reset-failed cretli.service` and start the unit deliberately. If `try-restart` itself fails (including a start refused because the limit is exhausted), the probe must alert and never fall back to `start` or `reset-failed`. Restarts triggered this way count toward the same start limit.
+**Readiness and health.** `Type=simple` marks the unit active when the process is forked, before the port is bound. The only probe endpoint is the unauthenticated `GET /api/health` (JSON `{"ok":true,"serverInstanceToken":...,"startedAt":...}` plus `eventLoopLagMs` with `p50`, `p99`, `max`, and `windowMs`), answered only after `server.listen`; there is no separate `/api/ready`. It is a liveness/readiness signal for the HTTP event loop, not a deep check of harnesses. Use `curl -fsk --max-time 5 https://127.0.0.1:3011/api/health` (`http://` when `USE_HTTPS=0`; `-k` because the default certificate is self-signed). To detect hangs, run that probe from a timer or monitor under the same user, require several consecutive failures, and then `systemctl --user try-restart cretli.service`. Do **not** let automatic probe code run `start` or a plain `restart`: those start a unit that the operator intentionally stopped and sidestep that deliberate stop, and repeated attempts consume the start-limit budget. `try-restart` only acts on a unit that is currently active, so an intentionally stopped unit stays stopped. If the probe finds the unit inactive or `failed` (for example `start-limit-hit`), it must only alert a human; after investigating the cause, run `systemctl --user reset-failed cretli.service` and start the unit deliberately. If `try-restart` itself fails (including a start refused because the limit is exhausted), the probe must alert and never fall back to `start` or `reset-failed`. Restarts triggered this way count toward the same start limit.
 
 **Intentional stop.** `systemctl --user stop cretli.service` sends `SIGTERM`; Cretli runs its graceful shutdown (child processes, OpenCode, browser sessions, chat-state flush at 3 s, delegation drain at 8 s) and exits. systemd does not restart a unit stopped through `systemctl`, even with `Restart=always`. A `SIGTERM` or exit sent from outside systemctl is not a stop and is restarted. `TimeoutStopSec=45` exceeds the sum of those bounded waits; after it, systemd sends `SIGKILL` to the whole control group. In production (`NODE_ENV=production`) the in-process dev restart is disabled, so systemd is the only restarter.
 
