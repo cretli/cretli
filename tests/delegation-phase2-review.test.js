@@ -54,6 +54,7 @@ import {
 } from '../lib/delegation-runtime-worker.js';
 import { addChat } from '../lib/persist/chats-persist.js';
 import { registerDelegationsRoutes } from '../lib/routes/delegations-routes.js';
+import { budgetMs } from './helpers/time-budget.js';
 
 stopDelegationRuntimeWorker();
 resetDelegationLifecycleForTest();
@@ -342,7 +343,7 @@ function runNodeModule(source, env = {}) {
   const elapsedMs = Date.now() - startedAt;
   assert.equal(result.ok, false);
   assert.equal(result.timedOut, true);
-  assert.ok(elapsedMs < 200, `shutdown waited ${elapsedMs}ms`);
+  assert.ok(elapsedMs < budgetMs(200), `shutdown waited ${elapsedMs}ms`);
   assert.equal(getDelegationOwnerLockInfo().held, true);
   releaseHang();
   await enqueueDelegationStoreWork(() => undefined);

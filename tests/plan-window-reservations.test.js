@@ -13,6 +13,7 @@ import {
   recordPlanWindowReservation,
   reservationKey,
 } from '../lib/plan-window-reservations.js';
+import { budgetMs } from './helpers/time-budget.js';
 
 const NOW = Date.parse('2026-01-01T12:00:00Z');
 const MIN = 60 * 1000;
@@ -164,7 +165,7 @@ test('a held lock skips the write without sleeping', () => withDir((dir) => {
   const res = record(dir, 'a');
   const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
   assert.equal(res.skipped, 'lock-timeout');
-  assert.ok(elapsedMs < 100, `lock wait was ${elapsedMs}ms`);
+  assert.ok(elapsedMs < budgetMs(100), `lock wait was ${elapsedMs}ms`);
 }));
 
 test('picker read is served from a stat-validated cache and sees external writes', () => withDir((dir) => {

@@ -11,6 +11,7 @@ import {
   buildDelegationLoopReportByCohort,
   buildDelegationStatsSnapshot,
 } from '../lib/routes/delegations-routes.js';
+import { budgetMs } from './helpers/time-budget.js';
 
 function fixture(size) {
   const now = Date.parse('2026-10-24T12:00:00.000Z');
@@ -116,8 +117,7 @@ test('cold delegation statistics stay within the cold-stats budget and yield to 
   const elapsedMs = performance.now() - started;
   assert.equal(snapshot.ok, true);
   assert.equal(usageReads, 1, 'one usage-window read serves cycle and per-leaf metrics');
-  // 300 ms on a developer machine; hosted CI runners are ~2x slower, so the hard budget is 750 ms.
-  assert.ok(elapsedMs < 750, `10k-row cold stats took ${elapsedMs.toFixed(1)} ms`);
+  assert.ok(elapsedMs < budgetMs(300), `10k-row cold stats took ${elapsedMs.toFixed(1)} ms`);
   assert.ok(ticks > 0, 'aggregation yielded to the event loop');
-  assert.ok(maxGapMs < 75, `concurrent timer stalled for ${maxGapMs.toFixed(1)} ms`);
+  assert.ok(maxGapMs < budgetMs(75), `concurrent timer stalled for ${maxGapMs.toFixed(1)} ms`);
 });

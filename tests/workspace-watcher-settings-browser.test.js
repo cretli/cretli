@@ -16,6 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test, { after, before } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { budgetMs } from './helpers/time-budget.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const chromiumPath = process.env.CHAT_E2E_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium';
@@ -333,6 +334,6 @@ test('render timings reach window.__cretliPerf and long tasks stay bounded', { s
   const regionTotalMs = Math.round(region.reduce((sum, e) => sum + e.durationMs, 0) * 100) / 100;
   t.diagnostic(`regions: ${region.length}, renders: ${region.reduce((s, e) => s + e.count, 0)}, total ${regionTotalMs} ms, worst ${worstMs} ms`);
   t.diagnostic(`panel parse: ${parse.count}x, max ${parse.maxMs} ms; long tasks total: ${perf.longTaskMs} ms`);
-  assert.ok(worstMs < 100, `a single region render must stay under 100 ms (worst ${worstMs} ms)`);
-  assert.ok(perf.longTaskMs < 500, `summed long tasks must stay under 500 ms (got ${perf.longTaskMs} ms)`);
+  assert.ok(worstMs < budgetMs(100), `a single region render must stay under 100 ms (worst ${worstMs} ms)`);
+  assert.ok(perf.longTaskMs < budgetMs(500), `summed long tasks must stay under 500 ms (got ${perf.longTaskMs} ms)`);
 });

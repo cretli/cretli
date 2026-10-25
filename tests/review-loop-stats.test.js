@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { buildReviewLoopStats, countReviewFindings } from '../lib/review-loop-stats.js';
+import { budgetMs } from './helpers/time-budget.js';
 
 const WS = '/tmp/stats-ws';
 const NOW = Date.parse('2026-10-15T12:00:00Z');
@@ -133,6 +134,6 @@ console.log('review-loop-stats tests passed');
   const s = stats(big);
   const elapsed = performance.now() - started;
   assert.equal(window30(s).codeReview.leavesPassed, 1500);
-  assert.ok(elapsed < 1000, `buildReviewLoopStats took ${elapsed.toFixed(0)} ms`);
+  assert.ok(elapsed < budgetMs(1000), `buildReviewLoopStats took ${elapsed.toFixed(0)} ms`);
   console.log(`review-loop-stats perf: ${elapsed.toFixed(0)} ms for ${big.length} rows`);
 }

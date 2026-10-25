@@ -7,6 +7,7 @@ import { performance } from 'node:perf_hooks';
 import express from 'express';
 import { createServer, get } from 'node:http';
 import { buildHarnessDiagnosticsReport, prepareHarnessDiagnosticsWorker, registerHarnessDiagnosticsRoutes } from '../lib/routes/harness-diagnostics-routes.js';
+import { budgetMs } from './helpers/time-budget.js';
 
 test.after(removeIsolatedDataDir);
 
@@ -71,12 +72,12 @@ test('large history is computed off-thread, shared, cached and invalidated', asy
   }
   const coldMs = performance.now() - started;
   t.diagnostic(`cold HTTP=${coldMs.toFixed(1)}ms max timer gap=${maxGap.toFixed(1)}ms concurrent HTTP=${pingMs.toFixed(1)}ms`);
-  assert.ok(coldMs < 300, `cold report took ${coldMs}ms`);
+  assert.ok(coldMs < budgetMs(300), `cold report took ${coldMs}ms`);
   assert.ok(pingMs < 75, `concurrent request took ${pingMs}ms`);
   assert.equal(report.ok, true);
   assert.ok(Date.parse(report.generated_at) >= readyAt, 'startup does not precompute a report');
   assert.ok(ticks > 0, 'HTTP event loop continues during cold aggregation');
-  assert.ok(maxGap < 75, `main thread stalled for ${maxGap}ms`);
+  assert.ok(maxGap < budgetMs(75), `main thread stalled for ${maxGap}ms`);
   const warmStart = performance.now();
   const cached = await read('/api/harness-diagnostics?role=implement');
   assert.deepEqual(cached, report);

@@ -7,6 +7,7 @@ import {
   clearPlanWindowReservationCache,
   recordPlanWindowReservation,
 } from '../lib/plan-window-reservations.js';
+import { budgetMs } from './helpers/time-budget.js';
 
 const NOW = Date.parse('2026-01-01T12:00:00Z');
 const MIN = 60 * 1000;
@@ -70,5 +71,5 @@ test('a held lock returns lock-timeout without blocking the event loop', () => w
   const elapsed = Number(process.hrtime.bigint() - started) / 1e6;
   console.log('[plan-window-reservations held-lock]', JSON.stringify({ elapsed }));
   assert.equal(result.skipped, 'lock-timeout');
-  assert.ok(elapsed < 50, `held-lock call took ${elapsed.toFixed(2)}ms`);
+  assert.ok(elapsed < budgetMs(50), `held-lock call took ${elapsed.toFixed(2)}ms`);
 }));

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildUsageTop, explainUsage } from '../lib/usage/usage-top.ts';
 import { attributeLimitBurn } from '../lib/usage/usage-limit-burn.ts';
+import { budgetMs } from './helpers/time-budget.js';
 
 const ev = (over) => ({
   eventType: 'delta',
@@ -121,8 +122,7 @@ test('limit burn window edges and a large ledger stay linear', () => {
   const started = Date.now();
   const burn = attributeLimitBurn({ events });
   assert.equal(burn.clusters, 2000);
-  // The quadratic rescan took tens of seconds; the budget leaves room for a slow shared CI runner.
-  assert.ok(Date.now() - started < 6000, `took ${Date.now() - started} ms`);
+  assert.ok(Date.now() - started < budgetMs(2000), `took ${Date.now() - started} ms`);
 });
 
 test('advice reports uncached heavy models, costly leaves, heavy chats and limit hotspots with evidence', async () => {
