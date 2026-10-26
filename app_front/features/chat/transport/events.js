@@ -26,3 +26,12 @@ export function dispatchTodoReconnectEvent() {
   return true;
 }
 
+
+/** Tell the chat's consent card that its Browser navigation prompts changed. */
+export function dispatchBrowserConsentEvent(msg) {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return false;
+  const chatId = typeof msg?.chatId === 'string' ? msg.chatId.trim() : '';
+  if (!chatId) return false;
+  window.dispatchEvent(new CustomEvent('cretli:browser-consent', { detail: { chatId } }));
+  return true;
+}

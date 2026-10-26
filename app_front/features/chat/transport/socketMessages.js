@@ -8,7 +8,7 @@ import { getUiFreezeMetrics, presenceFrameReason } from '../../sidebar/sidebarRe
 import { resolveAgentStateFromMessage } from '../sdkStateResolver.js';
 import { isSdkChatGoneErrorCode } from '../../../../lib/sdk/sdk-ws-chat-gone.ts';
 import { resolveAgentStateFromRoomState, shouldSyncHistoryFromRoomState } from '../../../../lib/sdk/sdk-room-state.ts';
-import { dispatchTodoChangedEvent } from './events.js';
+import { dispatchBrowserConsentEvent, dispatchTodoChangedEvent } from './events.js';
 import { t } from '../../../i18n/index.js';
 import { applyClaudeMeasuredContextUsage, applyClaudeContextBreakdown, applyCodexMeasuredContextUsage, applyServerContextOccupancy, isClaudeContextMeterChat, resetChatContextMeterState } from '../chatContextMeter.js';
 import { ROOM_STATE_GAP_SYNC_COOLDOWN_MS, shouldHttpCatchUpAfterWsReplay } from '../chatResumePolicy.js';
@@ -135,6 +135,10 @@ export function createSocketMessageHandler(chat, socket, ctx) {
         // Server-owned `todo.review` snapshot changed: hand the Todo panel a
         // DOM event on the existing socket, no new channel.
         dispatchTodoChangedEvent(msg);
+        return;
+      }
+      if (msg.type === 'browserConsentChanged') {
+        dispatchBrowserConsentEvent(msg);
         return;
       }
       if (msg.type === 'sidebarLayout') {

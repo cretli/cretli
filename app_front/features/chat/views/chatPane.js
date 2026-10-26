@@ -10,6 +10,7 @@ import { setChatStatus } from '../../connection/connectionStatus.js';
 import * as api from '../../../core/api/index.js';
 import { getHostPagePickLabel } from '../../../embed/widgetHostPagePick.js';
 import { t } from '../../../i18n/index.js';
+import '../../browser/browserConsentCard.js';
 import { createSdkRichView } from '../../../lib/sdk-rich-view.js';
 import { createSendBar } from '../../sendBar/index.js';
 import { clearPushPreview } from '../../pwa/pushInbox.js';
@@ -148,6 +149,10 @@ export function openTerminal(chat) {
   resumeAdviceHost.className = 'chat-resume-advice-host';
   resumeAdviceHost.hidden = true;
   chat._resumeAdviceHost = resumeAdviceHost;
+  const browserConsent = document.createElement('cr-browser-consent');
+  browserConsent.setAttribute('chat-id', chat.id);
+  browserConsent.hidden = true;
+  pane.appendChild(browserConsent);
   pane.appendChild(sendBar.root);
   // First idle focus of the composer; the throttle in checkChatResumeAdvice avoids repeats.
   pane.addEventListener('focusin', (event) => {

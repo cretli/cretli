@@ -119,7 +119,9 @@ import { BrowserSessionManager } from './lib/browser/session-manager.js';
 import { assertBrowserSingleInstance } from './lib/browser/multi-instance.js';
 import { createRespawnController, resolveLifecycleLimits } from './lib/browser/lifecycle.js';
 import { purgeBrowserScreenshotRoot } from './lib/browser/screenshot-file.js';
-import { getWorkspacePolicy, resolveBrowserPolicyKey } from './lib/browser/policy-store.js';
+import { addAllowedOrigin, getWorkspacePolicy, resolveBrowserPolicyKey } from './lib/browser/policy-store.js';
+import { createNavigationConsentRegistry } from './lib/browser/navigation-consent.js';
+import { broadcastBrowserConsentChanged } from './lib/chat-list-updates.js';
 import { configureBrowserAgentRuntime } from './lib/browser/agent-tools.js';
 import { createServerDiagnostics } from './lib/server-diagnostics.js';
 import { createHttpTimingLog, isHttpTimingExcludedPath, resolveHttpTimingMinMs } from './lib/http-timing-log.js';
@@ -510,7 +512,13 @@ const browserRespawnController = createRespawnController({
     }
   },
 });
+// Chat prompt for agent navigations outside the workspace allowlist.
+const browserNavigationConsent = createNavigationConsentRegistry({
+  persistOrigin: (workspaceKey, origin) => addAllowedOrigin(dataDir, workspaceKey, origin, loadSettings()),
+  onChange: ({ chatId }) => broadcastBrowserConsentChanged({ chatId }),
+});
 const browserManager = new BrowserSessionManager({
+  consent: browserNavigationConsent,
   driver: browserRuntime.driver,
   driverStatus: browserRuntime,
   dataDir,
@@ -553,7 +561,7 @@ try {
 browserManager.sweepStorageState();
 // Make the browser_* agent tools available to SDK runs for this process. Without
 // this the SDK room builder sees no runtime and (fail-closed) exposes no tools.
-configureBrowserAgentRuntime({ manager: browserManager });
+configureBrowserAgentRuntime({ manager: browserManager, consent: browserNavigationConsent });
 
 registerAppRoutes(app, {
   dataDir,
@@ -561,6 +569,7 @@ registerAppRoutes(app, {
   serverDiagnostics,
   uploadsDir,
   browserManager,
+  navigationConsent: browserNavigationConsent,
   appendClientDebugLogFile: clientDebugLog.appendClientDebugLogFile,
   serverInstanceToken: SERVER_INSTANCE_TOKEN,
   serverStartedAt: SERVER_STARTED_AT,

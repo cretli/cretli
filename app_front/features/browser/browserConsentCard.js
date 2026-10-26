@@ -1,0 +1,109 @@
+import { LitElement, css, html } from 'lit';
+import '../../components/ui/index.js';
+import { apiFetchJson } from '../../core/api/runtime.js';
+import { t } from '../../i18n/index.js';
+
+/** Window event the chat socket dispatches when a chat's consent prompts changed. */
+export const BROWSER_CONSENT_EVENT = 'cretli:browser-consent';
+
+/**
+ * Prompt shown in the chat when the agent navigates the built-in Browser to an
+ * origin outside the workspace allowlist. Answers: allow once, always allow, deny.
+ * The server owns the pending list; this card only mirrors it for one chat.
+ */
+class CrBrowserConsent extends LitElement {
+  static properties = {
+    chatId: { type: String, attribute: 'chat-id' },
+    _prompts: { state: true },
+    _busyId: { state: true },
+    _error: { state: true },
+  };
+
+  static styles = css`
+    :host { display: block; }
+    :host([hidden]) { display: none; }
+    .prompt {
+      margin: var(--cr-space-2) 0;
+      padding: var(--cr-space-3);
+      border: 1px solid var(--cr-border-strong);
+      border-radius: var(--cr-radius-sm);
+      background: var(--cr-surface);
+      color: var(--cr-text);
+      font-size: var(--cr-font-size-sm);
+    }
+    .text { margin: 0 0 var(--cr-space-2); overflow-wrap: anywhere; }
+    .actions { display: flex; flex-wrap: wrap; gap: var(--cr-space-2); }
+    .error { margin: var(--cr-space-2) 0 0; color: var(--cr-error); }
+  `;
+
+  constructor() {
+    super();
+    this.chatId = '';
+    this._prompts = [];
+    this._busyId = '';
+    this._error = false;
+    this._onEvent = (event) => {
+      const target = String(event?.detail?.chatId || '');
+      if (target && target === this.chatId) void this.refresh();
+    };
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    window.addEventListener(BROWSER_CONSENT_EVENT, this._onEvent);
+    void this.refresh();
+  }
+
+  disconnectedCallback() {
+    window.removeEventListener(BROWSER_CONSENT_EVENT, this._onEvent);
+    super.disconnectedCallback();
+  }
+
+  async refresh() {
+    if (!this.chatId) return;
+    try {
+      const url = `/api/browser/consent?chatId=${encodeURIComponent(this.chatId)}`;
+      const payload = await apiFetchJson(url, undefined, 'getBrowserConsent');
+      this._prompts = Array.isArray(payload?.prompts) ? payload.prompts : [];
+    } catch {
+      // The next live frame retries; a failed read must not break the chat.
+    }
+    this.hidden = this._prompts.length === 0;
+  }
+
+  async _answer(prompt, decision) {
+    this._busyId = prompt.id;
+    this._error = false;
+    try {
+      const payload = await apiFetchJson(`/api/browser/consent/${encodeURIComponent(prompt.id)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId: this.chatId, decision }),
+      }, 'postBrowserConsent');
+      if (payload?.ok === false) this._error = true;
+    } catch {
+      this._error = true;
+    }
+    this._busyId = '';
+    await this.refresh();
+  }
+
+  render() {
+    return html`${this._prompts.map((prompt) => html`
+      <div class="prompt" role="group" data-browser-consent>
+        <p class="text">${t('chat.browserConsentText', { origin: prompt.origin })}</p>
+        <div class="actions">
+          <cr-bar-button variant="primary" ?disabled=${this._busyId === prompt.id}
+            @click=${() => this._answer(prompt, 'once')}>${t('chat.browserConsentOnce')}</cr-bar-button>
+          <cr-bar-button ?disabled=${this._busyId === prompt.id}
+            @click=${() => this._answer(prompt, 'allow')}>${t('chat.browserConsentAlways')}</cr-bar-button>
+          <cr-bar-button ?disabled=${this._busyId === prompt.id}
+            @click=${() => this._answer(prompt, 'deny')}>${t('chat.browserConsentDeny')}</cr-bar-button>
+        </div>
+        ${this._error ? html`<p class="error" data-tone="error">${t('chat.browserConsentError')}</p>` : ''}
+      </div>`)}`;
+  }
+}
+
+if (!customElements.get('cr-browser-consent')) customElements.define('cr-browser-consent', CrBrowserConsent);
+export { CrBrowserConsent };

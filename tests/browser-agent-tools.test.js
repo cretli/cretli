@@ -497,7 +497,7 @@ test('runtime registration round-trips and clears', () => {
 test('server.js registers the runtime and the SDK merges the browser tools', () => {
   const server = read('server.js');
   assert.match(server, /import \{ configureBrowserAgentRuntime \} from '\.\/lib\/browser\/agent-tools\.js'/);
-  assert.match(server, /configureBrowserAgentRuntime\(\{\s*manager:\s*browserManager\s*\}\)/);
+  assert.match(server, /configureBrowserAgentRuntime\(\{\s*manager:\s*browserManager\b/);
 
   const sdk = read('lib/sdk/cursor-agent-sdk-ws.ts');
   assert.match(sdk, /buildBrowserAgentTools\(/);
