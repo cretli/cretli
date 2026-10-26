@@ -245,6 +245,11 @@ A leaf with `integration_state: ready` has its patch at
    from indexes made off the same older HEAD silently reverts earlier commits.
 6. **Record it:** `todo_integration {action:"confirm", proof:{simple:true}}`.
    If you amend or rebuild the commit, confirm again (the proof pins the sha).
+   `CONFLICT: ... confirm failed: conflict` means `expected_updated_at` is stale,
+   not that the code differs from the cycle patch: the server writes the todo
+   again about a second after `status: done` (claim release, registry state), so
+   the `updated_at` returned by that `todo_update` is already outdated. Read the
+   fresh value (`todo_list` / `todo_show`) and confirm again; it then succeeds.
 7. **Reject instead of forcing:** a patch made on an old base (renamed
    `.js -> .ts` files, rewritten docs, architecture moves) goes back as a new
    todo on the current base with the saved patch as source
