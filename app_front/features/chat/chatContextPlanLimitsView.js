@@ -2,6 +2,14 @@ import { escapeHtml } from './chatHtmlUtils.js';
 
 const HOUR_MS = 3600000;
 
+/** A stored plan reading older than this is flagged as possibly out of date. */
+const STALE_READING_MS = HOUR_MS;
+
+function formatAge(ageMs, t) {
+  const hours = Math.floor(ageMs / HOUR_MS);
+  return hours >= 48 ? t('chat.contextPlanAgeDays', { n: Math.floor(hours / 24) }) : t('chat.contextPlanAgeHours', { n: hours });
+}
+
 /** Window length by `rateLimitType` suffix (Codex prefixes non-default buckets with `<id>:`). */
 function windowLengthMs(type) {
   const suffix = String(type || '').toLowerCase().split(':').pop();
@@ -80,10 +88,16 @@ export function renderChatContextPlanLimitsHtml(payload, { t, lang = 'en', now =
     const statusText = remaining == null && !expired && window.status ? t(statusKey) : '';
     const headline = statusText && statusText !== statusKey ? statusText : t('chat.contextPlanRemaining', { percent: value });
     const pace = !expired && remaining != null ? computePace({ type, resetMs, now, used: percent }) : null;
+    // A stored reading older than an hour can lag the real quota; say how old it is.
+    const observedMs = Date.parse(window.observedAt);
+    const ageMs = payload.stored === true && Number.isFinite(observedMs) ? now - observedMs : 0;
+    const staleHint = remaining != null && ageMs > STALE_READING_MS
+      ? `<p class="settings-hint" data-stale="true">${escapeHtml(t('chat.contextPlanStaleReading', { age: formatAge(ageMs, t) }))}</p>` : '';
     const reset = Number.isFinite(resetMs) ? new Date(resetMs).toLocaleString(lang, { dateStyle: 'short', timeStyle: 'short' }) : '—';
     rows.push(`<article class="chat-context-quota"><div class="chat-context-quota-heading"><span>${escapeHtml(label)}</span><strong>${escapeHtml(headline)}</strong></div>`
       + (remaining == null ? '' : renderQuotaBarHtml({ remaining, pace, ariaLabel: label + ': ' + value }))
       + (pace ? renderPaceTextHtml(pace, { t, lang }) : '')
+      + staleHint
       + `<p class="settings-hint">${escapeHtml(expired ? t('chat.contextPlanResetPending') : t('chat.contextPlanRenews', { time: reset }))}</p>`
       + (remaining == null && !expired ? `<p class="settings-hint">${escapeHtml(t('chat.contextPlanNoPercent'))}</p>` : '')
       + '</article>');

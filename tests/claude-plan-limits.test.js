@@ -43,3 +43,40 @@ test('a window without a percentage shows its status instead of a dash', () => {
   assert.match(html, /Within limit/);
   assert.match(html, /contextPlanNoPercent/);
 });
+
+test('a stored reading older than an hour is flagged as stale, a fresh one is not', () => {
+  const t = (key, vars) => (vars ? `${key}:${JSON.stringify(vars)}` : key);
+  const now = Date.parse('2026-10-26T00:00:00Z');
+  const window = (observedAt) => ({ rateLimitType: 'seven_day', utilization: 29, resetsAt: '2026-10-30T20:00:00Z', observedAt });
+  const old = renderChatContextPlanLimitsHtml({ available: true, stored: true, windows: [window('2026-10-24T21:00:00Z')] }, { t, harness: 'claude', now });
+  assert.match(old, /contextPlanStaleReading/);
+  assert.match(old, /contextPlanAgeHours:\{\\&quot;n\\&quot;:27\}/);
+  const fresh = renderChatContextPlanLimitsHtml({ available: true, stored: true, windows: [window('2026-10-25T23:50:00Z')] }, { t, harness: 'claude', now });
+  assert.doesNotMatch(fresh, /contextPlanStaleReading/);
+  const live = renderChatContextPlanLimitsHtml({ available: true, windows: [window('2026-10-24T21:00:00Z')] }, { t, harness: 'claude', now });
+  assert.doesNotMatch(live, /contextPlanStaleReading/);
+});
+
+test('without a session an opt-in throwaway SDK query supplies live limits and is closed', async () => {
+  const { setClaudeSdkForTests, resetClaudeSdkForTests } = await import('../lib/claude/claude-sdk.ts');
+  let closed = false;
+  setClaudeSdkForTests({
+    query: () => ({
+      usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: async () => response,
+      close: () => { closed = true; },
+    }),
+  });
+  const prev = process.env.CLAUDE_AUTH_MODE;
+  try {
+    const result = await getClaudePlanLimits({ allowEphemeral: true });
+    if (result.available && result.liveStatus === 'ok') {
+      assert.equal(result.windows.find((w) => w.rateLimitType === 'seven_day').utilization, 25.5);
+      assert.equal(closed, true);
+    } else {
+      assert.equal(result.reason, 'api-key'); // auth mode is not subscription in this environment
+    }
+  } finally {
+    resetClaudeSdkForTests();
+    if (prev === undefined) delete process.env.CLAUDE_AUTH_MODE; else process.env.CLAUDE_AUTH_MODE = prev;
+  }
+});

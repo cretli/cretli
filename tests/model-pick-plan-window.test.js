@@ -208,6 +208,16 @@ test('requestPlanLimitsRefresh is detached, deduplicated and only for old readin
   release();
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(requestPlanLimitsRefresh({ planLimits: old, now: NOW, refreshers }), ['codex']);
+  // Claude: a fresh 5h row must not hide an old weekly row; refresh uses a throwaway query.
+  const claudeCalls = [];
+  const claudeRefreshers = { claude: async (args) => { claudeCalls.push(args); } };
+  const mixed = [
+    row({ harness: 'claude', rateLimitType: 'five_hour', observedAt: iso(NOW - MIN), resetsAt: iso(NOW + 60 * MIN) }),
+    row({ harness: 'claude', rateLimitType: 'seven_day', observedAt: iso(NOW - 60 * MIN), resetsAt: iso(NOW + 3 * 24 * 60 * MIN) }),
+  ];
+  assert.deepEqual(requestPlanLimitsRefresh({ planLimits: mixed, now: NOW, refreshers: claudeRefreshers }), ['claude']);
+  assert.equal(claudeCalls[0].allowEphemeral, true);
+  await new Promise((resolve) => setImmediate(resolve));
   // Claude is skipped without a live query.
   release();
   assert.equal(requestPlanLimitsRefresh({ planLimits: [], now: NOW, refreshers: { codex: async () => {} } }).includes('claude'), false);

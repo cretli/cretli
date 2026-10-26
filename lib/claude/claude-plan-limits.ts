@@ -4,6 +4,7 @@
  * rate-limit snapshots (from `rate_limit_event`) are returned.
  */
 import { getClaudeAuthMode } from './claude-auth-mode.ts';
+import { loadClaudeSdk } from './claude-sdk.ts';
 import { noteHarnessPlanLimit, readHarnessPlanLimits } from '../usage/harness-health.ts';
 
 const READ_TIMEOUT_MS = 6000;
@@ -110,11 +111,46 @@ export function buildStoredClaudePlanLimits({ dataDir }: { dataDir?: string } = 
   };
 }
 
+/** Successful ephemeral reads are reused briefly so repeated panel opens do not spawn the CLI each time. */
+const EPHEMERAL_CACHE_MS = 30_000;
+let ephemeralCache: { at: number; limits: ClaudeUsageLimits } | null = null;
+
+/**
+ * Reads plan limits without a chat session: starts a throwaway SDK query whose
+ * prompt never yields (so no model call or tokens), asks it for usage and
+ * closes it. Typically ~1 s.
+ */
+async function readEphemeralUsageLimits(): Promise<{ limits: ClaudeUsageLimits | null; reason: string }> {
+  if (ephemeralCache && Date.now() - ephemeralCache.at < EPHEMERAL_CACHE_MS) {
+    return { limits: ephemeralCache.limits, reason: 'ok' };
+  }
+  let release: () => void = () => {};
+  const idle = new Promise<void>((resolve) => { release = resolve; });
+  let query: (ClaudeUsageQuery & { close?: () => void }) | null = null;
+  try {
+    const sdk = await loadClaudeSdk();
+    query = sdk.query({
+      // eslint-disable-next-line require-yield -- keeps the prompt stream open until the usage read is released
+      prompt: (async function* () { await idle; })(),
+      options: { cwd: process.cwd() },
+    });
+    const result = await readQueryUsageLimits(query);
+    if (result.limits) ephemeralCache = { at: Date.now(), limits: result.limits };
+    return result;
+  } catch {
+    return { limits: null, reason: 'error' };
+  } finally {
+    release();
+    try { query?.close?.(); } catch { /* already closed */ }
+  }
+}
+
 export async function getClaudePlanLimits(
-  { dataDir, query }: { dataDir?: string; query?: ClaudeUsageQuery | null } = {},
+  { dataDir, query, allowEphemeral = false }: { dataDir?: string; query?: ClaudeUsageQuery | null; allowEphemeral?: boolean } = {},
 ) {
   if (getClaudeAuthMode() !== 'subscription') return { available: false, reason: 'api-key' };
-  const { limits, reason } = await readQueryUsageLimits(query);
+  let { limits, reason } = await readQueryUsageLimits(query);
+  if (!limits && !query && allowEphemeral) ({ limits, reason } = await readEphemeralUsageLimits());
   if (limits) {
     for (const row of limits.windows) noteHarnessPlanLimit({ ...row, dataDir });
     return { ...limits, liveStatus: 'ok' };
