@@ -797,6 +797,279 @@ test('operator watcher tools show and reset failures and backoff', async () => {
   }
 });
 
+test('operator_scout_enable toggles scoutEnabled behind confirm and operator mode', async () => {
+  saveSettings({ externalMcpEnabled: true });
+  const operator = createExternalMcpClient({ name: 'scout-op', workspaceFolder: workspace, mode: 'operator' });
+  const agent = createExternalMcpClient({ name: 'scout-agent', workspaceFolder: workspace, mode: 'agent' });
+  const client = await connect(operator.token);
+  const agentClient = await connect(agent.token);
+  try {
+    const listed = (await client.listTools()).tools.map((tool) => tool.name);
+    assert.ok(listed.includes('operator_scout_enable'));
+    assert.equal((await agentClient.listTools()).tools.some((tool) => tool.name === 'operator_scout_enable'), false);
+
+    const refused = await client.callTool({ name: 'operator_scout_enable', arguments: { enabled: true } });
+    assert.equal(refused.isError, true, 'enable needs confirm: true');
+    const badType = await client.callTool({ name: 'operator_scout_enable', arguments: { enabled: 'yes', confirm: true } });
+    assert.equal(badType.isError, true, 'enabled must be boolean');
+    const denied = await agentClient.callTool({ name: 'operator_scout_enable', arguments: { enabled: true, confirm: true } });
+    assert.equal(denied.isError, true, 'agent-mode clients cannot toggle scouts');
+
+    const { getWorkspaceWatcher } = await import('../lib/persist/workspace-watchers-persist.js');
+    const on = await client.callTool({ name: 'operator_scout_enable', arguments: { enabled: true, confirm: true } });
+    assert.notEqual(on.isError, true, JSON.stringify(on.content));
+    assert.equal(getWorkspaceWatcher(workspace).policy.scoutEnabled, true);
+    const off = await client.callTool({ name: 'operator_scout_enable', arguments: { enabled: false, confirm: true } });
+    assert.notEqual(off.isError, true, JSON.stringify(off.content));
+    assert.equal(getWorkspaceWatcher(workspace).policy.scoutEnabled, false);
+  } finally {
+    await client.close();
+    await agentClient.close();
+  }
+});
+
+/** Pull the journal events recorded since the session's previous handoff. */
+async function handoffEvents(client) {
+  const result = await client.callTool({ name: 'operator_handoff', arguments: {} });
+  assert.notEqual(result.isError, true, JSON.stringify(result.content));
+  return /** @type {Array<{ kind: string, summary: string }>} */ (JSON.parse(String(result.content?.[0]?.text || '{}')).events || []);
+}
+
+test('HTTP scout mutations need the operator lease and are audited; reads and failures are not', async () => {
+  saveSettings({ externalMcpEnabled: true });
+  const owner = createExternalMcpClient({ name: 'scout-owner', workspaceFolder: workspace, mode: 'operator' });
+  const other = createExternalMcpClient({ name: 'scout-other', workspaceFolder: workspace, mode: 'operator' });
+  const ownerClient = await connect(owner.token, { 'x-cretli-operator-session': 'scout-a' });
+  const otherClient = await connect(other.token, { 'x-cretli-operator-session': 'scout-b' });
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+  try {
+    assert.notEqual((await ownerClient.callTool({ name: 'operator_handoff', arguments: {} })).isError, true);
+
+    // Lease held by another session: every mutating action is refused before the domain runs.
+    const refusedCalls = [
+      ['scout_profiles', { action: 'create', profile: { name: 'Denied scout' } }],
+      ['scout_profiles', { action: 'update', scout_id: 'x', expected_revision: 1, profile: { name: 'n' } }],
+      ['scout_profiles', { action: 'duplicate', scout_id: 'x' }],
+      ['scout_profiles', { action: 'archive', scout_id: 'x' }],
+      ['scout_profiles', { action: 'run', scout_id: 'x' }],
+      ['scout_profiles', { action: 'from_template', template_id: 'x' }],
+      ['scout_profiles', { action: 'restore', scout_id: 'x', expected_revision: 1, confirm: true }],
+      ['scout_findings', { action: 'accept', ids: ['f1'] }],
+      ['scout_findings', { action: 'reject', id: 'f1' }],
+      ['scout_findings', { action: 'submit', findings: [] }],
+    ];
+    const { getWorkspaceWatcher } = await import('../lib/persist/workspace-watchers-persist.js');
+    for (const [name, args] of refusedCalls) {
+      const before = structuredClone(getWorkspaceWatcher(workspace));
+      await assert.rejects(otherClient.callTool({ name, arguments: args }), /operator_handoff|another active session/, `${name} ${args.action}`);
+      assert.deepEqual(
+        getWorkspaceWatcher(workspace),
+        before,
+        `${name} ${args.action} without the lease must leave the watcher state unchanged`,
+      );
+    }
+    // Operator-native tools report the lease refusal as a tool error instead of a protocol error.
+    const enableRefused = await otherClient.callTool({ name: 'operator_scout_enable', arguments: { enabled: true, confirm: true } });
+    assert.equal(enableRefused.isError, true);
+    assert.match(JSON.stringify(enableRefused.content), /operator_handoff|another active session|OPERATOR_LEASE_REQUIRED/);
+    assert.notEqual(getWorkspaceWatcher(workspace)?.policy?.scoutEnabled, true, 'refused toggle must not reach the domain');
+    assert.equal((getWorkspaceWatcher(workspace)?.scoutProfiles || []).length, 0, 'refused create must not reach the domain');
+    assert.deepEqual(await handoffEvents(ownerClient), [], 'refusals are not audited');
+
+    // Reads never need the lease: the non-owner can list.
+    const listed = await otherClient.callTool({ name: 'scout_profiles', arguments: { action: 'list' } });
+    assert.notEqual(listed.isError, true, JSON.stringify(listed.content));
+    const findingsList = await otherClient.callTool({ name: 'scout_findings', arguments: { action: 'list' } });
+    assert.notEqual(findingsList.isError, true, JSON.stringify(findingsList.content));
+    assert.deepEqual(await handoffEvents(ownerClient), [], 'reads are not audited');
+
+    // Successful mutation by the lease owner is audited with the scout id.
+    await tick();
+    const created = await ownerClient.callTool({
+      name: 'scout_profiles',
+      arguments: { action: 'create', profile: { name: 'Audit scout', objective: 'Look for audit gaps', categories: ['bug'] } },
+    });
+    assert.notEqual(created.isError, true, JSON.stringify(created.content));
+    const createdId = String(created.structuredContent?.profile?.id || '');
+    assert.ok(createdId, 'create returns the new profile id');
+    await tick();
+    const archived = await ownerClient.callTool({ name: 'scout_profiles', arguments: { action: 'archive', scout_id: createdId } });
+    assert.notEqual(archived.isError, true, JSON.stringify(archived.content));
+    await tick();
+    const toggled = await ownerClient.callTool({ name: 'operator_scout_enable', arguments: { enabled: true, confirm: true } });
+    assert.notEqual(toggled.isError, true, JSON.stringify(toggled.content));
+
+    // Domain failures (unknown id, stale CAS, missing confirm) are not audited.
+    await tick();
+    const missing = await ownerClient.callTool({ name: 'scout_profiles', arguments: { action: 'archive', scout_id: 'no-such-scout' } });
+    assert.equal(missing.isError, true);
+    const stale = await ownerClient.callTool({
+      name: 'scout_profiles',
+      arguments: { action: 'update', scout_id: createdId, expected_revision: 999, profile: { name: 'Stale' } },
+    });
+    assert.equal(stale.isError, true);
+    const unconfirmed = await ownerClient.callTool({
+      name: 'scout_profiles',
+      arguments: { action: 'restore', scout_id: createdId, expected_revision: 1 },
+    });
+    assert.equal(unconfirmed.isError, true);
+    const badFinding = await ownerClient.callTool({ name: 'scout_findings', arguments: { action: 'reject', ids: ['no-such-finding'] } });
+    assert.ok(
+      badFinding.isError || badFinding.structuredContent?.ok === false,
+      `invalid finding mutation must fail: ${JSON.stringify(badFinding)}`,
+    );
+
+    const events = await handoffEvents(ownerClient);
+    const kinds = events.map((event) => `${event.kind}:${event.summary}`);
+    assert.ok(kinds.includes('scout_profile:create unknown'), JSON.stringify(kinds));
+    assert.ok(kinds.includes(`scout_profile:archive ${createdId}`), JSON.stringify(kinds));
+    assert.ok(kinds.includes('scout_enable:Scouts enabled'), JSON.stringify(kinds));
+    assert.equal(kinds.some((row) => row.includes('no-such-scout')), false, 'domain errors are not audited');
+    assert.equal(kinds.some((row) => row.includes('Stale') || row.startsWith('scout_profile:update')), false);
+    assert.equal(kinds.some((row) => row.startsWith('scout_profile:restore')), false);
+    assert.equal(kinds.some((row) => row.includes('no-such-finding')), false, 'failed finding mutation is not audited');
+    assert.equal(getWorkspaceWatcher(workspace).policy.scoutEnabled, true);
+  } finally {
+    await ownerClient.close();
+    await otherClient.close();
+  }
+});
+
+test('HTTP scout profile update, duplicate, run, from_template and restore succeed and are audited', async () => {
+  saveSettings({ externalMcpEnabled: true });
+  const { upsertWorkspaceWatcher, getWorkspaceWatcher } = await import('../lib/persist/workspace-watchers-persist.js');
+  const scoutWorkspace = process.cwd();
+  upsertWorkspaceWatcher(scoutWorkspace, { mode: 'autopilot', enabled: true, policy: { scoutEnabled: true } });
+  const op = createExternalMcpClient({ name: 'scout-profile-audit-op', workspaceFolder: scoutWorkspace, mode: 'operator' });
+  const client = await connect(op.token, { 'x-cretli-operator-session': 'scout-profile-audit' });
+  try {
+    assert.notEqual((await client.callTool({ name: 'operator_handoff', arguments: {} })).isError, true);
+
+    const created = await client.callTool({
+      name: 'scout_profiles',
+      arguments: {
+        action: 'create',
+        profile: {
+          name: 'Profile mutations',
+          objective: 'Exercise profile mutations',
+          categories: ['bug'],
+          scope: { mode: 'area', base: 'HEAD', include: ['__mcp_scout_empty_fixture__/**'], exclude: [] },
+        },
+      },
+    });
+    assert.notEqual(created.isError, true, JSON.stringify(created.content));
+    const profileId = String(created.structuredContent?.profile?.id || '');
+    assert.ok(profileId);
+
+    const updated = await client.callTool({
+      name: 'scout_profiles',
+      arguments: { action: 'update', scout_id: profileId, expected_revision: 1, profile: { name: 'Updated profile' } },
+    });
+    assert.notEqual(updated.isError, true, JSON.stringify(updated.content));
+    assert.equal(updated.structuredContent?.profile?.name, 'Updated profile');
+    assert.equal(updated.structuredContent?.profile?.revision, 2);
+
+    const duplicated = await client.callTool({ name: 'scout_profiles', arguments: { action: 'duplicate', scout_id: profileId } });
+    assert.notEqual(duplicated.isError, true, JSON.stringify(duplicated.content));
+    const duplicateId = String(duplicated.structuredContent?.profile?.id || '');
+    assert.ok(duplicateId && duplicateId !== profileId);
+
+    const run = await client.callTool({ name: 'scout_profiles', arguments: { action: 'run', scout_id: profileId } });
+    assert.notEqual(run.isError, true, JSON.stringify(run.content));
+    assert.equal(run.structuredContent?.ok, true, JSON.stringify(run.structuredContent));
+    assert.equal(run.structuredContent?.reason, 'no_files_in_scope');
+
+    const fromTemplate = await client.callTool({
+      name: 'scout_profiles',
+      arguments: { action: 'from_template', template_id: 'performance', overrides: { name: 'Template audit profile' } },
+    });
+    assert.notEqual(fromTemplate.isError, true, JSON.stringify(fromTemplate.content));
+    const templateProfileId = String(fromTemplate.structuredContent?.profile?.id || '');
+    const templateRevision = Number(fromTemplate.structuredContent?.profile?.revision);
+    assert.ok(templateProfileId);
+    assert.equal(fromTemplate.structuredContent?.templateId, 'performance');
+
+    const restore = await client.callTool({
+      name: 'scout_profiles',
+      arguments: { action: 'restore', scout_id: templateProfileId, expected_revision: templateRevision, confirm: true },
+    });
+    assert.notEqual(restore.isError, true, JSON.stringify(restore.content));
+    assert.equal(restore.structuredContent?.profile?.id, templateProfileId);
+    assert.equal(restore.structuredContent?.profile?.revision, templateRevision + 1);
+
+    const storedIds = (getWorkspaceWatcher(scoutWorkspace)?.scoutProfiles || []).map((profile) => profile.id);
+    assert.ok(storedIds.includes(profileId));
+    assert.ok(storedIds.includes(duplicateId));
+    assert.ok(storedIds.includes(templateProfileId));
+
+    const summaries = (await handoffEvents(client))
+      .filter((event) => event.kind === 'scout_profile')
+      .map((event) => event.summary);
+    for (const expected of [
+      `update ${profileId}`,
+      `duplicate ${profileId}`,
+      `run ${profileId}`,
+      'from_template unknown',
+      `restore ${templateProfileId}`,
+    ]) {
+      assert.ok(summaries.includes(expected), `${expected}: ${JSON.stringify(summaries)}`);
+    }
+  } finally {
+    await client.close();
+  }
+});
+
+test('HTTP scout finding submit with the operator lease reaches OUT_OF_SCOPE and is not audited', async () => {
+  saveSettings({ externalMcpEnabled: true });
+  const op = createExternalMcpClient({ name: 'scout-submit-op', workspaceFolder: workspace, mode: 'operator' });
+  const client = await connect(op.token, { 'x-cretli-operator-session': 'scout-submit' });
+  try {
+    assert.notEqual((await client.callTool({ name: 'operator_handoff', arguments: {} })).isError, true);
+    const submitted = await client.callTool({
+      name: 'scout_findings',
+      arguments: {
+        action: 'submit',
+        scan_id: 'operator-cannot-submit',
+        submit_token: 'operator-cannot-submit',
+        findings: [{ title: 'Must not persist', category: 'bug', rationale: 'External operators do not own a Scout scan.' }],
+      },
+    });
+    assert.ok(submitted.isError || submitted.structuredContent?.ok === false, JSON.stringify(submitted));
+    assert.match(JSON.stringify(submitted), /OUT_OF_SCOPE/);
+    assert.deepEqual(await handoffEvents(client), [], 'OUT_OF_SCOPE submit must not be audited');
+  } finally {
+    await client.close();
+  }
+});
+
+test('HTTP scout_findings audit records the id and ids forms of successful accept/reject', async () => {
+  saveSettings({ externalMcpEnabled: true });
+  const { upsertWorkspaceWatcher, getWorkspaceWatcher } = await import('../lib/persist/workspace-watchers-persist.js');
+  const now = new Date().toISOString();
+  upsertWorkspaceWatcher(workspace, {
+    pendingScoutFindings: [
+      { id: 'finding-single', title: 'Single finding', category: 'bug', status: 'pending', createdAt: now },
+      { id: 'finding-list', title: 'List finding', category: 'bug', status: 'pending', createdAt: now },
+    ],
+  });
+  assert.equal(getWorkspaceWatcher(workspace).pendingScoutFindings.length, 2, 'seeded findings are stored');
+  const op = createExternalMcpClient({ name: 'scout-ids-op', workspaceFolder: workspace, mode: 'operator' });
+  const client = await connect(op.token, { 'x-cretli-operator-session': 'scout-ids' });
+  try {
+    assert.notEqual((await client.callTool({ name: 'operator_handoff', arguments: {} })).isError, true);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const rejected = await client.callTool({ name: 'scout_findings', arguments: { action: 'reject', id: 'finding-single' } });
+    assert.notEqual(rejected.isError, true, JSON.stringify(rejected.content));
+    const accepted = await client.callTool({ name: 'scout_findings', arguments: { action: 'accept', ids: ['finding-list'] } });
+    assert.notEqual(accepted.isError, true, JSON.stringify(accepted.content));
+    const events = (await handoffEvents(client)).filter((event) => event.kind === 'scout_findings');
+    assert.ok(events.some((event) => event.summary === 'reject finding-single'), JSON.stringify(events));
+    assert.ok(events.some((event) => event.summary.startsWith('accept ') && event.summary.includes('finding-list')), JSON.stringify(events));
+  } finally {
+    await client.close();
+  }
+});
+
 test('operator_watcher_reset clears blocked backoff by todo_ids or all_blocked', async () => {
   saveSettings({ externalMcpEnabled: true });
   const { upsertWorkspaceWatcher } = await import('../lib/persist/workspace-watchers-persist.js');

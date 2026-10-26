@@ -36,6 +36,64 @@ pending until a human approves it in Settings → MCP → MCP operator. The same
 screen shows the merged plan/agent/operator previews, the 3500-character
 instructions budget, repository-default restore and version history.
 
+## Managing Workspace Scouts
+
+Scouts are the proactive scanners of the Workspace Watcher. An operator drives
+them with `scout_profiles` (profile configuration), `scout_findings` (proposals)
+and `operator_scout_enable` (workspace-wide on/off switch).
+
+**Procedure for every mutation**
+
+1. `operator_handoff` (add `takeover: true` only for an intentional takeover).
+   Mutating actions run `assertOperatorLease` first: `create`, `update`,
+   `duplicate`, `archive`, `run`, `from_template`, `restore` on
+   `scout_profiles`; `accept`, `reject`, `submit` on `scout_findings`; and
+   `operator_scout_enable`. Reads (`list`, `get`, `preview`, `history`,
+   `templates`, `restore_preview`) never need the lease.
+2. Read first: `scout_profiles {action: get|preview}` gives the current
+   `revision`; `update` and `restore` need it as `expected_revision` (CAS).
+3. Mutate. `restore` and `operator_scout_enable` also need `confirm: true`.
+4. Verify the audit: the next `operator_handoff` lists the event in `events`
+   with kind `scout_profile`, `scout_findings` or `scout_enable` and a summary
+   such as `archive <scout_id>`, `reject <finding id>` (for `ids` the list of
+   ids) or `Scouts enabled`. Only successful mutations are audited; a refused or
+   failed call leaves no event.
+
+**Lease refused or expired.** A call from a session that does not hold the
+lease fails before the domain runs with `OPERATOR_LEASE_REQUIRED` ("Call
+operator_handoff before mutating ..."); nothing changed. The lease lasts 90
+seconds without a heartbeat, so after a long pause call `operator_handoff`
+again, re-read the profile (`revision` may have moved) and retry. If another
+operator holds the lease, wait for it to expire or take over explicitly.
+
+**`scope_error` and `no_files_in_scope`.** A scan whose scope cannot be
+resolved (for example a missing base branch) ends with `scope_error`: no model
+is started, the scan budget is refunded and the profile is retried with
+backoff (growing up to one hour). Editing the scope or bumping the revision
+retries immediately; a server restart clears the backoff. Procedure:
+`scout_profiles {action: preview}` shows blockers and matched files; fix the
+scope with `update`; verify with `preview` again before `run`. An empty match
+is reported as `no_files_in_scope` (skipped, also refunded) — widen the scope.
+
+**`update` merges shallowly.** Top-level fields you send replace the stored
+ones; omitted fields stay. Nested objects are not merged: sending
+`profile: {scope: {paths: [...]}}` replaces the whole `scope` object, so read
+the profile with `get` and send the complete `scope` (same for `sources`,
+`schedule`, `limits`).
+
+**Disable, archive, restore.** To stop a single scout set
+`profile: {enabled: false}` via `update` (it is skipped by the schedule, but an explicit `run` can still start it); to stop all scouts use
+`operator_scout_enable {enabled: false, confirm: true}` (profiles are kept).
+`archive` stamps `archivedAt`: the profile stays readable through `get`/`list`
+and keeps its history but neither the schedule nor `run` will start it. `restore` is not an undo of
+`archive`: it re-applies the template-owned task definition (instructions) of a
+profile created from a template, under `expected_revision` and `confirm: true`;
+use `restore_preview` to see the diff first. Reactivating an archived scout is
+done by creating a fresh one (`duplicate`).
+
+`run` starts a real scan and consumes the daily scan budget (and a model run);
+prefer `preview` unless a scan is intended.
+
 ## 0. Hard rules
 
 - **Plan approval is human-only.** Never approve a plan. Agents inside Cretli
@@ -74,6 +132,7 @@ instructions budget, repository-default restore and version history.
 |---|---|
 | Orchestrator chats | `operator_chat_status`, `operator_chat_send {chat,text,idempotency_key}`, `operator_chat_wait`, `operator_chat_stop`, `chat_history`, `chat_event` |
 | Watcher | `operator_watcher_status` (cycles, failures, backoff, `doing_attention`), `operator_watcher_pause {paused,confirm}`, `operator_watcher_reset {confirm, todo_ids? | all_blocked?}` (without flags only failures and the backoff timer are reset and per-todo `blocked_backoff` is kept; `all_blocked: true` clears every blocked-backoff entry; `todo_ids` clears only those; the two are mutually exclusive; the result shows `before`/`after` `blocked_backoff`), `operator_watcher_release_unknown`, `watcher_show` |
+| Scout | `scout_profiles`, `scout_findings`, `operator_scout_enable`; mutating actions require the operator lease |
 | Todos | `todo_list` (paginate with `cursor`), `todo_show` (children, plan gate, integration, review), `todo_create`, `todo_update {todo_id, patch, expected_updated_at}`, `todo_integration {action: confirm/reject/...}` |
 | Starting work | `operator_plan_review_start` (plan review coordinator), `todo_start` (implementation orchestrator), `todo_update status: ready` (Watcher) |
 | Delegations (read) | `delegation_list {chat_id}`, `delegation_show`, `model_pick` |
