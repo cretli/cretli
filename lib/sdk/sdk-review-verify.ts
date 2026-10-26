@@ -10,7 +10,7 @@
  * before spawn.
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { trackChildProcess } from '../child-process-registry.js';
 import { assertExecutorLaunchAllowed } from '../executor-launch-gate.js';
 import { buildAgentChildEnv } from '../agent-env.js';
+import { hostExecutionEnvironment, type ExecutionEnvironment } from '../worktree/execution-environment.ts';
 
 type ReviewVerifyInput = {
   ids?: string[];
@@ -938,6 +939,7 @@ export function spawnReviewVerifyFile(input: {
   tmpDir?: string;
   timeoutMs: number;
   cwd?: string;
+  executionEnvironment?: ExecutionEnvironment;
   graceMs?: number;
   drainMs?: number;
 }): Promise<{ ok: boolean; output: string; error?: string; timedOut?: boolean }> {
@@ -948,7 +950,7 @@ export function spawnReviewVerifyFile(input: {
       resolve({ ok: false, output: '', error: `Review verify launch refused: ${(error as Error).message}` });
       return;
     }
-    const child = spawn(process.execPath, [input.filePath], {
+    const child = (input.executionEnvironment || hostExecutionEnvironment).spawn(undefined, process.execPath, [input.filePath], {
       cwd: input.cwd || input.workDir,
       env: {
         ...buildAgentChildEnv('tool'),

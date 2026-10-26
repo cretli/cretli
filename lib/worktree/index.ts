@@ -14,6 +14,8 @@ export {
   WORKTREE_OWNER_MARKER_FILE,
 } from '../worktree-manager.js';
 export { resolveWorktreeMode, assertWorktreeMode, WORKTREE_MODES, RESOLVED_WORKTREE_MODES } from './worktree-mode.ts';
+export { hostExecutionEnvironment, resolveExecutionEnvironment } from './execution-environment.ts';
+export type { ExecutionEnvironment, ExecutionEnvironmentKind } from './execution-environment.ts';
 export { normalizeWorktreeConfig, resolveWorktreeLayout, normalizeWorktreeTodoId, isPathInside } from './worktree-layout.ts';
 export {
   EXECUTION_STATES,

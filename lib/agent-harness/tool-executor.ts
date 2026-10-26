@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { spawn, spawnSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import { trackChildProcess } from '../child-process-registry.js';
 import { assertExecutorLaunchAllowed } from '../executor-launch-gate.js';
 import { isGitRepo, normalizeGitArg, runGitCommand } from '../git-cli.js';
@@ -47,6 +47,7 @@ import {
 } from './history-store-guard.ts';
 import { findForeignRepoGitTarget, foreignRepoBlockedMessage } from './foreign-repo-guard.ts';
 import { buildAgentChildEnv } from '../agent-env.js';
+import { hostExecutionEnvironment, type ExecutionEnvironment } from '../worktree/execution-environment.ts';
 
 const FILE_READ_MAX = 1024 * 1024;
 const SHELL_TIMEOUT_MS = 120000;
@@ -81,6 +82,7 @@ export interface ToolExecutionContext {
   mcpContext?: object;
   checkPermission?: (name: string, args: object) => Promise<{ outcome: string; message?: string }>;
   scoutReadOnly?: boolean;
+  executionEnvironment?: ExecutionEnvironment;
 }
 
 /** Result shape shared by every tool implementation. */
@@ -218,13 +220,13 @@ export async function executeTool(
     case 'list_directory':
       return executeListDirectory(cwd, parsedArgs);
     case 'grep':
-      return executeGrep(cwd, parsedArgs);
+      return executeGrep(cwd, parsedArgs, ctx.executionEnvironment);
     case 'write_file':
       return executeWriteFile(cwd, parsedArgs);
     case 'search_replace':
       return executeSearchReplace(cwd, parsedArgs);
     case 'run_terminal_command':
-      return executeShellCommand(cwd, parsedArgs);
+      return executeShellCommand(cwd, parsedArgs, ctx.executionEnvironment);
     case 'git_status':
       return executeGitStatus(cwd);
     case 'git_diff':
@@ -276,7 +278,7 @@ function executeListDirectory(cwd: string, args: Record<string, unknown>) {
   return { ok: true, output: entries.join('\n') || '(empty directory)' };
 }
 
-function executeGrep(cwd: string, args: Record<string, unknown>): ToolExecutionResult | Promise<ToolExecutionResult> {
+function executeGrep(cwd: string, args: Record<string, unknown>, executionEnvironment?: ExecutionEnvironment): ToolExecutionResult | Promise<ToolExecutionResult> {
   const pattern = String(args.pattern || '').trim();
   if (!pattern) return { ok: false, output: '', error: 'Missing pattern' };
   const rel = String(args.path || '').trim();
@@ -289,7 +291,7 @@ function executeGrep(cwd: string, args: Record<string, unknown>): ToolExecutionR
   const rgGlobs = historyStoreRipgrepGlobs().flatMap((glob) => ['--glob', glob]);
   const grepExcludeDirs = HISTORY_STORE_DIR_NAMES.flatMap((name) => ['--exclude-dir', name]);
   return new Promise((resolve) => {
-    const rg = spawn('rg', ['--line-number', '--no-heading', '--color=never', ...rgGlobs, pattern, searchDir], {
+    const rg = (executionEnvironment || hostExecutionEnvironment).spawn(undefined, 'rg', ['--line-number', '--no-heading', '--color=never', ...rgGlobs, pattern, searchDir], {
       cwd,
       env: buildAgentChildEnv('tool'),
     });
@@ -409,7 +411,7 @@ function basenameReviewToken(token: unknown): string {
   return slash >= 0 ? raw.slice(slash + 1) : raw;
 }
 
-function executeShellCommand(cwd: string, args: Record<string, unknown>): ToolExecutionResult | Promise<ToolExecutionResult> {
+function executeShellCommand(cwd: string, args: Record<string, unknown>, executionEnvironment?: ExecutionEnvironment): ToolExecutionResult | Promise<ToolExecutionResult> {
   const command = String(args.command || '').trim();
   if (!command) return { ok: false, output: '', error: 'Missing command' };
   if (commandTouchesHistoryStore(command)) {
@@ -426,7 +428,7 @@ function executeShellCommand(cwd: string, args: Record<string, unknown>): ToolEx
       resolve({ ok: false, output: '', error: (error as Error).message });
       return;
     }
-    const child = spawn('bash', ['-lc', command], {
+    const child = (executionEnvironment || hostExecutionEnvironment).spawn(undefined, 'bash', ['-lc', command], {
       cwd,
       env: buildAgentChildEnv('tool'),
     });

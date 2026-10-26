@@ -1,4 +1,3 @@
-import pty from 'node-pty';
 import type { IPty } from 'node-pty';
 import type { WebSocket } from 'ws';
 import { loadAgents } from '../agents.js';
@@ -8,6 +7,7 @@ import { msg } from '../messages.js';
 import { canAcceptNewRun } from '../update-gate.js';
 import { trackChildProcess } from '../child-process-registry.js';
 import { assertExecutorLaunchAllowed } from '../executor-launch-gate.js';
+import { hostExecutionEnvironment, type ExecutionEnvironment } from '../worktree/execution-environment.ts';
 
 /** One running agent PTY and its attached clients. */
 export type AgentRun = {
@@ -33,6 +33,7 @@ export type AgentRunWsHandlerContext = {
   randomSessionId: () => string,
   buildInteractivePtyEnv: (overrides?: Record<string, string>) => NodeJS.ProcessEnv,
   loadAgentsSchedule: () => { schedules?: AgentSchedule[] },
+  executionEnvironment?: ExecutionEnvironment,
 };
 
 /** agentName -> last run timestamp */
@@ -125,7 +126,7 @@ export function handleAgentRunConnection(ws: WebSocket, agentName: string, runId
   let ptyProcess: IPty;
   try {
     assertExecutorLaunchAllowed({ type: 'agent-run', label: agentName });
-    ptyProcess = pty.spawn(ctx.agentCmd, args, {
+    ptyProcess = (ctx.executionEnvironment || hostExecutionEnvironment).spawnPty(undefined, ctx.agentCmd, args, {
       cwd: agentDir,
       name: 'xterm-256color',
       cols: ptyCols,
@@ -181,7 +182,7 @@ export function runAgentInBackground(agentName: string, ctx: AgentRunWsHandlerCo
   args.push('--agent', agentName);
   try {
     assertExecutorLaunchAllowed({ type: 'agent-run', label: agentName });
-    const ptyProcess = pty.spawn(ctx.agentCmd, args, {
+    const ptyProcess = (ctx.executionEnvironment || hostExecutionEnvironment).spawnPty(undefined, ctx.agentCmd, args, {
       cwd: agentDir,
       name: 'xterm-256color',
       cols: 80,
