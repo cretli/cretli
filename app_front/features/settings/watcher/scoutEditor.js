@@ -622,10 +622,15 @@ function setScoutEditorTab(tab) {
   ws.scoutEditorState = { ...ws.scoutEditorState, activeTab: tab };
 }
 
-export function buildScoutBranchOptions(branches = []) {
+/** Per-todo worktree branches (`<namespace>/todo/<uuid>`) are machine-made noise as a scout base. */
+const SCOUT_TASK_BRANCH_PATTERN = /^[^/]+\/todo\/[0-9a-f]{8}-[0-9a-f-]{27}$/i;
+
+export function buildScoutBranchOptions(branches = [], selected = '') {
+  const keep = String(selected || '').trim();
   return [
     { value: 'auto', label: t('settings.watcherScoutBranchAuto'), description: t('settings.watcherScoutBranchAutoDescription') },
     ...(Array.isArray(branches) ? branches : []).map((value) => String(value || '').trim()).filter(Boolean)
+      .filter((value) => value === keep || !SCOUT_TASK_BRANCH_PATTERN.test(value))
       .filter((value, index, values) => values.indexOf(value) === index)
       .map((value) => ({ value, label: value })),
   ];
@@ -634,7 +639,7 @@ export function buildScoutBranchOptions(branches = []) {
 export function hydrateScoutBranchSelect(container) {
   const picker = container.querySelector('[data-scout-editor-branch]');
   if (!picker) return;
-  picker.options = buildScoutBranchOptions(ws.scoutEditorState.branchOptions);
+  picker.options = buildScoutBranchOptions(ws.scoutEditorState.branchOptions, ws.scoutEditorState.draft?.scope?.base);
   picker.value = String(ws.scoutEditorState.draft?.scope?.base || '');
   if (picker.dataset.scoutEditorBranchBound !== 'true') {
     picker.dataset.scoutEditorBranchBound = 'true';

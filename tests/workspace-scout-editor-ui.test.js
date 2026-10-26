@@ -125,6 +125,14 @@ test('category and source checkboxes render explicit draft values, not catalog d
   assert.match(narrowed, /data-scout-editor-toggle="executor\.allowedHarnesses" value="sdk" checked/);
 });
 
+test('branch picker hides per-todo worktree branches but keeps a selected one', () => {
+  const task = 'proj/todo/0a8db6e3-1f5a-40e0-8cf4-d6f34c1b2a77';
+  const other = 'proj/todo/11111111-2222-3333-4444-555555555555';
+  const branches = ['main', 'feature/todo-list', task, other];
+  assert.deepEqual(buildScoutBranchOptions(branches).map((option) => option.value), ['auto', 'main', 'feature/todo-list']);
+  assert.deepEqual(buildScoutBranchOptions(branches, task).map((option) => option.value), ['auto', 'main', 'feature/todo-list', task]);
+});
+
 test('branch picker keeps auto, local branches, and custom refs separate', () => {
   const options = buildScoutBranchOptions(['main', 'release', 'main', '']);
   assert.deepEqual(options.map((option) => option.value), ['auto', 'main', 'release']);
