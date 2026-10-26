@@ -151,6 +151,7 @@ Legacy adapter importuje stary singleton i dostarcza nowym konsumentom kolekcję
 - Rekord rezerwacji zawiera trwałe `attemptId`, `ownerInstance`, `reservedAt`, `startDeadlineAt` (120 s jak deadline startu cyklu, oddzielny od TTL submitu), informację `launchIssued` i `acceptedAt`, oraz przydzielone `chatId`/`requestId` przed przekazaniem startu do harnessu. Efekty zewnętrzne następują po zapisie tożsamości próby. `launchIssued` jest znacznikiem możliwości startu, nie dowodem, że proces istnieje.
 - `reserved`, aktywne i `uncertain` zajmują slot aż do rozliczenia. Przed deadline żywego właściciela nie zwalniać rezerwacji. Po deadline: jeśli potwierdzono śmierć właściciela/brak in-flight próby i nie wydano zewnętrznego startu, oznaczyć `failed` i refundować raz. Sam timeout lub brak `chatId` nie jest takim potwierdzeniem.
 - Po `launchIssued` probe chatu, requestId/runu, procesu i delegacji/review ustala busy/idle/unknown. Busy albo unknown pozostają zajęte; unknown blokuje ponowny start profilu i wymaga reconciliation lub jawnej interwencji. Brak chatu nie wystarczy, jeśli start mógł zostać wydany. Potwierdzony idle/brak procesu bez review zwalnia slot; rozpoczęty, niezakończony skan oznaczyć `interrupted` bez refundu przyjętego startu. Zakończony z poprawnym submit pozostaje `completed`.
+- Wyjątek dla przeterminowanego unknown: launched skan z `chatId`, bez zajętego review, jest po `expiresAt` + 6 h rozliczany jako `interrupted` z `error: stale_launched_unknown`, bez refundu. Busy pozostaje zajęty bez limitu, a przed karencją obowiązuje dotychczasowe zachowanie. Skan bez `chatId` nie jest objęty tym wyjątkiem (zob. powiązane todo b0ccea14).
 - Jeśli zewnętrzny start mógł zostać przyjęty, a odpowiedź/acceptedAt nie dotarły, wynik jest `uncertain`; nie ponawiać automatycznie ani nie refundować tylko na podstawie throw. Kontynuacja po restarcie korzysta z durable attempt, nie tworzy nowej próby, dopóki stara nie jest rozliczona.
 - Expiry odbiera możliwość submit tylko temu scanId, ale zajętość zależy od liveness i review. Reconciliation działa na boot i heartbeat, również przy wyłączonych startach/automatyce, pause i mode off, tak aby drain mógł się zakończyć. Stan błędu probe/store ustawia `statusUnavailable`; nie jest zgodą na restart.
 - `readyForRestart` wymaga globalnego startsEnabled=false, braku rezerwacji/in-flight/unknown/żywych skanów i review oraz dostępnych danych. Nie wyznaczać go wyłącznie z `expiresAt`; używa tego samego predykatu zajętości co scheduler. Minimalna implementacja wsparcia kolekcji jest w kroku 1, komplet lifecycle w kroku 3.
@@ -162,6 +163,7 @@ Legacy adapter importuje stary singleton i dostarcza nowym konsumentom kolekcję
 | Crash rezerwacji bez launchIssued, właściciel martwy, deadline minął | Refund raz | Zwolniony |
 | Start przyjęty, późniejszy błąd lub interrupted | Zużyty | Do potwierdzenia idle i końca review |
 | Timeout/throw po możliwym handoff, busy/unknown | Bez refundu do ustalenia wyniku | Zajęty |
+| Unknown z `chatId`, bez review, po `expiresAt` + 6 h | Budżet zużyty | Zwolniony (`interrupted`) |
 
 ### Krok 2: tryb startu a uprawnienia
 

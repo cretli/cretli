@@ -30,6 +30,7 @@ import {
   markScoutScanUncertain,
   expireStaleActiveScoutScan,
   reconcileScoutScans,
+  WORKSPACE_SCOUT_STALE_LAUNCHED_GRACE_MS,
   resolveScoutScheduleState,
   rollbackScoutScan,
   runWorkspaceWatcherScout,
@@ -569,6 +570,40 @@ runCase('no response after acceptance stays occupied; confirmed idle with no rev
   });
   assert.equal(idle.released, 1);
   assert.equal(getActiveScoutScans(getWorkspaceWatcher(cwd, { dataDir })).length, 0);
+});
+
+runCase('stale unknown launched scan releases after grace without refund', () => {
+  const { cwd, dataDir } = freshWorkspace('stale-unknown');
+  makeWatcher(dataDir, cwd);
+  const expiresAt = Date.parse('2026-06-06T09:00:00.000Z');
+  const now = expiresAt + WORKSPACE_SCOUT_STALE_LAUNCHED_GRACE_MS + 1;
+  seedRow(dataDir, cwd, {
+    activeScoutScans: [{ scanId: 'stale', scoutId: 'p1', status: 'running', launchIssued: true,
+      acceptedAt: '2026-06-06T08:00:00.000Z', chatId: 'chat-stale', expiresAt: new Date(expiresAt).toISOString() }],
+    scoutScans: { day: '2026-06-06', count: 1 },
+  });
+  const summary = reconcileScoutScans(cwd, {
+    dataDir, now,
+    deps: { probeChatRunLiveness: () => ({ known: false, busy: false }), listDelegationsForController: () => [] },
+  });
+  const row = getWorkspaceWatcher(cwd, { dataDir });
+  assert.equal(summary.released, 1);
+  assert.equal(getActiveScoutScans(row).length, 0);
+  assert.equal(row.scoutScans.count, 1);
+  assert.equal(row.scoutScanHistory.at(-1).error, 'stale_launched_unknown');
+});
+
+runCase('stale unknown launched scan with review remains occupied', () => {
+  const { cwd, dataDir } = freshWorkspace('stale-review');
+  makeWatcher(dataDir, cwd);
+  const expiresAt = Date.parse('2026-06-06T09:00:00.000Z');
+  seedRow(dataDir, cwd, { activeScoutScans: [{ scanId: 'stale-review', status: 'running', launchIssued: true,
+    chatId: 'chat-review', expiresAt: new Date(expiresAt).toISOString() }] });
+  const summary = reconcileScoutScans(cwd, { dataDir, now: expiresAt + WORKSPACE_SCOUT_STALE_LAUNCHED_GRACE_MS + 1,
+    deps: { probeChatRunLiveness: () => ({ known: false, busy: false }),
+      listDelegationsForController: () => [{ status: 'running' }], isDelegationSlotOccupied: () => true } });
+  assert.equal(summary.released, 0);
+  assert.equal(getActiveScoutScans(getWorkspaceWatcher(cwd, { dataDir })).length, 1);
 });
 
 runCase('expired-but-busy stays occupied; review delegation keeps the slot', () => {

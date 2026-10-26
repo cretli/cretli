@@ -42,6 +42,8 @@ Scouts are the proactive scanners of the Workspace Watcher. An operator drives
 them with `scout_profiles` (profile configuration), `scout_findings` (proposals)
 and `operator_scout_enable` (workspace-wide on/off switch).
 
+A suspended scan with unknown liveness is released after its grace period; `scout_profiles history` shows `interrupted` with `error: stale_launched_unknown`.
+
 **Procedure for every mutation**
 
 1. `operator_handoff` (add `takeover: true` only for an intentional takeover).
@@ -245,11 +247,12 @@ A leaf with `integration_state: ready` has its patch at
    from indexes made off the same older HEAD silently reverts earlier commits.
 6. **Record it:** `todo_integration {action:"confirm", proof:{simple:true}}`.
    If you amend or rebuild the commit, confirm again (the proof pins the sha).
-   `CONFLICT: ... confirm failed: conflict` means `expected_updated_at` is stale,
-   not that the code differs from the cycle patch: the server writes the todo
-   again about a second after `status: done` (claim release, registry state), so
-   the `updated_at` returned by that `todo_update` is already outdated. Read the
-   fresh value (`todo_list` / `todo_show`) and confirm again; it then succeeds.
+   `CONFLICT: ... confirm failed: stale expected_updated_at` means the supplied
+   CAS value is stale. The error includes the current `updated_at` and, when the
+   requested TODO is a child, the ancestor that owns its worktree. Read that
+   value with `todo_show` and retry; the server may write a TODO again shortly
+   after `status: done`, so the value returned by `todo_update` is not always
+   final.
 7. **Reject instead of forcing:** a patch made on an old base (renamed
    `.js -> .ts` files, rewritten docs, architecture moves) goes back as a new
    todo on the current base with the saved patch as source

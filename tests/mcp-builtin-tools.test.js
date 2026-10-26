@@ -206,6 +206,46 @@ const prepareNoWorktree = await handlersA.todo_integration({ todo_id: todoId, ac
 assert.equal(prepareNoWorktree.isError, true);
 assert.match(prepareNoWorktree.content[0].text, /no_worktree/);
 
+// Integration CAS errors expose the value and target needed for a retry.
+{
+  const originalRecordTodoIntegration = client.recordTodoIntegration;
+  client.recordTodoIntegration = async () => ({
+    ok: false,
+    reason: 'conflict',
+    currentUpdatedAt: '2026-01-02T00:00:00.000Z',
+    targetTodoId: todoId,
+  });
+  const conflict = await handlersA.todo_integration({ todo_id: todoId, action: 'confirm', expected_updated_at: updatedAt, proof: { simple: true } });
+  client.recordTodoIntegration = originalRecordTodoIntegration;
+  assert.equal(conflict.isError, true);
+  assert.match(conflict.content[0].text, /stale expected_updated_at/);
+  assert.equal(conflict.structuredContent.details.current_updated_at, '2026-01-02T00:00:00.000Z');
+  assert.equal(conflict.structuredContent.details.target_todo_id, todoId);
+}
+
+// Known integration reasons have actionable hints; unknown reasons retain the old shape.
+{
+  const originalRecordTodoIntegration = client.recordTodoIntegration;
+  for (const [reason, hint] of [
+    ['material_revision_mismatch', /Do not call prepare again/],
+    ['integration_ready', /use confirm, not no_code/],
+    ['not_done', /status:done/],
+    ['already_integrated', /Nothing needs doing/],
+    ['expected_revision_required', /Provide expected_updated_at/],
+    ['integration_locked', /Another integration is in progress/],
+    ['reason_required', /Provide reason/],
+  ]) {
+    client.recordTodoIntegration = async () => ({ ok: false, reason });
+    const hinted = await handlersA.todo_integration({ todo_id: todoId, action: 'confirm', expected_updated_at: updatedAt });
+    assert.equal(hinted.isError, true);
+    assert.match(hinted.content[0].text, hint);
+  }
+  client.recordTodoIntegration = async () => ({ ok: false, reason: 'busy' });
+  const unknown = await handlersA.todo_integration({ todo_id: todoId, action: 'confirm', expected_updated_at: updatedAt });
+  client.recordTodoIntegration = originalRecordTodoIntegration;
+  assert.match(unknown.content[0].text, /failed: busy$/);
+}
+
 // plan_gate follows the tree: an approved ancestor plan opens a child's gate.
 {
   const workspaceGate = mkdtempSync(path.join(os.tmpdir(), 'mcp-todo-gate-'));
