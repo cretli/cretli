@@ -143,7 +143,15 @@ test('mock: Plan / Agent / Ask dropdown selection, keyboard, persist, and viewpo
   await expect.poll(() => readModeTriggerText(page)).toBe('Plan');
   expect(await isBuildPlanVisible(page)).toBe(true);
 
+  // The mode bar updates optimistically; wait for the persistence request before
+  // reloading, otherwise the browser can abort the in-flight PATCH.
+  const modePersistence = page.waitForResponse((response) => {
+    if (!response.url().includes('/api/chats/') || response.request().method() !== 'PATCH') return false;
+    const payload = response.request().postDataJSON();
+    return payload?.sdkMode === 'ask' && response.ok();
+  });
   await setActiveModeInPane(page, 'ask');
+  await modePersistence;
   await expect.poll(() => readModeTriggerText(page)).toBe('Ask');
   expect(await isBuildPlanVisible(page)).toBe(false);
   const afterAsk = await openModeMenu(page);

@@ -288,7 +288,12 @@ export function createSocketMessageHandler(chat, socket, ctx) {
         const helloModel = typeof msg.modelId === 'string' ? msg.modelId.trim() : '';
         if (helloModel) confirmPendingModelChange(chat, helloModel, 'hello');
         const helloMode = parseExplicitSdkMode(msg.sdkMode) || null;
-        const localMode = normalizeSdkMode(chat.sdkMode || helloMode || 'agent');
+        // The server persists the mode (PATCH on every change), so on connect it is authoritative.
+        // Only a mode the user set moments ago may outrank it; the pane's default 'agent' must not
+        // overwrite a stored 'ask'/'plan' after a reload.
+        const modeUserSetAt = Number(chat._sdkModeUserSetAt);
+        const modeSetRecently = Number.isFinite(modeUserSetAt) && Date.now() - modeUserSetAt < 15000;
+        const localMode = normalizeSdkMode(modeSetRecently ? chat.sdkMode : (helloMode || chat.sdkMode || 'agent'));
         chat.sdkMode = localMode;
         if (typeof onSdkModeChange === 'function') onSdkModeChange(chat, localMode);
         if (helloMode && helloMode !== localMode) {
