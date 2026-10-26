@@ -73,6 +73,51 @@ export async function ensureAuthenticatedPage(page) {
   await expect(page.locator('#chat-panel')).toBeVisible({ timeout: 60_000 });
 }
 
+/**
+ * Makes a fresh e2e data dir look like a configured install, so the mock specs do not
+ * depend on whatever the developer's machine has set up: stubs the Z.AI and OpenCode
+ * status/models endpoints with one model each (the "Z.AI SDK" picker group needs it) and, after login,
+ * dismisses the first-run chat setup and registers the repository as a workspace
+ * (the sidebar "new chat" button only exists for a registered workspace).
+ * Call it instead of ensureAuthenticatedPage in specs that open the new-chat modal.
+ */
+export async function ensureMockNewChatEnvironment(page) {
+  await page.route('**/api/zai/status', (route) => route.fulfill({
+    json: { ok: true, ready: true, zaiApiKeyEffective: true, sdkAvailable: true },
+  }));
+  await page.route('**/api/zai/models*', (route) => route.fulfill({
+    json: { ok: true, models: [{ id: 'glm-mock', name: 'GLM Mock' }] },
+  }));
+  await page.route('**/api/opencode/status*', (route) => route.fulfill({
+    json: { ok: true, opencodeReady: true, opencodeCredentialsEffective: true, healthy: true },
+  }));
+  await page.route('**/api/opencode/models*', (route) => route.fulfill({
+    json: { ok: true, models: [{ id: 'opencode/mock-model', name: 'Mock model' }] },
+  }));
+  await ensureAuthenticatedPage(page);
+  const response = await page.request.patch('/api/settings', {
+    headers: await cretliCsrfHeaders(page.request),
+    data: {
+      firstRunSetupDismissed: true,
+      // OpenCode chats are refused without a key; this one is never sent to a provider.
+      opencodeApiKey: 'sk-e2e-mock-opencode-key',
+      workspaceAddPath: process.cwd(),
+      workspaceAddAs: 'folder',
+    },
+  });
+  expect(response.ok()).toBeTruthy();
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await ensureAuthenticatedPage(page);
+}
+
+/**
+ * Trigger button of a cr-searchable-select. The trigger always renders before the optional
+ * "clear" button, so the first role=button inside the element is unambiguous.
+ */
+export function searchableSelectTrigger(picker) {
+  return picker.getByRole('button').first();
+}
+
 export async function ensureSidebarOpen(page) {
   const sidebar = page.locator('#app-sidebar');
   if (await sidebar.isVisible()) return true;

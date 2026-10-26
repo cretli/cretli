@@ -57,6 +57,46 @@ dependency with a shared browser download?
   so a session running as another user (for example `root`) does not see them,
   and configs without a system fallback fail with "Executable doesn't exist".
 
+### Running the mock e2e locally
+
+The mock specs (`tests/e2e/chat-mock.spec.js`, `new-chat-availability.spec.js`)
+boot their own server from `playwright.config.js`. To run them without touching a
+dev server or your real data, point every directory at a throwaway location:
+
+```bash
+CHAT_E2E_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium \
+CHAT_E2E_PORT=3871 \
+CHAT_E2E_DATA_DIR=/path/to/repo/.tmp/e2e-data-a \
+CHAT_E2E_AUTH_DIR=/path/to/repo/.tmp/e2e-auth-a \
+CHAT_E2E_HOME_DIR=/path/to/repo/.tmp/e2e-home-a \
+  npx playwright test tests/e2e/chat-mock.spec.js --reporter=line
+```
+
+- `CHAT_E2E_PORT`: port of the e2e server (default `3311`); pick a free one.
+- `CHAT_E2E_DATA_DIR`: server data dir (default `.tmp/e2e-data`); keep it away
+  from the real `data/` directory.
+- `CHAT_E2E_AUTH_DIR`: auth/test-data dir (default `.tmp/e2e-auth`).
+- `CHAT_E2E_HOME_DIR`: `HOME` for the server process (default `.tmp/e2e-home`);
+  create it first (`mkdir -p`).
+- `CHAT_E2E_CHROMIUM_EXECUTABLE_PATH`: system Chromium to launch when the
+  Playwright download is not visible to your user.
+
+Gotchas:
+
+- **`reuseExistingServer` trap.** Outside CI the config sets
+  `reuseExistingServer: true`: if anything already listens on
+  `CHAT_E2E_PORT`, Playwright silently tests *that* server, with its data and
+  settings, instead of a clean one. Always use a free port.
+- A fresh data dir has no workspace, no API keys and every harness is "not
+  ready". The mock specs call `ensureMockNewChatEnvironment` (in
+  `tests/e2e/chat-e2e-helpers.js`), which stubs the Z.AI and OpenCode status and
+  model endpoints and seeds a workspace, a placeholder OpenCode key and the
+  dismissed first-run flag. New specs that open the new-chat modal need it too.
+- The front must be built (`npm run build:front`) in the checkout you test; a
+  missing `public/dist/app` renders a blank page.
+- Shell variables such as `CRETLI_BIND=0.0.0.0` leak into the spawned server and
+  make it refuse to start without a password; unset `CRETLI_*` before running.
+
 ## 2. Does the built-in Browser expose a CDP endpoint?
 
 **No.** Evidence in `lib/browser/`:

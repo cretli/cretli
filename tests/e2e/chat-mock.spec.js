@@ -1,14 +1,17 @@
 import { test, expect } from '@playwright/test';
 import {
   ensureAuthenticatedPage,
+  ensureMockNewChatEnvironment,
   ensureSidebarOpen,
+  searchableSelectTrigger,
   setActiveModeInPane,
 } from './chat-e2e-helpers.js';
 
 test.describe.configure({ mode: 'serial' });
 
 test('mock: opens new chat modal with all harness options', async ({ page }) => {
-  await ensureAuthenticatedPage(page);
+  await ensureMockNewChatEnvironment(page);
+  await ensureSidebarOpen(page);
   const sidebarNewChatButton = page.locator('.sidebar-workspace-new-btn').first();
   await expect(sidebarNewChatButton).toHaveCount(1);
   await page.evaluate(() => {
@@ -37,7 +40,7 @@ test('mock: opens new chat modal with all harness options', async ({ page }) => 
   expect(harnessValues).toContain('codex');
   expect(harnessValues).toContain('qwen');
   expect(harnessValues).toContain('claude');
-  await combinedPicker.locator('button').click();
+  await searchableSelectTrigger(combinedPicker).click();
   await expect(page.locator('.cr-searchable-select-modal:not([hidden]) input')).toBeVisible();
   await expect(page.locator('.cr-searchable-select-modal:not([hidden]) .cr-searchable-select-group').filter({ hasText: 'Z.AI SDK' })).toBeVisible();
   await page.keyboard.press('Escape');
@@ -114,7 +117,7 @@ async function createOpenCodeChatFromSidebar(page) {
 }
 
 test('mock: Plan / Agent / Ask dropdown selection, keyboard, persist, and viewports', async ({ page }, testInfo) => {
-  await ensureAuthenticatedPage(page);
+  await ensureMockNewChatEnvironment(page);
   await dismissFirstRunIfPresent(page);
   await createOpenCodeChatFromSidebar(page);
   const modeBar = page.locator('.chat-fullscreen-bar cr-sdk-mode-bar, cr-sdk-mode-bar').first();
