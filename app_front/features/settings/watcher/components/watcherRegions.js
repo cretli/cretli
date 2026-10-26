@@ -14,6 +14,7 @@ import { renderScoutEditorHtml, renderScoutPreviewHtml, renderScoutRestoreHtml, 
 import { renderScoutProfilesHtml } from '../../../watcher/scoutProfilesView.js';
 import { renderWatcherTimelineHtml } from '../../../watcher/watcherTimeline.js';
 import { bindRuntimeToggle, tickWatcherTimes } from '../runtime.js';
+import { bindScoutEditor } from '../scoutEditor.js';
 import { ws } from '../store.js';
 import { renderScoutScheduleHtml, renderWatcherLoadHtml, renderWatcherRuntimeControlHtml, renderWatcherStatusCardHtml, restoreView } from '../views.js';
 import { defineWatcherRegion } from './watcherRegion.js';
@@ -113,7 +114,7 @@ export const CrWatcherScoutEditor = defineWatcherRegion(
     profiles: ws.peek('scoutProfilesState').profiles,
     now: Date.now(),
   })),
-  { trackLanguage: false },
+  { trackLanguage: false, afterRender: (region) => bindScoutEditor(region.panelRoot) },
 );
 
 export const CrWatcherScoutTemplates = defineWatcherRegion(

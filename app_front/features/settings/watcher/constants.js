@@ -128,8 +128,12 @@ export const EMPTY_SCOUT_EDITOR_STATE = {
   dirty: false,
   error: '',
   selectedId: '',
-  /** Kept here, not in the DOM: a repaint rebuilds the `<details>` element. */
-  advancedOpen: false,
+  activeTab: 'general',
+  branchOptions: [],
+  branchWorkspaceFolder: '',
+  branchLoading: false,
+  branchOptionsLoaded: false,
+  branchError: '',
 };
 
 export const CLOCK_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;

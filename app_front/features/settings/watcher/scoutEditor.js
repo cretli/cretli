@@ -4,12 +4,13 @@
 
 import { ws } from './store.js';
 import { t } from '../../../i18n/index.js';
-import { applyDraftEdit, draftFromProfile, draftFromTemplate, scoutEditorAdvancedFieldError, scoutEditorFieldErrors } from '../../watcher/scoutProfileEditorView.js';
+import { applyDraftEdit, draftFromProfile, draftFromTemplate, scoutEditorFieldErrors, scoutEditorTabForField } from '../../watcher/scoutProfileEditorView.js';
 import { nextScoutProfileName } from '../../watcher/scoutProfilesView.js';
 import { watcherApi } from './api.js';
 import { reloadScoutProfiles, setScoutProfilesMessage } from './scoutProfiles.js';
 import { EMPTY_SCOUT_EDITOR_STATE } from './constants.js';
 import { queryFields } from './format.js';
+import { getGitBranches } from '../../../core/api/git.js';
 
 /* -------------------------------------------------------------------------- */
 /* Scout profile editor (stage 5.2)                                           */
@@ -164,8 +165,8 @@ export function applyScoutEditorToggle(toggle, value, checked) {
         ...ws.scoutEditorState.fieldErrors,
         categories: t('settings.watcherScoutFieldErrors_categoriesRequired'),
       },
-      // The inline error lives inside the Advanced section; keep it visible.
-      advancedOpen: true,
+      // The inline error lives inside the Advanced tab; keep it visible.
+      activeTab: 'advanced',
     };
     return;
   }
@@ -493,7 +494,7 @@ export async function runScoutEditorAction(action, scoutId) {
         casConflict: false,
         dirty: true,
         // A rejected Advanced field must reveal the section that owns it.
-        advancedOpen: scoutEditorAdvancedFieldError(fieldErrors) || ws.scoutEditorState.advancedOpen === true,
+        activeTab: scoutEditorFieldErrorTab(fieldErrors),
       };
       return;
     }
@@ -552,6 +553,32 @@ export async function runScoutEditorAction(action, scoutId) {
 export function bindScoutEditor(root) {
   const container = root.querySelector('#watcher-scout-editor');
   if (!container) return;
+  const editorContainer = /** @type {HTMLElement} */ (container);
+  // The region replaces the editor markup on every reactive repaint. Hydrate
+  // the current picker before the one-time delegated listeners guard.
+  hydrateScoutBranchSelect(container);
+  if (editorContainer.dataset.scoutEditorBound === 'true') return;
+  editorContainer.dataset.scoutEditorBound = 'true';
+  container.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target.closest('[data-scout-editor-tab]') : null;
+    if (!target) return;
+    setScoutEditorTab(String(target.getAttribute('data-scout-editor-tab') || 'general'));
+  });
+  container.addEventListener('keydown', (event) => {
+    const target = event.target instanceof Element ? event.target.closest('[data-scout-editor-tab]') : null;
+    if (!target) return;
+    const tabs = [...container.querySelectorAll('[data-scout-editor-tab]')];
+    const current = tabs.indexOf(target);
+    if (current < 0) return;
+    let next = current;
+    if (/** @type {KeyboardEvent} */ (event).key === 'ArrowRight') next = (current + 1) % tabs.length;
+    else if (/** @type {KeyboardEvent} */ (event).key === 'ArrowLeft') next = (current + tabs.length - 1) % tabs.length;
+    else if (/** @type {KeyboardEvent} */ (event).key === 'Home') next = 0;
+    else if (/** @type {KeyboardEvent} */ (event).key === 'End') next = tabs.length - 1;
+    else return;
+    event.preventDefault();
+    setScoutEditorTab(String(tabs[next].getAttribute('data-scout-editor-tab')));
+  });
   container.addEventListener('input', (event) => {
     const target = event.target instanceof Element ? /** @type {any} */ (event.target) : null;
     if (!target) return;
@@ -570,6 +597,10 @@ export function bindScoutEditor(root) {
       ws.scoutEditorState = { ...ws.scoutEditorState, selectedId: String(target.value || '').trim() };
       return;
     }
+    if (target.matches('[data-scout-editor-branch]')) {
+      applyScoutEditorField(root, 'scope.base', target.value);
+      return;
+    }
     const path = target.getAttribute('data-scout-editor-field');
     if (path) {
       applyScoutEditorField(root, path, target.value);
@@ -578,14 +609,50 @@ export function bindScoutEditor(root) {
     const toggle = target.getAttribute('data-scout-editor-toggle');
     if (toggle) applyScoutEditorToggle(toggle, target.value, target.checked === true);
   });
-  // `<details>` fires `toggle`, but the event does not bubble; a capture-phase
-  // listener on the container is the only way to record the open state before a
-  // repaint rebuilds the element.
-  container.addEventListener('toggle', (event) => {
-    const target = event.target instanceof Element ? /** @type {any} */ (event.target) : null;
-    if (!target) return;
-    if (target.matches('details.watcher-scout-editor-advanced')) {
-      ws.setSilent('scoutEditorState', { ...ws.scoutEditorState, advancedOpen: target.open === true });
-    }
-  }, true);
+}
+
+function scoutEditorFieldErrorTab(fieldErrors) {
+  const fields = Object.keys(fieldErrors || {});
+  const order = ['general', 'scope', 'schedule', 'advanced'];
+  return order.find((tab) => fields.some((field) => scoutEditorTabForField(field) === tab)) || 'general';
+}
+
+function setScoutEditorTab(tab) {
+  if (!['general', 'scope', 'schedule', 'advanced'].includes(tab)) return;
+  ws.scoutEditorState = { ...ws.scoutEditorState, activeTab: tab };
+}
+
+export function buildScoutBranchOptions(branches = []) {
+  return [
+    { value: 'auto', label: t('settings.watcherScoutBranchAuto'), description: t('settings.watcherScoutBranchAutoDescription') },
+    ...(Array.isArray(branches) ? branches : []).map((value) => String(value || '').trim()).filter(Boolean)
+      .filter((value, index, values) => values.indexOf(value) === index)
+      .map((value) => ({ value, label: value })),
+  ];
+}
+
+export function hydrateScoutBranchSelect(container) {
+  const picker = container.querySelector('[data-scout-editor-branch]');
+  if (!picker) return;
+  picker.options = buildScoutBranchOptions(ws.scoutEditorState.branchOptions);
+  picker.value = String(ws.scoutEditorState.draft?.scope?.base || '');
+  if (picker.dataset.scoutEditorBranchBound !== 'true') {
+    picker.dataset.scoutEditorBranchBound = 'true';
+    picker.addEventListener('cr-change', (event) => applyScoutEditorField(container, 'scope.base', event.detail?.value || ''));
+  }
+  const folder = String(ws.renderedWorkspaceFolder || '').trim();
+  if (!folder || ws.scoutEditorState.branchWorkspaceFolder === folder || ws.scoutEditorState.branchLoading) return;
+  ws.scoutEditorState = { ...ws.scoutEditorState, branchLoading: true, branchWorkspaceFolder: folder };
+  void getGitBranches({ workspaceFolder: folder }).then((result) => {
+    const options = result?.ok && Array.isArray(result.branches) ? result.branches.map((row) => String(row?.name ?? row ?? '').trim()).filter(Boolean) : [];
+    ws.scoutEditorState = {
+      ...ws.scoutEditorState,
+      branchOptions: options,
+      branchOptionsLoaded: result?.ok === true,
+      branchError: result?.ok ? '' : t('settings.watcherScoutBranchesError'),
+      branchLoading: false,
+    };
+  }).catch(() => {
+    ws.scoutEditorState = { ...ws.scoutEditorState, branchOptions: [], branchOptionsLoaded: false, branchError: t('settings.watcherScoutBranchesError'), branchLoading: false };
+  });
 }

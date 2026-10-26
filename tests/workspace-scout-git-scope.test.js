@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
 import { execScoutGit, describeScoutGitError } from '../lib/workspace-scout-git.js';
-import { buildScoutPreview, collectScoutSignalsForProfile, runWorkspaceWatcherScoutPass, WORKSPACE_SCOUT_MAX_CHANGED_FILES } from '../lib/workspace-watcher-scout.js';
+import { buildScoutPreview, collectScoutSignalsForProfile, resetScoutScopeBackoff, runWorkspaceWatcherScoutPass, WORKSPACE_SCOUT_MAX_CHANGED_FILES } from '../lib/workspace-watcher-scout.js';
 import { runWorkspaceWatcherScoutNow } from '../lib/workspace-watcher-control.js';
 import { getWorkspaceWatcher, upsertWorkspaceWatcher, upsertWorkspaceScoutProfile } from '../lib/persist/workspace-watchers-persist.js';
 import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
@@ -260,6 +260,8 @@ test('manual trigger and scheduler never start a model for errors or empty scope
     const hasError = !scenario.endsWith('empty');
     assert.equal(manual.reason, hasError ? 'scope_error' : 'no_files_in_scope');
     assert.equal(manual.scanned, false);
+    // The manual failure arms the in-memory scope backoff; clear it so the scheduler gets its own attempt.
+    resetScoutScopeBackoff();
     const pass = await runWorkspaceWatcherScoutPass({ workspaceFolders: [cwd], dataDir, deps });
     assert.equal(pass.started, 0);
     assert.equal(pass.errors.length, hasError ? 1 : 0);

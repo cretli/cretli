@@ -865,6 +865,28 @@
   gap: var(--cr-space-2);
 }
 
+.watcher-scout-editor-tabs {
+  display: flex;
+  gap: var(--cr-space-1);
+  overflow-x: auto;
+  margin: var(--cr-space-3) 0;
+  border-bottom: 1px solid var(--cr-border-strong);
+}
+
+.watcher-scout-editor-tabs .cr-tab {
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.watcher-scout-tab-error {
+  margin-left: var(--cr-space-1);
+  color: var(--cr-error);
+}
+
+.watcher-scout-branch-warning {
+  color: var(--cr-warning, var(--cr-error));
+}
+
 .watcher-scout-editor-picker {
   align-items: flex-end;
   flex-wrap: wrap;

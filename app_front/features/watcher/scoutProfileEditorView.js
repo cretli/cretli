@@ -428,6 +428,17 @@ export function scoutEditorAdvancedFieldError(fieldErrors) {
   ));
 }
 
+const SCOUT_EDITOR_TABS = Object.freeze(['general', 'scope', 'schedule', 'advanced']);
+export { SCOUT_EDITOR_TABS };
+
+export function scoutEditorTabForField(field) {
+  const key = asText(field);
+  if (key === 'scope.mode' || key === 'scope.base' || key.startsWith('scope.')) return 'scope';
+  if (key === 'schedule.mode' || key.startsWith('schedule.')) return 'schedule';
+  if (key === 'sources' || key === 'categories' || key.startsWith('executor.') || key.startsWith('limits.')) return 'advanced';
+  return 'general';
+}
+
 /**
  * Human label for a preview provenance badge key (`default` / `template` /
  * `profile`). Unknown keys fall back to the raw key.
@@ -653,7 +664,8 @@ function renderEditorForm(view) {
   // Automatic executor selection owns the mode: the explicit fields are disabled
   // while it is on, so the draft can never carry a value the runner ignores.
   const executorAuto = draft.executor.auto !== false;
-  const advancedOpenAttr = view.advancedOpen === true ? ' open' : '';
+  const activeTabValue = /** @type {any} */ (view).activeTab;
+  const activeTab = SCOUT_EDITOR_TABS.includes(activeTabValue) ? activeTabValue : 'general';
   const dirty = view.dirty === true
     ? `<p class="cr-status watcher-scout-editor-dirty" role="status">${escapeWatcherHtml(t('settings.watcherScoutEditorDirty'))}</p>`
     : '';
@@ -683,6 +695,49 @@ function renderEditorForm(view) {
     label: t(`settings.watcherScoutCategory_${category}`),
   }));
 
+  const tab = (id, key) => `<button id="watcher-scout-tab-button-${id}" type="button" role="tab" class="cr-tab${activeTab === id ? ' is-active' : ''}" tabindex="${activeTab === id ? '0' : '-1'}" aria-selected="${activeTab === id ? 'true' : 'false'}" aria-controls="watcher-scout-tab-${id}" data-scout-editor-tab="${id}">${escapeWatcherHtml(t(key))}${Object.keys(fieldErrors).some((field) => scoutEditorTabForField(field) === id) ? '<span class="watcher-scout-tab-error" aria-label="error">!</span>' : ''}</button>`;
+  const panel = (id, content) => `<section id="watcher-scout-tab-${id}" role="tabpanel" class="watcher-scout-tab-panel" aria-labelledby="watcher-scout-tab-button-${id}"${activeTab === id ? '' : ' hidden'}>${content}</section>`;
+  const general = '<section class="watcher-section">'
+    + `<h5 class="watcher-section-title">${escapeWatcherHtml(t('settings.watcherScoutEditorBasic'))}</h5>`
+    + renderField({ id: 'name', path: 'name', label: t('settings.watcherScoutEditorName'), value: draft.name, fieldErrors })
+    + renderField({ id: 'objective', path: 'objective', label: t('settings.watcherScoutEditorObjective'), value: draft.objective, fieldErrors })
+    + '<div class="cr-field">'
+    + `<label class="cr-field-label" for="watcher-scout-editor-instructions">${escapeWatcherHtml(t('settings.watcherScoutEditorInstructions'))}</label>`
+    + `<textarea id="watcher-scout-editor-instructions" data-scout-editor-field="instructions" rows="5">${escapeWatcherHtml(draft.instructions)}</textarea>`
+    + fieldErrorHtml(fieldErrors, 'instructions') + '</div></section>';
+  const branchView = /** @type {any} */ (view);
+  const branchValue = asText(draft.scope.base);
+  const branchOptions = Array.isArray(branchView.branchOptions) ? branchView.branchOptions : [];
+  const branchLoading = /** @type {any} */ (view).branchLoading === true;
+  const branchWarning = branchView.branchOptionsLoaded === true && branchOptions.length > 0 && branchValue && branchValue !== 'auto' && !branchOptions.includes(branchValue)
+    ? `<p class="cr-hint watcher-scout-branch-warning" role="status">${escapeWatcherHtml(t('settings.watcherScoutBranchMissing'))}</p>` : '';
+  const branchError = asText(branchView.branchError)
+    ? `<p class="cr-hint" role="status">${escapeWatcherHtml(branchView.branchError)}</p>` : '';
+  const scope = '<section class="watcher-section">'
+    + `<h5 class="watcher-section-title">${escapeWatcherHtml(t('settings.watcherScoutEditorScope'))}</h5>`
+    + '<div class="watcher-scout-editor-grid">'
+    + '<div class="cr-field">'
+    + `<label class="cr-field-label" for="watcher-scout-editor-scope-mode">${escapeWatcherHtml(t('settings.watcherScoutEditorScopeMode'))}</label>`
+    + `<select id="watcher-scout-editor-scope-mode" data-scout-editor-field="scope.mode">${scopeModeOptions}</select></div>`
+    + '<div class="cr-field">'
+    + `<label class="cr-field-label">${escapeWatcherHtml(t('settings.watcherScoutEditorScopeBase'))}</label>`
+    + `<cr-searchable-select data-scout-editor-branch aria-label="${escapeWatcherAttr(t('settings.watcherScoutEditorScopeBase'))}"${branchLoading ? ' disabled' : ''}></cr-searchable-select>`
+    + renderField({ id: 'scope-base', path: 'scope.base', label: t('settings.watcherScoutEditorScopeBaseCustom'), value: branchValue, fieldErrors, placeholder: 'main' })
+    + `<p class="cr-hint">${escapeWatcherHtml(t('settings.watcherScoutScopeBaseHelp'))}</p>${branchWarning}${branchError}</div></div>`
+    + renderGlobList({ path: 'scope.include', label: t('settings.watcherScoutEditorInclude'), values: draft.scope.include, addAction: 'add-include', removeAction: 'remove-include', fieldErrors })
+    + renderGlobList({ path: 'scope.exclude', label: t('settings.watcherScoutEditorExclude'), values: draft.scope.exclude, addAction: 'add-exclude', removeAction: 'remove-exclude', fieldErrors }) + '</section>';
+  const schedule = '<section class="watcher-section">'
+    + `<h5 class="watcher-section-title">${escapeWatcherHtml(t('settings.watcherScoutEditorSchedule'))}</h5><div class="watcher-scout-editor-grid">`
+    + `<div class="cr-field"><label class="cr-field-label" for="watcher-scout-editor-schedule-mode">${escapeWatcherHtml(t('settings.watcherScoutEditorScheduleMode'))}</label><select id="watcher-scout-editor-schedule-mode" data-scout-editor-field="schedule.mode">${scheduleModeOptions}</select></div>`
+    + renderField({ id: 'interval-hours', path: 'schedule.intervalHours', label: t('settings.watcherScoutEditorIntervalHours'), value: draft.schedule.intervalHours, type: 'number', min: 1, fieldErrors }) + `</div><label class="cr-check"><input type="checkbox" data-scout-editor-toggle="enabled"${draft.enabled === true ? ' checked' : ''}> ${escapeWatcherHtml(t('settings.watcherScoutAutoScansLabel'))}</label><p class="cr-hint">${escapeWatcherHtml(t('settings.watcherScoutAutoScansHint'))}</p></section>`;
+  const advanced = '<section class="watcher-section">'
+    + renderCheckboxGroup({ legend: t('settings.watcherScoutEditorSources'), toggle: 'sources', options: sourceOptions, selected: draft.sources, fieldErrors })
+    + renderCheckboxGroup({ legend: t('settings.watcherScoutEditorCategories'), toggle: 'categories', options: categoryOptions, selected: draft.categories, errorField: 'categories', fieldErrors })
+    + `<div class="cr-field"><span class="cr-field-label">${escapeWatcherHtml(t('settings.watcherScoutEditorExecutor'))}</span><label class="cr-check"><input type="checkbox" data-scout-editor-toggle="executor.auto"${draft.executor.auto !== false ? ' checked' : ''}> ${escapeWatcherHtml(t('settings.watcherScoutEditorExecutorAuto'))}</label></div>`
+    + '<div class="watcher-scout-editor-grid">' + renderField({ id: 'executor-harness', path: 'executor.harness', label: t('settings.watcherScoutEditorHarness'), value: draft.executor.harness, fieldErrors, disabled: executorAuto }) + renderField({ id: 'executor-model', path: 'executor.model', label: t('settings.watcherScoutEditorModel'), value: draft.executor.model, fieldErrors, disabled: executorAuto }) + '</div>'
+    + `<p class="cr-hint">${escapeWatcherHtml(t('settings.watcherScoutEditorExecutorHint'))}</p>`
+    + renderCheckboxGroup({ legend: t('settings.watcherScoutEditorAllowedHarnesses'), toggle: 'executor.allowedHarnesses', options: allowedHarnessOptions(draft.executor.allowedHarnesses), selected: draft.executor.allowedHarnesses, fieldErrors })
+    + '<div class="watcher-scout-editor-grid">' + renderField({ id: 'limit-max-per-day', path: 'limits.maxPerDay', label: t('settings.watcherScoutEditorMaxPerDay'), value: draft.limits.maxPerDay, type: 'number', min: 0, fieldErrors }) + renderField({ id: 'limit-max-findings', path: 'limits.maxFindingsPerScan', label: t('settings.watcherScoutEditorMaxFindings'), value: draft.limits.maxFindingsPerScan, type: 'number', min: 0, fieldErrors }) + renderField({ id: 'limit-timeout', path: 'limits.timeoutMs', label: t('settings.watcherScoutEditorTimeoutMs'), value: draft.limits.timeoutMs, type: 'number', min: 0, fieldErrors }) + '</div></section>';
   return `<div class="cr-card watcher-form watcher-scout-editor-card" data-scout-editor data-scout-editor-mode="${escapeWatcherAttr(mode)}">`
     + '<div class="watcher-scout-editor-head">'
     + `<h4 class="watcher-section-title">${escapeWatcherHtml(t(titleKey))}</h4>`
@@ -697,104 +752,8 @@ function renderEditorForm(view) {
     + errorSummary
     + dirty
     + templateNote
-    + '<section class="watcher-section">'
-    + `<h5 class="watcher-section-title">${escapeWatcherHtml(t('settings.watcherScoutEditorBasic'))}</h5>`
-    + renderField({ id: 'name', path: 'name', label: t('settings.watcherScoutEditorName'), value: draft.name, fieldErrors })
-    + renderField({ id: 'objective', path: 'objective', label: t('settings.watcherScoutEditorObjective'), value: draft.objective, fieldErrors })
-    + '<div class="cr-field">'
-    + `<label class="cr-field-label" for="watcher-scout-editor-instructions">${escapeWatcherHtml(t('settings.watcherScoutEditorInstructions'))}</label>`
-    + `<textarea id="watcher-scout-editor-instructions" data-scout-editor-field="instructions" rows="5">${escapeWatcherHtml(draft.instructions)}</textarea>`
-    + fieldErrorHtml(fieldErrors, 'instructions')
-    + '</div>'
-    + '</section>'
-    + '<section class="watcher-section">'
-    + `<h5 class="watcher-section-title">${escapeWatcherHtml(t('settings.watcherScoutEditorScope'))}</h5>`
-    + '<div class="watcher-scout-editor-grid">'
-    + '<div class="cr-field">'
-    + `<label class="cr-field-label" for="watcher-scout-editor-scope-mode">${escapeWatcherHtml(t('settings.watcherScoutEditorScopeMode'))}</label>`
-    + `<select id="watcher-scout-editor-scope-mode" data-scout-editor-field="scope.mode">${scopeModeOptions}</select>`
-    + '</div>'
-    + renderField({ id: 'scope-base', path: 'scope.base', label: t('settings.watcherScoutEditorScopeBase'), value: draft.scope.base, fieldErrors, placeholder: 'main' })
-    + `<p class="cr-hint">${escapeWatcherHtml(t('settings.watcherScoutScopeBaseHelp'))}</p>`
-    + '</div>'
-    + renderGlobList({
-      path: 'scope.include',
-      label: t('settings.watcherScoutEditorInclude'),
-      values: draft.scope.include,
-      addAction: 'add-include',
-      removeAction: 'remove-include',
-      fieldErrors,
-    })
-    + renderGlobList({
-      path: 'scope.exclude',
-      label: t('settings.watcherScoutEditorExclude'),
-      values: draft.scope.exclude,
-      addAction: 'add-exclude',
-      removeAction: 'remove-exclude',
-      fieldErrors,
-    })
-    + '</section>'
-    + '<section class="watcher-section">'
-    + `<h5 class="watcher-section-title">${escapeWatcherHtml(t('settings.watcherScoutEditorSchedule'))}</h5>`
-    + '<div class="watcher-scout-editor-grid">'
-    + '<div class="cr-field">'
-    + `<label class="cr-field-label" for="watcher-scout-editor-schedule-mode">${escapeWatcherHtml(t('settings.watcherScoutEditorScheduleMode'))}</label>`
-    + `<select id="watcher-scout-editor-schedule-mode" data-scout-editor-field="schedule.mode">${scheduleModeOptions}</select>`
-    + '</div>'
-    + renderField({
-      id: 'interval-hours',
-      path: 'schedule.intervalHours',
-      label: t('settings.watcherScoutEditorIntervalHours'),
-      value: draft.schedule.intervalHours,
-      type: 'number',
-      min: 1,
-      fieldErrors,
-    })
-    + '</div>'
-    + `<label class="cr-check"><input type="checkbox" data-scout-editor-toggle="enabled"${draft.enabled === true ? ' checked' : ''}> `
-    + `${escapeWatcherHtml(t('settings.watcherScoutAutoScansLabel'))}</label>`
-    + `<p class="cr-hint">${escapeWatcherHtml(t('settings.watcherScoutAutoScansHint'))}</p>`
-    + '</section>'
-    + `<details class="watcher-scout-editor-advanced"${advancedOpenAttr}>`
-    + `<summary>${escapeWatcherHtml(t('settings.watcherScoutEditorAdvanced'))}</summary>`
-    + renderCheckboxGroup({
-      legend: t('settings.watcherScoutEditorSources'),
-      toggle: 'sources',
-      options: sourceOptions,
-      selected: draft.sources,
-      fieldErrors,
-    })
-    + renderCheckboxGroup({
-      legend: t('settings.watcherScoutEditorCategories'),
-      toggle: 'categories',
-      options: categoryOptions,
-      selected: draft.categories,
-      errorField: 'categories',
-      fieldErrors,
-    })
-    + '<div class="cr-field">'
-    + `<span class="cr-field-label">${escapeWatcherHtml(t('settings.watcherScoutEditorExecutor'))}</span>`
-    + `<label class="cr-check"><input type="checkbox" data-scout-editor-toggle="executor.auto"${draft.executor.auto !== false ? ' checked' : ''}> `
-    + `${escapeWatcherHtml(t('settings.watcherScoutEditorExecutorAuto'))}</label>`
-    + '</div>'
-    + '<div class="watcher-scout-editor-grid">'
-    + renderField({ id: 'executor-harness', path: 'executor.harness', label: t('settings.watcherScoutEditorHarness'), value: draft.executor.harness, fieldErrors, disabled: executorAuto })
-    + renderField({ id: 'executor-model', path: 'executor.model', label: t('settings.watcherScoutEditorModel'), value: draft.executor.model, fieldErrors, disabled: executorAuto })
-    + '</div>'
-    + `<p class="cr-hint">${escapeWatcherHtml(t('settings.watcherScoutEditorExecutorHint'))}</p>`
-    + renderCheckboxGroup({
-      legend: t('settings.watcherScoutEditorAllowedHarnesses'),
-      toggle: 'executor.allowedHarnesses',
-      options: allowedHarnessOptions(draft.executor.allowedHarnesses),
-      selected: draft.executor.allowedHarnesses,
-      fieldErrors,
-    })
-    + '<div class="watcher-scout-editor-grid">'
-    + renderField({ id: 'limit-max-per-day', path: 'limits.maxPerDay', label: t('settings.watcherScoutEditorMaxPerDay'), value: draft.limits.maxPerDay, type: 'number', min: 0, fieldErrors })
-    + renderField({ id: 'limit-max-findings', path: 'limits.maxFindingsPerScan', label: t('settings.watcherScoutEditorMaxFindings'), value: draft.limits.maxFindingsPerScan, type: 'number', min: 0, fieldErrors })
-    + renderField({ id: 'limit-timeout', path: 'limits.timeoutMs', label: t('settings.watcherScoutEditorTimeoutMs'), value: draft.limits.timeoutMs, type: 'number', min: 0, fieldErrors })
-    + '</div>'
-    + '</details>'
+    + `<div class="cr-tabs watcher-scout-editor-tabs" role="tablist" aria-label="${escapeWatcherAttr(t('settings.watcherScoutEditorTabs'))}">${tab('general', 'settings.watcherScoutTabGeneral')}${tab('scope', 'settings.watcherScoutTabScope')}${tab('schedule', 'settings.watcherScoutTabSchedule')}${tab('advanced', 'settings.watcherScoutTabAdvanced')}</div>`
+    + panel('general', general) + panel('scope', scope) + panel('schedule', schedule) + panel('advanced', advanced)
     + '</div>';
 }
 

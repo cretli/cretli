@@ -26,9 +26,11 @@ import {
   renderScoutPreviewHtml,
   renderScoutRestoreHtml,
   renderScoutTemplatesHtml,
+  scoutEditorTabForField,
   scoutEditorAdvancedFieldError,
   scoutEditorFieldErrors,
 } from '../app_front/features/watcher/scoutProfileEditorView.js';
+import { buildScoutBranchOptions } from '../app_front/features/settings/watcher/scoutEditor.js';
 import { en } from '../app_front/i18n/en.js';
 import { pl } from '../app_front/i18n/pl.js';
 import { readWatcherSettingsSource } from './helpers/watcher-settings-source.js';
@@ -121,6 +123,49 @@ test('category and source checkboxes render explicit draft values, not catalog d
     mode: 'edit',
   });
   assert.match(narrowed, /data-scout-editor-toggle="executor\.allowedHarnesses" value="sdk" checked/);
+});
+
+test('branch picker keeps auto, local branches, and custom refs separate', () => {
+  const options = buildScoutBranchOptions(['main', 'release', 'main', '']);
+  assert.deepEqual(options.map((option) => option.value), ['auto', 'main', 'release']);
+  assert.equal(options[0].description, 'auto: main → master → HEAD');
+
+  const custom = renderScoutEditorHtml({
+    draft: draft({ scope: { mode: 'area', base: 'deadbeef', include: [], exclude: [] } }),
+    mode: 'edit',
+    branchOptions: ['main', 'release'],
+    branchOptionsLoaded: true,
+  });
+  assert.match(custom, /data-scout-editor-field="scope\.base"[^>]+value="deadbeef"/);
+  assert.match(custom, /watcher-scout-branch-warning/);
+
+  const empty = renderScoutEditorHtml({
+    draft: draft(),
+    mode: 'edit',
+    branchOptions: [],
+    branchOptionsLoaded: true,
+  });
+  assert.doesNotMatch(empty, /watcher-scout-branch-warning/);
+  assert.equal(scoutEditorTabForField('scope.base'), 'scope');
+  assert.equal(scoutEditorTabForField('schedule.intervalHours'), 'schedule');
+  assert.equal(scoutEditorTabForField('limits.timeoutMs'), 'advanced');
+});
+
+test('sub-tabs expose keyboard/a11y relationships and only the active panel is visible', () => {
+  for (const tab of ['general', 'scope', 'schedule', 'advanced']) {
+    const html = renderScoutEditorHtml({ draft: draft(), mode: 'edit', activeTab: tab });
+    assert.match(html, new RegExp(`id="watcher-scout-tab-button-${tab}"[^>]+role="tab"[^>]+tabindex="0"[^>]+aria-selected="true"`));
+    assert.match(html, new RegExp(`id="watcher-scout-tab-${tab}"[^>]+role="tabpanel"[^>]+aria-labelledby="watcher-scout-tab-button-${tab}"`));
+    for (const other of ['general', 'scope', 'schedule', 'advanced'].filter((value) => value !== tab)) {
+      assert.match(html, new RegExp(`id="watcher-scout-tab-${other}"[^>]+hidden`));
+    }
+  }
+  assert.match(settingsSource, /ArrowRight/);
+  assert.match(settingsSource, /ArrowLeft/);
+  assert.match(settingsSource, /hydrateScoutBranchSelect\(container\)/);
+  const regionsSource = readSource('app_front/features/settings/watcher/components/watcherRegions.js');
+  assert.match(regionsSource, /afterRender: \(region\) => bindScoutEditor\(region\.panelRoot\)/);
+  assert.match(settingsSource, /dataset\.scoutEditorBound/);
 });
 
 test('the preview separates the agent transport from the host read-only policy', () => {
@@ -292,19 +337,18 @@ test('an explicit harness or model is unreachable while automatic selection is o
   assert.match(settingsSource, /'executor\.model', ''/);
 });
 
-test('the advanced section keeps its open state across a repaint', () => {
+test('the editor renders persistent sub-tabs across a repaint', () => {
   const closed = renderScoutEditorHtml({ draft: draft(), mode: 'edit' });
-  assert.match(closed, /<details class="watcher-scout-editor-advanced">/, 'the section starts collapsed');
-  const open = renderScoutEditorHtml({ draft: draft(), mode: 'edit', advancedOpen: true });
-  assert.match(open, /<details class="watcher-scout-editor-advanced" open>/, 'the open state drives the attribute');
-  // `<details>` `toggle` does not bubble, so the panel must observe it in the
-  // capture phase; an inline `on-toggle` attribute would be dead code.
-  assert.match(settingsSource, /addEventListener\('toggle'[\s\S]{0,600}?\}, true\)/);
-  assert.match(settingsSource, /advancedOpen: target\.open === true|advancedOpen: true/);
-  assert.doesNotMatch(settingsSource, /on-toggle/);
+  assert.match(closed, /role="tablist"/);
+  assert.match(closed, /data-scout-editor-tab="general"/);
+  assert.match(closed, /data-scout-editor-tab="scope"/);
+  const open = renderScoutEditorHtml({ draft: draft(), mode: 'edit', activeTab: 'advanced' });
+  assert.match(open, /aria-selected="true"[^>]+data-scout-editor-tab="advanced"/);
+  assert.match(open, /id="watcher-scout-tab-advanced" role="tabpanel" class="watcher-scout-tab-panel"/);
+  assert.match(settingsSource, /data-scout-editor-tab/);
 });
 
-test('an advanced-field validation error opens the section and shows a summary', () => {
+test('an advanced-field validation error selects its tab and shows a summary', () => {
   assert.equal(scoutEditorAdvancedFieldError({ 'limits.maxPerDay': 'x' }), true);
   assert.equal(scoutEditorAdvancedFieldError({ categories: 'x' }), true);
   assert.equal(scoutEditorAdvancedFieldError({ 'executor.harness': 'x' }), true);
@@ -316,7 +360,7 @@ test('an advanced-field validation error opens the section and shows a summary',
     draft: draft(),
     mode: 'edit',
     fieldErrors: { name: 'Name is required.', 'limits.maxPerDay': 'Too high.' },
-    advancedOpen: true,
+    activeTab: 'advanced',
   });
   assert.ok(html.includes('data-scout-editor-errors'), 'the summary renders');
   assert.match(html, /data-tone="error"/);
@@ -324,9 +368,9 @@ test('an advanced-field validation error opens the section and shows a summary',
   assert.match(html, /data-scout-error-field="limits\.maxPerDay"/);
   assert.match(html, /Too high\./);
   const summaryAt = html.indexOf('data-scout-editor-errors');
-  const detailsAt = html.indexOf('<details');
-  assert.ok(summaryAt >= 0 && detailsAt >= 0 && summaryAt < detailsAt, 'the summary sits above the advanced section');
-  assert.match(settingsSource, /scoutEditorAdvancedFieldError/);
+  const panelAt = html.indexOf('id="watcher-scout-tab-advanced"');
+  assert.ok(summaryAt >= 0 && panelAt >= 0 && summaryAt < panelAt, 'the summary sits above the advanced tab');
+  assert.match(settingsSource, /activeTab: scoutEditorFieldErrorTab\(fieldErrors\)/);
 });
 
 test('PL and EN define every new Scout editor key', () => {
