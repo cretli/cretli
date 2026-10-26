@@ -2466,6 +2466,7 @@
             <label class="cr-check"><input type="checkbox" id="browser-policy-private-network" /> <span data-i18n="settings.browserAllowPrivateNetwork">Allow private/LAN addresses</span></label>
             <label class="cr-check"><input type="checkbox" id="browser-policy-insecure-tls" /> <span data-i18n="settings.browserAllowInsecureTls">Accept local HTTPS certificates (debug)</span></label>
             <label class="cr-check"><input type="checkbox" id="browser-policy-self-origin" /> <span data-i18n="settings.browserAllowSelfOrigin">Allow Browser to open Cretli's own origin (debug)</span></label>
+            <label class="cr-check"><input type="checkbox" id="browser-policy-external-browser" /> <span data-i18n="settings.browserAllowExternalBrowser">Allow Cretli to control my external Chrome profile for this workspace</span></label>
           </div>
           <div class="cr-row browser-policy-save-row">
             <button type="button" id="browser-policy-self-origin-save" class="lan-save-btn-inline" data-i18n="settings.browserAllowSelfOriginSave">Save browser policy</button>
@@ -2676,6 +2677,7 @@
         </div>
       </div>
       <div id="browser-unavailable" class="browser-unavailable" hidden></div>
+      <div id="browser-external-warning" class="browser-unavailable" hidden></div>
       <div id="browser-body" class="browser-body" hidden>
         <div class="browser-side">
           <div class="browser-side-heading" data-i18n="browser.sessionsAria">Browser sessions</div>

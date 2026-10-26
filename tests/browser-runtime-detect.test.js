@@ -13,6 +13,7 @@ import {
   detectBrowserRuntime,
   isTermuxHost,
   resolveSystemChromiumPath,
+  resolveCdpEndpoint,
 } from '../lib/browser/runtime-detect.js';
 
 test('Termux/Android hosts are unsupported', async () => {
@@ -192,5 +193,101 @@ test('Chromium launch env strips CODEX_SESSION_ID/CODEX_THREAD_ID', async () => 
     delete process.env.CODEX_SESSION_ID;
     delete process.env.CODEX_THREAD_ID;
     delete process.env.CRETLI_BROWSER_ENV_KEEP;
+  }
+});
+
+test('external CDP validates DNS and rewrites the websocket to the verified IP', async () => {
+  let probedUrl = '';
+  let probeOptions;
+  const resolved = await resolveCdpEndpoint('http://chrome.test:9222', {
+    allowlist: 'chrome.test',
+    lookup: async () => [{ address: '192.168.1.20' }],
+    fetch: async (url, options) => {
+      probedUrl = String(url);
+      probeOptions = options;
+      return { ok: true, json: async () => ({ Browser: 'Chrome/1', webSocketDebuggerUrl: 'ws://public.example:9999/devtools/browser/id' }) };
+    },
+  });
+  assert.match(probedUrl, /^http:\/\/192\.168\.1\.20:9222\/json\/version$/);
+  assert.equal(probeOptions.redirect, 'error');
+  assert.ok(probeOptions.signal);
+  assert.equal(resolved.endpoint, 'ws://192.168.1.20:9222/devtools/browser/id');
+  await assert.rejects(
+    () => resolveCdpEndpoint('http://user:pass@127.0.0.1:9222', { fetch: async () => ({}) }),
+    /without credentials/,
+  );
+  await assert.rejects(
+    () => resolveCdpEndpoint('http://public.test:9222', { allowlist: 'public.test', lookup: async () => [{ address: '8.8.8.8' }] }),
+    /private, link-local, or loopback/,
+  );
+  await assert.rejects(
+    () => resolveCdpEndpoint('http://169.254.169.254:9222', { fetch: async () => ({}) }),
+    /private, link-local, or loopback/,
+  );
+  await assert.rejects(
+    () => resolveCdpEndpoint('http://[fd00:ec2::254]:9222', { fetch: async () => ({}) }),
+    /private, link-local, or loopback/,
+  );
+  const privateIpv6 = await resolveCdpEndpoint('http://[fd00::1]:9222', {
+    fetch: async () => ({ ok: true, json: async () => ({ webSocketDebuggerUrl: 'ws://[fd00::2]:1/devtools/browser/id' }) }),
+  });
+  assert.equal(privateIpv6.endpoint, 'ws://[fd00::1]:9222/devtools/browser/id');
+  await assert.rejects(
+    () => resolveCdpEndpoint('ws://127.0.0.1:9222', { fetch: async () => ({}) }),
+    /must be an http\(s\) URL/,
+  );
+  let httpsProbe = '';
+  await resolveCdpEndpoint('https://127.0.0.1:9443', {
+    fetch: async (url) => {
+      httpsProbe = String(url);
+      return { ok: true, json: async () => ({ webSocketDebuggerUrl: 'wss://profile.invalid:1/devtools/browser/id' }) };
+    },
+  });
+  assert.match(httpsProbe, /^https:\/\/127\.0\.0\.1:9443\/json\/version$/);
+  await assert.rejects(
+    () => resolveCdpEndpoint('http://127.0.0.1:9222', {
+      timeoutMs: 1,
+      fetch: (_url, options) => new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(new Error('aborted')))),
+    }),
+    /aborted/,
+  );
+  await assert.rejects(
+    () => resolveCdpEndpoint('http://127.0.0.1:9222', {
+      fetch: async () => ({ ok: true, headers: { 'content-length': String(2 * 1024 * 1024) } }),
+    }),
+    /response is too large/,
+  );
+});
+
+test('CDP runtime is available without probing or launching a local Chromium binary', async () => {
+  let launched = false;
+  const fake = { chromium: { executablePath: () => { throw new Error('must not probe'); }, connectOverCDP: async () => ({}) } };
+  const result = await detectBrowserRuntime({
+    platform: 'linux',
+    env: { CRETLI_BROWSER_CDP_URL: 'http://127.0.0.1:9222' },
+    importModule: async () => fake,
+    fetch: async () => ({ ok: true, json: async () => ({ webSocketDebuggerUrl: 'ws://127.0.0.1:9222/devtools/browser/id' }) }),
+    fileExists: () => { launched = true; return false; },
+  });
+  assert.equal(result.mode, 'external-cdp');
+  assert.equal(result.connected, 'unknown');
+  assert.equal(launched, false);
+});
+
+test('CDP runtime refuses proxy and required network boundaries', async () => {
+  for (const mode of ['proxy', 'required']) {
+    let imported = false;
+    const result = await detectBrowserRuntime({
+      env: {
+        CRETLI_BROWSER_CDP_URL: 'http://127.0.0.1:9222',
+        CRETLI_BROWSER_NETWORK_BOUNDARY: mode,
+        CRETLI_BROWSER_PROXY_SERVER: 'http://proxy.internal:3128',
+      },
+      importModule: async () => { imported = true; return { chromium: {} }; },
+    });
+    assert.equal(result.available, false);
+    assert.equal(result.status, BROWSER_RUNTIME_STATUS.UNAVAILABLE);
+    assert.match(result.reason, /cannot enforce/);
+    assert.equal(imported, true);
   }
 });

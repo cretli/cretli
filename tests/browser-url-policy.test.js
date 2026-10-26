@@ -304,15 +304,19 @@ test('policy store persists per-workspace policy', () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'cretli-browser-policy-'));
   try {
     assert.deepEqual(getWorkspacePolicy(dir, '/ws/a').allowedOrigins, []);
+    assert.equal(getWorkspacePolicy(dir, '/ws/a').allowExternalBrowser, false);
     setWorkspacePolicy(dir, '/ws/a', {
       allowedOrigins: ['https://example.com', 'not a url'],
       unblockedPorts: [6379],
+      allowExternalBrowser: true,
     });
     const policy = getWorkspacePolicy(dir, '/ws/a');
     assert.deepEqual(policy.allowedOrigins, ['https://example.com']);
     assert.deepEqual(policy.unblockedPorts, [6379]);
+    assert.equal(policy.allowExternalBrowser, true);
     // Other workspaces stay default-deny.
     assert.deepEqual(getWorkspacePolicy(dir, '/ws/b').allowedOrigins, []);
+    assert.equal(getWorkspacePolicy(dir, '/ws/b').allowExternalBrowser, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

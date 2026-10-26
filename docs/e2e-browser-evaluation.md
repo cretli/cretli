@@ -97,33 +97,38 @@ Gotchas:
 - Shell variables such as `CRETLI_BIND=0.0.0.0` leak into the spawned server and
   make it refuse to start without a password; unset `CRETLI_*` before running.
 
-## 2. Does the built-in Browser expose a CDP endpoint?
+## 2. External Chrome over CDP
 
-**No.** Evidence in `lib/browser/`:
+The default Browser remains headless, but `CRETLI_BROWSER_CDP_URL` enables an
+external user-owned Chrome profile. The runtime probes an HTTP(S) endpoint through
+`/json/version`, rejects credentials, requires loopback/private/link-local DNS
+answers (or an explicitly allowlisted hostname with the same restriction), and
+connects to the verified literal IP. `ws://`/`wss://` is accepted only as the
+websocket returned by `/json/version`; the input endpoint must be HTTP(S), so
+the probe cannot silently lose HTTPS semantics.
+Attaching to the profile requires `allowExternalBrowser` in the current workspace's
+Browser policy (default off). CDP is unavailable with the `proxy` or `required`
+network boundary because the external browser cannot be forced through Cretli's proxy.
 
-- `runtime-detect.js` launches with `chromium.launch(...)`, which talks to
-  Chromium over an internal pipe. No `--remote-debugging-port`, no
-  `launchServer`, no `browserServer.wsEndpoint()`.
-- A repository-wide search finds no `remote-debugging`, `launchServer` or
-  `connectOverCDP`. CDP is used only **in-process** through
-  `context.newCDPSession(page)` for the debugger (`debugger.js`) and
-  screencast (`screencast.js`); those sessions are never reachable from
-  outside.
-- `/ws-browser` is a Cretli-protocol channel (JSON/binary frames for
-  screencast and input), not a CDP proxy.
-
-So a Playwright runner cannot `connectOverCDP` today. Adding it would be a new
-feature, not a configuration switch. (Servers were not launched for this check.)
+External sessions reuse the first context but never adopt or route unrelated
+user tabs. Only pages created by Cretli receive page-level SSRF and local-login
+routing, CDP service-worker bypass and WebSocket policy; popups from those pages
+are closed, while the external browser/context is never closed. HTTPS probes use
+the verified IP for TLS, so its certificate must cover that IP; validation is not
+disabled. Launch-only resolver/WebRTC flags cannot be injected into external
+Chrome, leaving WebRTC/TURN as a documented residual risk. The API exposes
+`runtime.mode: "external-cdp"` and `runtime.connected`; `/ws-browser` remains a
+Cretli protocol, not a CDP proxy.
 
 ## 3. Options compared
 
 | | 1. Keep split + one resolver | 2. Expose CDP from the built-in Browser | 3. Add Playwright dep + shared browsers path |
 |---|---|---|---|
-| What | One shared `resolveChromiumExecutable()` (env, pinned Playwright, system) used by every config | New launch mode with a debugging port / `launchServer`, runner uses `connectOverCDP` | Ship browsers in a user-independent `PLAYWRIGHT_BROWSERS_PATH` |
+| What | One shared `resolveChromiumExecutable()` (env, pinned Playwright, system) used by every config | Opt-in external Chrome endpoint validated by Cretli, then `connectOverCDP` | Ship browsers in a user-independent `PLAYWRIGHT_BROWSERS_PATH` |
 | Effort | Small (about 0.5 day): extract helper (e.g. `lib/` or `scripts/`), import from 6 configs, add a unit test | Large (about 2-4 weeks): endpoint lifecycle, auth, per-test context isolation, fixtures, tests, docs | Small-medium (about 1 day) for path + install script and docs |
 | Cost | No new code paths at runtime, no download | Ongoing maintenance of a second Browser mode; CDP semantics differ from launching (no per-test launch options, tracing/video limits, `connectOverCDP` fidelity is lower than `launch`) | `playwright-core` is already a dependency, so there is **no new package**; cost is a few hundred MB of disk and keeping browser revisions matched with two Playwright versions (core `1.63.0` vs test `1.62.1` already differ, see CI comment) |
 | Risk | Low; still two Chromium builds possible (system vs pinned) so rare UI differences | High; e2e would depend on the product Browser state, crash recovery, policy/egress limits and relaunch logic, making tests flaky and coupling product and test lifecycles | Low-medium; revision mismatch (the 1.62.1 vs 1.63.0 problem), shared dir permissions |
-| Security | No change | **Worst.** A CDP port gives full control of the browser, bypassing the SSRF policy (`context.route`), `allowSelfOrigin` gating, profile/context isolation and the agent vs operator split. Would need loopback-only bind, per-run token, and a policy to keep agents away. Sharing the profile between preview and tests risks leaking sessions and local-login credentials | Neutral; a shared writable browsers dir should be read-only for non-owners (supply-chain integrity) |
+| Security | No change | High but bounded by endpoint DNS/IP validation, page-level SSRF routing, local-login scoping, one-session exclusivity and no unrelated-tab adoption. The user must still protect the Chrome debugging endpoint. | Neutral; a shared writable browsers dir should be read-only for non-owners (supply-chain integrity) |
 | CI impact | None (CI already installs Chromium) | CI would need to start the Browser mode inside the test server and wait for it; larger change to every workflow | None if CI keeps its default cache install; only local/multi-user hosts change |
 | Fixes the reported symptom | Yes, if the resolver also covers the user-independent path | Yes, but disproportionately | Yes, for hosts that run the install once |
 
@@ -132,15 +137,14 @@ Notes:
 - The "no new dependency" rule from the todo is largely moot for option 3:
   Playwright (core and test) is already in `package.json`. What would be new is
   an operational convention (shared download location), not a package.
-- Option 2 conflicts with the product's security model: the built-in Browser is
-  deliberately sandboxed by URL policy and per-workspace contexts, whereas e2e
-  needs unrestricted navigation to its own isolated test server (effectively
-  `allowSelfOrigin` permanently on) and per-test fresh contexts.
+- Option 2 is intentionally not the default e2e path: the external profile is
+  user-owned and shared, while e2e still needs isolated contexts and fixtures.
 
 ## 4. Recommendation
 
-**Choose option 1 now, optionally combined with the operational part of
-option 3. Do not pursue option 2.**
+**Choose option 1 for the default isolated e2e path. External CDP is an opt-in
+product runtime feature for a user-owned Chrome profile, not a replacement for
+isolated e2e browser startup.**
 
 1. Extract a single `resolveChromiumExecutable()` and use it from
    `playwright.config.js`, `tests/ui-smoke/playwright.config.js`,

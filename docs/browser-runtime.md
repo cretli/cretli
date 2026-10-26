@@ -49,6 +49,8 @@ rather than a Playwright cache path.
 | `CRETLI_BROWSER_ALLOW_NO_SANDBOX` | (unset); `1` enables | Only switch that lets Cretli pass `--no-sandbox` to Chromium (see the **Docker** section). |
 | `CRETLI_BROWSER_NETWORK_BOUNDARY` | `mvp-defense-in-depth` (default) \| `proxy` \| `required` | Which egress boundary must be satisfied before a session may start. |
 | `CRETLI_BROWSER_PROXY_SERVER` | (unset) | The proxy Cretli hands to Playwright. Required by the `proxy` and `required` boundary modes. |
+| `CRETLI_BROWSER_CDP_URL` | (unset) | Opt-in external Chrome/Chromium CDP endpoint. When unset, the existing headless launch path is unchanged. |
+| `CRETLI_BROWSER_CDP_ALLOWLIST` | (unset) | Comma-separated hostnames allowed for CDP; each DNS answer must still be private, link-local, or loopback. |
 
 Browser *capacity* and *respawn* knobs (`lib/browser/lifecycle.js`), the screencast flag
 and the multi-instance switch live in their own documents — see
@@ -64,6 +66,28 @@ and the multi-instance switch live in their own documents — see
 | `available` | Driver and a Chromium binary resolved, boundary configured. May still carry `sandboxWarning` (see the **Docker** section). | Nothing. If `sandboxWarning` is set, decide explicitly between a non-root container and `CRETLI_BROWSER_ALLOW_NO_SANDBOX=1`. |
 | `browser-unavailable` | Playwright package failed to import — `reason` starts with `Playwright runtime is not installed (`; or the boundary mode is unsatisfied — `reason` names the offending variable; or no Chromium binary exists at any probe path — see the missing-binary reasons in the **Installing Chromium** section. | Follow `reason`: install the missing binary (see the **Installing Chromium** section), or fix the boundary env (see the **Limited egress** section). |
 | `unsupported-platform` | The host is Termux/Android, detected before any package or binary probe. Chromium is **deliberately not supported** as a Termux host — this is a platform decision, not a missing download. | Do not install Chromium and retry; it cannot change the verdict. Use the widget path instead (see the **Termux (Android)** section). |
+
+## External Chrome over CDP
+
+Set `CRETLI_BROWSER_CDP_URL` to use a real user-owned Chrome profile (for example
+`http://127.0.0.1:9222`). Cretli probes `/json/version`, rejects credentials and
+public DNS answers, then connects with `connectOverCDP`. A hostname must be
+`localhost` or appear in `CRETLI_BROWSER_CDP_ALLOWLIST`; all of its DNS answers
+must resolve only to private, link-local, or loopback addresses. The API reports
+`runtime.mode: "external-cdp"` and `runtime.connected` (`unknown`, `true`, or
+`false`). One Cretli session is allowed at a time. The external browser is connected
+only after the current workspace explicitly enables
+`allowExternalBrowser` in Browser policy (default `false`). With
+`CRETLI_BROWSER_NETWORK_BOUNDARY=proxy` or `required`, CDP is unavailable because
+the external Chrome cannot be forced through Cretli's proxy. Existing user tabs and
+the external browser/context are never closed; only the Cretli-created tab is routed
+and closed. HTTPS probes connect to the verified literal IP, so the certificate
+must be valid for that IP (the HTTP `Host` header does not change TLS
+verification); Cretli does not disable certificate validation. Owned pages also
+receive WebSocket routing and a CDP service-worker bypass. External Chrome cannot
+receive Cretli's launch-only resolver/WebRTC flags, so WebRTC/TURN remains a
+documented residual risk; ordinary HTTP(S), redirects, subresources, iframes and
+owned-page WebSockets remain subject to the URL policy.
 
 ## Installing Chromium
 

@@ -253,11 +253,12 @@ export function initBrowserSelfOriginSetting() {
   const checkbox = document.getElementById('browser-policy-self-origin');
   const privateNetwork = document.getElementById('browser-policy-private-network');
   const insecureTls = document.getElementById('browser-policy-insecure-tls');
+  const externalBrowser = document.getElementById('browser-policy-external-browser');
   const originsInput = document.getElementById('browser-policy-allowed-origins');
   const saveBtn = document.getElementById('browser-policy-self-origin-save');
   const status = document.getElementById('browser-policy-self-origin-status');
   const workspaceHint = document.getElementById('browser-policy-workspace');
-  if (!checkbox || !privateNetwork || !insecureTls || !originsInput || !saveBtn || !status) return;
+  if (!checkbox || !privateNetwork || !insecureTls || !externalBrowser || !originsInput || !saveBtn || !status) return;
 
   // The policy is per workspace; name the one being edited so it is never
   // mistaken for the policy of another tab or of the global selection.
@@ -281,6 +282,7 @@ export function initBrowserSelfOriginSetting() {
     checkbox.checked = result?.policy?.allowSelfOrigin === true;
     privateNetwork.checked = result?.policy?.allowPrivateNetwork === true;
     insecureTls.checked = result?.policy?.allowInsecureTls === true;
+    externalBrowser.checked = result?.policy?.allowExternalBrowser === true;
     originsInput.value = Array.isArray(result?.policy?.allowedOrigins)
       ? result.policy.allowedOrigins.join('\n')
       : '';
@@ -307,6 +309,7 @@ export function initBrowserSelfOriginSetting() {
         allowSelfOrigin: checkbox.checked,
         allowPrivateNetwork: privateNetwork.checked,
         allowInsecureTls: insecureTls.checked,
+        allowExternalBrowser: externalBrowser.checked,
         allowedOrigins: origins,
       });
       // Show what the server actually stored (normalized, deduplicated).

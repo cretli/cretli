@@ -192,6 +192,7 @@ const BROWSER_ERROR_CODES = Object.freeze(new Set([
   'auth-required',
   'browser-error',
   'browser-unavailable',
+  'external-browser-consent-required',
   'chat-bind-conflict',
   'confirmation-required',
   'dialog-action-invalid',
@@ -264,8 +265,13 @@ function errorText(err) {
  */
 function renderAvailability() {
   const banner = document.getElementById('browser-unavailable');
+  const externalWarning = document.getElementById('browser-external-warning');
   const body = document.getElementById('browser-body');
   const available = state.runtime?.available === true;
+  if (externalWarning) {
+    externalWarning.hidden = !available || state.runtime?.mode !== 'external-cdp';
+    externalWarning.textContent = externalWarning.hidden ? '' : t('browser.externalWarning');
+  }
   if (!banner || !body) return !available;
   if (available) {
     banner.hidden = true;

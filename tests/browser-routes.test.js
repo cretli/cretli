@@ -228,6 +228,7 @@ test('policy endpoint is default-deny, plan-guarded for writes and persists', as
     const owner = { 'x-test-owner': 'owner-a' };
     const initial = await (await fetch(`${ctx.base}/api/browser/policy`, { headers: owner })).json();
     assert.deepEqual(initial.policy.allowedOrigins, []);
+    assert.equal(initial.policy.allowExternalBrowser, false);
 
     const planWrite = await fetch(`${ctx.base}/api/browser/policy?mode=plan`, {
       method: 'PUT',
@@ -239,12 +240,13 @@ test('policy endpoint is default-deny, plan-guarded for writes and persists', as
     const write = await fetch(`${ctx.base}/api/browser/policy?mode=agent`, {
       method: 'PUT',
       headers: { ...owner, 'content-type': 'application/json' },
-      body: JSON.stringify({ allowedOrigins: ['https://news.test'], unblockedPorts: [6379] }),
+      body: JSON.stringify({ allowedOrigins: ['https://news.test'], unblockedPorts: [6379], allowExternalBrowser: true }),
     });
     assert.equal(write.status, 200);
     const updated = await (await fetch(`${ctx.base}/api/browser/policy`, { headers: owner })).json();
     assert.deepEqual(updated.policy.allowedOrigins, ['https://news.test']);
     assert.deepEqual(updated.policy.unblockedPorts, [6379]);
+    assert.equal(updated.policy.allowExternalBrowser, true);
   } finally {
     await ctx.close();
   }
