@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chat and agents</title>
+<meta name="description" content="Configure harnesses, choose a model, and run agents from the Cretli chat.">
+<link rel="canonical" href="https://cretli.com/docs/chat-and-agents.html">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">Menu</button>
+  <a class="brand" href="index.html">Cretli docs</a>
+  <input class="search" type="search" placeholder="Search docs" aria-label="Search docs" hidden>
+  <button class="theme-toggle" type="button" aria-label="Toggle light and dark theme">Theme</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Documentation">
+    <ul class="search-results" hidden></ul>
+    <ul>
+      <li><a href="index.html">Cretli documentation</a></li>
+      <li><a href="getting-started.html">Getting started</a></li>
+      <li><a href="install-docker.html">Install with Docker</a></li>
+      <li><a href="chat-and-agents.html" aria-current="page">Chat and agents</a></li>
+      <li><a href="todos.html">TODOs</a></li>
+      <li><a href="workspace-watcher.html">Workspace Watcher</a></li>
+      <li><a href="settings.html">Settings</a></li>
+      <li><a href="security-basics.html">Security basics</a></li>
+      <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    </ul>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Chat and agents</h1>
+<p>Cretli chat connects a conversation to a configured harness. Configure available harnesses in <strong>Settings → Harness</strong>, then select the harness and model in the chat controls. Provider credentials are stored in the application settings; never paste secrets into a conversation.</p>
+<p><img src="img/chat-desktop.png" alt="Cretli chat on desktop"></p>
+<p>Use <strong>Plan</strong> mode when you want an agent to inspect the task and propose work before changes are made. Use <strong>Agent</strong> mode when the approved task should be executed in the workspace. The exact tools and model choices depend on the harness configuration.</p>
+<p>Delegation lets an orchestrator ask another configured harness to perform a focused plan, implementation, or review. Delegated chats report back to the parent conversation; they do not change the approval rules for a TODO. The MCP setup guide explains the available delegation endpoints and configuration in detail.</p>
+<p>When a run appears stuck, first check the selected harness, model, credentials, and server logs. Keep the browser connected while a run is active, and treat generated code as a change to review before using it.</p>
+    </article>
+    <nav class="prev-next" aria-label="Previous and next page">
+      <a rel="prev" href="install-docker.html">&larr; Install with Docker</a>
+      <a rel="next" href="todos.html">TODOs &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="On this page">
+
+  </aside>
+</div>
+<footer class="site-footer">Cretli documentation</footer>
+<script src="assets/docs.js" defer></script>
+</body>
+</html>

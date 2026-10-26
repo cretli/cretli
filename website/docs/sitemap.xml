@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://cretli.com/docs/</loc></url>
+  <url><loc>https://cretli.com/docs/getting-started.html</loc></url>
+  <url><loc>https://cretli.com/docs/install-docker.html</loc></url>
+  <url><loc>https://cretli.com/docs/chat-and-agents.html</loc></url>
+  <url><loc>https://cretli.com/docs/todos.html</loc></url>
+  <url><loc>https://cretli.com/docs/workspace-watcher.html</loc></url>
+  <url><loc>https://cretli.com/docs/settings.html</loc></url>
+  <url><loc>https://cretli.com/docs/security-basics.html</loc></url>
+  <url><loc>https://cretli.com/docs/troubleshooting.html</loc></url>
 </urlset>

@@ -10,5 +10,15 @@ browser. Several devices can share the same session live.
 
 ## Where to go next
 
-- Source code and issues: [github.com/cretli/cretli](https://github.com/cretli/cretli)
-- More guides will appear in the navigation as they are published.
+- [Getting started](getting-started.md)
+- [Install with Docker](install-docker.md)
+- [Chat and agents](chat-and-agents.md)
+- [TODOs](todos.md)
+- [Workspace Watcher](workspace-watcher.md)
+- [Settings](settings.md)
+- [Security basics](security-basics.md)
+- [Troubleshooting](troubleshooting.md)
+
+Source code and issues: [github.com/cretli/cretli](https://github.com/cretli/cretli).
+
+<!-- sources: README.md, docs/ARCHITECTURE.md -->

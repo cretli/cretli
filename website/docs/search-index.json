@@ -9,5 +9,53 @@
         "text": "Where to go next"
       }
     ]
+  },
+  {
+    "slug": "getting-started",
+    "title": "Getting started",
+    "description": "Install Cretli with Node.js and open your first secure browser session.",
+    "headings": []
+  },
+  {
+    "slug": "install-docker",
+    "title": "Install with Docker",
+    "description": "Run Cretli with Docker Compose and persist its runtime data safely.",
+    "headings": []
+  },
+  {
+    "slug": "chat-and-agents",
+    "title": "Chat and agents",
+    "description": "Configure harnesses, choose a model, and run agents from the Cretli chat.",
+    "headings": []
+  },
+  {
+    "slug": "todos",
+    "title": "TODOs",
+    "description": "Organize work with statuses, task trees, plans, and review information.",
+    "headings": []
+  },
+  {
+    "slug": "workspace-watcher",
+    "title": "Workspace Watcher",
+    "description": "Understand Watcher modes, planning gates, and safe autonomous cycles.",
+    "headings": []
+  },
+  {
+    "slug": "settings",
+    "title": "Settings",
+    "description": "Find the main Cretli settings tabs and what each one controls.",
+    "headings": []
+  },
+  {
+    "slug": "security-basics",
+    "title": "Security basics",
+    "description": "Keep a Cretli installation private, authenticated, and appropriately exposed.",
+    "headings": []
+  },
+  {
+    "slug": "troubleshooting",
+    "title": "Troubleshooting",
+    "description": "Resolve common startup, browser, harness, and update issues.",
+    "headings": []
   }
 ]

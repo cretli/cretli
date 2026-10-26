@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workspace Watcher</title>
+<meta name="description" content="Understand Watcher modes, planning gates, and safe autonomous cycles.">
+<link rel="canonical" href="https://cretli.com/docs/workspace-watcher.html">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">Menu</button>
+  <a class="brand" href="index.html">Cretli docs</a>
+  <input class="search" type="search" placeholder="Search docs" aria-label="Search docs" hidden>
+  <button class="theme-toggle" type="button" aria-label="Toggle light and dark theme">Theme</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Documentation">
+    <ul class="search-results" hidden></ul>
+    <ul>
+      <li><a href="index.html">Cretli documentation</a></li>
+      <li><a href="getting-started.html">Getting started</a></li>
+      <li><a href="install-docker.html">Install with Docker</a></li>
+      <li><a href="chat-and-agents.html">Chat and agents</a></li>
+      <li><a href="todos.html">TODOs</a></li>
+      <li><a href="workspace-watcher.html" aria-current="page">Workspace Watcher</a></li>
+      <li><a href="settings.html">Settings</a></li>
+      <li><a href="security-basics.html">Security basics</a></li>
+      <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    </ul>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Workspace Watcher</h1>
+<p>Workspace Watcher observes a workspace and coordinates recurring work. Its modes are <code>off</code>, <code>observe</code>, and <code>autopilot</code>. Turn it off when no monitoring is wanted; use observe for inspection and reporting; use autopilot when the configured workflow may schedule execution.</p>
+<p><img src="img/watcher-panel.png" alt="Workspace Watcher panel"></p>
+<p>Control the feature in <strong>Settings → Workspace Watcher</strong>. One Watcher cycle creates one orchestrator chat. The orchestrator may inspect the workspace, create or update TODOs, and coordinate delegated work according to the configured harnesses.</p>
+<p>The plan gate remains human-controlled: Watcher does not approve a plan automatically. Watcher also does not commit or push changes. Review the resulting TODO, plan, files, and test output before integrating work into your normal branch workflow.</p>
+<p>For configuration details, event handling, and operational limits, see the <a href="https://github.com/cretli/cretli/blob/master/docs/workspace-watcher.md">Workspace Watcher technical guide</a>.</p>
+    </article>
+    <nav class="prev-next" aria-label="Previous and next page">
+      <a rel="prev" href="todos.html">&larr; TODOs</a>
+      <a rel="next" href="settings.html">Settings &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="On this page">
+
+  </aside>
+</div>
+<footer class="site-footer">Cretli documentation</footer>
+<script src="assets/docs.js" defer></script>
+</body>
+</html>
