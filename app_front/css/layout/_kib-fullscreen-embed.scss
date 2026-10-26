@@ -408,3 +408,52 @@ body.theme-light {
     color: #5f6368;
   }
 }
+
+/* Embed: host page has no pinned chat yet — empty state over the chat area. */
+body.embed-mode #chat-panel .chat-main {
+  position: relative;
+}
+
+body.embed-mode .embed-no-chat-state {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--cr-space-2);
+  padding: var(--cr-space-6) var(--cr-space-4);
+  text-align: center;
+  background: var(--cr-bg);
+  color: var(--cr-text);
+  font-family: var(--cr-font-ui);
+}
+
+body.embed-mode .embed-no-chat-state__icon {
+  font-size: 2.5rem;
+  line-height: 1;
+  color: var(--cr-accent);
+}
+
+body.embed-mode .embed-no-chat-state__title {
+  margin: 0;
+  font-size: var(--cr-font-size-lg);
+  font-weight: 600;
+}
+
+body.embed-mode .embed-no-chat-state__hint {
+  margin: 0 0 var(--cr-space-2);
+  max-width: 22rem;
+  font-size: var(--cr-font-size-sm);
+  color: var(--cr-text-muted);
+}
+
+body.embed-mode .embed-no-chat-state__choices {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--cr-space-2);
+  width: 100%;
+  max-width: 18rem;
+}

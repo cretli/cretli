@@ -4,6 +4,7 @@ import {
   createPageLinkedChat,
   getActiveChatIdValue,
   getChatsList,
+  openEmbedGeneralChat,
   resolvePagePinStateForUrl,
   selectChatFromWidgetHost,
   setForcedEmbedChatId,
@@ -14,6 +15,7 @@ import { requestWidgetHostUrl } from '../../embed/widgetHostNavigation.js';
 import { t } from '../../i18n/index.js';
 import { appLogger } from '../../core/logging/logger.js';
 import { parseEmbedModeQuery } from './embedMode.js';
+import { EMBED_OPEN_GENERAL_CHAT_EVENT, EMBED_REQUEST_PAGE_CHAT_EVENT } from '../../features/chat/views/embedNoChatState.js';
 
 const WIDGET_BRIDGE_LISTENERS_KEY = '__crWidgetBridgeListenersV1';
 
@@ -293,11 +295,30 @@ export function createEmbedWidgetBridge({ applyEmbedWorkspaceContext }) {
         chatSessionKey: chatSessionKey.trim(),
       });
     };
+    // The in-panel "New chat for this page" button runs the host "+" flow, so
+    // the chat is created, pinned and selected exactly like from the launcher.
+    const requestPageChatHandler = () => {
+      if (!widgetConnection?.parentOrigin) return;
+      window.parent.postMessage({ type: 'cretli-widget-request-page-chat' }, widgetConnection.parentOrigin);
+    };
+    const openGeneralChatHandler = () => {
+      void openEmbedGeneralChat();
+    };
+    if (previousListeners?.requestPageChatHandler) {
+      window.removeEventListener(EMBED_REQUEST_PAGE_CHAT_EVENT, previousListeners.requestPageChatHandler);
+    }
+    if (previousListeners?.openGeneralChatHandler) {
+      window.removeEventListener(EMBED_OPEN_GENERAL_CHAT_EVENT, previousListeners.openGeneralChatHandler);
+    }
     window.addEventListener('message', messageHandler);
     window.addEventListener('cr-widget-bind-chat-request', bindChatHandler);
+    window.addEventListener(EMBED_REQUEST_PAGE_CHAT_EVENT, requestPageChatHandler);
+    window.addEventListener(EMBED_OPEN_GENERAL_CHAT_EVENT, openGeneralChatHandler);
     window[WIDGET_BRIDGE_LISTENERS_KEY] = {
       messageHandler,
       bindChatHandler,
+      requestPageChatHandler,
+      openGeneralChatHandler,
     };
   }
 

@@ -4068,6 +4068,10 @@ const basePl = {
     notificationBody: 'Czat „{title}" — agent zakończył run ({status}).',
   },
   widget: {
+    embedNoChatTitle: 'Wybierz czat dla widgetu',
+    embedNoChatHint: 'Czat strony jest przypięty do tego adresu URL. Czat ogólny jest wspólny dla całego workspace i towarzyszy Ci na wszystkich podstronach.',
+    embedNoChatCreate: 'Czat dla tej strony',
+    embedNoChatGeneral: 'Ogólny czat workspace',
     panelTitle: 'Widget strony',
     panelIntro: 'Osadź Cretli na stronie projektu. Widget łączy czat agenta z kontekstem bieżącej strony (DOM, konsola, sieć, screenshot). Każda instalacja jest przypisana do jednego workspace.',
     step1: 'Wybierz workspace i utwórz instalację poniżej (nazwa, dozwolone originy, uprawnienia).',

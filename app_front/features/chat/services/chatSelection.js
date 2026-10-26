@@ -24,6 +24,7 @@ import { syncChatSdkModeUi } from './chatSdkMode.js';
 import { syncSdkHistoryOnResume } from './chatHistorySync.js';
 import { chatShell } from '../state/chatShellState.js';
 import { chatHost } from './chatHost.js';
+import { readEmbedChatMode, setEmbedNoChatState } from '../views/embedNoChatState.js';
 
 /**
  * @param {string} id
@@ -166,6 +167,7 @@ export function performSelectChatBody(id) {
     const ownership = reportViewContextResourceConflict('chat', chat);
     if (!ownership.ok) return;
   }
+  if (chat) setEmbedNoChatState(false);
   const reselectingActive = chatRuntime.activeChatId === id;
   const prevActiveChatId = chatRuntime.activeChatId;
   retainMountedChatPanes(id);
@@ -383,6 +385,11 @@ export async function applyEmbedChatSelection(existing) {
     return getChatsList().find((chat) => chat.id === forcedId) || null;
   }
   if (resolved?.noPinnedForPage) {
+    // The user chose the general workspace chat before: open it on every page
+    // that has no chat of its own.
+    if (readEmbedChatMode() === 'general') return openEmbedGeneralChat();
+    // Otherwise there is nothing to connect to until the user picks a mode.
+    setEmbedNoChatState(true);
     return null;
   }
   if (resolved?.pinnedTo || resolved?.reloadPreferChatId) {
@@ -420,6 +427,23 @@ export async function applyEmbedChatSelection(existing) {
   }
   performSelectChat(preferredId);
   return getChatsList().find((chat) => chat.id === preferredId) || null;
+}
+
+/**
+ * General widget chat: one unpinned chat shared by the whole workspace, used on
+ * pages without a chat pinned to their URL. Reuses the first unpinned chat or
+ * creates one.
+ */
+export async function openEmbedGeneralChat() {
+  await loadChatsFromServer({ skipAutoSelect: true });
+  let chat = findFirstUnpinnedChat(getChatsForCurrentWorkspace());
+  if (!chat) chat = await createEmbedChatRecordOnly();
+  if (!chat?.id) {
+    setEmbedNoChatState(true);
+    return null;
+  }
+  performSelectChat(chat.id);
+  return chat;
 }
 
 export function ensureEmbedChat() {

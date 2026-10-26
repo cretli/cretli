@@ -167,7 +167,7 @@ import {
   requestRestoreChat,
   settleArchiveConfirm,
 } from '../services/chatDeleteArchive.js';
-export { ensureEmbedChat, expandSidebarWorkspaceSearchPool, getArchivedCounts, loadChatsFromServer, loadWorkspaces, notifySidebarSearchHydration, openChatFromNotification, selectChat, selectChatFromWidgetHost, setForcedEmbedChatId, syncEmbedChatToHostPage } from '../services/chatSelection.js';
+export { ensureEmbedChat, openEmbedGeneralChat, expandSidebarWorkspaceSearchPool, getArchivedCounts, loadChatsFromServer, loadWorkspaces, notifySidebarSearchHydration, openChatFromNotification, selectChat, selectChatFromWidgetHost, setForcedEmbedChatId, syncEmbedChatToHostPage } from '../services/chatSelection.js';
 export { applyEnabledModelsForHarness, setWorkspaceCloneFolderLookup, setWorkspacePreferredFolderLookup } from '../services/chatWorkspaceContext.js';
 export { canPinChatToUrl, closeChatSidebar, getActiveChatIdValue, getChatFavoritesStore, getChatLastUsedAtPublic, getChatListAgentStatePublic, getChatsList, getTerminalStateMetaPublic, getWorkspacesList, openChatSidebar, setSidebarCloseHook, setSidebarOpenHook, setSidebarRenderHook, setSidebarTransientPatchHook, setWorkspaceSwitchHook, toggleChatUrlPinById } from '../services/chatSidebarHooks.js';
 export { refreshSidebarChatStates, scheduleChatListStateRefreshAll } from '../services/chatSidebarState.js';

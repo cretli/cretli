@@ -10,6 +10,7 @@ import {
 } from './widgetSession.js';
 import { findChatPinnedToPageUrl, isSamePageUrl } from './pageUrlCompare.js';
 import { readStorageValueWithAlias } from '../lib/storageKeyAlias.js';
+import { attachLauncherDrag, computePanelAnchor } from './widgetLauncherDrag.js';
 
 const WIDGET_DEBUG_LS_KEY = 'cretli-debug-widget';
 
@@ -46,7 +47,37 @@ function createStyles() {
       display: flex;
       align-items: stretch;
       gap: 8px;
+      /* Never shrink near the right edge: the drag code measures this width,
+         and a shrink-to-fit dock would feed back into ever larger left offsets. */
+      width: max-content;
+      max-width: none;
+      white-space: nowrap;
       pointer-events: auto !important;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .cr-widget-launcher-dock > button {
+      flex: 0 0 auto;
+      touch-action: none;
+    }
+    .cr-widget-launcher-dock[data-side="right"] {
+      flex-direction: row-reverse;
+    }
+    /* Host pages may shrink the dock with a scale transform; anchor it to the
+       docked edge so the gap to the screen edge stays the same on both sides. */
+    .cr-widget-launcher-dock[data-side="left"] {
+      transform-origin: top left;
+    }
+    .cr-widget-launcher-dock[data-side="right"] {
+      transform-origin: top right;
+    }
+    .cr-widget-launcher-dock.is-snapping {
+      transition: left 200ms ease-out, top 200ms ease-out;
+    }
+    .cr-widget-launcher-dock.is-dragging,
+    .cr-widget-launcher-dock.is-dragging button {
+      cursor: grabbing !important;
     }
     .cr-widget-launcher {
       border: 0;
@@ -246,6 +277,8 @@ function initCretliWidget() {
   let lastTrackedHostPageUrl = '';
   let pageChatCreateInProgress = false;
   let pagePinState = { linkedChatId: null, linkedChatTitle: null };
+  /** @type {ReturnType<typeof attachLauncherDrag> | null} */
+  let launcherDrag = null;
   let embedIframeReady = false;
   /** @type {Array<(ready: boolean) => void>} */
   let embedIframeReadyWaiters = [];
@@ -1052,7 +1085,24 @@ function initCretliWidget() {
     );
   }
 
+  function applyPanelAnchor() {
+    const style = panel.style;
+    if (!launcherDrag?.isCustom() || isModal) {
+      style.left = style.top = style.right = style.bottom = style.width = style.height = '';
+      return;
+    }
+    const rect = launcherDock.getBoundingClientRect();
+    const anchor = computePanelAnchor(rect, launcherDrag.viewport());
+    style.left = `${anchor.left}px`;
+    style.top = `${anchor.top}px`;
+    style.right = 'auto';
+    style.bottom = 'auto';
+    style.width = `${anchor.width}px`;
+    style.height = `${anchor.height}px`;
+  }
+
   function applyWidgetUiState() {
+    applyPanelAnchor();
     panel.classList.toggle('is-open', isOpen);
     panel.classList.toggle('is-modal', isOpen && isModal);
     backdrop.classList.toggle('is-open', isOpen && isModal);
@@ -1186,6 +1236,12 @@ function initCretliWidget() {
       });
       return;
     }
+    if (data.type === 'cretli-widget-request-page-chat') {
+      // "New chat for this page" inside the panel: same flow as the "+" button.
+      if (event.origin !== iframeOrigin || event.source !== iframeRef?.contentWindow) return;
+      void createAndLinkPageChat();
+      return;
+    }
     if (data.type !== 'cretli-widget-modal') return;
     if (event.origin !== iframeOrigin || event.source !== iframeRef?.contentWindow) return;
     toggleModalState(data.action === 'open' ? true : (data.action === 'close' ? false : undefined));
@@ -1200,6 +1256,13 @@ function initCretliWidget() {
 
   document.head.appendChild(createStyles());
   document.body.appendChild(root);
+  launcherDrag = attachLauncherDrag({
+    dock: launcherDock,
+    installationId: runtimeConfig.installationId,
+    origin: hostOrigin,
+    onMove: applyPanelAnchor,
+  });
+  applyPanelAnchor();
   updateLauncherPinUi();
 
   // Pin/link icon on the launcher must work before the panel is opened.

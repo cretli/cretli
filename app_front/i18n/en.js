@@ -4068,6 +4068,10 @@ const baseEn = {
     notificationBody: 'Chat "{title}" — agent run ended ({status}).',
   },
   widget: {
+    embedNoChatTitle: 'Choose a chat for this widget',
+    embedNoChatHint: 'A page chat is pinned to this URL. The general chat is shared by the whole workspace and follows you across pages.',
+    embedNoChatCreate: 'Chat for this page',
+    embedNoChatGeneral: 'General workspace chat',
     panelTitle: 'Page widget',
     panelIntro: 'Embed Cretli on a project page. The widget ties agent chat to the current page (DOM, console, network, screenshot). Each installation is bound to one workspace.',
     step1: 'Pick a workspace and create an installation below (name, allowed origins, permissions).',
