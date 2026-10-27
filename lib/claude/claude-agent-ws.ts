@@ -15,6 +15,7 @@
  * - Ask and review use `default`, and `canUseTool` denies mutations before exec.
  */
 
+import { externalizeToolResultImages, chatMediaSaver } from '../agent-harness/tool-result-images.ts';
 import { CLAUDE_START_PROMPT_ARGS } from '../chat-run/start-prompt-args.ts';
 import { auditCanUseToolGuardDeny } from '../approval/can-use-tool-adapter.ts';
 import {
@@ -1286,7 +1287,7 @@ export function createClaudePromptRunner({
       room._claudeNormalizer = createClaudeEventNormalizer();
     }
     noteSteerEcho(message);
-    const items = room._claudeNormalizer.normalize(message);
+    const items = room._claudeNormalizer.normalize(externalizeToolResultImages(message, chatMediaSaver(room.chatId)));
     for (const item of items) {
       if (!item || typeof item !== 'object') continue;
       if (item.kind === 'session') {

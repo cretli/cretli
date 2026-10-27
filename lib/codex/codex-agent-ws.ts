@@ -1,3 +1,4 @@
+import { externalizeToolResultImages, chatMediaSaver } from '../agent-harness/tool-result-images.ts';
 import { isReviewReadOnlyAssignment } from '../delegation-review-policy.js';
 import { CodexAppServer, CODEX_APP_SERVER_REQUEST_TIMEOUT_MS, isCodexAppServerEnabled, runCodexAppServerTurn } from './codex-app-server.ts';
 import { createCodexSteering, resolveCodexPromptKind } from './codex-steer.ts';
@@ -180,7 +181,7 @@ function emitCodexCompaction(room: any, observedAt: string | null): boolean {
 
 /** Exported for tests: the production handler for SDK and app-server thread events. */
 export function handleThreadEvent(room: any, event: unknown): void {
-  const items = normalizeCodexThreadEvent(event);
+  const items = normalizeCodexThreadEvent(externalizeToolResultImages(event, chatMediaSaver(room.chatId)));
   for (const item of items) {
     if (!item || typeof item !== 'object') continue;
     if (item.kind === 'thread' && typeof item.threadId === 'string' && item.threadId) {

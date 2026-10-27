@@ -207,9 +207,10 @@ function openSdkImageLightbox(href, caption) {
   sdkImageLightboxCloseBtnEl?.focus();
 }
 
-const CHAT_MEDIA_URL_RE = /^\/api\/chats\/[A-Za-z0-9_-]{1,64}\/media\/[0-9]{10,16}-[a-f0-9-]{36}\.(?:jpg|png|webp)$/;
+const CHAT_MEDIA_URL_RE = /^\/api\/chats\/[A-Za-z0-9_-]{1,64}\/media\/[0-9]{10,16}-[a-f0-9-]{36}\.(?:jpg|png|webp|gif)$/;
+const IMAGE_MARKER_RE = /\[image:\s*(\/api\/chats\/\S+?)(?:\s[^\]]*)?\]/g;
 const PREVIEW_LINE_RE = /^Preview:\s*(\S+)\s*$/gm;
-const CHAT_MEDIA_PATH_RE = /chat-media\/([A-Za-z0-9_-]{1,64})\/([0-9]{10,16}-[a-f0-9-]{36}\.(?:jpg|png|webp))/g;
+const CHAT_MEDIA_PATH_RE = /chat-media\/([A-Za-z0-9_-]{1,64})\/([0-9]{10,16}-[a-f0-9-]{36}\.(?:jpg|png|webp|gif))/g;
 
 /**
  * @param {unknown} value
@@ -249,6 +250,8 @@ export function collectToolImageRefs(ev) {
     PREVIEW_LINE_RE.lastIndex = 0;
     let m;
     while ((m = PREVIEW_LINE_RE.exec(text)) !== null) add(m[1]);
+    IMAGE_MARKER_RE.lastIndex = 0;
+    while ((m = IMAGE_MARKER_RE.exec(text)) !== null) add(m[1]);
   });
   const argTexts = [];
   collectStrings(ev.args, argTexts, 0);

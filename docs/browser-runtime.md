@@ -89,6 +89,53 @@ receive Cretli's launch-only resolver/WebRTC flags, so WebRTC/TURN remains a
 documented residual risk; ordinary HTTP(S), redirects, subresources, iframes and
 owned-page WebSockets remain subject to the URL policy.
 
+### Configuring the endpoint from Settings
+
+The same endpoint can be set in **Settings → App → Browser → External Chrome**
+instead of `.env`. It is stored as `browserCdpUrl` / `browserCdpAllowlist` in
+`data/config.json` (`lib/browser/cdp-config.js`). `PUT /api/browser/runtime-config`
+probes the address with the same checks as above before saving, then re-runs
+`detectBrowserRuntime()` and swaps the session manager's driver in place, so no
+restart is needed. An empty address returns to the built-in headless Chromium. The
+change is refused with `409 sessions-active` while a Browser session is open, and
+with `409 env-locked` when `CRETLI_BROWSER_CDP_URL` is set in the environment, which
+always wins.
+
+### Native networking for public sites
+
+By default every request of an owned page is replayed by Cretli through
+`route.fetch()`, which Playwright executes from the Node process
+(`APIRequestContext`), not from Chrome. That keeps redirects fully policy-checked,
+but sites with bot protection see a Node TLS/HTTP fingerprint behind a Chrome
+User-Agent and block the session (and can flag the whole public IP).
+
+**Let Chrome load public pages itself** (`browserCdpNativeNetwork` in config.json,
+external Chrome only, default off, applies live) changes that for requests the URL
+policy allows and whose host resolves only to public addresses: they are continued
+inside Chrome (`route.continue()`), so the site sees Chrome's own stack, cookies and
+IP. Cretli's own origin and every loopback/private/link-local target keep the strict
+replay path. Trade-off: Chrome follows server redirects of those requests itself, so
+a redirect hop is not re-evaluated by the policy; Chrome's Private Network Access
+still applies. The headless Chromium never uses this mode.
+
+### WSL2 with Chrome on Windows
+
+In the default NAT network mode WSL cannot reach Windows `localhost`, and Chrome's
+debugging port listens on loopback only, often on IPv6 `[::1]`. Forward the port on
+the Windows side of the WSL virtual interface (its address is the default gateway in
+WSL, `ip route show default`), targeting IPv6:
+
+```powershell
+netsh interface portproxy add v4tov6 listenaddress=<wsl-gateway> listenport=9222 connectaddress=::1 connectport=9222
+```
+
+A `v4tov4` forward to `127.0.0.1` while Chrome listens on `[::1]` shows up as a
+connection reset (curl exit 56). Never forward with `listenaddress=0.0.0.0`: that
+exposes the debugging port, and the whole Chrome profile, to the local network. The
+gateway address can change after a Windows or WSL restart. `networkingMode=mirrored`
+in `.wslconfig` makes `http://127.0.0.1:9222` work directly, at the cost of changing
+networking for all of WSL.
+
 ## Installing Chromium
 
 Playwright-managed download (lands in Playwright's own browser cache, whose location is
@@ -332,6 +379,43 @@ read [../SECURITY.md](../SECURITY.md). For the standalone proxy, read
   `browser_*` tools and skill guidance are injected per harness.
 - [MULTI-INSTANCE.md](MULTI-INSTANCE.md) — running several Cretli instances.
 
+### Experimental calm pace mode
+
+Settings → Browser → External Chrome has a **Calm pace** switch (internally `calmPaceMode`) immediately
+below native public-page networking. Save to apply it to current and future
+sessions without restarting. It is independent of native networking and also
+works with built-in Chromium. It defaults to off.
+
+Agent tool responses include guidance to inspect page changes, work sequentially,
+scroll in small increments and wait for visible elements. Agent inputs receive a
+350 ms pause, cursor travel over 12 steps (25 ms each), 90 ms click hold, and
+scroll chunks of varying size spaced 45–120 ms apart (at most 20 chunks),
+preserving the exact total requested distance. Keyboard typing defaults to
+80 ms per character; locator fill clears the field then types its replacement
+sequentially at 80 ms per character. Manual panel input
+is unaffected. This is a pacing experiment, not a guarantee against bot checks.
+No stealth flags, fingerprint overrides or CAPTCHA automation are enabled.
+
+Implementation references: [Playwright mouse API](https://playwright.dev/docs/api/class-mouse)
+and [keyboard API](https://playwright.dev/docs/api/class-keyboard).
+
+Calm pace guidance also instructs agents to retain the shopping session, avoid reload
+loops, stop on rate limits and respect an available Retry-After value. Access
+challenges are handed to the user in the same Browser panel. After an uncertain
+cart or checkout action, agents must inspect state before repeating it. Paid
+orders require explicit approval of the items, delivery and total. The backend also records HTTP 429 responses while calm pace mode is enabled and
+blocks agent input (including queued input) and navigation across that Browser
+session until Retry-After expires. Both integer seconds and HTTP dates are
+supported; missing or invalid values default to 60 seconds. A later response
+cannot shorten an existing pause. Read tools and manual input stay available;
+requests initiated autonomously by the page are unaffected. Cooldowns are
+in memory and end when the session closes. Checkout approval remains an agent
+instruction, not a checkout enforcement layer.
+
+References: [HTTP 429](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/429),
+[Retry-After](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Retry-After)
+and [Playwright authentication state](https://playwright.dev/docs/auth).
+
 ## Screenshot storage and chat thumbnails
 
 `browser_screenshot` (MCP and the Cursor SDK tools) writes each frame to a
@@ -345,8 +429,15 @@ reloads, other devices and server restarts.
 - `GET /api/chats/:chatId/media/:file` has the same scope as
   `GET /api/chats/:id/history`, but widget and MCP-integration callers get 403.
   Bad ids or file names are 400, unknown chats and missing files 404, symlinks
-  and paths outside the chat directory 400. Only JPEG/PNG/WebP are served
+  and paths outside the chat directory 400. Only JPEG/PNG/WebP/GIF are served
   (never SVG), with `nosniff` and `Cache-Control: private, immutable`.
+- Image blocks returned by other tools (Claude `tool_result`, Codex
+  `mcp_tool_call` results, e.g. the Read tool) are externalized into the same
+  store and replaced in history by an `[image: <mediaUrl> <mime> <bytes>B]`
+  marker (PNG/JPEG/WebP/GIF by magic bytes, no SVG, max 5 MB; `[image omitted]`
+  otherwise). OpenCode is out of scope. Because the limit of 50 files is shared,
+  such images can push out older screenshots; their thumbnails then disappear
+  through `onerror`.
 - Deleting a chat removes its `chat-media` directory. Closing the Browser
   session or restarting the server does not.
 - `CRETLI_CHAT_MEDIA=0` disables the store; screenshots then fall back to the

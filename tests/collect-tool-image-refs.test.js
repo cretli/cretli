@@ -27,3 +27,9 @@ test('ignores foreign and malformed urls', () => {
   assert.deepEqual(collectToolImageRefs({ result: { text: 'Preview: /api/chats/c/media/x.svg' } }), []);
   assert.deepEqual(collectToolImageRefs(null), []);
 });
+
+test('recognizes the [image: <url> mime bytes] marker', () => {
+  const refs = collectToolImageRefs({ result: `see [image: ${URL_} image/png 608B] done` });
+  assert.deepEqual(refs.map((r) => r.href), [URL_]);
+  assert.deepEqual(collectToolImageRefs({ result: '[image: https://evil.test/a.png image/png 1B]' }), []);
+});
