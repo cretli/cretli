@@ -121,6 +121,8 @@ import { createRespawnController, resolveLifecycleLimits } from './lib/browser/l
 import { purgeBrowserScreenshotRoot } from './lib/browser/screenshot-file.js';
 import { addAllowedOrigin, getWorkspacePolicy, resolveBrowserPolicyKey } from './lib/browser/policy-store.js';
 import { createNavigationConsentRegistry } from './lib/browser/navigation-consent.js';
+import { notifyBrowserNavigationConsent } from './lib/agent-needs-input-push.js';
+import { setBrowserConsentPending } from './lib/agent-presence-hooks.js';
 import { broadcastBrowserConsentChanged } from './lib/chat-list-updates.js';
 import { configureBrowserAgentRuntime } from './lib/browser/agent-tools.js';
 import { configureChatMedia } from './lib/chat-media.js';
@@ -518,7 +520,11 @@ const browserRespawnController = createRespawnController({
 // Chat prompt for agent navigations outside the workspace allowlist.
 const browserNavigationConsent = createNavigationConsentRegistry({
   persistOrigin: (workspaceKey, origin) => addAllowedOrigin(dataDir, workspaceKey, origin, loadSettings()),
-  onChange: ({ chatId }) => broadcastBrowserConsentChanged({ chatId }),
+  onChange: ({ chatId }) => {
+    setBrowserConsentPending(chatId, browserNavigationConsent.list(chatId).length > 0);
+    broadcastBrowserConsentChanged({ chatId });
+  },
+  onCreate: ({ chatId, id, origin }) => notifyBrowserNavigationConsent({ chatId, requestId: id, origin }),
 });
 const browserManager = new BrowserSessionManager({
   consent: browserNavigationConsent,

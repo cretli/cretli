@@ -343,6 +343,20 @@ described above and are not duplicated here:
 
 ## Security: this is not a complete SSRF boundary
 
+Agent `browser_open` and `browser_navigate` ask for chat consent only when a public
+origin is absent from the workspace allowlist (`origin-not-allowed`). The tool waits
+up to 20 seconds (configurable with `CRETLI_BROWSER_CONSENT_WAIT_MS`, capped at 25
+seconds), then returns `consent-pending`; the card remains for ten minutes. Retry
+after the user answers: a retry joins the pending card or uses the session-scoped
+once grant or saved workspace allowlist. Explicit refusal returns
+`navigation-denied`; too many pending cards return `consent-limit`. Without a live
+chat client, the tool immediately returns `navigation-blocked` with an allowlist
+hint. A newly created tab is closed when its prompt is denied or expires.
+
+Consent changes only the origin allowlist. It does not override local address,
+port, DNS, self-origin, or redirect checks. Chromium's
+`--host-resolver-rules` remains defense in depth, not a network boundary.
+
 Restates the invariant in [../SECURITY.md](../SECURITY.md) ("Browser module SSRF model")
 — do **not** read this document as claiming the Browser is a network boundary:
 

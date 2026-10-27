@@ -22,6 +22,14 @@ sees the same tab in the **Browser** panel.
 
 Rules:
 
+- A missing public origin may show a chat consent card. `consent-pending` means
+  the tool's short wait ended; retry after the user's decision while the card
+  remains open. `navigation-denied` is an explicit refusal; do not retry unless
+  asked. With no active chat UI, `navigation-blocked` returns immediately with
+  an allowlist hint. Allow-once is session-scoped and only overrides an
+  `origin-not-allowed` result. Chromium `--host-resolver-rules` is defense in
+  depth, not a complete network boundary.
+
 - Do **not** launch your own Playwright/Chromium for a preview, and do not probe
   for a debug port or another browser profile.
 - If the page shows a sign-in: Cretli's own origin (reachable only with the

@@ -83,6 +83,14 @@ sign-in page. Then:
 
 ## Errors worth knowing
 
+When a public origin is missing from the workspace allowlist, `browser_open` or
+`browser_navigate` may show a consent card in the chat. `consent-pending` means
+the short tool wait ended while the card remains open; retry after the user
+decides. `navigation-denied` means the user explicitly refused; do not retry
+unless they ask. Without an active chat client, `navigation-blocked` returns
+immediately with an allowlist hint. An allow-once grant belongs to the Browser
+session and does not bypass local-network, DNS, port or redirect checks.
+
 | Error | Meaning | Do |
 |-------|---------|----|
 | `OUT_OF_SCOPE: No signed-in Cretli user is attached to this chat` | A widget-only chat has no Cretli login session, and the system fallback deliberately does not apply. | Report it; a login in the Cretli UI is the only way to attach a user. |

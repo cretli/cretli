@@ -7,6 +7,10 @@ type ChatHistoryClient = {
 
 const clientsByChat = new Map<string, Set<ChatHistoryClient>>();
 
+export function hasChatClients(chatId: string): boolean {
+  return [...(clientsByChat.get(chatId) || [])].some((ws) => ws.readyState === 1);
+}
+
 export function subscribeChatHistoryUpdates(chatId: string, ws: ChatHistoryClient) {
   if (!chatId || !ws) return;
   let clients = clientsByChat.get(chatId);

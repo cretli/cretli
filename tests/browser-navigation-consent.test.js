@@ -7,15 +7,29 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
+import { subscribeChatHistoryUpdates, unsubscribeChatHistoryUpdates } from '../lib/sdk/sdk-history-updates.ts';
 import {
   createNavigationConsentRegistry,
   isConsentEligibleOrigin,
+  NAVIGATION_CONSENT_WAIT_MS,
 } from '../lib/browser/navigation-consent.js';
 import { addAllowedOrigin, getWorkspacePolicy } from '../lib/browser/policy-store.js';
 import { BrowserError, BrowserSessionManager } from '../lib/browser/session-manager.js';
 import { buildBrowserAgentTools, configureBrowserAgentRuntime } from '../lib/browser/agent-tools.js';
+import { BRIDGE_BROWSER_NAVIGATION_TIMEOUT_MS, isBridgeBrowserNavigationToolName } from '../lib/remote-api-client.js';
 
 const ORIGIN = 'https://shop.example.com';
+
+test('consent tool wait remains below the bridge timeout', () => {
+  assert.ok(NAVIGATION_CONSENT_WAIT_MS <= 25_000);
+  assert.ok(NAVIGATION_CONSENT_WAIT_MS < 30_000);
+  assert.ok(NAVIGATION_CONSENT_WAIT_MS < BRIDGE_BROWSER_NAVIGATION_TIMEOUT_MS);
+  assert.ok(BRIDGE_BROWSER_NAVIGATION_TIMEOUT_MS < 60_000);
+  assert.equal(isBridgeBrowserNavigationToolName('mcp__cretli_builtincretl__browser_open'), true);
+  assert.equal(isBridgeBrowserNavigationToolName('mcp__cretli_builtincretl__browser_navigate'), true);
+  assert.equal(isBridgeBrowserNavigationToolName('mcp__cretli_builtincretl__browser_input'), false);
+});
 
 function registry(extra = {}) {
   const changes = [];
@@ -87,17 +101,22 @@ test('deny and invalid decisions', async () => {
   assert.equal(reg.resolve(id, 'deny').code, 'not-found');
 });
 
-test('an unanswered prompt times out as a denial', async () => {
-  let fire = null;
+test('an unanswered call returns pending while its prompt remains available', async () => {
+  const timers = [];
   const { reg, changes } = registry({
-    setTimeoutFn: (fn) => { fire = fn; return { unref() {} }; },
+    setTimeoutFn: (fn, ms) => { timers.push({ fn, ms }); return { unref() {} }; },
     clearTimeoutFn: () => {},
   });
   const answer = reg.request({ chatId: 'c1', workspaceKey: '/ws', origin: ORIGIN });
-  fire();
-  assert.equal(await answer, 'timeout');
+  assert.equal(timers.length, 2);
+  timers.find((timer) => timer.ms < 600_000).fn();
+  assert.equal(await answer, 'pending');
+  assert.equal(reg.list('c1').length, 1);
+  const retry = reg.request({ chatId: 'c1', workspaceKey: '/ws', origin: ORIGIN });
+  reg.resolve(reg.list('c1')[0].id, 'once');
+  assert.equal(await retry, 'once');
   assert.deepEqual(reg.list('c1'), []);
-  assert.equal(reg.hasOnceGrant('c1', ORIGIN), false);
+  assert.equal(reg.hasOnceGrant('c1', ORIGIN), true);
   assert.ok(changes.length >= 2);
 });
 
@@ -108,6 +127,46 @@ test('concurrent requests for one origin share a single prompt', async () => {
   assert.equal(reg.list('c1').length, 1);
   reg.resolve(reg.list('c1')[0].id, 'once');
   assert.deepEqual(await Promise.all([a, b]), ['once', 'once']);
+});
+
+test('fork child prompt grants the parent session and clearing it removes the grant', async () => {
+  const { reg } = registry();
+  const answer = reg.request({ chatId: 'child', grantChatId: 'parent', workspaceKey: '/ws', origin: ORIGIN });
+  assert.equal(reg.list('child').length, 1);
+  reg.resolve(reg.list('child')[0].id, 'once');
+  assert.equal(await answer, 'once');
+  assert.equal(reg.hasOnceGrant('parent', ORIGIN), true);
+  assert.equal(reg.hasOnceGrant('child', ORIGIN), false);
+  reg.clearChat('parent');
+  assert.equal(reg.hasOnceGrant('parent', ORIGIN), false);
+});
+
+test('pending limit has a distinct outcome', async () => {
+  const { reg } = registry();
+  for (let i = 0; i < 5; i += 1) void reg.request({ chatId: 'c1', workspaceKey: '/ws', origin: `https://host${i}.example.com` });
+  assert.equal(await reg.request({ chatId: 'c1', workspaceKey: '/ws', origin: 'https://extra.example.com' }), 'limit');
+  reg.clearChat('c1');
+});
+
+test('denial or expiry closes resources registered by a pending call', async () => {
+  const timers = [];
+  const closed = [];
+  const { reg } = registry({
+    setTimeoutFn: (fn, ms) => { timers.push({ fn, ms }); return { unref() {} }; },
+    clearTimeoutFn: () => {},
+  });
+  const first = reg.request({ chatId: 'c1', workspaceKey: '/ws', origin: ORIGIN, onDenied: () => closed.push('denied') });
+  timers.find((timer) => timer.ms < 600_000).fn();
+  assert.equal(await first, 'pending');
+  reg.resolve(reg.list('c1')[0].id, 'deny');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(closed, ['denied']);
+
+  const second = reg.request({ chatId: 'c1', workspaceKey: '/ws', origin: ORIGIN, onDenied: () => closed.push('expired') });
+  timers.filter((timer) => timer.ms === 600_000).at(-1).fn();
+  assert.equal(await second, 'timeout');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(closed, ['denied', 'expired']);
 });
 
 test('loopback, private and non-http origins never get a prompt', async () => {
@@ -176,6 +235,11 @@ function navigateTool(manager) {
 }
 
 test('browser_navigate retries after consent and returns a clear error on deny', async () => {
+  const ws = new EventEmitter();
+  ws.readyState = 1;
+  ws.send = () => {};
+  subscribeChatHistoryUpdates('c1', ws);
+  try {
   const { reg } = registry();
   configureBrowserAgentRuntime({ manager: stubManager(reg), consent: reg });
   const manager = stubManager(reg);
@@ -201,4 +265,42 @@ test('browser_navigate retries after consent and returns a clear error on deny',
     (err) => err.code === 'navigation-blocked',
   );
   configureBrowserAgentRuntime(null);
+  } finally {
+    unsubscribeChatHistoryUpdates('c1', ws);
+  }
+});
+
+test('navigation without a chat client keeps the original block and creates no prompt', async () => {
+  const { reg } = registry();
+  configureBrowserAgentRuntime({ manager: stubManager(reg), consent: reg });
+  try {
+    await assert.rejects(
+      navigateTool(stubManager(reg)).execute({ browserSessionId: 's1', browserTabId: 't1', url: `${ORIGIN}/no-ui` }),
+      (err) => err.code === 'navigation-blocked' && /allowlist/.test(err.message),
+    );
+    assert.deepEqual(reg.list('c1'), []);
+  } finally {
+    configureBrowserAgentRuntime(null);
+  }
+});
+
+test('always allow persists under the Browser session workspace key', async () => {
+  const ws = new EventEmitter();
+  ws.readyState = 1;
+  ws.send = () => {};
+  subscribeChatHistoryUpdates('c1', ws);
+  const { reg, persisted } = registry();
+  const manager = stubManager(reg);
+  manager.requireSession().workspaceKey = '/session-workspace';
+  configureBrowserAgentRuntime({ manager, consent: reg });
+  try {
+    const call = navigateTool(manager).execute({ browserSessionId: 's1', browserTabId: 't1', url: `${ORIGIN}/policy` });
+    await new Promise((resolve) => setImmediate(resolve));
+    reg.resolve(reg.list('c1')[0].id, 'allow');
+    await call;
+    assert.deepEqual(persisted, [['/session-workspace', ORIGIN]]);
+  } finally {
+    unsubscribeChatHistoryUpdates('c1', ws);
+    configureBrowserAgentRuntime(null);
+  }
 });

@@ -273,17 +273,11 @@ function renderAvailability() {
     externalWarning.textContent = externalWarning.hidden ? '' : t('browser.externalWarning');
   }
   if (!banner || !body) return !available;
-  if (available) {
-    banner.hidden = true;
-    banner.textContent = '';
-    body.hidden = false;
-    return false;
-  }
+  banner.hidden = available;
+  body.hidden = !available;
   const reason = String(state.runtime?.reason || state.runtime?.status || 'browser-unavailable');
-  banner.hidden = false;
-  banner.textContent = t('browser.unavailable', { reason });
-  body.hidden = true;
-  return true;
+  banner.textContent = available ? '' : t('browser.unavailable', { reason });
+  return !available;
 }
 
 /**

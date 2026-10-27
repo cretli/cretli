@@ -63,6 +63,11 @@ still not a network boundary.
 - **Default-deny origins.** A workspace must explicitly allowlist each `http(s)://host`
   before Chromium can reach it. `allowLocalhost` opens loopback only and
   `allowPrivateNetwork` opens RFC1918/ULA literals only; neither implies the other.
+  Agent navigation can ask a live chat to allow a missing public origin. An
+  allow-once answer lasts only for that Browser session; always allow saves the
+  origin under the session's workspace key. Silence leaves the prompt pending
+  briefly and then expires it without granting access. Explicit refusal blocks
+  navigation. This prompt cannot override the other URL policy denials below.
 - **Always-blocked targets.** Link-local addresses (`169.254.0.0/16`, `fe80::/10`), cloud
   metadata endpoints, multicast, documentation and other special ranges are rejected even
   when allowlisted. IPv4-mapped, NAT64 (`64:ff9b::/96`), 6to4 (`2002::/16`) and Teredo
