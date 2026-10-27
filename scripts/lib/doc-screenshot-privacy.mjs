@@ -1,3 +1,18 @@
+/** Self-contained so Playwright can serialize it into the browser context. */
+export function collectScreenshotDomText(doc = /** @type {any} */ (globalThis).document) {
+  function text(root) {
+    // ShadowRoot has textContent but no innerText. Include its ordinary text
+    // conservatively, even when it is hidden, alongside live form values.
+    let value = root.innerText ?? root.textContent ?? '';
+    for (const el of root.querySelectorAll('*')) {
+      if (el.matches('input,textarea')) value += `\n${el.value}`;
+      if (el.shadowRoot) value += `\n${text(el.shadowRoot)}`;
+    }
+    return value;
+  }
+  return `${doc.title}\n${text(doc.body)}`;
+}
+
 /** Return pattern labels only: diagnostics must not repeat private values. */
 export function findPrivateMatches(text, ctx = {}) {
   const value = String(text || '');

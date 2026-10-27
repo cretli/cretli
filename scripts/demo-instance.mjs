@@ -31,8 +31,33 @@ function arg(name, fallback) {
 }
 
 const port = Number.parseInt(arg('port', '3099'), 10);
-const dir = path.resolve(arg('dir', fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-demo-'))));
-if (dir === ROOT || dir.startsWith(`${ROOT}${path.sep}`)) throw new Error('Demo runtime must be outside the repository');
+// Resolve the nearest existing ancestor before creating any missing directories.
+function realDestination(destination) {
+  try {
+    fs.lstatSync(destination);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    return path.join(realDestination(path.dirname(destination)), path.basename(destination));
+  }
+  return fs.realpathSync(destination);
+}
+
+const dir = realDestination(path.resolve(arg('dir', fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-demo-')))));
+const realRoot = fs.realpathSync(ROOT);
+if (dir === realRoot || dir.startsWith(`${realRoot}${path.sep}`) || realRoot.startsWith(`${dir}${path.sep}`) || dir === path.parse(dir).root) {
+  throw new Error('Demo runtime must be outside the repository');
+}
+
+// HOME, runtime stores and project files must not redirect writes through links.
+// Check the whole existing demo tree, including nested store files, before seeding.
+function rejectRuntimeLinks(folder) {
+  if (!fs.existsSync(folder)) return;
+  for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) throw new Error('Demo runtime must not contain symbolic links');
+    if (entry.isDirectory()) rejectRuntimeLinks(path.join(folder, entry.name));
+  }
+}
+rejectRuntimeLinks(dir);
 const seedOnly = process.argv.includes('--seed-only');
 const dataDir = path.join(dir, 'data');
 const projects = path.join(dir, 'projects');

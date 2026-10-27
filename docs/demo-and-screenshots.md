@@ -3,7 +3,10 @@
 Run `node scripts/demo-instance.mjs` for a local, fictional demo on
 `http://127.0.0.1:3099`. Sign in with `demo-password`. Stop it with Ctrl-C.
 Use `--port 3100` to change the port and `--dir /tmp/my-demo` to keep its files.
-Runtime directories must be outside the repository. `--seed-only` prepares
+Runtime directories must resolve outside the repository, including when a parent
+directory is a symbolic link or the destination does not yet exist. Existing
+demo trees must contain no symbolic links; validation runs before seeding.
+`--seed-only` prepares
 projects, chats, histories, a completed delegation and Usage without starting
 the server. Account setup and the todo hierarchy require the running API.
 Repeated offline seeding does not duplicate records. No provider account is

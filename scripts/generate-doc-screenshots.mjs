@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 import { chromium } from 'playwright-core';
 import { detectBrowserRuntime, buildChromiumProcessEnv } from '../lib/browser/runtime-detect.js';
-import { assertScreenshotClean } from './lib/doc-screenshot-privacy.mjs';
+import { assertScreenshotClean, collectScreenshotDomText } from './lib/doc-screenshot-privacy.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const output = path.join(root, 'website/docs/img');
@@ -70,18 +70,7 @@ async function generate() {
         await page.locator('#app-sidebar .sidebar-chat-item').nth(3).waitFor();
         await page.waitForTimeout(300);
       }
-      const domText = await page.evaluate(() => {
-        function text(root) {
-          let value = root.innerText || '';
-          for (const el of root.querySelectorAll('*')) {
-            if (el.matches('input,textarea')) value += `\n${el.value}`;
-            if (el.shadowRoot) value += `\n${text(el.shadowRoot)}`;
-          }
-          return value;
-        }
-        const doc = /** @type {any} */ (globalThis).document;
-        return `${doc.title}\n${text(doc.body)}`;
-      });
+      const domText = await page.evaluate(collectScreenshotDomText);
       const png = await sharp(await page.screenshot({ fullPage: false, scale: 'device' })).png({ palette: true, compressionLevel: 9 }).toBuffer();
       const temp = path.join(dir, `${name}.png`);
       await fs.writeFile(temp, png);
