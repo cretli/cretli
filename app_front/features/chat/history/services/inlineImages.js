@@ -121,6 +121,7 @@ export function appendInlineImageThumbs(container, refs) {
     img.loading = 'lazy';
     img.decoding = 'async';
     img.referrerPolicy = 'no-referrer';
+    img.addEventListener('error', () => { thumbBtn.hidden = true; });
     thumbBtn.appendChild(img);
     strip.appendChild(thumbBtn);
   });
@@ -204,4 +205,57 @@ function openSdkImageLightbox(href, caption) {
   host.hidden = false;
   document.body.classList.add('sdk-image-lightbox-open');
   sdkImageLightboxCloseBtnEl?.focus();
+}
+
+const CHAT_MEDIA_URL_RE = /^\/api\/chats\/[A-Za-z0-9_-]{1,64}\/media\/[0-9]{10,16}-[a-f0-9-]{36}\.(?:jpg|png|webp)$/;
+const PREVIEW_LINE_RE = /^Preview:\s*(\S+)\s*$/gm;
+const CHAT_MEDIA_PATH_RE = /chat-media\/([A-Za-z0-9_-]{1,64})\/([0-9]{10,16}-[a-f0-9-]{36}\.(?:jpg|png|webp))/g;
+
+/**
+ * @param {unknown} value
+ * @param {string[]} out
+ * @param {number} depth
+ */
+function collectStrings(value, out, depth) {
+  if (depth > 6 || out.length > 200) return;
+  if (typeof value === 'string') out.push(value);
+  else if (Array.isArray(value)) value.forEach((v) => collectStrings(v, out, depth + 1));
+  else if (value && typeof value === 'object') Object.values(value).forEach((v) => collectStrings(v, out, depth + 1));
+}
+
+/**
+ * Finds durable chat-media images referenced by a tool event: structured
+ * `frame.mediaUrl`, a `Preview: <url>` line in text, or a `chat-media` path in
+ * the args. Only same-origin `/api/chats/...` URLs are returned, deduplicated.
+ *
+ * @param {Record<string, any>} ev
+ * @returns {Array<{ source: string, href: string }>}
+ */
+export function collectToolImageRefs(ev) {
+  const refs = [];
+  const seen = new Set();
+  const add = (href) => {
+    if (!CHAT_MEDIA_URL_RE.test(href) || seen.has(href)) return;
+    seen.add(href);
+    refs.push({ source: t('sdkView.toolScreenshot'), href });
+  };
+  if (!ev || typeof ev !== 'object') return refs;
+  const result = ev.result;
+  const structured = result?.structuredContent?.frame?.mediaUrl ?? result?.frame?.mediaUrl;
+  if (typeof structured === 'string') add(structured.trim());
+  const texts = [];
+  collectStrings(result, texts, 0);
+  texts.forEach((text) => {
+    PREVIEW_LINE_RE.lastIndex = 0;
+    let m;
+    while ((m = PREVIEW_LINE_RE.exec(text)) !== null) add(m[1]);
+  });
+  const argTexts = [];
+  collectStrings(ev.args, argTexts, 0);
+  argTexts.forEach((text) => {
+    CHAT_MEDIA_PATH_RE.lastIndex = 0;
+    let m;
+    while ((m = CHAT_MEDIA_PATH_RE.exec(text)) !== null) add(`/api/chats/${m[1]}/media/${m[2]}`);
+  });
+  return refs;
 }

@@ -4407,6 +4407,7 @@ const baseEn = {
     copyCode: 'Copy code',
     imagePreview: 'Image preview',
     imagePreviewOf: 'Image preview: {source}',
+    toolScreenshot: 'Screenshot',
     closePreview: 'Close preview',
     promptSentWaiting: 'Prompt sent. Waiting for the agent\'s first response…',
     waitingFirstReply: 'Waiting for the agent\'s first response',

@@ -4661,6 +4661,7 @@
   "copyCode": "Kopiuj kod",
   "imagePreview": "Podgląd obrazu",
   "imagePreviewOf": "Podgląd obrazu: {source}",
+  "toolScreenshot": "Zrzut ekranu",
   "closePreview": "Zamknij podgląd",
   "promptSentWaiting": "Wysłano prompt. Czekam na pierwszą odpowiedź agenta…",
   "waitingFirstReply": "Czekam na pierwszą odpowiedź agenta",

@@ -331,3 +331,24 @@ read [../SECURITY.md](../SECURITY.md). For the standalone proxy, read
 - [harness-browser-context-matrix.md](harness-browser-context-matrix.md) — how the
   `browser_*` tools and skill guidance are injected per harness.
 - [MULTI-INSTANCE.md](MULTI-INSTANCE.md) — running several Cretli instances.
+
+## Screenshot storage and chat thumbnails
+
+`browser_screenshot` (MCP and the Cursor SDK tools) writes each frame to a
+durable per-chat store at `<dataDir>/chat-media/<chatId>/` (directories `0700`,
+files `0600`, at most 50 files per chat shared by all media kinds). The result
+carries the on-disk `path` plus `mediaUrl` (`/api/chats/<chatId>/media/<file>`);
+the MCP text also gets a `Preview: <mediaUrl>` line. The chat renders the image
+as a thumbnail in the Activity tray and the tool details, and it survives
+reloads, other devices and server restarts.
+
+- `GET /api/chats/:chatId/media/:file` has the same scope as
+  `GET /api/chats/:id/history`, but widget and MCP-integration callers get 403.
+  Bad ids or file names are 400, unknown chats and missing files 404, symlinks
+  and paths outside the chat directory 400. Only JPEG/PNG/WebP are served
+  (never SVG), with `nosniff` and `Cache-Control: private, immutable`.
+- Deleting a chat removes its `chat-media` directory. Closing the Browser
+  session or restarting the server does not.
+- `CRETLI_CHAT_MEDIA=0` disables the store; screenshots then fall back to the
+  private temp directory (last 12 per chat, no `mediaUrl`, no thumbnail).
+- Operator MCP sessions (no real chat) always use the temp fallback.

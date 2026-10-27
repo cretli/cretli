@@ -11,6 +11,7 @@ import { buildBoundedToolJsonPreview, buildToolOutputResultSectionHtml, extractP
 import { resolveViewOrderKey } from '../../chatHistoryViewOrder.js';
 import { TIMEOUT_PROGRESS_SERIES_CLASS } from '../../timeoutProgressSeries.js';
 import { pathsFromToolArgs } from '../services/sdkEventNormalize.js';
+import { appendInlineImageThumbs, collectToolImageRefs } from '../services/inlineImages.js';
 
 /**
  * Tool blocks, activity trays and compact tool tiles.
@@ -178,6 +179,7 @@ export function installToolBlocks(rv) {
       resultDetails.append(resultSummary, resultPre);
       body.appendChild(resultDetails);
     }
+    appendInlineImageThumbs(body, collectToolImageRefs(ev));
     return body;
   }
 

@@ -34,6 +34,8 @@ import {
 } from '../lib/browser/session-manager.js';
 import { BROWSER_LIMITS } from '../lib/browser/constants.js';
 import { saveChats } from '../lib/persist/chats-persist.js';
+import { configureChatMedia } from '../lib/chat-media.js';
+import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => readFileSync(path.join(root, rel), 'utf8');
@@ -541,6 +543,31 @@ test('browser_screenshot returns a temp file path instead of inline base64', asy
   } finally {
     rmSync(path.dirname(shot.frame.path), { recursive: true, force: true });
   }
+});
+
+test('browser_screenshot stores a durable chat-media file and returns mediaUrl', async () => {
+  configureChatMedia({ dataDir: ISOLATED_DATA_DIR, enabled: true });
+  try {
+    const manager = new FakeManager();
+    manager.addSession({ id: 'session-A', chatId: CHAT });
+    const shot = await toolsFor(manager).browser_screenshot.execute({ browserSessionId: 'session-A', browserTabId: 'tab-1' });
+    assert.equal(shot.frame.data, undefined);
+    assert.match(shot.frame.mediaUrl, new RegExp(`^/api/chats/${CHAT}/media/\\d{13}-[a-f0-9-]{36}\\.jpg$`));
+    assert.match(shot.frame.path, /chat-media/);
+    assert.equal(readFileSync(shot.frame.path, 'utf8'), 'jpeg');
+  } finally {
+    configureChatMedia({ dataDir: ISOLATED_DATA_DIR, enabled: false });
+  }
+});
+
+test('browser_screenshot falls back to the temp dir when chat media is disabled', async () => {
+  configureChatMedia({ dataDir: ISOLATED_DATA_DIR, enabled: false });
+  const manager = new FakeManager();
+  manager.addSession({ id: 'session-A', chatId: CHAT });
+  const shot = await toolsFor(manager).browser_screenshot.execute({ browserSessionId: 'session-A', browserTabId: 'tab-1' });
+  assert.equal(shot.frame.mediaUrl, undefined);
+  assert.doesNotMatch(shot.frame.path, /chat-media/);
+  rmSync(path.dirname(shot.frame.path), { recursive: true, force: true });
 });
 
 test('browser_close tears down an accessible session', async () => {

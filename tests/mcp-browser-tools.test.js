@@ -26,6 +26,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { addChat } from '../lib/persist/chats-persist.js';
+import { configureChatMedia } from '../lib/chat-media.js';
+import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 import { CRETILI_MCP_TOOL_DEFS, createCretliMcpToolHandlers } from '../lib/mcp/mcp-builtin-tools.js';
 import { getBuiltinMcpMutatingTools, getBuiltinMcpReadTools } from '../lib/mcp/mcp-policy.js';
 import {
@@ -501,6 +503,33 @@ test('browser_screenshot returns a private file path instead of base64 text', as
   } finally {
     rmSync(path.dirname(file), { recursive: true, force: true });
   }
+});
+
+test('browser_screenshot exposes mediaUrl in structuredContent and a Preview line', async () => {
+  configureChatMedia({ dataDir: ISOLATED_DATA_DIR, enabled: true });
+  try {
+    const chat = newChat();
+    rememberBrowserChatOwner(chat.id, OWNER);
+    manager.addSession({ id: 'media-session', chatId: chat.id });
+    const shot = await handlersFor(chat).browser_screenshot({ browserSessionId: 'media-session', browserTabId: 'tab-1' });
+    assert.equal(shot.isError, false, shot.content[0].text);
+    const url = shot.structuredContent.frame.mediaUrl;
+    assert.match(url, new RegExp(`^/api/chats/${chat.id}/media/`));
+    assert.ok(shot.content[0].text.includes(`\nPreview: ${url}`));
+  } finally {
+    configureChatMedia({ dataDir: ISOLATED_DATA_DIR, enabled: false });
+  }
+});
+
+test('browser_screenshot has no Preview line when chat media is disabled', async () => {
+  configureChatMedia({ dataDir: ISOLATED_DATA_DIR, enabled: false });
+  const chat = newChat();
+  rememberBrowserChatOwner(chat.id, OWNER);
+  manager.addSession({ id: 'nomedia-session', chatId: chat.id });
+  const shot = await handlersFor(chat).browser_screenshot({ browserSessionId: 'nomedia-session', browserTabId: 'tab-1' });
+  assert.equal(shot.structuredContent.frame.mediaUrl, undefined);
+  assert.doesNotMatch(shot.content[0].text, /Preview:/);
+  rmSync(path.dirname(shot.structuredContent.frame.path), { recursive: true, force: true });
 });
 
 test('browser_screenshot persists exactly one frame per capture and reuses that path', async () => {

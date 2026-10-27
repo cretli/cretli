@@ -123,6 +123,7 @@ import { addAllowedOrigin, getWorkspacePolicy, resolveBrowserPolicyKey } from '.
 import { createNavigationConsentRegistry } from './lib/browser/navigation-consent.js';
 import { broadcastBrowserConsentChanged } from './lib/chat-list-updates.js';
 import { configureBrowserAgentRuntime } from './lib/browser/agent-tools.js';
+import { configureChatMedia } from './lib/chat-media.js';
 import { createServerDiagnostics } from './lib/server-diagnostics.js';
 import { createHttpTimingLog, isHttpTimingExcludedPath, resolveHttpTimingMinMs } from './lib/http-timing-log.js';
 import { resolvePositiveIntEnv, startLogCapTimer } from './lib/log-rotate.js';
@@ -253,6 +254,8 @@ const PUBLIC_DIR = String(process.env.CRETLI_PUBLIC_DIR || '').trim() || path.jo
 const INDEX_HTML_PATH = path.join(PUBLIC_DIR, 'index.html');
 const LOGIN_HTML_PATH = path.join(PUBLIC_DIR, 'login.html');
 const dataDir = resolveDataPath();
+// Durable per-chat media (browser screenshots); CRETLI_CHAT_MEDIA=0 turns it off.
+configureChatMedia({ dataDir, enabled: process.env.CRETLI_CHAT_MEDIA !== '0' });
 const restoreControlDir = resolveControlDir(dataDir);
 const restoreGate = createRestoreGate(restoreControlDir);
 // One startup warning per top-level data file past the size threshold; the same

@@ -131,6 +131,17 @@ still not a network boundary.
   session. A widget-only chat (no Cretli login session) stays fail-closed and never gets a
   system owner, so the fallback does not widen widget integrations.
 
+## Chat media store
+
+Browser screenshots may contain sensitive page content. They are kept in
+`data/chat-media/<chatId>/` (`0700`/`0600`, 50 files per chat) until the chat is
+deleted, and served only by `GET /api/chats/:chatId/media/:file` to the
+authenticated owner session: widget tokens and MCP-integration tokens get 403.
+The route validates ids and file names, rejects symlinks and paths outside the
+chat directory, serves raster types only (no SVG) with `nosniff` and
+`private, immutable` caching. Set `CRETLI_CHAT_MEDIA=0` to keep screenshots in
+the temp directory instead.
+
 ## External MCP access (`/mcp`)
 
 Cretli can expose its built-in MCP tools to external clients (Claude Code, Cursor, …)
