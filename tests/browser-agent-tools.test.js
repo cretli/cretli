@@ -689,3 +689,21 @@ test('browser_navigate exposes and forwards the closed waitUntil allowlist', asy
   assert.deepEqual(second.options, { waitUntil: undefined });
 });
 
+
+test('existing tool instances pick up calm pace guidance when toggled live', async () => {
+  const manager = new FakeManager();
+  const tools = toolsFor(manager);
+  const off = await tools.browser_sessions.execute({});
+  assert.equal(off.calmPaceMode, undefined);
+  manager.calmPaceMode = true;
+  const on = await tools.browser_sessions.execute({});
+  assert.equal(on.calmPaceMode, true);
+  assert.match(on.browserGuidance, /Work sequentially/);
+  assert.match(on.browserGuidance, /same browser session and tab/);
+  assert.match(on.browserGuidance, /HTTP 429.*Retry-After/);
+  assert.match(on.browserGuidance, /HTTP 403, CAPTCHA/);
+  assert.match(on.browserGuidance, /inspect the cart or order status/);
+  assert.match(on.browserGuidance, /obtain explicit user approval/);
+  manager.calmPaceMode = false;
+  assert.equal((await tools.browser_sessions.execute({})).browserGuidance, undefined);
+});

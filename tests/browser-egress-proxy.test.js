@@ -489,22 +489,22 @@ test('B8 self-origin passes only when allowSelfOrigin is true', async () => {
 test('R2 loopback private link-local each have explicit deny codes', async () => {
   const base = { blockedPorts: [], unblockedPorts: [], allowLocalhost: false, allowPrivateNetwork: false, allowSelfOrigin: false, allowInsecureTls: false };
   const loopback = await validatePolicyUrl({
-    url: 'http://app.test/',
-    policy: { ...base, allowedOrigins: ['http://app.test'] },
+    url: 'http://app.example.com/',
+    policy: { ...base, allowedOrigins: ['http://app.example.com'] },
     lookup: async () => [{ address: '127.0.0.1' }],
   });
   assert.equal(loopback.allowed, false);
   assert.equal(loopback.code, 'dns-rebinding');
   const priv = await validatePolicyUrl({
-    url: 'http://corp.test/',
-    policy: { ...base, allowedOrigins: ['http://corp.test'] },
+    url: 'http://corp.example.com/',
+    policy: { ...base, allowedOrigins: ['http://corp.example.com'] },
     lookup: async () => [{ address: '10.0.0.5' }],
   });
   assert.equal(priv.allowed, false);
   assert.equal(priv.code, 'dns-rebinding');
   const linkLocal = await validatePolicyUrl({
-    url: 'http://link.test/',
-    policy: { ...base, allowedOrigins: ['http://link.test'] },
+    url: 'http://link.example.com/',
+    policy: { ...base, allowedOrigins: ['http://link.example.com'] },
     lookup: async () => [{ address: '169.254.1.1' }],
   });
   assert.equal(linkLocal.allowed, false);
@@ -548,7 +548,7 @@ test('B8 DNS rebinding denied through live proxy with dns-rebinding code', async
   let upstreamHits = 0;
   const upstream = await startFakeUpstream(() => { upstreamHits += 1; });
   const policyFile = writePolicyFile({
-    tok: { policy: literalOriginPolicy(['http://rebind.test']) },
+    tok: { policy: literalOriginPolicy(['http://rebind.example.com']) },
   });
   const proxy = createEgressProxyServer({
     config: proxyConfig({ policyFile }),
@@ -558,7 +558,7 @@ test('B8 DNS rebinding denied through live proxy with dns-rebinding code', async
   const res = await proxyRequest({
     proxyPort: port,
     token: 'tok',
-    request: 'GET http://rebind.test/ HTTP/1.1\r\nHost: rebind.test\r\nConnection: close\r\n\r\n',
+    request: 'GET http://rebind.example.com/ HTTP/1.1\r\nHost: rebind.example.com\r\nConnection: close\r\n\r\n',
   });
   assert.match(res.statusLine, /403/);
   assert.equal(res.headers['x-egress-deny'], 'dns-rebinding');

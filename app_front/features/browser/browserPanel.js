@@ -55,6 +55,12 @@ const state = {
   runtime: null,
   limits: null,
   sessions: [],
+  /**
+   * Holder of the single external-CDP slot as reported by `/sessions`; it can
+   * sit outside this owner/workspace list, which is why it is kept apart.
+   * @type {{ held: boolean, mine: boolean, holder: string, used?: number, max?: number } | null}
+   */
+  external: null,
   sessionId: '',
   tabs: [],
   tabId: '',
@@ -160,9 +166,10 @@ async function api(path, init = {}) {
   }
   if (!res.ok || !data?.ok) {
     const message = String(data?.error || `HTTP ${res.status}`);
-    const err = new Error(message);
+    const err = /** @type {Error & { code: string, status: number, holder?: string }} */ (new Error(message));
     err.code = String(data?.code || '');
     err.status = res.status;
+    if (typeof data?.holder === 'string') err.holder = data.holder;
     throw err;
   }
   return data;
@@ -203,6 +210,7 @@ const BROWSER_ERROR_CODES = Object.freeze(new Set([
   'elements-failed',
   'elements-unavailable',
   'explicit-target-required',
+  'external-session-busy',
   'forbidden-chat',
   'forbidden-owner',
   'forbidden-workspace',
@@ -219,6 +227,7 @@ const BROWSER_ERROR_CODES = Object.freeze(new Set([
   'navigation-blocked',
   'navigation-failed',
   'no-workspace',
+  'not-external',
   'not-found',
   'page-closed',
   'plan-mode-readonly',
@@ -245,6 +254,15 @@ const BROWSER_ERROR_CODES = Object.freeze(new Set([
 ]));
 
 /**
+ * @param {string} holder holder category from the server
+ * @returns {string}
+ */
+function externalHolderText(holder) {
+  const known = ['agent', 'other-login', 'other-workspace', 'pending', 'self'];
+  return t(`browser.externalHolder.${known.includes(holder) ? holder : 'pending'}`);
+}
+
+/**
  * Turns an API failure into user-facing text. A known code becomes its
  * translation; anything else keeps the server message (already redacted
  * route-side), so an unmapped code never degrades into a bare code string.
@@ -254,7 +272,9 @@ const BROWSER_ERROR_CODES = Object.freeze(new Set([
 function errorText(err) {
   const message = String(/** @type {{ message?: unknown }} */ (err)?.message || err || 'error');
   const code = String(/** @type {{ code?: unknown }} */ (err)?.code || '');
-  const text = BROWSER_ERROR_CODES.has(code) ? t(`browser.error.${code}`, { detail: message }) : message;
+  const holder = String(/** @type {{ holder?: unknown }} */ (err)?.holder || '');
+  const detail = code === 'external-session-busy' && holder ? externalHolderText(holder) : message;
+  const text = BROWSER_ERROR_CODES.has(code) ? t(`browser.error.${code}`, { detail }) : message;
   return text.length > 200 ? `${text.slice(0, 200)}…` : text;
 }
 
@@ -287,6 +307,23 @@ function renderSessionList(sessions) {
   const listEl = document.getElementById('browser-sessions');
   if (!listEl) return;
   if (!sessions.length) {
+    const external = state.external;
+    if (external?.held && !external.mine) {
+      // The external slot is held outside this list (another device, workspace
+      // or an agent), so "create a new one" would only hit the limit again.
+      const holderText = externalHolderText(String(external.holder || ''));
+      listEl.innerHTML = `<div class="browser-empty browser-external-busy">`
+        + `<span>${escapeHtml(t('browser.externalBusy', {
+          holder: holderText,
+          used: String(external.used ?? ''),
+          max: String(external.max ?? ''),
+        }))}</span>`
+        + `<cr-bar-button data-browser-external-release>${escapeHtml(t('browser.externalRelease'))}</cr-bar-button>`
+        + `</div>`;
+      listEl.querySelector('[data-browser-external-release]')
+        ?.addEventListener('click', () => void releaseExternalSession());
+      return;
+    }
     listEl.innerHTML = `<div class="browser-empty">${escapeHtml(t('browser.noSessions'))}</div>`;
     return;
   }
@@ -625,6 +662,7 @@ async function reloadSessions() {
   try {
     const data = await api('/sessions');
     state.sessions = Array.isArray(data?.sessions) ? data.sessions : [];
+    state.external = data?.external && typeof data.external === 'object' ? data.external : null;
     if (!state.sessions.some((session) => session.browserSessionId === state.sessionId)) {
       resetScrollInputCoalesce();
       state.sessionId = state.sessions[0]?.browserSessionId || '';
@@ -679,6 +717,27 @@ async function createSession() {
     state.sessionId = String(data?.session?.browserSessionId || '');
     state.tabId = '';
     setStatus('', '');
+    await reloadSessions();
+  } catch (err) {
+    setStatus(errorText(err), 'error');
+    // Refresh the list so the hidden holder and its release button show up.
+    if (err?.code === 'external-session-busy') await reloadSessions();
+  } finally {
+    state.busy = false;
+  }
+}
+
+async function releaseExternalSession() {
+  if (state.busy) return;
+  const holderText = externalHolderText(String(state.external?.holder || ''));
+  if (!window.confirm(t('browser.externalReleaseConfirm', { holder: holderText }))) return;
+  state.busy = true;
+  try {
+    await api('/external/release', { method: 'POST' });
+    resetScrollInputCoalesce();
+    state.sessionId = '';
+    state.tabId = '';
+    setStatus(t('browser.externalReleased'), 'ok');
     await reloadSessions();
   } catch (err) {
     setStatus(errorText(err), 'error');

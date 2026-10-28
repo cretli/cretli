@@ -9,6 +9,7 @@ import {
   classifyIp,
   evaluateUrlPolicy,
   isLocalHostname,
+  isLocalOnlyHostname,
   isLoopbackHostname,
   isPrivateHostname,
   normalizeHostname,
@@ -89,12 +90,61 @@ test('always blocks link-local and cloud metadata, even when allowlisted', async
 test('blocks DNS rebinding of an allowlisted public hostname', async () => {
   const lookup = async () => [{ address: '127.0.0.1' }];
   const result = await evaluateUrlPolicy({
-    url: 'https://rebind.test/',
-    policy: { allowedOrigins: ['https://rebind.test'] },
+    url: 'https://rebind.example.com/',
+    policy: { allowedOrigins: ['https://rebind.example.com'] },
     lookup,
   });
   assert.equal(result.allowed, false);
   assert.equal(result.code, 'dns-rebinding');
+});
+
+test('recognises local-only hostnames (single label, reserved or non-delegated TLD)', () => {
+  for (const host of ['your-pc', 'my-app.loc', 'my-app.test', 'nas.lan', 'printer.local', 'svc.internal', 'nas.home.arpa', 'my-app.loc.']) {
+    assert.equal(isLocalOnlyHostname(host), true, host);
+  }
+  for (const host of ['example.com', 'my-app.dev', 'evil.arpa', 'in-addr.arpa', '127.0.0.1', '::1', '']) {
+    assert.equal(isLocalOnlyHostname(host), false, host);
+  }
+});
+
+test('an allowlisted local-only dev hostname may resolve to loopback or LAN', async () => {
+  const loopback = await evaluateUrlPolicy({
+    url: 'http://my-app.loc/login',
+    policy: { allowedOrigins: ['http://my-app.loc'] },
+    lookup: async () => [{ address: '127.0.0.1' }],
+  });
+  assert.equal(loopback.allowed, true);
+  assert.deepEqual(loopback.resolvedIps, ['127.0.0.1']);
+
+  const lan = await evaluateUrlPolicy({
+    url: 'http://nas.lan:8080/',
+    policy: { allowedOrigins: ['http://nas.lan:8080'] },
+    lookup: async () => [{ address: '10.0.0.5' }],
+  });
+  assert.equal(lan.allowed, true);
+
+  // Not allowlisted: still denied before DNS.
+  const notListed = await evaluateUrlPolicy({
+    url: 'http://other.loc/',
+    policy: { allowedOrigins: ['http://my-app.loc'], allowLocalhost: true },
+    lookup: async () => [{ address: '127.0.0.1' }],
+  });
+  assert.equal(notListed.code, 'origin-not-allowed');
+
+  // Metadata stays blocked and pins still apply.
+  const metadata = await evaluateUrlPolicy({
+    url: 'http://my-app.loc/',
+    policy: { allowedOrigins: ['http://my-app.loc'] },
+    lookup: async () => [{ address: '169.254.169.254' }],
+  });
+  assert.equal(metadata.code, 'blocked-address');
+  const moved = await evaluateUrlPolicy({
+    url: 'http://my-app.loc/',
+    policy: { allowedOrigins: ['http://my-app.loc'] },
+    lookup: async () => [{ address: '10.0.0.9' }],
+    pinnedAddresses: ['127.0.0.1'],
+  });
+  assert.equal(moved.code, 'dns-rebinding');
 });
 
 test('blocks internal service ports unless explicitly unblocked', async () => {
@@ -149,15 +199,34 @@ test('blocks mapped IPv6 metadata even when the origin is allowlisted', async ()
   assert.equal(result.code, 'blocked-address');
 });
 
-test('rejects an address that changed after the session pinned it', async () => {
-  const result = await evaluateUrlPolicy({
+test('a pinned public host may rotate public addresses but never move to a local one', async () => {
+  // CDN / round-robin DNS: another public answer is not rebinding.
+  const rotated = await evaluateUrlPolicy({
     url: 'https://example.com/',
     policy: { allowedOrigins: ['https://example.com'] },
     lookup: async () => [{ address: '93.184.216.99' }],
     pinnedAddresses: ['93.184.216.34'],
   });
-  assert.equal(result.allowed, false);
-  assert.equal(result.code, 'dns-rebinding');
+  assert.equal(rotated.allowed, true);
+
+  const toPrivate = await evaluateUrlPolicy({
+    url: 'https://example.com/',
+    policy: { allowedOrigins: ['https://example.com'], allowPrivateNetwork: true },
+    lookup: async () => [{ address: '10.0.0.5' }],
+    pinnedAddresses: ['93.184.216.34'],
+  });
+  assert.equal(toPrivate.allowed, false);
+  assert.equal(toPrivate.code, 'dns-rebinding');
+
+  // A host pinned to a private address (explicit LAN allowlist) stays pinned.
+  const lanMoved = await evaluateUrlPolicy({
+    url: 'http://10.0.0.5:8080/',
+    policy: { allowedOrigins: ['http://nas.lan:8080'], allowPrivateNetwork: true },
+    lookup: async () => [{ address: '10.0.0.5' }],
+    pinnedAddresses: ['10.0.0.7'],
+  });
+  assert.equal(lanMoved.allowed, false);
+  assert.equal(lanMoved.code, 'dns-rebinding');
 
   const same = await evaluateUrlPolicy({
     url: 'https://example.com/',

@@ -115,4 +115,39 @@ __reloadSessionsFromDiskForTest();
 assert.equal(resolveDelegationAckActorFromRequest({ headers: { cookie: tooling.sessionCookie } }), 'agent');
 assert.equal(resolveDelegationAckActorFromRequest({ headers: { cookie: passwordLogin.headers.get('set-cookie'), 'x-human': '1' } }), 'human');
 
+
+// A page driven by an agent Browser session (for example an external Chrome
+// profile signed in with a password) downgrades its login to a preview session,
+// and that session is dropped from every chat it already owned.
+{
+  const { markBrowserPreviewSessionFromRequest } = await import('../lib/auth.js');
+  const { BROWSER_AGENT_PAGE_HEADER, getBrowserAgentPageToken } = await import('../lib/local-login.js');
+  const { rememberBrowserChatOwner, resolveBrowserChatOwner, resetBrowserChatOwnersForTests } = await import('../lib/browser/agent-tools.js');
+  await import('../lib/ws/ws-router.ts');
+  const login = await fetch(`${baseUrl}/api/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: 'test-password-123' }),
+  });
+  const cookie = login.headers.get('set-cookie');
+  const pageSessionId = getSessionIdFromRequest({ headers: { cookie } });
+  assert.equal(isBrowserPreviewSession(pageSessionId), false);
+  resetBrowserChatOwnersForTests();
+  rememberBrowserChatOwner('chat-a', pageSessionId);
+  assert.equal(resolveBrowserChatOwner('chat-a', null), pageSessionId);
+
+  assert.equal(markBrowserPreviewSessionFromRequest({ headers: { cookie, [BROWSER_AGENT_PAGE_HEADER]: 'wrong' } }), false);
+  assert.equal(markBrowserPreviewSessionFromRequest({ headers: { cookie } }), false);
+  assert.equal(isBrowserPreviewSession(pageSessionId), false, 'a missing or wrong marker changes nothing');
+
+  const marked = { headers: { cookie, [BROWSER_AGENT_PAGE_HEADER]: getBrowserAgentPageToken() } };
+  assert.equal(markBrowserPreviewSessionFromRequest(marked), true);
+  assert.equal(isBrowserPreviewSession(pageSessionId), true, 'an agent page downgrades the login to preview');
+  assert.equal(resolveBrowserChatOwner('chat-a', null), '', 'the downgraded session no longer owns the chat');
+  assert.equal(markBrowserPreviewSessionFromRequest(marked), false, 'marking is idempotent');
+  __reloadSessionsFromDiskForTest();
+  assert.equal(isBrowserPreviewSession(pageSessionId), true, 'the downgrade survives a server restart');
+  resetBrowserChatOwnersForTests();
+}
+
 await new Promise((resolve) => server.close(resolve));

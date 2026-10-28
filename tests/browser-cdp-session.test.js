@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BrowserSessionManager, BrowserError } from '../lib/browser/session-manager.js';
+import {
+  BROWSER_SYSTEM_OWNER_ID,
+  EXTERNAL_CDP_MAX_SESSIONS_DEFAULT,
+  EXTERNAL_CDP_MAX_SESSIONS_LIMIT,
+} from '../lib/browser/constants.js';
+import { normalizeExternalMaxSessions, resolveBrowserCdpConfig } from '../lib/browser/cdp-config.js';
+import { createCdpDriver } from '../lib/browser/runtime-detect.js';
 
 function externalFixture(options = {}) {
   const events = { pageRoutes: 0, initScripts: 0, pageCloses: 0, contextCloses: 0, browserCloses: 0, cdpMethods: [] };
@@ -22,6 +29,7 @@ function externalFixture(options = {}) {
     pages: () => [],
     _handlers: new Map(),
     on(event, handler) { this._handlers.set(event, [...(this._handlers.get(event) || []), handler]); },
+    off(event, handler) { this._handlers.set(event, (this._handlers.get(event) || []).filter((h) => h !== handler)); },
     emit(event, value) { for (const handler of this._handlers.get(event) || []) handler(value); },
     async newCDPSession() {
       return { send: async (method) => { events.cdpMethods.push(method); }, detach: async () => {} };
@@ -44,6 +52,7 @@ function externalFixture(options = {}) {
   const manager = new BrowserSessionManager({
     driver,
     driverStatus: { status: 'available', mode: 'external-cdp', connected: 'unknown' },
+    externalMaxSessions: options.externalMaxSessions ?? 1,
     resolvePolicy: options.resolvePolicy || (() => ({ allowedOrigins: ['https://example.com'], blockedPorts: [], unblockedPorts: [], allowExternalBrowser: true })),
     proxyProbe: options.proxyProbe,
     selfOrigins: options.selfOrigins || [],
@@ -52,7 +61,7 @@ function externalFixture(options = {}) {
     clearTimeoutFn: () => {},
     lookup: options.lookup || (async () => [{ address: '93.184.216.34' }]),
   });
-  return { manager, driver, events, page, browser };
+  return { manager, driver, events, page, context, browser };
 }
 
 test('external CDP disconnect closes the session without headless crash recovery', async () => {
@@ -85,7 +94,7 @@ test('external CDP reports connection, reserves one session, and closes only its
   assert.equal(typeof page.webSocketRouteHandler, 'function');
   await assert.rejects(
     () => manager.createSession({ ownerSessionId: 'b', workspaceFile: '/ws/b' }),
-    (error) => error instanceof BrowserError && error.code === 'session-limit',
+    (error) => error instanceof BrowserError && error.code === 'external-session-busy' && error.holder === 'other-workspace',
   );
   driver.listener?.(false);
   assert.equal(manager.getRuntimeStatus().connected, false);
@@ -118,7 +127,64 @@ test('external CDP reservation is atomic for concurrent owners', async () => {
     manager.createSession({ ownerSessionId: 'b', workspaceFile: '/ws/b' }),
   ]);
   assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
-  assert.equal(results.filter((result) => result.status === 'rejected' && result.reason?.code === 'session-limit').length, 1);
+  assert.equal(results.filter((result) => result.status === 'rejected' && result.reason?.code === 'external-session-busy').length, 1);
+});
+
+test('external CDP holder is described relative to the caller and can be released by anyone', async () => {
+  const { manager } = externalFixture();
+  assert.equal(manager.describeExternalHolder('a', { workspaceFile: '/ws/a' }), null);
+  await manager.createSession({ ownerSessionId: 'a', workspaceFile: '/ws/a' });
+  assert.equal(manager.describeExternalHolder('a', { workspaceFile: '/ws/a' }).holder, 'self');
+  assert.equal(manager.describeExternalHolder('a', { workspaceFile: '/ws/a' }).mine, true);
+  assert.equal(manager.describeExternalHolder('b', { workspaceFile: '/ws/a' }).holder, 'other-login');
+  assert.equal(manager.describeExternalHolder('a', { workspaceFile: '/ws/b' }).holder, 'other-workspace');
+  // The caller cannot see the holder in its own list, which is the bug this covers.
+  assert.deepEqual(manager.listSessions('b', { workspaceFile: '/ws/b' }), []);
+  await assert.rejects(
+    () => manager.createSession({ ownerSessionId: 'b', workspaceFile: '/ws/b' }),
+    (error) => error.code === 'external-session-busy',
+  );
+  assert.deepEqual(await manager.releaseExternalSession(), { released: true });
+  assert.equal(manager.describeExternalHolder('b', { workspaceFile: '/ws/b' }), null);
+  assert.equal(manager.sessions.size, 0);
+  assert.equal(manager.externalSessionReserved, false, 'the slot is free for the next owner');
+});
+
+test('external CDP holder reports an agent system session', async () => {
+  const { manager } = externalFixture();
+  await manager.createSession({ ownerSessionId: BROWSER_SYSTEM_OWNER_ID, workspaceFile: '/ws/a' });
+  assert.equal(manager.describeExternalHolder('a', { workspaceFile: '/ws/a' }).holder, 'agent');
+});
+
+test('external CDP shares the profile up to the configured session cap', async () => {
+  const { manager, context } = externalFixture({ externalMaxSessions: 2 });
+  const a = await manager.createSession({ ownerSessionId: 'a', workspaceFile: '/ws/a' });
+  assert.equal(manager.describeExternalHolder('b', { workspaceFile: '/ws/b' }), null, 'a slot is still free');
+  await manager.createSession({ ownerSessionId: BROWSER_SYSTEM_OWNER_ID, workspaceFile: '/ws/b' });
+  const full = manager.describeExternalHolder('c', { workspaceFile: '/ws/c' });
+  assert.equal(full.used, 2);
+  assert.equal(full.max, 2);
+  await assert.rejects(
+    () => manager.createSession({ ownerSessionId: 'c', workspaceFile: '/ws/c' }),
+    (error) => error.code === 'external-session-busy',
+  );
+  const pageListeners = context._handlers.get('page').length;
+  await manager.closeSession(a.browserSessionId, 'a');
+  assert.equal(context._handlers.get('page').length, pageListeners - 1, 'a closed session leaves no listener on the shared context');
+  assert.equal(manager.describeExternalHolder('c', { workspaceFile: '/ws/c' }), null);
+  manager.externalMaxSessions = 1;
+  assert.equal(manager.describeExternalHolder('c', { workspaceFile: '/ws/c' }).holder, 'agent', 'lowering the cap keeps live sessions');
+});
+
+test('external session cap is clamped and defaults when unset', () => {
+  assert.equal(normalizeExternalMaxSessions(undefined), EXTERNAL_CDP_MAX_SESSIONS_DEFAULT);
+  assert.equal(normalizeExternalMaxSessions(''), EXTERNAL_CDP_MAX_SESSIONS_DEFAULT);
+  assert.equal(normalizeExternalMaxSessions('abc'), EXTERNAL_CDP_MAX_SESSIONS_DEFAULT);
+  assert.equal(normalizeExternalMaxSessions(0), 1);
+  assert.equal(normalizeExternalMaxSessions(2.7), 2);
+  assert.equal(normalizeExternalMaxSessions(99), EXTERNAL_CDP_MAX_SESSIONS_LIMIT);
+  assert.equal(resolveBrowserCdpConfig({}, { browserCdpMaxSessions: 5 }).maxSessions, 5);
+  assert.equal(resolveBrowserCdpConfig({ CRETLI_BROWSER_CDP_URL: 'http://127.0.0.1:9222' }, {}).maxSessions, EXTERNAL_CDP_MAX_SESSIONS_DEFAULT);
 });
 
 test('external page route enforces iframe redirects and local-login scoping', async () => {
@@ -162,7 +228,8 @@ test('external page route enforces iframe redirects and local-login scoping', as
   fulfilled.length = 0;
   const localRequest = { ...request, url: () => 'https://127.0.0.1/login' };
   await page.routeHandler(route, localRequest);
-  assert.ok(fetched[0].headers['x-cretli-local-login'], 'self-origin request receives local login');
+  assert.ok(fetched[0].headers['x-cretli-browser-agent-page'], 'self-origin request is marked as an agent page');
+  assert.equal(fetched[0].headers['x-cretli-local-login'], undefined, 'external Chrome never receives the local-login credential');
 
   fetched.length = 0;
   await page.routeHandler(route, {
@@ -206,4 +273,21 @@ test('external CDP refuses proxy and required boundaries before proxy probing or
     assert.equal(probes, 0);
     assert.equal(manager.externalSessionReserved, false);
   }
+});
+
+test('the CDP driver reuses one live connection across sessions', async () => {
+  let connects = 0;
+  let live = true;
+  const browser = { isConnected: () => live, on() {} };
+  const chromium = { connectOverCDP: async () => { connects += 1; return browser; } };
+  const driver = await createCdpDriver(chromium, {
+    url: 'http://127.0.0.1:9222',
+    fetch: async () => ({ ok: true, json: async () => ({ webSocketDebuggerUrl: 'ws://127.0.0.1:9222/devtools/browser/x', Browser: 'Chrome' }) }),
+  });
+  await driver.connect();
+  await driver.connect();
+  assert.equal(connects, 1, 'a second session attaches to the same connection');
+  live = false;
+  await driver.connect();
+  assert.equal(connects, 2, 'a dropped connection is re-established');
 });

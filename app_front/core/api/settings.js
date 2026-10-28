@@ -84,6 +84,25 @@ export async function getBrowserPolicy() {
   return dedupeGetJson(`/api/browser/policy${query ? `?${query}` : ''}`, 'getBrowserPolicy');
 }
 
+/** Browser runtime status (headless vs external CDP Chrome, connection state). */
+export async function getBrowserRuntimeStatus() {
+  return dedupeGetJson('/api/browser/status', 'getBrowserRuntimeStatus');
+}
+
+/** External Chrome (CDP) endpoint configured in Settings or pinned by env. */
+export async function getBrowserRuntimeConfig() {
+  return apiFetchJson('/api/browser/runtime-config', undefined, 'getBrowserRuntimeConfig');
+}
+
+/** Saves the CDP endpoint; the server checks it and swaps the driver in place. */
+export async function putBrowserRuntimeConfig(config) {
+  return apiFetchJson('/api/browser/runtime-config?mode=agent', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config || {}),
+  }, 'putBrowserRuntimeConfig');
+}
+
 export async function patchBrowserPolicy(policy) {
   return apiFetchJson('/api/browser/policy?mode=agent', {
     method: 'PUT',

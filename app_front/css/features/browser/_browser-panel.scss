@@ -168,6 +168,14 @@
   color: var(--cr-text-muted, #858585);
 }
 
+.browser-external-busy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cr-space-2);
+  color: var(--cr-warn);
+}
+
 .browser-main {
   flex: 1;
   min-width: 0;

@@ -189,6 +189,27 @@ test('an empty workspace cannot create or list Browser sessions', async () => {
   }
 });
 
+test('external profile release: list reports no holder and release refuses a managed runtime', async () => {
+  const ctx = await startServer();
+  try {
+    const owner = { 'x-test-owner': 'owner-a' };
+    const listed = await fetch(`${ctx.base}/api/browser/sessions`, { headers: owner });
+    assert.equal((await listed.json()).external, null);
+
+    const planRelease = await fetch(`${ctx.base}/api/browser/external/release?mode=plan`, { method: 'POST', headers: owner });
+    assert.equal(planRelease.status, 403);
+
+    const release = await fetch(`${ctx.base}/api/browser/external/release?mode=agent`, { method: 'POST', headers: owner });
+    assert.equal(release.status, 409);
+    assert.equal((await release.json()).code, 'not-external');
+
+    const anonymous = await fetch(`${ctx.base}/api/browser/external/release?mode=agent`, { method: 'POST' });
+    assert.equal(anonymous.status, 401);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('a session cannot be read, bound or deleted from another workspace', async () => {
   const ctx = await startServer();
   try {

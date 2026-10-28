@@ -19,7 +19,7 @@ import {
   mapPreviewPoint,
 } from '../lib/browser/session-manager.js';
 import { BROWSER_LIMITS } from '../lib/browser/constants.js';
-import { LOCAL_LOGIN_HEADER, getLocalLoginToken } from '../lib/local-login.js';
+import { BROWSER_AGENT_PAGE_HEADER, LOCAL_LOGIN_HEADER, getLocalLoginToken } from '../lib/local-login.js';
 
 /** Scope used by every session in this file (one workspace per test). */
 const SCOPE = { workspaceFile: '/ws/a' };
@@ -509,16 +509,22 @@ test('navigate honours the URL policy and route handler blocks subresources', as
   assert.ok(network.entries.some((entry) => entry.blocked === true));
 });
 
-test('DNS answers are pinned: a hostname changing address is blocked mid-session', async () => {
+test('DNS answers are pinned: a hostname moving to a local address is blocked mid-session', async () => {
   let address = '93.184.216.34';
   const lookup = async () => [{ address }];
   const { manager } = createManager({ lookup });
   const session = await manager.createSession({ ownerSessionId: OWNER, ...SCOPE });
   const [tab] = manager.listTabs(session.browserSessionId, OWNER, SCOPE);
-  // The session pinned example.com to .34 at launch; DNS now answers .99.
+  const live = manager.sessions.get(session.browserSessionId);
+  // CDN rotation to another public address is accepted and remembered.
   address = '93.184.216.99';
+  const rotated = await manager.evaluateRequestPolicy(live, 'https://example.com/rotated');
+  assert.equal(rotated.allowed, true);
+  assert.ok(live.dnsPins.get('example.com').has('93.184.216.99'));
+  // The session pinned example.com to public addresses; DNS now answers a LAN address.
+  address = '10.0.0.5';
 
-  const context = manager.sessions.get(session.browserSessionId).context;
+  const context = live.context;
   const routeHandler = context.routes[0];
   let aborted = false;
   await routeHandler(
@@ -1017,7 +1023,7 @@ test('a hop targeting a self origin carries the local-login token', async () => 
   await routeHandler(bare.route, bare.request);
   assert.equal(bare.calls.aborted, false);
   assert.equal(bare.calls.fulfilled, true);
-  assert.deepEqual(Object.keys(bare.calls.fetchOptions[0].headers), [LOCAL_LOGIN_HEADER]);
+  assert.deepEqual(Object.keys(bare.calls.fetchOptions[0].headers).sort(), [BROWSER_AGENT_PAGE_HEADER, LOCAL_LOGIN_HEADER].sort());
   assert.equal(bare.calls.fetchOptions[0].headers[LOCAL_LOGIN_HEADER], getLocalLoginToken());
 });
 
@@ -2126,4 +2132,79 @@ test('browser_input locator fields win in selector, role, text, label, placehold
   await send({ kind: 'click', selector: '   ', role: '', text: 'Save' });
   assert.equal(tab.page.locatorQueries.at(-1), 'text=Save');
   assert.equal(tab.page.locatorQueries.length, before + 1);
+});
+
+test('Calm pace splits agent scroll and cursor movement while leaving panel input immediate', async () => {
+  const { manager } = createManager();
+  manager.calmPaceMode = true;
+  manager.limits = { ...manager.limits, INPUT_MIN_INTERVAL_MS: 0 };
+  const session = await manager.createSession({ ownerSessionId: OWNER, ...SCOPE });
+  const [tab] = manager.listTabs(session.browserSessionId, OWNER, SCOPE);
+  const { tab: tabObj } = manager.requireTab(session.browserSessionId, tab.browserTabId, OWNER, SCOPE);
+  const moves = [];
+  const wheels = [];
+  tabObj.page.mouse.move = async (x, y) => moves.push({ x, y });
+  tabObj.page.mouse.wheel = async (x, y) => wheels.push({ x, y });
+  const event = { kind: 'scroll', point: { x: 120, y: 240 }, deltaY: 240 };
+  await manager.dispatchInput(session.browserSessionId, tab.browserTabId, OWNER, event, { ...SCOPE, calmPaceInput: true });
+  assert.equal(moves.length, 12);
+  assert.deepEqual(moves.at(-1), { x: 120, y: 240 });
+  assert.equal(wheels.length, 3);
+  assert.ok(Math.abs(wheels.reduce((sum, item) => sum + item.y, 0) - 240) < 1e-9);
+  assert.ok(wheels.every((item) => item.y > 0), 'chunks retain the requested direction');
+  moves.length = 0;
+  wheels.length = 0;
+  await manager.dispatchInput(session.browserSessionId, tab.browserTabId, OWNER, event, SCOPE);
+  assert.equal(moves.length, 1);
+  assert.equal(wheels.length, 1);
+});
+
+test('Calm pace cooldown respects Retry-After and blocks queued agent actions but permits manual input', async () => {
+  const { manager, setClock } = createManager({ calmPaceMode: true });
+  const info = await manager.createSession({ ownerSessionId: OWNER, ...SCOPE });
+  const [tabInfo] = manager.listTabs(info.browserSessionId, OWNER, SCOPE);
+  const { session, tab } = manager.requireTab(info.browserSessionId, tabInfo.browserTabId, OWNER, SCOPE);
+  const emit429 = (value) => tab.page.emit('response', {
+    status: () => 429, headers: () => ({ 'retry-after': value }),
+  });
+  emit429('120');
+  assert.equal(session.calmPaceCooldownUntil, 1120000);
+  emit429('1');
+  assert.equal(session.calmPaceCooldownUntil, 1120000, 'a shorter limit cannot shorten an existing pause');
+  const event = { kind: 'key', key: 'Tab' };
+  await assert.rejects(() => manager.performInput(session, tab, event, { ...SCOPE, calmPaceInput: true }), { code: 'calm-pace-cooldown' });
+  await assert.rejects(() => manager.navigate(session.id, tab.id, 'https://example.com', OWNER, { ...SCOPE, calmPaceInput: true }), { code: 'calm-pace-cooldown' });
+  await manager.performInput(session, tab, event, SCOPE);
+  assert.equal(tab.page.keyboardPressCalls.length, 1);
+  setClock(1120001);
+  assert.doesNotThrow(() => manager.assertCalmPaceCooldown(session, { calmPaceInput: true }));
+  emit429('invalid');
+  assert.equal(session.calmPaceCooldownUntil, 1180001);
+  setClock(1180002);
+  emit429(new Date(1300000).toUTCString());
+  assert.equal(session.calmPaceCooldownUntil, 1300000);
+  manager.calmPaceMode = false;
+  assert.doesNotThrow(() => manager.assertCalmPaceCooldown(session, { calmPaceInput: true }));
+});
+
+test('Calm pace fill clears once then sends sequential keystrokes with a bounded typing budget', async () => {
+  const { manager } = createManager({ calmPaceMode: true });
+  const info = await manager.createSession({ ownerSessionId: OWNER, ...SCOPE });
+  const [tabInfo] = manager.listTabs(info.browserSessionId, OWNER, SCOPE);
+  const { session, tab } = manager.requireTab(info.browserSessionId, tabInfo.browserTabId, OWNER, SCOPE);
+  const calls = [];
+  const locator = {
+    first() { return this; },
+    fill: async (value) => calls.push(['fill', value]),
+    pressSequentially: async (value, options) => calls.push(['type', value, options]),
+  };
+  tab.page.locator = () => locator;
+  await manager.performInput(session, tab, { kind: 'fill', selector: '#name', value: 'Example' }, { ...SCOPE, calmPaceInput: true });
+  assert.deepEqual(calls[0], ['fill', '']);
+  assert.equal(calls[1][0], 'type');
+  assert.equal(calls[1][1], 'Example');
+  assert.equal(calls[1][2].delay, 80);
+  calls.length = 0;
+  await manager.performInput(session, tab, { kind: 'fill', selector: '#name', value: 'Example' }, SCOPE);
+  assert.deepEqual(calls, [['fill', 'Example']]);
 });

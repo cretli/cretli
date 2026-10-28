@@ -5,7 +5,7 @@ import type { AgentRun, AgentSchedule } from './agent-run-ws-handler.ts';
 import { handleAgentSdkWebSocket } from '../sdk/cursor-agent-sdk-ws.ts';
 import { getChatByCursorSessionId } from '../persist/chats-persist.js';
 import { guardArchivedChatSocket } from '../chat-message-guard.js';
-import { forgetBrowserChatOwner, rememberBrowserChatOwner } from '../browser/agent-tools.js';
+import { dropBrowserChatOwnerSession, forgetBrowserChatOwner, rememberBrowserChatOwner } from '../browser/agent-tools.js';
 import { getChatAgentTransport } from '../agent-transport.js';
 import {
   dispatchLocalHarnessWebSocket,
@@ -23,7 +23,17 @@ import {
 } from '../client-instance-registry.js';
 import { registerPageBridge } from '../page-bridge.js';
 import { verifyWidgetAccessToken } from '../widget/widget-installations.ts';
-import { isAuthConfigured, isAuthenticated, getSessionIdFromRequest, isBrowserPreviewSession } from '../auth.js';
+import {
+  isAuthConfigured,
+  isAuthenticated,
+  getSessionIdFromRequest,
+  isBrowserPreviewSession,
+  onBrowserPreviewSessionMarked,
+} from '../auth.js';
+
+// A login session recognised inside an agent-controlled Browser page loses any
+// chat ownership it gained before it was recognised.
+onBrowserPreviewSessionMarked((sessionId) => dropBrowserChatOwnerSession(sessionId));
 import {
   registerSessionWebSocket,
   unregisterSessionWebSocket,

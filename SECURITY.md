@@ -88,7 +88,18 @@ still not a network boundary.
   blocked so they cannot bypass the route policy. When a redirect crosses origins, the
   original request's credentials (`Cookie`, `Authorization`, and other sensitive headers)
   are stripped before the next hop is fetched, so an allowlisted page cannot bounce a
-  request to a second origin and leak them.
+  request to a second origin and leak them. Exception: with the opt-in **native
+  networking** of an external Chrome (`browserCdpNativeNetwork`), a policy-approved
+  request to a public address is continued inside Chrome, which follows its server
+  redirects without re-checking them (see `docs/browser-runtime.md`).
+- **DNS answers are pinned per session.** The first validated answer for a hostname is
+  remembered. A later answer may rotate to another public address (CDN or round-robin
+  DNS), but a move into a loopback, private, link-local or special range, or away from a
+  host pinned to a local address, is refused as `dns-rebinding`. A public hostname that
+  resolves to a local address is refused the same way, even when allowlisted. Exception:
+  an allowlisted local-only name (a single label, or a reserved / non-delegated TLD such as
+  `.loc`, `.test`, `.lan`, `.local`, `.internal`, `.home.arpa`) may resolve to loopback or
+  the LAN, since no public DNS server can answer for it (e.g. `my-app.loc` in the hosts file).
 - **Residual risk.** Chromium resolves hostnames in its own network stack, so Node's policy
   check and Chromium's connection are separate resolutions. Chromium is launched with a
   default-deny `--host-resolver-rules` map (`MAP * ~NOTFOUND` plus validated IPv4 pins) as
