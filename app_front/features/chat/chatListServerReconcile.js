@@ -75,7 +75,7 @@ export function mergeExistingChatFromServerRow(existing, serverChat, ctx) {
   } else {
     delete existing.todoId;
   }
-  existing._todoBanner?.sync();
+  /** @type {any} */ (existing)._todoBanner?.sync();
   if (serverChat.onWorktree === true) {
     existing.onWorktree = true;
   } else {

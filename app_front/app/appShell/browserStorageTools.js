@@ -28,7 +28,7 @@ function renderBrowserStorageCharts(container, charts, onAction) {
   const fragment = document.createDocumentFragment();
   for (const chart of charts) {
     if (!chart || typeof chart !== 'object') continue;
-    const donut = document.createElement('cr-storage-donut');
+    const donut = /** @type {any} */ (document.createElement('cr-storage-donut'));
     donut.label = chart.label || '';
     donut.subtitle = chart.subtitle || '';
     donut.hint = chart.hint || '';
@@ -46,11 +46,11 @@ function renderBrowserStorageCharts(container, charts, onAction) {
 }
 
 export function initBrowserStorageTools() {
-  const refreshBtn = document.getElementById('browser-storage-refresh-btn');
-  const clearLocalBtn = document.getElementById('browser-storage-clear-local-btn');
-  const clearIdbBtn = document.getElementById('browser-storage-clear-idb-btn');
-  const clearCacheBtn = document.getElementById('browser-storage-clear-cache-btn');
-  const clearAllBtn = document.getElementById('browser-storage-clear-all-btn');
+  const refreshBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('browser-storage-refresh-btn'));
+  const clearLocalBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('browser-storage-clear-local-btn'));
+  const clearIdbBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('browser-storage-clear-idb-btn'));
+  const clearCacheBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('browser-storage-clear-cache-btn'));
+  const clearAllBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('browser-storage-clear-all-btn'));
   const chartsEl = document.getElementById('browser-storage-charts');
   const summaryEl = document.getElementById('browser-storage-summary');
   const detailsEl = document.getElementById('browser-storage-details');
@@ -202,7 +202,7 @@ export function initBrowserStorageTools() {
     clearAllBtn.disabled = disabled;
     const inlineDonuts = chartsEl.querySelectorAll('cr-storage-donut[data-browser-storage-inline-action]');
     for (const donut of inlineDonuts) {
-      donut.actionDisabled = disabled;
+      /** @type {any} */ (donut).actionDisabled = disabled;
     }
   };
 
@@ -363,13 +363,13 @@ export function initBrowserSelfOriginSetting() {
  */
 function initBrowserCdpSetting() {
   const statusLine = document.getElementById('browser-external-status');
-  const urlInput = document.getElementById('browser-cdp-url');
-  const allowlistInput = document.getElementById('browser-cdp-allowlist');
-  const saveBtn = document.getElementById('browser-cdp-save');
+  const urlInput = /** @type {HTMLInputElement | null} */ (document.getElementById('browser-cdp-url'));
+  const allowlistInput = /** @type {HTMLInputElement | null} */ (document.getElementById('browser-cdp-allowlist'));
+  const saveBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('browser-cdp-save'));
   const status = document.getElementById('browser-cdp-status');
   const envLocked = document.getElementById('browser-cdp-env-locked');
-  const nativeNetwork = document.getElementById('browser-cdp-native-network');
-  const calmPaceMode = document.getElementById('browser-calm-pace-mode');
+  const nativeNetwork = /** @type {HTMLInputElement | null} */ (document.getElementById('browser-cdp-native-network'));
+  const calmPaceMode = /** @type {HTMLInputElement | null} */ (document.getElementById('browser-calm-pace-mode'));
   const maxSessions = /** @type {HTMLInputElement | null} */ (document.getElementById('browser-cdp-max-sessions'));
   if (!urlInput || !allowlistInput || !saveBtn || !status) {
     void renderBrowserRuntimeStatus(statusLine);
