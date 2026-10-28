@@ -320,7 +320,7 @@ test('model_pick leaf_size signals fire for review/plan roles', async () => {
   const { addTodo } = await import('../lib/persist/todos-persist.js');
   const { setBuiltinMcpRuntimeDeps } = await import('../lib/mcp/builtin/runtime-deps.js');
   const dataDir = process.env.CRETLI_DATA_DIR;
-  setBuiltinMcpRuntimeDeps({ dataDir, workspaceDirForAgent: () => '', taskRuns: new Map(), agentRuns: new Map() });
+  setBuiltinMcpRuntimeDeps({ dataDir, workspaceDirForAgent: () => '', taskRuns: new Map() });
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'cx-ws-'));
   fs.mkdirSync(path.join(ws, 'lib'));
   fs.writeFileSync(path.join(ws, 'lib', 'a.js'), '');
@@ -348,7 +348,7 @@ test('model_pick fix role computes no leaf size, so its selection inputs stay un
   const { addTodo } = await import('../lib/persist/todos-persist.js');
   const { setBuiltinMcpRuntimeDeps } = await import('../lib/mcp/builtin/runtime-deps.js');
   const dataDir = process.env.CRETLI_DATA_DIR;
-  setBuiltinMcpRuntimeDeps({ dataDir, workspaceDirForAgent: () => '', taskRuns: new Map(), agentRuns: new Map() });
+  setBuiltinMcpRuntimeDeps({ dataDir, workspaceDirForAgent: () => '', taskRuns: new Map() });
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'cx-fix-ws-'));
   fs.mkdirSync(path.join(ws, 'lib'));
   fs.writeFileSync(path.join(ws, 'lib', 'a.js'), '');
@@ -383,7 +383,7 @@ test('model_pick review/plan responses carry no leaf= reason suffix or flash exc
   const { addTodo } = await import('../lib/persist/todos-persist.js');
   const { setBuiltinMcpRuntimeDeps } = await import('../lib/mcp/builtin/runtime-deps.js');
   const dataDir = process.env.CRETLI_DATA_DIR;
-  setBuiltinMcpRuntimeDeps({ dataDir, workspaceDirForAgent: () => '', taskRuns: new Map(), agentRuns: new Map() });
+  setBuiltinMcpRuntimeDeps({ dataDir, workspaceDirForAgent: () => '', taskRuns: new Map() });
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'cx-rp-ws-'));
   const body = 'No file list here';
   const todo = addTodo(dataDir, ws, { title: 't-rp', body, idempotencyKey: 'cx-rp' });

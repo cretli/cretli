@@ -73,8 +73,6 @@ before(async () => {
     widgetChatListScope,
     dataDir: '',
     agentSessions,
-    getCurrentAgentRunResumeId: () => '',
-    setCurrentAgentRunResumeId: () => {},
     agentCmd: '',
     agentModel: 'auto',
     workspaceDirForAgent: () => '/tmp',

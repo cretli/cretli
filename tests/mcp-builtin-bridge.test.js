@@ -37,7 +37,6 @@ const chat = addChat('bridge-sess', 'Bridge chat', null, workspace, 'm', {
 setBuiltinMcpRuntimeDeps({
   dataDir: resolveDataPath(),
   taskRuns: new Map(),
-  agentRuns: new Map(),
   loadTasksForWorkspace: () => ({ tasks: [] }),
   workspaceDirForAgent: () => '',
 });

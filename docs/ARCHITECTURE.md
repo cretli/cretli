@@ -311,7 +311,6 @@ Chat (Claude)        → /ws-agent-sdk   → @anthropic-ai/claude-agent-sdk (que
 Chat (Codex)         → /ws-agent-sdk   → @openai/codex-sdk (startThread/resumeThread, runStreamed)
 Terminal shell       → /ws             → node-pty
 Tasks (.vscode)      → /ws-task        → node-pty
-Scheduled agents     → /ws-agent-run   → node-pty (Cursor CLI)
 Agent run (legacy)   → /ws-agent       → node-pty (rejected for harness chats)
 Server log viewer    → /ws-server-logs → in-memory log buffer
 Front hot fallback   → /ws-front-build → dist watch events (default on; CRETLI_FRONT_HOT_FALLBACK=0 disables)
@@ -716,7 +715,7 @@ Five *family* tools carry an `action` enum with flat parameters to keep schema t
 
 | Tool | Actions | Risk |
 |---|---|---|
-| `panel` | `open` (chat, todo, files, git, github, browser, tasks, terminal, logs, tests, instances, agents), `status` | safe |
+| `panel` | `open` (chat, todo, files, git, github, browser, tasks, terminal, logs, tests, instances), `status` | safe |
 | `app_settings` | `theme`, `language`, `mic` | safe |
 | `app_status` | `notifications`, `scout`, `health`, `context` | safe, read-only |
 | `approval` | `describe_pending`, `answer` (`once` / `reject` only, bound to `request_id` + chat) | confirm |
@@ -768,7 +767,7 @@ a hidden session is never invisible.
 
 ## Frontend
 
-- Entry: `app_front/App.js` → `index.bundle.js`. xterm.js for terminal/tasks/agents; Lit
+- Entry: `app_front/App.js` → `index.bundle.js`. xterm.js for terminal/tasks; Lit
   web components (`app_front/components/`) for the SDK rich chat view.
 - Design system: tokens in `app_front/css/tokens.scss` (`--cr-*`, including
   `--cr-control-height`), layout recipes in `app_front/css/cr-recipes.scss`
@@ -1120,7 +1119,6 @@ denied), so PTY rows are reasoned, not observed.
 |-----------|------|---------------------|-----------|
 | `lib/ws/pty-ws-handler.ts` `pty.spawn` | terminal / agent PTY | SIGHUP normally; can survive if ignored | `trackChildProcess` registry, phase 1/2, startup sweep |
 | `lib/ws/task-ws-handler.ts` `pty.spawn` (shell and exec) | task run | as above | registry |
-| `lib/ws/agent-run-ws-handler.ts` `pty.spawn` (interactive and scheduler) | agent run | as above | registry |
 | `lib/dev-build.js` `pty.spawn` | front-build watch | as above | registry |
 | `lib/mcp/mcp-runtime.js` `StdioClientTransport` | MCP stdio bridge | usually stdin EOF, not guaranteed | `registerChildProcess` + `closeTransport`, phase 1/2, sweep |
 | `lib/sdk/sdk-review-verify.ts` `spawn(process.execPath, [test])` | review-verify test runner | **yes** (`stdin: 'ignore'`) | `trackChildProcess`, phase 1/2, sweep |

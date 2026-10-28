@@ -3,7 +3,6 @@ import { getActiveSendBar } from '../../features/chat/index.js';
 import { copyFromTerminal } from '../../features/terminal/services/panelCopy.js';
 import { t, getCurrentLang, setLang } from '../../i18n/index.js';
 import {
-  getAgentsTerminalState,
   getTasksTerminalState,
   getTerminalPanelState,
   getTerminalSendBar,
@@ -29,12 +28,6 @@ export function initPanelCopyButtons() {
   if (tasksCopyBtn) {
     tasksCopyBtn.addEventListener('click', async function () {
       await handleCopy.call(this, () => getTasksTerminalState()?.term ?? null);
-    });
-  }
-  const agentsCopyBtn = document.getElementById('agents-copy-btn');
-  if (agentsCopyBtn) {
-    agentsCopyBtn.addEventListener('click', async function () {
-      await handleCopy.call(this, () => getAgentsTerminalState()?.term ?? null);
     });
   }
 }

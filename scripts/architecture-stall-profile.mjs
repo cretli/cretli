@@ -630,9 +630,8 @@ async function measureV8(P, work) {
       agentCmd: 'agent', agentModel: 'auto', agentSessions: new Map(), terminalSessions: new Map(),
       workspaceDirForAgent: () => work, getCurrentCwd: () => work, buildInteractivePtyEnv: (e) => ({ ...e }),
       randomSessionId: () => 'stall-profile-session', setLastTerminalSessionId: () => {}, getLastTerminalSessionId: () => null,
-      getCurrentAgentRunResumeId: () => null, setCurrentAgentRunResumeId: () => {},
     };
-    ptyModule.handlePtyConnection(ws, false, null, null, work, null, null, false, null, ctx, true);
+    ptyModule.handlePtyConnection(ws, false, null, null, work, null, null, false, ctx, true);
     const inputFrame = Buffer.from(JSON.stringify({ type: 'input', data: 'ls -la\r' }));
     await push({
       id: 'V8-pty-ws-input-message',

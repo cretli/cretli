@@ -57,10 +57,6 @@ setBuiltinMcpRuntimeDeps({
     ['run-a', { taskLabel: 'build', cwd: workspaceA }],
     ['run-b', { taskLabel: 'other', cwd: workspaceB }],
   ]),
-  agentRuns: new Map([
-    ['arun-a', { agentName: 'reviewer', cwd: workspaceA }],
-    ['arun-b', { agentName: 'other', cwd: workspaceB }],
-  ]),
   loadTasksForWorkspace: ({ workspaceFolder }) => {
     if (workspaceFolder === workspaceA) {
       return { tasks: [{ label: 'build', type: 'shell', folderPath: workspaceA, folderName: path.basename(workspaceA) }] };
@@ -78,8 +74,8 @@ for (const name of [
   'delegation_reply', 'delegation_inbox', 'workflow_show', 'workflow_update',
   'delegation_rate', 'delegation_ack', 'todo_takeover',
   'watcher_show', 'watcher_update',
+  'task_list', 'task_run_list', 'agent_list', 'harness_list', 'model_list', 'model_pick',
   'watcher_status', 'watcher_set', 'watcher_report', 'watcher_claim_next', 'scout_findings',
-  'task_list', 'task_run_list', 'agent_list', 'agent_run_list', 'harness_list', 'model_list', 'model_pick',
 ]) {
   assert.ok(names.includes(name), name);
 }
@@ -120,6 +116,8 @@ const sessionA = {
   mode: 'agent',
   builtinClient: client,
 };
+assert.ok(!names.includes('agent' + '_run_list'));
+
 const handlersA = createCretliMcpToolHandlers(client, sessionA);
 
 const created = await handlersA.todo_create({
@@ -591,8 +589,6 @@ assert.ok(agents.content[0].text.includes('.cursor/agents'));
 const taskRuns = await handlersA.task_run_list({});
 assert.equal(taskRuns.structuredContent.items.length, 1);
 assert.equal(taskRuns.structuredContent.items[0].label, 'build');
-const agentRuns = await handlersA.agent_run_list({});
-assert.equal(agentRuns.structuredContent.items.length, 1);
 
 const outOfScope = await handlersB.todo_show({ todo_id: todoId });
 assert.equal(outOfScope.isError, true);

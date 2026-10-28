@@ -51,7 +51,7 @@ test('new tools are registered as safe family tools with an action enum', () => 
     assert.ok(action.required.includes('action'), id);
     assert.ok(Array.isArray(action.properties.action.enum), id);
   }
-  assert.equal(getVoiceAction('panel').properties.panel.enum.length, 12);
+  assert.equal(getVoiceAction('panel').properties.panel.enum.length, 11);
 });
 
 test('panel names resolve from English and Polish speech with diacritics', () => {
@@ -62,11 +62,11 @@ test('panel names resolve from English and Polish speech with diacritics', () =>
   assert.equal(resolveVoicePanel('Przegladarke'), 'browser');
   assert.equal(resolveVoicePanel('zadania'), 'tasks');
   assert.equal(resolveVoicePanel('zadania todo'), 'todo');
-  assert.equal(resolveVoicePanel('agentów'), 'agents');
-  assert.equal(resolveVoicePanel('agenci'), 'agents');
+  assert.equal(resolveVoicePanel('agentów'), '');
+  assert.equal(resolveVoicePanel('agenci'), '');
   assert.equal(resolveVoicePanel('agent'), '');
-  assert.equal(resolveVoicePanel('panel agent'), 'agents');
-  assert.equal(resolveVoicePanel('agent panel'), 'agents');
+  assert.equal(resolveVoicePanel('panel agent'), '');
+  assert.equal(resolveVoicePanel('agent panel'), '');
   assert.equal(resolveVoicePanel('konsola'), 'terminal');
   assert.equal(resolveVoicePanel('dziennik'), 'logs');
   assert.equal(resolveVoicePanel('kuchnia'), '');

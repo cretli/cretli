@@ -73,7 +73,6 @@ test('ws-protocol.js declares every message type the lib/ws handlers send or par
   const handlers = [
     'pty-ws-handler',
     'task-ws-handler',
-    'agent-run-ws-handler',
     'front-build-ws',
     'server-log-ws',
   ];

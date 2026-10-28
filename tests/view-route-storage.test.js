@@ -49,7 +49,7 @@ test('storage priority on / prefers session, then local v1, then legacy keys', (
     defaultPanel: 'chat',
   });
   assert.equal(bootLocal.source, 'local');
-  assert.equal(bootLocal.intent.panel, 'agents');
+  assert.equal(bootLocal.intent.panel, 'chat');
 
   const bootLegacy = resolveBootRouteIntent({
     location: { pathname: '/', search: '' },

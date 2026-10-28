@@ -380,7 +380,11 @@ test('query allowlist keeps each panel resource id and drops foreign keys', () =
   assert.equal(parseSpaRoute('/chat?chat=c1').query.chat, 'c1');
   assert.equal(parseSpaRoute('/todo?todo=t1').query.todo, 't1');
   assert.equal(parseSpaRoute('/tasks?run=r1').query.run, 'r1');
-  assert.equal(parseSpaRoute('/agents?run=r2').query.run, 'r2');
+  const legacyAgents = parseSpaRoute('/agents?run=r2');
+  assert.equal(legacyAgents.panel, 'chat');
+  assert.equal(legacyAgents.canonical, '/chat');
+  assert.equal(legacyAgents.query.run, undefined);
+  assert.equal(isSpaShellPath('/agents'), true);
   assert.equal(parseSpaRoute('/terminal?session=s1').query.session, 's1');
   assert.equal(parseSpaRoute('/browser?browserSession=b1&browserTab=b2').canonical,
     '/browser?browserSession=b1&browserTab=b2');

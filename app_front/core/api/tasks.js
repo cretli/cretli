@@ -20,26 +20,3 @@ export async function deleteTaskRun(runId) {
   if (!runId) return { ok: false, error: 'Missing runId' };
   return apiFetchJson(`/api/task-runs/${encodeURIComponent(runId)}`, { method: 'DELETE' }, 'deleteTaskRun');
 }
-
-/** Active runs of agents defined in .cursor/agents. */
-export async function getAgentRuns() {
-  return dedupeGetJson('/api/agent-runs', 'getAgentRuns');
-}
-
-export async function getAgents() {
-  return dedupeGetJson('/api/agents', 'getAgents');
-}
-
-export async function getAgentsSchedule() {
-  return dedupeGetJson('/api/agents/schedule', 'getAgentsSchedule');
-}
-
-export async function patchAgentsSchedule(schedules) {
-  return apiFetchJson('/api/agents/schedule', {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ schedules }),
-  }, 'patchAgentsSchedule');
-}
-// TypeScript checks the legacy API contract separately; this split preserves its runtime implementation.
-// @ts-nocheck

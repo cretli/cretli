@@ -130,10 +130,6 @@ export function createPanelRouter(deps = {}) {
     preloadTasksDropdown = () => {},
     ensureTaskRunsReconnected = () => Promise.resolve(),
     refreshTasksList = () => {},
-    fitAgentsTerminal = () => {},
-    preloadAgentsDropdown = () => {},
-    ensureAgentRunsReconnected = () => Promise.resolve(),
-    refreshAgentsList = () => {},
     ensureFilesPanelInitialized = () => {},
     refreshFilesPanel = () => {},
     refreshGitInfo = () => {},
@@ -306,14 +302,6 @@ export function createPanelRouter(deps = {}) {
         fitTasksTerminal();
         preloadTasksDropdown();
         void ensureTaskRunsReconnected().then(() => refreshTasksList({ invalidateCache: true }));
-      });
-    }
-
-    if (panelId === 'agents') {
-      runPanelReady('agents', () => {
-        fitAgentsTerminal();
-        preloadAgentsDropdown();
-        void ensureAgentRunsReconnected().then(() => refreshAgentsList());
       });
     }
 

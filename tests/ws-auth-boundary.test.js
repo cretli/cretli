@@ -198,10 +198,7 @@ attachWebSocketHandlers(wss, {
   terminalSessions: new Map(),
   agentSessions: new Map(),
   taskRuns: new Map(),
-  agentRuns: new Map(),
   devBuildRunId: 'dev',
-  getCurrentAgentRunResumeId: () => null,
-  setCurrentAgentRunResumeId: () => {},
   getLastTerminalSessionId: () => null,
   setLastTerminalSessionId: () => {},
   randomSessionId: () => crypto.randomBytes(4).toString('hex'),
@@ -209,7 +206,6 @@ attachWebSocketHandlers(wss, {
   loadCurrentTasks: () => null,
   buildTaskRunScopeSnapshot: () => ({ workspaceFile: '', cwd: '' }),
   isTaskRunInScope: () => true,
-  loadAgentsSchedule: () => ({ schedules: [] }),
   dataDir: ISOLATED_DATA_DIR,
   useHttps: true,
 });

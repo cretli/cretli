@@ -289,7 +289,6 @@
     "lib/worktree/worktree-record-live.ts",
     "lib/worktree/worktree-record.ts",
     "lib/worktree/worktree-result.ts",
-    "lib/ws/agent-run-ws-handler.ts",
     "lib/ws/front-build-ws.ts",
     "lib/ws/pty-ws-handler.ts",
     "lib/ws/server-log-ws.ts",

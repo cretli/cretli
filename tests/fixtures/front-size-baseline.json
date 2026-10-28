@@ -13,7 +13,7 @@
       "innerHTML": 0
     },
     "app_front/app/appShell/bootApp.js": {
-      "lines": 416,
+      "lines": 407,
       "innerHTML": 0
     },
     "app_front/app/appShell/browserStorageTools.js": {
@@ -45,7 +45,7 @@
       "innerHTML": 0
     },
     "app_front/app/appShell/lazyPanelModules.js": {
-      "lines": 77,
+      "lines": 76,
       "innerHTML": 0
     },
     "app_front/app/appShell/mobileKeyboard.js": {
@@ -57,11 +57,11 @@
       "innerHTML": 2
     },
     "app_front/app/appShell/panelControls.js": {
-      "lines": 61,
+      "lines": 54,
       "innerHTML": 0
     },
     "app_front/app/appShell/panelLoader.js": {
-      "lines": 160,
+      "lines": 153,
       "innerHTML": 0
     },
     "app_front/app/appShell/panelRegistry.js": {
@@ -69,15 +69,15 @@
       "innerHTML": 0
     },
     "app_front/app/appShell/panelRouter.js": {
-      "lines": 410,
+      "lines": 398,
       "innerHTML": 1
     },
     "app_front/app/appShell/routeResourceRestore.js": {
-      "lines": 278,
+      "lines": 255,
       "innerHTML": 0
     },
     "app_front/app/appShell/runtime.js": {
-      "lines": 275,
+      "lines": 269,
       "innerHTML": 0
     },
     "app_front/app/appShell/settingsTabs.js": {
@@ -97,7 +97,7 @@
       "innerHTML": 0
     },
     "app_front/app/appShell/spaNavigationController.js": {
-      "lines": 126,
+      "lines": 123,
       "innerHTML": 0
     },
     "app_front/app/appShell/startup.js": {
@@ -137,7 +137,7 @@
       "innerHTML": 1
     },
     "app_front/app/appShell/workspaceContext.js": {
-      "lines": 961,
+      "lines": 959,
       "innerHTML": 1
     },
     "app_front/app/appShell/workspaceHelpers.js": {
@@ -277,7 +277,7 @@
       "innerHTML": 0
     },
     "app_front/core/api/tasks.js": {
-      "lines": 45,
+      "lines": 23,
       "innerHTML": 0
     },
     "app_front/core/api/todos.js": {
@@ -343,26 +343,6 @@
     "app_front/embed/widgetSession.js": {
       "lines": 119,
       "innerHTML": 0
-    },
-    "app_front/features/agents/agentsState.js": {
-      "lines": 123,
-      "innerHTML": 0
-    },
-    "app_front/features/agents/agentsViews.js": {
-      "lines": 172,
-      "innerHTML": 0
-    },
-    "app_front/features/agents/index.js": {
-      "lines": 2,
-      "innerHTML": 0
-    },
-    "app_front/features/agents/views/agentsPanel.js": {
-      "lines": 625,
-      "innerHTML": 2
-    },
-    "app_front/features/agents/views/agentsSettingsPanel.js": {
-      "lines": 69,
-      "innerHTML": 4
     },
     "app_front/features/approval/approvalBrokerSettings.js": {
       "lines": 803,
@@ -2261,7 +2241,7 @@
       "innerHTML": 0
     },
     "app_front/features/voice/voiceAppMatch.js": {
-      "lines": 167,
+      "lines": 166,
       "innerHTML": 0
     },
     "app_front/features/voice/voiceAppTools.js": {
@@ -2655,6 +2635,10 @@
     "app_front/webpack.widget.dev.js": {
       "lines": 24,
       "innerHTML": 0
+    },
+    "app_front/features/settings/agentsSettingsPanel.js": {
+      "lines": 69,
+      "innerHTML": 4
     }
   }
 }

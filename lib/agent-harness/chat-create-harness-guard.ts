@@ -8,7 +8,7 @@
  * where changing it would alter existing built-in/empty behavior.
  *
  * Decision table for the raw `req.body.agentTransport` value on the normal
- * (non-`forAgentRun`) create path:
+ * chat creation path:
  *
  *   - missing, `null`, `''`, or only whitespace  -> `sdk` (unchanged)
  *   - `cursor` in any case, with surrounding spaces -> `sdk` (explicit legacy alias)

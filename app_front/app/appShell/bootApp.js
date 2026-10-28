@@ -73,7 +73,6 @@ import { initMobileKeyboardOffsetSync } from './mobileKeyboard.js';
 import { getActiveSendBarForPanel, initLangSelect, initPanelCopyButtons } from './panelControls.js';
 import {
   ensurePanelReady,
-  getAgentsTerminalState,
   getTasksTerminalState,
   getTerminalPanelState,
 } from './panelLoader.js';
@@ -315,7 +314,6 @@ export function createBootApp(deps) {
         const terminalPanel = document.getElementById('terminal-panel');
         const chatPanel = document.getElementById('chat-panel');
         const tasksPanel = document.getElementById('tasks-panel');
-        const agentsPanel = document.getElementById('agents-panel');
         if (terminalPanel?.classList.contains('active')) {
           const active = getTerminalPanelState()?.getActiveTerminal?.();
           if (active?.term) active.term.write(text + '\r');
@@ -327,9 +325,6 @@ export function createBootApp(deps) {
           }
         } else if (tasksPanel?.classList.contains('active')) {
           const term = getTasksTerminalState()?.term;
-          if (term) term.write(text + '\r');
-        } else if (agentsPanel?.classList.contains('active')) {
-          const term = getAgentsTerminalState()?.term;
           if (term) term.write(text + '\r');
         }
       });
@@ -353,7 +348,6 @@ export function createBootApp(deps) {
         const terminalPanel = document.getElementById('terminal-panel');
         const chatPanel = document.getElementById('chat-panel');
         const tasksPanel = document.getElementById('tasks-panel');
-        const agentsPanel = document.getElementById('agents-panel');
         if (terminalPanel?.classList.contains('active')) {
           const active = getTerminalPanelState()?.getActiveTerminal?.();
           if (sendSequenceToTerminalState(active, sequence, { focusDelayMs })) return;
@@ -363,9 +357,6 @@ export function createBootApp(deps) {
         }
         if (tasksPanel?.classList.contains('active')) {
           if (sendSequenceToTerminalState(getTasksTerminalState(), sequence, { focusDelayMs })) return;
-        }
-        if (agentsPanel?.classList.contains('active')) {
-          sendSequenceToTerminalState(getAgentsTerminalState(), sequence, { focusDelayMs });
         }
       });
 

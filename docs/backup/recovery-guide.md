@@ -67,8 +67,7 @@ node scripts/cretli-offline-data.mjs resume        # clear the post-restore paus
 
 ### Pause and resumption
 
-While paused the server does not start delegation recovery, Watcher/Scout, mailbox/outbox, title/archive jobs or the
-agents scheduler. External HTTP history writes must present the current `restoreGeneration` (from `/api/settings` and
+While paused the server does not start delegation recovery, Watcher/Scout, mailbox/outbox, title/archive jobs. External HTTP history writes must present the current `restoreGeneration` (from `/api/settings` and
 `/api/health`; the browser refreshes once on a stale value). Nothing is re-activated automatically: review the data, then
 `resume`. Interrupted work is handled by ordinary boot recovery *after* `resume`. Restore does not rewrite imported
 executable or URL definitions and does not reconstruct run claims.
@@ -134,7 +133,7 @@ deletes only scheduled archives beyond `keep`, only after the new archive verifi
 - No quarantine of corrupt raw source files in the data backup: a corrupt SQLite aborts the backup. Only the
   conversations export records `corrupt_source` omissions.
 - No restore receipts or replay protection for data restore (only conversation import has them).
-- No WebSocket/replay generation transport; pause coverage beyond delegation-runtime boot and the agents scheduler is partial.
+- No WebSocket/replay generation transport; pause coverage beyond delegation-runtime boot is partial.
 - No legacy readers or forward migration of pre-migration archives; only the current registry layout restores.
 - No remote backup destinations, no per-archive listing or download endpoint for scheduled backups.
 - Pre-restore copies in the control directory are not pruned automatically.

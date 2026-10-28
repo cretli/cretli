@@ -234,7 +234,6 @@ describe('HTTP routes over the selected backend', () => {
     saveChats([{ id: EXTRAS, title: 'Extras', agentTransport: 'sdk', workspaceFolder: '/work/p', workspaceFile: '/work/p.code-workspace' }]);
     const app = express();
     registerChatsRoutes(app, {
-      dataDir: '', agentSessions: new Map(), getCurrentAgentRunResumeId: () => '', setCurrentAgentRunResumeId: () => {},
       agentCmd: '', agentModel: '', workspaceDirForAgent: () => '/tmp', getCurrentWorkspaceFile: () => null, getCurrentCwd: () => '/tmp', buildAgentSpawnEnv: () => ({}),
     });
     httpServer = await new Promise((resolve) => { const listener = app.listen(0, '127.0.0.1', () => resolve(listener)); });

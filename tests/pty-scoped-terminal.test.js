@@ -57,8 +57,6 @@ function fakeCtx(spy = {}) {
       workspaceDirForAgent: () => '',
       terminalSessions,
       agentSessions,
-      getCurrentAgentRunResumeId: () => null,
-      setCurrentAgentRunResumeId: () => {},
       getLastTerminalSessionId: () => null,
       setLastTerminalSessionId: () => {},
       randomSessionId: () => {
@@ -101,7 +99,6 @@ test('a scoped connect without a folder is refused before any PTY session exists
     null,
     null,
     false,
-    null,
     ctx,
     true,
   ));
@@ -127,7 +124,6 @@ test('a legacy connect without the scoped marker still opens in the shared cwd (
     null,
     null,
     false,
-    null,
     ctx,
     false,
   ));

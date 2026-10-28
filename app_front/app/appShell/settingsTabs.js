@@ -110,7 +110,10 @@ export function refreshSettingsTabPanels(tabId) {
     const section = document.querySelector(`.settings-section[data-settings-tab="${tabId}"]`);
     section?.querySelectorAll('cr-permission-grants').forEach((panel) => void panel.refresh());
   }
-  if (tabId === 'chat') refreshModelSettingsPanel();
+  if (tabId === 'chat') {
+    refreshModelSettingsPanel();
+    loadSettingsPanel('agentsSettings', () => {});
+  }
   if (tabId === 'connection' || tabId === 'mcp-clients') {
     void import('../../features/settings/tlsSettings.js').then(({ refreshTlsSettings }) => refreshTlsSettings());
   }

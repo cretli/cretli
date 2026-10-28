@@ -566,8 +566,7 @@ body:has(#chat-panel.active:not(.hide-send-field)) #chat-context-meter {
   /* xterm width 100% with hidden overflow, so nothing spills out on the right. */
   #terminal-panel .terminal-viewport-wrap,
   .chat-tab-pane .terminal-viewport-wrap,
-  .tasks-tab-pane .terminal-viewport-wrap,
-  #agents-panel .agents-terminal-container {
+  .tasks-tab-pane .terminal-viewport-wrap {
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;

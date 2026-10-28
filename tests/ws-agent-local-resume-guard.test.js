@@ -39,11 +39,11 @@ test('legacy /ws-agent resume closes local plugin chats with 4000 before the PTY
     guardIndex > lookupIndex,
     'the legacy branch must explicitly check rawHarnessTransportKind(chat.agentTransport) for local ids',
   );
+  const builtinResumeGateIndex = branch.indexOf('if (chat && isHarnessWebSocketChat(chat))');
   const localResumeGateIndex = branch.indexOf('if (isAgent && resumeId) {');
-  const builtinResumeGateIndex = branch.indexOf('if (!agentRunName && chat &&');
   assert.ok(
     localResumeGateIndex >= 0 && localResumeGateIndex < guardIndex && guardIndex < builtinResumeGateIndex,
-    'the local resume guard must run even when agentRun is present; only the built-in guard keeps that bypass',
+    'the local resume guard must run before the built-in harness guard',
   );
 
   const closeIndex = branch.indexOf('ws.close(4000', guardIndex);
@@ -72,12 +72,10 @@ test('legacy /ws-agent resume closes local plugin chats with 4000 before the PTY
 test('built-in legacy resume behavior stays intact (lock)', () => {
   const branch = legacyResumeBranch();
 
-  // Known harness chats still close with 4000 and the branch still skips the
-  // guard for agent-run resumes, preserving built-in CLI resume behavior.
+  // Known harness chats close before reaching the PTY handler.
   assert.ok(branch.indexOf('isHarnessWebSocketChat(chat)') > 0);
   assert.doesNotMatch(branch, /is(Sdk|Claude|OpenRouter|Mistral)Chat\(/, 'the guard must not use per-transport isXChat lists');
   assert.ok(branch.indexOf("ws.close(4000, 'Chats use harness WebSocket (/ws-agent-sdk).')") > 0);
-  assert.ok(branch.indexOf('!agentRunName') > 0);
 
   // The /ws-agent-sdk reconnect path keeps routing local ids to the plugin
   // runtime ahead of the SDK catch-all.

@@ -1,9 +1,6 @@
-import { readFileSync } from 'fs';
-import path from 'path';
 import pty from 'node-pty';
 import type { IPty } from 'node-pty';
 import type { RawData, WebSocket } from 'ws';
-import { loadAgents } from '../agents.js';
 import { broadcastToClients, flushPtyOutput, queuePtyOutput } from '../pty-broadcast.js';
 import { readEnvAlias } from '../env-alias.js';
 import { trackChildProcess } from '../child-process-registry.js';
@@ -52,8 +49,6 @@ export type PtyWsHandlerContext = {
   workspaceDirForAgent: (workspacePath: string | null | undefined) => string,
   terminalSessions: Map<string, PtySession>,
   agentSessions: Map<string, PtySession>,
-  getCurrentAgentRunResumeId: () => string | null,
-  setCurrentAgentRunResumeId: (id: string | null) => void,
   getLastTerminalSessionId: () => string | null,
   setLastTerminalSessionId: (sessionId: string | null) => void,
   randomSessionId: () => string,
@@ -86,7 +81,6 @@ export function handlePtyConnection(
   model: string | null,
   terminalSessionId: string | null,
   sessionSyncEnabled: boolean,
-  agentRunName: string | null,
   ctx: PtyWsHandlerContext,
   ptyScopedSelector: boolean = false,
 ): void {
@@ -197,7 +191,6 @@ export function handlePtyConnection(
       if (session) queuePtyOutput(clients, session, data);
     });
     ptyProcess.onExit(() => {
-      if (sessionKey === ctx.getCurrentAgentRunResumeId()) ctx.setCurrentAgentRunResumeId(null);
       const session = isAgent ? ctx.agentSessions.get(sessionKey) : ctx.terminalSessions.get(sessionKey);
       if (session) flushPtyOutput(clients, session);
       broadcastToClients(clients, { type: 'output', data: '\r\n\x1b[33m[Session ended.]\x1b[0m\r\n' });
@@ -207,22 +200,6 @@ export function handlePtyConnection(
       if (isAgent && sessionKey) ctx.agentSessions.delete(sessionKey);
       else if (sessionKey) ctx.terminalSessions.delete(sessionKey);
     });
-    if (isAgent && agentRunName) {
-      const workspaceDir = workspacePath ? path.dirname(workspacePath) : ctx.getCurrentCwd();
-      try {
-        const data = loadAgents(workspaceDir);
-        const agent = data.agents && data.agents.find((entry) => entry.name === agentRunName);
-        if (agent && agent.path) {
-          const fullPath = path.isAbsolute(agent.path)
-            ? agent.path
-            : path.join(workspaceDir, agent.path);
-          const content = readFileSync(fullPath, 'utf8');
-          setImmediate(() => ptyProcess.write(content + '\n'));
-        }
-      } catch (err) {
-        console.warn('[pty] agent prompt inject failed:', (err as Error | null)?.message || err);
-      }
-    }
   }
   ws.on('message', (raw: RawData) => {
     try {

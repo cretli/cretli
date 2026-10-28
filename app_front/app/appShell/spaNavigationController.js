@@ -8,7 +8,6 @@ import { getTerminalSession } from '../../core/api/index.js';
 import { applyGitSubviewFromRoute } from '../../features/git/worktreeList.js';
 import { clearTerminalSessionFromRoute, joinTerminalSessionFromRoute } from '../../features/terminal/index.js';
 import { listScopedTaskRunIdsForRoute, restoreTaskRunFromRoute } from '../../features/tasks/index.js';
-import { listScopedAgentRunIdsForRoute, restoreAgentRunFromRoute } from '../../features/agents/index.js';
 import {
   listBrowserSessionsForRoute,
   listBrowserTabsForRoute,
@@ -76,8 +75,6 @@ export function createSpaNavigationController({
       restoreBrowser: (sessionId, tabId) => restoreBrowserRouteTarget(sessionId, tabId),
       listTaskRunIds: async () => listScopedTaskRunIdsForRoute(),
       restoreTaskRun: (runId) => restoreTaskRunFromRoute(runId),
-      listAgentRunIds: async () => listScopedAgentRunIdsForRoute(),
-      restoreAgentRun: (runId) => restoreAgentRunFromRoute(runId),
       isCurrentGeneration: (token) => getSharedSpaNavigation()?.isCurrentGeneration(token) !== false,
     });
     const nav = createSpaNavigation({

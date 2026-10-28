@@ -84,11 +84,6 @@ const panelRouter = createPanelRouter({
   ensureTaskRunsReconnected: () =>
     callLoadedPanel('tasks', 'ensureTaskRunsReconnected') ?? Promise.resolve(),
   refreshTasksList: (options) => callLoadedPanel('tasks', 'refreshTasksList', options),
-  fitAgentsTerminal: () => callLoadedPanel('agents', 'fitAgentsTerminal'),
-  preloadAgentsDropdown: () => callLoadedPanel('agents', 'preloadAgentsDropdown'),
-  ensureAgentRunsReconnected: () =>
-    callLoadedPanel('agents', 'ensureAgentRunsReconnected') ?? Promise.resolve(),
-  refreshAgentsList: () => callLoadedPanel('agents', 'refreshAgentsList'),
   ensureFilesPanelInitialized,
   refreshFilesPanel: () => callLoadedPanel('files', 'refreshFilesPanel'),
   refreshGitInfo: () => callLoadedPanel('git', 'refreshGitInfo'),
@@ -103,7 +98,6 @@ const panelRouter = createPanelRouter({
 const workspaceContext = createWorkspaceContext({
   api,
   refreshTasksList: () => callLoadedPanel('tasks', 'refreshTasksList', { invalidateCache: true }),
-  refreshAgentsList: () => callLoadedPanel('agents', 'refreshAgentsList'),
   refreshChatListForWorkspace,
   ensureFilesPanelInitialized,
   refreshFilesPanel: () => callLoadedPanel('files', 'refreshFilesPanel'),

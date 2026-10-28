@@ -16,7 +16,7 @@ const { setBuiltinMcpRuntimeDeps } = await import('../lib/mcp/builtin/runtime-de
 const { createInProcessMcpClient } = await import('../lib/mcp/mcp-inprocess-client.js');
 const { createCretliMcpToolHandlers } = await import('../lib/mcp/mcp-builtin-tools.js');
 
-setBuiltinMcpRuntimeDeps({ dataDir, workspaceDirForAgent: () => '', taskRuns: new Map(), agentRuns: new Map() });
+setBuiltinMcpRuntimeDeps({ dataDir, workspaceDirForAgent: () => '', taskRuns: new Map() });
 const ws = path.join(dataDir, 'ws');
 mkdirSync(ws, { recursive: true });
 const chat = addChat('sess-body', 'Body chat', null, ws, 'model', { agentTransport: 'testfake', sdkMode: 'agent' });

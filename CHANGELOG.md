@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Removed
+
+- Legacy Agents tab, Cursor CLI definition runner and interval schedule. Use chat skills, delegations, Watcher, Scout or `check_schedule` instead. Existing `/agents` links open `/chat`. Agent definitions remain available through `agent_list`; Rules and agents loads directly from Settings → Chat & agents.
+
 ## [0.5.0] - 2026-10-25
 
 ### Changed

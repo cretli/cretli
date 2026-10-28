@@ -1,9 +1,9 @@
 /**
  * Panel rules/commands/skills: toggle, GET /api/cursor-context, render lists.
  */
-import * as api from '../../../core/api/index.js';
-import { t } from '../../../i18n/index.js';
-import { escapeHtml } from '../../chat/chatHtmlUtils.js';
+import * as api from '../../core/api/index.js';
+import { t } from '../../i18n/index.js';
+import { escapeHtml } from '../chat/chatHtmlUtils.js';
 
 /**
  * @param {HTMLElement | null} el

@@ -47,11 +47,8 @@ export function ensurePanelReady(panelKey) {
       initPanelOnce(panelKey, () => mod.initTasksPanel());
       return;
     }
-    if (panelKey === 'agents') {
+    if (panelKey === 'agentsSettings') {
       initPanelOnce(panelKey, () => mod.initAgentsPanel());
-      void loadPanelModule('agentsSettings').then((settingsMod) =>
-        initPanelOnce('agentsSettings', () => settingsMod.initAgentsPanel())
-      );
       return;
     }
     if (panelKey === 'files') {
@@ -124,10 +121,6 @@ export function getTerminalSendBar() {
 
 export function getTasksTerminalState() {
   return getLoadedPanelModule('tasks')?.getTasksTerminalState?.() ?? null;
-}
-
-export function getAgentsTerminalState() {
-  return getLoadedPanelModule('agents')?.getAgentsTerminalState?.() ?? null;
 }
 
 /**

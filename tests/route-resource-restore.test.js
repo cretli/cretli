@@ -79,12 +79,6 @@ test('resolveBrowserRouteRestore clears unknown session and tab without select',
   }), { action: 'clear-tab', browserSession: 'live-session', browserTab: 'missing-tab' });
 });
 
-test('resolveRunRouteRestore clears unknown agents run id', () => {
-  assert.deepEqual(resolveRunRouteRestore({
-    runId: 'unknown-agent-run',
-    knownRunIds: ['run-live'],
-  }), { action: 'clear', runId: 'unknown-agent-run' });
-});
 
 test('unknown browser session strips URL and does not restore browser', async () => {
   const replaced = [];
@@ -104,23 +98,6 @@ test('unknown browser session strips URL and does not restore browser', async ()
   expectCanonicalWithoutBrowserKeys(replaced[0]);
 });
 
-test('unknown agents run strips URL without selecting a run', async () => {
-  const replaced = [];
-  let selected = 0;
-  const restore = createRouteResourceRestorer({
-    replaceCanonical: (url) => replaced.push(url),
-    showResourceNotice: () => {},
-    listAgentRunIds: async () => ['agent-run-live'],
-    restoreAgentRun: () => { selected += 1; },
-    isCurrentGeneration: () => true,
-  });
-  const route = parseSpaRoute('/agents?run=unknown-agent-run');
-  assert.ok(route);
-  await restore(route, 1);
-  assert.equal(selected, 0);
-  assert.equal(replaced.length, 1);
-  assert.equal(replaced[0], '/agents');
-});
 
 function expectCanonicalWithoutBrowserKeys(canonical) {
   const parsed = parseSpaRoute(canonical);

@@ -158,7 +158,7 @@ Details: [harnesses/mistral/SETUP.md](docs/mistral/SETUP.md).
 
 1. `npm install` already tries to install optional `@cursor/sdk`. If you skipped optional
    deps: `npm install @cursor/sdk`.
-2. Set `CURSOR_API_KEY` (or Settings). Cursor CLI is needed for scheduled `.cursor/agents` runs.
+2. Set `CURSOR_API_KEY` (or Settings).
 3. Create a chat with harness **Cursor SDK**.
 
 Using Cursor API/CLI is subject to [Cursor Terms of Service](https://cursor.com). MIT here

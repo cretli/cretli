@@ -36,7 +36,6 @@ setBuiltinMcpRuntimeDeps({
   dataDir,
   workspaceDirForAgent: () => '',
   taskRuns: new Map(),
-  agentRuns: new Map(),
 });
 
 const root = mkdtempSync(path.join(os.tmpdir(), 'cr-todo-tools-ws-'));

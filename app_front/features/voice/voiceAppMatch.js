@@ -11,7 +11,7 @@ export const VOICE_RESULT_MAX_BYTES = 1200;
 
 export const VOICE_PANEL_IDS = Object.freeze([
   'chat', 'todo', 'files', 'git', 'github', 'browser',
-  'tasks', 'terminal', 'logs', 'tests', 'instances', 'agents',
+  'tasks', 'terminal', 'logs', 'tests', 'instances',
 ]);
 
 /** @type {Record<string, string[]>} */
@@ -27,7 +27,6 @@ const PANEL_ALIASES = {
   logs: ['logs', 'log', 'logi', 'dziennik', 'dziennika'],
   tests: ['tests', 'test', 'testy', 'testow', 'status parser'],
   instances: ['instances', 'instance', 'instancje', 'instancji'],
-  agents: ['agents', 'agenci', 'agentow', 'agenty'],
 };
 
 /**
@@ -65,7 +64,7 @@ export function resolveVoicePanel(value) {
   const folded = foldedInput.replace(/\bpanel(u|e)?\b/g, '').replace(/\s+/g, ' ').trim();
   if (!folded) return '';
   if (VOICE_PANEL_IDS.includes(folded)) return folded;
-  if (folded === 'agent') return wantsPanelContext ? 'agents' : '';
+  if (folded === 'agent') return '';
   for (const id of VOICE_PANEL_IDS) {
     if (PANEL_ALIASES[id].includes(folded)) return id;
   }

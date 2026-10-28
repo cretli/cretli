@@ -120,8 +120,6 @@ export function resolveRunRouteRestore(input = {}) {
  *   listBrowserTabs?: (sessionId: string) => Promise<Array<{ tabId?: string }>>,
  *   restoreTaskRun?: (runId: string) => void | Promise<void>,
  *   listTaskRunIds?: () => Promise<string[]>,
- *   restoreAgentRun?: (runId: string) => void | Promise<void>,
- *   listAgentRunIds?: () => Promise<string[]>,
  *   isCurrentGeneration?: (token: number) => boolean,
  * }} deps
  */
@@ -252,27 +250,6 @@ export function createRouteResourceRestorer(deps = {}) {
         replaceCanonical(buildRouteWithoutQueryKeys(route, ['run']));
       }
       return;
-    }
-    if (panel === 'agents' && route.query?.run) {
-      const runId = trimmed(route.query.run);
-      let known = null;
-      if (typeof deps.listAgentRunIds === 'function') {
-        try {
-          known = await deps.listAgentRunIds();
-        } catch {
-          known = null;
-        }
-      }
-      if (!isCurrentGeneration(token)) return;
-      const decision = resolveRunRouteRestore({ runId, knownRunIds: known });
-      if (decision.action === 'select' && deps.restoreAgentRun) {
-        await deps.restoreAgentRun(decision.runId);
-        return;
-      }
-      if (decision.action === 'clear') {
-        showResourceNotice('navigation.resourceRunExpired', 'agents');
-        replaceCanonical(buildRouteWithoutQueryKeys(route, ['run']));
-      }
     }
   };
 }

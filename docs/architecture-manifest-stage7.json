@@ -194,8 +194,8 @@
     {
       "path": "docs/architecture-system-map.md",
       "group": "document",
-      "sha256": "2baf45c18bb2437ff5cce6e9f2a22ba890d32c072a9d38c240e2d04de3c16b43",
-      "bytes": 13745
+      "sha256": "5dffb9f147811426a87f81fd30960ee6800c09211481b89d5fffc419899ad8d7",
+      "bytes": 13734
     },
     {
       "path": "docs/architecture-target-adr.md",

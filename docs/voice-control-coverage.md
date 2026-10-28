@@ -41,7 +41,6 @@ denominator of the coverage metric (§5).
 | Logs / debug (`logger.js`) | open log panel | gap (open only) | `panel.open logs`; content is not-for-voice (long, sensitive) |
 | Tests (`statusTests.js`) | run/status of test suites | gap | `tasks`-like read of last result; low priority |
 | Instances (`features/instances`) | list/switch client instances | gap (low) | `instances.list` safe; commands to other devices = confirm |
-| Agents (`agents.js`, `agentsPanel.js`) | list/run agent definitions | gap | `agents.list` safe, `agents.run` confirm |
 | Watcher + Scout inbox (`features/watcher`, `scoutFindingsInboxView.js`) | status, list findings, accept/reject, start cycle | gap | `watcher.status`, `watcher.list_findings` safe; `accept/reject` confirm; mode changes (autopilot) confirm |
 | Delegations (`features/delegations`) | list, status, cancel | gap | `delegations.list` safe; `cancel` confirm |
 | Approval / grants (`features/approval`) | approve once, reject, always-allow grants | covered (once/reject) | once/reject via `approval` (bound to requestId + chat); always-allow / grants = not-for-voice (persistent privilege) |
@@ -254,7 +253,7 @@ params) were added to `lib/voice/action-registry.ts`; handlers live in
 
 | Tool | Actions | Notes |
 |---|---|---|
-| `panel` | `open` (chat, todo, files, git, github, browser, tasks, terminal, logs, tests, instances, agents), `status` | `open` clicks the real `.tab[data-panel]` button, so the normal router path runs; hidden/unavailable tabs return an error. `status` returns the active panel (read from `.panel.active`) plus connection state for chat/terminal. |
+| `panel` | `open` (chat, todo, files, git, github, browser, tasks, terminal, logs, tests, instances), `status` | `open` clicks the real `.tab[data-panel]` button, so the normal router path runs; hidden/unavailable tabs return an error. `status` returns the active panel (read from `.panel.active`) plus connection state for chat/terminal. |
 | `app_settings` | `theme` (dark/light/system), `language` (en/pl), `mic` (mute/unmute) | Read-aloud mode stays `set_read_mode`. `mic` reaches the live session through the `cr-voice-mic-mute-request` window event handled by `cr-voice-panel`. Spoken aliases (incl. Polish with diacritics) are resolved in `voiceAppMatch.js`. |
 | `app_status` | `notifications`, `scout`, `health`, `context` | Read-only: notification store state, `GET /api/workspace-watcher/scout?status=pending`, header connection snapshot + `GET /api/harnesses/health`, active chat context snapshot. |
 
@@ -326,9 +325,8 @@ tested in `tests/voice-app-tools.test.js`):
 - mic mute matching handles verb + noun: `włącz wyciszenie` = mute,
   `wyłącz wyciszenie` = unmute, `odcisz` = unmute (previously the unmute verb
   aliases matched first and inverted both phrases);
-- the bare word `agent` is no longer an alias of the agents panel; the singular
-  form resolves only with panel context (`panel agent`, `agent panel`), while
-  `agents` / `agenci` / `agentów` / `agenty` still match on their own.
+- The removed Agents panel has no voice aliases: `agent`, `panel agent`,
+  `agent panel`, `agents`, `agenci`, `agentów` and `agenty` no longer select a panel.
 
 **Schema-token budget** (`node scripts/voice-control-benchmark.mjs --tokens`,
 chars/4, threshold <= +25%):
@@ -466,7 +464,7 @@ count of the audit rows. "Reachable" means a registry action with a handler
 | Theme setting | 0 | 1 (`app_settings`) |
 | Approval once / reject | 0 | 1 (`approval`) |
 | **Total reachable** | **24** | **39** |
-| Partial (panel open only): git, github, instances, agents | 0 | 4 |
+| Partial (panel open only): git, github, instances | 0 | 3 |
 | Still gaps: chat search, steer/queue, restore from archive, todo status change, tasks stop, Scout accept/reject, notification dismiss, quick commands, widgets panel, voice prefs | 10 | 10 |
 Denominator: 24 + 29 enumerated gap rows = 53 (the earlier "~45" was a rough
 estimate). Coverage: **24/53 = 45% before, 39/53 = 74% now** (43/53 = 81% with

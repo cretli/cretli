@@ -47,13 +47,13 @@ Encrypted commands read the passphrase from `--passphrase-file PATH` (owner-only
 
 - The server binds the control directory once at startup. While paused, delegation/recovery, Watcher/Scout,
   mailbox/outbox, title/archive jobs, schedulers and other automatic delegation-runtime boot work do not start;
-  the separate agents scheduler is also skipped. External HTTP history writes require the current
+  External HTTP history writes require the current
   `restoreGeneration` after a restore, exposed by `/api/settings` and `/api/health`; the browser stores that value
   when settings are loaded, sends it with history/delete requests, and performs one settings refresh + retry for a
   stale tab. Internal history writers are not subject to this HTTP admission check, and legacy callers remain
   accepted before the first restore.
 - WebSocket and replay generation transport is not yet implemented. Pause coverage beyond delegation-runtime boot
-  and the agents scheduler (including independent push/MCP paths) remains partial. Restore completion does not
+  (including independent push/MCP paths) remains partial. Restore completion does not
   rewrite imported executable/URL definitions or reconstruct claims from arbitrary payload data. The runtime stays
   paused until an operator reviews the dataset and runs `resume`; interrupted work is handled by normal boot
   recovery after that review.

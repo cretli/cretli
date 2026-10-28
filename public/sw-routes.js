@@ -18,7 +18,6 @@
     'chat',
     'terminal',
     'tasks',
-    'agents',
     'todo',
     'browser',
     'files',
@@ -28,6 +27,8 @@
     'instances',
     'tests',
     'settings',
+    // Legacy alias for /chat.
+    'agents',
     // Legacy alias for /settings/widgets.
     'widget',
   ];

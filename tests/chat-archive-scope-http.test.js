@@ -35,8 +35,6 @@ registerChatsRoutes(app, {
   widgetChatListScope,
   dataDir: '',
   agentSessions: new Map(),
-  getCurrentAgentRunResumeId: () => '',
-  setCurrentAgentRunResumeId: () => {},
   agentCmd: '',
   agentModel: '',
   workspaceDirForAgent: () => '/tmp',

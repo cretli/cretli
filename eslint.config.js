@@ -100,7 +100,6 @@ export default [
       'lib/fork-title.js',
       'lib/todo-worktree-manual.js',
       'lib/codex/codex-device-auth.ts',
-      'app_front/features/agents/views/agentsPanel.js',
       'app_front/features/chat/views/chatPanel.js',
       'app_front/features/statusTests/views/statusTestsPanel.js',
       'scripts/test-fork-title.js',

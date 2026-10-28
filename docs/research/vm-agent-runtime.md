@@ -11,7 +11,6 @@ Everything runs as the Cretli server user on the host. Nothing is isolated.
 | Concern | Where | What happens |
 | --- | --- | --- |
 | Operator terminal / agent PTY | `lib/ws/pty-ws-handler.ts` `handlePtyConnection` | `pty.spawn(command, args, { cwd, env })` with env from `ctx.buildInteractivePtyEnv`. Agent PTYs pass through `assertExecutorLaunchAllowed`; the operator terminal does not. `resolvePtyScopedCwd` limits cwd to the workspace. |
-| CLI agent runs | `lib/ws/agent-run-ws-handler.ts` | Two `pty.spawn(ctx.agentCmd, args, ...)` sites (resume and fresh run). |
 | Built-in tool execution | `lib/agent-harness/tool-executor.ts` | `spawn('bash', ['-lc', command])` and `spawn('rg', ...)`. |
 | Review verify | `lib/sdk/sdk-review-verify.ts` | `spawn(process.execPath, [filePath])`. |
 | Other helpers | `lib/chat-title-plan-runners.js`, `lib/fork-title.js`, `lib/workspace-watcher-integration.js`, `lib/ws/task-ws-handler.ts`, `lib/codex/codex-device-login.ts`, `lib/storage/worker-host.js` | Direct `spawn`; not agent-run paths but still host processes. |
@@ -99,8 +98,7 @@ container.
 1. A resolver `resolveExecutionEnvironment({ workspace, harness, role, leaf })`
    next to `resolveWorktreeMode` (`lib/worktree/worktree-mode.ts`): the same
    inherit/override pattern (`inherit | host | <environment id>`).
-2. `lib/ws/agent-run-ws-handler.ts` (both `pty.spawn(ctx.agentCmd, ...)` sites)
-   and `lib/ws/pty-ws-handler.ts` `handlePtyConnection`: call the adapter instead
+2. `lib/ws/pty-ws-handler.ts` `handlePtyConnection`: call the adapter instead
    of `pty.spawn`. The operator terminal opt-in is separate from the agent one.
 3. `lib/agent-harness/tool-executor.ts` (`spawn('bash', ['-lc', ...])`) and
    `lib/sdk/sdk-review-verify.ts`: route through `spawn` of the same handle so

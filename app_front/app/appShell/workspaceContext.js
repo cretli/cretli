@@ -25,7 +25,6 @@ export function createWorkspaceContext(deps = {}) {
   const {
     api,
     refreshTasksList = () => {},
-    refreshAgentsList = () => {},
     refreshChatListForWorkspace = () => {},
     ensureFilesPanelInitialized = () => {},
     refreshFilesPanel = () => {},
@@ -595,7 +594,6 @@ export function createWorkspaceContext(deps = {}) {
     const headerProbe = probeStart('shell.initWorkspaceHeader');
     void initWorkspaceHeader().finally(() => probeEnd(headerProbe));
     refreshTasksList();
-    refreshAgentsList();
     refreshChatListForWorkspace();
 
     const filesPanel = document.getElementById('files-panel');

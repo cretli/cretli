@@ -27,7 +27,6 @@ const script = path.join(path.dirname(fileURLToPath(import.meta.url)), '../scrip
 setBuiltinMcpRuntimeDeps({
   dataDir: resolveDataPath(),
   taskRuns: new Map(),
-  agentRuns: new Map(),
   loadTasksForWorkspace: () => ({ tasks: [] }),
   workspaceDirForAgent: () => workspace,
 });
@@ -70,8 +69,6 @@ registerChatsRoutes(app, {
   widgetChatListScope: () => true,
   dataDir: resolveDataPath(),
   agentSessions: new Map(),
-  getCurrentAgentRunResumeId: () => '',
-  setCurrentAgentRunResumeId: () => {},
   agentCmd: '',
   agentModel: '',
   workspaceDirForAgent: () => workspace,

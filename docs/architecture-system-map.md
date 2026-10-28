@@ -39,7 +39,7 @@ Largest modules by lines (candidates for boundary work, not rewrites):
 | Transport | Entry | Count / shape | Auth and scope boundary |
 | --- | --- | --- | --- |
 | HTTP | `server.js` (793 lines) + `lib/routes/*.js` (52 files) | 145 GET, 137 POST, 13 PATCH, 12 DELETE, 10 PUT, 9 `use` registrations | `lib/auth.js` `requireAuth`; widget access (`req.widgetAccess`) filtered by `widgetInstallationId`; scope checks per chat (`findParent`) |
-| WebSocket | `server.js:510` `new WebSocketServer({ server })` routed by `lib/ws/ws-router.ts` | PTY, task, agent-run, server-log, front-build, browser, page bridge, Gemini Live relay, one handler per agent harness | `ws-auth-boundary.js`, `ws-origin.js`, `ws-keepalive.js`, widget handshake |
+| WebSocket | `server.js:510` `new WebSocketServer({ server })` routed by `lib/ws/ws-router.ts` | PTY, task, server-log, front-build, browser, page bridge, Gemini Live relay, one handler per agent harness | `ws-auth-boundary.js`, `ws-origin.js`, `ws-keepalive.js`, widget handshake |
 | MCP | `lib/mcp/*` (bridge `cretli_bridge`, builtin tools in `lib/mcp/builtin/*`: chats, todos, delegations, watcher, memory, lessons, browser, cache, keep-alive), in-process client `mcp-inprocess-client.js` | tool catalog + policy per harness and mode (`mcp-policy.js`, `mcp-capability-codes.js`) | integration token, read-only mode, orchestrator gate (`watcher-orchestrator-mcp-gate.js`), `chat-scope.js` |
 | SDK multi-instance (optional) | Redis + sticky cookie, [MULTI-INSTANCE.md](MULTI-INSTANCE.md) | owner instance runs `@cursor/sdk` Agent and writes history; non-owner has a read-only stub room | Only SDK chat rooms; PTY/agent PTY sessions are not multi-instance |
 

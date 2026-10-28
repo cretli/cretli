@@ -108,7 +108,6 @@ import { readCretliPublicOrigin } from './lib/ws/ws-origin.ts';
 import { getLanHost } from './lib/lan-host.js';
 import { installServerLogCapture } from './lib/ws/server-log-ws.ts';
 import { installFrontBuildWatcher } from './lib/ws/front-build-ws.ts';
-import { runAgentsScheduler, AGENTS_SCHEDULER_INTERVAL_MS } from './lib/ws/agent-run-ws-handler.ts';
 import { readEnvAlias } from './lib/env-alias.js';
 import { assertLanSetupGuard, listenOnHosts, readSetupToken, resolveBindHost, resolveBindHosts } from './lib/bind-host.js';
 import { resolveDataPath, resolveProjectPath } from './lib/runtime-paths.js';
@@ -355,22 +354,7 @@ function isSessionSyncEnabled() {
 const terminalSessions = new Map();
 const agentSessions = new Map();
 const taskRuns = new Map();
-const agentRuns = new Map();
 const DEV_BUILD_RUN_ID = 'dev-build';
-let currentAgentRunResumeId = null;
-const AGENTS_SCHEDULE_FILE = path.join(dataDir, 'agents-schedule.json');
-function loadAgentsSchedule() {
-  if (!existsSync(AGENTS_SCHEDULE_FILE)) return { schedules: [] };
-  try {
-    const data = JSON.parse(readFileSync(AGENTS_SCHEDULE_FILE, 'utf8'));
-    return Array.isArray(data.schedules) ? data : { schedules: [] };
-  } catch {
-    return { schedules: [] };
-  }
-}
-function saveAgentsSchedule(data) {
-  writeJsonAtomic(AGENTS_SCHEDULE_FILE, data);
-}
 function randomSessionId() {
   return randomBytes(8).toString('hex');
 }
@@ -609,8 +593,6 @@ registerAppRoutes(app, {
   getCurrentWorkspaceFile,
   getCurrentCwd,
   agentSessions,
-  getCurrentAgentRunResumeId: () => currentAgentRunResumeId,
-  setCurrentAgentRunResumeId: (id) => { currentAgentRunResumeId = id; },
   agentCmd: AGENT_CMD,
   agentModel: AGENT_MODEL,
   workspaceDirForAgent,
@@ -620,13 +602,10 @@ registerAppRoutes(app, {
   loadCurrentTasks,
   loadTasksForWorkspace,
   taskRuns,
-  agentRuns,
   devBuildRunId: DEV_BUILD_RUN_ID,
   buildTaskRunScopeSnapshot,
   isTaskRunInScope,
   randomSessionId,
-  loadAgentsSchedule,
-  saveAgentsSchedule,
   verifyAgentCallback,
   terminalSessions,
   getLastTerminalSessionId: () => lastTerminalSessionId,
@@ -646,10 +625,7 @@ const wsRouterCtx = {
   terminalSessions,
   agentSessions,
   taskRuns,
-  agentRuns,
   devBuildRunId: DEV_BUILD_RUN_ID,
-  getCurrentAgentRunResumeId: () => currentAgentRunResumeId,
-  setCurrentAgentRunResumeId: (id) => { currentAgentRunResumeId = id; },
   getLastTerminalSessionId: () => lastTerminalSessionId,
   setLastTerminalSessionId: (sessionId) => { lastTerminalSessionId = sessionId; },
   randomSessionId,
@@ -657,7 +633,6 @@ const wsRouterCtx = {
   loadCurrentTasks,
   buildTaskRunScopeSnapshot,
   isTaskRunInScope,
-  loadAgentsSchedule,
   dataDir,
   restoreGate,
   useHttps,
@@ -997,10 +972,6 @@ listenOnHosts(server, {
     if (FRONT_HOT_FALLBACK_ENABLED) installFrontBuildWatcher(__dirname, SERVER_INSTANCE_TOKEN);
     // Opt-in online backup scheduler (off by default); an external restore pause pauses it as well.
     try { getOnlineBackupService().scheduler.start(); } catch (err) { console.warn('[cretli] online backup scheduler not started:', err?.message || err); }
-    setInterval(() => {
-      if (/** @type {any} */ (restoreGate).shouldSkipAutomaticWork()) return;
-      runAgentsScheduler(wsRouterCtx);
-    }, AGENTS_SCHEDULER_INTERVAL_MS);
     logServerReady({
       protocol: useHttps ? 'https' : 'http',
       port: PORT,

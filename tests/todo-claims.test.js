@@ -456,7 +456,6 @@ try {
   setBuiltinMcpRuntimeDeps({
     dataDir,
     taskRuns: new Map(),
-    agentRuns: new Map(),
     loadTasksForWorkspace: () => ({ tasks: [] }),
     workspaceDirForAgent: () => '',
   });

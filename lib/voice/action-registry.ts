@@ -455,7 +455,7 @@ export const VOICE_ACTIONS: readonly VoiceAction[] = Object.freeze<VoiceAction[]
       },
       "panel": {
         "type": "string",
-        "enum": ["chat", "todo", "files", "git", "github", "browser", "tasks", "terminal", "logs", "tests", "instances", "agents"],
+        "enum": ["chat", "todo", "files", "git", "github", "browser", "tasks", "terminal", "logs", "tests", "instances"],
         "description": "Panel to open. Required for open."
       }
     },

@@ -1,5 +1,5 @@
 /**
- * Panel modules pulled in on demand. Terminal, Tasks and Agents carry xterm and
+ * Panel modules pulled in on demand. Terminal and Tasks carry xterm and
  * Files carries highlight.js, while the app boots into the chat panel, which
  * needs none of them.
  */
@@ -7,8 +7,7 @@
 const importers = {
   terminal: () => import(/* webpackChunkName: "panel-terminal" */ '../../features/terminal/index.js'),
   tasks: () => import(/* webpackChunkName: "panel-tasks" */ '../../features/tasks/index.js'),
-  agents: () => import(/* webpackChunkName: "panel-agents" */ '../../features/agents/index.js'),
-  agentsSettings: () => import(/* webpackChunkName: "panel-agents" */ '../../features/agents/views/agentsSettingsPanel.js'),
+  agentsSettings: () => import(/* webpackChunkName: "settings-agents" */ '../../features/settings/agentsSettingsPanel.js'),
   files: () => import(/* webpackChunkName: "panel-files" */ '../../features/files/index.js'),
   git: () => import(/* webpackChunkName: "panel-misc" */ '../../features/git/gitPanel.js'),
   // GitHub keeps its own chunk: it is fetched right after boot to decide whether

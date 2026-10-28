@@ -1,7 +1,6 @@
 import type { RawData, WebSocket, WebSocketServer } from 'ws';
 import type { PtySession } from './pty-ws-handler.ts';
 import type { TaskRun, TaskDefinition } from './task-ws-handler.ts';
-import type { AgentRun, AgentSchedule } from './agent-run-ws-handler.ts';
 import { handleAgentSdkWebSocket } from '../sdk/cursor-agent-sdk-ws.ts';
 import { getChatByCursorSessionId } from '../persist/chats-persist.js';
 import { guardArchivedChatSocket } from '../chat-message-guard.js';
@@ -44,7 +43,6 @@ import {
 } from '../todo-plan-sync.js';
 import { handlePtyConnection } from './pty-ws-handler.ts';
 import { handleTaskConnection } from './task-ws-handler.ts';
-import { handleAgentRunConnection } from './agent-run-ws-handler.ts';
 import { handleServerLogConnection } from './server-log-ws.ts';
 import { handleFrontBuildConnection } from './front-build-ws.ts';
 import { handleGeminiLiveRelayConnection } from '../voice/gemini-live-relay.ts';
@@ -86,10 +84,7 @@ export type WebSocketRouterContext = {
   terminalSessions: Map<string, PtySession>,
   agentSessions: Map<string, PtySession>,
   taskRuns: Map<string, TaskRun>,
-  agentRuns: Map<string, AgentRun>,
   devBuildRunId: string,
-  getCurrentAgentRunResumeId: () => string | null,
-  setCurrentAgentRunResumeId: (id: string | null) => void,
   getLastTerminalSessionId: () => string | null,
   setLastTerminalSessionId: (sessionId: string | null) => void,
   randomSessionId: () => string,
@@ -97,7 +92,6 @@ export type WebSocketRouterContext = {
   loadCurrentTasks: (workspaceFile?: string) => { tasks: TaskDefinition[] } | null,
   buildTaskRunScopeSnapshot: () => { workspaceFile: string, cwd: string },
   isTaskRunInScope: (run: TaskRun, scope: { workspaceFile: string, cwd: string }) => boolean,
-  loadAgentsSchedule: () => { schedules?: AgentSchedule[] },
   dataDir: string,
   browserManager?: Parameters<typeof createBrowserWsHandler>[0]['browserManager'],
   useHttps?: boolean,
@@ -239,25 +233,6 @@ export function attachWebSocketHandlers(wss: WebSocketServer, ctx: WebSocketRout
       return;
     }
     const isTask = urlPath === '/ws-task' || urlPath.endsWith('/ws-task');
-    const isAgentRun = urlPath === '/ws-agent-run' || urlPath.endsWith('/ws-agent-run');
-    if (isAgentRun) {
-      let agentName = null;
-      let runId = null;
-      if (req.url) {
-        const queryIndex = req.url.indexOf('?');
-        if (queryIndex !== -1) {
-          const params = new URLSearchParams(req.url.slice(queryIndex));
-          agentName = params.get('agent') || null;
-          runId = params.get('run') || null;
-        }
-      }
-      if (!agentName) {
-        ws.close();
-        return;
-      }
-      handleAgentRunConnection(ws, agentName, runId, ctx);
-      return;
-    }
     if (isTask) {
       let taskLabel = null;
       let runId = null;
@@ -400,7 +375,6 @@ export function attachWebSocketHandlers(wss: WebSocketServer, ctx: WebSocketRout
     let terminalSessionId = null;
     let workspaceFolder = null;
     let model = null;
-    let agentRunName = null;
     let ptyScopedSelector = false;
     if (req.url) {
       const queryIndex = req.url.indexOf('?');
@@ -409,7 +383,6 @@ export function attachWebSocketHandlers(wss: WebSocketServer, ctx: WebSocketRout
         ptyScopedSelector = params.get('scoped') === '1';
         resumeId = params.get('resume') || null;
         terminalSessionId = params.get('session') || null;
-        agentRunName = params.get('agentRun') || null;
         const workspaceParam = params.get('workspace');
         if (workspaceParam) {
           workspacePath = workspaceParam;
@@ -435,7 +408,7 @@ export function attachWebSocketHandlers(wss: WebSocketServer, ctx: WebSocketRout
         return;
       }
       // Registry-driven (see isHarnessWebSocketChat): new transports are covered.
-      if (!agentRunName && chat && isHarnessWebSocketChat(chat)) {
+      if (chat && isHarnessWebSocketChat(chat)) {
         ws.close(4000, 'Chats use harness WebSocket (/ws-agent-sdk).');
         return;
       }
@@ -452,7 +425,6 @@ export function attachWebSocketHandlers(wss: WebSocketServer, ctx: WebSocketRout
       model,
       effectiveTerminalSessionId,
       sessionSyncEnabled,
-      agentRunName,
       ctx,
       ptyScopedSelector,
     );

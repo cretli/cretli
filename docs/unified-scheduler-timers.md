@@ -61,7 +61,7 @@ add read-only status; **leave** = no change.
 |---|---|---|---|---|---|---|
 | Scout | `lib/workspace-watcher-scout.js:1733` (`decideScoutRun`), callers `:1909`, `:2110`, `:3841` | **No timer.** Per-profile schedule (`schedule.mode`, `intervalHours`, `lastScoutAt`) is evaluated inside Watcher autopilot passes; `resolveScoutScheduleState` `:1807`, operator view `:1949` | **leave** | It is not a timer: it is a pure due-check driven by the Watcher pass. A periodic job would only add a second clock beside the one that already evaluates `lastScoutAt`/budget/occupancy atomically with the watcher row. The operator "next scan" view already exists (`:1949`), so no extra status is needed. | None (no change) | none |
 | Memory monitor | `server.js:896` (`setInterval(refreshMemoryMonitorAlerts, 60_000)`; initial call `:895`) | 60 s, immediate first run, fire-and-forget `publishMemoryMonitorAlerts` | **migrate** | Hand-rolled interval + unref + `.catch` logging + first-run call; no overlap guard today (a slow publish can overlap). Runner provides all of it plus a status row. | Low. Notification store dedupes by fingerprint, so a double run is harmless. | U2 |
-| Agents scheduler | `server.js:907-910` -> `runAgentsScheduler`, `lib/ws/agent-run-ws-handler.ts:200`; interval const `:49` (60 s); `agentLastRunAt` Map `:22` | 60 s; skipped when `restoreGate.shouldSkipAutomaticWork()` | **migrate** (after U1) | The inline `setInterval` + inline restoreGate check at `server.js:907-910` is exactly what `isEnabled` + runner replace, and the job gains an overlap guard and a status row. Per-agent due logic and the in-memory map stay untouched. | Medium: the runner must exist and resume when a paused boot is lifted (U1), and `runOnStart` must be false. | U1 -> U3 |
+| Agents scheduler | Removed with the legacy Agents tab | No timer or schedule file reads remain | **removed** | Use chat skills, delegations, Watcher, Scout or `check_schedule` | n/a | none |
 | Watcher debounce | `lib/workspace-watcher-event-schedule.js:68` (`setTimeout`, `Map<string, timer>`) | Event-driven; 1500 ms default, max 60 s, reset per `(dataDir, workspace)` key | **leave** | Not periodic: it is a trailing-edge debounce armed by todo/delegation/presence events. The runner has no debounce primitive, and a periodic poll would add latency and wake the autopilot with nothing to do. Nothing is duplicated. | None (no change) | none |
 
 ### 2.2 Additional timers
@@ -106,7 +106,7 @@ by any leaf** (this also keeps the fa0f9bff coordination trivial, section 4).
   have `bootDelegationRuntime` keep its own pause behaviour for runtime-bound
   jobs (auto-archive, harness updates) via `isEnabled`.
 - Duplication removed: none by itself; it removes the structural reason the
-  agents scheduler needs its own timer.
+  maintenance jobs need their own timers.
 - restoreGate/pause: the restore-gated jobs use
   `isEnabled: () => !shouldSkipAutomaticWork()`, so they idle during a pause and
   resume on the next tick after it is lifted — equal to the current
@@ -136,29 +136,9 @@ by any leaf** (this also keeps the fa0f9bff coordination trivial, section 4).
   increments `skipped`; a thrown `run` lands in `lastError` and does not stop the
   interval; `GET /api/wakeups/status` includes the new rows.
 
-### U3 — agents scheduler (orchestration / run-state impact assessed)
+### U3 — agents scheduler (removed)
 
-- Removes: the inline `setInterval` and inline `restoreGate` check at
-  `server.js:907-910`; adds overlap guard and status.
-- Job: `agents_scheduler`, `intervalMs = AGENTS_SCHEDULER_INTERVAL_MS` (60 s),
-  `runOnStart: false`, `isEnabled: () => !restoreGate.shouldSkipAutomaticWork()`,
-  `run` calls `runAgentsScheduler(wsRouterCtx)`. `runOnStart` must be false:
-  today the first evaluation happens at +60 s, and an immediate boot run would
-  start every enabled schedule at once (the in-memory map is empty after boot).
-- **Impact on orchestration / run state: none intended.**
-  `runAgentsScheduler` and `runAgentInBackground` are unchanged. They spawn a
-  detached PTY agent process (`trackChildProcess`, type `agent-run`) and touch no
-  delegation, Watcher cycle, todo or chat-run state. `agentLastRunAt` stays an
-  in-memory `Map` (`agent-run-ws-handler.js:22`): it still resets on restart, so
-  restart semantics are unchanged; moving it to disk is out of scope and would be
-  a behaviour change. The runner only changes *who* fires the 60 s tick and
-  whether a slow tick can overlap (it cannot; `runAgentsScheduler` is synchronous
-  so no practical change). `isEnabled` being re-read on status polls can emit the
-  one-time "automatic work is paused" log earlier than today; harmless.
-- Tests: with an injected runner clock, a due schedule spawns once and a second
-  tick inside the interval does not (`agentLastRunAt` honoured); a paused gate
-  prevents spawning and resumes after unpause without restart; disabled/
-  malformed schedules are skipped as today; no run on start.
+The legacy Agents runner and its timer have been removed. No migration to the periodic job runner is needed.
 
 ### U4 — usage maintenance (three jobs)
 
@@ -215,14 +195,14 @@ Neither tree should edit the other; this analysis made no changes to the
 - **Additive visible change:** `GET /api/wakeups/status` already returns the
   runner's `jobs` array (`lib/routes/wakeups-routes.js:95`); the migrations add
   rows (`memory_monitor_alerts`, `harness_recovery_notices`,
-  `harness_update_check`, `agents_scheduler`, `usage_retention`, `usage_alerts`,
+  `harness_update_check`, `usage_retention`, `usage_alerts`,
   `balance_forecast_alerts`) and the Wake-ups view (`wakeupsView.js:187`) will
   list them. Each job's `settingKey` is empty (`''`) unless a real setting
   exists. This is additive and does not require a user decision, but the
   implementation leaf should confirm the view renders unknown rows generically
   and that the extra rows are acceptable to the maintainer.
 - No user decision is required for the verdicts above. If the maintainer wants
-  the agents-scheduler last-run map persisted, or the memory monitor gated during
+  the memory monitor gated during
   an offline-restore pause, that would be a behaviour change and a separate
   user decision.
 
@@ -231,7 +211,7 @@ Neither tree should edit the other; this analysis made no changes to the
 1. **U1** runner bootstrap independent of paused boot (prerequisite for U3).
 2. **U2** memory monitor + harness recovery + harness update check (check S2
    first).
-3. **U3** agents scheduler.
+3. **U3** removed; no implementation needed.
 4. **U4** usage maintenance.
 
 Everything marked "leave" needs no leaf. Estimated net effect: seven hand-rolled

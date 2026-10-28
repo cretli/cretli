@@ -314,7 +314,6 @@
     <button type="button" class="tab active" data-panel="chat" data-i18n="tabs.chat">Chat</button>
     <button type="button" class="tab" data-panel="terminal">Terminal</button>
     <button type="button" class="tab" data-panel="tasks" data-i18n="tabs.tasks">Tasks</button>
-    <button type="button" class="tab" data-panel="agents" data-i18n="tabs.agents">Agents</button>
     <button type="button" class="tab" data-panel="todo">Todo</button>
     <button type="button" class="tab" data-panel="browser" data-i18n="tabs.browser">Browser</button>
     <button type="button" class="tab" data-panel="files">Files</button>
@@ -2660,36 +2659,6 @@ New-NetFirewallRule -DisplayName "Cretli CDP from WSL" -Direction Inbound -Proto
         <cr-bar-button id="tasks-copy-btn" class="panel-copy-btn" title="Copy content (selection or the whole buffer)" data-i18n-title="terminal.copyTitle" aria-label="Copy" data-i18n-aria="terminal.copyAria" data-i18n="terminal.copy">Copy</cr-bar-button>
       </div>
       <div class="tasks-tabs" id="tasks-tabs"></div>
-    </div>
-  </div>
-
-  <div id="agents-panel" class="panel">
-    <div class="agents-layout">
-      <div class="agents-fullscreen-bar panel-toolbar">
-        <span class="chat-bar-group">
-          <div id="agents-bar-trigger" class="chat-bar-trigger" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" title="Choose a running agent or an agent to run">
-            <span class="chat-bar-trigger-label" id="agents-bar-trigger-label">—</span>
-            <span class="chat-bar-trigger-arrow mdi mdi-chevron-down" aria-hidden="true"></span>
-          </div>
-          <div id="agents-list-modal" class="chat-list-modal" role="dialog" aria-label="Agents list" hidden>
-            <div class="chat-list-panel">
-              <ul id="agents-list-items" class="chat-list-items" role="listbox"></ul>
-            </div>
-          </div>
-        </span>
-        <cr-bar-button id="agents-start-btn" title="Run agent" data-i18n-title="agents.runTitle" aria-label="Start">Start</cr-bar-button>
-        <div id="agents-start-dropdown" class="agents-start-dropdown" hidden role="listbox">
-          <ul id="agents-start-list" class="agents-start-list"></ul>
-        </div>
-        <cr-bar-button id="agents-clear-btn" title="Clear output" data-i18n-title="agents.clearTitle" data-i18n="agents.clear">Clear</cr-bar-button>
-        <cr-bar-button id="agents-copy-btn" class="panel-copy-btn" title="Copy content (selection or the whole buffer)" data-i18n-title="terminal.copyTitle" aria-label="Copy" data-i18n-aria="terminal.copyAria" data-i18n="terminal.copy">Copy</cr-bar-button>
-      </div>
-      <div class="agents-schedule-wrap" id="agents-schedule-wrap" style="display:none;">
-        <h4 class="agents-schedule-heading" data-i18n="agents.schedule">Schedule</h4>
-        <div id="agents-schedule-list" class="agents-schedule-list"></div>
-        <cr-bar-button variant="primary" id="agents-schedule-save-btn" data-i18n="agents.saveSchedule">Save schedule</cr-bar-button>
-      </div>
-      <div class="agents-tabs" id="agents-tabs"></div>
     </div>
   </div>
 

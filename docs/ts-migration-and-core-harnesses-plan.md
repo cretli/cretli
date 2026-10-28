@@ -116,7 +116,7 @@ i liczy tylko pliki z listy. Kolejne kontrakty wchodzą przez dopisanie ich do `
    - W strict: `ws-protocol.js`, `ws/ws-path.js`, `ws/ws-auth-boundary.js`, `ws/ws-origin.js`.
    - Poza strict: `ws-keepalive`, `ws-session-registry`, `front-build-ws`, `server-log-ws`
      (wymagają `@types/ws`, przesunięte do A2), `ws-router` (25), `task-ws-handler` (17),
-     `agent-run-ws-handler` (23), `pty-ws-handler` (91).
+     `pty-ws-handler` (91). The legacy agent runner was subsequently removed.
    - Poziom strict liczy teraz 38 plików (było 17), 0 błędów. Baseline (nie-strict): serwer
      17 290 błędów (było 17 312), front 7 516 (było 7 524) — stan w drzewie roboczym przed i po.
 

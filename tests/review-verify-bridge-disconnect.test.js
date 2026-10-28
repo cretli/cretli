@@ -43,7 +43,6 @@ const chat = addChat('verify-disc-sess', 'Verify disconnect', null, workspace, '
 setBuiltinMcpRuntimeDeps({
   dataDir: resolveDataPath(),
   taskRuns: new Map(),
-  agentRuns: new Map(),
   loadTasksForWorkspace: () => ({ tasks: [] }),
   workspaceDirForAgent: () => '',
 });

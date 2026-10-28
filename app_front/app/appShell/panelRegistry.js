@@ -5,7 +5,7 @@
  * tracker below are the single registry surface routers and header chrome use.
  */
 export const MAIN_PANELS = Object.freeze([
-  'chat', 'terminal', 'tasks', 'agents', 'todo', 'browser', 'files',
+  'chat', 'terminal', 'tasks', 'todo', 'browser', 'files',
   'git', 'github', 'logs', 'instances', 'tests',
 ]);
 
