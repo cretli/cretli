@@ -39,7 +39,7 @@ import {
   submitScoutFindings,
 } from '../lib/workspace-watcher-scout.js';
 import { getServerInstanceId } from '../lib/sdk/sdk-instance-id.ts';
-import { isScoutScanOccupied } from '../lib/workspace-scout-occupancy.js';
+import { countScoutOccupancy, isScoutScanOccupied } from '../lib/workspace-scout-occupancy.js';
 import { reconcileWorkspaceWatchersOnBoot } from '../lib/workspace-watcher.js';
 import { workspaceWatcherUtcDayKey } from '../lib/workspace-watcher-guardrails.js';
 import {
@@ -297,6 +297,24 @@ runCase('an explicit profile reservation writes scoutId, requestId, ownerInstanc
   assert.equal(state.lastRunAt, new Date(now).toISOString());
 });
 
+runCase('general Scout reserves chat identity before a custom runner starts', async () => {
+  const { cwd, dataDir } = freshWorkspace('reserve-general-chat');
+  makeWatcher(dataDir, cwd, { scoutMaxParallel: 1 });
+  const now = Date.parse('2026-06-06T10:00:00.000Z');
+  let reserved;
+  const result = await runWorkspaceWatcherScout({ workspaceFolder: cwd, dataDir, now,
+    deps: { execGit: scopedGit, runScout: async ({ scanId, chatId }) => {
+      reserved = getActiveScoutScans(getWorkspaceWatcher(cwd, { dataDir }))
+        .find((scan) => scan.scanId === scanId);
+      assert.equal(reserved.chatId, chatId);
+      return { started: true, chatId };
+    } } });
+  assert.equal(result.scanned, true);
+  assert.ok(reserved.chatId);
+  assert.deepEqual(countScoutOccupancy({ row: getWorkspaceWatcher(cwd, { dataDir }), now,
+    deps: { listDelegationsForController: () => [] } }), { scans: 1, review: 0, total: 1 });
+});
+
 runCase('parallel heartbeat: the second start of the same tick respects scoutMaxParallel', async () => {
   const { cwd, dataDir } = freshWorkspace('parallel-tick');
   makeWatcher(dataDir, cwd, { scoutMaxParallel: 1 });
@@ -527,6 +545,7 @@ runCase('delayed/uncertain handoff: launched, no chat, deadline passed -> uncert
   assert.equal(summary.refunded, 0);
   const row = getWorkspaceWatcher(cwd, { dataDir });
   assert.equal(getActiveScoutScans(row)[0].status, 'uncertain');
+  assert.equal(row.scoutScanHistory.at(-1).error, 'launched_without_chat');
   assert.equal(row.scoutScans.count, 1, 'no refund for a possible handoff');
   // unknown occupies the slot and blocks the profile from starting again.
   const due = selectDueScoutProfiles({
@@ -534,6 +553,20 @@ runCase('delayed/uncertain handoff: launched, no chat, deadline passed -> uncert
     now,
   });
   assert.deepEqual(due, []);
+});
+
+runCase('legacy launched scan without chat stays occupied beyond the stale grace', () => {
+  const { cwd, dataDir } = freshWorkspace('legacy-no-chat');
+  makeWatcher(dataDir, cwd);
+  const expiresAt = Date.parse('2026-06-06T09:00:00.000Z');
+  const now = expiresAt + WORKSPACE_SCOUT_STALE_LAUNCHED_GRACE_MS + 1;
+  seedRow(dataDir, cwd, { activeScoutScans: [{ scanId: 'legacy', status: 'running',
+    launchIssued: true, chatId: '', expiresAt: new Date(expiresAt).toISOString() }] });
+  const summary = reconcileScoutScans(cwd, { dataDir, now,
+    deps: { probeChatRunLiveness: () => { throw Error('must not probe without chat'); } } });
+  const scan = getActiveScoutScans(getWorkspaceWatcher(cwd, { dataDir }))[0];
+  assert.equal(summary.released, 0);
+  assert.equal(isScoutScanOccupied(scan, now), true);
 });
 
 runCase('no response after acceptance stays occupied; confirmed idle with no review releases', () => {
@@ -837,6 +870,15 @@ runCase('markScoutScanLaunchIssued and markScoutScanUncertain keep the record an
   scan = getActiveScoutScans(getWorkspaceWatcher(cwd, { dataDir }))[0];
   assert.equal(scan.status, 'uncertain');
   assert.equal(isScoutScanOccupied(scan, now), true);
+});
+
+runCase('launch marker refuses a reservation without chat identity', () => {
+  const { cwd, dataDir } = freshWorkspace('marker-no-chat');
+  makeWatcher(dataDir, cwd);
+  seedRow(dataDir, cwd, { activeScoutScans: [{ scanId: 'legacy', status: 'reserved', chatId: '' }] });
+  const before = getActiveScoutScans(getWorkspaceWatcher(cwd, { dataDir }))[0];
+  assert.equal(markScoutScanLaunchIssued(cwd, { scanId: 'legacy', dataDir }), false);
+  assert.deepEqual(getActiveScoutScans(getWorkspaceWatcher(cwd, { dataDir }))[0], before);
 });
 
 runCase('the heartbeat pass schedules stored profiles up to the parallel cap', async () => {
