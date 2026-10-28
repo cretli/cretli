@@ -281,6 +281,7 @@ A leaf with `integration_state: ready` has its patch at
 | `claim_already_claimed` | A `ready` row kept an old claim; moving a todo back to `ready` now clears it. |
 | A parallel worktree group stalls | Add `## Leaf scope` bullets (paths/dirs) to each leaf so scopes do not collide. |
 | Watcher `wait_active/unknown_liveness` after a restart, no cycles start | `watcher_show` -> `snapshot.unknownChats`. An idle chat of a `user_action` todo (e.g. `worktree_open`) loses its run state on restart and blocks every start; `operator_watcher_release_unknown` refuses user-action todos, so move that todo back to `ready` with `todo_update` (clears the claim, keeps the worktree). Tracked as Q7 0c184705. |
+| A leaf split into children (after `needs_rescope`) never starts; its parent is `ready`, shows `blocked_reason` and a `blocked_backoff` entry, decisions say `dead_container` | The parent still carries the old block. Clear its backoff with `operator_watcher_reset {confirm: true, todo_ids: [parent, child]}` and the stale `blocked_reason` by patching the parent (any no-op status patch such as `status: idea`; the server re-derives the status from the children). The first child starts on the next Watcher tick (up to ~10 min idle interval). |
 | Orchestrator says it reported, Watcher logs `missing_report`/`cycle_incomplete` | Check the `watcher_update` tool result in the cycle chat (`chat_event field:"result"`). Before 7230a8cb the structured view was ~270k chars and Claude harnesses dropped it. |
 
 ## 6. Building trees for agents
