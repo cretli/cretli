@@ -3,6 +3,7 @@ import './fixtures/fake-transport.js';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
+import { FEEDBACK_ROOT_MARKER } from '../lib/feedback-marker.js';
 import {
   addTodo,
   deleteTodo,
@@ -77,6 +78,28 @@ runCase('addTodo + load round-trip', () => {
   assert.equal(doc.items[0].body, 'note');
   assert.equal(doc.items[0].status, 'ready');
   assert.ok(doc.items[0].id);
+});
+
+runCase('legacy feedback provenance is stamped on read and survives detachment', () => {
+  const dataDir = path.join(tmpRoot, 'feedback-legacy-data');
+  const project = path.join(tmpRoot, 'feedback-legacy-project');
+  mkdirSync(path.join(dataDir, 'todos'), { recursive: true });
+  mkdirSync(project, { recursive: true });
+  const now = new Date().toISOString();
+  const file = path.join(dataDir, 'todos', `${workspaceKeyFromCwd(project)}.json`);
+  writeFileSync(file, JSON.stringify({ version: 3, updatedAt: now, items: [
+    { id: 'feedback-root', title: 'Feedback', body: FEEDBACK_ROOT_MARKER, status: 'idea', createdAt: now, updatedAt: now },
+    { id: 'legacy-report', title: 'Legacy', body: 'Report', status: 'idea', parentId: 'feedback-root', createdAt: now, updatedAt: now },
+    { id: 'ordinary', title: 'Ordinary', body: '', status: 'idea', createdAt: now, updatedAt: now },
+  ] }));
+  const loaded = loadTodosData(dataDir, project);
+  assert.deepEqual(loaded.items.find((row) => row.id === 'legacy-report').feedbackOrigin,
+    { kind: 'report', rootId: 'feedback-root', reportId: 'legacy-report' });
+  assert.equal(loaded.items.find((row) => row.id === 'ordinary').feedbackOrigin, undefined);
+  updateTodo(dataDir, project, 'legacy-report', { parentId: '' });
+  const detached = loadTodosData(dataDir, project).items.find((row) => row.id === 'legacy-report');
+  assert.equal(detached.parentId, undefined);
+  assert.equal(detached.feedbackOrigin.reportId, 'legacy-report');
 });
 
 runCase('addTodo: requires a title', () => {

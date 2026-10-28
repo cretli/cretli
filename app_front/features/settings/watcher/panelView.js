@@ -71,6 +71,16 @@ export function renderWatcherPanel(data) {
     `<label class="cr-check"><input type="checkbox" data-scout-category="${cat}"${scoutCats.includes(cat) ? ' checked' : ''}> ${escapeHtml(t(`settings.watcherCat_${cat}`))}</label>`
   )).join('');
   const scoutInterval = Math.min(24, Math.max(1, Math.round(Number(policy.scoutIntervalHours) || DEFAULT_POLICY.scoutIntervalHours)));
+  const feedbackProposals = (Array.isArray(watcher.feedbackTriageProposals) ? watcher.feedbackTriageProposals : [])
+    .filter((proposal) => proposal.status === 'pending').slice(-20).reverse();
+  const feedbackRows = feedbackProposals.map((proposal) => `<li class="cr-card">
+    <strong>${escapeHtml(proposal.title || proposal.action)}</strong>
+    <p>${escapeHtml(proposal.reason || '')}</p>
+    ${proposal.planMarkdown ? `<pre class="cr-hint">${escapeHtml(proposal.planMarkdown)}</pre>` : ''}
+    <p class="cr-hint">${escapeHtml(proposal.action)} · ${escapeHtml(proposal.severity)} · ${escapeHtml(proposal.reportId)}</p>
+    <div class="cr-row"><cr-bar-button data-feedback-decision="accept" data-feedback-id="${escapeAttr(proposal.id)}">${escapeHtml(t('settings.watcherFeedbackAccept'))}</cr-bar-button>
+    <cr-bar-button data-feedback-decision="reject" data-feedback-id="${escapeAttr(proposal.id)}">${escapeHtml(t('settings.watcherFeedbackDismiss'))}</cr-bar-button></div>
+  </li>`).join('');
   const decisions = Array.isArray(watcher.decisions) ? watcher.decisions.slice(-10).reverse() : [];
   const decisionRows = decisions.length === 0
     ? `<li class="settings-hint">${escapeHtml(t('settings.watcherNoDecisions'))}</li>`
@@ -224,6 +234,16 @@ export function renderWatcherPanel(data) {
       </section>
 
       <section class="watcher-section">
+        <h4 class="watcher-section-title">${escapeHtml(t('settings.watcherFeedbackTriage'))}</h4>
+        <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherFeedbackTriage'))}</span><cr-bar-select id="watcher-feedback-triage" value="${escapeAttr(policy.feedbackTriage || 'off')}"></cr-bar-select></label>
+        <p class="cr-hint">${escapeHtml(t('settings.watcherFeedbackTriageHint'))}</p>
+        <div class="watcher-grid">
+          <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherFeedbackLimit'))}</span><cr-bar-input id="watcher-feedback-limit" type="number" min="1" max="20" value="${Number(policy.feedbackTriageMaxPerCycle) || DEFAULT_POLICY.feedbackTriageMaxPerCycle}"></cr-bar-input></label>
+          <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherFeedbackCooldown'))}</span><cr-bar-input id="watcher-feedback-cooldown" type="number" min="1" max="1440" value="${Math.floor((Number(policy.feedbackTriageCooldownMs) || DEFAULT_POLICY.feedbackTriageCooldownMs) / 60_000)}"></cr-bar-input></label>
+        </div>
+      </section>
+
+      <section class="watcher-section">
         <h4 class="watcher-section-title">${escapeHtml(t('settings.watcherScoutSection'))}</h4>
         <label class="cr-check"><input type="checkbox" id="watcher-scout-enabled"${policy.scoutEnabled === true ? ' checked' : ''}> ${escapeHtml(t('settings.watcherScoutEnabled'))}</label>
         <label class="cr-field"><span class="cr-field-label">${escapeHtml(t('settings.watcherScoutMaxParallel'))}</span><input id="watcher-scout-max-parallel" type="number" min="1" max="10" value="${Number(policy.scoutMaxParallel) || 1}"></label>
@@ -241,6 +261,11 @@ export function renderWatcherPanel(data) {
           <span class="cr-field-label">${escapeHtml(t('settings.watcherScoutCategories'))}</span>
           <div class="watcher-check-list">${scoutCatChecks}</div>
         </div>
+      </section>
+
+      <section class="watcher-section">
+        <h4 class="watcher-section-title">${escapeHtml(t('settings.watcherFeedbackProposals'))}</h4>
+        <ul id="watcher-feedback-proposals" class="watcher-list">${feedbackRows || `<li>${escapeHtml(t('settings.watcherFeedbackEmpty'))}</li>`}</ul>
       </section>
 
     </div>

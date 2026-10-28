@@ -9,6 +9,7 @@ import { SCOUT_EDITOR_ACTIONS } from '../../watcher/scoutProfileEditorView.js';
 import { SCOUT_PROFILE_ACTIONS } from '../../watcher/scoutProfilesView.js';
 import { WATCHER_TIMELINE_RANGES } from '../../watcher/watcherTimeline.js';
 import { openWatcherChat } from './api.js';
+import { watcherApi } from './api.js';
 import { saveWatcher, watcherAction } from './policyForm.js';
 import { dashboardIsVisible, ensureWatcherTicker } from './runtime.js';
 import { bindScoutEditor } from './scoutEditor.js';
@@ -143,6 +144,20 @@ export function bindWatcherDashboard(root) {
  */
 export function bindWatcherPanel(root, data) {
   const watcher = data?.watcher || {};
+  const feedbackMode = queryField(root, '#watcher-feedback-triage');
+  if (feedbackMode) feedbackMode.options = ['off', 'propose', 'auto'].map((value) => ({ value, label: t(`settings.watcherFeedbackMode_${value}`) }));
+  queryField(root, '#watcher-feedback-proposals')?.addEventListener('click', async (event) => {
+    const target = event.target instanceof Element ? event.target.closest('[data-feedback-decision]') : null;
+    if (!target) return;
+    const id = target.getAttribute('data-feedback-id');
+    const decision = target.getAttribute('data-feedback-decision');
+    if (!id || !['accept', 'reject'].includes(decision)) return;
+    const response = await watcherApi(`/api/workspace-watcher/feedback-triage/${encodeURIComponent(id)}/decision`, { method: 'POST', body: { decision } });
+    if (response.status === 200) {
+      const { refreshWorkspaceWatcherSettingsPanel } = await import('./refresh.js');
+      await refreshWorkspaceWatcherSettingsPanel({ full: true });
+    }
+  });
   void loadWatcherLoad();
 
   queryFields(root, '[data-watcher-duration]').forEach((input) => {

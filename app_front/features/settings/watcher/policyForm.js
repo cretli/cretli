@@ -67,6 +67,10 @@ export function readWatcherForm(root) {
       allowedHarnesses: harnesses,
       pickRoles: roles.length ? roles : PICK_ROLES.slice(),
       scoutEnabled: queryField(root, '#watcher-scout-enabled')?.checked === true,
+      feedbackTriage: ['propose', 'auto'].includes(queryField(root, '#watcher-feedback-triage')?.value)
+        ? queryField(root, '#watcher-feedback-triage').value : 'off',
+      feedbackTriageMaxPerCycle: Number(queryField(root, '#watcher-feedback-limit')?.value) || DEFAULT_POLICY.feedbackTriageMaxPerCycle,
+      feedbackTriageCooldownMs: (Number(queryField(root, '#watcher-feedback-cooldown')?.value) || 60) * 60_000,
       scoutMaxParallel: Number(queryField(root, '#watcher-scout-max-parallel')?.value) || 1,
       scoutMaxPerDay: Number.isInteger(scoutMaxPerDay) && scoutMaxPerDay >= 0
         ? scoutMaxPerDay
@@ -214,6 +218,9 @@ export function resetWatcherForm(root) {
     el.checked = DEFAULT_POLICY.pickRoles.includes(el.getAttribute('data-pick-role'));
   }
   check('watcher-scout-enabled', DEFAULT_POLICY.scoutEnabled);
+  set('watcher-feedback-triage', DEFAULT_POLICY.feedbackTriage);
+  set('watcher-feedback-limit', DEFAULT_POLICY.feedbackTriageMaxPerCycle);
+  set('watcher-feedback-cooldown', DEFAULT_POLICY.feedbackTriageCooldownMs / 60_000);
   set('watcher-scout-max-parallel', DEFAULT_POLICY.scoutMaxParallel);
   set('watcher-scout-max-per-day', DEFAULT_POLICY.scoutMaxPerDay);
   check('watcher-scout-autocreate', DEFAULT_POLICY.scoutAutoCreate);

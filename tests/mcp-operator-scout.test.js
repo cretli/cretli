@@ -31,4 +31,6 @@ test('operator guide mentions scout tools', () => {
   const text = OPERATOR_RULES.join(' ');
   assert.match(text, /scout_profiles/);
   assert.match(text, /operator_scout_enable/);
+  assert.match(text, /feedbackTriage defaults off/);
+  assert.match(text, /own approved plan before implementation/);
 });

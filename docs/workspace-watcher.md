@@ -20,6 +20,7 @@ guarantees, the notification behavior and a practical `decisionLog` guide.
 - [Guarantees](#guarantees)
 - [Workspace Memory](#workspace-memory)
 - [Scout](#scout)
+- [MCP feedback triage](#mcp-feedback-triage)
 - [Worktree execution, Git context and integration](#worktree-execution-git-context-and-integration)
 - [Notifications](#notifications)
 - [Policy reference](#policy-reference)
@@ -61,6 +62,18 @@ The watcher store is optional. A corrupt or unreadable watcher document is
 reported in reconcile errors and never rethrown, so a damaged watcher file
 cannot degrade the delegation runtime; the bytes are left untouched for an
 operator to repair.
+
+## MCP feedback triage
+
+`policy.feedbackTriage` accepts `off`, `propose`, or `auto`; unknown values normalize to `off`, which is the default. `feedbackTriageMaxPerCycle` defaults to 3 and is clamped to 1–20. `feedbackTriageCooldownMs` defaults to one hour and is clamped to one minute–one day. Feedback reports are identified only as direct children of the root carrying `<!-- cretli-feedback-root:v1 -->`. The report hash in its metadata and its todo revision form the triage key. A cross-process watcher document lock claims each key before analysis, with a ten-minute claim lease.
+
+The report body is untrusted data. The triage prompt frames it as data, limits code inspection to eight files, and asks for read-only Workspace Memory context. Triage may classify a report as `extract`, `duplicate`, or `reject`. A duplicate is certain only when the `cretli-feedback` hashes match; similar todo text is a suggestion. Duplicate and reject decisions remain durable proposals even in `auto` mode and require human acceptance. `propose` leaves every result pending. In `auto`, only `extract` is applied automatically.
+
+Extraction creates a separate root in `idea` with a readable title, severity, `sourceTodoId` pointing to the original report, and an unapproved plan draft. The original report remains an idea with a changelog link. A notice is posted to the Watcher chat. Accepting a duplicate or rejection closes the report with a reason in its changelog. Triage does not write Workspace Memory.
+
+Feedback reports and extracted roots require approval of their **own** plan before implementation. A server-owned `feedbackOrigin` is stamped when a report is created, when triage extracts a root, and lazily when a legacy report is read or written. Clients cannot set or clear it. It survives parent/source link changes and moves, so detaching a todo does not remove the plan gate. This rule applies even if `requirePlanApproval` is false or an ancestor has an approved plan. Watcher chooses a plan cycle, manual todo start opens planning, and delegation start refuses implementation until this approval is present.
+
+The runtime worker schedules this pass separately from implementation and Scout cycles. It picks a read-only-capable Scout harness, starts a bounded feedback triage chat, and parses its final JSON classification after the chat becomes idle. A missing or invalid result releases the claim after ten minutes; unknown liveness stays claimed until it can be resolved safely. The read-only chat may inspect code and Workspace Memory but its builtin MCP mutation handlers are denied, including Scout findings submit.
 
 | File | Role |
 |------|------|

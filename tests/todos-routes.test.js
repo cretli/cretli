@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { addChat } from '../lib/persist/chats-persist.js';
 import { addTodo, linkTodoChat, loadTodosData, updateTodo, writeTodoReview } from '../lib/persist/todos-persist.js';
+import { FEEDBACK_ROOT_MARKER } from '../lib/feedback-marker.js';
 import { registerTodosRoutes } from '../lib/routes/todos-routes.js';
 import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 
@@ -110,6 +111,31 @@ function makeApp() {
 function withApp(fn) {
   return () => fn(makeApp().invoke);
 }
+
+runCase(
+  'detached feedback report retains provenance and REST start stays in plan mode',
+  withApp(async (invoke) => {
+    const root = addTodo(dataDir, cwd, { title: 'Feedback root', body: FEEDBACK_ROOT_MARKER, status: 'idea' }).item;
+    const report = addTodo(dataDir, cwd, { title: 'Report to detach', parentId: root.id, status: 'idea' }).item;
+    const spoof = await invoke('PATCH', '/api/todos/:id', { params: { id: report.id }, body: { feedbackOrigin: null } });
+    assert.equal(spoof.status, 400);
+    const createSpoof = await invoke('POST', '/api/todos', { body: { title: 'Forged provenance', feedback_origin: { kind: 'report' } } });
+    assert.equal(createSpoof.status, 400);
+    const detached = await invoke('PATCH', '/api/todos/:id', {
+      params: { id: report.id }, body: { parent_id: '', status: 'ready' },
+    });
+    assert.equal(detached.status, 200);
+    const saved = loadTodosData(dataDir, cwd).items.find((row) => row.id === report.id);
+    assert.equal(saved.parentId, undefined);
+    assert.deepEqual(saved.feedbackOrigin, { kind: 'report', rootId: root.id, reportId: report.id });
+    const started = await invoke('POST', '/api/todos/:id/start-agent', {
+      params: { id: report.id }, body: { agentTransport: 'claude', workspaceFolder: cwd, workspaceFile },
+    });
+    assert.equal(started.body.ok, true);
+    assert.match(started.body.initialPrompt, /plan/i);
+    assert.equal(loadTodosData(dataDir, cwd).items.find((row) => row.id === report.id).status, 'ready');
+  }),
+);
 
 runCase(
   'parent start-agent starts an orchestrator in agent mode and delegates the entire subtree',
@@ -281,6 +307,25 @@ runCase(
     assert.ok(!item.chatId);
     assert.ok(item.linkedChatIds.includes(refined.body.chat.id));
   })
+);
+
+runCase(
+  'manual ready on feedback report starts planning even with approved container',
+  withApp(async (invoke) => {
+    const root = addTodo(dataDir, cwd, { title: 'MCP reports', body: '<!-- cretli-feedback-root:v1 -->', status: 'idea' }).item;
+    updateTodo(dataDir, cwd, root.id, { plan: { markdown: '# Container plan', approvedAt: '2026-01-01T00:00:00.000Z' } });
+    const report = addTodo(dataDir, cwd, { title: 'Bug report', body: '<!-- cretli-feedback {"hash":"abc"} -->', parentId: root.id, status: 'idea' }).item;
+    updateTodo(dataDir, cwd, report.id, { status: 'ready' });
+    const started = await invoke('POST', '/api/todos/:id/start-agent', {
+      params: { id: report.id },
+      body: { agentTransport: 'claude', workspaceFile, workspaceFolder: cwd },
+    });
+    assert.equal(started.body.ok, true);
+    assert.match(started.body.initialPrompt, /@cretli-todo-refine-loop/);
+    const saved = loadTodosData(dataDir, cwd).items.find((row) => row.id === report.id);
+    assert.equal(saved.status, 'ready');
+    assert.ok(!saved.chatId);
+  }),
 );
 
 runCase(

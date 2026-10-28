@@ -14,6 +14,7 @@ process.env.CRETLI_DATA_DIR = dataDir;
 
 const { addChat, loadChats } = await import('../lib/persist/chats-persist.js');
 const { addTodo, loadTodosData, saveTodosData, updateTodo, writeTodoReview } = await import('../lib/persist/todos-persist.js');
+const { FEEDBACK_ROOT_MARKER } = await import('../lib/feedback-marker.js');
 const { setBuiltinMcpRuntimeDeps } = await import('../lib/mcp/builtin/runtime-deps.js');
 const { createInProcessMcpClient } = await import('../lib/mcp/mcp-inprocess-client.js');
 const { createCretliMcpToolHandlers } = await import('../lib/mcp/mcp-builtin-tools.js');
@@ -61,6 +62,28 @@ function handlersFor(client, chatId, workspaceFolder, harness) {
 
 const ipClient = createInProcessMcpClient({ harness: 'testfake', chatId: chatIp.id, workspaceFolder: wsInProcess });
 const ip = handlersFor(ipClient, chatIp.id, wsInProcess, 'testfake');
+
+const feedbackContainer = addTodo(dataDir, wsInProcess, { title: 'Feedback root', body: FEEDBACK_ROOT_MARKER }).item;
+const feedbackReport = addTodo(dataDir, wsInProcess, { title: 'Feedback report', parentId: feedbackContainer.id }).item;
+const extractedFeedback = addTodo(dataDir, wsInProcess, { title: 'Extracted report', sourceTodoId: feedbackReport.id }).item;
+const clearSource = await ip.todo_update({ todo_id: extractedFeedback.id, expected_updated_at: extractedFeedback.updatedAt,
+  patch: { source_todo_id: '' } });
+check('MCP source detachment retains server-owned feedback provenance', () => {
+  assert.equal(clearSource.isError, false);
+  const saved = loadTodosData(dataDir, wsInProcess).items.find((row) => row.id === extractedFeedback.id);
+  assert.equal(saved.sourceTodoId, undefined);
+  assert.deepEqual(saved.feedbackOrigin, { kind: 'extracted', rootId: feedbackContainer.id, reportId: feedbackReport.id });
+});
+const forgedCreate = await ip.todo_create({ title: 'Forged feedback', idempotency_key: 'forged-feedback', feedbackOrigin: {} });
+const forgedUpdate = await ip.todo_update({ todo_id: extractedFeedback.id,
+  expected_updated_at: loadTodosData(dataDir, wsInProcess).items.find((row) => row.id === extractedFeedback.id).updatedAt,
+  patch: { feedback_origin: null } });
+check('MCP create and update reject client feedback provenance', () => {
+  assert.equal(forgedCreate.isError, true);
+  assert.equal(forgedUpdate.isError, true);
+  assert.deepEqual(loadTodosData(dataDir, wsInProcess).items.find((row) => row.id === extractedFeedback.id).feedbackOrigin,
+    { kind: 'extracted', rootId: feedbackContainer.id, reportId: feedbackReport.id });
+});
 
 // --- In-process: createdByChatId + chats[] ---
 const ipCreated = await ip.todo_create({ title: 'In-process task', status: 'ready', idempotency_key: 'ip-1' });
