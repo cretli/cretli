@@ -563,7 +563,7 @@ describe('openStorageDb store identity', () => {
     const file = path.join(dir, DEFAULT_STORAGE_DB_FILENAME);
     const raw = rawOpen(file);
     const probeSql = 'CREATE TABLE zz_future_probe (id INTEGER PRIMARY KEY)';
-    raw.exec(`PRAGMA user_version = 7; ${probeSql};`);
+    raw.exec(`PRAGMA user_version = 8; ${probeSql};`);
     raw.close();
     // Patch the stored DDL in place (same length) so this build cannot parse it.
     const bytes = fs.readFileSync(file);
@@ -576,7 +576,7 @@ describe('openStorageDb store identity', () => {
     probe.close();
     const err = captureStorageError(() => open());
     assert.equal(err.code, 'conflict');
-    assert.equal(err.details.actualRevision, 7);
+    assert.equal(err.details.actualRevision, 8);
   });
 
   it('reports a gap in schema_version as corrupt', () => {
@@ -666,7 +666,7 @@ describe('schema migrations', () => {
     const tables = db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name").all().map((r) => r.name);
     assert.deepEqual(tables, [
       'chat_history_dedupe', 'chat_history_epochs', 'chat_history_event_extra', 'chat_history_events', 'chat_history_meta',
-      'chat_history_producers', 'chat_history_stage', 'chat_history_stage_fragment', 'chat_history_state', 'command_receipts', 'schema_version', 'storage_dataset_binding', 'storage_fencing',
+      'chat_history_producers', 'chat_history_stage', 'chat_history_stage_fragment', 'chat_history_state', 'command_receipts', 'schema_version', 'storage_dataset_binding', 'storage_fencing', 'todo_docs', 'todos',
     ]);
   });
 
