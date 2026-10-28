@@ -203,7 +203,7 @@ paths: MCP tools -> `client.updateTodo` -> in-process client or HTTP -> facade.
 
 Each still imports at least one sync function and is converted by a later leaf:
 `server.js`; `lib/delegation-retention.js`, `delegation-service.js`, `delegation-settings.js`,
-`delegation-slot-stop.js`, `delegation-takeover.js`, `feedback-triage.js`, `integrate-batch.js`,
+`delegation-slot-stop.js`, `feedback-triage.js`, `integrate-batch.js`,
 `model-pick-leaf-implement.js`, `orchestrator-leaf-resolution.js`, `review-lessons-checks.js`,
 `todo-leaf-material.js`, `todo-move.js`, `todo-plan-sync.js`, `todo-review-backfill.js`,
 `todo-review-sync-hooks.js`, `todo-review-sync.js`, `worktree-deps.js`, `worktree-list.js`,
@@ -224,3 +224,21 @@ and in `lib/todo-move.js` (`moveTodoTree`, cross-workspace). Callers that read t
 write in separate calls (`todos-routes.js` patch: read for the worktree check, then
 `updateTodo` with `expectedUpdatedAt`) rely on the CAS field, not on a held lock; no lock
 is held across an `await` outside the persist layer.
+
+### Leaf 3a status
+
+- `todos-persist.js` exposes `legacy*` names for the future private adapter; old exports remain as aliases until leaf 3f.
+- `lib/todo-move.js` writes both workspaces through one call (`moveTodoDocuments`). Legacy behavior (unchanged from before): target first, then source. A failure writing the source leaves the items in both workspaces (duplicate, no loss) and chats stay linked; a failure writing the target changes nothing.
+- `lib/delegation-takeover.js` no longer uses the sync API; it goes through the facade (`listTodos`, `updateTodo`, one atomic update per todo).
+  Limitation (changed from the old whole-phase watcher lock around the todo phase): atomicity is per todo only.
+  The phase reads one `listTodos` snapshot, then awaits independently locked `updateTodo` calls (each takes the
+  watcher lock itself); no lock is held across the snapshot and the patches or between rows. A concurrent writer can
+  interleave between the snapshot and a patch or between two rows, and the patches carry no `expectedUpdatedAt`, so
+  a concurrent change to `orchestratorChatId` on a row is overwritten by the takeover value computed from the
+  snapshot. Why this is acceptable: the patches are absolute (`orchestratorChatId` set to `to` or cleared), not
+  read-modify-write deltas; the changelog note is deduplicated by the takeover id against the snapshot; the
+  takeover phase is checkpointed only after the loop, so a crash mid-loop replays the whole phase from a fresh
+  snapshot and already-applied rows produce no patch; and takeover execution is serialized per parent/chat by the
+  caller's locks. Rows are not committed as one transaction: a failure mid-loop leaves earlier rows moved until the
+  replay completes.
+- `nudgeWorkspaceWatcherAfterTodosMutation` (workspace-watcher-nudge.js) publishes the nudge only after the mutation resolved.

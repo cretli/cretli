@@ -111,7 +111,7 @@ for (const phase of ['started', 'rows', 'workflows', 'mailbox', 'todo', 'done'])
   const delivery = deliverMailboxToCurrentRecipient(f.message);
   // Recovery runs the transfer while a delivery waits for the historical recipient.
   const { prepareOrchestrationTakeover, executeOrchestrationTakeoverUnlocked } = await import('../lib/delegation-takeover.js');
-  await executeOrchestrationTakeoverUnlocked(prepareOrchestrationTakeover(f.input));
+  await executeOrchestrationTakeoverUnlocked(await prepareOrchestrationTakeover(f.input));
   await drainChatMailbox(f.to.id);
   release();
   await hold;

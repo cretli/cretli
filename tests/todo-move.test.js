@@ -131,3 +131,31 @@ test('a .code-workspace target resolves to its default folder, not its first fol
   assert.ok(getTodoById(dataDir, defaultFolder, root.id));
   assert.equal(getTodoById(dataDir, firstFolder, root.id), null);
 });
+
+test('injected failure mid-move: source write failing leaves a duplicate, never a loss; target failing changes nothing', async () => {
+  const { moveTodoTree } = await import('../lib/todo-move.js');
+  const { saveTodosData } = await import('../lib/persist/todos-persist.js');
+  const source = createWorkspace('todo-move-fail-src-');
+  const target = createWorkspace('todo-move-fail-dst-');
+  const { root, child } = seedTree(source);
+  const input = { dataDir, sourceFolder: source, targetFolder: target, todoId: root.id, expectedUpdatedAt: root.updatedAt };
+
+  // Failure while writing the TARGET (first write): nothing changes anywhere.
+  assert.throws(() => moveTodoTree({ ...input, saveDoc: () => { throw new Error('boom-target'); } }), /boom-target/);
+  assert.equal(getTodoById(dataDir, target, root.id), null);
+  assert.ok(getTodoById(dataDir, source, root.id));
+
+  // Failure while writing the SOURCE (second write): documented legacy behavior,
+  // the subtree exists in both workspaces (duplicate, no loss).
+  let calls = 0;
+  const saveDoc = (dir, cwd, doc) => {
+    calls += 1;
+    if (calls === 2) throw new Error('boom-source');
+    return saveTodosData(dir, cwd, doc);
+  };
+  assert.throws(() => moveTodoTree({ ...input, saveDoc }), /boom-source/);
+  assert.ok(getTodoById(dataDir, target, root.id));
+  assert.ok(getTodoById(dataDir, target, child.id));
+  assert.ok(getTodoById(dataDir, source, root.id));
+  assert.ok(getTodoById(dataDir, source, child.id));
+});

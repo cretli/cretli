@@ -27,7 +27,6 @@ const ALLOWLIST = Object.freeze([
   'lib/delegation-service.js',
   'lib/delegation-settings.js',
   'lib/delegation-slot-stop.js',
-  'lib/delegation-takeover.js',
   'lib/feedback-triage.js',
   'lib/integrate-batch.js',
   'lib/model-pick-leaf-implement.js',
