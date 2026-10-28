@@ -380,8 +380,12 @@
       "lines": 410,
       "innerHTML": 0
     },
+    "app_front/features/browser/browserErrors.js": {
+      "lines": 92,
+      "innerHTML": 0
+    },
     "app_front/features/browser/browserPanel.js": {
-      "lines": 1415,
+      "lines": 1389,
       "innerHTML": 7
     },
     "app_front/features/browser/browserWsClient.js": {

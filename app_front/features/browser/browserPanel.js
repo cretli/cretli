@@ -14,6 +14,7 @@ import { escapeHtml } from '../chat/chatHtmlUtils.js';
 import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 import { parseExplicitSdkMode } from '../../../lib/sdk/sdk-mode.ts';
 import { createBrowserWsClient } from './browserWsClient.js';
+import { errorText, externalHolderText } from './browserErrors.js';
 
 const API_BASE = '/api/browser';
 const PULL_LIMIT = 100;
@@ -189,96 +190,6 @@ function setStatus(message, tone = '') {
 }
 
 /**
- * Machine-readable codes the panel can receive from `/api/browser/*`: the
- * `BrowserError` set plus the route/guard rejections that are not errors of the
- * driver itself. Each one has a `browser.error.<code>` entry in both
- * dictionaries, because the raw Chromium/Playwright sentence is not something a
- * user can act on.
- */
-const BROWSER_ERROR_CODES = Object.freeze(new Set([
-  'auth-required',
-  'browser-error',
-  'browser-unavailable',
-  'external-browser-consent-required',
-  'chat-bind-conflict',
-  'confirmation-required',
-  'dialog-action-invalid',
-  'dialog-failed',
-  'dialog-not-found',
-  'dom-failed',
-  'drag-target-required',
-  'elements-failed',
-  'elements-unavailable',
-  'explicit-target-required',
-  'external-session-busy',
-  'forbidden-chat',
-  'forbidden-owner',
-  'forbidden-workspace',
-  'input-rate-limited',
-  'invalid-argument',
-  'invalid-chat',
-  'invalid-owner',
-  'invalid-url',
-  'invalid-wait-until',
-  'locator-failed',
-  'locator-index-invalid',
-  'locator-required',
-  'mode-required',
-  'navigation-blocked',
-  'navigation-failed',
-  'no-workspace',
-  'not-external',
-  'not-found',
-  'page-closed',
-  'plan-mode-readonly',
-  'rate-limited',
-  'review-mode-readonly',
-  'screenshot-busy',
-  'screenshot-failed',
-  'screenshot-too-large',
-  'select-option-invalid',
-  'select-option-required',
-  'session-limit',
-  'tab-limit',
-  'tab-not-found',
-  'unknown-action',
-  'unsupported-input',
-  'upload-file-limit',
-  'upload-files-required',
-  'upload-path-forbidden',
-  'upload-path-not-found',
-  'wait-loadstate-invalid',
-  'wait-state-invalid',
-  'wait-target-required',
-  'widget-auth-forbidden',
-]));
-
-/**
- * @param {string} holder holder category from the server
- * @returns {string}
- */
-function externalHolderText(holder) {
-  const known = ['agent', 'other-login', 'other-workspace', 'pending', 'self'];
-  return t(`browser.externalHolder.${known.includes(holder) ? holder : 'pending'}`);
-}
-
-/**
- * Turns an API failure into user-facing text. A known code becomes its
- * translation; anything else keeps the server message (already redacted
- * route-side), so an unmapped code never degrades into a bare code string.
- * @param {unknown} err
- * @returns {string}
- */
-function errorText(err) {
-  const message = String(/** @type {{ message?: unknown }} */ (err)?.message || err || 'error');
-  const code = String(/** @type {{ code?: unknown }} */ (err)?.code || '');
-  const holder = String(/** @type {{ holder?: unknown }} */ (err)?.holder || '');
-  const detail = code === 'external-session-busy' && holder ? externalHolderText(holder) : message;
-  const text = BROWSER_ERROR_CODES.has(code) ? t(`browser.error.${code}`, { detail }) : message;
-  return text.length > 200 ? `${text.slice(0, 200)}…` : text;
-}
-
-/**
  * Renders the Chromium-unavailable banner. Returns true when the panel cannot
  * work at all (no runtime), so callers can skip session calls.
  * @returns {boolean}
@@ -312,16 +223,20 @@ function renderSessionList(sessions) {
       // The external slot is held outside this list (another device, workspace
       // or an agent), so "create a new one" would only hit the limit again.
       const holderText = externalHolderText(String(external.holder || ''));
-      listEl.innerHTML = `<div class="browser-empty browser-external-busy">`
-        + `<span>${escapeHtml(t('browser.externalBusy', {
-          holder: holderText,
-          used: String(external.used ?? ''),
-          max: String(external.max ?? ''),
-        }))}</span>`
-        + `<cr-bar-button data-browser-external-release>${escapeHtml(t('browser.externalRelease'))}</cr-bar-button>`
-        + `</div>`;
-      listEl.querySelector('[data-browser-external-release]')
-        ?.addEventListener('click', () => void releaseExternalSession());
+      const busy = document.createElement('div');
+      busy.className = 'browser-empty browser-external-busy';
+      const message = document.createElement('span');
+      message.textContent = t('browser.externalBusy', {
+        holder: holderText,
+        used: String(external.used ?? ''),
+        max: String(external.max ?? ''),
+      });
+      const releaseButton = document.createElement('cr-bar-button');
+      releaseButton.setAttribute('data-browser-external-release', '');
+      releaseButton.textContent = t('browser.externalRelease');
+      busy.append(message, releaseButton);
+      listEl.replaceChildren(busy);
+      releaseButton.addEventListener('click', () => void releaseExternalSession());
       return;
     }
     listEl.innerHTML = `<div class="browser-empty">${escapeHtml(t('browser.noSessions'))}</div>`;
