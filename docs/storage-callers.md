@@ -169,3 +169,58 @@ it is not part of the worker-owned consolidated store).
 - Rollback / backup export (B1): `exportConfigWithWorkspaces()` (settings.js) returns
   `config.json` merged with the SQL sections in the pre-SQL shape;
   `node scripts/workspaces-export-config.mjs [--write]` prints or applies it.
+
+## Todos store (`store.todos`)
+
+Owner slice: todos-worker (storage worker domain handler: `lib/storage/todos-store.js`).
+The domain stays on its legacy synchronous JSON adapter (`lib/persist/todos-persist.js`)
+until every caller and whole atomic command is converted (`docs/storage-contract.md`
+"Inventory all synchronous callers"). L2 adds the Promise facade `lib/persist/todos-store.js`
+(`listTodos`, `getTodo`, `addTodo`, `updateTodo`, `deleteTodo`, `moveTodo`, `batch`) with a
+backend interface; the only backend is the legacy JSON adapter (same behavior, same
+file locking). Errors carry `code` `CONFLICT` (stale `expectedUpdatedAt`), `NOT_FOUND`
+or `VALIDATION`. `tests/todos-store-sync-api-guard.test.js` enforces this inventory:
+converted files may not import `loadTodosData` / `addTodo` / `updateTodo` /
+`saveTodosData` from `todos-persist.js`, and no unlisted file may start using them.
+
+### Converted to the async facade (leaf L2)
+
+| File | Notes |
+|---|---|
+| `lib/routes/todos-routes.js` | All list/read/create/patch/delete/start-agent paths await the facade; helpers `worktreeSubtreeConflict`, `resolveFullModePhases` are async. |
+| `lib/routes/chats-routes.js` | `DELETE /api/chats/:id` unlinks the todo via `await updateTodo`. |
+| `lib/routes/chat-agent-routes.js` | `set-todo-from-agent` awaits `updateTodo` before answering ok. |
+| `lib/routes/workspace-watcher-routes.js` | `blocked` and `refresh-worktree` read via `await listTodos`. |
+| `lib/mcp/mcp-inprocess-client.js` | list/get/create/update/move go through the facade (`moveTodo` for `moveTodoTree`). |
+| `lib/mcp/mcp-external-operator-tools.js` | `resolveTodo` is async; plan approve awaits `updateTodo`. |
+| `lib/mcp/builtin/todo-tools.js` | Only imports constants/helpers (`TODO_STATUSES`, `describeBodyTruncation`); mutations go through the client (async). |
+| `lib/remote-api-client.js` | HTTP client only; no direct persist use. |
+
+Import aliases: none of the callers rename the sync functions (`as` imports). Indirect
+paths: MCP tools -> `client.updateTodo` -> in-process client or HTTP -> facade.
+
+### Remaining synchronous callers (allowlist in the guard test)
+
+Each still imports at least one sync function and is converted by a later leaf:
+`server.js`; `lib/delegation-retention.js`, `delegation-service.js`, `delegation-settings.js`,
+`delegation-slot-stop.js`, `delegation-takeover.js`, `feedback-triage.js`, `integrate-batch.js`,
+`model-pick-leaf-implement.js`, `orchestrator-leaf-resolution.js`, `review-lessons-checks.js`,
+`todo-leaf-material.js`, `todo-move.js`, `todo-plan-sync.js`, `todo-review-backfill.js`,
+`todo-review-sync-hooks.js`, `todo-review-sync.js`, `worktree-deps.js`, `worktree-list.js`,
+`persist/feedback-store.js`, `usage/todo-usage-read.ts`, every `workspace-watcher-*.js`
+module listed in the guard (`control`, `cycle`, `cycle-close`, `delegation-guard`,
+`history-repair`, `integration`, `review-gate-guard`, `scout`, `todo-recover`, and
+`workspace-watcher.js`), and the scripts `architecture-http-fixture.mjs`,
+`architecture-stall-profile.mjs`, `audit-automatic-prompts.mjs`,
+`manual-smart-merge-fixture.mjs`, `measure-todo-save.js`, `scout-pass-fixture.mjs`.
+Other files only use non-guarded helpers (`getTodoById`, `linkTodoChat`, `deleteTodo`, review
+writers, constants) and are not sync-API callers for the guard.
+
+### Read-modify-write critical sections
+
+All run under `withWorkspaceWatchersFileLock` inside `todos-persist.js` (`addTodo`,
+`updateTodo`, `deleteTodo`, `writeTodoReview*`, `closeTodoLeafIfEligible`, `linkTodoChat`)
+and in `lib/todo-move.js` (`moveTodoTree`, cross-workspace). Callers that read then
+write in separate calls (`todos-routes.js` patch: read for the worktree check, then
+`updateTodo` with `expectedUpdatedAt`) rely on the CAS field, not on a held lock; no lock
+is held across an `await` outside the persist layer.

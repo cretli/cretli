@@ -158,7 +158,7 @@
       "lib/routes/delegations-routes.js": 3,
       "lib/routes/harness-versions-routes.js": 1,
       "lib/routes/integrate-batch-routes.js": 1,
-      "lib/routes/todos-routes.js": 25,
+      "lib/routes/todos-routes.js": 22,
       "lib/routes/voice-routes.js": 1,
       "lib/self-update.js": 11,
       "lib/server-health/stall-watchdog.js": 2,
