@@ -47,17 +47,51 @@ function endpointUrl(allowLan, endpointPath) {
   return `${window.location.protocol}//127.0.0.1${port}${endpointPath}`;
 }
 
+/** Install targets, in tab order. `file` is the path written by "Install in folder". */
+const TARGETS = [
+  { id: 'claude', file: '.mcp.json', labelKey: 'settings.externalMcpTargetClaude' },
+  { id: 'codex', file: '.codex/config.toml', labelKey: 'settings.externalMcpTargetCodex' },
+  { id: 'cursor', file: '.cursor/mcp.json', labelKey: 'settings.externalMcpTargetCursor' },
+];
+
 /**
+ * Configuration text for one client tool.
+ *
+ * @param {string} target claude | codex | cursor
  * @param {string} url
  * @param {string} token
  * @param {string} [cliToken] Token as written in the shell command (defaults to `token`).
+ * @param {boolean} [viaEnv] The token is an environment-variable reference, not a secret.
  */
-function configSnippet(url, token, cliToken = token) {
+function targetSnippet(target, url, token, cliToken = token, viaEnv = false) {
+  if (target === 'codex') {
+    const auth = viaEnv
+      ? `bearer_token_env_var = "${TOKEN_ENV}"`
+      : `http_headers = { Authorization = "Bearer ${token}" }`;
+    return `# Codex (.codex/config.toml)\n[mcp_servers.cretli]\nurl = "${url}"\n${auth}`;
+  }
+  if (target === 'cursor') {
+    const bearer = viaEnv ? `Bearer \${env:${TOKEN_ENV}}` : `Bearer ${token}`;
+    const json = JSON.stringify({ mcpServers: { cretli: { url, headers: { Authorization: bearer } } } }, null, 2);
+    return `# Cursor (.cursor/mcp.json)\n${json}`;
+  }
   const mcpJson = JSON.stringify({
     mcpServers: { cretli: { type: 'http', url, headers: { Authorization: `Bearer ${token}` } } },
   }, null, 2);
   const cli = `claude mcp add --transport http cretli ${url} --header "Authorization: Bearer ${cliToken}"`;
   return `# Claude Code (.mcp.json)\n${mcpJson}\n\n# Claude Code (CLI)\n${cli}`;
+}
+
+/**
+ * Every target one after another (used by exports).
+ *
+ * @param {string} url
+ * @param {string} token
+ * @param {string} [cliToken]
+ * @param {boolean} [viaEnv]
+ */
+function configSnippet(url, token, cliToken = token, viaEnv = false) {
+  return TARGETS.map((target) => targetSnippet(target.id, url, token, cliToken, viaEnv)).join('\n\n');
 }
 
 /** Environment variable the exported configuration reads the token from. */
@@ -80,7 +114,7 @@ function clientExportSnippet(client, url) {
     `# ${t('settings.externalMcpExpires')}: ${formatDate(client.expiresAt)}`,
     `# ${t('settings.externalMcpExportTokenNote', { env: TOKEN_ENV })}`,
   ].join('\n');
-  return `${header}\n\n${configSnippet(url, `\${${TOKEN_ENV}}`, `$${TOKEN_ENV}`)}`;
+  return `${header}\n\n${configSnippet(url, `\${${TOKEN_ENV}}`, `$${TOKEN_ENV}`, true)}`;
 }
 
 /**
@@ -105,17 +139,30 @@ function allClientsExport(clients, url) {
   }, null, 2);
 }
 
+/** Connection modes of the installed entry: direct HTTP or the local stdio bridge. */
+function installModeOptions() {
+  return [
+    { value: 'http', label: t('settings.externalMcpModeHttp') },
+    { value: 'stdio', label: t('settings.externalMcpModeStdio') },
+  ];
+}
+
 /**
  * Modal with a read-only export plus copy and download actions.
  *
  * `rotate` (optional) issues a new token and returns the configuration that
  * replaces the shown text; the old token stops working.
  *
+ * `install` writes the configuration into the client's folder; once `rotate`
+ * has issued a token it is passed along so the file gets the working token.
+ *
  * @param {{ heading: string, text: string, fileName: string, hint?: string,
- *   rotate?: () => Promise<{ text?: string, error?: string }> }} params
+ *   rotate?: () => Promise<{ text?: string, token?: string, error?: string }>,
+ *   install?: (target: string, token: string, folder: string, mode: string) => Promise<{ ok: boolean, message: string }> }} params
  */
-function openExportDialog({ heading, text: initialText, fileName, hint = '', rotate }) {
+function openExportDialog({ heading, text: initialText, fileName, hint = '', rotate, install }) {
   let text = initialText;
+  let currentToken = '';
   const dialog = /** @type {any} */ (document.createElement('cr-dialog'));
   dialog.className = 'external-mcp-export-dialog';
   dialog.heading = heading;
@@ -142,7 +189,46 @@ function openExportDialog({ heading, text: initialText, fileName, hint = '', rot
   body.appendChild(pre);
   const status = document.createElement('span');
   status.className = 'cr-status';
-  body.appendChild(status);
+  /** @type {HTMLElement | null} */
+  let installNote = null;
+  if (!install) body.appendChild(status);
+  if (install) {
+    const block = document.createElement('div');
+    block.className = 'external-mcp-install-block';
+    const blockTitle = document.createElement('div');
+    blockTitle.className = 'cr-section-title';
+    blockTitle.textContent = t('settings.externalMcpInstallTab');
+    block.appendChild(blockTitle);
+    const row = document.createElement('div');
+    row.className = 'cr-row external-mcp-install';
+    const targetSelect = /** @type {any} */ (document.createElement('cr-bar-select'));
+    targetSelect.options = TARGETS.map((target) => ({ value: target.id, label: `${t(target.labelKey)} (${target.file})` }));
+    targetSelect.value = TARGETS[0].id;
+    const modeSelect = /** @type {any} */ (document.createElement('cr-bar-select'));
+    modeSelect.options = installModeOptions();
+    modeSelect.value = 'http';
+    modeSelect.setAttribute('aria-label', t('settings.externalMcpInstallMode'));
+    const folderInput = /** @type {any} */ (document.createElement('cr-bar-input'));
+    folderInput.placeholder = t('settings.externalMcpInstallFolderPlaceholder');
+    folderInput.setAttribute('aria-label', t('settings.externalMcpInstallFolder'));
+    const installButton = document.createElement('cr-bar-button');
+    installButton.setAttribute('variant', 'primary');
+    installButton.textContent = t('settings.externalMcpInstall');
+    installButton.addEventListener('click', async () => {
+      const result = await install(String(targetSelect.value || TARGETS[0].id), currentToken, String(folderInput.value || '').trim(), String(modeSelect.value || 'http'));
+      status.textContent = result.message;
+      status.dataset.tone = result.ok ? 'success' : 'error';
+    });
+    row.append(targetSelect, modeSelect, folderInput, installButton);
+    block.appendChild(row);
+    block.appendChild(status);
+    installNote = document.createElement('p');
+    installNote.className = 'cr-hint';
+    installNote.textContent = t('settings.externalMcpInstallTokenNote');
+    installNote.hidden = true;
+    block.appendChild(installNote);
+    body.appendChild(block);
+  }
   dialog.appendChild(body);
 
   const actions = document.createElement('div');
@@ -189,7 +275,9 @@ function openExportDialog({ heading, text: initialText, fileName, hint = '', rot
         return;
       }
       text = result.text;
+      currentToken = result.token || '';
       pre.textContent = text;
+      if (installNote) installNote.hidden = !currentToken;
       warning.hidden = false;
       regenerate.remove();
       status.textContent = t('settings.externalMcpRotated');
@@ -206,6 +294,29 @@ function openExportDialog({ heading, text: initialText, fileName, hint = '', rot
 /** @param {string} value */
 function fileSlug(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'client';
+}
+
+/**
+ * Writes the configuration into the client's workspace folder (token by env reference).
+ *
+ * @param {string} clientId
+ * @param {string} target
+ * @param {string} url
+ * @param {string} [token] A token known right now (just created or rotated) is written into the file.
+ * @param {string} [folder] Absolute folder to install into; the client's workspace folder when empty.
+ * @param {string} [mode] `http` (default) or `stdio` (local bridge that survives server restarts).
+ * @returns {Promise<{ ok: boolean, message: string }>}
+ */
+async function installIntoFolder(clientId, target, url, token, folder, mode) {
+  const res = await api(`/api/mcp/external-clients/${encodeURIComponent(clientId)}/install`, {
+    method: 'POST',
+    body: { target, url, ...(token ? { token } : {}), ...(folder ? { folder } : {}), ...(mode ? { mode } : {}) },
+  });
+  if (!res.json?.ok) return { ok: false, message: res.json?.error || t('settings.externalMcpError') };
+  const key = res.json.tokenWritten
+    ? (res.json.existed ? 'settings.externalMcpInstalledTokenUpdated' : 'settings.externalMcpInstalledToken')
+    : (res.json.existed ? 'settings.externalMcpInstalledUpdated' : 'settings.externalMcpInstalled');
+  return { ok: true, message: t(key, { file: res.json.relativeFile, env: res.json.tokenEnv }) };
 }
 
 /**
@@ -288,6 +399,15 @@ function renderClientCard(client) {
           <span class="mdi mdi-export-variant" aria-hidden="true"></span> ${escapeHtml(t('settings.externalMcpExport'))}
         </cr-bar-button>
       </div>
+      ${client.revokedAt ? '' : `<div class="cr-row external-mcp-install">
+        <cr-bar-select data-external-mcp-install-target="${escapeAttr(client.id)}" aria-label="${escapeAttr(t('settings.externalMcpInstallTarget'))}"></cr-bar-select>
+        <cr-bar-select data-external-mcp-install-mode="${escapeAttr(client.id)}" aria-label="${escapeAttr(t('settings.externalMcpInstallMode'))}"></cr-bar-select>
+        <cr-bar-input data-external-mcp-install-folder="${escapeAttr(client.id)}" placeholder="${escapeAttr(t('settings.externalMcpInstallFolderPlaceholder'))}" aria-label="${escapeAttr(t('settings.externalMcpInstallFolder'))}"></cr-bar-input>
+        <cr-bar-button data-external-mcp-install="${escapeAttr(client.id)}">
+          <span class="mdi mdi-folder-download-outline" aria-hidden="true"></span> ${escapeHtml(t('settings.externalMcpInstall'))}
+        </cr-bar-button>
+        <span class="cr-status" data-external-mcp-install-status="${escapeAttr(client.id)}"></span>
+      </div>`}
     </article>`;
 }
 
@@ -324,9 +444,9 @@ export async function refreshExternalMcpSettingsPanel() {
  * @param {HTMLElement} root
  * @param {{ enabled: boolean, allowLan: boolean, endpointPath: string, clients: any[],
  *   folders: Array<{ value: string, label: string, description: string, group: string }>, currentFolder: string }} data
- * @param {string} [snippet] One-time configuration shown right after creating a client.
+ * @param {{ clientId: string, token: string, url: string } | null} [created] One-time token shown right after creating a client.
  */
-function renderPanel(root, data, snippet = '') {
+function renderPanel(root, data, created = null) {
   const url = endpointUrl(data.allowLan, data.endpointPath);
   const clients = data.clients.length === 0
     ? `<p class="settings-hint">${escapeHtml(t('settings.externalMcpEmpty'))}</p>`
@@ -360,12 +480,30 @@ function renderPanel(root, data, snippet = '') {
         <cr-bar-button variant="primary" id="external-mcp-create">${escapeHtml(t('settings.externalMcpCreate'))}</cr-bar-button>
         <span id="external-mcp-status" class="cr-status"></span>
       </div>
-      <div id="external-mcp-token"${snippet ? '' : ' hidden'}>
+      <div id="external-mcp-token" class="mcp-code"${created ? '' : ' hidden'}>
         <p class="message" data-tone="warning">${escapeHtml(t('settings.externalMcpTokenOnce'))}</p>
-        <pre class="mcp-tools-preview" id="external-mcp-snippet"></pre>
-        <div class="cr-row">
-          <cr-bar-button id="external-mcp-copy">${escapeHtml(t('settings.externalMcpCopy'))}</cr-bar-button>
+        <div class="mcp-code-tabs" role="tablist">
+          ${TARGETS.map((target) => `<button type="button" role="tab" class="mcp-code-tab" data-mcp-target="${target.id}">${escapeHtml(t(target.labelKey))}</button>`).join('')}
         </div>
+        <div class="mcp-code-frame">
+          <div class="mcp-code-bar">
+            <span class="mcp-code-file" id="external-mcp-file"></span>
+            <button type="button" class="mcp-code-copy" id="external-mcp-copy">
+              <span class="mdi mdi-content-copy" aria-hidden="true"></span>
+              <span class="mcp-code-copy-label">${escapeHtml(t('settings.externalMcpCopy'))}</span>
+            </button>
+          </div>
+          <pre class="mcp-code-pre" id="external-mcp-snippet"></pre>
+        </div>
+        <div class="cr-row external-mcp-install">
+          <cr-bar-select id="external-mcp-install-created-mode" aria-label="${escapeAttr(t('settings.externalMcpInstallMode'))}"></cr-bar-select>
+          <cr-bar-input id="external-mcp-install-created-folder" placeholder="${escapeAttr(t('settings.externalMcpInstallFolderPlaceholder'))}" aria-label="${escapeAttr(t('settings.externalMcpInstallFolder'))}"></cr-bar-input>
+          <cr-bar-button id="external-mcp-install-created">
+            <span class="mdi mdi-folder-download-outline" aria-hidden="true"></span> ${escapeHtml(t('settings.externalMcpInstallTab'))}
+          </cr-bar-button>
+          <span id="external-mcp-install-created-status" class="cr-status"></span>
+        </div>
+        <p class="cr-hint">${escapeHtml(t('settings.externalMcpInstallHint', { env: TOKEN_ENV }))}</p>
         <p class="cr-hint">${escapeHtml(t('settings.externalMcpTlsHint'))}</p>
       </div>
     </div>
@@ -398,8 +536,7 @@ function renderPanel(root, data, snippet = '') {
     ttlSelect.options = TTL_DAY_CHOICES.map((days) => ({ value: String(days), label: t('settings.externalMcpTtlDays', { days }) }));
     ttlSelect.value = '30';
   }
-  const snippetEl = root.querySelector('#external-mcp-snippet');
-  if (snippetEl) snippetEl.textContent = snippet;
+  if (created) bindCreatedSnippet(root, created);
 
   /**
    * @param {string} key
@@ -438,16 +575,34 @@ function renderPanel(root, data, snippet = '') {
     renderPanel(root, {
       ...data,
       clients: Array.isArray(refreshed.json?.clients) ? refreshed.json.clients : data.clients,
-    }, configSnippet(endpointUrl(data.allowLan, String(res.json.endpointPath || data.endpointPath)), String(res.json.token)));
+    }, {
+      clientId: String(res.json.client?.id || ''),
+      token: String(res.json.token),
+      url: endpointUrl(data.allowLan, String(res.json.endpointPath || data.endpointPath)),
+    });
   });
 
-  root.querySelector('#external-mcp-copy')?.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(snippet);
-      if (status) status.textContent = t('settings.externalMcpCopied');
-    } catch {
-      if (status) status.textContent = t('settings.externalMcpCopyFailed');
+  root.querySelectorAll('[data-external-mcp-install-target]').forEach((element) => {
+    const select = /** @type {any} */ (element);
+    const id = select.getAttribute('data-external-mcp-install-target') || '';
+    select.options = TARGETS.map((target) => ({ value: target.id, label: `${t(target.labelKey)} (${target.file})` }));
+    select.value = TARGETS[0].id;
+    const modeSelect = /** @type {any} */ (root.querySelector(`[data-external-mcp-install-mode="${CSS.escape(id)}"]`));
+    if (modeSelect) {
+      modeSelect.options = installModeOptions();
+      modeSelect.value = 'http';
     }
+    const button = root.querySelector(`[data-external-mcp-install="${CSS.escape(id)}"]`);
+    const out = root.querySelector(`[data-external-mcp-install-status="${CSS.escape(id)}"]`);
+    button?.addEventListener('click', async () => {
+      if (out) out.textContent = '';
+      const folderInput = /** @type {any} */ (root.querySelector(`[data-external-mcp-install-folder="${CSS.escape(id)}"]`));
+      const result = await installIntoFolder(id, String(select.value || TARGETS[0].id), url, undefined, String(folderInput?.value || '').trim(), String(modeSelect?.value || 'http'));
+      if (out) {
+        out.textContent = result.message;
+        /** @type {HTMLElement} */ (out).dataset.tone = result.ok ? 'success' : 'error';
+      }
+    });
   });
 
   root.querySelectorAll('[data-external-mcp-client-mode]').forEach((element) => {
@@ -483,8 +638,14 @@ function renderPanel(root, data, snippet = '') {
           ? async () => {
             const res = await api(`/api/mcp/external-clients/${encodeURIComponent(id)}/rotate`, { method: 'POST' });
             if (!res.json?.ok) return { error: res.json?.error };
-            return { text: configSnippet(endpointUrl(data.allowLan, String(res.json.endpointPath || data.endpointPath)), String(res.json.token)) };
+            return {
+              text: configSnippet(endpointUrl(data.allowLan, String(res.json.endpointPath || data.endpointPath)), String(res.json.token)),
+              token: String(res.json.token),
+            };
           }
+          : undefined,
+        install: clientState(client).tone === 'success'
+          ? (target, token, folder, mode) => installIntoFolder(id, target, url, token, folder, mode)
           : undefined,
       });
     });
@@ -505,6 +666,61 @@ function renderPanel(root, data, snippet = '') {
       await api(`/api/mcp/external-clients/${encodeURIComponent(id)}`, { method: 'DELETE' });
       await refreshExternalMcpSettingsPanel();
     });
+  });
+}
+
+/**
+ * Tabs + copy button + install button of the one-time token block.
+ *
+ * @param {HTMLElement} root
+ * @param {{ clientId: string, token: string, url: string }} created
+ */
+function bindCreatedSnippet(root, created) {
+  const pre = root.querySelector('#external-mcp-snippet');
+  const fileLabel = root.querySelector('#external-mcp-file');
+  const copy = root.querySelector('#external-mcp-copy');
+  const installButton = /** @type {any} */ (root.querySelector('#external-mcp-install-created'));
+  const installStatus = /** @type {HTMLElement | null} */ (root.querySelector('#external-mcp-install-created-status'));
+  const tabs = Array.from(root.querySelectorAll('.mcp-code-tab'));
+  let active = TARGETS[0].id;
+  const show = (/** @type {string} */ id) => {
+    active = id;
+    const target = TARGETS.find((row) => row.id === id) || TARGETS[0];
+    if (pre) pre.textContent = targetSnippet(target.id, created.url, created.token);
+    if (fileLabel) fileLabel.textContent = target.file;
+    for (const tab of tabs) {
+      const on = tab.getAttribute('data-mcp-target') === id;
+      tab.setAttribute('aria-selected', String(on));
+      tab.classList.toggle('is-active', on);
+    }
+    if (installStatus) installStatus.textContent = '';
+  };
+  tabs.forEach((tab) => tab.addEventListener('click', () => show(tab.getAttribute('data-mcp-target') || active)));
+  show(active);
+
+  const label = copy?.querySelector('.mcp-code-copy-label');
+  copy?.addEventListener('click', async () => {
+    let text = t('settings.externalMcpCopied');
+    try {
+      await navigator.clipboard.writeText(pre?.textContent || '');
+    } catch {
+      text = t('settings.externalMcpCopyFailed');
+    }
+    if (label) label.textContent = text;
+    window.setTimeout(() => { if (label) label.textContent = t('settings.externalMcpCopy'); }, 1800);
+  });
+  const createdMode = /** @type {any} */ (root.querySelector('#external-mcp-install-created-mode'));
+  if (createdMode) {
+    createdMode.options = installModeOptions();
+    createdMode.value = 'http';
+  }
+  installButton?.addEventListener('click', async () => {
+    const folderInput = /** @type {any} */ (root.querySelector('#external-mcp-install-created-folder'));
+    const result = await installIntoFolder(created.clientId, active, created.url, created.token, String(folderInput?.value || '').trim(), String(createdMode?.value || 'http'));
+    if (installStatus) {
+      installStatus.textContent = result.message;
+      installStatus.dataset.tone = result.ok ? 'success' : 'error';
+    }
   });
 }
 

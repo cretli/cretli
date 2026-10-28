@@ -1,0 +1,26 @@
+.tls-settings-root {
+  min-width: 0;
+  font-size: var(--cr-font-size-sm);
+
+  .cr-row { flex-wrap: wrap; }
+
+  [data-tone='error'] { color: var(--cr-error); }
+  [data-tone='success'] { color: var(--cr-success); }
+
+  .tls-certificate-details {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    gap: var(--cr-space-2);
+    dt { color: var(--cr-text-muted); }
+    dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+    code { font-family: var(--cr-font-mono); }
+  }
+
+  .tls-help {
+    margin: var(--cr-space-3) 0;
+    summary { cursor: pointer; color: var(--cr-accent); }
+    li { margin-bottom: var(--cr-space-2); }
+    ol { padding-left: var(--cr-space-5); }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  }
+}

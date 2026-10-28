@@ -111,6 +111,9 @@ export function refreshSettingsTabPanels(tabId) {
     section?.querySelectorAll('cr-permission-grants').forEach((panel) => void panel.refresh());
   }
   if (tabId === 'chat') refreshModelSettingsPanel();
+  if (tabId === 'connection' || tabId === 'mcp-clients') {
+    void import('../../features/settings/tlsSettings.js').then(({ refreshTlsSettings }) => refreshTlsSettings());
+  }
   if (tabId === 'usage') void refreshUsageSettings();
   if (tabId === 'wakeups') void refreshWakeupsSettings();
   if (tabId === 'backups') void refreshDataBackupSettings();

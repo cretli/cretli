@@ -164,6 +164,25 @@ An external client token (Settings → MCP → external clients, endpoint `/mcp`
 
 Operator tools are answered by `/mcp` itself (`lib/mcp/mcp-external-operator-tools.js`) and are not part of the builtin catalog, so chats, delegations, orchestrators and the Watcher inside Cretli never see them: for every agent Cretli runs, a plan is still approved only by a human.
 
+## External clients: install into a folder
+
+Settings → MCP → External clients can write the client configuration straight
+into the client's workspace folder (`POST /api/mcp/external-clients/:id/install`,
+`{ target, url }`):
+
+| Target | File |
+| --- | --- |
+| Claude Code | `.mcp.json` |
+| Codex | `.codex/config.toml` |
+| Cursor | `.cursor/mcp.json` |
+
+Other servers already in the file are kept. When the token is known (right
+after creating a client or after "Generate new token") the request may carry
+it as `token`; it must be that client's own valid token and is written into the
+file, so the tool works at once — keep such a file out of public repositories.
+Without a token the file references the `CRETLI_MCP_TOKEN` environment
+variable. Symlinked or invalid config files are refused.
+
 ## Reporting problems: `cretli_feedback`
 
 Every client (internal agents and external MCP clients) can report a failing, missing or misdescribed tool, an idea or a docs gap with `cretli_feedback`. The rule is also part of the `initialize` instructions. The tool is create-only: it cannot read or change any other todo.

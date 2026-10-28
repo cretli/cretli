@@ -226,6 +226,10 @@ test('parseSpaPath accepts interface sub-tabs', () => {
     panel: 'settings',
     settingsTab: 'interface-browser',
   });
+  assert.deepEqual(parseSpaPath('/settings/interface-storage'), {
+    panel: 'settings',
+    settingsTab: 'interface-storage',
+  });
   assert.equal(parseSpaPath('/settings/interface/voice'), null);
 });
 
@@ -263,6 +267,7 @@ test('isInterfaceSettingsTab covers appearance, terminal, voice and storage tabs
   assert.equal(isInterfaceSettingsTab('interface-terminal'), true);
   assert.equal(isInterfaceSettingsTab('interface-voice'), true);
   assert.equal(isInterfaceSettingsTab('interface-browser'), true);
+  assert.equal(isInterfaceSettingsTab('interface-storage'), true);
   assert.equal(isInterfaceSettingsTab('harness'), false);
   assert.equal(isInterfaceSettingsTab('workspace'), false);
   assert.equal(isInterfaceSettingsTab(''), false);

@@ -87,3 +87,145 @@
   white-space: pre;
   user-select: text;
 }
+
+/* Token / config block: target tabs, a file-name bar with an in-block copy button. */
+.mcp-code {
+  margin-top: var(--cr-space-3);
+}
+
+.mcp-code-tabs {
+  display: flex;
+  gap: var(--cr-space-1);
+  margin-top: var(--cr-space-2);
+  border-bottom: 1px solid var(--cr-border);
+}
+
+.mcp-code-tab {
+  margin-bottom: -1px;
+  padding: 0.4rem var(--cr-space-3);
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--cr-radius-sm) var(--cr-radius-sm) 0 0;
+  background: transparent;
+  color: var(--cr-text-muted);
+  font: inherit;
+  font-size: var(--cr-font-size-sm);
+  cursor: pointer;
+  transition: color var(--cr-transition), background var(--cr-transition);
+}
+
+.mcp-code-tab:hover {
+  color: var(--cr-text);
+}
+
+.mcp-code-tab.is-active {
+  border-color: var(--cr-border);
+  background: var(--cr-surface);
+  color: var(--cr-text);
+}
+
+.mcp-code-frame {
+  margin-bottom: var(--cr-space-2);
+  border: 1px solid var(--cr-border);
+  border-top: 0;
+  border-radius: 0 0 var(--cr-radius-sm) var(--cr-radius-sm);
+  background: var(--cr-field-bg);
+  overflow: hidden;
+}
+
+.mcp-code-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cr-space-2);
+  padding: 0.25rem var(--cr-space-2) 0.25rem var(--cr-space-3);
+  border-bottom: 1px solid var(--cr-border);
+  background: var(--cr-surface);
+}
+
+.mcp-code-file {
+  font-family: var(--cr-font-mono);
+  font-size: var(--cr-font-size-xs);
+  color: var(--cr-text-muted);
+}
+
+.mcp-code-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem var(--cr-space-2);
+  border: 1px solid transparent;
+  border-radius: var(--cr-radius-sm);
+  background: transparent;
+  color: var(--cr-text-muted);
+  font: inherit;
+  font-size: var(--cr-font-size-xs);
+  cursor: pointer;
+}
+
+.mcp-code-copy:hover {
+  border-color: var(--cr-field-border-hover);
+  color: var(--cr-text);
+}
+
+.mcp-code-pre {
+  margin: 0;
+  padding: var(--cr-space-3);
+  max-height: 18rem;
+  overflow: auto;
+  font-family: var(--cr-font-mono);
+  font-size: var(--cr-font-size-xs);
+  line-height: 1.5;
+  white-space: pre;
+  user-select: text;
+}
+
+/* Install row: target and folder share a line on wide screens, stack on narrow ones. */
+.external-mcp-install {
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+
+.external-mcp-install > cr-bar-select {
+  flex: 1 1 11rem;
+  min-width: 0;
+}
+
+.external-mcp-install > cr-bar-select + cr-bar-select {
+  flex: 1 1 11rem;
+}
+
+.external-mcp-install > cr-bar-input {
+  flex: 2 1 14rem;
+  min-width: 0;
+}
+
+.external-mcp-install > cr-bar-button {
+  flex: 0 0 auto;
+}
+
+.external-mcp-install > .cr-status {
+  flex: 1 1 100%;
+}
+
+/* Install block inside the export dialog, separated from the config preview. */
+.external-mcp-install-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+  margin-top: var(--cr-space-3);
+  padding-top: var(--cr-space-3);
+  border-top: 1px solid var(--cr-border-strong);
+}
+
+.external-mcp-install-block > .cr-status:empty {
+  display: none;
+}
+
+.cr-status[data-tone='success'] {
+  color: var(--cr-success);
+}
+
+.cr-status[data-tone='error'] {
+  color: var(--cr-error);
+}
