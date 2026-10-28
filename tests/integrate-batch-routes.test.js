@@ -193,6 +193,7 @@ test('a single smart merge takes the lock and a second one is refused until it i
   const id = world.todos[0].id;
   const first = await world.call('POST', `/api/todos/${id}/smart-merge`, { workspaceFolder: world.repo, agentTransport: 'opencode' });
   assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.equal(first.body.chat.todoId, id, 'the merge chat must navigate back to its todo');
   const second = await world.call('POST', `/api/todos/${world.todos[1].id}/smart-merge`, {});
   assert.equal(second.status, 409);
   assert.equal(second.body.error, 'integration_locked');

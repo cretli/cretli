@@ -696,6 +696,47 @@ body.theme-light {
   flex-wrap: wrap;
 }
 
+.browser-external-guide {
+  font-size: var(--cr-font-size-sm);
+
+  > summary {
+    cursor: pointer;
+    color: var(--cr-accent);
+  }
+
+  .cr-hint {
+    margin: var(--cr-space-2) 0 0;
+  }
+}
+
+.browser-external-guide-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+  margin: var(--cr-space-2) 0 0;
+  padding-left: var(--cr-space-5);
+}
+
+.browser-external-guide-os {
+  display: block;
+  margin-top: var(--cr-space-1);
+  color: var(--cr-text-muted);
+  font-size: var(--cr-font-size-xs);
+}
+
+.browser-external-guide-code {
+  margin: var(--cr-space-1) 0 0;
+  padding: var(--cr-space-1) var(--cr-space-2);
+  background: var(--cr-bg);
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  font-family: var(--cr-font-mono);
+  font-size: var(--cr-font-size-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
 .browser-storage-actions-row {
   flex-wrap: wrap;
   gap: 0.5rem;

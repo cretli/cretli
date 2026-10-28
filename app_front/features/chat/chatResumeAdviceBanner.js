@@ -51,6 +51,7 @@ export function renderResumeAdviceHtml(advice, t, formatUsd, hint = '') {
       ? `<cr-bar-button data-resume-advice-action="summary">${escapeHtml(t('chat.resumeAdviceSummary'))}</cr-bar-button>`
       : '')
     + `<cr-bar-button data-resume-advice-action="send">${escapeHtml(t('chat.resumeAdviceSendAnyway'))}</cr-bar-button>`
+    + `<cr-bar-button data-resume-advice-action="archive">${escapeHtml(t('chatUi.archiveChat'))}</cr-bar-button>`
     + `</div></div>`;
 }
 
@@ -97,6 +98,7 @@ export function createResumeAdviceDismissals(storage) {
  *   formatUsd: (usd: number) => string,
  *   getHost: (chat: Record<string, any>) => HTMLElement|null,
  *   onLayoutChange?: (host: HTMLElement) => void,
+ *   onArchive?: (chat: Record<string, any>) => Promise<boolean>,
  *   onReference: (chat: Record<string, any>, options?: { withSummary?: boolean }) => Promise<{ ok: boolean, code?: string }>, // failure codes: reference_requires_saved_history, sync_failed
  * }} deps
  */
@@ -151,6 +153,19 @@ export function createResumeAdviceController(deps) {
       generations.set(host, (generations.get(host) || 0) + 1);
       dismissals.dismiss(chat.id, advice.lastCachedTurnAt);
       clear(host);
+      return;
+    }
+    if (action === 'archive') {
+      if (pending.has(host) || !deps.onArchive) return;
+      pending.add(host);
+      try {
+        if (await deps.onArchive(chat)) {
+          generations.set(host, (generations.get(host) || 0) + 1);
+          clear(host);
+        }
+      } finally {
+        pending.delete(host);
+      }
       return;
     }
     if ((action !== 'reference' && action !== 'summary') || pending.has(host)) return;

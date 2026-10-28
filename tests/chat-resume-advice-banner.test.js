@@ -406,3 +406,31 @@ test('createReferenceChat with summary posts to the summary route and surfaces a
   await createReferenceChat({ id: 'p1' }, deps);
   assert.equal(calls.plain, 1, 'plain reference path is unchanged');
 });
+
+test('archive uses confirmation callback, ignores duplicate clicks and preserves banner on cancel', async () => {
+  const host = fakeHost();
+  const chat = { id: 'archive-chat' };
+  let finish;
+  let calls = 0;
+  const controller = createResumeAdviceController({
+    api: { getUsageResumeAdvice: async () => ({ ok: true, advice: advice() }) },
+    storage: fakeStorage(), t, formatUsd, getHost: () => host,
+    onArchive: (target) => {
+      assert.equal(target, chat);
+      calls += 1;
+      return new Promise((resolve) => { finish = resolve; });
+    },
+  });
+  await controller.check(chat);
+  assert.match(host.innerHTML, /data-resume-advice-action="archive">chatUi.archiveChat/);
+  const canceled = controller.handleAction(host, 'archive');
+  await controller.handleAction(host, 'archive');
+  assert.equal(calls, 1);
+  finish(false);
+  await canceled;
+  assert.equal(host.hidden, false);
+  const archived = controller.handleAction(host, 'archive');
+  finish(true);
+  await archived;
+  assert.equal(host.hidden, true);
+});

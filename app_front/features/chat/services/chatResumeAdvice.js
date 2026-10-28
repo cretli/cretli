@@ -17,6 +17,7 @@ import { notifyWidgetParentPagePinChanged, syncWidgetPinUrlUi } from './chatWidg
 import { readChatBufferFromLocalStorage } from './chatTitlesOutput.js';
 import { chatShell } from '../state/chatShellState.js';
 import { chatHost } from './chatHost.js';
+import { requestArchiveChatConfirmed } from './chatDeleteArchive.js';
 
 /** Lazily built controller of the inline cheap-resume notice. */
 export function getChatResumeAdviceController() {
@@ -28,6 +29,7 @@ export function getChatResumeAdviceController() {
       formatUsd,
       getHost: (chat) => chat._resumeAdviceHost || null,
       onReference: createReferenceChatFromAdvice,
+      onArchive: (chat) => requestArchiveChatConfirmed(chat.id),
     });
   }
   return chatShell.chatResumeAdviceController;

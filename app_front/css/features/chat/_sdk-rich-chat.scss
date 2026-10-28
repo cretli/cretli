@@ -44,6 +44,13 @@
   -webkit-overflow-scrolling: touch;
 }
 
+/* The pull-up action bar is mobile-only. Left in flow it would share the
+   viewport column with the chat via `.terminal-viewport-wrap > div { flex: 1 }`
+   and take half of its height on desktop. */
+#chat-panel .chat-mobile-overscroll-actions {
+  display: none;
+}
+
 @media (max-width: 768px) {
   #chat-panel .terminal-viewport-wrap {
     position: relative;

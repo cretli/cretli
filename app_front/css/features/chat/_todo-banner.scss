@@ -1,0 +1,44 @@
+.terminal-viewport-wrap:has(> .chat-todo-banner) {
+  position: relative;
+}
+
+// The initial message clears the floating banner; scrolled messages pass beneath it.
+#chat-panel .terminal-viewport-wrap:has(> .chat-todo-banner:not([hidden])) > .sdk-rich-chat-mount {
+  padding-top: calc(var(--cr-control-height) + 4 * var(--cr-space-1) + 2px);
+}
+
+.chat-todo-banner {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--cr-space-2);
+  min-width: 0;
+  margin: var(--cr-space-1) var(--cr-space-2);
+  padding: var(--cr-space-1) var(--cr-space-2);
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  background: color-mix(in srgb, var(--cr-accent) 10%, var(--cr-surface));
+  color: var(--cr-text);
+  font-size: var(--cr-font-size-sm);
+}
+
+.chat-todo-banner[hidden] {
+  display: none;
+}
+
+.chat-todo-banner-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-todo-banner cr-bar-button {
+  flex-shrink: 0;
+}

@@ -738,6 +738,9 @@
     bottom: var(--cr-debug-overlay-height);
     left: var(--sidebar-dock-width, 0px);
     right: 0;
+    /* The base `width: 100%` would otherwise ignore `right: 0` and push the bar
+       past the viewport by the docked sidebar width. */
+    width: auto;
     z-index: 100;
     margin: 0;
     padding: var(--cr-toolbar-padding-y) var(--cr-toolbar-padding-x);

@@ -40,6 +40,7 @@ import {
   resolveSendBarHostScreenshotCapture,
 } from '../services/widgetHostCapture.js';
 import { chatRuntime } from '../state/chatRuntimeState.js';
+import { createChatTodoBanner } from '../chatTodoBanner.js';
 
 export function openTerminal(chat) {
   // Opening the chat supersedes any transient push-inbox preview.
@@ -101,10 +102,17 @@ export function openTerminal(chat) {
     pane.appendChild(parentLink);
   }
   if (isChatDiagEnabled()) chatRuntime.chatDiagnosticsApi.startChatDiagPolling(chat);
+  chat._todoBanner = createChatTodoBanner(chat, {
+    t,
+    loadSummary: (id) => import('../../todo/index.js').then((mod) => mod.loadTodoSummary(id)),
+    onOpen: (id) => { void import('../../todo/index.js').then((mod) => mod.openTodo(id)); },
+  });
+  chat._todoBanner.sync();
   const viewportWrap = document.createElement('div');
   viewportWrap.className = 'terminal-viewport-wrap';
   const container = document.createElement('div');
   viewportWrap.appendChild(container);
+  viewportWrap.appendChild(chat._todoBanner.root);
   mountChatMobileOverscrollActions({ chat, pane, container, viewportWrap });
   pane.appendChild(viewportWrap);
   const { chatOnSend } = createChatSendHandlers(chat);

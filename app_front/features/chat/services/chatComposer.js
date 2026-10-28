@@ -266,6 +266,7 @@ export function continueTodoInActiveChat(chat, item) {
   };
   chat._todoChip?.setDraft(null);
   chat._todoChip?.setLinked(null);
+  chat._todoBanner?.sync();
   void api.patchChat(chat.id, { todoId }).catch(() => {});
   const sendBar = chat.pane?._sendBar;
   if (input && sendBar && typeof sendBar.submit === 'function') {
@@ -352,6 +353,7 @@ export function openTodoMentionFromMenu() {
  * @param {object} chat
  */
 export function syncChatTodoChip(chat) {
+  chat?._todoBanner?.sync();
   const chip = chat?._todoChip;
   if (!chip) return;
   chip.setLinked(null);
