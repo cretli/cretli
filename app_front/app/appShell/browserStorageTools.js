@@ -279,12 +279,12 @@ async function renderBrowserRuntimeStatus(el, knownRuntime = null) {
 }
 
 export function initBrowserSelfOriginSetting() {
-  const checkbox = document.getElementById('browser-policy-self-origin');
-  const privateNetwork = document.getElementById('browser-policy-private-network');
-  const insecureTls = document.getElementById('browser-policy-insecure-tls');
-  const externalBrowser = document.getElementById('browser-policy-external-browser');
-  const originsInput = document.getElementById('browser-policy-allowed-origins');
-  const saveBtn = document.getElementById('browser-policy-self-origin-save');
+  const checkbox = /** @type {HTMLInputElement | null} */ (document.getElementById('browser-policy-self-origin'));
+  const privateNetwork = /** @type {HTMLInputElement | null} */ (document.getElementById('browser-policy-private-network'));
+  const insecureTls = /** @type {HTMLInputElement | null} */ (document.getElementById('browser-policy-insecure-tls'));
+  const externalBrowser = /** @type {HTMLInputElement | null} */ (document.getElementById('browser-policy-external-browser'));
+  const originsInput = /** @type {HTMLTextAreaElement | null} */ (document.getElementById('browser-policy-allowed-origins'));
+  const saveBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('browser-policy-self-origin-save'));
   const status = document.getElementById('browser-policy-self-origin-status');
   const workspaceHint = document.getElementById('browser-policy-workspace');
   if (!checkbox || !privateNetwork || !insecureTls || !externalBrowser || !originsInput || !saveBtn || !status) return;
