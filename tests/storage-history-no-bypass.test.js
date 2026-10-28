@@ -37,6 +37,7 @@ const LEGACY_IMPORT_ALLOWLIST = new Map([
 const SCRIPT_ALLOWLIST = new Map([
   ['scripts/architecture-http-fixture.mjs', 'synthetic fixture for the HTTP benchmark; writes a temporary data dir'],
   ['scripts/storage-baseline-harness.mjs', 'JSON baseline of the storage benchmark; temporary directories only'],
+  ['scripts/lib/demo-seed.mjs', 'synthetic demo seed; requires an isolated CRETLI_DATA_DIR and runs before the server starts'],
 ]);
 
 describe('no production bypass of the history adapter', () => {
