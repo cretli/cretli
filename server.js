@@ -120,7 +120,7 @@ import { BrowserSessionManager } from './lib/browser/session-manager.js';
 import { assertBrowserSingleInstance } from './lib/browser/multi-instance.js';
 import { createRespawnController, resolveLifecycleLimits } from './lib/browser/lifecycle.js';
 import { purgeBrowserScreenshotRoot } from './lib/browser/screenshot-file.js';
-import { addAllowedOrigin, getWorkspacePolicy, resolveBrowserPolicyKey } from './lib/browser/policy-store.js';
+import { addAllowedOrigin, resolveBrowserPolicy } from './lib/browser/policy-store.js';
 import { createNavigationConsentRegistry } from './lib/browser/navigation-consent.js';
 import { notifyBrowserNavigationConsent } from './lib/agent-needs-input-push.js';
 import { setBrowserConsentPending } from './lib/agent-presence-hooks.js';
@@ -523,10 +523,7 @@ const browserManager = new BrowserSessionManager({
   driver: browserRuntime.driver,
   driverStatus: browserRuntime,
   dataDir,
-  resolvePolicy: (workspaceKey) => getWorkspacePolicy(
-    dataDir,
-    resolveBrowserPolicyKey(dataDir, workspaceKey, loadSettings()),
-  ),
+  resolvePolicy: (workspaceKey) => resolveBrowserPolicy(dataDir, workspaceKey, loadSettings()),
   blockedPorts: readInternalBrowserPorts(),
   selfOrigins: browserSelfOrigins,
   // Persistent per-workspace cookies/localStorage are opt-in. The secret comes

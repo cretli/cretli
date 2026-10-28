@@ -77,7 +77,10 @@ must resolve only to private, link-local, or loopback addresses. The API reports
 `runtime.mode: "external-cdp"` and `runtime.connected` (`unknown`, `true`, or
 `false`). One Cretli session is allowed at a time. The external browser is connected
 only after the current workspace explicitly enables
-`allowExternalBrowser` in Browser policy (default `false`). With
+`allowExternalBrowser` in Browser policy (default `false`). For a folder-scoped
+session, consent from its single registered workspace also applies, even when
+the folder has its own policy entry; ambiguous folders never inherit consent.
+With
 `CRETLI_BROWSER_NETWORK_BOUNDARY=proxy` or `required`, CDP is unavailable because
 the external Chrome cannot be forced through Cretli's proxy. Existing user tabs and
 the external browser/context are never closed; only the Cretli-created tab is routed

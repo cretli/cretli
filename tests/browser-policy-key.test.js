@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { getWorkspacePolicy, resolveBrowserPolicyKey, setWorkspacePolicy } from '../lib/browser/policy-store.js';
+import { getWorkspacePolicy, resolveBrowserPolicy, resolveBrowserPolicyKey, setWorkspacePolicy } from '../lib/browser/policy-store.js';
 
 const FILE_A = '/ws/acme.code-workspace';
 const FILE_B = '/ws/acme-full.code-workspace';
@@ -22,6 +22,10 @@ const settings = {
     [FILE_A]: { folders: { '/work/acme': { enabled: true } } },
     [FILE_B]: { folders: { '/work/acme': { enabled: true }, '/work/shared': { enabled: true } } },
   },
+};
+const singleSettings = {
+  workspaces: [{ kind: 'file', workspaceFile: FILE_A }],
+  workspaceSidebarConfig: { [FILE_A]: { folders: { '/work/acme': { enabled: true } } } },
 };
 
 function withDataDir(fn) {
@@ -64,5 +68,39 @@ test('workspace keys and unknown folders resolve to themselves', () => {
     assert.equal(resolveBrowserPolicyKey(dataDir, FILE_A, settings), FILE_A);
     assert.equal(resolveBrowserPolicyKey(dataDir, '/work/other', settings), '/work/other');
     assert.equal(resolveBrowserPolicyKey(dataDir, '', settings), '');
+  });
+});
+
+test('folder inherits only external consent from its single registered workspace', () => {
+  withDataDir((dataDir) => {
+    setWorkspacePolicy(dataDir, '/work/acme', { allowedOrigins: ['https://example.com'] });
+    setWorkspacePolicy(dataDir, FILE_A, { allowExternalBrowser: true, allowedOrigins: ['https://other.example'] });
+    const policy = resolveBrowserPolicy(dataDir, '/work/acme', singleSettings);
+    assert.equal(policy.allowExternalBrowser, true);
+    assert.deepEqual(policy.allowedOrigins, ['https://example.com']);
+    assert.equal(resolveBrowserPolicy(dataDir, FILE_A, singleSettings).allowExternalBrowser, true);
+  });
+});
+
+test('ambiguous folder never inherits external consent', () => {
+  withDataDir((dataDir) => {
+    setWorkspacePolicy(dataDir, FILE_A, { allowExternalBrowser: true });
+    assert.equal(resolveBrowserPolicy(dataDir, '/work/acme', settings).allowExternalBrowser, false);
+  });
+});
+
+test('folder without workspace consent stays denied, but its own consent grants access', () => {
+  withDataDir((dataDir) => {
+    setWorkspacePolicy(dataDir, FILE_A, { allowedOrigins: ['https://example.com'] });
+    assert.equal(resolveBrowserPolicy(dataDir, '/work/acme', singleSettings).allowExternalBrowser, false);
+    setWorkspacePolicy(dataDir, '/work/acme', { allowExternalBrowser: true });
+    assert.equal(resolveBrowserPolicy(dataDir, '/work/acme', singleSettings).allowExternalBrowser, true);
+  });
+});
+
+test('workspace-file key does not inherit consent from a folder entry', () => {
+  withDataDir((dataDir) => {
+    setWorkspacePolicy(dataDir, '/work/acme', { allowExternalBrowser: true });
+    assert.equal(resolveBrowserPolicy(dataDir, FILE_A, singleSettings).allowExternalBrowser, false);
   });
 });

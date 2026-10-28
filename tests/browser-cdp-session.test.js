@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { BrowserSessionManager, BrowserError } from '../lib/browser/session-manager.js';
+import { resolveBrowserPolicy, setWorkspacePolicy } from '../lib/browser/policy-store.js';
 import {
   BROWSER_SYSTEM_OWNER_ID,
   EXTERNAL_CDP_MAX_SESSIONS_DEFAULT,
@@ -248,7 +252,7 @@ test('external CDP requires workspace consent before connecting and releases res
   driver.connect = async () => { connections += 1; throw new Error('connection attempted'); };
   await assert.rejects(
     () => manager.createSession({ ownerSessionId: 'a', workspaceFile: '/ws/a' }),
-    (error) => error.code === 'external-browser-consent-required' && error.status === 403,
+    (error) => error.code === 'external-browser-consent-required' && error.status === 403 && error.message.includes('/ws/a'),
   );
   assert.equal(connections, 0);
   assert.equal(manager.externalSessionReserved, false);
@@ -258,6 +262,42 @@ test('external CDP requires workspace consent before connecting and releases res
     (error) => error.code === 'browser-unavailable',
   );
   assert.equal(connections, 1);
+});
+
+test('external CDP folder consent requires one registered workspace', async () => {
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'cretli-browser-cdp-policy-'));
+  const fileA = '/ws/acme.code-workspace';
+  const fileB = '/ws/other.code-workspace';
+  const folder = '/work/acme';
+  const settings = {
+    workspaces: [{ kind: 'file', workspaceFile: fileA }, { kind: 'file', workspaceFile: fileB }],
+    workspaceSidebarConfig: {
+      [fileA]: { folders: { [folder]: { enabled: true } } },
+      [fileB]: { folders: { [folder]: { enabled: true } } },
+    },
+  };
+  try {
+    setWorkspacePolicy(dataDir, folder, { allowedOrigins: ['https://example.com'] });
+    setWorkspacePolicy(dataDir, fileA, { allowExternalBrowser: true });
+    const { manager, driver } = externalFixture({
+      resolvePolicy: (key) => resolveBrowserPolicy(dataDir, key, settings),
+    });
+    let connections = 0;
+    driver.connect = async () => { connections += 1; throw new Error('connection attempted'); };
+    await assert.rejects(
+      () => manager.createSession({ ownerSessionId: 'a', cwd: folder }),
+      (error) => error.code === 'external-browser-consent-required' && error.status === 403 && error.message.includes(folder),
+    );
+    assert.equal(connections, 0);
+    settings.workspaces.pop();
+    await assert.rejects(
+      () => manager.createSession({ ownerSessionId: 'a', cwd: folder }),
+      (error) => error.code === 'browser-unavailable',
+    );
+    assert.equal(connections, 1);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
 });
 
 test('external CDP refuses proxy and required boundaries before proxy probing or connecting', async () => {
