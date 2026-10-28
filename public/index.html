@@ -509,7 +509,8 @@
       <button type="button" class="settings-tab cr-tab" data-settings-tab="interface-notifications" role="tab" aria-selected="false" data-i18n="settings.tabsInterfaceNotifications">Notifications</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="interface-terminal" role="tab" aria-selected="false" data-i18n="settings.tabsInterfaceTerminal">Terminal</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="interface-voice" role="tab" aria-selected="false" data-i18n="settings.tabsInterfaceVoice">Voice</button>
-      <button type="button" class="settings-tab cr-tab" data-settings-tab="interface-browser" role="tab" aria-selected="false" data-i18n="settings.tabsInterfaceStorage">Storage</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="interface-browser" role="tab" aria-selected="false" data-i18n="settings.tabsInterfaceBrowser">Browser</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="interface-storage" role="tab" aria-selected="false" data-i18n="settings.tabsInterfaceStorage">Storage</button>
     </div>
     </div>
     <div class="settings-sections cr-page-body">
@@ -575,6 +576,9 @@
           <a id="terminal-sync-link" href="#" target="_blank" rel="noopener"></a>
           <img id="terminal-sync-qr" alt="QR" class="terminal-sync-qr" />
         </div>
+      </section>
+      <section class="settings-section" data-settings-tab="connection" role="tabpanel">
+        <div class="tls-settings-root"></div>
       </section>
       <section class="settings-section" data-settings-tab="harness" id="harness-setup-wizard" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessSetupTitle">Choose a chat backend</h3>
@@ -1998,6 +2002,7 @@
         <h3 class="settings-section-title" data-i18n="settings.externalMcpTitle">External MCP clients</h3>
         <p class="settings-hint" data-i18n="settings.externalMcpHint">Let tools such as Claude Code or Cursor use the built-in Cretli MCP tools over HTTP at /mcp.</p>
         <div id="settings-external-mcp-root" class="mcp-settings-root"></div>
+        <div class="tls-settings-root"></div>
       </section>
       <section class="settings-section cr-form" data-settings-tab="mcp-operator" hidden role="tabpanel">
         <div id="settings-mcp-operator-root" class="cr-page"></div>
@@ -2473,6 +2478,81 @@
             <span id="browser-policy-self-origin-status" class="cr-status" aria-live="polite"></span>
           </div>
         </div>
+        <h3 class="settings-section-title" data-i18n="settings.browserCdpTitle">External Chrome</h3>
+        <div class="cr-card cr-form browser-policy-card">
+          <div class="browser-external-config">
+            <label class="cr-field">
+              <span class="cr-field-label" data-i18n="settings.browserCdpUrl">Chrome debugging address (CDP)</span>
+              <input type="text" id="browser-cdp-url" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="http://127.0.0.1:9222" />
+            </label>
+            <p class="cr-hint" data-i18n="settings.browserCdpUrlHint">Leave empty to use the built-in headless Chromium. The address is checked before saving and must point to a private, link-local or loopback address. No restart needed.</p>
+            <label class="cr-field">
+              <span class="cr-field-label" data-i18n="settings.browserCdpAllowlist">Allowed CDP host names (optional)</span>
+              <input type="text" id="browser-cdp-allowlist" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="your-pc" />
+            </label>
+            <p class="cr-hint" data-i18n="settings.browserCdpAllowlistHint">Only needed when the address uses a host name instead of an IP; separate with commas.</p>
+            <label class="cr-check"><input type="checkbox" id="browser-cdp-native-network" /> <span data-i18n="settings.browserCdpNativeNetwork">Let Chrome load public pages itself</span></label>
+            <p class="cr-hint" data-i18n="settings.browserCdpNativeNetworkHint">Requests to allowed public addresses go through Chrome's own network stack, cookies and IP, so sites with bot protection see a normal browser. Cretli still checks every request against the policy, but Chrome follows server redirects without re-checking them. Local, LAN and Cretli addresses always stay on the strict path.</p>
+            <label class="cr-check"><input type="checkbox" id="browser-calm-pace-mode" /> <span data-i18n="settings.browserCalmPaceMode">Calm pace (experimental)</span></label>
+            <p class="cr-hint" data-i18n="settings.browserCalmPaceModeHint">Slower agent clicks, cursor movements and scrolling, with browsing guidance for chats.</p>
+            <label class="cr-field">
+              <span class="cr-field-label" data-i18n="settings.browserCdpMaxSessions">Cretli sessions in the external Chrome</span>
+              <input type="number" id="browser-cdp-max-sessions" min="1" max="8" step="1" inputmode="numeric" />
+            </label>
+            <p class="cr-hint" data-i18n="settings.browserCdpMaxSessionsHint">How many Browser sessions (panel, chats and background agents) may use the external Chrome at the same time. Each session opens only its own tabs; they share the profile's cookies. Applies after saving; open sessions stay open.</p>
+            <p class="cr-hint" id="browser-cdp-env-locked" data-i18n="settings.browserCdpEnvLocked" hidden>Set by CRETLI_BROWSER_CDP_URL in .env; remove it there to edit here.</p>
+            <div class="cr-row browser-policy-save-row">
+              <button type="button" id="browser-cdp-save" class="lan-save-btn-inline" data-i18n="settings.browserCdpSave">Check and save</button>
+              <span id="browser-cdp-status" class="cr-status" aria-live="polite"></span>
+            </div>
+          </div>
+          <p class="cr-hint browser-external-status" id="browser-external-status" aria-live="polite" hidden></p>
+          <details class="browser-external-guide">
+            <summary data-i18n="settings.browserExternalGuideTitle">How to connect Chrome on your PC</summary>
+            <p class="cr-hint" data-i18n="settings.browserExternalGuideIntro">Cretli can drive your own Chrome instead of its headless Chromium: you see what the agent does and can sign in to pages yourself.</p>
+            <ol class="browser-external-guide-steps">
+              <li>
+                <span data-i18n="settings.browserExternalGuideStep1">Close Chrome and start it with a remote debugging port and a separate profile folder (Chrome refuses remote debugging on the default profile):</span>
+                <span class="browser-external-guide-os" data-i18n="settings.browserExternalGuideWindows">Windows (PowerShell):</span>
+                <pre class="browser-external-guide-code">&amp; "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="$env:LOCALAPPDATA\CretliChrome"</pre>
+                <span class="browser-external-guide-os" data-i18n="settings.browserExternalGuideMac">macOS:</span>
+                <pre class="browser-external-guide-code">"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="$HOME/.cretli-chrome"</pre>
+                <span class="browser-external-guide-os" data-i18n="settings.browserExternalGuideLinux">Linux:</span>
+                <pre class="browser-external-guide-code">google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.cretli-chrome"</pre>
+              </li>
+              <li>
+                <span data-i18n="settings.browserExternalGuideStep2">Check that the port answers: open this address in that Chrome or run curl on the Cretli machine. It should return JSON with "webSocketDebuggerUrl".</span>
+                <pre class="browser-external-guide-code">curl http://127.0.0.1:9222/json/version</pre>
+              </li>
+              <li data-i18n="settings.browserExternalGuideStep3">Enter the address in "Chrome debugging address" above and press "Check and save". Cretli verifies the endpoint and switches without a restart. CRETLI_BROWSER_CDP_URL in .env still works and takes precedence.</li>
+              <li data-i18n="settings.browserExternalGuideStep4">Tick "Allow Cretli to control my external Chrome profile" above and save the policy. The consent is per workspace.</li>
+              <li data-i18n="settings.browserExternalGuideStep5">Open the Browser panel in a chat: Cretli opens its own tab in that Chrome and closes only that tab; your other tabs stay untouched.</li>
+            </ol>
+            <h4 class="cr-section-title" data-i18n="settings.browserExternalGuideWslTitle">Cretli in WSL2, Chrome on Windows</h4>
+            <p class="cr-hint" data-i18n="settings.browserExternalGuideWsl">In the default NAT network mode WSL cannot reach Windows localhost, and Chrome listens only on localhost, usually on IPv6 [::1]. Forward the port on the WSL virtual interface of Windows.</p>
+            <ol class="browser-external-guide-steps">
+              <li>
+                <span data-i18n="settings.browserExternalGuideWsl1">In WSL, find the Windows address (the default gateway):</span>
+                <pre class="browser-external-guide-code">ip route show default | awk '{print $3}'</pre>
+              </li>
+              <li>
+                <span data-i18n="settings.browserExternalGuideWsl2">In PowerShell as administrator, forward that address to Chrome on IPv6 and allow only the WSL subnet through the firewall (replace 172.20.0.1 with the address from step 1):</span>
+                <pre class="browser-external-guide-code">netsh interface portproxy add v4tov6 listenaddress=172.20.0.1 listenport=9222 connectaddress=::1 connectport=9222
+New-NetFirewallRule -DisplayName "Cretli CDP from WSL" -Direction Inbound -Protocol TCP -LocalPort 9222 -RemoteAddress LocalSubnet -Action Allow</pre>
+              </li>
+              <li>
+                <span data-i18n="settings.browserExternalGuideWsl3">Check from WSL, then enter http://172.20.0.1:9222 (your address) above:</span>
+                <pre class="browser-external-guide-code">curl http://172.20.0.1:9222/json/version</pre>
+              </li>
+            </ol>
+            <p class="cr-hint" data-i18n="settings.browserExternalGuideWslIpv6">Connection reset (curl error 56) means the forward targets 127.0.0.1 while Chrome listens on [::1]: check with "netstat -ano | findstr 9222" on Windows and use v4tov6 as above.</p>
+            <p class="cr-hint" data-i18n="settings.browserExternalGuideWslNoAny">Never use listenaddress=0.0.0.0: it exposes the debugging port, and with it your Chrome profile, to the whole local network. Remove such a rule with "netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=9222".</p>
+            <p class="cr-hint" data-i18n="settings.browserExternalGuideWslChange">The Windows address on the WSL interface can change after a Windows or WSL restart; then update the forward and the address above. Alternatively, networkingMode=mirrored in %UserProfile%\.wslconfig (then wsl --shutdown) makes http://127.0.0.1:9222 work directly, but it changes networking for all of WSL.</p>
+            <p class="cr-hint" data-i18n="settings.browserExternalGuideSecurity">Anyone who can reach the debugging port controls that Chrome profile, including its cookies. Use a dedicated profile, never expose the port to the network, and close Chrome when you are done.</p>
+          </details>
+        </div>
+      </section>
+      <section class="settings-section" data-settings-tab="interface-storage" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.browserStorageTitle">Browser report &amp; storage</h3>
         <p class="settings-hint" data-i18n="settings.browserStorageHint">Local diagnostics for origin storage (quota, usage, localStorage keys, IndexedDB databases). Clearing removes only Cretli browser data.</p>
         <div class="quick-commands-save-row browser-storage-actions-row">

@@ -21,6 +21,7 @@ import express from 'express';
 import compression from 'compression';
 import { guardAsyncRoutes } from './lib/http-async-guard.js';
 import { resolveServerTransport, exitOnTlsFailure } from './lib/server-tls.js';
+import { registerTlsSettingsRoutes } from './lib/routes/tls-settings-routes.js';
 import { readFileSync, existsSync, mkdirSync } from 'fs';
 import { WebSocketServer } from 'ws';
 import path from 'path';
@@ -115,6 +116,7 @@ import { resolveFrontAssetVersion } from './lib/front-asset-version.js';
 import { setModelScoreRows } from './lib/model-catalog-meta.js';
 import { loadModelScoreRows } from './lib/model-score-heuristics-fs.js';
 import { detectBrowserRuntime } from './lib/browser/runtime-detect.js';
+import { buildBrowserRuntimeEnv, normalizeExternalMaxSessions, readCalmPaceModeSetting } from './lib/browser/cdp-config.js';
 import { BrowserSessionManager } from './lib/browser/session-manager.js';
 import { assertBrowserSingleInstance } from './lib/browser/multi-instance.js';
 import { createRespawnController, resolveLifecycleLimits } from './lib/browser/lifecycle.js';
@@ -318,11 +320,13 @@ try {
 const keyPath = process.env.SSL_KEY_PATH || path.join(dataDir, 'key.pem');
 const certPath = process.env.SSL_CERT_PATH || path.join(dataDir, 'cert.pem');
 let useHttps = false;
+let tlsCertificate;
 let server;
 try {
   const resolved = resolveServerTransport(app, { keyPath, certPath });
   server = resolved.server;
   useHttps = resolved.useHttps;
+  tlsCertificate = resolved.tlsCertificate;
 } catch (err) {
   exitOnTlsFailure(err);
 }
@@ -418,6 +422,7 @@ app.use(handleWidgetCorsPreflight);
 app.use(requireAuth);
 app.use(applyWidgetCorsResponse);
 installWidgetApiGate(app);
+registerTlsSettingsRoutes(app, { server, certificate: tlsCertificate, keyPath, certPath });
 
 registerPublicPages(app, {
   indexHtmlPath: INDEX_HTML_PATH,
@@ -464,7 +469,7 @@ function readInternalBrowserPorts() {
   return [...ports];
 }
 
-const browserRuntime = await detectBrowserRuntime({ env: process.env });
+const browserRuntime = await detectBrowserRuntime({ env: buildBrowserRuntimeEnv(process.env, loadSettings()) });
 if (!browserRuntime.available) {
   console.error(`[cretli] Browser module ${browserRuntime.status}: ${browserRuntime.reason}`);
 } else if (browserRuntime.sandboxWarning) {
@@ -496,7 +501,7 @@ const browserRespawnController = createRespawnController({
   // The real relaunch: re-detect the runtime and swap the manager's driver. A
   // rejection is the controller's `fail` signal and counts against the window.
   launch: async () => {
-    const next = await detectBrowserRuntime({ env: process.env });
+    const next = await detectBrowserRuntime({ env: buildBrowserRuntimeEnv(process.env, loadSettings()) });
     if (!next?.available) {
       throw new Error(`Browser runtime unavailable: ${next?.reason || next?.status || 'unknown'}`);
     }
@@ -528,6 +533,9 @@ const browserNavigationConsent = createNavigationConsentRegistry({
 });
 const browserManager = new BrowserSessionManager({
   consent: browserNavigationConsent,
+  externalNativeNetwork: loadSettings().browserCdpNativeNetwork === true,
+  calmPaceMode: readCalmPaceModeSetting(loadSettings()),
+  externalMaxSessions: normalizeExternalMaxSessions(loadSettings().browserCdpMaxSessions),
   driver: browserRuntime.driver,
   driverStatus: browserRuntime,
   dataDir,

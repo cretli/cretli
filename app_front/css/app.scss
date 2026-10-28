@@ -20,6 +20,7 @@
 @use './features/settings/terminal';
 @use './features/settings/notifications';
 @use './features/chat/send-bar-extra';
+@use './features/chat/todo-banner';
 @use './layout/kib-fullscreen-embed';
 @use './features/sidebar/sidebar';
 @use './base/reduced-motion';
