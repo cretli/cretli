@@ -1,3 +1,17 @@
+import { draculaTheme } from './dracula.js';
+import { oneDarkTheme } from './one-dark.js';
+import { nordTheme } from './nord.js';
+import { monokaiTheme } from './monokai.js';
+import { solarizedDarkTheme } from './solarized-dark.js';
+import { githubDarkTheme } from './github-dark.js';
+import { catppuccinMochaTheme } from './catppuccin-mocha.js';
+import { gruvboxDarkTheme } from './gruvbox-dark.js';
+import { tokyoNightTheme } from './tokyo-night.js';
+import { solarizedLightTheme } from './solarized-light.js';
+import { githubLightTheme } from './github-light.js';
+import { catppuccinLatteTheme } from './catppuccin-latte.js';
+import { gruvboxLightTheme } from './gruvbox-light.js';
+
 /** Theme definitions contain only color deltas from the appearance base. */
 /** @typedef {{ id: string, label: string, appearance: string, tokens: Record<string, string>, themeColor: string, terminal?: Record<string, string>, syntax?: Record<string, string> }} ThemeDefinition */
 
@@ -43,3 +57,20 @@ export function registerTheme(definition) {
   themes.set(safe.id, safe);
   return safe;
 }
+
+// Built-in palettes, registered through the same sanitizing path as custom themes.
+for (const definition of [
+  draculaTheme,
+  oneDarkTheme,
+  nordTheme,
+  monokaiTheme,
+  solarizedDarkTheme,
+  githubDarkTheme,
+  catppuccinMochaTheme,
+  gruvboxDarkTheme,
+  tokyoNightTheme,
+  solarizedLightTheme,
+  githubLightTheme,
+  catppuccinLatteTheme,
+  gruvboxLightTheme,
+]) registerTheme(definition);
