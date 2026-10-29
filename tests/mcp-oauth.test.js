@@ -11,6 +11,7 @@ import {
   McpOAuthLoginRequiredError,
   clearMcpOAuth,
   createMcpOAuthProvider,
+  findMcpOAuthState,
   findMcpServerIdByOAuthState,
   finishMcpOAuth,
   hasMcpOAuthTokens,
@@ -106,9 +107,10 @@ test('OAuth login: discovery, registration, PKCE login URL, code exchange, refre
     await finishMcpOAuth(rawServer(id), 'good-code');
     const secrets = getMcpSecrets(id);
     assert.equal(JSON.parse(secrets[MCP_OAUTH_KEYS.tokens]).access_token, 'access-1');
-    assert.equal(secrets[MCP_OAUTH_KEYS.state], undefined, 'state is single-use');
+    assert.match(secrets[MCP_OAUTH_KEYS.state], /:done$/, 'state is single-use');
     assert.equal(secrets[MCP_OAUTH_KEYS.verifier], undefined);
-    assert.equal(findMcpServerIdByOAuthState(state), null);
+    // A reloaded callback is recognised as an already finished login.
+    assert.deepEqual(findMcpOAuthState(state), { serverId: id, done: true });
     assert.equal(hasMcpOAuthTokens(rawServer(id)), true);
     // Tokens live only in the secret store, never in the server config.
     assert.doesNotMatch(JSON.stringify(loadMcpDocument()), /access-1|refresh-1/);
