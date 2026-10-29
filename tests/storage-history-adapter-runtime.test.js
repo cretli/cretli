@@ -56,7 +56,7 @@ describe('schema v4 upgrade of an imported v3 store (metadata migration 0004)', 
     const db = importedV3(path.join(root, 'v3.sqlite'));
     assert.equal(readSchemaVersion(db), 3);
     const result = applyMigrations(db);
-    assert.deepEqual(result.applied, [4, 5, 6, 7]);
+    assert.deepEqual(result.applied, [4, 5, 6, 7, 8]);
     const meta = Object.fromEntries(db.prepare('SELECT * FROM chat_history_meta').all().map((row) => [row.chat_id, row]));
     assert.equal(meta['chat-a'].cursor_session_id, 'cursor-a');
     assert.equal(meta['chat-a'].updated_at_raw, 'RAW-A', 'an untouched chat keeps the original updatedAt string');
@@ -68,7 +68,7 @@ describe('schema v4 upgrade of an imported v3 store (metadata migration 0004)', 
     assert.deepEqual(db.prepare('SELECT chat_id, seq, extra_json FROM chat_history_event_extra').all().map((row) => ({ ...row })), [{ chat_id: 'chat-a', seq: 3, extra_json: '{"origin":"tool"}' }]);
     // The provenance tables are left exactly as they were.
     assert.equal(Number(db.prepare('SELECT count(*) AS n FROM legacy_import_chat').get().n), 2);
-    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 7);
+    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 8);
     assert.equal(readDatasetBinding(db), 'g1', 'the upgrade binds the store to the only generation its data (and import sidecar) proves');
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
     // Idempotent: a second run applies nothing.

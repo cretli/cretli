@@ -5,6 +5,8 @@ Cretli is a Node.js (Express + WebSocket) server that exposes a **terminal** and
 to a browser (typically on a phone). The frontend is a webpack SPA in `app_front/`
 built to `public/dist/`.
 
+Decision cards, their REST/WS contract, server risk policy, and human-channel threat model are documented in [decision-cards.md](decision-cards.md).
+
 ## Top-level layout
 
 | Path | Role |

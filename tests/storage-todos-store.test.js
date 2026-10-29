@@ -48,7 +48,7 @@ const item = (id, extra = {}) => ({ id, title: `t-${id}`, status: 'idea', update
 
 describe('todos schema', () => {
   it('is part of the core migration lineage with the indexes from the ADR', async () => {
-    assert.equal(CORE_MIGRATIONS.at(-1).name, 'todos');
+    assert.equal(CORE_MIGRATIONS.find((m) => m.version === 7).name, 'todos');
     const { host } = await start();
     const { DatabaseSync } = await import('node:sqlite');
     await host.close({ timeoutMs: 1000 });

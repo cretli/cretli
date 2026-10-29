@@ -19,6 +19,7 @@
     "store.workspace-watchers",
     "store.todos",
     "store.workspace-memory",
+    "store.decisions",
     "store.chats",
     "store.chat-history",
     "store.chat-title-history",
@@ -267,6 +268,35 @@
         "known": [
           { "channel": "mcp", "module": "wmem MCP tools" },
           { "channel": "background", "module": "lib/workspace-watcher-scout.js" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.decisions",
+      "domainOwner": "lib/decisions/decision-store.js",
+      "backend": { "kind": "sqlite-wal-full", "schemaVersion": 8, "file": "decisions/decisions.sqlite" },
+      "bootstrapMarker": { "path": "decisions/decisions.sqlite", "detect": "file-exists" },
+      "managedPaths": ["decisions/decisions.sqlite"],
+      "retainedPaths": ["approvals/decisions-audit.jsonl"],
+      "lockOrderRank": 57,
+      "locks": ["storage worker transaction; rank-57 decision owner"],
+      "buffers": { "inMemoryCache": false, "flushStrategy": "worker transaction per command with receipt" },
+      "secrets": { "classification": "user-content-in-titles", "exportBoundary": "workspace-scoped-export" },
+      "rawValidator": "decision row revision + dedupe invariants",
+      "adapters": {
+        "export": "logical-json-per-workspace",
+        "snapshot": "clean-close-immutable-read",
+        "flush": "worker-commit-with-receipt",
+        "restore": "snapshot-file-replace",
+        "migration": "none-new-store-bootstrapped-by-runtime"
+      },
+      "durability": { "mode": "synchronous=FULL", "wal": true },
+      "ackClasses": ["post-commit-decision-cas"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "lib/routes/decisions-routes.js" },
+          { "channel": "background", "module": "lib/decisions/decision-adapters.js" }
         ],
         "unknownGaps": []
       }

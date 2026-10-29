@@ -34,6 +34,7 @@ history updates only after the new command commits.
 | store.chats | `lib/routes/chats-routes.js` | RMW collection | S | A3b |
 | store.chat-history | history routes / chat APIs | append batch → full rewrite per chat | S | A3a |
 | store.todos | `lib/routes/todos-routes.js` | CAS + watcher lock | S | A4 |
+| store.decisions | `lib/routes/decisions-routes.js` | storage worker command with revision CAS | A | A5 |
 | store.delegations | `lib/routes/delegation-routes.js` | owner lock / sqlite tx | S/A | A4 |
 | store.delegation-mailbox | delegation inbox routes | RMW JSON | S | A4 |
 | store.delegation-workflows | workflow routes | RMW JSON | S | A4 |
@@ -70,6 +71,7 @@ history updates only after the new command commits.
 | --- | --- | --- | --- |
 | store.workspace-watchers | `lib/workspace-watcher.js` | tick, lease, cycles | A4 |
 | store.todos | watcher claim/release | `withTodosWatcherNudgeSuppressed` | A4 |
+| store.decisions | `lib/decisions/decision-adapters.js` | card sync after committed todo changes | A5 |
 | store.workspace-memory | `lib/workspace-watcher-scout.js` | fact upserts | A5 |
 | store.port-exposures | `lib/port-exposure/runtime.js` | TTL expiry and reconcile job | stays-file: operational JSON ledger, registry migration none |
 | store.apps-state | `lib/apps/runtime.js` | app runtime state | stays-file: small runtime JSON state, registry migration none |
