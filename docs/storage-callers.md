@@ -206,6 +206,7 @@ converted files may not import `loadTodosData` / `addTodo` / `updateTodo` /
 | `lib/todo-plan-sync.js` | Plan export and run summaries await reads and CAS mutations. |
 | `lib/todo-leaf-material.js` | Context, baseline, checkpoint, partial paths, and workflow revisions await the facade; material mutations use CAS. |
 | `lib/feedback-triage.js`, `lib/persist/feedback-store.js`, `lib/mcp/builtin/feedback-tools.js` | Moved from 3b in 3d. Report filing, claim, submit and decide await the facade; see Leaf 3d status. |
+| `lib/workspace-watcher.js`, `workspace-watcher-control.js`, `workspace-watcher-delegation-guard.js`, `workspace-watcher-history-repair.js`, `workspace-watcher-review-gate-guard.js` | Leaf 3d2, see below. |
 | `lib/todo-review-sync.js`, `lib/todo-review-sync-hooks.js` | Async plan-boundary reads and review commands; boot/retry/auto-close wait for writes before emitting changes. |
 
 Async facade imports may retain local aliases such as `listTodos as loadTodosData`; these do not import the synchronous persist API. Indirect
@@ -217,9 +218,8 @@ Each still imports at least one sync function and is converted by a later leaf:
 `lib/delegation-retention.js`, `delegation-service.js`, `delegation-settings.js`,
 `delegation-slot-stop.js`, `integrate-batch.js`,
 `todo-move.js`, `todo-review-backfill.js`, every `workspace-watcher-*.js`
-module listed in the guard (`control`, `cycle`, `cycle-close`, `delegation-guard`,
-`history-repair`, `integration`, `review-gate-guard`, `scout`, `todo-recover`, and
-`workspace-watcher.js`), and the scripts `architecture-http-fixture.mjs`,
+module listed in the guard (`cycle`, `cycle-close`, `integration`, `scout`,
+`todo-recover`), and the scripts `architecture-http-fixture.mjs`,
 `architecture-stall-profile.mjs`, `audit-automatic-prompts.mjs`,
 `manual-smart-merge-fixture.mjs`, `measure-todo-save.js`, `scout-pass-fixture.mjs`.
 Other files only use non-guarded helpers (`getTodoById`, `linkTodoChat`, `deleteTodo`, review
@@ -287,3 +287,12 @@ Mechanism chosen for triage: the todo facade is awaited OUTSIDE `withWorkspaceWa
 - Guard allowlist shrinks by `feedback-triage.js` and `persist/feedback-store.js`.
 
 NOT converted (remains for a follow-up leaf): `workspace-watcher.js` (claim ~2840, reconcile ~2424), `workspace-watcher-cycle.js` (report ~1752, reconcile ~2439), `workspace-watcher-todo-recover.js` (~506, ~715), and the other allowlisted `workspace-watcher-*.js` / `delegation-*.js` files. They still hold the watcher lock only around synchronous work (no lock is held across an await of the facade, and the async-callback guard from 3d0 enforces that). Converting them changes the sync signatures `claimWorkspaceTodo` / `reconcile*Slot` / recover helpers used by hundreds of sync assertions in `todo-claims`, `workspace-watcher*` tests, and needs `commitWatcherTodoCommand` for the coupled recover/claim decisions; it was not done to keep claim/lease/CAS semantics untouched.
+
+### Leaf 3d2: watcher core, control and review gate on the async facade
+
+- `snapshotWorkspaceWatcher`, `tickWorkspaceWatcher`, `runWorkspaceWatcherHeartbeat`, `markWorkspaceWatcherTodoBlocked`, `claimWorkspaceTodo`, `claimNextWorkspaceTodo`, `releaseStaleWorkspaceTodoClaims(+Throttled)`, `reconcileWorkspaceWatchersOnBoot`, `getWorkspaceWatcherView`, `clearWorkspaceWatcherLoopStop`, `saveWorkspaceWatcherTodoPlanDraft`, `resolveWatcherClaimOwner`, the two `...ForOperator` helpers, `validateWorkspaceWatcherParentDelegation`, `checkReviewGateForTodoWrite` and the history-repair preview/apply are async and read/write todos through `todos-store.js`. Boot reconcile retries `SQLITE_BUSY` through `retryOnSqliteBusyAsync`.
+- `claimWorkspaceTodo` no longer wraps its read-and-write in `withWorkspaceWatchersFileLock`. The claim touches only the todo and the `expectedUpdatedAt` CAS inside the todo write stays its arbiter (same `cas_conflict`/`not_ready`/`already_claimed` outcomes, lease TTL and replay rule). Holding the watcher lock across the awaited facade call would invert the lock order (watcher 40 -> todos 50).
+- History repair reads todos through the facade before taking the watcher document lock; the locked preview is recomputed from that snapshot and each todo write keeps its own `expectedUpdatedAt` CAS.
+- No lock is held across an await of the facade. The suppression flag of the legacy backend is read synchronously, so `withTodosWatcherNudgeSuppressed` wraps only the facade call (not the await).
+- Guard allowlist shrinks by `workspace-watcher.js`, `-control`, `-delegation-guard`, `-history-repair`, `-review-gate-guard`; they move to the converted list. The sync API stays until 3f.
+

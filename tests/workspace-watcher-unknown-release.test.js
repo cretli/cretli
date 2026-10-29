@@ -44,9 +44,9 @@ try {
    * `chatId`. The claim is written directly (a watcher claim requires the todo
    * to be `ready`), so the stored attempt is exactly what the claim path writes.
    */
-  function makeClaimedDoing(title, chatId, extra = {}) {
+  async function makeClaimedDoing(title, chatId, extra = {}) {
     const todo = addTodo(dataDir, cwd, { title, status: 'ready', ...extra }).item;
-    const claim = claimWorkspaceTodo({
+    const claim = await claimWorkspaceTodo({
       dataDir,
       workspaceFolder: cwd,
       todoId: todo.id,
@@ -59,7 +59,7 @@ try {
   }
 
   // --- Pure gates -----------------------------------------------------------
-  const todo = makeClaimedDoing('Stuck unknown', 'exec-chat', { orchestratorChatId: 'exec-chat' });
+  const todo = await makeClaimedDoing('Stuck unknown', 'exec-chat', { orchestratorChatId: 'exec-chat' });
   upsertWorkspaceWatcher(cwd, {
     mode: 'observe',
     unknownTodoEscalations: {
@@ -138,7 +138,7 @@ try {
   );
   // The replay key is per-todo: reusing it on a DIFFERENT doing todo is not a
   // replay and must not release that todo.
-  const otherTodo = makeClaimedDoing('Other unknown', 'exec-chat-other');
+  const otherTodo = await makeClaimedDoing('Other unknown', 'exec-chat-other');
   const otherKey = releaseDoingWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: cwd,
@@ -285,7 +285,7 @@ try {
   assert.equal(notLeaf.error?.code, 'NOT_LEAF');
 
   // --- An already-active slot is refused ------------------------------------
-  const activeTodo = makeClaimedDoing('Active slot', 'busy-chat');
+  const activeTodo = await makeClaimedDoing('Active slot', 'busy-chat');
   const alreadyActive = releaseDoingWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: cwd,
@@ -300,7 +300,7 @@ try {
   assert.equal(getTodoById(dataDir, cwd, activeTodo.id).status, 'doing');
 
   // --- CAS conflict on a stale revision (no replay key match) ---------------
-  const staleTodo = makeClaimedDoing('Stale revision', 'exec-chat-2');
+  const staleTodo = await makeClaimedDoing('Stale revision', 'exec-chat-2');
   const staleRelease = releaseDoingWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: cwd,

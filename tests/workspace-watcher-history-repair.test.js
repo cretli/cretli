@@ -53,9 +53,9 @@ function setup(name, build) {
 }
 
 const win = { restartAt: [RESTART] };
-function previewApply(ctx, extra = {}) {
-  const p = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win, ...extra });
-  const r = applyWorkspaceWatcherHistoryRepair({
+async function previewApply(ctx, extra = {}) {
+  const p = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win, ...extra });
+  const r = await applyWorkspaceWatcherHistoryRepair({
     dataDir: ctx.dataDir, ...win, ...extra, apply: true, casToken: p.casToken, previewId: p.previewId, actor: 'test', now: Date.parse(CLOSED),
   });
   return { p, r };
@@ -68,7 +68,7 @@ function previewApply(ctx, extra = {}) {
     blocked: true,
     chats: [chat(id), chat(id), chat(id), chat(id, { closeReason: 'missing_report' })],
   }));
-  const p = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
+  const p = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
   assert.equal(p.candidates.length, 1);
   assert.equal(p.candidates[0].cycleIds.length, 4);
   assert.equal(p.candidates[0].current.failures, 4);
@@ -78,7 +78,7 @@ function previewApply(ctx, extra = {}) {
   assert.ok(p.candidates[0].evidence.length === 4);
   // preview writes nothing
   assert.equal(getWorkspaceWatcher(ctx.cwd, { dataDir: ctx.dataDir }).failures[ctx.todoId], 4);
-  const { r } = previewApply(ctx);
+  const { r } = await previewApply(ctx);
   assert.equal(r.ok, true);
   const row = getWorkspaceWatcher(ctx.cwd, { dataDir: ctx.dataDir });
   assert.equal(row.failures[ctx.todoId], undefined);
@@ -90,9 +90,9 @@ function previewApply(ctx, extra = {}) {
   assert.equal(row.historyRepairs[0].actor, 'test');
   assert.equal(getTodoById(ctx.dataDir, ctx.cwd, ctx.todoId).blockedReason || '', '');
   // 5. second apply is a no-op
-  const again = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
+  const again = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
   assert.equal(again.candidates.length, 0);
-  const second = applyWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win, apply: true, casToken: again.casToken, previewId: again.previewId });
+  const second = await applyWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win, apply: true, casToken: again.casToken, previewId: again.previewId });
   assert.equal(second.ok, true);
   assert.equal(second.applied.length, 0);
   assert.equal(getWorkspaceWatcher(ctx.cwd, { dataDir: ctx.dataDir }).historyRepairs.length, 1);
@@ -105,7 +105,7 @@ console.log('OK: incident-like store is previewed, restored, and a second apply 
     failures: { [id]: 2 },
     chats: [chat(id, { closeSource: 'report', closeReason: 'cycle_failure' }), chat(id, { closeReason: 'cycle_no_progress' })],
   }));
-  const { p, r } = previewApply(ctx);
+  const { p, r } = await previewApply(ctx);
   assert.equal(p.candidates.length, 0);
   assert.equal(r.applied.length, 0);
   const row = getWorkspaceWatcher(ctx.cwd, { dataDir: ctx.dataDir });
@@ -121,7 +121,7 @@ console.log('OK: genuine failures stay untouched');
     blocked: true,
     chats: [chat(id, { closeSource: 'report', closeReason: 'cycle_failure' }), chat(id), chat(id)],
   }));
-  const { p, r } = previewApply(ctx);
+  const { p, r } = await previewApply(ctx);
   assert.equal(p.candidates[0].proposed.failures, 1);
   assert.equal(r.ok, true);
   const row = getWorkspaceWatcher(ctx.cwd, { dataDir: ctx.dataDir });
@@ -136,13 +136,13 @@ console.log('OK: mixed genuine + artefact decrements only the artefacts');
 // 4. stale CAS aborts
 {
   const ctx = setup('stale', (id) => ({ failures: { [id]: 1 }, chats: [chat(id)] }));
-  const p = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
+  const p = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
   upsertWorkspaceWatcher(ctx.cwd, { stopReason: 'changed-after-preview' }, { dataDir: ctx.dataDir });
-  const r = applyWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win, apply: true, casToken: p.casToken, previewId: p.previewId });
+  const r = await applyWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win, apply: true, casToken: p.casToken, previewId: p.previewId });
   assert.equal(r.ok, false);
   assert.equal(r.reason, 'stale_preview');
   assert.equal(getWorkspaceWatcher(ctx.cwd, { dataDir: ctx.dataDir }).failures[ctx.todoId], 1);
-  const noFlag = applyWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win, casToken: p.casToken, previewId: p.previewId });
+  const noFlag = await applyWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win, casToken: p.casToken, previewId: p.previewId });
   assert.equal(noFlag.reason, 'apply_flag_required');
 }
 console.log('OK: stale CAS and missing apply flag abort without writing');
@@ -153,12 +153,12 @@ console.log('OK: stale CAS and missing apply flag abort without writing');
     failures: { [id]: 2 },
     chats: [chat(id, { closeSource: null, closeReason: '' }), chat(id, { at: LATE })],
   }));
-  const { p, r } = previewApply(ctx);
+  const { p, r } = await previewApply(ctx);
   assert.equal(p.candidates.length, 0);
   assert.deepEqual(p.insufficient_evidence.map((i) => i.reason).sort(), ['closed_after_grace', 'legacy_row_without_close_evidence']);
   assert.equal(r.applied.length, 0);
   assert.equal(getWorkspaceWatcher(ctx.cwd, { dataDir: ctx.dataDir }).failures[ctx.todoId], 2);
-  const noWindow = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir });
+  const noWindow = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir });
   assert.ok(noWindow.insufficient_evidence.some((i) => i.reason === 'no_restart_instant_given'));
 }
 console.log('OK: rows without evidence are reported as insufficient_evidence');
@@ -172,13 +172,13 @@ console.log('OK: rows without evidence are reported as insufficient_evidence');
       chat(id, { startedAt: '2026-10-07T14:30:00.000Z', at: '2026-10-07T14:40:00.000Z', closeReason: 'missing_report' }),
     ],
   }));
-  const { p, r } = previewApply(ctx);
+  const { p, r } = await previewApply(ctx);
   assert.equal(p.candidates.length, 0);
   assert.equal(r.applied.length, 0);
   assert.equal(getWorkspaceWatcher(ctx.cwd, { dataDir: ctx.dataDir }).failures[ctx.todoId], 2);
   // a missing startedAt is insufficient, not an artefact
   const noStart = setup('nostart', (id) => ({ failures: { [id]: 1 }, chats: [chat(id, { startedAt: '' })] }));
-  const q = previewWorkspaceWatcherHistoryRepair({ dataDir: noStart.dataDir, ...win });
+  const q = await previewWorkspaceWatcherHistoryRepair({ dataDir: noStart.dataDir, ...win });
   assert.equal(q.candidates.length, 0);
   assert.equal(q.insufficient_evidence[0].reason, 'started_at_missing');
 }
@@ -188,11 +188,11 @@ console.log('OK: cycles that did not span the restart are genuine');
 {
   const ctx = setup('onesided', (id) => ({ failures: { [id]: 1 }, chats: [chat(id)] }));
   for (const extra of [{ restartAt: [] }, { from: '2026-10-07T00:00:00Z' }, { to: '2026-10-09T00:00:00Z' }, { restartAt: ['garbage'] }]) {
-    const p = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...extra });
+    const p = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...extra });
     assert.equal(p.candidates.length, 0, JSON.stringify(extra));
     assert.equal(p.insufficient_evidence[0].reason, 'no_restart_instant_given');
   }
-  const huge = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, restartAt: RESTART, graceMs: 1e12 });
+  const huge = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, restartAt: RESTART, graceMs: 1e12 });
   assert.equal(huge.window.graceMs, 6 * 60 * 60_000, 'grace is capped');
 }
 console.log('OK: missing/one-sided window is not evidence');
@@ -210,7 +210,7 @@ console.log('OK: missing/one-sided window is not evidence');
     cycleChats: [chat(a.id), chat(a.id), chat(b.id)],
   }, { dataDir });
   const ctx = { dataDir, cwd };
-  const { p, r } = previewApply(ctx);
+  const { p, r } = await previewApply(ctx);
   assert.equal(p.candidates.length, 2);
   assert.ok(p.candidates.every((c) => c.proposed.backoffUntil === ''));
   assert.equal(r.ok, true);
@@ -229,8 +229,8 @@ console.log('OK: multi-todo row clears backoff with an accurate audit');
 // F4 (e): todo CAS miss is recorded, and a rerun clears the blocker idempotently
 {
   const ctx = setup('casmiss', (id) => ({ failures: { [id]: 3 }, blocked: true, chats: [chat(id), chat(id), chat(id)] }));
-  const p = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
-  const first = applyWorkspaceWatcherHistoryRepair({
+  const p = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
+  const first = await applyWorkspaceWatcherHistoryRepair({
     dataDir: ctx.dataDir, ...win, apply: true, casToken: p.casToken, previewId: p.previewId, now: Date.parse(CLOSED),
     beforeTodoUpdate: () => {
       const t = getTodoById(ctx.dataDir, ctx.cwd, ctx.todoId);
@@ -241,17 +241,17 @@ console.log('OK: multi-todo row clears backoff with an accurate audit');
   let row = getWorkspaceWatcher(ctx.cwd, { dataDir: ctx.dataDir });
   assert.equal(row.historyRepairs[0].todoUpdate, 'cas_miss');
   assert.ok(getTodoById(ctx.dataDir, ctx.cwd, ctx.todoId).blockedReason, 'still blocked after the miss');
-  const again = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
+  const again = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
   assert.equal(again.candidates.length, 1);
   assert.equal(again.candidates[0].blockedOnly, true);
-  const second = applyWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win, apply: true, casToken: again.casToken, previewId: again.previewId });
+  const second = await applyWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win, apply: true, casToken: again.casToken, previewId: again.previewId });
   assert.equal(second.todoUpdates[0].status, 'cleared');
   assert.equal(getTodoById(ctx.dataDir, ctx.cwd, ctx.todoId).blockedReason || '', '');
   row = getWorkspaceWatcher(ctx.cwd, { dataDir: ctx.dataDir });
   assert.equal(row.historyRepairs.length, 1, 'retry updates the original record');
   assert.equal(row.historyRepairs[0].todoUpdate, 'cleared_on_retry');
   assert.ok(row.historyRepairs[0].retriedAt);
-  const third = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
+  const third = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
   assert.equal(third.candidates.length, 0, 'rerun is idempotent');
 }
 console.log('OK: todo cas_miss is audited and a rerun repairs it');
@@ -259,14 +259,14 @@ console.log('OK: todo cas_miss is audited and a rerun repairs it');
 // F2 round 3 (a): a NEW failure-ceiling blocker after a 'cleared' repair is not touched
 {
   const ctx = setup('later-blocker', (id) => ({ failures: { [id]: 3 }, blocked: true, chats: [chat(id), chat(id), chat(id)] }));
-  previewApply(ctx);
+  await previewApply(ctx);
   assert.equal(getWorkspaceWatcher(ctx.cwd, { dataDir: ctx.dataDir }).historyRepairs[0].todoUpdate, 'cleared');
   // Later genuine blocker (different counters) on the same todo, failures below ceiling in the row.
   const t = getTodoById(ctx.dataDir, ctx.cwd, ctx.todoId);
   updateTodo(ctx.dataDir, ctx.cwd, ctx.todoId, { status: 'ready', strictStatus: true, blockedReason: workspaceWatcherFailureCeilingReason(4, 3), expectedUpdatedAt: t.updatedAt });
-  const p = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
+  const p = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
   assert.equal(p.candidates.length, 0);
-  const r = applyWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win, apply: true, casToken: p.casToken, previewId: p.previewId });
+  const r = await applyWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win, apply: true, casToken: p.casToken, previewId: p.previewId });
   assert.equal(r.applied.length, 0);
   assert.ok(getTodoById(ctx.dataDir, ctx.cwd, ctx.todoId).blockedReason, 'later blocker untouched');
 }
@@ -275,8 +275,8 @@ console.log('OK: a later failure-ceiling blocker is not cleared by an old repair
 // F2 round 3 (b): cas_miss repair, genuine failures back at the ceiling -> not cleared
 {
   const ctx = setup('risen', (id) => ({ failures: { [id]: 3 }, blocked: true, chats: [chat(id), chat(id), chat(id)] }));
-  const p0 = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
-  applyWorkspaceWatcherHistoryRepair({
+  const p0 = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
+  await applyWorkspaceWatcherHistoryRepair({
     dataDir: ctx.dataDir, ...win, apply: true, casToken: p0.casToken, previewId: p0.previewId,
     beforeTodoUpdate: () => {
       const t = getTodoById(ctx.dataDir, ctx.cwd, ctx.todoId);
@@ -284,7 +284,7 @@ console.log('OK: a later failure-ceiling blocker is not cleared by an old repair
     },
   });
   upsertWorkspaceWatcher(ctx.cwd, { failures: { [ctx.todoId]: 3 } }, { dataDir: ctx.dataDir });
-  const p = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
+  const p = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
   assert.equal(p.candidates.length, 0);
   assert.ok(getTodoById(ctx.dataDir, ctx.cwd, ctx.todoId).blockedReason);
 }
@@ -293,20 +293,20 @@ console.log('OK: cas_miss retry is refused when genuine failures are back at the
 // F2 round 3 (c): the retry happens once; afterwards nothing is proposed again
 {
   const ctx = setup('retry-once', (id) => ({ failures: { [id]: 3 }, blocked: true, chats: [chat(id), chat(id), chat(id)] }));
-  const p0 = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
-  applyWorkspaceWatcherHistoryRepair({
+  const p0 = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
+  await applyWorkspaceWatcherHistoryRepair({
     dataDir: ctx.dataDir, ...win, apply: true, casToken: p0.casToken, previewId: p0.previewId,
     beforeTodoUpdate: () => {
       const t = getTodoById(ctx.dataDir, ctx.cwd, ctx.todoId);
       updateTodo(ctx.dataDir, ctx.cwd, ctx.todoId, { title: 'concurrent', expectedUpdatedAt: t.updatedAt });
     },
   });
-  const p1 = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
+  const p1 = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
   assert.equal(p1.candidates.length, 1);
   assert.equal(p1.candidates[0].retryOf, getWorkspaceWatcher(ctx.cwd, { dataDir: ctx.dataDir }).historyRepairs[0].idempotencyKey);
-  const r1 = applyWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win, apply: true, casToken: p1.casToken, previewId: p1.previewId });
+  const r1 = await applyWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win, apply: true, casToken: p1.casToken, previewId: p1.previewId });
   assert.equal(r1.todoUpdates[0].status, 'cleared');
-  const p2 = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
+  const p2 = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
   assert.equal(p2.candidates.length, 0);
 }
 console.log('OK: cas_miss retry runs once and is not proposed again');
@@ -318,14 +318,14 @@ console.log('OK: cas_miss retry runs once and is not proposed again');
     const t = getTodoById(ctx.dataDir, ctx.cwd, ctx.todoId);
     updateTodo(ctx.dataDir, ctx.cwd, ctx.todoId, { title: `concurrent ${Math.random()}`, expectedUpdatedAt: t.updatedAt });
   };
-  const p0 = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
-  applyWorkspaceWatcherHistoryRepair({
+  const p0 = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
+  await applyWorkspaceWatcherHistoryRepair({
     dataDir: ctx.dataDir, ...win, apply: true, casToken: p0.casToken, previewId: p0.previewId, beforeTodoUpdate: concurrentEdit,
   });
-  const p1 = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
+  const p1 = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
   assert.equal(p1.candidates.length, 1);
   assert.equal(p1.candidates[0].blockedOnly, true);
-  const r1 = applyWorkspaceWatcherHistoryRepair({
+  const r1 = await applyWorkspaceWatcherHistoryRepair({
     dataDir: ctx.dataDir, ...win, apply: true, casToken: p1.casToken, previewId: p1.previewId, beforeTodoUpdate: concurrentEdit,
   });
   assert.equal(r1.todoUpdates[0].status, 'cas_miss');
@@ -333,7 +333,7 @@ console.log('OK: cas_miss retry runs once and is not proposed again');
   assert.equal(row.historyRepairs.length, 1);
   assert.equal(row.historyRepairs[0].todoUpdate, 'cas_miss', 'record stays cas_miss');
   assert.ok(getTodoById(ctx.dataDir, ctx.cwd, ctx.todoId).blockedReason, 'still blocked');
-  const p2 = previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
+  const p2 = await previewWorkspaceWatcherHistoryRepair({ dataDir: ctx.dataDir, ...win });
   assert.equal(p2.candidates.length, 1, 'proposed again');
   assert.equal(p2.candidates[0].blockedOnly, true);
   assert.equal(p2.candidates[0].retryOf, row.historyRepairs[0].idempotencyKey);

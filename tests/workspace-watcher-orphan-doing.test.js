@@ -78,12 +78,12 @@ try {
   const doing = getTodoById(dataDir, cwd, todo.id);
   assert.equal(doing.status, 'doing');
 
-  const early = releaseStaleWorkspaceTodoClaims({
+  const early = await releaseStaleWorkspaceTodoClaims({
     workspaceFolder: cwd, dataDir, now: Date.parse(doing.updatedAt) + 5 * MIN, probeChatRunLiveness: unknownProbe,
   });
   assert.deepEqual(early.released, []);
 
-  const swept = releaseStaleWorkspaceTodoClaims({
+  const swept = await releaseStaleWorkspaceTodoClaims({
     workspaceFolder: cwd, dataDir, now: Date.parse(doing.updatedAt) + 31 * MIN, probeChatRunLiveness: unknownProbe,
   });
   assert.deepEqual(swept.released, [todo.id]);

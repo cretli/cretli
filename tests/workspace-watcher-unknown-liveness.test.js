@@ -68,7 +68,7 @@ function setup(name, { worktree = true } = {}) {
   return { dataDir, cwd, chatId, held };
 }
 
-const snap = (ctx, delegations = []) => snapshotWorkspaceWatcher({
+const snap = async (ctx, delegations = []) => await snapshotWorkspaceWatcher({
   workspaceFolder: ctx.cwd,
   dataDir: ctx.dataDir,
   now: T0,
@@ -79,9 +79,9 @@ const snap = (ctx, delegations = []) => snapshotWorkspaceWatcher({
   },
 });
 
-runCase('user_action (worktree_open) + state_missing is idle and a cycle can start', () => {
+runCase('user_action (worktree_open) + state_missing is idle and a cycle can start', async () => {
   const ctx = setup('ua');
-  const snapshot = snap(ctx);
+  const snapshot = await snap(ctx);
   assert.equal(snapshot.doingStates.find((r) => r.todoId === ctx.held.id)?.state, 'user_action');
   assert.equal(snapshot.unknownAgentCount, 0);
   assert.deepEqual(snapshot.unknownChats, []);
@@ -94,16 +94,16 @@ runCase('user_action (worktree_open) + state_missing is idle and a cycle can sta
   assert.equal(decision.kind, 'start_cycle');
 });
 
-runCase('without a user_action state the same claimed chat stays unknown (guard unchanged)', () => {
+runCase('without a user_action state the same claimed chat stays unknown (guard unchanged)', async () => {
   const ctx = setup('plain', { worktree: false });
-  const snapshot = snap(ctx);
+  const snapshot = await snap(ctx);
   assert.equal(snapshot.unknownAgentCount, 1);
   assert.deepEqual(snapshot.unknownChats, [{ chatId: ctx.chatId, reason: 'state_missing' }]);
 });
 
-runCase('a user_action chat that holds a live delegation slot stays unknown', () => {
+runCase('a user_action chat that holds a live delegation slot stays unknown', async () => {
   const ctx = setup('deleg');
-  const snapshot = snap(ctx, [{ id: 'd1', status: 'running', parentChatId: ctx.chatId, childChatId: 'child-x', workspaceFolder: ctx.cwd }]);
+  const snapshot = await snap(ctx, [{ id: 'd1', status: 'running', parentChatId: ctx.chatId, childChatId: 'child-x', workspaceFolder: ctx.cwd }]);
   assert.ok(snapshot.unknownChatIds.includes(ctx.chatId));
 });
 

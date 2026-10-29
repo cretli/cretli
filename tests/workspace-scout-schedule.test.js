@@ -934,7 +934,7 @@ runCase('the heartbeat pass picks the oldest profile when only one slot is free'
   assert.equal(pass.scans[0].scoutId, 'starved');
 });
 
-runCase('boot reconcile refunds a crashed reservation and keeps a launched one', () => {
+runCase('boot reconcile refunds a crashed reservation and keeps a launched one', async () => {
   const { cwd, dataDir } = freshWorkspace('boot-reconcile');
   makeWatcher(dataDir, cwd);
   const now = Date.parse('2026-06-06T10:00:00.000Z');
@@ -962,7 +962,7 @@ runCase('boot reconcile refunds a crashed reservation and keeps a launched one',
       },
     ],
   });
-  const result = reconcileWorkspaceWatchersOnBoot({
+  const result = await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     now,
     probeChatRunLiveness: () => ({ known: true, busy: true }),

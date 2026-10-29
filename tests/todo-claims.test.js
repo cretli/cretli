@@ -28,7 +28,7 @@ function child(id, revision, mode, name) {
     });
   });
 }
-const claim = (todo, extra = {}) => claimWorkspaceTodo({ dataDir, workspaceFolder: cwd, todoId: todo.id, claimedByChatId: 'owner', expectedUpdatedAt: todo.updatedAt, ...extra });
+const claim = async (todo, extra = {}) => await claimWorkspaceTodo({ dataDir, workspaceFolder: cwd, todoId: todo.id, claimedByChatId: 'owner', expectedUpdatedAt: todo.updatedAt, ...extra });
 try {
   const todo = addTodo(dataDir, cwd, { title: 'Contended', status: 'ready' }).item;
   const other = addTodo(dataDir, cwd, { title: 'Concurrent edits', status: 'ready' }).item;
@@ -44,30 +44,30 @@ try {
   assert.ok(edited.changelog.some((entry) => entry.text === 'note-B'), 'parallel writes cannot lose unrelated edits');
 
   const current = getTodoById(dataDir, cwd, todo.id);
-  assert.equal(claim(current).reason, 'not_ready', 'fresh CAS cannot steal a doing todo');
-  assert.equal(claimWorkspaceTodo({ dataDir, workspaceFolder: cwd, todoId: todo.id, claimedByChatId: 'other-owner' }).reason, 'not_ready', 'omitting CAS cannot overwrite doing');
+  assert.equal((await claim(current)).reason, 'not_ready', 'fresh CAS cannot steal a doing todo');
+  assert.equal((await claimWorkspaceTodo({ dataDir, workspaceFolder: cwd, todoId: todo.id, claimedByChatId: 'other-owner' })).reason, 'not_ready', 'omitting CAS cannot overwrite doing');
   updateTodo(dataDir, cwd, todo.id, { status: 'done' });
   const done = getTodoById(dataDir, cwd, todo.id);
   assert.equal(done.claimedByChatId, undefined);
   assert.equal(done.claimLeaseUntil, undefined);
-  assert.equal(claim(done).reason, 'not_ready');
+  assert.equal((await claim(done)).reason, 'not_ready');
 
   const root = addTodo(dataDir, cwd, { title: 'Sequential', status: 'ready' }).item;
   const first = addTodo(dataDir, cwd, { title: 'First', parentId: root.id, status: 'ready' }).item;
   const later = addTodo(dataDir, cwd, { title: 'Later', parentId: root.id, status: 'ready' }).item;
-  assert.equal(claim(later).reason, 'blocked');
-  assert.equal(claim(root).reason, 'blocked', 'a container is not a leaf claim');
+  assert.equal((await claim(later)).reason, 'blocked');
+  assert.equal((await claim(root)).reason, 'blocked', 'a container is not a leaf claim');
   updateTodo(dataDir, cwd, root.id, { runMode: 'parallel' });
-  assert.equal(claim(getTodoById(dataDir, cwd, later.id)).claimed, true, 'explicit parallel allows the later sibling');
+  assert.equal((await claim(getTodoById(dataDir, cwd, later.id))).claimed, true, 'explicit parallel allows the later sibling');
 
   const leaseTodo = addTodo(dataDir, cwd, { title: 'Lease', status: 'ready' }).item;
   const now = Date.now();
-  assert.equal(claim(leaseTodo, { now, ttlMs: 1000 }).item.claimLeaseUntil, new Date(now + 1000).toISOString());
-  releaseStaleWorkspaceTodoClaims({ dataDir, workspaceFolder: cwd, now: now + 2000, probeChatRunLiveness: () => ({ known: true, busy: true, reason: 'busy' }) });
+  assert.equal((await claim(leaseTodo, { now, ttlMs: 1000 })).item.claimLeaseUntil, new Date(now + 1000).toISOString());
+  await releaseStaleWorkspaceTodoClaims({ dataDir, workspaceFolder: cwd, now: now + 2000, probeChatRunLiveness: () => ({ known: true, busy: true, reason: 'busy' }) });
   assert.equal(getTodoById(dataDir, cwd, leaseTodo.id).status, 'doing', 'TTL alone cannot steal live work');
-  releaseStaleWorkspaceTodoClaims({ dataDir, workspaceFolder: cwd, now: now + 2000, probeChatRunLiveness: () => ({ known: false, busy: true, reason: 'adapter_missing' }) });
+  await releaseStaleWorkspaceTodoClaims({ dataDir, workspaceFolder: cwd, now: now + 2000, probeChatRunLiveness: () => ({ known: false, busy: true, reason: 'adapter_missing' }) });
   assert.equal(getTodoById(dataDir, cwd, leaseTodo.id).status, 'doing', 'unknown liveness keeps the claim');
-  releaseStaleWorkspaceTodoClaims({
+  await releaseStaleWorkspaceTodoClaims({
     dataDir,
     workspaceFolder: cwd,
     now: now + 2000,
@@ -78,17 +78,17 @@ try {
   assert.equal(getTodoById(dataDir, cwd, leaseTodo.id).claimLeaseUntil, undefined);
 
   const reservation = getTodoById(dataDir, cwd, leaseTodo.id);
-  claim(reservation, { claimedByChatId: 'starting-owner' });
+  await claim(reservation, { claimedByChatId: 'starting-owner' });
   upsertWorkspaceWatcher(cwd, { activeCycle: { cycleId: 'start', chatId: 'starting-owner', todoIds: [reservation.id], phase: 'starting', startedAt: new Date(now).toISOString(), startDeadlineAt: new Date(now + 10000).toISOString() } }, { dataDir });
-  releaseStaleWorkspaceTodoClaims({ dataDir, workspaceFolder: cwd, now, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'chat_missing' }) });
+  await releaseStaleWorkspaceTodoClaims({ dataDir, workspaceFolder: cwd, now, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'chat_missing' }) });
   assert.equal(getTodoById(dataDir, cwd, reservation.id).claimedByChatId, 'starting-owner', 'a reserved start cannot lose its claim before its chat exists');
   const delegatedTodo = addTodo(dataDir, cwd, { title: 'Live child', status: 'ready' }).item;
-  claim(delegatedTodo, { claimedByChatId: 'delegating-owner' });
+  await claim(delegatedTodo, { claimedByChatId: 'delegating-owner' });
   const delegation = createDelegationRecord({ parentChatId: 'delegating-owner', workspaceFolder: cwd, status: 'running' });
-  releaseStaleWorkspaceTodoClaims({ dataDir, workspaceFolder: cwd, now, probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'idle' }) });
+  await releaseStaleWorkspaceTodoClaims({ dataDir, workspaceFolder: cwd, now, probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'idle' }) });
   assert.equal(getTodoById(dataDir, cwd, delegatedTodo.id).status, 'doing', 'idle orchestrator does not abandon live child work');
   updateDelegationRecord(delegation.id, { status: 'completed' });
-  releaseStaleWorkspaceTodoClaims({
+  await releaseStaleWorkspaceTodoClaims({
     dataDir,
     workspaceFolder: cwd,
     now,
@@ -96,7 +96,7 @@ try {
     getChat: () => ({ archived: true }),
   });
   assert.equal(getTodoById(dataDir, cwd, delegatedTodo.id).status, 'ready');
-  releaseStaleWorkspaceTodoClaims({ dataDir, workspaceFolder: cwd, now: now + 20000, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'chat_missing' }) });
+  await releaseStaleWorkspaceTodoClaims({ dataDir, workspaceFolder: cwd, now: now + 20000, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'chat_missing' }) });
   assert.equal(getTodoById(dataDir, cwd, reservation.id).status, 'ready', 'a crashed reservation is released after its grace period');
 
   const candidates = [
@@ -120,7 +120,7 @@ try {
   const busy = () => ({ known: true, busy: true, reason: 'busy' });
   const archivedChat = () => ({ archived: true });
   const openChat = () => ({ archived: false });
-  const reconcile = (extra = {}) => releaseStaleWorkspaceTodoClaims({ dataDir, workspaceFolder: ws, probeChatRunLiveness: idle, getChat: archivedChat, ...extra });
+  const reconcile = async (extra = {}) => await releaseStaleWorkspaceTodoClaims({ dataDir, workspaceFolder: ws, probeChatRunLiveness: idle, getChat: archivedChat, ...extra });
   const stateOf = (result, id) => result.states.find((row) => row.todoId === id);
   const doing = (title, extra = {}) => {
     const item = addTodo(dataDir, ws, { title, status: 'ready', ...extra }).item;
@@ -130,7 +130,7 @@ try {
 
   // Legacy/manual `doing` with no execution identity: never released, whatever the probe says.
   const legacy = doing('Legacy manual doing');
-  let pass = reconcile();
+  let pass = await reconcile();
   assert.equal(stateOf(pass, legacy.id).state, 'unknown');
   assert.equal(stateOf(pass, legacy.id).reason, 'missing_identity');
   assert.equal(stateOf(pass, legacy.id).source, 'none');
@@ -138,31 +138,31 @@ try {
 
   // Chat/API start without a claim, executor known through orchestratorChatId.
   const unclaimed = doing('Unclaimed with executor', { orchestratorChatId: 'exec-chat' });
-  pass = reconcile({ probeChatRunLiveness: busy });
+  pass = await reconcile({ probeChatRunLiveness: busy });
   assert.equal(stateOf(pass, unclaimed.id).state, 'active', 'a busy executor keeps the work');
   assert.equal(stateOf(pass, unclaimed.id).source, 'orchestrator_chat');
   for (const reason of ['state_missing', 'adapter_missing', 'adapter_error', 'run_mismatch', 'probe_failed']) {
-    pass = reconcile({ probeChatRunLiveness: () => ({ known: false, busy: false, reason }) });
+    pass = await reconcile({ probeChatRunLiveness: () => ({ known: false, busy: false, reason }) });
     assert.equal(stateOf(pass, unclaimed.id).state, 'unknown', `${reason} stays unknown`);
     assert.equal(stateOf(pass, unclaimed.id).reason, reason);
     assert.equal(getTodoById(dataDir, ws, unclaimed.id).status, 'doing', `${reason} never auto-recovers`);
   }
-  pass = reconcile({ getChat: openChat });
+  pass = await reconcile({ getChat: openChat });
   assert.equal(stateOf(pass, unclaimed.id).state, 'user_action', 'an open idle chat may be waiting for its human');
   assert.equal(stateOf(pass, unclaimed.id).reason, 'idle_open_chat');
   assert.equal(getTodoById(dataDir, ws, unclaimed.id).status, 'doing');
 
   // A blocked delegation report needs a human (the reported incident shape).
   const blockedJob = createDelegationRecord({ parentChatId: 'exec-chat', workspaceFolder: ws, status: 'running' });
-  pass = reconcile();
+  pass = await reconcile();
   assert.equal(stateOf(pass, unclaimed.id).state, 'active', 'an occupied delegation slot keeps the work');
   assert.equal(stateOf(pass, unclaimed.id).delegationId, blockedJob.id);
   updateDelegationRecord(blockedJob.id, { status: 'completed', taskOutcome: 'blocked', runStoppingAt: new Date().toISOString() });
-  pass = reconcile();
+  pass = await reconcile();
   assert.equal(stateOf(pass, unclaimed.id).state, 'active', 'runStopping still occupies the slot');
   assert.equal(stateOf(pass, unclaimed.id).reason, 'run_stopping');
   updateDelegationRecord(blockedJob.id, { runStoppingAt: '' });
-  pass = reconcile();
+  pass = await reconcile();
   assert.equal(stateOf(pass, unclaimed.id).state, 'user_action');
   assert.equal(stateOf(pass, unclaimed.id).reason, 'delegation_blocked');
   assert.equal(getTodoById(dataDir, ws, unclaimed.id).status, 'doing', 'a blocked report is never resumed automatically');
@@ -172,7 +172,7 @@ try {
   const childTodo = addTodo(dataDir, ws, { title: 'Child', parentId: parentTodo.id, status: 'ready' }).item;
   updateTodo(dataDir, ws, childTodo.id, { status: 'doing' });
   assert.equal(getTodoById(dataDir, ws, parentTodo.id).status, 'doing', 'parent status is derived from the child');
-  pass = reconcile({ probeChatRunLiveness: (input) => (input.chatId === 'gone-chat' ? { known: false, busy: false, reason: 'chat_missing' } : idle()) });
+  pass = await reconcile({ probeChatRunLiveness: (input) => (input.chatId === 'gone-chat' ? { known: false, busy: false, reason: 'chat_missing' } : idle()) });
   assert.equal(stateOf(pass, parentTodo.id).state, 'dependency');
   assert.equal(stateOf(pass, parentTodo.id).reason, 'aggregates_children');
   assert.equal(stateOf(pass, childTodo.id).source, 'ancestor_orchestrator_chat');
@@ -185,18 +185,18 @@ try {
   // observe/off detect a recoverable row but do not release an unclaimed one.
   const observed = doing('Observed only', { orchestratorChatId: 'closed-chat' });
   upsertWorkspaceWatcher(ws, { mode: 'observe' }, { dataDir });
-  pass = reconcile();
+  pass = await reconcile();
   assert.equal(stateOf(pass, observed.id).state, 'recoverable');
   assert.deepEqual(pass.skipped.filter((row) => row.todoId === observed.id), [{ todoId: observed.id, reason: 'watcher_not_autopilot' }]);
   assert.equal(getTodoById(dataDir, ws, observed.id).status, 'doing');
   upsertWorkspaceWatcher(ws, { mode: 'autopilot', paused: true }, { dataDir });
-  assert.equal(reconcile().released.includes(observed.id), false, 'a paused autopilot does not resume unclaimed work');
+  assert.equal((await reconcile()).released.includes(observed.id), false, 'a paused autopilot does not resume unclaimed work');
   upsertWorkspaceWatcher(ws, { mode: 'autopilot', paused: false }, { dataDir });
 
   // Race between the probe and the write: a slot that appears before the locked
   // re-validation keeps the work (fencing), and nothing is released.
   let delegationReads = 0;
-  pass = reconcile({
+  pass = await reconcile({
     loadDelegations: () => {
       delegationReads += 1;
       return delegationReads === 1 ? [] : [{ id: 'late-job', parentChatId: 'closed-chat', status: 'running' }];
@@ -204,12 +204,12 @@ try {
   });
   assert.deepEqual(pass.skipped.filter((row) => row.todoId === observed.id), [{ todoId: observed.id, reason: 'already-active' }]);
   assert.equal(getTodoById(dataDir, ws, observed.id).status, 'doing', 'a run that started after the probe is never duplicated');
-  pass = reconcile();
+  pass = await reconcile();
   assert.ok(pass.released.includes(observed.id), 'confirmed idle + archived chat is released');
 
   // Durable execution identity + idempotent claim replay (lost response after an accepted claim).
   const fenced = addTodo(dataDir, ws, { title: 'Fenced', status: 'ready' }).item;
-  const firstClaim = claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: fenced.id, claimedByChatId: 'cycle-chat', expectedUpdatedAt: fenced.updatedAt, cycleId: 'cycle-1' });
+  const firstClaim = await claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: fenced.id, claimedByChatId: 'cycle-chat', expectedUpdatedAt: fenced.updatedAt, cycleId: 'cycle-1' });
   assert.equal(firstClaim.claimed, true);
   const identity = firstClaim.item.execution;
   assert.ok(identity.attemptId, 'fencing id is persisted');
@@ -219,22 +219,22 @@ try {
   assert.equal(identity.chatId, 'cycle-chat');
   assert.equal(identity.cycleId, 'cycle-1');
   assert.equal(identity.phase, 'claimed');
-  const replay = claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: fenced.id, claimedByChatId: 'cycle-chat', expectedUpdatedAt: fenced.updatedAt, cycleId: 'cycle-1' });
+  const replay = await claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: fenced.id, claimedByChatId: 'cycle-chat', expectedUpdatedAt: fenced.updatedAt, cycleId: 'cycle-1' });
   assert.equal(replay.claimed, true);
   assert.equal(replay.replay, true);
   assert.equal(replay.item.execution.attemptId, identity.attemptId, 'a replayed claim never creates a second attempt');
   assert.equal(replay.item.updatedAt, firstClaim.item.updatedAt, 'a replay writes nothing');
-  assert.equal(claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: fenced.id, claimedByChatId: 'cycle-chat', cycleId: 'cycle-2' }).reason, 'not_ready', 'another cycle cannot take a claimed todo');
-  assert.equal(claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: fenced.id, claimedByChatId: 'other-chat', cycleId: 'cycle-1' }).reason, 'not_ready');
+  assert.equal((await claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: fenced.id, claimedByChatId: 'cycle-chat', cycleId: 'cycle-2' })).reason, 'not_ready', 'another cycle cannot take a claimed todo');
+  assert.equal((await claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: fenced.id, claimedByChatId: 'other-chat', cycleId: 'cycle-1' })).reason, 'not_ready');
 
   // Expired lease + unknown liveness keeps the claim; confirmed idle releases it and keeps the attempt.
-  pass = reconcile({ now: Date.now() + 86_400_000, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'state_missing' }) });
+  pass = await reconcile({ now: Date.now() + 86_400_000, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'state_missing' }) });
   // The ownerless `legacy` row is the one age-based exception (orphan_doing_idle, default 30 min).
   assert.equal(stateOf(pass, legacy.id).reason, 'orphan_doing_idle');
   assert.equal(getTodoById(dataDir, ws, legacy.id).status, 'ready', 'an ownerless doing row idle past the threshold returns to ready');
   assert.equal(stateOf(pass, fenced.id).state, 'unknown');
   assert.equal(getTodoById(dataDir, ws, fenced.id).claimedByChatId, 'cycle-chat', 'an expired lease is not proof the run ended');
-  pass = reconcile({ getChat: archivedChat });
+  pass = await reconcile({ getChat: archivedChat });
   assert.ok(pass.released.includes(fenced.id), 'a watcher claim with a confirmed idle archived owner is released');
   const afterRelease = getTodoById(dataDir, ws, fenced.id);
   assert.equal(afterRelease.status, 'ready');
@@ -243,24 +243,24 @@ try {
 
   // Claimed rows honor the same human/blocker gates as unclaimed work.
   const claimedHuman = addTodo(dataDir, ws, { title: 'Claimed blocked', status: 'ready' }).item;
-  claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: claimedHuman.id, claimedByChatId: 'block-chat', expectedUpdatedAt: claimedHuman.updatedAt, cycleId: 'block-cycle' });
+  await claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: claimedHuman.id, claimedByChatId: 'block-chat', expectedUpdatedAt: claimedHuman.updatedAt, cycleId: 'block-cycle' });
   updateTodo(dataDir, ws, claimedHuman.id, { blockedReason: 'Needs operator' });
-  pass = reconcile({ getChat: archivedChat });
+  pass = await reconcile({ getChat: archivedChat });
   assert.equal(stateOf(pass, claimedHuman.id).state, 'user_action');
   assert.equal(stateOf(pass, claimedHuman.id).reason, 'blocked_reason');
   assert.equal(getTodoById(dataDir, ws, claimedHuman.id).status, 'doing');
   assert.equal(getTodoById(dataDir, ws, claimedHuman.id).blockedReason, 'Needs operator');
   const claimedDeleg = addTodo(dataDir, ws, { title: 'Claimed deleg blocked', status: 'ready' }).item;
-  claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: claimedDeleg.id, claimedByChatId: 'deleg-chat', expectedUpdatedAt: claimedDeleg.updatedAt, cycleId: 'deleg-cycle' });
+  await claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: claimedDeleg.id, claimedByChatId: 'deleg-chat', expectedUpdatedAt: claimedDeleg.updatedAt, cycleId: 'deleg-cycle' });
   const delegBlock = createDelegationRecord({ parentChatId: 'deleg-chat', workspaceFolder: ws, status: 'running', leafId: claimedDeleg.id });
   updateDelegationRecord(delegBlock.id, { status: 'completed', taskOutcome: 'blocked' });
-  pass = reconcile({ getChat: archivedChat });
+  pass = await reconcile({ getChat: archivedChat });
   assert.equal(stateOf(pass, claimedDeleg.id).state, 'user_action');
   assert.equal(stateOf(pass, claimedDeleg.id).reason, 'delegation_blocked');
   assert.equal(getTodoById(dataDir, ws, claimedDeleg.id).status, 'doing');
 
   // A late release from the old attempt cannot free the newer attempt.
-  const secondClaim = claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: fenced.id, claimedByChatId: 'cycle-chat', expectedUpdatedAt: afterRelease.updatedAt, cycleId: 'cycle-2' });
+  const secondClaim = await claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: fenced.id, claimedByChatId: 'cycle-chat', expectedUpdatedAt: afterRelease.updatedAt, cycleId: 'cycle-2' });
   assert.equal(secondClaim.claimed, true);
   assert.notEqual(secondClaim.item.execution.attemptId, identity.attemptId);
   assert.equal(secondClaim.item.execution.previous.attemptId, identity.attemptId, 'the previous attempt stays visible to the new cycle');
@@ -274,11 +274,11 @@ try {
   assert.equal(getTodoById(dataDir, ws, fenced.id).status, 'ready', 'the current attempt releases its own claim');
 
   const bareCycle = addTodo(dataDir, ws, { title: 'Bare cycle claim', status: 'ready' }).item;
-  const bareFirst = claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: bareCycle.id, claimedByChatId: 'bare-chat', expectedUpdatedAt: bareCycle.updatedAt, cycleId: 'bare-old' });
+  const bareFirst = await claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: bareCycle.id, claimedByChatId: 'bare-chat', expectedUpdatedAt: bareCycle.updatedAt, cycleId: 'bare-old' });
   assert.equal(bareFirst.claimed, true);
   releaseWorkspaceWatcherCycleTodoClaim({ workspaceFolder: ws, todoId: bareCycle.id, chatId: 'bare-chat', cycleId: 'bare-old', dataDir });
   const bareReady = getTodoById(dataDir, ws, bareCycle.id);
-  const bareSecond = claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: bareCycle.id, claimedByChatId: 'bare-chat', expectedUpdatedAt: bareReady.updatedAt });
+  const bareSecond = await claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: bareCycle.id, claimedByChatId: 'bare-chat', expectedUpdatedAt: bareReady.updatedAt });
   assert.equal(bareSecond.claimed, true);
   assert.equal(bareSecond.item.execution.cycleId || '', '');
   releaseWorkspaceWatcherCycleTodoClaim({ workspaceFolder: ws, todoId: bareCycle.id, chatId: 'bare-chat', cycleId: 'bare-old', dataDir });
@@ -297,7 +297,7 @@ try {
   const storeFile = getWorkspaceWatchersDataPath({ dataDir: corruptDir });
   fs.mkdirSync(path.dirname(storeFile), { recursive: true });
   fs.writeFileSync(storeFile, '{ not json', 'utf8');
-  const corruptPass = releaseStaleWorkspaceTodoClaims({ dataDir: corruptDir, workspaceFolder: ws, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'chat_missing' }) });
+  const corruptPass = await releaseStaleWorkspaceTodoClaims({ dataDir: corruptDir, workspaceFolder: ws, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'chat_missing' }) });
   assert.deepEqual(corruptPass.released, []);
   assert.equal(corruptPass.errors[0].scope, 'watcher');
   assert.equal(getTodoById(corruptDir, ws, stuck.id).status, 'doing', 'an unreadable store never frees work');
@@ -305,7 +305,7 @@ try {
   // Manual recover shares the autopilot atomic path.
   const manualLeaf = addTodo(dataDir, ws, { title: 'Manual recover', status: 'ready' }).item;
   updateTodo(dataDir, ws, manualLeaf.id, { status: 'doing', orchestratorChatId: 'gone-manual' });
-  const manualPass = reconcile({ getChat: archivedChat });
+  const manualPass = await reconcile({ getChat: archivedChat });
   assert.equal(stateOf(manualPass, manualLeaf.id).state, 'recoverable');
   const { recoverWorkspaceWatcherTodo } = await import('../lib/workspace-watcher-todo-recover.js');
   const manualRow = getTodoById(dataDir, ws, manualLeaf.id);
@@ -325,11 +325,11 @@ try {
 
   // policy.recoverIdleOpenChat: default false => user_action; true => recoverable; never promotes unknown.
   const idleOpen = doing('Idle open chat flag', { orchestratorChatId: 'open-exec' });
-  let idleOpenPass = reconcile({ getChat: openChat });
+  let idleOpenPass = await reconcile({ getChat: openChat });
   assert.equal(stateOf(idleOpenPass, idleOpen.id).state, 'user_action');
   assert.equal(stateOf(idleOpenPass, idleOpen.id).reason, 'idle_open_chat');
   upsertWorkspaceWatcher(ws, { policy: { recoverIdleOpenChat: true } }, { dataDir });
-  idleOpenPass = reconcile({ getChat: openChat });
+  idleOpenPass = await reconcile({ getChat: openChat });
   assert.equal(getWorkspaceWatcher(ws, { dataDir }).policy.recoverIdleOpenChat, true);
   assert.equal(stateOf(idleOpenPass, idleOpen.id).state, 'recoverable');
   assert.equal(stateOf(idleOpenPass, idleOpen.id).reason, 'idle_open_chat');
@@ -342,7 +342,7 @@ try {
   upsertWorkspaceWatcher(escWs, { mode: 'autopilot', policy: { unknownEscalationObservations: 2 } }, { dataDir });
   const escTodo = addTodo(dataDir, escWs, { title: 'Esc unknown', status: 'ready', orchestratorChatId: 'esc-exec' }).item;
   updateTodo(dataDir, escWs, escTodo.id, { status: 'doing' });
-  claimWorkspaceTodo({ dataDir, workspaceFolder: escWs, todoId: escTodo.id, claimedByChatId: 'esc-exec', expectedUpdatedAt: escTodo.updatedAt });
+  await claimWorkspaceTodo({ dataDir, workspaceFolder: escWs, todoId: escTodo.id, claimedByChatId: 'esc-exec', expectedUpdatedAt: escTodo.updatedAt });
   const escOpenChat = () => ({ archived: false });
   let escNotifies = 0;
   const escNotify = () => { escNotifies += 1; return true; };
@@ -430,8 +430,8 @@ try {
   upsertWorkspaceWatcher(guardWs, { mode: 'autopilot', paused: true, policy: { unknownEscalationObservations: 1 } }, { dataDir });
   const guardTodo = addTodo(dataDir, guardWs, { title: 'Guard claimed', status: 'ready', orchestratorChatId: 'gone-guard' }).item;
   updateTodo(dataDir, guardWs, guardTodo.id, { status: 'doing' });
-  claimWorkspaceTodo({ dataDir, workspaceFolder: guardWs, todoId: guardTodo.id, claimedByChatId: 'cycle-g', expectedUpdatedAt: guardTodo.updatedAt, cycleId: 'g-cycle' });
-  const guardPass = releaseStaleWorkspaceTodoClaims({
+  await claimWorkspaceTodo({ dataDir, workspaceFolder: guardWs, todoId: guardTodo.id, claimedByChatId: 'cycle-g', expectedUpdatedAt: guardTodo.updatedAt, cycleId: 'g-cycle' });
+  const guardPass = await releaseStaleWorkspaceTodoClaims({
     dataDir, workspaceFolder: guardWs, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'chat_missing' }), getChat: archivedChat,
   });
   assert.equal(getTodoById(dataDir, guardWs, guardTodo.id).status, 'doing', 'paused: no claimed release');
@@ -489,7 +489,7 @@ try {
 
   // REST/MCP atomic outcomes: already-active, non-leaf refused.
   const activeLeaf = doing('Active slot', { orchestratorChatId: 'busy-exec' });
-  claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: activeLeaf.id, claimedByChatId: 'busy-exec', expectedUpdatedAt: activeLeaf.updatedAt });
+  await claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: activeLeaf.id, claimedByChatId: 'busy-exec', expectedUpdatedAt: activeLeaf.updatedAt });
   const activeRow = getTodoById(dataDir, ws, activeLeaf.id);
   const activeResult = recoverWorkspaceWatcherTodo({
     dataDir,
@@ -519,7 +519,7 @@ try {
   // Moving a claimed `doing` todo back to `ready` (an operator retry after a
   // restart-interrupted cycle) drops the old claim, so the Watcher can start it.
   const requeued = addTodo(dataDir, cwd, { title: 'Requeued after restart', status: 'ready' }).item;
-  const requeuedClaim = claim(requeued, { claimedByChatId: 'dead-cycle-chat' });
+  const requeuedClaim = await claim(requeued, { claimedByChatId: 'dead-cycle-chat' });
   assert.equal(requeuedClaim.claimed, true);
   const claimedRow = getTodoById(dataDir, cwd, requeued.id);
   assert.equal(claimedRow.status, 'doing');
@@ -528,7 +528,7 @@ try {
   assert.equal(requeuedRow.status, 'ready');
   assert.equal(requeuedRow.claimedByChatId, undefined);
   assert.equal(requeuedRow.claimedAt, undefined);
-  const reclaimed = claim(requeuedRow, { claimedByChatId: 'next-cycle-chat' });
+  const reclaimed = await claim(requeuedRow, { claimedByChatId: 'next-cycle-chat' });
   assert.equal(reclaimed.claimed, true);
   // A patch that names a claimant together with the status keeps that claim.
   const kept = getTodoById(dataDir, cwd, requeued.id);

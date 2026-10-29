@@ -1378,7 +1378,7 @@ runCase('archive sweep skips scout parent when delegation list read fails', () =
   assert.equal(out.skipped, 1);
 });
 
-runCase('boot reconcile clears expired activeScoutScan before archive sweep', () => {
+runCase('boot reconcile clears expired activeScoutScan before archive sweep', async () => {
   const { cwd, dataDir } = freshWorkspace('boot-expire-scout');
   const now = Date.parse('2026-02-02T12:00:00.000Z');
   upsertWorkspaceWatcher(cwd, { mode: 'observe' }, { dataDir });
@@ -1391,7 +1391,7 @@ runCase('boot reconcile clears expired activeScoutScan before archive sweep', ()
       submitToken: 'tok-boot',
     },
   }), { dataDir });
-  reconcileWorkspaceWatchersOnBoot({
+  await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     now,
     probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'idle' }),

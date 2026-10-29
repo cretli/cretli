@@ -105,8 +105,8 @@ test('owners exclude watcher cycle chats, watcher orchestrator rows, archived an
   assert.deepEqual(owners.recentOrchestratorChatIds, ['recent-manual']);
 });
 
-test('snapshot reports external owners from live chats and delegations', () => {
-  const snapshot = snapshotWorkspaceWatcher({
+test('snapshot reports external owners from live chats and delegations', async () => {
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder,
     now,
     deps: {
@@ -165,8 +165,8 @@ function createIncidentTree(dataDir, extraRoot = {}) {
   return { parent, first, second };
 }
 
-function snapshotAt(dataDir, at, chatRows, options = {}) {
-  return snapshotWorkspaceWatcher({
+async function snapshotAt(dataDir, at, chatRows, options = {}) {
+  return await snapshotWorkspaceWatcher({
     workspaceFolder,
     dataDir,
     now: at,
@@ -189,33 +189,33 @@ function decideFromSnapshot(snapshot) {
   });
 }
 
-test('live scenario: persisted 2-leaf tree is held for 30 minutes after the manual orchestrator, then freed', () => {
+test('live scenario: persisted 2-leaf tree is held for 30 minutes after the manual orchestrator, then freed', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-tree-owner-live-'));
   const { second } = createIncidentTree(dataDir);
   const lastActive = now - 5 * 60_000;
   const chatRows = [{ id: 'manual-orch', lastFinishedAt: new Date(lastActive).toISOString() }];
-  const held = snapshotAt(dataDir, now, chatRows);
+  const held = await snapshotAt(dataDir, now, chatRows);
   assert.deepEqual(held.readyTodoIds, [second.id], 'sequential gating made only leaf 2 ready');
   assert.equal(pickNextWorkspaceReadyTodo({ items: held.items, externalOwners: held.externalOwners }), null);
   const heldDecision = decideFromSnapshot(held);
   assert.equal(heldDecision.kind, 'idle_no_work');
   assert.equal(heldDecision.reason, 'tree_owned_by_live_orchestrator');
   // Still held right before the grace boundary.
-  const edge = snapshotAt(dataDir, lastActive + WORKSPACE_WATCHER_EXTERNAL_OWNER_GRACE_MS - 1, chatRows);
+  const edge = await snapshotAt(dataDir, lastActive + WORKSPACE_WATCHER_EXTERNAL_OWNER_GRACE_MS - 1, chatRows);
   assert.equal(decideFromSnapshot(edge).reason, 'tree_owned_by_live_orchestrator');
   // Free once the grace elapsed.
-  const freed = snapshotAt(dataDir, lastActive + WORKSPACE_WATCHER_EXTERNAL_OWNER_GRACE_MS + 1, chatRows);
+  const freed = await snapshotAt(dataDir, lastActive + WORKSPACE_WATCHER_EXTERNAL_OWNER_GRACE_MS + 1, chatRows);
   assert.equal(pickNextWorkspaceReadyTodo({ items: freed.items, externalOwners: freed.externalOwners }).id, second.id);
   assert.notEqual(decideFromSnapshot(freed).reason, 'tree_owned_by_live_orchestrator');
 });
 
-test('live scenario: an active delegation of the manual orchestrator holds the tree regardless of the grace window', () => {
+test('live scenario: an active delegation of the manual orchestrator holds the tree regardless of the grace window', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-tree-owner-busy-'));
   const { first } = createIncidentTree(dataDir);
   const longAgo = new Date(now - 3 * 60 * 60_000).toISOString();
-  const snapshot = snapshotAt(dataDir, now, [{ id: 'manual-orch', lastFinishedAt: longAgo }]);
+  const snapshot = await snapshotAt(dataDir, now, [{ id: 'manual-orch', lastFinishedAt: longAgo }]);
   assert.ok(decideFromSnapshot(snapshot).nextTodoId, 'idle and long gone: not owned, the leaf is picked');
-  const busy = snapshotWorkspaceWatcher({
+  const busy = await snapshotWorkspaceWatcher({
     workspaceFolder,
     dataDir,
     now,
@@ -248,26 +248,26 @@ test('reserve re-check: an owner stamped after the snapshot aborts the reserve',
   assert.equal(resolveWorkspaceWatcherReserveOwnerAbort(stale, liveItems, null), '');
 });
 
-test('regression: an independent tree is still picked while another tree is owned', () => {
+test('regression: an independent tree is still picked while another tree is owned', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-tree-owner-indep-'));
   createIncidentTree(dataDir);
   const free = addTodo(dataDir, workspaceFolder, { title: 'Independent', status: 'ready' }).item;
-  const snapshot = snapshotAt(dataDir, now, [{ id: 'manual-orch', lastFinishedAt: new Date(now - 60_000).toISOString() }]);
+  const snapshot = await snapshotAt(dataDir, now, [{ id: 'manual-orch', lastFinishedAt: new Date(now - 60_000).toISOString() }]);
   assert.equal(pickNextWorkspaceReadyTodo({ items: snapshot.items, externalOwners: snapshot.externalOwners }).id, free.id);
   assert.equal(decideFromSnapshot(snapshot).nextTodoId, free.id);
 });
 
-test('regression: a stale stamp from an earlier watcher cycle does not block', () => {
+test('regression: a stale stamp from an earlier watcher cycle does not block', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-tree-owner-stale-'));
   const { second } = createIncidentTree(dataDir, { orchestratorChatId: 'old-cycle' });
   const fresh = new Date(now - 60_000).toISOString();
-  const snapshot = snapshotAt(dataDir, now, [
+  const snapshot = await snapshotAt(dataDir, now, [
     { id: 'old-cycle', pickPurpose: 'watcher-orchestrator', lastFinishedAt: fresh },
   ]);
   assert.equal(pickNextWorkspaceReadyTodo({ items: snapshot.items, externalOwners: snapshot.externalOwners }).id, second.id);
 });
 
-test('regression: the watcher own cycle chats (parallel mode) are not external owners', () => {
+test('regression: the watcher own cycle chats (parallel mode) are not external owners', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-tree-owner-par-'));
   const parentA = addTodo(dataDir, workspaceFolder, { title: 'A', status: 'doing', orchestratorChatId: 'cycle-a' }).item;
   const leafA = addTodo(dataDir, workspaceFolder, { title: 'A leaf', status: 'doing', parentId: parentA.id, chatId: 'cycle-a-child' }).item;
@@ -279,7 +279,7 @@ test('regression: the watcher own cycle chats (parallel mode) are not external o
     activeCycles: [{ cycleId: 'c-a', chatId: 'cycle-a' }, { cycleId: 'c-b', chatId: 'cycle-b' }],
   });
   assert.deepEqual(cycleChatIds, ['cycle-a', 'cycle-b']);
-  const snapshot = snapshotWorkspaceWatcher({
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder,
     dataDir,
     now,
@@ -337,12 +337,12 @@ test('subtree authorization: the cycle delegation on its leaf resolves despite a
 // and a todo created with orchestrator_chat_id = creator blocks for the grace
 // window after the creator's last activity. Both are intentional: they are
 // short-lived and err on the side of not sharing a worktree.
-test('edge: a busy chatId on a done leaf blocks the tree only while the chat is busy', () => {
+test('edge: a busy chatId on a done leaf blocks the tree only while the chat is busy', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-tree-owner-edge-'));
   const { first, second } = createIncidentTree(dataDir, { orchestratorChatId: undefined });
   const current = loadTodosData(dataDir, workspaceFolder).items.find((row) => row.id === first.id);
   updateTodo(dataDir, workspaceFolder, first.id, { chatId: 'user-chat', expectedUpdatedAt: current.updatedAt });
-  const makeSnapshot = (busy) => snapshotWorkspaceWatcher({
+  const makeSnapshot = async (busy) => await snapshotWorkspaceWatcher({
     workspaceFolder,
     dataDir,
     now,
@@ -354,22 +354,22 @@ test('edge: a busy chatId on a done leaf blocks the tree only while the chat is 
       getChatRunState: () => null,
     },
   });
-  const busySnapshot = makeSnapshot(true);
+  const busySnapshot = await makeSnapshot(true);
   assert.equal(findWorkspaceWatcherExternalTreeOwner(
     busySnapshot.items.find((row) => row.id === second.id), busySnapshot.items, busySnapshot.externalOwners,
   )?.reason, 'live_chat');
-  const idleSnapshot = makeSnapshot(false);
+  const idleSnapshot = await makeSnapshot(false);
   assert.equal(pickNextWorkspaceReadyTodo({ items: idleSnapshot.items, externalOwners: idleSnapshot.externalOwners }).id, second.id);
 });
 
-test('edge: a todo created with orchestrator_chat_id = creator is held for the grace window after creator activity', () => {
+test('edge: a todo created with orchestrator_chat_id = creator is held for the grace window after creator activity', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-tree-owner-creator-'));
   const standalone = addTodo(dataDir, workspaceFolder, {
     title: 'Created by a chat', status: 'ready', orchestratorChatId: 'creator-chat',
   }).item;
   const rows = [{ id: 'creator-chat', lastFinishedAt: new Date(now - 10 * 60_000).toISOString() }];
-  const held = snapshotAt(dataDir, now, rows);
+  const held = await snapshotAt(dataDir, now, rows);
   assert.equal(findWorkspaceWatcherExternalTreeOwner(standalone, held.items, held.externalOwners)?.reason, 'recent_orchestrator');
-  const later = snapshotAt(dataDir, now + WORKSPACE_WATCHER_EXTERNAL_OWNER_GRACE_MS, rows);
+  const later = await snapshotAt(dataDir, now + WORKSPACE_WATCHER_EXTERNAL_OWNER_GRACE_MS, rows);
   assert.equal(findWorkspaceWatcherExternalTreeOwner(standalone, later.items, later.externalOwners), null);
 });

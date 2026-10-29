@@ -194,12 +194,12 @@ runCase('cycle prompt encodes snapshot/ref, CAS plan, delegations, report and no
   assert.doesNotMatch(ungatedPrompt, /wait for.*approval/);
 });
 
-runCase('plan draft is a real CAS write and never approves', () => {
+runCase('plan draft is a real CAS write and never approves', async () => {
   const dataDir = freshDataDir('plan-cas');
   const cwd = makeWorkspace('plan-cas');
   const todo = addReadyTodo(dataDir, cwd, 'plan cas');
   const before = getTodoById(dataDir, cwd, todo.id);
-  const saved = saveWorkspaceWatcherTodoPlanDraft({
+  const saved = await saveWorkspaceWatcherTodoPlanDraft({
     dataDir,
     workspaceFolder: cwd,
     todoId: todo.id,
@@ -209,7 +209,7 @@ runCase('plan draft is a real CAS write and never approves', () => {
   });
   assert.equal(saved.item.plan.markdown, '# Draft plan');
   assert.ok(!saved.item.plan.approvedAt, 'the watcher never approves a plan');
-  assert.throws(() => saveWorkspaceWatcherTodoPlanDraft({
+  await assert.rejects(saveWorkspaceWatcherTodoPlanDraft({
     dataDir,
     workspaceFolder: cwd,
     todoId: todo.id,
@@ -663,7 +663,7 @@ runCase('missing report waits for active children and prefers a concrete MCP err
   assert.equal(mcpRow.failures[mcpTodo.id], undefined);
 });
 
-runCase('plan-only without report is failure/missing_report and keeps only a pending draft', () => {
+runCase('plan-only without report is failure/missing_report and keeps only a pending draft', async () => {
   const dataDir = freshDataDir('close-plan-draft');
   const cwd = makeWorkspace('close-plan-draft');
   const todo = addReadyTodo(dataDir, cwd, 'plan draft');
@@ -672,7 +672,7 @@ runCase('plan-only without report is failure/missing_report and keeps only a pen
   seedActiveCycle(cwd, dataDir, { cycleId: 'c-plan', chatId: 'orch-plan', todoId: todo.id, planOnly: true });
   mutateWorkspaceWatcherRow(cwd, ({ row }) => ({ planRequests: { ...(row.planRequests || {}), [todo.id]: new Date(T0).toISOString() } }), { dataDir });
   const before = getTodoById(dataDir, cwd, todo.id);
-  saveWorkspaceWatcherTodoPlanDraft({
+  await saveWorkspaceWatcherTodoPlanDraft({
     dataDir,
     workspaceFolder: cwd,
     todoId: todo.id,
@@ -721,7 +721,7 @@ runCase('plan-only without report is failure/missing_report and keeps only a pen
   assert.equal(getWorkspaceWatcher(emptyCwd, { dataDir: emptyDir }).failures[emptyTodo.id], 1);
 });
 
-runCase('plan-only failure keeps planRequests when draft lives on planTargetId root', () => {
+runCase('plan-only failure keeps planRequests when draft lives on planTargetId root', async () => {
   const dataDir = freshDataDir('close-plan-root');
   const cwd = makeWorkspace('close-plan-root');
   const root = addTodo(dataDir, cwd, { title: 'root plan', status: 'ready' }).item;
@@ -738,7 +738,7 @@ runCase('plan-only failure keeps planRequests when draft lives on planTargetId r
   mutateWorkspaceWatcherRow(cwd, ({ row }) => ({
     planRequests: { ...(row.planRequests || {}), [root.id]: new Date(T0).toISOString() },
   }), { dataDir });
-  saveWorkspaceWatcherTodoPlanDraft({
+  await saveWorkspaceWatcherTodoPlanDraft({
     dataDir,
     workspaceFolder: cwd,
     todoId: root.id,
@@ -764,14 +764,14 @@ runCase('plan-only failure keeps planRequests when draft lives on planTargetId r
   assert.equal(getTodoById(dataDir, cwd, root.id).plan.markdown, '# Root draft');
 });
 
-runCase('boot reconcile prefers mcp_not_ready over a generic missing_report probe', () => {
+runCase('boot reconcile prefers mcp_not_ready over a generic missing_report probe', async () => {
   const dataDir = freshDataDir('boot-mcp-not-ready');
   const cwd = makeWorkspace('boot-mcp-not-ready');
   const todo = addReadyTodo(dataDir, cwd, 'boot mcp');
   updateTodo(dataDir, cwd, todo.id, { status: 'doing', claimedByChatId: 'orch-boot-mcp', expectedUpdatedAt: getTodoById(dataDir, cwd, todo.id).updatedAt });
   setAutopilot(cwd, dataDir);
   seedActiveCycle(cwd, dataDir, { cycleId: 'c-boot-mcp', chatId: 'orch-boot-mcp', todoId: todo.id });
-  const boot = reconcileWorkspaceWatchersOnBoot({
+  const boot = await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     now: T0 + 1000,
     probeChatRunLiveness: () => ({
@@ -788,14 +788,14 @@ runCase('boot reconcile prefers mcp_not_ready over a generic missing_report prob
   assert.notEqual(row.decisions.at(-1).reason, 'missing_report');
 });
 
-runCase('boot reconcile ignores foreign errorCode for missing_report close reason', () => {
+runCase('boot reconcile ignores foreign errorCode for missing_report close reason', async () => {
   const dataDir = freshDataDir('boot-foreign-error');
   const cwd = makeWorkspace('boot-foreign-error');
   const todo = addReadyTodo(dataDir, cwd, 'foreign err');
   updateTodo(dataDir, cwd, todo.id, { status: 'doing', claimedByChatId: 'orch-foreign', expectedUpdatedAt: getTodoById(dataDir, cwd, todo.id).updatedAt });
   setAutopilot(cwd, dataDir);
   seedActiveCycle(cwd, dataDir, { cycleId: 'c-foreign', chatId: 'orch-foreign', todoId: todo.id });
-  const boot = reconcileWorkspaceWatchersOnBoot({
+  const boot = await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     now: T0 + 1000,
     probeChatRunLiveness: () => ({
@@ -1126,7 +1126,7 @@ runCase('boot reconcile closes deferred success after child terminal (not failur
     deps: { loadDelegations: () => [{ id: 'child-live', parentChatId: 'orch-boot', status: 'running' }] },
   });
   const probe = () => ({ known: true, busy: false, reason: 'idle' });
-  const boot1 = reconcileWorkspaceWatchersOnBoot({
+  const boot1 = await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     now: T0 + 500,
     probeChatRunLiveness: probe,
@@ -1134,7 +1134,7 @@ runCase('boot reconcile closes deferred success after child terminal (not failur
   });
   assert.equal(boot1.reconciled, 0, 'live child keeps the cycle during boot');
   assert.ok(getWorkspaceWatcher(cwd, { dataDir }).activeCycle);
-  const boot2 = reconcileWorkspaceWatchersOnBoot({
+  const boot2 = await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     now: T0 + 1000,
     probeChatRunLiveness: probe,
@@ -1146,7 +1146,7 @@ runCase('boot reconcile closes deferred success after child terminal (not failur
   assert.equal(row.failures[todo.id], undefined);
   assert.equal(row.cycleCount, 1);
   assert.equal(row.reports[0].deferred, false);
-  const boot3 = reconcileWorkspaceWatchersOnBoot({ dataDir, now: T0 + 2000, probeChatRunLiveness: probe });
+  const boot3 = await reconcileWorkspaceWatchersOnBoot({ dataDir, now: T0 + 2000, probeChatRunLiveness: probe });
   assert.equal(boot3.reconciled, 0, 'second boot is idempotent');
 });
 
@@ -1167,7 +1167,7 @@ runCase('boot reconcile counts exactly one failure for deferred failure report',
     cycleId: 'c-boot-fail',
     deps: { loadDelegations: () => [{ id: 'child-f', parentChatId: 'orch-boot-fail', status: 'running' }] },
   });
-  const boot = reconcileWorkspaceWatchersOnBoot({
+  const boot = await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     now: T0 + 1000,
     probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'idle' }),
@@ -1503,7 +1503,7 @@ runCase('boot reconcile closes a legacy deferred blocked cycle even with a live 
     reports: [{ reportId: 'cycle:c-leg', cycleId: 'c-leg', chatId: 'orch-leg', outcome: 'blocked', todoIds: [todo.id], at: new Date(T0).toISOString(), deferred: true, message: '' }],
   }), { dataDir });
   assert.equal(getWorkspaceWatcher(cwd, { dataDir }).activeCycles.length, 1);
-  const boot = reconcileWorkspaceWatchersOnBoot({
+  const boot = await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     now: T0 + 1000,
     probeChatRunLiveness: () => ({ known: true, busy: true, reason: 'running' }),

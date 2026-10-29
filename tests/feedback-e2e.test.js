@@ -291,7 +291,7 @@ test('Watcher selection never picks the feedback root or its reports', async () 
   const feedbackIds = new Set([root.id, ...children.map((row) => row.id)]);
   const claimedIds = [];
   for (let i = 0; i < 10; i += 1) {
-    const res = claimNextWorkspaceTodo({ dataDir, workspaceFolder: cretliCwd, claimedByChatId: `chat-e2e-claimer-${i}`, releaseStaleClaims: false });
+    const res = await claimNextWorkspaceTodo({ dataDir, workspaceFolder: cretliCwd, claimedByChatId: `chat-e2e-claimer-${i}`, releaseStaleClaims: false });
     if (!res.claimed) {
       assert.equal(res.reason, 'no_ready_work');
       break;

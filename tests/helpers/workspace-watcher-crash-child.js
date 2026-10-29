@@ -186,7 +186,7 @@ async function bootStage() {
   if (env.CW_CHILDREN === 'done' && fixture.childDelegationId) {
     updateDelegationRecord(fixture.childDelegationId, { status: 'interrupted' });
   }
-  const outcome = reconcileWorkspaceWatchersOnBoot({ dataDir, scoutArchiveDeps: {}, orchestratorArchiveDeps: {} });
+  const outcome = await reconcileWorkspaceWatchersOnBoot({ dataDir, scoutArchiveDeps: {}, orchestratorArchiveDeps: {} });
   const result = {
     instanceId: getProcessInstance().instanceId,
     reconciled: outcome.reconciled,
@@ -236,13 +236,13 @@ async function raceBootStage() {
   const go = env.RECOVERY_CRASH_BARRIER;
   ready();
   while (!fs.existsSync(go)) await new Promise((resolve) => setTimeout(resolve, 5));
-  const outcome = reconcileWatchersOnBootResult();
+  const outcome = await reconcileWatchersOnBootResult();
   emit('RESULT', outcome);
   process.exit(0);
 }
 
-function reconcileWatchersOnBootResult() {
-  const outcome = reconcileWorkspaceWatchersOnBoot({ dataDir, scoutArchiveDeps: {}, orchestratorArchiveDeps: {} });
+async function reconcileWatchersOnBootResult() {
+  const outcome = await reconcileWorkspaceWatchersOnBoot({ dataDir, scoutArchiveDeps: {}, orchestratorArchiveDeps: {} });
   return { reconciled: outcome.reconciled, errors: outcome.errors.length, errorDetails: outcome.errors.map((e) => ({ code: e.code, message: e.message })) };
 }
 

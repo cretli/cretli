@@ -47,9 +47,9 @@ try {
   addTodo(dataDir, cwd, { title: 'Second', status: 'idea', parentId: parent.id });
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { autoReadyDeadContainerChild: false } }, { dataDir });
   const pushes = [];
-  const tick = (n) => tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: Date.now() + n * 1000, token: 't', notify: (m) => pushes.push(m), notifyDeps: {} });
-  tick(0);
-  tick(1);
+  const tick = async (n) => await tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: Date.now() + n * 1000, token: 't', notify: (m) => pushes.push(m), notifyDeps: {} });
+  await tick(0);
+  await tick(1);
   const deadPushes = () => pushes.filter((m) => String(m.tag).includes('dead_container'));
   assert.equal(deadPushes().length, 1, 'one push per episode');
   assert.match(deadPushes()[0].body, /First/);
@@ -59,17 +59,17 @@ try {
   assert.equal(getTodoById(dataDir, cwd, c1.id).status, 'idea', 'policy off keeps idea');
 
   updateTodo(dataDir, cwd, c1.id, { status: 'ready' });
-  tick(2);
+  await tick(2);
   assert.equal(getWorkspaceWatcher(cwd, { dataDir }).notified?.dead_container || '', '', 'episode ended');
   // Auto-ready through the tick: policy on + approved plan on the container.
   const cwd2 = `${ISOLATED_DATA_DIR}/ws2`;
   const p2 = addTodo(dataDir, cwd2, { title: 'C2', status: 'doing' }).item;
   const k1 = addTodo(dataDir, cwd2, { title: 'K1', status: 'idea', parentId: p2.id }).item;
   upsertWorkspaceWatcher(cwd2, { mode: 'observe', policy: { autoReadyDeadContainerChild: true } }, { dataDir });
-  tickWorkspaceWatcher({ workspaceFolder: cwd2, dataDir, now: Date.now(), token: 't', notify: () => false, notifyDeps: {} });
+  await tickWorkspaceWatcher({ workspaceFolder: cwd2, dataDir, now: Date.now(), token: 't', notify: () => false, notifyDeps: {} });
   assert.equal(getTodoById(dataDir, cwd2, k1.id).status, 'idea', 'no approved plan -> untouched');
   updateTodo(dataDir, cwd2, p2.id, { plan: { markdown: 'plan', approvedAt: new Date().toISOString() } });
-  tickWorkspaceWatcher({ workspaceFolder: cwd2, dataDir, now: Date.now() + 1000, token: 't', notify: () => false, notifyDeps: {} });
+  await tickWorkspaceWatcher({ workspaceFolder: cwd2, dataDir, now: Date.now() + 1000, token: 't', notify: () => false, notifyDeps: {} });
   assert.equal(getTodoById(dataDir, cwd2, k1.id).status, 'ready', 'approved plan + policy -> ready');
   console.log('OK: workspace-watcher-stuck-container');
 } finally {

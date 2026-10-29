@@ -553,11 +553,11 @@ test('a failed shared ledger read falls back to per-cycle reads with the same re
   );
 });
 
-test('boot reconcile finalizes due usage after a restart', () => {
+test('boot reconcile finalizes due usage after a restart', async () => {
   const dataDir = freshDataDir('boot');
   seedClosedCycle(dataDir, { closedAt: iso(T0 - 25 * HOUR) });
   const events = [event({ cycleId: 'cyc-1', chatId: 'orch-1', runId: 'run-1', logicalEventKey: 'own', tokens: { textInput: 30 } })];
-  reconcileWorkspaceWatchersOnBoot({
+  await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     now: T0,
     cycleUsageEvents: events,
@@ -573,7 +573,7 @@ test('deferred boot reconcile leaves usage to the background finalizer, same res
   const dataDir = freshDataDir('boot-deferred');
   seedClosedCycle(dataDir, { closedAt: iso(T0 - 25 * HOUR) });
   const events = [event({ cycleId: 'cyc-1', chatId: 'orch-1', runId: 'run-1', logicalEventKey: 'own', tokens: { textInput: 30 } })];
-  const result = reconcileWorkspaceWatchersOnBoot({
+  const result = await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     now: T0,
     deferCycleUsage: true,

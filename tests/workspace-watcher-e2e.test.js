@@ -313,7 +313,7 @@ runCase('E2E: restart mid-cycle reconciles once without a duplicate cycle or cla
 
   // Boot reconcile probes the orchestrator chat and finds it confirmed idle.
   const idleProbe = () => ({ known: true, busy: false, reason: 'idle' });
-  const first = reconcileWorkspaceWatchersOnBoot({
+  const first = await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     now: T0 + 1000,
     probeChatRunLiveness: idleProbe,
@@ -330,7 +330,7 @@ runCase('E2E: restart mid-cycle reconciles once without a duplicate cycle or cla
   assert.equal(String(reopened.claimedByChatId || ''), '');
 
   // A second reconcile must be a no-op: no duplicate cycle, no second failure.
-  const second = reconcileWorkspaceWatchersOnBoot({
+  const second = await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     now: T0 + 2000,
     probeChatRunLiveness: idleProbe,
@@ -403,14 +403,14 @@ runCase('regression: off and observe never start an agent', async () => {
   assert.equal(pass.started, 0);
   assert.equal(getMockChatRunStartCount(), 0, 'no chat run started');
 
-  const beat = runWorkspaceWatcherHeartbeat({ dataDir, now: T0, token: 'e2e-inert' });
+  const beat = await runWorkspaceWatcherHeartbeat({ dataDir, now: T0, token: 'e2e-inert' });
   assert.ok(beat.decisions.some((row) => row.kind === 'observe_ready'), 'observe logs the ready work');
   assert.equal(getMockChatRunStartCount(), 0, 'observe never starts an agent');
   const observed = getTodoById(dataDir, observeCwd, observeTodo.id);
   assert.equal(observed.status, 'ready');
   assert.equal(String(observed.claimedByChatId || ''), '', 'observe never claims');
 
-  const offTick = tickWorkspaceWatcher({ workspaceFolder: offCwd, dataDir, now: T0, token: 'e2e-inert' });
+  const offTick = await tickWorkspaceWatcher({ workspaceFolder: offCwd, dataDir, now: T0, token: 'e2e-inert' });
   assert.equal(offTick.wrote, false, 'an off tick performs no write');
 });
 

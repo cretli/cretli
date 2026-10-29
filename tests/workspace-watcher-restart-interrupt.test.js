@@ -78,9 +78,9 @@ const bootOpts = (dataDir, extra = {}) => ({
   scoutArchiveDeps: {}, orchestratorArchiveDeps: {}, ...extra,
 });
 
-runCase('3 cycles in flight + restart: 0 failures, 0 backoff, slots freed, new cycles can start', () => {
+runCase('3 cycles in flight + restart: 0 failures, 0 backoff, slots freed, new cycles can start', async () => {
   const { dataDir, cwd, todos } = setup('three', { count: 3 });
-  reconcileWorkspaceWatchersOnBoot(bootOpts(dataDir));
+  await reconcileWorkspaceWatchersOnBoot(bootOpts(dataDir));
   const row = getWorkspaceWatcher(cwd, { dataDir });
   assert.equal(row.activeCycles.length, 0);
   assert.deepEqual(row.failures, {});
@@ -92,32 +92,32 @@ runCase('3 cycles in flight + restart: 0 failures, 0 backoff, slots freed, new c
     assert.equal(t.status, 'ready');
     assert.ok(!t.claimedByChatId && !t.claimedAt && !t.claimLeaseUntil, 'claim and lease released');
   }
-  const tick = tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0 + 1000, token: 'after-restart' });
+  const tick = await tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0 + 1000, token: 'after-restart' });
   assert.notEqual(tick.decision.kind, 'wait_active');
   assert.notEqual(tick.decision.kind, 'backoff');
 });
 
-runCase('interrupted close keeps the existing failure history untouched', () => {
+runCase('interrupted close keeps the existing failure history untouched', async () => {
   const { dataDir, cwd, todos } = setup('history', { failures: {} });
   mutateWorkspaceWatcherRow(cwd, () => ({ failures: { [todos[0].id]: 1 }, backoffUntil: '' }), { dataDir });
-  reconcileWorkspaceWatchersOnBoot(bootOpts(dataDir));
+  await reconcileWorkspaceWatchersOnBoot(bootOpts(dataDir));
   const row = getWorkspaceWatcher(cwd, { dataDir });
   assert.equal(row.failures[todos[0].id], 1, 'neither incremented nor cleared');
   assert.ok(!row.backoffUntil);
 });
 
-runCase('live-instance cycle that ended without a report is still failure + backoff', () => {
+runCase('live-instance cycle that ended without a report is still failure + backoff', async () => {
   const { dataDir, cwd, todos } = setup('real-fail', { instanceId: NEW });
-  reconcileWorkspaceWatchersOnBoot(bootOpts(dataDir, { probeChatRunLiveness: idleProbe }));
+  await reconcileWorkspaceWatchersOnBoot(bootOpts(dataDir, { probeChatRunLiveness: idleProbe }));
   const row = getWorkspaceWatcher(cwd, { dataDir });
   assert.equal(row.failures[todos[0].id], 1);
   assert.ok(row.backoffUntil, 'backoff armed');
   assert.equal(row.cycleChats[0].outcome, 'failure');
 });
 
-runCase('legacy slot without an instance token stays failure', () => {
+runCase('legacy slot without an instance token stays failure', async () => {
   const { dataDir, cwd, todos } = setup('legacy', { instanceId: '' });
-  reconcileWorkspaceWatchersOnBoot(bootOpts(dataDir, { probeChatRunLiveness: idleProbe }));
+  await reconcileWorkspaceWatchersOnBoot(bootOpts(dataDir, { probeChatRunLiveness: idleProbe }));
   const row = getWorkspaceWatcher(cwd, { dataDir });
   assert.equal(row.failures[todos[0].id], 1);
   assert.ok(row.backoffUntil);
@@ -139,10 +139,10 @@ runCase('a token-less slot is never interrupted (no instance token evidence)', (
   assert.equal(reported.interrupted, false, 'a reported outcome is never reclassified');
 });
 
-runCase('dead-instance cycle whose todo is already done closes as success', () => {
+runCase('dead-instance cycle whose todo is already done closes as success', async () => {
   const { dataDir, cwd, todos } = setup('todo-done');
   updateTodo(dataDir, cwd, todos[0].id, { status: 'done' });
-  reconcileWorkspaceWatchersOnBoot(bootOpts(dataDir));
+  await reconcileWorkspaceWatchersOnBoot(bootOpts(dataDir));
   const row = getWorkspaceWatcher(cwd, { dataDir });
   assert.equal(row.activeCycles.length, 0);
   assert.ok(!row.failures[todos[0].id]);
@@ -191,10 +191,10 @@ runCase('starting-phase dead-instance slot is not protected by its start deadlin
   assert.equal(reconcileWorkspaceWatcherCycle({ workspaceFolder: cwd, dataDir, now: T0, deps }).closed, true);
 });
 
-runCase('planOnly cycle interrupted by restart: neutral, todo ready, plan never approved, request released', () => {
+runCase('planOnly cycle interrupted by restart: neutral, todo ready, plan never approved, request released', async () => {
   const { dataDir, cwd, todos } = setup('plan', { planOnly: true });
   mutateWorkspaceWatcherRow(cwd, () => ({ planRequests: { [todos[0].id]: new Date(T0).toISOString() } }), { dataDir });
-  reconcileWorkspaceWatchersOnBoot(bootOpts(dataDir));
+  await reconcileWorkspaceWatchersOnBoot(bootOpts(dataDir));
   const row = getWorkspaceWatcher(cwd, { dataDir });
   assert.deepEqual(row.failures, {});
   assert.ok(!row.backoffUntil);
@@ -224,7 +224,7 @@ runCase('one shared restart-interrupted rule: {foreign,same,no token} x {dead,bu
   }
 });
 
-runCase('boot reconcile evaluates restart evidence once per slot (no second helper evaluation)', () => {
+runCase('boot reconcile evaluates restart evidence once per slot (no second helper evaluation)', async () => {
   const countingProbe = (counter) => (...args) => { counter.n += 1; return goneProbe(...args); };
   const single = { n: 0 };
   isWorkspaceWatcherCycleRestartInterrupted({
@@ -235,7 +235,7 @@ runCase('boot reconcile evaluates restart evidence once per slot (no second help
   assert.ok(single.n > 0, 'the helper probes the adapters');
   const { dataDir, cwd } = setup('count');
   const reconcile = { n: 0 };
-  reconcileWorkspaceWatchersOnBoot(bootOpts(dataDir, { probeChatRunLiveness: countingProbe(reconcile) }));
+  await reconcileWorkspaceWatchersOnBoot(bootOpts(dataDir, { probeChatRunLiveness: countingProbe(reconcile) }));
   assert.equal(getWorkspaceWatcher(cwd, { dataDir }).cycleChats[0].outcome, 'interrupted_restart');
   // One extra probe is the unrelated MCP run-error-code read; a second helper
   // evaluation would add `single.n` more.

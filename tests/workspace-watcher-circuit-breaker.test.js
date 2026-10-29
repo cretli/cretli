@@ -208,7 +208,7 @@ test('harness is cooled only with the same cause on at least two models', () => 
   assert.equal(harnessCooldown.harness, 'h1');
 });
 
-test('state survives a reload, manual reset works and clearing stopReason keeps the cooldown', () => {
+test('state survives a reload, manual reset works and clearing stopReason keeps the cooldown', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cr-breaker-'));
   const ws = path.join(dataDir, 'ws');
   fs.mkdirSync(ws);
@@ -227,7 +227,7 @@ test('state survives a reload, manual reset works and clearing stopReason keeps 
   assert.ok(Date.parse(reloaded.infraBackoffUntil) > 0);
   // clearing stopReason (plain and loop-stop variant) keeps the cooldown
   upsertWorkspaceWatcher(ws, { stopReason: '' }, { dataDir });
-  clearWorkspaceWatcherLoopStop({ dataDir, workspaceFolder: ws });
+  await clearWorkspaceWatcherLoopStop({ dataDir, workspaceFolder: ws });
   const cleared = getWorkspaceWatcher(ws, { dataDir });
   assert.equal(cleared.stopReason, '');
   assert.equal(cleared.orchestratorCooldowns.length, 1, 'stopReason clear must not clear the cooldown');

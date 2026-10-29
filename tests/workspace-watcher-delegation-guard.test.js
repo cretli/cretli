@@ -72,9 +72,9 @@ function setAllowedHarnesses(list) {
   }), { dataDir });
 }
 
-test('the delegation guard rejects an implement delegation before plan approval', () => {
+test('the delegation guard rejects an implement delegation before plan approval', async () => {
   clearHarnessUsageLimit('mock', '', dataDir);
-  const planOnlyCycle = validateWorkspaceWatcherParentDelegation({
+  const planOnlyCycle = await validateWorkspaceWatcherParentDelegation({
     parentChatId,
     executor: { transport: 'mock', model: 'cheap' },
     assignment: 'implement',
@@ -84,7 +84,7 @@ test('the delegation guard rejects an implement delegation before plan approval'
   assert.equal(planOnlyCycle.code, 'watcher_plan_not_approved');
 
   // Planning itself is still allowed while the plan is pending.
-  const planOk = validateWorkspaceWatcherParentDelegation({
+  const planOk = await validateWorkspaceWatcherParentDelegation({
     parentChatId,
     executor: { transport: 'mock', model: 'cheap' },
     assignment: 'plan',
@@ -93,7 +93,7 @@ test('the delegation guard rejects an implement delegation before plan approval'
   assert.equal(planOk.ok, true);
 
   approvePlan();
-  const approved = validateWorkspaceWatcherParentDelegation({
+  const approved = await validateWorkspaceWatcherParentDelegation({
     parentChatId,
     executor: { transport: 'mock', model: 'cheap' },
     assignment: 'implement',
@@ -102,7 +102,7 @@ test('the delegation guard rejects an implement delegation before plan approval'
   assert.equal(approved.ok, true);
 });
 
-test('an approved ancestor plan lets a leaf with its own draft be implemented', () => {
+test('an approved ancestor plan lets a leaf with its own draft be implemented', async () => {
   clearHarnessUsageLimit('mock', '', dataDir);
   const treeCwd = path.join(tmpRoot, 'ws-ancestor');
   fs.mkdirSync(treeCwd, { recursive: true });
@@ -137,7 +137,7 @@ test('an approved ancestor plan lets a leaf with its own draft be implemented', 
       planOnly: false,
     },
   }), { dataDir });
-  const allowed = validateWorkspaceWatcherParentDelegation({
+  const allowed = await validateWorkspaceWatcherParentDelegation({
     parentChatId: treeChatId,
     executor: { transport: 'mock', model: 'cheap' },
     assignment: 'implement',
@@ -146,9 +146,9 @@ test('an approved ancestor plan lets a leaf with its own draft be implemented', 
   assert.equal(allowed.ok, true);
 });
 
-test('the delegation guard enforces the allow-list, plan-only and usage limits', () => {
+test('the delegation guard enforces the allow-list, plan-only and usage limits', async () => {
   setAllowedHarnesses(['testfakeb']);
-  const denied = validateWorkspaceWatcherParentDelegation({
+  const denied = await validateWorkspaceWatcherParentDelegation({
     parentChatId,
     executor: { transport: 'mock', model: 'cheap' },
     assignment: 'implement',
@@ -159,7 +159,7 @@ test('the delegation guard enforces the allow-list, plan-only and usage limits',
   setAllowedHarnesses([]);
 
   setPlanOnly(true);
-  const planOnly = validateWorkspaceWatcherParentDelegation({
+  const planOnly = await validateWorkspaceWatcherParentDelegation({
     parentChatId,
     executor: { transport: 'mock', model: 'cheap' },
     assignment: 'implement',
@@ -176,7 +176,7 @@ test('the delegation guard enforces the allow-list, plan-only and usage limits',
     resetAt: new Date(Date.now() + 60 * 60_000).toISOString(),
     dataDir,
   });
-  const limited = validateWorkspaceWatcherParentDelegation({
+  const limited = await validateWorkspaceWatcherParentDelegation({
     parentChatId,
     executor: { transport: 'mock', model: 'cheap' },
     assignment: 'implement',
@@ -186,9 +186,9 @@ test('the delegation guard enforces the allow-list, plan-only and usage limits',
   assert.equal(limited.code, 'watcher_usage_limit');
 });
 
-test('the delegation guard only gates the cycle orchestrator chat', () => {
+test('the delegation guard only gates the cycle orchestrator chat', async () => {
   addChat('other-session', 'someone else', '', cwd, 'mock', { id: 'someone-else' });
-  const foreign = validateWorkspaceWatcherParentDelegation({
+  const foreign = await validateWorkspaceWatcherParentDelegation({
     parentChatId: 'someone-else',
     executor: { transport: 'mock', model: 'cheap' },
     assignment: 'implement',
@@ -197,7 +197,7 @@ test('the delegation guard only gates the cycle orchestrator chat', () => {
   assert.equal(foreign.ok, true);
 });
 
-test('the delegation guard authorizes per live slot and never leaks a sibling plan gate', () => {
+test('the delegation guard authorizes per live slot and never leaks a sibling plan gate', async () => {
   // The previous test leaves an active usage limit for `mock`; clear it so this
   // case isolates the per-slot plan gate.
   clearHarnessUsageLimit('mock', '', dataDir);
@@ -221,7 +221,7 @@ test('the delegation guard authorizes per live slot and never leaks a sibling pl
   }), { dataDir });
 
   // The plan-only slot is gated by its own flag...
-  const planSlotBlocked = validateWorkspaceWatcherParentDelegation({
+  const planSlotBlocked = await validateWorkspaceWatcherParentDelegation({
     parentChatId: planChatId,
     executor: { transport: 'mock', model: 'cheap' },
     assignment: 'implement',
@@ -231,7 +231,7 @@ test('the delegation guard authorizes per live slot and never leaks a sibling pl
   assert.equal(planSlotBlocked.code, 'watcher_plan_only');
 
   // ...and the sibling slot is not affected by it.
-  const siblingAllowed = validateWorkspaceWatcherParentDelegation({
+  const siblingAllowed = await validateWorkspaceWatcherParentDelegation({
     parentChatId: implChatId,
     executor: { transport: 'mock', model: 'cheap' },
     assignment: 'implement',
@@ -241,7 +241,7 @@ test('the delegation guard authorizes per live slot and never leaks a sibling pl
 
   // A chat that owns no live slot is never treated as a watcher orchestrator.
   addChat('no-slot-session', 'no slot', '', multiCwd, 'mock', { id: 'no-slot-chat' });
-  const noSlot = validateWorkspaceWatcherParentDelegation({
+  const noSlot = await validateWorkspaceWatcherParentDelegation({
     parentChatId: 'no-slot-chat',
     executor: { transport: 'mock', model: 'cheap' },
     assignment: 'implement',

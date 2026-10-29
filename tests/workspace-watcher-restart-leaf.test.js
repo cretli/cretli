@@ -81,7 +81,7 @@ function setup(name, { mode = 'autopilot', claimed = true } = {}) {
   return { dataDir, cwd, chatId, orphan, ready };
 }
 
-const release = (ctx, probe) => releaseStaleWorkspaceTodoClaims({
+const release = async (ctx, probe) => await releaseStaleWorkspaceTodoClaims({
   workspaceFolder: ctx.cwd,
   dataDir: ctx.dataDir,
   now: T0,
@@ -102,10 +102,10 @@ function classify(ctx, probe) {
 }
 
 for (const claimed of [true, false]) {
-  runCase(`(a) ${claimed ? 'claimed' : 'unclaimed'} leaf, run accepted by another instance, room absent -> recoverable + released`, () => {
+  runCase(`(a) ${claimed ? 'claimed' : 'unclaimed'} leaf, run accepted by another instance, room absent -> recoverable + released`, async () => {
     const ctx = setup(`a-${claimed}`, { claimed });
     recordRun(ctx.chatId);
-    const result = release(ctx, goneProbe);
+    const result = await release(ctx, goneProbe);
     assert.deepEqual(result.released, [ctx.orphan.id]);
     const state = result.states.find((row) => row.todoId === ctx.orphan.id);
     assert.equal(state.state, 'recoverable');
@@ -117,12 +117,12 @@ for (const claimed of [true, false]) {
   });
 }
 
-runCase('(b) same case with the run queued for recovery resume stays unknown and is not released', () => {
+runCase('(b) same case with the run queued for recovery resume stays unknown and is not released', async () => {
   const ctx = setup('b');
   const launched = recordRun(ctx.chatId, { prompt: 'resume me' });
   assert.equal(launched.queueEntry?.state, 'queued');
   assert.equal(hasWorkspaceWatcherLeafRestartEvidence(ctx.chatId), false);
-  const result = release(ctx, goneProbe);
+  const result = await release(ctx, goneProbe);
   assert.deepEqual(result.released, []);
   const state = result.states.find((row) => row.todoId === ctx.orphan.id);
   assert.equal(state.state, 'unknown');
@@ -130,10 +130,10 @@ runCase('(b) same case with the run queued for recovery resume stays unknown and
   assert.equal(getTodoById(ctx.dataDir, ctx.cwd, ctx.orphan.id).status, 'doing');
 });
 
-runCase('(c) adapter error stays unknown even with restart evidence in the registry', () => {
+runCase('(c) adapter error stays unknown even with restart evidence in the registry', async () => {
   const ctx = setup('c');
   recordRun(ctx.chatId);
-  const result = release(ctx, errorProbe);
+  const result = await release(ctx, errorProbe);
   assert.deepEqual(result.released, []);
   const state = result.states.find((row) => row.todoId === ctx.orphan.id);
   assert.equal(state.state, 'unknown');
@@ -173,7 +173,7 @@ runCase('a busy or known-idle room is never restart-orphan evidence; blocked lea
   assert.equal(classify(blocked, goneProbe).state, 'user_action');
 });
 
-runCase('(d) after a restart the watcher decision starts work instead of wait_active/unknown_liveness', () => {
+runCase('(d) after a restart the watcher decision starts work instead of wait_active/unknown_liveness', async () => {
   const ctx = setup('d', { mode: 'observe' });
   const deps = {
     listWorkspaceChatIds: () => [ctx.chatId],
@@ -183,15 +183,15 @@ runCase('(d) after a restart the watcher decision starts work instead of wait_ac
   // Without registry evidence the orphan keeps blocking (today's behaviour);
   // one unknown fills the single slot of a maxParallel 1 watcher.
   upsertWorkspaceWatcher(ctx.cwd, { policy: { maxParallel: 1 } }, { dataDir: ctx.dataDir });
-  const blocked = tickWorkspaceWatcher({ workspaceFolder: ctx.cwd, dataDir: ctx.dataDir, now: T0, token: 'before', deps });
+  const blocked = await tickWorkspaceWatcher({ workspaceFolder: ctx.cwd, dataDir: ctx.dataDir, now: T0, token: 'before', deps });
   assert.equal(blocked.decision.kind, 'wait_active');
   assert.equal(blocked.decision.reason, 'unknown_liveness');
   // The run was accepted by the previous process: the orphan is not a live agent.
   recordRun(ctx.chatId);
-  const snapshot = snapshotWorkspaceWatcher({ workspaceFolder: ctx.cwd, dataDir: ctx.dataDir, now: T0, deps });
+  const snapshot = await snapshotWorkspaceWatcher({ workspaceFolder: ctx.cwd, dataDir: ctx.dataDir, now: T0, deps });
   assert.equal(snapshot.unknownAgentCount, 0);
   assert.deepEqual(snapshot.unknownChatIds, []);
-  const tick = tickWorkspaceWatcher({ workspaceFolder: ctx.cwd, dataDir: ctx.dataDir, now: T0 + 1000, token: 'before', deps });
+  const tick = await tickWorkspaceWatcher({ workspaceFolder: ctx.cwd, dataDir: ctx.dataDir, now: T0 + 1000, token: 'before', deps });
   assert.notEqual(tick.decision.kind, 'wait_active');
   assert.equal(tick.decision.kind, 'observe_ready');
 });
@@ -219,11 +219,11 @@ const interrupted = (ctx, cycleId) => ({
   id: ctx.chatId, cycleId, todoIds: [ctx.orphan.id], at: '2026-10-22T14:00:00.000Z', outcome: 'failure', closeReason: 'interrupted_restart',
 });
 
-runCase('(e) watcher worktree leaf after interrupted_restart -> recoverable, real release keeps the worktree record', () => {
+runCase('(e) watcher worktree leaf after interrupted_restart -> recoverable, real release keeps the worktree record', async () => {
   const ctx = setup('e');
   const before = seedWorktree(ctx, { recordCycles: ['cyc-e'], cycleChats: [interrupted(ctx, 'cyc-e')] });
   assert.ok(before, 'record seeded');
-  const result = release(ctx, goneProbe);
+  const result = await release(ctx, goneProbe);
   const state = result.states.find((row) => row.todoId === ctx.orphan.id);
   assert.equal(state.state, 'recoverable');
   assert.equal(state.reason, 'restart_interrupted_worktree');
@@ -234,7 +234,7 @@ runCase('(e) watcher worktree leaf after interrupted_restart -> recoverable, rea
   assert.deepEqual(getWorktreeRecord(ctx.orphan.id, { dataDir: ctx.dataDir }), before, 'worktree record untouched');
 });
 
-runCase('(e3) a worktree leaf already picked up by a new active cycle is not released', () => {
+runCase('(e3) a worktree leaf already picked up by a new active cycle is not released', async () => {
   const ctx = setup('e3');
   // The interrupted cycle is closed; the Watcher has since started a new cycle
   // on the same leaf (same worktree), so the leaf is live work again.
@@ -242,7 +242,7 @@ runCase('(e3) a worktree leaf already picked up by a new active cycle is not rel
   upsertWorkspaceWatcher(ctx.cwd, {
     activeCycles: [{ cycleId: 'cyc-e3-new', chatId: 'new-cycle-chat', todoIds: [ctx.orphan.id], startedAt: '2026-10-22T14:30:00.000Z' }],
   }, { dataDir: ctx.dataDir });
-  const result = release(ctx, goneProbe);
+  const result = await release(ctx, goneProbe);
   assert.deepEqual(result.released, []);
   const state = result.states.find((row) => row.todoId === ctx.orphan.id);
   assert.notEqual(state?.reason, 'restart_interrupted_worktree');
@@ -252,30 +252,30 @@ runCase('(e3) a worktree leaf already picked up by a new active cycle is not rel
   assert.equal(getTodoById(ctx.dataDir, ctx.cwd, ctx.orphan.id).status, 'doing');
 });
 
-runCase('(e2) a blockedReason still holds a worktree leaf as worktree_open', () => {
+runCase('(e2) a blockedReason still holds a worktree leaf as worktree_open', async () => {
   const ctx = setup('e2');
   seedWorktree(ctx, { recordCycles: ['cyc-e2'], cycleChats: [interrupted(ctx, 'cyc-e2')] });
   updateTodo(ctx.dataDir, ctx.cwd, ctx.orphan.id, { blockedReason: 'needs a human' });
-  const result = release(ctx, goneProbe);
+  const result = await release(ctx, goneProbe);
   assert.deepEqual(result.released, []);
   assert.equal(result.states.find((row) => row.todoId === ctx.orphan.id).reason, 'worktree_open');
 });
 
-runCase('(f) manual worktree without a Watcher cycle stays user_action/worktree_open', () => {
+runCase('(f) manual worktree without a Watcher cycle stays user_action/worktree_open', async () => {
   const ctx = setup('f');
   seedWorktree(ctx, { recordCycles: [], cycleChats: [] });
-  const result = release(ctx, goneProbe);
+  const result = await release(ctx, goneProbe);
   assert.deepEqual(result.released, []);
   const state = result.states.find((row) => row.todoId === ctx.orphan.id);
   assert.equal(state.state, 'user_action');
   assert.equal(state.reason, 'worktree_open');
 });
 
-runCase('(g) manual worktree + EARLIER interrupted_restart cycle of the same todo stays worktree_open (R1A1-F1)', () => {
+runCase('(g) manual worktree + EARLIER interrupted_restart cycle of the same todo stays worktree_open (R1A1-F1)', async () => {
   const ctx = setup('g');
   // The earlier Watcher cycle is not among the cycles that used this worktree.
   seedWorktree(ctx, { recordCycles: [], cycleChats: [interrupted(ctx, 'cyc-old')] });
-  const result = release(ctx, goneProbe);
+  const result = await release(ctx, goneProbe);
   assert.deepEqual(result.released, []);
   const state = result.states.find((row) => row.todoId === ctx.orphan.id);
   assert.equal(state.state, 'user_action');
@@ -283,7 +283,7 @@ runCase('(g) manual worktree + EARLIER interrupted_restart cycle of the same tod
   assert.equal(getTodoById(ctx.dataDir, ctx.cwd, ctx.orphan.id).status, 'doing');
 });
 
-runCase('(h) a newer non-interrupted cycle bound to the worktree wins over an older interrupted one', () => {
+runCase('(h) a newer non-interrupted cycle bound to the worktree wins over an older interrupted one', async () => {
   const ctx = setup('h');
   seedWorktree(ctx, {
     recordCycles: ['cyc-1', 'cyc-2'],
@@ -292,7 +292,7 @@ runCase('(h) a newer non-interrupted cycle bound to the worktree wins over an ol
       { id: 'chat-later', cycleId: 'cyc-2', todoIds: [ctx.orphan.id], at: '2026-10-22T15:00:00.000Z', outcome: 'success', closeReason: '' },
     ],
   });
-  const result = release(ctx, goneProbe);
+  const result = await release(ctx, goneProbe);
   assert.deepEqual(result.released, []);
   assert.equal(result.states.find((row) => row.todoId === ctx.orphan.id).reason, 'worktree_open');
 });

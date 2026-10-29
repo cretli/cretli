@@ -331,15 +331,15 @@ runCase('mode aliases: enabled=true means observe; autopilot is stored but inert
   assert.equal(upsertWorkspaceWatcher(workspaceA, { mode: 'nope' }, { dataDir }).mode, 'off');
 });
 
-runCase('autopilot is active: tick applies the plan gate; observe heartbeat leaves it to the async driver', () => {
+runCase('autopilot is active: tick applies the plan gate; observe heartbeat leaves it to the async driver', async () => {
   const dataDir = freshDataDir('autopilot-active');
   upsertWorkspaceWatcher(workspaceA, { mode: 'autopilot' }, { dataDir });
-  const tick = tickWorkspaceWatcher({ workspaceFolder: workspaceA, dataDir, deps: observeDeps() });
+  const tick = await tickWorkspaceWatcher({ workspaceFolder: workspaceA, dataDir, deps: observeDeps() });
   assert.equal(tick.action, 'plan_gate');
   assert.equal(tick.reason, 'plan_missing');
   assert.equal(tick.wrote, true);
   assert.equal(tick.decision.planOnly, true);
-  const hb = runWorkspaceWatcherHeartbeat({ dataDir, token: 'hb', deps: observeDeps() });
+  const hb = await runWorkspaceWatcherHeartbeat({ dataDir, token: 'hb', deps: observeDeps() });
   assert.equal(hb.scanned, 1);
   assert.equal(hb.observed, 0);
   assert.equal(hb.wrote, 0);
@@ -384,7 +384,7 @@ runCase('mutate retries when an nested upsert bumps the CAS revision', () => {
   assert.ok(loadWorkspaceWatchersDocument({ dataDir }).revision >= 2);
 });
 
-runCase('reconcile clears dead activeCycle, releases lease and closes with shared accounting', () => {
+runCase('reconcile clears dead activeCycle, releases lease and closes with shared accounting', async () => {
   const dataDir = freshDataDir('reconcile-cycle');
   const t0 = Date.parse('2026-01-01T00:00:00.000Z');
   upsertWorkspaceWatcher(workspaceA, {
@@ -394,7 +394,7 @@ runCase('reconcile clears dead activeCycle, releases lease and closes with share
   }, { dataDir });
   const probe = () => ({ known: true, busy: false, reason: 'idle' });
   assert.equal(isWorkspaceWatcherActiveCycleChatAlive({ chatId: 'child-chat' }, probe), false);
-  const result = reconcileWorkspaceWatchersOnBoot({ dataDir, now: t0, probeChatRunLiveness: probe });
+  const result = await reconcileWorkspaceWatchersOnBoot({ dataDir, now: t0, probeChatRunLiveness: probe });
   assert.equal(result.reconciled, 1);
   const row = getWorkspaceWatcher(workspaceA, { dataDir });
   assert.equal(row.activeCycle, null);
@@ -404,7 +404,7 @@ runCase('reconcile clears dead activeCycle, releases lease and closes with share
   assert.equal(row.decisions.at(-1).reason, 'missing_report');
 });
 
-runCase('reconcile keeps activeCycle when chat liveness is unknown', () => {
+runCase('reconcile keeps activeCycle when chat liveness is unknown', async () => {
   const dataDir = freshDataDir('reconcile-unknown');
   upsertWorkspaceWatcher(workspaceA, {
     mode: 'observe',
@@ -412,17 +412,17 @@ runCase('reconcile keeps activeCycle when chat liveness is unknown', () => {
   }, { dataDir });
   const probe = () => ({ known: false, busy: false, reason: 'adapter_missing' });
   assert.equal(isWorkspaceWatcherActiveCycleChatAlive({ chatId: 'child-chat' }, probe), true);
-  const result = reconcileWorkspaceWatchersOnBoot({ dataDir, probeChatRunLiveness: probe });
+  const result = await reconcileWorkspaceWatchersOnBoot({ dataDir, probeChatRunLiveness: probe });
   assert.equal(result.reconciled, 0);
   assert.ok(getWorkspaceWatcher(workspaceA, { dataDir }).activeCycle);
 });
 
-runCase('reconcile isolates a corrupt watcher store and never rewrites it', () => {
+runCase('reconcile isolates a corrupt watcher store and never rewrites it', async () => {
   const dataDir = freshDataDir('reconcile-corrupt');
   const file = getWorkspaceWatchersDataPath({ dataDir });
   const corrupt = '{ not json';
   fs.writeFileSync(file, corrupt, 'utf8');
-  const result = reconcileWorkspaceWatchersOnBoot({
+  const result = await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     probeChatRunLiveness: () => {
       throw new Error('probe must not run without a readable store');
@@ -435,14 +435,14 @@ runCase('reconcile isolates a corrupt watcher store and never rewrites it', () =
   assert.equal(fs.readFileSync(file, 'utf8'), corrupt, 'corrupt bytes stay untouched');
 });
 
-runCase('snapshot exposes a recovery state and its evidence for every doing todo', () => {
+runCase('snapshot exposes a recovery state and its evidence for every doing todo', async () => {
   const dataDir = freshDataDir('snapshot-recovery');
   const probes = {
     'busy-chat': { known: true, busy: true, reason: 'busy' },
     'cold-chat': { known: false, busy: false, reason: 'state_missing' },
     'closed-chat': { known: true, busy: false, reason: 'idle' },
   };
-  const snapshot = snapshotWorkspaceWatcher({
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: workspaceA,
     dataDir,
     now: Date.parse('2026-01-01T00:00:00.000Z'),
@@ -476,7 +476,7 @@ runCase('snapshot exposes a recovery state and its evidence for every doing todo
   assert.equal(snapshot.doingTodoCount, 6, 'the durable status list is unchanged');
 });
 
-runCase('boot reconcile resumes an unclaimed doing leaf only in autopilot and only on proof', () => {
+runCase('boot reconcile resumes an unclaimed doing leaf only in autopilot and only on proof', async () => {
   const dataDir = freshDataDir('reconcile-unclaimed');
   const autoCwd = makeWorkspace('reconcile-unclaimed-auto');
   const observeCwd = makeWorkspace('reconcile-unclaimed-observe');
@@ -492,7 +492,7 @@ runCase('boot reconcile resumes an unclaimed doing leaf only in autopilot and on
   const erroredId = seed(autoCwd, 'errored-chat');
   const observedId = seed(observeCwd, 'deleted-chat');
   const reasons = { 'deleted-chat': 'chat_missing', 'cold-chat': 'state_missing', 'errored-chat': 'adapter_error' };
-  const result = reconcileWorkspaceWatchersOnBoot({
+  const result = await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     probeChatRunLiveness: (input) => ({ known: false, busy: false, reason: reasons[input.chatId] || 'adapter_missing' }),
   });
@@ -503,7 +503,7 @@ runCase('boot reconcile resumes an unclaimed doing leaf only in autopilot and on
   assert.equal(getTodoById(dataDir, observeCwd, observedId).status, 'doing', 'observe never changes a todo');
 });
 
-runCase('reconcile clears an activeCycle without chatId without probing', () => {
+runCase('reconcile clears an activeCycle without chatId without probing', async () => {
   const dataDir = freshDataDir('reconcile-no-chat');
   const t0 = Date.parse('2026-01-01T00:00:00.000Z');
   upsertWorkspaceWatcher(workspaceA, {
@@ -512,7 +512,7 @@ runCase('reconcile clears an activeCycle without chatId without probing', () => 
     lease: { ownerPid: 9, token: 'cycle-lease', expiresAt: new Date(t0 + 60_000).toISOString() },
   }, { dataDir });
   let probeCalls = 0;
-  const result = reconcileWorkspaceWatchersOnBoot({
+  const result = await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     now: t0,
     probeChatRunLiveness: () => {
@@ -531,7 +531,7 @@ runCase('reconcile clears an activeCycle without chatId without probing', () => 
   assert.equal(row.decisions.at(-1).reason, 'missing_report');
 });
 
-runCase('boot bulk archive routes a closed orchestrator through the shared canArchive gate', () => {
+runCase('boot bulk archive routes a closed orchestrator through the shared canArchive gate', async () => {
   const dataDir = freshDataDir('boot-archive-gate');
   const t0 = Date.parse('2026-03-03T12:00:00.000Z');
   const oldAt = new Date(t0 - 60 * 60_000).toISOString();
@@ -547,7 +547,7 @@ runCase('boot bulk archive routes a closed orchestrator through the shared canAr
     isDelegationSlotOccupied: () => false,
   };
   const archived = [];
-  reconcileWorkspaceWatchersOnBoot({
+  await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     now: t0,
     probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'idle' }),
@@ -572,7 +572,7 @@ runCase('boot bulk archive routes a closed orchestrator through the shared canAr
   // Same closed orchestrator, but its child still holds a slot: the gate must
   // refuse the whole portfolio, so nothing is archived.
   const refused = [];
-  reconcileWorkspaceWatchersOnBoot({
+  await reconcileWorkspaceWatchersOnBoot({
     dataDir: freshDataDir('boot-archive-gate-refused'),
     now: t0,
     probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'idle' }),
@@ -754,7 +754,7 @@ runCase('live autopilot sweep keeps a family inside the grace, pinned or slot-he
   assert.deepEqual(liveArchived, [], 'a chat with a live cycle slot on any row is never swept');
 });
 
-runCase('reconcile leaves a newer cycle that replaced the probed one', () => {
+runCase('reconcile leaves a newer cycle that replaced the probed one', async () => {
   const dataDir = freshDataDir('reconcile-race-cycle');
   const t0 = Date.parse('2026-01-01T00:00:00.000Z');
   upsertWorkspaceWatcher(workspaceA, {
@@ -770,7 +770,7 @@ runCase('reconcile leaves a newer cycle that replaced the probed one', () => {
     }, { dataDir });
     return { known: true, busy: false, reason: 'idle' };
   };
-  const result = reconcileWorkspaceWatchersOnBoot({ dataDir, now: t0, probeChatRunLiveness: probe });
+  const result = await reconcileWorkspaceWatchersOnBoot({ dataDir, now: t0, probeChatRunLiveness: probe });
   assert.equal(result.reconciled, 0, 'the newer cycle is not reported as reconciled');
   const row = getWorkspaceWatcher(workspaceA, { dataDir });
   assert.equal(row.activeCycle.chatId, 'new-chat');
@@ -851,7 +851,7 @@ runCase('cycle close keeps the row lease while a sibling cycle stays live', () =
   assert.deepEqual(after.lease, lease);
 });
 
-runCase('boot reconcile drops only the dead slot and keeps a live sibling with its lease', () => {
+runCase('boot reconcile drops only the dead slot and keeps a live sibling with its lease', async () => {
   const dataDir = freshDataDir('multi-slot-reconcile');
   const t0 = Date.parse('2026-01-01T00:00:00.000Z');
   upsertWorkspaceWatcher(workspaceA, {
@@ -865,7 +865,7 @@ runCase('boot reconcile drops only the dead slot and keeps a live sibling with i
   const probe = ({ chatId }) => (chatId === 'live-chat'
     ? { known: true, busy: true, reason: 'busy' }
     : { known: true, busy: false, reason: 'idle' });
-  const result = reconcileWorkspaceWatchersOnBoot({
+  const result = await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     now: t0 + 1000,
     probeChatRunLiveness: probe,
@@ -1000,14 +1000,14 @@ runCase('cooldown default is 30s end-to-end and an explicit 60s row is preserved
   assert.equal(getWorkspaceWatcher(workspaceA, { dataDir }).policy.cooldownMs, 60_000);
 });
 
-runCase('resolveWatcherClaimOwner ignores a stale orchestratorChatId while a live cycle exists', () => {
+runCase('resolveWatcherClaimOwner ignores a stale orchestratorChatId while a live cycle exists', async () => {
   const dataDir = freshDataDir('claim-owner-multi');
   upsertWorkspaceWatcher(workspaceA, {
     mode: 'autopilot',
     orchestratorChatId: 'stale-chat',
     activeCycles: [{ cycleId: 'c1', chatId: 'live-chat', todoIds: [], startedAt: '2026-01-01T00:00:00.000Z' }],
   }, { dataDir });
-  const denied = resolveWatcherClaimOwner({
+  const denied = await resolveWatcherClaimOwner({
     dataDir,
     workspaceFolder: workspaceA,
     sourceChatId: 'stale-chat',
@@ -1015,7 +1015,7 @@ runCase('resolveWatcherClaimOwner ignores a stale orchestratorChatId while a liv
   });
   assert.equal(denied.ok, false);
   assert.equal(denied.reason, 'claim_owner_forbidden');
-  const allowed = resolveWatcherClaimOwner({
+  const allowed = await resolveWatcherClaimOwner({
     dataDir,
     workspaceFolder: workspaceA,
     sourceChatId: 'live-chat',
@@ -1024,7 +1024,7 @@ runCase('resolveWatcherClaimOwner ignores a stale orchestratorChatId while a liv
   assert.equal(allowed.ok, true);
   // An idle row (no live slot) still trusts the "last known" mirror.
   upsertWorkspaceWatcher(workspaceA, { activeCycles: [], activeCycle: null }, { dataDir });
-  const idle = resolveWatcherClaimOwner({
+  const idle = await resolveWatcherClaimOwner({
     dataDir,
     workspaceFolder: workspaceA,
     sourceChatId: 'stale-chat',
@@ -1033,7 +1033,7 @@ runCase('resolveWatcherClaimOwner ignores a stale orchestratorChatId while a liv
   assert.equal(idle.ok, true);
 });
 
-runCase('reconcile keeps a lease taken after the probe while clearing the same cycle', () => {
+runCase('reconcile keeps a lease taken after the probe while clearing the same cycle', async () => {
   const dataDir = freshDataDir('reconcile-race-lease');
   const t0 = Date.parse('2026-01-01T00:00:00.000Z');
   upsertWorkspaceWatcher(workspaceA, {
@@ -1048,7 +1048,7 @@ runCase('reconcile keeps a lease taken after the probe while clearing the same c
     }, { dataDir });
     return { known: true, busy: false, reason: 'idle' };
   };
-  const result = reconcileWorkspaceWatchersOnBoot({ dataDir, now: t0, probeChatRunLiveness: probe });
+  const result = await reconcileWorkspaceWatchersOnBoot({ dataDir, now: t0, probeChatRunLiveness: probe });
   assert.equal(result.reconciled, 1);
   const row = getWorkspaceWatcher(workspaceA, { dataDir });
   assert.equal(row.activeCycle, null);
@@ -1299,7 +1299,7 @@ runCase('corrupt store throws WorkspaceWatchersCorruptError without rewriting th
   assert.equal(fs.readFileSync(file, 'utf8'), '{ not json');
 });
 
-runCase('an unreadable record is corruption, not a row the next save drops', () => {
+runCase('an unreadable record is corruption, not a row the next save drops', async () => {
   const dataDir = freshDataDir('persist-partial-record');
   const file = getWorkspaceWatchersDataPath({ dataDir });
   const raw = JSON.stringify({
@@ -1327,7 +1327,7 @@ runCase('an unreadable record is corruption, not a row the next save drops', () 
     (err) => err instanceof WorkspaceWatchersCorruptError,
     'a write that would drop the unreadable record is refused',
   );
-  const boot = reconcileWorkspaceWatchersOnBoot({
+  const boot = await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'idle' }),
   });
@@ -1397,8 +1397,8 @@ runCase('removeWorkspaceWatcher deletes only the requested row', () => {
   assert.ok(getWorkspaceWatcher(workspaceB, { dataDir }));
 });
 
-runCase('snapshot collects ready todos and active delegations for the workspace', () => {
-  const snapshot = snapshotWorkspaceWatcher({
+runCase('snapshot collects ready todos and active delegations for the workspace', async () => {
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: workspaceA,
     now: Date.parse('2026-01-01T00:00:00.000Z'),
     deps: observeDeps({
@@ -1419,14 +1419,14 @@ runCase('snapshot collects ready todos and active delegations for the workspace'
   assert.deepEqual(snapshot.errors, []);
 });
 
-runCase('snapshot probes loaded chat rows once instead of re-reading chats.json per id', () => {
+runCase('snapshot probes loaded chat rows once instead of re-reading chats.json per id', async () => {
   const chats = [
     { id: 'a', workspaceFolder: workspaceA, agentTransport: 'sdk' },
     { id: 'b', workspaceFolder: workspaceA, agentTransport: 'sdk' },
     { id: 'c', workspaceFolder: workspaceA, agentTransport: 'sdk' },
   ];
   const probed = [];
-  const snapshot = snapshotWorkspaceWatcher({
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: workspaceA,
     deps: {
       loadTodosData: () => ({ items: [] }),
@@ -1451,8 +1451,8 @@ runCase('snapshot probes loaded chat rows once instead of re-reading chats.json 
   assert.deepEqual(snapshot.waitingChatIds, ['a']);
 });
 
-runCase('snapshot exposes doing, blocked, waiting and recent errors without mixing workspaces', () => {
-  const snapshot = snapshotWorkspaceWatcher({ workspaceFolder: workspaceA, deps: {
+runCase('snapshot exposes doing, blocked, waiting and recent errors without mixing workspaces', async () => {
+  const snapshot = await snapshotWorkspaceWatcher({ workspaceFolder: workspaceA, deps: {
     loadTodosData: () => ({ items: [
       { id: 'root', status: 'doing' },
       { id: 'first', parentId: 'root', siblingIndex: 0, status: 'doing' },
@@ -1477,8 +1477,8 @@ runCase('snapshot exposes doing, blocked, waiting and recent errors without mixi
   assert.equal(decideWorkspaceWatcherAction({ watcher: { mode: 'autopilot' }, snapshot }).kind, 'wait_active');
 });
 
-runCase('snapshot excludes the watcher own cycle chat and its children', () => {
-  const snapshot = snapshotWorkspaceWatcher({
+runCase('snapshot excludes the watcher own cycle chat and its children', async () => {
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: workspaceA,
     deps: observeDeps({
       isActiveDelegationStatus: (status) => status === 'running',
@@ -1496,8 +1496,8 @@ runCase('snapshot excludes the watcher own cycle chat and its children', () => {
   assert.equal(snapshot.activeAgentCount, 1);
 });
 
-runCase('snapshot keeps a live scout and its review out of the todo parallel slot', () => {
-  const snapshot = snapshotWorkspaceWatcher({
+runCase('snapshot keeps a live scout and its review out of the todo parallel slot', async () => {
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: workspaceA,
     scoutParentChatIds: ['scout-parent'],
     deps: {
@@ -1537,12 +1537,12 @@ runCase('snapshot keeps a live scout and its review out of the todo parallel slo
   assert.match(describeWorkspaceWatcherDecision(decision), /2 scout/);
 });
 
-runCase('tick cannot resurrect or notify a watcher removed or disabled during its snapshot', () => {
+runCase('tick cannot resurrect or notify a watcher removed or disabled during its snapshot', async () => {
   for (const action of ['delete', 'off']) {
     const dataDir = freshDataDir(`tick-fence-${action}`);
     upsertWorkspaceWatcher(workspaceA, { mode: 'observe' }, { dataDir });
     let notifications = 0;
-    const result = tickWorkspaceWatcher({ workspaceFolder: workspaceA, dataDir, notify: () => { notifications += 1; }, deps: observeDeps({
+    const result = await tickWorkspaceWatcher({ workspaceFolder: workspaceA, dataDir, notify: () => { notifications += 1; }, deps: observeDeps({
       loadTodosData: () => {
         if (action === 'delete') removeWorkspaceWatcher(workspaceA, { dataDir });
         else upsertWorkspaceWatcher(workspaceA, { mode: 'off' }, { dataDir });
@@ -1557,11 +1557,11 @@ runCase('tick cannot resurrect or notify a watcher removed or disabled during it
   }
 });
 
-runCase('event heartbeat only snapshots its requested workspace', () => {
+runCase('event heartbeat only snapshots its requested workspace', async () => {
   const dataDir = freshDataDir('scoped-heartbeat');
   upsertWorkspaceWatcher(workspaceA, { mode: 'observe' }, { dataDir });
   upsertWorkspaceWatcher(workspaceB, { mode: 'observe' }, { dataDir });
-  const result = runWorkspaceWatcherHeartbeat({ dataDir, workspaceFolders: [`${workspaceA}/`], now: Date.parse('2026-01-01T00:00:00Z'), deps: observeDeps() });
+  const result = await runWorkspaceWatcherHeartbeat({ dataDir, workspaceFolders: [`${workspaceA}/`], now: Date.parse('2026-01-01T00:00:00Z'), deps: observeDeps() });
   assert.equal(result.observed, 1);
   assert.equal(getWorkspaceWatcher(workspaceA, { dataDir }).decisions.length, 1);
   assert.equal(getWorkspaceWatcher(workspaceB, { dataDir }).decisions.length, 0);
@@ -1577,9 +1577,9 @@ runCase('unknown chat liveness blocks a new cycle and observe notifications', ()
   }
 });
 
-runCase('snapshot: a cold chat with no work trace is idle, not unknown, and the cycle proceeds', () => {
+runCase('snapshot: a cold chat with no work trace is idle, not unknown, and the cycle proceeds', async () => {
   const chats = ['hist-a', 'hist-b', 'hist-archived'];
-  const snapshot = snapshotWorkspaceWatcher({
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: workspaceA,
     deps: {
       loadTodosData: () => ({ items: [{ id: 'ready', status: 'ready' }] }),
@@ -1603,8 +1603,8 @@ runCase('snapshot: a cold chat with no work trace is idle, not unknown, and the 
   assert.notEqual(decision.kind, 'wait_active', 'the ready todo is allowed to move');
 });
 
-runCase('snapshot: a cold chat that still holds a todo claim is unknown with its reason', () => {
-  const snapshot = snapshotWorkspaceWatcher({
+runCase('snapshot: a cold chat that still holds a todo claim is unknown with its reason', async () => {
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: workspaceA,
     deps: {
       loadTodosData: () => ({ items: [{ id: 't', status: 'doing', claimedByChatId: 'claim-chat' }] }),
@@ -1619,14 +1619,14 @@ runCase('snapshot: a cold chat that still holds a todo claim is unknown with its
   assert.deepEqual(snapshot.unknownChats, [{ chatId: 'claim-chat', reason: 'state_missing' }]);
 });
 
-runCase('snapshot: a cold chat traced by an occupied delegation slot is unknown (running and runStoppingAt)', () => {
+runCase('snapshot: a cold chat traced by an occupied delegation slot is unknown (running and runStoppingAt)', async () => {
   const now = Date.parse('2026-01-01T00:00:00.000Z');
   const cases = [
     { label: 'active running child', row: { id: 'd-run', status: 'running', workspaceFolder: workspaceA, parentChatId: 'run-parent', childChatId: 'run-child' } },
     { label: 'terminal but runStoppingAt unconfirmed', row: { id: 'd-stop', status: 'completed', workspaceFolder: workspaceA, parentChatId: 'stop-parent', childChatId: 'stop-child', runStoppingAt: new Date(now - 1000).toISOString() } },
   ];
   for (const { label, row } of cases) {
-    const snapshot = snapshotWorkspaceWatcher({
+    const snapshot = await snapshotWorkspaceWatcher({
       workspaceFolder: workspaceA,
       now,
       deps: {
@@ -1644,9 +1644,9 @@ runCase('snapshot: a cold chat traced by an occupied delegation slot is unknown 
   }
 });
 
-runCase('snapshot: a real adapter error is unknown even with no work trace', () => {
+runCase('snapshot: a real adapter error is unknown even with no work trace', async () => {
   for (const reason of ['adapter_error', 'probe_failed', 'run_mismatch', 'weird_liveness']) {
-    const snapshot = snapshotWorkspaceWatcher({
+    const snapshot = await snapshotWorkspaceWatcher({
       workspaceFolder: workspaceA,
       deps: {
         loadTodosData: () => ({ items: [] }),
@@ -1662,8 +1662,8 @@ runCase('snapshot: a real adapter error is unknown even with no work trace', () 
   }
 });
 
-runCase('snapshot: adapter_missing without a trace is idle and chat_missing is skipped', () => {
-  const snapshot = snapshotWorkspaceWatcher({
+runCase('snapshot: adapter_missing without a trace is idle and chat_missing is skipped', async () => {
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: workspaceA,
     deps: {
       loadTodosData: () => ({ items: [] }),
@@ -1680,10 +1680,10 @@ runCase('snapshot: adapter_missing without a trace is idle and chat_missing is s
   assert.deepEqual(snapshot.unknownChatIds, []);
 });
 
-runCase('tick records unknownChats and the Why? names the blocking chat', () => {
+runCase('tick records unknownChats and the Why? names the blocking chat', async () => {
   const dataDir = freshDataDir('unknown-chats-why');
   upsertWorkspaceWatcher(workspaceA, { mode: 'observe' }, { dataDir });
-  const tick = tickWorkspaceWatcher({
+  const tick = await tickWorkspaceWatcher({
     workspaceFolder: workspaceA,
     dataDir,
     token: 'why-token',
@@ -1745,7 +1745,7 @@ runCase('normalizeWorkspaceWatcherDecision keeps unknownChats for the decision l
   assert.equal(sparse.unknownChats, undefined);
 });
 
-runCase('a busy closed-cycle orchestrator does not fill maxParallel when it holds no claim', () => {
+runCase('a busy closed-cycle orchestrator does not fill maxParallel when it holds no claim', async () => {
   const dataDir = freshDataDir('closed-orch-slot');
   upsertWorkspaceWatcher(workspaceA, {
     mode: 'observe',
@@ -1756,7 +1756,7 @@ runCase('a busy closed-cycle orchestrator does not fill maxParallel when it hold
       outcome: 'success',
     }],
   }, { dataDir });
-  const tick = tickWorkspaceWatcher({
+  const tick = await tickWorkspaceWatcher({
     workspaceFolder: workspaceA,
     dataDir,
     token: 'closed-orch',
@@ -1776,7 +1776,7 @@ runCase('a busy closed-cycle orchestrator does not fill maxParallel when it hold
   assert.notEqual(tick.decision.reason, 'max_parallel');
 });
 
-runCase('an external busy chat still blocks maxParallel and the decision names the holder', () => {
+runCase('an external busy chat still blocks maxParallel and the decision names the holder', async () => {
   const dataDir = freshDataDir('external-busy-slot');
   upsertWorkspaceWatcher(workspaceA, {
     mode: 'observe',
@@ -1787,7 +1787,7 @@ runCase('an external busy chat still blocks maxParallel and the decision names t
       outcome: 'success',
     }],
   }, { dataDir });
-  const tick = tickWorkspaceWatcher({
+  const tick = await tickWorkspaceWatcher({
     workspaceFolder: workspaceA,
     dataDir,
     token: 'external-busy',
@@ -1812,8 +1812,8 @@ runCase('an external busy chat still blocks maxParallel and the decision names t
   assert.match(describeWorkspaceWatcherDecision(last), /held by human-bu/);
 });
 
-runCase('a closed-cycle orchestrator that still holds a claim counts as busy', () => {
-  const snapshot = snapshotWorkspaceWatcher({
+runCase('a closed-cycle orchestrator that still holds a claim counts as busy', async () => {
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: workspaceA,
     closedCycleChatIds: ['orch-closed'],
     deps: {
@@ -1831,8 +1831,8 @@ runCase('a closed-cycle orchestrator that still holds a claim counts as busy', (
   assert.deepEqual(snapshot.busyTokens, ['orch-closed']);
 });
 
-runCase('a closed cycle chat with no room and only a leftover todo claim does not block', () => {
-  const snapshot = snapshotWorkspaceWatcher({
+runCase('a closed cycle chat with no room and only a leftover todo claim does not block', async () => {
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: workspaceA,
     closedCycleChatIds: ['orch-closed'],
     deps: {
@@ -1852,8 +1852,8 @@ runCase('a closed cycle chat with no room and only a leftover todo claim does no
   assert.equal(snapshot.unknownAgentCount, 0, 'the restart-interrupted cycle chat is not live work');
 });
 
-runCase('a closed cycle chat with no room but an active delegation slot still blocks', () => {
-  const snapshot = snapshotWorkspaceWatcher({
+runCase('a closed cycle chat with no room but an active delegation slot still blocks', async () => {
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: workspaceA,
     closedCycleChatIds: ['orch-closed'],
     deps: {
@@ -1870,8 +1870,8 @@ runCase('a closed cycle chat with no room but an active delegation slot still bl
   assert.equal(snapshot.unknownAgentCount, 1);
 });
 
-runCase('unknown liveness of a closed-cycle orchestrator still blocks', () => {
-  const snapshot = snapshotWorkspaceWatcher({
+runCase('unknown liveness of a closed-cycle orchestrator still blocks', async () => {
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: workspaceA,
     closedCycleChatIds: ['orch-closed'],
     deps: {
@@ -1925,8 +1925,8 @@ runCase('max_parallel keeps delegation slot holders through normalization', () =
   assert.equal(empty?.slotHolders, undefined);
 });
 
-runCase('snapshot captures store failures instead of throwing', () => {
-  const snapshot = snapshotWorkspaceWatcher({
+runCase('snapshot captures store failures instead of throwing', async () => {
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: workspaceA,
     deps: observeDeps({
       loadTodosData: () => { throw new Error('todos boom'); },
@@ -1958,7 +1958,7 @@ function poolDeps(overrides = {}) {
   };
 }
 
-runCase('snapshot splits busy tokens into the worktree and project execution pools', () => {
+runCase('snapshot splits busy tokens into the worktree and project execution pools', async () => {
   const dataDir = freshDataDir('pool-split-mixed');
   // The cycle slot names the orchestrator chat and the todos it drives, so the
   // orchestrator token resolves against the cycle's primary todo (`todoIds[0]`).
@@ -1972,7 +1972,7 @@ runCase('snapshot splits busy tokens into the worktree and project execution poo
       startedAt: '2026-01-01T00:00:00.000Z',
     }],
   }, { dataDir });
-  const snapshot = snapshotWorkspaceWatcher({
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: workspaceA,
     dataDir,
     scoutParentChatIds: ['scout-parent'],
@@ -2025,7 +2025,7 @@ runCase('snapshot splits busy tokens into the worktree and project execution poo
   assert.deepEqual(snapshot.errors, []);
 });
 
-runCase('snapshot resolves a leaf through the watcher policy default, never an ancestor walk', () => {
+runCase('snapshot resolves a leaf through the watcher policy default, never an ancestor walk', async () => {
   const cases = [
     { label: 'inherit + policy worktree', todo: { executionMode: 'inherit' }, policy: { executionMode: 'worktree' }, pool: 'worktree' },
     { label: 'missing mode + policy worktree', todo: {}, policy: { executionMode: 'worktree' }, pool: 'worktree' },
@@ -2042,7 +2042,7 @@ runCase('snapshot resolves a leaf through the watcher policy default, never an a
   for (const [index, testCase] of cases.entries()) {
     const dataDir = freshDataDir(`pool-split-inherit-${index}`);
     if (testCase.row !== false) upsertWorkspaceWatcher(workspaceA, { policy: testCase.policy }, { dataDir });
-    const snapshot = snapshotWorkspaceWatcher({
+    const snapshot = await snapshotWorkspaceWatcher({
       workspaceFolder: workspaceA,
       dataDir,
       deps: poolDeps({
@@ -2059,7 +2059,7 @@ runCase('snapshot resolves a leaf through the watcher policy default, never an a
   }
 });
 
-runCase('snapshot pool counts always add up to the busy tokens exactly once', () => {
+runCase('snapshot pool counts always add up to the busy tokens exactly once', async () => {
   const scenarios = [
     {
       label: 'empty workspace',
@@ -2103,7 +2103,7 @@ runCase('snapshot pool counts always add up to the busy tokens exactly once', ()
   ];
   for (const scenario of scenarios) {
     const dataDir = freshDataDir(`pool-split-invariant-${scenario.label.replace(/\W+/g, '-')}`);
-    const snapshot = snapshotWorkspaceWatcher({
+    const snapshot = await snapshotWorkspaceWatcher({
       workspaceFolder: workspaceA,
       dataDir,
       scoutParentChatIds: scenario.scoutParentChatIds,
@@ -2121,11 +2121,11 @@ runCase('snapshot pool counts always add up to the busy tokens exactly once', ()
   }
 });
 
-runCase('pool split keeps the scout scenario fields unchanged', () => {
+runCase('pool split keeps the scout scenario fields unchanged', async () => {
   // Same fixture as 'snapshot keeps a live scout and its review out of the todo
   // parallel slot': the new pools are additive and must not move an older field.
   const dataDir = freshDataDir('pool-split-regression-scout');
-  const snapshot = snapshotWorkspaceWatcher({
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: workspaceA,
     dataDir,
     scoutParentChatIds: ['scout-parent'],
@@ -2165,12 +2165,12 @@ runCase('pool split keeps the scout scenario fields unchanged', () => {
   assert.equal(decision.nextTodoId, 'ready');
 });
 
-runCase('pool split keeps a claim-backed busy token in the project pool by default', () => {
+runCase('pool split keeps a claim-backed busy token in the project pool by default', async () => {
   // Same fixture as 'a closed-cycle orchestrator that still holds a claim counts
   // as busy', with an untouched policy: `inherit` resolves to `project`.
   const dataDir = freshDataDir('pool-split-regression-claim');
   upsertWorkspaceWatcher(workspaceA, { mode: 'observe' }, { dataDir });
-  const snapshot = snapshotWorkspaceWatcher({
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: workspaceA,
     dataDir,
     closedCycleChatIds: ['orch-closed'],
@@ -2460,14 +2460,14 @@ runCase('decide: a snapshot without pool counts behaves as zero occupancy', () =
   }
 });
 
-runCase('decide: worktree occupancy from a real snapshot gates only the worktree leaf', () => {
+runCase('decide: worktree occupancy from a real snapshot gates only the worktree leaf', async () => {
   const dataDir = freshDataDir('pool-gate-live-snapshot');
   upsertWorkspaceWatcher(workspaceA, {
     mode: 'autopilot',
     enabled: true,
     policy: { maxParallel: 3, maxParallelWorktree: 1, requirePlanApproval: false, cooldownMs: 0 },
   }, { dataDir });
-  const snapshot = snapshotWorkspaceWatcher({
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: workspaceA,
     dataDir,
     deps: poolDeps({
@@ -2692,10 +2692,10 @@ runCase('decide: cycle counts change no decision while no pool limit is configur
   }
 });
 
-runCase('tick records snapshot_error when todos store fails', () => {
+runCase('tick records snapshot_error when todos store fails', async () => {
   const dataDir = freshDataDir('tick-snapshot-error');
   upsertWorkspaceWatcher(workspaceA, { mode: 'observe' }, { dataDir });
-  const tick = tickWorkspaceWatcher({
+  const tick = await tickWorkspaceWatcher({
     workspaceFolder: workspaceA,
     dataDir,
     token: 'err-token',
@@ -2736,7 +2736,7 @@ runCase('document CAS rejects stale lease takeover across parallel writers', () 
   assert.equal(getWorkspaceWatcher(workspaceA, { dataDir }).orchestratorChatId, 'cas-win');
 });
 
-runCase('snapshot matches delegations via canonical workspace paths', () => {
+runCase('snapshot matches delegations via canonical workspace paths', async () => {
   const link = path.join(tmpRoot, 'canonical-link');
   const target = path.join(tmpRoot, 'canonical-target');
   fs.mkdirSync(target, { recursive: true });
@@ -2746,7 +2746,7 @@ runCase('snapshot matches delegations via canonical workspace paths', () => {
     console.log('SKIP: symlink unavailable for canonical workspace test');
     return;
   }
-  const snapshot = snapshotWorkspaceWatcher({
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: link,
     deps: observeDeps({
       loadDelegations: () => [{ id: 'd-link', status: 'running', workspaceFolder: target }],
@@ -2756,24 +2756,24 @@ runCase('snapshot matches delegations via canonical workspace paths', () => {
   assert.deepEqual(snapshot.activeDelegationIds, ['d-link']);
 });
 
-runCase('tick in off mode does not write the store', () => {
+runCase('tick in off mode does not write the store', async () => {
   const dataDir = freshDataDir('tick-off');
   upsertWorkspaceWatcher(workspaceA, { mode: 'off' }, { dataDir });
   const file = getWorkspaceWatchersDataPath({ dataDir });
   const before = fs.readFileSync(file, 'utf8');
-  const tick = tickWorkspaceWatcher({ workspaceFolder: workspaceA, dataDir, now: Date.now(), deps: observeDeps() });
+  const tick = await tickWorkspaceWatcher({ workspaceFolder: workspaceA, dataDir, now: Date.now(), deps: observeDeps() });
   assert.equal(tick.action, 'off');
   assert.equal(tick.wrote, false);
   assert.equal(fs.readFileSync(file, 'utf8'), before);
   assert.equal(getWorkspaceWatcher(workspaceA, { dataDir }).lastTickAt, '');
 });
 
-runCase('tick in observe mode records one deduped decision and keeps the lease', () => {
+runCase('tick in observe mode records one deduped decision and keeps the lease', async () => {
   const dataDir = freshDataDir('tick-observe');
   upsertWorkspaceWatcher(workspaceA, { mode: 'observe' }, { dataDir });
   const t0 = Date.parse('2026-01-01T00:00:00.000Z');
 
-  const first = tickWorkspaceWatcher({
+  const first = await tickWorkspaceWatcher({
     workspaceFolder: workspaceA,
     dataDir,
     now: t0,
@@ -2785,7 +2785,7 @@ runCase('tick in observe mode records one deduped decision and keeps the lease',
   assert.equal(first.recorded, true);
   assert.equal(first.shouldNotify, true);
 
-  const second = tickWorkspaceWatcher({
+  const second = await tickWorkspaceWatcher({
     workspaceFolder: workspaceA,
     dataDir,
     now: t0 + 1000,
@@ -2795,7 +2795,7 @@ runCase('tick in observe mode records one deduped decision and keeps the lease',
   });
   assert.equal(second.recorded, false, 'same decision within dedupe window is not spammed');
 
-  const third = tickWorkspaceWatcher({
+  const third = await tickWorkspaceWatcher({
     workspaceFolder: workspaceA,
     dataDir,
     now: t0 + 120_000,
@@ -2871,7 +2871,7 @@ runCase('idle no-work decisions dedupe for ten minutes but record state changes 
   );
 });
 
-runCase('tick uses the ten-minute idle no-work cadence by default', () => {
+runCase('tick uses the ten-minute idle no-work cadence by default', async () => {
   const dataDir = freshDataDir('tick-idle-no-work-dedupe');
   upsertWorkspaceWatcher(workspaceA, { mode: 'observe' }, { dataDir });
   const deps = observeDeps({
@@ -2880,15 +2880,15 @@ runCase('tick uses the ten-minute idle no-work cadence by default', () => {
   });
   const t0 = Date.parse('2026-01-01T00:00:00.000Z');
 
-  const first = tickWorkspaceWatcher({ workspaceFolder: workspaceA, dataDir, now: t0, token: 'idle-token', deps });
-  const beforeWindow = tickWorkspaceWatcher({
+  const first = await tickWorkspaceWatcher({ workspaceFolder: workspaceA, dataDir, now: t0, token: 'idle-token', deps });
+  const beforeWindow = await tickWorkspaceWatcher({
     workspaceFolder: workspaceA,
     dataDir,
     now: t0 + WORKSPACE_WATCHER_IDLE_NO_WORK_DEDUPE_MS - 1,
     token: 'idle-token',
     deps,
   });
-  const atWindow = tickWorkspaceWatcher({
+  const atWindow = await tickWorkspaceWatcher({
     workspaceFolder: workspaceA,
     dataDir,
     now: t0 + WORKSPACE_WATCHER_IDLE_NO_WORK_DEDUPE_MS,
@@ -2902,7 +2902,7 @@ runCase('tick uses the ten-minute idle no-work cadence by default', () => {
   assert.equal(getWorkspaceWatcher(workspaceA, { dataDir }).decisions.length, 2);
 });
 
-runCase('tick yields to a foreign live lease', () => {
+runCase('tick yields to a foreign live lease', async () => {
   const dataDir = freshDataDir('tick-lease');
   upsertWorkspaceWatcher(workspaceA, { mode: 'observe' }, { dataDir });
   const t0 = Date.parse('2026-01-01T00:00:00.000Z');
@@ -2910,16 +2910,16 @@ runCase('tick yields to a foreign live lease', () => {
   upsertWorkspaceWatcher(workspaceA, {
     lease: { ownerPid: 999, token: 'other', expiresAt: new Date(t0 + 60_000).toISOString() },
   }, { dataDir });
-  const tick = tickWorkspaceWatcher({ workspaceFolder: workspaceA, dataDir, now: t0, token: 'mine', deps: observeDeps() });
+  const tick = await tickWorkspaceWatcher({ workspaceFolder: workspaceA, dataDir, now: t0, token: 'mine', deps: observeDeps() });
   assert.equal(tick.action, 'lease_held');
   assert.equal(tick.wrote, false);
 });
 
-runCase('heartbeat scans all rows, touches only observe and never throws on corrupt store', () => {
+runCase('heartbeat scans all rows, touches only observe and never throws on corrupt store', async () => {
   const dataDir = freshDataDir('heartbeat');
   upsertWorkspaceWatcher(workspaceA, { mode: 'observe' }, { dataDir });
   upsertWorkspaceWatcher(workspaceB, { mode: 'off' }, { dataDir });
-  const result = runWorkspaceWatcherHeartbeat({ dataDir, now: Date.now(), token: 'hb', deps: observeDeps() });
+  const result = await runWorkspaceWatcherHeartbeat({ dataDir, now: Date.now(), token: 'hb', deps: observeDeps() });
   assert.equal(result.scanned, 2);
   assert.equal(result.observed, 1);
   assert.equal(result.wrote, 1);
@@ -2931,7 +2931,7 @@ runCase('heartbeat scans all rows, touches only observe and never throws on corr
 
   const corruptDir = freshDataDir('heartbeat-corrupt');
   fs.writeFileSync(getWorkspaceWatchersDataPath({ dataDir: corruptDir }), '{ bad', 'utf8');
-  const corrupt = runWorkspaceWatcherHeartbeat({ dataDir: corruptDir, now: Date.now(), token: 'hb' });
+  const corrupt = await runWorkspaceWatcherHeartbeat({ dataDir: corruptDir, now: Date.now(), token: 'hb' });
   assert.equal(corrupt.scanned, 0);
   assert.equal(corrupt.errors.length, 1);
   assert.equal(corrupt.errors[0].code, 'WORKSPACE_WATCHERS_CORRUPT');
@@ -3226,12 +3226,12 @@ runCase('claim liveness: idle/missing chat expires, busy or unknown keeps it', (
   assert.equal(isWorkspaceTodoClaimAlive({ claimedByChatId: 'c' }, unknown), true, 'unknown state keeps the claim');
 });
 
-runCase('claimNextWorkspaceTodo: ready -> doing with claim fields; second pick finds none', () => {
+runCase('claimNextWorkspaceTodo: ready -> doing with claim fields; second pick finds none', async () => {
   const dataDir = freshDataDir('claim-basic');
   const cwd = makeWorkspace('claim-basic');
   const todo = addReadyTodo(dataDir, cwd, 'work');
   const alive = () => ({ known: true, busy: true, reason: 'busy' });
-  const claim = claimNextWorkspaceTodo({
+  const claim = await claimNextWorkspaceTodo({
     dataDir, workspaceFolder: cwd, claimedByChatId: 'chat-A', now: T0, probeChatRunLiveness: alive,
   });
   assert.equal(claim.claimed, true);
@@ -3243,19 +3243,19 @@ runCase('claimNextWorkspaceTodo: ready -> doing with claim fields; second pick f
   const reloaded = getTodoById(dataDir, cwd, todo.id);
   assert.equal(reloaded.status, 'doing');
   assert.equal(reloaded.claimedByChatId, 'chat-A');
-  const second = claimNextWorkspaceTodo({
+  const second = await claimNextWorkspaceTodo({
     dataDir, workspaceFolder: cwd, claimedByChatId: 'chat-B', now: T0, probeChatRunLiveness: alive,
   });
   assert.equal(second.claimed, false);
   assert.equal(second.reason, 'no_ready_work');
 });
 
-runCase('claimNextWorkspaceTodo: rejects a claim with no claimer or workspace', () => {
+runCase('claimNextWorkspaceTodo: rejects a claim with no claimer or workspace', async () => {
   const dataDir = freshDataDir('claim-guards');
   const cwd = makeWorkspace('claim-guards');
   addReadyTodo(dataDir, cwd, 'guarded');
-  assert.equal(claimNextWorkspaceTodo({ dataDir, workspaceFolder: cwd, claimedByChatId: '' }).reason, 'no_claimer');
-  assert.equal(claimNextWorkspaceTodo({ dataDir, workspaceFolder: '', claimedByChatId: 'chat-A' }).reason, 'no_workspace');
+  assert.equal((await claimNextWorkspaceTodo({ dataDir, workspaceFolder: cwd, claimedByChatId: '' })).reason, 'no_claimer');
+  assert.equal((await claimNextWorkspaceTodo({ dataDir, workspaceFolder: '', claimedByChatId: 'chat-A' })).reason, 'no_workspace');
 });
 
 /**
@@ -3272,14 +3272,14 @@ function sleepPastMsBoundary(ms) {
   }
 }
 
-runCase('claimWorkspaceTodo: two claims on one stale token, only the first wins', () => {
+runCase('claimWorkspaceTodo: two claims on one stale token, only the first wins', async () => {
   const dataDir = freshDataDir('claim-cas');
   const cwd = makeWorkspace('claim-cas');
   const todo = addReadyTodo(dataDir, cwd, 'contended');
   sleepPastMsBoundary(3);
   const token = getTodoById(dataDir, cwd, todo.id).updatedAt;
-  const first = claimWorkspaceTodo({ dataDir, workspaceFolder: cwd, todoId: todo.id, claimedByChatId: 'chat-A', expectedUpdatedAt: token, now: T0 });
-  const second = claimWorkspaceTodo({ dataDir, workspaceFolder: cwd, todoId: todo.id, claimedByChatId: 'chat-B', expectedUpdatedAt: token, now: T0 + 1 });
+  const first = await claimWorkspaceTodo({ dataDir, workspaceFolder: cwd, todoId: todo.id, claimedByChatId: 'chat-A', expectedUpdatedAt: token, now: T0 });
+  const second = await claimWorkspaceTodo({ dataDir, workspaceFolder: cwd, todoId: todo.id, claimedByChatId: 'chat-B', expectedUpdatedAt: token, now: T0 + 1 });
   assert.equal(first.claimed, true);
   assert.equal(second.claimed, false);
   assert.equal(second.reason, 'cas_conflict');
@@ -3288,13 +3288,13 @@ runCase('claimWorkspaceTodo: two claims on one stale token, only the first wins'
   assert.equal(reloaded.status, 'doing');
 });
 
-runCase('releaseStaleWorkspaceTodoClaims: one delegation read per pass without recoveries', () => {
+runCase('releaseStaleWorkspaceTodoClaims: one delegation read per pass without recoveries', async () => {
   const dataDir = freshDataDir('claim-release-reads');
   const cwd = makeWorkspace('claim-release-reads');
   const todo = addReadyTodo(dataDir, cwd, 'busy');
-  claimWorkspaceTodo({ dataDir, workspaceFolder: cwd, todoId: todo.id, claimedByChatId: 'live-chat', now: T0 });
+  await claimWorkspaceTodo({ dataDir, workspaceFolder: cwd, todoId: todo.id, claimedByChatId: 'live-chat', now: T0 });
   let reads = 0;
-  const result = releaseStaleWorkspaceTodoClaims({
+  const result = await releaseStaleWorkspaceTodoClaims({
     dataDir,
     workspaceFolder: cwd,
     probeChatRunLiveness: () => ({ known: true, busy: true, reason: 'busy' }),
@@ -3304,18 +3304,18 @@ runCase('releaseStaleWorkspaceTodoClaims: one delegation read per pass without r
   assert.equal(reads, 1, 'classify, the escalation scan and the claim sweep share one read');
 });
 
-runCase('releaseStaleWorkspaceTodoClaims: keeps busy/unknown, releases a confirmed-dead claim', () => {
+runCase('releaseStaleWorkspaceTodoClaims: keeps busy/unknown, releases a confirmed-dead claim', async () => {
   const dataDir = freshDataDir('claim-release');
   const cwd = makeWorkspace('claim-release');
   const todo = addReadyTodo(dataDir, cwd, 'abandoned');
-  claimWorkspaceTodo({ dataDir, workspaceFolder: cwd, todoId: todo.id, claimedByChatId: 'dead-chat', now: T0 });
-  assert.deepEqual(releaseStaleWorkspaceTodoClaims({
+  await claimWorkspaceTodo({ dataDir, workspaceFolder: cwd, todoId: todo.id, claimedByChatId: 'dead-chat', now: T0 });
+  assert.deepEqual((await releaseStaleWorkspaceTodoClaims({
     dataDir, workspaceFolder: cwd, probeChatRunLiveness: () => ({ known: true, busy: true, reason: 'busy' }),
-  }).released, [], 'busy chat keeps the claim');
-  assert.deepEqual(releaseStaleWorkspaceTodoClaims({
+  })).released, [], 'busy chat keeps the claim');
+  assert.deepEqual((await releaseStaleWorkspaceTodoClaims({
     dataDir, workspaceFolder: cwd, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'adapter_missing' }),
-  }).released, [], 'unknown state keeps the claim');
-  const released = releaseStaleWorkspaceTodoClaims({
+  })).released, [], 'unknown state keeps the claim');
+  const released = await releaseStaleWorkspaceTodoClaims({
     dataDir, workspaceFolder: cwd, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'chat_missing' }),
   });
   assert.deepEqual(released.released, [todo.id]);
@@ -3325,24 +3325,24 @@ runCase('releaseStaleWorkspaceTodoClaims: keeps busy/unknown, releases a confirm
   assert.equal(reloaded.claimedAt, undefined);
 });
 
-runCase('releaseStaleWorkspaceTodoClaims: never touches doing items without a claim', () => {
+runCase('releaseStaleWorkspaceTodoClaims: never touches doing items without a claim', async () => {
   const dataDir = freshDataDir('claim-no-token');
   const cwd = makeWorkspace('claim-no-token');
   const todo = addReadyTodo(dataDir, cwd, 'manual');
   updateTodo(dataDir, cwd, todo.id, { status: 'doing', strictStatus: true });
-  const result = releaseStaleWorkspaceTodoClaims({
+  const result = await releaseStaleWorkspaceTodoClaims({
     dataDir, workspaceFolder: cwd, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'chat_missing' }),
   });
   assert.deepEqual(result.released, []);
   assert.equal(getTodoById(dataDir, cwd, todo.id).status, 'doing');
 });
 
-runCase('claimNextWorkspaceTodo: releases a dead claim then claims for the new chat', () => {
+runCase('claimNextWorkspaceTodo: releases a dead claim then claims for the new chat', async () => {
   const dataDir = freshDataDir('claim-reclaim');
   const cwd = makeWorkspace('claim-reclaim');
   const todo = addReadyTodo(dataDir, cwd, 'reclaim');
-  claimWorkspaceTodo({ dataDir, workspaceFolder: cwd, todoId: todo.id, claimedByChatId: 'dead', now: T0 });
-  const claim = claimNextWorkspaceTodo({
+  await claimWorkspaceTodo({ dataDir, workspaceFolder: cwd, todoId: todo.id, claimedByChatId: 'dead', now: T0 });
+  const claim = await claimNextWorkspaceTodo({
     dataDir,
     workspaceFolder: cwd,
     claimedByChatId: 'chat-C',
@@ -3353,7 +3353,7 @@ runCase('claimNextWorkspaceTodo: releases a dead claim then claims for the new c
   assert.equal(claim.item.claimedByChatId, 'chat-C');
 });
 
-runCase('observe tick logs nextTodoId but never claims or changes the todo', () => {
+runCase('observe tick logs nextTodoId but never claims or changes the todo', async () => {
   const dataDir = freshDataDir('observe-no-claim');
   const cwd = makeWorkspace('observe-no-claim');
   const todo = addReadyTodo(dataDir, cwd, 'observed');
@@ -3362,7 +3362,7 @@ runCase('observe tick logs nextTodoId but never claims or changes the todo', () 
     loadTodosData: () => loadTodosData(dataDir, cwd),
     listReadyTodoLeaves: (items) => listReadyTodoLeaves(items),
   });
-  const tick = tickWorkspaceWatcher({
+  const tick = await tickWorkspaceWatcher({
     workspaceFolder: cwd, dataDir, now: T0, token: 'obs', decisionDedupeMs: 0, deps,
   });
   assert.equal(tick.action, 'observe_ready');
@@ -4639,7 +4639,7 @@ runCase('tick: with no other pool to fall through to, the wait names the saturat
   }), { dataDir });
   seedLiveCycle(dataDir, cwd, { cycleId: 'wt-cycle', chatId: 'wt-orch', todoIds: [wtInFlight.id] });
   seedLiveCycle(dataDir, cwd, { cycleId: 'pj-cycle', chatId: 'pj-orch', todoIds: [pjInFlight.id] });
-  const tick = tickWorkspaceWatcher({
+  const tick = await tickWorkspaceWatcher({
     workspaceFolder: cwd,
     dataDir,
     now: T0,
@@ -4668,7 +4668,7 @@ runCase('tick: a symmetric full project cycle pool names the eligible worktree t
   const readyWorktree = addReadyTodo(dataDir, cwd, 'eligible worktree leaf', { executionMode: 'worktree', siblingIndex: 1 });
   upsertWorkspaceWatcher(cwd, poolCycleWatcher({ maxParallel: 3, maxParallelProject: 1 }), { dataDir });
   seedLiveCycle(dataDir, cwd, { cycleId: 'pj-cycle', chatId: 'pj-orch', todoIds: [pjInFlight.id] }, T0 - 5000);
-  const tick = tickWorkspaceWatcher({
+  const tick = await tickWorkspaceWatcher({
     workspaceFolder: cwd,
     dataDir,
     now: T0,
@@ -4722,7 +4722,7 @@ runCase('tick: the global cycle cap keeps its exact decision shape with pools co
   }), { dataDir });
   seedLiveCycle(dataDir, cwd, { cycleId: 'wt-cycle', chatId: 'wt-orch', todoIds: [wtInFlight.id] });
   seedLiveCycle(dataDir, cwd, { cycleId: 'pj-cycle', chatId: 'pj-orch', todoIds: [pjInFlight.id] });
-  const tick = tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0, token: 'global-shape', deps: poolStartDeps([]) });
+  const tick = await tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0, token: 'global-shape', deps: poolStartDeps([]) });
   assert.equal(tick.decision.reason, 'cycle_active', 'every pool has room, the sum does not');
   assert.equal('pool' in tick.decision, false, 'the global refusal stays exactly the decision it was');
   assert.deepEqual(tick.decision.slotChats, [
@@ -4907,7 +4907,7 @@ runCase('startWorkspaceWatcherCycle: missing orchestrator pick rolls back withou
   assert.equal(getTodoById(dataDir, cwd, todo.id).status, 'ready');
 });
 
-runCase('reconcileWorkspaceWatcherCycle: incomplete todo increments failures up to skip', () => {
+runCase('reconcileWorkspaceWatcherCycle: incomplete todo increments failures up to skip', async () => {
   const dataDir = freshDataDir('cycle-incomplete');
   const cwd = makeWorkspace('cycle-incomplete');
   const todo = addReadyTodo(dataDir, cwd, 'stuck');
@@ -4950,7 +4950,7 @@ runCase('reconcileWorkspaceWatcherCycle: incomplete todo increments failures up 
   }
   const row = getWorkspaceWatcher(cwd, { dataDir });
   assert.ok((row.failures?.[todo.id] || 0) >= 3);
-  const snap = snapshotWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0 });
+  const snap = await snapshotWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0 });
   const picked = pickNextWorkspaceReadyTodo({ readyLeaves: snap.readyLeaves, failures: row.failures, maxFailures: 3 });
   assert.equal(picked, null, 'todo is skipped after repeated incomplete cycles');
   assert.equal(
@@ -5228,7 +5228,7 @@ runCase('runWorkspaceWatcherAutopilot: starts exactly one cycle per workspace ti
   assert.equal(getTodoById(dataDir, cwd, todo.id).status, 'doing');
 });
 
-runCase('empty plan cycle counts failure, clears the gate and records a skip at its ceiling', () => {
+runCase('empty plan cycle counts failure, clears the gate and records a skip at its ceiling', async () => {
   const dataDir = freshDataDir('empty-plan-cycle');
   const cwd = makeWorkspace('empty-plan-cycle');
   const todo = addReadyTodo(dataDir, cwd, 'no draft produced');
@@ -5253,7 +5253,7 @@ runCase('empty plan cycle counts failure, clears the gate and records a skip at 
   assert.match(released.changelog.at(-1).text, /skipped this todo after 1 failed/);
   assert.match(released.blockedReason, /failure ceiling/);
   assert.equal(listReadyTodoLeaves([released]).length, 0);
-  const afterClose = tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0 + 500, token: 'close-stop' });
+  const afterClose = await tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0 + 500, token: 'close-stop' });
   assert.equal(afterClose.decision.kind, 'idle_no_work');
   assert.equal(getWorkspaceWatcher(cwd, { dataDir }).stopReason, 'loop_no_eligible_work');
 });
@@ -5333,13 +5333,13 @@ runCase('accepted run is cancelled when watcher disables while the start awaits'
   assert.equal(getTodoById(dataDir, cwd, todo.id).status, 'ready');
 });
 
-runCase('blocked todo: one changelog entry and one push, never a second block', () => {
+runCase('blocked todo: one changelog entry and one push, never a second block', async () => {
   const dataDir = freshDataDir('blocked-once');
   const cwd = makeWorkspace('blocked-once');
   const todo = addReadyTodo(dataDir, cwd, 'block me');
   const pushes = [];
   const notify = (input) => { pushes.push(String(input.tag || '')); return true; };
-  const first = markWorkspaceWatcherTodoBlocked({
+  const first = await markWorkspaceWatcherTodoBlocked({
     dataDir, workspaceFolder: cwd, todoId: todo.id, notify, reasonText: 'stuck in a loop',
   });
   assert.equal(first, true);
@@ -5347,7 +5347,7 @@ runCase('blocked todo: one changelog entry and one push, never a second block', 
   assert.equal(blocked.blockedReason, 'stuck in a loop');
   assert.equal(blocked.changelog.at(-1).text, 'stuck in a loop');
   assert.equal(pushes.length, 1);
-  const second = markWorkspaceWatcherTodoBlocked({
+  const second = await markWorkspaceWatcherTodoBlocked({
     dataDir, workspaceFolder: cwd, todoId: todo.id, notify, reasonText: 'stuck in a loop',
   });
   assert.equal(second, false, 'an already blocked todo is not re-blocked or re-notified');
@@ -5356,13 +5356,13 @@ runCase('blocked todo: one changelog entry and one push, never a second block', 
 
   const done = addReadyTodo(dataDir, cwd, 'done todo');
   updateTodo(dataDir, cwd, done.id, { status: 'done', expectedUpdatedAt: done.updatedAt });
-  assert.equal(markWorkspaceWatcherTodoBlocked({
+  assert.equal(await markWorkspaceWatcherTodoBlocked({
     dataDir, workspaceFolder: cwd, todoId: done.id, notify,
   }), false, 'a finished todo is left alone');
   assert.ok(!getTodoById(dataDir, cwd, done.id).blockedReason);
 });
 
-runCase('loop guard: three failed cycles block the todo, keep fresh work, then stop when none remain', () => {
+runCase('loop guard: three failed cycles block the todo, keep fresh work, then stop when none remain', async () => {
   const dataDir = freshDataDir('loop-ceiling');
   const cwd = makeWorkspace('loop-ceiling');
   const stuck = addReadyTodo(dataDir, cwd, 'stuck');
@@ -5373,7 +5373,7 @@ runCase('loop guard: three failed cycles block the todo, keep fresh work, then s
   }, { dataDir });
   mutateWorkspaceWatcherRow(cwd, () => ({ failures: { [stuck.id]: 3 } }), { dataDir });
 
-  const first = tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0, token: 'loop-guard' });
+  const first = await tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0, token: 'loop-guard' });
   assert.equal(first.decision.kind, 'start_cycle');
   assert.equal(first.decision.nextTodoId, fresh.id, 'the watcher moves to the fresh todo');
   assert.equal(getWorkspaceWatcher(cwd, { dataDir }).stopReason, '');
@@ -5385,7 +5385,7 @@ runCase('loop guard: three failed cycles block the todo, keep fresh work, then s
 
   // Now the last remaining ready todo also reaches the ceiling: nothing eligible.
   mutateWorkspaceWatcherRow(cwd, ({ row }) => ({ failures: { ...row.failures, [fresh.id]: 3 } }), { dataDir });
-  const second = tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0 + 1000, token: 'loop-guard' });
+  const second = await tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0 + 1000, token: 'loop-guard' });
   assert.equal(second.decision.kind, 'idle_no_work');
   assert.equal(getWorkspaceWatcher(cwd, { dataDir }).stopReason, 'loop_no_eligible_work');
   const freshTodo = getTodoById(dataDir, cwd, fresh.id);
@@ -5393,7 +5393,7 @@ runCase('loop guard: three failed cycles block the todo, keep fresh work, then s
   assert.match(freshTodo.changelog.at(-1).text, /repeated failed cycles|findings/);
 });
 
-runCase('loop guard: identical findings block the candidate and clear the findings memory', () => {
+runCase('loop guard: identical findings block the candidate and clear the findings memory', async () => {
   const dataDir = freshDataDir('loop-findings');
   const cwd = makeWorkspace('loop-findings');
   const todo = addReadyTodo(dataDir, cwd, 'loopy');
@@ -5404,7 +5404,7 @@ runCase('loop guard: identical findings block the candidate and clear the findin
   mutateWorkspaceWatcherRow(cwd, () => ({
     findings: { byTodo: { [todo.id]: { hash: 'same-hash', streak: 2 } } },
   }), { dataDir });
-  const tick = tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0, token: 'loop-findings' });
+  const tick = await tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0, token: 'loop-findings' });
   assert.equal(tick.decision.kind, 'idle_no_work');
   const row = getWorkspaceWatcher(cwd, { dataDir });
   assert.equal(row.stopReason, 'loop_same_findings');
@@ -5412,7 +5412,7 @@ runCase('loop guard: identical findings block the candidate and clear the findin
   assert.ok(getTodoById(dataDir, cwd, todo.id).blockedReason);
 });
 
-runCase('loop guard: per-todo findings block only the stuck todo when another leaf is ready', () => {
+runCase('loop guard: per-todo findings block only the stuck todo when another leaf is ready', async () => {
   const dataDir = freshDataDir('loop-findings-per-todo');
   const cwd = makeWorkspace('loop-findings-per-todo');
   const stuck = addReadyTodo(dataDir, cwd, 'stuck findings');
@@ -5424,7 +5424,7 @@ runCase('loop guard: per-todo findings block only the stuck todo when another le
   mutateWorkspaceWatcherRow(cwd, () => ({
     findings: { byTodo: { [stuck.id]: { hash: 'same-hash', streak: 2 } } },
   }), { dataDir });
-  const tick = tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0, token: 'loop-findings-split' });
+  const tick = await tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0, token: 'loop-findings-split' });
   assert.equal(tick.decision.kind, 'start_cycle');
   assert.equal(tick.decision.nextTodoId, fresh.id);
   assert.equal(getWorkspaceWatcher(cwd, { dataDir }).stopReason, '');
@@ -5551,7 +5551,7 @@ runCase('global pause halts the autopilot and preserves failures, backoff and fi
   assert.equal(resumed.kind, 'start_cycle');
 });
 
-runCase('notifications: idle-with-work, stopReason and plan approval push once per state change', () => {
+runCase('notifications: idle-with-work, stopReason and plan approval push once per state change', async () => {
   const seen = [];
   const notify = (input) => { seen.push({ tag: String(input.tag || ''), body: String(input.body || '') }); return true; };
 
@@ -5560,19 +5560,19 @@ runCase('notifications: idle-with-work, stopReason and plan approval push once p
   const idleKey = normalizeWorkspaceFolder(idleCwd);
   const first = addReadyTodo(idleDir, idleCwd, 'idle work one');
   upsertWorkspaceWatcher(idleCwd, { mode: 'observe' }, { dataDir: idleDir });
-  tickWorkspaceWatcher({ workspaceFolder: idleCwd, dataDir: idleDir, now: T0, token: 'notify-idle', notify });
-  tickWorkspaceWatcher({ workspaceFolder: idleCwd, dataDir: idleDir, now: T0 + 1000, token: 'notify-idle', notify });
+  await tickWorkspaceWatcher({ workspaceFolder: idleCwd, dataDir: idleDir, now: T0, token: 'notify-idle', notify });
+  await tickWorkspaceWatcher({ workspaceFolder: idleCwd, dataDir: idleDir, now: T0 + 1000, token: 'notify-idle', notify });
   assert.equal(seen.filter((row) => row.tag === `cretli-watcher-${idleKey}`).length, 1, 'one push per idle episode');
   // End the episode (no ready work) then start a new one: a fresh push is expected.
   updateTodo(idleDir, idleCwd, first.id, { status: 'done', expectedUpdatedAt: first.updatedAt });
-  tickWorkspaceWatcher({ workspaceFolder: idleCwd, dataDir: idleDir, now: T0 + 2000, token: 'notify-idle', notify });
+  await tickWorkspaceWatcher({ workspaceFolder: idleCwd, dataDir: idleDir, now: T0 + 2000, token: 'notify-idle', notify });
   addReadyTodo(idleDir, idleCwd, 'idle work two');
-  tickWorkspaceWatcher({ workspaceFolder: idleCwd, dataDir: idleDir, now: T0 + 3000, token: 'notify-idle', notify });
+  await tickWorkspaceWatcher({ workspaceFolder: idleCwd, dataDir: idleDir, now: T0 + 3000, token: 'notify-idle', notify });
   assert.equal(seen.filter((row) => row.tag === `cretli-watcher-${idleKey}`).length, 2, 'a new episode notifies again');
   // stopReason notifies once per distinct reason.
   mutateWorkspaceWatcherRow(idleCwd, () => ({ stopReason: 'manual_stop' }), { dataDir: idleDir });
-  tickWorkspaceWatcher({ workspaceFolder: idleCwd, dataDir: idleDir, now: T0 + 4000, token: 'notify-idle', notify });
-  tickWorkspaceWatcher({ workspaceFolder: idleCwd, dataDir: idleDir, now: T0 + 5000, token: 'notify-idle', notify });
+  await tickWorkspaceWatcher({ workspaceFolder: idleCwd, dataDir: idleDir, now: T0 + 4000, token: 'notify-idle', notify });
+  await tickWorkspaceWatcher({ workspaceFolder: idleCwd, dataDir: idleDir, now: T0 + 5000, token: 'notify-idle', notify });
   assert.equal(seen.filter((row) => row.tag === `cretli-watcher-stopped-${idleKey}`).length, 1);
   assert.match(seen.find((row) => row.tag === `cretli-watcher-stopped-${idleKey}`).body, /manual_stop/);
 
@@ -5586,14 +5586,14 @@ runCase('notifications: idle-with-work, stopReason and plan approval push once p
     policy: { requirePlanApproval: true, cooldownMs: 0, maxCyclesPerDay: 5 },
   }, { dataDir: planDir });
   mutateWorkspaceWatcherRow(planCwd, () => ({ planRequests: { [planTodo.id]: new Date(T0).toISOString() } }), { dataDir: planDir });
-  const t1 = tickWorkspaceWatcher({ workspaceFolder: planCwd, dataDir: planDir, now: T0, token: 'notify-plan', notify });
-  const t2 = tickWorkspaceWatcher({ workspaceFolder: planCwd, dataDir: planDir, now: T0 + 1000, token: 'notify-plan', notify });
+  const t1 = await tickWorkspaceWatcher({ workspaceFolder: planCwd, dataDir: planDir, now: T0, token: 'notify-plan', notify });
+  const t2 = await tickWorkspaceWatcher({ workspaceFolder: planCwd, dataDir: planDir, now: T0 + 1000, token: 'notify-plan', notify });
   assert.equal(t1.decision.kind, 'wait_plan_approval');
   assert.equal(t2.decision.kind, 'wait_plan_approval');
   assert.equal(seen.filter((row) => row.tag === `cretli-watcher-plan_approval-${planKey}`).length, 1, 'plan approval is deduped');
 });
 
-runCase('deferred todos: next_ready/pick skip them and a deferred plan raises no plan_approval or idle_with_work', () => {
+runCase('deferred todos: next_ready/pick skip them and a deferred plan raises no plan_approval or idle_with_work', async () => {
   const dataDir = freshDataDir('watcher-deferred');
   const cwd = makeWorkspace('watcher-deferred');
   const key = normalizeWorkspaceFolder(cwd);
@@ -5612,7 +5612,7 @@ runCase('deferred todos: next_ready/pick skip them and a deferred plan raises no
     mode: 'autopilot',
     policy: { requirePlanApproval: true, cooldownMs: 0, maxCyclesPerDay: 5 },
   }, { dataDir });
-  const tick = tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0, token: 'deferred', notify });
+  const tick = await tickWorkspaceWatcher({ workspaceFolder: cwd, dataDir, now: T0, token: 'deferred', notify });
   assert.notEqual(tick.decision.kind, 'start_cycle');
   assert.notEqual(tick.decision.kind, 'wait_plan_approval');
   assert.equal(tick.decision.readyTodoCount, 0);

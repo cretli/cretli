@@ -511,7 +511,7 @@ test('attempt cap: past reviewGateMaxAttempts the leaf stays doing with review_g
   assert.match(todo.blockedReason, /review_gate_exhausted/);
   assert.equal(row.decisions.at(-2).reason === 'review_missing' || row.decisions.some((d) => d.reason === 'review_gate_exhausted'), true);
   // Recovery must not take it back to ready (non-blocking review note).
-  const { released } = releaseStaleWorkspaceTodoClaims({
+  const { released } = await releaseStaleWorkspaceTodoClaims({
     workspaceFolder: cwd,
     dataDir,
     probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'chat_missing' }),
@@ -634,7 +634,7 @@ test('C3 runtime reconcile of a deferred success without review closes blocked/r
   assert.equal(getWorkspaceWatcherCycleMetric('c-dead', { dataDir }).blockedReasonCode, 'review_missing');
 });
 
-test('C4 boot reconcile of a deferred success without review closes blocked/review_missing', () => {
+test('C4 boot reconcile of a deferred success without review closes blocked/review_missing', async () => {
   const dataDir = freshDataDir('c4');
   const cwd = makeWorkspace('c4');
   setAutopilot(cwd, dataDir);
@@ -642,7 +642,7 @@ test('C4 boot reconcile of a deferred success without review closes blocked/revi
   seedActiveCycle(cwd, dataDir, {
     cycleId: 'c-boot', chatId: 'orch-boot', todoIds: [leaf.id], reportedOutcome: 'success',
   });
-  reconcileWorkspaceWatchersOnBoot({
+  await reconcileWorkspaceWatchersOnBoot({
     dataDir,
     now: T0 + 3_600_000,
     probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'idle' }),
@@ -1111,7 +1111,7 @@ test('F3/F6: a released non-worktree gated leaf is reselected through the real s
   setAutopilot(cwd, dataDir);
   const leaf = addClaimedLeaf(cwd, dataDir, 'orch-1');
   const row = await closeWithReport(cwd, dataDir, { n: 1, todoId: leaf.id, outcome: 'success' });
-  const snapshot = snapshotWorkspaceWatcher({
+  const snapshot = await snapshotWorkspaceWatcher({
     workspaceFolder: cwd,
     dataDir,
     now: T0 + 120_000,

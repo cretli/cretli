@@ -27,9 +27,9 @@ const restartAt = args.flatMap((a, i) => (a === '--restart-at' ? [String(args[i 
 const graceMinutes = Number(arg('grace-minutes'));
 const base = { dataDir: arg('data-dir') || undefined, restartAt, graceMs: Number.isFinite(graceMinutes) && graceMinutes > 0 ? graceMinutes * 60_000 : undefined, workspaceFolder: arg('workspace') || undefined };
 if (!args.includes('--apply')) {
-  console.log(JSON.stringify(previewWorkspaceWatcherHistoryRepair(base), null, 2));
+  console.log(JSON.stringify(await previewWorkspaceWatcherHistoryRepair(base), null, 2));
 } else {
-  const result = applyWorkspaceWatcherHistoryRepair({
+  const result = await applyWorkspaceWatcherHistoryRepair({
     ...base,
     apply: true,
     casToken: { revision: Number(arg('revision')), updatedAt: arg('updated-at') },
