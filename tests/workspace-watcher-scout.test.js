@@ -192,11 +192,11 @@ runCase('parseScoutFindings filters categories and caps maxFindings', () => {
 
 /* ------------------------------------------------------------------ signals */
 
-runCase('collectScoutSignals gathers git/markers/todos/memory read-only', () => {
+runCase('collectScoutSignals gathers git/markers/todos/memory read-only', async () => {
   const { cwd, dataDir } = freshWorkspace('signals');
   addTodo(dataDir, cwd, { title: 'Existing todo', status: 'ready' });
   addWorkspaceMemory(cwd, { type: 'context', key: 'ctx', value: 'a note' }, { dataDir });
-  const signals = collectScoutSignals({ workspaceFolder: cwd, dataDir }, {
+  const signals = await collectScoutSignals({ workspaceFolder: cwd, dataDir }, {
     execGit: (args) => {
       if (args[0] === 'rev-parse') return 'a'.repeat(40);
       if (args[0] === 'diff' && !args.includes('--name-only')) return 'diff --git a/a.js b/a.js\n+TODO: fix';
@@ -504,25 +504,25 @@ runCase('record/accept/reject proposals; only scoutAutoCreate creates a todo', a
   const { cwd, dataDir } = freshWorkspace('crud');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
 
-  const recorded = recordScoutFindings(cwd, [
+  const recorded = await recordScoutFindings(cwd, [
     { title: 'Fix red test', category: 'bug', rationale: 'test fails', files: ['a.js'] },
     { title: 'Add docs', category: 'documentation' },
   ], { dataDir });
   assert.equal(recorded.added, 2);
   assert.equal(recorded.findings.length, 2);
 
-  const listed = runWorkspaceWatcherScoutAction({ dataDir, workspaceFolder: cwd, action: 'list' });
+  const listed = await runWorkspaceWatcherScoutAction({ dataDir, workspaceFolder: cwd, action: 'list' });
   assert.equal(listed.findings.length, 2);
   assert.equal(listed.findings.every((finding) => finding.status === 'pending'), true);
 
   const bug = listed.findings.find((finding) => finding.category === 'bug');
   const docs = listed.findings.find((finding) => finding.category === 'documentation');
-  const accepted = acceptScoutFindings(cwd, [bug.id], { dataDir });
+  const accepted = await acceptScoutFindings(cwd, [bug.id], { dataDir });
   assert.equal(accepted.changed, 1);
   assert.equal(accepted.createdTodos.length, 0, 'autoCreate defaults to false');
-  const rejected = rejectScoutFindings(cwd, [docs.id], { dataDir });
+  const rejected = await rejectScoutFindings(cwd, [docs.id], { dataDir });
   assert.equal(rejected.changed, 1);
-  const after = runWorkspaceWatcherScoutAction({ dataDir, workspaceFolder: cwd, action: 'list' });
+  const after = await runWorkspaceWatcherScoutAction({ dataDir, workspaceFolder: cwd, action: 'list' });
   assert.equal(after.findings.find((finding) => finding.id === bug.id).status, 'accepted');
   assert.equal(after.findings.find((finding) => finding.id === docs.id).status, 'rejected');
 
@@ -533,8 +533,8 @@ runCase('record/accept/reject proposals; only scoutAutoCreate creates a todo', a
   upsertWorkspaceWatcher(cwd, {
     policy: { scoutEnabled: true, scoutAutoCreate: true },
   }, { dataDir });
-  recordScoutFindings(cwd, [{ title: 'Auto create me', category: 'opportunity' }], { dataDir });
-  const auto = runWorkspaceWatcherScoutAction({ dataDir, workspaceFolder: cwd, action: 'list' });
+  await recordScoutFindings(cwd, [{ title: 'Auto create me', category: 'opportunity' }], { dataDir });
+  const auto = await runWorkspaceWatcherScoutAction({ dataDir, workspaceFolder: cwd, action: 'list' });
   const target = auto.findings.find((finding) => finding.title === 'Auto create me');
   assert.ok(target);
   assert.equal(target.status, 'accepted', 'record auto-accepts when scoutAutoCreate is on');
@@ -551,7 +551,7 @@ runCase('record/accept/reject proposals; only scoutAutoCreate creates a todo', a
 
   // Accepting the already-accepted finding is idempotent: no state change and
   // no duplicate todo.
-  const autoAccepted = acceptScoutFindings(cwd, [target.id], { dataDir });
+  const autoAccepted = await acceptScoutFindings(cwd, [target.id], { dataDir });
   assert.equal(autoAccepted.changed, 0);
   assert.equal(autoAccepted.createdTodos.length, 0);
   assert.equal(loadTodosData(dataDir, cwd).items.length, 1);
@@ -561,8 +561,8 @@ runCase('record/accept/reject proposals; only scoutAutoCreate creates a todo', a
   upsertWorkspaceWatcher(cwd, {
     policy: { scoutEnabled: true, scoutAutoCreate: false },
   }, { dataDir });
-  recordScoutFindings(cwd, [{ title: 'Replay me', category: 'bug', rationale: 'keep the human plan' }], { dataDir });
-  const replayList = runWorkspaceWatcherScoutAction({ dataDir, workspaceFolder: cwd, action: 'list' });
+  await recordScoutFindings(cwd, [{ title: 'Replay me', category: 'bug', rationale: 'keep the human plan' }], { dataDir });
+  const replayList = await runWorkspaceWatcherScoutAction({ dataDir, workspaceFolder: cwd, action: 'list' });
   const replayTarget = replayList.findings.find((finding) => finding.title === 'Replay me');
   assert.ok(replayTarget);
   assert.equal(replayTarget.status, 'pending');
@@ -570,7 +570,7 @@ runCase('record/accept/reject proposals; only scoutAutoCreate creates a todo', a
     policy: { scoutEnabled: true, scoutAutoCreate: true },
   }, { dataDir });
   let planWrites = 0;
-  const replayed = acceptScoutFindings(cwd, [replayTarget.id], {
+  const replayed = await acceptScoutFindings(cwd, [replayTarget.id], {
     dataDir,
     deps: {
       addTodo: () => ({ replayed: true, item: { id: 'already-there', title: '[Scout] Replay me' } }),
@@ -580,7 +580,7 @@ runCase('record/accept/reject proposals; only scoutAutoCreate creates a todo', a
   assert.equal(replayed.changed, 1);
   assert.equal(planWrites, 0);
 
-  const reReject = rejectScoutFindings(cwd, [bug.id], { dataDir });
+  const reReject = await rejectScoutFindings(cwd, [bug.id], { dataDir });
   assert.equal(reReject.changed, 0, 'terminal findings cannot be re-resolved');
 });
 
@@ -768,7 +768,7 @@ runCase('REST /api/workspace-watcher/scout lists, submits and resolves', async (
       submitToken: 'token-test',
     },
   }), { dataDir });
-  const authorized = runWorkspaceWatcherScoutAction({
+  const authorized = await runWorkspaceWatcherScoutAction({
     dataDir,
     workspaceFolder: cwd,
     action: 'submit',
@@ -796,7 +796,7 @@ runCase('REST /api/workspace-watcher/scout lists, submits and resolves', async (
   assert.equal(badAction.status, 400);
 });
 
-runCase('submit strips caller-owned ids and rejects duplicate smuggled ids', () => {
+runCase('submit strips caller-owned ids and rejects duplicate smuggled ids', async () => {
   const { cwd, dataDir } = freshWorkspace('sanitize');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
   mutateWorkspaceWatcherRow(cwd, () => ({
@@ -809,7 +809,7 @@ runCase('submit strips caller-owned ids and rejects duplicate smuggled ids', () 
     },
   }), { dataDir });
   const smuggledId = '00000000-0000-4000-8000-000000000001';
-  submitScoutFindings(cwd, {
+  await submitScoutFindings(cwd, {
     dataDir,
     findings: [{
       id: smuggledId,
@@ -840,7 +840,7 @@ runCase('submit strips caller-owned ids and rejects duplicate smuggled ids', () 
       submitToken: 'tok-s2',
     },
   }), { dataDir });
-  const second = submitScoutFindings(cwd, {
+  const second = await submitScoutFindings(cwd, {
     dataDir,
     findings: [{
       id: finding.id,
@@ -856,7 +856,7 @@ runCase('submit strips caller-owned ids and rejects duplicate smuggled ids', () 
   assert.equal(after.pendingScoutFindings.filter((item) => item.title === 'Sanitized finding').length, 1);
 });
 
-runCase('active Scout scan expires and cannot submit afterward', () => {
+runCase('active Scout scan expires and cannot submit afterward', async () => {
   const { cwd, dataDir } = freshWorkspace('expire');
   const now = Date.parse('2026-02-02T12:00:00.000Z');
   mutateWorkspaceWatcherRow(cwd, () => ({
@@ -869,8 +869,8 @@ runCase('active Scout scan expires and cannot submit afterward', () => {
     },
   }), { dataDir });
   assert.equal(expireStaleActiveScoutScan(cwd, { dataDir, now }), true);
-  assert.throws(
-    () => submitScoutFindings(cwd, {
+  await assert.rejects(
+    async () => await submitScoutFindings(cwd, {
       dataDir,
       now,
       findings: [{ title: 'Late', category: 'bug' }],
@@ -909,15 +909,15 @@ runCase('runWorkspaceWatcherScout marks scan uncertain when startChatRun throws 
   assert.equal(active.status, 'uncertain', 'scan is uncertain, not cleared');
 });
 
-runCase('runWorkspaceWatcherScoutAction validates action and ids', () => {
+runCase('runWorkspaceWatcherScoutAction validates action and ids', async () => {
   const { cwd, dataDir } = freshWorkspace('validate');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
-  assert.throws(
-    () => runWorkspaceWatcherScoutAction({ dataDir, workspaceFolder: cwd, action: 'nope' }),
+  await assert.rejects(
+    async () => await runWorkspaceWatcherScoutAction({ dataDir, workspaceFolder: cwd, action: 'nope' }),
     /action must be one of/,
   );
-  assert.throws(
-    () => runWorkspaceWatcherScoutAction({ dataDir, workspaceFolder: cwd, action: 'accept', ids: [] }),
+  await assert.rejects(
+    async () => await runWorkspaceWatcherScoutAction({ dataDir, workspaceFolder: cwd, action: 'accept', ids: [] }),
     /ids is required/,
   );
 });
@@ -968,7 +968,7 @@ runCase('review finding text recorded via REST is persisted and dedupes a Scout 
   assert.match(row.findings.byTodo[todo.id].summary || '', /intermittently fails on token refresh/);
 
   // Signals fed to Scout carry the summary — no manually preconstructed array.
-  const signals = collectScoutSignals({ workspaceFolder: cwd, dataDir, watcher: row }, { execGit: scopedGit });
+  const signals = await collectScoutSignals({ workspaceFolder: cwd, dataDir, watcher: row }, { execGit: scopedGit });
   const prior = signals.priorFindings.find((r) => r.todoId === todo.id);
   assert.ok(prior, 'prior finding references the reviewed todo');
   assert.match(prior.summary, /intermittently fails/);
@@ -976,7 +976,7 @@ runCase('review finding text recorded via REST is persisted and dedupes a Scout 
   // A Scout re-proposal that overlaps only the recorded review SUMMARY (not the
   // todo title, not an existing todo) is dropped as a prior review — proving the
   // persisted text, not just the hash, now feeds Scout dedupe.
-  const recorded = recordScoutFindings(cwd, [
+  const recorded = await recordScoutFindings(cwd, [
     { title: 'Test intermittently fails on token refresh', category: 'bug', files: ['auth.js'] },
   ], { dataDir });
   assert.equal(recorded.added, 0, 'same finding as a prior review is deduped');
@@ -1087,11 +1087,11 @@ runCase('clearActiveScoutScanIfScanId never clears a successor scan', () => {
 
 /* ----------------------------------------- Finding 3: bounded test probe    */
 
-runCase('test probe is OFF by default: no exec, unavailable marker surfaced', () => {
+runCase('test probe is OFF by default: no exec, unavailable marker surfaced', async () => {
   const { cwd, dataDir } = freshWorkspace('probe-off');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
   let execCalls = 0;
-  const signals = collectScoutSignals(
+  const signals = await collectScoutSignals(
     { workspaceFolder: cwd, dataDir, watcher: getWorkspaceWatcher(cwd, { dataDir }) },
     { execGit: scopedGit, execTestProbe: () => { execCalls += 1; return 'should not run'; } },
   );
@@ -1099,11 +1099,11 @@ runCase('test probe is OFF by default: no exec, unavailable marker surfaced', ()
   assert.match(signals.failingTests, /unavailable/i);
 });
 
-runCase('enabled bounded probe runs argv (no shell) with the probe timeout', () => {
+runCase('enabled bounded probe runs argv (no shell) with the probe timeout', async () => {
   const { cwd, dataDir } = freshWorkspace('probe-on');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true, scoutTestProbe: true, scoutTestCommand: ['node', 'scripts/run-unit-tests.mjs'] } }, { dataDir });
   const seen = {};
-  const signals = collectScoutSignals(
+  const signals = await collectScoutSignals(
     { workspaceFolder: cwd, dataDir, watcher: getWorkspaceWatcher(cwd, { dataDir }) },
     {
       execGit: scopedGit,
@@ -1119,11 +1119,11 @@ runCase('enabled bounded probe runs argv (no shell) with the probe timeout', () 
   assert.match(signals.failingTests, /FAIL: expected 1 to be 2/);
 });
 
-runCase('probe rejects a shell string command and reports misconfiguration without executing', () => {
+runCase('probe rejects a shell string command and reports misconfiguration without executing', async () => {
   const { cwd, dataDir } = freshWorkspace('probe-shell');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true, scoutTestProbe: true, scoutTestCommand: 'npm test && rm -rf /' } }, { dataDir });
   let execCalls = 0;
-  const signals = collectScoutSignals(
+  const signals = await collectScoutSignals(
     { workspaceFolder: cwd, dataDir, watcher: getWorkspaceWatcher(cwd, { dataDir }) },
     { execGit: scopedGit, execTestProbe: () => { execCalls += 1; return 'ran'; } },
   );
@@ -1144,7 +1144,7 @@ runCase('Scout prompt recommended submit example carries scan_id + submit_token'
   assert.match(prompt, /submit_token:\s*"tok-abc"/);
 });
 
-runCase('submit succeeds with the recommended credentials from the active scout chat', () => {
+runCase('submit succeeds with the recommended credentials from the active scout chat', async () => {
   const { cwd, dataDir } = freshWorkspace('recommended-submit');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
   mutateWorkspaceWatcherRow(cwd, () => ({
@@ -1156,7 +1156,7 @@ runCase('submit succeeds with the recommended credentials from the active scout 
       submitToken: 'tok-r',
     },
   }), { dataDir });
-  const res = runWorkspaceWatcherScoutAction({
+  const res = await runWorkspaceWatcherScoutAction({
     dataDir,
     workspaceFolder: cwd,
     action: 'submit',
@@ -1186,7 +1186,7 @@ function scoutChat(over) {
   };
 }
 
-runCase('archive sweep leaves a live-run scout submit alone (submit never archives)', () => {
+runCase('archive sweep leaves a live-run scout submit alone (submit never archives)', async () => {
   const { cwd, dataDir } = freshWorkspace('archive-submit-live');
   const now = Date.parse('2026-02-02T12:00:00.000Z');
   const chatId = 'scout-submit-live';
@@ -1205,7 +1205,7 @@ runCase('archive sweep leaves a live-run scout submit alone (submit never archiv
       submitToken: 'tok-live',
     },
   }), { dataDir });
-  submitScoutFindings(cwd, {
+  await submitScoutFindings(cwd, {
     dataDir,
     now,
     findings: [{ title: 'Fresh finding', category: 'bug' }],

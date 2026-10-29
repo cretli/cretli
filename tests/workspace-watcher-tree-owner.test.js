@@ -129,7 +129,7 @@ test('snapshot reports external owners from live chats and delegations', async (
   assert.equal(findWorkspaceWatcherExternalTreeOwner(clientLeaf, snapshot.items, snapshot.externalOwners)?.todoId, 'server');
 });
 
-test('stamping a cycle keeps a manual orchestrator on ancestors and stamps the leaf', () => {
+test('stamping a cycle keeps a manual orchestrator on ancestors and stamps the leaf', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-tree-owner-'));
   const parent = addTodo(dataDir, workspaceFolder, { title: 'Root', status: 'ready', orchestratorChatId: 'manual-orch' }).item;
   const leaf = addTodo(dataDir, workspaceFolder, { title: 'Leaf', status: 'ready', parentId: parent.id }).item;
@@ -137,7 +137,7 @@ test('stamping a cycle keeps a manual orchestrator on ancestors and stamps the l
     'manual-orch': { id: 'manual-orch' },
     'old-cycle': { id: 'old-cycle', pickPurpose: 'watcher-orchestrator' },
   };
-  stampCycleOrchestratorOnTodoTree({
+  await stampCycleOrchestratorOnTodoTree({
     workspaceFolder, dataDir, todoId: leaf.id, chatId: 'cycle-chat', getChat: (id) => chats[id] || null,
   });
   let byId = Object.fromEntries(loadTodosData(dataDir, workspaceFolder).items.map((row) => [row.id, row]));
@@ -146,7 +146,7 @@ test('stamping a cycle keeps a manual orchestrator on ancestors and stamps the l
   // A stale stamp from an earlier watcher cycle is replaced as before.
   const current = loadTodosData(dataDir, workspaceFolder).items.find((row) => row.id === parent.id);
   updateTodo(dataDir, workspaceFolder, parent.id, { orchestratorChatId: 'old-cycle', expectedUpdatedAt: current.updatedAt });
-  stampCycleOrchestratorOnTodoTree({
+  await stampCycleOrchestratorOnTodoTree({
     workspaceFolder, dataDir, todoId: leaf.id, chatId: 'cycle-chat-2', getChat: (id) => chats[id] || null,
   });
   byId = Object.fromEntries(loadTodosData(dataDir, workspaceFolder).items.map((row) => [row.id, row]));
@@ -308,7 +308,7 @@ test('regression: the watcher own cycle chats (parallel mode) are not external o
 test('subtree authorization: the cycle delegation on its leaf resolves despite a manual ancestor stamp', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-tree-owner-auth-'));
   const { parent, second } = createIncidentTree(dataDir);
-  stampCycleOrchestratorOnTodoTree({
+  await stampCycleOrchestratorOnTodoTree({
     workspaceFolder, dataDir, todoId: second.id, chatId: 'cycle-chat',
     getChat: (id) => (id === 'manual-orch' ? { id } : null),
   });

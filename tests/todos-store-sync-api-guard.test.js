@@ -11,6 +11,8 @@ const SYNC_API = ['loadTodosData', 'addTodo', 'updateTodo', 'saveTodosData'];
 
 /** Files already moved to `lib/persist/todos-store.js`; they must never use the sync API again. */
 const CONVERTED = Object.freeze([
+  'lib/workspace-watcher-scout.js',
+  'lib/workspace-watcher-cycle.js',
   'lib/todo-review-sync.js',
   'lib/todo-review-sync-hooks.js',
   'lib/todo-plan-sync.js',
@@ -52,9 +54,7 @@ const ALLOWLIST = Object.freeze([
   'lib/persist/todos-store.js',
   'lib/todo-move.js',
   'lib/todo-review-backfill.js',
-  'lib/workspace-watcher-cycle.js',
   'lib/workspace-watcher-integration.js',
-  'lib/workspace-watcher-scout.js',
   'scripts/architecture-http-fixture.mjs',
   'scripts/architecture-stall-profile.mjs',
   'scripts/audit-automatic-prompts.mjs',

@@ -1075,7 +1075,7 @@ runCase('finding 3: submit after expiresAt keeps slot of a launched scan', async
   });
   let caught = null;
   try {
-    submitScoutFindings(cwd, {
+    await submitScoutFindings(cwd, {
       dataDir,
       now,
       sourceChatId: 'chat-running',

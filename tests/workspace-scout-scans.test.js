@@ -274,7 +274,7 @@ runCase('two parallel scans coexist; expiry of one never removes the other', () 
   assert.deepEqual(getWorkspaceWatcher(cwd, { dataDir }).activeScoutScans, []);
 });
 
-runCase('submit A is authorized while a parallel scan B is present', () => {
+runCase('submit A is authorized while a parallel scan B is present', async () => {
   const { cwd, dataDir } = freshWorkspace('scan-parallel-submit');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
   const future = new Date(Date.now() + 3_600_000).toISOString();
@@ -285,7 +285,7 @@ runCase('submit A is authorized while a parallel scan B is present', () => {
     ],
   }), { dataDir });
 
-  const result = submitScoutFindings(cwd, {
+  const result = await submitScoutFindings(cwd, {
     dataDir,
     findings: [{ title: 'Parallel A', category: 'bug' }],
     sourceChatId: 'chat-A',
@@ -706,7 +706,7 @@ runCase('forcePending normalizes away caller sources/source/scanId/sourceChatId'
   assert.notEqual(finding.createdAt, '1970-01-01T00:00:00.000Z');
 });
 
-runCase('recordScoutFindings stamps sources[] from the active scan and never duplicates', () => {
+runCase('recordScoutFindings stamps sources[] from the active scan and never duplicates', async () => {
   const { cwd, dataDir } = freshWorkspace('finding-stamp');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
   const future = new Date(Date.now() + 3_600_000).toISOString();
@@ -730,7 +730,7 @@ runCase('recordScoutFindings stamps sources[] from the active scan and never dup
     model: 'test-model',
     now: Date.parse('2026-06-06T10:00:00.000Z'),
   };
-  const first = recordScoutFindings(cwd, [{ title: 'Stamped', category: 'bug' }], opts);
+  const first = await recordScoutFindings(cwd, [{ title: 'Stamped', category: 'bug' }], opts);
   assert.equal(first.added, 1);
   const stored = getWorkspaceWatcher(cwd, { dataDir }).pendingScoutFindings
     .find((item) => item.title === 'Stamped');
@@ -748,7 +748,7 @@ runCase('recordScoutFindings stamps sources[] from the active scan and never dup
   });
 
   // Re-proposing the same finding is deduped and keeps a single entry.
-  const second = recordScoutFindings(cwd, [{ title: 'Stamped', category: 'bug' }], opts);
+  const second = await recordScoutFindings(cwd, [{ title: 'Stamped', category: 'bug' }], opts);
   assert.equal(second.added, 0);
   const again = getWorkspaceWatcher(cwd, { dataDir }).pendingScoutFindings
     .filter((item) => item.title === 'Stamped');
@@ -757,7 +757,7 @@ runCase('recordScoutFindings stamps sources[] from the active scan and never dup
   assert.deepEqual(again[0].sources, stored.sources);
 });
 
-runCase('submit cannot smuggle attribution; sources[] survive resolution and list', () => {
+runCase('submit cannot smuggle attribution; sources[] survive resolution and list', async () => {
   const { cwd, dataDir } = freshWorkspace('finding-submit');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
   const future = new Date(Date.now() + 3_600_000).toISOString();
@@ -772,7 +772,7 @@ runCase('submit cannot smuggle attribution; sources[] survive resolution and lis
     }],
   }), { dataDir });
 
-  const submitted = submitScoutFindings(cwd, {
+  const submitted = await submitScoutFindings(cwd, {
     dataDir,
     findings: [{
       title: 'Attributed',
@@ -807,7 +807,7 @@ runCase('submit cannot smuggle attribution; sources[] survive resolution and lis
   assert.equal(finding.scanId, 'scan-src');
   assert.equal(finding.sourceChatId, 'chat-src');
 
-  const accepted = acceptScoutFindings(cwd, [finding.id], { dataDir });
+  const accepted = await acceptScoutFindings(cwd, [finding.id], { dataDir });
   assert.equal(accepted.changed, 1);
   const listed = listScoutFindings(cwd, { dataDir });
   assert.equal(listed[0].status, 'accepted');
@@ -968,7 +968,7 @@ runCase('a profile payload cannot overwrite server-owned id/revision/createdAt/u
 
 /* --------------------------------------- findings dedupe / capacity / decisions */
 
-runCase('duplicate submissions merge into one proposal with two sources, replay is idempotent', () => {
+runCase('duplicate submissions merge into one proposal with two sources, replay is idempotent', async () => {
   const { cwd, dataDir } = freshWorkspace('finding-merge');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
   const future = new Date(Date.now() + 3_600_000).toISOString();
@@ -987,10 +987,10 @@ runCase('duplicate submissions merge into one proposal with two sources, replay 
 
   // Two scans race to report the same problem. Dedupe + merge run under the
   // store lock, so the second call folds its attribution into the first.
-  const first = recordScoutFindings(cwd, [{ title: 'Race finding', category: 'bug' }], {
+  const first = await recordScoutFindings(cwd, [{ title: 'Race finding', category: 'bug' }], {
     dataDir, scanId: 'scan-A', sourceChatId: 'chat-A', now: Date.parse('2026-06-06T10:00:00.000Z'),
   });
-  const second = recordScoutFindings(cwd, [{ title: 'Race finding', category: 'bug' }], {
+  const second = await recordScoutFindings(cwd, [{ title: 'Race finding', category: 'bug' }], {
     dataDir, scanId: 'scan-B', sourceChatId: 'chat-B', now: Date.parse('2026-06-06T10:00:05.000Z'),
   });
   assert.equal(first.added, 1);
@@ -1010,7 +1010,7 @@ runCase('duplicate submissions merge into one proposal with two sources, replay 
 
   // A replay of the same scan (even with a fresh server timestamp) is
   // idempotent: the source identity is the scan, not the moment it arrived.
-  const retry = recordScoutFindings(cwd, [{ title: 'Race finding', category: 'bug' }], {
+  const retry = await recordScoutFindings(cwd, [{ title: 'Race finding', category: 'bug' }], {
     dataDir, scanId: 'scan-A', sourceChatId: 'chat-A', now: Date.parse('2026-06-06T10:00:09.000Z'),
   });
   assert.equal(retry.added, 0);
@@ -1079,7 +1079,7 @@ runCase('cross-process race: two children submit the same problem into one merge
   );
 });
 
-runCase('capacity_exceeded rejects a 201st unique finding without dropping the oldest', () => {
+runCase('capacity_exceeded rejects a 201st unique finding without dropping the oldest', async () => {
   const { cwd, dataDir } = freshWorkspace('finding-capacity');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
   const seeded = normalizeWorkspaceScoutFindings(Array.from(
@@ -1090,7 +1090,7 @@ runCase('capacity_exceeded rejects a 201st unique finding without dropping the o
   mutateWorkspaceWatcherRow(cwd, () => ({ pendingScoutFindings: seeded }), { dataDir });
   const oldestId = getWorkspaceWatcher(cwd, { dataDir }).pendingScoutFindings[0].id;
 
-  const overflow = recordScoutFindings(cwd, [{ title: 'Capacity 201', category: 'improvement' }], { dataDir });
+  const overflow = await recordScoutFindings(cwd, [{ title: 'Capacity 201', category: 'improvement' }], { dataDir });
   assert.equal(overflow.added, 0);
   assert.equal(overflow.capacityExceeded, 1);
   assert.ok(overflow.dropped.some((entry) => entry.reason === 'capacity_exceeded'));
@@ -1100,7 +1100,7 @@ runCase('capacity_exceeded rejects a 201st unique finding without dropping the o
   assert.equal(row.pendingScoutFindings.some((finding) => finding.title === 'Capacity 201'), false);
 
   // Merging into an existing proposal is still allowed when the mailbox is full.
-  const mergeWhenFull = recordScoutFindings(cwd, [{ title: 'Capacity 0', category: 'improvement' }], {
+  const mergeWhenFull = await recordScoutFindings(cwd, [{ title: 'Capacity 0', category: 'improvement' }], {
     dataDir, scanId: 'scan-cap', sourceChatId: 'chat-cap',
   });
   assert.equal(mergeWhenFull.added, 0);
@@ -1143,21 +1143,21 @@ runCase('normalization keeps overflow pending and migrates terminal findings to 
   assert.equal(normalizeWorkspaceScoutFindingDecisions([{ title: 'Nope', category: 'bug', status: 'pending' }]).length, 0);
 });
 
-runCase('re-proposing a resolved finding merges attribution without reopening it', () => {
+runCase('re-proposing a resolved finding merges attribution without reopening it', async () => {
   const { cwd, dataDir } = freshWorkspace('finding-decisions');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
 
-  const rejectedFirst = recordScoutFindings(cwd, [{ title: 'Rejected idea', category: 'refactor' }], {
+  const rejectedFirst = await recordScoutFindings(cwd, [{ title: 'Rejected idea', category: 'refactor' }], {
     dataDir, scanId: 'scan-r1', sourceChatId: 'chat-r1',
   });
   const rejectedId = rejectedFirst.findings.find((finding) => finding.title === 'Rejected idea').id;
-  assert.equal(rejectScoutFindings(cwd, [rejectedId], { dataDir }).changed, 1);
+  assert.equal((await rejectScoutFindings(cwd, [rejectedId], { dataDir })).changed, 1);
 
   let row = getWorkspaceWatcher(cwd, { dataDir });
   assert.equal(row.pendingScoutFindings.some((finding) => finding.id === rejectedId), false, 'left the pending mailbox');
   assert.equal(row.scoutFindingDecisions.find((finding) => finding.id === rejectedId).status, 'rejected');
 
-  const rejectedAgain = recordScoutFindings(cwd, [{ title: 'Rejected idea', category: 'refactor' }], {
+  const rejectedAgain = await recordScoutFindings(cwd, [{ title: 'Rejected idea', category: 'refactor' }], {
     dataDir, scanId: 'scan-r2', sourceChatId: 'chat-r2',
   });
   assert.equal(rejectedAgain.added, 0);
@@ -1172,19 +1172,19 @@ runCase('re-proposing a resolved finding merges attribution without reopening it
   // Scan-history cleanup must not reactivate the rejected idea: the decision
   // lives in its own structure and feeds dedupe on its own.
   mutateWorkspaceWatcherRow(cwd, () => ({ scoutScanHistory: [] }), { dataDir });
-  const afterClear = recordScoutFindings(cwd, [{ title: 'Rejected idea', category: 'refactor' }], {
+  const afterClear = await recordScoutFindings(cwd, [{ title: 'Rejected idea', category: 'refactor' }], {
     dataDir, scanId: 'scan-r3', sourceChatId: 'chat-r3',
   });
   assert.equal(afterClear.added, 0);
   assert.ok(afterClear.dropped.some((entry) => entry.reason === 'already_resolved'));
 
   // Accepted proposals keep their decision through a later re-proposal too.
-  const acceptedFirst = recordScoutFindings(cwd, [{ title: 'Accepted idea', category: 'security' }], {
+  const acceptedFirst = await recordScoutFindings(cwd, [{ title: 'Accepted idea', category: 'security' }], {
     dataDir, scanId: 'scan-a1', sourceChatId: 'chat-a1',
   });
   const acceptedId = acceptedFirst.findings.find((finding) => finding.title === 'Accepted idea').id;
-  assert.equal(acceptScoutFindings(cwd, [acceptedId], { dataDir }).changed, 1);
-  const acceptedAgain = recordScoutFindings(cwd, [{ title: 'Accepted idea', category: 'security' }], {
+  assert.equal((await acceptScoutFindings(cwd, [acceptedId], { dataDir })).changed, 1);
+  const acceptedAgain = await recordScoutFindings(cwd, [{ title: 'Accepted idea', category: 'security' }], {
     dataDir, scanId: 'scan-a2', sourceChatId: 'chat-a2',
   });
   assert.equal(acceptedAgain.added, 0);
@@ -1195,7 +1195,7 @@ runCase('re-proposing a resolved finding merges attribution without reopening it
   assert.equal(acceptedDecision.sources.length, 2);
 });
 
-runCase('submit rejects a foreign chat/token and scan B attribution never leaks to A', () => {
+runCase('submit rejects a foreign chat/token and scan B attribution never leaks to A', async () => {
   const { cwd, dataDir } = freshWorkspace('finding-submit-auth');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
   const future = new Date(Date.now() + 3_600_000).toISOString();
@@ -1207,7 +1207,7 @@ runCase('submit rejects a foreign chat/token and scan B attribution never leaks 
   }), { dataDir });
 
   // A cannot submit against B's scan credentials.
-  assert.throws(() => submitScoutFindings(cwd, {
+  await assert.rejects(async () => await submitScoutFindings(cwd, {
     dataDir,
     findings: [{ title: 'Foreign', category: 'bug' }],
     sourceChatId: 'chat-A',
@@ -1216,7 +1216,7 @@ runCase('submit rejects a foreign chat/token and scan B attribution never leaks 
   }), (error) => error.code === 'OUT_OF_SCOPE' || error.code === 'VALIDATION');
 
   // A's own scan with a wrong token is rejected too.
-  assert.throws(() => submitScoutFindings(cwd, {
+  await assert.rejects(async () => await submitScoutFindings(cwd, {
     dataDir,
     findings: [{ title: 'Wrong token', category: 'bug' }],
     sourceChatId: 'chat-A',
@@ -1224,7 +1224,7 @@ runCase('submit rejects a foreign chat/token and scan B attribution never leaks 
     scoutSubmitToken: 'nope',
   }), (error) => error.code === 'OUT_OF_SCOPE');
 
-  const ok = submitScoutFindings(cwd, {
+  const ok = await submitScoutFindings(cwd, {
     dataDir,
     findings: [{ title: 'Owned by A', category: 'bug' }],
     sourceChatId: 'chat-A',
@@ -1240,7 +1240,7 @@ runCase('submit rejects a foreign chat/token and scan B attribution never leaks 
   assert.equal(finding.sources.some((source) => source.scanId === 'scan-B'), false, 'B attribution never leaks');
 });
 
-runCase('completed scan history records added/merged/dropped counters and reasons', () => {
+runCase('completed scan history records added/merged/dropped counters and reasons', async () => {
   const { cwd, dataDir } = freshWorkspace('finding-history-counters');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
   const future = new Date(Date.now() + 3_600_000).toISOString();
@@ -1251,7 +1251,7 @@ runCase('completed scan history records added/merged/dropped counters and reason
     }],
   }), { dataDir });
 
-  const first = submitScoutFindings(cwd, {
+  const first = await submitScoutFindings(cwd, {
     dataDir,
     findings: [{ title: 'History finding', category: 'bug' }],
     sourceChatId: 'chat-h',
@@ -1272,7 +1272,7 @@ runCase('completed scan history records added/merged/dropped counters and reason
       expiresAt: future, submitToken: 'tok-h2',
     }],
   }), { dataDir });
-  const merged = submitScoutFindings(cwd, {
+  const merged = await submitScoutFindings(cwd, {
     dataDir,
     findings: [{ title: 'History finding', category: 'bug' }],
     sourceChatId: 'chat-h2',
@@ -1290,7 +1290,7 @@ runCase('completed scan history records added/merged/dropped counters and reason
 
 /* ------------------------------ source cap, list history, tombstones, todo */
 
-runCase('a full sources[] cap still merges the newest attribution', () => {
+runCase('a full sources[] cap still merges the newest attribution', async () => {
   const { cwd, dataDir } = freshWorkspace('finding-source-cap');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
   const future = new Date(Date.now() + 3_600_000).toISOString();
@@ -1321,7 +1321,7 @@ runCase('a full sources[] cap still merges the newest attribution', () => {
 
   // The list cannot grow past the cap, but the newest attribution must replace
   // the oldest entry and the merge must be counted (not silently discarded).
-  const added = recordScoutFindings(cwd, [{ title: 'Source capped', category: 'bug' }], {
+  const added = await recordScoutFindings(cwd, [{ title: 'Source capped', category: 'bug' }], {
     dataDir, scanId: 'cap-scan-new', sourceChatId: 'cap-chat-new',
   });
   assert.equal(added.added, 0);
@@ -1337,7 +1337,7 @@ runCase('a full sources[] cap still merges the newest attribution', () => {
   assert.equal(stored.sources.at(-1).scoutRevision, 9);
 });
 
-runCase('a same-scan merge that fills an empty source field is persisted', () => {
+runCase('a same-scan merge that fills an empty source field is persisted', async () => {
   const { cwd, dataDir } = freshWorkspace('finding-source-fill');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
   const future = new Date(Date.now() + 3_600_000).toISOString();
@@ -1354,7 +1354,7 @@ runCase('a same-scan merge that fills an empty source field is persisted', () =>
     }],
   }), { dataDir });
 
-  const filled = recordScoutFindings(cwd, [{ title: 'Field fill', category: 'bug' }], {
+  const filled = await recordScoutFindings(cwd, [{ title: 'Field fill', category: 'bug' }], {
     dataDir, scanId: 'fill-scan', sourceChatId: 'fill-chat',
   });
   assert.equal(filled.merged, 1, 'filling an empty field is a change');
@@ -1391,7 +1391,7 @@ runCase('the default list keeps decisions visible when the pending mailbox is fu
   assert.equal(capped.length, WORKSPACE_WATCHER_MAX_PENDING_SCOUT_FINDINGS);
 });
 
-runCase('a decision tombstone keeps a rejected idea rejected past the 500-entry cap', () => {
+runCase('a decision tombstone keeps a rejected idea rejected past the 500-entry cap', async () => {
   const { cwd, dataDir } = freshWorkspace('finding-decision-tombstone');
   upsertWorkspaceWatcher(cwd, { mode: 'observe', policy: { scoutEnabled: true } }, { dataDir });
 
@@ -1424,7 +1424,7 @@ runCase('a decision tombstone keeps a rejected idea rejected past the 500-entry 
     'its tombstone survives the detail cap',
   );
 
-  const revived = recordScoutFindings(cwd, [{ title: 'Retired idea 0', category: 'bug' }], {
+  const revived = await recordScoutFindings(cwd, [{ title: 'Retired idea 0', category: 'bug' }], {
     dataDir, scanId: 'scan-revive', sourceChatId: 'chat-revive',
   });
   assert.equal(revived.added, 0, 'the rolled-off rejected idea is not re-proposed');
@@ -1437,7 +1437,7 @@ runCase('a decision tombstone keeps a rejected idea rejected past the 500-entry 
   );
 });
 
-runCase('auto-created Scout todo keeps its minimal source after scan history is cleared', () => {
+runCase('auto-created Scout todo keeps its minimal source after scan history is cleared', async () => {
   const { cwd, dataDir } = freshWorkspace('finding-todo-source');
   upsertWorkspaceWatcher(cwd, {
     mode: 'observe',
@@ -1451,7 +1451,7 @@ runCase('auto-created Scout todo keeps its minimal source after scan history is 
     }],
   }), { dataDir });
 
-  recordScoutFindings(cwd, [{
+  await recordScoutFindings(cwd, [{
     title: 'Minimal source', category: 'bug', rationale: 'prove the source survives',
   }], { dataDir, scanId: 'scan-min', sourceChatId: 'chat-min' });
 

@@ -200,14 +200,14 @@ runCase('resolveEffectiveScoutConfig marks template provenance and keeps the gen
 
 /* ---------------------------------------------------------- scope & signals */
 
-runCase('area scope include/exclude decides matchedFiles and markers', () => {
+runCase('area scope include/exclude decides matchedFiles and markers', async () => {
   const files = ['lib/orders/a.js', 'lib/orders/legacy/b.js', 'lib/other.js', 'docs/readme.md'];
   const profile = scoutProfile({
     id: 'orders',
     objective: 'Znajdź N+1 w zamówieniach.',
     scope: { mode: 'area', base: 'main', include: ['lib/orders/**'], exclude: ['lib/orders/legacy/**'] },
   });
-  const signals = collectScoutSignalsForProfile(profile, { workspaceFolder: '/ws', dataDir: '/tmp' }, {
+  const signals = await collectScoutSignalsForProfile(profile, { workspaceFolder: '/ws', dataDir: '/tmp' }, {
     listFiles: () => files,
     // Every file carries a marker; only in-scope files may surface.
     readFile: () => 'const x = 1; // TODO: fix\n',
@@ -218,13 +218,13 @@ runCase('area scope include/exclude decides matchedFiles and markers', () => {
   assert.ok(signals.hasFiles);
 });
 
-runCase('empty scope match never falls back to a full-repo scan', () => {
+runCase('empty scope match never falls back to a full-repo scan', async () => {
   const profile = scoutProfile({
     id: 'empty',
     objective: 'Nic nie pasuje.',
     scope: { mode: 'area', base: 'main', include: ['nope/**'], exclude: [] },
   });
-  const signals = collectScoutSignalsForProfile(profile, { workspaceFolder: '/ws', dataDir: '/tmp' }, {
+  const signals = await collectScoutSignalsForProfile(profile, { workspaceFolder: '/ws', dataDir: '/tmp' }, {
     listFiles: () => ['lib/a.js', 'lib/b.js', 'README.md'],
     execGit: () => 'SHOULD NOT BE USED',
   });
@@ -234,7 +234,7 @@ runCase('empty scope match never falls back to a full-repo scan', () => {
   assert.deepEqual(signals.markers, []);
 });
 
-runCase('source toggles gate git/tests/logs while dedup context is always included', () => {
+runCase('source toggles gate git/tests/logs while dedup context is always included', async () => {
   const profile = scoutProfile({
     id: 'markers-only',
     objective: 'Tylko markery.',
@@ -244,7 +244,7 @@ runCase('source toggles gate git/tests/logs while dedup context is always includ
   const watcher = {
     findings: { byTodo: { t1: { hash: 'h1', streak: 2, summary: 'Popraw logowanie' } } },
   };
-  const signals = collectScoutSignalsForProfile(profile, { workspaceFolder: '/ws', dataDir: '/tmp', watcher }, {
+  const signals = await collectScoutSignalsForProfile(profile, { workspaceFolder: '/ws', dataDir: '/tmp', watcher }, {
     execGit: fakeGit(['lib/a.js']),
     readFile: () => '// FIXME: later\n',
     loadTodosData: () => ({ items: [{ id: 't1', title: 'Istniejące TODO', status: 'ready' }] }),
@@ -262,7 +262,7 @@ runCase('source toggles gate git/tests/logs while dedup context is always includ
   assert.equal(signals.memory.length, 1);
 });
 
-runCase('two profiles produce different prompts and contexts', () => {
+runCase('two profiles produce different prompts and contexts', async () => {
   const files = ['lib/orders/a.js', 'lib/orders/legacy/b.js', 'docs/readme.md', 'lib/other.js'];
   const orders = scoutProfile({
     id: 'orders-2',
@@ -279,8 +279,8 @@ runCase('two profiles produce different prompts and contexts', () => {
     scope: { mode: 'area', base: 'main', include: ['docs/**'], exclude: [] },
   });
   const deps = { listFiles: () => files };
-  const ordersSignals = collectScoutSignalsForProfile(orders, { workspaceFolder: '/ws' }, deps);
-  const docsSignals = collectScoutSignalsForProfile(docs, { workspaceFolder: '/ws' }, deps);
+  const ordersSignals = await collectScoutSignalsForProfile(orders, { workspaceFolder: '/ws' }, deps);
+  const docsSignals = await collectScoutSignalsForProfile(docs, { workspaceFolder: '/ws' }, deps);
   const ordersPrompt = buildScoutPromptForProfile(orders, { workspaceFolder: '/ws', signals: ordersSignals });
   const docsPrompt = buildScoutPromptForProfile(docs, { workspaceFolder: '/ws', signals: docsSignals });
 
@@ -295,14 +295,14 @@ runCase('two profiles produce different prompts and contexts', () => {
   assert.ok(/host blocks/i.test(ordersPrompt));
 });
 
-runCase('preview returns effective config, prompt and blockers without starting a model', () => {
+runCase('preview returns effective config, prompt and blockers without starting a model', async () => {
   const profile = scoutProfile({
     id: 'preview-1',
     objective: 'Podejrzyj bez startu.',
     scope: { mode: 'area', base: 'main', include: ['lib/**'], exclude: [] },
   });
   let runScoutCalls = 0;
-  const preview = buildScoutPreview(profile, { workspaceFolder: '/ws', dataDir: '/tmp' }, {
+  const preview = await buildScoutPreview(profile, { workspaceFolder: '/ws', dataDir: '/tmp' }, {
     listFiles: () => ['lib/a.js'],
     runScout: async () => { runScoutCalls += 1; return { started: true }; },
   });
@@ -314,7 +314,7 @@ runCase('preview returns effective config, prompt and blockers without starting 
   assert.ok(preview.config.objective.source);
   assert.deepEqual(preview.blockers, []);
 
-  const empty = buildScoutPreview(profile, { workspaceFolder: '/ws' }, { listFiles: () => [] });
+  const empty = await buildScoutPreview(profile, { workspaceFolder: '/ws' }, { listFiles: () => [] });
   assert.ok(empty.blockers.some((blocker) => blocker.code === 'no_files_in_scope'));
 });
 
@@ -399,15 +399,15 @@ runCase('OpenCode scoutReadOnly rejects task and agent permissions', () => {
   );
 });
 
-runCase('area mode with empty include matches no files (not the whole repo)', () => {
+runCase('area mode with empty include matches no files (not the whole repo)', async () => {
   const profile = scoutProfile({
     scope: { mode: 'area', base: 'main', include: [], exclude: [] },
   });
   const files = ['lib/x.js', 'docs/readme.md', 'package.json'];
-  const signals = collectScoutSignalsForProfile(profile, { workspaceFolder: '/ws' }, { listFiles: () => files });
+  const signals = await collectScoutSignalsForProfile(profile, { workspaceFolder: '/ws' }, { listFiles: () => files });
   assert.deepEqual(signals.matchedFiles, []);
   assert.equal(signals.hasFiles, false);
-  const preview = buildScoutPreview(profile, { workspaceFolder: '/ws' }, { listFiles: () => files });
+  const preview = await buildScoutPreview(profile, { workspaceFolder: '/ws' }, { listFiles: () => files });
   assert.ok(preview.blockers.some((blocker) => blocker.code === 'scope_requires_include'));
   assert.ok(preview.blockers.some((blocker) => blocker.code === 'no_files_in_scope'));
 });

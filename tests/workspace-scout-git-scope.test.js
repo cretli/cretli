@@ -39,14 +39,14 @@ function profile(base = 'auto', scope = {}) {
     executor: { auto: true, allowedHarnesses: ['codex'] }, schedule: { mode: 'interval', intervalHours: 6 } };
 }
 
-function signals(cwd, base = 'auto', scope = {}, deps = {}) {
-  return collectScoutSignalsForProfile(profile(base, scope), { workspaceFolder: cwd }, deps);
+async function signals(cwd, base = 'auto', scope = {}, deps = {}) {
+  return await collectScoutSignalsForProfile(profile(base, scope), { workspaceFolder: cwd }, deps);
 }
 
-test('main missing with master present is an explicit error, never an empty scope or silent fallback', () => {
+test('main missing with master present is an explicit error, never an empty scope or silent fallback', async () => {
   const cwd = createRepo();
   fs.writeFileSync(path.join(cwd, 'lib', 'a.js'), 'changed\n');
-  const preview = buildScoutPreview(profile('main'), { workspaceFolder: cwd });
+  const preview = await buildScoutPreview(profile('main'), { workspaceFolder: cwd });
   assert.equal(preview.signals.scopeStatus, 'error');
   assert.equal(preview.signals.scopeError.code, 'git_base_missing');
   assert.match(preview.signals.scopeError.message, /master/);
@@ -58,20 +58,20 @@ test('main missing with master present is an explicit error, never an empty scop
   assert.ok(!html.includes('data-scout-preview-no-files'));
 });
 
-test('arbitrary explicit missing base does not fall back even with changed files', () => {
+test('arbitrary explicit missing base does not fall back even with changed files', async () => {
   const cwd = createRepo('main');
   fs.writeFileSync(path.join(cwd, 'new.js'), 'new\n');
-  const result = signals(cwd, 'typo-branch');
+  const result = await signals(cwd, 'typo-branch');
   assert.equal(result.scopeStatus, 'error');
   assert.equal(result.resolvedBase, '');
   assert.equal(result.scopeError.code, 'git_base_missing');
 });
 
-test('auto chooses main, then master, and only then HEAD with visible diagnostics', () => {
+test('auto chooses main, then master, and only then HEAD with visible diagnostics', async () => {
   for (const branch of ['main', 'master', 'feature']) {
     const cwd = createRepo(branch);
     fs.writeFileSync(path.join(cwd, 'new.js'), 'new\n');
-    const result = signals(cwd);
+    const result = await signals(cwd);
     assert.equal(result.resolvedBase, branch === 'feature' ? 'HEAD' : branch);
     assert.equal(result.baseCommit, git(cwd, ['rev-parse', 'HEAD']).trim());
     assert.equal(result.diagnostics[0].code, 'git_base_auto');
@@ -79,11 +79,11 @@ test('auto chooses main, then master, and only then HEAD with visible diagnostic
   }
 });
 
-test('successful empty diff never tries a second base', () => {
+test('successful empty diff never tries a second base', async () => {
   const cwd = createRepo('main');
   git(cwd, ['branch', 'master']);
   const calls = [];
-  const result = signals(cwd, 'main', {}, { execGit: (args, directory) => { calls.push(args); return execScoutGit(args, directory); } });
+  const result = await signals(cwd, 'main', {}, { execGit: (args, directory) => { calls.push(args); return execScoutGit(args, directory); } });
   assert.equal(result.scopeStatus, 'empty');
   assert.equal(result.hasFiles, false);
   assert.equal(result.resolvedBase, 'main');
@@ -91,7 +91,7 @@ test('successful empty diff never tries a second base', () => {
   assert.equal(calls.filter((args) => args[0] === 'diff').length, 1);
 });
 
-test('untracked files, ignored files, include/exclude, dedupe and file limits', () => {
+test('untracked files, ignored files, include/exclude, dedupe and file limits', async () => {
   const cwd = createRepo();
   fs.writeFileSync(path.join(cwd, '.gitignore'), '*.ignored\n');
   fs.writeFileSync(path.join(cwd, 'lib', 'new.js'), '// TODO: new work\n');
@@ -99,22 +99,22 @@ test('untracked files, ignored files, include/exclude, dedupe and file limits', 
   fs.writeFileSync(path.join(cwd, 'lib', 'hidden.ignored'), 'ignored\n');
   fs.writeFileSync(path.join(cwd, 'outside.js'), 'outside\n');
   fs.writeFileSync(path.join(cwd, 'lib', 'a.js'), 'modified\n');
-  const result = signals(cwd, 'auto', { include: ['lib/**'], exclude: ['**/skip.js'] });
+  const result = await signals(cwd, 'auto', { include: ['lib/**'], exclude: ['**/skip.js'] });
   assert.deepEqual(result.matchedFiles, ['lib/a.js', 'lib/new.js']);
   assert.deepEqual(result.untrackedFiles, ['lib/new.js']);
   assert.ok(result.markers.some((marker) => marker.startsWith('lib/new.js:')));
   for (let index = 0; index < WORKSPACE_SCOUT_MAX_CHANGED_FILES + 2; index += 1) fs.writeFileSync(path.join(cwd, `extra-${index}.js`), 'new\n');
-  assert.equal(signals(cwd).matchedFiles.length, WORKSPACE_SCOUT_MAX_CHANGED_FILES);
+  assert.equal((await signals(cwd)).matchedFiles.length, WORKSPACE_SCOUT_MAX_CHANGED_FILES);
 });
 
-test('file list and diff use one pinned commit even when the branch moves; diff includes only matched files', () => {
+test('file list and diff use one pinned commit even when the branch moves; diff includes only matched files', async () => {
   const cwd = createRepo('main');
   const commit = git(cwd, ['rev-parse', 'HEAD']).trim();
   fs.writeFileSync(path.join(cwd, 'lib', 'a.js'), 'modified\n');
   fs.writeFileSync(path.join(cwd, 'excluded.js'), 'outside\n');
   git(cwd, ['add', 'excluded.js']);
   const calls = [];
-  const result = signals(cwd, 'main', { include: ['lib/**'] }, {
+  const result = await signals(cwd, 'main', { include: ['lib/**'] }, {
     execGit: (args, directory) => {
       calls.push(args);
       const output = execScoutGit(args, directory);
@@ -129,7 +129,7 @@ test('file list and diff use one pinned commit even when the branch moves; diff 
   for (const args of calls.filter((args) => args[0] === 'diff')) assert.ok(args.includes(commit));
 });
 
-test('Git errors distinguish ownership, repository, timeout, executable and failed commands', () => {
+test('Git errors distinguish ownership, repository, timeout, executable and failed commands', async () => {
   const cases = [
     [{ stderr: 'fatal: detected dubious ownership', status: 128 }, 'git_ownership'],
     [{ stderr: 'fatal: not a git repository', status: 128 }, 'git_not_repository'],
@@ -139,19 +139,19 @@ test('Git errors distinguish ownership, repository, timeout, executable and fail
   ];
   for (const [failure, code] of cases) {
     assert.equal(describeScoutGitError(failure).code, code);
-    const result = signals(root, 'auto', {}, { execGit: () => { throw failure; } });
+    const result = await signals(root, 'auto', {}, { execGit: () => { throw failure; } });
     assert.equal(result.scopeStatus, 'error');
     assert.equal(result.scopeError.code, code);
   }
   assert.throws(() => execScoutGit(['status'], root, { program: 'cretli-missing-git-executable' }), { code: 'git_unavailable' });
-  assert.equal(signals(root).scopeError.code, 'git_not_repository');
+  assert.equal((await signals(root)).scopeError.code, 'git_not_repository');
 });
 
-test('diff failure cannot masquerade as an empty scan, and cannot trigger base fallback', () => {
+test('diff failure cannot masquerade as an empty scan, and cannot trigger base fallback', async () => {
   const cwd = createRepo('main');
   fs.writeFileSync(path.join(cwd, 'lib', 'a.js'), 'changed\n');
   const calls = [];
-  const result = signals(cwd, 'main', {}, { execGit: (args, directory) => {
+  const result = await signals(cwd, 'main', {}, { execGit: (args, directory) => {
     calls.push(args);
     if (args[0] === 'diff' && !args.includes('--name-only')) throw Object.assign(new Error('diff timeout'), { code: 'git_timeout' });
     return execScoutGit(args, directory);
@@ -163,28 +163,28 @@ test('diff failure cannot masquerade as an empty scan, and cannot trigger base f
   assert.equal(calls.filter((args) => args[0] === 'rev-parse').length, 1);
 });
 
-test('actual child timeout retains a diagnostic; auto on an unborn repository does not pretend it is empty', () => {
+test('actual child timeout retains a diagnostic; auto on an unborn repository does not pretend it is empty', async () => {
   const program = path.join(root, 'slow-git');
   fs.writeFileSync(program, '#!/bin/sh\nexec sleep 2\n', { mode: 0o700 });
   assert.throws(() => execScoutGit(['status'], root, { program, timeout: 20 }), { code: 'git_timeout' });
   const cwd = path.join(root, `unborn-${sequence++}`);
   execFileSync('git', ['init', '-q', '-b', 'main', cwd]);
-  assert.equal(signals(cwd).scopeStatus, 'error');
-  assert.equal(signals(cwd).scopeError.code, 'git_base_missing');
+  assert.equal((await signals(cwd)).scopeStatus, 'error');
+  assert.equal((await signals(cwd)).scopeError.code, 'git_base_missing');
 });
 
-test('selected subdirectory keeps tracked and untracked paths relative and outside changes excluded', () => {
+test('selected subdirectory keeps tracked and untracked paths relative and outside changes excluded', async () => {
   const cwd = createRepo();
   fs.writeFileSync(path.join(cwd, 'lib', 'a.js'), 'modified\n');
   fs.writeFileSync(path.join(cwd, 'lib', 'new.js'), 'new\n');
   fs.writeFileSync(path.join(cwd, 'outside.js'), 'outside\n');
-  const result = signals(path.join(cwd, 'lib'), 'master');
+  const result = await signals(path.join(cwd, 'lib'), 'master');
   assert.deepEqual(result.matchedFiles, ['a.js', 'new.js']);
   assert.ok(!result.diff.includes('outside.js'));
   assert.match(result.diff, /modified/);
 });
 
-test('scope reads never execute repository-configured filesystem monitor or diff helpers', () => {
+test('scope reads never execute repository-configured filesystem monitor or diff helpers', async () => {
   const cwd = createRepo('main');
   const helper = path.join(cwd, 'helper');
   fs.writeFileSync(helper, '#!/bin/sh\n: > "$0.ran"\n', { mode: 0o700 });
@@ -193,20 +193,20 @@ test('scope reads never execute repository-configured filesystem monitor or diff
   git(cwd, ['config', 'diff.external', helper]);
   git(cwd, ['config', 'diff.unsafe.textconv', helper]);
   fs.writeFileSync(path.join(cwd, 'lib', 'a.js'), 'modified\n');
-  const result = signals(cwd, 'main', { include: ['lib/**'] });
+  const result = await signals(cwd, 'main', { include: ['lib/**'] });
   assert.equal(result.scopeStatus, 'ready');
   assert.match(result.diff, /modified/);
   assert.equal(fs.existsSync(`${helper}.ran`), false);
 });
 
-test('inherited Git routing cannot redirect scope reads to a different repository', () => {
+test('inherited Git routing cannot redirect scope reads to a different repository', async () => {
   const cwd = createRepo('main');
   const other = createRepo('master');
   fs.writeFileSync(path.join(cwd, 'new.js'), 'new\n');
   const previous = process.env.GIT_DIR;
   process.env.GIT_DIR = path.join(other, '.git');
   try {
-    const result = signals(cwd, 'main');
+    const result = await signals(cwd, 'main');
     assert.equal(result.scopeStatus, 'ready');
     assert.equal(result.resolvedBase, 'main');
     assert.deepEqual(result.matchedFiles, ['new.js']);
@@ -228,7 +228,7 @@ test('status and history show diagnostic details and resolved bases without trea
   assert.ok(!html.includes('<diff timeout>'));
 });
 
-test('foreign-owned repository reads use per-command trust without writing config or index', { skip: process.getuid?.() !== 0 }, () => {
+test('foreign-owned repository reads use per-command trust without writing config or index', { skip: process.getuid?.() !== 0 }, async () => {
   const cwd = createRepo();
   fs.writeFileSync(path.join(cwd, 'lib', 'a.js'), 'changed\n');
   fs.writeFileSync(path.join(cwd, 'new.js'), 'new\n');
@@ -238,7 +238,7 @@ test('foreign-owned repository reads use per-command trust without writing confi
   fs.chownSync(cwd, 65534, 65534);
   fs.chownSync(path.join(cwd, '.git'), 65534, 65534);
   assert.throws(() => execFileSync('git', ['-c', 'safe.directory=', 'rev-parse', 'HEAD'], { cwd, stdio: ['ignore', 'pipe', 'pipe'] }), (error) => /dubious ownership/.test(String(error.stderr)));
-  const result = signals(cwd, 'master');
+  const result = await signals(cwd, 'master');
   assert.equal(result.scopeStatus, 'ready');
   assert.deepEqual(result.matchedFiles, ['lib/a.js', 'new.js']);
   assert.deepEqual(fs.readFileSync(path.join(cwd, '.git', 'config')), config);

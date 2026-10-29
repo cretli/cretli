@@ -19,7 +19,7 @@ const startAt = Number(startAtRaw) || 0;
 const wait = Math.max(0, startAt - Date.now());
 if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
 
-const result = recordScoutFindings(workspaceFolder, [{ title: 'Cross process race', category: 'bug' }], {
+const result = await recordScoutFindings(workspaceFolder, [{ title: 'Cross process race', category: 'bug' }], {
   dataDir,
   scanId,
   sourceChatId: chatId,

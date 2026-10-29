@@ -1234,12 +1234,12 @@ runCase('deferred failure survives reconcile as a failure', async () => {
   assert.equal(row.failures[todo.id], 1);
 });
 
-runCase('orchestrator chat is stamped on the claimed todo and its ancestors', () => {
+runCase('orchestrator chat is stamped on the claimed todo and its ancestors', async () => {
   const dataDir = freshDataDir('orch-stamp');
   const cwd = makeWorkspace('orch-stamp');
   const parent = addTodo(dataDir, cwd, { title: 'parent', status: 'ready' }).item;
   const child = addTodo(dataDir, cwd, { title: 'child', status: 'ready', parentId: parent.id }).item;
-  stampCycleOrchestratorOnTodoTree({ workspaceFolder: cwd, dataDir, todoId: child.id, chatId: 'orch-stamp-chat' });
+  await stampCycleOrchestratorOnTodoTree({ workspaceFolder: cwd, dataDir, todoId: child.id, chatId: 'orch-stamp-chat' });
   assert.equal(getTodoById(dataDir, cwd, child.id).orchestratorChatId, 'orch-stamp-chat');
   assert.equal(getTodoById(dataDir, cwd, parent.id).orchestratorChatId, 'orch-stamp-chat', 'ancestors are stamped too');
 });
