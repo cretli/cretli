@@ -195,6 +195,72 @@ function renderMcpPanel(root, data) {
   root.querySelectorAll('[data-mcp-toggle]').forEach((btn) => {
     btn.addEventListener('click', () => toggleServer(btn.getAttribute('data-mcp-toggle'), btn.getAttribute('data-enabled') === '1', data.revision, root));
   });
+  root.querySelectorAll('[data-mcp-oauth-login]').forEach((btn) => {
+    btn.addEventListener('click', () => startOAuthLogin(btn.getAttribute('data-mcp-oauth-login'), root));
+  });
+  root.querySelectorAll('[data-mcp-oauth-logout]').forEach((btn) => {
+    btn.addEventListener('click', () => oauthLogout(btn.getAttribute('data-mcp-oauth-logout')));
+  });
+}
+
+/** Secret key under which the server stores OAuth tokens (lib/mcp/mcp-oauth.js). */
+const OAUTH_TOKENS_KEY = 'oauth_tokens';
+
+let oauthMessageListenerBound = false;
+
+/** The login window posts back when the callback finished; refresh to show the new state. */
+function bindOAuthMessageListener() {
+  if (oauthMessageListenerBound) return;
+  oauthMessageListenerBound = true;
+  window.addEventListener('message', (event) => {
+    if (event.origin !== window.location.origin) return;
+    if (event.data?.type !== 'cretli-mcp-oauth') return;
+    void refreshMcpSettingsPanel({ force: true });
+  });
+}
+
+/**
+ * @param {string | null} id
+ * @param {HTMLElement} root
+ */
+async function startOAuthLogin(id, root) {
+  if (!id) return;
+  const status = root.querySelector(`[data-oauth-status-for="${CSS.escape(id)}"]`);
+  const show = (text) => {
+    if (!status) return;
+    status.hidden = false;
+    status.textContent = text;
+  };
+  bindOAuthMessageListener();
+  // Open the window synchronously with the click, so pop-up blockers allow it.
+  const popup = window.open('about:blank', 'cretli-mcp-oauth', 'width=560,height=720');
+  const res = await mcpApi(`/api/mcp/servers/${encodeURIComponent(id)}/oauth/start`, { method: 'POST', body: {} });
+  if (!res.json?.ok) {
+    popup?.close();
+    show(`${t('settings.mcpOAuthError')}: ${res.json?.error || res.status}`);
+    return;
+  }
+  if (res.json.authorized) {
+    popup?.close();
+    await refreshMcpSettingsPanel({ force: true });
+    return;
+  }
+  const url = String(res.json.authorizeUrl || '');
+  if (popup && !popup.closed) {
+    popup.location.href = url;
+    show(t('settings.mcpOAuthWaiting'));
+  } else {
+    show(`${t('settings.mcpOAuthPopupBlocked')} ${url}`);
+  }
+}
+
+/**
+ * @param {string | null} id
+ */
+async function oauthLogout(id) {
+  if (!id) return;
+  await mcpApi(`/api/mcp/servers/${encodeURIComponent(id)}/oauth/logout`, { method: 'POST', body: {} });
+  await refreshMcpSettingsPanel({ force: true });
 }
 
 function syncTransportFields(root) {
@@ -229,9 +295,18 @@ function renderServerCard(server, statuses) {
     : related.map((row) => (
       `<p class="cr-hint">${escapeHtml(formatStatusLine(row))}${row.error ? ` · ${escapeHtml(row.error)}` : ''}</p>`
     )).join('');
-  const secrets = Array.isArray(server.secretKeys) && server.secretKeys.length
-    ? t('settings.mcpSecretSet')
-    : t('settings.mcpSecretEmpty');
+  const secretKeys = Array.isArray(server.secretKeys) ? server.secretKeys : [];
+  const oauthConnected = secretKeys.includes(OAUTH_TOKENS_KEY);
+  const secrets = oauthConnected
+    ? t('settings.mcpOAuthConnected')
+    : secretKeys.some((key) => !key.startsWith('oauth_'))
+      ? t('settings.mcpSecretSet')
+      : t('settings.mcpSecretEmpty');
+  const oauthButtons = server.transport !== 'http'
+    ? ''
+    : oauthConnected
+      ? `<cr-bar-button data-mcp-oauth-logout="${escapeAttr(server.id)}">${escapeHtml(t('settings.mcpOAuthLogout'))}</cr-bar-button>`
+      : `<cr-bar-button data-mcp-oauth-login="${escapeAttr(server.id)}">${escapeHtml(t('settings.mcpOAuthLogin'))}</cr-bar-button>`;
   return `
     <article class="cr-card mcp-server-card">
       <h4>${escapeHtml(server.name)}</h4>
@@ -239,9 +314,11 @@ function renderServerCard(server, statuses) {
       ${statusLines}
       <div class="cr-row">
         <cr-bar-button data-mcp-test="${escapeAttr(server.id)}">${escapeHtml(t('settings.mcpTest'))}</cr-bar-button>
+        ${oauthButtons}
         <cr-bar-button data-mcp-toggle="${escapeAttr(server.id)}" data-enabled="${server.enabled !== false ? '1' : '0'}">${escapeHtml(server.enabled !== false ? t('settings.mcpDisable') : t('settings.mcpEnable'))}</cr-bar-button>
         <cr-bar-button data-mcp-delete="${escapeAttr(server.id)}">${escapeHtml(t('settings.mcpDelete'))}</cr-bar-button>
       </div>
+      <p class="cr-hint" data-oauth-status-for="${escapeAttr(server.id)}" hidden></p>
       <pre class="mcp-tools-preview" data-tools-for="${escapeAttr(server.id)}" hidden></pre>
     </article>
   `;
