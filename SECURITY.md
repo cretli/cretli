@@ -190,6 +190,24 @@ never your other MCP servers or their secrets.
   `ok`/`error` record is best effort (failures are logged), so a crash between the two
   records leaves a `started` entry without a result.
 
+## Windows helper (`cretli-netd`)
+
+The optional helper (`scripts/windows/`) runs as `SYSTEM` on a Windows host and
+changes portproxy and firewall rules for exposed ports. Its only channel is the
+named pipe `\\.\pipe\cretli-netd`: no TCP listener. The pipe DACL admits `SYSTEM`
+and one configured user with the minimal mask `0x00120083`, denies `NETWORK`, and
+the pipe is owned by `SYSTEM`; the client verifies the owner of the pipe handle
+(`S-1-5-18` or `S-1-5-32-544`) before it sends a request and fails closed
+(`server_untrusted`). Requests are a closed list of operations with a validated
+port only; the target address is discovered by the helper, never supplied. Rules are
+TCP, one port, Private and Domain profiles (never Public), `LocalSubnet`, and only
+rules recorded in the helper state are ever changed or removed. Each firewall rule
+needs a matching live rule spec and a per-rule identity token from the admin-only
+state file before it can be changed or removed. Standard rules store the token in
+`Description`; Hyper-V rules store it in their unique `Name`. An administrator or
+`SYSTEM` attacker is out of scope. Threat model, install and the manual Windows
+verification checklist: [docs/apps-and-ports.md](docs/apps-and-ports.md#windows-helper).
+
 ## Hardening checklist
 
 1. **Set a password** on first run via `/login` (or the `/api/setup` endpoint).
