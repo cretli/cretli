@@ -5,22 +5,39 @@ import os from 'node:os';
 import path from 'node:path';
 import './fixtures/fake-transport.js';
 import { createLegacyJsonTodosBackend, createTodosStore, TODOS_STORE_ERROR_CODES } from '../lib/persist/todos-store.js';
+import { openSqliteTodosBackend } from './fixtures/todos-sqlite-harness.js';
 
-/** Backends the facade contract runs against; add a worker-backed one here later. */
-const BACKENDS = [{ name: 'legacy-json', create: () => createLegacyJsonTodosBackend() }];
+/**
+ * Backends the facade contract runs against. `create(dataDir)` returns the backend and an optional
+ * async `close`; the same assertions must hold for every backend.
+ */
+const BACKENDS = [
+  { name: 'legacy-json', create: async () => ({ backend: createLegacyJsonTodosBackend(), close: async () => {} }) },
+  {
+    name: 'sqlite',
+    create: async (dataDir) => {
+      const opened = await openSqliteTodosBackend({ dataDir });
+      return { backend: opened.backend, close: opened.close };
+    },
+  },
+];
 
 for (const { name, create } of BACKENDS) {
   describe(`todos-store contract (${name})`, () => {
     /** @type {string} */ let dataDir;
     /** @type {string} */ let cwd;
     /** @type {ReturnType<typeof createTodosStore>} */ let store;
+    /** @type {() => Promise<void>} */ let closeBackend;
 
-    beforeEach(() => {
+    beforeEach(async () => {
       dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'todos-store-data-'));
       cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'todos-store-cwd-'));
-      store = createTodosStore(create());
+      const created = await create(dataDir);
+      closeBackend = created.close;
+      store = createTodosStore(created.backend);
     });
-    afterEach(() => {
+    afterEach(async () => {
+      await closeBackend();
       fs.rmSync(dataDir, { recursive: true, force: true });
       fs.rmSync(cwd, { recursive: true, force: true });
     });

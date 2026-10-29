@@ -214,23 +214,23 @@
     {
       "id": "store.todos",
       "domainOwner": "lib/persist/todos-persist.js",
-      "backend": { "kind": "json-document-per-key", "schemaVersion": 3, "pathPattern": "todos/<workspaceKey>.json" },
-      "bootstrapMarker": { "path": "todos/", "detect": "directory-exists" },
-      "managedPaths": ["todos/*.json"],
-      "retainedPaths": [],
+      "backend": { "kind": "sqlite-wal-full", "schemaVersion": 1, "file": "todos.sqlite" },
+      "bootstrapMarker": { "path": "todos-backend.json", "detect": "backend-field" },
+      "managedPaths": ["todos.sqlite", "todos-backend.json"],
+      "retainedPaths": ["todos/*.json"],
       "lockOrderRank": 50,
-      "locks": ["shared workspace-watchers.lock.sqlite via withWorkspaceWatchersFileLock"],
-      "buffers": { "inMemoryCache": true, "flushStrategy": "read-modify-write full document" },
+      "locks": ["storage worker transaction; rank-50 todo owner"],
+      "buffers": { "inMemoryCache": true, "flushStrategy": "worker transaction per command; committed cache invalidated after COMMIT, rebuilt from rows" },
       "secrets": { "classification": "user-content-in-titles", "exportBoundary": "workspace-scoped-export" },
-      "rawValidator": "todo document version + tree invariants",
+      "rawValidator": "todo row version + tree invariants + logical export validation",
       "adapters": {
         "export": "logical-json-per-workspace",
-        "snapshot": "watcher-lock-then-copy",
-        "flush": "atomic-rename",
-        "restore": "per-file-replace",
-        "migration": "planned-cretli-sqlite"
+        "snapshot": "clean-close-immutable-read",
+        "flush": "worker-commit-with-receipt",
+        "restore": "rollback-export-and-marker-replace",
+        "migration": "quiesced-todos-json-import-with-count-and-hash-verification"
       },
-      "durability": { "mode": "atomic-rename" },
+      "durability": { "mode": "synchronous=FULL", "wal": true },
       "ackClasses": ["post-commit-todo-cas"],
       "writers": {
         "known": [

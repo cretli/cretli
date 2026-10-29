@@ -197,3 +197,71 @@ restarts the full `deadlineMs` window: the total wait can reach (1 + retries) x 
 requests are never retried and still shed. Delegation mailbox (ack/report) history cards are submitted as `final`
 (`MAILBOX_HISTORY_PRIORITY` in `lib/delegation-mailbox.js`, forwarded through `callOptions.priority` of
 `appendChatHistoryEvents`).
+
+## Todos SQLite backend, marker, migration, rollback
+
+Implements ADR [storage-todos-worker-decision.md](storage-todos-worker-decision.md) sections 3 and 5 for
+`store.todos`. **Production is not switched**: nothing in the server calls `openTodosRuntime`, and the
+marker is written only by `scripts/migrate-todos-to-sqlite.js --apply`.
+
+**Backend marker (`<dataDir>/todos-backend.json`).** Absent = legacy JSON (`todos/<key>.json`). `sqlite` =
+exactly the named store (`todos.sqlite`, bound to the marker's dataset generation); a missing or empty
+file, an unbound file or a generation mismatch is an error (`todos_store_missing`, `todo_store_unbound`,
+`todo_generation_mismatch`), never an empty store and never a fallback to JSON. `legacy-rollback` = legacy
+JSON over a verified rollback export whose manifest hash the marker pins. An unreadable or inconsistent
+marker refuses (`todos_marker_invalid`). Writes are compare-and-swap on `revision`.
+
+**Facade backend (`lib/persist/todos-backend-sqlite.js`).** Each mutation runs the unchanged legacy domain
+function on a private overlay (a scratch copy of the workspace document), diffs the result against the
+committed document and submits one worker transaction (`todos.batch`, or `todos.importDocument` for a
+reorder/oversized diff) with per-item `expectedUpdatedAt` CAS and a document-level CAS. The shared
+committed cache, the autopilot nudge and the facade's success all follow COMMIT; the cache entry is
+invalidated after every command and rebuilt from the committed rows after a restart. Reads never wait for a
+pending write. A CAS conflict against another writer re-runs on fresh state (3 attempts) and then rejects
+with `CONFLICT`. `moveTodo` is one transaction (source rows, target rows, both document revisions, receipt).
+
+**Known limits (reported, not hidden).**
+- `commitWatcherTodoCommand` spans the watcher JSON document and the SQLite todo, so it is a staged,
+  version-checked protocol: check the watcher row, commit the todo transaction, write the watcher row under
+  its file lock with the same CAS, and on rejection compensate the todo with the inverse operations (CAS'd on
+  the version just committed). No file lock is held across an `await`. A process crash between the todo
+  commit and the watcher write leaves the todo change without the watcher write: there is no SQLite-side
+  journal yet.
+- Reads and mutations still materialise a whole workspace document on the main thread on a cache miss
+  (the cache is keyed by the worker's document revision, so an unchanged workspace is not re-read). The
+  indexed `todos.list` page is not what the facade's `listTodos` returns, because callers need full items.
+- The group committer is not used by this backend (one worker transaction per command).
+
+**Migration (`scripts/migrate-todos-to-sqlite.js`).** Offline, writers stopped. Plan (default / `--dry-run`)
+writes nothing and prints the manifest (SHA-256, bytes, items, idempotency keys per file) and a plan hash.
+`--apply --confirm-plan <hash>` imports into a new staging store, re-opens it read-only and verifies
+workspace set, per-workspace counts, item IDs and order, `parentId`/`siblingIndex`, per-item field sets
+(unknown fields) and the canonical hash of every exported document against the source; re-hashes the sources
+(a changed source voids the run), publishes the closed store and only then writes the marker. The JSON files
+are left byte-identical and made read-only.
+
+**Rollback.** Before any durable ACK of the sqlite backend the original JSON still equals the store and is an
+acceptable rollback source. After the first ACK (a command receipt, or documents that differ from the
+imported ones) a plain JSON backup would lose writes and is rejected (`todos_rollback_source_stale`). The
+tool `rollback-export` writes a fresh logical export (strict legacy documents) plus
+`rollback-control/` (manifest with the store fingerprint, all receipts, fencing high-water mark); it hashes
+the store before and after. `rollback-activate` verifies the export against the current store (a later write
+makes it stale, `todos_rollback_export_stale`), preserves the previous `todos/` directory, installs the
+export and selects `legacy-rollback`; the legacy runtime then starts only if the export still verifies
+against the manifest hash pinned in the marker. `plainLegacyBinaryCompatible` is false: an older binary does
+not read the marker and must not be pointed at these documents.
+
+
+**Rollback runtime is sidecar-aware** (`lib/persist/todos-backend-rollback.js`). Under the `legacy-rollback`
+marker `openTodosRuntime` needs an owner `fence` epoch strictly above the recorded high-water mark (the mark
+is raised to it and never lowers; every mutation re-reads it and a fenced-out older owner is refused,
+`todos_rollback_fenced`). Startup verifies the pinned manifest, the export documents and receipts, the
+`todos-rollback-state.json` ledger (written by `rollback-activate` before the marker) and that every live
+`todos/<key>.json` hashes as the last committed state; a modified, missing or extra document, a missing
+ledger or a tampered manifest/receipts file fails closed. `backend.command({ datasetGeneration, commandId,
+requestDigest }, method, args)` returns the recorded result of a sidecar or earlier receipt (digest must
+match) without re-applying it. Every facade mutation goes through one choke point; `store.withCommand({ commandId, requestDigest }, fn)`
+(AsyncLocalStorage) gives the mutations inside `fn` a command identity (a batch gets one ledger entry per
+operation). Open, fence publication and each (fence re-check, mutation, ledger write) run under one
+cross-process lockfile (`todos-rollback-state.lock`, stale owners taken over). Gap: existing production
+callers do not pass a command id yet, so they have no ledger entry; a crash between a document write and the ledger update fails closed at the next start.

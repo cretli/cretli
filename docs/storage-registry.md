@@ -74,6 +74,15 @@ snapshot until quiesced or registered (see DATA-08 / BACKUP-02).
 | Minimum for native backup (A1 contract) | Node ≥ 22.16 |
 | `package.json` engines (A2) | ≥ 22.16 |
 
+`store.todos` describes the **target** SQLite layout (`todos.sqlite` + `todos-backend.json`, ADR
+[storage-todos-worker-decision.md](storage-todos-worker-decision.md) section 5). Production is not switched:
+with no `todos-backend.json` marker the server keeps reading and writing `todos/<key>.json`, which is why
+`todos/*.json` is listed under `retainedPaths`. The adapter names match the implementation:
+`lib/persist/todos-backend-sqlite.js` (backend), `lib/persist/todos-backend-marker.js` (marker),
+`lib/persist/todos-runtime.js` (selection), `lib/storage/todos-migration.js` and
+`scripts/migrate-todos-to-sqlite.js` (migration and rollback). See
+[storage-contract.md](storage-contract.md#todos-sqlite-backend-marker-migration-rollback).
+
 Runtime app state (`store.apps-state`, `apps-state.json`) is a small JSON store written by `lib/apps/`; see `docs/apps-and-ports.md`.
 
 The port exposure ledger (`store.port-exposures`, `port-exposures.json`) is written by `lib/port-exposure/`; see the Exposure section of `docs/apps-and-ports.md`.

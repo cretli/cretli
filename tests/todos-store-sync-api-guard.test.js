@@ -20,6 +20,8 @@ const STORAGE_DEPENDENT_API = [
   'closeTodoLeafIfEligible',
 ];
 const LEGACY_ADAPTERS = new Set(['lib/persist/todos-store.js', 'lib/persist/todos-legacy-move-adapter.js']);
+/** The SQLite backend reuses the document-level review/leaf helpers of todos-persist.js over a private scratch overlay. */
+const STORAGE_BACKEND_ADAPTERS = new Set([...LEGACY_ADAPTERS, 'lib/persist/todos-backend-sqlite.js']);
 
 /** Files already moved to `lib/persist/todos-store.js`; they must never use the sync API again. */
 const CONVERTED = Object.freeze([
@@ -141,7 +143,7 @@ describe('store.todos sync API guard', () => {
   it('no file outside the legacy adapters and the facade imports storage-dependent persist functions', () => {
     const offenders = [];
     for (const rel of scanFiles()) {
-      if (LEGACY_ADAPTERS.has(rel)) continue;
+      if (STORAGE_BACKEND_ADAPTERS.has(rel)) continue;
       const names = syncImports(fs.readFileSync(path.join(ROOT, rel), 'utf8'), STORAGE_DEPENDENT_API);
       if (names.length) offenders.push(`${rel}: ${names.join(', ')}`);
     }
