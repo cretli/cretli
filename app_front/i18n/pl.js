@@ -29,12 +29,22 @@ const basePl = {
   tabs: {
     chat: 'Czat',
     tasks: 'Zadania',
+    decisions: 'Decyzje',
     logs: 'Logi',
     instances: 'Instancje',
     browser: 'Przeglądarka',
     github: 'GitHub',
     worktrees: 'Worktree',
     statusParser: 'Parser statusu',
+  },
+  decisions: {
+    title: 'Decyzje', empty: 'Brak oczekujących decyzji.', details: 'Szczegóły', close: 'Zamknij',
+    recommended: 'Rekomendacja', swipeHint: 'Przesuń tutaj, aby wybrać szybko', waiting: 'Wysyłanie za 5 sekund', undo: 'Cofnij', undone: 'Decyzja cofnięta.',
+    stale: 'Ta decyzja jest nieaktualna i została usunięta.', sent: 'Decyzja wysłana.',
+    sendError: 'Nie udało się wysłać decyzji. Odśwież, aby spróbować ponownie.', loadError: 'Nie udało się pobrać decyzji.',
+    evidence: 'Dowód', openEvidence: 'Otwórz dowód', openChat: 'Otwórz czat', screenshot: 'Zrzut ekranu',
+    other: 'Inna odpowiedź', sendOther: 'Wyślij odpowiedź',
+    integrationGroup: 'Integracje w drzewie {tree} ({count})',
   },
   header: {
     workspaceTitle: 'Przełącz workspace',

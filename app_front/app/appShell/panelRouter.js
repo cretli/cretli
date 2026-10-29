@@ -341,6 +341,10 @@ export function createPanelRouter(deps = {}) {
       probeSync('todo.tabSwitch.refreshCall', () => refreshTodoList());
     }
 
+    if (panelId === 'decisions') {
+      void import('../../features/decisions/decisionsPanel.js').then((mod) => mod.refreshDecisionsPanel());
+    }
+
     if (panelId === 'tests') {
       if (!isStatusParserPanelEnabled()) {
         showPanel('chat', modeConfig);

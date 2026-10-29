@@ -19,6 +19,7 @@
     'terminal',
     'tasks',
     'todo',
+    'decisions',
     'browser',
     'files',
     'git',
@@ -110,6 +111,7 @@
   ].concat(buildHarnessSubtabTabIds(), [
     'interface',
     'interface-notifications',
+    'interface-storage',
     'interface-terminal',
     'interface-voice',
     'interface-browser',

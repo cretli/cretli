@@ -29,12 +29,22 @@ const baseEn = {
   tabs: {
     chat: 'Chat',
     tasks: 'Tasks',
+    decisions: 'Decisions',
     logs: 'Logs',
     instances: 'Instances',
     browser: 'Browser',
     github: 'GitHub',
     worktrees: 'Worktrees',
     statusParser: 'Status parser',
+  },
+  decisions: {
+    title: 'Decisions', empty: 'No pending decisions.', details: 'Details', close: 'Close',
+    recommended: 'Recommended', swipeHint: 'Swipe here for quick actions', waiting: 'Sending in 5 seconds', undo: 'Undo', undone: 'Decision undone.',
+    stale: 'This decision changed and was removed.', sent: 'Decision sent.',
+    sendError: 'Could not send the decision. Refresh to try again.', loadError: 'Could not load decisions.',
+    evidence: 'Evidence', openEvidence: 'Open evidence', openChat: 'Open chat', screenshot: 'Screenshot',
+    other: 'Another answer', sendOther: 'Send answer',
+    integrationGroup: 'Integrations in tree {tree} ({count})',
   },
   header: {
     workspaceTitle: 'Choose workspace and folder',

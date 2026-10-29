@@ -155,6 +155,10 @@ export function createSocketMessageHandler(chat, socket, ctx) {
         if (typeof onNotificationsChanged === 'function') onNotificationsChanged(msg);
         return;
       }
+      if (msg.type === 'decisionsChanged') {
+        window.dispatchEvent(new CustomEvent('cr-decisions-changed', { detail: msg }));
+        return;
+      }
       if (msg.type === 'sdkHistoryChanged') {
         // The history identity the write carried: a changed chat epoch invalidates the local delta cursor.
         if (msg.identity && chat?.id) noteServerHistoryIdentity(chat.id, msg.identity);

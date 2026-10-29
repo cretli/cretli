@@ -60,6 +60,7 @@ import { getChatMuteStore } from '../../features/pwa/chatMuteStore.js';
 import { initInAppSignals } from '../../features/pwa/inAppSignals.js';
 import { initServiceWorkerMessages, readNotificationBootInfo } from '../../features/pwa/swMessages.js';
 import { initNotificationCenter } from '../../features/notifications/notificationCenter.js';
+import { initDecisionsPanel } from '../../features/decisions/decisionsPanel.js';
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from '../../lib/storageKeyAlias.js';
 import { parseEmbedModeQuery, resolveEmbedPanel } from './embedMode.js';
 import { isEmbedModeEnabled } from './embedWidgetBridge.js';
@@ -235,6 +236,7 @@ export function createBootApp(deps) {
         logger: appLogger,
         onNavigate: openNotificationActionUrl,
       }));
+      measureStartupStep('initDecisionsPanel', () => initDecisionsPanel());
       measureStartupStep('initSettingsWorkspacePicker', () => initSettingsWorkspacePicker() || Promise.resolve());
       measureStartupStep('initChatActivityStore', () => installChatActivityStorageListener());
       // Boot passes that read workspace-scoped data. The bounded view-context wait

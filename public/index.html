@@ -247,6 +247,7 @@
       <button type="button" id="header-pwa-install-btn" class="header-settings-btn header-pwa-install-btn" hidden title="Install app" data-i18n-title="pwa.install" aria-label="Install app" data-i18n-aria="pwa.install"><span class="mdi mdi-download" aria-hidden="true"></span></button>
       <button type="button" id="header-app-fullscreen-btn" class="header-settings-btn" title="App fullscreen" data-i18n-title="header.fullscreenTitle" aria-label="App fullscreen" data-i18n-aria="header.fullscreenAria" data-fullscreen="off"><span class="mdi mdi-fullscreen" aria-hidden="true"></span></button>
       <button type="button" id="header-notifications-btn" class="header-settings-btn header-notifications-btn" title="Notifications" data-i18n-title="notifications.bellTitle" aria-label="Notifications" data-i18n-aria="notifications.bellAria" aria-haspopup="true" aria-expanded="false" aria-controls="header-notifications-panel"><span class="mdi mdi-bell-outline" aria-hidden="true"></span><span id="header-notifications-badge" class="header-notifications-badge" hidden aria-hidden="true">0</span></button>
+      <button type="button" id="header-decisions-btn" class="header-settings-btn header-notifications-btn" title="Decisions" data-i18n-title="tabs.decisions" aria-label="Decisions" data-i18n-aria="tabs.decisions"><span class="mdi mdi-cards-outline" aria-hidden="true"></span><span id="header-decisions-badge" class="header-notifications-badge" hidden aria-hidden="true">0</span></button>
       <button type="button" id="header-settings-btn" class="header-settings-btn" title="Settings" data-i18n-title="header.settingsTitle" aria-label="Settings" data-i18n-aria="header.settingsAria"><span class="mdi mdi-cog" aria-hidden="true"></span></button>
     </div>
   </div>
@@ -327,6 +328,7 @@
     <button type="button" class="tab" data-panel="terminal">Terminal</button>
     <button type="button" class="tab" data-panel="tasks" data-i18n="tabs.tasks">Tasks</button>
     <button type="button" class="tab" data-panel="todo">Todo</button>
+    <button type="button" class="tab" data-panel="decisions" data-i18n="tabs.decisions">Decisions</button>
     <button type="button" class="tab" data-panel="browser" data-i18n="tabs.browser">Browser</button>
     <button type="button" class="tab" data-panel="files">Files</button>
     <button type="button" class="tab" data-panel="git">Git</button>
@@ -2798,6 +2800,8 @@ New-NetFirewallRule -DisplayName "Cretli CDP from WSL" -Direction Inbound -Proto
       </div>
     </div>
   </div>
+
+  <div id="decisions-panel" class="panel"><cr-decision-stack></cr-decision-stack></div>
 
   <div id="files-panel" class="panel">
     <div class="files-layout">

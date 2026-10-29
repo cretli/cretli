@@ -119,6 +119,9 @@ export function createHeaderChrome({ embedBridge }) {
       void getSharedSpaNavigation()?.navigate({ panel: getLastMainPanel() }, { explicit: true });
     };
     const settingsBtn = document.getElementById('header-settings-btn');
+    document.getElementById('header-decisions-btn')?.addEventListener('click', () => {
+      void (/** @type {any} */ (getSharedSpaNavigation()))?.navigate({ panel: 'decisions' }, { explicit: true });
+    });
     if (settingsBtn) {
       settingsBtn.addEventListener('click', () => {
         const settingsOpen = document.getElementById('settings-panel')?.classList.contains('active');
@@ -149,7 +152,7 @@ export function createHeaderChrome({ embedBridge }) {
         if (data && data.ok && data.configured) {
           section.dataset.accountEnabled = 'true';
           const activeTab = document.getElementById('settings-panel')?.dataset?.activeSettingsTab
-            || document.querySelector('#settings-tabs .settings-tab.active')?.dataset.settingsTab;
+            || (/** @type {HTMLElement | null} */ (document.querySelector('#settings-tabs .settings-tab.active')))?.dataset.settingsTab;
           if (activeTab === 'account') section.hidden = false;
         }
       })
