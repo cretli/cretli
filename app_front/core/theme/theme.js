@@ -4,11 +4,10 @@
  */
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from '../../lib/storageKeyAlias.js';
 import { themes, themeCss } from './themes/index.js';
-import { t } from '../../i18n/index.js';
+import { createThemeGalleryState } from '../../features/settings/themeGalleryState.js';
 
 const THEME_KEY = 'cretli-theme';
 const THEME_DARK = 'cretli-dark';
-const THEME_LIGHT = 'cretli-light';
 const THEME_SYSTEM = 'system';
 const THEME_CHANGE_EVENT = 'cr-theme-change';
 
@@ -172,26 +171,13 @@ export function initTheme() {
   }
 }
 
-/**
- * Initializes the theme select in Settings.
- */
-/**
- * @param {HTMLElement} select
- */
-function fillThemeOptions(select) {
-  if (select.tagName !== 'CR-BAR-SELECT') return;
-  select.options = [
-    { value: THEME_DARK, label: t('settings.themeDark') },
-    { value: THEME_LIGHT, label: t('settings.themeLight') },
-    { value: THEME_SYSTEM, label: t('settings.themeSystem') },
-  ];
-}
-
-export function initThemeSelect() {
-  const select = document.getElementById('theme-select');
-  if (!select) return;
-  fillThemeOptions(select);
-  select.value = getTheme();
-  select.addEventListener('change', () => setTheme(select.value));
-  window.addEventListener('cr-lang-changed', () => fillThemeOptions(select));
+/** Initializes the Settings gallery on the shared theme runtime. */
+export async function initThemeSelect() {
+  const gallery = /** @type {HTMLElement & { controller?: unknown, systemTheme?: unknown } | null} */ (
+    document.getElementById('theme-gallery')
+  );
+  if (!gallery) return;
+  await import('../../features/settings/themeGallery.js');
+  gallery.controller = createThemeGalleryState({ getTheme, setTheme, getSystemTheme, storage: localStorage });
+  gallery.systemTheme = getSystemTheme;
 }

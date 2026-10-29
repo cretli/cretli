@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Settings theme gallery with palette previews, keyboard navigation, and separate light and dark themes when following the system appearance.
+
 ### Removed
 
 - Legacy Agents tab, Cursor CLI definition runner and interval schedule. Use chat skills, delegations, Watcher, Scout or `check_schedule` instead. Existing `/agents` links open `/chat`. Agent definitions remain available through `agent_list`; Rules and agents loads directly from Settings → Chat & agents.

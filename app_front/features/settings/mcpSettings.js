@@ -190,10 +190,10 @@ function renderMcpPanel(root, data) {
     btn.addEventListener('click', () => testServer(btn.getAttribute('data-mcp-test'), data.revision, root));
   });
   root.querySelectorAll('[data-mcp-delete]').forEach((btn) => {
-    btn.addEventListener('click', () => deleteServer(btn.getAttribute('data-mcp-delete'), data.revision, root));
+    btn.addEventListener('click', () => deleteServer(btn.getAttribute('data-mcp-delete'), data.revision));
   });
   root.querySelectorAll('[data-mcp-toggle]').forEach((btn) => {
-    btn.addEventListener('click', () => toggleServer(btn.getAttribute('data-mcp-toggle'), btn.getAttribute('data-enabled') === '1', data.revision, root));
+    btn.addEventListener('click', () => toggleServer(btn.getAttribute('data-mcp-toggle'), btn.getAttribute('data-enabled') === '1', data.revision));
   });
   root.querySelectorAll('[data-mcp-oauth-login]').forEach((btn) => {
     btn.addEventListener('click', () => startOAuthLogin(btn.getAttribute('data-mcp-oauth-login'), root));

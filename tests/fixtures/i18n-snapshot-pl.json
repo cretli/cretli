@@ -1881,7 +1881,13 @@
   "harnessQwenReady": "Qwen Code gotowy — API OpenAI-compatible z Qwen Cloud.",
   "harnessQwenModelsTitle": "Qwen — modele czatu",
   "harnessQwenModelsHint": "Live lista Qwen Cloud /models przy ustawionym kluczu; inaczej fallback planu (3.8 Max / Plus / Coder). Zaznacz wpisy widoczne w pickerze.",
-  "harnessQwenModelsEmpty": "Brak modeli Qwen. Dodaj klucz w Harness → Qwen i zainstaluj @qwen-code/sdk."
+  "harnessQwenModelsEmpty": "Brak modeli Qwen. Dodaj klucz w Harness → Qwen i zainstaluj @qwen-code/sdk.",
+  "themeMode": "Tryb motywu",
+  "themeFixed": "Stały motyw",
+  "themeSystemLight": "Motyw dla jasnego systemu",
+  "themeSystemDark": "Motyw dla ciemnego systemu",
+  "themeDefault": "Domyślny",
+  "themeGalleryHint": "Wybierz motyw. Użyj strzałek, aby przechodzić między podglądami."
  },
  "connection": {
   "connected": "Połączono",
