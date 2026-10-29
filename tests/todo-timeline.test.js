@@ -77,7 +77,7 @@ test('real saves persist plan edits, approval invalidation and status changes bu
   assert.equal('activity' in slimTodoForList(current), false, 'the list never carries the full audit trail');
 });
 
-test('history endpoint returns saved delegations and refuses a TODO from another workspace', () => {
+test('history endpoint returns saved delegations and refuses a TODO from another workspace', async () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), 'cr-timeline-route-'));
   const dataDir = path.join(cwd, 'data');
   const item = addTodo(dataDir, cwd, { title: 'Task' }).item;
@@ -89,14 +89,14 @@ test('history endpoint returns saved delegations and refuses a TODO from another
   const routes = new Map();
   const app = Object.fromEntries(['get', 'post', 'patch', 'delete'].map((method) => [method, (route, handler) => routes.set(`${method} ${route}`, handler)]));
   registerTodosRoutes(app, { dataDir, getCurrentCwd: () => cwd });
-  const invoke = (workspaceFolder) => {
+  const invoke = async (workspaceFolder) => {
     const response = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
-    routes.get('get /api/todos/:id/history')({ params: { id: item.id }, query: { workspaceFolder } }, response);
+    await routes.get('get /api/todos/:id/history')({ params: { id: item.id }, query: { workspaceFolder } }, response);
     return response;
   };
-  const result = invoke(cwd);
+  const result = await invoke(cwd);
   assert.equal(result.statusCode, 200);
   assert.equal(result.body.entries.some((entry) => entry.delegationId === delegation.id), true);
-  const other = invoke(mkdtempSync(path.join(os.tmpdir(), 'cr-timeline-other-')));
+  const other = await invoke(mkdtempSync(path.join(os.tmpdir(), 'cr-timeline-other-')));
   assert.equal(other.statusCode, 404);
 });

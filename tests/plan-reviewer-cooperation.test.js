@@ -68,7 +68,7 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
 {
   const { workspace, todoId } = setupTodoWithPlan();
   const coordinatorChatId = randomUUID();
-  const created = createPlanReviewerSession({
+  const created = await createPlanReviewerSession({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: workspace,
     todoId,
@@ -82,7 +82,7 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
 
 {
   const { workspace, todoId } = setupTodoWithPlan();
-  const created = createPlanReviewerSession({
+  const created = await createPlanReviewerSession({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: workspace,
     todoId,
@@ -96,7 +96,7 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
   session = registerPlanReviewerDelegation(session, delA, 0);
   session = registerPlanReviewerDelegation(session, delB, 1);
   assert.equal(canOpenPlanReviewerExchangePhase(session), false);
-  session = syncPlanReviewerSessionAfterDelegationFinish({
+  session = await syncPlanReviewerSessionAfterDelegationFinish({
     id: delA,
     planReviewerSessionId: session.id,
     planReviewerPhase: 'independent',
@@ -106,7 +106,7 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
     finishedAt: new Date().toISOString(),
   });
   assert.equal(session.phase, 'independent');
-  session = syncPlanReviewerSessionAfterDelegationFinish({
+  session = await syncPlanReviewerSessionAfterDelegationFinish({
     id: delB,
     planReviewerSessionId: session.id,
     planReviewerPhase: 'independent',
@@ -118,13 +118,13 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
   assert.equal(session.phase, 'exchange');
   assert.equal(session.exchangeRoundUsed, true);
   assert.match(String(session.divergenceSummary), /divergence:/);
-  const gate = inspectPlanReviewerDelegationStart({
+  const gate = await inspectPlanReviewerDelegationStart({
     planReviewerSessionId: session.id,
     planReviewerPhase: 'exchange',
     reviewSubject: 'plan',
   });
   assert.equal(gate.ok, true);
-  const tooEarly = inspectPlanReviewerDelegationStart({
+  const tooEarly = await inspectPlanReviewerDelegationStart({
     planReviewerSessionId: session.id,
     planReviewerPhase: 'independent',
     reviewSubject: 'plan',
@@ -135,7 +135,7 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
 
 {
   const { workspace, todoId } = setupTodoWithPlan();
-  const created = createPlanReviewerSession({
+  const created = await createPlanReviewerSession({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: workspace,
     todoId,
@@ -157,7 +157,7 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
 
 {
   const { workspace, todoId, todo } = setupTodoWithPlan('# v1\n');
-  const created = createPlanReviewerSession({
+  const created = await createPlanReviewerSession({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: workspace,
     todoId,
@@ -168,7 +168,7 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
   updateTodo(ISOLATED_DATA_DIR, workspace, todoId, {
     plan: { markdown: '# v2\n', updatedAt: new Date().toISOString() },
   });
-  stalePlanReviewerSessionsForTodoPlanChange({
+  await stalePlanReviewerSessionsForTodoPlanChange({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: workspace,
     todoId,
@@ -184,7 +184,7 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
 
 {
   const { workspace, todoId } = setupTodoWithPlan();
-  const created = createPlanReviewerSession({
+  const created = await createPlanReviewerSession({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: workspace,
     todoId,
@@ -197,7 +197,7 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
   const delB = randomUUID();
   session = registerPlanReviewerDelegation(session, delA, 0);
   session = registerPlanReviewerDelegation(session, delB, 1);
-  session = syncPlanReviewerSessionAfterDelegationFinish({
+  session = await syncPlanReviewerSessionAfterDelegationFinish({
     id: delA,
     planReviewerSessionId: session.id,
     planReviewerPhase: 'independent',
@@ -206,7 +206,7 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
     report: 'Reviewer A\nVERDICT: PASS',
     finishedAt: new Date().toISOString(),
   });
-  session = syncPlanReviewerSessionAfterDelegationFinish({
+  session = await syncPlanReviewerSessionAfterDelegationFinish({
     id: delB,
     planReviewerSessionId: session.id,
     planReviewerPhase: 'independent',
@@ -233,7 +233,7 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
   assert.equal(payloadA.ok, true);
   assert.equal(payloadA.peerSummaries.length, 1);
   assert.match(payloadA.peerSummaries[0], /Reviewer B/);
-  session = syncPlanReviewerSessionAfterDelegationFinish({
+  session = await syncPlanReviewerSessionAfterDelegationFinish({
     id: delAExchange,
     planReviewerSessionId: session.id,
     planReviewerPhase: 'exchange',
@@ -244,7 +244,7 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
     finishedAt: new Date().toISOString(),
   });
   assert.equal(session.phase, 'exchange');
-  session = syncPlanReviewerSessionAfterDelegationFinish({
+  session = await syncPlanReviewerSessionAfterDelegationFinish({
     id: delBExchange,
     planReviewerSessionId: session.id,
     planReviewerPhase: 'exchange',
@@ -264,13 +264,13 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
 // session, so its replacement can still be started.
 {
   const { workspace, todoId } = setupTodoWithPlan();
-  let session = createPlanReviewerSession({
+  let session = (await createPlanReviewerSession({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: workspace,
     todoId,
     coordinatorChatId: randomUUID(),
     cooperationMode: 'independent',
-  }).session;
+  })).session;
   const delFailed = randomUUID();
   const delPass = randomUUID();
   session = registerPlanReviewerDelegation(session, delFailed, 0);
@@ -284,10 +284,10 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
     report,
     finishedAt: new Date().toISOString(),
   });
-  finish(delFailed, 'Qwen run failed');
-  session = finish(delPass, 'ok\nVERDICT: PASS');
+  await finish(delFailed, 'Qwen run failed');
+  session = await finish(delPass, 'ok\nVERDICT: PASS');
   assert.equal(session.phase, 'independent');
-  const replacement = inspectPlanReviewerDelegationStart({
+  const replacement = await inspectPlanReviewerDelegationStart({
     planReviewerSessionId: session.id,
     planReviewerPhase: 'independent',
     reviewSubject: 'plan',
@@ -305,27 +305,27 @@ function setupTodoWithPlan(markdown = '# Plan\n') {
     coordinatorChatId: randomUUID(),
     cooperationMode: 'collaborative',
   };
-  const first = ensurePlanReviewerSession(input);
+  const first = await ensurePlanReviewerSession(input);
   const reviewerId = randomUUID();
   registerPlanReviewerDelegation(first.session, reviewerId, 0);
-  const retry = ensurePlanReviewerSession(input);
+  const retry = await ensurePlanReviewerSession(input);
   assert.equal(retry.session.id, first.session.id);
   assert.equal(retry.session.reviewers[0].delegationId, reviewerId);
   for (const version of [2, 3]) {
     updateTodo(ISOLATED_DATA_DIR, workspace, todoId, {
       plan: { markdown: `# Version ${version}\n` },
     });
-    assert.equal(inspectPlanReviewerDelegationStart({
+    assert.equal((await inspectPlanReviewerDelegationStart({
       planReviewerSessionId: first.session.id, reviewSubject: 'plan',
-    }).code, 'stale');
-    const current = ensurePlanReviewerSession(input);
+    })).code, 'stale');
+    const current = await ensurePlanReviewerSession(input);
     assert.notEqual(current.session.id, first.session.id);
     assert.equal(current.session.cooperationMode, 'collaborative');
     assert.equal(current.session.reviewers.length, 0);
-    assert.equal(inspectPlanReviewerDelegationStart({
+    assert.equal((await inspectPlanReviewerDelegationStart({
       planReviewerSessionId: current.session.id, reviewSubject: 'plan',
-    }).ok, true);
-    assert.equal(ensurePlanReviewerSession(input).session.id, current.session.id);
+    })).ok, true);
+    assert.equal((await ensurePlanReviewerSession(input)).session.id, current.session.id);
   }
   const todo = loadTodosData(ISOLATED_DATA_DIR, workspace).items[0];
   assert.equal(todo.status, 'idea');

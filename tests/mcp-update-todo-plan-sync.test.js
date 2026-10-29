@@ -13,17 +13,17 @@ const client = createInProcessMcpClient({ chatId: parent.id, workspaceFolder: wo
 addTodo(ISOLATED_DATA_DIR, workspace, { title: 'MCP plan edit parity' });
 const todoId = loadTodosData(ISOLATED_DATA_DIR, workspace).items[0].id;
 await client.updateTodo({ workspaceFolder: workspace, todoId, plan: { markdown: '# Version 1' } });
-const session = ensurePlanReviewerSession({
+const session = await ensurePlanReviewerSession({
   dataDir: ISOLATED_DATA_DIR, todoId, workspaceFolder: workspace, coordinatorChatId: parent.id, cooperationMode: 'independent',
 });
 const sessionId = session.session.id;
-assert.equal(inspectPlanReviewerDelegationStart({ planReviewerSessionId: sessionId, reviewSubject: 'plan' }).ok, true);
+assert.equal((await inspectPlanReviewerDelegationStart({ planReviewerSessionId: sessionId, reviewSubject: 'plan' })).ok, true);
 // An MCP plan rewrite must stale the cooperation session (parity with the REST route).
 await client.updateTodo({ workspaceFolder: workspace, todoId, plan: { markdown: '# Version 2' } });
 assert.equal(getPlanReviewerSessionById(sessionId).phase, 'stale');
-assert.equal(inspectPlanReviewerDelegationStart({ planReviewerSessionId: sessionId, reviewSubject: 'plan' }).code, 'stale');
+assert.equal((await inspectPlanReviewerDelegationStart({ planReviewerSessionId: sessionId, reviewSubject: 'plan' })).code, 'stale');
 // A non-plan write must not.
-const fresh = ensurePlanReviewerSession({
+const fresh = await ensurePlanReviewerSession({
   dataDir: ISOLATED_DATA_DIR, todoId, workspaceFolder: workspace, coordinatorChatId: parent.id, cooperationMode: 'independent',
 });
 const freshId = fresh.session.id;

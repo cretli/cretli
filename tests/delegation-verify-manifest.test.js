@@ -209,7 +209,7 @@ test('service: failed run is not usable evidence', async () => {
   assert.equal(saved.verifyResult.manifestEvidence.reason, 'failed');
 });
 
-function inheritFor(parent, implement) {
+async function inheritFor(parent, implement) {
   const review = createDelegationRecord({
     parentChatId: parent.id,
     workspaceFolder: repo.dir,
@@ -224,7 +224,7 @@ function inheritFor(parent, implement) {
 test('service: valid reuse rebinds the manifest to the new review attempt', async () => {
   const { parent, row } = makeRow();
   (await record(row));
-  const review = inheritFor(parent, row);
+  const review = await inheritFor(parent, row);
   const v = getDelegationById(review.id).verifyResult;
   assert.equal(v.source, 'inherited_from_implement');
   assert.equal(v.attemptId, review.attemptId);
@@ -237,14 +237,14 @@ test('service: changed test file or environment blocks reuse', async () => {
   (await record(row));
   fs.writeFileSync(CURATED_FILE, 'v3');
   try {
-    assert.equal(getDelegationById(inheritFor(parent, row).id).verifyResult, null, 'tests changed => no reuse');
+    assert.equal(getDelegationById((await inheritFor(parent, row)).id).verifyResult, null, 'tests changed => no reuse');
   } finally {
     fs.writeFileSync(CURATED_FILE, 'v1');
   }
   const prevTz = process.env.TZ;
   process.env.TZ = 'Pacific/Kiritimati';
   try {
-    assert.equal(getDelegationById(inheritFor(parent, row).id).verifyResult, null, 'env changed => no reuse');
+    assert.equal(getDelegationById((await inheritFor(parent, row)).id).verifyResult, null, 'env changed => no reuse');
   } finally {
     if (prevTz === undefined) delete process.env.TZ; else process.env.TZ = prevTz;
   }
@@ -255,7 +255,7 @@ test('service: legacy implement evidence without a manifest is not reused', asyn
   const saved = (await record(row));
   const { manifest, manifestEvidence, ...legacy } = saved.verifyResult;
   updateDelegationRecord(row.id, { verifyResult: legacy });
-  assert.equal(getDelegationById(inheritFor(parent, row).id).verifyResult, null);
+  assert.equal(getDelegationById((await inheritFor(parent, row)).id).verifyResult, null);
 });
 
 test('service: a new attempt of the same implement records its own manifest', async () => {

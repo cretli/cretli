@@ -26,10 +26,10 @@ assert.equal(original.cooperationMode, 'exchange');
 assert.equal((await handlers.reviewer_session(args)).structuredContent.session.id, original.id);
 // Saving the first plan invalidates the pre-created session; preparing a round recovers.
 updateTodo(ISOLATED_DATA_DIR, workspace, todoId, { plan: { markdown: '# Version 1' } });
-assert.equal(inspectPlanReviewerDelegationStart({ planReviewerSessionId: original.id, reviewSubject: 'plan' }).code, 'stale');
+assert.equal((await inspectPlanReviewerDelegationStart({ planReviewerSessionId: original.id, reviewSubject: 'plan' })).code, 'stale');
 const current = (await handlers.reviewer_session(args)).structuredContent.session;
 assert.notEqual(current.id, original.id);
-assert.equal(inspectPlanReviewerDelegationStart({ planReviewerSessionId: current.id, reviewSubject: 'plan' }).ok, true);
+assert.equal((await inspectPlanReviewerDelegationStart({ planReviewerSessionId: current.id, reviewSubject: 'plan' })).ok, true);
 upsertPlanReviewerSession({ ...current, phase: 'closed' });
 const retryClosed = (await handlers.reviewer_session(args)).structuredContent.session;
 assert.equal(retryClosed.id, current.id);

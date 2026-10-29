@@ -79,15 +79,15 @@ assert.equal('exchangeOfDelegationId' in calls.at(-1), false);
   addTodo(ISOLATED_DATA_DIR, workspace, { title: 'Plan', body: 'b' });
   const todoId = loadTodosData(ISOLATED_DATA_DIR, workspace).items[0].id;
   updateTodo(ISOLATED_DATA_DIR, workspace, todoId, { plan: { markdown: '# Plan\n', updatedAt: new Date().toISOString() } });
-  let sess = createPlanReviewerSession({
+  let sess = (await createPlanReviewerSession({
     dataDir: ISOLATED_DATA_DIR, workspaceFolder: workspace, todoId, coordinatorChatId: randomUUID(), cooperationMode: 'exchange',
-  }).session;
+  })).session;
   const a = randomUUID();
   const b = randomUUID();
   sess = registerPlanReviewerDelegation(sess, a, 0);
   sess = registerPlanReviewerDelegation(sess, b, 1);
   for (const [id, verdict] of [[a, 'PASS'], [b, 'FAIL']]) {
-    sess = syncPlanReviewerSessionAfterDelegationFinish({
+    sess = await syncPlanReviewerSessionAfterDelegationFinish({
       id, planReviewerSessionId: sess.id, planReviewerPhase: 'independent', workspaceFolder: workspace,
       status: 'finished', report: `r\nVERDICT: ${verdict}`, finishedAt: new Date().toISOString(),
     });
@@ -99,7 +99,7 @@ assert.equal('exchangeOfDelegationId' in calls.at(-1), false);
   const exchangeId = randomUUID();
   sess = registerPlanReviewerDelegation(sess, exchangeId, 0, { phase: sent.planReviewerPhase, originDelegationId: sent.exchangeOfDelegationId });
   assert.equal(sess.reviewers.find((r) => r.delegationId === a).exchangeDelegationId, exchangeId);
-  sess = syncPlanReviewerSessionAfterDelegationFinish({
+  sess = await syncPlanReviewerSessionAfterDelegationFinish({
     id: exchangeId, planReviewerSessionId: sess.id, planReviewerPhase: sent.planReviewerPhase,
     exchangeOfDelegationId: sent.exchangeOfDelegationId, workspaceFolder: workspace,
     status: 'finished', report: 'x\nVERDICT: FAIL', finishedAt: new Date().toISOString(),

@@ -17,6 +17,7 @@ import { selectModelPick, isHighInfraRiskObserved } from '../lib/model-role-prof
 import {
   DELEGATION_MODEL_GATE_CODES,
   buildNamedDelegationStartHardGateInput,
+  buildNamedDelegationStartHardGateInputAsync,
   evaluateDelegationModelGate,
   evaluateDelegationStartHardGates,
   resolveDelegationGateRole,
@@ -394,6 +395,27 @@ const replayedStart = await service.createAndStart({
 });
 assert.equal(replayedStart.ok, true, replayedStart.error || '');
 assert.equal(replayedStart.replayed, true);
+
+// The real start path reads the referenced todo through the async todo facade,
+// so a flash implement start on a large leaf is refused by the service itself.
+{
+  const largeLeaf = addTodo(ISOLATED_DATA_DIR, project, {
+    title: 'Large leaf for the service start gate',
+    status: 'doing',
+    body: ['Files:', 'lib/a.js', 'lib/b.js', 'lib/c.js', 'lib/d.js'].join('\n'),
+  }).item;
+  assert.ok(largeLeaf?.id);
+  const largeRefused = await service.createAndStart({
+    parentChatId: parent.id,
+    executor: { transport: 'testfakeb', model: 'testfakeb-flash' },
+    sourceKind: 'text',
+    taskText: `Implement the change.\ncretli-ref todo=${largeLeaf.id}`,
+    assignment: 'implement',
+    idempotencyKey: 'gates-flash-implement-large-leaf',
+  });
+  assert.equal(largeRefused.ok, false, 'service start must apply the large-leaf gate');
+  assert.equal(largeRefused.code, DELEGATION_MODEL_GATE_CODES.FLASH_IMPLEMENT_LARGE_LEAF);
+}
 fs.rmSync(project, { recursive: true, force: true });
 if (typeof previousDeepseekKey === 'string') process.env.DEEPSEEK_API_KEY = previousDeepseekKey;
 else delete process.env.DEEPSEEK_API_KEY;
@@ -406,7 +428,7 @@ else delete process.env.DEEPSEEK_API_KEY;
     body: ['Files:', 'lib/a.js', 'lib/b.js', 'lib/c.js', 'lib/d.js'].join('\n'),
   }).item;
   assert.ok(leaf?.id);
-  const withParent = buildNamedDelegationStartHardGateInput({
+  const withParent = await buildNamedDelegationStartHardGateInputAsync({
     role: 'implement',
     harness: 'testfake',
     model: 'testfake/test',
@@ -421,7 +443,7 @@ else delete process.env.DEEPSEEK_API_KEY;
     body: 'Touch lib/single.js only.',
   }).item;
   assert.ok(smallLeaf?.id);
-  const smallParent = buildNamedDelegationStartHardGateInput({
+  const smallParent = await buildNamedDelegationStartHardGateInputAsync({
     role: 'implement',
     harness: 'testfake',
     model: 'testfake/test',
@@ -430,7 +452,7 @@ else delete process.env.DEEPSEEK_API_KEY;
   });
   assert.equal(smallParent.leafSize, 'small', 'single-file leaf via parent.todoId stays small');
   // Without parent.todoId the gate does not invent a large leaf.
-  const noParent = buildNamedDelegationStartHardGateInput({
+  const noParent = await buildNamedDelegationStartHardGateInputAsync({
     role: 'implement',
     harness: 'testfake',
     model: 'testfake/test',

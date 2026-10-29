@@ -29,12 +29,12 @@ function makeDeps(overrides = {}) {
   };
 }
 
-function resolve(req, deps, getCurrentCwd = () => '/global/cwd') {
+async function resolve(req, deps, getCurrentCwd = () => '/global/cwd') {
   return resolveGitRequestContext(req, { dataDir: '/data', getCurrentCwd, deps });
 }
 
-test('no scope falls back to the global cwd', () => {
-  const result = resolve({ query: {}, body: {} }, makeDeps(), () => '/global/cwd');
+test('no scope falls back to the global cwd', async () => {
+  const result = await resolve({ query: {}, body: {} }, makeDeps(), () => '/global/cwd');
   assert.equal(result.ok, true);
   assert.equal(result.source, 'global');
   assert.equal(result.executionFolder, '/global/cwd');
@@ -42,11 +42,11 @@ test('no scope falls back to the global cwd', () => {
   assert.equal(result.isWorktree, false);
 });
 
-test('chat scope uses its stored execution folder', () => {
+test('chat scope uses its stored execution folder', async () => {
   const deps = makeDeps({
     chats: [{ id: 'chat-1', title: 'A', workspaceFolder: '/project', executionFolder: '/wt/todo-9' }],
   });
-  const result = resolve({ query: { chatId: 'chat-1' } }, deps);
+  const result = await resolve({ query: { chatId: 'chat-1' } }, deps);
   assert.equal(result.ok, true);
   assert.equal(result.source, 'chat');
   assert.equal(result.executionFolder, '/wt/todo-9');
@@ -54,32 +54,32 @@ test('chat scope uses its stored execution folder', () => {
   assert.equal(result.chatId, 'chat-1');
 });
 
-test('chat scope without an explicit execution folder uses the logical workspace', () => {
+test('chat scope without an explicit execution folder uses the logical workspace', async () => {
   const deps = makeDeps({ chats: [{ id: 'chat-1', workspaceFolder: '/project' }] });
-  const result = resolve({ query: { chatId: 'chat-1' } }, deps);
+  const result = await resolve({ query: { chatId: 'chat-1' } }, deps);
   assert.equal(result.executionFolder, '/project');
   assert.equal(result.source, 'chat');
 });
 
-test('a client workspace cannot override the stored chat workspace', () => {
+test('a client workspace cannot override the stored chat workspace', async () => {
   const deps = makeDeps({ chats: [{ id: 'chat-1', workspaceFolder: '/project-a' }] });
-  const result = resolve({ query: { chatId: 'chat-1', workspaceFolder: '/project-b' } }, deps);
+  const result = await resolve({ query: { chatId: 'chat-1', workspaceFolder: '/project-b' } }, deps);
   assert.equal(result.ok, true);
   assert.equal(result.source, 'chat');
   assert.equal(result.executionFolder, '/project-a');
   assert.equal(result.workspaceFolder, '/project-a');
 });
 
-test('a chat without stored folders never uses the client workspace as execution folder', () => {
+test('a chat without stored folders never uses the client workspace as execution folder', async () => {
   const deps = makeDeps({ chats: [{ id: 'chat-1' }] });
-  const result = resolve({ query: { chatId: 'chat-1', workspaceFolder: '/project-b' } }, deps, () => '/global/cwd');
+  const result = await resolve({ query: { chatId: 'chat-1', workspaceFolder: '/project-b' } }, deps, () => '/global/cwd');
   assert.equal(result.ok, true);
   assert.equal(result.source, 'chat');
   assert.notEqual(result.executionFolder, path.resolve('/project-b'));
   assert.equal(result.executionFolder, '/global/cwd');
 });
 
-test('todo scope with a live worktree resolves the worktree path', () => {
+test('todo scope with a live worktree resolves the worktree path', async () => {
   const deps = makeDeps({
     todos: { 'todo-9': { id: 'todo-9', title: 'Fix', status: 'doing', workspaceFolder: '/project' } },
     worktrees: {
@@ -95,7 +95,7 @@ test('todo scope with a live worktree resolves the worktree path', () => {
       },
     },
   });
-  const result = resolve({ query: { todoId: 'todo-9', workspaceFolder: '/project' } }, deps);
+  const result = await resolve({ query: { todoId: 'todo-9', workspaceFolder: '/project' } }, deps);
   assert.equal(result.ok, true);
   assert.equal(result.source, 'worktree');
   assert.equal(result.isWorktree, true);
@@ -106,54 +106,54 @@ test('todo scope with a live worktree resolves the worktree path', () => {
   assert.equal(result.todo.title, 'Fix');
 });
 
-test('todo scope in project mode keeps the logical workspace', () => {
+test('todo scope in project mode keeps the logical workspace', async () => {
   const deps = makeDeps({
     todos: { 'todo-1': { id: 'todo-1', title: 'Doc', status: 'ready', workspaceFolder: '/project' } },
   });
-  const result = resolve({ query: { todoId: 'todo-1', workspaceFolder: '/project' } }, deps);
+  const result = await resolve({ query: { todoId: 'todo-1', workspaceFolder: '/project' } }, deps);
   assert.equal(result.source, 'todo');
   assert.equal(result.isWorktree, false);
   assert.equal(result.executionFolder, '/project');
 });
 
-test('a cleaned worktree record is ignored', () => {
+test('a cleaned worktree record is ignored', async () => {
   const deps = makeDeps({
     todos: { 'todo-1': { id: 'todo-1', workspaceFolder: '/project' } },
     worktrees: {
       'todo-1': { todoId: 'todo-1', worktreePath: '/worktrees/old', branch: 'b', baseCommit: 'a', cleanedAt: '2026-01-02T00:00:00.000Z' },
     },
   });
-  const result = resolve({ query: { todoId: 'todo-1', workspaceFolder: '/project' } }, deps);
+  const result = await resolve({ query: { todoId: 'todo-1', workspaceFolder: '/project' } }, deps);
   assert.equal(result.isWorktree, false);
   assert.equal(result.executionFolder, '/project');
 });
 
-test('an unknown chat is refused instead of falling back to the global cwd', () => {
-  const result = resolve({ query: { chatId: 'missing' } }, makeDeps());
+test('an unknown chat is refused instead of falling back to the global cwd', async () => {
+  const result = await resolve({ query: { chatId: 'missing' } }, makeDeps());
   assert.equal(result.ok, false);
   assert.equal(result.code, GIT_SCOPE_ERROR_CODES.CHAT_NOT_FOUND);
 });
 
-test('an unknown task is refused', () => {
-  const result = resolve({ query: { todoId: 'missing', workspaceFolder: '/project' } }, makeDeps());
+test('an unknown task is refused', async () => {
+  const result = await resolve({ query: { todoId: 'missing', workspaceFolder: '/project' } }, makeDeps());
   assert.equal(result.ok, false);
   assert.equal(result.code, GIT_SCOPE_ERROR_CODES.TODO_NOT_FOUND);
 });
 
-test('a task scope without a workspace folder is refused', () => {
-  const result = resolve({ query: { todoId: 'todo-1' } }, makeDeps());
+test('a task scope without a workspace folder is refused', async () => {
+  const result = await resolve({ query: { todoId: 'todo-1' } }, makeDeps());
   assert.equal(result.ok, false);
   assert.equal(result.code, GIT_SCOPE_ERROR_CODES.WORKSPACE_REQUIRED);
 });
 
-test('a chat id paired with a foreign task id is a conflict', () => {
+test('a chat id paired with a foreign task id is a conflict', async () => {
   const deps = makeDeps({ chats: [{ id: 'chat-1', todoId: 'todo-a', workspaceFolder: '/project' }] });
-  const result = resolve({ query: { chatId: 'chat-1', todoId: 'todo-b' } }, deps);
+  const result = await resolve({ query: { chatId: 'chat-1', todoId: 'todo-b' } }, deps);
   assert.equal(result.ok, false);
   assert.equal(result.code, GIT_SCOPE_ERROR_CODES.CONTEXT_CONFLICT);
 });
 
-test('readGitScopeInput reads query first, then body, and ignores client execution folders', () => {
+test('readGitScopeInput reads query first, then body, and ignores client execution folders', async () => {
   const input = readGitScopeInput({
     query: { chatId: 'chat-1' },
     body: { chatId: 'chat-2', todoId: 'todo-1', workspaceFolder: '/project', executionFolder: '/etc' },
@@ -161,14 +161,14 @@ test('readGitScopeInput reads query first, then body, and ignores client executi
   assert.deepEqual(input, { chatId: 'chat-1', todoId: 'todo-1', workspaceFolder: path.resolve('/project') });
 });
 
-test('isPathInsideBase accepts the base and descendants, rejects siblings', () => {
+test('isPathInsideBase accepts the base and descendants, rejects siblings', async () => {
   assert.equal(isPathInsideBase('/a/b', '/a/b'), true);
   assert.equal(isPathInsideBase('/a/b', '/a/b/c'), true);
   assert.equal(isPathInsideBase('/a/b', '/a/bc'), false);
   assert.equal(isPathInsideBase('/a/b', '/a'), false);
 });
 
-test('resolvePathWithinBase accepts a file inside the base and rejects traversal', () => {
+test('resolvePathWithinBase accepts a file inside the base and rejects traversal', async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'cr-git-scope-'));
   const inside = path.join(base, 'src');
   fs.mkdirSync(inside);
@@ -187,7 +187,7 @@ test('resolvePathWithinBase accepts a file inside the base and rejects traversal
   }
 });
 
-test('resolvePathWithinBase still resolves a deleted file through its parent', () => {
+test('resolvePathWithinBase still resolves a deleted file through its parent', async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'cr-git-scope-'));
   try {
     const result = resolvePathWithinBase(base, 'removed.txt');
@@ -198,7 +198,7 @@ test('resolvePathWithinBase still resolves a deleted file through its parent', (
   }
 });
 
-test('normalizeFolder resolves relative paths and keeps absolute ones', () => {
+test('normalizeFolder resolves relative paths and keeps absolute ones', async () => {
   assert.equal(normalizeFolder('/a/b'), path.resolve('/a/b'));
   assert.equal(normalizeFolder(''), '');
 });
