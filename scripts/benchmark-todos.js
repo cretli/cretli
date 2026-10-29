@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 import assert from 'node:assert/strict';
+import { workspaceKeyFromCwd } from '../lib/persist/todos-persist.js';
 
 const self = fileURLToPath(import.meta.url);
 const smoke = process.argv.includes('--smoke');
@@ -29,7 +30,6 @@ const io = () => Number(fs.readFileSync('/proc/self/io', 'utf8').match(/^write_b
 const timed = async (fn, samples) => { const start = performance.now(); const result = await fn(); samples.push(performance.now() - start); return result; };
 
 async function workload(kind, root) {
-  const { workspaceKeyFromCwd } = await import('../lib/persist/todos-persist.js');
   const { createLegacyJsonTodosBackend } = await import('../lib/persist/todos-store.js');
   const { getWriteStats, resetWriteStats } = await import('../lib/persist/atomic-write.js');
   const { aggregateTodosWriteStats } = await import('../lib/server-diagnostics.js');
