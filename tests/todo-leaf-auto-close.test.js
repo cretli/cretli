@@ -11,7 +11,6 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { addTodo, closeTodoLeafIfEligible, loadTodosData, updateTodo } from '../lib/persist/todos-persist.js';
-import { withWorkspaceWatchersFileLock } from '../lib/persist/workspace-watchers-persist.js';
 import { worktreeRegistryPath, writeWorktreeRegistry } from '../lib/persist/worktree-registry-persist.js';
 import { buildLiveWorktreePredicate } from '../lib/todo-worktree-manual.js';
 import { evaluateTodoLeafAutoClose, isTodoLeafAutoCloseEnabled } from '../lib/todo-review-sync.js';
@@ -68,96 +67,96 @@ function passedRows(leafId) {
   return [row(leafId, 'implement', { queuedAt: t(1) }), row(leafId, 'review', { queuedAt: t(3) })];
 }
 
-function close(project, leafId, rows) {
-  return closeTodoLeafAfterReview({
+async function close(project, leafId, rows) {
+  return (await closeTodoLeafAfterReview({
     dataDir: ISOLATED_DATA_DIR, workspaceFolder: project, todoId: leafId, rows,
-  });
+  }));
 }
 
-test('AC1: doing -> done when review passed and nothing blocks', () => {
+test('AC1: doing -> done when review passed and nothing blocks', async () => {
   const project = makeProject();
   const leaf = makeLeaf(project);
-  const result = close(project, leaf.id, passedRows(leaf.id));
+  const result = (await close(project, leaf.id, passedRows(leaf.id)));
   assert.equal(result.closed, true);
   assert.equal(statusOf(project, leaf.id), 'done');
 });
 
-test('AC1: integration.ready leaf is not closed', () => {
+test('AC1: integration.ready leaf is not closed', async () => {
   const project = makeProject();
   const leaf = makeLeaf(project);
   updateTodo(ISOLATED_DATA_DIR, project, leaf.id, { integration: { state: 'ready' } });
-  const result = close(project, leaf.id, passedRows(leaf.id));
+  const result = (await close(project, leaf.id, passedRows(leaf.id)));
   assert.equal(result.closed, false);
   assert.equal(result.reason, 'awaiting_integration');
   assert.equal(statusOf(project, leaf.id), 'doing');
 });
 
-test('AC2: implement/fix queued after the review blocks the close', () => {
+test('AC2: implement/fix queued after the review blocks the close', async () => {
   const project = makeProject();
   const leaf = makeLeaf(project);
   const rows = [
     ...passedRows(leaf.id),
     row(leaf.id, 'implement', { pickRole: 'fix', queuedAt: t(5), status: 'queued', startedAt: '', finishedAt: '' }),
   ];
-  assert.equal(close(project, leaf.id, rows).closed, false);
+  assert.equal((await close(project, leaf.id, rows)).closed, false);
   // Even a completed fix queued after the review makes the review stale.
   const stale = [...passedRows(leaf.id), row(leaf.id, 'implement', { pickRole: 'fix', queuedAt: t(5) })];
-  const result = close(project, leaf.id, stale);
+  const result = (await close(project, leaf.id, stale));
   assert.equal(result.closed, false);
   assert.equal(result.reason, 'review_stale');
   assert.equal(statusOf(project, leaf.id), 'doing');
 });
 
-test('AC3: two close attempts produce exactly one transition', () => {
+test('AC3: two close attempts produce exactly one transition', async () => {
   const project = makeProject();
   const leaf = makeLeaf(project);
   const rows = passedRows(leaf.id);
-  const results = [close(project, leaf.id, rows), close(project, leaf.id, rows)];
+  const results = [(await close(project, leaf.id, rows)), (await close(project, leaf.id, rows))];
   assert.equal(results.filter((r) => r.closed).length, 1);
   assert.equal(results[1].reason, 'not_doing');
 });
 
-test('AC4: flag off changes nothing through the sync hook', () => {
+test('AC4: flag off changes nothing through the sync hook', async () => {
   const project = makeProject();
   const leaf = makeLeaf(project);
   assert.equal(isTodoLeafAutoCloseEnabled({}), false);
   const deps = { rows: passedRows(leaf.id) };
-  syncTodoReviewTarget(
+  (await syncTodoReviewTarget(
     { workspaceFolder: project, todoId: leaf.id, dataDir: ISOLATED_DATA_DIR },
     { env: {}, deps },
-  );
+  ));
   assert.equal(statusOf(project, leaf.id), 'doing');
   const on = { CRETLI_TODO_LEAF_AUTO_CLOSE: '1' };
   assert.equal(isTodoLeafAutoCloseEnabled(on), true);
-  syncTodoReviewTarget(
+  (await syncTodoReviewTarget(
     { workspaceFolder: project, todoId: leaf.id, dataDir: ISOLATED_DATA_DIR },
     { env: on, deps },
-  );
+  ));
   assert.equal(statusOf(project, leaf.id), 'done');
 });
 
-test('AC5: a plan-review PASS never closes a leaf', () => {
+test('AC5: a plan-review PASS never closes a leaf', async () => {
   const project = makeProject();
   const leaf = makeLeaf(project);
   const rows = [row(leaf.id, 'review', { reviewSubject: 'plan' })];
-  const result = close(project, leaf.id, rows);
+  const result = (await close(project, leaf.id, rows));
   assert.equal(result.closed, false);
   assert.equal(statusOf(project, leaf.id), 'doing');
 });
 
-test('cancel_unconfirmed slot blocks the close', () => {
+test('cancel_unconfirmed slot blocks the close', async () => {
   const project = makeProject();
   const leaf = makeLeaf(project);
   const rows = [
     ...passedRows(leaf.id),
     row(leaf.id, 'implement', { queuedAt: t(0), slotHeldBy: 'cancel_unconfirmed', status: 'interrupted' }),
   ];
-  const result = close(project, leaf.id, rows);
+  const result = (await close(project, leaf.id, rows));
   assert.equal(result.reason, 'cancel_unconfirmed');
   assert.equal(statusOf(project, leaf.id), 'doing');
 });
 
-test('failed, unknown and verify-missing reviews do not close', () => {
+test('failed, unknown and verify-missing reviews do not close', async () => {
   const project = makeProject();
   const leaf = makeLeaf(project);
   const impl = row(leaf.id, 'implement', { queuedAt: t(1) });
@@ -166,9 +165,9 @@ test('failed, unknown and verify-missing reviews do not close', () => {
     row(leaf.id, 'review', { queuedAt: t(3), verifyRequired: true, reviewCanRunTests: false }),
   ];
   for (const review of cases) {
-    assert.equal(close(project, leaf.id, [impl, review]).closed, false);
+    assert.equal((await close(project, leaf.id, [impl, review])).closed, false);
   }
-  assert.equal(close(project, leaf.id, []).closed, false);
+  assert.equal((await close(project, leaf.id, [])).closed, false);
   assert.equal(statusOf(project, leaf.id), 'doing');
 });
 
@@ -184,11 +183,11 @@ test('a parent is never closed explicitly', () => {
   assert.equal(verdict.reason, 'not_leaf');
 });
 
-test('F1: worktree-mode leaf with PASS and no integration object is not closed', () => {
+test('F1: worktree-mode leaf with PASS and no integration object is not closed', async () => {
   const project = makeProject();
   const leaf = makeLeaf(project);
   updateTodo(ISOLATED_DATA_DIR, project, leaf.id, { executionMode: 'worktree' });
-  const result = close(project, leaf.id, passedRows(leaf.id));
+  const result = (await close(project, leaf.id, passedRows(leaf.id)));
   assert.equal(result.closed, false);
   assert.equal(result.reason, 'worktree_execution');
   assert.equal(statusOf(project, leaf.id), 'doing');
@@ -208,22 +207,22 @@ test('F1: live worktree record on the tree root blocks the leaf close', () => {
   assert.equal(none.eligible, true);
 });
 
-test('F5: auto-close appends a changelog note', () => {
+test('F5: auto-close appends a changelog note', async () => {
   const project = makeProject();
   const leaf = makeLeaf(project);
-  close(project, leaf.id, passedRows(leaf.id));
+  (await close(project, leaf.id, passedRows(leaf.id)));
   const saved = loadTodosData(ISOLATED_DATA_DIR, project).items.find((r) => r.id === leaf.id);
   assert.ok(saved.changelog.some((e) => /Auto-closed/.test(e.text)));
 });
 
 const REGISTRY_OPTIONS = { dataDir: ISOLATED_DATA_DIR };
 
-function withRegistry(items, work) {
+async function withRegistry(items, work) {
   const file = worktreeRegistryPath(REGISTRY_OPTIONS);
   try {
     if (typeof items === 'string') fs.writeFileSync(file, items);
     else writeWorktreeRegistry({ items }, REGISTRY_OPTIONS);
-    return work();
+    return await work();
   } finally {
     fs.rmSync(file, { force: true });
   }
@@ -240,54 +239,54 @@ function worktreeRecord(todoId, extra = {}) {
   };
 }
 
-test('T1: unreadable worktree registry refuses the close', () => {
+test('T1: unreadable worktree registry refuses the close', async () => {
   const project = makeProject();
   const leaf = makeLeaf(project);
-  withRegistry('{ not json', () => {
-    const result = close(project, leaf.id, passedRows(leaf.id));
+  (await withRegistry('{ not json', async () => {
+    const result = (await close(project, leaf.id, passedRows(leaf.id)));
     assert.equal(result.closed, false);
     assert.equal(result.reason, 'worktree_registry_unreadable');
     assert.equal(buildLiveWorktreePredicate(ISOLATED_DATA_DIR)(leaf.id), false);
     assert.throws(() => buildLiveWorktreePredicate(ISOLATED_DATA_DIR, { strict: true }));
-  });
+  }));
   assert.equal(statusOf(project, leaf.id), 'doing');
 });
 
-test('T2: live registry record on the root blocks a child leaf', () => {
+test('T2: live registry record on the root blocks a child leaf', async () => {
   const project = makeProject();
   const root = addTodo(ISOLATED_DATA_DIR, project, { title: 'Root', status: 'doing' }).item;
   const leaf = addTodo(ISOLATED_DATA_DIR, project, { title: 'Leaf', status: 'doing', parentId: root.id }).item;
-  withRegistry({ [root.id]: worktreeRecord(root.id) }, () => {
-    const result = close(project, leaf.id, passedRows(leaf.id));
+  (await withRegistry({ [root.id]: worktreeRecord(root.id) }, async () => {
+    const result = (await close(project, leaf.id, passedRows(leaf.id)));
     assert.equal(result.closed, false);
     assert.equal(result.reason, 'worktree_execution');
-  });
+  }));
 });
 
-test('T3: live registry record on the leaf itself blocks the close', () => {
+test('T3: live registry record on the leaf itself blocks the close', async () => {
   const project = makeProject();
   const leaf = makeLeaf(project);
-  withRegistry({ [leaf.id]: worktreeRecord(leaf.id) }, () => {
-    const result = close(project, leaf.id, passedRows(leaf.id));
+  (await withRegistry({ [leaf.id]: worktreeRecord(leaf.id) }, async () => {
+    const result = (await close(project, leaf.id, passedRows(leaf.id)));
     assert.equal(result.closed, false);
     assert.equal(result.reason, 'worktree_execution');
-  });
+  }));
 });
 
-test('T4: cleaned or released record does not block the close', () => {
+test('T4: cleaned or released record does not block the close', async () => {
   for (const extra of [{ cleanedAt: t(5) }, { releasedAt: t(5) }]) {
     const project = makeProject();
     const leaf = makeLeaf(project);
-    withRegistry({ [leaf.id]: worktreeRecord(leaf.id, extra) }, () => {
-      assert.equal(close(project, leaf.id, passedRows(leaf.id)).closed, true);
-    });
+    (await withRegistry({ [leaf.id]: worktreeRecord(leaf.id, extra) }, async () => {
+      assert.equal((await close(project, leaf.id, passedRows(leaf.id))).closed, true);
+    }));
   }
 });
 
-test('T5: error after the save reports closed, error before it does not', () => {
+test('T5: error after the save reports closed, error before it does not', async () => {
   const project = makeProject();
   const leaf = makeLeaf(project);
-  const after = closeTodoLeafAfterReview({
+  const after = (await closeTodoLeafAfterReview({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: project,
     todoId: leaf.id,
@@ -298,22 +297,22 @@ test('T5: error after the save reports closed, error before it does not', () => 
         throw new Error('boom');
       },
     },
-  });
+  }));
   assert.deepEqual(after, { closed: true, reason: 'error_after_close' });
   assert.equal(statusOf(project, leaf.id), 'done');
   const other = makeLeaf(project);
-  const before = closeTodoLeafAfterReview({
+  const before = (await closeTodoLeafAfterReview({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: project,
     todoId: other.id,
     rows: passedRows(other.id),
     deps: { closeLeaf: () => { throw new Error('boom'); } },
-  });
+  }));
   assert.deepEqual(before, { closed: false, reason: 'error' });
   assert.equal(statusOf(project, other.id), 'doing');
 });
 
-test('T6: auto-close clears the claim fields', () => {
+test('T6: auto-close clears the claim fields', async () => {
   const project = makeProject();
   const leaf = makeLeaf(project);
   updateTodo(ISOLATED_DATA_DIR, project, leaf.id, {
@@ -321,21 +320,18 @@ test('T6: auto-close clears the claim fields', () => {
     claimedAt: t(2),
     claimLeaseUntil: t(30),
   });
-  assert.equal(close(project, leaf.id, passedRows(leaf.id)).closed, true);
+  assert.equal((await close(project, leaf.id, passedRows(leaf.id))).closed, true);
   const saved = loadTodosData(ISOLATED_DATA_DIR, project).items.find((r) => r.id === leaf.id);
   assert.equal(saved.claimedByChatId, undefined);
   assert.equal(saved.claimedAt, undefined);
   assert.equal(saved.claimLeaseUntil, undefined);
 });
 
-test('T7: nested lock in the same process closes exactly once', () => {
+test('T7: concurrent async closes in the same process close exactly once', async () => {
   const project = makeProject();
   const leaf = makeLeaf(project);
   const rows = passedRows(leaf.id);
-  const results = withWorkspaceWatchersFileLock(
-    () => [close(project, leaf.id, rows), close(project, leaf.id, rows)],
-    { dataDir: ISOLATED_DATA_DIR },
-  );
+  const results = await Promise.all([close(project, leaf.id, rows), close(project, leaf.id, rows)]);
   assert.equal(results.filter((r) => r.closed).length, 1);
   assert.equal(statusOf(project, leaf.id), 'done');
 });
@@ -384,14 +380,14 @@ test('T8: concurrent processes produce exactly one transition', async () => {
   }
 });
 
-test('FU-1: live fixed_pair policy holds an all-legacy round open in the hook', () => {
+test('FU-1: live fixed_pair policy holds an all-legacy round open in the hook', async () => {
   const project = makeProject();
   const leaf = makeLeaf(project);
   saveDelegationSettings(project, {
     reviewer_policy: { code: { selection: 'fixed_pair', members_source: 'learned', session: 'fresh' } },
   }, { dataDir: ISOLATED_DATA_DIR });
   try {
-    const result = close(project, leaf.id, passedRows(leaf.id));
+    const result = (await close(project, leaf.id, passedRows(leaf.id)));
     assert.equal(result.closed, false);
     assert.equal(result.reason, 'review_pending');
     assert.equal(statusOf(project, leaf.id), 'doing');

@@ -8,10 +8,10 @@ import { closeTodoLeafAfterReview } from '../../lib/todo-review-sync-hooks.js';
 
 const startAt = Number(process.env.AC_START_AT || 0);
 while (Date.now() < startAt) { /* spin */ }
-const result = closeTodoLeafAfterReview({
+const result = (await closeTodoLeafAfterReview({
   dataDir: process.env.CRETLI_DATA_DIR,
   workspaceFolder: process.env.AC_PROJECT,
   todoId: process.env.AC_LEAF,
   rows: JSON.parse(process.env.AC_ROWS || '[]'),
-});
+}));
 process.stdout.write(JSON.stringify(result));

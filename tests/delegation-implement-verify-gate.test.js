@@ -166,7 +166,7 @@ test('review start allowed with allowVerifyFailedReview override', () => {
   assert.equal(allowed.ok, true);
 });
 
-test('review start allowed after passed verify', () => {
+test('review start allowed after passed verify', async () => {
   const parent = addChat(crypto.randomUUID(), 'parent', null, ISOLATED_DATA_DIR, 'testfake/test', {
     agentTransport: 'testfake',
     sdkMode: 'agent',
@@ -181,7 +181,7 @@ test('review start allowed after passed verify', () => {
     leafId,
     finishedAt: '2026-10-12T12:00:00.000Z',
   });
-  recordDelegationVerifyResult({
+  await recordDelegationVerifyResult({
     delegationId: implement.id,
     attemptId: implement.attemptId,
     result: { ok: true, dataDir: '/tmp/x' },
@@ -261,7 +261,7 @@ test('review start allowed when implement has no verify result (empty catalog ma
   assert.equal(allowed.ok, true);
 });
 
-test('delegation_verify on implement persists material revision', () => {
+test('delegation_verify on implement persists material revision', async () => {
   const parent = addChat(crypto.randomUUID(), 'parent', null, ISOLATED_DATA_DIR, 'testfake/test', {
     agentTransport: 'testfake',
     sdkMode: 'agent',
@@ -273,7 +273,7 @@ test('delegation_verify on implement persists material revision', () => {
     assignment: 'implement',
     status: 'completed',
   });
-  const updated = recordDelegationVerifyResult({
+  const updated = await recordDelegationVerifyResult({
     delegationId: implement.id,
     attemptId: implement.attemptId,
     result: { ok: true, dataDir: '/tmp/y' },
@@ -284,7 +284,7 @@ test('delegation_verify on implement persists material revision', () => {
   assert.equal(typeof updated.verifyResult.materialRevision, 'string');
 });
 
-test('delegation_verify on implement is idempotent on repeat', () => {
+test('delegation_verify on implement is idempotent on repeat', async () => {
   const parent = addChat(crypto.randomUUID(), 'parent', null, ISOLATED_DATA_DIR, 'testfake/test', {
     agentTransport: 'testfake',
     sdkMode: 'agent',
@@ -303,8 +303,8 @@ test('delegation_verify on implement is idempotent on repeat', () => {
     result: { ok: true, dataDir: '/tmp/z' },
     source: 'delegation_verify',
   };
-  const first = recordDelegationVerifyResult(payload);
-  const second = recordDelegationVerifyResult(payload);
+  const first = await recordDelegationVerifyResult(payload);
+  const second = await recordDelegationVerifyResult(payload);
   assert.ok(first);
   assert.ok(second);
   assert.equal(loadDelegations().length, recordCount);

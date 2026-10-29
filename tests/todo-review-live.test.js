@@ -23,9 +23,9 @@ import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 
 let failed = 0;
 
-function runCase(name, fn) {
+async function runCase(name, fn) {
   try {
-    fn();
+    await fn();
     console.log('OK:', name);
   } catch (err) {
     failed += 1;
@@ -48,7 +48,7 @@ __clearChatListUpdateClientsForTest();
 clearTodoReviewLiveChanges();
 setTodoReviewLiveDebounceMs(1_000_000); // flush explicitly, never on a timer
 
-runCase('broadcast sends identifiers only to a bare session', () => {
+await runCase('broadcast sends identifiers only to a bare session', () => {
   __clearChatListUpdateClientsForTest();
   const session = socket();
   subscribeChatListUpdates(session, { kind: 'session' });
@@ -58,7 +58,7 @@ runCase('broadcast sends identifiers only to a bare session', () => {
   ]);
 });
 
-runCase('a session scoped to another workspace receives nothing', () => {
+await runCase('a session scoped to another workspace receives nothing', () => {
   __clearChatListUpdateClientsForTest();
   const local = socket();
   const foreign = socket();
@@ -72,7 +72,7 @@ runCase('a session scoped to another workspace receives nothing', () => {
   assert.equal(bare.messages.length, 1, 'the trusted bare session still refreshes');
 });
 
-runCase('a widget never receives a todo-change frame in v1 (U7)', () => {
+await runCase('a widget never receives a todo-change frame in v1 (U7)', () => {
   __clearChatListUpdateClientsForTest();
   const widget = socket();
   subscribeChatListUpdates(widget, { kind: 'widget', chatIds: ['own'], workspaceFolder: '/ws/a' });
@@ -80,7 +80,7 @@ runCase('a widget never receives a todo-change frame in v1 (U7)', () => {
   assert.deepEqual(widget.messages, []);
 });
 
-runCase('an incomplete frame is never broadcast', () => {
+await runCase('an incomplete frame is never broadcast', () => {
   __clearChatListUpdateClientsForTest();
   const session = socket();
   subscribeChatListUpdates(session, { kind: 'session' });
@@ -89,7 +89,7 @@ runCase('an incomplete frame is never broadcast', () => {
   assert.deepEqual(session.messages, []);
 });
 
-runCase('the debouncer coalesces one change per workspace+todo', () => {
+await runCase('the debouncer coalesces one change per workspace+todo', () => {
   __clearChatListUpdateClientsForTest();
   clearTodoReviewLiveChanges();
   assert.equal(emitTodoReviewChanged({ workspaceFolder: '/ws/a', todoId: 't1' }), false, 'no subscribers -> no schedule');
@@ -104,19 +104,20 @@ runCase('the debouncer coalesces one change per workspace+todo', () => {
   assert.equal(pendingTodoReviewLiveChangeCount(), 0);
 });
 
-runCase('sync emits on a changed snapshot and stays silent when unchanged', () => {
+await runCase('sync emits on a changed snapshot and stays silent when unchanged', async () => {
   __clearChatListUpdateClientsForTest();
   clearTodoReviewLiveChanges();
   const session = socket();
   subscribeChatListUpdates(session, { kind: 'session' });
 
   const target = { workspaceFolder: '/ws/a', todoId: 'todo-1', dataDir: '/tmp/unused' };
-  const changed = syncTodoReviewTarget(target, {
+  const changed = (await syncTodoReviewTarget(target, {
     deps: {
+      readTodo: () => ({ id: target.todoId, updatedAt: 'revision' }),
       computeSnapshot: () => ({ code: { state: 'passed' } }),
       writeReview: () => ({ changed: true, generation: 1 }),
     },
-  });
+  }));
   assert.equal(changed.changed, true);
   assert.equal(pendingTodoReviewLiveChangeCount(), 1, 'a changed snapshot schedules exactly one frame');
   flushTodoReviewLiveChanges();
@@ -128,12 +129,13 @@ runCase('sync emits on a changed snapshot and stays silent when unchanged', () =
   });
 
   session.messages.length = 0;
-  const unchanged = syncTodoReviewTarget(target, {
+  const unchanged = (await syncTodoReviewTarget(target, {
     deps: {
+      readTodo: () => ({ id: target.todoId, updatedAt: 'revision' }),
       computeSnapshot: () => ({ code: { state: 'passed' } }),
       writeReview: () => ({ changed: false, generation: 1 }),
     },
-  });
+  }));
   assert.equal(unchanged.changed, false);
   assert.equal(pendingTodoReviewLiveChangeCount(), 0, 'an identical snapshot must not schedule a frame');
   flushTodoReviewLiveChanges();

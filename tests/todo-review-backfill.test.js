@@ -747,7 +747,7 @@ test('losing the attribution of a reviewed leaf preserves its stored passed', ()
   assert.equal(readStoreTodo(project, todo.id).review.code.state, 'passed');
 });
 
-test('retention archiving a backfilled leaf does not degrade it on the next live sync', () => {
+test('retention archiving a backfilled leaf does not degrade it on the next live sync', async () => {
   const project = makeProject('post-archive');
   const todo = storeTodo(project);
   const at = new Date().toISOString();
@@ -790,11 +790,11 @@ test('retention archiving a backfilled leaf does not degrade it on the next live
   assert.equal(archived.reportVerdict, 'PASS', 'the verdict itself is durable');
   assert.ok(getDelegationById(impl.id).archivedAt, 'the implement job is archived too');
 
-  const sync = syncTodoReviewTarget({
+  const sync = (await syncTodoReviewTarget({
     workspaceFolder: project,
     todoId: todo.id,
     dataDir: ISOLATED_DATA_DIR,
-  });
+  }));
   assert.equal(sync.changed, false, 'a live sync after archival must not rewrite the snapshot');
   const after = readStoreTodo(project, todo.id);
   assert.equal(after.review.code.state, 'passed');

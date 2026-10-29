@@ -34,6 +34,7 @@ import {
 import {
   createDelegationService,
   finishDelegation,
+  settleDelegationHistoryTasks,
   recordDelegationVerifyResult,
 } from '../lib/delegation-service.js';
 import { persistTodoPlan } from '../lib/todo-plan-sync.js';
@@ -99,8 +100,8 @@ function patchRecord(row, patch) {
 }
 
 /** @param {object} row */
-function sync(row) {
-  return syncTodoReviewForDelegation(row, { dataDir: ISOLATED_DATA_DIR });
+async function sync(row) {
+  return await syncTodoReviewForDelegation(row, { dataDir: ISOLATED_DATA_DIR });
 }
 
 test.after(() => {
@@ -110,31 +111,31 @@ test.after(() => {
 
 // --- target resolution -------------------------------------------------------
 
-test('a job without a leaf writes nothing', () => {
+test('a job without a leaf writes nothing', async () => {
   const project = makeProject('no-leaf');
   const todo = makeTodo(project);
   const row = makeDelegation(project, null);
   assert.equal(row.leafId, '');
-  const resolution = resolveTodoReviewLeafTarget({ row, dataDir: ISOLATED_DATA_DIR });
+  const resolution = await resolveTodoReviewLeafTarget({ row, dataDir: ISOLATED_DATA_DIR });
   assert.equal(resolution.reason, 'no_leaf');
-  const result = sync(row);
+  const result = await sync(row);
   assert.equal(result.changed, false);
   assert.equal(readTodo(project, todo.id).review, undefined);
 });
 
-test('a unique id prefix resolves to the full leaf id', () => {
+test('a unique id prefix resolves to the full leaf id', async () => {
   const project = makeProject('prefix');
   const todo = makeTodo(project);
   const row = makeDelegation(project, todo);
   patchRecord(row, { leafId: todo.id.slice(0, 12) });
   const row2 = getDelegationById(row.id);
-  const result = sync(row2);
+  const result = await sync(row2);
   assert.equal(result.todoId, todo.id);
   assert.equal(result.changed, true);
   assert.ok(readTodo(project, todo.id).review.code);
 });
 
-test('an inherited parent.todoId resolves a legacy row without a leaf', () => {
+test('an inherited parent.todoId resolves a legacy row without a leaf', async () => {
   const project = makeProject('inherited');
   const todo = makeTodo(project);
   const parent = addChat(randomUUID(), 'legacy-parent', null, project, 'testfake/test', {
@@ -144,21 +145,21 @@ test('an inherited parent.todoId resolves a legacy row without a leaf', () => {
   });
   const row = makeDelegation(project, null, { parentChatId: parent.id });
   assert.equal(row.leafId, '');
-  const result = sync(row);
+  const result = await sync(row);
   assert.equal(result.todoId, todo.id);
   assert.ok(readTodo(project, todo.id).review);
 });
 
-test('a deleted todo is a silent no-op and an unknown prefix is not written', () => {
+test('a deleted todo is a silent no-op and an unknown prefix is not written', async () => {
   const project = makeProject('deleted');
   const todo = makeTodo(project);
   const deleted = makeDelegation(project, { id: randomUUID() });
-  const deletedResult = sync(deleted);
+  const deletedResult = await sync(deleted);
   assert.equal(deletedResult.reason, 'deleted');
   assert.equal(deletedResult.changed, false);
   const unknownPrefix = makeDelegation(project, { id: 'deadbeef-0000-4000-8000-000000000000' });
   patchRecord(unknownPrefix, { leafId: 'deadbeef' });
-  const prefixResult = sync(getDelegationById(unknownPrefix.id));
+  const prefixResult = await sync(getDelegationById(unknownPrefix.id));
   assert.equal(prefixResult.reason, 'not_found');
   assert.equal(prefixResult.changed, false);
   assert.equal(readTodo(project, todo.id).review, undefined);
@@ -166,14 +167,14 @@ test('a deleted todo is a silent no-op and an unknown prefix is not written', ()
 
 // --- snapshot through the hook ----------------------------------------------
 
-test('a queued review is pending and a terminal PASS is passed', () => {
+test('a queued review is pending and a terminal PASS is passed', async () => {
   const project = makeProject('pass');
   const todo = makeTodo(project);
   const impl = makeDelegation(project, todo, { assignment: 'implement', queuedAt: '2026-01-01T00:01:00.000Z' });
   patchRecord(impl, { status: 'completed', attemptId: 'impl-1', startedAt: '2026-01-01T00:01:00.000Z', finishedAt: '2026-01-01T00:02:00.000Z' });
   const review = makeDelegation(project, todo, { queuedAt: '2026-01-01T00:02:00.000Z' });
   patchRecord(review, { status: 'running', attemptId: 'rev-1', startedAt: '2026-01-01T00:02:00.000Z' });
-  sync(getDelegationById(review.id));
+  await sync(getDelegationById(review.id));
   assert.equal(readTodo(project, todo.id).review.code.state, 'pending');
 
   patchRecord(review, {
@@ -184,14 +185,14 @@ test('a queued review is pending and a terminal PASS is passed', () => {
     report: 'TASK: review\nVERDICT: PASS',
     reportVerdict: 'PASS',
   });
-  sync(getDelegationById(review.id));
+  await sync(getDelegationById(review.id));
   const code = readTodo(project, todo.id).review.code;
   assert.equal(code.state, 'passed');
   assert.equal(code.stateReason, 'fresh_review');
   assert.equal(code.reviewers[0].attemptId, 'rev-1');
 });
 
-test('a terminal FAIL is failed and a required verify missing is unknown', () => {
+test('a terminal FAIL is failed and a required verify missing is unknown', async () => {
   const project = makeProject('fail');
   const todo = makeTodo(project);
   const review = makeDelegation(project, todo, { queuedAt: '2026-01-01T00:02:00.000Z' });
@@ -202,11 +203,11 @@ test('a terminal FAIL is failed and a required verify missing is unknown', () =>
     report: 'VERDICT: FAIL',
     reportVerdict: 'FAIL',
   });
-  sync(getDelegationById(review.id));
+  await sync(getDelegationById(review.id));
   assert.equal(readTodo(project, todo.id).review.code.state, 'failed');
 });
 
-test('a required host verify missing stays unknown and a recorded verify settles passed', () => {
+test('a required host verify missing stays unknown and a recorded verify settles passed', async () => {
   const project = makeProject('verify');
   const todo = makeTodo(project);
   const impl = makeDelegation(project, todo, { assignment: 'implement', queuedAt: '2026-01-01T00:01:00.000Z' });
@@ -222,13 +223,13 @@ test('a required host verify missing stays unknown and a recorded verify settles
     reviewCanRunTests: false,
     verifyResult: null,
   });
-  sync(getDelegationById(review.id));
+  await sync(getDelegationById(review.id));
   const pending = readTodo(project, todo.id).review.code;
   assert.equal(pending.state, 'unknown');
   assert.equal(pending.stateReason, 'verify_missing');
 
   // The host verify answers the attempt and the hook must make the round pass.
-  const updated = recordDelegationVerifyResult({
+  const updated = await recordDelegationVerifyResult({
     delegationId: review.id,
     attemptId: review.attemptId,
     result: { ok: true },
@@ -238,7 +239,7 @@ test('a required host verify missing stays unknown and a recorded verify settles
   assert.equal(readTodo(project, todo.id).review.code.material.current, true);
 });
 
-test('a failed host verify is failed', () => {
+test('a failed host verify is failed', async () => {
   const project = makeProject('verify-fail');
   const todo = makeTodo(project);
   const review = makeDelegation(project, todo, { queuedAt: '2026-01-01T00:02:00.000Z' });
@@ -251,12 +252,12 @@ test('a failed host verify is failed', () => {
     verifyRequired: true,
     verifyResult: { status: 'failed', attemptId: review.attemptId },
   });
-  sync(getDelegationById(review.id));
+  await sync(getDelegationById(review.id));
   assert.equal(readTodo(project, todo.id).review.code.state, 'failed');
   assert.equal(readTodo(project, todo.id).review.code.stateReason, 'verify_failed');
 });
 
-test('an implement queued after a PASS invalidates it at queue time', () => {
+test('an implement queued after a PASS invalidates it at queue time', async () => {
   const project = makeProject('stale');
   const todo = makeTodo(project);
   const impl = makeDelegation(project, todo, { assignment: 'implement', queuedAt: '2026-01-01T00:01:00.000Z' });
@@ -271,14 +272,14 @@ test('an implement queued after a PASS invalidates it at queue time', () => {
   });
   const fix = makeDelegation(project, todo, { queuedAt: '2026-01-01T00:04:00.000Z' });
   patchRecord(fix, { assignment: 'implement', pickRole: 'fix', status: 'queued' });
-  sync(getDelegationById(fix.id));
+  await sync(getDelegationById(fix.id));
   const code = readTodo(project, todo.id).review.code;
   assert.equal(code.state, 'stale');
   assert.equal(code.stateReason, 'implement_queued_after_review');
   assert.equal(code.material.current, false);
 });
 
-test('a plan review never changes the code snapshot and vice versa', () => {
+test('a plan review never changes the code snapshot and vice versa', async () => {
   const project = makeProject('subjects');
   const todo = makeTodo(project);
   const codeReview = makeDelegation(project, todo, { reviewSubject: 'code', queuedAt: '2026-01-01T00:01:00.000Z' });
@@ -289,7 +290,7 @@ test('a plan review never changes the code snapshot and vice versa', () => {
     report: 'VERDICT: PASS',
     reportVerdict: 'PASS',
   });
-  sync(getDelegationById(codeReview.id));
+  await sync(getDelegationById(codeReview.id));
   assert.equal(readTodo(project, todo.id).review.code.state, 'passed');
   assert.equal(readTodo(project, todo.id).review.plan.state, 'none');
 
@@ -302,7 +303,7 @@ test('a plan review never changes the code snapshot and vice versa', () => {
     reportVerdict: 'FAIL',
     reviewSubject: 'plan',
   });
-  sync(getDelegationById(planReview.id));
+  await sync(getDelegationById(planReview.id));
   const row = readTodo(project, todo.id).review;
   assert.equal(row.code.state, 'passed', 'the plan review must not overwrite code');
   assert.equal(row.plan.state, 'failed');
@@ -421,7 +422,7 @@ test('an acceptance on the card endpoint from an MCP connection is never manual'
 
 // --- finishDelegation wiring -------------------------------------------------
 
-test('finishDelegation persists the terminal snapshot (worker + bridge path)', () => {
+test('finishDelegation persists the terminal snapshot (worker + bridge path)', async () => {
   const project = makeProject('finish');
   const todo = makeTodo(project);
   const impl = makeDelegation(project, todo, { assignment: 'implement', queuedAt: '2026-01-01T00:01:00.000Z' });
@@ -433,10 +434,11 @@ test('finishDelegation persists the terminal snapshot (worker + bridge path)', (
     attemptId: review.attemptId,
     report: 'TASK: review\nVERDICT: PASS',
   });
+  await settleDelegationHistoryTasks();
   assert.equal(readTodo(project, todo.id).review.code.state, 'passed');
 });
 
-test('closure reconcile FAIL→PASS on finish syncs todo review passed', () => {
+test('closure reconcile FAIL→PASS on finish syncs todo review passed', async () => {
   const project = makeProject('closure-reconcile');
   const todo = makeTodo(project);
   const impl = makeDelegation(project, todo, { assignment: 'implement', queuedAt: '2026-01-01T00:01:00.000Z' });
@@ -459,6 +461,7 @@ test('closure reconcile FAIL→PASS on finish syncs todo review passed', () => {
     attemptId: review.attemptId,
     report,
   });
+  await settleDelegationHistoryTasks();
   const stored = getDelegationById(review.id);
   assert.equal(stored.reportVerdict, 'PASS', 'finish must persist reconciled verdict');
   assert.equal(readTodo(project, todo.id).review.code.state, 'passed');
@@ -466,7 +469,7 @@ test('closure reconcile FAIL→PASS on finish syncs todo review passed', () => {
 
 // --- retry queue -------------------------------------------------------------
 
-test('a failed sync is re-armed and a later flush writes it', () => {
+test('a failed sync is re-armed and a later flush writes it', async () => {
   const project = makeProject('retry');
   const todo = makeTodo(project);
   const review = makeDelegation(project, todo, { queuedAt: '2026-01-01T00:02:00.000Z' });
@@ -478,7 +481,7 @@ test('a failed sync is re-armed and a later flush writes it', () => {
     reportVerdict: 'PASS',
   });
   clearTodoReviewSyncRetries();
-  const failed = syncTodoReviewTarget(
+  const failed = await syncTodoReviewTarget(
     { workspaceFolder: project, todoId: todo.id, dataDir: ISOLATED_DATA_DIR },
     { deps: { writeReview: () => { const err = new Error('store busy'); err.code = 'IO'; throw err; } } },
   );
@@ -487,31 +490,31 @@ test('a failed sync is re-armed and a later flush writes it', () => {
   assert.equal(pendingTodoReviewSyncRetryCount(), 1);
   assert.equal(readTodo(project, todo.id).review, undefined, 'the failed write left no snapshot');
 
-  const flushed = flushTodoReviewSyncRetries();
+  const flushed = await flushTodoReviewSyncRetries();
   assert.equal(flushed.retried, 1);
   assert.equal(flushed.ok, 1);
   assert.equal(readTodo(project, todo.id).review.code.state, 'passed');
   assert.equal(pendingTodoReviewSyncRetryCount(), 0);
 });
 
-test('a permanently failing sync stops re-arming after the retry cap', () => {
+test('a permanently failing sync stops re-arming after the retry cap', async () => {
   const project = makeProject('retry-cap');
   const todo = makeTodo(project);
   clearTodoReviewSyncRetries();
   const failing = { writeReview: () => { const err = new Error('corrupt'); err.code = 'IO'; throw err; } };
   const target = { workspaceFolder: project, todoId: todo.id, dataDir: ISOLATED_DATA_DIR };
   for (let i = 0; i < 8; i += 1) {
-    syncTodoReviewTarget(target, { deps: failing });
+    await syncTodoReviewTarget(target, { deps: failing });
     assert.equal(pendingTodoReviewSyncRetryCount(), 1, `attempt ${i + 1} is still queued`);
   }
-  syncTodoReviewTarget(target, { deps: failing });
+  await syncTodoReviewTarget(target, { deps: failing });
   assert.equal(pendingTodoReviewSyncRetryCount(), 0, 'exhausted retries are dropped');
   clearTodoReviewSyncRetries();
 });
 
 // --- boot repair -------------------------------------------------------------
 
-test('boot repair restores a snapshot after a crash between writes', () => {
+test('boot repair restores a snapshot after a crash between writes', async () => {
   const project = makeProject('repair');
   const todo = makeTodo(project);
   const impl = makeDelegation(project, todo, { assignment: 'implement', queuedAt: '2026-01-01T00:01:00.000Z' });
@@ -527,14 +530,14 @@ test('boot repair restores a snapshot after a crash between writes', () => {
   });
   // Simulate the crash: the delegations are durable but no snapshot was written.
   assert.equal(readTodo(project, todo.id).review, undefined);
-  const repair = repairTodoReviewSnapshotsOnBoot({ dataDir: ISOLATED_DATA_DIR });
+  const repair = await repairTodoReviewSnapshotsOnBoot({ dataDir: ISOLATED_DATA_DIR });
   assert.equal(repair.ok, true);
   assert.equal(repair.failed, 0);
   assert.equal(readTodo(project, todo.id).review.code.state, 'passed');
   assert.equal(readTodo(project, todo.id).review.code.reviewers[0].attemptId, 'rev-att');
 });
 
-test('boot repair repairs several todos of a workspace in one write and is a no-op the second time', () => {
+test('boot repair repairs several todos of a workspace in one write and is a no-op the second time', async () => {
   const project = makeProject('repair-batch');
   const todos = [makeTodo(project), makeTodo(project)];
   for (const todo of todos) {
@@ -548,7 +551,7 @@ test('boot repair repairs several todos of a workspace in one write and is a no-
     });
   }
   const before = todos.map((todo) => readTodo(project, todo.id).updatedAt);
-  const first = repairTodoReviewSnapshotsOnBoot({ dataDir: ISOLATED_DATA_DIR, log: null });
+  const first = await repairTodoReviewSnapshotsOnBoot({ dataDir: ISOLATED_DATA_DIR, log: null });
   assert.equal(first.failed, 0);
   assert.equal(first.repaired, 2);
   todos.forEach((todo, i) => {
@@ -556,12 +559,12 @@ test('boot repair repairs several todos of a workspace in one write and is a no-
     assert.equal(readTodo(project, todo.id).updatedAt, before[i], 'item updatedAt is not bumped');
   });
   const docRevision = loadTodosData(ISOLATED_DATA_DIR, project).updatedAt;
-  const second = repairTodoReviewSnapshotsOnBoot({ dataDir: ISOLATED_DATA_DIR, log: null });
+  const second = await repairTodoReviewSnapshotsOnBoot({ dataDir: ISOLATED_DATA_DIR, log: null });
   assert.equal(second.repaired, 0);
   assert.equal(loadTodosData(ISOLATED_DATA_DIR, project).updatedAt, docRevision, 'no write when nothing changed');
 });
 
-test('boot repair re-invalidates a stored PASS when an older implement was retried', () => {
+test('boot repair re-invalidates a stored PASS when an older implement was retried', async () => {
   const project = makeProject('repair-stale');
   const todo = makeTodo(project);
   const impl = makeDelegation(project, todo, { assignment: 'implement', queuedAt: '2026-01-01T00:01:00.000Z' });
@@ -579,7 +582,7 @@ test('boot repair re-invalidates a stored PASS when an older implement was retri
     report: 'VERDICT: PASS',
     reportVerdict: 'PASS',
   });
-  sync(getDelegationById(review.id));
+  await sync(getDelegationById(review.id));
   assert.equal(readTodo(project, todo.id).review.code.state, 'passed');
 
   // The older implement is retried after the review, so its new attempt starts
@@ -602,12 +605,12 @@ test('boot repair re-invalidates a stored PASS when an older implement was retri
     finishedAt: '',
     attempts: [archived],
   });
-  const repair = repairTodoReviewSnapshotsOnBoot({ dataDir: ISOLATED_DATA_DIR });
+  const repair = await repairTodoReviewSnapshotsOnBoot({ dataDir: ISOLATED_DATA_DIR });
   assert.equal(repair.ok, true);
   assert.equal(readTodo(project, todo.id).review.code.state, 'stale');
 });
 
-test('boot repair handles two workspaces independently', () => {
+test('boot repair handles two workspaces independently', async () => {
   const projectA = makeProject('multi-a');
   const projectB = makeProject('multi-b');
   const todoA = makeTodo(projectA, 'A');
@@ -628,7 +631,7 @@ test('boot repair handles two workspaces independently', () => {
     report: 'VERDICT: FAIL',
     reportVerdict: 'FAIL',
   });
-  const repair = repairTodoReviewSnapshotsOnBoot({ dataDir: ISOLATED_DATA_DIR });
+  const repair = await repairTodoReviewSnapshotsOnBoot({ dataDir: ISOLATED_DATA_DIR });
   assert.equal(repair.failed, 0);
   assert.equal(readTodo(projectA, todoA.id).review.code.state, 'passed');
   assert.equal(readTodo(projectB, todoB.id).review.code.state, 'failed');
@@ -636,7 +639,7 @@ test('boot repair handles two workspaces independently', () => {
 
 // --- concurrency -------------------------------------------------------------
 
-test('two syncs do not roll the generation back and are decision-stable', () => {
+test('two syncs do not roll the generation back and are decision-stable', async () => {
   const project = makeProject('generation');
   const todo = makeTodo(project);
   const review = makeDelegation(project, todo, { queuedAt: '2026-01-01T00:01:00.000Z' });
@@ -647,22 +650,22 @@ test('two syncs do not roll the generation back and are decision-stable', () => 
     report: 'VERDICT: PASS',
     reportVerdict: 'PASS',
   });
-  sync(getDelegationById(review.id));
+  await sync(getDelegationById(review.id));
   const first = readTodo(project, todo.id).review.generation;
   // A second sync from an identical record set is a decision no-op.
-  sync(getDelegationById(review.id));
+  await sync(getDelegationById(review.id));
   assert.equal(readTodo(project, todo.id).review.generation, first);
   // A long, interleaved sequence never moves the generation backwards.
   let last = first;
   for (let i = 0; i < 5; i += 1) {
-    sync(getDelegationById(review.id));
+    await sync(getDelegationById(review.id));
     const current = readTodo(project, todo.id).review.generation;
     assert.ok(current >= last, `generation moved backwards: ${current} < ${last}`);
     last = current;
   }
 });
 
-test('a client todo edit and a review sync keep both fields and no CONFLICT', () => {
+test('a client todo edit and a review sync keep both fields and no CONFLICT', async () => {
   const project = makeProject('concurrent');
   const todo = makeTodo(project);
   const revision = readTodo(project, todo.id).updatedAt;
@@ -674,7 +677,7 @@ test('a client todo edit and a review sync keep both fields and no CONFLICT', ()
     report: 'VERDICT: PASS',
     reportVerdict: 'PASS',
   });
-  sync(getDelegationById(review.id));
+  await sync(getDelegationById(review.id));
   // The review write must not bump the item CAS token, so a client that read
   // before the sync still updates and does not lose the review field.
   const updated = updateTodo(ISOLATED_DATA_DIR, project, todo.id, {
@@ -686,7 +689,7 @@ test('a client todo edit and a review sync keep both fields and no CONFLICT', ()
   assert.equal(row.review.code.state, 'passed');
 });
 
-test('the sync uses the logical workspace, never the execution folder', () => {
+test('the sync uses the logical workspace, never the execution folder', async () => {
   const project = makeProject('logical');
   const other = makeProject('runner');
   const todo = makeTodo(project);
@@ -698,7 +701,7 @@ test('the sync uses the logical workspace, never the execution folder', () => {
     report: 'VERDICT: PASS',
     reportVerdict: 'PASS',
   });
-  sync(getDelegationById(review.id));
+  await sync(getDelegationById(review.id));
   assert.equal(readTodo(project, todo.id).review.code.state, 'passed');
 });
 
@@ -715,24 +718,24 @@ test('delegation-attempt stays free of node:crypto for the browser bundle', () =
 });
 
 
-test('runtime sync reads the saved plan boundary and a chat plan edit immediately invalidates PASS', () => {
+test('runtime sync reads the saved plan boundary and a chat plan edit immediately invalidates PASS', async () => {
   const project = makeProject('plan-revision');
   const todo = makeTodo(project);
   const failed = makeDelegation(project, todo, { reviewSubject: 'plan', queuedAt: '2026-01-01T00:03:00.000Z' });
   patchRecord(failed, { status: 'completed', startedAt: '2026-01-01T00:03:00.000Z',
     finishedAt: '2026-01-01T00:04:00.000Z', reportVerdict: 'FAIL', report: 'VERDICT: FAIL' });
-  sync(getDelegationById(failed.id));
+  await sync(getDelegationById(failed.id));
   assert.equal(readTodo(project, todo.id).review.plan.state, 'failed');
-  persistTodoPlan({ dataDir: ISOLATED_DATA_DIR, cwd: project, todoId: todo.id, planMarkdown: 'Revised plan' });
+  await persistTodoPlan({ dataDir: ISOLATED_DATA_DIR, cwd: project, todoId: todo.id, planMarkdown: 'Revised plan' });
   assert.equal(readTodo(project, todo.id).review.plan.state, 'stale');
   const boundary = readTodo(project, todo.id).plan.markdownUpdatedAt;
   const passed = makeDelegation(project, todo, { reviewSubject: 'plan', queuedAt: boundary });
   patchRecord(passed, { status: 'completed', startedAt: boundary, finishedAt: boundary,
     reportVerdict: 'PASS', report: 'VERDICT: PASS' });
-  sync(getDelegationById(passed.id));
+  await sync(getDelegationById(passed.id));
   assert.equal(readTodo(project, todo.id).review.plan.state, 'passed');
   assert.deepEqual(readTodo(project, todo.id).review.plan.reviewers.map((row) => row.delegationId), [passed.id]);
-  persistTodoPlan({ dataDir: ISOLATED_DATA_DIR, cwd: project, todoId: todo.id, planMarkdown: 'Revised plan' });
+  await persistTodoPlan({ dataDir: ISOLATED_DATA_DIR, cwd: project, todoId: todo.id, planMarkdown: 'Revised plan' });
   assert.equal(readTodo(project, todo.id).review.plan.state, 'passed');
   assert.equal(readTodo(project, todo.id).plan.markdownUpdatedAt, boundary);
 });
@@ -762,35 +765,35 @@ function breakTodoStore(todoId) {
   };
 }
 
-test('a persistent read_error stops re-arming after the cap via flush', () => {
+test('a persistent read_error stops re-arming after the cap via flush', async () => {
   const project = makeProject('read-error-cap');
   const todo = makeTodo(project);
   const review = makeDelegation(project, todo);
   clearTodoReviewSyncRetries();
   const restore = breakTodoStore(todo.id);
   try {
-    const first = sync(review);
+    const first = await sync(review);
     assert.equal(first.ok, false);
     assert.equal(first.reason, 'read_error');
     assert.equal(pendingTodoReviewSyncRetryCount(), 1);
     // 1 initial arm + 7 flush re-arms = 8 attempts; the 8th flush exhausts.
     for (let i = 0; i < 7; i += 1) {
-      const flushed = flushTodoReviewSyncRetries();
+      const flushed = await flushTodoReviewSyncRetries();
       assert.equal(flushed.failed, 1);
       assert.equal(flushed.ok, 0);
       assert.equal(pendingTodoReviewSyncRetryCount(), 1, `flush ${i + 1} re-armed`);
     }
-    const last = flushTodoReviewSyncRetries();
+    const last = await flushTodoReviewSyncRetries();
     assert.equal(last.failed, 1);
     assert.equal(pendingTodoReviewSyncRetryCount(), 0, 'retry budget exhausted, nothing re-armed');
-    assert.equal(flushTodoReviewSyncRetries().retried, 0);
+    assert.equal((await flushTodoReviewSyncRetries()).retried, 0);
   } finally {
     restore();
     clearTodoReviewSyncRetries();
   }
 });
 
-test('a transient read_error recovers on flush and clears the counter', () => {
+test('a transient read_error recovers on flush and clears the counter', async () => {
   const project = makeProject('read-error-recover');
   const todo = makeTodo(project);
   const review = makeDelegation(project, todo, { queuedAt: '2026-01-01T00:02:00.000Z' });
@@ -803,19 +806,19 @@ test('a transient read_error recovers on flush and clears the counter', () => {
   });
   clearTodoReviewSyncRetries();
   const restore = breakTodoStore(todo.id);
-  assert.equal(sync(review).ok, false);
-  assert.equal(flushTodoReviewSyncRetries().failed, 1);
+  assert.equal((await sync(review)).ok, false);
+  assert.equal((await flushTodoReviewSyncRetries()).failed, 1);
   restore();
-  const recovered = flushTodoReviewSyncRetries();
+  const recovered = await flushTodoReviewSyncRetries();
   assert.equal(recovered.ok, 1);
   assert.equal(pendingTodoReviewSyncRetryCount(), 0);
   assert.equal(readTodo(project, todo.id).review.code.state, 'passed');
   // Counter cleared: a fresh failure series gets the full budget again.
   const restoreAgain = breakTodoStore(todo.id);
   try {
-    assert.equal(sync(review).ok, false);
+    assert.equal((await sync(review)).ok, false);
     for (let i = 0; i < 7; i += 1) {
-      assert.equal(flushTodoReviewSyncRetries().failed, 1);
+      assert.equal((await flushTodoReviewSyncRetries()).failed, 1);
       assert.equal(pendingTodoReviewSyncRetryCount(), 1);
     }
   } finally {
@@ -824,13 +827,13 @@ test('a transient read_error recovers on flush and clears the counter', () => {
   }
 });
 
-test('a delegation retry handing over to a target key leaves no orphaned counter', () => {
+test('a delegation retry handing over to a target key leaves no orphaned counter', async () => {
   const project = makeProject('key-transfer');
   const todo = makeTodo(project);
   const review = makeDelegation(project, todo);
   clearTodoReviewSyncRetries();
   const restore = breakTodoStore(todo.id);
-  assert.equal(sync(review).ok, false);
+  assert.equal((await sync(review)).ok, false);
   restore();
   // Resolution now succeeds but the target write fails: the retry moves to the
   // target-level key. Fail the write via a broken snapshot compute dependency
@@ -842,7 +845,7 @@ test('a delegation retry handing over to a target key leaves no orphaned counter
   fs.chmodSync(dir, 0o555);
   let transferred = false;
   try {
-    const flushed = flushTodoReviewSyncRetries();
+    const flushed = await flushTodoReviewSyncRetries();
     transferred = flushed.failed === 1 && pendingTodoReviewSyncRetryCount() === 1;
   } finally {
     fs.chmodSync(dir, 0o755);
@@ -854,7 +857,7 @@ test('a delegation retry handing over to a target key leaves no orphaned counter
     assert.equal(pendingTodoReviewSyncRetryCount(), 0);
   }
   // Drain: after recovery nothing may remain pending or counted.
-  for (let i = 0; i < 9 && pendingTodoReviewSyncRetryCount() > 0; i += 1) flushTodoReviewSyncRetries();
+  for (let i = 0; i < 9 && pendingTodoReviewSyncRetryCount() > 0; i += 1) await flushTodoReviewSyncRetries();
   assert.equal(pendingTodoReviewSyncRetryCount(), 0);
   clearTodoReviewSyncRetries();
 });

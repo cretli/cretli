@@ -289,7 +289,7 @@ test('inprocess workflow_update rewrites material_revision from leaf base', asyn
   );
   assert.ok(scoped, 'expected scoped revision');
   assert.notEqual(scoped, 'client-global-revision');
-  const resolved = resolveWorkflowMaterialRevisionForLeaf({
+  const resolved = await resolveWorkflowMaterialRevisionForLeaf({
     dataDir,
     workspaceFolder: repo,
     leafId: leaf.id,
@@ -317,7 +317,7 @@ test('inprocess workflow_update rewrites material_revision from leaf base', asyn
     parentChatId: parent.id,
     leafId: leaf.id,
     workspaceFolder: repo,
-    materialRevision: resolveWorkflowMaterialRevisionForLeaf({
+    materialRevision: await resolveWorkflowMaterialRevisionForLeaf({
       dataDir,
       workspaceFolder: repo,
       leafId: leaf.id,
@@ -355,7 +355,7 @@ test('inherit root with watcher worktree policy resolves to worktree when live r
     registryOptions: { dataDir: suite.dataDir },
     dirtyPolicy: 'head',
   });
-  const ctx = resolveLeafMaterialExecutionContext({
+  const ctx = await resolveLeafMaterialExecutionContext({
     dataDir: suite.dataDir,
     workspaceFolder: suite.repo,
     leafId: leaf.id,
@@ -540,7 +540,7 @@ test('watcher worktree policy without live record flags worktreeRecordMissing', 
     status: 'ready',
     siblingIndex: 0,
   }).item;
-  const ctx = resolveLeafMaterialExecutionContext({
+  const ctx = await resolveLeafMaterialExecutionContext({
     dataDir: suite.dataDir,
     workspaceFolder: suite.repo,
     leafId: leaf.id,

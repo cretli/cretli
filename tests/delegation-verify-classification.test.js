@@ -17,11 +17,11 @@ const created = createDelegationRecord({
 const raw = { ok: false, output: 'boom', error: 'x', dataDir: '', results: [{ id: 'notices', ok: false, durationMs: 3, outputTail: 'boom' }] };
 
 // Reviewer-run path: no classification -> raw outcome.
-recordDelegationVerifyResult({ delegationId: created.id, attemptId: created.attemptId, result: raw });
+await recordDelegationVerifyResult({ delegationId: created.id, attemptId: created.attemptId, result: raw });
 assert.equal(getDelegationById(created.id).verifyResult.status, 'failed');
 
 // Baseline-only failures -> gate passed, failures stay visible.
-recordDelegationVerifyResult({
+await recordDelegationVerifyResult({
   delegationId: created.id,
   attemptId: created.attemptId,
   result: raw,
@@ -38,7 +38,7 @@ assert.deepEqual(passed.preexistingFailures, ['notices']);
 assert.equal(passed.results[0].id, 'notices');
 
 // A new failure -> gate failed (a changed classification is not "equivalent").
-recordDelegationVerifyResult({
+await recordDelegationVerifyResult({
   delegationId: created.id,
   attemptId: created.attemptId,
   result: raw,

@@ -625,7 +625,7 @@ test('a different leaf id contributes nothing to the snapshot', () => {
   assert.equal(code.implementer, null);
 });
 
-test('the runtime wrapper reads the logical workspace regardless of parent chat', () => {
+test('the runtime wrapper reads the logical workspace regardless of parent chat', async () => {
   const leaf = 'dddddddd-4444-4444-8444-444444444444';
   const impl = createDelegationRecord({
     parentChatId: 'wrapper-parent-impl',
@@ -660,7 +660,7 @@ test('the runtime wrapper reads the logical workspace regardless of parent chat'
     report: 'VERDICT: PASS',
     reportVerdict: 'PASS',
   });
-  const snapshot = computeTodoReviewSnapshotForTodo({
+  const snapshot = await computeTodoReviewSnapshotForTodo({
     todo: { id: leaf, workspaceFolder: ISOLATED_DATA_DIR },
     now: NOW,
   });
@@ -940,8 +940,8 @@ test('a new round after a fix excludes the prior round FAIL', () => {
 });
 
 
-test('runtime wrapper applies a legacy plan timestamp when rows are supplied for backfill', () => {
-  const snapshot = computeTodoReviewSnapshotForTodo({
+test('runtime wrapper applies a legacy plan timestamp when rows are supplied for backfill', async () => {
+  const snapshot = await computeTodoReviewSnapshotForTodo({
     todo: { id: LEAF, plan: { markdown: 'v2', updatedAt: t(10) } },
     rows: [planReviewRow('legacy-fail', t(3), 'FAIL'), planReviewRow('legacy-pass', t(12), 'PASS')],
     now: NOW,
@@ -1125,7 +1125,7 @@ test('fixed pair: known pickOrigin members still count toward the pair', () => {
   assert.equal(code.stateReason, 'fresh_review');
 });
 
-test('fixed pair: a live fixed_pair code policy holds an all-legacy round pending (FU-1)', () => {
+test('fixed pair: a live fixed_pair code policy holds an all-legacy round pending (FU-1)', async () => {
   saveDelegationSettings(WORKSPACE, {
     reviewer_policy: { code: { selection: 'fixed_pair', members_source: 'learned', session: 'fresh' } },
   }, { dataDir: ISOLATED_DATA_DIR });
@@ -1133,7 +1133,7 @@ test('fixed pair: a live fixed_pair code policy holds an all-legacy round pendin
     const impl = materialRow({ queuedAt: t(1) });
     // Every attempt is legacy: no reviewerPolicy snapshot to derive the pair from.
     const legacyPass = reviewRow({ id: 'live-legacy-pass', startedAt: t(3) });
-    const snapshot = computeTodoReviewSnapshotForTodo({
+    const snapshot = await computeTodoReviewSnapshotForTodo({
       todo: { id: LEAF, workspaceFolder: WORKSPACE },
       rows: [impl, legacyPass],
       now: NOW,

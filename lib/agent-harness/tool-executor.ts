@@ -396,7 +396,7 @@ async function executeReviewVerify(
     return { ok: false, output: '', error: resolveReadOnlyGuardUserMessage('agent', 'review') };
   }
   const result = await runReviewVerify({ ids: parsed.ids, projectRoot: cwd });
-  recordDelegationVerifyResult({
+  await recordDelegationVerifyResult({
     delegationId: ctx.delegationId,
     attemptId: ctx.attemptId,
     result,

@@ -48,7 +48,7 @@ updateDelegationRecord(completedHeld.id, {
   runStoppingAt: new Date().toISOString(),
   report: `${'x'.repeat(50)}\nVERDICT: PASS`,
 });
-recordDelegationVerifyResult({
+await recordDelegationVerifyResult({
   delegationId: completedHeld.id,
   attemptId: completedHeld.attemptId,
   result: { ok: false, dataDir: '/tmp/isolated-review-data' },

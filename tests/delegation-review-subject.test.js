@@ -142,7 +142,7 @@ updateDelegationRecord(snapshotJob.id, {
   reportDegraded: true,
   reportSummary: 'a long review',
 });
-recordDelegationVerifyResult({
+await recordDelegationVerifyResult({
   delegationId: snapshotJob.id,
   attemptId: snapshotJob.attemptId,
   result: { ok: true, dataDir: '/tmp/isolated-review-data' },
@@ -195,7 +195,7 @@ updateDelegationRecord(retryJob.id, {
   acknowledgedReason: 'accepted',
   acknowledgedActor: 'human',
 });
-recordDelegationVerifyResult({
+await recordDelegationVerifyResult({
   delegationId: retryJob.id,
   attemptId: retryJob.attemptId,
   result: { ok: true, dataDir: '/tmp/old-verify' },

@@ -11,6 +11,10 @@ const SYNC_API = ['loadTodosData', 'addTodo', 'updateTodo', 'saveTodosData'];
 
 /** Files already moved to `lib/persist/todos-store.js`; they must never use the sync API again. */
 const CONVERTED = Object.freeze([
+  'lib/todo-review-sync.js',
+  'lib/todo-review-sync-hooks.js',
+  'lib/todo-plan-sync.js',
+  'lib/todo-leaf-material.js',
   'lib/routes/todos-routes.js',
   'lib/routes/chats-routes.js',
   'lib/routes/chat-agent-routes.js',
@@ -39,12 +43,8 @@ const ALLOWLIST = Object.freeze([
   'lib/integrate-batch.js',
   'lib/persist/feedback-store.js',
   'lib/persist/todos-store.js',
-  'lib/todo-leaf-material.js',
   'lib/todo-move.js',
-  'lib/todo-plan-sync.js',
   'lib/todo-review-backfill.js',
-  'lib/todo-review-sync-hooks.js',
-  'lib/todo-review-sync.js',
   'lib/workspace-watcher-control.js',
   'lib/workspace-watcher-cycle-close.js',
   'lib/workspace-watcher-cycle.js',
@@ -74,13 +74,13 @@ function walk(dir, out = []) {
 }
 
 /** Sync names a file imports from `todos-persist.js` (aliases resolve to the original name). */
-function syncImports(source) {
+function syncImports(source, api = SYNC_API) {
   const found = new Set();
   const importRe = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"][^'"]*todos-persist(?:\.js)?['"]/g;
   for (const match of source.matchAll(importRe)) {
     for (const part of match[1].split(',')) {
       const name = part.trim().split(/\s+as\s+/)[0].trim();
-      if (SYNC_API.includes(name)) found.add(name);
+      if (api.includes(name)) found.add(name);
     }
   }
   // Namespace imports and dynamic imports can reach every export.
@@ -108,6 +108,13 @@ describe('store.todos sync API guard', () => {
   it('converted files do not use the sync todos API', () => {
     for (const file of CONVERTED) {
       assert.deepEqual(users.get(file) || [], [], `${file} must use lib/persist/todos-store.js`);
+    }
+  });
+
+  it('L3c modules also avoid synchronous detail reads and review commands', () => {
+    for (const file of ['lib/todo-leaf-material.js', 'lib/todo-plan-sync.js', 'lib/todo-review-sync.js', 'lib/todo-review-sync-hooks.js']) {
+      const source = fs.readFileSync(path.join(ROOT, file), 'utf8');
+      assert.deepEqual(syncImports(source, [...SYNC_API, 'getTodoById', 'writeTodoReview', 'writeTodoReviewBatch', 'closeTodoLeafIfEligible']), [], file);
     }
   });
 

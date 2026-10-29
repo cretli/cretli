@@ -51,14 +51,14 @@ await runCase('readCurrentRunAssistantText prefers room buffer', async () => {
   assert.equal(actualText, 'Live plan text');
 });
 
-await runCase('persistTodoPlan: strips title JSON and stores excerpt changelog', () => {
+await runCase('persistTodoPlan: strips title JSON and stores excerpt changelog', async () => {
   const dataDir = path.join(tmpRoot, 'plan-sanitize');
   mkdirSync(dataDir, { recursive: true });
   const project = path.join(tmpRoot, 'plan-sanitize-proj');
   mkdirSync(project, { recursive: true });
   addTodo(dataDir, project, { title: 'Sanitize' });
   const id = loadTodosData(dataDir, project).items[0].id;
-  persistTodoPlan({
+  await persistTodoPlan({
     dataDir,
     cwd: project,
     todoId: id,
@@ -74,14 +74,14 @@ await runCase('persistTodoPlan: strips title JSON and stores excerpt changelog',
   assert.match(item.changelog[0].text, /Fix status save/);
 });
 
-await runCase('persistTodoPlan: stores markdown and changelog', () => {
+await runCase('persistTodoPlan: stores markdown and changelog', async () => {
   const dataDir = path.join(tmpRoot, 'plan1');
   mkdirSync(dataDir, { recursive: true });
   const project = path.join(tmpRoot, 'plan1proj');
   mkdirSync(project, { recursive: true });
   addTodo(dataDir, project, { title: 'Task' });
   const id = loadTodosData(dataDir, project).items[0].id;
-  persistTodoPlan({
+  await persistTodoPlan({
     dataDir,
     cwd: project,
     todoId: id,
@@ -97,14 +97,14 @@ await runCase('persistTodoPlan: stores markdown and changelog', () => {
   assert.equal(item.status, 'ready');
 });
 
-await runCase('persistTodoPlan: approved plan sets doing', () => {
+await runCase('persistTodoPlan: approved plan sets doing', async () => {
   const dataDir = path.join(tmpRoot, 'plan2');
   mkdirSync(dataDir, { recursive: true });
   const project = path.join(tmpRoot, 'plan2proj');
   mkdirSync(project, { recursive: true });
   addTodo(dataDir, project, { title: 'Idea task', status: 'idea' });
   const id = loadTodosData(dataDir, project).items[0].id;
-  persistTodoPlan({
+  await persistTodoPlan({
     dataDir,
     cwd: project,
     todoId: id,
@@ -118,14 +118,14 @@ await runCase('persistTodoPlan: approved plan sets doing', () => {
   assert.ok(item.plan.approvedAt);
 });
 
-await runCase('persistTodoImplementationSummary: appends implement changelog', () => {
+await runCase('persistTodoImplementationSummary: appends implement changelog', async () => {
   const dataDir = path.join(tmpRoot, 'plan3');
   mkdirSync(dataDir, { recursive: true });
   const project = path.join(tmpRoot, 'plan3proj');
   mkdirSync(project, { recursive: true });
   addTodo(dataDir, project, { title: 'Build', status: 'doing' });
   const id = loadTodosData(dataDir, project).items[0].id;
-  persistTodoImplementationSummary({
+  await persistTodoImplementationSummary({
     dataDir,
     cwd: project,
     todoId: id,
@@ -301,13 +301,13 @@ await runCase('updateTodo: approving a done container keeps it done, markdown ed
   assert.equal(edited.status, 'done');
 });
 
-await runCase('ensureLinkedTodoForPlan: returns the todo created by addTodo', () => {
+await runCase('ensureLinkedTodoForPlan: returns the todo created by addTodo', async () => {
   const dataDir = path.join(tmpRoot, 'ensure1');
   mkdirSync(dataDir, { recursive: true });
   const project = path.join(tmpRoot, 'ensure1proj');
   mkdirSync(project, { recursive: true });
   addTodo(dataDir, project, { title: 'Pre-existing item' });
-  const todoId = ensureLinkedTodoForPlan({
+  const todoId = await ensureLinkedTodoForPlan({
     dataDir,
     cwd: project,
     chatId: 'chat-ensure-1',
@@ -322,6 +322,18 @@ await runCase('ensureLinkedTodoForPlan: returns the todo created by addTodo', ()
   // The id must come from the addTodo return value, not items[0] guessing.
   const preExisting = items.find((row) => row.title === 'Pre-existing item');
   assert.notEqual(todoId, preExisting.id);
+});
+
+await runCase('ensureLinkedTodoForPlan: concurrent calls create one linked todo', async () => {
+  const dataDir = path.join(tmpRoot, 'ensure-concurrent');
+  const project = path.join(tmpRoot, 'ensure-concurrent-project');
+  mkdirSync(dataDir, { recursive: true });
+  mkdirSync(project, { recursive: true });
+  const input = { dataDir, cwd: project, chatId: 'chat-concurrent-plan', title: 'Concurrent plan' };
+  const ids = await Promise.all([ensureLinkedTodoForPlan(input), ensureLinkedTodoForPlan(input)]);
+  assert.ok(ids[0]);
+  assert.equal(ids[0], ids[1]);
+  assert.equal(loadTodosData(dataDir, project).items.length, 1);
 });
 
 await runCase('extractLatestAssistantTextFromHistoryStore reads last assistant turn', () => {

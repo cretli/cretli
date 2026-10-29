@@ -792,7 +792,7 @@ test('D3 auto-close: a PASS without an implementer is refused only while the gat
   // Gate off: the (experimental) auto-close behaves exactly as before.
   const offCwd = makeWorkspace('d3-off');
   const offLeaf = addTodo(dataDir, offCwd, { title: 'leaf', status: 'doing' }).item;
-  const off = closeTodoLeafAfterReview({ dataDir, workspaceFolder: offCwd, todoId: offLeaf.id, rows: reviewOnly(offLeaf.id) });
+  const off = (await closeTodoLeafAfterReview({ dataDir, workspaceFolder: offCwd, todoId: offLeaf.id, rows: reviewOnly(offLeaf.id) }));
   assert.equal(off.closed, true);
   // Gate enforced: no implementer -> not gate-qualifying -> refused, marker kept.
   const cwd = makeWorkspace('d3-enforce');
@@ -801,7 +801,7 @@ test('D3 auto-close: a PASS without an implementer is refused only while the gat
   mutateWorkspaceWatcherRow(cwd, () => ({
     reviewWaits: { [leaf.id]: { since: iso(T0), attempts: 1, materialRevision: '', phase: 'review', worktree: false } },
   }), { dataDir });
-  const refused = closeTodoLeafAfterReview({ dataDir, workspaceFolder: cwd, todoId: leaf.id, rows: reviewOnly(leaf.id) });
+  const refused = (await closeTodoLeafAfterReview({ dataDir, workspaceFolder: cwd, todoId: leaf.id, rows: reviewOnly(leaf.id) }));
   assert.equal(refused.closed, false);
   assert.equal(refused.reason, 'no_implementer');
   assert.ok(getWorkspaceWatcher(cwd, { dataDir }).reviewWaits[leaf.id]);
@@ -809,9 +809,9 @@ test('D3 auto-close: a PASS without an implementer is refused only while the gat
   const implement = { ...reviewOnly(leaf.id)[0], id: 'impl-1', assignment: 'implement', attemptId: 'att-impl', queuedAt: iso(T0 - 60_000), createdAt: iso(T0 - 60_000), startedAt: iso(T0 - 60_000), finishedAt: iso(T0 - 60_000), report: '' };
   delete implement.reviewSubject;
   delete implement.reportVerdict;
-  const closed = closeTodoLeafAfterReview({
+  const closed = (await closeTodoLeafAfterReview({
     dataDir, workspaceFolder: cwd, todoId: leaf.id, rows: [implement, ...reviewOnly(leaf.id)],
-  });
+  }));
   assert.equal(closed.closed, true, closed.reason);
   assert.equal(getWorkspaceWatcher(cwd, { dataDir }).reviewWaits[leaf.id], undefined);
 });

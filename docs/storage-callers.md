@@ -183,7 +183,7 @@ or `VALIDATION`. `tests/todos-store-sync-api-guard.test.js` enforces this invent
 converted files may not import `loadTodosData` / `addTodo` / `updateTodo` /
 `saveTodosData` from `todos-persist.js`, and no unlisted file may start using them.
 
-### Converted to the async facade (leaves L2–L3b)
+### Converted to the async facade (leaves L2–L3c)
 
 | File | Notes |
 |---|---|
@@ -201,8 +201,11 @@ converted files may not import `loadTodosData` / `addTodo` / `updateTodo` /
 | `lib/usage/todo-usage-read.ts` | Usage views await the TODO read before building statistics. |
 | `server.js`, `lib/server-health/server-stall-watchdog.js` | The stall watchdog receives async todo adapters and awaits signature lookup and incident creation. |
 | `lib/worktree-deps.js`, `lib/worktree-list.js` | Worktree reports, cleanup, and list preparation await the TODO read. |
+| `lib/todo-plan-sync.js` | Plan export and run summaries await reads and CAS mutations. |
+| `lib/todo-leaf-material.js` | Context, baseline, checkpoint, partial paths, and workflow revisions await the facade; material mutations use CAS. |
+| `lib/todo-review-sync.js`, `lib/todo-review-sync-hooks.js` | Async plan-boundary reads and review commands; boot/retry/auto-close wait for writes before emitting changes. |
 
-Import aliases: none of the callers rename the sync functions (`as` imports). Indirect
+Async facade imports may retain local aliases such as `listTodos as loadTodosData`; these do not import the synchronous persist API. Indirect
 paths: MCP tools -> `client.updateTodo` -> in-process client or HTTP -> facade.
 
 ### Remaining synchronous callers (allowlist in the guard test)
@@ -210,8 +213,7 @@ paths: MCP tools -> `client.updateTodo` -> in-process client or HTTP -> facade.
 Each still imports at least one sync function and is converted by a later leaf:
 `lib/delegation-retention.js`, `delegation-service.js`, `delegation-settings.js`,
 `delegation-slot-stop.js`, `feedback-triage.js`, `integrate-batch.js`,
-`todo-leaf-material.js`, `todo-move.js`, `todo-plan-sync.js`, `todo-review-backfill.js`,
-`todo-review-sync-hooks.js`, `todo-review-sync.js`,
+`todo-move.js`, `todo-review-backfill.js`,
 `persist/feedback-store.js`, every `workspace-watcher-*.js`
 module listed in the guard (`control`, `cycle`, `cycle-close`, `delegation-guard`,
 `history-repair`, `integration`, `review-gate-guard`, `scout`, `todo-recover`, and
@@ -256,3 +258,14 @@ is held across an `await` outside the persist layer.
   caller's locks. Rows are not committed as one transaction: a failure mid-loop leaves earlier rows moved until the
   replay completes.
 - `nudgeWorkspaceWatcherAfterTodosMutation` (workspace-watcher-nudge.js) publishes the nudge only after the mutation resolved.
+
+
+### Leaf 3c status
+
+- `todo-plan-sync.js`, `todo-leaf-material.js`, and `todo-review-sync*.js` use the async todos facade. Plan/summary/material read-modify-write operations send `expectedUpdatedAt` from the read row; conflicts reject instead of overwriting a concurrent edit.
+- Review writes use dedicated async `writeTodoReview`, `writeTodoReviewBatch`, and `closeTodoLeafIfEligible` commands. The legacy adapter retains their lock, generation, decision-key, no-op, and nudge-suppression behavior. Review writes also check `expectedUpdatedAt` and `expectedGeneration` under the lock. A stale computation is queued for recomputation rather than installed over a newer plan or review.
+- Boot repair awaits reads, snapshot computations, the workspace batch, and optional auto-close. HTTP/MCP plan changes and workflow revision lookups await their async helpers; plan export/run completion and verify tools await mutation before returning success. Review change events follow successful writes only.
+- Delegation queue/start/retry/acceptance await review sync. Terminal delegation records still transition synchronously; their background review work is tracked per delegation, and status/history/outbox delivery, final-report acceptance, and shutdown settlement await it. Host verify result recording is async. This preserves the synchronous terminal API used by the remaining leaves.
+- The synchronous `computeTodoReviewSnapshotFromRows` helper performs no todo-store reads. Watcher plan gates and backfill pass todo metadata through it; the async runtime wrapper resolves a missing plan boundary through `getTodo`.
+- No caller holds a watcher file lock across an async todos operation. The optional auto-close guard is a synchronous callback within the legacy adapter's atomic command; replacing that callback with a worker command belongs to the backend cutover.
+- The backend remains legacy JSON and the sync exports remain available to the remaining leaves through 3f. No storage migration or registry change is included.

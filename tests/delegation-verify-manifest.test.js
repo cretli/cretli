@@ -151,35 +151,35 @@ function makeRow(assignment = 'implement') {
   return { parent, row };
 }
 const okResult = (...ids) => ({ ok: true, output: 'ok', results: ids.map((id) => ({ id, ok: true, durationMs: 1, outputTail: '' })) });
-function record(row, extra = {}) {
-  return recordDelegationVerifyResult({
+async function record(row, extra = {}) {
+  return await recordDelegationVerifyResult({
     delegationId: row.id, attemptId: row.attemptId, result: okResult('delegation-contract'), source: 'delegation_verify', ...extra,
   });
 }
 
-test('service: manual result without ids derives a manifest from executed results', () => {
+test('service: manual result without ids derives a manifest from executed results', async () => {
   const { row } = makeRow();
-  const saved = record(row);
+  const saved = (await record(row));
   assert.deepEqual(saved.verifyResult.manifest.entries.map((e) => e.id), ['delegation-contract']);
   assert.equal(saved.verifyResult.manifest.attemptId, row.attemptId);
   assert.deepEqual(saved.verifyResult.manifestEvidence, { usable: true, reason: 'ok' });
 });
 
-test('service: a manual re-run keeps the same manifest and replay is ignored', () => {
+test('service: a manual re-run keeps the same manifest and replay is ignored', async () => {
   const { row } = makeRow();
-  const first = record(row, { ids: ['delegation-contract'], source: 'auto_after_implement' });
-  const again = record(row, { ids: ['delegation-contract'], source: 'auto_after_implement' });
+  const first = (await record(row, { ids: ['delegation-contract'], source: 'auto_after_implement' }));
+  const again = (await record(row, { ids: ['delegation-contract'], source: 'auto_after_implement' }));
   assert.equal(again.verifyResult.recordedAt, first.verifyResult.recordedAt, 'identical replay does not rewrite');
-  const manual = record(row, { source: 'delegation_verify' });
+  const manual = (await record(row, { source: 'delegation_verify' }));
   assert.equal(manual.verifyResult.manifest.testSetKey, first.verifyResult.manifest.testSetKey, 'manual run does not drop the manifest');
 });
 
-test('service: test files changed during the run mark the result stale and unusable', () => {
+test('service: test files changed during the run mark the result stale and unusable', async () => {
   const { row } = makeRow();
-  const start = record(makeRow().row, {}).verifyResult.manifest;
+  const start = (await record(makeRow().row, {})).verifyResult.manifest;
   fs.writeFileSync(CURATED_FILE, 'v2');
   try {
-    const saved = record(row, { manifest: start });
+    const saved = (await record(row, { manifest: start }));
     assert.equal(saved.verifyResult.stale, true);
     assert.deepEqual(saved.verifyResult.manifestEvidence, { usable: false, reason: 'stale' });
   } finally {
@@ -187,25 +187,25 @@ test('service: test files changed during the run mark the result stale and unusa
   }
 });
 
-test('service: a test outside the explicit manifest ids is not usable', () => {
+test('service: a test outside the explicit manifest ids is not usable', async () => {
   const { row } = makeRow();
-  const saved = record(row, { ids: ['delegation-contract'], result: okResult('delegation-contract', 'delegation-wait') });
+  const saved = (await record(row, { ids: ['delegation-contract'], result: okResult('delegation-contract', 'delegation-wait') }));
   assert.equal(saved.verifyResult.manifestEvidence.reason, 'outside_manifest');
 });
 
-test('service: unknown id and traversal never produce a manifest', () => {
+test('service: unknown id and traversal never produce a manifest', async () => {
   const { row } = makeRow();
-  const unknown = record(row, { result: okResult('no-such-id') });
+  const unknown = (await record(row, { result: okResult('no-such-id') }));
   assert.equal(unknown.verifyResult.manifest, undefined);
   assert.equal(unknown.verifyResult.manifestEvidence.reason, 'no_manifest');
   const { row: row2 } = makeRow();
-  const evil = record(row2, { result: okResult('../../etc/passwd') });
+  const evil = (await record(row2, { result: okResult('../../etc/passwd') }));
   assert.equal(evil.verifyResult.manifest, undefined);
 });
 
-test('service: failed run is not usable evidence', () => {
+test('service: failed run is not usable evidence', async () => {
   const { row } = makeRow();
-  const saved = record(row, { result: { ok: false, output: 'x', results: [{ id: 'delegation-contract', ok: false }] } });
+  const saved = (await record(row, { result: { ok: false, output: 'x', results: [{ id: 'delegation-contract', ok: false }] } }));
   assert.equal(saved.verifyResult.manifestEvidence.reason, 'failed');
 });
 
@@ -221,9 +221,9 @@ function inheritFor(parent, implement) {
   return applyInheritedVerifyEvidence(review);
 }
 
-test('service: valid reuse rebinds the manifest to the new review attempt', () => {
+test('service: valid reuse rebinds the manifest to the new review attempt', async () => {
   const { parent, row } = makeRow();
-  record(row);
+  (await record(row));
   const review = inheritFor(parent, row);
   const v = getDelegationById(review.id).verifyResult;
   assert.equal(v.source, 'inherited_from_implement');
@@ -232,9 +232,9 @@ test('service: valid reuse rebinds the manifest to the new review attempt', () =
   assert.equal(v.implementDelegationId, row.id);
 });
 
-test('service: changed test file or environment blocks reuse', () => {
+test('service: changed test file or environment blocks reuse', async () => {
   const { parent, row } = makeRow();
-  record(row);
+  (await record(row));
   fs.writeFileSync(CURATED_FILE, 'v3');
   try {
     assert.equal(getDelegationById(inheritFor(parent, row).id).verifyResult, null, 'tests changed => no reuse');
@@ -250,19 +250,19 @@ test('service: changed test file or environment blocks reuse', () => {
   }
 });
 
-test('service: legacy implement evidence without a manifest is not reused', () => {
+test('service: legacy implement evidence without a manifest is not reused', async () => {
   const { parent, row } = makeRow();
-  const saved = record(row);
+  const saved = (await record(row));
   const { manifest, manifestEvidence, ...legacy } = saved.verifyResult;
   updateDelegationRecord(row.id, { verifyResult: legacy });
   assert.equal(getDelegationById(inheritFor(parent, row).id).verifyResult, null);
 });
 
-test('service: a new attempt of the same implement records its own manifest', () => {
+test('service: a new attempt of the same implement records its own manifest', async () => {
   const { row } = makeRow();
-  const first = record(row);
+  const first = (await record(row));
   updateDelegationRecord(row.id, { attemptId: 'attempt-2' });
-  const second = recordDelegationVerifyResult({ delegationId: row.id, attemptId: 'attempt-2', result: okResult('delegation-contract'), source: 'delegation_verify' });
+  const second = await recordDelegationVerifyResult({ delegationId: row.id, attemptId: 'attempt-2', result: okResult('delegation-contract'), source: 'delegation_verify' });
   assert.equal(second.verifyResult.manifest.attemptId, 'attempt-2');
   assert.notEqual(second.verifyResult.manifest.attemptId, first.verifyResult.manifest.attemptId);
 });
