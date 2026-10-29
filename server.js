@@ -603,6 +603,7 @@ registerAppRoutes(app, {
   buildTaskRunScopeSnapshot,
   isTaskRunInScope,
   randomSessionId,
+  buildInteractivePtyEnv,
   verifyAgentCallback,
   terminalSessions,
   getLastTerminalSessionId: () => lastTerminalSessionId,

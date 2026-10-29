@@ -74,6 +74,8 @@ snapshot until quiesced or registered (see DATA-08 / BACKUP-02).
 | Minimum for native backup (A1 contract) | Node ≥ 22.16 |
 | `package.json` engines (A2) | ≥ 22.16 |
 
+Runtime app state (`store.apps-state`, `apps-state.json`) is a small JSON store written by `lib/apps/`; see `docs/apps-and-ports.md`.
+
 ## Related artifacts
 
 - Caller inventory: [storage-callers.md](storage-callers.md)

@@ -78,3 +78,100 @@ does not produce NAT missing-rule or migration suggestions. Firewall reachabilit
 is not tested, and the report does not claim that a port is reachable from LAN.
 For example, fixture addresses `192.0.2.2` (WSL) and `198.51.100.2` (Windows LAN)
 are documentation addresses, not values to use on a real host.
+
+## Apps
+
+A workspace can describe its long-running applications in `.cretli/apps.json`
+inside the workspace folder. An app is an existing task run plus port metadata;
+Cretli does not add a second process manager. It starts and stops only the runs
+it started itself for that app.
+
+### File schema
+
+```json
+{
+  "version": 1,
+  "apps": [
+    {
+      "id": "my-app",
+      "name": "My app",
+      "start": { "taskLabel": "Serve my-app" },
+      "ports": [
+        { "port": 5173, "bind": "127.0.0.1", "role": "http", "healthPath": "/" },
+        { "port": 8080, "bind": "127.0.0.1", "role": "api", "healthPath": "/healthz" }
+      ],
+      "exposure": "local",
+      "autoStart": true,
+      "notes": "Example only; replace the ports with your own."
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | 1-64 characters (letters, digits, `.`, `_`, `-`), unique in the file |
+| `name` | Display name |
+| `start` | Exactly one form: `{ "taskLabel": "<label from .vscode/tasks.json>" }` or `{ "command", "args"?, "cwd"?, "env"? }`. `cwd` must be relative and stay inside the workspace folder (absolute paths, `..` escapes and symlinks leaving it are rejected). Without `args`, `command` runs through the shell |
+| `ports[]` | `{ port (1-65535, unique across all apps), bind (default 127.0.0.1; an IP address, `localhost` or `*`), role: http|api|db|other (default other), healthPath? }`. `healthPath` must start with a single `/` (no whitespace, backslash or `#`). Health probes only connect to loopback (wildcards probe 127.0.0.1 / ::1) or to an address of a local network interface; anything else is skipped |
+| `exposure` | `local` (default) or `lan`; the monitor warns when the real bind address contradicts it |
+| `autoStart` | Optional. Marks an app that is expected to keep running: an unexpected exit raises a notification. Cretli does not start it on boot |
+| `notes` | Optional free text |
+
+A missing file is an empty registry. A file that is not valid JSON or does not
+match the schema never affects the server: the API answers `400` with
+`error: "apps-file-invalid"` and an `errors` array of readable messages.
+
+### Runtime state
+
+`data/apps-state.json` (registered as `store.apps-state`) keeps per app the
+`appId -> runId` mapping of the active task run, its PID, the last status and an
+error history (last 20 entries). The definition file is never written by the
+monitor.
+
+### API
+
+All routes require a Cretli login session.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/apps` | Validated definitions of the current workspace |
+| `PUT /api/apps` | Replace all definitions (`{ "apps": [...] }`); validated before writing |
+| `POST /api/apps` | Append one definition (`{ "app": {...} }`), e.g. accepting a suggestion or orphan. Writes the definition only |
+| `GET /api/apps/status` | Cached monitor report; `?refresh=1` takes a fresh listener snapshot |
+| `GET /api/apps/suggestions` | Read-only proposals (see below) |
+| `POST /api/apps/:id/start` | Start as a task run; `409 port-in-use` (with `conflicts`) when a declared port is held by another process; `409 app-already-running` |
+| `POST /api/apps/:id/stop` | Stop only the run stored for this app; `409 app-not-running` and nothing stopped when there is none |
+| `POST /api/apps/:id/restart` | Stop (if running), wait for exit, start again |
+
+Starts create a normal task run, so the run appears in `GET /api/task-runs` and
+can be opened over `/ws-task`. A task run started any other way is never stopped
+by `POST /api/apps/:id/stop`, whichever app id is used. The existing
+`DELETE /api/task-runs/:runId` route is unchanged.
+
+### Monitoring
+
+A periodic job (`apps_monitor`, on the shared periodic job runner) takes one
+`ss -ltnpH` snapshot per tick, reusing the stage-1 parser, and evaluates every
+workspace that has state plus the current one. The interval is
+`CRETLI_APPS_MONITOR_INTERVAL_MS` (default 5000, minimum 1000), read at boot.
+For each declared port the status reports whether it is listening, the owning
+PID and command, whether that PID belongs to the app's own task run (process
+tree walk through `/proc`; otherwise `ownedBy: "foreign"`), and for ports with
+`healthPath` an HTTP probe (`code`, `latencyMs`, 2 s timeout). State changes are
+pushed as `{ "type": "appsChanged" }` frames on the global chat-list WebSocket.
+When an app with `autoStart` loses its run unexpectedly, a notification is
+published (category `system`, severity `error`).
+
+### Orphans and suggestions
+
+`orphans` in the status report are listening ports not declared by any app:
+`port`, `bind`, `pid`, `command` and a `killHint` string such as `kill 1234`.
+They are read-only. Cretli has no API or tool that signals a foreign process;
+the hint is text for you to copy. "Add as app" is `POST /api/apps` with a
+definition you review.
+
+`GET /api/apps/suggestions` proposes definitions from tasks in
+`.vscode/tasks.json`, `package.json` scripts (`dev`, `start`, `serve`, `preview`,
+`watch`) and the host side of `ports:` in `docker-compose*.yml` /
+`compose*.yaml`. Nothing is written until you add one.

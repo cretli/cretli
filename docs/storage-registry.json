@@ -41,7 +41,8 @@
     "store.push-subscriptions",
     "store.widget-installations",
     "store.approval-audit",
-    "store.harness-usage-limits"
+    "store.harness-usage-limits",
+    "store.apps-state"
   ],
   "inventoryGaps": [
     {
@@ -964,6 +965,35 @@
           { "channel": "http", "module": "usage limit routes" }
         ],
         "unknownGaps": ["usage/limits.jsonl side channel — see inventoryGaps"]
+      }
+    },
+    {
+      "id": "store.apps-state",
+      "domainOwner": "lib/apps/state-store.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "apps-state.json" },
+      "bootstrapMarker": { "path": "apps-state.json", "detect": "file-exists" },
+      "managedPaths": ["apps-state.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 270,
+      "locks": ["in-process"],
+      "buffers": { "inMemoryCache": true, "flushStrategy": "atomic rename" },
+      "secrets": { "classification": "operational", "exportBoundary": "include" },
+      "rawValidator": "workspaces map of appId runtime state",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "none"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "apps service (lib/apps/service.js)" },
+          { "channel": "background", "module": "apps monitor (lib/apps/monitor.js)" }
+        ],
+        "unknownGaps": []
       }
     }
   ]
