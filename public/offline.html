@@ -6,44 +6,56 @@
     <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#1e1e1e" />
     <script>
-      (function () {
-        var preference = 'dark';
-        try {
-          var savedPreference =
-          localStorage.getItem('cretli-theme') || localStorage.getItem('cursor-remote-theme');
-          if (savedPreference === 'light' || savedPreference === 'system') {
-            preference = savedPreference;
-          }
-        } catch (error) {}
-
-        var useLight = preference === 'light';
-        if (preference === 'system') {
-          try {
-            useLight =
-              typeof window.matchMedia === 'function' &&
-              window.matchMedia('(prefers-color-scheme: light)').matches;
-          } catch (error) {}
-        }
-
-        var theme = useLight ? 'light' : 'dark';
-        var root = document.documentElement;
-        root.dataset.theme = theme;
-        root.style.colorScheme = theme;
-
-        var themeColor = document.querySelector('meta[name="theme-color"]');
-        if (themeColor) themeColor.content = useLight ? '#f3f3f3' : '#1e1e1e';
-
-        function applyBodyTheme() {
-          if (!document.body) return false;
-          document.body.classList.toggle('theme-light', useLight);
-          return true;
-        }
-
-        if (!applyBodyTheme()) {
-          document.addEventListener('DOMContentLoaded', applyBodyTheme, { once: true });
-        }
-      })();
-    </script>
+    (function () {
+      var preference = 'cretli-dark', cache = {};
+      try {
+        preference = localStorage.getItem('cretli-theme') || localStorage.getItem('cursor-remote-theme') || preference;
+        cache = JSON.parse(localStorage.getItem('cretli-theme-cache') || '{}') || {};
+      } catch (error) {}
+      if (preference === 'dark' || preference === 'light') preference = 'cretli-' + preference;
+      var appearance = preference === 'cretli-light' ? 'light' : 'dark';
+      if (preference === 'system') {
+        try { appearance = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; } catch (error) {}
+      } else {
+        ['dark', 'light'].forEach(function (key) {
+          if (cache[key] && cache[key].themeId === preference) appearance = key;
+        });
+      }
+      var entry = cache[appearance];
+      var expected = preference;
+      if (preference === 'system') {
+        try { expected = localStorage.getItem('cretli-theme-' + appearance) || 'cretli-' + appearance; } catch (error) {}
+        if (expected === 'dark' || expected === 'light') expected = 'cretli-' + expected;
+        // Runtime rejects a system selection with a different appearance.
+        if (entry && entry.themeId === 'cretli-' + appearance) expected = entry.themeId;
+      }
+      if (!entry || entry.themeId !== expected) entry = null;
+      var css = '';
+      if (entry && typeof entry.css === 'string') {
+        var match = entry.css.match(/^:root:root:root\{([^{}]*)\}$/);
+        if (match && match[1].split(';').every(function (declaration) {
+          return /^--cr-[a-z0-9-]+:(#[\da-f]{3,4}|#[\da-f]{6}|#[\da-f]{8}|(?:rgb|hsl)a?\(\s*[\d.%+\-, /]+\))$/i.test(declaration);
+        })) css = entry.css;
+      }
+      var root = document.documentElement;
+      root.dataset.theme = appearance;
+      root.dataset.themeId = entry ? entry.themeId : 'cretli-' + appearance;
+      root.style.colorScheme = appearance;
+      var style = document.createElement('style');
+      style.id = 'cr-theme-vars';
+      style.textContent = css;
+      document.head.appendChild(style);
+      var color = entry && /^(#[\da-f]{3,4}|#[\da-f]{6}|#[\da-f]{8}|(?:rgb|hsl)a?\(\s*[\d.%+\-, /]+\))$/i.test(entry.themeColor) ? entry.themeColor : (appearance === 'light' ? '#f3f3f3' : '#1e1e1e');
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.content = color;
+      function applyBodyTheme() {
+        if (!document.body) return false;
+        document.body.classList.toggle('theme-light', appearance === 'light');
+        return true;
+      }
+      if (!applyBodyTheme()) document.addEventListener('DOMContentLoaded', applyBodyTheme, { once: true });
+    })();
+  </script>
     <title>Cretli — offline</title>
     <style>
       html, body { height: 100%; margin: 0; }

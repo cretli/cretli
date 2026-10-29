@@ -31,11 +31,14 @@ function normalizeBootstrap(script) {
     .join('\n');
 }
 
-function runBootstrap(script, { savedPreference = null, systemLight = false, storageError = false } = {}) {
+function runBootstrap(script, { savedPreference = null, systemLight = false, storageError = false, cache = null, systemDark = null, systemLightTheme = null } = {}) {
   const root = { dataset: {}, style: {} };
   const meta = { content: '#1e1e1e' };
   const listeners = new Map();
+  const styles = new Map();
   const document = {
+    head: { appendChild: (style) => styles.set(style.id, style) },
+    createElement: () => ({}),
     body: null,
     documentElement: root,
     querySelector: () => meta,
@@ -44,8 +47,11 @@ function runBootstrap(script, { savedPreference = null, systemLight = false, sto
   const context = {
     document,
     localStorage: {
-      getItem() {
+      getItem(key) {
         if (storageError) throw new Error('storage unavailable');
+        if (key === 'cretli-theme-cache') return JSON.stringify(cache);
+        if (key === 'cretli-theme-dark') return systemDark;
+        if (key === 'cretli-theme-light') return systemLightTheme;
         return savedPreference;
       },
     },
@@ -58,12 +64,13 @@ function runBootstrap(script, { savedPreference = null, systemLight = false, sto
   };
 
   vm.runInNewContext(script, context);
-  return { document, listeners, meta, root };
+  return { document, listeners, meta, root, styles };
 }
 
 test('theme runtime keeps preference separate from the resolved theme', async () => {
   const values = new Map();
   const events = [];
+  const windowListeners = new Map();
   const mediaQuery = {
     matches: true,
     listener: null,
@@ -88,9 +95,11 @@ test('theme runtime keeps preference separate from the resolved theme', async ()
     setItem: (key, value) => values.set(key, value),
   };
   globalThis.document = {
+    head: { appendChild(style) { this.style = style; } },
+    createElement: () => ({}),
     body: { classList: bodyClassList },
     documentElement: { dataset: {}, style: {} },
-    getElementById: () => null,
+    getElementById: (id) => id === 'cr-theme-vars' ? document.head.style : null,
     querySelector: () => themeColor,
   };
   globalThis.window = {
@@ -101,6 +110,7 @@ test('theme runtime keeps preference separate from the resolved theme', async ()
       }
     },
     dispatchEvent: (event) => events.push(event),
+    addEventListener: (name, listener) => windowListeners.set(name, listener),
     matchMedia(query) {
       assert.equal(query, LIGHT_QUERY);
       return mediaQuery;
@@ -109,24 +119,30 @@ test('theme runtime keeps preference separate from the resolved theme', async ()
 
   const theme = await import('../app_front/core/theme/theme.js');
 
-  assert.equal(theme.getTheme(), 'dark');
+  for (const [legacy, expected] of [['dark', 'cretli-dark'], ['light', 'cretli-light'], ['unknown', 'cretli-dark']]) {
+    values.set(THEME_KEY, legacy);
+    assert.equal(theme.getTheme(), expected);
+    assert.equal(values.get(THEME_KEY), expected);
+  }
+  values.delete(THEME_KEY);
+  assert.equal(theme.getTheme(), 'cretli-dark');
   assert.equal(theme.getResolvedTheme('dark'), 'dark');
   assert.equal(theme.getResolvedTheme('light'), 'light');
   assert.equal(theme.getResolvedTheme('system'), 'light');
 
   theme.setTheme('light');
-  assert.equal(values.get(THEME_KEY), 'light');
+  assert.equal(values.get(THEME_KEY), 'cretli-light');
   assert.equal(document.documentElement.dataset.theme, 'light');
   assert.equal(document.documentElement.style.colorScheme, 'light');
   assert.equal(bodyClassList.contains('theme-light'), true);
   assert.equal(themeColor.content, '#f3f3f3');
-  assert.deepEqual(events.at(-1).detail, { preference: 'light', theme: 'light' });
+  assert.deepEqual(events.at(-1).detail, { preference: 'cretli-light', theme: 'light', themeId: 'cretli-light' });
 
   const eventCount = events.length;
   theme.setTheme('invalid');
   assert.equal(events.length, eventCount + 1);
-  assert.equal(theme.getTheme(), 'dark');
-  assert.deepEqual(events.at(-1).detail, { preference: 'dark', theme: 'dark' });
+  assert.equal(theme.getTheme(), 'cretli-dark');
+  assert.deepEqual(events.at(-1).detail, { preference: 'cretli-dark', theme: 'dark', themeId: 'cretli-dark' });
 
   theme.setTheme('system');
   theme.initTheme();
@@ -140,12 +156,75 @@ test('theme runtime keeps preference separate from the resolved theme', async ()
   assert.equal(document.documentElement.dataset.theme, 'dark');
   assert.equal(bodyClassList.contains('theme-light'), false);
   assert.equal(themeColor.content, '#1e1e1e');
-  assert.deepEqual(events.at(-1).detail, { preference: 'system', theme: 'dark' });
+  assert.deepEqual(events.at(-1).detail, { preference: 'system', theme: 'dark', themeId: 'cretli-dark' });
 
   theme.setTheme('light');
   const beforeIgnoredSystemChange = events.length;
   mediaQuery.listener();
   assert.equal(events.length, beforeIgnoredSystemChange);
+
+  const { registerTheme, themeCss, isColor } = await import('../app_front/core/theme/themes/index.js');
+  const custom = registerTheme({ id: 'test-dark', appearance: 'dark', tokens: { '--cr-bg': '#123456', '--cr-text': 'rgb(1, 2, 3)', '--cr-bad': 'url(evil)', color: '#fff' }, themeColor: '#123456' });
+  registerTheme({ id: 'test-light', appearance: 'light', tokens: { '--cr-bg': '#abcdef' }, themeColor: '#abcdef' });
+  assert.equal(isColor('rgb(1)'), false);
+  assert.equal(isColor('hsl(1 2 3)'), false);
+  assert.equal(themeCss(custom), ':root:root:root{--cr-bg:#123456;--cr-text:rgb(1, 2, 3)}');
+  values.set('cretli-theme-dark', 'test-dark');
+  values.set('cretli-theme-light', 'test-light');
+  mediaQuery.matches = false;
+  theme.setTheme('system');
+  assert.equal(document.documentElement.dataset.themeId, 'test-dark');
+  assert.equal(document.head.style.textContent, themeCss(custom));
+  assert.equal(events.at(-1).type, 'cr-theme-change');
+  const script = extractBootstrap(await readFile(new URL('public/index.html', ROOT), 'utf8'));
+  const boot = runBootstrap(script, { savedPreference: 'system', systemDark: 'test-dark', cache: JSON.parse(values.get('cretli-theme-cache')) });
+  assert.deepEqual(boot.root.dataset, document.documentElement.dataset);
+  assert.equal(boot.styles.get('cr-theme-vars').textContent, document.head.style.textContent);
+  assert.equal(boot.meta.content, themeColor.content);
+  theme.setTheme('test-dark');
+  const explicitBoot = runBootstrap(script, { savedPreference: 'test-dark', cache: JSON.parse(values.get('cretli-theme-cache')) });
+  assert.deepEqual(explicitBoot.root.dataset, document.documentElement.dataset);
+  assert.equal(explicitBoot.styles.get('cr-theme-vars').textContent, document.head.style.textContent);
+  theme.setTheme('system');
+  mediaQuery.matches = true;
+  theme.applyTheme();
+  assert.equal(document.documentElement.dataset.themeId, 'test-light');
+  const lightBoot = runBootstrap(script, { savedPreference: 'system', systemLight: true, systemLightTheme: 'test-light', cache: JSON.parse(values.get('cretli-theme-cache')) });
+  assert.equal(lightBoot.styles.get('cr-theme-vars').textContent, document.head.style.textContent);
+  assert.deepEqual(lightBoot.root.dataset, document.documentElement.dataset);
+  // The same single-appearance ID in both slots must fall back in the other OS mode.
+  for (const id of ['test-dark', 'test-light', 'cretli-dark', 'cretli-light']) {
+    values.set('cretli-theme-dark', id);
+    values.set('cretli-theme-light', id);
+    for (const systemLight of [false, true]) {
+      mediaQuery.matches = systemLight;
+      theme.setTheme('system');
+      const appearance = systemLight ? 'light' : 'dark';
+      const expected = id.endsWith(appearance) ? id : `cretli-${appearance}`;
+      assert.equal(theme.getResolvedThemeId(), expected);
+      for (const path of ['public/index.html', 'public/login.html', 'public/offline.html']) {
+        const bootstrap = extractBootstrap(await readFile(new URL(path, ROOT), 'utf8'));
+        const boot = runBootstrap(bootstrap, {
+          savedPreference: 'system', systemLight, systemDark: id, systemLightTheme: id,
+          cache: JSON.parse(values.get('cretli-theme-cache')),
+        });
+        assert.deepEqual(boot.root.dataset, document.documentElement.dataset, `${path}: ${id}, OS ${appearance}`);
+        assert.equal(boot.root.style.colorScheme, document.documentElement.style.colorScheme);
+        assert.equal(boot.styles.get('cr-theme-vars').textContent, document.head.style.textContent);
+        assert.equal(boot.meta.content, themeColor.content);
+        boot.document.body = { classList: createClassList() };
+        boot.listeners.get('DOMContentLoaded')();
+        assert.equal(boot.document.body.classList.contains('theme-light'), bodyClassList.contains('theme-light'));
+      }
+    }
+  }
+  values.set(THEME_KEY, 'light');
+  windowListeners.get('storage')({ key: THEME_KEY });
+  assert.equal(document.documentElement.dataset.themeId, 'cretli-light');
+  assert.equal(theme.normalizeTheme('unknown', 'light'), 'cretli-light');
+  assert.equal(document.head.style.textContent, '');
+  values.delete('cretli-theme-dark');
+  values.delete('cretli-theme-light');
 
   globalThis.localStorage = {
     getItem: () => 'light',
@@ -156,7 +235,7 @@ test('theme runtime keeps preference separate from the resolved theme', async ()
   mediaQuery.matches = true;
   theme.setTheme('system');
   assert.equal(theme.getTheme(), 'system');
-  assert.deepEqual(events.at(-1).detail, { preference: 'system', theme: 'light' });
+  assert.deepEqual(events.at(-1).detail, { preference: 'system', theme: 'light', themeId: 'cretli-light' });
 
   delete globalThis.localStorage;
   delete globalThis.document;
@@ -184,6 +263,10 @@ test('all pages use the same early, body-safe theme bootstrap', async () => {
     light.document.body = { classList };
     light.listeners.get('DOMContentLoaded')();
     assert.equal(classList.contains('theme-light'), true);
+
+    const unsafeCache = runBootstrap(bootstraps[index], { savedPreference: 'test-dark', cache: { dark: { themeId: 'test-dark', css: ':root:root:root{--cr-bg:url(evil)}', themeColor: 'url(evil)' } } });
+    assert.equal(unsafeCache.styles.get('cr-theme-vars').textContent, '');
+    assert.equal(unsafeCache.meta.content, '#1e1e1e');
 
     const safeFallback = runBootstrap(bootstraps[index], { storageError: true });
     assert.equal(safeFallback.root.dataset.theme, 'dark');

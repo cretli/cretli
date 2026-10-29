@@ -9,14 +9,15 @@ creating or changing UI in `app_front/` and `public/`.
 
 ## 1. Tokens (`app_front/css/tokens.scss`)
 
-Single source of truth: VS Code Dark+ palette, radius, spacing, typography,
-motion as `--cr-*` on `:root` plus `body.theme-light` overrides.
+Single source of truth: base palettes, radius, spacing, typography and motion
+as `--cr-*` on `:root`, with dark/light appearance selectors. Registered theme
+definitions add color deltas through `cr-theme-vars`; all UI colors use tokens.
 
 - Dark palette: `--cr-bg #1e1e1e`, `--cr-surface #252526`, `--cr-border-strong
   #444`, `--cr-text #d4d4d4`, `--cr-text-muted #858585`, `--cr-accent #007acc`,
   `--cr-primary #094771` / `--cr-primary-hover #0d5a8f`, `--cr-error #f48771`,
   `--cr-success #4ec9b0`.
-- Light (`body.theme-light`): `--cr-bg #f3f3f3`, `--cr-surface #e8e8e8`,
+- Light appearance (`:root[data-theme="light"]`): `--cr-bg #f3f3f3`, `--cr-surface #e8e8e8`,
   `--cr-accent #006ab1`, `--cr-primary #006ab1`.
 - Form-field skin (one look for `cr-bar-input`, `cr-bar-textarea`,
   `cr-bar-select`, `cr-searchable-select` and native controls in `.cr-form`):
@@ -155,11 +156,16 @@ Test+Save) stay in their card, and auto-save tabs get no footer.
 
 ## 5. Theme
 
-- `app_front/theme.js`: `localStorage('cretli-theme')` =
-  `dark|light|system`; `theme-light` class on `<body>`. Legacy key
-  `cursor-remote-theme` is still read via `storageKeyAlias.js`.
+- `app_front/core/theme/theme.js`: `localStorage('cretli-theme')` =
+  `system|<themeId>`; legacy `dark`/`light` migrate to `cretli-dark`/`cretli-light`.
+  `body.theme-light` and `html[data-theme="light"]` indicate the light appearance,
+  not a particular theme ID. `data-theme-id` identifies the definition.
+  `cretli-theme-dark`/`cretli-theme-light` select the system appearance themes.
+  Legacy key `cursor-remote-theme` is still read via `storageKeyAlias.js`.
+  See `docs/ui-themes.md` for definitions, runtime events and the anti-FOUC cache.
 - Standalone pages (pre-auth, no SPA): inline **anti-FOUC** script that reads
-  `localStorage` and sets `body.theme-light` before render.
+  `localStorage`, sets root appearance/theme ID and cached tokens before render,
+  and toggles `body.theme-light` once the body exists.
 - `<meta name="theme-color">`: `#1e1e1e` (dark) / `#f3f3f3` (light) — match
   `--cr-bg`, not GitHub `#0d1117`.
 

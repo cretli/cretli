@@ -317,7 +317,12 @@ function render() {
 /** @returns {Record<string, string> | undefined} */
 function collectDevicePreferences() {
   try {
-    return { [PREF_THEME]: getTheme(), [PREF_LANG]: getCurrentLang() };
+    return {
+      [PREF_THEME]: getTheme(),
+      'cretli-theme-dark': localStorage.getItem('cretli-theme-dark') || 'cretli-dark',
+      'cretli-theme-light': localStorage.getItem('cretli-theme-light') || 'cretli-light',
+      [PREF_LANG]: getCurrentLang(),
+    };
   } catch {
     return undefined;
   }
@@ -414,6 +419,9 @@ async function applyPreview(root) {
 
 /** @param {Record<string, string>} prefs */
 async function applyDevicePreferences(prefs) {
+  for (const key of ['cretli-theme-dark', 'cretli-theme-light']) {
+    if (prefs[key]) localStorage.setItem(key, prefs[key]);
+  }
   if (prefs[PREF_THEME]) setTheme(prefs[PREF_THEME]);
   if (prefs[PREF_LANG]) await setLang(prefs[PREF_LANG]);
 }

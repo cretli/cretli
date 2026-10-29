@@ -1,32 +1,52 @@
 /**
- * Theme: dark / light / system.
+ * Theme IDs are independent of their dark/light appearance.
  * The preference is persisted in localStorage; the resolved theme lands on <html>.
  */
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from '../../lib/storageKeyAlias.js';
+import { themes, themeCss } from './themes/index.js';
 import { t } from '../../i18n/index.js';
 
 const THEME_KEY = 'cretli-theme';
-const THEME_DARK = 'dark';
-const THEME_LIGHT = 'light';
+const THEME_DARK = 'cretli-dark';
+const THEME_LIGHT = 'cretli-light';
 const THEME_SYSTEM = 'system';
 const THEME_CHANGE_EVENT = 'cr-theme-change';
-const DARK_THEME_COLOR = '#1e1e1e';
-const LIGHT_THEME_COLOR = '#f3f3f3';
 
 let fallbackPreference = null;
 let systemMediaQuery = null;
 let systemChangeListener = null;
+let storageListener = false;
 
-function normalizeTheme(value) {
-  if (value === THEME_LIGHT || value === THEME_SYSTEM) return value;
-  return THEME_DARK;
+export function normalizeTheme(value, appearance = 'dark') {
+  if (value === 'dark' || value === 'light') return `cretli-${value}`;
+  if (value === THEME_SYSTEM || themes.has(value)) return value;
+  return `cretli-${appearance}`;
+}
+
+export function getSystemTheme(appearance) {
+  try {
+    const id = normalizeTheme(localStorage.getItem(`cretli-theme-${appearance}`), appearance);
+    // A single-appearance theme cannot fill both system slots; keep the OS base in the other slot.
+    if (themes.get(id)?.appearance === appearance) return id;
+  } catch {}
+  return `cretli-${appearance}`;
+}
+
+export function getResolvedThemeId(value = getTheme()) {
+  const preference = normalizeTheme(value);
+  return preference === THEME_SYSTEM ? getSystemTheme(prefersLight() ? 'light' : 'dark') : preference;
 }
 
 export function getTheme() {
   if (fallbackPreference) return fallbackPreference;
   if (typeof localStorage === 'undefined') return THEME_DARK;
   try {
-    return normalizeTheme(readStorageValueWithAlias(localStorage, THEME_KEY, ''));
+    const saved = readStorageValueWithAlias(localStorage, THEME_KEY, '');
+    const preference = normalizeTheme(saved);
+    if (saved && saved !== preference) {
+      try { writeStorageValueWithAlias(localStorage, THEME_KEY, preference); } catch {}
+    }
+    return preference;
   } catch {
     return THEME_DARK;
   }
@@ -65,9 +85,7 @@ function prefersLight() {
  * Resolves a preference to an effective theme: 'system' follows the OS setting.
  */
 export function getResolvedTheme(theme = getTheme()) {
-  return theme === THEME_LIGHT || (theme === THEME_SYSTEM && prefersLight())
-    ? THEME_LIGHT
-    : THEME_DARK;
+  return themes.get(getResolvedThemeId(theme)).appearance;
 }
 
 export function applyTheme(theme = getTheme()) {
@@ -77,19 +95,38 @@ export function applyTheme(theme = getTheme()) {
 
   const preference = normalizeTheme(theme);
   const resolvedTheme = getResolvedTheme(preference);
-  const useLight = resolvedTheme === THEME_LIGHT;
+  const useLight = resolvedTheme === 'light';
+  const themeId = getResolvedThemeId(preference);
+  const definition = themes.get(themeId);
+  root.dataset.themeId = themeId;
+  let style = document.getElementById('cr-theme-vars');
+  if (!style) {
+    style = document.createElement('style');
+    style.id = 'cr-theme-vars';
+    document.head.appendChild(style);
+  }
+  style.textContent = themeCss(definition);
+  try {
+    const cache = {};
+    for (const appearance of ['dark', 'light']) {
+      const id = definition.appearance === appearance ? themeId : getSystemTheme(appearance);
+      const entry = themes.get(id);
+      cache[appearance] = { themeId: id, css: themeCss(entry), themeColor: entry.themeColor };
+    }
+    localStorage.setItem('cretli-theme-cache', JSON.stringify(cache));
+  } catch {}
 
   root.dataset.theme = resolvedTheme;
   root.style.colorScheme = resolvedTheme;
   document.body?.classList.toggle('theme-light', useLight);
 
   const themeColor = document.querySelector('meta[name="theme-color"]');
-  themeColor?.setAttribute('content', useLight ? LIGHT_THEME_COLOR : DARK_THEME_COLOR);
+  themeColor?.setAttribute('content', definition.themeColor);
 
   if (typeof window !== 'undefined' && typeof window.CustomEvent === 'function') {
     window.dispatchEvent(
       new window.CustomEvent(THEME_CHANGE_EVENT, {
-        detail: { preference, theme: resolvedTheme },
+        detail: { preference, theme: resolvedTheme, themeId },
       }),
     );
   }
@@ -124,6 +161,15 @@ function listenForSystemThemeChanges() {
 export function initTheme() {
   applyTheme();
   listenForSystemThemeChanges();
+  if (!storageListener && window.addEventListener) {
+    window.addEventListener('storage', (event) => {
+      if (event.key === null || ['cretli-theme', 'cursor-remote-theme', 'cretli-theme-dark', 'cretli-theme-light'].includes(event.key)) {
+        fallbackPreference = null;
+        applyTheme();
+      }
+    });
+    storageListener = true;
+  }
 }
 
 /**

@@ -263,3 +263,7 @@ unchanged usage journals and standardized stores when their gates select that ou
 
 Automatic device preference synchronization, project repository backup, remote cloud
 storage, and native harness-session migration are separate future features.
+
+Theme device preferences include `cretli-theme`, `cretli-theme-dark`, and
+`cretli-theme-light`. Restore applies the system appearance choices before the
+active preference. `cretli-theme-cache` is excluded and rebuilt by the runtime.

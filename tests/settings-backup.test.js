@@ -74,8 +74,13 @@ assert.equal(doc.sections.approval.approvalBroker.advisor.baseUrl, undefined);
 assert.equal(doc.sections.workspaces, undefined);
 
 // Device preferences: allowlisted keys only.
-doc = svc.buildSettingsDocument({ devicePreferences: { 'cretli-theme': 'light', 'cretli-lang': 'pl', other: 'x', 'cretli-session': 'tok' } });
-assert.deepEqual(doc.devicePreferences, { 'cretli-theme': 'light', 'cretli-lang': 'pl' });
+doc = svc.buildSettingsDocument({ devicePreferences: { 'cretli-theme': 'light', 'cretli-lang': 'pl', 'cretli-theme-dark': 'custom-dark', 'cretli-theme-light': 'custom-light', 'cretli-theme-cache': 'ignored', other: 'x', 'cretli-session': 'tok' } });
+assert.deepEqual(doc.devicePreferences, { 'cretli-theme': 'light', 'cretli-lang': 'pl', 'cretli-theme-dark': 'custom-dark', 'cretli-theme-light': 'custom-light' });
+
+const themeSnapshot = svc.createSnapshot({ name: 'theme round trip', devicePreferences: doc.devicePreferences });
+const themeDocument = svc.readSnapshot(themeSnapshot.snapshot.id).document;
+const themePreview = svc.previewImport({ document: themeDocument });
+assert.deepEqual(themePreview.devicePreferences, doc.devicePreferences);
 
 // --- 2. Per-section round trip with secret preservation ---
 for (const section of ['general', 'harnesses', 'approval']) {
@@ -346,7 +351,7 @@ assert.equal(stale.body.status, 'error');
 assert.equal((await call('POST', '/api/settings-backup/preview', { body: { document: { profile: 'x' } } })).status, 400);
 assert.equal((await call('DELETE', '/api/settings-backup/snapshots/:id', { params: { id: made.body.snapshot.id } })).status, 200);
 const caps = await call('GET', '/api/settings-backup/capabilities');
-assert.deepEqual(caps.body.devicePreferenceAllowlist, ['cretli-theme', 'cretli-lang']);
+assert.deepEqual(caps.body.devicePreferenceAllowlist, ['cretli-theme', 'cretli-theme-dark', 'cretli-theme-light', 'cretli-lang']);
 
 // --- 10. Zero execution / probe / push from imported definitions ---
 assert.equal(sideEffects, 0, 'import/export/activate must not start processes or open connections');
