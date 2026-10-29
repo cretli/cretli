@@ -175,3 +175,101 @@ definition you review.
 `.vscode/tasks.json`, `package.json` scripts (`dev`, `start`, `serve`, `preview`,
 `watch`) and the host side of `ports:` in `docker-compose*.yml` /
 `compose*.yaml`. Nothing is written until you add one.
+
+## Exposure
+
+The exposure layer opens a port to the local network (LAN) and keeps a record of
+everything it opened. It lives in `lib/port-exposure/` and is exposed through
+`GET /api/port-exposures`, `POST /api/port-exposures` (`{ port, reason?, ttlMs?,
+owner? }`) and `DELETE /api/port-exposures/:port`. All routes require a Cretli
+login session; widget and MCP integration tokens are refused. The same service
+layer will back the future MCP tools, so every rule below is enforced on the
+server regardless of the caller.
+
+### Backends
+
+The backend is chosen automatically from the `GET /api/net-env` report and can
+be overridden with `portExposure.backend` in `data/config.json`.
+
+| Backend | When | What it does |
+| --- | --- | --- |
+| `wsl-nat` | WSL2, NAT networking | `portproxy v4tov4 0.0.0.0:P -> <WSL IP>:P` plus a firewall rule |
+| `wsl-mirrored` | WSL2, mirrored networking | A per-port Hyper-V firewall rule only |
+| `linux` | Native Linux | Nothing by default; a command is suggested when ufw or firewalld is active |
+| `manual` | Anything else | Returns the ready command |
+
+Changes on Windows are made by an executor (the Windows helper, a later stage).
+Without it the WSL backends behave like `manual`: the response carries the
+commands and the entry stays `pending_manual` until diagnostics (the portproxy
+list in the net-env report) confirm the rule, then it becomes `active`.
+
+Every firewall rule is TCP, that one port, `-Profile Private,Domain` (never
+Public) and `-RemoteAddress LocalSubnet`. For mirrored mode the response also
+lists the `DefaultInboundAction Allow` switch under `alternatives`, flagged
+`broader: true`, because it opens every port to WSL.
+
+### Ledger
+
+Entries live in `data/port-exposures.json` (`store.port-exposures`):
+`{ port, backend, owner, createdBy, reason, createdAt, expiresAt, state }` with
+`owner` one of `user`, `chat:<id>`, `app:<id>`. States: `pending_manual`,
+`active`, `drift`, `close_pending`, `closed`. Closed entries are kept (last 100) with `closedAt`,
+`closedBy` and `closeReason`, so every close names its actor (`user`,
+`chat:<id>`, `system:ttl`, `system:app-stop:<id>`).
+
+`close` and `reconcile` only ever act on rules confirmed by a ledger entry.
+Closing a port that is not in the ledger returns `404 not-in-ledger`.
+
+When Cretli cannot remove the rule itself (`manual`, or a WSL backend without the
+helper), `DELETE` returns `closeState: "pending_manual"` with the removal commands
+and the entry becomes `close_pending`: it stays in the ledger, still subject to
+reconcile, and the requesting actor is kept. Reconcile marks it `closed` (recording
+that actor) once diagnostics show the portproxy rule is gone. Calling `DELETE`
+again refreshes the commands. Backends whose rules diagnostics cannot observe
+(`wsl-mirrored`, `linux`) stay `close_pending` until an executor removes the rule.
+
+### Closing and authorization
+
+- The logged-in operator may close any ledger entry.
+- An agent context may close only `owner = chat:<its own id>` (`403 close-forbidden` otherwise).
+- An entry closes when its TTL elapses and when its owning app (`app:<id>`) stops or exits.
+
+### Reconcile
+
+Run at boot and every 30 seconds (`CRETLI_PORT_EXPOSURE_RECONCILE_INTERVAL_MS`,
+minimum 5000). After a WSL IP change the portproxy rules of ledger entries are
+rewritten; a missing rule is recreated, or the entry becomes `drift` when no
+executor is available. Rules that are not in the ledger (manual, from
+`scripts/wsl-port-forward.ps1`) are listed under `foreign` with a suggestion.
+A foreign `0.0.0.0` rule on a denylisted port also carries
+`warning: "foreign-denylisted-port"` and the removal command. Cretli never
+removes it.
+
+### Hard blocks
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `port-invalid` | 400 | Not an integer in 1-65535 |
+| `port-denylisted` | 403 | Port is on the denylist (default 9222, 9229, 9230, 5858, 5037, 2375, 2376) |
+| `port-out-of-range` | 403 | Outside the allowed range (default 3000-9999) |
+| `port-loopback-only` | 409 | The app listens only on 127.0.0.1; change its bind address |
+
+### Policy
+
+The optional `portExposure` block in `data/config.json`:
+
+```json
+{ "portExposure": { "range": { "min": 3000, "max": 9999 }, "denylist": [4500],
+  "defaultTtlMs": 28800000, "maxTtlMs": 604800000, "agentMode": "ask", "backend": "auto" } }
+```
+
+`denylist` extends the built-in list; the defaults cannot be removed. A
+requested TTL above `maxTtlMs` is clamped. `agentMode`: `ask` (default; agents
+get `403 agent-approval-required` and an operator decides), `allow_in_range`
+(agents may expose in-range ports they own), `never`.
+
+### Manual fallback script
+
+`scripts/wsl-port-forward.ps1` (and the `.bat` wrapper) remains a manual
+fallback. Its firewall rule is limited to `profile=private,domain
+remoteip=localsubnet`, and it refuses the denylisted debug ports.

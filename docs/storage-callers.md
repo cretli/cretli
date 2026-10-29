@@ -71,6 +71,8 @@ history updates only after the new command commits.
 | store.workspace-watchers | `lib/workspace-watcher.js` | tick, lease, cycles | A4 |
 | store.todos | watcher claim/release | `withTodosWatcherNudgeSuppressed` | A4 |
 | store.workspace-memory | `lib/workspace-watcher-scout.js` | fact upserts | A5 |
+| store.port-exposures | `lib/port-exposure/runtime.js` | TTL expiry and reconcile job | stays-file: operational JSON ledger, registry migration none |
+| store.apps-state | `lib/apps/runtime.js` | app runtime state | stays-file: small runtime JSON state, registry migration none |
 | store.workspace-watcher-cycles | `lib/workspace-watcher-cycle-metrics.js` | cycle metrics | A4 |
 | store.usage-journal | `lib/usage/usage-retention.ts` | prune old journal days | stays-file: append journal kept unless a separate measured gate says otherwise |
 | store.notification-center | notification producers | fingerprint publish | A5 |

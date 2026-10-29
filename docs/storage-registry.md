@@ -76,6 +76,8 @@ snapshot until quiesced or registered (see DATA-08 / BACKUP-02).
 
 Runtime app state (`store.apps-state`, `apps-state.json`) is a small JSON store written by `lib/apps/`; see `docs/apps-and-ports.md`.
 
+The port exposure ledger (`store.port-exposures`, `port-exposures.json`) is written by `lib/port-exposure/`; see the Exposure section of `docs/apps-and-ports.md`.
+
 ## Related artifacts
 
 - Caller inventory: [storage-callers.md](storage-callers.md)

@@ -42,7 +42,8 @@
     "store.widget-installations",
     "store.approval-audit",
     "store.harness-usage-limits",
-    "store.apps-state"
+    "store.apps-state",
+    "store.port-exposures"
   ],
   "inventoryGaps": [
     {
@@ -992,6 +993,35 @@
         "known": [
           { "channel": "http", "module": "apps service (lib/apps/service.js)" },
           { "channel": "background", "module": "apps monitor (lib/apps/monitor.js)" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.port-exposures",
+      "domainOwner": "lib/port-exposure/ledger.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "port-exposures.json" },
+      "bootstrapMarker": { "path": "port-exposures.json", "detect": "file-exists" },
+      "managedPaths": ["port-exposures.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 280,
+      "locks": ["in-process"],
+      "buffers": { "inMemoryCache": true, "flushStrategy": "atomic rename" },
+      "secrets": { "classification": "operational", "exportBoundary": "include" },
+      "rawValidator": "entries array of port exposure ledger rows",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "none"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "port exposure service (lib/port-exposure/service.js)" },
+          { "channel": "background", "module": "port exposure job (lib/port-exposure/runtime.js)" }
         ],
         "unknownGaps": []
       }

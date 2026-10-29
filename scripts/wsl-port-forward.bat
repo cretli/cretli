@@ -1,6 +1,8 @@
 @echo off
-REM Uruchom jako Administrator (prawy klik -> Uruchom jako administrator).
-REM Ustawia przekierowanie portu z Windows na WSL (LAN).
+REM Run as Administrator (right click -> Run as administrator).
+REM Forwards a port from Windows to WSL (LAN). Arguments are passed to the .ps1 script,
+REM for example: wsl-port-forward.bat -Port 3010,3011
+REM Prefer the Network panel in Cretli; this is the manual fallback.
 
 powershell -ExecutionPolicy Bypass -File "%~dp0wsl-port-forward.ps1" %*
 pause

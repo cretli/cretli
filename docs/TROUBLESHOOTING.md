@@ -44,6 +44,21 @@ the Node process.
 
 On Windows, port **3011** is often taken by `iphlpsvc` (`svchost`) because of
 `netsh interface portproxy`. That rule comes from `scripts/wsl-port-forward.ps1`.
+Cretli's own exposure layer (the Network panel and `/api/port-exposures`, see the
+Exposure section of `docs/apps-and-ports.md`) records the rules it creates and
+repairs them when the WSL IP changes; rules created by the script are shown there
+as foreign and are never removed automatically.
+
+The script's firewall rule is narrow: TCP, that port only, `profile=private,domain`
+and `remoteip=localsubnet`, so the Public profile and non-local addresses are not
+opened. It refuses debug ports such as 9222. To remove an old, broader rule
+created by an earlier version of the script:
+
+```powershell
+netsh advfirewall firewall delete rule name="Cretli 3011"
+```
+
+Re-run the script to recreate it with the narrowed scope.
 It forwards Windows `0.0.0.0:3011` to the **WSL eth address**, port 3011.
 
 `npm start` binds **only** `127.0.0.1`. The WSL eth address has no listener, so
