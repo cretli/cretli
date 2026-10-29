@@ -12,9 +12,9 @@ const { resolveProjectPath } = await import('../lib/runtime-paths.js');
 const dataDir = ISOLATED_DATA_DIR;
 const cretliCwd = resolveProjectPath();
 let failed = 0;
-function check(name, fn) {
+async function check(name, fn) {
   try {
-    fn();
+    await fn();
     console.log('OK:', name);
   } catch (err) {
     failed += 1;
@@ -29,8 +29,8 @@ const items = () => loadTodosData(dataDir, cretliCwd).items;
 const root = () => items().find((row) => row.title === FEEDBACK_ROOT_TITLE);
 
 let first;
-check('first report creates root and an idea under it', () => {
-  first = submitFeedback(dataDir, report, src);
+await check('first report creates root and an idea under it', async () => {
+  first = await submitFeedback(dataDir, report, src);
   assert.equal(first.action, 'created');
   assert.ok(root());
   const row = items().find((it) => it.id === first.id);
@@ -40,7 +40,7 @@ check('first report creates root and an idea under it', () => {
   assert.equal(items().filter((it) => it.title === FEEDBACK_ROOT_TITLE).length, 1);
 });
 
-check('client workspace goes to metadata; root stays in the Cretli workspace', () => {
+await check('client workspace goes to metadata; root stays in the Cretli workspace', async () => {
   const row = items().find((it) => it.id === first.id);
   const meta = parseFeedbackMeta(row.body);
   assert.equal(meta.sources[0].workspace, '/work/my-app');
@@ -48,9 +48,9 @@ check('client workspace goes to metadata; root stays in the Cretli workspace', (
   assert.equal(path.resolve(cretliCwd), path.resolve(resolveProjectPath()));
 });
 
-check('identical report bumps the counter instead of creating a new todo', () => {
+await check('identical report bumps the counter instead of creating a new todo', async () => {
   const before = items().length;
-  const dup = submitFeedback(dataDir, { ...report, summary: '  returns STALE data. ' }, { ...src, chatId: 'chat-2' });
+  const dup = await submitFeedback(dataDir, { ...report, summary: '  returns STALE data. ' }, { ...src, chatId: 'chat-2' });
   assert.equal(dup.action, 'duplicate');
   assert.equal(dup.id, first.id);
   assert.equal(dup.count, 2);
@@ -60,16 +60,16 @@ check('identical report bumps the counter instead of creating a new todo', () =>
   assert.equal(meta.sources.length, 2);
 });
 
-check('sources list is capped', () => {
-  for (let i = 0; i < 20; i += 1) submitFeedback(dataDir, report, { ...src, chatId: `c${i}` });
+await check('sources list is capped', async () => {
+  for (let i = 0; i < 20; i += 1) await submitFeedback(dataDir, report, { ...src, chatId: `c${i}` });
   const meta = parseFeedbackMeta(items().find((it) => it.id === first.id).body);
   assert.equal(meta.sources.length, 8);
   assert.ok(meta.count >= 22);
 });
 
-check('report after the previous was closed creates a new one with a link', () => {
+await check('report after the previous was closed creates a new one with a link', async () => {
   updateTodo(dataDir, cretliCwd, first.id, { status: 'done' });
-  const next = submitFeedback(dataDir, report, src);
+  const next = await submitFeedback(dataDir, report, src);
   assert.equal(next.action, 'created');
   assert.notEqual(next.id, first.id);
   assert.equal(next.previousId, first.id);
@@ -78,7 +78,7 @@ check('report after the previous was closed creates a new one with a link', () =
   assert.equal(parseFeedbackMeta(row.body).previousId, first.id);
 });
 
-check('unknown fields, bad enums and over-limit values are rejected', () => {
+await check('unknown fields, bad enums and over-limit values are rejected', async () => {
   const bad = [
     { ...report, extra: 1 },
     { ...report, kind: 'nope' },
@@ -94,20 +94,20 @@ check('unknown fields, bad enums and over-limit values are rejected', () => {
     assert.throws(() => parseFeedbackInput(input), (err) => err.code === 'VALIDATION');
   }
   const before = items().length;
-  assert.throws(() => submitFeedback(dataDir, { ...report, status: 'ready' }, src), (err) => err.code === 'VALIDATION');
+  await assert.rejects(() => submitFeedback(dataDir, { ...report, status: 'ready' }, src), (err) => err.code === 'VALIDATION');
   assert.equal(items().length, before);
 });
 
-check('the open-report cap errors without writing', () => {
+await check('the open-report cap errors without writing', async () => {
   const before = items().length;
-  assert.throws(
+  await assert.rejects(
     () => submitFeedback(dataDir, { kind: 'idea', summary: 'brand new' }, src, { maxOpen: 1 }),
     (err) => err.code === 'LIMIT',
   );
   assert.equal(items().length, before);
 });
 
-check('every report is an idea without an assignee', () => {
+await check('every report is an idea without an assignee', async () => {
   const children = items().filter((it) => it.parentId === root().id);
   assert.ok(children.length >= 2);
   for (const row of children) {

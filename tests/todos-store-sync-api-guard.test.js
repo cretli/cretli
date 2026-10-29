@@ -30,6 +30,8 @@ const CONVERTED = Object.freeze([
   'lib/worktree-deps.js',
   'lib/worktree-list.js',
   'lib/remote-api-client.js',
+  'lib/feedback-triage.js',
+  'lib/persist/feedback-store.js',
   'server.js',
 ]);
 
@@ -39,9 +41,7 @@ const ALLOWLIST = Object.freeze([
   'lib/delegation-service.js',
   'lib/delegation-settings.js',
   'lib/delegation-slot-stop.js',
-  'lib/feedback-triage.js',
   'lib/integrate-batch.js',
-  'lib/persist/feedback-store.js',
   'lib/persist/todos-store.js',
   'lib/todo-move.js',
   'lib/todo-review-backfill.js',

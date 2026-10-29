@@ -205,6 +205,7 @@ converted files may not import `loadTodosData` / `addTodo` / `updateTodo` /
 | `lib/worktree-deps.js`, `lib/worktree-list.js` | Worktree reports, cleanup, and list preparation await the TODO read. |
 | `lib/todo-plan-sync.js` | Plan export and run summaries await reads and CAS mutations. |
 | `lib/todo-leaf-material.js` | Context, baseline, checkpoint, partial paths, and workflow revisions await the facade; material mutations use CAS. |
+| `lib/feedback-triage.js`, `lib/persist/feedback-store.js`, `lib/mcp/builtin/feedback-tools.js` | Moved from 3b in 3d. Report filing, claim, submit and decide await the facade; see Leaf 3d status. |
 | `lib/todo-review-sync.js`, `lib/todo-review-sync-hooks.js` | Async plan-boundary reads and review commands; boot/retry/auto-close wait for writes before emitting changes. |
 
 Async facade imports may retain local aliases such as `listTodos as loadTodosData`; these do not import the synchronous persist API. Indirect
@@ -214,9 +215,8 @@ paths: MCP tools -> `client.updateTodo` -> in-process client or HTTP -> facade.
 
 Each still imports at least one sync function and is converted by a later leaf:
 `lib/delegation-retention.js`, `delegation-service.js`, `delegation-settings.js`,
-`delegation-slot-stop.js`, `feedback-triage.js`, `integrate-batch.js`,
-`todo-move.js`, `todo-review-backfill.js`,
-`persist/feedback-store.js`, every `workspace-watcher-*.js`
+`delegation-slot-stop.js`, `integrate-batch.js`,
+`todo-move.js`, `todo-review-backfill.js`, every `workspace-watcher-*.js`
 module listed in the guard (`control`, `cycle`, `cycle-close`, `delegation-guard`,
 `history-repair`, `integration`, `review-gate-guard`, `scout`, `todo-recover`, and
 `workspace-watcher.js`), and the scripts `architecture-http-fixture.mjs`,
@@ -225,14 +225,7 @@ module listed in the guard (`control`, `cycle`, `cycle-close`, `delegation-guard
 Other files only use non-guarded helpers (`getTodoById`, `linkTodoChat`, `deleteTodo`, review
 writers, constants) and are not sync-API callers for the guard.
 
-L3b remains partial for `feedback-triage.js`: claim, proposal, and decision callbacks
-run under the synchronous watcher document lock, which is also used by todo
-mutations. The lock is released when the callback returns. Moving the todo read or
-write to an awaited facade call outside that callback would split the atomic
-decision. Converting this path needs a store command that holds the shared lock
-through the complete watcher and todo operation. `persist/feedback-store.js` and
-`integrate-batch.js` also remain on the synchronous API pending their command
-boundary conversion.
+`integrate-batch.js` remains on the synchronous API pending its command boundary conversion.
 
 ### Read-modify-write critical sections
 
@@ -281,3 +274,16 @@ Contract (ADR `storage-todos-worker-decision.md` §4): a decision that couples a
 - **Rollback and crash atomicity**: before the first command byte a write-ahead journal (`watcher-todo-command.journal.json`, next to the watcher document) records the todo pre-image and the watcher document version. In-process failures (rejected watcher write, thrown error) restore the todo file byte-for-byte (temp file + rename) and drop the journal. For a process crash (SIGKILL between the two writes) every OUTERMOST `withWorkspaceWatchersFileLock` acquisition first runs the registered recovery hook, so no writer of either store can run before the interrupted command is resolved. The watcher document is the commit point: version moved means roll forward (todo stays), version unchanged means roll back (todo restored from the pre-image). A command that never returned was never acknowledged, so rollback is safe. A corrupt journal fails closed (`WATCHER_TODO_JOURNAL_CORRUPT`) rather than guessing. CAS and fence checks run after recovery, so their semantics are unchanged. The todo watcher nudge fires only after a fully committed command.
 - **Guard**: `withWorkspaceWatchersFileLock` throws `WorkspaceWatchersLockAsyncCallbackError` (`code: WATCHER_LOCK_ASYNC_CALLBACK`) when its callback returns a Promise, so awaiting the async facade inside the callback fails loudly instead of releasing the lock mid-command. Covered by `tests/watcher-todo-command.test.js`.
 - Claim/lease/CAS semantics of existing writers are unchanged; backend stays legacy JSON and the sync API stays until 3f. Leaf 3d converts the real coupled decisions to this command.
+
+### Leaf 3d status (partial)
+
+Converted: `feedback-triage.js`, `persist/feedback-store.js`, the `cretli_feedback` MCP handler (now async) and the triage decision route.
+Mechanism chosen for triage: the todo facade is awaited OUTSIDE `withWorkspaceWatchersFileLock`; the watcher write is a short synchronous `mutateWorkspaceWatcherRow` section committed by compare-and-set on an exact fingerprint of the row's triage fields (claims, proposals, decided keys, last-at; not `updatedAt`, which can collide within a millisecond).
+- `claimFeedbackTriage`: reads the todo list, plans claims from a row snapshot, installs them only if the fingerprint is unchanged under the lock, otherwise recomputes (up to 5 attempts). A lost race can never double-claim a report.
+- `submitFeedbackTriage`: validates the claim against a pre-lock snapshot (report key, duplicate hash), then consumes the claim and records the proposal under the lock, re-checking that the claim still exists.
+- `decideFeedbackTriage`: the accept path uses `commitWatcherTodoCommand` (3d0). Side todos (the extracted idea) are created first through the facade, idempotently via `idempotencyKey`; then the report todo change (close with changelog for duplicate/reject, "extracted as" changelog for extract) and the proposal resolution are ONE versioned command with CAS on the report `updatedAt`, the watcher row `updatedAt` and the document revision. A conflict re-reads and retries (up to 5 attempts); a proposal that is no longer pending resolves to `skipped` without any write. A reject decision touches no todo, so it is a short `mutateWorkspaceWatcherRow` section with a CAS on `status === 'pending'`. Concurrent decisions on one proposal are also single-flighted in-process. Crash window: the extracted todo is created before the command, then its draft plan and changelog note are applied by a follow-up update. A crash in between leaves a bare idea with the proposal still pending; the retry re-reads the todo and applies only the missing plan and/or changelog note (never duplicating the note), then runs the command, so the final todo is complete. The follow-up update is a CAS (`expectedUpdatedAt` from the fresh read) with up to 5 re-read retries on `CONFLICT`: a non-blank plan (e.g. a concurrent user edit) is never overwritten and the note is added only while missing.
+- `claimFeedbackTriage` and `submitFeedbackTriage` change only the watcher row (no todo write), so they do not need the coupled command; they use the fingerprint CAS above. No claim/lease/CAS semantics changed.
+- `submitFeedback` keeps its pre-existing read-then-write behavior (separate calls, no CAS), now through the facade.
+- Guard allowlist shrinks by `feedback-triage.js` and `persist/feedback-store.js`.
+
+NOT converted (remains for a follow-up leaf): `workspace-watcher.js` (claim ~2840, reconcile ~2424), `workspace-watcher-cycle.js` (report ~1752, reconcile ~2439), `workspace-watcher-todo-recover.js` (~506, ~715), and the other allowlisted `workspace-watcher-*.js` / `delegation-*.js` files. They still hold the watcher lock only around synchronous work (no lock is held across an await of the facade, and the async-callback guard from 3d0 enforces that). Converting them changes the sync signatures `claimWorkspaceTodo` / `reconcile*Slot` / recover helpers used by hundreds of sync assertions in `todo-claims`, `workspace-watcher*` tests, and needs `commitWatcherTodoCommand` for the coupled recover/claim decisions; it was not done to keep claim/lease/CAS semantics untouched.
