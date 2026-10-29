@@ -1,3 +1,5 @@
+import { themes, isColor } from '../../../core/theme/themes/index.js';
+
 const THEME_CHANGE_EVENT = 'cr-theme-change';
 
 const DARK_TERMINAL_THEME = Object.freeze({
@@ -52,14 +54,29 @@ const LIGHT_TERMINAL_THEME = Object.freeze({
   brightWhite: '#ffffff',
 });
 
-function getCurrentThemeName() {
+function getCurrentAppearance() {
   if (typeof document === 'undefined') return 'dark';
   return document.documentElement?.dataset.theme === 'light' ? 'light' : 'dark';
 }
 
-export function getTerminalTheme(theme = getCurrentThemeName()) {
-  const palette = theme === 'light' ? LIGHT_TERMINAL_THEME : DARK_TERMINAL_THEME;
-  return { ...palette };
+function getCurrentThemeId() {
+  if (typeof document === 'undefined') return undefined;
+  return document.documentElement?.dataset.themeId;
+}
+
+/**
+ * Returns the xterm palette for a theme.
+ * @param {string} [theme] A registered theme id, or an appearance ('dark' | 'light'). Defaults to the active theme.
+ */
+export function getTerminalTheme(theme = getCurrentThemeId() || getCurrentAppearance()) {
+  const definition = themes.get(theme);
+  const appearance = definition ? definition.appearance : theme === 'light' ? 'light' : 'dark';
+  const base = appearance === 'light' ? LIGHT_TERMINAL_THEME : DARK_TERMINAL_THEME;
+  const custom = {};
+  for (const [key, value] of Object.entries(definition?.terminal || {})) {
+    if (key in base && isColor(value)) custom[key] = value;
+  }
+  return { ...base, ...custom };
 }
 
 export function listenForTerminalThemeChanges(getTerminals) {
@@ -68,7 +85,7 @@ export function listenForTerminalThemeChanges(getTerminals) {
   window.addEventListener(THEME_CHANGE_EVENT, (/** @type {any} */ event) => {
     for (const term of getTerminals()) {
       if (!term?.options) continue;
-      term.options.theme = getTerminalTheme(event.detail?.theme);
+      term.options.theme = getTerminalTheme(event.detail?.themeId || event.detail?.theme);
     }
   });
 }

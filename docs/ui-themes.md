@@ -13,6 +13,10 @@ Definitions live in `app_front/core/theme/themes/index.js`: `id`, `label`,
 The base themes have empty token deltas, preserving `tokens.scss`. Add a definition
 with `registerTheme` before applying its ID. Only `--cr-*` color declarations are
 accepted; URLs and arbitrary CSS are discarded. Use tokens for all UI colors.
+`terminal` is a partial xterm palette merged over the appearance base by
+`getTerminalTheme`; open terminals refresh on `cr-theme-change`. `syntax` keys
+(`keyword`, `string`, `comment`, ...) become `--cr-code-<key>` declarations in
+`style#cr-theme-vars`, consumed by `.hljs-*`.
 
 `setTheme` persists and applies immediately. `applyTheme` sets `data-theme` to the
 appearance and `data-theme-id` to the definition ID, toggles `body.theme-light`,
