@@ -6,6 +6,8 @@
  * data/), then times each layer of the route handler by calling the persist and
  * read-model functions directly, plus an end-to-end run through the real Express
  * route over loopback HTTP. Prints the median / p95 of N runs per layer.
+ * Todos are read and written through the async `todos-store.js` facade; the
+ * document size is measured from the facade's logical export, not from a file.
  *
  * Usage: node scripts/measure-todo-save.js [runs=7] [--json]
  */
@@ -22,7 +24,7 @@ const dataDir = path.join(tmp, 'data');
 fs.mkdirSync(dataDir, { recursive: true });
 process.env.CRETLI_DATA_DIR = dataDir;
 const CHAT_COUNT = Number((process.argv.find((a) => a.startsWith('--chats=')) || '--chats=1500').split('=')[1]);
-const { loadTodosData, saveTodosData, updateTodo, addTodo, todosDocumentPath } = await import('../lib/persist/todos-persist.js');
+const { listTodos, updateTodo, addTodo, exportSnapshot } = await import('../lib/persist/todos-store.js');
 const { checkReviewGateForTodoWrite } = await import('../lib/workspace-watcher-review-gate-guard.js');
 const { attachTodoReviewReadModels } = await import('../lib/todo-review-read.js');
 const { attachTodoIntegrationReadModels } = await import('../lib/todo-integration-read.js');
@@ -45,31 +47,23 @@ const lorem = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. ';
  * @param {string} cwd
  * @param {{ children: number, bodyLen: number, planLen: number, changelog: number, manifestPaths?: number }} opts
  */
-function buildTree(cwd, { children, bodyLen, planLen, changelog, manifestPaths }) {
-  const root = addTodo(dataDir, cwd, { title: 'Root', body: lorem.repeat(Math.ceil(bodyLen / lorem.length)).slice(0, bodyLen), status: 'idea' }).item;
+async function buildTree(cwd, { children, bodyLen, planLen, changelog, manifestPaths }) {
+  const root = (await addTodo(dataDir, cwd, { title: 'Root', body: lorem.repeat(Math.ceil(bodyLen / lorem.length)).slice(0, bodyLen), status: 'idea' })).item;
   for (let i = 0; i < children; i += 1) {
-    addTodo(dataDir, cwd, { title: `Child ${i}`, body: 'child body', status: 'idea', parentId: root.id });
+    await addTodo(dataDir, cwd, { title: `Child ${i}`, body: 'child body', status: 'idea', parentId: root.id });
   }
   if (manifestPaths) {
     // Checkpointed leaves carry per-file hash manifests (project-mode leafMaterial).
     const manifest = Object.fromEntries(Array.from({ length: manifestPaths }, (_, i) => [`src/module-${i}/file.js`, `${i}`.padStart(40, 'a')]));
-    const doc = loadTodosData(dataDir, cwd);
-    for (const row of doc.items) {
+    const leafMaterial = { mode: 'project', baseCapturedAt: new Date().toISOString(), baseManifest: manifest, lastCheckpoint: { at: new Date().toISOString(), manifest: { ...manifest } } };
+    for (const row of (await listTodos(dataDir, cwd)).items) {
       if (row.id === root.id) continue;
-      row.leafMaterial = { mode: 'project', baseCapturedAt: new Date().toISOString(), baseManifest: manifest, lastCheckpoint: { at: new Date().toISOString(), manifest: { ...manifest } } };
+      await updateTodo(dataDir, cwd, row.id, { leafMaterial });
     }
-    saveTodosData(dataDir, cwd, doc);
   }
-  if (planLen || changelog) {
-    const doc = loadTodosData(dataDir, cwd);
-    const row = doc.items.find((r) => r.id === root.id);
-    if (planLen) row.plan = { markdown: lorem.repeat(Math.ceil(planLen / lorem.length)).slice(0, planLen) };
-    if (changelog) {
-      row.changelog = Array.from({ length: changelog }, (_, i) => ({
-        at: new Date().toISOString(), kind: 'note', text: lorem.repeat(40).slice(0, 2000) + i,
-      }));
-    }
-    saveTodosData(dataDir, cwd, doc);
+  if (planLen) await updateTodo(dataDir, cwd, root.id, { plan: { markdown: lorem.repeat(Math.ceil(planLen / lorem.length)).slice(0, planLen) } });
+  for (let i = 0; i < changelog; i += 1) {
+    await updateTodo(dataDir, cwd, root.id, { appendChangelog: { kind: 'note', text: lorem.repeat(40).slice(0, 2000) + i } });
   }
   return root.id;
 }
@@ -84,7 +78,7 @@ const SCENARIOS = [
 
 const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
 const p95 = (a) => { const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.ceil(s.length * 0.95) - 1)]; };
-const time = (fn) => { const t = performance.now(); const r = fn(); return [performance.now() - t, r]; };
+const time = async (fn) => { const t = performance.now(); const r = await fn(); return [performance.now() - t, r]; };
 
 function httpPatch(port, id, cwd, body) {
   return new Promise((resolve, reject) => {
@@ -145,17 +139,17 @@ const LAYERS = ['gate', 'updateTodo', 'reloadAfterWrite', 'loadChats', 'chatEnri
 const results = [];
 for (const sc of SCENARIOS) {
   const cwd = fs.mkdtempSync(path.join(tmp, 'ws-'));
-  const rootId = buildTree(cwd, sc.opts);
-  writeChats(cwd, loadTodosData(dataDir, cwd).items.map((r) => r.id));
-  const size = fs.statSync(todosDocumentPath(dataDir, cwd)).size;
+  const rootId = await buildTree(cwd, sc.opts);
+  writeChats(cwd, (await listTodos(dataDir, cwd)).items.map((r) => r.id));
+  const size = Buffer.byteLength(JSON.stringify(await exportSnapshot(dataDir, cwd)));
   const layers = Object.fromEntries(LAYERS.map((k) => [k, []]));
   let payloadBytes = 0;
   const statuses = ['ready', 'idea'];
   for (let i = 0; i < RUNS + 1; i += 1) {
     const status = statuses[i % 2];
-    const [gateMs] = time(() => checkReviewGateForTodoWrite({ dataDir, workspaceFolder: cwd, todoId: rootId, patch: { status }, caller: { kind: 'session' } }));
-    const [updMs] = time(() => updateTodo(dataDir, cwd, rootId, { status }));
-    const [loadMs, data] = time(() => loadTodosData(dataDir, cwd));
+    const [gateMs] = await time(() => checkReviewGateForTodoWrite({ dataDir, workspaceFolder: cwd, todoId: rootId, patch: { status }, caller: { kind: 'session' } }));
+    const [updMs] = await time(() => updateTodo(dataDir, cwd, rootId, { status }));
+    const [loadMs, data] = await time(() => listTodos(dataDir, cwd));
     // A chat write between saves invalidates the chats.json cache (as live agent runs do).
     writeChats(cwd, data.items.map((r) => r.id));
     const pl = buildPayload(cwd, data);
@@ -165,7 +159,7 @@ for (const sc of SCENARIOS) {
     const vals = { gate: gateMs, updateTodo: updMs, reloadAfterWrite: loadMs, ...pl.t, e2eHttp: e2e.ms };
     for (const k of LAYERS) layers[k].push(vals[k]);
   }
-  const row = { scenario: sc.name, docBytes: size, items: loadTodosData(dataDir, cwd).items.length, payloadBytes, runs: RUNS };
+  const row = { scenario: sc.name, docBytes: size, items: (await listTodos(dataDir, cwd)).items.length, payloadBytes, runs: RUNS };
   for (const [k, v] of Object.entries(layers)) row[k] = { p50: +median(v).toFixed(2), p95: +p95(v).toFixed(2) };
   results.push(row);
 }
@@ -174,7 +168,7 @@ for (const sc of SCENARIOS) {
 const HOLD_MS = 400;
 {
   const cwd = fs.mkdtempSync(path.join(tmp, 'ws-'));
-  const rootId = buildTree(cwd, SCENARIOS[2].opts);
+  const rootId = await buildTree(cwd, SCENARIOS[2].opts);
   const holder = path.join(tmp, 'holder.mjs');
   fs.writeFileSync(holder, `process.env.CRETLI_DATA_DIR=${JSON.stringify(dataDir)};
 const { withWorkspaceWatchersFileLock } = await import(${JSON.stringify(new URL('../lib/persist/workspace-watchers-persist.js', import.meta.url).href)});
@@ -187,7 +181,7 @@ process.send('ready');`);
     const done = new Promise((r) => child.once('message', r));
     child.send('go');
     await new Promise((r) => setTimeout(r, 40)); // let the holder take the lock
-    const [ms] = time(() => updateTodo(dataDir, cwd, rootId, { status: i % 2 ? 'idea' : 'ready' }));
+    const [ms] = await time(() => updateTodo(dataDir, cwd, rootId, { status: i % 2 ? 'idea' : 'ready' }));
     waits.push(ms);
     await done;
   }

@@ -81,6 +81,20 @@ for (const { name, create } of BACKENDS) {
       }
     });
 
+    it('getRevision changes with committed todos and exportSnapshot is a detached logical copy', async () => {
+      assert.equal(await store.getRevision(dataDir, cwd), '');
+      const doc = await store.addTodo(dataDir, cwd, { title: 'Snap', status: 'ready' });
+      const first = await store.getRevision(dataDir, cwd);
+      assert.ok(first);
+      assert.equal(await store.getRevision(dataDir, cwd), first, 'a read does not change the revision');
+      await store.updateTodo(dataDir, cwd, doc.items[0].id, { title: 'Snap 2' });
+      assert.notEqual(await store.getRevision(dataDir, cwd), first);
+      const snapshot = await store.exportSnapshot(dataDir, cwd);
+      assert.equal(snapshot.items[0].title, 'Snap 2');
+      snapshot.items[0].title = 'mutated';
+      assert.equal((await store.listTodos(dataDir, cwd)).items[0].title, 'Snap 2');
+    });
+
     it('batch runs in order and stops at the first failure', async () => {
       const results = await store.batch(dataDir, cwd, [
         { op: 'add', input: { title: 'A' } },

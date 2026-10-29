@@ -450,7 +450,7 @@ async function runChild() {
   // ---- C. Hot sync fs on request paths (fixture with chats/todos/usage) ----
   const chatsPersist = await import('../lib/persist/chats-persist.js');
   const { writeJsonAtomic } = await import('../lib/persist/atomic-write.js');
-  const todosPersist = await import('../lib/persist/todos-persist.js');
+  const todosStore = await import('../lib/persist/todos-store.js');
   const delegations = await import('../lib/persist/delegations-persist.js');
   const chatList = chatsPersist.loadChats();
   const hotFolder = chatList[0].workspaceFolder;
@@ -484,19 +484,19 @@ async function runChild() {
   await profileSite({
     id: 'FS-todos-add',
     group: 'sync-fs',
-    site: 'lib/persist/todos-persist.js addTodo() (load + normalize + sync write of the workspace todo document)',
+    site: 'lib/persist/todos-store.js addTodo() (async facade; legacy backend: load + normalize + sync write of the workspace todo document)',
     owner: 'A4',
     requestPath: 'yes',
     note: 'Todos document writer belongs to storage A4/A5; measured to attribute the stall. Document grows during the run (TODOS_MAX_ITEMS=2000).',
-  }, () => { todoSeq += 1; try { todosPersist.addTodo(dataDir, hotFolder, { title: `Profile todo ${todoSeq}`, body: 'b', status: 'ready' }); } catch { /* cap reached */ } }, Math.min(P.fs, 300));
+  }, async () => { todoSeq += 1; try { await todosStore.addTodo(dataDir, hotFolder, { title: `Profile todo ${todoSeq}`, body: 'b', status: 'ready' }); } catch { /* cap reached */ } }, Math.min(P.fs, 300));
   await profileSite({
     id: 'FS-todos-load',
     group: 'sync-fs',
-    site: 'lib/persist/todos-persist.js loadTodosData() (read + normalize)',
+    site: 'lib/persist/todos-store.js listTodos() (async facade; legacy backend: read + normalize)',
     owner: 'A4',
     requestPath: 'yes',
     note: 'Todo list/show routes.',
-  }, () => todosPersist.loadTodosData(dataDir, hotFolder), Math.min(P.fs, 300));
+  }, () => todosStore.listTodos(dataDir, hotFolder), Math.min(P.fs, 300));
   await profileSite({
     id: 'FS-delegation-create-sqlite',
     group: 'sync-fs',

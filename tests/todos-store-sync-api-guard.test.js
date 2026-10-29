@@ -47,14 +47,7 @@ const CONVERTED = Object.freeze([
   'lib/worktree-deps.js',
   'lib/worktree-list.js',
   'lib/remote-api-client.js',
-  'server.js',
-]);
-
-/** Files that still use the sync API (later leaves convert them); shrink only. */
-const ALLOWLIST = Object.freeze([
   'lib/integrate-batch.js',
-  'lib/persist/todos-store.js',
-  'lib/todo-move.js',
   'lib/todo-review-backfill.js',
   'scripts/architecture-http-fixture.mjs',
   'scripts/architecture-stall-profile.mjs',
@@ -62,6 +55,13 @@ const ALLOWLIST = Object.freeze([
   'scripts/manual-smart-merge-fixture.mjs',
   'scripts/measure-todo-save.js',
   'scripts/scout-pass-fixture.mjs',
+  'server.js',
+]);
+
+/** Files that still use the sync API (later leaves convert them); shrink only. */
+const ALLOWLIST = Object.freeze([
+  'lib/persist/todos-store.js',
+  'lib/todo-move.js',
 ]);
 
 function walk(dir, out = []) {

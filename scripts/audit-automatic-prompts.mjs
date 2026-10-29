@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { createTempRepo, git, tempDir, worktreeConfig } from '../tests/helpers/temp-git-repo.js';
 import { collectWorktreeExecutionDiff } from '../lib/worktree/git-worktree.ts';
-import { addTodo } from '../lib/persist/todos-persist.js';
+import { addTodo } from '../lib/persist/todos-store.js';
 import { ensureWorktree } from '../lib/worktree-manager.js';
 import { createDelegationRecord, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { buildSmartMergeRequest, buildVerifyIntegrationRequest } from '../lib/workspace-watcher-integration.js';
@@ -39,7 +39,7 @@ try {
   const beforeScout = await previousModule('lib/workspace-watcher-scout.js');
   const { buildGitBranchMergePrompt } = await import('../lib/worktree-merge.js');
   const files = Array.from({ length: 60 }, (_, i) => `src/file-${String(i).padStart(2, '0')}.txt`);
-  const todo = addTodo(dataDir, workspace, { title: 'Fixture task', status: 'doing', body: files.join('\n'), plan: { markdown: 'Read the files and implement the task.\n' + files.join('\n') } }).item;
+  const todo = (await addTodo(dataDir, workspace, { title: 'Fixture task', status: 'doing', body: files.join('\n'), plan: { markdown: 'Read the files and implement the task.\n' + files.join('\n') } })).item;
   todo.plan = { markdown: 'Read the files and implement the task.\n' + files.join('\n') };
   const chatId = '00000000-0000-4000-8000-000000000001';
   const sourceChatId = '00000000-0000-4000-8000-000000000002';
@@ -47,7 +47,7 @@ try {
   fs.mkdirSync(path.join(record.worktreePath, 'src'));
   for (const file of files) fs.writeFileSync(path.join(record.worktreePath, file), 'fixture change\n');
   const mergeInput = { todoId: todo.id, workspaceFolder: workspace, dataDir, baseUrl: 'https://localhost:3011' };
-  const done = addTodo(dataDir, workspace, { title: 'Finished task', status: 'done' }).item;
+  const done = (await addTodo(dataDir, workspace, { title: 'Finished task', status: 'done' })).item;
   const verifyInput = { ...mergeInput, todoId: done.id };
   const branchInput = { workspaceFolder: workspace, record, preflight: { targetBranch: 'main', branch: record.branch, baseCommit: record.baseCommit }, changedFiles: files, callback: 'curl <callback>' };
   const report = files.map((file) => `Changed ${file}; checks passed.`).join('\n') + '\nVERDICT: PASS';

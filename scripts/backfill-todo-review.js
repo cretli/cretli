@@ -29,14 +29,16 @@
  *     [--dry-run | --apply] [--checkpoint PATH] [--restart] [--json]
  *
  * `--dry-run` is the default and writes nothing at all, not even a checkpoint.
- * `--apply` copies the workspace todos document to
+ * `--apply` exports a logical snapshot of the workspace todos (a JSON document
+ * `{ kind, version, workspaceFolder, takenAt, document }`, independent of the
+ * storage backend) to
  * `<data-dir>/backups/todo-review-backfill/<workspace-key>.<stamp>.json` before
- * its first write; that copy is the rollback point.
+ * its first write; that export is the rollback point.
  *
- * Rollback (a file restore of operator data, so it is never automated here):
- *   1. stop the server (or take the workspace offline) so no writer races you;
- *   2. cp <data-dir>/backups/todo-review-backfill/<file> <data-dir>/todos/<workspace-key>.json
- *   3. restart the server — the boot repair (`lib/todo-review-sync-hooks.js`)
+ * Rollback (`todo.review` is derived data, so it is re-derived, never restored
+ * from a storage file):
+ *   1. read `document.items[].review` in the snapshot for the pre-run values;
+ *   2. restart the server — the boot repair (`lib/todo-review-sync-hooks.js`)
  *      re-derives the snapshots from the delegation records again.
  *
  * Processing is checkpointed: an interrupted `--apply` resumes with the leaves
@@ -113,14 +115,14 @@ if (options.help) {
     + '\n'
     + '  --workspace DIR   logical workspace folder (required, never the runner cwd)\n'
     + '  --data-dir DIR    runtime data directory (default: the server data dir)\n'
-    + '  --apply           write the snapshots; backs up the todos document first\n'
+    + '  --apply           write the snapshots; exports a logical todos snapshot first\n'
     + '  --checkpoint PATH resume file (default: <data-dir>/backfill/todo-review.checkpoint.json)\n'
     + '  --restart         ignore an existing checkpoint and scan every leaf again\n'
     + '  --json            machine-readable result instead of the report\n'
     + '\n'
-    + 'Rollback: cp <data-dir>/backups/todo-review-backfill/<file> over\n'
-    + '<data-dir>/todos/<workspace-key>.json, then restart the server so the boot\n'
-    + 'repair re-derives the snapshots.\n');
+    + 'Rollback: the logical snapshot in <data-dir>/backups/todo-review-backfill/\n'
+    + 'lists the pre-run todo.review values; restart the server so the boot repair\n'
+    + 're-derives the snapshots.\n');
   process.exit(0);
 }
 
@@ -136,7 +138,7 @@ if (!options.workspace) {
 
 let result;
 try {
-  result = runTodoReviewBackfill({
+  result = await runTodoReviewBackfill({
     workspaceFolder: options.workspace,
     dataDir: options.dataDir || resolveDataPath(),
     apply: options.apply,

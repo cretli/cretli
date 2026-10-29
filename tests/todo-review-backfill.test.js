@@ -550,14 +550,14 @@ test('a none the live path already wrote is not rewritten by the rollout gate', 
 
 // --- operator behaviour against the real store -------------------------------
 
-test('dry-run writes nothing at all: not the document, not a checkpoint, not a backup', () => {
+test('dry-run writes nothing at all: not the document, not a checkpoint, not a backup', async () => {
   const project = makeProject('dry-run');
   const todo = storeTodo(project);
   storeReviewRow(project, todo);
   const documentPath = todosDocumentPath(ISOLATED_DATA_DIR, project);
   const before = fs.readFileSync(documentPath, 'utf8');
 
-  const result = runTodoReviewBackfill({ dataDir: ISOLATED_DATA_DIR, workspaceFolder: project });
+  const result = await runTodoReviewBackfill({ dataDir: ISOLATED_DATA_DIR, workspaceFolder: project });
 
   assert.equal(result.mode, 'dry-run');
   assert.equal(result.summary.planned, 1);
@@ -569,7 +569,7 @@ test('dry-run writes nothing at all: not the document, not a checkpoint, not a b
   assert.equal(readStoreTodo(project, todo.id).review, undefined);
 });
 
-test('apply persists exactly what the dry run planned, then stays idempotent', () => {
+test('apply persists exactly what the dry run planned, then stays idempotent', async () => {
   const project = makeProject('apply');
   const reviewed = storeTodo(project, { title: 'Reviewed leaf' });
   storeReviewRow(project, reviewed);
@@ -577,7 +577,7 @@ test('apply persists exactly what the dry run planned, then stays idempotent', (
   storeReviewRow(project, failedTodo, { reportVerdict: 'FAIL', report: 'TASK: review\nVERDICT: FAIL' });
   const documentPath = todosDocumentPath(ISOLATED_DATA_DIR, project);
 
-  const dry = runTodoReviewBackfill({
+  const dry = await runTodoReviewBackfill({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: project,
     checkpointPath: checkpointFor('apply-dry'),
@@ -586,7 +586,7 @@ test('apply persists exactly what the dry run planned, then stays idempotent', (
   assert.equal(dry.summary.bySubjectState.code.passed, 1);
   assert.equal(dry.summary.bySubjectState.code.failed, 1);
 
-  const applied = runTodoReviewBackfill({
+  const applied = await runTodoReviewBackfill({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: project,
     apply: true,
@@ -603,7 +603,7 @@ test('apply persists exactly what the dry run planned, then stays idempotent', (
     }
   }
 
-  const rerun = runTodoReviewBackfill({
+  const rerun = await runTodoReviewBackfill({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: project,
     apply: true,
@@ -623,7 +623,7 @@ test('apply persists exactly what the dry run planned, then stays idempotent', (
   assert.equal(/"state":\s*"passed"/.test(afterFirstWrite), true);
 });
 
-test('a backfill write never touches status, changelog, order or the item CAS token', () => {
+test('a backfill write never touches status, changelog, order or the item CAS token', async () => {
   const project = makeProject('untouched');
   const reviewed = storeTodo(project, { title: 'Has a review' });
   storeReviewRow(project, reviewed);
@@ -640,13 +640,20 @@ test('a backfill write never touches status, changelog, order or the item CAS to
   });
   const before = loadTodosData(ISOLATED_DATA_DIR, project).items.map(fieldsOf);
 
-  const applied = runTodoReviewBackfill({
+  const applied = await runTodoReviewBackfill({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: project,
     apply: true,
     checkpointPath: checkpointFor('untouched'),
   });
   assert.equal(applied.summary.written, 2);
+  // The rollback point is a logical export of the pre-run todos, not a storage file copy.
+  const backup = JSON.parse(fs.readFileSync(applied.backupPath, 'utf8'));
+  assert.equal(backup.kind, 'cretli-todos-logical-snapshot');
+  assert.equal(backup.workspaceFolder, project);
+  assert.deepEqual(backup.document.items.map(fieldsOf), before);
+  assert.equal(backup.document.items.find((row) => row.id === plain.id).review, undefined);
+  assert.equal(applied.todosDocumentPath, undefined);
 
   const after = loadTodosData(ISOLATED_DATA_DIR, project);
   assert.deepEqual(after.items.map(fieldsOf), before);
@@ -657,7 +664,27 @@ test('a backfill write never touches status, changelog, order or the item CAS to
     'a leaf never gets a container rollup');
 });
 
-test('a write failure keeps the leaf pending and the next run resumes from the checkpoint', () => {
+test('a rejected logical export prevents every backfill write', async () => {
+  const project = makeProject('snapshot-failure');
+  const todo = storeTodo(project);
+  storeReviewRow(project, todo);
+  const checkpointPath = checkpointFor('snapshot-failure');
+  const documentPath = todosDocumentPath(ISOLATED_DATA_DIR, project);
+  const before = fs.readFileSync(documentPath, 'utf8');
+  let writes = 0;
+  await assert.rejects(runTodoReviewBackfill({
+    dataDir: ISOLATED_DATA_DIR, workspaceFolder: project, apply: true, checkpointPath,
+    deps: {
+      exportSnapshot: async () => { throw new Error('snapshot unavailable'); },
+      writeReview: async () => { writes += 1; },
+    },
+  }), /snapshot unavailable/);
+  assert.equal(writes, 0);
+  assert.equal(fs.readFileSync(documentPath, 'utf8'), before);
+  assert.equal(fs.existsSync(checkpointPath), false);
+});
+
+test('a write failure keeps the leaf pending and the next run resumes from the checkpoint', async () => {
   const project = makeProject('resume');
   const todos = [
     storeTodo(project, { title: 'First' }),
@@ -677,7 +704,7 @@ test('a write failure keeps the leaf pending and the next run resumes from the c
     return writeTodoReview(dataDir, workspaceFolder, id, snapshot);
   };
 
-  const interrupted = runTodoReviewBackfill({
+  const interrupted = await runTodoReviewBackfill({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: project,
     apply: true,
@@ -697,7 +724,7 @@ test('a write failure keeps the leaf pending and the next run resumes from the c
   assert.equal(checkpointDoc.processed.includes(blocker), false);
   assert.equal(checkpointDoc.workspaceFolder, project);
 
-  const resumed = runTodoReviewBackfill({
+  const resumed = await runTodoReviewBackfill({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: project,
     apply: true,
@@ -712,11 +739,11 @@ test('a write failure keeps the leaf pending and the next run resumes from the c
   }
 });
 
-test('losing the attribution of a reviewed leaf preserves its stored passed', () => {
+test('losing the attribution of a reviewed leaf preserves its stored passed', async () => {
   const project = makeProject('poorer-history');
   const todo = storeTodo(project);
   const review = storeReviewRow(project, todo);
-  const first = runTodoReviewBackfill({
+  const first = await runTodoReviewBackfill({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: project,
     apply: true,
@@ -733,7 +760,7 @@ test('losing the attribution of a reviewed leaf preserves its stored passed', ()
   const rows = listDelegationsForWorkspace(project, { dataDir: ISOLATED_DATA_DIR });
   assert.equal(rows.find((row) => row.id === review.id).leafId, '');
 
-  const second = runTodoReviewBackfill({
+  const second = await runTodoReviewBackfill({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: project,
     apply: true,
@@ -771,7 +798,7 @@ test('retention archiving a backfilled leaf does not degrade it on the next live
   const review = storeReviewRow(project, todo, { report: longBody });
   assert.ok(longBody.length > 2000);
 
-  const applied = runTodoReviewBackfill({
+  const applied = await runTodoReviewBackfill({
     dataDir: ISOLATED_DATA_DIR,
     workspaceFolder: project,
     apply: true,

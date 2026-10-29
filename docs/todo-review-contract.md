@@ -1335,7 +1335,9 @@ node scripts/backfill-todo-review.js --workspace DIR [--data-dir DIR]
 - `--apply` persists exactly what the dry run planned: the planner predicts the
   writer's own `decisionKey` test, so a predicted `unchanged` is not a write.
   Re-running is a no-op (idempotent, §5.5).
-- Before its first write `--apply` copies the workspace's todos document to
+- Before its first write `--apply` exports a logical snapshot of the workspace's
+  todos (`{ kind, version, workspaceFolder, takenAt, document }`, independent of
+  the storage backend) to
   `<data-dir>/backups/todo-review-backfill/<workspace-key>.<stamp>.json`.
 - Processing is checkpointed in
   `<data-dir>/backfill/todo-review.checkpoint.json`, scoped to the workspace and
@@ -1347,12 +1349,12 @@ node scripts/backfill-todo-review.js --workspace DIR [--data-dir DIR]
 
 ### 16.5 Rollback — SETTLED
 
-Restoring operator data is a file write this script deliberately never automates:
+The snapshot is a logical export, not a storage file, so there is nothing to copy
+back over live data. `review` is derived data:
 
-1. stop the server (or keep the workspace idle) so no writer races the restore;
-2. `cp <data-dir>/backups/todo-review-backfill/<file> <data-dir>/todos/<workspace-key>.json`;
-3. restart — the boot repair (§10.5) re-derives the snapshots from the delegation
-   records again.
+1. read `document.items[].review` in the snapshot for the pre-run values;
+2. restart the server — the boot repair (§10.5) re-derives the snapshots from the
+   delegation records again.
 
 For a single leaf no rollback file is needed: `review` is only a cache of a
 recomputation, so the next delegation event for that leaf restates it from the

@@ -108,12 +108,12 @@ export async function populateFixture({ dir, size, profile = 'full', seed = 2026
     stats.historyEvents += items.length;
   }
 
-  const { addTodo } = await import('../lib/persist/todos-persist.js');
+  const { addTodo } = await import('../lib/persist/todos-store.js');
   const hotFolder = chats[0].workspaceFolder;
   stats.todos = 0;
   for (let t = 0; t < p.todos; t += 1) {
     try {
-      addTodo(resolved, hotFolder, { title: `Fixture todo ${t}`, body: 'Synthetic body. '.repeat(20), status: 'ready' });
+      await addTodo(resolved, hotFolder, { title: `Fixture todo ${t}`, body: 'Synthetic body. '.repeat(20), status: 'ready' });
       stats.todos += 1;
     } catch { break; }
   }

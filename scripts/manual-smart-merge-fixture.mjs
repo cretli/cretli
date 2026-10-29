@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { seedScopeFixture, applyScopeChanges } from '../tests/helpers/patch-scope-fixture.js';
 import { git, tempDir, worktreeConfig } from '../tests/helpers/temp-git-repo.js';
-import { addTodo, getTodoById } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodo } from '../lib/persist/todos-store.js';
 import { ensureWorktree } from '../lib/worktree-manager.js';
 import { buildSmartMergeRequest, reportSmartMergeOutcome, confirmWorkspaceTodoIntegration } from '../lib/workspace-watcher-integration.js';
 import { collectWorktreeExecutionDiff } from '../lib/worktree/git-worktree.ts';
@@ -16,7 +16,7 @@ import { collectWorktreeExecutionDiff } from '../lib/worktree/git-worktree.ts';
 const { dir: workspace, baseCommit } = seedScopeFixture();
 const dataDir = tempDir('cretli-manual-merge-data-');
 const baseDir = tempDir('cretli-manual-merge-worktrees-');
-const todo = addTodo(dataDir, workspace, { title: 'Manual smart merge fixture', status: 'doing' }).item;
+const todo = (await addTodo(dataDir, workspace, { title: 'Manual smart merge fixture', status: 'doing' })).item;
 let callbackResult = null;
 const server = http.createServer(async (req, res) => {
   let body = '';
@@ -40,7 +40,7 @@ try {
   } } };
   const request = await buildSmartMergeRequest(input);
   assert.equal(request.ok, true);
-  const current = getTodoById(dataDir, workspace, todo.id);
+  const current = await getTodo(dataDir, workspace, todo.id);
   const scope = JSON.parse(fs.readFileSync(`${current.integration.resultPath}.files.json`));
   const allowed = [...new Set(scope.files.flatMap((file) => [file.path, ...(file.oldPath ? [file.oldPath] : [])]))];
   assert.equal(allowed.length, 16);
@@ -81,7 +81,7 @@ try {
   assert.equal(callbackResult.item.status, 'doing');
   assert.ok(callbackResult.item.integration.appliedAt);
   git(workspace, ['merge-base', '--is-ancestor', 'HEAD', 'main']);
-  const fresh = getTodoById(dataDir, workspace, todo.id);
+  const fresh = await getTodo(dataDir, workspace, todo.id);
   const confirmation = await confirmWorkspaceTodoIntegration({ todoId: todo.id, workspaceFolder: workspace, dataDir, expectedUpdatedAt: fresh.updatedAt, proof: { simple: true } });
   assert.equal(confirmation.ok, true, JSON.stringify(confirmation));
   console.log(JSON.stringify({ scopePaths: allowed.length, stagedPaths: staged.length, allTaskChangesInHead: true, localEditPreserved: true, unrelatedPathUncommitted: true, callbackPosted: true, reportBeforeConfirm: true, confirmation: confirmation.item.status }, null, 2));

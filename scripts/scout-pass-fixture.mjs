@@ -17,7 +17,7 @@ const PASSES = passArg >= 0 ? Math.max(1, Number(args[passArg + 1]) || 20) : 20;
 
 const { upsertWorkspaceWatcher } = await import('../lib/persist/workspace-watchers-persist.js');
 const { saveChats } = await import('../lib/persist/chats-persist.js');
-const { saveTodosData } = await import('../lib/persist/todos-persist.js');
+const { addTodo } = await import('../lib/persist/todos-store.js');
 const scout = await import('../lib/workspace-watcher-scout.js');
 
 const folders = [];
@@ -40,15 +40,11 @@ saveChats(/** @type {any} */ (Array.from({ length: 1500 }, (_, i) => ({
   createdAt: now,
   updatedAt: now,
 }))));
-folders.forEach((cwd, w) => {
-  saveTodosData(tmp, cwd, {
-    version: 1,
-    updatedAt: now,
-    items: Array.from({ length: 250 }, (_, i) => ({
-      id: `todo-${w}-${i}`, title: `Todo ${i}`, body: '', status: 'idea', createdAt: now, updatedAt: now,
-    })),
-  });
-});
+for (const cwd of folders) {
+  for (let i = 0; i < 250; i += 1) {
+    await addTodo(tmp, cwd, { title: `Todo ${i}`, body: '', status: 'idea' });
+  }
+}
 
 const perPass = [];
 const totals = [];

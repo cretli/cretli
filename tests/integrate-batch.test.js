@@ -11,6 +11,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { test } from 'node:test';
 import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
+import { createLegacyJsonTodosBackend, setTodosBackend } from '../lib/persist/todos-store.js';
 import { ensureWorktree } from '../lib/worktree-manager.js';
 import {
   SMART_MERGE_RUNNING,
@@ -60,6 +61,60 @@ const UNKNOWN = () => ({ known: false, busy: false, reason: 'adapter_missing' })
 /** Chat bound to the batch lock, i.e. the batch agent the lib guard accepts. */
 const BATCH_CHAT = 'chat-batch';
 
+/** Hold one facade read to exercise concurrent batch commands without timers. */
+function holdTodoRead() {
+  const backend = createLegacyJsonTodosBackend();
+  let release;
+  let entered;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const started = new Promise((resolve) => { entered = resolve; });
+  const previous = setTodosBackend({
+    ...backend,
+    listTodos: async (...args) => {
+      const document = backend.listTodos(...args);
+      entered();
+      await gate;
+      return document;
+    },
+  });
+  return { started, release, restore: () => setTodosBackend(previous) };
+}
+
+test('legacy report rejects an epoch abandoned while the todo read was pending', async (t) => {
+  const world = await makeWorld('report-read-race', 1);
+  t.after(world.cleanup);
+  const created = await create(world, [world.todos[0].id]);
+  const first = await next(world, created);
+  const held = holdTodoRead();
+  t.after(() => { held.release(); held.restore(); });
+  const pending = checkBatchLegacyReport({
+    dataDir: world.dataDir, workspaceFolder: world.repo, todoId: world.todos[0].id,
+    body: { batchId: created.batch.id, entryId: first.body.entry.entryId, attempt: 1, epoch: 1, token: created.secret },
+  });
+  await held.started;
+  held.restore();
+  assert.equal((await abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, forceLiveness: true, deps: world.deps })).ok, true);
+  held.release();
+  assert.equal((await pending).ok, false);
+});
+
+test('cancel during a suspended resume remains durable after resume completes', async (t) => {
+  const world = await makeWorld('cancel-resume-race', 1);
+  t.after(world.cleanup);
+  const created = await create(world, [world.todos[0].id]);
+  await next(world, created);
+  const held = holdTodoRead();
+  t.after(() => { held.release(); held.restore(); });
+  const resumed = resumeIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, forceLiveness: true, deps: world.deps });
+  await held.started;
+  const cancelled = cancelIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: world.deps });
+  held.restore();
+  held.release();
+  assert.equal((await resumed).ok, true);
+  assert.equal((await cancelled).ok, true);
+  assert.equal(readIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: world.deps }).status, 'cancelled');
+});
+
 /**
  * @param {string} name
  * @param {number} count worktree todos awaiting integration
@@ -91,8 +146,8 @@ async function makeWorld(name, count = 2) {
  * @param {string[]} ids
  * @param {object} [extra]
  */
-function create(world, ids, extra = {}) {
-  const created = createIntegrateBatch({
+async function create(world, ids, extra = {}) {
+  const created = await createIntegrateBatch({
     dataDir: world.dataDir,
     workspaceFolder: world.repo,
     todoIds: ids,
@@ -152,7 +207,7 @@ test('create keeps click order, collapses aliases and skips ineligible todos wit
   t.after(world.cleanup);
   const child = addTodo(world.dataDir, world.repo, { title: 'child', status: 'done', parentId: world.todos[0].id }).item;
   const plain = addTodo(world.dataDir, world.repo, { title: 'plain', status: 'ready' }).item;
-  const created = create(world, [world.todos[1].id, world.todos[0].id, child.id, world.todos[0].id, plain.id, 'missing-id']);
+  const created = await create(world, [world.todos[1].id, world.todos[0].id, child.id, world.todos[0].id, plain.id, 'missing-id']);
   assert.deepEqual(created.view.entries.map((entry) => entry.todoId), [world.todos[1].id, world.todos[0].id]);
   assert.ok(created.view.entries.every((entry) => entry.mode === 'smart-merge'));
   const reasons = Object.fromEntries(created.skipped.map((row) => [row.todoId, row.reason]));
@@ -167,17 +222,17 @@ test('create keeps click order, collapses aliases and skips ineligible todos wit
 test('empty and locked creates are refused; a running smart merge refuses create', async (t) => {
   const world = await makeWorld('refuse', 2);
   t.after(world.cleanup);
-  const empty = createIntegrateBatch({ dataDir: world.dataDir, workspaceFolder: world.repo, todoIds: ['nope'], deps: world.deps });
+  const empty = await createIntegrateBatch({ dataDir: world.dataDir, workspaceFolder: world.repo, todoIds: ['nope'], deps: world.deps });
   assert.equal(empty.ok, false);
   assert.equal(empty.reason, 'empty');
-  const first = create(world, [world.todos[0].id]);
-  const second = createIntegrateBatch({ dataDir: world.dataDir, workspaceFolder: world.repo, todoIds: [world.todos[1].id], deps: world.deps });
+  const first = await create(world, [world.todos[0].id]);
+  const second = await createIntegrateBatch({ dataDir: world.dataDir, workspaceFolder: world.repo, todoIds: [world.todos[1].id], deps: world.deps });
   assert.equal(second.reason, 'integration_locked');
-  abandonIntegrateBatch({ dataDir: world.dataDir, batchId: first.batch.id, forceLiveness: true, deps: world.deps });
+  await abandonIntegrateBatch({ dataDir: world.dataDir, batchId: first.batch.id, forceLiveness: true, deps: world.deps });
   assert.equal(getIntegrationLock({ dataDir: world.dataDir, workspaceFolder: world.repo }), null);
   const built = await buildSmartMergeRequest({ todoId: world.todos[1].id, workspaceFolder: world.repo, dataDir: world.dataDir, baseUrl: 'https://127.0.0.1:3011' });
   assert.equal(built.ok, true);
-  const busy = createIntegrateBatch({ dataDir: world.dataDir, workspaceFolder: world.repo, todoIds: [world.todos[0].id], deps: world.deps });
+  const busy = await createIntegrateBatch({ dataDir: world.dataDir, workspaceFolder: world.repo, todoIds: [world.todos[0].id], deps: world.deps });
   assert.equal(busy.reason, 'busy');
 });
 
@@ -190,7 +245,7 @@ test('a stale smart-merge marker of a dead agent does not block create', async (
     strictStatus: true,
     integration: { ...stale.integration, reason: SMART_MERGE_RUNNING, updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() },
   });
-  const created = createIntegrateBatch({ dataDir: world.dataDir, workspaceFolder: world.repo, todoIds: [world.todos[0].id], deps: world.deps });
+  const created = await createIntegrateBatch({ dataDir: world.dataDir, workspaceFolder: world.repo, todoIds: [world.todos[0].id], deps: world.deps });
   assert.notEqual(created.reason, 'busy');
   assert.equal(created.ok, true);
 });
@@ -208,7 +263,7 @@ test('batchEligibility matches the resolver for smart-merge, verify and none', a
   assert.equal(byId[world.todos[0].id].mode, 'smart-merge');
   assert.equal(byId[done.id].mode, 'verify');
   assert.equal(byId[ready.id].mode, 'none');
-  const ctx = buildEligibilityContext({ dataDir: world.dataDir, workspaceFolder: world.repo });
+  const ctx = await buildEligibilityContext({ dataDir: world.dataDir, workspaceFolder: world.repo });
   for (const id of [world.todos[0].id, done.id, ready.id]) {
     assert.equal(resolveBatchEntry(ctx, id).mode, byId[id].mode);
   }
@@ -225,7 +280,7 @@ test('entries are built lazily, one at a time, with pending_confirm and stale fe
     ...world.deps,
     buildSmartMergeRequest: async (input) => { calls.push(input.todoId); return await buildSmartMergeRequest(input); },
   };
-  const created = create(world, world.todos.map((row) => row.id));
+  const created = await create(world, world.todos.map((row) => row.id));
   assert.deepEqual(calls, []);
   const first = await next(world, created, {}, deps);
   assert.equal(first.body.action, 'entry');
@@ -265,7 +320,7 @@ test('entries are built lazily, one at a time, with pending_confirm and stale fe
 test('prompts prefer MCP: wrapper names integrate_next, entry rules travel once', async (t) => {
   const world = await makeWorld('prompts', 1);
   t.after(world.cleanup);
-  const created = create(world, [world.todos[0].id]);
+  const created = await create(world, [world.todos[0].id]);
   assert.match(created.prompt, /Call the Cretli MCP tool integrate_next/);
   assert.ok(created.prompt.includes(JSON.stringify({ batch_id: created.batch.id, epoch: created.batch.epoch, token: created.secret })));
   assert.ok(created.prompt.indexOf('integrate_next') < created.prompt.indexOf('curl '), 'curl is only the fallback');
@@ -282,7 +337,7 @@ test('MCP integrate_next drives the batch and is scoped to the caller workspace'
   const previous = getBuiltinMcpRuntimeDeps();
   setBuiltinMcpRuntimeDeps({ dataDir: world.dataDir, integrateBatchDeps: world.deps });
   t.after(() => { setBuiltinMcpRuntimeDeps(previous); world.cleanup(); });
-  const created = create(world, [world.todos[0].id]);
+  const created = await create(world, [world.todos[0].id]);
   const handlersFor = (workspaceFolder) => {
     const session = { chatId: BATCH_CHAT, workspaceFolder, harness: 'opencode', mode: 'agent' };
     return createCretliMcpToolHandlers(createInProcessMcpClient({ harness: 'opencode', chatId: BATCH_CHAT, workspaceFolder }), session);
@@ -318,7 +373,7 @@ test('MCP integrate_next drives the batch and is scoped to the caller workspace'
 test('three unconfirmed reports fail the entry; a rejected todo never counts as verified', async (t) => {
   const world = await makeWorld('unconfirmed', 2);
   t.after(world.cleanup);
-  const created = create(world, [world.todos[0].id, world.todos[1].id]);
+  const created = await create(world, [world.todos[0].id, world.todos[1].id]);
   const first = await next(world, created);
   const entryId = first.body.entry.entryId;
   assert.equal((await next(world, created, { entryId, attempt: 1, outcome: 'merged' })).body.action, 'pending_confirm');
@@ -335,7 +390,7 @@ test('verify entry completes through confirm or no-code with no legacy report', 
   const world = await makeWorld('verify', 0);
   t.after(world.cleanup);
   const done = addTodo(world.dataDir, world.repo, { title: 'finished', status: 'done' }).item;
-  const created = create(world, [done.id]);
+  const created = await create(world, [done.id]);
   assert.equal(created.view.entries[0].mode, 'verify');
   const first = await next(world, created);
   assert.equal(first.body.entry.mode, 'verify');
@@ -360,7 +415,7 @@ test('verify entry completes through confirm or no-code with no legacy report', 
 test('no_code on a smart-merge entry with changed files fails the entry', async (t) => {
   const world = await makeWorld('nocode', 1);
   t.after(world.cleanup);
-  const created = create(world, [world.todos[0].id]);
+  const created = await create(world, [world.todos[0].id]);
   const first = await next(world, created);
   const entryId = first.body.entry.entryId;
   const todoId = world.todos[0].id;
@@ -387,7 +442,7 @@ test('no_code on a smart-merge entry with changed files fails the entry', async 
 test('capability: wrong secret is 401, resume rotates the epoch, legacy reports are fenced', async (t) => {
   const world = await makeWorld('capability', 2);
   t.after(world.cleanup);
-  const created = create(world, world.todos.map((row) => row.id));
+  const created = await create(world, world.todos.map((row) => row.id));
   attachBatchChat({ dataDir: world.dataDir, batchId: created.batch.id, chatId: 'chat-1', deps: world.deps });
   assert.equal((await handleBatchNext({ dataDir: world.dataDir, body: { batchId: created.batch.id, epoch: 1, token: 'wrong' }, deps: world.deps })).status, 401);
   assert.equal((await handleBatchNext({ dataDir: world.dataDir, body: { batchId: created.batch.id, epoch: 1 }, deps: world.deps })).status, 401);
@@ -395,22 +450,22 @@ test('capability: wrong secret is 401, resume rotates the epoch, legacy reports 
   const entry = first.body.entry;
   const todoId = world.todos[0].id;
   // missing / wrong context for a batch todo is rejected
-  assert.equal(checkBatchLegacyReport({ dataDir: world.dataDir, workspaceFolder: world.repo, todoId, body: {} }).ok, false);
+  assert.equal((await checkBatchLegacyReport({ dataDir: world.dataDir, workspaceFolder: world.repo, todoId, body: {} })).ok, false);
   const context = { batchId: created.batch.id, entryId: entry.entryId, attempt: 1, epoch: 1, token: created.secret };
-  const fence = checkBatchLegacyReport({ dataDir: world.dataDir, workspaceFolder: world.repo, todoId, body: context });
+  const fence = await checkBatchLegacyReport({ dataDir: world.dataDir, workspaceFolder: world.repo, todoId, body: context });
   assert.equal(fence.ok, true);
   recordBatchLegacyReport({ dataDir: world.dataDir, batchId: fence.batchId, entryId: fence.entryId, outcome: 'merged', deps: world.deps });
   assert.equal(readIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: world.deps }).entries[0].state, 'awaiting_confirmation');
   // a non-batch todo is untouched by the fence
   const other = addTodo(world.dataDir, world.repo, { title: 'other', status: 'doing' }).item;
-  assert.equal(checkBatchLegacyReport({ dataDir: world.dataDir, workspaceFolder: world.repo, todoId: other.id, body: {} }).ok, true);
+  assert.equal((await checkBatchLegacyReport({ dataDir: world.dataDir, workspaceFolder: world.repo, todoId: other.id, body: {} })).ok, true);
   // resume with an idle agent rotates the epoch; the old secret then answers 409
-  const resumed = resumeIntegrateBatch({
+  const resumed = await resumeIntegrateBatch({
     dataDir: world.dataDir, batchId: created.batch.id, deps: { ...world.deps, probeChatRunLiveness: IDLE },
   });
   assert.equal(resumed.ok, true, JSON.stringify(resumed));
   assert.equal((await next(world, created, { entryId: entry.entryId, attempt: 1, outcome: 'merged' })).status, 409);
-  assert.equal(checkBatchLegacyReport({ dataDir: world.dataDir, workspaceFolder: world.repo, todoId, body: context }).ok, false);
+  assert.equal((await checkBatchLegacyReport({ dataDir: world.dataDir, workspaceFolder: world.repo, todoId, body: context })).ok, false);
   assert.notEqual(getTodoById(world.dataDir, world.repo, todoId).integration.reason, SMART_MERGE_RUNNING, 'resume cleared the running marker');
   const fresh = await handleBatchNext({
     dataDir: world.dataDir,
@@ -450,7 +505,7 @@ test('boundary: clean failure continues; unmerged, in-progress or drifted worksp
     ...world.deps,
     inspectBoundary: () => (unsafe ? { ...SAFE(), unmerged: ['conflict.txt'] } : SAFE()),
   };
-  const created = create(world, world.todos.map((row) => row.id));
+  const created = await create(world, world.todos.map((row) => row.id));
   attachBatchChat({ dataDir: world.dataDir, batchId: created.batch.id, chatId: 'chat-b', deps });
   const first = await handleBatchNext({ dataDir: world.dataDir, body: { batchId: created.batch.id, epoch: 1, token: created.secret }, deps: { ...deps, inspectBoundary: SAFE } });
   const entryId = first.body.entry.entryId;
@@ -463,11 +518,11 @@ test('boundary: clean failure continues; unmerged, in-progress or drifted worksp
   assert.equal(failed.body.reason, 'paused');
   assert.equal(failed.body.batch.status, 'paused');
   const idleDeps = { ...deps, probeChatRunLiveness: IDLE };
-  const stillPaused = resumeIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: idleDeps });
+  const stillPaused = await resumeIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: idleDeps });
   assert.equal(stillPaused.ok, false);
   assert.equal(stillPaused.reason, 'boundary_unsafe');
   unsafe = false;
-  const resumed = resumeIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, entryAction: 'skip', deps: idleDeps });
+  const resumed = await resumeIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, entryAction: 'skip', deps: idleDeps });
   assert.equal(resumed.ok, true);
   assert.equal(stateOf(resumed.view, entryId), 'failed');
   const after = await handleBatchNext({
@@ -484,7 +539,7 @@ test('sequential siblings of a failed entry are skipped blocked_by', async (t) =
   const parent = addTodo(world.dataDir, world.repo, { title: 'parent', status: 'doing', runMode: 'sequential' }).item;
   const a = addTodo(world.dataDir, world.repo, { title: 'a', status: 'done', parentId: parent.id }).item;
   const b = addTodo(world.dataDir, world.repo, { title: 'b', status: 'done', parentId: parent.id }).item;
-  const created = create(world, [a.id, b.id]);
+  const created = await create(world, [a.id, b.id]);
   const first = await next(world, created);
   const failed = await next(world, created, { entryId: first.body.entry.entryId, attempt: 1, outcome: 'failed', summary: 'x' });
   assert.equal(failed.body.action, 'stop');
@@ -500,7 +555,7 @@ test('lock: single owner blocks a batch, a failed report and confirm release it,
   await buildSmartMergeRequest({ todoId, workspaceFolder: world.repo, dataDir: world.dataDir, baseUrl: 'https://127.0.0.1:3011' });
   acquireIntegrationLock({ dataDir: world.dataDir, workspaceFolder: world.repo, owner: 'single', todoId, chatId: 'chat-s', now: new Date(Date.now() - 5 * 60_000).toISOString() });
   assert.equal(checkIntegrationUnlocked({ dataDir: world.dataDir, workspaceFolder: world.repo, deps: { isChatRunConfirmedIdle: () => false } }).ok, false);
-  const refused = createIntegrateBatch({ dataDir: world.dataDir, workspaceFolder: world.repo, todoIds: [world.todos[1].id], deps: world.deps });
+  const refused = await createIntegrateBatch({ dataDir: world.dataDir, workspaceFolder: world.repo, todoIds: [world.todos[1].id], deps: world.deps });
   assert.equal(refused.reason, 'integration_locked');
   // unknown liveness keeps the lock; confirmed idle past the grace releases it
   assert.ok(getIntegrationLock({ dataDir: world.dataDir, workspaceFolder: world.repo, deps: { isChatRunConfirmedIdle: () => { throw new Error('probe'); } } }));
@@ -520,10 +575,10 @@ test('lock: single owner blocks a batch, a failed report and confirm release it,
   acquireIntegrationLock({ dataDir: world.dataDir, workspaceFolder: world.repo, owner: 'single', todoId, chatId: '' });
   assert.equal(clearIntegrationLock({ dataDir: world.dataDir, workspaceFolder: world.repo }).ok, true);
   // an active batch lock cannot be cleared, and blocks single flows
-  const created = create(world, [world.todos[1].id]);
+  const created = await create(world, [world.todos[1].id]);
   assert.equal(clearIntegrationLock({ dataDir: world.dataDir, workspaceFolder: world.repo }).reason, 'batch_owned');
   assert.equal(checkIntegrationUnlocked({ dataDir: world.dataDir, workspaceFolder: world.repo }).ok, false);
-  abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, forceLiveness: true, deps: world.deps });
+  await abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, forceLiveness: true, deps: world.deps });
 });
 
 test('liveness: busy or unknown keeps ownership, idle + stale becomes stalled, override is recorded', async (t) => {
@@ -531,7 +586,7 @@ test('liveness: busy or unknown keeps ownership, idle + stale becomes stalled, o
   t.after(world.cleanup);
   let clock = Date.now();
   const make = (probe) => ({ ...world.deps, probeChatRunLiveness: probe, now: () => clock, staleMs: 1000 });
-  const created = create(world, [world.todos[0].id], { deps: make(UNKNOWN) });
+  const created = await create(world, [world.todos[0].id], { deps: make(UNKNOWN) });
   attachBatchChat({ dataDir: world.dataDir, batchId: created.batch.id, chatId: 'chat-l', deps: make(UNKNOWN) });
   await next(world, created, {}, make(UNKNOWN));
   clock += 10_000;
@@ -539,14 +594,14 @@ test('liveness: busy or unknown keeps ownership, idle + stale becomes stalled, o
   assert.equal(read(BUSY).status, 'running');
   assert.equal(read(UNKNOWN).status, 'running');
   assert.equal(read(UNKNOWN).liveness.known, false);
-  assert.equal(resumeIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: make(UNKNOWN) }).reason, 'liveness_unknown');
-  assert.equal(abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: make(BUSY) }).reason, 'agent_busy');
+  assert.equal((await resumeIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: make(UNKNOWN) })).reason, 'liveness_unknown');
+  assert.equal((await abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: make(BUSY) })).reason, 'agent_busy');
   assert.equal(read(IDLE).status, 'stalled');
   // cancel while an entry is open keeps the lock
-  const cancelled = cancelIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: make(IDLE) });
+  const cancelled = await cancelIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: make(IDLE) });
   assert.equal(cancelled.view.status, 'cancelling');
   assert.ok(getIntegrationLock({ dataDir: world.dataDir, workspaceFolder: world.repo }));
-  const abandoned = abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, forceLiveness: true, deps: make(UNKNOWN) });
+  const abandoned = await abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, forceLiveness: true, deps: make(UNKNOWN) });
   assert.equal(abandoned.ok, true);
   assert.equal(abandoned.view.status, 'abandoned');
   assert.equal(abandoned.view.overrides.length, 1);
@@ -561,8 +616,8 @@ test('liveness: busy or unknown keeps ownership, idle + stale becomes stalled, o
 test('cancel without an open entry ends the batch and releases the lock', async (t) => {
   const world = await makeWorld('cancel', 2);
   t.after(world.cleanup);
-  const created = create(world, world.todos.map((row) => row.id));
-  const cancelled = cancelIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: world.deps });
+  const created = await create(world, world.todos.map((row) => row.id));
+  const cancelled = await cancelIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: world.deps });
   assert.equal(cancelled.view.status, 'cancelled');
   assert.ok(cancelled.view.entries.every((entry) => entry.state === 'cancelled'));
   assert.equal(getIntegrationLock({ dataDir: world.dataDir, workspaceFolder: world.repo }), null);
@@ -578,14 +633,14 @@ test('boundary gates create, first dispatch and resume from stalled', async (t) 
   t.after(world.cleanup);
   const ids = world.todos.map((row) => row.id);
   // create refuses an unsafe workspace and takes no lock
-  const refused = createIntegrateBatch({
+  const refused = await createIntegrateBatch({
     dataDir: world.dataDir, workspaceFolder: world.repo, todoIds: ids, deps: { ...world.deps, inspectBoundary: MERGING },
   });
   assert.equal(refused.ok, false);
   assert.equal(refused.reason, 'boundary_unsafe');
   assert.equal(getIntegrationLock({ dataDir: world.dataDir, workspaceFolder: world.repo }), null);
   // first dispatch pauses with boundary_unsafe and builds nothing
-  const created = create(world, ids);
+  const created = await create(world, ids);
   attachBatchChat({ dataDir: world.dataDir, batchId: created.batch.id, chatId: 'chat-g', deps: world.deps });
   const calls = [];
   const unsafeDeps = {
@@ -600,7 +655,7 @@ test('boundary gates create, first dispatch and resume from stalled', async (t) 
   assert.deepEqual(calls, []);
   // once safe the paused batch resumes and dispatches
   const idle = { ...world.deps, probeChatRunLiveness: IDLE };
-  const resumed = resumeIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: idle });
+  const resumed = await resumeIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: idle });
   assert.equal(resumed.ok, true, JSON.stringify(resumed));
   const entry = await handleBatchNext({
     dataDir: world.dataDir, body: { batchId: created.batch.id, epoch: 2, token: resumed.secret }, deps: world.deps,
@@ -612,15 +667,15 @@ test('boundary gates create, first dispatch and resume from stalled', async (t) 
   const clock = Date.now() + 10 * 60_000;
   const stalled = readIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: { ...idle, now: () => clock } });
   assert.equal(stalled.status, 'stalled');
-  const blocked = resumeIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: stalledDeps });
+  const blocked = await resumeIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: stalledDeps });
   assert.equal(blocked.ok, false);
   assert.equal(blocked.reason, 'boundary_unsafe');
   assert.equal(readIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: idle }).epoch, 2, 'epoch not rotated');
-  const forced = resumeIntegrateBatch({
+  const forced = await resumeIntegrateBatch({
     dataDir: world.dataDir, batchId: created.batch.id, forceLiveness: true, deps: { ...world.deps, inspectBoundary: MERGING },
   });
   assert.equal(forced.reason, 'boundary_unsafe');
-  abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, forceLiveness: true, deps: world.deps });
+  await abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, forceLiveness: true, deps: world.deps });
 });
 
 test('single lock: orphan TTL, unknown and busy never expire, rollback and invalidate release', async (t) => {
@@ -674,11 +729,11 @@ test('invalidate releases the owner single lock', async (t) => {
 test('resume creates the chat first; a failed chat leaves epoch and state untouched', async (t) => {
   const world = await makeWorld('openchat', 1);
   t.after(world.cleanup);
-  const created = create(world, [world.todos[0].id]);
+  const created = await create(world, [world.todos[0].id]);
   attachBatchChat({ dataDir: world.dataDir, batchId: created.batch.id, chatId: 'chat-o', deps: world.deps });
   await next(world, created);
   const idle = { ...world.deps, probeChatRunLiveness: IDLE };
-  const failed = resumeIntegrateBatch({
+  const failed = await resumeIntegrateBatch({
     dataDir: world.dataDir, batchId: created.batch.id, deps: idle, openChat: () => { throw new Error('no chat'); },
   });
   assert.equal(failed.ok, false);
@@ -687,7 +742,7 @@ test('resume creates the chat first; a failed chat leaves epoch and state untouc
   assert.equal(view.epoch, 1);
   assert.equal(view.chatId, 'chat-o');
   assert.equal(view.entries[0].state, 'running');
-  const ok = resumeIntegrateBatch({
+  const ok = await resumeIntegrateBatch({
     dataDir: world.dataDir, batchId: created.batch.id, deps: idle, openChat: () => ({ chat: { id: 'chat-new' } }),
   });
   assert.equal(ok.ok, true);
@@ -704,7 +759,7 @@ test('verify entry: no_code claim needs the recorded no-code review', async (t) 
   await reportSmartMergeOutcome({ todoId, workspaceFolder: world.repo, dataDir: world.dataDir, outcome: 'merged' });
   await agentConfirm(world, todoId);
   const plain = addTodo(world.dataDir, world.repo, { title: 'plain done', status: 'done' }).item;
-  const created = create(world, [plain.id]);
+  const created = await create(world, [plain.id]);
   const first = await next(world, created);
   assert.equal(first.body.entry.mode, 'verify');
   const entryId = first.body.entry.entryId;
@@ -729,13 +784,13 @@ test('library guard: reject / invalidate honour the lock for every entry point (
   const [a, b] = world.todos;
   const base = { workspaceFolder: world.repo, dataDir: world.dataDir };
   assert.equal(await refuseWhenIntegrationLockedForWriter({ ...base, todoId: a.id }), null, 'no lock, no refusal');
-  const created = create(world, [b.id]);
+  const created = await create(world, [b.id]);
   bindIntegrationLockChat({ ...base, batchId: created.batch.id, chatId: 'chat-batch' });
   assert.equal((await rejectWorkspaceTodoIntegration({ ...base, todoId: b.id, callerChatId: 'chat-other' })).reason, 'integration_locked');
   assert.equal((await rejectWorkspaceTodoIntegration({ ...base, todoId: b.id })).reason, 'integration_locked', 'no caller identity is not the batch agent');
   assert.equal((await invalidateTodoIntegrationProof({ ...base, todoId: b.id, expectedUpdatedAt: 'x', reason: 'r' })).reason, 'integration_locked');
   assert.notEqual((await rejectWorkspaceTodoIntegration({ ...base, todoId: b.id, callerChatId: 'chat-batch' })).reason, 'integration_locked');
-  abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, forceLiveness: true, deps: world.deps });
+  await abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, forceLiveness: true, deps: world.deps });
   acquireIntegrationLock({ ...base, owner: 'single', todoId: a.id, chatId: 'chat-a' });
   assert.equal((await rejectWorkspaceTodoIntegration({ ...base, todoId: b.id, callerChatId: 'chat-x' })).reason, 'integration_locked');
   // the single-lock owner is not refused by the guard (it gets the normal result)
@@ -779,7 +834,7 @@ test('library guard: confirm / no-code honour the locks; the human attestation i
 
   // an active batch: a non-owner MCP confirm / no-code is refused, the batch
   // chat is accepted, and the human UI attestation still passes
-  const created = create(world, [c.id]);
+  const created = await create(world, [c.id]);
   assert.equal((await confirmOf(d.id, { callerChatId: 'chat-other' })).reason, 'integration_locked');
   assert.equal((await confirmOf(d.id)).reason, 'integration_locked', 'no caller identity is not the batch agent');
   const foreignNoCode = plain('docs only under a batch (foreign)');
@@ -793,7 +848,7 @@ test('library guard: confirm / no-code honour the locks; the human attestation i
   assert.equal(ownerBatchConfirm.ok, true, JSON.stringify(ownerBatchConfirm));
   const ownerBatchNoCode = await noCodeOf(plain('docs only under a batch (owner)').id, { callerChatId: BATCH_CHAT });
   assert.equal(ownerBatchNoCode.ok, true, JSON.stringify(ownerBatchNoCode));
-  abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, forceLiveness: true, deps: world.deps });
+  await abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, forceLiveness: true, deps: world.deps });
 });
 
 test('resume: no chat is requested when reconcile / skip leaves the batch complete', async (t) => {
@@ -805,7 +860,7 @@ test('resume: no chat is requested when reconcile / skip leaves the batch comple
     inspectBoundary: () => (unsafe ? { ...SAFE(), unmerged: ['conflict.txt'] } : SAFE()),
     probeChatRunLiveness: IDLE,
   };
-  const created = create(world, [world.todos[0].id]);
+  const created = await create(world, [world.todos[0].id]);
   attachBatchChat({ dataDir: world.dataDir, batchId: created.batch.id, chatId: 'chat-r', deps });
   const first = await handleBatchNext({ dataDir: world.dataDir, body: { batchId: created.batch.id, epoch: 1, token: created.secret }, deps: { ...deps, inspectBoundary: SAFE } });
   const failed = await handleBatchNext({
@@ -816,7 +871,7 @@ test('resume: no chat is requested when reconcile / skip leaves the batch comple
   assert.equal(failed.body.batch.status, 'paused');
   unsafe = false;
   let opened = 0;
-  const resumed = resumeIntegrateBatch({
+  const resumed = await resumeIntegrateBatch({
     dataDir: world.dataDir,
     batchId: created.batch.id,
     entryAction: 'skip',
@@ -834,7 +889,7 @@ test('fix round: canonical workspace fence, terminal fence, marker, token-free s
   const world = await makeWorld('fix', 2);
   t.after(world.cleanup);
   const [a, b] = world.todos;
-  const created = create(world, [a.id, b.id]);
+  const created = await create(world, [a.id, b.id]);
   const first = await next(world, created);
   assert.equal(first.body.action, 'entry');
   // A3: the entry carries the capability in the response, the store never does.
@@ -843,7 +898,7 @@ test('fix round: canonical workspace fence, terminal fence, marker, token-free s
   attachBatchChat({ dataDir: world.dataDir, batchId: created.batch.id, chatId: 'chat-fix', deps: world.deps });
   // B1: a non-canonical workspace spelling does not bypass the fence.
   const sloppy = `${world.repo}${path.sep}.`;
-  assert.equal(checkBatchLegacyReport({ dataDir: world.dataDir, workspaceFolder: sloppy, todoId: a.id, body: {} }).ok, false);
+  assert.equal((await checkBatchLegacyReport({ dataDir: world.dataDir, workspaceFolder: sloppy, todoId: a.id, body: {} })).ok, false);
   // A2: failing through next clears the running marker.
   assert.equal(getTodoById(world.dataDir, world.repo, a.id).integration.reason, SMART_MERGE_RUNNING);
   const failed = await next(world, created, { entryId: first.body.entry.entryId, attempt: 1, outcome: 'failed', summary: 'x' });
@@ -851,18 +906,18 @@ test('fix round: canonical workspace fence, terminal fence, marker, token-free s
   assert.notEqual(getTodoById(world.dataDir, world.repo, a.id).integration.reason, SMART_MERGE_RUNNING);
   // A5: cancelling survives a pause and a later resume ends cancelled.
   const second = failed.body.entry;
-  cancelIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: world.deps });
+  await cancelIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: world.deps });
   const UNMERGED = () => ({ ok: true, unmerged: ['x'], inProgress: [], dirty: {} });
   const paused = await next(world, created, { entryId: second.entryId, attempt: 1, outcome: 'failed', summary: 'x' }, { ...world.deps, inspectBoundary: UNMERGED });
   assert.equal(paused.body.reason, 'paused');
   assert.equal(readIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: world.deps }).status, 'cancelling');
-  const resumed = resumeIntegrateBatch({
+  const resumed = await resumeIntegrateBatch({
     dataDir: world.dataDir, batchId: created.batch.id, forceLiveness: true, deps: world.deps,
   });
   assert.equal(resumed.ok, true, JSON.stringify(resumed));
   assert.equal(resumed.view.status, 'cancelled');
   // A1: a stale report of the now terminal batch changes nothing.
-  const stale = checkBatchLegacyReport({
+  const stale = await checkBatchLegacyReport({
     dataDir: world.dataDir,
     workspaceFolder: world.repo,
     todoId: b.id,
@@ -877,7 +932,7 @@ test('fix round: recovery applies no_code_with_changes on resume and abandon', a
     const world = await makeWorld(`b3-${action}`, 1);
     t.after(world.cleanup);
     const todoId = world.todos[0].id;
-    const created = create(world, [todoId]);
+    const created = await create(world, [todoId]);
     const first = await next(world, created);
     assert.equal(first.body.action, 'entry');
     attachBatchChat({ dataDir: world.dataDir, batchId: created.batch.id, chatId: 'chat-b3', deps: world.deps });
@@ -896,10 +951,10 @@ test('fix round: recovery applies no_code_with_changes on resume and abandon', a
     });
     const idle = { ...world.deps, probeChatRunLiveness: IDLE };
     if (action === 'resume') {
-      const resumed = resumeIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: idle });
+      const resumed = await resumeIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: idle });
       assert.equal(resumed.ok, true, JSON.stringify(resumed));
     } else {
-      assert.equal(abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: idle }).ok, true);
+      assert.equal((await abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: idle })).ok, true);
     }
     const view = readIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, deps: idle });
     assert.equal(view.entries[0].state, 'failed');
@@ -982,7 +1037,7 @@ test('fix round: aliased child blocks the ancestor target\'s sequential siblings
   });
   fs.writeFileSync(path.join(created.record.worktreePath, 'p.txt'), 'p\n');
   assert.equal((await prepareManualTodoIntegration({ todoId: p.id, workspaceFolder: world.repo, dataDir: world.dataDir })).ok, true);
-  const batch = create(world, [c.id, q.id]);
+  const batch = await create(world, [c.id, q.id]);
   assert.equal(batch.view.entries[0].targetId, p.id);
   const first = await next(world, batch);
   const failed = await next(world, batch, { entryId: first.body.entry.entryId, attempt: 1, outcome: 'failed', summary: 'x' });
