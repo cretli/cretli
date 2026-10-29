@@ -1762,3 +1762,35 @@ lease TTL remains on the stored lease. The lease is renewed once less than TTL/2
 is left, and any real state change persists immediately. As a result
 `lastTickAt` shown in the UI, MCP and guardrails has a resolution of about 45 s
 (TTL 90 s, so with a 20 s tick the lease is written on every 3rd tick) for an idle watcher.
+
+### Structured `needs_human` reports
+
+When reporting `outcome=blocked` with `reason_code=needs_human`, send 2–4 options,
+a recommended option id, and a one-sentence explanation:
+
+```json
+{
+  "outcome": "blocked",
+  "reason_code": "needs_human",
+  "options": [
+    { "id": "retry", "label": "Retry", "effect": "Retry the task with the current scope" },
+    { "id": "defer", "label": "Defer", "effect": "Postpone the task" }
+  ],
+  "recommended": "retry",
+  "why": "A retry can recover a temporary failure."
+}
+```
+
+Both `watcher_report` and `watcher_update action=report` support this contract.
+Validation is soft: incomplete options, an invalid recommendation or missing
+`why` still close the cycle, create a card with “Odpowiedz w czacie” / “Odłóż”,
+return an MCP `warning`, and increment `decisionProducerViolations[chatId]` once.
+Retries use the recorded report and do not count another violation. Existing
+reports without options remain accepted. Risk/reversibility are server-owned.
+
+The card always offers “Inna odpowiedź…” through its separate `otherOption`.
+Selections and free text return to the source orchestrator chat as a structured
+`decision_response` with related todo ids. Agents can also use `decision_request`
+to create/read a card and optionally wait at most 24 seconds per call. They
+cannot resolve it. See [Decision cards](decision-cards.md#structured-human-requests)
+for idempotency, timeout policy and response details.

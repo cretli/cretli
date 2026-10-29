@@ -28,3 +28,40 @@ An agent with shell access cannot normally call the resolution route without a h
 ## Claims and crash recovery
 
 Resolving a card first claims it with a database compare-and-swap (`pending` to `deciding`, stored with `claimedAt`); only the winner runs the side effect, then moves the card to `decided`, or to `stale` when the subject changed, or back to `pending` when the effect failed without a conflict. A `deciding` card is persistent and is **never reset automatically**: the owner may be another request or another server process still running the effect, and a process-local liveness set cannot tell. If the owner crashes between the claim and the outcome, the card stays `deciding` (hidden from the pending list) until a human calls `POST /api/decisions/:id/reopen {expectedRevision}` (same human-channel check as resolution), which is accepted only after a lease (5 minutes) from `claimedAt`. Re-running the effect afterwards is safe because every effect re-checks the subject compare-and-swap: if it already took effect, the retry ends as `stale` instead of applying twice. The tradeoff is that a crashed claim needs one manual action instead of silently retrying.
+
+## Structured human requests
+
+`watcher_report` and `watcher_update action=report` accept `options`, `recommended`
+and `why` for `outcome=blocked, reason_code=needs_human`. Supply 2–4 options with
+`label` and `effect`, optionally `id` (otherwise `option_1`, `option_2`, …).
+`recommended` identifies one option; `why` explains the recommendation in one
+sentence. Risk and reversibility come from the server registry, never from a
+producer's assertion that an action is safe.
+
+Validation is soft for Watcher reports: missing/incomplete options, an invalid
+recommendation or missing justification still close the cycle. The card uses
+“Odpowiedz w czacie” and “Odłóż”, the MCP result includes `warning`, and the durable
+`watcher.decisionProducerViolations[chatId]` counter increases once. Replaying a
+report neither increments this counter nor creates another card. The report is
+stored before card creation; a card storage failure returns a warning and the
+same report can be retried to create the card.
+
+`decision_request` is available in Agent, Plan, Ask and Scout contexts. It only
+creates or reads cards; it cannot resolve them. Creation requires `title`, a
+stable `idempotency_key`, 2–4 complete options, `recommended` and `why`. Unlike
+Watcher reporting, invalid direct requests are rejected. `kind` defaults to
+`question`. `onTimeout=recommended` is refused for every `humanOnly` kind and
+any kind not classified as low risk and reversible. Repeat with the same key,
+or pass `decision_id` to read an existing request owned by the calling chat.
+`wait_ms` optionally polls for completion, capped at 24 seconds per call; repeat
+calls to keep waiting. A timeout returns a pending card and does not choose an
+option. Workspace and source-chat scope apply to reads as well as creation.
+
+Cards expose `otherOption` (“Inna odpowiedź…”) separately from the 2–4 choices.
+The human resolution route accepts `optionId=__other__` with non-empty `reason`.
+For request and Watcher cards, a selection or free-text answer is delivered to
+the source chat as a notice with action `decision_response`; its JSON text
+contains `decisionId`, `kind`, `optionId`, `option`, `text` and related `todoIds`.
+The decided card also retains this structured `response`. Options describe work
+for the source orchestrator; the adapter does not execute producer-supplied code.
+The decision stack UI is implemented in a separate leaf.

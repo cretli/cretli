@@ -213,9 +213,9 @@ test('parallel POSTs on one card run the effect once and the losers get 409', as
 
 test('a stale effect leaves the claim as stale', async () => {
   const { changeDecision, listDecisions } = await import('../lib/decisions/decision-store.js');
-  const orphan = await createDecision(dataDir, { kind: 'question', subject: { chatId: 'chat-claim', updatedAt: 'c1' }, workspaceFolder: cwd,
+  const orphan = await createDecision(dataDir, { kind: 'question', subject: { todoId: 'missing-todo', updatedAt: 'c1' }, workspaceFolder: cwd,
     title: 'Claim', dedupeKey: 'claim-question', options: [{ id: 'a', label: 'A', effect: 'A' }, { id: 'b', label: 'B', effect: 'B' }] });
-  // No adapter resolves a chat subject, so the effect reports stale and the claim must not stay in `deciding`.
+  // A missing todo makes the effect stale and must release the claim.
   const refused = await request('POST', `/api/decisions/${orphan.id}`, humanHeaders, payload(orphan, 'a'));
   assert.equal(refused.status, 409);
   assert.equal((await listDecisions(dataDir, cwd)).find((item) => item.id === orphan.id).status, 'stale');
@@ -247,4 +247,48 @@ test('an active claim survives GET sync and a worker restart; only an explicit h
     assert.equal(reopened.status, 200, JSON.stringify(reopened.body));
   } finally { lease.ms = 60_000; }
   assert.equal(await status(), 'pending');
+});
+
+test('needs_human choices and Other answer reach the source chat as structured responses', async () => {
+  const { randomUUID } = await import('node:crypto');
+  const { createWatcherHumanDecision } = await import('../lib/decisions/decision-request.js');
+  const { loadChatHistory } = await import('../lib/persist/chat-history-service.js');
+  const chatId = randomUUID();
+  for (const other of [false, true]) {
+    const { decision } = await createWatcherHumanDecision(dataDir, cwd, {
+      chatId, reportId: randomUUID(), cycleId: randomUUID(), todoIds: ['leaf'], message: 'Choose next step',
+      options: [{ id: 'retry', label: 'Retry', effect: 'Retry task' }, { id: 'defer', label: 'Defer', effect: 'Postpone task' }],
+      recommended: 'retry', why: 'Retry may recover the task.',
+    });
+    const answer = await request('POST', `/api/decisions/${decision.id}`, humanHeaders,
+      payload(decision, other ? '__other__' : 'retry', { reason: other ? 'Use another approach' : '' }));
+    assert.equal(answer.status, 200, JSON.stringify(answer.body));
+    assert.equal(answer.body.decision.response.optionId, other ? '__other__' : 'retry');
+    const history = await loadChatHistory(chatId);
+    const notice = JSON.parse(history.events.at(-1).rec.payload);
+    const response = JSON.parse(notice.text);
+    assert.equal(response.decisionId, decision.id);
+    assert.deepEqual(response.todoIds, ['leaf']);
+    assert.equal(response.text, other ? 'Use another approach' : '');
+  }
+});
+
+test('agent HTTP request creates and reads its own card, but cannot resolve it or spoof the source chat', async () => {
+  const chatId = 'agent-request-source';
+  const token = mintMcpIntegrationToken({ sessionId: 'decision-request', chatId, workspaceFolder: cwd, harness: 'test', incarnation: 'request' });
+  const headers = { authorization: `Bearer ${token}` };
+  const body = { workspaceFolder: cwd, chatId: 'spoofed', idempotencyKey: 'http-request', title: 'Choose next step',
+    options: [{ label: 'Retry', effect: 'Retry task' }, { label: 'Defer', effect: 'Postpone task' }],
+    recommended: 'option_1', why: 'Retry may recover the task.' };
+  const created = await request('POST', '/api/decisions/request', headers, body);
+  assert.equal(created.status, 200, JSON.stringify(created.body));
+  assert.equal(created.body.decision.subject.chatId, chatId);
+  assert.equal(created.body.decision.status, 'pending');
+  const read = await request('POST', '/api/decisions/request', headers, { workspaceFolder: cwd, decisionId: created.body.decision.id, waitMs: 10 });
+  assert.equal(read.status, 200);
+  assert.equal(read.body.pending, true);
+  assert.equal((await request('POST', `/api/decisions/${created.body.decision.id}`, headers, payload(created.body.decision, 'option_1'))).status, 403);
+  for (const kind of ['plan_approval', 'integration', 'policy_upgrade']) {
+    assert.equal((await request('POST', '/api/decisions/request', headers, { ...body, kind, onTimeout: 'recommended' })).status, 400);
+  }
 });
