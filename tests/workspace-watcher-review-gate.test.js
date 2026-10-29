@@ -607,7 +607,7 @@ test('warn records a decision and changelog but never changes the cycle outcome'
   assert.match(changelog, /review_missing/);
 });
 
-test('C3 runtime reconcile of a deferred success without review closes blocked/review_missing', () => {
+test('C3 runtime reconcile of a deferred success without review closes blocked/review_missing', async () => {
   const dataDir = freshDataDir('c3');
   const cwd = makeWorkspace('c3');
   setAutopilot(cwd, dataDir);
@@ -615,7 +615,7 @@ test('C3 runtime reconcile of a deferred success without review closes blocked/r
   seedActiveCycle(cwd, dataDir, {
     cycleId: 'c-dead', chatId: 'orch-dead', todoIds: [leaf.id], reportedOutcome: 'success',
   });
-  const result = reconcileWorkspaceWatcherCycle({
+  const result = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0 + 3_600_000,
@@ -655,7 +655,7 @@ test('C4 boot reconcile of a deferred success without review closes blocked/revi
   assert.equal(getWorkspaceWatcherCycleMetric('c-boot', { dataDir }).blockedReasonCode, 'review_missing');
 });
 
-test('crash between marker write and release is repaired idempotently at boot', () => {
+test('crash between marker write and release is repaired idempotently at boot', async () => {
   const dataDir = freshDataDir('crash');
   const cwd = makeWorkspace('crash');
   setAutopilot(cwd, dataDir);
@@ -663,12 +663,12 @@ test('crash between marker write and release is repaired idempotently at boot', 
   mutateWorkspaceWatcherRow(cwd, () => ({
     reviewWaits: { [leaf.id]: { since: iso(T0), attempts: 3, materialRevision: '', phase: 'review', worktree: false } },
   }), { dataDir });
-  const first = reconcileWorkspaceWatcherReviewWaits({ workspaceFolder: cwd, dataDir });
+  const first = await reconcileWorkspaceWatcherReviewWaits({ workspaceFolder: cwd, dataDir });
   assert.deepEqual(first.released, [leaf.id]);
   const todo = getTodoById(dataDir, cwd, leaf.id);
   assert.equal(todo.claimedByChatId, undefined);
   assert.equal(todo.status, 'doing', 'past the cap the status is not reset to ready');
-  const second = reconcileWorkspaceWatcherReviewWaits({ workspaceFolder: cwd, dataDir });
+  const second = await reconcileWorkspaceWatcherReviewWaits({ workspaceFolder: cwd, dataDir });
   assert.equal(isReviewGateBlockedReason(getTodoById(dataDir, cwd, leaf.id).blockedReason), true);
   assert.deepEqual(second.released, []);
   // A done / missing todo prunes its marker.
@@ -676,7 +676,7 @@ test('crash between marker write and release is repaired idempotently at boot', 
     status: 'done',
     expectedUpdatedAt: getTodoById(dataDir, cwd, leaf.id).updatedAt,
   });
-  assert.deepEqual(reconcileWorkspaceWatcherReviewWaits({ workspaceFolder: cwd, dataDir }).pruned, [leaf.id]);
+  assert.deepEqual((await reconcileWorkspaceWatcherReviewWaits({ workspaceFolder: cwd, dataDir })).pruned, [leaf.id]);
   assert.deepEqual(getWorkspaceWatcher(cwd, { dataDir }).reviewWaits, {});
 });
 
@@ -745,7 +745,7 @@ test('MCP-token REST retry and todo_integration confirm preserve the marker; a b
   assert.equal(getWorkspaceWatcher(cwd, { dataDir }).reviewWaits[leaf.id], undefined);
 });
 
-test('worktree leaf: claim-only release, label after release, never ready; result writer refuses without review', () => {
+test('worktree leaf: claim-only release, label after release, never ready; result writer refuses without review', async () => {
   const dataDir = freshDataDir('wt');
   const cwd = makeWorkspace('wt');
   setAutopilot(cwd, dataDir);
@@ -753,7 +753,7 @@ test('worktree leaf: claim-only release, label after release, never ready; resul
   mutateWorkspaceWatcherRow(cwd, () => ({
     reviewWaits: { [leaf.id]: { since: iso(T0), attempts: 1, materialRevision: '', phase: 'review', worktree: true } },
   }), { dataDir });
-  releaseWorkspaceWatcherCycleTodoClaim({ workspaceFolder: cwd, todoId: leaf.id, chatId: 'orch-wt', dataDir });
+  await releaseWorkspaceWatcherCycleTodoClaim({ workspaceFolder: cwd, todoId: leaf.id, chatId: 'orch-wt', dataDir });
   const todo = getTodoById(dataDir, cwd, leaf.id);
   assert.equal(todo.status, 'doing');
   assert.equal(todo.claimedByChatId, undefined);
@@ -1127,7 +1127,7 @@ test('F3/F6: a released non-worktree gated leaf is reselected through the real s
   assert.equal(decision.nextTodoId, leaf.id);
 });
 
-test('F5: boot reconcile only lists a leaf as released when the release actually happened', () => {
+test('F5: boot reconcile only lists a leaf as released when the release actually happened', async () => {
   const dataDir = freshDataDir('f5');
   const cwd = makeWorkspace('f5');
   setAutopilot(cwd, dataDir);
@@ -1142,7 +1142,7 @@ test('F5: boot reconcile only lists a leaf as released when the release actually
   mutateWorkspaceWatcherRow(cwd, () => ({
     reviewWaits: { [fenced.id]: marker, [plain.id]: marker },
   }), { dataDir });
-  const out = reconcileWorkspaceWatcherReviewWaits({ workspaceFolder: cwd, dataDir });
+  const out = await reconcileWorkspaceWatcherReviewWaits({ workspaceFolder: cwd, dataDir });
   assert.deepEqual(out.released, [plain.id]);
   assert.equal(getTodoById(dataDir, cwd, fenced.id).claimedByChatId, 'dead-chat');
   assert.equal(getTodoById(dataDir, cwd, plain.id).claimedByChatId, undefined);

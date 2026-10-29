@@ -279,7 +279,7 @@ test('a worktree PASS records the result, keeps the todo doing and is replay-saf
 
   // A lost claim (already released, or owned by another chat) must not move the
   // integration-ready leaf back to ready or drop the result.
-  const lostChatRelease = releaseWorkspaceWatcherCycleTodoClaim({
+  const lostChatRelease = await releaseWorkspaceWatcherCycleTodoClaim({
     workspaceFolder: suite.repo,
     todoId: todo.id,
     chatId: 'some-other-chat',
@@ -451,7 +451,7 @@ test('integration-ready recovery is user_action and never auto-releases', async 
   assert.equal(state.state, 'user_action');
   assert.equal(state.reason, 'integration_ready');
 
-  const recovered = recoverWorkspaceWatcherTodo({
+  const recovered = await recoverWorkspaceWatcherTodo({
     workspaceFolder: suite.repo,
     dataDir: suite.dataDir,
     todoId: todo.id,

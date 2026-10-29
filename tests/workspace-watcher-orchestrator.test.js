@@ -549,7 +549,7 @@ runCase('MCP readiness gate blocks an orchestrator without the full tool catalog
   assert.equal(ordinary.handled.length, 1, 'an ordinary chat is never refused');
 });
 
-runCase('missing report closes as failure even when the todo is done', () => {
+runCase('missing report closes as failure even when the todo is done', async () => {
   const dataDir = freshDataDir('close-missing-done');
   const cwd = makeWorkspace('close-missing-done');
   const todo = addReadyTodo(dataDir, cwd, 'done without report');
@@ -558,7 +558,7 @@ runCase('missing report closes as failure even when the todo is done', () => {
   seedActiveCycle(cwd, dataDir, { cycleId: 'c-mr', chatId: 'orch-mr', todoId: todo.id });
   updateTodo(dataDir, cwd, todo.id, { status: 'done', expectedUpdatedAt: getTodoById(dataDir, cwd, todo.id).updatedAt });
 
-  const closed = reconcileWorkspaceWatcherCycle({
+  const closed = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0 + 1000,
@@ -576,14 +576,14 @@ runCase('missing report closes as failure even when the todo is done', () => {
   assert.equal(row.decisions.at(-1).reason, 'missing_report');
 });
 
-runCase('missing report on an unfinished or absent todo is failure/missing_report', () => {
+runCase('missing report on an unfinished or absent todo is failure/missing_report', async () => {
   const dataDir = freshDataDir('close-missing-doing');
   const cwd = makeWorkspace('close-missing-doing');
   const todo = addReadyTodo(dataDir, cwd, 'still doing');
   updateTodo(dataDir, cwd, todo.id, { status: 'doing', claimedByChatId: 'orch-doing', expectedUpdatedAt: getTodoById(dataDir, cwd, todo.id).updatedAt });
   setAutopilot(cwd, dataDir);
   seedActiveCycle(cwd, dataDir, { cycleId: 'c-doing', chatId: 'orch-doing', todoId: todo.id });
-  const closed = reconcileWorkspaceWatcherCycle({
+  const closed = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0 + 1000,
@@ -604,7 +604,7 @@ runCase('missing report on an unfinished or absent todo is failure/missing_repor
   const ghostCwd = makeWorkspace('close-missing-ghost');
   setAutopilot(ghostCwd, ghostDir);
   seedActiveCycle(ghostCwd, ghostDir, { cycleId: 'c-ghost', chatId: 'orch-ghost', todoId: 'ghost-todo' });
-  const ghost = reconcileWorkspaceWatcherCycle({
+  const ghost = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: ghostCwd,
     dataDir: ghostDir,
     now: T0 + 1000,
@@ -618,14 +618,14 @@ runCase('missing report on an unfinished or absent todo is failure/missing_repor
   assert.equal(getWorkspaceWatcher(ghostCwd, { dataDir: ghostDir }).decisions.at(-1).reason, 'missing_report');
 });
 
-runCase('missing report waits for active children and prefers a concrete MCP error', () => {
+runCase('missing report waits for active children and prefers a concrete MCP error', async () => {
   const dataDir = freshDataDir('close-children');
   const cwd = makeWorkspace('close-children');
   const todo = addReadyTodo(dataDir, cwd, 'live child');
   updateTodo(dataDir, cwd, todo.id, { status: 'doing', claimedByChatId: 'orch-child', expectedUpdatedAt: getTodoById(dataDir, cwd, todo.id).updatedAt });
   setAutopilot(cwd, dataDir);
   seedActiveCycle(cwd, dataDir, { cycleId: 'c-child', chatId: 'orch-child', todoId: todo.id });
-  const held = reconcileWorkspaceWatcherCycle({
+  const held = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0 + 1000,
@@ -646,7 +646,7 @@ runCase('missing report waits for active children and prefers a concrete MCP err
   updateTodo(mcpDir, mcpCwd, mcpTodo.id, { status: 'doing', claimedByChatId: 'orch-mcp', expectedUpdatedAt: getTodoById(mcpDir, mcpCwd, mcpTodo.id).updatedAt });
   setAutopilot(mcpCwd, mcpDir);
   seedActiveCycle(mcpCwd, mcpDir, { cycleId: 'c-mcp', chatId: 'orch-mcp', todoId: mcpTodo.id });
-  const mcpClosed = reconcileWorkspaceWatcherCycle({
+  const mcpClosed = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: mcpCwd,
     dataDir: mcpDir,
     now: T0 + 1000,
@@ -681,7 +681,7 @@ runCase('plan-only without report is failure/missing_report and keeps only a pen
     sourceChatId: 'orch-plan',
   });
 
-  const closed = reconcileWorkspaceWatcherCycle({
+  const closed = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0 + 1000,
@@ -706,7 +706,7 @@ runCase('plan-only without report is failure/missing_report and keeps only a pen
   setAutopilot(emptyCwd, emptyDir);
   seedActiveCycle(emptyCwd, emptyDir, { cycleId: 'c-plan-empty', chatId: 'orch-plan-empty', todoId: emptyTodo.id, planOnly: true });
   mutateWorkspaceWatcherRow(emptyCwd, ({ row }) => ({ planRequests: { ...(row.planRequests || {}), [emptyTodo.id]: new Date(T0).toISOString() } }), { dataDir: emptyDir });
-  const emptyClosed = reconcileWorkspaceWatcherCycle({
+  const emptyClosed = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: emptyCwd,
     dataDir: emptyDir,
     now: T0 + 1000,
@@ -746,7 +746,7 @@ runCase('plan-only failure keeps planRequests when draft lives on planTargetId r
     planMarkdown: '# Root draft',
     sourceChatId: 'orch-root',
   });
-  const closed = reconcileWorkspaceWatcherCycle({
+  const closed = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0 + 1000,
@@ -1089,7 +1089,7 @@ runCase('deferred report keeps a live child claim, reconcile closes with the rep
   assert.equal(held.failures[todo.id], undefined);
   updateTodo(dataDir, cwd, todo.id, { status: 'done', expectedUpdatedAt: getTodoById(dataDir, cwd, todo.id).updatedAt });
 
-  const closed = reconcileWorkspaceWatcherCycle({
+  const closed = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0 + 1000,
@@ -1219,7 +1219,7 @@ runCase('deferred failure survives reconcile as a failure', async () => {
     cycleId: 'c-defer-fail',
     deps: { loadDelegations: () => [{ id: 'child-1', parentChatId: 'orch-defer-fail', status: 'running' }] },
   });
-  const closed = reconcileWorkspaceWatcherCycle({
+  const closed = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0 + 1000,
@@ -1530,7 +1530,7 @@ runCase('runtime reconcile closes a stale blocked cycle with a live child and re
   const cwd = makeWorkspace('rt-legacy-blocked');
   const todo = addReadyTodo(dataDir, cwd, 'rt blocked');
   seedLegacyBlockedCycle(cwd, dataDir, todo, 'rt');
-  const closed = reconcileWorkspaceWatcherCycle({
+  const closed = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0 + 1000,
@@ -1550,7 +1550,7 @@ runCase('runtime reconcile keeps a blocked cycle that is still start-protected',
   const cwd = makeWorkspace('rt-blocked-protected');
   const todo = addReadyTodo(dataDir, cwd, 'rt protected');
   seedLegacyBlockedCycle(cwd, dataDir, todo, 'rp', { phase: 'starting', startDeadlineAt: new Date(T0 + 60_000).toISOString() });
-  const result = reconcileWorkspaceWatcherCycle({
+  const result = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0 + 1000,

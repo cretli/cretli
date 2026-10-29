@@ -265,25 +265,25 @@ try {
   assert.notEqual(secondClaim.item.execution.attemptId, identity.attemptId);
   assert.equal(secondClaim.item.execution.previous.attemptId, identity.attemptId, 'the previous attempt stays visible to the new cycle');
   assert.equal(secondClaim.item.execution.previous.phase, 'released');
-  releaseWorkspaceWatcherCycleTodoClaim({ workspaceFolder: ws, todoId: fenced.id, chatId: 'cycle-chat', cycleId: 'cycle-1', dataDir });
+  await releaseWorkspaceWatcherCycleTodoClaim({ workspaceFolder: ws, todoId: fenced.id, chatId: 'cycle-chat', cycleId: 'cycle-1', dataDir });
   assert.equal(getTodoById(dataDir, ws, fenced.id).status, 'doing', 'a stale attempt cannot reset the newer one');
   assert.equal(getTodoById(dataDir, ws, fenced.id).execution.attemptId, secondClaim.item.execution.attemptId);
-  releaseWorkspaceWatcherCycleTodoClaim({ workspaceFolder: ws, todoId: fenced.id, chatId: 'other-chat', cycleId: 'cycle-2', dataDir });
+  await releaseWorkspaceWatcherCycleTodoClaim({ workspaceFolder: ws, todoId: fenced.id, chatId: 'other-chat', cycleId: 'cycle-2', dataDir });
   assert.equal(getTodoById(dataDir, ws, fenced.id).claimedByChatId, 'cycle-chat', 'a foreign chat cannot release the claim');
-  releaseWorkspaceWatcherCycleTodoClaim({ workspaceFolder: ws, todoId: fenced.id, chatId: 'cycle-chat', cycleId: 'cycle-2', dataDir });
+  await releaseWorkspaceWatcherCycleTodoClaim({ workspaceFolder: ws, todoId: fenced.id, chatId: 'cycle-chat', cycleId: 'cycle-2', dataDir });
   assert.equal(getTodoById(dataDir, ws, fenced.id).status, 'ready', 'the current attempt releases its own claim');
 
   const bareCycle = addTodo(dataDir, ws, { title: 'Bare cycle claim', status: 'ready' }).item;
   const bareFirst = await claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: bareCycle.id, claimedByChatId: 'bare-chat', expectedUpdatedAt: bareCycle.updatedAt, cycleId: 'bare-old' });
   assert.equal(bareFirst.claimed, true);
-  releaseWorkspaceWatcherCycleTodoClaim({ workspaceFolder: ws, todoId: bareCycle.id, chatId: 'bare-chat', cycleId: 'bare-old', dataDir });
+  await releaseWorkspaceWatcherCycleTodoClaim({ workspaceFolder: ws, todoId: bareCycle.id, chatId: 'bare-chat', cycleId: 'bare-old', dataDir });
   const bareReady = getTodoById(dataDir, ws, bareCycle.id);
   const bareSecond = await claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: bareCycle.id, claimedByChatId: 'bare-chat', expectedUpdatedAt: bareReady.updatedAt });
   assert.equal(bareSecond.claimed, true);
   assert.equal(bareSecond.item.execution.cycleId || '', '');
-  releaseWorkspaceWatcherCycleTodoClaim({ workspaceFolder: ws, todoId: bareCycle.id, chatId: 'bare-chat', cycleId: 'bare-old', dataDir });
+  await releaseWorkspaceWatcherCycleTodoClaim({ workspaceFolder: ws, todoId: bareCycle.id, chatId: 'bare-chat', cycleId: 'bare-old', dataDir });
   assert.equal(getTodoById(dataDir, ws, bareCycle.id).status, 'doing', 'a stale cycleId cannot release a newer claim without cycleId');
-  releaseWorkspaceWatcherCycleTodoClaim({ workspaceFolder: ws, todoId: bareCycle.id, chatId: 'bare-chat', dataDir });
+  await releaseWorkspaceWatcherCycleTodoClaim({ workspaceFolder: ws, todoId: bareCycle.id, chatId: 'bare-chat', dataDir });
   assert.equal(getTodoById(dataDir, ws, bareCycle.id).status, 'doing', 'a release with no attempt or cycle fence cannot clear a fenced attempt');
 
   // A recovered todo is never completed by recovery itself.
@@ -309,7 +309,7 @@ try {
   assert.equal(stateOf(manualPass, manualLeaf.id).state, 'recoverable');
   const { recoverWorkspaceWatcherTodo } = await import('../lib/workspace-watcher-todo-recover.js');
   const manualRow = getTodoById(dataDir, ws, manualLeaf.id);
-  const recovered = recoverWorkspaceWatcherTodo({
+  const recovered = await recoverWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: ws,
     todoId: manualLeaf.id,
@@ -347,19 +347,19 @@ try {
   let escNotifies = 0;
   const escNotify = () => { escNotifies += 1; return true; };
   const escBase = Date.now();
-  observeWorkspaceTodoUnknownEscalations({
+  await observeWorkspaceTodoUnknownEscalations({
     dataDir, workspaceFolder: escWs, now: escBase, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'adapter_missing' }), getChat: escOpenChat, notify: escNotify,
   });
   assert.equal(escNotifies, 0, 'below threshold: no notify');
-  observeWorkspaceTodoUnknownEscalations({
+  await observeWorkspaceTodoUnknownEscalations({
     dataDir, workspaceFolder: escWs, now: escBase + 5000, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'adapter_missing' }), getChat: escOpenChat, notify: escNotify,
   });
   assert.equal(escNotifies, 1, 'at threshold: one notify');
-  observeWorkspaceTodoUnknownEscalations({
+  await observeWorkspaceTodoUnknownEscalations({
     dataDir, workspaceFolder: escWs, now: escBase + 10000, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'adapter_missing' }), getChat: escOpenChat, notify: escNotify,
   });
   assert.equal(escNotifies, 1, 'same signature: dedup');
-  observeWorkspaceTodoUnknownEscalations({
+  await observeWorkspaceTodoUnknownEscalations({
     dataDir,
     workspaceFolder: escWs,
     now: escBase + 15000,
@@ -368,7 +368,7 @@ try {
     notify: escNotify,
   });
   assert.equal(escNotifies, 1, 'new signature resets count: still below second threshold');
-  observeWorkspaceTodoUnknownEscalations({
+  await observeWorkspaceTodoUnknownEscalations({
     dataDir,
     workspaceFolder: escWs,
     now: escBase + 20000,
@@ -389,10 +389,10 @@ try {
   updateTodo(dataDir, observeEscWs, observeEscTodo.id, { status: 'doing' });
   let observeNotifies = 0;
   const observeNotify = () => { observeNotifies += 1; return true; };
-  observeWorkspaceTodoUnknownEscalations({
+  await observeWorkspaceTodoUnknownEscalations({
     dataDir, workspaceFolder: observeEscWs, now: escBase, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'adapter_missing' }), notify: observeNotify,
   });
-  observeWorkspaceTodoUnknownEscalations({
+  await observeWorkspaceTodoUnknownEscalations({
     dataDir, workspaceFolder: observeEscWs, now: escBase + 5000, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'adapter_missing' }), notify: observeNotify,
   });
   assert.equal(observeNotifies, 1, 'observe: threshold notify despite quiet-hours policy');
@@ -403,7 +403,7 @@ try {
   const offEscTodo = addTodo(dataDir, offEscWs, { title: 'Off esc', status: 'ready' }).item;
   updateTodo(dataDir, offEscWs, offEscTodo.id, { status: 'doing' });
   let offNotifies = 0;
-  observeWorkspaceTodoUnknownEscalations({
+  await observeWorkspaceTodoUnknownEscalations({
     dataDir, workspaceFolder: offEscWs, now: escBase, probeChatRunLiveness: () => ({ known: false, busy: false, reason: 'adapter_missing' }), notify: () => { offNotifies += 1; return true; },
   });
   assert.equal(offNotifies, 0, 'off: no escalation notify');
@@ -440,7 +440,7 @@ try {
   updateTodo(dataDir, guardWs, guardUnknown.id, { status: 'doing' });
   let guardNotifies = 0;
   for (let i = 0; i < 2; i += 1) {
-    observeWorkspaceTodoUnknownEscalations({
+    await observeWorkspaceTodoUnknownEscalations({
       dataDir,
       workspaceFolder: guardWs,
       now: escBase + i * 5000,
@@ -491,7 +491,7 @@ try {
   const activeLeaf = doing('Active slot', { orchestratorChatId: 'busy-exec' });
   await claimWorkspaceTodo({ dataDir, workspaceFolder: ws, todoId: activeLeaf.id, claimedByChatId: 'busy-exec', expectedUpdatedAt: activeLeaf.updatedAt });
   const activeRow = getTodoById(dataDir, ws, activeLeaf.id);
-  const activeResult = recoverWorkspaceWatcherTodo({
+  const activeResult = await recoverWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: ws,
     todoId: activeLeaf.id,
@@ -506,7 +506,7 @@ try {
   updateTodo(dataDir, ws, parentChild.id, { status: 'doing' });
   const parentRow = getTodoById(dataDir, ws, parentBlock.id);
   assert.equal(parentRow.status, 'doing');
-  const parentResult = recoverWorkspaceWatcherTodo({
+  const parentResult = await recoverWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: ws,
     todoId: parentBlock.id,

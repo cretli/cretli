@@ -211,7 +211,7 @@ async function liveStage() {
   const ws = seedWorkspace('live', 1);
   const started = await startCycle(ws.cwd, ws.todos[0].id);
   fs.writeFileSync(FIXTURE, JSON.stringify({ workspaces: [ws], starts: [started] }));
-  const closed = reconcileWorkspaceWatcherCycle({
+  const closed = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: ws.cwd,
     dataDir,
     now: Date.now() + 5 * 60_000,

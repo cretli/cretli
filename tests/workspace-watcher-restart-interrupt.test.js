@@ -150,10 +150,10 @@ runCase('dead-instance cycle whose todo is already done closes as success', asyn
   assert.notEqual(row.cycleChats[0].outcome, 'interrupted_restart');
 });
 
-runCase('dead-instance slot is freed at runtime without the room-gone grace', () => {
+runCase('dead-instance slot is freed at runtime without the room-gone grace', async () => {
   const { dataDir, cwd, todos } = setup('runtime-dead', { count: 2 });
   const deps = { instanceId: NEW, probeChatRunLiveness: goneProbe, loadDelegations: () => [] };
-  const result = reconcileWorkspaceWatcherCycle({ workspaceFolder: cwd, dataDir, now: T0, deps });
+  const result = await reconcileWorkspaceWatcherCycle({ workspaceFolder: cwd, dataDir, now: T0, deps });
   assert.equal(result.closed, true);
   assert.equal(result.closedCount, 2);
   const row = getWorkspaceWatcher(cwd, { dataDir });
@@ -163,32 +163,32 @@ runCase('dead-instance slot is freed at runtime without the room-gone grace', ()
   assert.equal(getTodoById(dataDir, cwd, todos[0].id).status, 'ready');
 });
 
-runCase('live-instance slot with a gone room still waits for the grace', () => {
+runCase('live-instance slot with a gone room still waits for the grace', async () => {
   const { dataDir, cwd } = setup('runtime-live-gone', { instanceId: NEW });
   const deps = { instanceId: NEW, probeChatRunLiveness: goneProbe, loadDelegations: () => [] };
-  const result = reconcileWorkspaceWatcherCycle({ workspaceFolder: cwd, dataDir, now: T0, deps });
+  const result = await reconcileWorkspaceWatcherCycle({ workspaceFolder: cwd, dataDir, now: T0, deps });
   assert.equal(result.closed, false);
   assert.equal(result.reason, 'cycle_room_gone_grace');
   assert.equal(getWorkspaceWatcher(cwd, { dataDir }).activeCycles.length, 1);
 });
 
-runCase('unknown liveness still holds the slot (live and dead instance alike)', () => {
+runCase('unknown liveness still holds the slot (live and dead instance alike)', async () => {
   for (const instanceId of [NEW, OLD]) {
     const { dataDir, cwd } = setup(`unknown-${instanceId}`, { instanceId });
     const deps = { instanceId: NEW, probeChatRunLiveness: unknownProbe, loadDelegations: () => [] };
-    const result = reconcileWorkspaceWatcherCycle({ workspaceFolder: cwd, dataDir, now: T0, deps });
+    const result = await reconcileWorkspaceWatcherCycle({ workspaceFolder: cwd, dataDir, now: T0, deps });
     assert.equal(result.closed, false, `instance ${instanceId}`);
     assert.equal(getWorkspaceWatcher(cwd, { dataDir }).activeCycles.length, 1);
   }
 });
 
-runCase('starting-phase dead-instance slot is not protected by its start deadline', () => {
+runCase('starting-phase dead-instance slot is not protected by its start deadline', async () => {
   const { dataDir, cwd } = setup('starting');
   mutateWorkspaceWatcherRow(cwd, ({ row }) => ({
     activeCycles: row.activeCycles.map((c) => ({ ...c, phase: 'starting', runId: '', startDeadlineAt: new Date(T0 + 600_000).toISOString() })),
   }), { dataDir });
   const deps = { instanceId: NEW, probeChatRunLiveness: goneProbe, loadDelegations: () => [] };
-  assert.equal(reconcileWorkspaceWatcherCycle({ workspaceFolder: cwd, dataDir, now: T0, deps }).closed, true);
+  assert.equal((await reconcileWorkspaceWatcherCycle({ workspaceFolder: cwd, dataDir, now: T0, deps })).closed, true);
 });
 
 runCase('planOnly cycle interrupted by restart: neutral, todo ready, plan never approved, request released', async () => {

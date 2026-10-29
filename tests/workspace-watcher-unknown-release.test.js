@@ -74,7 +74,7 @@ try {
   assert.equal(canManualReleaseUnknownWorkspaceTodo({ state: 'recoverable' }), false);
 
   // --- Missing confirmation is a validation error ---------------------------
-  const noConfirm = releaseDoingWorkspaceWatcherTodo({
+  const noConfirm = await releaseDoingWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: cwd,
     todoId: todo.id,
@@ -86,7 +86,7 @@ try {
   assert.equal(getTodoById(dataDir, cwd, todo.id).status, 'doing');
 
   // --- Happy path: operator release of an unknown doing leaf ----------------
-  const released = releaseDoingWorkspaceWatcherTodo({
+  const released = await releaseDoingWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: cwd,
     todoId: todo.id,
@@ -117,7 +117,7 @@ try {
   // --- True idempotent replay: same key, STALE revision ---------------------
   // The release already bumped updatedAt, so the pre-release revision is stale;
   // the key match must answer success instead of a CAS conflict.
-  const replay = releaseDoingWorkspaceWatcherTodo({
+  const replay = await releaseDoingWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: cwd,
     todoId: todo.id,
@@ -139,7 +139,7 @@ try {
   // The replay key is per-todo: reusing it on a DIFFERENT doing todo is not a
   // replay and must not release that todo.
   const otherTodo = await makeClaimedDoing('Other unknown', 'exec-chat-other');
-  const otherKey = releaseDoingWorkspaceWatcherTodo({
+  const otherKey = await releaseDoingWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: cwd,
     todoId: otherTodo.id,
@@ -156,7 +156,7 @@ try {
   // --- F1: a non-doing todo is refused before classify ----------------------
   const readyTodo = addTodo(dataDir, cwd, { title: 'Not doing', status: 'ready' }).item;
   const readyRow = getTodoById(dataDir, cwd, readyTodo.id);
-  const notDoing = releaseDoingWorkspaceWatcherTodo({
+  const notDoing = await releaseDoingWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: cwd,
     todoId: readyTodo.id,
@@ -174,7 +174,7 @@ try {
   const doneTodo = addTodo(dataDir, cwd, { title: 'Already done', status: 'ready' }).item;
   updateTodo(dataDir, cwd, doneTodo.id, { status: 'done' });
   const doneRow = getTodoById(dataDir, cwd, doneTodo.id);
-  const doneRelease = releaseDoingWorkspaceWatcherTodo({
+  const doneRelease = await releaseDoingWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: cwd,
     todoId: doneTodo.id,
@@ -195,7 +195,7 @@ try {
   }).item;
   updateTodo(dataDir, cwd, recoverableTodo.id, { status: 'doing', strictStatus: true });
   const recoverableRow = getTodoById(dataDir, cwd, recoverableTodo.id);
-  const useRecover = releaseDoingWorkspaceWatcherTodo({
+  const useRecover = await releaseDoingWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: cwd,
     todoId: recoverableTodo.id,
@@ -221,7 +221,7 @@ try {
     integration: { state: 'ready' },
   });
   const integrationRow = getTodoById(dataDir, cwd, integrationTodo.id);
-  const integrationRelease = releaseDoingWorkspaceWatcherTodo({
+  const integrationRelease = await releaseDoingWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: cwd,
     todoId: integrationTodo.id,
@@ -253,7 +253,7 @@ try {
     draft.items[worktreeRecord.todoId] = worktreeRecord;
   }, { dataDir });
   const worktreeRow = getTodoById(dataDir, cwd, worktreeTodo.id);
-  const worktreeRelease = releaseDoingWorkspaceWatcherTodo({
+  const worktreeRelease = await releaseDoingWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: cwd,
     todoId: worktreeTodo.id,
@@ -272,7 +272,7 @@ try {
   addTodo(dataDir, cwd, { title: 'Child', parentId: parentTodo.id, status: 'ready' });
   updateTodo(dataDir, cwd, parentTodo.id, { status: 'doing', strictStatus: true });
   const parentRow = getTodoById(dataDir, cwd, parentTodo.id);
-  const notLeaf = releaseDoingWorkspaceWatcherTodo({
+  const notLeaf = await releaseDoingWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: cwd,
     todoId: parentTodo.id,
@@ -286,7 +286,7 @@ try {
 
   // --- An already-active slot is refused ------------------------------------
   const activeTodo = await makeClaimedDoing('Active slot', 'busy-chat');
-  const alreadyActive = releaseDoingWorkspaceWatcherTodo({
+  const alreadyActive = await releaseDoingWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: cwd,
     todoId: activeTodo.id,
@@ -301,7 +301,7 @@ try {
 
   // --- CAS conflict on a stale revision (no replay key match) ---------------
   const staleTodo = await makeClaimedDoing('Stale revision', 'exec-chat-2');
-  const staleRelease = releaseDoingWorkspaceWatcherTodo({
+  const staleRelease = await releaseDoingWorkspaceWatcherTodo({
     dataDir,
     workspaceFolder: cwd,
     todoId: staleTodo.id,

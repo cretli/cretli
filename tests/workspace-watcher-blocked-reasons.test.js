@@ -97,20 +97,20 @@ test('escalation only parks a released ready todo', async () => {
     return t;
   };
   const get = (id) => loadTodosData(dataDir, ws).items.find((i) => i.id === id);
-  const run = (id) => applyWorkspaceWatcherBlockedEscalation({
+  const run = async (id) => await applyWorkspaceWatcherBlockedEscalation({
     workspaceFolder: ws, dataDir, todoId: id, escalation: { action: 'idea' }, message: 'need a human', code: 'needs_human',
   });
 
   const ready = mk('ready');
-  assert.equal(run(ready.id), true);
+  assert.equal(await run(ready.id), true);
   assert.equal(get(ready.id).status, 'idea');
 
   const doing = mk('doing', { status: 'doing', strictStatus: true });
-  assert.equal(run(doing.id), false);
+  assert.equal(await run(doing.id), false);
   assert.equal(get(doing.id).status, 'doing');
 
   const claimed = mk('claimed', { claimedByChatId: 'other-chat', claimLeaseUntil: new Date(Date.now() + 60_000).toISOString() });
-  assert.equal(run(claimed.id), false);
+  assert.equal(await run(claimed.id), false);
   assert.equal(get(claimed.id).status, 'ready');
   assert.equal(get(claimed.id).claimedByChatId, 'other-chat');
 });

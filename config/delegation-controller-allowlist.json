@@ -124,7 +124,7 @@
     "lib/workspace-watcher-cycle-usage.js:buildCycleUsageMembership:control:cycle membership attributed to the controller via the accessor; sourceChatId fallback unchanged",
     "lib/workspace-watcher-cycle-usage.js:normalizeWorkspaceWatcherCycleUsage:control:control decision routed through the accessor",
     "lib/workspace-watcher-cycle.js:startWorkspaceWatcherCycle:identity:cycle orchestrator chat id passed under the legacy option name for the reviewer policy prompt",
-    "lib/workspace-watcher-cycle.js:reportWorkspaceWatcherCycleLocked:identity:cycle attribution input uses the cycle chat id under the legacy field name",
+    "lib/workspace-watcher-cycle.js:reportWorkspaceWatcherCycleUnlocked:identity:cycle attribution input uses the cycle chat id under the legacy field name",
     "lib/workspace-watcher-delegation-guard.js:validateWorkspaceWatcherParentDelegation:identity:parameter named parentChatId carries the caller (controller) chat id supplied by the caller",
     "lib/workspace-watcher-stats.js:summarizeWatcherDelegations:control:control decision routed through the accessor",
     "lib/workspace-watcher.js:snapshotWorkspaceWatcher:control:control decision routed through the accessor",

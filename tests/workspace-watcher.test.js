@@ -3935,7 +3935,7 @@ runCase('plan gate cycle records a plan request and never auto-approves', async 
   assert.equal(again.reason, 'cycle_active', 'the first plan cycle still owns the slot');
 });
 
-runCase('reconcileWorkspaceWatcherCycle: keeps busy/child-active cycles and closes an idle childless one', () => {
+runCase('reconcileWorkspaceWatcherCycle: keeps busy/child-active cycles and closes an idle childless one', async () => {
   const dataDir = freshDataDir('cycle-reconcile');
   const cwd = makeWorkspace('cycle-reconcile');
   upsertWorkspaceWatcher(cwd, { mode: 'autopilot' }, { dataDir });
@@ -3943,7 +3943,7 @@ runCase('reconcileWorkspaceWatcherCycle: keeps busy/child-active cycles and clos
     activeCycle: { cycleId: 'c1', todoIds: [], startedAt: new Date(T0).toISOString(), chatId: 'chat-x', runId: '' },
     lease: acquireWorkspaceWatcherLease(row, { token: 't', ttlMs: 60_000, now: T0 }).lease,
   }), { dataDir });
-  const busy = reconcileWorkspaceWatcherCycle({
+  const busy = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0,
@@ -3951,7 +3951,7 @@ runCase('reconcileWorkspaceWatcherCycle: keeps busy/child-active cycles and clos
   });
   assert.equal(busy.closed, false);
   assert.ok(getWorkspaceWatcher(cwd, { dataDir }).activeCycle);
-  const children = reconcileWorkspaceWatcherCycle({
+  const children = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0,
@@ -3963,7 +3963,7 @@ runCase('reconcileWorkspaceWatcherCycle: keeps busy/child-active cycles and clos
   assert.equal(children.closed, false);
   assert.equal(children.reason, 'cycle_children_active');
   assert.equal(hasActiveWorkspaceWatcherCycleChildren('chat-x', [{ parentChatId: 'chat-x', status: 'running' }]), true);
-  const closed = reconcileWorkspaceWatcherCycle({
+  const closed = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0,
@@ -4028,7 +4028,7 @@ runCase('reconcile closes a vanished room after grace when the todo is done', as
   const probe = roomGoneProbe('state_missing');
   assert.equal(isWorkspaceWatcherActiveCycleChatAlive({ chatId: 'chat-gone', runId: 'run-gone' }, probe, T0), true);
   const notices = [];
-  const closed = reconcileWorkspaceWatcherCycle({
+  const closed = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0,
@@ -4057,7 +4057,7 @@ runCase('reconcile closes a vanished room after grace when the todo is done', as
   assert.ok(notices.some((text) => text.includes('ended without progress')));
 });
 
-runCase('reconcile closes a vanished room as failure when the todo is still doing', () => {
+runCase('reconcile closes a vanished room as failure when the todo is still doing', async () => {
   const dataDir = freshDataDir('room-gone-doing');
   const cwd = makeWorkspace('room-gone-doing');
   const todo = addReadyTodo(dataDir, cwd, 'still doing');
@@ -4073,7 +4073,7 @@ runCase('reconcile closes a vanished room as failure when the todo is still doin
     todoIds: [todo.id],
     roomGoneSince: new Date(T0 - WORKSPACE_WATCHER_ROOM_GONE_GRACE_MS).toISOString(),
   });
-  const closed = reconcileWorkspaceWatcherCycle({
+  const closed = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0,
@@ -4090,7 +4090,7 @@ runCase('reconcile closes a vanished room as failure when the todo is still doin
   assert.equal(released.claimedByChatId, undefined);
 });
 
-runCase('reconcile closes a vanished room on adapter_missing after grace', () => {
+runCase('reconcile closes a vanished room on adapter_missing after grace', async () => {
   const dataDir = freshDataDir('room-gone-adapter');
   const cwd = makeWorkspace('room-gone-adapter');
   const todo = addReadyTodo(dataDir, cwd, 'adapter gone');
@@ -4105,7 +4105,7 @@ runCase('reconcile closes a vanished room on adapter_missing after grace', () =>
     todoIds: [todo.id],
     roomGoneSince: new Date(T0 - WORKSPACE_WATCHER_ROOM_GONE_GRACE_MS).toISOString(),
   });
-  const closed = reconcileWorkspaceWatcherCycle({
+  const closed = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0,
@@ -4118,7 +4118,7 @@ runCase('reconcile closes a vanished room on adapter_missing after grace', () =>
   assert.equal(row.decisions.at(-1).reason, 'missing_report');
 });
 
-runCase('reconcile keeps a cycle when only the run-scoped probe misses the room', () => {
+runCase('reconcile keeps a cycle when only the run-scoped probe misses the room', async () => {
   const dataDir = freshDataDir('room-gone-other-run');
   const cwd = makeWorkspace('room-gone-other-run');
   seedWatcherCycle(dataDir, cwd, {
@@ -4127,7 +4127,7 @@ runCase('reconcile keeps a cycle when only the run-scoped probe misses the room'
     runId: 'run-old',
     todoIds: ['todo-live'],
   });
-  const kept = reconcileWorkspaceWatcherCycle({
+  const kept = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0,
@@ -4145,7 +4145,7 @@ runCase('reconcile keeps a cycle when only the run-scoped probe misses the room'
   assert.equal(row.activeCycle.roomGoneSince, undefined);
 });
 
-runCase('reconcile keeps a cycle on adapter_error, run_mismatch and probe_failed', () => {
+runCase('reconcile keeps a cycle on adapter_error, run_mismatch and probe_failed', async () => {
   for (const reason of ['adapter_error', 'run_mismatch', 'probe_failed']) {
     const dataDir = freshDataDir(`room-gone-${reason}`);
     const cwd = makeWorkspace(`room-gone-${reason}`);
@@ -4155,7 +4155,7 @@ runCase('reconcile keeps a cycle on adapter_error, run_mismatch and probe_failed
       runId: `run-${reason}`,
       todoIds: ['todo-x'],
     });
-    const kept = reconcileWorkspaceWatcherCycle({
+    const kept = await reconcileWorkspaceWatcherCycle({
       workspaceFolder: cwd,
       dataDir,
       now: T0 + WORKSPACE_WATCHER_ROOM_GONE_GRACE_MS,
@@ -4167,7 +4167,7 @@ runCase('reconcile keeps a cycle on adapter_error, run_mismatch and probe_failed
   }
 });
 
-runCase('reconcile keeps a vanished room while a child delegation is active', () => {
+runCase('reconcile keeps a vanished room while a child delegation is active', async () => {
   const dataDir = freshDataDir('room-gone-child');
   const cwd = makeWorkspace('room-gone-child');
   seedWatcherCycle(dataDir, cwd, {
@@ -4177,7 +4177,7 @@ runCase('reconcile keeps a vanished room while a child delegation is active', ()
     todoIds: ['todo-child'],
     roomGoneSince: new Date(T0 - WORKSPACE_WATCHER_ROOM_GONE_GRACE_MS).toISOString(),
   });
-  const kept = reconcileWorkspaceWatcherCycle({
+  const kept = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0,
@@ -4193,7 +4193,7 @@ runCase('reconcile keeps a vanished room while a child delegation is active', ()
   assert.equal(row.activeCycle.roomGoneSince, undefined);
 });
 
-runCase('reconcile waits out the room-gone grace, then closes', () => {
+runCase('reconcile waits out the room-gone grace, then closes', async () => {
   const dataDir = freshDataDir('room-gone-grace');
   const cwd = makeWorkspace('room-gone-grace');
   const todo = addReadyTodo(dataDir, cwd, 'grace');
@@ -4208,12 +4208,12 @@ runCase('reconcile waits out the room-gone grace, then closes', () => {
     todoIds: [todo.id],
   });
   const deps = { probeChatRunLiveness: roomGoneProbe('state_missing'), loadDelegations: () => [] };
-  const early = reconcileWorkspaceWatcherCycle({ workspaceFolder: cwd, dataDir, now: T0, deps });
+  const early = await reconcileWorkspaceWatcherCycle({ workspaceFolder: cwd, dataDir, now: T0, deps });
   assert.equal(early.closed, false);
   assert.equal(early.reason, 'cycle_room_gone_grace');
   const stamped = getWorkspaceWatcher(cwd, { dataDir }).activeCycle;
   assert.equal(stamped.roomGoneSince, new Date(T0).toISOString());
-  const still = reconcileWorkspaceWatcherCycle({
+  const still = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0 + WORKSPACE_WATCHER_ROOM_GONE_GRACE_MS - 1,
@@ -4221,7 +4221,7 @@ runCase('reconcile waits out the room-gone grace, then closes', () => {
   });
   assert.equal(still.closed, false);
   assert.ok(getWorkspaceWatcher(cwd, { dataDir }).activeCycle);
-  const closed = reconcileWorkspaceWatcherCycle({
+  const closed = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0 + WORKSPACE_WATCHER_ROOM_GONE_GRACE_MS,
@@ -4231,7 +4231,7 @@ runCase('reconcile waits out the room-gone grace, then closes', () => {
   assert.equal(getWorkspaceWatcher(cwd, { dataDir }).activeCycle, null);
 });
 
-runCase('reconcile keeps a starting cycle inside its deadline when the room is missing', () => {
+runCase('reconcile keeps a starting cycle inside its deadline when the room is missing', async () => {
   const dataDir = freshDataDir('room-gone-starting');
   const cwd = makeWorkspace('room-gone-starting');
   seedWatcherCycle(dataDir, cwd, {
@@ -4242,7 +4242,7 @@ runCase('reconcile keeps a starting cycle inside its deadline when the room is m
     startDeadlineAt: new Date(T0 + 60_000).toISOString(),
     todoIds: ['todo-start'],
   });
-  const kept = reconcileWorkspaceWatcherCycle({
+  const kept = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0,
@@ -4925,7 +4925,7 @@ runCase('reconcileWorkspaceWatcherCycle: incomplete todo increments failures up 
     },
   }), { dataDir });
   for (let i = 0; i < 3; i += 1) {
-    const closed = reconcileWorkspaceWatcherCycle({
+    const closed = await reconcileWorkspaceWatcherCycle({
       workspaceFolder: cwd,
       dataDir,
       now: T0 + i * 1000,
@@ -5151,7 +5151,7 @@ runCase('startWorkspaceWatcherCycle: plan request drops when plan cycle start fa
   assert.equal(row.planRequests?.[todo.id], undefined);
 });
 
-runCase('reconcileWorkspaceWatcherCycle: clears claim metadata on done todos', () => {
+runCase('reconcileWorkspaceWatcherCycle: clears claim metadata on done todos', async () => {
   const dataDir = freshDataDir('cycle-done-claim');
   const cwd = makeWorkspace('cycle-done-claim');
   const todo = addReadyTodo(dataDir, cwd, 'finished');
@@ -5171,7 +5171,7 @@ runCase('reconcileWorkspaceWatcherCycle: clears claim metadata on done todos', (
       phase: 'running',
     },
   }), { dataDir });
-  const closed = reconcileWorkspaceWatcherCycle({
+  const closed = await reconcileWorkspaceWatcherCycle({
     workspaceFolder: cwd,
     dataDir,
     now: T0,
@@ -5239,7 +5239,7 @@ runCase('empty plan cycle counts failure, clears the gate and records a skip at 
     activeCycle: { cycleId: 'empty-plan', todoIds: [todo.id], chatId: 'empty-plan-chat', runId: 'empty-plan-run',
       startedAt: new Date(T0).toISOString(), phase: 'running', planOnly: true },
   }), { dataDir });
-  const result = reconcileWorkspaceWatcherCycle({ workspaceFolder: cwd, dataDir, now: T0, deps: {
+  const result = await reconcileWorkspaceWatcherCycle({ workspaceFolder: cwd, dataDir, now: T0, deps: {
     probeChatRunLiveness: () => ({ known: true, busy: false, reason: 'idle' }),
     loadDelegations: () => [], notify: () => false,
   } });
