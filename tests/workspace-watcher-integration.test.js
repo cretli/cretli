@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { addTodo, getTodoById, loadTodosData } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, loadTodosData } from '../lib/persist/todos-legacy-adapter.js';
 import { createDelegationRecord, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { getWorkspaceWatcher, upsertWorkspaceWatcher } from '../lib/persist/workspace-watchers-persist.js';
 import {

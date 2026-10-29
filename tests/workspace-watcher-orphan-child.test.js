@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
-import { addTodo } from '../lib/persist/todos-persist.js';
+import { addTodo } from '../lib/persist/todos-legacy-adapter.js';
 import {
   acquireWorkspaceWatcherLease,
   getWorkspaceWatcher,

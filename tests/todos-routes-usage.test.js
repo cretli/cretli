@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { createDelegationRecord, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
-import { addTodo, loadTodosData } from '../lib/persist/todos-persist.js';
+import { addTodo, loadTodosData } from '../lib/persist/todos-legacy-adapter.js';
 import { registerTodosRoutes } from '../lib/routes/todos-routes.js';
 import { recordUsage } from '../lib/usage/usage-ledger.ts';
 import { ISOLATED_DATA_DIR, removeIsolatedDataDir } from './helpers/isolated-data-dir.js';

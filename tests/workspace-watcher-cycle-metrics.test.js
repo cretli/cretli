@@ -22,7 +22,7 @@ import {
   acquireWorkspaceWatcherLease,
   getWorkspaceWatcher,
 } from '../lib/persist/workspace-watchers-persist.js';
-import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import {
   normalizeWorkspaceWatcherCycleMetric,
   beginWorkspaceWatcherCycleMetric,

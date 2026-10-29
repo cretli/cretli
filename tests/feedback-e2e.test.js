@@ -16,7 +16,7 @@ import express from 'express';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
-const { addTodo, loadTodosData, todosDocumentPath } = await import('../lib/persist/todos-persist.js');
+const { addTodo, loadTodosData, todosDocumentPath } = await import('../lib/persist/todos-legacy-adapter.js');
 const { FEEDBACK_ROOT_TITLE } = await import('../lib/persist/feedback-store.js');
 const { saveSettings } = await import('../lib/persist/settings.js');
 const { resolveDataPath, resolveProjectPath } = await import('../lib/runtime-paths.js');

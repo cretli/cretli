@@ -6,7 +6,7 @@ import {
   addTodo,
   loadTodosData,
   updateTodo,
-} from '../lib/persist/todos-persist.js';
+} from '../lib/persist/todos-legacy-adapter.js';
 import { readChatPlanFile, writeChatPlanFile } from '../lib/chat-plan-persist.js';
 import {
   ensureLinkedTodoForPlan,

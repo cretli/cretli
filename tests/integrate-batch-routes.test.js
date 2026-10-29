@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import express from 'express';
-import { addTodo, getTodoById } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById } from '../lib/persist/todos-legacy-adapter.js';
 import { ensureWorktree } from '../lib/worktree-manager.js';
 import { prepareManualTodoIntegration } from '../lib/workspace-watcher-integration.js';
 import { registerIntegrateBatchRoutes } from '../lib/routes/integrate-batch-routes.js';

@@ -21,7 +21,7 @@ import {
   evaluateModelPickHardGates,
   MODEL_PICK_HARD_GATE_CODES,
 } from '../lib/model-pick-hard-gates.js';
-import { addTodo, getTodoById } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById } from '../lib/persist/todos-legacy-adapter.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { addTodo, getTodoById } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById } from '../lib/persist/todos-legacy-adapter.js';
 import { getWorkspaceWatcher, upsertWorkspaceWatcher, normalizeWorkspaceWatcherPolicy } from '../lib/persist/workspace-watchers-persist.js';
 import { getWorktreeRecord } from '../lib/persist/worktree-registry-persist.js';
 import { startWorkspaceWatcherCycle } from '../lib/workspace-watcher-cycle.js';

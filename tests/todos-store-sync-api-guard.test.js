@@ -8,6 +8,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Synchronous `todos-persist.js` entry points the async facade replaces. */
 const SYNC_API = ['loadTodosData', 'addTodo', 'updateTodo', 'saveTodosData'];
+const LEGACY_ADAPTERS = new Set(['lib/persist/todos-store.js', 'lib/persist/todos-legacy-move-adapter.js']);
 
 /** Files already moved to `lib/persist/todos-store.js`; they must never use the sync API again. */
 const CONVERTED = Object.freeze([
@@ -58,12 +59,6 @@ const CONVERTED = Object.freeze([
   'server.js',
 ]);
 
-/** Files that still use the sync API (later leaves convert them); shrink only. */
-const ALLOWLIST = Object.freeze([
-  'lib/persist/todos-store.js',
-  'lib/todo-move.js',
-]);
-
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
@@ -74,10 +69,10 @@ function walk(dir, out = []) {
   return out;
 }
 
-/** Sync names a file imports from `todos-persist.js` (aliases resolve to the original name). */
+/** Sync names imported from the persist module or its explicit legacy adapter. */
 function syncImports(source, api = SYNC_API) {
   const found = new Set();
-  const importRe = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"][^'"]*todos-persist(?:\.js)?['"]/g;
+  const importRe = /(?:import|export)\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"][^'"]*todos-(?:persist|legacy-adapter)(?:\.js)?['"]/g;
   for (const match of source.matchAll(importRe)) {
     for (const part of match[1].split(',')) {
       const name = part.trim().split(/\s+as\s+/)[0].trim();
@@ -85,8 +80,9 @@ function syncImports(source, api = SYNC_API) {
     }
   }
   // Namespace imports and dynamic imports can reach every export.
-  if (/import\s*\*\s*as\s+\w+\s+from\s*['"][^'"]*todos-persist/.test(source)) found.add('*namespace');
-  if (/import\(\s*['"][^'"]*todos-persist/.test(source)) found.add('*dynamic');
+  if (/import\s*\*\s*as\s+\w+\s+from\s*['"][^'"]*todos-(?:persist|legacy-adapter)/.test(source)) found.add('*namespace');
+  if (/import\(\s*['"][^'"]*todos-(?:persist|legacy-adapter)/.test(source)) found.add('*dynamic');
+  if (/export\s*\*\s*(?:as\s+\w+\s*)?from\s*['"][^'"]*todos-(?:persist|legacy-adapter)/.test(source)) found.add('*reexport');
   return [...found];
 }
 
@@ -96,7 +92,7 @@ function scan() {
   const users = new Map();
   for (const rel of files) {
     const full = path.join(ROOT, rel);
-    if (!fs.existsSync(full) || rel === 'lib/persist/todos-persist.js') continue;
+    if (!fs.existsSync(full) || rel === 'lib/persist/todos-persist.js' || rel === 'lib/persist/todos-legacy-adapter.js') continue;
     const names = syncImports(fs.readFileSync(full, 'utf8'));
     if (names.length) users.set(rel.split(path.sep).join('/'), names);
   }
@@ -119,14 +115,19 @@ describe('store.todos sync API guard', () => {
     }
   });
 
-  it('every remaining sync user is allowlisted (no new sync callers)', () => {
-    const unexpected = [...users.keys()].filter((file) => !ALLOWLIST.includes(file));
-    assert.deepEqual(unexpected, [], 'new file uses the sync todos API; use todos-store.js');
+  it('no non-adapter file imports the synchronous API', () => {
+    assert.deepEqual([...users.keys()].filter((file) => !LEGACY_ADAPTERS.has(file)), [], 'use todos-store.js or the explicit legacy adapter');
+    assert.deepEqual([...users.keys()].sort(), [...LEGACY_ADAPTERS].sort(), 'the legacy adapter inventory must stay exact');
   });
 
-  it('the allowlist has no stale or converted entries', () => {
-    const stale = ALLOWLIST.filter((file) => !users.has(file));
-    assert.deepEqual(stale, [], 'remove files that no longer use the sync API from the allowlist');
-    assert.deepEqual(ALLOWLIST.filter((file) => CONVERTED.includes(file)), []);
+  it('detects named and star re-exports of the legacy API', () => {
+    assert.deepEqual(syncImports("export { loadTodosData as list } from './persist/todos-legacy-adapter.js'"), ['loadTodosData']);
+    assert.deepEqual(syncImports("export * from './persist/todos-legacy-adapter.js'"), ['*reexport']);
+    assert.deepEqual(syncImports("export * as legacy from './persist/todos-legacy-adapter.js'"), ['*reexport']);
+  });
+
+  it('the persist module does not export the four synchronous entry points', async () => {
+    const persist = await import('../lib/persist/todos-persist.js');
+    for (const name of SYNC_API) assert.equal(Object.hasOwn(persist, name), false, name);
   });
 });

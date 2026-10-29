@@ -219,7 +219,7 @@ test('cleanup refuses an active worktree; retention prunes old results only', as
 
 // ---- Watcher wiring: prepare -> merge -> cleanup, and conflict -> fix round ----
 
-import { addTodo, getTodoById } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById } from '../lib/persist/todos-legacy-adapter.js';
 import { applyParallelLeafMerge, resolveParallelLeafWorktree } from '../lib/workspace-watcher-cycle-close.js';
 
 function wiring(name) {

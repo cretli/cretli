@@ -175,15 +175,14 @@ it is not part of the worker-owned consolidated store).
 ## Todos store (`store.todos`)
 
 Owner slice: todos-worker (storage worker domain handler: `lib/storage/todos-store.js`).
-The domain stays on its legacy synchronous JSON adapter (`lib/persist/todos-persist.js`)
-until every caller and whole atomic command is converted (`docs/storage-contract.md`
-"Inventory all synchronous callers"). L2 adds the Promise facade `lib/persist/todos-store.js`
+The domain uses the legacy synchronous JSON implementation behind
+`lib/persist/todos-legacy-adapter.js`; caller conversion is complete.
+L2 adds the Promise facade `lib/persist/todos-store.js`
 (`listTodos`, `getTodo`, `addTodo`, `updateTodo`, `deleteTodo`, `moveTodo`, `batch`) with a
 backend interface; the only backend is the legacy JSON adapter (same behavior, same
 file locking). Errors carry `code` `CONFLICT` (stale `expectedUpdatedAt`), `NOT_FOUND`
-or `VALIDATION`. `tests/todos-store-sync-api-guard.test.js` enforces this inventory:
-converted files may not import `loadTodosData` / `addTodo` / `updateTodo` /
-`saveTodosData` from `todos-persist.js`, and no unlisted file may start using them.
+or `VALIDATION`. `tests/todos-store-sync-api-guard.test.js` requires zero
+synchronous API users outside the legacy backend adapter modules.
 
 ### Converted to the async facade (leaves L2–L3c)
 
@@ -212,23 +211,22 @@ converted files may not import `loadTodosData` / `addTodo` / `updateTodo` /
 Async facade imports may retain local aliases such as `listTodos as loadTodosData`; these do not import the synchronous persist API. Indirect
 paths: MCP tools -> `client.updateTodo` -> in-process client or HTTP -> facade.
 
-### Remaining synchronous callers (allowlist in the guard test)
+### Synchronous API conversion complete (leaf 3f)
 
-Each still imports at least one sync function and is converted by a later leaf:
-`lib/todo-move.js` (the legacy backend's own tree-move helper) and `lib/persist/todos-store.js` (the legacy
-adapter itself). Both leave with the backend flip in leaf 3f. Leaf 3e moved `integrate-batch.js`,
-`todo-review-backfill.js` and the scripts `architecture-http-fixture.mjs`, `architecture-stall-profile.mjs`,
-`audit-automatic-prompts.mjs`, `manual-smart-merge-fixture.mjs`, `measure-todo-save.js` and `scout-pass-fixture.mjs`
-to the converted list (see Leaf 3e status).
-Other files only use non-guarded helpers (`getTodoById`, `linkTodoChat`, `deleteTodo`, review
-writers, constants) and are not sync-API callers for the guard.
+`todos-persist.js` no longer exports `loadTodosData`, `addTodo`, `updateTodo` or
+`saveTodosData` by those names. The legacy JSON backend receives them through
+`todos-legacy-adapter.js`; the backend's tree-move implementation lives in
+`todos-legacy-move-adapter.js`. The public `todo-move.js` entry point only
+re-exports the move operation. The guard requires zero direct synchronous API
+imports or re-exports outside the adapter modules.
+Tests that exercise legacy JSON behavior import the explicit adapter.
 
 
 ### Read-modify-write critical sections
 
 All run under `withWorkspaceWatchersFileLock` inside `todos-persist.js` (`addTodo`,
 `updateTodo`, `deleteTodo`, `writeTodoReview*`, `closeTodoLeafIfEligible`, `linkTodoChat`)
-and in `lib/todo-move.js` (`moveTodoTree`, cross-workspace). Callers that read then
+and in `lib/persist/todos-legacy-move-adapter.js` (`moveTodoTree`, cross-workspace). Callers that read then
 write in separate calls (`todos-routes.js` patch: read for the worktree check, then
 `updateTodo` with `expectedUpdatedAt`) rely on the CAS field, not on a held lock; no lock
 is held across an `await` outside the persist layer.
@@ -236,7 +234,7 @@ is held across an `await` outside the persist layer.
 ### Leaf 3a status
 
 - `todos-persist.js` exposes `legacy*` names for the future private adapter; old exports remain as aliases until leaf 3f.
-- `lib/todo-move.js` writes both workspaces through one call (`moveTodoDocuments`). Legacy behavior (unchanged from before): target first, then source. A failure writing the source leaves the items in both workspaces (duplicate, no loss) and chats stay linked; a failure writing the target changes nothing.
+- `lib/persist/todos-legacy-move-adapter.js` writes both workspaces through one call (`moveTodoDocuments`). Legacy behavior (unchanged from before): target first, then source. A failure writing the source leaves the items in both workspaces (duplicate, no loss) and chats stay linked; a failure writing the target changes nothing.
 - `lib/delegation-takeover.js` no longer uses the sync API; it goes through the facade (`listTodos`, `updateTodo`, one atomic update per todo).
   Limitation (changed from the old whole-phase watcher lock around the todo phase): atomicity is per todo only.
   The phase reads one `listTodos` snapshot, then awaits independently locked `updateTodo` calls (each takes the
@@ -326,4 +324,4 @@ File consumers of the todos document, `integrate-batch.js` and the scripts move 
 - `lib/todo-review-backfill.js`: `runTodoReviewBackfill` and `backupTodoReviewBackfillDocument` are async. The rollback point is a logical snapshot `{ kind: 'cretli-todos-logical-snapshot', version: 1, workspaceFolder, takenAt, document }` written under `<data-dir>/backups/todo-review-backfill/`, not a copy of the storage file; the result no longer carries `todosDocumentPath`. `todo.review` is derived data, so rollback means reading the pre-run values from `document.items[].review` and restarting the server so the boot repair re-derives the snapshots (CLI text and `scripts/backfill-todo-review.js` updated). Reads and the review write go through `listTodos` / `writeTodoReview`.
 - `lib/integrate-batch.js`: the four todo reads and the marker write await the facade. `createIntegrateBatch`, `checkBatchLegacyReport`, `buildEligibilityContext`, `resumeIntegrateBatch`, `cancelIntegrateBatch` and `abandonIntegrateBatch` return Promises (callers in `integrate-batch-routes.js`, `chat-agent-routes.js`, `mcp-inprocess-client.js` await them). Because resume/abandon now await between load and save of the batch store, they share the per-batch serialization queue with `handleBatchNext` and cancel; cancellation cannot be overwritten by an in-flight resume. Legacy report validation reads the batch epoch after the async todo read, so a concurrent abandon or resume revokes the previous capability. `annotateBatchEligibility` stays synchronous: it only receives items already read by its caller.
 - Scripts: `measure-todo-save.js` (async API; document size from `exportSnapshot`, fixtures seeded through `updateTodo`), `scout-pass-fixture.mjs`, `audit-automatic-prompts.mjs`, `architecture-http-fixture.mjs`, `architecture-stall-profile.mjs` and `manual-smart-merge-fixture.mjs` use the facade.
-- Guard: the allowlist shrinks to `lib/persist/todos-store.js` and `lib/todo-move.js`.
+- Guard: the adapter inventory contains `lib/persist/todos-store.js` and `lib/persist/todos-legacy-move-adapter.js`.

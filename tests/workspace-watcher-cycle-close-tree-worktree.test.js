@@ -9,8 +9,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { addTodo, getTodoById } from '../lib/persist/todos-persist.js';
-import { loadTodosData, updateTodo, writeTodoReview } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById } from '../lib/persist/todos-legacy-adapter.js';
+import { loadTodosData, updateTodo, writeTodoReview } from '../lib/persist/todos-legacy-adapter.js';
 import {
   acquireWorkspaceWatcherLease,
   getWorkspaceWatcher,

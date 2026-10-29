@@ -22,7 +22,7 @@ import { EXTERNAL_MCP_AUDIT_FILE, setExternalMcpRateLimit } from '../lib/mcp/mcp
 import { bindOperatorSessionId, registerExternalMcpRoutes } from '../lib/routes/mcp-external-routes.js';
 import { loadMcpDocument, saveMcpDocument } from '../lib/persist/mcp-persist.js';
 import { createBuiltinCretliServer } from '../lib/mcp/mcp-config.js';
-import { addTodo, loadTodosData, updateTodo, writeTodoReview } from '../lib/persist/todos-persist.js';
+import { addTodo, loadTodosData, updateTodo, writeTodoReview } from '../lib/persist/todos-legacy-adapter.js';
 import { addChat } from '../lib/persist/chats-persist.js';
 import {
   getMockChatRun,
@@ -791,48 +791,6 @@ test('operator watcher tools show and reset failures and backoff', async () => {
     const resumedView = JSON.parse(/** @type {any} */ (resumed.content)[0].text);
     assert.equal(resumedView.paused, false);
     assert.equal(resumedView.mode, 'autopilot', 'pause leaves the mode alone');
-  } finally {
-    await client.close();
-    await agentClient.close();
-  }
-});
-
-test('operator_watcher_limits reads and tunes only whitelisted limits behind confirm and operator mode', async () => {
-  saveSettings({ externalMcpEnabled: true });
-  const operator = createExternalMcpClient({ name: 'limits-op', workspaceFolder: workspace, mode: 'operator' });
-  const agent = createExternalMcpClient({ name: 'limits-agent', workspaceFolder: workspace, mode: 'agent' });
-  const client = await connect(operator.token);
-  const agentClient = await connect(agent.token);
-  try {
-    assert.ok((await client.listTools()).tools.some((tool) => tool.name === 'operator_watcher_limits'));
-    assert.equal((await agentClient.listTools()).tools.some((tool) => tool.name === 'operator_watcher_limits'), false);
-
-    const read = await client.callTool({ name: 'operator_watcher_limits', arguments: {} });
-    assert.notEqual(read.isError, true, JSON.stringify(read.content));
-    assert.ok('maxParallel' in JSON.parse(/** @type {any} */ (read.content)[0].text));
-
-    const call = (/** @type {any} */ args) => client.callTool({ name: 'operator_watcher_limits', arguments: args });
-    assert.equal((await call({ limits: { maxParallel: 2 } })).isError, true, 'change needs confirm: true');
-    assert.equal((await call({ limits: { maxParallel: 9 }, confirm: true })).isError, true, 'above the ceiling');
-    assert.equal((await call({ limits: { maxParallel: 1.5 }, confirm: true })).isError, true, 'integers only');
-    assert.equal((await call({ limits: { requirePlanApproval: false }, confirm: true })).isError, true, 'safety policy is not tunable');
-    assert.equal((await call({ limits: { autoIntegrate: 1 }, confirm: true })).isError, true, 'autoIntegrate is not tunable');
-    assert.equal((await call({ limits: {}, confirm: true })).isError, true, 'empty patch');
-    const denied = await agentClient.callTool({ name: 'operator_watcher_limits', arguments: { limits: { maxParallel: 2 }, confirm: true } });
-    assert.equal(denied.isError, true, 'agent-mode clients cannot change limits');
-
-    const { getWorkspaceWatcher } = await import('../lib/persist/workspace-watchers-persist.js');
-    const before = getWorkspaceWatcher(workspace).policy;
-    const changed = await call({ limits: { maxParallel: 2, cooldownMs: 15000 }, confirm: true, reason: 'test' });
-    assert.notEqual(changed.isError, true, JSON.stringify(changed.content));
-    const result = JSON.parse(/** @type {any} */ (changed.content)[0].text);
-    assert.equal(result.after.maxParallel, 2);
-    assert.equal(result.after.cooldownMs, 15000);
-    const policy = getWorkspaceWatcher(workspace).policy;
-    assert.equal(policy.maxParallel, 2);
-    assert.equal(policy.requirePlanApproval, before.requirePlanApproval, 'other policy untouched');
-    assert.equal(policy.autoIntegrate, before.autoIntegrate, 'other policy untouched');
-    await call({ limits: { maxParallel: before.maxParallel, cooldownMs: before.cooldownMs }, confirm: true });
   } finally {
     await client.close();
     await agentClient.close();

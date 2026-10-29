@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { addChat, loadChats } from '../lib/persist/chats-persist.js';
-import { addTodo } from '../lib/persist/todos-persist.js';
+import { addTodo } from '../lib/persist/todos-legacy-adapter.js';
 import {
   createDelegationRecord,
   getDelegationById,

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { addTodo } from '../lib/persist/todos-persist.js';
+import { addTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { resolveDataPath } from '../lib/runtime-paths.js';
 import { canChatSteerDelegation } from '../lib/delegation-service.js';
 

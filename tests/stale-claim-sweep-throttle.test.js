@@ -23,7 +23,7 @@ test('stale-claim sweep runs once per interval per workspace', async () => {
 
 test('throttled skip keeps a stale claim; unthrottled sweep releases it', async () => {
   const { ISOLATED_DATA_DIR: dataDir } = await import('./helpers/isolated-data-dir.js');
-  const { addTodo, getTodoById } = await import('../lib/persist/todos-persist.js');
+  const { addTodo, getTodoById } = await import('../lib/persist/todos-legacy-adapter.js');
   const { claimWorkspaceTodo, releaseStaleWorkspaceTodoClaims } = await import('../lib/workspace-watcher.js');
   resetStaleClaimSweepThrottle();
   const ws = dataDir;

@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { buildTodoTimeline, normalizeTodoActivity } from '../lib/todo-timeline.js';
-import { addTodo, getTodoById, updateTodo, linkTodoChat } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, updateTodo, linkTodoChat } from '../lib/persist/todos-legacy-adapter.js';
 import { createDelegationRecord, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { registerTodosRoutes, slimTodoForList } from '../lib/routes/todos-routes.js';
 

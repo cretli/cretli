@@ -6,7 +6,7 @@ import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { pathToFileURL } from 'node:url';
 import { submitFeedback, isFeedbackDerivedTodo } from '../lib/persist/feedback-store.js';
-import { addTodo, loadTodosData, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, loadTodosData, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { upsertWorkspaceWatcher, normalizeWorkspaceWatcherPolicy } from '../lib/persist/workspace-watchers-persist.js';
 import { feedbackReports, claimFeedbackTriage, submitFeedbackTriage, decideFeedbackTriage, buildFeedbackTriagePrompt, runFeedbackTriagePass, reconcileFeedbackTriage } from '../lib/feedback-triage.js';
 import { evaluateWorkspaceWatcherGuardrails } from '../lib/workspace-watcher-guardrails.js';

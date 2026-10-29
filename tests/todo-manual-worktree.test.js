@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { addChat, loadChats } from '../lib/persist/chats-persist.js';
-import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { getWorkspaceWatcher, upsertWorkspaceWatcher } from '../lib/persist/workspace-watchers-persist.js';
 import { getWorktreeRecord, readWorktreeRegistry } from '../lib/persist/worktree-registry-persist.js';
 import { registerTodosRoutes, clearManualStartJobs } from '../lib/routes/todos-routes.js';

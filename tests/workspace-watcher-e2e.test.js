@@ -23,7 +23,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { addChat } from '../lib/persist/chats-persist.js';
-import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { getWorkspaceWatcher, upsertWorkspaceWatcher } from '../lib/persist/workspace-watchers-persist.js';
 import {
   reconcileWorkspaceWatchersOnBoot,

@@ -3,7 +3,7 @@ import './fixtures/fake-transport.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { addChat, loadChats } from '../lib/persist/chats-persist.js';
-import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { createDelegationRecord, getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { getDelegationWorkflow, upsertDelegationWorkflow } from '../lib/persist/delegation-workflows-persist.js';
 import { loadDelegationTakeovers } from '../lib/persist/delegation-takeovers-persist.js';

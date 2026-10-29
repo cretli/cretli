@@ -57,7 +57,7 @@ import {
   getWorkspaceWatcherRuntimeStatus,
   setWorkspaceWatcherStartsEnabled,
 } from '../lib/workspace-watcher-runtime-control.js';
-import { loadTodosData } from '../lib/persist/todos-persist.js';
+import { loadTodosData } from '../lib/persist/todos-legacy-adapter.js';
 import { createInProcessMcpClient } from '../lib/mcp/mcp-inprocess-client.js';
 import { setBuiltinMcpRuntimeDeps } from '../lib/mcp/builtin/runtime-deps.js';
 import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';

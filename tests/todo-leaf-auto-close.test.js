@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { addTodo, closeTodoLeafIfEligible, loadTodosData, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, closeTodoLeafIfEligible, loadTodosData, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { worktreeRegistryPath, writeWorktreeRegistry } from '../lib/persist/worktree-registry-persist.js';
 import { buildLiveWorktreePredicate } from '../lib/todo-worktree-manual.js';
 import { evaluateTodoLeafAutoClose, isTodoLeafAutoCloseEnabled } from '../lib/todo-review-sync.js';

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync } from 'fs';
 import os from 'os';
 import path from 'path';
-import { loadTodosData } from '../lib/persist/todos-persist.js';
+import { loadTodosData } from '../lib/persist/todos-legacy-adapter.js';
 import { readChatPlanFile } from '../lib/chat-plan-persist.js';
 import {
   applyHarnessOutboundPrompt,

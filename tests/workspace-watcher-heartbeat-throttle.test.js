@@ -7,7 +7,7 @@
 import './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import { ISOLATED_DATA_DIR, removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
-import { addTodo } from '../lib/persist/todos-persist.js';
+import { addTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { getWorkspaceWatcher, upsertWorkspaceWatcher } from '../lib/persist/workspace-watchers-persist.js';
 import { getWriteStats } from '../lib/persist/atomic-write.js';
 import { tickWorkspaceWatcher } from '../lib/workspace-watcher.js';

@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { saveSettings } from '../lib/persist/settings.js';
 import { addChat, loadChats } from '../lib/persist/chats-persist.js';
-import { addTodo, loadTodosData, normalizeExecutionFolder, resolveTodoExecutionFolder } from '../lib/persist/todos-persist.js';
+import { addTodo, loadTodosData, normalizeExecutionFolder, resolveTodoExecutionFolder } from '../lib/persist/todos-legacy-adapter.js';
 import { registerTodosRoutes } from '../lib/routes/todos-routes.js';
 import { resolveAgentCallbackTodoHome } from '../lib/routes/chat-agent-routes.js';
 import { buildMcpRuntimeContext } from '../lib/mcp/mcp-session.js';

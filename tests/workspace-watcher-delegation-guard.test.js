@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { addChat } from '../lib/persist/chats-persist.js';
-import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import {
   mutateWorkspaceWatcherRow,
   upsertWorkspaceWatcher,

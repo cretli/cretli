@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { recordReviewFindings } from '../lib/persist/review-findings-ledger-persist.js';
 import { containsPrivateData } from '../lib/review-lessons-privacy.js';
-import { loadTodosData } from '../lib/persist/todos-persist.js';
+import { loadTodosData } from '../lib/persist/todos-legacy-adapter.js';
 import { assertNotCommittedRuleDuplicate, findCommittedRuleDuplicate, proposeLessonCheck } from '../lib/review-lessons-checks.js';
 import { addLesson, listLessons, updateLesson } from '../lib/review-lessons-service.js';
 

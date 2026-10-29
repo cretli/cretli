@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ISOLATED_DATA_DIR, removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
-import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { upsertWorkspaceWatcher, getWorkspaceWatcher } from '../lib/persist/workspace-watchers-persist.js';
 import { mutateWorktreeRegistry } from '../lib/persist/worktree-registry-persist.js';
 import { createWorktreeRecord } from '../lib/worktree/worktree-record.ts';

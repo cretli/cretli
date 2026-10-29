@@ -10,7 +10,7 @@ import {
   getTodoById,
   todosDocumentPath,
   commitWatcherTodoCommand,
-} from '../lib/persist/todos-persist.js';
+} from '../lib/persist/todos-legacy-adapter.js';
 import { createTodosStore } from '../lib/persist/todos-store.js';
 import {
   upsertWorkspaceWatcher,

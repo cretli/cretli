@@ -317,7 +317,7 @@ test('review_fail_history from wired history is persisted via pickAndPersistMode
 
 test('model_pick leaf_size signals fire for review/plan roles', async () => {
   const { createCretliMcpToolHandlers } = await import('../lib/mcp/mcp-builtin-tools.js');
-  const { addTodo } = await import('../lib/persist/todos-persist.js');
+  const { addTodo } = await import('../lib/persist/todos-legacy-adapter.js');
   const { setBuiltinMcpRuntimeDeps } = await import('../lib/mcp/builtin/runtime-deps.js');
   const dataDir = process.env.CRETLI_DATA_DIR;
   setBuiltinMcpRuntimeDeps({ dataDir, workspaceDirForAgent: () => '', taskRuns: new Map() });
@@ -345,7 +345,7 @@ test('model_pick leaf_size signals fire for review/plan roles', async () => {
 
 test('model_pick fix role computes no leaf size, so its selection inputs stay unchanged', async () => {
   const { createCretliMcpToolHandlers } = await import('../lib/mcp/mcp-builtin-tools.js');
-  const { addTodo } = await import('../lib/persist/todos-persist.js');
+  const { addTodo } = await import('../lib/persist/todos-legacy-adapter.js');
   const { setBuiltinMcpRuntimeDeps } = await import('../lib/mcp/builtin/runtime-deps.js');
   const dataDir = process.env.CRETLI_DATA_DIR;
   setBuiltinMcpRuntimeDeps({ dataDir, workspaceDirForAgent: () => '', taskRuns: new Map() });
@@ -380,7 +380,7 @@ test('model_pick fix role computes no leaf size, so its selection inputs stay un
 
 test('model_pick review/plan responses carry no leaf= reason suffix or flash exclusion', async () => {
   const { createCretliMcpToolHandlers } = await import('../lib/mcp/mcp-builtin-tools.js');
-  const { addTodo } = await import('../lib/persist/todos-persist.js');
+  const { addTodo } = await import('../lib/persist/todos-legacy-adapter.js');
   const { setBuiltinMcpRuntimeDeps } = await import('../lib/mcp/builtin/runtime-deps.js');
   const dataDir = process.env.CRETLI_DATA_DIR;
   setBuiltinMcpRuntimeDeps({ dataDir, workspaceDirForAgent: () => '', taskRuns: new Map() });

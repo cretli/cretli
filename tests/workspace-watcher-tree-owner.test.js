@@ -17,7 +17,7 @@ import {
 } from '../lib/workspace-watcher-tree-owner.js';
 import { stampCycleOrchestratorOnTodoTree } from '../lib/workspace-watcher-cycle.js';
 import { workspaceWatcherCycleChatIds } from '../lib/persist/workspace-watchers-persist.js';
-import { addTodo, loadTodosData, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, loadTodosData, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { resolveRequestLeafContext } from '../lib/orchestrator-leaf-resolution.js';
 
 const now = Date.parse('2026-01-01T12:00:00Z');

@@ -1,5 +1,5 @@
 import { claimWorkspaceTodo } from '../../lib/workspace-watcher.js';
-import { updateTodo } from '../../lib/persist/todos-persist.js';
+import { updateTodo } from '../../lib/persist/todos-legacy-adapter.js';
 
 const [dataDir, workspaceFolder, id, revision, mode, name] = process.argv.slice(2);
 const result = mode === 'edit'

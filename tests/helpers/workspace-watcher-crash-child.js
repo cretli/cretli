@@ -20,7 +20,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { addTodo, getTodoById, loadTodosData, updateTodo } from '../../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, loadTodosData, updateTodo } from '../../lib/persist/todos-legacy-adapter.js';
 import {
   getWorkspaceWatcher,
   mutateWorkspaceWatcherRow,

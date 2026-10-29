@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { addTodo, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { mutateWorktreeRegistry } from '../lib/persist/worktree-registry-persist.js';
 import { upsertWorkspaceWatcher } from '../lib/persist/workspace-watchers-persist.js';
 import { decideWorkspaceWatcherAction, snapshotWorkspaceWatcher } from '../lib/workspace-watcher.js';

@@ -16,7 +16,7 @@ import {
   readReviewReviewerWaitMs,
   resolveEffectiveRunDeadlineEpoch,
 } from '../lib/delegation-run-deadline.js';
-import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { computeTodoPlanRevisionKey } from '../lib/plan-reviewer-cooperation.js';
 import { createTempRepo } from './helpers/temp-git-repo.js';
 import { listDelegationsForController } from '../lib/persist/delegations-persist.js';

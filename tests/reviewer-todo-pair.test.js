@@ -8,7 +8,7 @@ import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 
 // The helper already isolated the data dir; reuse it so every module agrees on one location.
 const dataDir = ISOLATED_DATA_DIR;
-const { addTodo, updateTodo, getTodoById, loadTodosData, normalizeReviewerPair } = await import('../lib/persist/todos-persist.js');
+const { addTodo, updateTodo, getTodoById, loadTodosData, normalizeReviewerPair } = await import('../lib/persist/todos-legacy-adapter.js');
 const { saveDelegationSettings } = await import('../lib/persist/delegation-settings-persist.js');
 const { clearDelegationEnvCache, resolveReviewerPool, readLeafTodoReviewerPair } = await import('../lib/delegation-settings.js');
 const { addReviewerPairMember, readReviewerPairMembers } = await import('../lib/persist/reviewer-pairs-persist.js');

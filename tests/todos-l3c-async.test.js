@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { subscribeChatListUpdates, __clearChatListUpdateClientsForTest } from '../lib/chat-list-updates.js';
 import assert from 'node:assert/strict';
 import { createLegacyJsonTodosBackend, setTodosBackend } from '../lib/persist/todos-store.js';
-import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { persistTodoPlan, persistTodoImplementationSummary } from '../lib/todo-plan-sync.js';
 import { updateLeafMaterialPartialPaths } from '../lib/todo-leaf-material.js';
 import { syncTodoReviewTarget, clearTodoReviewSyncRetries, pendingTodoReviewSyncRetryCount } from '../lib/todo-review-sync-hooks.js';

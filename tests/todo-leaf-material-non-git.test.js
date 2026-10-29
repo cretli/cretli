@@ -6,7 +6,7 @@ import './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { test } from 'node:test';
-import { addTodo, getTodoById } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById } from '../lib/persist/todos-legacy-adapter.js';
 import { ensureLeafMaterialBase } from '../lib/todo-leaf-material.js';
 import { tempDir } from './helpers/temp-git-repo.js';
 

@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { addChat } from '../lib/persist/chats-persist.js';
-import { addTodo, linkTodoChat, loadTodosData, updateTodo, writeTodoReview } from '../lib/persist/todos-persist.js';
+import { addTodo, linkTodoChat, loadTodosData, updateTodo, writeTodoReview } from '../lib/persist/todos-legacy-adapter.js';
 import { FEEDBACK_ROOT_MARKER } from '../lib/feedback-marker.js';
 import { registerTodosRoutes } from '../lib/routes/todos-routes.js';
 import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';

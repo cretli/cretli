@@ -18,7 +18,7 @@ import { createBuiltinCretliServer } from '../lib/mcp/mcp-config.js';
 import { setBuiltinMcpRuntimeDeps } from '../lib/mcp/builtin/runtime-deps.js';
 import { getWorkspaceWatcher, mutateWorkspaceWatcherRow } from '../lib/persist/workspace-watchers-persist.js';
 import { resolveDataPath } from '../lib/runtime-paths.js';
-import { addTodo, updateTodo as persistUpdateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, updateTodo as persistUpdateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { hashDelegationContent } from '../lib/delegation-request.js';
 import {
   hangNextMockChatRunStart,

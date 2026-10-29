@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { addTodo, loadTodosData, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, loadTodosData, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { decideDeferredMove, decideRestoreToTree, TODO_LATER_ROOT_TITLE } from '../lib/todo-tree.js';
 import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 

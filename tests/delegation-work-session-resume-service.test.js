@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { addChat, loadChats, updateChat } from '../lib/persist/chats-persist.js';
-import { addTodo } from '../lib/persist/todos-persist.js';
+import { addTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { appendChatHistoryEvents } from '../lib/persist/chat-history-service.js';
 import { getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { saveDelegationSettings } from '../lib/persist/delegation-settings-persist.js';

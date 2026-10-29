@@ -87,7 +87,7 @@ test('streak and report codes survive row normalization', () => {
 });
 
 test('escalation only parks a released ready todo', async () => {
-  const { addTodo, loadTodosData, updateTodo } = await import('../lib/persist/todos-persist.js');
+  const { addTodo, loadTodosData, updateTodo } = await import('../lib/persist/todos-legacy-adapter.js');
   const { applyWorkspaceWatcherBlockedEscalation } = await import('../lib/workspace-watcher-cycle-close.js');
   const dataDir = process.env.CRETLI_TEST_DATA_DIR;
   const ws = '/tmp/blocked-reasons-ws';

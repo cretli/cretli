@@ -1,7 +1,7 @@
 import './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import { ISOLATED_DATA_DIR, removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
-import { addTodo, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { addChat } from '../lib/persist/chats-persist.js';
 import { createDelegationRecord, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import {

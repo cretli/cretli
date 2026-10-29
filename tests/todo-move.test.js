@@ -10,7 +10,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { addChat, loadChats, updateChat } from '../lib/persist/chats-persist.js';
 import { createDelegationRecord } from '../lib/persist/delegations-persist.js';
-import { addTodo, getTodoById, loadTodosData, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, loadTodosData, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { createInProcessMcpClient } from '../lib/mcp/mcp-inprocess-client.js';
 import { createCretliMcpToolHandlers } from '../lib/mcp/mcp-builtin-tools.js';
 import { getBuiltinMcpMutatingTools } from '../lib/mcp/mcp-policy.js';
@@ -134,7 +134,7 @@ test('a .code-workspace target resolves to its default folder, not its first fol
 
 test('injected failure mid-move: source write failing leaves a duplicate, never a loss; target failing changes nothing', async () => {
   const { moveTodoTree } = await import('../lib/todo-move.js');
-  const { saveTodosData } = await import('../lib/persist/todos-persist.js');
+  const { saveTodosData } = await import('../lib/persist/todos-legacy-adapter.js');
   const source = createWorkspace('todo-move-fail-src-');
   const target = createWorkspace('todo-move-fail-dst-');
   const { root, child } = seedTree(source);

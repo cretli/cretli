@@ -2,7 +2,7 @@ import { ISOLATED_DATA_DIR, removeIsolatedDataDir } from './helpers/isolated-dat
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { addChat } from '../lib/persist/chats-persist.js';
-import { addTodo, loadTodosData } from '../lib/persist/todos-persist.js';
+import { addTodo, loadTodosData } from '../lib/persist/todos-legacy-adapter.js';
 import { createInProcessMcpClient } from '../lib/mcp/mcp-inprocess-client.js';
 import { getPlanReviewerSessionById } from '../lib/persist/plan-reviewer-sessions-persist.js';
 import { ensurePlanReviewerSession, inspectPlanReviewerDelegationStart } from '../lib/plan-reviewer-cooperation-service.js';

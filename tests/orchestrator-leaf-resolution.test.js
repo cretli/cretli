@@ -8,7 +8,7 @@ import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { saveDelegationSettings } from '../lib/persist/delegation-settings-persist.js';
 import { addChat } from '../lib/persist/chats-persist.js';
-import { addTodo, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { createCretliMcpToolHandlers } from '../lib/mcp/mcp-builtin-tools.js';
 import { createDelegationService } from '../lib/delegation-service.js';
 import { getDelegationById } from '../lib/persist/delegations-persist.js';
@@ -119,12 +119,12 @@ const mockPickClient = {
     return { favorites_configured: false, items: [] };
   },
   async getTodo({ todoId }) {
-    const { loadTodosData } = await import('../lib/persist/todos-persist.js');
+    const { loadTodosData } = await import('../lib/persist/todos-legacy-adapter.js');
     const item = loadTodosData(ISOLATED_DATA_DIR, workspace).items.find((row) => row.id === todoId);
     return item || null;
   },
   async listTodos() {
-    const { loadTodosData } = await import('../lib/persist/todos-persist.js');
+    const { loadTodosData } = await import('../lib/persist/todos-legacy-adapter.js');
     return loadTodosData(ISOLATED_DATA_DIR, workspace).items;
   },
 };

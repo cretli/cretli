@@ -148,7 +148,7 @@ test('the default leaf probe reads todo status from the workspace', async () => 
   const fs = await import('node:fs');
   const os = await import('node:os');
   const path = await import('node:path');
-  const { addTodo, updateTodo } = await import('../lib/persist/todos-persist.js');
+  const { addTodo, updateTodo } = await import('../lib/persist/todos-legacy-adapter.js');
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-retention-ws-'));
   try {
     const todo = addTodo(ISOLATED_DATA_DIR, workspace, { title: 'leaf', status: 'doing' });

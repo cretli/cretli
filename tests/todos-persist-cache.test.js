@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
-import { addTodo, isTodosDocCurrent, loadTodosData, todosDocumentPath, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, isTodosDocCurrent, loadTodosData, todosDocumentPath, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-todos-cache-'));
 const originalRead = fs.readFileSync;

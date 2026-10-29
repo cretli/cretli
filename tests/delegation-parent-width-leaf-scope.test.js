@@ -15,7 +15,7 @@ import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { addChat } from '../lib/persist/chats-persist.js';
-import { addTodo } from '../lib/persist/todos-persist.js';
+import { addTodo } from '../lib/persist/todos-legacy-adapter.js';
 import {
   createDelegationService,
   finishDelegation,

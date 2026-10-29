@@ -88,7 +88,7 @@ import {
   automaticallyIntegrateWorkspaceTodo,
   markTodoIntegrationReady,
 } from '../lib/workspace-watcher-integration.js';
-import { addTodo, getTodoById, loadTodosData } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, loadTodosData } from '../lib/persist/todos-legacy-adapter.js';
 import { getWorkspaceWatcher, mutateWorkspaceWatcherRow, upsertWorkspaceWatcher } from '../lib/persist/workspace-watchers-persist.js';
 import { mutateWorktreeRegistry } from '../lib/persist/worktree-registry-persist.js';
 import { worktreeResultPatchPath } from '../lib/worktree/worktree-result.ts';

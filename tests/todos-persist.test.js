@@ -17,7 +17,7 @@ import {
   updateTodo,
   workspaceKeyFromCwd,
   writeTodoReview,
-} from '../lib/persist/todos-persist.js';
+} from '../lib/persist/todos-legacy-adapter.js';
 import {
   registerWorkspaceWatcherAutopilotRunner,
   stopWorkspaceWatcherAutopilotSchedule,

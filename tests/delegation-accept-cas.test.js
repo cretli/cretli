@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { addTodo, deleteTodo, loadTodosData, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, deleteTodo, loadTodosData, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import {
   createDelegationRecord,
   getDelegationById,

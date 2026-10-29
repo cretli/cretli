@@ -12,7 +12,7 @@ import { registerTodosRoutes } from '../lib/routes/todos-routes.js';
 import { registerChatsRoutes } from '../lib/routes/chats-routes.js';
 import { registerDelegationsRoutes } from '../lib/routes/delegations-routes.js';
 import { registerHarnessCatalogRoutes } from '../lib/routes/harness-catalog-routes.js';
-import { loadTodosData } from '../lib/persist/todos-persist.js';
+import { loadTodosData } from '../lib/persist/todos-legacy-adapter.js';
 import { addChat } from '../lib/persist/chats-persist.js';
 import { writeChatPlanFile } from '../lib/chat-plan-persist.js';
 import { createDelegationRecord, updateDelegationRecord } from '../lib/persist/delegations-persist.js';

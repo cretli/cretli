@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ISOLATED_DATA_DIR, removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
-import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { claimWorkspaceTodo, pickNextWorkspaceReadyTodo, releaseStaleWorkspaceTodoClaims } from '../lib/workspace-watcher.js';

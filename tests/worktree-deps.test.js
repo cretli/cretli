@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { addTodo, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { getWorktreeRecord } from '../lib/persist/worktree-registry-persist.js';
 import { prepareWorkspaceWatcherExecution } from '../lib/workspace-watcher-worktree.js';
 import { updateWorktreeState } from '../lib/worktree-manager.js';

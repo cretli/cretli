@@ -87,7 +87,7 @@ test('sqlite dry-run leaves the directory listing and mtimes unchanged and keeps
  */
 const SEED_DONE_LEAF = `
 const workspace = process.argv[1];
-const { addTodo, updateTodo, loadTodosData } = await import('./lib/persist/todos-persist.js');
+const { addTodo, updateTodo, loadTodosData } = await import('./lib/persist/todos-legacy-adapter.js');
 const { resolveDataPath } = await import('./lib/runtime-paths.js');
 const dataDir = resolveDataPath();
 const todo = addTodo(dataDir, workspace, { title: 'leaf', status: 'ready' });

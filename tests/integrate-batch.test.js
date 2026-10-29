@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { test } from 'node:test';
-import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { createLegacyJsonTodosBackend, setTodosBackend } from '../lib/persist/todos-store.js';
 import { ensureWorktree } from '../lib/worktree-manager.js';
 import {

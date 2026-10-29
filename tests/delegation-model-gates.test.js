@@ -25,7 +25,7 @@ import { MODEL_PICK_HARD_GATE_CODES } from '../lib/model-pick-hard-gates.js';
 import { createDelegationService } from '../lib/delegation-service.js';
 import { isDelegationModelAvailable } from '../lib/delegation-executor.js';
 import { addChat } from '../lib/persist/chats-persist.js';
-import { addTodo } from '../lib/persist/todos-persist.js';
+import { addTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { registerMockChatRunAdapter, resetMockChatRuns } from '../lib/chat-run/mock-adapter.ts';
 import { unregisterChatRunAdapter } from '../lib/chat-run-service.js';
 import { buildModelPickHistory } from '../lib/model-pick-history.js';

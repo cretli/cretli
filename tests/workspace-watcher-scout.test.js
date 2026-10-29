@@ -22,7 +22,7 @@ import {
   normalizeWorkspaceWatcherRow,
   upsertWorkspaceWatcher,
 } from '../lib/persist/workspace-watchers-persist.js';
-import { addTodo, loadTodosData } from '../lib/persist/todos-persist.js';
+import { addTodo, loadTodosData } from '../lib/persist/todos-legacy-adapter.js';
 import { addChat, loadChats } from '../lib/persist/chats-persist.js';
 import { addWorkspaceMemory } from '../lib/persist/workspace-memory-persist.js';
 import {

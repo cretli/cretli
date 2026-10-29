@@ -8,7 +8,7 @@ import test from 'node:test';
 import { createTempRepo, git, tempDir } from './helpers/temp-git-repo.js';
 import { createPostIntegrator } from '../lib/integration/post-integrate.js';
 import { automaticallyIntegrateWorkspaceTodo, markTodoIntegrationReady } from '../lib/workspace-watcher-integration.js';
-import { addTodo } from '../lib/persist/todos-persist.js';
+import { addTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { mutateWorktreeRegistry } from '../lib/persist/worktree-registry-persist.js';
 import { worktreeResultPatchPath } from '../lib/worktree/worktree-result.ts';
 import { getWorkspaceWatcherRuntimeControl } from '../lib/workspace-watcher-runtime-control.js';

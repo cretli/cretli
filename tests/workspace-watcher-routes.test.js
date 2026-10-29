@@ -11,7 +11,7 @@ import fs, { mkdtempSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
-import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import {
   WORKSPACE_WATCHER_MAX_FAILURES_ENTRIES,
   WORKSPACE_WATCHER_MAX_FINDINGS_BY_TODO_ENTRIES,

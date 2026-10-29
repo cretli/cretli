@@ -40,7 +40,7 @@ import {
 import { resolveDelegationParentWidth } from '../lib/delegation-width.js';
 import { resolveDelegationWorkspaceWriteConflict } from '../lib/delegation-workspace-guard.js';
 import { listActiveDelegationsForController } from '../lib/persist/delegations-persist.js';
-import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 
 const service = createDelegationService({ isModelAvailable: () => true });
 

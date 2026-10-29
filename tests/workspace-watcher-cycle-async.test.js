@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { setImmediate } from 'node:timers/promises';
-import { addTodo, getTodoById } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById } from '../lib/persist/todos-legacy-adapter.js';
 import { createLegacyJsonTodosBackend, setTodosBackend } from '../lib/persist/todos-store.js';
 import { getWorkspaceWatcher, upsertWorkspaceWatcher } from '../lib/persist/workspace-watchers-persist.js';
 import { startWorkspaceWatcherCycle, stampCycleOrchestratorOnTodoTree } from '../lib/workspace-watcher-cycle.js';

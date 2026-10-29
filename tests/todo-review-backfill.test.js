@@ -25,7 +25,7 @@ import {
   normalizeTodoReview,
   todosDocumentPath,
   writeTodoReview,
-} from '../lib/persist/todos-persist.js';
+} from '../lib/persist/todos-legacy-adapter.js';
 import {
   createDelegationRecord,
   getDelegationById,

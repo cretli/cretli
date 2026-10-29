@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
-import { addTodo, getTodoById, todosDocumentPath, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, todosDocumentPath, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { getWorktreeRecord, mutateWorktreeRegistry } from '../lib/persist/worktree-registry-persist.js';
 import { ensureWorktree } from '../lib/worktree-manager.js';
 import {

@@ -27,7 +27,7 @@ import {
   loadTodosData,
   updateTodo,
   writeTodoReview,
-} from '../lib/persist/todos-persist.js';
+} from '../lib/persist/todos-legacy-adapter.js';
 import {
   WORKSPACE_WATCHER_CYCLE_BLOCKED_REASON_CODES,
   beginWorkspaceWatcherCycleMetric,

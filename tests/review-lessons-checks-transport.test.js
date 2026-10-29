@@ -9,7 +9,7 @@ import { CretliApiClient } from '../lib/remote-api-client.js';
 import { registerReviewLessonsRoutes } from '../lib/routes/review-lessons-routes.js';
 import { setBuiltinMcpRuntimeDeps } from '../lib/mcp/builtin/runtime-deps.js';
 import { saveChats } from '../lib/persist/chats-persist.js';
-import { loadTodosData } from '../lib/persist/todos-persist.js';
+import { loadTodosData } from '../lib/persist/todos-legacy-adapter.js';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 
 const DATA_DIR = process.env.CRETLI_TEST_DATA_DIR;

@@ -4,7 +4,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
-import { addTodo, loadTodosData, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, loadTodosData, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import {
   buildPlanReviewerExchangePromptBlock,
   canOpenPlanReviewerExchangePhase,

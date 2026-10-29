@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { addTodo, getTodoById, updateTodo, writeTodoReview } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, updateTodo, writeTodoReview } from '../lib/persist/todos-legacy-adapter.js';
 import { upsertWorkspaceWatcher } from '../lib/persist/workspace-watchers-persist.js';
 import { ensureWorktree } from '../lib/worktree-manager.js';
 import {

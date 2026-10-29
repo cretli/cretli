@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import fs, { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadTodosData } from '../lib/persist/todos-persist.js';
+import { loadTodosData } from '../lib/persist/todos-legacy-adapter.js';
 import {
   SCOUT_GENERAL_PROFILE_ID,
   getWorkspaceWatcher,

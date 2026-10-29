@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { addTodo, loadTodosData, updateTodo } from '../lib/persist/todos-persist.js';
+import { addTodo, loadTodosData, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { addChat } from '../lib/persist/chats-persist.js';
 import {
   createDelegationRecord,

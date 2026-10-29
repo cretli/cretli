@@ -5,7 +5,7 @@ import { ISOLATED_DATA_DIR, removeIsolatedDataDir } from './helpers/isolated-dat
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const { loadTodosData } = await import('../lib/persist/todos-persist.js');
+const { loadTodosData } = await import('../lib/persist/todos-legacy-adapter.js');
 const { setBuiltinMcpRuntimeDeps } = await import('../lib/mcp/builtin/runtime-deps.js');
 const { FEEDBACK_MCP_TOOL } = await import('../lib/mcp/builtin/feedback-tools.js');
 const { resolveProjectPath } = await import('../lib/runtime-paths.js');

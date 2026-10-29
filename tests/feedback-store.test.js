@@ -5,7 +5,7 @@ import { ISOLATED_DATA_DIR, removeIsolatedDataDir } from './helpers/isolated-dat
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-const { loadTodosData, updateTodo } = await import('../lib/persist/todos-persist.js');
+const { loadTodosData, updateTodo } = await import('../lib/persist/todos-legacy-adapter.js');
 const { submitFeedback, parseFeedbackInput, parseFeedbackMeta, FEEDBACK_ROOT_TITLE } = await import('../lib/persist/feedback-store.js');
 const { resolveProjectPath } = await import('../lib/runtime-paths.js');
 

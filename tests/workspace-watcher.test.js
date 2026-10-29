@@ -81,7 +81,7 @@ import { registerKernelChatRunAdapter } from '../lib/chat-run/kernel-adapter.ts'
 import { unregisterChatRunAdapter } from '../lib/chat-run-service.js';
 import { openRecoveryStore, closeRecoveryStore } from '../lib/recovery/recovery-store.ts';
 import { beginRunLaunch, recordExecutorAck } from '../lib/recovery/recovery-lifecycle.ts';
-import { addTodo, getTodoById, updateTodo, loadTodosData } from '../lib/persist/todos-persist.js';
+import { addTodo, getTodoById, updateTodo, loadTodosData } from '../lib/persist/todos-legacy-adapter.js';
 import { listReadyTodoLeaves } from '../lib/todo-tree.js';
 import {
   getDelegationRuntimeWorkerStats,
