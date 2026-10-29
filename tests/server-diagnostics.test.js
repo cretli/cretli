@@ -1,3 +1,5 @@
+import { recordWriteStat, resetWriteStats } from '../lib/persist/atomic-write.js';
+import { resolveDataPath } from '../lib/runtime-paths.js';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -317,4 +319,29 @@ test('write-stats records a bounded, validated top list', (context) => {
   assert.ok(entry.details.writeStats.length <= 20);
   assert.ok(entry.details.writeStats.every((row) => row.key.length <= 120 && row.writesPerMin === 0));
   assert.equal(entry.details.ignored, undefined);
+});
+
+test('todos-write-stats emits every interval, including zeros and keys outside top ten', (context) => {
+  const dir = createTempDirectory();
+  const recorder = createRecorder(dir);
+  const callbacks = [];
+  context.mock.method(globalThis, 'setInterval', (callback, ms) => {
+    if (ms === 300_000) callbacks.push(callback);
+    return { unref() {} };
+  });
+  context.mock.method(globalThis, 'clearInterval', () => {});
+  context.after(() => { recorder.stop(); resetWriteStats(); rmSync(dir, { recursive: true, force: true }); });
+  resetWriteStats();
+  recorder.start();
+  for (let i = 0; i < 20; i++) recordWriteStat({ filePath: resolveDataPath(`large-${i}.json`), stringifyMs: 100, bytes: 1000 });
+  recordWriteStat({ filePath: resolveDataPath('todos/first.json'), stringifyMs: 2, ioMs: 3, bytes: 10 });
+  recordWriteStat({ filePath: resolveDataPath('todos/second.json'), stringifyMs: 4, ioMs: 5, bytes: 20 });
+  callbacks[0]();
+  callbacks[0]();
+  const entries = recorder.readRecent(20);
+  assert.equal(entries.find((e) => e.event === 'write-stats').details.writeStats.some((r) => r.key.startsWith('todos/')), false);
+  const todos = entries.filter((e) => e.event === 'todos-write-stats');
+  assert.equal(todos.length, 2);
+  assert.deepEqual(todos[0].details.todosWriteStats, { writes: 2, bytes: 30, stringifyMs: 6, ioMs: 8, maxMs: 9 });
+  assert.deepEqual(todos[1].details.todosWriteStats, { writes: 0, bytes: 0, stringifyMs: 0, ioMs: 0, maxMs: 0 });
 });

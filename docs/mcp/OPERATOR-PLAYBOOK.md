@@ -561,3 +561,26 @@ branch that descends from the clean root `336add12`).
 - Keep private names, home paths and LAN addresses out of tracked files; the guard
   test `tests/no-private-environment.test.js` fails the build when they return.
   Extra local-only names go in `CRETLI_PRIVATE_TOKENS`, never in the repo.
+
+## Todos backend and rollback
+
+Todos migration and runtime selection are prepared library/CLI facilities;
+production wiring is unchanged. Inspect `todos-backend.json` through the approved
+operational access path: absent means `legacy`, `sqlite` requires the verified
+bound store, and `legacy-rollback` requires the pinned logical export plus live
+receipt/fencing sidecar. Never silently recreate an absent store or edit a marker
+to bypass verification.
+
+Follow [the todos cutover runbook](../storage-todos-cutover-runbook.md) and
+[benchmark gates](../storage-todos-benchmark.md). Keep clients, watcher claims and
+all other writers paused during import/publication. A failed or unmeasured gate
+blocks cutover. After a SQLite durable write (even with a lost ACK), an old JSON
+backup is stale: stop/fence writers, use `migrate-todos-to-sqlite.js
+rollback-export`, `rollback-verify`, then `rollback-activate`, and start only the
+sidecar-aware runtime with a newer owner fence. Preserve both stores, the pinned
+export and external control state. A plain older binary is not a rollback path.
+
+For post-cutover CPU evidence, analyze `todos-write-stats` with
+`scripts/todos-stringify-daily.js`; ordinary top-ten `write-stats` is insufficient.
+INCOMPLETE is missing evidence, never a PASS. Production switching and resuming
+automatic work require the separately approved operation.
