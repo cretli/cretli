@@ -165,12 +165,12 @@ async function run(args, sourceDir) {
   let report;
   if (!args.apply) {
     await assertDryRunLeavesStoreUntouched();
-    report = { mode: 'dry-run', dataDir, sizes: before, ...applyDelegationRetention({ ...options, dryRun: true }) };
+    report = { mode: 'dry-run', dataDir, sizes: before, ...await applyDelegationRetention({ ...options, dryRun: true }) };
   } else {
     acquireDelegationOwnerLock();
     try {
       const backupDir = backupStore(dataDir);
-      const result = applyDelegationRetention(options);
+      const result = await applyDelegationRetention(options);
       report = { mode: 'apply', dataDir, backupDir, before, after: readStoreSizes(dataDir), ...result };
     } finally {
       releaseDelegationOwnerLock();

@@ -17,8 +17,8 @@ const root = addTodo(dataDir, cwd, { title: 'root', idempotencyKey: 'steer-root'
 const leaf = addTodo(dataDir, cwd, { title: 'leaf', idempotencyKey: 'steer-leaf', parentId: root.id }).items.find((it) => it.parentId === root.id);
 const row = { parentChatId: 'old-parent', workspaceFolder: cwd, leafId: leaf.id };
 
-assert.equal(canChatSteerDelegation(row, 'old-parent', { dataDir }), true);
-assert.equal(canChatSteerDelegation(row, 'new-orch', { dataDir }), true);
-assert.equal(canChatSteerDelegation(row, 'stranger', { dataDir }), false);
-assert.equal(canChatSteerDelegation({ ...row, leafId: '' }, 'new-orch', { dataDir }), false);
+assert.equal(await canChatSteerDelegation(row, 'old-parent', { dataDir }), true);
+assert.equal(await canChatSteerDelegation(row, 'new-orch', { dataDir }), true);
+assert.equal(await canChatSteerDelegation(row, 'stranger', { dataDir }), false);
+assert.equal(await canChatSteerDelegation({ ...row, leafId: '' }, 'new-orch', { dataDir }), false);
 console.log('delegation-steer-orchestrator ok');

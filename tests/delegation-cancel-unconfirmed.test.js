@@ -177,7 +177,7 @@ test('stale-release does not free cancel_unconfirmed slot', () => {
   assert.equal(isDelegationSlotOccupied(released), true);
 });
 
-test('manual release requires confirmation and writes todo changelog', () => {
+test('manual release requires confirmation and writes todo changelog', async () => {
   const todo = addTodo(ISOLATED_DATA_DIR, ISOLATED_DATA_DIR, {
     title: 'Leaf',
     body: 'x',
@@ -199,9 +199,9 @@ test('manual release requires confirmation and writes todo changelog', () => {
   updateTodo(ISOLATED_DATA_DIR, ISOLATED_DATA_DIR, todo.id, {
     blockedReason: 'cancel_unconfirmed',
   });
-  const denied = service.confirmManualSlotRelease(row.id, { confirmation: false });
+  const denied = await service.confirmManualSlotRelease(row.id, { confirmation: false });
   assert.equal(denied.ok, false);
-  const ok = service.confirmManualSlotRelease(row.id, {
+  const ok = await service.confirmManualSlotRelease(row.id, {
     confirmation: true,
     note: 'Process killed manually.',
   });
@@ -269,7 +269,7 @@ test('late idle cancel after cancel_unconfirmed escalation does not release slot
   assert.equal(readDelegationStopProof(after), null);
 });
 
-test('manual release without leafId records note on delegation row', () => {
+test('manual release without leafId records note on delegation row', async () => {
   const row = updateDelegationRecord(createDelegationRecord({
     parentChatId: 'p-no-leaf',
     childChatId: 'c-no-leaf',
@@ -282,7 +282,7 @@ test('manual release without leafId records note on delegation row', () => {
     slotHeldBy: 'cancel_unconfirmed',
     runStoppingAt: new Date().toISOString(),
   });
-  const ok = service.confirmManualSlotRelease(row.id, {
+  const ok = await service.confirmManualSlotRelease(row.id, {
     confirmation: true,
     note: 'Killed PID manually.',
   });

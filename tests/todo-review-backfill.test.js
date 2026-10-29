@@ -781,7 +781,7 @@ test('retention archiving a backfilled leaf does not degrade it on the next live
   const before = readStoreTodo(project, todo.id).review;
   assert.equal(before.code.state, 'passed');
 
-  const retention = applyDelegationRetention({ now: Date.now() + 45 * 24 * 60 * 60 * 1000 });
+  const retention = await applyDelegationRetention({ now: Date.now() + 45 * 24 * 60 * 60 * 1000 });
   assert.ok(retention.archived >= 2, `expected the run to archive its rows, got ${retention.archived}`);
   const archived = getDelegationById(review.id);
   assert.equal(archived.report.length, 2000);

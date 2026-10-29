@@ -130,7 +130,7 @@ test('a prefix leaf id resolves to the real todo and does not fail open', async 
   const project = makeProject();
   const todo = makeTodo(project);
   const job = makeJob({ project, leafId: todo.id.slice(0, 8) });
-  const context = readDelegationAcceptContext(job, { dataDir: ISOLATED_DATA_DIR });
+  const context = await readDelegationAcceptContext(job, { dataDir: ISOLATED_DATA_DIR });
   assert.equal(context.resolution, 'prefix');
   assert.equal(context.todoRevision, readRevision(project, todo.id));
   const material = readDelegationMaterialRevision(repo.dir);
@@ -169,7 +169,7 @@ test('attributed job whose todo is already missing cannot accept captured-empty'
   const todo = makeTodo(project);
   const job = makeJob({ project, leafId: todo.id });
   deleteTodo(ISOLATED_DATA_DIR, project, todo.id);
-  const context = readDelegationAcceptContext(job, { dataDir: ISOLATED_DATA_DIR });
+  const context = await readDelegationAcceptContext(job, { dataDir: ISOLATED_DATA_DIR });
   assert.equal(context.resolution, 'missing');
   assert.equal(context.todoRevision, '');
   const result = await accept(job, {
@@ -183,7 +183,7 @@ test('attributed job whose todo is deleted after the context was read is a 409',
   const project = makeProject();
   const todo = makeTodo(project);
   const job = makeJob({ project, leafId: todo.id });
-  const shown = readDelegationAcceptContext(job, { dataDir: ISOLATED_DATA_DIR }).todoRevision;
+  const shown = (await readDelegationAcceptContext(job, { dataDir: ISOLATED_DATA_DIR })).todoRevision;
   assert.ok(shown);
   deleteTodo(ISOLATED_DATA_DIR, project, todo.id);
   const result = await accept(job, {
@@ -213,7 +213,7 @@ test('an ambiguous prefix leaf id cannot pass with a captured empty revision', a
   const future = new Date(Date.now() + 5000);
   fs.utimesSync(file, future, future);
   const job = makeJob({ project, leafId: first.id.slice(0, 8) });
-  const context = readDelegationAcceptContext(job, { dataDir: ISOLATED_DATA_DIR });
+  const context = await readDelegationAcceptContext(job, { dataDir: ISOLATED_DATA_DIR });
   assert.equal(context.resolution, 'ambiguous');
   assert.equal(context.todoRevision, '');
   const result = await accept(job, {
@@ -232,7 +232,7 @@ test('a failed todo read is unavailable and never accepts', async () => {
   fs.renameSync(target, backup);
   fs.mkdirSync(target);
   try {
-    const context = readDelegationAcceptContext(job, { dataDir: ISOLATED_DATA_DIR });
+    const context = await readDelegationAcceptContext(job, { dataDir: ISOLATED_DATA_DIR });
     assert.equal(context.resolution, 'unavailable');
     assert.equal(context.todoRevision, '');
     const result = await accept(job, {

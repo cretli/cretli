@@ -194,7 +194,7 @@ test('timed-out reviewer is not ignorable: sibling PASS does not close the round
   assert.equal(snap.code.stateReason, 'reviewer_timeout');
 });
 
-test('AC2: after cancel_unconfirmed no new reviewer fits until the slot is released manually', () => {
+test('AC2: after cancel_unconfirmed no new reviewer fits until the slot is released manually', async () => {
   const parentChatId = `parent-${crypto.randomUUID()}`;
   const row = createDelegationRecord({
     parentChatId,
@@ -218,7 +218,7 @@ test('AC2: after cancel_unconfirmed no new reviewer fits until the slot is relea
   });
   assert.equal(blocked.ok, false);
   const service = createDelegationService({ isModelAvailable: () => true });
-  assert.equal(service.confirmManualSlotRelease(row.id, { confirmation: true, note: 'killed' }).ok, true);
+  assert.equal((await service.confirmManualSlotRelease(row.id, { confirmation: true, note: 'killed' })).ok, true);
   const freed = resolveDelegationParentWidth({
     active: listActiveDelegationsForController(parentChatId),
     incomingAssignment: 'review',

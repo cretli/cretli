@@ -34,7 +34,7 @@ test('normalizeReviewerPair trims, caps at two and drops malformed values', () =
   assert.deepEqual(normalizeReviewerPair({ enabled: false }), { enabled: false });
 });
 
-test('todo create/update persist, normalize and clear reviewer_pair', () => {
+test('todo create/update persist, normalize and clear reviewer_pair', async () => {
   const created = addTodo(dataDir, ws, { title: 'pair todo', status: 'ready', reviewerPair: { enabled: true, members: todoPair } });
   const item = getTodoById(dataDir, ws, created.item.id);
   assert.deepEqual(item.reviewerPair, { enabled: true, members: todoPair });
@@ -44,9 +44,9 @@ test('todo create/update persist, normalize and clear reviewer_pair', () => {
   assert.deepEqual(getTodoById(dataDir, ws, plain.item.id).reviewerPair, { enabled: false });
   updateTodo(dataDir, ws, plain.item.id, { reviewerPair: {} });
   assert.equal('reviewerPair' in getTodoById(dataDir, ws, plain.item.id), false, 'empty object clears');
-  assert.deepEqual(readLeafTodoReviewerPair(dataDir, ws, item.id), { enabled: true, members: todoPair });
-  assert.deepEqual(readLeafTodoReviewerPair(dataDir, ws, item.id.slice(0, 8)), { enabled: true, members: todoPair });
-  assert.equal(readLeafTodoReviewerPair(dataDir, ws, 'nope'), undefined);
+  assert.deepEqual(await readLeafTodoReviewerPair(dataDir, ws, item.id), { enabled: true, members: todoPair });
+  assert.deepEqual(await readLeafTodoReviewerPair(dataDir, ws, item.id.slice(0, 8)), { enabled: true, members: todoPair });
+  assert.equal(await readLeafTodoReviewerPair(dataDir, ws, 'nope'), undefined);
   assert.equal(loadTodosData(dataDir, ws).items.length, 2);
 });
 

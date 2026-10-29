@@ -69,7 +69,7 @@ try {
     rows.push({ name, before: Buffer.byteLength(before), after: Buffer.byteLength(after), decoratedBefore: Buffer.byteLength(decorate(before)), decoratedAfter: Buffer.byteLength(decorate(after)) });
   }
   measure('buildSmartMergeRequest', (await buildSmartMergeRequest(mergeInput)).prompt, (await beforeIntegration.buildSmartMergeRequest(mergeInput)).prompt);
-  measure('buildVerifyIntegrationRequest', buildVerifyIntegrationRequest(verifyInput).prompt, beforeIntegration.buildVerifyIntegrationRequest(verifyInput).prompt);
+  measure('buildVerifyIntegrationRequest', (await buildVerifyIntegrationRequest(verifyInput)).prompt, (await beforeIntegration.buildVerifyIntegrationRequest(verifyInput)).prompt);
   measure('buildGitBranchMergePrompt', buildGitBranchMergePrompt(branchInput), beforeBranch.buildGitBranchMergePrompt(branchInput));
   measure('buildMailboxDeliveryPrompt', buildMailboxDeliveryPrompt(message), beforeMailbox.buildMailboxDeliveryPrompt(message));
   measure('buildWorkspaceWatcherCyclePrompt', buildWorkspaceWatcherCyclePrompt(cycle));

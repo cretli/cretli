@@ -16,7 +16,7 @@ import { blockNewStarts, releasePostIntegrateBlockIfOwned, unblockNewStarts } fr
 
 const REL = 'lib/leaf.js';
 
-function fixture(t) {
+async function fixture(t) {
   const { dir: repo, baseCommit } = createTempRepo({ file: 'README.md', content: 'base\n' });
   const dataDir = tempDir('cretli-post-wiring-');
   t.after(() => { fs.rmSync(repo, { recursive: true, force: true }); fs.rmSync(dataDir, { recursive: true, force: true }); });
@@ -40,7 +40,7 @@ function fixture(t) {
       creationState: 'ready', executionState: 'execution_closed', integrationState: 'ready', results: {} };
     return { changed: true };
   }, { dataDir });
-  assert.equal(markTodoIntegrationReady({ todoId: todo.id, workspaceFolder: repo, dataDir, cycleId: 'cycle-1', result: prepared }).ok, true);
+  assert.equal((await markTodoIntegrationReady({ todoId: todo.id, workspaceFolder: repo, dataDir, cycleId: 'cycle-1', result: prepared })).ok, true);
   return { repo, dataDir, todo };
 }
 
@@ -65,7 +65,7 @@ const run = (f, policy, integrator) => automaticallyIntegrateWorkspaceTodo({
 });
 
 test('commit -> decision -> lock -> build + restart -> boot release', async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const policy = { autoIntegrate: true, autoRestart: true };
   const { calls, states, integrator } = fakes(f, policy);
   assert.equal((await run(f, policy, integrator)).ok, true);
@@ -79,7 +79,7 @@ test('commit -> decision -> lock -> build + restart -> boot release', async (t) 
 });
 
 test('autoRestart OFF (default): commit happens, nothing recorded or executed', async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const policy = { autoIntegrate: true };
   const { calls, integrator } = fakes(f, policy);
   assert.equal((await run(f, policy, integrator)).ok, true);
@@ -89,7 +89,7 @@ test('autoRestart OFF (default): commit happens, nothing recorded or executed', 
 });
 
 test('failed integration does not trigger post-integration', async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const policy = { autoRestart: true };
   const { calls, integrator } = fakes(f, policy);
   assert.equal((await run(f, policy, integrator)).ok, false);

@@ -728,7 +728,7 @@ test('MCP-token REST retry and todo_integration confirm preserve the marker; a b
   assert.equal(viaToken.status, 200);
   assert.ok(getWorkspaceWatcher(cwd, { dataDir }).reviewWaits[leaf.id], 'MCP-token REST retry keeps the marker');
   const { confirmWorkspaceTodoIntegration } = await import('../lib/workspace-watcher-integration.js');
-  const confirm = confirmWorkspaceTodoIntegration({
+  const confirm = await confirmWorkspaceTodoIntegration({
     workspaceFolder: cwd,
     dataDir,
     todoId: leaf.id,
@@ -759,7 +759,7 @@ test('worktree leaf: claim-only release, label after release, never ready; resul
   assert.equal(todo.claimedByChatId, undefined);
   assert.match(todo.blockedReason, /review_missing/);
   assert.deepEqual(
-    markTodoIntegrationReady({ todoId: leaf.id, workspaceFolder: cwd, cycleId: 'x', result: { resultHash: 'h' }, dataDir }),
+    await markTodoIntegrationReady({ todoId: leaf.id, workspaceFolder: cwd, cycleId: 'x', result: { resultHash: 'h' }, dataDir }),
     { ok: false, changed: false, reason: 'review_missing' },
   );
 });

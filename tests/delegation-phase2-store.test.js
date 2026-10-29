@@ -189,7 +189,7 @@ registerMockChatRunAdapter('opencode');
     planMarkdown: 'x'.repeat(100),
     status: 'completed',
   });
-  const result = applyDelegationRetention({ now: Date.now(), retentionMs: 24 * 60 * 60 * 1000 });
+  const result = await applyDelegationRetention({ now: Date.now(), retentionMs: 24 * 60 * 60 * 1000 });
   assert.equal(result.archived >= 0, true);
 }
 

@@ -403,7 +403,7 @@ test('a worktree PASS does not unblock the next sequential sibling; confirm does
   git(suite.repo, ['commit', '-qm', 'integrate sequential task']);
   const targetCommit = git(suite.repo, ['rev-parse', 'HEAD']).trim();
 
-  const confirmed = confirmWorkspaceTodoIntegration({
+  const confirmed = await confirmWorkspaceTodoIntegration({
     todoId: s1.id,
     workspaceFolder: suite.repo,
     dataDir: suite.dataDir,
@@ -474,7 +474,7 @@ test('reject returns the todo to ready and preserves worktree, patch and cleanup
   await reportPass(suite, chatId, todo, { cycleId, reportId: 'rej-1' });
   const patchPath = getWorktreeRecord(todo.id, { dataDir: suite.dataDir }).results[cycleId].patchPath;
 
-  const rejected = rejectWorkspaceTodoIntegration({
+  const rejected = await rejectWorkspaceTodoIntegration({
     todoId: todo.id,
     workspaceFolder: suite.repo,
     dataDir: suite.dataDir,

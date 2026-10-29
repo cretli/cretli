@@ -72,7 +72,7 @@ for (const [rowName, perCaller] of Object.entries(expected)) {
     const row = rows[rowName];
     const caller = callers[callerName];
     assert.equal(canChatControlDelegation(row, caller.id), allowed, `${rowName}/${callerName} control`);
-    assert.equal(canChatSteerDelegation(row, caller.id, { dataDir: workspace }), allowed, `${rowName}/${callerName} steer`);
+    assert.equal(await canChatSteerDelegation(row, caller.id, { dataDir: workspace }), allowed, `${rowName}/${callerName} steer`);
     const handlers = handlersFor(caller);
     // Terminal row of the same shape (fresh per action: rate/ack/cancel mutate).
     const fresh = () => job(row.controllerChatId || '').id;

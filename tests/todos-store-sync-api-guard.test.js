@@ -37,6 +37,12 @@ const CONVERTED = Object.freeze([
   'lib/workspace-watcher-history-repair.js',
   'lib/workspace-watcher-review-gate-guard.js',
   'lib/workspace-watcher-cycle-close.js',
+  'lib/workspace-watcher-integration.js',
+  'lib/delegation-retention.js',
+  'lib/delegation-service.js',
+  'lib/delegation-settings.js',
+  'lib/delegation-slot-stop.js',
+  'lib/delegation-takeover.js',
   'lib/workspace-watcher-todo-recover.js',
   'lib/worktree-deps.js',
   'lib/worktree-list.js',
@@ -46,15 +52,10 @@ const CONVERTED = Object.freeze([
 
 /** Files that still use the sync API (later leaves convert them); shrink only. */
 const ALLOWLIST = Object.freeze([
-  'lib/delegation-retention.js',
-  'lib/delegation-service.js',
-  'lib/delegation-settings.js',
-  'lib/delegation-slot-stop.js',
   'lib/integrate-batch.js',
   'lib/persist/todos-store.js',
   'lib/todo-move.js',
   'lib/todo-review-backfill.js',
-  'lib/workspace-watcher-integration.js',
   'scripts/architecture-http-fixture.mjs',
   'scripts/architecture-stall-profile.mjs',
   'scripts/audit-automatic-prompts.mjs',

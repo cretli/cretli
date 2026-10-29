@@ -29,7 +29,7 @@ closeDelegationSqlite();
 /** Same pass the CLI dry run wraps, run directly against the real directory. */
 const DIRECT_PLAN = `
 const { applyDelegationRetention } = await import('./lib/delegation-retention.js');
-console.log(JSON.stringify(applyDelegationRetention({ dryRun: true })));
+console.log(JSON.stringify(await applyDelegationRetention({ dryRun: true })));
 `;
 
 /**

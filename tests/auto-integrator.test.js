@@ -93,7 +93,7 @@ import { getWorkspaceWatcher, mutateWorkspaceWatcherRow, upsertWorkspaceWatcher 
 import { mutateWorktreeRegistry } from '../lib/persist/worktree-registry-persist.js';
 import { worktreeResultPatchPath } from '../lib/worktree/worktree-result.ts';
 
-function fixture(t) {
+async function fixture(t) {
   const { dir: repo, baseCommit } = createTempRepo({ file: 'leaf.txt', content: 'base\n' });
   const dataDir = tempDir('cretli-auto-data-');
   t.after(() => { fs.rmSync(repo, { recursive: true, force: true }); fs.rmSync(dataDir, { recursive: true, force: true }); });
@@ -113,7 +113,7 @@ function fixture(t) {
       creationState: 'ready', executionState: 'execution_closed', integrationState: 'ready', results: {} };
     return { changed: true };
   }, { dataDir });
-  assert.equal(markTodoIntegrationReady({ todoId: todo.id, workspaceFolder: repo, dataDir, cycleId: 'cycle-1', result: prepared }).ok, true);
+  assert.equal((await markTodoIntegrationReady({ todoId: todo.id, workspaceFolder: repo, dataDir, cycleId: 'cycle-1', result: prepared })).ok, true);
   return { repo, dataDir, todo, prepared, baseCommit };
 }
 
@@ -122,7 +122,7 @@ function call(f, policy = { autoIntegrate: true }) {
 }
 
 test('production caller resolves registry result and confirms verified HEAD; foreign staging survives', async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   fs.writeFileSync(path.join(f.repo, 'foreign.txt'), 'staged\n');
   git(f.repo, ['add', 'foreign.txt']);
   fs.writeFileSync(path.join(f.repo, 'foreign.txt'), 'unstaged\n');
@@ -140,7 +140,7 @@ test('production caller resolves registry result and confirms verified HEAD; for
 });
 
 test('real temporary-index conflict rejects to ready with patch note and preserves index and tree', async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   fs.writeFileSync(path.join(f.repo, 'leaf.txt'), 'master\n');
   git(f.repo, ['add', 'leaf.txt']); git(f.repo, ['commit', '-qm', 'master changes']);
   const head = git(f.repo, ['rev-parse', 'HEAD']);
@@ -157,7 +157,7 @@ test('real temporary-index conflict rejects to ready with patch note and preserv
 });
 
 test('dirty scope refuses publication and policy OFF preserves HEAD', async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const head = git(f.repo, ['rev-parse', 'HEAD']);
   assert.equal((await call(f, {})).reason, AUTO_INTEGRATE_DISABLED);
   fs.writeFileSync(path.join(f.repo, 'leaf.txt'), 'foreign edit\n');
@@ -167,7 +167,7 @@ test('dirty scope refuses publication and policy OFF preserves HEAD', async (t) 
 });
 
 test('frontend smoke failure durably stops the watcher before notification, evidence todo and rejection', async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const artifacts = tempDir('cretli-smoke-evidence-');
   t.after(() => fs.rmSync(artifacts, { recursive: true, force: true }));
   fs.mkdirSync(path.join(artifacts, 'results'), { recursive: true });
@@ -202,7 +202,7 @@ test('frontend smoke failure durably stops the watcher before notification, evid
 });
 
 test('failed smoke notification keeps the durable stop and never creates or rejects a todo', async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   let created = false;
   const outcome = await automaticallyIntegrateWorkspaceTodo({
     workspaceFolder: f.repo, dataDir: f.dataDir, todoId: f.todo.id,
@@ -225,7 +225,7 @@ test('failed smoke notification keeps the durable stop and never creates or reje
 });
 
 test('production smoke adapter persists the existing notification and todo records', async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const artifacts = tempDir('cretli-smoke-production-');
   t.after(() => fs.rmSync(artifacts, { recursive: true, force: true }));
   fs.writeFileSync(path.join(artifacts, 'browser.log'), 'console error: missing key');
@@ -287,7 +287,7 @@ test('affected test failing on HEAD is baseline; a new failure blocks', async (t
 import { runWorkspaceWatcherAutopilot } from '../lib/workspace-watcher-cycle.js';
 
 test('real autopilot drains persisted ready result, records audit and does not need a closing cycle', async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   upsertWorkspaceWatcher(f.repo, { mode: 'autopilot', policy: { autoIntegrate: true, requirePlanApproval: false } }, { dataDir: f.dataDir });
   const outcome = await runWorkspaceWatcherAutopilot({ dataDir: f.dataDir });
   assert.equal(getTodoById(f.dataDir, f.repo, f.todo.id).status, 'done', JSON.stringify(outcome));
@@ -301,7 +301,7 @@ test('real autopilot drains persisted ready result, records audit and does not n
 });
 
 test('durable rate and failure limits prevent Git publication', async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const entry = { todoId: 'previous', at: new Date().toISOString(), ok: false, reason: 'conflict' };
   upsertWorkspaceWatcher(f.repo, { mode: 'autopilot', policy: { autoIntegrate: true }, automaticIntegrations: [entry] }, { dataDir: f.dataDir });
   assert.equal((await call(f, { autoIntegrate: true, autoIntegrateMaxPerHour: 1 })).reason, 'integration_rate_limit');
@@ -310,7 +310,7 @@ test('durable rate and failure limits prevent Git publication', async (t) => {
 });
 
 test('gate failures leave repository index and working tree unchanged', async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const index = fs.readFileSync(path.join(f.repo, '.git/index'));
   await assert.rejects(() => integrateGitResult({ workspaceFolder: f.repo, result: f.prepared, todoId: f.todo.id,
     gates: () => { throw Object.assign(new Error('lint failure'), { code: 'eslint_failed' }); },
@@ -321,7 +321,7 @@ test('gate failures leave repository index and working tree unchanged', async (t
 });
 
 test('generated baseline patch is excluded and recomputed on candidate only', async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const baseline = 'docs/typecheck-baseline.json';
   fs.mkdirSync(path.join(f.repo, 'docs'));
   fs.writeFileSync(path.join(f.repo, baseline), 'base\n');
@@ -357,7 +357,7 @@ test('asynchronous lint and size regeneration failures block gates', async (t) =
 });
 
 test('production caller rejects a real HEAD read failure without masking its Git code', async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   fs.writeFileSync(path.join(f.repo, '.git/HEAD'), 'ref: refs/heads/missing\n');
   const outcome = await call(f);
   assert.equal(outcome.reason, 'WORKTREE_GIT_FAILED');
@@ -366,7 +366,7 @@ test('production caller rejects a real HEAD read failure without masking its Git
 });
 
 test('durable publication journal recovers confirmation without another commit', async (t) => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const integrated = await integrateGitResult({ workspaceFolder: f.repo, todoId: f.todo.id, result: f.prepared, gates: () => {} });
   const head = git(f.repo, ['rev-parse', 'HEAD']);
   upsertWorkspaceWatcher(f.repo, { mode: 'autopilot', policy: { autoIntegrate: true }, automaticIntegrations: [{

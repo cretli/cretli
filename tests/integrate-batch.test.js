@@ -130,9 +130,9 @@ async function next(world, created, fields = {}, deps = world.deps) {
  * @param {string} todoId
  * @param {string} [callerChatId]
  */
-function agentConfirm(world, todoId, callerChatId = BATCH_CHAT) {
+async function agentConfirm(world, todoId, callerChatId = BATCH_CHAT) {
   const todo = getTodoById(world.dataDir, world.repo, todoId);
-  const result = confirmWorkspaceTodoIntegration({
+  const result = await confirmWorkspaceTodoIntegration({
     todoId,
     workspaceFolder: world.repo,
     dataDir: world.dataDir,
@@ -243,8 +243,8 @@ test('entries are built lazily, one at a time, with pending_confirm and stale fe
   const pending = await next(world, created, { entryId, attempt: 1, outcome: 'merged' }, deps);
   assert.equal(pending.body.action, 'pending_confirm');
   assert.deepEqual(calls, [world.todos[0].id]);
-  reportSmartMergeOutcome({ todoId: world.todos[0].id, workspaceFolder: world.repo, dataDir: world.dataDir, outcome: 'merged' });
-  agentConfirm(world, world.todos[0].id);
+  await reportSmartMergeOutcome({ todoId: world.todos[0].id, workspaceFolder: world.repo, dataDir: world.dataDir, outcome: 'merged' });
+  await agentConfirm(world, world.todos[0].id);
   const advanced = await next(world, created, { entryId, attempt: 1, outcome: 'merged' }, deps);
   assert.equal(advanced.body.action, 'entry');
   assert.equal(advanced.body.entry.todoId, world.todos[1].id);
@@ -254,8 +254,8 @@ test('entries are built lazily, one at a time, with pending_confirm and stale fe
   const replay = await next(world, created, { entryId, attempt: 1, outcome: 'merged' }, deps);
   assert.equal(replay.body.action, 'resolved');
   assert.deepEqual(calls, [world.todos[0].id, world.todos[1].id]);
-  reportSmartMergeOutcome({ todoId: world.todos[1].id, workspaceFolder: world.repo, dataDir: world.dataDir, outcome: 'merged' });
-  agentConfirm(world, world.todos[1].id);
+  await reportSmartMergeOutcome({ todoId: world.todos[1].id, workspaceFolder: world.repo, dataDir: world.dataDir, outcome: 'merged' });
+  await agentConfirm(world, world.todos[1].id);
   const done = await next(world, created, { entryId: advanced.body.entry.entryId, attempt: 1, outcome: 'merged' }, deps);
   assert.equal(done.body.action, 'stop');
   assert.equal(done.body.reason, 'completed');
@@ -308,7 +308,7 @@ test('MCP integrate_next drives the batch and is scoped to the caller workspace'
     batch: { batchId: created.batch.id, entryId: entry.entryId, attempt: entry.attempt, epoch: created.batch.epoch, token: created.secret },
   });
   assert.equal(report.isError, false, report.content[0].text);
-  agentConfirm(world, world.todos[0].id);
+  await agentConfirm(world, world.todos[0].id);
   const done = await handlers.integrate_next({ ...capability, entry_id: entry.entryId, attempt: entry.attempt, outcome: 'merged', summary: 'ok' });
   assert.equal(done.isError, false, done.content[0].text);
   assert.equal(done.structuredContent.action, 'stop');
@@ -343,7 +343,7 @@ test('verify entry completes through confirm or no-code with no legacy report', 
   const entryId = first.body.entry.entryId;
   assert.equal((await next(world, created, { entryId, attempt: 1, outcome: 'verified' })).body.action, 'pending_confirm');
   const current = getTodoById(world.dataDir, world.repo, done.id);
-  const noCode = markTodoIntegrationNoCode({
+  const noCode = await markTodoIntegrationNoCode({
     todoId: done.id,
     workspaceFolder: world.repo,
     dataDir: world.dataDir,
@@ -507,14 +507,14 @@ test('lock: single owner blocks a batch, a failed report and confirm release it,
   assert.equal(getIntegrationLock({ dataDir: world.dataDir, workspaceFolder: world.repo, deps: { isChatRunConfirmedIdle: () => true } }), null);
   // the lib-level failed report releases a single lock without any REST call
   acquireIntegrationLock({ dataDir: world.dataDir, workspaceFolder: world.repo, owner: 'single', todoId, chatId: '' });
-  reportSmartMergeOutcome({ todoId, workspaceFolder: world.repo, dataDir: world.dataDir, outcome: 'failed', summary: 'x' });
+  await reportSmartMergeOutcome({ todoId, workspaceFolder: world.repo, dataDir: world.dataDir, outcome: 'failed', summary: 'x' });
   assert.equal(getIntegrationLock({ dataDir: world.dataDir, workspaceFolder: world.repo }), null);
   // a merged report keeps the lock until the confirm releases it, so a batch
   // cannot start in the window between the report and the attestation
   acquireIntegrationLock({ dataDir: world.dataDir, workspaceFolder: world.repo, owner: 'single', todoId, chatId: '' });
-  reportSmartMergeOutcome({ todoId, workspaceFolder: world.repo, dataDir: world.dataDir, outcome: 'merged' });
+  await reportSmartMergeOutcome({ todoId, workspaceFolder: world.repo, dataDir: world.dataDir, outcome: 'merged' });
   assert.ok(getIntegrationLock({ dataDir: world.dataDir, workspaceFolder: world.repo }), 'a merged report keeps the single lock');
-  agentConfirm(world, todoId);
+  await agentConfirm(world, todoId);
   assert.equal(getIntegrationLock({ dataDir: world.dataDir, workspaceFolder: world.repo }), null, 'the confirm released it');
   // explicit clear
   acquireIntegrationLock({ dataDir: world.dataDir, workspaceFolder: world.repo, owner: 'single', todoId, chatId: '' });
@@ -648,7 +648,7 @@ test('single lock: orphan TTL, unknown and busy never expire, rollback and inval
   // rollback of a failed start releases the lock and the marker
   await buildSmartMergeRequest({ todoId, workspaceFolder: world.repo, dataDir: world.dataDir, baseUrl: 'https://127.0.0.1:3011' });
   assert.equal(getTodoById(world.dataDir, world.repo, todoId).integration.reason, SMART_MERGE_RUNNING);
-  rollbackIntegrationRequest({ ...base, targetId: todoId, todoId });
+  await rollbackIntegrationRequest({ ...base, targetId: todoId, todoId });
   assert.equal(getIntegrationLock(base), null);
   assert.notEqual(getTodoById(world.dataDir, world.repo, todoId).integration.reason, SMART_MERGE_RUNNING);
 });
@@ -657,10 +657,10 @@ test('invalidate releases the owner single lock', async (t) => {
   const world = await makeWorld('invalidate', 1);
   t.after(world.cleanup);
   const todoId = world.todos[0].id;
-  reportSmartMergeOutcome({ todoId, workspaceFolder: world.repo, dataDir: world.dataDir, outcome: 'merged' });
-  agentConfirm(world, todoId);
+  await reportSmartMergeOutcome({ todoId, workspaceFolder: world.repo, dataDir: world.dataDir, outcome: 'merged' });
+  await agentConfirm(world, todoId);
   acquireIntegrationLock({ dataDir: world.dataDir, workspaceFolder: world.repo, owner: 'single', todoId, chatId: 'chat-i' });
-  const result = invalidateTodoIntegrationProof({
+  const result = await invalidateTodoIntegrationProof({
     todoId,
     workspaceFolder: world.repo,
     dataDir: world.dataDir,
@@ -701,15 +701,15 @@ test('verify entry: no_code claim needs the recorded no-code review', async (t) 
   const world = await makeWorld('verifynocode', 1);
   t.after(world.cleanup);
   const todoId = world.todos[0].id;
-  reportSmartMergeOutcome({ todoId, workspaceFolder: world.repo, dataDir: world.dataDir, outcome: 'merged' });
-  agentConfirm(world, todoId);
+  await reportSmartMergeOutcome({ todoId, workspaceFolder: world.repo, dataDir: world.dataDir, outcome: 'merged' });
+  await agentConfirm(world, todoId);
   const plain = addTodo(world.dataDir, world.repo, { title: 'plain done', status: 'done' }).item;
   const created = create(world, [plain.id]);
   const first = await next(world, created);
   assert.equal(first.body.entry.mode, 'verify');
   const entryId = first.body.entry.entryId;
   const target = getTodoById(world.dataDir, world.repo, plain.id);
-  const confirmed = confirmWorkspaceTodoIntegration({
+  const confirmed = await confirmWorkspaceTodoIntegration({
     todoId: plain.id,
     workspaceFolder: world.repo,
     dataDir: world.dataDir,
@@ -728,18 +728,18 @@ test('library guard: reject / invalidate honour the lock for every entry point (
   t.after(world.cleanup);
   const [a, b] = world.todos;
   const base = { workspaceFolder: world.repo, dataDir: world.dataDir };
-  assert.equal(refuseWhenIntegrationLockedForWriter({ ...base, todoId: a.id }), null, 'no lock, no refusal');
+  assert.equal(await refuseWhenIntegrationLockedForWriter({ ...base, todoId: a.id }), null, 'no lock, no refusal');
   const created = create(world, [b.id]);
   bindIntegrationLockChat({ ...base, batchId: created.batch.id, chatId: 'chat-batch' });
-  assert.equal(rejectWorkspaceTodoIntegration({ ...base, todoId: b.id, callerChatId: 'chat-other' }).reason, 'integration_locked');
-  assert.equal(rejectWorkspaceTodoIntegration({ ...base, todoId: b.id }).reason, 'integration_locked', 'no caller identity is not the batch agent');
-  assert.equal(invalidateTodoIntegrationProof({ ...base, todoId: b.id, expectedUpdatedAt: 'x', reason: 'r' }).reason, 'integration_locked');
-  assert.notEqual(rejectWorkspaceTodoIntegration({ ...base, todoId: b.id, callerChatId: 'chat-batch' }).reason, 'integration_locked');
+  assert.equal((await rejectWorkspaceTodoIntegration({ ...base, todoId: b.id, callerChatId: 'chat-other' })).reason, 'integration_locked');
+  assert.equal((await rejectWorkspaceTodoIntegration({ ...base, todoId: b.id })).reason, 'integration_locked', 'no caller identity is not the batch agent');
+  assert.equal((await invalidateTodoIntegrationProof({ ...base, todoId: b.id, expectedUpdatedAt: 'x', reason: 'r' })).reason, 'integration_locked');
+  assert.notEqual((await rejectWorkspaceTodoIntegration({ ...base, todoId: b.id, callerChatId: 'chat-batch' })).reason, 'integration_locked');
   abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, forceLiveness: true, deps: world.deps });
   acquireIntegrationLock({ ...base, owner: 'single', todoId: a.id, chatId: 'chat-a' });
-  assert.equal(rejectWorkspaceTodoIntegration({ ...base, todoId: b.id, callerChatId: 'chat-x' }).reason, 'integration_locked');
+  assert.equal((await rejectWorkspaceTodoIntegration({ ...base, todoId: b.id, callerChatId: 'chat-x' })).reason, 'integration_locked');
   // the single-lock owner is not refused by the guard (it gets the normal result)
-  assert.notEqual(rejectWorkspaceTodoIntegration({ ...base, todoId: a.id }).reason, 'integration_locked');
+  assert.notEqual((await rejectWorkspaceTodoIntegration({ ...base, todoId: a.id })).reason, 'integration_locked');
 });
 
 test('library guard: confirm / no-code honour the locks; the human attestation is exempt', async (t) => {
@@ -757,41 +757,41 @@ test('library guard: confirm / no-code honour the locks; the human attestation i
   });
 
   // no lock: no refusal, with or without a caller identity
-  assert.equal(refuseWhenIntegrationLockedForWriter({ ...base, todoId: a.id }), null, 'no lock, no refusal');
-  assert.equal(refuseWhenIntegrationLockedForWriter({ ...base, todoId: a.id, callerChatId: 'chat-x' }), null);
-  const noLockConfirm = confirmOf(a.id);
+  assert.equal(await refuseWhenIntegrationLockedForWriter({ ...base, todoId: a.id }), null, 'no lock, no refusal');
+  assert.equal(await refuseWhenIntegrationLockedForWriter({ ...base, todoId: a.id, callerChatId: 'chat-x' }), null);
+  const noLockConfirm = await confirmOf(a.id);
   assert.equal(noLockConfirm.ok, true, JSON.stringify(noLockConfirm));
-  const noLockNoCode = noCodeOf(plain('docs only without a lock').id);
+  const noLockNoCode = await noCodeOf(plain('docs only without a lock').id);
   assert.equal(noLockNoCode.ok, true, JSON.stringify(noLockNoCode));
 
   // single lock: the locked todo may write, another todo is refused
   acquireIntegrationLock({ ...base, owner: 'single', todoId: b.id, chatId: 'chat-b' });
-  assert.equal(confirmOf(c.id).reason, 'integration_locked', 'another todo is refused');
-  assert.equal(noCodeOf(plain('docs only under a single lock').id).reason, 'integration_locked');
-  const ownerConfirm = confirmOf(b.id);
+  assert.equal((await confirmOf(c.id)).reason, 'integration_locked', 'another todo is refused');
+  assert.equal((await noCodeOf(plain('docs only under a single lock').id)).reason, 'integration_locked');
+  const ownerConfirm = await confirmOf(b.id);
   assert.equal(ownerConfirm.ok, true, JSON.stringify(ownerConfirm));
   assert.equal(getIntegrationLock(base), null, 'confirm released the single lock');
   const noCodeTarget = plain('owner no-code');
   acquireIntegrationLock({ ...base, owner: 'single', todoId: noCodeTarget.id, chatId: 'chat-n' });
-  const ownerNoCode = noCodeOf(noCodeTarget.id);
+  const ownerNoCode = await noCodeOf(noCodeTarget.id);
   assert.equal(ownerNoCode.ok, true, JSON.stringify(ownerNoCode));
   assert.equal(getIntegrationLock(base), null, 'no-code released the single lock');
 
   // an active batch: a non-owner MCP confirm / no-code is refused, the batch
   // chat is accepted, and the human UI attestation still passes
   const created = create(world, [c.id]);
-  assert.equal(confirmOf(d.id, { callerChatId: 'chat-other' }).reason, 'integration_locked');
-  assert.equal(confirmOf(d.id).reason, 'integration_locked', 'no caller identity is not the batch agent');
+  assert.equal((await confirmOf(d.id, { callerChatId: 'chat-other' })).reason, 'integration_locked');
+  assert.equal((await confirmOf(d.id)).reason, 'integration_locked', 'no caller identity is not the batch agent');
   const foreignNoCode = plain('docs only under a batch (foreign)');
-  assert.equal(noCodeOf(foreignNoCode.id, { callerChatId: 'chat-other' }).reason, 'integration_locked');
-  assert.equal(noCodeOf(foreignNoCode.id).reason, 'integration_locked', 'no caller identity is not the batch agent');
-  const humanConfirm = confirmOf(d.id, { humanAttested: true });
+  assert.equal((await noCodeOf(foreignNoCode.id, { callerChatId: 'chat-other' })).reason, 'integration_locked');
+  assert.equal((await noCodeOf(foreignNoCode.id)).reason, 'integration_locked', 'no caller identity is not the batch agent');
+  const humanConfirm = await confirmOf(d.id, { humanAttested: true });
   assert.equal(humanConfirm.ok, true, JSON.stringify(humanConfirm));
-  const humanNoCode = noCodeOf(plain('docs only under a batch (human)').id, { humanAttested: true });
+  const humanNoCode = await noCodeOf(plain('docs only under a batch (human)').id, { humanAttested: true });
   assert.equal(humanNoCode.ok, true, JSON.stringify(humanNoCode));
-  const ownerBatchConfirm = confirmOf(c.id, { callerChatId: BATCH_CHAT });
+  const ownerBatchConfirm = await confirmOf(c.id, { callerChatId: BATCH_CHAT });
   assert.equal(ownerBatchConfirm.ok, true, JSON.stringify(ownerBatchConfirm));
-  const ownerBatchNoCode = noCodeOf(plain('docs only under a batch (owner)').id, { callerChatId: BATCH_CHAT });
+  const ownerBatchNoCode = await noCodeOf(plain('docs only under a batch (owner)').id, { callerChatId: BATCH_CHAT });
   assert.equal(ownerBatchNoCode.ok, true, JSON.stringify(ownerBatchNoCode));
   abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, forceLiveness: true, deps: world.deps });
 });

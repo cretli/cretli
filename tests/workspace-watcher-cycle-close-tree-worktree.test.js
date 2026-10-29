@@ -85,10 +85,10 @@ test('close outcome: only a passed review qualifies for the tree wait', () => {
   assert.equal(gated.closeOutcome, 'blocked');
 });
 
-test('sequential tree in a tree worktree: leaf 1 PASS -> done, no failure, leaf 2 can start', () => {
+test('sequential tree in a tree worktree: leaf 1 PASS -> done, no failure, leaf 2 can start', async () => {
   const ctx = setupTree();
   updateTodo(ctx.dataDir, ctx.cwd, ctx.leaf1.id, { status: 'doing', claimedByChatId: 'chat-1' });
-  const found = resolveTreeWorktreeLeaf({ workspaceFolder: ctx.cwd, dataDir: ctx.dataDir, todoId: ctx.leaf1.id });
+  const found = await resolveTreeWorktreeLeaf({ workspaceFolder: ctx.cwd, dataDir: ctx.dataDir, todoId: ctx.leaf1.id });
   assert.equal(found?.rootId, ctx.root.id);
   // Before the close only the claimed leaf 1 blocks leaf 2 (sequential tree).
   assert.equal(
@@ -102,7 +102,7 @@ test('sequential tree in a tree worktree: leaf 1 PASS -> done, no failure, leaf 
     reportedOutcomeRaw: 'success', leafOutcomes: { primaryOutcome: 'attempted' }, treeWorktreeWait: true,
   });
   assert.equal(closeOutcome, 'success');
-  assert.equal(markTreeWorktreeLeafDone({
+  assert.equal(await markTreeWorktreeLeafDone({
     workspaceFolder: ctx.cwd, dataDir: ctx.dataDir, todoId: ctx.leaf1.id, rootId: found.rootId,
   }), true);
 
@@ -130,10 +130,10 @@ test('sequential tree in a tree worktree: leaf 1 PASS -> done, no failure, leaf 
   assert.equal(listReadyTodoLeaves(after).some((row) => row.id === ctx.leaf2.id), true, 'leaf 2 is startable');
 });
 
-test('a leaf outside any live tree worktree is not a tree-worktree leaf', () => {
+test('a leaf outside any live tree worktree is not a tree-worktree leaf', async () => {
   const ctx = setupTree();
   const stray = addTodo(ctx.dataDir, ctx.cwd, { title: 'stray', status: 'ready' }).item;
-  assert.equal(resolveTreeWorktreeLeaf({ workspaceFolder: ctx.cwd, dataDir: ctx.dataDir, todoId: stray.id }), null);
+  assert.equal(await resolveTreeWorktreeLeaf({ workspaceFolder: ctx.cwd, dataDir: ctx.dataDir, todoId: stray.id }), null);
 });
 
 const T0 = Date.parse('2026-10-23T10:00:00.000Z');

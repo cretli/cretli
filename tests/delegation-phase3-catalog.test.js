@@ -74,7 +74,7 @@ const withInsert = [
 const pageAfterInsert = pageDelegationRows(withInsert, { limit: 40, cursor: first.nextCursor });
 assert.equal(pageAfterInsert.items.some((row) => seen.has(row.id) === false && row.id !== 'newer'), false);
 
-const retention = applyDelegationRetention({ now: Date.now(), retentionMs: 1 });
+const retention = await applyDelegationRetention({ now: Date.now(), retentionMs: 1 });
 assert.equal(loadDelegations().some((row) => row.id === active.id && row.status === 'running'), true);
 
 const warmups = 5;

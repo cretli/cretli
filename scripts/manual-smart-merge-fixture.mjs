@@ -22,7 +22,7 @@ const server = http.createServer(async (req, res) => {
   let body = '';
   for await (const chunk of req) body += chunk;
   assert.equal(req.url, '/api/smart-merge-report-from-agent');
-  callbackResult = reportSmartMergeOutcome({ ...JSON.parse(body), dataDir });
+  callbackResult = await reportSmartMergeOutcome({ ...JSON.parse(body), dataDir });
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify(callbackResult));
 });
@@ -82,7 +82,7 @@ try {
   assert.ok(callbackResult.item.integration.appliedAt);
   git(workspace, ['merge-base', '--is-ancestor', 'HEAD', 'main']);
   const fresh = getTodoById(dataDir, workspace, todo.id);
-  const confirmation = confirmWorkspaceTodoIntegration({ todoId: todo.id, workspaceFolder: workspace, dataDir, expectedUpdatedAt: fresh.updatedAt, proof: { simple: true } });
+  const confirmation = await confirmWorkspaceTodoIntegration({ todoId: todo.id, workspaceFolder: workspace, dataDir, expectedUpdatedAt: fresh.updatedAt, proof: { simple: true } });
   assert.equal(confirmation.ok, true, JSON.stringify(confirmation));
   console.log(JSON.stringify({ scopePaths: allowed.length, stagedPaths: staged.length, allTaskChangesInHead: true, localEditPreserved: true, unrelatedPathUncommitted: true, callbackPosted: true, reportBeforeConfirm: true, confirmation: confirmation.item.status }, null, 2));
 } finally {

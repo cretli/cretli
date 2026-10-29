@@ -191,7 +191,7 @@ test('a verified merged report confirms the integration and marks the todo done'
   });
   assert.equal(started.ok, true, JSON.stringify(started));
   runAgentMerge(suite);
-  const reported = reportSmartMergeOutcome({
+  const reported = await reportSmartMergeOutcome({
     todoId: suite.todo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir, outcome: 'merged', summary: 'done',
   });
   assert.equal(reported.ok, true, JSON.stringify(reported));
@@ -211,7 +211,7 @@ test('a merged report that Git cannot prove stays unconfirmed with a reason', as
     baseUrl: 'https://127.0.0.1:3011', insecureTls: true,
   });
   assert.equal(started.ok, true, JSON.stringify(started));
-  const reported = reportSmartMergeOutcome({
+  const reported = await reportSmartMergeOutcome({
     todoId: suite.todo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir, outcome: 'merged',
   });
   assert.equal(reported.ok, false);
@@ -229,7 +229,7 @@ test('a failed report keeps the todo awaiting integration with the reason', asyn
     baseUrl: 'https://127.0.0.1:3011', insecureTls: true,
   });
   assert.equal(started.ok, true, JSON.stringify(started));
-  const reported = reportSmartMergeOutcome({
+  const reported = await reportSmartMergeOutcome({
     todoId: suite.todo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir, outcome: 'failed', summary: 'conflict in a.js',
   });
   assert.equal(reported.ok, true);
@@ -326,11 +326,11 @@ test('smart merge size is independent of file count; conflicts spill after fifty
 });
 
 
-test('verify integration retains search, repair, commit and proof guards', (t) => {
+test('verify integration retains search, repair, commit and proof guards', async (t) => {
   const suite = makeSuite('verify-prompt');
   t.after(suite.cleanup);
   const todo = addTodo(suite.dataDir, suite.repo, { title: 'finished task', status: 'done' }).item;
-  const prompt = buildVerifyIntegrationRequest({ todoId: todo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir }).prompt;
+  const prompt = (await buildVerifyIntegrationRequest({ todoId: todo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir })).prompt;
   for (const guard of ['@cretli-integrate', 'mode verify', 'Never push, reset, stash or discard local changes', 'leave them untouched', 'Do not confirm when the change is not in HEAD']) assert.ok(prompt.includes(guard), guard);
 });
 
@@ -353,7 +353,7 @@ test('verify integration adds bounded server hints and shares guard core', async
   storedTodo.integration = { ...storedTodo.integration, resultPath: '/tmp/result.patch' };
   fs.writeFileSync(storedPath, JSON.stringify(stored));
   updateTodo(suite.dataDir, suite.repo, todo.id, { leafMaterial: { mode: 'worktree', lastCheckpoint: { commit: 'a'.repeat(40) } } });
-  const verifyPrompt = buildVerifyIntegrationRequest({ todoId: todo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir }).prompt;
+  const verifyPrompt = (await buildVerifyIntegrationRequest({ todoId: todo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir })).prompt;
   assert.ok(verifyPrompt.includes('Hints from the server, unverified; check HEAD and behaviour yourself.'));
   assert.ok(verifyPrompt.includes(`${linkedChatIds[0]}: executor`));
   assert.ok(verifyPrompt.includes('Checkpoint commit'));
@@ -371,7 +371,7 @@ test('verify integration adds bounded server hints and shares guard core', async
   const manyChatDoc = JSON.parse(fs.readFileSync(storedPath, 'utf8'));
   manyChatDoc.items.find((item) => item.id === manyChatTodo.id).linkedChatIds = Array.from({ length: 7 }, (_, index) => `10000000-0000-4000-8000-${String(index).padStart(12, '0')}`);
   fs.writeFileSync(storedPath, JSON.stringify(manyChatDoc));
-  const manyChatPrompt = buildVerifyIntegrationRequest({ todoId: manyChatTodo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir }).prompt;
+  const manyChatPrompt = (await buildVerifyIntegrationRequest({ todoId: manyChatTodo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir })).prompt;
   assert.equal((manyChatPrompt.match(/- Chat /g) || []).length, 5);
   // Newest linkedChatIds entries win ties; none of the 7 is filtered as deleted (empty chat index).
   const manyChatHint = manyChatPrompt.split('Hints from the server')[1];
@@ -383,11 +383,11 @@ test('verify integration adds bounded server hints and shares guard core', async
   unicodeRow.chatId = linkedChatIds[0];
   unicodeRow.integration = { resultPath: `/tmp/${'zażółć-'.repeat(60)}.patch` };
   fs.writeFileSync(storedPath, JSON.stringify(unicodeDoc));
-  const unicodeHint = buildVerifyIntegrationRequest({ todoId: unicodeTodo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir }).prompt.split('Hints from the server')[1];
+  const unicodeHint = (await buildVerifyIntegrationRequest({ todoId: unicodeTodo.id, workspaceFolder: suite.repo, dataDir: suite.dataDir })).prompt.split('Hints from the server')[1];
   assert.ok(Buffer.byteLength(`Hints from the server${unicodeHint}`, 'utf8') <= 600 + 1);
   assert.ok(!unicodeHint.includes('zażółć-zażółć-zażółć-zażółć-zażółć-zażółć-zażółć-zażółć'));
   assert.ok(unicodeHint.includes(linkedChatIds[0]));
   const unknown = addTodo(suite.dataDir, suite.repo, { title: 'no hints', status: 'done' }).item;
-  const unknownPrompt = buildVerifyIntegrationRequest({ todoId: unknown.id, workspaceFolder: suite.repo, dataDir: suite.dataDir }).prompt;
+  const unknownPrompt = (await buildVerifyIntegrationRequest({ todoId: unknown.id, workspaceFolder: suite.repo, dataDir: suite.dataDir })).prompt;
   assert.ok(!unknownPrompt.includes('Hints from the server'));
 });
