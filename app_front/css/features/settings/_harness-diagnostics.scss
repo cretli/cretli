@@ -184,8 +184,8 @@
   b { background: var(--cr-text-muted); }
   &[data-pace='ahead'] span,
   &[data-pace='behind'] span { background: var(--cr-success); }
-  &[data-pace='ahead'] b { background: color-mix(in srgb, var(--cr-success) 65%, #000); }
-  &[data-pace='behind'] b { background: #7a3a3a; }
+  &[data-pace='ahead'] b { background: color-mix(in srgb, var(--cr-success) 65%, var(--cr-color-000)); }
+  &[data-pace='behind'] b { background: var(--cr-color-7a3a3a); }
   span { background: var(--cr-accent); }
   i { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--cr-bg); opacity: 0.6; z-index: 2; }
 }

@@ -535,7 +535,7 @@ cr-todo-card.todo-card {
 }
 
 .todo-item-plan-approved {
-  color: var(--cr-success, #22c55e);
+  color: var(--cr-success, var(--cr-color-22c55e));
   font-size: 1em;
 }
 
@@ -546,16 +546,16 @@ cr-todo-card.todo-card {
   margin-top: 0.5rem;
   padding: 0.4rem 0.75rem;
   border-radius: var(--cr-radius-sm);
-  border: 1px solid var(--cr-success, #22c55e);
+  border: 1px solid var(--cr-success, var(--cr-color-22c55e));
   background: transparent;
-  color: var(--cr-success, #22c55e);
+  color: var(--cr-success, var(--cr-color-22c55e));
   font: inherit;
   font-size: 0.9em;
   cursor: pointer;
   transition: background 0.15s;
 
   &:hover {
-    background: color-mix(in srgb, var(--cr-success, #22c55e) 12%, transparent);
+    background: color-mix(in srgb, var(--cr-success, var(--cr-color-22c55e)) 12%, transparent);
   }
 }
 

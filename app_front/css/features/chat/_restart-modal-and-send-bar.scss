@@ -9,8 +9,8 @@
   width: 40px;
   height: 40px;
   margin: 0 auto 1rem;
-  border: 3px solid #333;
-  border-top-color: #0e639c;
+  border: 3px solid var(--cr-color-333);
+  border-top-color: var(--cr-color-0e639c);
   border-radius: 50%;
   animation: restart-server-spin 0.8s linear infinite;
 }
@@ -28,7 +28,7 @@
 
 .restart-server-loading-hint {
   font-size: var(--cr-font-size-legacy-085);
-  color: #858585;
+  color: var(--cr-color-858585);
   margin: 0 0 1rem;
 }
 
@@ -45,13 +45,13 @@
 
 .tasks-reconnect-text {
   margin: 0 0 0.5rem;
-  color: #d4d4d4;
+  color: var(--cr-color-d4d4d4);
   font-size: var(--cr-font-size-legacy-092);
 }
 
 .tasks-reconnect-hint {
   margin: 0 0 1rem;
-  color: #858585;
+  color: var(--cr-color-858585);
   font-size: var(--cr-font-size-legacy-084);
 }
 
@@ -97,7 +97,7 @@
       width: 0.82rem;
       height: 0.82rem;
       margin-right: 0.42rem;
-      border: 2px solid rgba(127, 127, 127, 0.35);
+      border: 2px solid var(--cr-color-rgba-127-127-127-0-35);
       border-top-color: currentColor;
       border-radius: 50%;
       animation: chat-new-spin 0.8s linear infinite;
@@ -158,15 +158,15 @@
   padding: 0.35rem 0.5rem;
   font-size: var(--cr-font-size-legacy-075);
   font-family: var(--terminal-font-family, monospace);
-  color: #858585;
-  background: #252526;
+  color: var(--cr-color-858585);
+  background: var(--cr-color-252526);
   border-radius: 4px;
-  border: 1px solid #333;
+  border: 1px solid var(--cr-color-333);
 
   .chat-launch-cwd {
     margin-top: 0.2rem;
     font-size: var(--cr-font-size-legacy-07);
-    color: #6a6a6a;
+    color: var(--cr-color-6a6a6a);
   }
 }
 
@@ -569,7 +569,7 @@
   }
   .send-keys-attachment-item.is-page-selection .send-keys-attachment-thumb .mdi {
     font-size: var(--cr-font-size-legacy-1);
-    color: var(--cr-accent, #0F8DCB);
+    color: var(--cr-accent, var(--cr-color-0f8dcb));
   }
   .send-keys-attachment-page-label {
     font-size: var(--cr-font-size-legacy-072);
@@ -686,8 +686,8 @@
   }
 
   @keyframes mic-btn-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(0, 200, 0, 0.35); }
-    50% { box-shadow: 0 0 0 6px rgba(0, 200, 0, 0); }
+    0%, 100% { box-shadow: 0 0 0 0 var(--cr-color-rgba-0-200-0-0-35); }
+    50% { box-shadow: 0 0 0 6px var(--cr-color-rgba-0-200-0-0); }
   }
 
   @keyframes send-keys-spinner {

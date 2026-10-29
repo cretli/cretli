@@ -719,7 +719,7 @@
 .harness-version-update-btn {
   border-color: var(--cr-primary);
   background: var(--cr-primary);
-  color: #fff;
+  color: var(--cr-color-fff);
 
   &:hover:not(:disabled) {
     background: var(--cr-primary-hover);
@@ -775,8 +775,8 @@
   }
 
   &[data-tone='warning'] {
-    border-color: var(--cr-warning, #cca700);
-    color: var(--cr-warning, #cca700);
+    border-color: var(--cr-warning, var(--cr-color-cca700));
+    color: var(--cr-warning, var(--cr-color-cca700));
   }
 
   &[data-tone='invalid'],
@@ -794,7 +794,7 @@
   border-radius: var(--cr-radius-sm);
 
   &[data-tone='warning'] {
-    border-left-color: var(--cr-warning, #cca700);
+    border-left-color: var(--cr-warning, var(--cr-color-cca700));
   }
 
   &[data-tone='error'] {
@@ -1009,8 +1009,8 @@
   }
 
   &[data-tone='warning'] {
-    border-color: var(--cr-warning, #cca700);
-    color: var(--cr-warning, #cca700);
+    border-color: var(--cr-warning, var(--cr-color-cca700));
+    color: var(--cr-warning, var(--cr-color-cca700));
   }
 
   &[data-tone='invalid'],

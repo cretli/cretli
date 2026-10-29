@@ -498,7 +498,7 @@
 }
 
 .settings-usage-cost-partial {
-  color: var(--cr-warning, #cca700);
+  color: var(--cr-warning, var(--cr-color-cca700));
   font-size: var(--cr-font-size-xs);
 }
 
@@ -651,7 +651,7 @@
 }
 
 .auto-title-warning {
-  color: var(--cr-warning, #b45309);
+  color: var(--cr-warning, var(--cr-color-b45309));
 }
 
 .auto-name-chat-checkbox {

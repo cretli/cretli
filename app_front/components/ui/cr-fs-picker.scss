@@ -109,9 +109,9 @@ cr-fs-picker {
   padding: var(--cr-space-2) var(--cr-space-3);
   border-radius: var(--cr-radius-sm);
   font-size: 0.85rem;
-  background: var(--cr-error-bg, rgba(244, 135, 113, 0.12));
+  background: var(--cr-error-bg, var(--cr-color-rgba-244-135-113-0-12));
   color: var(--cr-error);
-  border: 1px solid var(--cr-error-border, rgba(244, 135, 113, 0.35));
+  border: 1px solid var(--cr-error-border, var(--cr-color-rgba-244-135-113-0-35));
 }
 
 .cr-fs-hint {
@@ -147,11 +147,11 @@ cr-fs-picker {
   cursor: pointer;
 
   &:hover {
-    background: var(--cr-hover-bg, rgba(128, 128, 128, 0.08));
+    background: var(--cr-hover-bg, var(--cr-color-rgba-128-128-128-0-08));
   }
 
   &[data-selected] {
-    background: var(--cr-accent-soft, rgba(0, 120, 255, 0.1));
+    background: var(--cr-accent-soft, var(--cr-color-rgba-0-120-255-0-1));
     color: var(--cr-accent);
   }
 
@@ -192,7 +192,7 @@ cr-fs-picker {
   width: 100%;
   padding: var(--cr-space-1) var(--cr-space-2);
   border-bottom: 1px solid var(--cr-border-subtle);
-  background: var(--cr-hover-bg, rgba(128, 128, 128, 0.08));
+  background: var(--cr-hover-bg, var(--cr-color-rgba-128-128-128-0-08));
 
   > .mdi {
     flex: 0 0 auto;
@@ -256,5 +256,5 @@ cr-fs-picker {
 .cr-fs-btn-primary {
   background: var(--cr-accent);
   border-color: var(--cr-accent);
-  color: var(--cr-on-accent, #fff);
+  color: var(--cr-on-accent, var(--cr-color-fff));
 }

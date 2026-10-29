@@ -656,7 +656,7 @@ body.sidebar-swipe-settling {
     z-index: 1;
     border-radius: 4px;
     background: var(--cr-surface-2);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 6px 18px var(--cr-color-rgba-0-0-0-0-45);
     opacity: 0.92;
 
     .sidebar-workspace-header {
@@ -761,20 +761,20 @@ body.sidebar-workspace-drag-active {
   margin-left: 0.35rem;
   padding: 0 0.35rem;
   border-radius: 999px;
-  border: 1px solid #3b82f6;
-  color: #93c5fd;
+  border: 1px solid var(--cr-color-3b82f6);
+  color: var(--cr-color-93c5fd);
   font-size: var(--cr-font-size-legacy-068);
   line-height: 1.5;
   white-space: nowrap;
 
   &[data-state='paused'] {
-    border-color: #f59e0b;
-    color: #fcd34d;
+    border-color: var(--cr-color-f59e0b);
+    color: var(--cr-color-fcd34d);
   }
 
   &[data-state='stopped'] {
-    border-color: #ef4444;
-    color: #fca5a5;
+    border-color: var(--cr-color-ef4444);
+    color: var(--cr-color-fca5a5);
   }
 }
 
@@ -796,7 +796,7 @@ body.sidebar-workspace-drag-active {
   align-items: center;
   gap: 0.3rem;
   padding: 0.2rem 0.35rem;
-  color: var(--cr-text-dim, #94a3b8);
+  color: var(--cr-text-dim, var(--cr-color-94a3b8));
   font-size: var(--cr-font-size-legacy-07);
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -826,12 +826,12 @@ body.sidebar-workspace-drag-active {
 
   &:hover,
   &.is-active {
-    background: color-mix(in srgb, var(--cr-accent, #3b82f6) 16%, transparent);
+    background: color-mix(in srgb, var(--cr-accent, var(--cr-color-3b82f6)) 16%, transparent);
   }
 
   .sidebar-pinned-chat-icon {
     flex-shrink: 0;
-    color: var(--cr-accent, #3b82f6);
+    color: var(--cr-accent, var(--cr-color-3b82f6));
   }
 
   .sidebar-pinned-chat-main {
@@ -851,7 +851,7 @@ body.sidebar-workspace-drag-active {
 
   .sidebar-pinned-chat-sub {
     font-size: var(--cr-font-size-legacy-068);
-    color: var(--cr-text-dim, #94a3b8);
+    color: var(--cr-text-dim, var(--cr-color-94a3b8));
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -860,7 +860,7 @@ body.sidebar-workspace-drag-active {
   .sidebar-pinned-chat-status {
     flex-shrink: 0;
     font-size: var(--cr-font-size-legacy-066);
-    color: #fcd34d;
+    color: var(--cr-color-fcd34d);
   }
 }
 
@@ -878,7 +878,7 @@ body.sidebar-workspace-drag-active {
   border: 1px solid transparent;
   border-radius: 4px;
   background: transparent;
-  color: var(--cr-text-dim, #94a3b8);
+  color: var(--cr-text-dim, var(--cr-color-94a3b8));
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
@@ -894,9 +894,9 @@ body.sidebar-workspace-drag-active {
   }
 
   &.is-active {
-    border-color: color-mix(in srgb, var(--cr-accent, #3b82f6) 60%, transparent);
-    background: color-mix(in srgb, var(--cr-accent, #3b82f6) 22%, transparent);
-    color: var(--cr-accent, #3b82f6);
+    border-color: color-mix(in srgb, var(--cr-accent, var(--cr-color-3b82f6)) 60%, transparent);
+    background: color-mix(in srgb, var(--cr-accent, var(--cr-color-3b82f6)) 22%, transparent);
+    color: var(--cr-accent, var(--cr-color-3b82f6));
   }
 }
 
@@ -937,12 +937,12 @@ body.sidebar-workspace-drag-active {
   }
 
   &[aria-checked='true'] {
-    border-color: color-mix(in srgb, var(--cr-accent, #3b82f6) 70%, transparent);
-    background: color-mix(in srgb, var(--cr-accent, #3b82f6) 35%, transparent);
+    border-color: color-mix(in srgb, var(--cr-accent, var(--cr-color-3b82f6)) 70%, transparent);
+    background: color-mix(in srgb, var(--cr-accent, var(--cr-color-3b82f6)) 35%, transparent);
 
     .sidebar-watcher-toggle-knob {
       left: calc(100% - 0.84rem);
-      background: var(--cr-accent, #3b82f6);
+      background: var(--cr-accent, var(--cr-color-3b82f6));
     }
   }
 
@@ -1284,7 +1284,7 @@ body.sidebar-workspace-drag-active {
     position: relative;
     z-index: 1;
     background: var(--cr-surface-2);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 6px 18px var(--cr-color-rgba-0-0-0-0-45);
     opacity: 0.92;
     cursor: grabbing;
     -webkit-touch-callout: none;
@@ -1357,7 +1357,7 @@ body.sidebar-chat-drag-active {
     object-fit: contain;
   }
 
-  &--openrouter { color: #94a3b8; }
+  &--openrouter { color: var(--cr-color-94a3b8); }
 }
 
 body:not(.theme-light) .sidebar-chat-item-harness--sdk img,
@@ -1883,11 +1883,11 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   max-width: min(92vw, 420px);
   padding: var(--cr-space-3, 0.75rem) var(--cr-space-4, 1rem);
   transform: translateX(-50%);
-  border: 1px solid var(--cr-border-strong, #444);
+  border: 1px solid var(--cr-border-strong, var(--cr-color-444));
   border-radius: var(--cr-radius-lg, 8px);
-  background: var(--cr-surface, #252526);
-  color: var(--cr-text, #d4d4d4);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  background: var(--cr-surface, var(--cr-color-252526));
+  color: var(--cr-text, var(--cr-color-d4d4d4));
+  box-shadow: 0 8px 24px var(--cr-color-rgba-0-0-0-0-35);
 }
 
 .cr-pwa-update-banner__text {
@@ -1896,10 +1896,10 @@ body.theme-light .sidebar-chat-item-harness--codex img {
 }
 
 .cr-pwa-update-banner__action {
-  border: 1px solid var(--cr-accent, #007acc);
+  border: 1px solid var(--cr-accent, var(--cr-color-007acc));
   border-radius: var(--cr-radius-sm, 4px);
-  background: var(--cr-primary, #094771);
-  color: var(--cr-text, #d4d4d4);
+  background: var(--cr-primary, var(--cr-color-094771));
+  color: var(--cr-text, var(--cr-color-d4d4d4));
   padding: 0.35rem 0.75rem;
   cursor: pointer;
 }
@@ -1915,7 +1915,7 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   border: 0;
   border-radius: var(--cr-radius-sm, 4px);
   background: transparent;
-  color: var(--cr-text-muted, #9d9d9d);
+  color: var(--cr-text-muted, var(--cr-color-9d9d9d));
   font-size: var(--cr-font-size-legacy-125);
   line-height: 1;
   cursor: pointer;
@@ -1923,6 +1923,6 @@ body.theme-light .sidebar-chat-item-harness--codex img {
 
 .cr-pwa-update-banner__dismiss:hover,
 .cr-pwa-update-banner__dismiss:focus-visible {
-  color: var(--cr-text, #d4d4d4);
-  background: var(--cr-hover, rgba(255, 255, 255, 0.08));
+  color: var(--cr-text, var(--cr-color-d4d4d4));
+  background: var(--cr-hover, var(--cr-color-rgba-255-255-255-0-08));
 }

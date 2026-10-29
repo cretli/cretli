@@ -147,7 +147,7 @@ class CrSearchableSelect extends LitElement {
     .clear:hover,
     .clear:focus-visible {
       color: var(--cr-text);
-      background: var(--cr-control-hover-bg, rgba(255, 255, 255, 0.08));
+      background: var(--cr-control-hover-bg, var(--cr-color-rgba-255-255-255-0-08));
     }
     .clear svg {
       display: block;

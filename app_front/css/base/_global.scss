@@ -529,8 +529,8 @@ body:has(#settings-panel.active) #settings-panel.panel {
   .settings-workspace-file-missing {
     font-size: 0.78rem;
     color: var(--cr-error);
-    border: 1px solid var(--cr-error-border, rgba(244, 135, 113, 0.35));
-    background: var(--cr-error-bg, rgba(244, 135, 113, 0.1));
+    border: 1px solid var(--cr-error-border, var(--cr-color-rgba-244-135-113-0-35));
+    background: var(--cr-error-bg, var(--cr-color-rgba-244-135-113-0-1));
     padding: var(--cr-space-1) var(--cr-space-2);
     border-radius: var(--cr-radius-sm, 4px);
   }

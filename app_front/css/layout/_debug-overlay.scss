@@ -10,13 +10,13 @@
   max-height: min(38vh, 380px);
   display: flex;
   flex-direction: column;
-  background: rgba(18, 18, 20, 0.97);
-  border-top: 2px solid #569cd6;
-  box-shadow: 0 -6px 28px rgba(0, 0, 0, 0.55);
+  background: var(--cr-color-rgba-18-18-20-0-97);
+  border-top: 2px solid var(--cr-color-569cd6);
+  box-shadow: 0 -6px 28px var(--cr-color-rgba-0-0-0-0-55);
   font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
   font-size: 11px;
   line-height: 1.35;
-  color: #d4d4d4;
+  color: var(--cr-color-d4d4d4);
   pointer-events: auto;
 }
 
@@ -35,29 +35,29 @@
   gap: 0.35rem;
   flex-shrink: 0;
   padding: 0.25rem 0.45rem;
-  border-bottom: 1px solid #333;
-  background: #252526;
+  border-bottom: 1px solid var(--cr-color-333);
+  background: var(--cr-color-252526);
 }
 
 .cr-debug-overlay-title {
   flex: 1;
   font-weight: 600;
-  color: #ccc;
+  color: var(--cr-color-ccc);
 }
 
 .cr-debug-overlay-btn {
   padding: 0.2rem 0.45rem;
   font-size: 11px;
   background: transparent;
-  color: #858585;
-  border: 1px solid #555;
+  color: var(--cr-color-858585);
+  border: 1px solid var(--cr-color-555);
   border-radius: 4px;
   cursor: pointer;
 
   &:hover,
   &:active {
-    color: #ccc;
-    border-color: #666;
+    color: var(--cr-color-ccc);
+    border-color: var(--cr-color-666);
   }
 }
 

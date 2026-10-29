@@ -20,7 +20,7 @@
   border-radius: 50%;
   background: var(--cr-surface);
   color: var(--cr-text);
-  box-shadow: 0 2px 10px rgb(0 0 0 / 22%);
+  box-shadow: 0 2px 10px var(--cr-color-rgba-0-0-0-22-);
   cursor: pointer;
 }
 
@@ -720,13 +720,13 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
   display: flex;
   align-items: baseline;
   gap: 0.4rem;
-  background: color-mix(in srgb, var(--cr-accent, #3b82f6) 10%, transparent);
+  background: color-mix(in srgb, var(--cr-accent, var(--cr-color-3b82f6)) 10%, transparent);
   color: var(--cr-text);
   font-size: var(--cr-font-size-legacy-08);
 
   .sdk-rich-watcher-icon {
     flex-shrink: 0;
-    color: var(--cr-accent, #3b82f6);
+    color: var(--cr-accent, var(--cr-color-3b82f6));
   }
 
   .sdk-rich-watcher-text {
@@ -744,20 +744,20 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
   }
 
   &.sdk-rich-line--watcher-error {
-    background: color-mix(in srgb, #ef4444 14%, transparent);
-    color: #fca5a5;
+    background: color-mix(in srgb, var(--cr-color-ef4444) 14%, transparent);
+    color: var(--cr-color-fca5a5);
 
     .sdk-rich-watcher-icon {
-      color: #fca5a5;
+      color: var(--cr-color-fca5a5);
     }
   }
 
   &.sdk-rich-line--watcher-success {
-    background: color-mix(in srgb, #22c55e 14%, transparent);
-    color: #86efac;
+    background: color-mix(in srgb, var(--cr-color-22c55e) 14%, transparent);
+    color: var(--cr-color-86efac);
 
     .sdk-rich-watcher-icon {
-      color: #86efac;
+      color: var(--cr-color-86efac);
     }
   }
 }
@@ -1176,17 +1176,17 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
   right: 0.85rem;
   width: 2rem;
   height: 2rem;
-  border: 1px solid rgba(255, 255, 255, 0.35);
+  border: 1px solid var(--cr-color-rgba-255-255-255-0-35);
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.45);
-  color: #fff;
+  background: var(--cr-color-rgba-0-0-0-0-45);
+  color: var(--cr-color-fff);
   font-size: var(--cr-font-size-legacy-125);
   line-height: 1;
   cursor: pointer;
 }
 
 .sdk-image-lightbox-close:hover {
-  background: rgba(0, 0, 0, 0.66);
+  background: var(--cr-color-rgba-0-0-0-0-66);
 }
 
 body.sdk-image-lightbox-open {
@@ -1512,14 +1512,14 @@ body.sdk-image-lightbox-open {
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem;
-  background: #0e639c;
-  color: #fff;
+  background: var(--cr-color-0e639c);
+  color: var(--cr-color-fff);
   font-size: var(--cr-font-size-legacy-085);
 
   .terminal-join-btn {
     padding: 0.35rem 0.75rem;
-    background: #fff;
-    color: #0e639c;
+    background: var(--cr-color-fff);
+    color: var(--cr-color-0e639c);
     border: none;
     border-radius: 4px;
     cursor: pointer;
@@ -1527,21 +1527,21 @@ body.sdk-image-lightbox-open {
     font-size: var(--cr-font-size-legacy-085);
 
     &:hover {
-      background: #e0e0e0;
+      background: var(--cr-color-e0e0e0);
     }
   }
 
   .terminal-new-btn {
     padding: 0.35rem 0.75rem;
     background: transparent;
-    color: #fff;
-    border: 1px solid rgba(255, 255, 255, 0.7);
+    color: var(--cr-color-fff);
+    border: 1px solid var(--cr-color-rgba-255-255-255-0-7);
     border-radius: 4px;
     cursor: pointer;
     font-size: var(--cr-font-size-legacy-085);
 
     &:hover {
-      background: rgba(255, 255, 255, 0.15);
+      background: var(--cr-color-rgba-255-255-255-0-15);
     }
   }
 }

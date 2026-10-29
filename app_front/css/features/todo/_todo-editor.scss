@@ -26,7 +26,7 @@
   border: 1px solid var(--cr-border-strong);
   border-radius: var(--cr-radius-sm);
   background: var(--cr-surface);
-  box-shadow: 0 4px 14px rgb(0 0 0 / 35%);
+  box-shadow: 0 4px 14px var(--cr-color-rgba-0-0-0-35-);
 }
 
 .todo-item-copy-menu .todo-item-copy {
@@ -139,9 +139,9 @@
   gap: var(--cr-space-2);
   margin: var(--cr-space-2) 0;
   padding: var(--cr-space-2) var(--cr-space-3);
-  border: 1px solid var(--cr-success, #22c55e);
+  border: 1px solid var(--cr-success, var(--cr-color-22c55e));
   border-radius: var(--cr-radius-sm);
-  background: color-mix(in srgb, var(--cr-success, #22c55e) 10%, transparent);
+  background: color-mix(in srgb, var(--cr-success, var(--cr-color-22c55e)) 10%, transparent);
 
   > div {
     flex: 1 1 auto;

@@ -3,7 +3,7 @@
   position: fixed;
   inset: 0;
   z-index: 2147483000;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--cr-color-rgba-0-0-0-0-35);
   display: none;
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
@@ -39,14 +39,14 @@ body.kib-radial-active {
   width: var(--kib-center-size);
   height: var(--kib-center-size);
   border-radius: 50%;
-  background: rgba(40, 40, 40, 0.95);
-  border: 2px solid rgba(255, 255, 255, 0.2);
+  background: var(--cr-color-rgba-40-40-40-0-95);
+  border: 2px solid var(--cr-color-rgba-255-255-255-0-2);
   display: flex;
   align-items: center;
   justify-content: center;
   text-align: center;
   padding: 0.35rem;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 4px 24px var(--cr-color-rgba-0-0-0-0-45);
 }
 
 .kib-radial-center-arc {
@@ -58,7 +58,7 @@ body.kib-radial-active {
 }
 
 .kib-radial-center-arc-text {
-  fill: rgba(255, 255, 255, 0.88);
+  fill: var(--cr-color-rgba-255-255-255-0-88);
   font-size: 8px;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -75,14 +75,14 @@ body.kib-radial-active {
   transform: translate(-50%, -50%);
   font-size: 1.35rem;
   line-height: 1;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--cr-color-rgba-255-255-255-0-9);
   transition: color 0.12s ease;
 }
 
 .kib-radial-hint {
   font-size: 0.65rem;
   line-height: 1.25;
-  color: #ccc;
+  color: var(--cr-color-ccc);
 }
 
 .kib-radial-options {
@@ -103,10 +103,10 @@ body.kib-radial-active {
   align-items: center;
   justify-content: center;
   gap: 1px;
-  background: rgba(24, 24, 24, 0.94);
-  color: rgba(255, 255, 255, 0.9);
-  border: 2px solid rgba(255, 255, 255, 0.25);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  background: var(--cr-color-rgba-24-24-24-0-94);
+  color: var(--cr-color-rgba-255-255-255-0-9);
+  border: 2px solid var(--cr-color-rgba-255-255-255-0-25);
+  box-shadow: 0 2px 8px var(--cr-color-rgba-0-0-0-0-35);
   transform-origin: center;
   transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
 
@@ -151,8 +151,8 @@ body.kib-radial-active {
 }
 
 .kib-radial-option--hot {
-  border-color: #4caf50;
-  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.25), 0 3px 12px rgba(0, 0, 0, 0.45);
+  border-color: var(--cr-color-4caf50);
+  box-shadow: 0 0 0 2px var(--cr-color-rgba-76-175-80-0-25), 0 3px 12px var(--cr-color-rgba-0-0-0-0-45);
 
   &.kib-radial-option--up {
     transform: translate(
@@ -188,35 +188,35 @@ body.kib-radial-active {
 }
 
 body.theme-light .kib-radial-layer {
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--cr-color-rgba-0-0-0-0-25);
 }
 
 body.theme-light .kib-radial-center {
-  background: rgba(255, 255, 255, 0.96);
-  border-color: rgba(0, 0, 0, 0.12);
+  background: var(--cr-color-rgba-255-255-255-0-96);
+  border-color: var(--cr-color-rgba-0-0-0-0-12);
 }
 
 body.theme-light .kib-radial-hint {
-  color: #444;
+  color: var(--cr-color-444);
 }
 
 body.theme-light .kib-radial-center-icon {
-  color: rgba(0, 0, 0, 0.78);
+  color: var(--cr-color-rgba-0-0-0-0-78);
 }
 
 body.theme-light .kib-radial-center-arc-text {
-  fill: rgba(0, 0, 0, 0.72);
+  fill: var(--cr-color-rgba-0-0-0-0-72);
 }
 
 body.theme-light .kib-radial-option {
-  background: rgba(255, 255, 255, 0.96);
-  color: rgba(0, 0, 0, 0.75);
-  border-color: rgba(0, 0, 0, 0.2);
+  background: var(--cr-color-rgba-255-255-255-0-96);
+  color: var(--cr-color-rgba-0-0-0-0-75);
+  border-color: var(--cr-color-rgba-0-0-0-0-2);
 }
 
 body.theme-light .kib-radial-option--hot {
-  border-color: #2e7d32;
-  box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.22), 0 3px 10px rgba(0, 0, 0, 0.25);
+  border-color: var(--cr-color-2e7d32);
+  box-shadow: 0 0 0 2px var(--cr-color-rgba-46-125-50-0-22), 0 3px 10px var(--cr-color-rgba-0-0-0-0-25);
 }
 
 /* Kib + xterm + chat: suppress the native context menu on the canvas and on xterm's hidden textarea (long presses often land there) */
@@ -365,22 +365,22 @@ body.embed-mode {
 /* Temporary overrides for elements that do not use the design tokens yet. */
 body.theme-light {
   .connection-status.connection-status-disconnected {
-    background: #999;
+    background: var(--cr-color-999);
   }
 
   .panel {
-    background: #f3f3f3;
+    background: var(--cr-color-f3f3f3);
   }
 
   .todo-field-input {
-    background: #fff;
-    color: #333;
-    border-color: #bbb;
+    background: var(--cr-color-fff);
+    color: var(--cr-color-333);
+    border-color: var(--cr-color-bbb);
 
     &:focus {
-      background: #fff;
-      border-color: #006ab1;
-      box-shadow: 0 0 0 1px rgba(0, 106, 177, 0.25);
+      background: var(--cr-color-fff);
+      border-color: var(--cr-color-006ab1);
+      box-shadow: 0 0 0 1px var(--cr-color-rgba-0-106-177-0-25);
     }
   }
 
@@ -392,9 +392,9 @@ body.theme-light {
   input[type='password'],
   select,
   textarea {
-    background: #fff;
-    color: #333;
-    border-color: #bbb;
+    background: var(--cr-color-fff);
+    color: var(--cr-color-333);
+    border-color: var(--cr-color-bbb);
   }
 
   select.bar-select {
@@ -402,9 +402,9 @@ body.theme-light {
   }
 
   .chat-terminal-statebar {
-    background: #f4f4f4;
-    border-color: #d4d4d4;
-    color: #5f6368;
+    background: var(--cr-color-f4f4f4);
+    border-color: var(--cr-color-d4d4d4);
+    color: var(--cr-color-5f6368);
   }
 }
 

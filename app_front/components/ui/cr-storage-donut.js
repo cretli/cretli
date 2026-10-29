@@ -120,7 +120,7 @@ class CrStorageDonut extends LitElement {
       width: 100%;
       padding: 0.4rem 0.6rem;
       background: var(--cr-error);
-      color: var(--cr-text-inverse, #fff);
+      color: var(--cr-text-inverse, var(--cr-color-fff));
       border: none;
       border-radius: 6px;
       font-size: 0.78rem;

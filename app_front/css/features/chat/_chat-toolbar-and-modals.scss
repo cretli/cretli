@@ -1156,7 +1156,7 @@
   align-items: baseline;
   gap: 0.5rem;
   padding: 0.2rem 0;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+  border-bottom: 1px solid var(--cr-color-rgba-128-128-128-0-2);
 }
 
 .chat-settings-title-history-at {
@@ -1178,7 +1178,7 @@
 
 .chat-settings-hint-inline {
   font-size: var(--cr-font-size-legacy-08);
-  color: #858585;
+  color: var(--cr-color-858585);
 }
 
 .chat-new-plan-preview {
@@ -1220,9 +1220,9 @@
   gap: 0.35rem;
   padding: 0.5rem 0.6rem;
   margin: 0.35rem 0 0.2rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--cr-color-rgba-255-255-255-0-1);
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--cr-color-rgba-0-0-0-0-18);
 }
 
 .chat-settings-id-row {
@@ -1235,7 +1235,7 @@
 .chat-settings-id-label {
   flex: 0 0 auto;
   font-size: var(--cr-font-size-legacy-075);
-  color: #858585;
+  color: var(--cr-color-858585);
   min-width: 4.5em;
 }
 
@@ -1247,7 +1247,7 @@
   white-space: nowrap;
   font-family: var(--cr-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: var(--cr-font-size-legacy-075);
-  color: #cfcfcf;
+  color: var(--cr-color-cfcfcf);
 }
 
 .chat-settings-copy-id-btn {
@@ -1258,10 +1258,10 @@
   width: 1.7rem;
   height: 1.7rem;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--cr-color-rgba-255-255-255-0-14);
   border-radius: 5px;
   background: transparent;
-  color: #9a9a9a;
+  color: var(--cr-color-9a9a9a);
   cursor: pointer;
   font-size: var(--cr-font-size-legacy-095);
   line-height: 1;
@@ -1270,23 +1270,23 @@
   .mdi { font-size: var(--cr-font-size-legacy-1); }
 
   &:hover {
-    color: #e8e8e8;
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.25);
+    color: var(--cr-color-e8e8e8);
+    background: var(--cr-color-rgba-255-255-255-0-06);
+    border-color: var(--cr-color-rgba-255-255-255-0-25);
   }
 
   &.is-copied {
-    color: #6fd598;
-    border-color: rgba(111, 213, 152, 0.5);
+    color: var(--cr-color-6fd598);
+    border-color: var(--cr-color-rgba-111-213-152-0-5);
   }
 }
 
 .chat-settings-diag {
   margin-top: 0.85rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--cr-color-rgba-255-255-255-0-1);
   border-radius: 6px;
   padding: 0.4rem 0.6rem 0.6rem;
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--cr-color-rgba-0-0-0-0-18);
 
   & > summary {
     cursor: pointer;
@@ -1302,7 +1302,7 @@
       display: inline-block;
       margin-right: 0.35rem;
       transition: transform 0.15s ease;
-      color: #858585;
+      color: var(--cr-color-858585);
     }
   }
 
@@ -1316,7 +1316,7 @@
   margin: 0.55rem 0 0.25rem;
   font-size: var(--cr-font-size-legacy-078);
   font-weight: 600;
-  color: #a5a5a5;
+  color: var(--cr-color-a5a5a5);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -1334,7 +1334,7 @@
   padding: 0.18rem 0;
 
   & > span:first-child {
-    color: #858585;
+    color: var(--cr-color-858585);
     font-size: var(--cr-font-size-legacy-072);
   }
 }
@@ -1374,7 +1374,7 @@
 }
 
 .chat-context-details-warnings > span:first-child {
-  color: #858585;
+  color: var(--cr-color-858585);
   font-size: var(--cr-font-size-legacy-072);
 }
 
@@ -1384,25 +1384,25 @@
 }
 
 .chat-diag-value-warn {
-  color: var(--cr-warn, #e6b43c);
+  color: var(--cr-warn, var(--cr-color-e6b43c));
 }
 
 .chat-diag-badge {
   font-size: var(--cr-font-size-legacy-068);
   padding: 0.05rem 0.4rem;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #b5b5b5;
+  background: var(--cr-color-rgba-255-255-255-0-08);
+  color: var(--cr-color-b5b5b5);
 }
 
-.chat-diag-badge-ok { background: rgba(80, 200, 120, 0.18); color: #6cd18a; }
-.chat-diag-badge-warn { background: rgba(230, 180, 60, 0.18); color: #e6b43c; }
-.chat-diag-badge-bad { background: rgba(230, 90, 90, 0.18); color: #e67070; }
+.chat-diag-badge-ok { background: var(--cr-color-rgba-80-200-120-0-18); color: var(--cr-color-6cd18a); }
+.chat-diag-badge-warn { background: var(--cr-color-rgba-230-180-60-0-18); color: var(--cr-color-e6b43c); }
+.chat-diag-badge-bad { background: var(--cr-color-rgba-230-90-90-0-18); color: var(--cr-color-e67070); }
 
 .chat-diag-server-extra {
   margin-top: 0.4rem;
   font-size: var(--cr-font-size-legacy-072);
-  color: #858585;
+  color: var(--cr-color-858585);
   white-space: pre-wrap;
   font-family: var(--mono-font, monospace);
   line-height: 1.4;
@@ -1418,7 +1418,7 @@
 
 .chat-new-sdk-hint {
   margin: 0.5rem 0 0;
-  color: #c19a6b;
+  color: var(--cr-color-c19a6b);
 }
 
 .sdk-rich-badge--plan {

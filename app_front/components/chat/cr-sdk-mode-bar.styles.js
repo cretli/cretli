@@ -388,7 +388,7 @@ export const modeBarStyles = css`
       border: 1px solid var(--cr-info-border);
       border-radius: 999px;
       background: var(--cr-surface);
-      box-shadow: 0 4px 14px rgb(0 0 0 / 0.35);
+      box-shadow: 0 4px 14px var(--cr-color-rgba-0-0-0-0-35);
       color: var(--cr-info);
       font-size: var(--cr-mode-bar-font-size);
       font-weight: 600;

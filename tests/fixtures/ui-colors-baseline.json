@@ -1,0 +1,5 @@
+{
+  "generatedFrom": "4e2de9d5c93d83f51e907e3bac45619892905e8d",
+  "rule": "Per-file count of literal colours (hex/rgb/rgba) in app_front/css/**/*.scss (tokens.scss excluded) and css`` blocks in app_front/components/**/*.js. Counts may only decrease; a file absent from this map must have 0. Regenerate with UI_COLORS_BASELINE_WRITE=1.",
+  "counts": {}
+}
