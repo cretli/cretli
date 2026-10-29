@@ -195,7 +195,7 @@
   flex: 1 1 11rem;
 }
 
-.external-mcp-install > cr-bar-input {
+.external-mcp-install > .external-mcp-folder-picker {
   flex: 2 1 14rem;
   min-width: 0;
 }
@@ -228,4 +228,31 @@
 
 .cr-status[data-tone='error'] {
   color: var(--cr-error);
+}
+
+/* Folder picker: known folders in a searchable list, plus a free path field. */
+.external-mcp-folder-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+}
+
+/* The custom path field uses [hidden]; the component host display would otherwise win. */
+.external-mcp-folder-picker > [hidden] {
+  display: none;
+}
+
+/* Match the neighbouring selects (the searchable select defaults to a larger size). */
+.external-mcp-folder-picker cr-searchable-select {
+  --cr-searchable-select-font-size: var(--cr-font-size-sm);
+  --cr-searchable-select-height: var(--cr-control-height);
+}
+
+/* Breathing room between consecutive client and install cards. */
+.external-mcp-install {
+  margin-top: var(--cr-space-2);
+}
+
+.external-mcp-clients-scope {
+  margin: 0 0 var(--cr-space-3);
 }

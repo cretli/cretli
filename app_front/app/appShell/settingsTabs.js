@@ -24,6 +24,7 @@ import {
   isChatSettingsTab,
   isDelegationSettingsTab,
   isWatcherSettingsTab,
+  isConnectionSettingsTab,
   isMcpSettingsTab,
   isMcpOperatorSettingsTab,
   remapSettingsTab,
@@ -114,7 +115,7 @@ export function refreshSettingsTabPanels(tabId) {
     refreshModelSettingsPanel();
     loadSettingsPanel('agentsSettings', () => {});
   }
-  if (tabId === 'connection' || tabId === 'mcp-clients') {
+  if (tabId === 'connection-certificates') {
     void import('../../features/settings/tlsSettings.js').then(({ refreshTlsSettings }) => refreshTlsSettings());
   }
   if (tabId === 'usage') void refreshUsageSettings();
@@ -162,6 +163,7 @@ function isSettingsTabButtonActive(btn, tabId, inMainBar) {
   if (inMainBar && btnTab === 'chat') return isChatSettingsTab(tabId);
   if (inMainBar && btnTab === 'delegations') return isDelegationSettingsTab(tabId);
   if (inMainBar && btnTab === 'watcher') return isWatcherSettingsTab(tabId);
+  if (inMainBar && btnTab === 'connection') return isConnectionSettingsTab(tabId);
   if (inMainBar && btnTab === 'mcp') return isMcpSettingsTab(tabId);
   if (!inMainBar && btnTab === 'mcp-operator' && btn.closest('#settings-mcp-tabs')) return isMcpOperatorSettingsTab(tabId);
   const harnessTab = btn.dataset.harnessTab || '';
@@ -198,6 +200,7 @@ export function applySettingsTab(tabId) {
   const chatBar = document.getElementById('settings-chat-tabs');
   const delegationBar = document.getElementById('settings-delegation-tabs');
   const watcherBar = document.getElementById('settings-watcher-tabs');
+  const connectionBar = document.getElementById('settings-connection-tabs');
   const mcpBar = document.getElementById('settings-mcp-tabs');
   const mcpOperatorBar = document.getElementById('settings-mcp-operator-tabs');
   let activeBtn = applySettingsTabButtonState(mainBar, resolvedTabId, true);
@@ -206,6 +209,7 @@ export function applySettingsTab(tabId) {
   activeBtn = applySettingsTabButtonState(chatBar, resolvedTabId, false) || activeBtn;
   activeBtn = applySettingsTabButtonState(delegationBar, resolvedTabId, false) || activeBtn;
   activeBtn = applySettingsTabButtonState(watcherBar, resolvedTabId, false) || activeBtn;
+  activeBtn = applySettingsTabButtonState(connectionBar, resolvedTabId, false) || activeBtn;
   activeBtn = applySettingsTabButtonState(mcpBar, resolvedTabId, false) || activeBtn;
   activeBtn = applySettingsTabButtonState(mcpOperatorBar, resolvedTabId, false) || activeBtn;
 
@@ -224,6 +228,7 @@ export function applySettingsTab(tabId) {
   if (chatBar) chatBar.hidden = !isChatSettingsTab(resolvedTabId);
   if (delegationBar) delegationBar.hidden = !isDelegationSettingsTab(resolvedTabId);
   if (watcherBar) watcherBar.hidden = !isWatcherSettingsTab(resolvedTabId);
+  if (connectionBar) connectionBar.hidden = !isConnectionSettingsTab(resolvedTabId);
   if (mcpBar) mcpBar.hidden = !isMcpSettingsTab(resolvedTabId);
   if (mcpOperatorBar) mcpOperatorBar.hidden = !isMcpOperatorSettingsTab(resolvedTabId);
   document.querySelectorAll('.settings-section[data-settings-tab]').forEach((section) => {
@@ -288,6 +293,7 @@ export function initSettingsTabs() {
   bindSettingsTabClicks(document.getElementById('settings-chat-tabs'));
   bindSettingsTabClicks(document.getElementById('settings-delegation-tabs'));
   bindSettingsTabClicks(document.getElementById('settings-watcher-tabs'));
+  bindSettingsTabClicks(document.getElementById('settings-connection-tabs'));
   bindSettingsTabClicks(document.getElementById('settings-mcp-tabs'));
   bindSettingsTabClicks(document.getElementById('settings-mcp-operator-tabs'));
   document.querySelectorAll('.settings-harness-subtab-bar').forEach((bar) => {

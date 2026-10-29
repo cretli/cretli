@@ -589,3 +589,11 @@ test('login next accepts only shell views plus the widget pages', () => {
   assert.equal(isSpaLoginNextPath('/api/settings'), false);
   assert.equal(isSpaLoginNextPath(''), false);
 });
+
+test('connection sub-tab: certificates route parses and counts as a connection tab', async () => {
+  const { isConnectionSettingsTab } = await import('../lib/spa-routes.js');
+  assert.equal(parseSpaPath('/settings/connection-certificates').settingsTab, 'connection-certificates');
+  assert.equal(isConnectionSettingsTab('connection'), true);
+  assert.equal(isConnectionSettingsTab('connection-certificates'), true);
+  assert.equal(isConnectionSettingsTab('harness'), false);
+});

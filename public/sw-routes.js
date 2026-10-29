@@ -89,6 +89,7 @@
   var SPA_VIEW_SETTINGS_TABS = [
     'workspace',
     'connection',
+    'connection-certificates',
     'harness',
     'harness-overview-plugins',
     'harness-overview-diagnostics',

@@ -105,3 +105,38 @@ test('stdio mode: codex uses env_vars without a token and rejects unknown modes'
   assert.match(text, /env_vars = \["CRETLI_MCP_TOKEN"\]/);
   assert.throws(() => installExternalMcpConfig({ target: 'claude', folder: dir, url: URL_A, mode: 'x' }), ExternalMcpInstallError);
 });
+
+test('scan lists installed entries per folder without exposing tokens', async () => {
+  const { scanExternalMcpInstalls } = await import('../lib/mcp/mcp-external-install.js');
+  const dir = tmp();
+  installExternalMcpConfig({ target: 'claude', folder: dir, url: URL_A, token: 'secret-token' });
+  installExternalMcpConfig({ target: 'codex', folder: dir, url: URL_A, mode: 'stdio' });
+  const found = scanExternalMcpInstalls([dir, path.join(dir, 'missing')]);
+  assert.equal(found.length, 2);
+  const claude = found.find((row) => row.target === 'claude');
+  assert.deepEqual([claude?.mode, claude?.url, claude?.tokenInFile], ['http', URL_A, true]);
+  const codex = found.find((row) => row.target === 'codex');
+  assert.deepEqual([codex?.mode, codex?.url, codex?.tokenInFile], ['stdio', URL_A, false]);
+  assert.ok(!JSON.stringify(found).includes('secret-token'));
+});
+
+test('HTTPS stdio certificate trust is written for all targets and removed when disabled', () => {
+  const dir = tmp();
+  const url = 'https://localhost:3011/mcp';
+  const caFile = path.join(dir, 'certificate with spaces.pem');
+  for (const target of ['claude', 'cursor', 'codex']) {
+    const result = installExternalMcpConfig({ target, folder: dir, url, mode: 'stdio', caFile });
+    const text = fs.readFileSync(result.file, 'utf8');
+    if (target === 'codex') {
+      assert.ok(text.includes(`CRETLI_MCP_CA_FILE = ${JSON.stringify(caFile)}`));
+      assert.match(text, /env_vars = \["CRETLI_MCP_TOKEN"\]/);
+    } else {
+      assert.equal(JSON.parse(text).mcpServers.cretli.env.CRETLI_MCP_CA_FILE, caFile);
+    }
+    assert.doesNotMatch(text, /INSECURE_TLS|rejectUnauthorized/);
+    installExternalMcpConfig({ target, folder: dir, url, mode: 'stdio' });
+    assert.doesNotMatch(fs.readFileSync(result.file, 'utf8'), /CRETLI_MCP_CA_FILE/);
+  }
+  assert.throws(() => installExternalMcpConfig({ target: 'claude', folder: dir, url, caFile }), /HTTPS URL and stdio/);
+  assert.throws(() => installExternalMcpConfig({ target: 'claude', folder: dir, url: URL_A, mode: 'stdio', caFile }), /HTTPS URL and stdio/);
+});

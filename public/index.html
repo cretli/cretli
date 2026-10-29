@@ -485,6 +485,10 @@
       <button type="button" class="settings-tab cr-tab" data-settings-tab="delegations-lessons" role="tab" aria-selected="false" data-i18n="settings.delegationSubtab_lessons">Lessons</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="delegations-prompts" role="tab" aria-selected="false" data-i18n="settings.delegationSubtab_prompts">Prompts</button>
     </div>
+    <div class="settings-tabs cr-tabs settings-subtabs" id="settings-connection-tabs" role="tablist" hidden data-i18n-aria="settings.tabsConnection" aria-label="Connection">
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="connection" role="tab" aria-selected="false" data-i18n="settings.connectionTabLan">LAN</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="connection-certificates" role="tab" aria-selected="false" data-i18n="settings.connectionTabCertificates">HTTPS certificates</button>
+    </div>
     <div class="settings-tabs cr-tabs settings-subtabs" id="settings-mcp-tabs" role="tablist" hidden data-i18n-aria="settings.mcpTitle" aria-label="MCP">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="mcp" role="tab" aria-selected="false" data-i18n="settings.mcpTabServers">Servers</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="mcp-clients" role="tab" aria-selected="false" data-i18n="settings.mcpTabClients">External clients</button>
@@ -576,7 +580,7 @@
           <img id="terminal-sync-qr" alt="QR" class="terminal-sync-qr" />
         </div>
       </section>
-      <section class="settings-section" data-settings-tab="connection" role="tabpanel">
+      <section class="settings-section" data-settings-tab="connection-certificates" role="tabpanel">
         <div class="tls-settings-root"></div>
       </section>
       <section class="settings-section" data-settings-tab="harness" id="harness-setup-wizard" role="tabpanel">
@@ -2001,7 +2005,7 @@
         <h3 class="settings-section-title" data-i18n="settings.externalMcpTitle">External MCP clients</h3>
         <p class="settings-hint" data-i18n="settings.externalMcpHint">Let tools such as Claude Code or Cursor use the built-in Cretli MCP tools over HTTP at /mcp.</p>
         <div id="settings-external-mcp-root" class="mcp-settings-root"></div>
-        <div class="tls-settings-root"></div>
+        <p class="settings-hint" data-i18n="settings.externalMcpCertificateMoved">The HTTPS certificate is managed in Settings → Connection.</p>
       </section>
       <section class="settings-section cr-form" data-settings-tab="mcp-operator" hidden role="tabpanel">
         <div id="settings-mcp-operator-root" class="cr-page"></div>

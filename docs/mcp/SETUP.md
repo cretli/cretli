@@ -23,6 +23,20 @@ the same `npx` block into each harness config file.
 
 Out of scope: interactive OAuth, a server marketplace, and importing private IDE MCP configs.
 
+## HTTPS certificate for external clients
+
+When installing an external client's configuration from Settings, choose the local
+stdio bridge to use **Trust the Cretli HTTPS certificate** (checked by default for
+HTTPS). The installer adds `CRETLI_MCP_CA_FILE` to the bridge's environment in
+Claude Code, Cursor, or Codex configuration. It references `SSL_CERT_PATH` when
+configured, otherwise Cretli's `data/cert.pem`, and refuses a missing or invalid
+certificate before writing the configuration. TLS verification remains enabled.
+
+The path refers to a local file on the Cretli server. As with the bridge script,
+it must be accessible to the MCP client; installations on another machine need
+a copy of the public certificate and an updated path. Direct HTTP transport does
+not use the bridge's `CRETLI_MCP_CA_FILE` variable.
+
 ## Workspace registry tools
 
 Builtin tools that let an agent register a project in the workspace picker

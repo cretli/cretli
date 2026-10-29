@@ -11,6 +11,7 @@
 import { t, getCurrentLang } from '../../i18n/index.js';
 import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 import { readBarInputLiveValue } from '../../components/ui/read-bar-input-live-value.js';
+import { getViewContextRuntimeScope, withViewContextQuery } from '../../app/appShell/viewContextBridge.js';
 import { collectWorkspaceFolders } from '../voice/voiceWorkspaceMatch.js';
 
 const ROOT_ID = 'settings-external-mcp-root';
@@ -139,12 +140,92 @@ function allClientsExport(clients, url) {
   }, null, 2);
 }
 
+/** Workspace folders offered by the install folder pickers; refreshed with the panel. */
+let knownFolders = /** @type {Array<{ value: string, label: string, description: string, group: string }>} */ ([]);
+/** Folder of the workspace currently selected in the app; preselected in the pickers. */
+let knownCurrentFolder = '';
+const CUSTOM_FOLDER = '__custom__';
+
+/**
+ * Folders of the current workspace first, so its folders are one tap away.
+ *
+ * @param {typeof knownFolders} folders
+ * @param {string} current
+ */
+function currentWorkspaceFirst(folders, current) {
+  const group = folders.find((row) => row.value.toLowerCase() === current.toLowerCase())?.group;
+  if (!group) return folders;
+  return [...folders.filter((row) => row.group === group), ...folders.filter((row) => row.group !== group)];
+}
+
+/**
+ * Install-folder picker: choose the client's workspace folder (empty value), a known
+ * workspace folder, or type any absolute path. `host.getFolder()` returns the path
+ * to send ('' = default).
+ *
+ * @param {HTMLElement} host
+ */
+function mountFolderPicker(host) {
+  host.classList.add('external-mcp-folder-picker');
+  const select = /** @type {any} */ (document.createElement('cr-searchable-select'));
+  select.options = [
+    { value: '', label: t('settings.externalMcpFolderDefault') },
+    ...currentWorkspaceFirst(knownFolders, knownCurrentFolder),
+    { value: CUSTOM_FOLDER, label: t('settings.externalMcpFolderCustom') },
+  ];
+  // Default to the client's own folder: a token must not land in another project by accident.
+  select.value = '';
+  select.searchPlaceholder = t('settings.externalMcpSearchFolders');
+  select.emptyLabel = t('common.searchDropdownEmpty');
+  select.setAttribute('aria-label', t('settings.externalMcpInstallFolder'));
+  const input = /** @type {any} */ (document.createElement('cr-bar-input'));
+  input.placeholder = t('settings.externalMcpInstallFolderPlaceholder');
+  input.setAttribute('aria-label', t('settings.externalMcpInstallFolder'));
+  input.hidden = true;
+  select.addEventListener('cr-change', (/** @type {CustomEvent} */ event) => {
+    select.value = String(event.detail?.value ?? '');
+    input.hidden = select.value !== CUSTOM_FOLDER;
+  });
+  host.append(select, input);
+  /** @type {any} */ (host).getFolder = () => (select.value === CUSTOM_FOLDER
+    ? String(input.value || '').trim()
+    : String(select.value || ''));
+}
+
+/** @param {Element | null} host */
+function pickedFolder(host) {
+  return String(/** @type {any} */ (host)?.getFolder?.() || '');
+}
+
 /** Connection modes of the installed entry: direct HTTP or the local stdio bridge. */
 function installModeOptions() {
   return [
     { value: 'http', label: t('settings.externalMcpModeHttp') },
     { value: 'stdio', label: t('settings.externalMcpModeStdio') },
   ];
+}
+
+/**
+ * Add local certificate trust only for the HTTPS stdio bridge.
+ * @param {any} modeSelect
+ * @param {HTMLElement} container
+ * @param {string} url
+ */
+function mountCertificateTrust(modeSelect, container, url) {
+  const field = document.createElement('div');
+  const checkbox = /** @type {any} */ (document.createElement('cr-checkbox'));
+  checkbox.checked = true;
+  checkbox.setAttribute('aria-label', t('settings.externalMcpTrustCertificate'));
+  checkbox.textContent = t('settings.externalMcpTrustCertificate');
+  const hint = document.createElement('p');
+  hint.className = 'cr-hint';
+  hint.textContent = t('settings.externalMcpTrustCertificateHint');
+  field.append(checkbox, hint);
+  container.appendChild(field);
+  const update = () => { field.hidden = modeSelect?.value !== 'stdio' || !url.startsWith('https:'); };
+  modeSelect?.addEventListener('cr-change', update);
+  update();
+  return () => !field.hidden && checkbox.checked;
 }
 
 /**
@@ -158,7 +239,7 @@ function installModeOptions() {
  *
  * @param {{ heading: string, text: string, fileName: string, hint?: string,
  *   rotate?: () => Promise<{ text?: string, token?: string, error?: string }>,
- *   install?: (target: string, token: string, folder: string, mode: string) => Promise<{ ok: boolean, message: string }> }} params
+ *   install?: (target: string, token: string, folder: string, mode: string, trustCertificate: boolean) => Promise<{ ok: boolean, message: string }> }} params
  */
 function openExportDialog({ heading, text: initialText, fileName, hint = '', rotate, install }) {
   let text = initialText;
@@ -208,19 +289,19 @@ function openExportDialog({ heading, text: initialText, fileName, hint = '', rot
     modeSelect.options = installModeOptions();
     modeSelect.value = 'http';
     modeSelect.setAttribute('aria-label', t('settings.externalMcpInstallMode'));
-    const folderInput = /** @type {any} */ (document.createElement('cr-bar-input'));
-    folderInput.placeholder = t('settings.externalMcpInstallFolderPlaceholder');
-    folderInput.setAttribute('aria-label', t('settings.externalMcpInstallFolder'));
+    const folderInput = document.createElement('div');
+    mountFolderPicker(folderInput);
     const installButton = document.createElement('cr-bar-button');
     installButton.setAttribute('variant', 'primary');
     installButton.textContent = t('settings.externalMcpInstall');
     installButton.addEventListener('click', async () => {
-      const result = await install(String(targetSelect.value || TARGETS[0].id), currentToken, String(folderInput.value || '').trim(), String(modeSelect.value || 'http'));
+      const result = await install(String(targetSelect.value || TARGETS[0].id), currentToken, pickedFolder(folderInput), String(modeSelect.value || 'http'), trustCertificate());
       status.textContent = result.message;
       status.dataset.tone = result.ok ? 'success' : 'error';
     });
     row.append(targetSelect, modeSelect, folderInput, installButton);
     block.appendChild(row);
+    const trustCertificate = mountCertificateTrust(modeSelect, block, window.location.origin);
     block.appendChild(status);
     installNote = document.createElement('p');
     installNote.className = 'cr-hint';
@@ -305,12 +386,13 @@ function fileSlug(value) {
  * @param {string} [token] A token known right now (just created or rotated) is written into the file.
  * @param {string} [folder] Absolute folder to install into; the client's workspace folder when empty.
  * @param {string} [mode] `http` (default) or `stdio` (local bridge that survives server restarts).
+ * @param {boolean} [trustCertificate] Trust the local Cretli certificate in the stdio bridge.
  * @returns {Promise<{ ok: boolean, message: string }>}
  */
-async function installIntoFolder(clientId, target, url, token, folder, mode) {
+async function installIntoFolder(clientId, target, url, token, folder, mode, trustCertificate = false) {
   const res = await api(`/api/mcp/external-clients/${encodeURIComponent(clientId)}/install`, {
     method: 'POST',
-    body: { target, url, ...(token ? { token } : {}), ...(folder ? { folder } : {}), ...(mode ? { mode } : {}) },
+    body: { target, url, trustCertificate, ...(token ? { token } : {}), ...(folder ? { folder } : {}), ...(mode ? { mode } : {}) },
   });
   if (!res.json?.ok) return { ok: false, message: res.json?.error || t('settings.externalMcpError') };
   const key = res.json.tokenWritten
@@ -345,6 +427,67 @@ function folderOptions(workspaces, current) {
     options.unshift({ value: currentPath, label: currentPath.split('/').filter(Boolean).pop() || currentPath, description: currentPath, group: '' });
   }
   return options;
+}
+
+/**
+ * The folder currently selected in the app. A workspace file can list many
+ * unrelated projects, so scoping by the whole workspace would show them all.
+ *
+ * @returns {string[]}
+ */
+function currentWorkspaceFolderPaths() {
+  return knownCurrentFolder ? [knownCurrentFolder] : [];
+}
+
+/** Show clients of every workspace instead of only the current one. */
+let showAllClients = false;
+
+/** @param {string} value */
+function normalizeFolder(value) {
+  return String(value || '').replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
+}
+
+/**
+ * Clients bound to the current workspace's folders; everything when the scope is unknown.
+ *
+ * @param {any[]} clients
+ * @returns {any[]}
+ */
+function clientsInCurrentWorkspace(clients) {
+  const scope = new Set(currentWorkspaceFolderPaths().map(normalizeFolder));
+  if (!scope.size) return clients;
+  return clients.filter((client) => scope.has(normalizeFolder(client.workspaceFolder)));
+}
+
+/**
+ * Lists where the Cretli MCP entry is installed in the current workspace's folders.
+ *
+ * @param {HTMLElement | null} host
+ */
+async function renderInstalls(host) {
+  if (!host) return;
+  const folders = currentWorkspaceFolderPaths();
+  const res = folders.length
+    ? await api('/api/mcp/external-installs', { method: 'POST', body: { folders } })
+    : { json: { ok: true, installs: [] } };
+  if (!res.json?.ok) {
+    host.innerHTML = `<p class="message" data-tone="error">${escapeHtml(res.json?.error || t('settings.externalMcpError'))}</p>`;
+    return;
+  }
+  const installs = Array.isArray(res.json.installs) ? res.json.installs : [];
+  if (!installs.length) {
+    host.innerHTML = `<p class="cr-hint">${escapeHtml(t('settings.externalMcpInstallsEmpty'))}</p>`;
+    return;
+  }
+  host.innerHTML = installs.map((row) => `
+    <article class="cr-card mcp-server-card">
+      <div class="external-mcp-client-head">
+        <h4>${escapeHtml(String(row.folder).split('/').filter(Boolean).pop() || row.folder)}</h4>
+        <span class="external-mcp-badge" data-tone="${row.mode === 'stdio' ? 'success' : 'muted'}">${escapeHtml(t(row.mode === 'stdio' ? 'settings.externalMcpModeStdioShort' : 'settings.externalMcpModeHttpShort'))}</span>
+      </div>
+      <p class="cr-hint">${escapeHtml(row.folder)}/${escapeHtml(row.relativeFile)}</p>
+      <p class="cr-hint">${escapeHtml(row.url)} · ${escapeHtml(t(row.tokenInFile ? 'settings.externalMcpInstallsTokenFile' : 'settings.externalMcpInstallsTokenEnv', { env: TOKEN_ENV }))}</p>
+    </article>`).join('');
 }
 
 /**
@@ -402,7 +545,7 @@ function renderClientCard(client) {
       ${client.revokedAt ? '' : `<div class="cr-row external-mcp-install">
         <cr-bar-select data-external-mcp-install-target="${escapeAttr(client.id)}" aria-label="${escapeAttr(t('settings.externalMcpInstallTarget'))}"></cr-bar-select>
         <cr-bar-select data-external-mcp-install-mode="${escapeAttr(client.id)}" aria-label="${escapeAttr(t('settings.externalMcpInstallMode'))}"></cr-bar-select>
-        <cr-bar-input data-external-mcp-install-folder="${escapeAttr(client.id)}" placeholder="${escapeAttr(t('settings.externalMcpInstallFolderPlaceholder'))}" aria-label="${escapeAttr(t('settings.externalMcpInstallFolder'))}"></cr-bar-input>
+        <div data-external-mcp-install-folder="${escapeAttr(client.id)}"></div>
         <cr-bar-button data-external-mcp-install="${escapeAttr(client.id)}">
           <span class="mdi mdi-folder-download-outline" aria-hidden="true"></span> ${escapeHtml(t('settings.externalMcpInstall'))}
         </cr-bar-button>
@@ -418,11 +561,14 @@ export async function refreshExternalMcpSettingsPanel() {
   const root = document.getElementById(ROOT_ID);
   if (!root) return;
   root.innerHTML = `<p class="settings-hint">${escapeHtml(t('settings.mcpLoading'))}</p>`;
+  // The active folder comes from the tab's view context (same as chats and todos).
+  const scope = getViewContextRuntimeScope();
   const [list, context, workspacesRes] = await Promise.all([
     api('/api/mcp/external-clients'),
-    api('/api/workspace/context'),
+    scope.workspaceFolder ? null : api(withViewContextQuery('/api/workspace/context')),
     api('/api/workspaces'),
   ]);
+  const activeFolder = String(scope.workspaceFolder || context?.json?.folder?.resolvedPath || '');
   if (!list.json?.ok) {
     root.innerHTML = `<p class="message" data-tone="error">${escapeHtml(list.json?.error || t('settings.externalMcpError'))}</p>`;
     return;
@@ -434,9 +580,9 @@ export async function refreshExternalMcpSettingsPanel() {
     clients: Array.isArray(list.json.clients) ? list.json.clients : [],
     folders: folderOptions(
       Array.isArray(workspacesRes.json?.workspaces) ? workspacesRes.json.workspaces : [],
-      String(context.json?.folder?.resolvedPath || ''),
+      activeFolder,
     ),
-    currentFolder: String(context.json?.folder?.resolvedPath || '').replace(/\\/g, '/').replace(/\/$/, ''),
+    currentFolder: activeFolder.replace(/\\/g, '/').replace(/\/$/, ''),
   });
 }
 
@@ -447,10 +593,14 @@ export async function refreshExternalMcpSettingsPanel() {
  * @param {{ clientId: string, token: string, url: string } | null} [created] One-time token shown right after creating a client.
  */
 function renderPanel(root, data, created = null) {
+  knownFolders = data.folders;
+  knownCurrentFolder = data.currentFolder;
   const url = endpointUrl(data.allowLan, data.endpointPath);
-  const clients = data.clients.length === 0
+  const visibleClients = showAllClients ? data.clients : clientsInCurrentWorkspace(data.clients);
+  const hiddenCount = data.clients.length - visibleClients.length;
+  const clients = visibleClients.length === 0
     ? `<p class="settings-hint">${escapeHtml(t('settings.externalMcpEmpty'))}</p>`
-    : data.clients.map(renderClientCard).join('');
+    : visibleClients.map(renderClientCard).join('');
   root.innerHTML = `
     <div class="cr-card mcp-settings-form">
       <h4>${escapeHtml(t('settings.externalMcpAccess'))}</h4>
@@ -497,7 +647,7 @@ function renderPanel(root, data, created = null) {
         </div>
         <div class="cr-row external-mcp-install">
           <cr-bar-select id="external-mcp-install-created-mode" aria-label="${escapeAttr(t('settings.externalMcpInstallMode'))}"></cr-bar-select>
-          <cr-bar-input id="external-mcp-install-created-folder" placeholder="${escapeAttr(t('settings.externalMcpInstallFolderPlaceholder'))}" aria-label="${escapeAttr(t('settings.externalMcpInstallFolder'))}"></cr-bar-input>
+          <div id="external-mcp-install-created-folder"></div>
           <cr-bar-button id="external-mcp-install-created">
             <span class="mdi mdi-folder-download-outline" aria-hidden="true"></span> ${escapeHtml(t('settings.externalMcpInstallTab'))}
           </cr-bar-button>
@@ -508,9 +658,15 @@ function renderPanel(root, data, created = null) {
       </div>
     </div>
     <div class="external-mcp-client-head external-mcp-clients-head">
-      <h4>${escapeHtml(t('settings.externalMcpClients'))}</h4>
-      ${data.clients.length ? `<cr-bar-button id="external-mcp-export-all">${escapeHtml(t('settings.externalMcpExportAll'))}</cr-bar-button>` : ''}
+      <h4>${escapeHtml(t('settings.externalMcpInstalls'))}</h4>
+      <cr-bar-button id="external-mcp-installs-refresh">${escapeHtml(t('settings.externalMcpInstallsRefresh'))}</cr-bar-button>
     </div>
+    <div id="external-mcp-installs" class="mcp-server-list"></div>
+    <div class="external-mcp-client-head external-mcp-clients-head">
+      <h4>${escapeHtml(t('settings.externalMcpClients'))}</h4>
+      ${visibleClients.length ? `<cr-bar-button id="external-mcp-export-all">${escapeHtml(t('settings.externalMcpExportAll'))}</cr-bar-button>` : ''}
+    </div>
+    ${hiddenCount > 0 || showAllClients ? `<p class="cr-hint external-mcp-clients-scope"><cr-bar-button id="external-mcp-clients-scope">${escapeHtml(showAllClients ? t('settings.externalMcpClientsCurrentOnly') : t('settings.externalMcpClientsShowAll', { count: hiddenCount }))}</cr-bar-button></p>` : ''}
     <div class="mcp-server-list">${clients}</div>
   `;
 
@@ -537,6 +693,14 @@ function renderPanel(root, data, created = null) {
     ttlSelect.value = '30';
   }
   if (created) bindCreatedSnippet(root, created);
+  root.querySelector('#external-mcp-clients-scope')?.addEventListener('click', () => {
+    showAllClients = !showAllClients;
+    renderPanel(root, data, created);
+  });
+  const installsList = /** @type {HTMLElement | null} */ (root.querySelector('#external-mcp-installs'));
+  const loadInstalls = () => renderInstalls(installsList);
+  root.querySelector('#external-mcp-installs-refresh')?.addEventListener('click', loadInstalls);
+  void loadInstalls();
 
   /**
    * @param {string} key
@@ -592,12 +756,17 @@ function renderPanel(root, data, created = null) {
       modeSelect.options = installModeOptions();
       modeSelect.value = 'http';
     }
+    const folderHost = /** @type {HTMLElement | null} */ (root.querySelector(`[data-external-mcp-install-folder="${CSS.escape(id)}"]`));
+    if (folderHost) mountFolderPicker(folderHost);
+    const certificateContainer = document.createElement('div');
+    const installRow = select.closest('.external-mcp-install');
+    installRow?.after(certificateContainer);
+    const trustCertificate = mountCertificateTrust(modeSelect, certificateContainer, url);
     const button = root.querySelector(`[data-external-mcp-install="${CSS.escape(id)}"]`);
     const out = root.querySelector(`[data-external-mcp-install-status="${CSS.escape(id)}"]`);
     button?.addEventListener('click', async () => {
       if (out) out.textContent = '';
-      const folderInput = /** @type {any} */ (root.querySelector(`[data-external-mcp-install-folder="${CSS.escape(id)}"]`));
-      const result = await installIntoFolder(id, String(select.value || TARGETS[0].id), url, undefined, String(folderInput?.value || '').trim(), String(modeSelect?.value || 'http'));
+      const result = await installIntoFolder(id, String(select.value || TARGETS[0].id), url, undefined, pickedFolder(folderHost), String(modeSelect?.value || 'http'), trustCertificate());
       if (out) {
         out.textContent = result.message;
         /** @type {HTMLElement} */ (out).dataset.tone = result.ok ? 'success' : 'error';
@@ -645,7 +814,7 @@ function renderPanel(root, data, created = null) {
           }
           : undefined,
         install: clientState(client).tone === 'success'
-          ? (target, token, folder, mode) => installIntoFolder(id, target, url, token, folder, mode)
+          ? (target, token, folder, mode, trustCertificate) => installIntoFolder(id, target, url, token, folder, mode, trustCertificate)
           : undefined,
       });
     });
@@ -655,7 +824,7 @@ function renderPanel(root, data, created = null) {
     openExportDialog({
       heading: t('settings.externalMcpExportAll'),
       hint: t('settings.externalMcpExportAllHint'),
-      text: allClientsExport(data.clients, url),
+      text: allClientsExport(showAllClients ? data.clients : clientsInCurrentWorkspace(data.clients), url),
       fileName: 'cretli-mcp-clients.json',
     });
   });
@@ -709,14 +878,18 @@ function bindCreatedSnippet(root, created) {
     if (label) label.textContent = text;
     window.setTimeout(() => { if (label) label.textContent = t('settings.externalMcpCopy'); }, 1800);
   });
+  const createdFolder = root.querySelector('#external-mcp-install-created-folder');
+  if (createdFolder) mountFolderPicker(/** @type {HTMLElement} */ (createdFolder));
   const createdMode = /** @type {any} */ (root.querySelector('#external-mcp-install-created-mode'));
   if (createdMode) {
     createdMode.options = installModeOptions();
     createdMode.value = 'http';
   }
+  const certificateContainer = document.createElement('div');
+  createdMode?.closest('.external-mcp-install')?.after(certificateContainer);
+  const trustCertificate = mountCertificateTrust(createdMode, certificateContainer, created.url);
   installButton?.addEventListener('click', async () => {
-    const folderInput = /** @type {any} */ (root.querySelector('#external-mcp-install-created-folder'));
-    const result = await installIntoFolder(created.clientId, active, created.url, created.token, String(folderInput?.value || '').trim(), String(createdMode?.value || 'http'));
+    const result = await installIntoFolder(created.clientId, active, created.url, created.token, pickedFolder(createdFolder), String(createdMode?.value || 'http'), trustCertificate());
     if (installStatus) {
       installStatus.textContent = result.message;
       installStatus.dataset.tone = result.ok ? 'success' : 'error';
