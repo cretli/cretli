@@ -129,9 +129,9 @@ const mockPickClient = {
   },
 };
 
-test('resolveRequestLeafContext infers a single doing leaf for the orchestrator chat', () => {
+test('resolveRequestLeafContext infers a single doing leaf for the orchestrator chat', async () => {
   const { orchestrator, leafIds } = makeOrchestratorTree({ doingLeaves: 1 });
-  const ctx = resolveRequestLeafContext({
+  const ctx = await resolveRequestLeafContext({
     input: {},
     parentChatId: orchestrator.id,
     workspaceFolder: workspace,
@@ -143,9 +143,9 @@ test('resolveRequestLeafContext infers a single doing leaf for the orchestrator 
   assert.equal(ctx.leafSource, LEAF_SOURCE_INFERRED);
 });
 
-test('resolveRequestLeafContext warns when two doing leaves exist', () => {
+test('resolveRequestLeafContext warns when two doing leaves exist', async () => {
   const { orchestrator } = makeOrchestratorTree({ doingLeaves: 2 });
-  const ctx = resolveRequestLeafContext({
+  const ctx = await resolveRequestLeafContext({
     input: {},
     parentChatId: orchestrator.id,
     workspaceFolder: workspace,
@@ -158,13 +158,13 @@ test('resolveRequestLeafContext warns when two doing leaves exist', () => {
   assert.equal(ctx.warning?.candidates?.length, 2);
 });
 
-test('resolveRequestLeafContext does not infer for a non-orchestrator chat', () => {
+test('resolveRequestLeafContext does not infer for a non-orchestrator chat', async () => {
   makeOrchestratorTree({ doingLeaves: 1 });
   const stranger = addChat(randomUUID(), 'other', null, workspace, 'testfake/test', {
     agentTransport: 'testfake',
     sdkMode: 'agent',
   });
-  const ctx = resolveRequestLeafContext({
+  const ctx = await resolveRequestLeafContext({
     input: {},
     parentChatId: stranger.id,
     workspaceFolder: workspace,
@@ -254,7 +254,7 @@ test('explicit leaf_id wins over orchestrator inference', async () => {
   const { orchestrator, leafIds } = makeOrchestratorTree({ doingLeaves: 2 });
   const explicitLeaf = leafIds[1];
   updateTodo(workspace, workspace, leafIds[0], { status: 'ready' }); // default projectDir=workspace
-  const ctx = resolveRequestLeafContext({
+  const ctx = await resolveRequestLeafContext({
     input: { leaf_id: explicitLeaf },
     parentChatId: orchestrator.id,
     workspaceFolder: workspace,
@@ -266,9 +266,9 @@ test('explicit leaf_id wins over orchestrator inference', async () => {
   assert.equal(ctx.leafSource, 'explicit');
 });
 
-test('resolveRequestLeafContext warns with zero doing leaves (root is not a leaf)', () => {
+test('resolveRequestLeafContext warns with zero doing leaves (root is not a leaf)', async () => {
   const { orchestrator, root } = makeOrchestratorTree({ zeroDoingLeaves: true, bindRootOnChat: true });
-  const ctx = resolveRequestLeafContext({
+  const ctx = await resolveRequestLeafContext({
     input: {},
     parentChatId: orchestrator.id,
     workspaceFolder: workspace,
@@ -282,9 +282,9 @@ test('resolveRequestLeafContext warns with zero doing leaves (root is not a leaf
   assert.equal(ctx.warning?.candidates?.length, 0);
 });
 
-test('resolveRequestLeafContext does not treat chat todoId root as explicit when ambiguous', () => {
+test('resolveRequestLeafContext does not treat chat todoId root as explicit when ambiguous', async () => {
   const { orchestrator, root, leafIds } = makeOrchestratorTree({ doingLeaves: 2, bindRootOnChat: true });
-  const ctx = resolveRequestLeafContext({
+  const ctx = await resolveRequestLeafContext({
     input: {},
     parentChatId: orchestrator.id,
     workspaceFolder: workspace,
@@ -299,9 +299,9 @@ test('resolveRequestLeafContext does not treat chat todoId root as explicit when
   assert.ok(ctx.warning?.candidates?.some((row) => row.id === leafIds[0]));
 });
 
-test('resolveRequestLeafContext infers a doing grandchild leaf', () => {
+test('resolveRequestLeafContext infers a doing grandchild leaf', async () => {
   const { orchestrator, leafIds } = makeGrandchildDoingLeafTree({ bindRootOnChat: true });
-  const ctx = resolveRequestLeafContext({
+  const ctx = await resolveRequestLeafContext({
     input: {},
     parentChatId: orchestrator.id,
     workspaceFolder: workspace,
@@ -313,9 +313,9 @@ test('resolveRequestLeafContext infers a doing grandchild leaf', () => {
   assert.equal(ctx.leafSource, LEAF_SOURCE_INFERRED);
 });
 
-test('orchestrator leaf inference respects CRETLI_ORCHESTRATOR_LEAF_INFERENCE=off', () => {
+test('orchestrator leaf inference respects CRETLI_ORCHESTRATOR_LEAF_INFERENCE=off', async () => {
   const { orchestrator, leafIds } = makeOrchestratorTree({ doingLeaves: 1 });
-  const ctx = resolveRequestLeafContext({
+  const ctx = await resolveRequestLeafContext({
     input: {},
     parentChatId: orchestrator.id,
     workspaceFolder: workspace,
@@ -329,7 +329,7 @@ test('orchestrator leaf inference respects CRETLI_ORCHESTRATOR_LEAF_INFERENCE=of
   assert.equal(ctx.warning?.code, LEAF_RESOLUTION_WARNING_MISSING);
 });
 
-test('a legacy chat todo link resolves an existing standalone leaf', () => {
+test('a legacy chat todo link resolves an existing standalone leaf', async () => {
   const todo = addTodo(workspace, workspace, { title: 'Standalone', status: 'doing', body: 'solo' }).item;
   assert.ok(todo?.id);
   const parent = addChat(randomUUID(), 'legacy-linked', null, workspace, 'testfake/test', {
@@ -337,7 +337,7 @@ test('a legacy chat todo link resolves an existing standalone leaf', () => {
     sdkMode: 'agent',
     todoId: todo.id,
   });
-  const ctx = resolveRequestLeafContext({
+  const ctx = await resolveRequestLeafContext({
     input: {},
     parentChatId: parent.id,
     workspaceFolder: workspace,
@@ -403,24 +403,24 @@ test('model_pick with two doing leaves returns leaf_id_missing warning contract'
 });
 
 
-test('a chat directly linked to a leaf resolves its scope without root registration', () => {
+test('a chat directly linked to a leaf resolves its scope without root registration', async () => {
   const leaf = addTodo(workspace, workspace, { title: 'Linked task', status: 'doing' }).item;
   const chat = addChat(randomUUID(), 'linked', null, workspace, 'testfake/test', { agentTransport: 'testfake', todoId: leaf.id });
   for (const purpose of ['model_pick', 'delegation_start']) {
-    const context = resolveRequestLeafContext({ input: {}, parentChatId: chat.id, workspaceFolder: workspace, role: 'implement', purpose });
+    const context = await resolveRequestLeafContext({ input: {}, parentChatId: chat.id, workspaceFolder: workspace, role: 'implement', purpose });
     assert.equal(context.leafId, leaf.id);
     assert.equal(context.leafSource, LEAF_SOURCE_INFERRED);
   }
 });
 
-test('a linked group resolves only its unique doing leaf, never the group itself', () => {
+test('a linked group resolves only its unique doing leaf, never the group itself', async () => {
   const group = addTodo(workspace, workspace, { title: 'Linked group', status: 'doing' }).item;
   const leaf = addTodo(workspace, workspace, { title: 'Active child', status: 'doing', parentId: group.id }).item;
   const chat = addChat(randomUUID(), 'linked-group', null, workspace, 'testfake/test', { agentTransport: 'testfake', todoId: group.id });
   const params = { input: {}, parentChatId: chat.id, workspaceFolder: workspace, purpose: 'delegation_start' };
-  assert.equal(resolveRequestLeafContext(params).leafId, leaf.id);
+  assert.equal((await resolveRequestLeafContext(params)).leafId, leaf.id);
   addTodo(workspace, workspace, { title: 'Other active child', status: 'doing', parentId: group.id });
-  const ambiguous = resolveRequestLeafContext(params);
+  const ambiguous = await resolveRequestLeafContext(params);
   assert.equal(ambiguous.leafId, '');
   assert.equal(ambiguous.warning.code, LEAF_RESOLUTION_WARNING_MISSING);
   assert.equal(ambiguous.warning.candidates.length, 2);

@@ -16,12 +16,12 @@ test('server adapters persist idea incidents in a stable workspace and deduplica
     let options;
     createServerStallWatchdog({
       repoRoot: root, dataDir: directory,
-      addTodo: (dir, cwd, input) => {
+      addTodo: async (dir, cwd, input) => {
         assert.equal(dir, directory);
         assert.equal(cwd, root);
         rows.push(input);
       },
-      loadTodosData: (dir, cwd) => {
+      listTodos: async (dir, cwd) => {
         assert.equal(dir, directory);
         assert.equal(cwd, root);
         return { items: rows };
@@ -32,10 +32,10 @@ test('server adapters persist idea incidents in a stable workspace and deduplica
     assert.equal(options.registryPath, path.join(directory, 'stall-watchdog-registry.json'));
     assert.equal(options.thresholdMs, 3000);
     assert.equal(options.profileMs, 2000);
-    options.createTodo({ title: 'Incident', body: 'stall-signature: abc', idempotencyKey: 'incident' });
+    await options.createTodo({ title: 'Incident', body: 'stall-signature: abc', idempotencyKey: 'incident' });
     assert.equal(rows[0].status, 'idea');
-    assert.equal(options.findTodoBySignature('abc'), rows[0]);
-    assert.equal(options.findTodoBySignature('other'), undefined);
+    assert.equal(await options.findTodoBySignature('abc'), rows[0]);
+    assert.equal(await options.findTodoBySignature('other'), undefined);
     await options.notify({ signature: 'abc', outcome: 'created', stalledForMs: 3250 });
     assert.equal(notices[0].fingerprint, 'stall-watchdog:abc');
     assert.equal(notices[0].category, 'system');
@@ -56,7 +56,7 @@ test('production watchdog thresholds capture a seven-second main-thread stall an
     const notifications = [];
     const wd = createServerStallWatchdog({
       repoRoot: ${JSON.stringify(root)}, dataDir: directory,
-      loadTodosData: () => ({ items: fs.existsSync(todosFile) ? JSON.parse(fs.readFileSync(todosFile)) : [] }),
+      listTodos: () => ({ items: fs.existsSync(todosFile) ? JSON.parse(fs.readFileSync(todosFile)) : [] }),
       addTodo: (_dir, _cwd, input) => fs.writeFileSync(todosFile, JSON.stringify([input])),
       publishNotification: (input) => notifications.push(input),
     });

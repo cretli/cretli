@@ -143,7 +143,7 @@ test('async list matches the sync list row for row', async (t) => {
   git(suite.record.worktreePath, ['add', 'feature.txt']);
   git(suite.record.worktreePath, ['commit', '-m', 'work on feature']);
   invalidateWorktreeListCache();
-  const sync = listWorkspaceWorktrees({ dataDir: suite.dataDir, workspaceFolder: suite.repo });
+  const sync = await listWorkspaceWorktrees({ dataDir: suite.dataDir, workspaceFolder: suite.repo });
   const asyncListed = await listWorkspaceWorktreesAsync({ dataDir: suite.dataDir, workspaceFolder: suite.repo });
   assert.deepEqual(asyncListed, sync);
   assert.equal(asyncListed.rows[0].aheadCommits, 1);

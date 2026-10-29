@@ -54,14 +54,14 @@ const todosOf = (ws) => loadTodosData(process.env.CRETLI_TEST_DATA_DIR, ws).item
 {
   const ws = newWorkspace();
   const checkable = addLesson(ws, { ...base, text: 'Register every new test file in the review-verify catalog.', checkable: true, checkHint: 'Lint rule over tests/*.test.js', pathGlobs: ['tests/**'] });
-  const first = proposeLessonCheck(ws, checkable.id, { dataDir: process.env.CRETLI_TEST_DATA_DIR, createdByChatId: 'chat-1' });
-  const second = proposeLessonCheck(ws, checkable.id, { dataDir: process.env.CRETLI_TEST_DATA_DIR });
+  const first = await proposeLessonCheck(ws, checkable.id, { dataDir: process.env.CRETLI_TEST_DATA_DIR, createdByChatId: 'chat-1' });
+  const second = await proposeLessonCheck(ws, checkable.id, { dataDir: process.env.CRETLI_TEST_DATA_DIR });
   assert.equal(first.created, true);
   assert.equal(second.created, false);
   assert.equal(first.todo.id, second.todo.id);
   // Editing the lesson afterwards still resolves to the one existing todo (no CONFLICT).
   const edited = updateLesson(ws, checkable.id, { text: 'Register every new test file in the review-verify catalog, always.' }, checkable.revision);
-  const afterEdit = proposeLessonCheck(ws, checkable.id, { dataDir: process.env.CRETLI_TEST_DATA_DIR });
+  const afterEdit = await proposeLessonCheck(ws, checkable.id, { dataDir: process.env.CRETLI_TEST_DATA_DIR });
   assert.equal(afterEdit.created, false);
   assert.equal(afterEdit.todo.id, first.todo.id);
   const items = todosOf(ws);
@@ -72,11 +72,11 @@ const todosOf = (ws) => loadTodosData(process.env.CRETLI_TEST_DATA_DIR, ws).item
   assert.match(items[0].body, /review-verify catalog/);
   // Not checkable / unknown / retired lessons propose nothing.
   const plain = addLesson(ws, { ...base, text: 'Keep functions short and focused on one job.' });
-  assert.throws(() => proposeLessonCheck(ws, plain.id, { dataDir: process.env.CRETLI_TEST_DATA_DIR }), /checkable/);
-  assert.throws(() => proposeLessonCheck(ws, 'missing', { dataDir: process.env.CRETLI_TEST_DATA_DIR }), (err) => err.code === 'NOT_FOUND');
+  await assert.rejects(() => proposeLessonCheck(ws, plain.id, { dataDir: process.env.CRETLI_TEST_DATA_DIR }), /checkable/);
+  await assert.rejects(() => proposeLessonCheck(ws, 'missing', { dataDir: process.env.CRETLI_TEST_DATA_DIR }), (err) => err.code === 'NOT_FOUND');
   const old = addLesson(ws, { ...base, text: 'Keep changelog entries in sync with releases.', checkable: true });
   updateLesson(ws, old.id, { status: 'retired', retiredReason: 'obsolete' }, old.revision);
-  assert.throws(() => proposeLessonCheck(ws, old.id, { dataDir: process.env.CRETLI_TEST_DATA_DIR }), /Retired/);
+  await assert.rejects(() => proposeLessonCheck(ws, old.id, { dataDir: process.env.CRETLI_TEST_DATA_DIR }), /Retired/);
   assert.equal(todosOf(ws).length, 1);
   // Retiring after the check landed keeps status + reason + the superseding todo.
   const done = updateLesson(ws, checkable.id, { status: 'retired', retiredReason: 'superseded_by_check', supersededByTodoId: first.todo.id }, edited.revision);
@@ -95,7 +95,7 @@ const todosOf = (ws) => loadTodosData(process.env.CRETLI_TEST_DATA_DIR, ws).item
   const ws = newWorkspace();
   recordReviewFindings({ workspaceFolder: ws, leafId: 'leaf-p', delegationId: 'd1', attemptId: 'a', mode: 'audit', findings: [{ id: 'F1', priority: 'P2', category: 'docs-not-updated', files: ['docs/a.md'], summary: 'Missing note in /home/someone/www/project/docs/a.md and 192.168.1.20' }] });
   const l = addLesson(ws, { ...base, category: 'docs-not-updated', text: 'Update docs when routes change.', checkable: true, evidence: [{ leafId: 'leaf-p', ledgerKey: 'R1A1-F1', outcome: 'fixed', actor: '' }] });
-  const { todo } = proposeLessonCheck(ws, l.id, { dataDir: process.env.CRETLI_TEST_DATA_DIR });
+  const { todo } = await proposeLessonCheck(ws, l.id, { dataDir: process.env.CRETLI_TEST_DATA_DIR });
   assert.match(todo.body, /R1A1-F1/);
   assert.equal(containsPrivateData(todo.body), false);
   assert.equal(containsPrivateData(todo.title), false);

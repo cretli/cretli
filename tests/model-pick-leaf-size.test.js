@@ -114,7 +114,7 @@ test('flash implement on large leaf requires pick_reason override', () => {
   assert.equal(allowed.ok, true);
 });
 
-test('blockTodoForNoNonFlashCandidate sets blockedReason on the leaf', () => {
+test('blockTodoForNoNonFlashCandidate sets blockedReason on the leaf', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-leaf-size-'));
   const ws = path.join(dir, 'ws');
   fs.mkdirSync(ws, { recursive: true });
@@ -122,7 +122,7 @@ test('blockTodoForNoNonFlashCandidate sets blockedReason on the leaf', () => {
   const todoId = created.items.find((row) => row.title === 'Leaf')?.id;
   assert.ok(todoId);
   const before = getTodoById(dir, ws, todoId);
-  const blocked = blockTodoForNoNonFlashCandidate({
+  const blocked = await blockTodoForNoNonFlashCandidate({
     dataDir: dir,
     workspaceFolder: ws,
     todoId,

@@ -183,7 +183,7 @@ or `VALIDATION`. `tests/todos-store-sync-api-guard.test.js` enforces this invent
 converted files may not import `loadTodosData` / `addTodo` / `updateTodo` /
 `saveTodosData` from `todos-persist.js`, and no unlisted file may start using them.
 
-### Converted to the async facade (leaf L2)
+### Converted to the async facade (leaves L2–L3b)
 
 | File | Notes |
 |---|---|
@@ -195,6 +195,12 @@ converted files may not import `loadTodosData` / `addTodo` / `updateTodo` /
 | `lib/mcp/mcp-external-operator-tools.js` | `resolveTodo` is async; plan approve awaits `updateTodo`. |
 | `lib/mcp/builtin/todo-tools.js` | Only imports constants/helpers (`TODO_STATUSES`, `describeBodyTruncation`); mutations go through the client (async). |
 | `lib/remote-api-client.js` | HTTP client only; no direct persist use. |
+| `lib/model-pick-leaf-implement.js` | The no-candidate blocker awaits the read and CAS update. |
+| `lib/orchestrator-leaf-resolution.js` | Leaf context resolution awaits a TODO read when no items were supplied. |
+| `lib/review-lessons-checks.js` | Check proposals await creation and conflict resolution. |
+| `lib/usage/todo-usage-read.ts` | Usage views await the TODO read before building statistics. |
+| `server.js`, `lib/server-health/server-stall-watchdog.js` | The stall watchdog receives async todo adapters and awaits signature lookup and incident creation. |
+| `lib/worktree-deps.js`, `lib/worktree-list.js` | Worktree reports, cleanup, and list preparation await the TODO read. |
 
 Import aliases: none of the callers rename the sync functions (`as` imports). Indirect
 paths: MCP tools -> `client.updateTodo` -> in-process client or HTTP -> facade.
@@ -202,12 +208,11 @@ paths: MCP tools -> `client.updateTodo` -> in-process client or HTTP -> facade.
 ### Remaining synchronous callers (allowlist in the guard test)
 
 Each still imports at least one sync function and is converted by a later leaf:
-`server.js`; `lib/delegation-retention.js`, `delegation-service.js`, `delegation-settings.js`,
+`lib/delegation-retention.js`, `delegation-service.js`, `delegation-settings.js`,
 `delegation-slot-stop.js`, `feedback-triage.js`, `integrate-batch.js`,
-`model-pick-leaf-implement.js`, `orchestrator-leaf-resolution.js`, `review-lessons-checks.js`,
 `todo-leaf-material.js`, `todo-move.js`, `todo-plan-sync.js`, `todo-review-backfill.js`,
-`todo-review-sync-hooks.js`, `todo-review-sync.js`, `worktree-deps.js`, `worktree-list.js`,
-`persist/feedback-store.js`, `usage/todo-usage-read.ts`, every `workspace-watcher-*.js`
+`todo-review-sync-hooks.js`, `todo-review-sync.js`,
+`persist/feedback-store.js`, every `workspace-watcher-*.js`
 module listed in the guard (`control`, `cycle`, `cycle-close`, `delegation-guard`,
 `history-repair`, `integration`, `review-gate-guard`, `scout`, `todo-recover`, and
 `workspace-watcher.js`), and the scripts `architecture-http-fixture.mjs`,
@@ -215,6 +220,15 @@ module listed in the guard (`control`, `cycle`, `cycle-close`, `delegation-guard
 `manual-smart-merge-fixture.mjs`, `measure-todo-save.js`, `scout-pass-fixture.mjs`.
 Other files only use non-guarded helpers (`getTodoById`, `linkTodoChat`, `deleteTodo`, review
 writers, constants) and are not sync-API callers for the guard.
+
+L3b remains partial for `feedback-triage.js`: claim, proposal, and decision callbacks
+run under the synchronous watcher document lock, which is also used by todo
+mutations. The lock is released when the callback returns. Moving the todo read or
+write to an awaited facade call outside that callback would split the atomic
+decision. Converting this path needs a store command that holds the shared lock
+through the complete watcher and todo operation. `persist/feedback-store.js` and
+`integrate-batch.js` also remain on the synchronous API pending their command
+boundary conversion.
 
 ### Read-modify-write critical sections
 

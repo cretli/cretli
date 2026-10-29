@@ -3,7 +3,7 @@
  *
  * This is the only place in `lib/usage/` that touches persistence for TODO
  * statistics. It reads three existing stores and nothing else:
- *   - the TODO document of the workspace (`loadTodosData`),
+ *   - the TODO document of the workspace (`listTodos`),
  *   - the delegation rows of the workspace (`listDelegationsForWorkspace`),
  *   - the append-only usage ledger (`readUsageEvents`).
  * It never writes usage and never re-prices an event.
@@ -13,7 +13,7 @@
  */
 
 import { listDelegationsForWorkspace } from '../persist/delegations-persist.js';
-import { loadTodosData } from '../persist/todos-persist.js';
+import { listTodos } from '../persist/todos-store.js';
 import { readUsageDiagnostics, readUsageEvents } from '../persist/usage-persist.js';
 import { filterEventsByWindow } from './usage-window.ts';
 import {
@@ -39,12 +39,12 @@ export function todoUsageUnavailableError(message) {
  * neighbouring day's events.
  *
  * @param {{ dataDir?: string, cwd: string, window: { from?: string, to?: string } }} input
- * @returns {{ items: Record<string, any>[], delegations: Record<string, any>[], events: Record<string, any>[] }}
+ * @returns {Promise<{ items: Record<string, any>[], delegations: Record<string, any>[], events: Record<string, any>[] }>}
  */
-export function readTodoUsageContext(input: Partial<{ dataDir?: string, cwd: string, window: { from?: string, to?: string } }> = {}) {
+export async function readTodoUsageContext(input: Partial<{ dataDir?: string, cwd: string, window: { from?: string, to?: string } }> = {}) {
   const cwd = String(input.cwd || '').trim();
   const dataDir = input.dataDir;
-  const items = loadTodosData(dataDir, cwd).items;
+  const items = (await listTodos(dataDir, cwd)).items;
   const delegations = cwd ? listDelegationsForWorkspace(cwd, { dataDir }) : [];
   let events = [];
   let diagnostics = { corrupt: null, missing: null, retainedOut: null };
@@ -68,12 +68,12 @@ export function readTodoUsageContext(input: Partial<{ dataDir?: string, cwd: str
  * Statistics of a single TODO.
  *
  * @param {{ dataDir?: string, cwd: string, todoId: string, query?: Record<string, any>, now?: number }} input
- * @returns {{ ok: true, todoId: string, window: Record<string, any>, todo: Record<string, any>, usage: Record<string, any> } | { ok: false, error: string, code: string }}
+ * @returns {Promise<{ ok: true, todoId: string, window: Record<string, any>, todo: Record<string, any>, usage: Record<string, any> } | { ok: false, error: string, code: string }>}
  */
-export function loadTodoUsage(input: Partial<{ dataDir?: string, cwd: string, todoId: string, query?: Record<string, any>, now?: number }> = {}) {
+export async function loadTodoUsage(input: Partial<{ dataDir?: string, cwd: string, todoId: string, query?: Record<string, any>, now?: number }> = {}) {
   const query = resolveTodoUsageQuery(input.query || {}, { now: input.now });
   if (!query.ok) return { ok: false, error: query.error, code: query.code };
-  const context = readTodoUsageContext({
+  const context = await readTodoUsageContext({
     dataDir: input.dataDir,
     cwd: input.cwd,
     window: query.window,
@@ -113,12 +113,12 @@ export function loadTodoUsage(input: Partial<{ dataDir?: string, cwd: string, to
  * Workspace-wide TODO usage view.
  *
  * @param {{ dataDir?: string, cwd: string, query?: Record<string, any>, now?: number }} input
- * @returns {{ ok: true, window: Record<string, any>, report: Record<string, any> } | { ok: false, error: string, code: string }}
+ * @returns {Promise<{ ok: true, window: Record<string, any>, report: Record<string, any> } | { ok: false, error: string, code: string }>}
  */
-export function loadWorkspaceTodoUsage(input: Partial<{ dataDir?: string, cwd: string, query?: object, now?: number }> = {}) {
+export async function loadWorkspaceTodoUsage(input: Partial<{ dataDir?: string, cwd: string, query?: object, now?: number }> = {}) {
   const query = resolveTodoUsageQuery(input.query || {}, { now: input.now });
   if (!query.ok) return { ok: false, error: query.error, code: query.code };
-  const context = readTodoUsageContext({
+  const context = await readTodoUsageContext({
     dataDir: input.dataDir,
     cwd: input.cwd,
     window: query.window,

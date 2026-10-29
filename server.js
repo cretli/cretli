@@ -15,7 +15,7 @@
 process.title = 'cretli';
 
 import { createServerStallWatchdog } from './lib/server-health/server-stall-watchdog.js';
-import { addTodo, loadTodosData } from './lib/persist/todos-persist.js';
+import { addTodo, listTodos } from './lib/persist/todos-store.js';
 import { publishNotification } from './lib/notifications/notification-store.ts';
 import express from 'express';
 import compression from 'compression';
@@ -723,7 +723,7 @@ const stallWatchdog = createServerStallWatchdog({
   repoRoot: __dirname,
   dataDir,
   addTodo,
-  loadTodosData,
+  listTodos,
   publishNotification,
 });
 let delegationShutdownStarted = false;

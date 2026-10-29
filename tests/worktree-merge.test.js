@@ -238,10 +238,10 @@ test('a failed report keeps the todo awaiting integration with the reason', asyn
   assert.match(todo.integration.reason, /smart_merge_failed: conflict in a\.js/);
 });
 
-test('the worktree list reconciles the registry with Git and derives states', (t) => {
+test('the worktree list reconciles the registry with Git and derives states', async (t) => {
   const suite = makeSuite('list');
   t.after(suite.cleanup);
-  const listed = listWorkspaceWorktrees({ dataDir: suite.dataDir, workspaceFolder: suite.repo });
+  const listed = await listWorkspaceWorktrees({ dataDir: suite.dataDir, workspaceFolder: suite.repo });
   assert.equal(listed.rows.length, 1);
   const [row] = listed.rows;
   assert.equal(row.todoId, suite.todo.id);
@@ -251,18 +251,18 @@ test('the worktree list reconciles the registry with Git and derives states', (t
   assert.equal(row.uncommittedFiles, 1);
   assert.equal(row.title, suite.todo.title);
   fs.rmSync(suite.record.worktreePath, { recursive: true, force: true });
-  const afterRemoval = listWorkspaceWorktrees({ dataDir: suite.dataDir, workspaceFolder: suite.repo });
+  const afterRemoval = await listWorkspaceWorktrees({ dataDir: suite.dataDir, workspaceFolder: suite.repo });
   assert.equal(afterRemoval.rows[0].state, 'missing');
   assert.equal(afterRemoval.rows[0].exists, false);
   assert.equal(afterRemoval.rows[0].actions.merge, false);
 });
 
-test('the list only exposes records of the requested workspace', (t) => {
+test('the list only exposes records of the requested workspace', async (t) => {
   const suite = makeSuite('list-scope');
   t.after(suite.cleanup);
   const other = createTempRepo().dir;
   t.after(() => fs.rmSync(other, { recursive: true, force: true }));
-  assert.equal(listWorkspaceWorktrees({ dataDir: suite.dataDir, workspaceFolder: other }).rows.length, 0);
+  assert.equal((await listWorkspaceWorktrees({ dataDir: suite.dataDir, workspaceFolder: other })).rows.length, 0);
 });
 
 test('the diff is read from the record path and refuses a foreign workspace', (t) => {

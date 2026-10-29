@@ -202,12 +202,12 @@ test('cleanup is dry-run by default, removes integrated/rejected, keeps the rest
   updateWorktreeState({ todoId: ids.integrated, registryOptions: opts, integrationState: 'integrated' });
   updateWorktreeState({ todoId: ids.rejected, registryOptions: opts, integrationState: 'rejected' });
 
-  const report = buildWorktreeReport({ dataDir: suite.dataDir, workspaceFolder: suite.repo });
+  const report = await buildWorktreeReport({ dataDir: suite.dataDir, workspaceFolder: suite.repo });
   assert.equal(report.rows.length, 3);
   assert.deepEqual(report.rows.filter((r) => r.category === 'removable').map((r) => r.todoId).sort(), [ids.integrated, ids.rejected].sort());
   assert.ok(report.rows.every((r) => r.sizeBytes > 0));
 
-  const dry = cleanupWorktrees({ dataDir: suite.dataDir, workspaceFolder: suite.repo });
+  const dry = await cleanupWorktrees({ dataDir: suite.dataDir, workspaceFolder: suite.repo });
   assert.equal(dry.dryRun, true);
   assert.equal(dry.candidates.length, 2);
   assert.equal(dry.removed.length, 0);
@@ -215,7 +215,7 @@ test('cleanup is dry-run by default, removes integrated/rejected, keeps the rest
     assert.equal(fs.existsSync(getWorktreeRecord(id, opts).worktreePath), true, 'dry-run removes nothing');
   }
 
-  const real = cleanupWorktrees({ dataDir: suite.dataDir, workspaceFolder: suite.repo, apply: true });
+  const real = await cleanupWorktrees({ dataDir: suite.dataDir, workspaceFolder: suite.repo, apply: true });
   assert.equal(real.removed.length, 2, JSON.stringify(real.failed));
   assert.deepEqual(real.kept.map((r) => r.todoId), [ids.pending]);
   assert.equal(fs.existsSync(getWorktreeRecord(ids.integrated, opts).worktreePath), false);
@@ -229,7 +229,7 @@ test('cleanup skips a worktree whose agent is still active', async (t) => {
   const id = 'bbbbbbb1-0000-0000-0000-000000000001';
   await prep(suite, id, fakeNpmDeps({ runs: 0 }));
   updateWorktreeState({ todoId: id, registryOptions: { dataDir: suite.dataDir }, executionState: 'execution_closed', integrationState: 'integrated' });
-  const result = cleanupWorktrees({ dataDir: suite.dataDir, workspaceFolder: suite.repo, apply: true, hasActiveAgent: () => true });
+  const result = await cleanupWorktrees({ dataDir: suite.dataDir, workspaceFolder: suite.repo, apply: true, hasActiveAgent: () => true });
   assert.equal(result.removed.length, 0);
   assert.equal(result.failed.length, 1);
 });
@@ -248,10 +248,10 @@ test('cleanup never removes a rejected worktree with modified or untracked files
     if (id === untracked) fs.writeFileSync(path.join(p.record.worktreePath, 'wip.txt'), 'unsaved');
     if (id === modified) fs.appendFileSync(path.join(p.record.worktreePath, 'README.md'), 'edit\n');
   }
-  const dry = cleanupWorktrees({ dataDir: suite.dataDir, workspaceFolder: suite.repo });
+  const dry = await cleanupWorktrees({ dataDir: suite.dataDir, workspaceFolder: suite.repo });
   assert.deepEqual(dry.candidates.map((r) => r.todoId), [clean]);
   assert.deepEqual(dry.kept.map((r) => r.reason), ['uncommitted_changes', 'uncommitted_changes']);
-  const real = cleanupWorktrees({ dataDir: suite.dataDir, workspaceFolder: suite.repo, apply: true });
+  const real = await cleanupWorktrees({ dataDir: suite.dataDir, workspaceFolder: suite.repo, apply: true });
   assert.deepEqual(real.removed.map((r) => r.todoId), [clean], JSON.stringify(real.failed));
   assert.equal(fs.readFileSync(path.join(getWorktreeRecord(untracked, opts).worktreePath, 'wip.txt'), 'utf8'), 'unsaved');
   assert.match(fs.readFileSync(path.join(getWorktreeRecord(modified, opts).worktreePath, 'README.md'), 'utf8'), /edit/);

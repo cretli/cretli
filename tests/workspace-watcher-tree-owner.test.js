@@ -305,7 +305,7 @@ test('regression: the watcher own cycle chats (parallel mode) are not external o
   assert.equal(findWorkspaceWatcherExternalTreeOwner(leafA, snapshot.items, snapshot.externalOwners), null);
 });
 
-test('subtree authorization: the cycle delegation on its leaf resolves despite a manual ancestor stamp', () => {
+test('subtree authorization: the cycle delegation on its leaf resolves despite a manual ancestor stamp', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-tree-owner-auth-'));
   const { parent, second } = createIncidentTree(dataDir);
   stampCycleOrchestratorOnTodoTree({
@@ -314,19 +314,19 @@ test('subtree authorization: the cycle delegation on its leaf resolves despite a
   });
   const items = loadTodosData(dataDir, workspaceFolder).items;
   assert.equal(items.find((row) => row.id === parent.id).orchestratorChatId, 'manual-orch');
-  const explicit = resolveRequestLeafContext({
+  const explicit = await resolveRequestLeafContext({
     input: { leaf_id: second.id }, parentChatId: 'cycle-chat', workspaceFolder, dataDir, items,
   });
   assert.equal(explicit.ok, true);
   assert.equal(explicit.leafId, second.id);
   const siblingLeaf = items.find((row) => row.title === 'Server');
-  const outside = resolveRequestLeafContext({
+  const outside = await resolveRequestLeafContext({
     input: { leaf_id: siblingLeaf.id }, parentChatId: 'cycle-chat', workspaceFolder, dataDir, items,
   });
   // Orchestrator roots resolve to the tree root, so the stamped leaf authorizes the cycle tree-wide.
   assert.equal(outside.ok, true);
   // The manual orchestrator keeps authority over the whole tree, including the cycle leaf.
-  const manual = resolveRequestLeafContext({
+  const manual = await resolveRequestLeafContext({
     input: { leaf_id: second.id }, parentChatId: 'manual-orch', workspaceFolder, dataDir, items,
   });
   assert.equal(manual.ok, true);
