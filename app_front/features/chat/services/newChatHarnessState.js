@@ -87,11 +87,36 @@ let newChatUsageLockouts = [];
 
 let newChatUsageCheckFailed = false;
 
+/**
+ * Replace the usage lockouts without a network round trip (test seam).
+ * @param {object[]} lockouts
+ */
+export function setNewChatUsageLockoutsForTest(lockouts) {
+  newChatUsageLockouts = lockouts;
+}
+
 export const newChatModelCatalogChecked = new Set();
 
 /**
+ * Last built picker options with the signature of every input that shaped them. The expensive
+ * part (strength sorting) reruns only when the signature changes, so unchanged chat-state
+ * refreshes hand the picker the same object references and Lit skips the update.
+ * @type {{ key: string, result: { harnesses: Array<{ id: string, label: string }>, options: object[], harnessLabels: Record<string, string> } } | null}
+ */
+let combinedPickerMemo = null;
+
+/** Drop the memoized picker options (test seam; production relies on the content signature). */
+export function resetCombinedModelPickerMemo() {
+  combinedPickerMemo = null;
+  pickerLabelsMemo = null;
+}
+
+/**
  * Grouped harness+model rows shared by the new-chat modal and the chat toolbar picker.
- * @returns {{ harnesses: Array<{ id: string, label: string }>, options: object[] } | null}
+ * Memoized on a content signature of its inputs: harness list/labels, model catalogs,
+ * enabled flags, readiness, in-flight/catalog-checked, errors, usage lockouts, limitsPending,
+ * locale and favorite presets. Gathering the inputs is cheap; sorting is what is skipped.
+ * @returns {{ harnesses: Array<{ id: string, label: string }>, options: object[], harnessLabels: Record<string, string> } | null}
  */
 function buildCombinedModelPickerOptions() {
   const select = document.getElementById('chat-new-harness-select');
@@ -110,16 +135,54 @@ function buildCombinedModelPickerOptions() {
         && getNewChatHarnessReadiness(option.value) === null),
     error: newChatHarnessErrors.get(option.value) || getNewChatHarnessError(option.value),
   }));
-  const built = buildNewChatModelOptions(harnesses, newChatUsageLockouts, t, {
-    limitsPending: newChatModalState.newChatUsageCheckPending, locale: document.documentElement.lang || undefined,
-  });
-  const favoriteChoices = new Set(chatHost.chatPresets.getPresets().map((preset) => encodeNewChatModelChoice(preset.harness, preset.model)));
+  const locale = document.documentElement.lang || undefined;
+  const limitsPending = newChatModalState.newChatUsageCheckPending;
+  const favoriteChoices = chatHost.chatPresets.getPresets().map((preset) => encodeNewChatModelChoice(preset.harness, preset.model));
+  const key = JSON.stringify([
+    harnesses, newChatUsageLockouts, !!limitsPending, locale || '', favoriteChoices,
+    // Membership drives `favoriteable` of the mapped rows even when the harness data is identical.
+    Array.from(localChatHarnessIds).sort(),
+    // Translated strings feed the rows; a probe pair catches an i18n language switch.
+    t('chat.newNoModels'), t('chat.newChecking'),
+    // Limit countdowns read the clock, so live lockouts re-key once a minute.
+    newChatUsageLockouts.length ? Math.floor(Date.now() / 60000) : 0,
+  ]);
+  if (combinedPickerMemo?.key === key) return combinedPickerMemo.result;
+  const built = buildNewChatModelOptions(harnesses, newChatUsageLockouts, t, { limitsPending, locale });
+  const favoriteSet = new Set(favoriteChoices);
   const options = built.map((row) => {
     const choice = decodeNewChatModelChoice(row.value);
     return { ...row, favoriteable: !!choice?.model && !localChatHarnessIds.has(choice.harness),
-      favorite: favoriteChoices.has(row.value) };
+      favorite: favoriteSet.has(row.value) };
   });
-  return { harnesses, options };
+  const result = {
+    harnesses, options,
+    harnessLabels: Object.fromEntries(harnesses.map((row) => [row.id, row.label])),
+  };
+  combinedPickerMemo = { key, result };
+  return result;
+}
+
+/** Cached toolbar picker label bundle; same strings (and favorites default) => same object. */
+let pickerLabelsMemo = null;
+
+/**
+ * @param {boolean} defaultFavoritesOnly
+ * @returns {Record<string, string | boolean>}
+ */
+function getSdkModeBarPickerLabels(defaultFavoritesOnly) {
+  const labels = {
+    favoritesEnabled: true, favoritesFilterEnabled: true, availableFilterEnabled: true,
+    defaultFavoritesOnly,
+    availableOptionsLabel: t('chat.newAvailableModels'), allOptionsLabel: t('chat.newAllModels'),
+    favoriteOptionsLabel: t('chat.newFavoriteModels'), emptyFavoritesLabel: t('chat.favoritePresetEmpty'),
+    addFavoriteLabel: t('chat.addFavoritePreset'), removeFavoriteLabel: t('chat.removeFavoritePreset'),
+    searchPlaceholder: t('chat.newSearchModels'), emptyLabel: t('chat.newNoMatchingModels'),
+  };
+  const key = JSON.stringify(labels);
+  if (pickerLabelsMemo?.key === key) return pickerLabelsMemo.labels;
+  pickerLabelsMemo = { key, labels };
+  return labels;
 }
 
 /** Apply shared labels and filter flags to a `cr-searchable-select` model picker. */
@@ -141,17 +204,12 @@ function applyCombinedModelPickerLabels(picker) {
 export function syncSdkModeBarPicker(bar, chat) {
   const combined = buildCombinedModelPickerOptions();
   if (!bar || !combined) return;
-  bar.pickerOptions = combined.options;
-  bar.pickerHarnessLabels = Object.fromEntries(combined.harnesses.map((row) => [row.id, row.label]));
+  // Assign only changed references: every assignment of a new object makes Lit re-render the bar.
+  if (bar.pickerOptions !== combined.options) bar.pickerOptions = combined.options;
+  if (bar.pickerHarnessLabels !== combined.harnessLabels) bar.pickerHarnessLabels = combined.harnessLabels;
   bar.pickerHarness = normalizeNewChatHarness(chat?.agentTransport || bar.harness || 'sdk');
-  bar.pickerLabels = {
-    favoritesEnabled: true, favoritesFilterEnabled: true, availableFilterEnabled: true,
-    defaultFavoritesOnly: chatHost.chatPresets.getPresets().length > 0,
-    availableOptionsLabel: t('chat.newAvailableModels'), allOptionsLabel: t('chat.newAllModels'),
-    favoriteOptionsLabel: t('chat.newFavoriteModels'), emptyFavoritesLabel: t('chat.favoritePresetEmpty'),
-    addFavoriteLabel: t('chat.addFavoritePreset'), removeFavoriteLabel: t('chat.removeFavoritePreset'),
-    searchPlaceholder: t('chat.newSearchModels'), emptyLabel: t('chat.newNoMatchingModels'),
-  };
+  const labels = getSdkModeBarPickerLabels(chatHost.chatPresets.getPresets().length > 0);
+  if (bar.pickerLabels !== labels) bar.pickerLabels = labels;
 }
 
 /** Mirror the selected pair and all known catalogs into the combined Lit picker. */
@@ -160,7 +218,8 @@ export function syncNewChatAgentModelPicker() {
   const combined = buildCombinedModelPickerOptions();
   if (!picker || !combined) return;
   const { harnesses, options } = combined;
-  picker.options = options;
+  const pickerEl = /** @type {any} */ (picker);
+  if (pickerEl.options !== options) pickerEl.options = options;
   const harness = getSelectedNewChatHarness();
   const model = document.getElementById('chat-new-model-select')?.value || '';
   const choice = encodeNewChatModelChoice(harness, model);

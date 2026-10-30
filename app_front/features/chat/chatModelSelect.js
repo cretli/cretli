@@ -365,8 +365,11 @@ export function createChatModelSelect(deps) {
    * @param {string} [selectedValue]
    * @param {{ includeMissing?: boolean }} [options]
    */
+  /** Last options markup written per select, so identical re-renders can be skipped. */
+  const renderedOptionsHtml = new WeakMap();
+
   function renderModelSelectOptions(selectEl, selectedValue, options = {}) {
-    if (!selectEl) return;
+    if (!selectEl) return false;
     const activity = getModelActivityMap();
     const desiredValue = selectedValue || selectEl.value || 'auto';
     const models = availableAgentModels.slice();
@@ -382,11 +385,19 @@ export function createChatModelSelect(deps) {
     ) {
       models.push({ value: resolvedDesired, label: resolvedDesired });
     }
-    selectEl.innerHTML = models.map((m) => {
+    const html = models.map((m) => {
       const label = formatModelOptionLabel(m.label, activity.get(m.value));
       return '<option value="' + escapeHtml(m.value) + '">' + escapeHtml(label) + '</option>';
     }).join('');
-    selectEl.value = resolvedDesired;
+    // Rewriting identical options would rebuild the DOM subtree on every chat-state refresh.
+    const unchanged = renderedOptionsHtml.get(selectEl) === html && selectEl.options?.length === models.length;
+    if (!unchanged) {
+      selectEl.innerHTML = html;
+      renderedOptionsHtml.set(selectEl, html);
+    }
+    const valueChanged = selectEl.value !== resolvedDesired;
+    if (valueChanged) selectEl.value = resolvedDesired;
+    return !unchanged || valueChanged;
   }
 
   /**
@@ -649,8 +660,9 @@ export function createChatModelSelect(deps) {
         const harnessSel = document.getElementById('chat-new-harness-select');
         refreshNewChatModelPicker(normalizeModelPickerHarness(harnessSel?.value));
       } else {
-        renderModelSelectOptions(newModelSel, newModelSel.value || getSelectedModel() || 'auto');
-        newModelSel._floatingModelControl?.refresh?.();
+        // Modal closed: touch the select and its floating control only when the options changed.
+        const changed = renderModelSelectOptions(newModelSel, newModelSel.value || getSelectedModel() || 'auto');
+        if (changed) newModelSel._floatingModelControl?.refresh?.();
       }
     }
     if (isNewChatOpen) return;
