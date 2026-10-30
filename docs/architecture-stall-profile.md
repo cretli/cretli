@@ -343,3 +343,28 @@ Run-to-run noise (|P50 run 1 − P50 run 2|): todos cold 4.8, todos parse 1.8, s
 for recovery (a1a4617d) it is data scale combined with an O(n x m) loop (about 31 ms at 1000), and for the other four codes (e7053ff7, 3d268bea, 9780985a, bad7102c) the hundreds of ms
 reported by the watchdog were **not reproduced** at plausible scale on this machine (single digits of ms; bad7102c not measured), so their cause is something this fixture does not contain
 (slow filesystem, lock contention, GC pause coinciding with a large allocation); that is stated as unverified, not as a finding.
+
+## Leaf 91c80568: fixes for the sources classified "fixable here"
+
+Of the six codes classified in leaf d0205ec8, exactly one is "fixable here" and not storage-owned: **a1a4617d** (`classifyWorkspaceDoingTodos` in
+`lib/workspace-watcher-recovery.js`). The other five are storage-owned or negligible; no code was changed for them.
+
+| Code | Decision | Details |
+| --- | --- | --- |
+| a1a4617d watcher-recovery | **Fixed** | `classifyWorkspaceDoingTodos` now builds one per-call `DelegationIndex` (`buildDelegationIndex`: maps by leaf id and by controller chat id, plus original positions). Each doing row looks up its delegations instead of filtering the whole list twice (identity resolution and the `related` set). Buckets keep list order, so occupied/latest selection is identical. The index is built from the caller's arrays and never retained: no cache, nothing to invalidate. No on-disk format involved. |
+| e7053ff7 `readWorkspaceSettingsView` | No change | Already memoized on the handle (`handle.view`, explicit invalidation on in-process writes, `PRAGMA data_version` for other connections). What remains is a `structuredClone` per read, 1.5 ms warm at 400 workspaces. Callers hand the view to routes and UI code that may mutate it, so dropping the clone is not provably safe for a gain of about 1 ms; left as is. |
+| d837b16a, 3d268bea, bad7102c | Storage-owned (A2/A4) | Not touched. Recommendation for the owner: the todo document stall is `JSON.parse` of one 27 MB document (move leafMaterial out of the document); the 400 `realpathSync.native` calls per watchers load could be covered by a cache sized above the row count. |
+| 9780985a oom-diagnostics | No change | Bounded by the 2 MiB file cap, about 9 ms worst case on a termination event. |
+
+After-change measurement, same `ST-recovery-classify-prod-*` sites, profile `full`, seed `20261017`, one run (baseline runs are the two in the d0205ec8 table).
+Call time ms, P50 / P95 / max:
+
+| Site | Baseline P50 (run 1 / run 2) | After P50 / P95 / max | Verdict |
+| --- | --- | --- | --- |
+| 250 todos, 10 cycles | 2.201 / 2.301 | 0.367 / 0.63 / 0.666 | confirmed (P50 below min baseline minus noise 0.1; P95 not worse) |
+| 1000 todos, 10 cycles | 31.434 / 30.91 | 0.743 / 0.935 / 0.946 | confirmed |
+| 1000 todos, 200 cycles (stress) | 33.175 / 32.011 | 2.365 / 2.559 / 3.077 | confirmed |
+
+The remaining cost with 200 cycles is the per-row cycle scan (`ownerCycle` lookup), irrelevant at the real cap of 10. Less-work proof (counted, not timed):
+`tests/workspace-watcher-recovery-index.test.js` shows 200 doing rows x 200 delegations read `leafId` at least 40 000 times on the old path and at most 400 times now,
+and that a second call with changed delegations sees the change (the freshness test for a pure target).
