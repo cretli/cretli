@@ -444,6 +444,28 @@ Pure and clock-injected:
   notice carrying that text is posted. `env_infra`, an unspecified code or any
   other outcome resets the streak and leaves only the normal blocked backoff.
 
+- **`Requires:` preflight** (deterministic, no LLM): inside the leaf body's
+  `## Acceptance` / `## Akceptacja` section (until the next `#`/`##` heading) a
+  line `Requires: <value>` (or `Wymaga:`, optional `-`/`*` bullet, case
+  insensitive) declares a target; at most 3 are read. URLs in prose or commands
+  are never parsed, and no section or marker means no preflight. After the start
+  recheck and before the implementation delegation, an `http(s)://` target on a
+  loopback, private or local-only host (`lib/browser/url-policy.js`) is probed
+  with `GET`, `redirect: 'manual'`, a 3 s timeout and no body read; any HTTP
+  response (2xx-5xx) counts as reachable, a connection error or timeout as
+  unreachable. A non-http value or a public host only records a
+  `preflight_warning` decision. An unreachable target rolls the cycle back like
+  a failed recheck (claim released, no failure counted, no report), grows
+  `blockedBackoff[todoId]`, records a `preflight_env_infra` decision and returns
+  `{ started: false, reason: 'preflight_env_infra' }`. Plan-only cycles skip it.
+- **`lastBlocked`** `{ todoId, reasonCode, count, at }` (operator tool
+  `operator_watcher_status` → `last_blocked: { reason_code, count, todo_id, at }`,
+  null when empty) is written by the preflight (`env_infra`) and by every
+  `blocked` cycle close (`unspecified` without a code). `count` grows for the
+  same todo and code and restarts at 1 otherwise; a non-blocked close of that
+  todo clears it. It is independent of `blockedReasonStreak`, so `env_infra`
+  keeps resetting the streak and never escalates.
+
 ### Orchestrator circuit breaker (infrastructure failure streaks)
 
 A cycle whose orchestrator run dies at once on the same harness and model must
