@@ -265,3 +265,67 @@ test('the external session cap saves live, is clamped, and keeps the default out
   assert.equal(reset.config.maxSessions, 3);
   assert.equal(loadSettings().browserCdpMaxSessions, undefined);
 });
+
+test('runtime-config: endpoint change is refused only by live external sessions', async (t) => {
+  const savedEnv = process.env.CRETLI_BROWSER_CDP_URL;
+  delete process.env.CRETLI_BROWSER_CDP_URL;
+  const chrome = await startFakeChrome();
+  const api = await startApi();
+  t.after(async () => {
+    await api.close();
+    await chrome.close();
+    if (savedEnv !== undefined) process.env.CRETLI_BROWSER_CDP_URL = savedEnv;
+  });
+  const builtinDriver = api.manager.drivers.builtin;
+
+  api.manager.sessions.set('b1', { id: 'b1', mode: 'builtin' });
+  const allowed = await (await api.put({ cdpUrl: chrome.url })).json();
+  assert.equal(allowed.ok, true, 'a built-in session does not block an endpoint change');
+  assert.equal(allowed.runtime.modes.external.configured, true);
+  assert.equal(api.manager.drivers.builtin, builtinDriver, 'the swap leaves the built-in driver alone');
+  assert.ok(api.manager.drivers.external, 'the external driver was installed');
+
+  api.manager.sessions.set('e1', { id: 'e1', mode: 'external' });
+  const refused = await api.put({ cdpUrl: '' });
+  assert.equal(refused.status, 409);
+  assert.equal((await refused.json()).code, 'sessions-active');
+  api.manager.sessions.clear();
+});
+
+test('runtime-config: default mode saves while sessions exist, validates and honours the env pin', async (t) => {
+  const savedEnv = process.env.CRETLI_BROWSER_DEFAULT_MODE;
+  const savedCdp = process.env.CRETLI_BROWSER_CDP_URL;
+  delete process.env.CRETLI_BROWSER_DEFAULT_MODE;
+  delete process.env.CRETLI_BROWSER_CDP_URL;
+  const api = await startApi();
+  t.after(async () => {
+    await api.close();
+    if (savedCdp !== undefined) process.env.CRETLI_BROWSER_CDP_URL = savedCdp;
+    if (savedEnv !== undefined) process.env.CRETLI_BROWSER_DEFAULT_MODE = savedEnv;
+    else delete process.env.CRETLI_BROWSER_DEFAULT_MODE;
+  });
+  await api.put({ cdpUrl: '' }); // an earlier test may have left an endpoint in the shared settings
+  api.manager.sessions.set('e1', { id: 'e1', mode: 'external' });
+  const saved = await (await api.put({ defaultMode: 'auto' })).json();
+  assert.equal(saved.ok, true);
+  assert.equal(saved.config.defaultMode, 'auto');
+  assert.equal(saved.config.defaultModeLocked, false);
+  assert.equal(loadSettings().browserDefaultMode, 'auto');
+  assert.equal(api.manager.defaultMode, 'auto');
+  assert.equal(saved.runtime.defaultMode, 'auto');
+  api.manager.sessions.clear();
+
+  const bad = await api.put({ defaultMode: 'chromium' });
+  assert.equal(bad.status, 400);
+  assert.equal((await bad.json()).code, 'invalid-browser-mode');
+
+  const cleared = await (await api.put({ defaultMode: '' })).json();
+  assert.equal(loadSettings().browserDefaultMode, undefined);
+  assert.equal(cleared.config.defaultMode, 'builtin');
+
+  process.env.CRETLI_BROWSER_DEFAULT_MODE = 'external';
+  const pinned = await (await api.put({ defaultMode: 'builtin' })).json();
+  assert.equal(pinned.config.defaultModeLocked, true);
+  assert.equal(pinned.config.defaultMode, 'external');
+  assert.equal(loadSettings().browserDefaultMode, undefined);
+});

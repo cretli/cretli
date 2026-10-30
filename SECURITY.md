@@ -91,7 +91,12 @@ still not a network boundary.
   request to a second origin and leak them. Exception: with the opt-in **native
   networking** of an external Chrome (`browserCdpNativeNetwork`), a policy-approved
   request to a public address is continued inside Chrome, which follows its server
-  redirects without re-checking them (see `docs/browser-runtime.md`).
+  redirects without re-checking them (see `docs/browser-runtime.md`). The external Chrome
+  is a per-session mode (`browserMode`), not a global switch: it needs the workspace's
+  `allowExternalBrowser` consent for every external session, native networking applies to
+  external sessions only (never to a built-in session or an `auto` fallback), and `auto`
+  falls back to the built-in Chromium with an `external-fallback` warning without changing
+  consent or policy.
 - **DNS answers are pinned per session.** The first validated answer for a hostname is
   remembered. A later answer may rotate to another public address (CDN or round-robin
   DNS), but a move into a loopback, private, link-local or special range, or away from a

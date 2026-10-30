@@ -116,8 +116,8 @@ import { resolveDataPath, resolveProjectPath } from './lib/runtime-paths.js';
 import { resolveFrontAssetVersion } from './lib/front-asset-version.js';
 import { setModelScoreRows } from './lib/model-catalog-meta.js';
 import { loadModelScoreRows } from './lib/model-score-heuristics-fs.js';
-import { detectBrowserRuntime } from './lib/browser/runtime-detect.js';
-import { buildBrowserRuntimeEnv, normalizeExternalMaxSessions, readCalmPaceModeSetting } from './lib/browser/cdp-config.js';
+import { detectBrowserRuntime, detectExternalRuntime } from './lib/browser/runtime-detect.js';
+import { buildBrowserRuntimeEnv, normalizeExternalMaxSessions, readCalmPaceModeSetting, resolveBrowserCdpConfig } from './lib/browser/cdp-config.js';
 import { BrowserSessionManager } from './lib/browser/session-manager.js';
 import { assertBrowserSingleInstance } from './lib/browser/multi-instance.js';
 import { createRespawnController, resolveLifecycleLimits } from './lib/browser/lifecycle.js';
@@ -455,11 +455,19 @@ function readInternalBrowserPorts() {
   return [...ports];
 }
 
+// Two independent runtimes: the built-in launch driver and, when an endpoint is
+// configured, the external CDP driver. The manager holds both; each session
+// picks its own mode.
 const browserRuntime = await detectBrowserRuntime({ env: buildBrowserRuntimeEnv(process.env, loadSettings()) });
+const browserExternalRuntime = await detectExternalRuntime({ env: buildBrowserRuntimeEnv(process.env, loadSettings()) });
+const browserCdpConfig = resolveBrowserCdpConfig(process.env, loadSettings());
 if (!browserRuntime.available) {
   console.error(`[cretli] Browser module ${browserRuntime.status}: ${browserRuntime.reason}`);
 } else if (browserRuntime.sandboxWarning) {
   console.error(`[cretli] Browser module warning: ${browserRuntime.sandboxWarning}`);
+}
+if (browserExternalRuntime && !browserExternalRuntime.available) {
+  console.error(`[cretli] Browser external CDP ${browserExternalRuntime.status}: ${browserExternalRuntime.reason}`);
 }
 // Browser must never be able to reach Cretli itself, including through a
 // TLS-terminating reverse proxy whose public origin is configured explicitly.
@@ -484,8 +492,9 @@ const browserRespawnController = createRespawnController({
   baseDelayMs: browserLifecycleLimits.respawnBaseDelayMs,
   maxDelayMs: browserLifecycleLimits.respawnMaxDelayMs,
   windowMs: browserLifecycleLimits.respawnWindowMs,
-  // The real relaunch: re-detect the runtime and swap the manager's driver. A
-  // rejection is the controller's `fail` signal and counts against the window.
+  // The real relaunch: re-detect the built-in runtime and swap only the
+  // built-in driver (the external CDP driver is never touched). A rejection is
+  // the controller's `fail` signal and counts against the window.
   launch: async () => {
     const next = await detectBrowserRuntime({ env: buildBrowserRuntimeEnv(process.env, loadSettings()) });
     if (!next?.available) {
@@ -522,8 +531,9 @@ const browserManager = new BrowserSessionManager({
   externalNativeNetwork: loadSettings().browserCdpNativeNetwork === true,
   calmPaceMode: readCalmPaceModeSetting(loadSettings()),
   externalMaxSessions: normalizeExternalMaxSessions(loadSettings().browserCdpMaxSessions),
-  driver: browserRuntime.driver,
-  driverStatus: browserRuntime,
+  drivers: { builtin: browserRuntime.driver, external: browserExternalRuntime?.driver || null },
+  driverStatuses: { builtin: browserRuntime, ...(browserExternalRuntime ? { external: browserExternalRuntime } : {}) },
+  defaultMode: browserCdpConfig.explicitDefaultMode || null,
   dataDir,
   resolvePolicy: (workspaceKey) => resolveBrowserPolicy(dataDir, workspaceKey, loadSettings()),
   blockedPorts: readInternalBrowserPorts(),

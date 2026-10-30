@@ -212,9 +212,15 @@ class FakeManager {
   async createSession(input) {
     this.nextSession += 1;
     const id = `session-${this.nextSession}`;
-    this.addSession({ id, ownerSessionId: input.ownerSessionId, workspaceKey: input.workspaceFile || input.cwd, chatId: '' });
+    const session = this.addSession({ id, ownerSessionId: input.ownerSessionId, workspaceKey: input.workspaceFile || input.cwd, chatId: '' });
+    session.mode = input.browserMode || 'builtin';
     this.calls.push({ method: 'createSession', id, input });
-    return { browserSessionId: id, chatId: input.chatId || '', tabs: [{ browserTabId: 'tab-1' }] };
+    return {
+      browserSessionId: id,
+      chatId: input.chatId || '',
+      tabs: [{ browserTabId: 'tab-1' }],
+      ...(this.nextWarning ? { warning: this.nextWarning } : {}),
+    };
   }
 
   async createTab(sessionId, ownerSessionId, input = {}, options = {}) {
@@ -428,6 +434,37 @@ test('browser_open reuses the chat binding and creates a session only when neede
   assert.equal(manager.calls.some((call) => call.method === 'createSession'), false);
   const navigation = manager.calls.find((call) => call.method === 'navigate');
   assert.equal(navigation.url, 'https://example.test/b');
+});
+
+test('browser_open forwards browserMode only when creating, reports the actual mode and validates it', async () => {
+  const manager = new FakeManager();
+  const tools = toolsFor(manager);
+  const schema = tools.browser_open.inputSchema.properties.browserMode;
+  assert.deepEqual(schema.enum, ['builtin', 'external']);
+
+  await assert.rejects(
+    () => tools.browser_open.execute({ url: 'https://example.test/a', browserMode: 'auto' }),
+    (err) => err.code === 'invalid-browser-mode' && err.status === 400,
+  );
+  assert.equal(manager.calls.some((call) => call.method === 'createSession'), false);
+
+  manager.nextWarning = { code: 'external-fallback', message: 'x' };
+  const created = await tools.browser_open.execute({ url: 'https://example.test/a', browserMode: 'external' });
+  assert.equal(created.browserMode, 'external');
+  assert.equal(created.warning.code, 'external-fallback');
+  assert.equal(manager.calls.find((call) => call.method === 'createSession').input.browserMode, 'external');
+
+  // The chat session now exists: a different browserMode is ignored and the actual one is reported.
+  manager.calls.length = 0;
+  const reused = await tools.browser_open.execute({ url: 'https://example.test/b', browserMode: 'builtin' });
+  assert.equal(reused.browserSessionId, created.browserSessionId);
+  assert.equal(reused.browserMode, 'external');
+  assert.equal(manager.calls.some((call) => call.method === 'createSession'), false);
+
+  // Omitting browserMode does not send the key (Settings default applies).
+  const other = new FakeManager();
+  await toolsFor(other).browser_open.execute({ url: 'https://example.test/c' });
+  assert.equal('browserMode' in other.calls.find((call) => call.method === 'createSession').input, false);
 });
 
 test('browser_open clears a stale chat binding instead of dead-ending on an unusable session', async () => {

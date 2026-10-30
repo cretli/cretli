@@ -304,7 +304,7 @@ test('external CDP refuses proxy and required boundaries before proxy probing or
   for (const mode of ['proxy', 'required']) {
     let probes = 0;
     const { manager, driver } = externalFixture({ proxyProbe: async () => { probes += 1; return { ok: true }; } });
-    manager.driverStatus.networkBoundary = { mode, configured: true, proxyServer: 'http://proxy.internal:3128' };
+    manager.driverStatuses.external.networkBoundary = { mode, configured: true, proxyServer: 'http://proxy.internal:3128' };
     driver.connect = async () => { throw new Error('must not connect'); };
     await assert.rejects(
       () => manager.createSession({ ownerSessionId: 'a', workspaceFile: '/ws/a' }),

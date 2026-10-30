@@ -14,6 +14,7 @@ import {
   isTermuxHost,
   resolveSystemChromiumPath,
   resolveCdpEndpoint,
+  detectExternalRuntime,
 } from '../lib/browser/runtime-detect.js';
 
 test('Termux/Android hosts are unsupported', async () => {
@@ -262,7 +263,7 @@ test('external CDP validates DNS and rewrites the websocket to the verified IP',
 test('CDP runtime is available without probing or launching a local Chromium binary', async () => {
   let launched = false;
   const fake = { chromium: { executablePath: () => { throw new Error('must not probe'); }, connectOverCDP: async () => ({}) } };
-  const result = await detectBrowserRuntime({
+  const result = await detectExternalRuntime({
     platform: 'linux',
     env: { CRETLI_BROWSER_CDP_URL: 'http://127.0.0.1:9222' },
     importModule: async () => fake,
@@ -277,7 +278,7 @@ test('CDP runtime is available without probing or launching a local Chromium bin
 test('CDP runtime refuses proxy and required network boundaries', async () => {
   for (const mode of ['proxy', 'required']) {
     let imported = false;
-    const result = await detectBrowserRuntime({
+    const result = await detectExternalRuntime({
       env: {
         CRETLI_BROWSER_CDP_URL: 'http://127.0.0.1:9222',
         CRETLI_BROWSER_NETWORK_BOUNDARY: mode,

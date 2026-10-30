@@ -49,7 +49,7 @@ rather than a Playwright cache path.
 | `CRETLI_BROWSER_ALLOW_NO_SANDBOX` | (unset); `1` enables | Only switch that lets Cretli pass `--no-sandbox` to Chromium (see the **Docker** section). |
 | `CRETLI_BROWSER_NETWORK_BOUNDARY` | `mvp-defense-in-depth` (default) \| `proxy` \| `required` | Which egress boundary must be satisfied before a session may start. |
 | `CRETLI_BROWSER_PROXY_SERVER` | (unset) | The proxy Cretli hands to Playwright. Required by the `proxy` and `required` boundary modes. |
-| `CRETLI_BROWSER_CDP_URL` | (unset) | Opt-in external Chrome/Chromium CDP endpoint. When unset, the existing headless launch path is unchanged. |
+| `CRETLI_BROWSER_CDP_URL` | (unset) | Opt-in external Chrome/Chromium CDP endpoint. Makes the external mode available next to the built-in Chromium; it no longer replaces it. |
 | `CRETLI_BROWSER_CDP_ALLOWLIST` | (unset) | Comma-separated hostnames allowed for CDP; each DNS answer must still be private, link-local, or loopback. |
 
 Browser *capacity* and *respawn* knobs (`lib/browser/lifecycle.js`), the screencast flag
@@ -67,6 +67,41 @@ and the multi-instance switch live in their own documents — see
 | `browser-unavailable` | Playwright package failed to import — `reason` starts with `Playwright runtime is not installed (`; or the boundary mode is unsatisfied — `reason` names the offending variable; or no Chromium binary exists at any probe path — see the missing-binary reasons in the **Installing Chromium** section. | Follow `reason`: install the missing binary (see the **Installing Chromium** section), or fix the boundary env (see the **Limited egress** section). |
 | `unsupported-platform` | The host is Termux/Android, detected before any package or binary probe. Chromium is **deliberately not supported** as a Termux host — this is a platform decision, not a missing download. | Do not install Chromium and retry; it cannot change the verdict. Use the widget path instead (see the **Termux (Android)** section). |
 
+## Session modes: built-in, external, auto
+
+Cretli holds two drivers at the same time: the built-in Chromium launch driver and,
+when a CDP endpoint is configured, the external Chrome driver. **Every session records
+its own mode** (`builtin` or `external`; listed as `mode` on session descriptors).
+`GET /api/browser/status` reports `modes: { builtin: { available, reason },
+external: { configured, connected, reason } }` and `defaultMode`; the top-level
+`available` is true when at least one mode can create sessions. A disconnected external
+Chrome never marks the Browser `degraded` while the built-in Chromium is healthy.
+
+The mode of a new session is `browserMode` when the caller passes one, else the default:
+
+- **REST** `POST /api/browser/sessions` body `browserMode: "builtin" | "external"`
+  (anything else is `400 invalid-browser-mode`). The body `mode` is the *chat* mode
+  for the action guard and is unrelated.
+- **MCP** `browser_open { url, browserMode? }` — applied only when a new session is
+  created; an adopted or chat-bound session keeps its mode and the result reports it as
+  `browserMode`. Agents cannot pass `auto`; omit the field for the default.
+- **Default** `browserDefaultMode` in Settings (`builtin` | `external` | `auto`). When
+  it is unset, an install with an endpoint configured keeps the old behaviour
+  (`external`) and one without uses `builtin`. `CRETLI_BROWSER_DEFAULT_MODE` pins it.
+
+`auto` tries the external Chrome first. If the endpoint is not configured, the
+workspace has not allowed the external browser, its single slot is busy, the
+`proxy`/`required` network boundary cannot be enforced on it, or the connection fails,
+the session is created in the built-in Chromium and the response carries a non-fatal
+`warning: { code: "external-fallback", message }` (the message never contains the
+endpoint address). An explicit `browserMode: "external"` never falls back and fails with
+`external-not-configured`, `external-browser-consent-required`, `external-session-busy`
+or `browser-unavailable`. A fallback session is an ordinary built-in session: workspace
+consent and policy are unchanged and native networking never applies to it. The
+external slot limit counts external sessions only, so built-in sessions are unaffected.
+A crashed Chromium is relaunched without touching the external driver, and a CDP
+disconnect closes only the external sessions.
+
 ## External Chrome over CDP
 
 Set `CRETLI_BROWSER_CDP_URL` to use a real user-owned Chrome profile (for example
@@ -74,8 +109,8 @@ Set `CRETLI_BROWSER_CDP_URL` to use a real user-owned Chrome profile (for exampl
 public DNS answers, then connects with `connectOverCDP`. A hostname must be
 `localhost` or appear in `CRETLI_BROWSER_CDP_ALLOWLIST`; all of its DNS answers
 must resolve only to private, link-local, or loopback addresses. The API reports
-`runtime.mode: "external-cdp"` and `runtime.connected` (`unknown`, `true`, or
-`false`). One Cretli session is allowed at a time. The external browser is connected
+`modes.external.connected` (`unknown`, `true`, or `false`; the top-level
+`runtime.mode`/`runtime.connected` describe the default mode's driver). One Cretli session is allowed at a time. The external browser is connected
 only after the current workspace explicitly enables
 `allowExternalBrowser` in Browser policy (default `false`). For a folder-scoped
 session, consent from its single registered workspace also applies, even when
@@ -98,9 +133,11 @@ The same endpoint can be set in **Settings → App → Browser → External Chro
 instead of `.env`. It is stored as `browserCdpUrl` / `browserCdpAllowlist` in
 `data/config.json` (`lib/browser/cdp-config.js`). `PUT /api/browser/runtime-config`
 probes the address with the same checks as above before saving, then re-runs
-`detectBrowserRuntime()` and swaps the session manager's driver in place, so no
-restart is needed. An empty address returns to the built-in headless Chromium. The
-change is refused with `409 sessions-active` while a Browser session is open, and
+`detectExternalRuntime()` and swaps only the external driver in place, so no
+restart is needed; the built-in Chromium is not re-detected. An empty address removes
+the external mode. `defaultMode` (`builtin` | `external` | `auto` | `''` to unset) is
+saved with the same request and may change while sessions exist. An endpoint change is
+refused with `409 sessions-active` only while an *external* session is open, and
 with `409 env-locked` when `CRETLI_BROWSER_CDP_URL` is set in the environment, which
 always wins.
 
@@ -238,7 +275,9 @@ about it here, and the only supported escape hatch is the explicit
 
 `detectBrowserRuntime()` resolves the boundary **before** the driver is used, and an
 unsatisfied boundary is a hard availability failure — Cretli does not silently fall back
-to direct egress:
+to direct egress. The external CDP mode cannot enforce `proxy`/`required`, so an
+explicit `browserMode: "external"` is refused under them and `auto` uses the built-in
+Chromium (which still goes through the proxy health check):
 
 | Configuration | Result |
 |-------------|--------|

@@ -25,7 +25,9 @@ A widget-only chat without a Cretli login session is still denied.
    parent, or unbound/adoptable). An empty list is normal the first time.
 2. `browser_open { url }` — adopts an unbound panel session, reuses a parent chat
    session on the fork chain, or creates one. Returns `browserSessionId` and
-   `browserTabId`; pass both to every other tool.
+   `browserTabId`; pass both to every other tool. Optional `browserMode`
+   (`builtin` | `external`) applies only when a new session is created (default comes
+   from Settings; the result reports the actual `browserMode` and any `warning`).
 3. Inspect:
    - `browser_screenshot` — saves a JPEG and returns its **file path**; open the file.
      Image pixels are CSS pixels, so screenshot coordinates match `browser_input`
