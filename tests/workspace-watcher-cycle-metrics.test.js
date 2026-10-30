@@ -36,6 +36,7 @@ import {
   recordWorkspaceWatcherCycleMetricsError,
   flushWorkspaceWatcherCycleMetrics,
   resetWorkspaceWatcherCycleMetricsPersistence,
+  persistWorkspaceWatcherCycleUsage,
   WORKSPACE_WATCHER_CYCLE_METRICS_RETENTION_MS,
 } from '../lib/persist/workspace-watcher-cycle-metrics-persist.js';
 import {
@@ -76,6 +77,81 @@ test('returned records cannot mutate the cached pending document', () => {
   const loaded = loadWorkspaceWatcherCycleMetrics({ dataDir });
   loaded.records[0].cycleId = 'changed';
   assert.equal(getWorkspaceWatcherCycleMetric('safe', { dataDir }).cycleId, 'safe');
+});
+
+test('all lifecycle results and caller-owned nested inputs are detached', () => {
+  const dataDir = freshDataDir('nested-isolation');
+  const input = { cycleId: 'nested', dataDir, now: T0, todoIds: ['todo'] };
+  const begin = beginWorkspaceWatcherCycleMetric(input);
+  input.todoIds.push('input-change');
+  begin.record.todoIds.push('return-change');
+  const replay = beginWorkspaceWatcherCycleMetric(input);
+  assert.deepEqual(replay.record.todoIds, ['todo']);
+  replay.record.todoIds.length = 0;
+  const request = stampWorkspaceWatcherCycleMetricRequest({ ...input, requestedModel: 'example' });
+  request.record.todoIds.length = 0;
+  const running = markWorkspaceWatcherCycleMetricRunning({ ...input, orchestratorRunId: 'run' });
+  running.record.claimedTodoIds.length = 0;
+  const outcomes = [{ todoId: 'todo', outcome: 'completed' }];
+  const attribution = { roundsByLeaf: { todo: { round: 2, source: 'durable' } }, children: [{ leafId: 'todo' }] };
+  const closed = finalizeWorkspaceWatcherCycleMetric({ ...input, todoIds: ['todo'], todoOutcomes: outcomes, attribution });
+  outcomes[0].outcome = 'blocked';
+  attribution.roundsByLeaf.todo.round = 99;
+  closed.record.attribution.children[0].leafId = 'changed';
+  const closeReplay = finalizeWorkspaceWatcherCycleMetric(input);
+  assert.equal(closeReplay.replay, true);
+  assert.equal(closeReplay.record.todoOutcomes[0].outcome, 'completed');
+  assert.equal(closeReplay.record.attribution.roundsByLeaf.todo.round, 2);
+  assert.equal(closeReplay.record.attribution.children[0].leafId, 'todo');
+  closeReplay.record.todoOutcomes[0].outcome = 'blocked';
+  const usage = { cycleId: 'nested', orchestrator: { own: { runs: ['run'] } } };
+  const persisted = persistWorkspaceWatcherCycleUsage({ ...input, usage, finalized: true });
+  usage.orchestrator.own.runs.push('input-change');
+  persisted.record.usage.orchestrator.own.runs.push('return-change');
+  const usageReplay = persistWorkspaceWatcherCycleUsage({ ...input, usage, finalized: true });
+  assert.equal(usageReplay.replay, true);
+  assert.deepEqual(usageReplay.record.usage.orchestrator.own.runs, ['run']);
+  usageReplay.record.attribution.roundsByLeaf.todo.round = 99;
+  const loaded = loadWorkspaceWatcherCycleMetrics({ dataDir });
+  loaded.records[0].usage.orchestrator.own.runs.length = 0;
+  loaded.retention.ms = 1;
+  const error = recordWorkspaceWatcherCycleMetricsError({ dataDir, now: T0, message: 'example' });
+  error.errors.lastMessage = 'changed';
+  const status = getWorkspaceWatcherCycleMetricsStatus({ dataDir });
+  assert.equal(status.lastError.lastMessage, 'example');
+  status.lastError.count = 999;
+  status.retention.ms = 1;
+  flushWorkspaceWatcherCycleMetrics({ dataDir });
+  resetWorkspaceWatcherCycleMetricsPersistence();
+  const final = getWorkspaceWatcherCycleMetric('nested', { dataDir });
+  assert.deepEqual(final.usage.orchestrator.own.runs, ['run']);
+  assert.equal(final.attribution.roundsByLeaf.todo.round, 2);
+  assert.equal(final.todoOutcomes[0].outcome, 'completed');
+  assert.equal(getWorkspaceWatcherCycleMetricsStatus({ dataDir }).lastError.count, 1);
+  assert.equal(getWorkspaceWatcherCycleMetricsStatus({ dataDir }).retention.ms, WORKSPACE_WATCHER_CYCLE_METRICS_RETENTION_MS);
+});
+
+test('canonical cache normalizes disk boundaries and keeps directories isolated', () => {
+  const dataDir = freshDataDir('canonical-boundary');
+  const otherDir = freshDataDir('canonical-other');
+  const file = path.join(dataDir, 'workspace-watcher-cycles.json');
+  fs.writeFileSync(file, JSON.stringify({ records: {
+    invalid: {},
+    old: { cycleId: ' old ', startedAt: iso(T0), todoIds: [' todo '], mode: ' PLAN ' },
+  } }));
+  assert.equal(loadWorkspaceWatcherCycleMetrics({ dataDir }).records.length, 1);
+  assert.equal(getWorkspaceWatcherCycleMetric('old', { dataDir }).planOnly, true);
+  assert.deepEqual(getWorkspaceWatcherCycleMetric('old', { dataDir }).claimedTodoIds, ['todo']);
+  assert.equal(getWorkspaceWatcherCycleMetric('constructor', { dataDir }), null);
+  assert.equal(getWorkspaceWatcherCycleMetric('old', { dataDir: otherDir }), null);
+  beginWorkspaceWatcherCycleMetric({ cycleId: 'new', dataDir, now: T0 });
+  fs.writeFileSync(file, '{broken file');
+  assert.equal(loadWorkspaceWatcherCycleMetrics({ dataDir }).records.length, 2);
+  flushWorkspaceWatcherCycleMetrics({ dataDir });
+  fs.writeFileSync(file, '{broken file');
+  assert.equal(loadWorkspaceWatcherCycleMetrics({ dataDir }).records.length, 0);
+  fs.writeFileSync(file, JSON.stringify({ records: { replacement: { cycleId: 'replacement' } } }));
+  assert.equal(getWorkspaceWatcherCycleMetric('replacement', { dataDir }).cycleId, 'replacement');
 });
 
 /**
