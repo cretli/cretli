@@ -637,6 +637,25 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data || {};
   const targetUrl = data.url || '/';
+  // Decision-card Yes/No buttons: resolve with the single-use token carried in the encrypted payload.
+  // A body tap, an unsupported action (iOS) or a failed request falls through to opening the card.
+  if ((event.action === 'yes' || event.action === 'no') && data.decisionToken) {
+    event.waitUntil((async () => {
+      let resolved = false;
+      try {
+        const sub = await self.registration.pushManager.getSubscription();
+        const res = await fetch('/api/decisions/resolve-by-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ token: data.decisionToken, choice: event.action, endpoint: sub ? sub.endpoint : '' }),
+        });
+        resolved = res.ok;
+      } catch (_) {}
+      if (!resolved && self.clients.openWindow) await self.clients.openWindow(targetUrl);
+    })());
+    return;
+  }
   const policy = self.cretliNotificationClickPolicy;
   const dataChatId = typeof data.chatId === 'string' ? data.chatId.trim() : '';
   // Agent-finished pushes carry only a url with the chat id as a query param.
