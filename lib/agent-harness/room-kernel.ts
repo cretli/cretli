@@ -683,8 +683,13 @@ export function createAgentRoomKernel(options: AgentRoomKernelOptions) {
     // raise the shared "agent finished" push (see shouldSuppressAgentFinishedPush).
     room._interactiveClientSeen = true;
     subscribeChatHistoryUpdates(room.chatId, ws);
-    initAgentPresenceBus();
-    subscribeChatListUpdates(ws, ws._chatListScope);
+    try {
+      initAgentPresenceBus();
+      subscribeChatListUpdates(ws, ws._chatListScope);
+    } catch (err) {
+      // Presence is auxiliary: a failure here must leave the socket attached to the room.
+      console.error('[room-kernel] presence subscribe failed:', err instanceof Error ? err.message : err);
+    }
     ensureRoomStateHeartbeat(room, sendRoomState);
   }
 

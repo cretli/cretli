@@ -446,6 +446,11 @@ export function ingestAgentPresenceMessage(chats, message) {
   if (!message || typeof message !== 'object') {
     return { changed: false, dirtyIds: [], seqGap: false };
   }
+  // The server could not compute presence: the empty states are not authoritative, so keep
+  // what we remember and leave seq/epoch bookkeeping to the next healthy frame.
+  if (message.degraded === true) {
+    return { changed: false, dirtyIds: [], seqGap: false, degraded: true };
+  }
   const seq = Number(message.seq);
   const snapshot = message.snapshot === true;
   const epoch = typeof message.epoch === 'string' ? message.epoch : '';

@@ -1249,8 +1249,9 @@ export function listRuns(options: { family?: string, state?: string, workspaceFo
   if (Array.isArray(opts.chatIds)) {
     const chatIds = [...new Set(opts.chatIds.map(text).filter(Boolean))];
     if (chatIds.length === 0) return [];
-    where.push(`chat_id IN (${chatIds.map(() => '?').join(', ')})`);
-    params.push(...chatIds);
+    // One JSON parameter: a bind variable per chat id would hit SQLITE_MAX_VARIABLE_NUMBER.
+    where.push('chat_id IN (SELECT value FROM json_each(?))');
+    params.push(JSON.stringify(chatIds));
   }
   const limit = normalizeLimit(opts.limit, 100);
   const offset = Math.max(0, Math.floor(Number(opts.offset)) || 0);

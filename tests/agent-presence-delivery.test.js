@@ -182,6 +182,19 @@ ingestAgentPresenceMessage(seqChats, {
 });
 assert.equal(seqChats[0]._serverRunState.state, 'waiting');
 
+// A degraded frame (server failed to compute presence) must not clear remembered presence.
+__resetAgentPresenceSyncForTest();
+__resetAgentPresenceStoreForTest();
+const degradedChats = [{ id: 'a' }];
+ingestAgentPresenceMessage(degradedChats, { epoch: 'E', seq: 4, snapshot: true, states: { a: BUSY } });
+const degraded = ingestAgentPresenceMessage(degradedChats, {
+  epoch: 'E', seq: 4, snapshot: true, degraded: true, states: {}, cleared: [],
+});
+assert.equal(degraded.degraded, true);
+assert.equal(degraded.changed, false);
+assert.equal(degradedChats[0]._serverRunState.state, 'busy', 'degraded frame keeps previous state');
+assert.equal(getPresence('a').state, 'busy', 'degraded frame must not reach the store');
+
 // Dedupe: each chat socket re-delivers the same shared frame, so a repeated (epoch, seq)
 // must be dropped before it can touch the store or the chat object.
 __resetAgentPresenceSyncForTest();
