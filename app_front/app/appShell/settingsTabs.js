@@ -118,6 +118,9 @@ export function refreshSettingsTabPanels(tabId) {
   if (tabId === 'connection-certificates') {
     void import('../../features/settings/tlsSettings.js').then(({ refreshTlsSettings }) => refreshTlsSettings());
   }
+  if (tabId === 'connection-network') {
+    void import('../../features/settings/networkSettings.js').then(({ refreshNetworkSettings }) => refreshNetworkSettings());
+  }
   if (tabId === 'usage') void refreshUsageSettings();
   if (tabId === 'wakeups') void refreshWakeupsSettings();
   if (tabId === 'backups') void refreshDataBackupSettings();

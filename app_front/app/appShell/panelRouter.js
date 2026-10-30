@@ -136,6 +136,7 @@ export function createPanelRouter(deps = {}) {
     refreshGithubPanel = () => {},
     refreshTodoList = () => {},
     refreshInstancesPanel = () => {},
+    refreshAppsPanel = () => {},
     refreshBrowserPanel = () => {},
     onShowSettings = () => {},
     onMainTabSelect = null,
@@ -303,6 +304,10 @@ export function createPanelRouter(deps = {}) {
         preloadTasksDropdown();
         void ensureTaskRunsReconnected().then(() => refreshTasksList({ invalidateCache: true }));
       });
+    }
+
+    if (panelId === 'apps') {
+      runPanelReady('apps', () => refreshAppsPanel());
     }
 
     if (panelId === 'logs') {

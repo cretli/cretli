@@ -7,6 +7,7 @@
 const importers = {
   terminal: () => import(/* webpackChunkName: "panel-terminal" */ '../../features/terminal/index.js'),
   tasks: () => import(/* webpackChunkName: "panel-tasks" */ '../../features/tasks/index.js'),
+  apps: () => import(/* webpackChunkName: "panel-misc" */ '../../features/apps/index.js'),
   agentsSettings: () => import(/* webpackChunkName: "settings-agents" */ '../../features/settings/agentsSettingsPanel.js'),
   files: () => import(/* webpackChunkName: "panel-files" */ '../../features/files/index.js'),
   git: () => import(/* webpackChunkName: "panel-misc" */ '../../features/git/gitPanel.js'),

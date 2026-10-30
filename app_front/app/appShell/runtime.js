@@ -89,6 +89,7 @@ const panelRouter = createPanelRouter({
   refreshGitInfo: () => callLoadedPanel('git', 'refreshGitInfo'),
   refreshGithubPanel: () => callLoadedPanel('github', 'refreshGithubPanel'),
   refreshTodoList,
+  refreshAppsPanel: () => callLoadedPanel('apps', 'refreshAppsPanel'),
   refreshInstancesPanel: () => callLoadedPanel('instances', 'refreshInstancesPanel'),
   refreshBrowserPanel: () => callLoadedPanel('browser', 'refreshBrowserPanel'),
   onShowSettings: () => showSettingsPanelExtras(),

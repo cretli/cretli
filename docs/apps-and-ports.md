@@ -290,6 +290,48 @@ Sources are in `scripts/windows/`: `cretli-netd.ps1` (server),
 `cretli-netd-common.ps1`. `lib/port-exposure/netd-client.js` is the adapter and
 `netd-protocol.js` mirrors the pure rules for tests.
 
+### Install from the UI
+
+Settings -> Connection -> Network has a helper card with **Install**, **Reinstall** and
+**Uninstall** (WSL2 only; on native Linux the card reads "not applicable").
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/net-env/netd/install-info` | Dialog data: the command Cretli runs and the SHA-256 of `install-cretli-netd.ps1` |
+| `POST /api/net-env/netd/install` | Install, or reinstall with `?reinstall=1` |
+| `POST /api/net-env/netd/uninstall` | Remove the helper and the rules it created |
+
+The routes need a login session and the usual CSRF header; widget and MCP tokens are
+refused. The request body is ignored: the client chooses only the route, never a
+path, user, distribution or argument.
+
+Cretli copies `scripts/windows/*` (scripts and `cretli-netd-rule-spec.json`) to a random
+directory in the Windows `%TEMP%` (it does not run scripts from `\\wsl.localhost`), then runs
+`powershell.exe -NoProfile -NonInteractive -Command "$p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -ArgumentList ...; exit $p.ExitCode"`.
+The argument list is built on the server from a fixed allow list
+(`-NoProfile -ExecutionPolicy Bypass -File <staging>\install-cretli-netd.ps1 -Yes` plus
+`-Reinstall` or `-Uninstall`). The UAC prompt appears on the Windows desktop; when the UI is
+open remotely the dialog warns that it must be approved on that PC.
+
+Outcome states in the response (`state`): `success`; `cancelled` (exit code 1223 or
+"canceled by the user", i.e. UAC declined); `failed` (any other error, `message` holds
+the last log line; a 5 minute timeout also gives `failed`); `busy` (HTTP 409, one run
+at a time); `unsupported` (HTTP 409, not WSL2). The staging directory is removed afterwards.
+
+**Threat model.** The scripts come from this checkout, which the WSL user can write, so
+installing from the UI trusts them exactly as much as running them by hand as
+administrator. UAC shows only "Windows PowerShell", not the script, so the dialog shows
+the installer SHA-256 and the full command for comparison, plus a copyable manual
+alternative. The endpoint never elevates by itself: without a click on the UAC prompt
+nothing happens. A process that can already call the authenticated API as the operator
+can only make Windows show that prompt.
+
+### Manual verification on Windows
+
+1. On the Windows PC open Settings -> Connection -> Network and press **Install**; confirm the dialog.
+2. UAC appears; approve it. The card changes to "Running".
+3. Repeat and decline UAC: the card shows "Cancelled".
+
 ### Processes and channel
 
 - **Server:** a Scheduled Task running as `SYSTEM`, started at boot and at logon of
@@ -415,3 +457,61 @@ manual run on a Windows machine with WSL2 and a record of the result.
 9. **Uninstall and foreign objects.** Create a foreign rule (`New-NetFirewallRule -DisplayName "Cretli 3011" ...`) and a foreign proxy (`netsh interface portproxy add v4tov4 listenport=4100 listenaddress=0.0.0.0 connectport=4100 connectaddress=127.0.0.1`). Expose port 4100 from Cretli: `port_in_use_foreign`, the proxy is untouched. Then run `install-cretli-netd.ps1 -Uninstall`: the helper's own rules are gone, the foreign rule is listed and still present, and so is the foreign proxy. Also check that `wsl.exe hostname -I` resolves (expose does not return `wsl_unavailable`) with a signed-in user.
 
 Record the Windows build, the WSL version and the result of each step in the review.
+
+## Agents (MCP)
+
+Agents manage apps and ports through the builtin Cretli MCP tools
+(`lib/mcp/builtin/apps-tools.js`) instead of `netsh` or PowerShell. They call the
+same services as the REST routes, so policy, hard blocks and ownership are the same.
+
+| Tool | Mode | What it does |
+| --- | --- | --- |
+| `app_list` | read | App definitions from `.cretli/apps.json`. |
+| `app_status` | read | Live state, port listeners, health and orphans; optional `id`, `refresh`. |
+| `app_start` / `app_stop` | agent mode | Start or stop a registry app (Cretli task runs only). There is no tool that ends a foreign process. |
+| `port_status { port }` | read | Listening, bind, exposure (owner, state, expiry), local and LAN URL, and `blockCode` if it cannot be exposed. Call it before quoting a LAN URL. |
+| `port_expose { port, ttl_ms?, reason? }` | agent mode | Exposes the port, owned by `chat:<id>`. |
+| `port_close { port }` | agent mode | Closes an exposure; only exposures owned by the calling chat. |
+| `net_env` | read | Short summary of the diagnostics report. |
+
+Refusals are returned as errors with a stable code in `structuredContent.error`:
+`port-denylisted`, `port-out-of-range`, `port-loopback-only` (the app listens only on
+`127.0.0.1`), `expose-denied-policy` (policy `never`), `expose-denied-user`,
+`expose-consent-timeout`, `consent-limit`, `close-forbidden` (not your exposure),
+`not-in-ledger`, `already-exposed`.
+
+### Consent for `port_expose`
+
+The exposure policy `agentMode` decides: `allow_in_range` exposes without asking,
+`never` refuses, `ask` shows a card in the chat:
+
+1. The first call creates a card keyed by `(chatId, port)`; repeated calls join it.
+   A chat can hold at most 5 cards (`consent-limit`). Hard blocks are checked first,
+   so the user is never asked about a denylisted or loopback-only port.
+2. The tool waits about 20 seconds, then answers `consent-pending` (HTTP-like 409,
+   `retry: true`). The card stays until it expires after 10 minutes.
+3. **Allow once** wakes a waiting call, or leaves a one-shot grant for `(chatId, port)`
+   that the next `port_expose` spends exactly once. Consent is never persistent and the
+   service re-checks the hard blocks when the grant is spent. **Deny** gives
+   `expose-denied-user`; silence gives `expose-consent-timeout`.
+4. Archiving a chat denies its cards and closes the exposures it owns; stopping an
+   app or the TTL closes them as before.
+
+Routes (login session required, `401` without it): `GET /api/port-exposures/consent?chatId=`
+lists the pending cards (also after a reconnect) and
+`POST /api/port-exposures/consent/:id` with `{ chatId, decision: "once" | "deny" }`
+answers one (`404` for an unknown id). The live frame is `portExposeConsentChanged`.
+The registry is `lib/port-exposure/expose-consent.js`; it mirrors the Browser
+navigation consent but shares no code with it.
+
+## UI
+
+The **Apps** panel (`app_front/features/apps/`) lists the apps from `.cretli/apps.json` with
+status, port state, PID and uptime, start/stop/restart, exposure with a TTL, copyable
+local and LAN URLs, an optional QR code (rendered by an external image service only
+after you press the button) and a link to the app's task console. "Other listening
+ports" are read-only: they offer "Add as app" and a copyable `kill <pid>` hint, never a
+button that ends a process. Settings -> Connection -> Network shows the report, the
+suggestions (a "Repair" button appears only for dead or stale rules that are in the
+ledger and only while the helper runs), the helper card and the exposure policy
+(`GET`/`PUT /api/port-exposures/policy`, values are clamped server-side).

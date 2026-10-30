@@ -327,6 +327,7 @@
     <button type="button" class="tab active" data-panel="chat" data-i18n="tabs.chat">Chat</button>
     <button type="button" class="tab" data-panel="terminal">Terminal</button>
     <button type="button" class="tab" data-panel="tasks" data-i18n="tabs.tasks">Tasks</button>
+    <button type="button" class="tab" data-panel="apps" data-i18n="tabs.apps">Apps</button>
     <button type="button" class="tab" data-panel="todo">Todo</button>
     <button type="button" class="tab" data-panel="decisions" data-i18n="tabs.decisions">Decisions</button>
     <button type="button" class="tab" data-panel="browser" data-i18n="tabs.browser">Browser</button>
@@ -502,6 +503,7 @@
     <div class="settings-tabs cr-tabs settings-subtabs" id="settings-connection-tabs" role="tablist" hidden data-i18n-aria="settings.tabsConnection" aria-label="Connection">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="connection" role="tab" aria-selected="false" data-i18n="settings.connectionTabLan">LAN</button>
       <button type="button" class="settings-tab cr-tab" data-settings-tab="connection-certificates" role="tab" aria-selected="false" data-i18n="settings.connectionTabCertificates">HTTPS certificates</button>
+      <button type="button" class="settings-tab cr-tab" data-settings-tab="connection-network" role="tab" aria-selected="false" data-i18n="settings.connectionTabNetwork">Network</button>
     </div>
     <div class="settings-tabs cr-tabs settings-subtabs" id="settings-mcp-tabs" role="tablist" hidden data-i18n-aria="settings.mcpTitle" aria-label="MCP">
       <button type="button" class="settings-tab cr-tab" data-settings-tab="mcp" role="tab" aria-selected="false" data-i18n="settings.mcpTabServers">Servers</button>
@@ -596,6 +598,9 @@
       </section>
       <section class="settings-section" data-settings-tab="connection-certificates" role="tabpanel">
         <div class="tls-settings-root"></div>
+      </section>
+      <section class="settings-section" data-settings-tab="connection-network" role="tabpanel">
+        <div class="network-settings-root cr-form"></div>
       </section>
       <section class="settings-section" data-settings-tab="harness" id="harness-setup-wizard" role="tabpanel">
         <h3 class="settings-section-title" data-i18n="settings.harnessSetupTitle">Choose a chat backend</h3>
@@ -2496,6 +2501,17 @@
         <div class="cr-card cr-form browser-policy-card">
           <div class="browser-external-config">
             <label class="cr-field">
+              <span class="cr-field-label" data-i18n="settings.browserDefaultMode">Default Browser mode</span>
+              <select id="browser-default-mode">
+                <option value="" data-i18n="settings.browserDefaultModeUnset">Automatic (external if an address is set)</option>
+                <option value="builtin" data-i18n="settings.browserDefaultModeBuiltin">Built-in Chromium</option>
+                <option value="external" data-i18n="settings.browserDefaultModeExternal">External Chrome (CDP)</option>
+                <option value="auto" data-i18n="settings.browserDefaultModeAuto">Auto: external, fall back to built-in</option>
+              </select>
+            </label>
+            <p class="cr-hint" data-i18n="settings.browserDefaultModeHint">Mode of new Browser sessions when a panel, chat or agent does not pick one. Auto tries the external Chrome first and falls back to the built-in Chromium with a notice.</p>
+            <p class="cr-hint" id="browser-default-mode-env-locked" data-i18n="settings.browserDefaultModeEnvLocked" hidden>Set by CRETLI_BROWSER_DEFAULT_MODE in .env; remove it there to edit here.</p>
+            <label class="cr-field">
               <span class="cr-field-label" data-i18n="settings.browserCdpUrl">Chrome debugging address (CDP)</span>
               <input type="text" id="browser-cdp-url" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="http://127.0.0.1:9222" />
             </label>
@@ -2593,6 +2609,10 @@ New-NetFirewallRule -DisplayName "Cretli CDP from WSL" -Direction Inbound -Proto
       <cr-bar-button variant="primary" id="lan-save-btn" data-i18n="settings.save">Save</cr-bar-button>
       <span id="lan-save-status" class="cr-status"></span>
     </div>
+    <div class="cr-page-footer" hidden data-settings-footer-for="connection-network">
+      <cr-bar-button variant="primary" id="network-save-btn" data-i18n="settings.save">Save</cr-bar-button>
+      <span id="network-save-status" class="cr-status" data-tone=""></span>
+    </div>
     <div class="cr-page-footer" hidden data-settings-footer-for="chat">
       <cr-bar-button variant="primary" id="quick-commands-save" data-i18n="settings.saveList">Save list</cr-bar-button>
       <span id="quick-commands-save-status" class="cr-status"></span>
@@ -2648,6 +2668,13 @@ New-NetFirewallRule -DisplayName "Cretli CDP from WSL" -Direction Inbound -Proto
     <div class="cr-page-footer" hidden data-settings-footer-for="harness-codex-models">
       <cr-bar-button variant="primary" id="codex-model-settings-save-btn" data-i18n="settings.chatModelsSave">Save model list</cr-bar-button>
       <span id="codex-model-settings-status" class="cr-status" aria-live="polite"></span>
+    </div>
+  </div>
+
+  <div id="apps-panel" class="panel">
+    <div class="cr-page">
+      <div class="panel-toolbar"><span class="instances-toolbar-label" data-i18n="apps.title">Apps and ports</span></div>
+      <div id="apps-root" class="cr-page-body"></div>
     </div>
   </div>
 
@@ -2735,6 +2762,7 @@ New-NetFirewallRule -DisplayName "Cretli CDP from WSL" -Direction Inbound -Proto
         <span class="browser-toolbar-label" data-i18n="browser.title">Browser</span>
         <span id="browser-status" class="browser-status" aria-live="polite"></span>
         <div class="browser-toolbar-actions">
+          <cr-bar-select id="browser-new-session-mode" class="browser-new-session-mode" data-i18n-aria="browser.newSessionModeAria"></cr-bar-select>
           <cr-bar-button id="browser-new-session-btn" data-i18n="browser.newSession">New session</cr-bar-button>
           <cr-bar-button id="browser-close-session-btn" data-i18n="browser.closeSession">Close session</cr-bar-button>
           <cr-bar-button id="browser-refresh-btn" title="Refresh" data-i18n-title="browser.refreshTitle" data-i18n="browser.refresh">Refresh</cr-bar-button>

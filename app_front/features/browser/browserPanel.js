@@ -15,6 +15,7 @@ import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 import { parseExplicitSdkMode } from '../../../lib/sdk/sdk-mode.ts';
 import { createBrowserWsClient } from './browserWsClient.js';
 import { errorText, externalHolderText } from './browserErrors.js';
+import { newSessionBody, renderExternalWarning, sessionModeBadgeHtml, syncNewSessionModeSelect } from './browserSessionModes.js';
 
 const API_BASE = '/api/browser';
 const PULL_LIMIT = 100;
@@ -196,13 +197,9 @@ function setStatus(message, tone = '') {
  */
 function renderAvailability() {
   const banner = document.getElementById('browser-unavailable');
-  const externalWarning = document.getElementById('browser-external-warning');
   const body = document.getElementById('browser-body');
   const available = state.runtime?.available === true;
-  if (externalWarning) {
-    externalWarning.hidden = !available || state.runtime?.mode !== 'external-cdp';
-    externalWarning.textContent = externalWarning.hidden ? '' : t('browser.externalWarning');
-  }
+  renderExternalWarning(document.getElementById('browser-external-warning'), available, state.sessions, state.sessionId);
   if (!banner || !body) return !available;
   banner.hidden = available;
   body.hidden = !available;
@@ -251,13 +248,14 @@ function renderSessionList(sessions) {
         `<button type="button" class="browser-card${selected ? ' is-selected' : ''}" data-browser-session-id="${escapeHtml(id)}" role="option" aria-selected="${selected ? 'true' : 'false'}">`
         + `<span class="browser-card-icon mdi mdi-web" aria-hidden="true"></span>`
         + `<span class="browser-card-body">`
-        + `<span class="browser-card-title">${escapeHtml(id.slice(0, 8))}</span>`
+        + `<span class="browser-card-title">${escapeHtml(id.slice(0, 8))}${sessionModeBadgeHtml(session)}</span>`
         + `<span class="browser-card-sub">${escapeHtml(t('browser.tabsCount', { count: String(tabCount) }))}</span>`
         + `</span>`
         + `</button>`
       );
     })
     .join('');
+  renderExternalWarning(document.getElementById('browser-external-warning'), state.runtime?.available === true, sessions, state.sessionId);
   listEl.querySelectorAll('[data-browser-session-id]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const id = btn.getAttribute('data-browser-session-id');
@@ -618,7 +616,7 @@ async function selectTab(tabId) {
   }
 }
 
-async function createSession() {
+export async function createSession() {
   if (state.busy) return;
   state.busy = true;
   setStatus(t('browser.creating'));
@@ -626,12 +624,13 @@ async function createSession() {
     const data = await api('/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify(newSessionBody(/** @type {any} */ (document.getElementById('browser-new-session-mode'))?.value)),
     });
     resetScrollInputCoalesce();
     state.sessionId = String(data?.session?.browserSessionId || '');
     state.tabId = '';
-    setStatus('', '');
+    // An `external-fallback` warning is a notice, not a failure.
+    setStatus(data?.warning?.code === 'external-fallback' ? t('browser.externalFallback') : '', '');
     await reloadSessions();
   } catch (err) {
     setStatus(errorText(err), 'error');
@@ -1243,6 +1242,7 @@ export async function refreshBrowserPanel() {
   } catch (err) {
     state.runtime = { available: false, reason: errorText(err) };
   }
+  syncNewSessionModeSelect(document.getElementById('browser-new-session-mode'), String(state.runtime?.defaultMode || ''));
   if (renderAvailability()) {
     if (liveView) liveView.close();
     return;

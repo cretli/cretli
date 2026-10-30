@@ -10,6 +10,13 @@ All notable changes to this project are documented here. The format is based on
 
 - Settings theme gallery with palette previews, keyboard navigation, and separate light and dark themes when following the system appearance.
 - "Integrate subtree with agent (N)" in a parent todo's row menu: one bulk-integrate chat smart-merges every eligible leaf of the subtree in tree order, instead of a smart merge per child. The batch API accepts `rootId`; external operator clients get `operator_integrate_tree` and `operator_integrate_status`.
+- **Agent MCP tools for apps and ports.** `app_list`, `app_status`, `app_start`,
+  `app_stop`, `port_status`, `port_expose`, `port_close` and `net_env` let agents
+  manage registry apps and LAN exposures without `netsh`/PowerShell. With the
+  exposure policy `ask`, `port_expose` shows an "Allow once / Deny" card in the chat
+  (`GET`/`POST /api/port-exposures/consent`, live frame `portExposeConsentChanged`).
+  Archiving a chat denies its cards and closes the exposures it owns. See "Agents (MCP)"
+  in `docs/apps-and-ports.md`.
 
 ### Fixed
 

@@ -37,8 +37,17 @@ never set it manually (`docs/todo-review-contract.md`).
 
 Default bind is **127.0.0.1**. LAN is opt-in (`npm run start:lan` /
 `CRETLI_BIND=0.0.0.0`). Runtime data lives in gitignored `data/` — never commit
-it. On WSL, LAN needs Windows portproxy (`scripts/wsl-port-forward.ps1`) and
-`CRETLI_LAN_HOST` / `LAN_HOST` set to the Windows LAN IP.
+it. On WSL, LAN needs `CRETLI_LAN_HOST` / `LAN_HOST` set to the Windows LAN IP.
+
+## Apps and ports (MCP)
+
+Do not use `netsh`/PowerShell to publish a port. Use the Cretli MCP tools:
+`app_list` / `app_status` / `app_start` / `app_stop` for registry apps,
+`port_status { port }` before you give the user a LAN link, `port_expose` to
+open a port (refusals carry a code such as `port-denylisted` or
+`port-loopback-only`), `port_close` for your own exposures, `net_env` for the
+network summary. On `consent-pending` the user is answering a card in this
+chat: wait, then call `port_expose` again. Details: `docs/apps-and-ports.md`.
 
 ## Starting the server from a Cursor agent
 

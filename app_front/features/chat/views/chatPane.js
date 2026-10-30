@@ -11,6 +11,7 @@ import * as api from '../../../core/api/index.js';
 import { getHostPagePickLabel } from '../../../embed/widgetHostPagePick.js';
 import { t } from '../../../i18n/index.js';
 import '../../browser/browserConsentCard.js';
+import '../../apps/exposeConsentCard.js';
 import { createSdkRichView } from '../../../lib/sdk-rich-view.js';
 import { createSendBar } from '../../sendBar/index.js';
 import { clearPushPreview } from '../../pwa/pushInbox.js';
@@ -161,6 +162,10 @@ export function openTerminal(chat) {
   browserConsent.setAttribute('chat-id', chat.id);
   browserConsent.hidden = true;
   pane.appendChild(browserConsent);
+  const exposeConsent = document.createElement('cr-expose-consent');
+  exposeConsent.setAttribute('chat-id', chat.id);
+  exposeConsent.hidden = true;
+  pane.appendChild(exposeConsent);
   pane.appendChild(sendBar.root);
   // First idle focus of the composer; the throttle in checkChatResumeAdvice avoids repeats.
   pane.addEventListener('focusin', (event) => {

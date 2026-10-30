@@ -371,6 +371,8 @@ function initBrowserCdpSetting() {
   const nativeNetwork = /** @type {HTMLInputElement | null} */ (document.getElementById('browser-cdp-native-network'));
   const calmPaceMode = /** @type {HTMLInputElement | null} */ (document.getElementById('browser-calm-pace-mode'));
   const maxSessions = /** @type {HTMLInputElement | null} */ (document.getElementById('browser-cdp-max-sessions'));
+  const defaultMode = /** @type {HTMLSelectElement | null} */ (document.getElementById('browser-default-mode'));
+  const defaultModeLocked = document.getElementById('browser-default-mode-env-locked');
   if (!urlInput || !allowlistInput || !saveBtn || !status) {
     void renderBrowserRuntimeStatus(statusLine);
     return;
@@ -387,6 +389,12 @@ function initBrowserCdpSetting() {
     const locked = config.envLocked === true;
     urlInput.disabled = locked;
     allowlistInput.disabled = locked;
+    if (defaultMode) {
+      // Shows the stored Settings value; an unset one means the implicit default.
+      defaultMode.value = config.defaultModeLocked ? String(config.defaultMode || '') : String(config.settingsDefaultMode || '');
+      defaultMode.disabled = config.defaultModeLocked === true;
+    }
+    if (defaultModeLocked) defaultModeLocked.hidden = config.defaultModeLocked !== true;
     if (nativeNetwork) nativeNetwork.checked = config.nativeNetwork === true;
     if (calmPaceMode) calmPaceMode.checked = config.calmPaceMode === true;
     if (maxSessions) {
@@ -402,6 +410,7 @@ function initBrowserCdpSetting() {
   const errorMessage = (payload) => {
     if (payload?.code === 'sessions-active') return t('settings.browserCdpErrorSessions');
     if (payload?.code === 'env-locked') return t('settings.browserCdpErrorEnvLocked');
+    if (payload?.code === 'invalid-browser-mode') return t('settings.browserDefaultModeInvalid');
     if (payload?.code === 'cdp-unreachable') {
       return t('settings.browserCdpErrorUnreachable', { detail: payload.error || t('errors.unknown') });
     }
@@ -417,6 +426,7 @@ function initBrowserCdpSetting() {
       };
       if (nativeNetwork) body.nativeNetwork = nativeNetwork.checked;
       if (calmPaceMode) body.calmPaceMode = calmPaceMode.checked;
+      if (defaultMode && !defaultMode.disabled) body.defaultMode = defaultMode.value;
       if (maxSessions && maxSessions.value.trim()) body.maxSessions = Number(maxSessions.value);
       const payload = await api.putBrowserRuntimeConfig(body);
       if (!payload?.ok) {

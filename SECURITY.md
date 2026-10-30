@@ -213,6 +213,16 @@ state file before it can be changed or removed. Standard rules store the token i
 `SYSTEM` attacker is out of scope. Threat model, install and the manual Windows
 verification checklist: [docs/apps-and-ports.md](docs/apps-and-ports.md#windows-helper).
 
+The helper can be installed from Settings -> Connection -> Network
+(`POST /api/net-env/netd/install` and `/uninstall`, authenticated, CSRF-protected, WSL2
+only). Cretli stages the repository scripts in the Windows `%TEMP%` and starts
+`Start-Process -Verb RunAs` with arguments built on the server from a fixed allow list;
+the client supplies no path, user or argument. It does not elevate by itself: a UAC
+prompt on the Windows desktop must be approved. UAC does not show the script, so the
+dialog displays the installer SHA-256. Because the scripts come from a checkout the WSL
+user can write, this trusts them like a manual "run as administrator". Details:
+[docs/apps-and-ports.md](docs/apps-and-ports.md#install-from-the-ui).
+
 ## Hardening checklist
 
 1. **Set a password** on first run via `/login` (or the `/api/setup` endpoint).

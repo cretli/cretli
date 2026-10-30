@@ -22,6 +22,25 @@
   margin-left: auto;
 }
 
+.browser-new-session-mode {
+  min-width: 11rem;
+}
+
+.browser-mode-badge {
+  margin-left: 0.35rem;
+  padding: 0 0.3rem;
+  border: 1px solid var(--cr-border-strong, var(--cr-color-444));
+  border-radius: var(--cr-radius-sm, 4px);
+  font-size: var(--cr-font-size-xs);
+  font-weight: normal;
+  color: var(--cr-text-muted, var(--cr-color-858585));
+}
+
+.browser-mode-badge--external {
+  color: var(--cr-accent, var(--cr-color-007acc));
+  border-color: var(--cr-accent, var(--cr-color-007acc));
+}
+
 .browser-status {
   font-size: 0.72rem;
   color: var(--cr-text-muted, var(--cr-color-858585));

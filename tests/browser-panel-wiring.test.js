@@ -486,3 +486,65 @@ test('scroll coalescing drops stale targets and cancels on view changes', async 
     delete globalThis.window;
   }
 });
+
+test('new-session mode select sends browserMode only when picked; fallback is a notice', async () => {
+  const { __testSetApiImpl, createSession } = await import('../app_front/features/browser/browserPanel.js');
+  const els = {
+    'browser-status': { textContent: '', classList: { add() {}, remove() {} } },
+    'browser-new-session-mode': { value: '' },
+    'browser-sessions': { innerHTML: '', querySelectorAll: () => [] },
+    'browser-external-warning': { hidden: true, textContent: '' },
+  };
+  globalThis.document = { getElementById: (id) => els[id] || null };
+  /** @type {Array<Record<string, unknown>>} */
+  const posts = [];
+  __testSetApiImpl(async (path, init) => {
+    if (path === '/sessions' && init.method === 'POST') {
+      posts.push(JSON.parse(String(init.body)));
+      return { ok: true, session: { browserSessionId: 's1' }, warning: { code: 'external-fallback', message: 'x' } };
+    }
+    return { ok: true, sessions: [], tabs: [] };
+  });
+  try {
+    await createSession();
+    els['browser-new-session-mode'].value = 'external';
+    await createSession();
+    assert.deepEqual(posts, [{}, { browserMode: 'external' }]);
+    assert.ok(els['browser-status'].textContent.length > 0, 'fallback notice is shown as status');
+
+  } finally {
+    __testSetApiImpl(null);
+  }
+});
+
+test('Browser mode markup and i18n keys exist in both locales', () => {
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.match(html, /id="browser-default-mode"/);
+  for (const v of ['builtin', 'external', 'auto']) assert.match(html, new RegExp(`<option value="${v}"`));
+  assert.match(html, /id="browser-new-session-mode"/);
+  const settings = readFileSync(new URL('../app_front/app/appShell/browserStorageTools.js', import.meta.url), 'utf8');
+  assert.match(settings, /body\.defaultMode = defaultMode\.value/);
+  for (const lang of ['en', 'pl']) {
+    const src = readFileSync(new URL(`../app_front/i18n/${lang}.js`, import.meta.url), 'utf8');
+    for (const k of ['browserDefaultMode', 'browserDefaultModeHint', 'modeDefault', 'modeDefaultNamed', 'modeBadge', 'externalFallback']) {
+      assert.ok(src.includes(`${k}:`), `${lang} has ${k}`);
+    }
+  }
+});
+
+test('session mode helpers: badge per session and banner only for external sessions', async () => {
+  const { sessionModeBadgeHtml, renderExternalWarning, newSessionModeOptions, newSessionBody } = await import('../app_front/features/browser/browserSessionModes.js');
+  assert.match(sessionModeBadgeHtml({ mode: 'external' }), /data-browser-session-mode="external"/);
+  assert.match(sessionModeBadgeHtml({ mode: 'builtin' }), /data-browser-session-mode="builtin"/);
+  const el = { hidden: true, textContent: '' };
+  renderExternalWarning(el, true, [{ browserSessionId: 's', mode: 'builtin' }], 's');
+  assert.equal(el.hidden, true);
+  renderExternalWarning(el, true, [], 's');
+  assert.equal(el.hidden, true);
+  renderExternalWarning(el, true, [{ browserSessionId: 's', mode: 'external' }], 's');
+  assert.equal(el.hidden, false);
+  assert.ok(el.textContent);
+  assert.deepEqual(newSessionModeOptions('auto').map((o) => o.value), ['', 'builtin', 'external']);
+  assert.deepEqual(newSessionBody(''), {});
+  assert.deepEqual(newSessionBody('builtin'), { browserMode: 'builtin' });
+});
