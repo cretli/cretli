@@ -9,6 +9,7 @@
 
 import { installPerfProbe } from '../../lib/perfProbe.js';
 import { sharedState } from '../../state/index.js';
+import { readChatOrder } from './sidebarChatOrder.js';
 import { readSidebarOnlyWorktreeFlag, SIDEBAR_ONLY_ACTIVE_WORKSPACE_KEY } from './sidebarOnlyActiveFilter.js';
 import {
   refreshWorkspaceWatcherRuntimeControl,
@@ -167,6 +168,8 @@ export function createSidebarView(deps) {
     orderedChats: (list) => ctx.orderedChats(list),
     getArchivedCounts,
     normalizePath,
+    isFavorite: (id) => chatFavorites.isFavorite(id),
+    readChatOrder,
   });
   ctx.searchService = searchService;
 

@@ -160,8 +160,12 @@ export function createSidebarPatch(ctx) {
     if (!groupEls || !groupEls.length) return;
     const groupByKey = new Map();
     const badgeByKey = new Map();
+    // Only workspaces that have a group on screen need a model.
+    const onScreenKeys = new Set();
+    groupEls.forEach((el) => onScreenKeys.add(el.getAttribute('data-sidebar-key') || ''));
     for (const workspace of getWorkspaces()) {
       const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
+      if (!onScreenKeys.has(sidebarKey)) continue;
       const { grouped } = workspaceModel(workspace);
       for (const group of grouped.groups) {
         const key = sidebarKey + '\u0000' + group.parentId;
