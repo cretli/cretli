@@ -207,7 +207,7 @@
     "@opencode-ai/sdk": "^1.19.0",
     "compression": "^1.8.1",
     "express": "^4.21.0",
-    "js-yaml": "^4.3.0",
+    "js-yaml": "^5.5.0",
     "jsonc-parser": "^3.3.1",
     "node-pty": "^1.0.0",
     "playwright-core": "^1.63.0",
