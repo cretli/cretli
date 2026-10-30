@@ -112,6 +112,27 @@ for (const { name, create } of BACKENDS) {
       assert.equal((await store.listTodos(dataDir, cwd)).items[0].title, 'Snap 2');
     });
 
+    it('a repeated chat link is a no-op: same revision, same content', async () => {
+      const id = (await store.addTodo(dataDir, cwd, { title: 'Link' })).items[0].id;
+      await store.updateTodo(dataDir, cwd, id, { linkedChatId: 'chat-1' });
+      await store.updateTodo(dataDir, cwd, id, { linkedChatId: 'chat-1' });
+      const revision = await store.getRevision(dataDir, cwd);
+      const before = await store.getTodo(dataDir, cwd, id);
+      for (let i = 0; i < 3; i += 1) await store.updateTodo(dataDir, cwd, id, { linkedChatId: 'chat-1' });
+      assert.equal(await store.getRevision(dataDir, cwd), revision);
+      assert.deepEqual(await store.getTodo(dataDir, cwd, id), before);
+      assert.deepEqual(before.linkedChatIds, ['chat-1']);
+    });
+
+    it('reads stay consistent with the write that precedes them across many mutations', async () => {
+      const id = (await store.addTodo(dataDir, cwd, { title: 'Seq 0' })).items[0].id;
+      for (let i = 1; i <= 5; i += 1) {
+        await store.updateTodo(dataDir, cwd, id, { title: `Seq ${i}` });
+        assert.equal((await store.getTodo(dataDir, cwd, id)).title, `Seq ${i}`);
+        assert.equal((await store.listTodos(dataDir, cwd)).items[0].title, `Seq ${i}`);
+      }
+    });
+
     it('batch runs in order and stops at the first failure', async () => {
       const results = await store.batch(dataDir, cwd, [
         { op: 'add', input: { title: 'A' } },

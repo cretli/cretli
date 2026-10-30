@@ -625,3 +625,161 @@ describe('rollback runtime: facade receipts and cross-process fencing', () => {
   });
 });
 
+
+/** A normalized-valid todo that carries ~440 KB of heavy fields (the largest legal row). */
+function heavyItem(i) {
+  const at = ts(1);
+  return {
+    id: `heavy-${String(i).padStart(2, '0')}`, title: `Heavy ${i}`, body: 'b'.repeat(8000), status: 'ready', createdAt: at, updatedAt: at, siblingIndex: i,
+    plan: { markdown: 'p'.repeat(32000), updatedAt: at, markdownUpdatedAt: at },
+    changelog: Array.from({ length: 100 }, () => ({ kind: 'note', text: 'c'.repeat(4000), at })),
+  };
+}
+
+describe('large workspace: no whole-document worker result', () => {
+  const HEAVY_ROWS = 12; // ~5.3 MB, above the 4 MiB worker result cap
+  const cwd = () => path.join(root, 'ws');
+
+  /** Seed row by row (each command is far below every limit); returns the opened backend and its workspace key. */
+  async function openHeavy(extra = {}) {
+    fs.mkdirSync(cwd(), { recursive: true });
+    const opened = await openSqliteTodosBackend({ dataDir: root, nudge: () => {}, ...extra });
+    const { workspaceKeyFromCwd } = await import('../lib/persist/todos-persist.js');
+    const key = workspaceKeyFromCwd(cwd());
+    for (let i = 0; i < HEAVY_ROWS; i += 1) await opened.store.addTodo({ commandId: `seed-${i}`, workspaceKey: key, item: heavyItem(i) });
+    await opened.store.docMeta({ commandId: 'seed-meta', workspaceKey: key, meta: { version: 3, updatedAt: ts(1), idempotency: {} } });
+    return { opened, key };
+  }
+
+  it('the single-result export is refused by the worker cap while the paged export and the facade read it', async () => {
+    const { opened, key } = await openHeavy();
+    try {
+      await assert.rejects(opened.store.exportDocument({ workspaceKey: key }), (err) => err.details?.operation === 'result_too_large');
+      const doc = await opened.store.exportDocumentPaged({ workspaceKey: key });
+      assert.equal(doc.items.length, HEAVY_ROWS);
+      assert.deepEqual(doc.items.map((row) => row.id), Array.from({ length: HEAVY_ROWS }, (_, i) => heavyItem(i).id));
+      assert.deepEqual(doc.items[3], heavyItem(3), 'heavy fields survive the paged round trip');
+      const list = await opened.backend.listTodos(root, cwd());
+      assert.equal(list.items.length, HEAVY_ROWS);
+      assert.equal((await opened.backend.getTodo(root, cwd(), 'heavy-11')).title, 'Heavy 11');
+      assert.equal((await opened.backend.exportSnapshot(root, cwd())).items.length, HEAVY_ROWS);
+    } finally { await opened.close(); }
+  });
+
+  it('exportPage is byte-bounded, ordered and resumable; the document head rides the first page only', async () => {
+    const { opened, key } = await openHeavy();
+    try {
+      const seen = [];
+      let after;
+      let pages = 0;
+      let heads = 0;
+      do {
+        const page = await opened.store.exportPage({ workspaceKey: key, ...(after === undefined ? {} : { afterPosition: after }) });
+        pages += 1;
+        if (page.head) heads += 1;
+        assert.ok(page.items.length >= 1 && page.items.length <= 3, `1 MiB budget fits at most 3 rows of ~440 KB (got ${page.items.length})`);
+        seen.push(...page.items.map((row) => row.id));
+        after = page.nextAfterPosition ?? undefined;
+      } while (after !== undefined);
+      assert.equal(heads, 1);
+      assert.ok(pages >= HEAVY_ROWS / 3);
+      assert.equal(new Set(seen).size, HEAVY_ROWS);
+      assert.equal(await opened.store.exportPage({ workspaceKey: hex('absent') }), null);
+      // A row larger than the budget is still returned alone instead of stalling the cursor.
+      const tiny = await opened.store.exportPage({ workspaceKey: key, maxBytes: 1 });
+      assert.equal(tiny.items.length, 1);
+    } finally { await opened.close(); }
+  });
+
+  it('a mutation on a >4 MiB workspace commits row-wise and a no-op command submits nothing', async () => {
+    const batches = [];
+    const { opened } = await openHeavy({
+      wrapStore: (real) => ({ ...real, batch: async (args) => { batches.push(args); return real.batch(args); } }),
+    });
+    try {
+      batches.length = 0;
+      await opened.backend.updateTodo(root, cwd(), 'heavy-05', { title: 'Renamed' });
+      assert.equal(batches.length, 1);
+      const ops = batches[0].ops;
+      assert.deepEqual(ops.filter((op) => op.op === 'update').map((op) => op.id), ['heavy-05']);
+      assert.ok(Buffer.byteLength(JSON.stringify(batches[0])) < 8 * 1024, 'the commit carries the changed fields, not the 5 MB document');
+      assert.equal((await opened.backend.getTodo(root, cwd(), 'heavy-05')).title, 'Renamed');
+
+      // Link once (a real change), then repeat it: the domain layer resolves the repeat without a write.
+      await opened.backend.updateTodo(root, cwd(), 'heavy-05', { linkedChatId: 'chat-1' });
+      await opened.backend.updateTodo(root, cwd(), 'heavy-05', { linkedChatId: 'chat-1' }); // rebuilds the scratch once
+      const revision = await opened.backend.getRevision(root, cwd());
+      const before = opened.backend.workStats();
+      batches.length = 0;
+      for (let i = 0; i < 3; i += 1) await opened.backend.updateTodo(root, cwd(), 'heavy-05', { linkedChatId: 'chat-1' });
+      const after = opened.backend.workStats();
+      assert.equal(batches.length, 0, 'no worker transaction for a no-op');
+      assert.equal(await opened.backend.getRevision(root, cwd()), revision);
+      assert.equal(after.scratchWrites, before.scratchWrites, 'the overlay is not rewritten for a no-op');
+      assert.equal(after.overlayReads, before.overlayReads);
+      assert.equal(after.pagedExports, before.pagedExports, 'the committed document is not re-read for a no-op');
+      assert.equal(after.noopCommands - before.noopCommands, 3);
+    } finally { await opened.close(); }
+  });
+
+  it('a writer that interleaves with a paged read restarts it instead of returning a torn document', async () => {
+    const { opened, key } = await openHeavy();
+    try {
+      let injected = false;
+      const real = opened.store;
+      const racing = {
+        ...real,
+        exportPage: async (args) => {
+          const page = await real.exportPage(args);
+          if (!injected && args.afterPosition !== undefined) {
+            injected = true;
+            await real.updateTodo({ commandId: 'race', workspaceKey: key, id: 'heavy-00', set: { title: 'Raced', updatedAt: ts(2) } });
+            await real.docMeta({ commandId: 'race-meta', workspaceKey: key, meta: { updatedAt: ts(2) } });
+          }
+          return page;
+        },
+      };
+      // Rebuild the facade over the racing reads (same host) and read through its paged export.
+      const { createTodosStore } = await import('../lib/storage/todos-store.js');
+      const probe = createTodosStore({ host: { query: (name, args) => (name === 'todos.exportPage' ? racing.exportPage(args) : opened.host.query(name, args)) }, datasetGeneration: TODOS_GENERATION });
+      const doc = await probe.exportDocumentPaged({ workspaceKey: key });
+      assert.equal(injected, true);
+      assert.equal(doc.items.find((row) => row.id === 'heavy-00').title, 'Raced', 'the restarted read sees the writer');
+      assert.equal(doc.updatedAt, ts(2));
+    } finally { await opened.close(); }
+  });
+
+  it('a row write that keeps docUpdatedAt and count but bumps docVersion restarts the paged read', async () => {
+    const { opened, key } = await openHeavy();
+    try {
+      const real = opened.store;
+      const before = await real.revision({ workspaceKey: key });
+      let injected = false;
+      let firstStamp = null;
+      let pagesSeen = 0;
+      const { createTodosStore } = await import('../lib/storage/todos-store.js');
+      const probe = createTodosStore({ host: { query: async (name, args) => {
+        const out = await opened.host.query(name, args);
+        if (name === 'todos.exportPage') {
+          pagesSeen += 1;
+          if (!injected && args.afterPosition !== undefined) {
+            injected = true;
+            // Same updatedAt and row count as the document: only docVersion moves.
+            await real.updateTodo({ commandId: 'race-same-ts', workspaceKey: key, id: 'heavy-00', set: { title: 'Raced same ts', updatedAt: before.docUpdatedAt } });
+            await real.docMeta({ commandId: 'race-same-ts-meta', workspaceKey: key, meta: { version: before.docVersion + 1 } });
+            const mid = await real.revision({ workspaceKey: key });
+            firstStamp = mid;
+          }
+        }
+        return out;
+      } }, datasetGeneration: TODOS_GENERATION });
+      const doc = await probe.exportDocumentPaged({ workspaceKey: key });
+      assert.equal(injected, true);
+      assert.equal(firstStamp.docUpdatedAt, before.docUpdatedAt, 'precondition: docUpdatedAt unchanged');
+      assert.equal(firstStamp.count, before.count);
+      assert.ok(firstStamp.docVersion > before.docVersion, 'precondition: docVersion bumped');
+      assert.equal(doc.items.find((row) => row.id === 'heavy-00').title, 'Raced same ts', 'the restarted read sees the writer');
+      assert.ok(pagesSeen > 2, 'the read restarted');
+    } finally { await opened.close(); }
+  });
+});

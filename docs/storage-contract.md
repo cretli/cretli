@@ -227,9 +227,19 @@ with `CONFLICT`. `moveTodo` is one transaction (source rows, target rows, both d
   the version just committed). No file lock is held across an `await`. A process crash between the todo
   commit and the watcher write leaves the todo change without the watcher write: there is no SQLite-side
   journal yet.
-- Reads and mutations still materialise a whole workspace document on the main thread on a cache miss
-  (the cache is keyed by the worker's document revision, so an unchanged workspace is not re-read). The
-  indexed `todos.list` page is not what the facade's `listTodos` returns, because callers need full items.
+- **Reads are paged, mutations still use a whole-document overlay.** The committed document is rebuilt from
+  `todos.exportPage` results (at most `TODOS_EXPORT_PAGE_BYTES` = 1 MiB of rows, a single oversized row alone,
+  500 rows) and reassembled on the main thread, so no worker result grows with the workspace and the 4 MiB
+  result cap (`io/result_too_large`) is never reached by a facade read; the revision is compared before and
+  after and a torn read restarts. The single-result `todos.exportDocument` remains for the offline tools and
+  fails above the cap by design. The cache is keyed by the worker's document revision, so an unchanged
+  workspace is not re-read. The facade contract still returns whole documents (`listTodos`, every mutation
+  result), so a changing command still writes the overlay scratch file and parses it back on the main thread
+  (`backend.workStats()`: `scratchWrites`, `overlayReads`). The commit itself is row-wise: the diff compares
+  items structurally (`isDeepStrictEqual`, no serialisation) and the worker receives only the changed fields.
+  A command the domain layer resolves without a write (for example a repeated chat link) leaves the scratch
+  file untouched and submits nothing. Only a row-scoped facade contract would remove the remaining
+  whole-document work (see `docs/storage-todos-benchmark.md`).
 - The group committer is not used by this backend (one worker transaction per command).
 
 **Migration (`scripts/migrate-todos-to-sqlite.js`).** Offline, writers stopped. Plan (default / `--dry-run`)

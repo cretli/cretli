@@ -7,11 +7,20 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 import assert from 'node:assert/strict';
-import { workspaceKeyFromCwd } from '../lib/persist/todos-persist.js';
+import { forgetTodosDocumentCache, workspaceKeyFromCwd } from '../lib/persist/todos-persist.js';
 
 const self = fileURLToPath(import.meta.url);
 const smoke = process.argv.includes('--smoke');
 const counts = smoke ? { noop: 2, changes: 2, bytes: 22_300 } : { noop: 1000, changes: 1000, bytes: 22_300_000 };
+// Optional workload reductions (e.g. on a memory-constrained host); a reduced run is labelled in the report and is not acceptance evidence.
+for (const flag of ['noop', 'changes']) {
+  const arg = process.argv.find((a) => a.startsWith(`--${flag}=`));
+  if (arg) {
+    counts[flag] = Number(arg.slice(flag.length + 3));
+    if (!Number.isSafeInteger(counts[flag]) || counts[flag] < 1) throw new Error(`Invalid --${flag}`);
+  }
+}
+const reduced = !smoke && (counts.noop !== 1000 || counts.changes !== 1000);
 const smokeBytes = process.argv.find((arg) => arg.startsWith('--smoke-bytes='));
 if (smoke && smokeBytes) {
   counts.bytes = Number(smokeBytes.slice('--smoke-bytes='.length));
@@ -93,22 +102,31 @@ async function workload(kind, root) {
   const hist = monitorEventLoopDelay({ resolution: 1 }); hist.enable();
   await new Promise((resolve) => setTimeout(resolve, 10));
   const writes = [], noop = [], lists = [], indexedLists = [], details = [], claims = [], checkpoints = [];
-  const initialIo = io(), initialWorkerIo = workerIo();
   try {
-  for (let i = 0; i < counts.noop; i++) await timed(() => backend.updateTodo(root, cwd, 'todo-0', { title: 'Task 0' }), noop);
-  const noopBytes = io() - initialIo, noopWorkerBytes = workerIo() - initialWorkerIo;
+  // A no-op save is a command the domain layer resolves without a write: re-linking an already linked chat is the
+  // legacy "duplicate link" path (no file write, no revision bump). A title patch is NOT a no-op: it bumps updatedAt.
+  await backend.updateTodo(root, cwd, 'todo-0', { linkedChatId: 'benchmark-chat' });
+  await backend.updateTodo(root, cwd, 'todo-0', { linkedChatId: 'benchmark-chat' });
+  const noopRevision = await backend.getRevision(root, cwd);
+  const noopStart = io(), noopWorkerStart = workerIo();
+  for (let i = 0; i < counts.noop; i++) await timed(() => backend.updateTodo(root, cwd, 'todo-0', { linkedChatId: 'benchmark-chat' }), noop);
+  assert.equal(await backend.getRevision(root, cwd), noopRevision, 'a no-op must not move the revision');
+  process.stderr.write(`${kind}: no-ops done @${Math.round(performance.now())}ms\n`);
+  const noopBytes = io() - noopStart, noopWorkerBytes = workerIo() - noopWorkerStart;
   const changeIo = io(), changeWorkerIo = workerIo();
   for (let i = 0; i < counts.changes; i++) {
     await timed(() => backend.updateTodo(root, cwd, `todo-${i % 50}`, { title: `Changed ${i}` }), writes);
-    if (i % 100 === 0) process.stderr.write(`${kind}: changes ${i}/${counts.changes}\n`);
+    if (i % 100 === 0) process.stderr.write(`${kind}: changes ${i}/${counts.changes} rssMB=${Math.round(process.memoryUsage().rss / 1048576)} heapMB=${Math.round(process.memoryUsage().heapUsed / 1048576)}\n`);
   }
   const changeBytes = io() - changeIo, changeWorkerBytes = workerIo() - changeWorkerIo;
   const steadyMetrics = opened?.host.getMetrics();
+  process.stderr.write(`${kind}: changes done @${Math.round(performance.now())}ms\n`);
   for (let i = 0; i < 20; i++) {
     const list = await timed(() => backend.listTodos(root, cwd), lists); assert.equal(list.items.length, 50);
     await timed(() => backend.getTodo(root, cwd, 'todo-0'), details);
     if (opened) assert.equal((await timed(() => opened.store.listTodos({ workspaceKey: key, limit: 50 }), indexedLists)).items.length, 50);
   }
+  process.stderr.write(`${kind}: lists done @${Math.round(performance.now())}ms\n`);
   const beforeConflict = await backend.getTodo(root, cwd, 'todo-0');
   await assert.rejects(async () => backend.updateTodo(root, cwd, 'todo-0', { expectedUpdatedAt: 'stale', title: 'Rejected' }), (e) => /** @type {any} */ (e).code === 'CONFLICT');
   assert.deepEqual(await backend.getTodo(root, cwd, 'todo-0'), beforeConflict);
@@ -124,11 +142,14 @@ async function workload(kind, root) {
   await backend.moveTodo({ dataDir: root, sourceFolder: cwd, targetFolder: target, todoId: moving.id, expectedUpdatedAt: moving.updatedAt });
   assert.equal((await backend.listTodos(root, cwd)).items.length, 49);
   assert.equal((await backend.listTodos(root, target)).items.length, 1);
+  process.stderr.write(`${kind}: move done @${Math.round(performance.now())}ms\n`);
   const burst = [];
-  const pendingBurst = Array.from({ length: 200 }, (_, i) => timed(() => backend.updateTodo(root, cwd, `todo-${i % 49}`, { title: `Burst ${i}` }), burst));
+  // The facade returns a whole document per mutation: drop each result so 200 pending promises do not pin 200 documents in memory.
+  const pendingBurst = Array.from({ length: 200 }, (_, i) => timed(async () => { await backend.updateTodo(root, cwd, `todo-${i % 49}`, { title: `Burst ${i}` }); }, burst));
   const priorityProbe = [];
   if (opened) for (const priority of ['stop', 'claim', 'final']) pendingBurst.push(timed(() => opened.host.control('ping', { priority }), priorityProbe));
   await Promise.all(pendingBurst);
+  process.stderr.write(`${kind}: burst done @${Math.round(performance.now())}ms\n`);
   let workerLoss = 'not applicable (no worker)';
   if (opened) {
     const args = { commandId: 'lost-ack', workspaceKey: targetKey, item: { id: 'lost', title: 'Recovered', status: 'ready', updatedAt: stamp } };
@@ -142,6 +163,8 @@ async function workload(kind, root) {
   }
   await new Promise((resolve) => setTimeout(resolve, 10)); hist.disable();
   const stats = aggregateTodosWriteStats(getWriteStats().rows);
+  // The legacy move saves unnormalized rows and caches them; re-read from disk so both backends are compared in the loaded (normalized) form.
+  forgetTodosDocumentCache(root, cwd); forgetTodosDocumentCache(root, target);
   const exports = [await backend.exportSnapshot(root, cwd), await backend.exportSnapshot(root, target)];
   // Timestamps differ between independent runs; content/order/unknown fields remain comparable.
   const logical = JSON.parse(JSON.stringify(exports), (k, v) => ['updatedAt', 'createdAt', 'at'].includes(k) ? '<timestamp>' : typeof v === 'string' ? v.replaceAll(root, '<fixture-root>') : v);
@@ -149,7 +172,7 @@ async function workload(kind, root) {
   const metrics = opened?.host.getMetrics();
   const result = { kind, fixtureBytes, fixtureHash: hash(doc), logicalExportHash: hash(logical), counts, stats, noopBytes, noopWorkerBytes, changeBytes, changeWorkerBytes, batches: { count: batches.length, maxBytes: Math.max(0, ...batches.map((b) => b.bytes)), ...summary(batches.map((b) => b.ms)) }, priorityProbe: summary(priorityProbe), bytesPerChange: changeBytes / counts.changes,
     writes: summary(writes.slice(0, 20)), allChanges: summary(writes), noop: summary(noop), list: summary(lists), indexedList: summary(indexedLists), detail: summary(details), claim: summary(claims), burst: summary(burst),
-    eventLoop: { resolutionMs: 1, p99: hist.percentile(99) / 1e6, max: hist.max / 1e6 }, checkpoints: summary(checkpoints), steadyMetrics, metrics, dbBytes, workerLoss, rehearsal };
+    eventLoop: { resolutionMs: 1, p99: hist.percentile(99) / 1e6, max: hist.max / 1e6 }, checkpoints: summary(checkpoints), steadyMetrics, metrics, dbBytes, workerLoss, rehearsal, facadeWork: /** @type {any} */ (backend).workStats?.() ?? null };
   if (opened) await opened.close();
   return result;
   } catch (error) {
@@ -252,18 +275,20 @@ function report(json, sqlite, sqliteVersion) {
   gate('Watcher claim ms', sqlite.claim.max, 500, sqlite.claim.max <= 500);
   gate('Stop/claim/final worker priority ACK ms (includes wait)', sqlite.priorityProbe.max, 500, sqlite.priorityProbe.max != null && sqlite.priorityProbe.max <= 500);
   gate('1000 changes DB+WAL worker write_bytes / JSON process write_bytes', sqlite.changeWorkerBytes / json.changeBytes, .25, sqlite.changeWorkerBytes >= 0 && json.changeBytes > 0 && sqlite.changeWorkerBytes / json.changeBytes <= .25);
-  gate('No-op physical write bytes (includes overlay)', sqlite.noopBytes, 0, sqlite.noopBytes === 0);
+  gate('No-op physical write bytes (measured 1000-no-op window only; includes overlay)', sqlite.noopBytes, 0, sqlite.noopBytes === 0);
   gate('Checkpoint p99 ms', sqlite.checkpoints.p99, 500, sqlite.checkpoints.p99 != null && sqlite.checkpoints.p99 <= 500);
   gate('Transaction batch payload bytes (no group commit enabled)', sqlite.batches.maxBytes, 262144, sqlite.batches.maxBytes <= 262144);
   gate('Transaction batch ACK max ms (includes queue/reply)', sqlite.batches.max, 40, sqlite.batches.max != null && sqlite.batches.max <= 40);
   gate('Todos JSON writes (getWriteStats)', sqlite.stats.writes, 0, sqlite.stats.writes === 0);
-  gate('Full document main-thread serializations', 'present: materialize + diffDocuments + normalized overlay', 0, false);
+  // Measured: every scratch-file write is a JSON.stringify of a whole document, every overlay read a whole-document parse.
+  const fullDoc = sqlite.facadeWork ? sqlite.facadeWork.scratchWrites + sqlite.facadeWork.overlayReads : null;
+  gate('Full document main-thread serializations (overlay materialize + overlay read)', fullDoc ?? 'unmeasured', 0, fullDoc === 0);
   const ratio = json.stats.stringifyMs > 0 ? sqlite.stats.stringifyMs / json.stats.stringifyMs : null;
   gate('Todos JSON stringifyMs SQLite / JSON', ratio ?? 'no nonzero baseline', .01, ratio !== null && ratio <= .01);
   gate('Logical export content/order hash equality', `${sqlite.logicalExportHash} / ${json.logicalExportHash}`, 'equal', sqlite.logicalExportHash === json.logicalExportHash);
   gate('CAS / counts / receipt reconciliation', sqlite.workerLoss, 'correct', sqlite.workerLoss.startsWith('PASS'));
   const blockers = gates.filter((g) => g.verdict === 'FAIL');
-  return `# Todos backend benchmark\n\nGenerated: ${new Date().toISOString()}. Command: \`node scripts/benchmark-todos.js\`. ${smoke ? '**SMOKE ONLY; not acceptance evidence.**' : 'Full workload.'}\n\nCPU: ${os.cpus()[0].model}; logical CPUs: ${os.cpus().length}; RAM: ${os.totalmem()} bytes; platform: ${os.platform()} ${os.arch()} ${os.release()}; Node: ${process.version}; SQLite: ${sqliteVersion}. No host/user names recorded.\n\n50 rows, ${sqlite.fixtureBytes} JSON bytes; ${sqlite.counts.noop} no-op updates, ${Math.min(20, sqlite.counts.changes)} measured changed writes plus ${Math.max(0, sqlite.counts.changes - 20)} for the byte workload, list/detail, CAS refusal, watcher claim, two-workspace move, burst 200, worker exit after COMMIT. Fresh independent backends use identical fixture hash ${sqlite.fixtureHash}. L2 historical fixture is unavailable; this is a synthetic equivalent, not a historical comparison.\n\nHistogram resolution: 1 ms. API ACK uses performance.now(); host metrics are bounded rolling samples (last window), not merged percentiles. Worker request time includes queue, execute and reply; execute and queue metrics are included below. Physical process write_bytes includes overlay and lock writes; DB+WAL footprint is not bytes written. Linux non-main-thread write_bytes isolates worker writes (DB/WAL, including checkpoint writes) during the change window; the JSON denominator is total process write_bytes (including lock overhead). This is physical block accounting, not a syscall byte tracer. Batch metrics measure facade transaction batches including queue/reply; independent-command group commit is not enabled. Stop/claim/final probes are worker ping requests submitted alongside the burst, not application Stop commands. Scratch JSON writes outside the configured root are excluded from getWriteStats todos keys; the full-document serialization gate independently FAILs.\n\n| Gate | Value | Limit | Result |\n| --- | --- | --- | --- |\n${gates.map((g) => `| ${g.name} | ${g.value} | ${g.limit} | ${g.verdict} |`).join('\n')}\n\n## Cutover blockers\n\n${blockers.map((g) => `- ${g.name}: ${g.value}`).join('\n')}\n\nNo thresholds were lowered. These failures block cutover. Production wiring is unchanged.\n\n## Copy rehearsal\n\nVerified fixture copy -> migration -> count/canonical-hash verification -> new durable ACK -> clean worker close -> logical export with receipts/fence -> verification -> rollback activation -> sidecar-aware runtime read: PASS. Post-cutover ACK preserved. Export manifest: ${sqlite.rehearsal.manifestHash}. This is a synthetic data-copy rehearsal in OS temp, not a production backup rehearsal. Temporary files are removed after reporting.\n\n## Raw measurements\n\n\`\`\`json\n${JSON.stringify({ json, sqlite }, null, 2)}\n\`\`\`\n`;
+  return `# Todos backend benchmark\n\nGenerated: ${new Date().toISOString()}. Command: \`node scripts/benchmark-todos.js\`. ${smoke ? '**SMOKE ONLY; not acceptance evidence.**' : reduced ? `**REDUCED WORKLOAD (${counts.noop} no-ops, ${counts.changes} changes); not acceptance evidence.**` : 'Full workload.'}\n\nCPU: ${os.cpus()[0].model}; logical CPUs: ${os.cpus().length}; RAM: ${os.totalmem()} bytes; platform: ${os.platform()} ${os.arch()} ${os.release()}; Node: ${process.version}; SQLite: ${sqliteVersion}. No host/user names recorded.\n\n50 rows, ${sqlite.fixtureBytes} JSON bytes; ${sqlite.counts.noop} no-op updates (duplicate chat link: resolved by the domain layer without a write), ${Math.min(20, sqlite.counts.changes)} measured changed writes plus ${Math.max(0, sqlite.counts.changes - 20)} for the byte workload, list/detail, CAS refusal, watcher claim, two-workspace move, burst 200, worker exit after COMMIT. Fresh independent backends use identical fixture hash ${sqlite.fixtureHash}. L2 historical fixture is unavailable; this is a synthetic equivalent, not a historical comparison.\n\nHistogram resolution: 1 ms. API ACK uses performance.now(); host metrics (steadyMetrics: requestMs, queueAgeMs) are percentiles over a bounded rolling sample (last 4096 requests) snapshotted once right after the changed-write phase, not over the whole workload; every gate row below reads that same single snapshot embedded in the raw measurements. Worker request time includes queue, execute and reply; execute and queue metrics are included below. Physical process write_bytes includes overlay and lock writes; DB+WAL footprint is not bytes written. Linux non-main-thread write_bytes isolates worker writes (DB/WAL, including checkpoint writes) during the change window; the JSON denominator is total process write_bytes (including lock overhead). This is physical block accounting, not a syscall byte tracer. Batch metrics measure facade transaction batches including queue/reply; independent-command group commit is not enabled. Stop/claim/final probes are worker ping requests submitted alongside the burst, not application Stop commands. Scratch JSON writes outside the configured root are excluded from getWriteStats todos keys; the full-document serialization gate counts overlay materializations and overlay reads of the SQLite facade.\n\n| Gate | Value | Limit | Result |\n| --- | --- | --- | --- |\n${gates.map((g) => `| ${g.name} | ${g.value} | ${g.limit} | ${g.verdict} |`).join('\n')}\n\n## Cutover blockers\n\n${blockers.map((g) => `- ${g.name}: ${g.value}`).join('\n')}\n\nNo thresholds were lowered. These failures block cutover. Production wiring is unchanged.\n\n## Copy rehearsal\n\nVerified fixture copy -> migration -> count/canonical-hash verification -> new durable ACK -> clean worker close -> logical export with receipts/fence -> verification -> rollback activation -> sidecar-aware runtime read: PASS. Post-cutover ACK preserved. Export manifest: ${sqlite.rehearsal.manifestHash}. This is a synthetic data-copy rehearsal in OS temp, not a production backup rehearsal. Temporary files are removed after reporting.\n\n## Raw measurements\n\n\`\`\`json\n${JSON.stringify({ json, sqlite }, null, 2)}\n\`\`\`\n`;
 }
 
 try {
@@ -278,7 +303,7 @@ try {
       const results = {};
       for (const kind of ['json', 'sqlite']) {
         const dir = path.join(root, kind); fs.mkdirSync(dir);
-        const child = spawnSync(process.execPath, [self, '--worker', kind, ...(smoke ? ['--smoke', ...(smokeBytes ? [smokeBytes] : [])] : [])], { env: { ...process.env, CRETLI_DATA_DIR: dir }, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] });
+        const child = spawnSync(process.execPath, [self, '--worker', kind, ...process.argv.filter((a) => /^--(smoke|noop=|changes=)/.test(a))], { env: { ...process.env, CRETLI_DATA_DIR: dir }, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] });
         if (child.status !== 0) throw new Error(`${kind} workload exited ${child.status}`);
         const resultLine = child.stdout.split('\n').find((line) => line.startsWith('TODOS_BENCHMARK_RESULT='));
         if (!resultLine) throw new Error('Missing workload result');
