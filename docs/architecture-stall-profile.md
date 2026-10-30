@@ -243,3 +243,19 @@ Criterion: P50 after (0.527) <= min(baseline P50) − noise (0.965) and P95 not 
 cost is the `statSync` plus the deep copy. `FS-worktree-normalize-records` (0.42 ms P50 for 300 records) is the normalization work a cache hit now skips; it is
 unchanged by design (`worktree-record.ts` was not modified). Deterministic evidence of skipped work: `tests/worktree-registry.test.js` asserts one parse for
 two reads of an unchanged file.
+
+## Leaf 9f36e26e: delegation/chat copy and parse paths (before / after)
+
+Sites `CP-*` were added to `scripts/architecture-stall-profile.mjs` first; two baseline runs (profile `full`, seed `20261017`),
+then one run after the change. Times are per-call ms (P50 / P95 / max). Noise = |P50 base1 - P50 base2|.
+
+| Site | Base 1 | Base 2 | Noise | After | Result |
+| --- | --- | --- | ---: | --- | --- |
+| `CP-chats-remove-copy` (`removeChat`, 5000 chats) | 9.511 / 11.042 / 11.622 | 8.534 / 9.98 / 10.307 | 0.977 | 7.633 / 8.888 / 9.207 | **unconfirmed**: P95 better, but P50 after (7.633) is not <= min(base P50) - noise (7.557). Work drop is deterministic (list copies per call 1 -> 0, `tests/chats-persist-remove-no-copy.test.js`). |
+| `CP-delegations-load-defaults` (`loadDelegations`, 600 rows) | 1.811 / 2.974 / 5.602 | 1.618 / 1.889 / 5.652 | 0.193 | 1.552 / 1.92 / 5.761 | not changed (about 3 us per row; callers that may mutate rows were not audited) |
+| `CP-verdict-parse` (`parseDelegationVerdict`, distinct text) | 0.024 / 0.033 / 0.1 | 0.024 / 0.034 / 0.084 | 0 | 0.024 / 0.034 / 0.094 | not changed: 0.024 ms is not dominant, so no memo was added |
+| `CP-verdict-parse-repeat` (same text) | 0.023 / 0.025 / 0.125 | 0.023 / 0.024 / 0.065 | 0 | 0.023 / 0.024 / 0.095 | not changed (as above) |
+| `CP-findings-parse` (`parseReviewFindings`) | 0.01 / 0.013 / 0.124 | 0.01 / 0.012 / 0.121 | 0 | 0.01 / 0.012 / 0.095 | not changed: 0.01 ms per report |
+
+`structuredClone` in `saveItems` already clones only the rows handed back to the caller; `updateChat` already copies a single row.
+The whole-file write dominates `removeChat` wall time, so the copy removal is small against it.

@@ -586,6 +586,57 @@ async function runChild() {
     executor: { transport: 'opencode', model: 'opencode/test' },
   }), Math.min(P.fs, 300));
 
+  // ---- C1b. Persist copy/parse sites (leaf 9f36e26e): one site per function the leaf may touch ----
+  await profileSite({
+    id: 'CP-delegations-load-defaults',
+    group: 'sync-fs',
+    site: `lib/persist/delegations-persist.js loadDelegations() (withRecordDefaults per row, ${fixture.delegations} delegations)`,
+    owner: 'stage-6',
+    requestPath: 'yes',
+    note: 'Leaf 9f36e26e. Normalizes and copies every row on each call.',
+  }, () => delegations.loadDelegations(), Math.min(P.fs, 300));
+  let removeSeq = 0;
+  await profileSite({
+    id: 'CP-chats-remove-copy',
+    group: 'sync-fs',
+    site: `lib/persist/chats-persist.js removeChat() of an unknown id (copyChats + whole-file write, ${chatList.length} chats)`,
+    owner: 'stage-6',
+    requestPath: 'yes',
+    note: 'Leaf 9f36e26e. Isolates the copyChats cost of a filter-only writer; the whole-file write dominates the wall time.',
+  }, () => { removeSeq += 1; chatsPersist.removeChat(`profile-missing-${removeSeq}`); }, Math.min(P.fs, 100));
+  const verdictLib = await import('../lib/delegation-verdict.js');
+  const findingsLib = await import('../lib/review-findings-parse.js');
+  const profileReport = [
+    '## Review', ...Array.from({ length: 300 }, (_, i) => `- finding ${i}: src/file-${i % 40}.js:${i + 1} needs attention`),
+    '```findings-json', JSON.stringify({ findings: Array.from({ length: 12 }, (_, i) => ({ title: `F${i}`, file: `lib/f${i}.js`, priority: 'P2', category: 'correctness', status: 'open' })) }), '```',
+    'TASK: review', 'VERDICT: PASS',
+  ].join('\n');
+  let reportSeq = 0;
+  await profileSite({
+    id: 'CP-verdict-parse',
+    group: 'sync-fs',
+    site: `lib/delegation-verdict.js parseDelegationVerdict() (${profileReport.length} chars report, distinct text per call = memo miss)`,
+    owner: 'stage-6',
+    requestPath: 'yes',
+    note: 'Leaf 9f36e26e. Distinct texts: measures the parse itself, not memo hits.',
+  }, () => { reportSeq += 1; verdictLib.parseDelegationVerdict(`${profileReport}\n<!-- ${reportSeq} -->`); }, P.fs);
+  await profileSite({
+    id: 'CP-verdict-parse-repeat',
+    group: 'sync-fs',
+    site: `lib/delegation-verdict.js parseDelegationVerdict() (same ${profileReport.length} chars report on every call)`,
+    owner: 'stage-6',
+    requestPath: 'yes',
+    note: 'Leaf 9f36e26e. Repeated parse of one stored report, as list/resolve paths do per request.',
+  }, () => verdictLib.parseDelegationVerdict(profileReport), P.fs);
+  await profileSite({
+    id: 'CP-findings-parse',
+    group: 'sync-fs',
+    site: `lib/review-findings-parse.js parseReviewFindings() (${profileReport.length} chars report)`,
+    owner: 'stage-6',
+    requestPath: 'no',
+    note: 'Leaf 9f36e26e. Runs once per finished review report.',
+  }, () => findingsLib.parseReviewFindings(profileReport), P.fs);
+
   // ---- C2. V5 runtime tick: what one 5 s tick reads (R15 scheduler itself is NOT touched) ----
   const mailbox = await import('../lib/persist/delegation-mailbox-persist.js');
   const worker = await import('../lib/delegation-runtime-worker.js');
