@@ -48,7 +48,7 @@ export function ensurePanelReady(panelKey) {
       return;
     }
     if (panelKey === 'apps') {
-      initPanelOnce(panelKey, () => mod.initAppsPanel());
+      initPanelOnce(panelKey, () => /** @type {any} */ (mod).initAppsPanel());
       return;
     }
     if (panelKey === 'agentsSettings') {
