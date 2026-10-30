@@ -142,6 +142,7 @@ prefer `preview` unless a scan is intended.
 | Scout | `scout_profiles`, `scout_findings`, `operator_scout_enable`; mutating actions require the operator lease |
 | Todos | `todo_list` (paginate with `cursor`), `todo_show` (children, plan gate, integration, review), `todo_create`, `todo_update {todo_id, patch, expected_updated_at}`, `todo_integration {action: confirm/reject/...}` |
 | Starting work | `operator_plan_review_start` (plan review coordinator), `todo_start` (implementation orchestrator), `todo_update status: ready` (Watcher) |
+| Integration | `operator_integrate_tree {todo_id, harness, model?, idempotency_key}` (one agent chat merges a finished subtree leaf by leaf), `operator_integrate_status {batch_id?}`, `todo_integration` |
 | Delegations (read) | `delegation_list {chat_id}`, `delegation_show`, `model_pick` |
 | Model policy | `operator_model_stats {role}`, `operator_model_overrides {operation}`, `operator_model_profiles {operation}`, `operator_favorites {operation}` |
 | Prompt proposals | `operator_prompt_change_propose {prompt_key,text,reason}` (proposal only; human approval is required in Settings) |
@@ -228,6 +229,14 @@ children; restoring it returns them as `idea`.
 
 A leaf with `integration_state: ready` has its patch at
 `todo_show -> integration_result_path` (`data/worktree-results/<todo>/*.patch`).
+
+When the user asks to integrate a whole finished tree (each leaf in its own
+worktree), prefer `operator_integrate_tree` on the tree root: one `[Integrate]`
+chat smart-merges the leaves in tree order on top of each other and confirms
+them one by one; follow it with `operator_integrate_status` and
+`operator_chat_wait`. A parent is never verified while a descendant still has an
+un-merged worktree (`descendants_awaiting`). The manual steps below are for a
+single leaf or when the batch paused.
 
 1. **Check the review for real.** `review_state` can be stale: `unknown`
    (verify missing, reviewer could not run tests, worktree material), `failed`

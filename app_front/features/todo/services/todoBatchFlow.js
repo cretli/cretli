@@ -11,6 +11,7 @@ import {
   summarizeBatchEntries,
 } from '../todoBatchSelection.js';
 import { createBatchActions } from '../todoBatchActions.js';
+import { listSubtreeIntegrateIds } from './todoIntegrationRules.js';
 import { findItem } from './todoDetail.js';
 import { refreshTodoList } from './todoListRefresh.js';
 import {
@@ -181,6 +182,22 @@ export function openBatchIntegratePicker() {
   if (batchStartGuard.isPending()) return;
   const { eligibleIds } = currentBatchSelection();
   const ids = buildBatchRequestIds(todoList.batchSelected.get(), eligibleIds);
+  if (!ids.length) {
+    setStatus(t('todo.batchNothingSelected'), true);
+    return;
+  }
+  batchActions.openStartPicker(ids);
+}
+
+/**
+ * Row-menu entry on a parent: start one batch over the eligible leaves of its
+ * subtree, in tree order, without entering selection mode.
+ *
+ * @param {object} item
+ */
+export function openSubtreeIntegratePicker(item) {
+  if (batchStartGuard.isPending()) return;
+  const ids = listSubtreeIntegrateIds(S.latestItems, item);
   if (!ids.length) {
     setStatus(t('todo.batchNothingSelected'), true);
     return;

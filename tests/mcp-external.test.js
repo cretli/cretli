@@ -224,7 +224,7 @@ test('operator tools are listed only for operator clients', async () => {
 
     const operatorNames = (await operatorClient.listTools()).tools.map((tool) => tool.name);
     assert.ok(operatorNames.includes('todo_create'), 'operator mode keeps the agent catalog');
-    for (const name of ['operator_plan_approve', 'operator_plan_review_start', 'operator_chat_send', 'operator_chat_status', 'operator_chat_stop', 'operator_chat_wait', 'operator_guide', 'operator_prompt_change_propose', 'unclassified_errors']) {
+    for (const name of ['operator_plan_approve', 'operator_plan_review_start', 'operator_integrate_tree', 'operator_integrate_status', 'operator_chat_send', 'operator_chat_status', 'operator_chat_stop', 'operator_chat_wait', 'operator_guide', 'operator_prompt_change_propose', 'unclassified_errors']) {
       assert.ok(operatorNames.includes(name), `operator mode lists ${name}`);
     }
 
@@ -1206,6 +1206,74 @@ test('operator_plan_review_start starts a refine coordinator chat with the serve
   } finally {
     await client.close();
     setBuiltinMcpRuntimeDeps({ startTodoAgent: previous });
+    unregisterChatRunAdapter('opencode');
+    resetMockChatRuns();
+  }
+});
+
+test('operator_integrate_tree starts a subtree batch chat with the server prompt; a refusal starts nothing; a retry replays', async () => {
+  saveSettings({ externalMcpEnabled: true });
+  resetMockChatRuns();
+  registerMockChatRunAdapter('opencode');
+  const { setBuiltinMcpRuntimeDeps, getBuiltinMcpRuntimeDeps } = await import('../lib/mcp/builtin/runtime-deps.js');
+  const previous = getBuiltinMcpRuntimeDeps().startIntegrateBatch;
+  const todo = seedTodo('integrate tree target');
+  const chat = addChat('sess-integrate-tree', '[Integrate] 2 todos', null, workspace, 'm', { agentTransport: 'opencode', sdkMode: 'agent' });
+  /** @type {any[]} */
+  const calls = [];
+  setBuiltinMcpRuntimeDeps({
+    startIntegrateBatch: async (input) => {
+      calls.push(input);
+      if (input.body.model === 'refuse') return { status: 409, body: { ok: false, error: 'integration_locked', message: 'locked' } };
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          chat,
+          initialPrompt: 'Integrate the batch',
+          batch: { id: 'batch-1', status: 'running', chatId: chat.id, entries: [{ todoId: 'a', targetId: 'a', title: 'A', mode: 'smart-merge', state: 'queued', prompt: 'secret prompt' }] },
+        },
+      };
+    },
+  });
+  const { token } = createExternalMcpClient({ name: 'night-watch', workspaceFolder: workspace, mode: 'operator' });
+  const client = await connect(token);
+  try {
+    const refused = await client.callTool({
+      name: 'operator_integrate_tree',
+      arguments: { todo_id: todo.id, harness: 'opencode', model: 'refuse', idempotency_key: 'tree-refused' },
+    });
+    assert.equal(refused.isError, true);
+    assert.match(JSON.stringify(refused.content), /integration_locked/);
+    assert.equal(getMockChatRunStartCount(), 0, 'a refused batch starts no run');
+
+    const res = await client.callTool({
+      name: 'operator_integrate_tree',
+      arguments: { todo_id: todo.id, harness: 'opencode', idempotency_key: 'tree-1' },
+    });
+    assert.notEqual(res.isError, true, JSON.stringify(res.content));
+    const body = JSON.parse(/** @type {any} */ (res.content)[0].text);
+    assert.equal(body.chat_id, chat.id);
+    assert.equal(body.batch.batch_id, 'batch-1');
+    assert.equal(body.batch.entries[0].mode, 'smart-merge');
+    assert.ok(!JSON.stringify(body).includes('secret prompt'), 'entry prompts never leave the server');
+    assert.deepEqual(calls[1], { workspaceFolder: workspace, body: { rootId: todo.id, agentTransport: 'opencode', model: '' } });
+    assert.equal(getMockChatRunStartCount(), 1, 'the batch run starts with the server prompt');
+
+    const replay = await client.callTool({
+      name: 'operator_integrate_tree',
+      arguments: { todo_id: todo.id, harness: 'opencode', idempotency_key: 'tree-1' },
+    });
+    assert.equal(JSON.parse(/** @type {any} */ (replay.content)[0].text).replayed, true);
+    assert.equal(calls.length, 2, 'a retry with the same key creates no additional batch');
+    assert.equal(getMockChatRunStartCount(), 1);
+
+    const status = await client.callTool({ name: 'operator_integrate_status', arguments: {} });
+    assert.notEqual(status.isError, true, JSON.stringify(status.content));
+    assert.ok(Array.isArray(JSON.parse(/** @type {any} */ (status.content)[0].text).batches));
+  } finally {
+    await client.close();
+    setBuiltinMcpRuntimeDeps({ startIntegrateBatch: previous });
     unregisterChatRunAdapter('opencode');
     resetMockChatRuns();
   }

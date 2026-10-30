@@ -16,6 +16,7 @@ import { ensureWorktree } from '../lib/worktree-manager.js';
 import {
   SMART_MERGE_RUNNING,
   buildSmartMergeRequest,
+  buildVerifyIntegrationRequest,
   confirmWorkspaceTodoIntegration,
   invalidateTodoIntegrationProof,
   markTodoIntegrationNoCode,
@@ -1071,4 +1072,38 @@ test('fix round: unborn nested repo is content-fingerprinted; malformed status f
     deps: { runGit: (args, cwd, o) => (path.basename(cwd) === 'unborn' && args[0] === 'symbolic-ref' ? { status: 1, stdout: '' } : runGit(args, cwd, o)) },
   });
   assert.equal(broken.ok, false);
+});
+
+test('subtree: a parent with un-merged child worktrees is never verified; rootId queues its leaves in tree order', async (t) => {
+  const world = await makeWorld('subtree', 2);
+  t.after(world.cleanup);
+  const root = addTodo(world.dataDir, world.repo, { title: 'root', status: 'ready' }).item;
+  // Children finished in their own worktrees, the second sibling first in tree order.
+  world.todos.forEach((todo, index) => {
+    const current = getTodoById(world.dataDir, world.repo, todo.id);
+    updateTodo(world.dataDir, world.repo, todo.id, { parentId: root.id, siblingIndex: 1 - index, status: 'done', strictStatus: true, integration: current.integration });
+  });
+  const plainLeaf = addTodo(world.dataDir, world.repo, { title: 'plain leaf', status: 'done', parentId: root.id }).item;
+  updateTodo(world.dataDir, world.repo, plainLeaf.id, { siblingIndex: 2 });
+  assert.equal(getTodoById(world.dataDir, world.repo, root.id).status, 'done');
+
+  const ctx = await buildEligibilityContext({ dataDir: world.dataDir, workspaceFolder: world.repo });
+  assert.deepEqual(resolveBatchEntry(ctx, root.id), { mode: 'none', reason: 'descendants_awaiting', targetId: root.id });
+  const verify = await buildVerifyIntegrationRequest({ todoId: root.id, workspaceFolder: world.repo, dataDir: world.dataDir });
+  assert.equal(verify.ok, false);
+  assert.equal(verify.reason, 'descendants_awaiting');
+  assert.deepEqual(new Set(verify.pendingTodoIds), new Set(world.todos.map((todo) => todo.id)));
+
+  const created = await create(world, [], { rootId: root.id });
+  assert.deepEqual(
+    created.view.entries.map((entry) => [entry.todoId, entry.mode]),
+    [[world.todos[1].id, 'smart-merge'], [world.todos[0].id, 'smart-merge'], [plainLeaf.id, 'verify']],
+  );
+  assert.deepEqual(created.skipped, []);
+  await abandonIntegrateBatch({ dataDir: world.dataDir, batchId: created.batch.id, forceLiveness: true, deps: world.deps });
+
+  const missing = await createIntegrateBatch({ dataDir: world.dataDir, workspaceFolder: world.repo, rootId: 'missing-root', deps: world.deps });
+  assert.equal(missing.reason, 'not_found');
+  const leafRoot = await createIntegrateBatch({ dataDir: world.dataDir, workspaceFolder: world.repo, rootId: plainLeaf.id, deps: world.deps });
+  assert.equal(leafRoot.reason, 'empty');
 });

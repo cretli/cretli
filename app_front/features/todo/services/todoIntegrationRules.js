@@ -1,5 +1,6 @@
 import { isTodoAwaitingIntegration } from '../../../../lib/todo-integration-state.js';
-import { matchesTodoIntegrationFilter } from '../todoTreeView.js';
+import { collectTodoSubtreeIds, collectTodoSubtreeLeafIds } from '../../../../lib/todo-tree.js';
+import { isBatchSelectableItem, matchesTodoIntegrationFilter } from '../todoTreeView.js';
 import { t } from '../../../i18n/index.js';
 
 export function filterTodoItemsByIntegrationState(items, filter) {
@@ -46,12 +47,52 @@ export function canIntegrateWorktree(item) {
  * integration step is recording proof against the workspace branch.
  *
  * @param {any} item
+ * @param {any[]} [items] Full list; enables the descendant worktree guard.
  * @returns {boolean}
  */
-export function canConfirmIntegrationFromMenu(item) {
+export function canConfirmIntegrationFromMenu(item, items = []) {
   if (String(item?.status || '') !== 'done') return false;
   if (isTodoAwaitingIntegration(item)) return false;
+  if (hasAwaitingDescendantWorktree(items, item)) return false;
   return String(item?.integrationSummary?.state || 'unconfirmed') !== 'integrated';
+}
+
+/**
+ * A descendant owns its own live worktree whose result is not integrated yet:
+ * the parent's code is not in HEAD, so verifying or confirming the parent
+ * would attest something that is not there. Mirrors the server guard
+ * (`descendants_awaiting`).
+ *
+ * @param {any[]} items
+ * @param {any} item
+ * @returns {boolean}
+ */
+export function hasAwaitingDescendantWorktree(items, item) {
+  const id = String(item?.id || '');
+  if (!id || !Array.isArray(items) || !items.length) return false;
+  const byId = new Map(items.map((row) => [String(row?.id || ''), row]));
+  return collectTodoSubtreeIds(items, id).some((childId) => {
+    if (childId === id) return false;
+    const child = byId.get(childId);
+    return canIntegrateWorktree(child) && String(child.worktree.ownerTodoId || '') === childId;
+  });
+}
+
+/**
+ * Leaves under a parent that one bulk batch can integrate ("integrate the
+ * subtree"), in tree order. Selectability is the server's `batchEligibility`.
+ * A parent that owns the live worktree itself is integrated by the plain smart
+ * merge instead, so it gets no subtree action.
+ *
+ * @param {any[]} items
+ * @param {any} item
+ * @returns {string[]}
+ */
+export function listSubtreeIntegrateIds(items, item) {
+  const id = String(item?.id || '');
+  if (!id || !Array.isArray(items) || canIntegrateWorktree(item)) return [];
+  const byId = new Map(items.map((row) => [String(row?.id || ''), row]));
+  return collectTodoSubtreeLeafIds(items, id).filter((leafId) => isBatchSelectableItem(byId.get(leafId)));
 }
 
 /**

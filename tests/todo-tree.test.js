@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   TODO_MAX_DEPTH,
   collectTodoSubtreeIds,
+  collectTodoSubtreeLeafIds,
   findApprovedPlanAncestor,
   isTodoNodeBlocked,
   listReadyTodoLeaves,
@@ -402,4 +403,21 @@ process.exit(failed ? 1 : 0);
   // Same rule as hasApprovedPlanOnNodeOrAncestor: approvedAt alone counts.
   assert.equal(findApprovedPlanAncestor(items, items[4])?.id, 'x');
   assert.equal(findApprovedPlanAncestor(items, { id: 'z' }), null);
+}
+
+// collectTodoSubtreeLeafIds: leaves below the root, depth-first in siblingIndex order.
+{
+  const items = [
+    { id: 'r' },
+    { id: 'b', parentId: 'r', siblingIndex: 1 },
+    { id: 'a', parentId: 'r', siblingIndex: 0 },
+    { id: 'a2', parentId: 'a', siblingIndex: 1 },
+    { id: 'a1', parentId: 'a', siblingIndex: 0 },
+    { id: 'c', parentId: 'r' },
+    { id: 'x' },
+  ];
+  assert.deepEqual(collectTodoSubtreeLeafIds(items, 'r'), ['a1', 'a2', 'b', 'c']);
+  assert.deepEqual(collectTodoSubtreeLeafIds(items, 'a'), ['a1', 'a2']);
+  assert.deepEqual(collectTodoSubtreeLeafIds(items, 'x'), [], 'a leaf root has no leaves below it');
+  assert.deepEqual(collectTodoSubtreeLeafIds(items, 'missing'), []);
 }

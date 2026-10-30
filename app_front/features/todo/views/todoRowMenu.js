@@ -8,7 +8,9 @@ import {
   canIntegrateWorktree,
   canConfirmIntegrationFromMenu,
   integrationFailureMessage,
+  listSubtreeIntegrateIds,
 } from '../services/todoIntegrationRules.js';
+import { openSubtreeIntegratePicker } from '../services/todoBatchFlow.js';
 import { refreshWatcherPanel } from '../../watcher/watcherPanel.js';
 import {
   canRestoreToTree,
@@ -91,6 +93,7 @@ export async function renderRowMenuItems(row, list) {
   const chats = Array.isArray(item.chats) ? item.chats.filter((chat) => !chat.deleted) : [];
   const canAdd = canAddTodoChild(S.latestItems, id);
   const itemStatus = String(item.status || 'idea');
+  const subtreeIntegrateIds = listSubtreeIntegrateIds(S.latestItems, item);
   let reuseCandidate = null;
   try {
     const ctx = getWorkspaceContext();
@@ -143,7 +146,18 @@ export async function renderRowMenuItems(row, list) {
         { id: 'smartMerge', icon: 'mdi-robot-outline', label: t('todo.smartMerge') },
       ]
       : []),
-    ...(canConfirmIntegrationFromMenu(item)
+    // Parent whose subtasks hold separate worktrees: one batch chat merges them
+    // all in tree order instead of a smart merge per child.
+    ...(subtreeIntegrateIds.length
+      ? [{
+        id: 'integrateSubtree',
+        icon: 'mdi-source-merge',
+        label: t('todo.integrateSubtree', { count: String(subtreeIntegrateIds.length) }),
+        title: t('todo.integrateSubtreeHint'),
+        groupStart: !canIntegrateWorktree(item),
+      }]
+      : []),
+    ...(canConfirmIntegrationFromMenu(item, S.latestItems)
       ? [
         { id: 'verifyIntegration', icon: 'mdi-robot-outline', label: t('todo.verifyIntegration') },
         { id: 'confirmIntegration', icon: 'mdi-check-decagram-outline', label: t('todo.integrationConfirmMenu') },
@@ -371,6 +385,10 @@ export async function runRowMenuAction(action, item, meta = {}) {
     openSmartMergePicker(item, []);
     return;
   }
+  if (action === 'integrateSubtree') {
+    openSubtreeIntegratePicker(item);
+    return;
+  }
   if (action === 'confirmIntegration') {
     await confirmTodoIntegrationFromMenu(item);
     return;
@@ -445,7 +463,7 @@ export async function runVerifyIntegration(todoId, options) {
       model: String(options.model || 'auto'),
     });
     if (!data?.ok || !data.chat) {
-      setStatus(t('todo.verifyIntegrationFailed'), true);
+      setStatus(t(data?.error === 'descendants_awaiting' ? 'todo.integrationDescendantsAwaiting' : 'todo.verifyIntegrationFailed'), true);
       return;
     }
     await refreshTodoList();

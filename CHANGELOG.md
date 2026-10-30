@@ -9,6 +9,11 @@ All notable changes to this project are documented here. The format is based on
 ### Added
 
 - Settings theme gallery with palette previews, keyboard navigation, and separate light and dark themes when following the system appearance.
+- "Integrate subtree with agent (N)" in a parent todo's row menu: one bulk-integrate chat smart-merges every eligible leaf of the subtree in tree order, instead of a smart merge per child. The batch API accepts `rootId`; external operator clients get `operator_integrate_tree` and `operator_integrate_status`.
+
+### Fixed
+
+- A finished parent whose subtasks still hold un-merged worktree results is no longer offered "Verify and integrate" / "Confirm integration", and the server refuses to verify it (`descendants_awaiting`); bulk integrate no longer queues such a parent as a verify entry.
 
 ### Removed
 

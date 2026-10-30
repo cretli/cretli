@@ -209,7 +209,18 @@ collapse to the first entry (`aliased:<targetId>`).
 | --- | --- |
 | `smart-merge` | live worktree, target awaiting integration, not `smart_merge_running` |
 | `verify` | `done`, no live worktree, not integrated / no-code |
-| `none` | reason: `not_found`, `not_eligible`, `already_integrated`, `busy`, `locked` |
+| `none` | reason: `not_found`, `not_eligible`, `already_integrated`, `busy`, `locked`, `descendants_awaiting` |
+
+`descendants_awaiting`: a finished parent whose subtree still has a live, not
+integrated worktree is not verified — its code is in those worktrees, not in
+HEAD. `buildVerifyIntegrationRequest` refuses the same case (single verify flow),
+and the row menu hides verify / confirm for it.
+
+**Subtree batch.** `createIntegrateBatch({ rootId })` (REST body `rootId`, the
+row-menu action "Integrate subtree with agent", the operator tool
+`operator_integrate_tree`) queues the eligible leaves below `rootId` in tree
+order (depth first, `siblingIndex`). Leaves that resolve to `none` are left out
+instead of being listed as skipped; a root without eligible leaves is `empty`.
 
 The order is the order the client sent; the server validates and dedupes but
 never reorders. A todo that changed since the click is skipped at dispatch.
