@@ -29,6 +29,8 @@ export function buildAgentWsUrl(chat, wsPath) {
   if (chat.workspaceFile) params.set('workspace', chat.workspaceFile);
   if (chat.workspaceFolder) params.set('workspaceFolder', chat.workspaceFolder);
   if (chat.model) params.set('model', chat.model);
+  // Announces presence protocol v2: the server may send a partial first snapshot.
+  params.set('presence', '2');
   const clientInstanceId = getClientInstanceId();
   if (clientInstanceId) params.set('clientInstance', clientInstanceId);
   const query = params.toString();

@@ -373,6 +373,7 @@ type SdkToolDef = { description?: unknown; annotations?: unknown; [key: string]:
 type SdkWs = WebSocket & {
   _replayBatchTimer?: ReturnType<typeof setTimeout> | null;
   _chatListScope?: object;
+  _presenceProtocol?: number;
 };
 /** Error carrying a machine-readable code. */
 type CodedError = Error & { code?: string };

@@ -120,6 +120,8 @@ export function attachWebSocketHandlers(wss: WebSocketServer, ctx: WebSocketRout
       return;
     }
     attachWsKeepalive(ws);
+    // Presence v2 clients announce support and may receive a partial first snapshot; others get the full map.
+    (ws as WebSocket & { _presenceProtocol?: number })._presenceProtocol = requestUrl.searchParams.get('presence') === '2' ? 2 : 1;
     const isAgentSdk = urlPath === '/ws-agent-sdk' || urlPath.endsWith('/ws-agent-sdk');
     if (isPageBridgePath(urlPath)) {
       const authTimeout = setTimeout(() => ws.close(4401, msg(req, 'widget.pageBridgeAuthMissing')), 5000);

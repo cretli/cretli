@@ -147,10 +147,10 @@ assert.equal(session.messages.at(-1).type, 'chatsChanged');
   flushAgentPresenceNow();
   for (const ws of sockets) ws.bufferedAmount = 0;
   calls = 0;
-  // A scoped refresh summarizes ids once; the owed snapshots add exactly one more full summarize.
+  // A scoped refresh summarizes ids once; owed snapshots read the presence index.
   scheduleAgentPresenceRefresh(['a']);
   flushAgentPresenceNow();
-  assert.equal(calls, 2, 'one scoped diff + one shared snapshot map, not one per scope');
+  assert.equal(calls, 1, 'one scoped diff; owed snapshots are served from the index, no extra summarize');
   for (const ws of sockets) assert.equal(frames(ws).at(-1).snapshot, true);
   // An unscoped refresh reuses its own full map for the snapshots: a single summarize.
   for (const ws of sockets) ws.bufferedAmount = 1e9;

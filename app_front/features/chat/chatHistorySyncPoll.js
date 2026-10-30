@@ -276,13 +276,18 @@ export { agentRunStateDedupeKey };
  * the chat object appears.
  *
  * @param {object[]} chats
- * @param {{ states?: Record<string, object>, cleared?: string[], snapshot?: boolean } | null | undefined} message
+ * @param {{ states?: Record<string, object>, cleared?: string[], snapshot?: boolean, partial?: boolean } | null | undefined} message
  * @returns {{ changed: boolean, dirtyIds: string[] }}
  */
 export function applyAgentPresenceToChats(chats, message) {
   if (!message || typeof message !== 'object') return { changed: false, dirtyIds: [] };
   const list = Array.isArray(chats) ? chats : [];
   const touchedAt = Date.now();
+  if (message.snapshot === true && message.partial === true) {
+    // A windowed snapshot only speaks for the ids it names: treat it as a delta so chats
+    // outside the window keep their remembered state until the HTTP agent-states fill-in.
+    return applyAgentPresenceToChats(chats, { ...message, snapshot: false, cleared: [] });
+  }
   if (message.snapshot === true) {
     const states = message.states && typeof message.states === 'object' ? message.states : {};
     applyPresenceSnapshot(states, touchedAt);
@@ -470,8 +475,10 @@ export function ingestAgentPresenceMessage(chats, message) {
     if (Number.isSafeInteger(seq)) lastPresenceSeq = seq;
     lastPresenceAt = Date.now();
     const applied = applyAgentPresenceToChats(chats, message);
-    presenceFallbackRequired = false;
-    return { ...applied, seqGap: false };
+    // A partial snapshot leaves the rest of the map unknown: keep the HTTP fill-in pending.
+    presenceFallbackRequired = message.partial === true;
+    if (message.partial === true) lastPresenceAt = 0;
+    return { ...applied, seqGap: message.partial === true };
   }
 
   if (epochChanged) {
