@@ -154,6 +154,31 @@ Do **not** read this table as “history is MCP-only.” MCP remains the support
 
 **Test connection** in Settings lists tools and then closes a throwaway process. That does not mean an already open chat is connected. Status separates saved configuration, applied revision (after the harness accepted the config), and connection state. The next prompt applies the current revision; an in-flight reply is not interrupted.
 
+### Fallback: call `/mcp` directly when the client lost the connection
+
+A client sometimes starts without the Cretli tools (`ECONNREFUSED`, a port forward or the server was down at start) and cannot reconnect in that session, for example a server from `.mcp.json` in the Claude desktop app, where `/mcp` → Reconnect is not available. The endpoint is plain JSON-RPC over HTTP and, for external clients, stateless (no `Mcp-Session-Id`), so an agent with a shell can call the tools itself until the client is restarted:
+
+1. Check the server: a request without a token must answer `401` (server up, auth required).
+2. Take the URL and token from the client's own config (`.mcp.json`, `.cursor/mcp.json`, `.codex/config.toml`) or `CRETLI_MCP_TOKEN`; never paste the token into chat, todos or `cretli_feedback`.
+3. Call `tools/list` or `tools/call`. Tool names have no client prefix (`todo_list`, not `mcp__cretli__todo_list`).
+
+```bash
+# Linux, macOS, WSL, Git Bash
+curl -s -H "Authorization: Bearer $CRETLI_MCP_TOKEN" \
+  -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
+  --cacert data/cert.pem -X POST https://HOST:PORT/mcp \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"todo_list","arguments":{}}}'
+```
+
+```powershell
+# Windows PowerShell 7+
+$h = @{ Authorization = "Bearer $env:CRETLI_MCP_TOKEN"; Accept = "application/json, text/event-stream" }
+$b = '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"todo_list","arguments":{}}}'
+Invoke-RestMethod -Method Post -Uri https://HOST:PORT/mcp -Headers $h -ContentType application/json -Body $b -SkipCertificateCheck
+```
+
+`--cacert` points at the server's certificate (see the HTTPS section above); `-k` / `-SkipCertificateCheck` only for a local test. The same rate limit and token mode apply as for a connected client. This is a stopgap: restart the client session afterwards so the tools appear normally.
+
 ## External clients: operator mode
 
 An external client token (Settings → MCP → external clients, endpoint `/mcp`) has one of three modes: `plan` (read-only tools), `agent` (the whole builtin catalog) or `operator`. `operator` is `agent` plus tools that act for the user who created the token, for example Claude Code supervising a long Todo run overnight:
