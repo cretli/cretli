@@ -1,3 +1,4 @@
+import { reconnectsPerMinute } from './chatReconnectScheduler.js';
 import { formatRoomEventSeqDiag } from '../../../lib/sdk/sdk-room-state.ts';
 import { isSdkRunFailureStatus } from '../../../lib/sdk/sdk-run-outcome.ts';
 import {
@@ -105,6 +106,7 @@ export function createChatDiagnostics(deps) {
       lastPongAgoMs: Number.isFinite(chat?._lastPongAt) ? now - chat._lastPongAt : null,
       lastSdkEventAgoMs: Number.isFinite(chat?._sdkLastLiveEventAt) ? now - chat._sdkLastLiveEventAt : null,
       reconnectAttempts: chat?._reconnectAttempts ?? 0,
+      reconnectsPerMinute: /** @type {any} */ (chat)?._reconnectSchedule ? reconnectsPerMinute(/** @type {any} */ (chat)._reconnectSchedule, now) : 0,
       serverBusy: !!room?.busy,
       serverStuckInSetup: !!room?.stuckInSetup,
       serverSetupPhase: room?.setupPhase || null,
@@ -318,6 +320,10 @@ export function createChatDiagnostics(deps) {
       chat._sdkLastLiveEventAt ? formatAgoMs(Date.now() - chat._sdkLastLiveEventAt) : '—',
     );
     set('chat-diag-reconnects', String(chat._reconnectAttempts || 0));
+    set(
+      'chat-diag-reconnects-rate',
+      String(/** @type {any} */ (chat)._reconnectSchedule ? reconnectsPerMinute(/** @type {any} */ (chat)._reconnectSchedule, Date.now()) : 0),
+    );
     set('chat-diag-pong', chat._lastPongAt ? formatAgoMs(Date.now() - chat._lastPongAt) : '—');
     const queued = chat._sdkRichView && typeof chat._sdkRichView.queuedCount === 'number'
       ? chat._sdkRichView.queuedCount

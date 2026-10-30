@@ -2453,6 +2453,8 @@ const basePl = {
     diagAgent: 'Stan agenta',
     diagLastEvent: 'Ostatnie zdarzenie',
     diagReconnects: 'Reconnecty',
+    diagReconnectsRate: 'Reconnecty / min',
+    reconnectBreakerNotice: 'Utracono połączenie. Ponawiam z dłuższą przerwą; aktualny stan widać na pasku statusu.',
     diagPong: 'Ostatni pong',
     diagQueue: 'Kolejka (klient)',
     diagServer: 'Pokój serwera',

@@ -24,6 +24,12 @@ import {
 import { createResumeState } from './transport/resumption.js';
 export { dispatchTodoChangedEvent, dispatchTodoReconnectEvent } from './transport/events.js';
 import { t } from '../../i18n/index.js';
+import {
+  noteReconnectAttempt,
+  planChatReconnect,
+  recordReconnectOpen,
+  resetReconnectState,
+} from './chatReconnectScheduler.js';
 import { clearLastBackgroundDurationMs, getLastBackgroundDurationMs, isPageCurrentlyHidden } from '../../lib/pageBackgroundGrace.js';
 import { isMobileLikeClient } from '../../lib/mobileClient.js';
 import { notifyChatConnectionRestored } from './chatServerRecovery.js';
@@ -41,8 +47,6 @@ import { normalizeHarnessTransport } from './sdk-transport-labels.js';
 export function createChatTransport(deps) {
   const {
     WS_PATH_AGENT_SDK,
-    CHAT_RECONNECT_MAX,
-    CHAT_RECONNECT_DELAYS,
     CHAT_PING_INTERVAL_MS,
     getChats,
     getActiveChatId,
@@ -717,36 +721,25 @@ export function createChatTransport(deps) {
       renderChatTerminalState(chat);
       return;
     }
-    const isActiveChat = chat.id === getActiveChatId();
-    chat._reconnectAttempts = (chat._reconnectAttempts || 0) + 1;
-    const exceededMax = chat._reconnectAttempts > CHAT_RECONNECT_MAX;
-    if (exceededMax && !isActiveChat) {
-      chat._connectionStatus = 'disconnected';
-      if (chat.id === getActiveChatId()) setChatStatus('disconnected');
-      renderChatTerminalState(chat);
-      return;
-    }
+    const now = Date.now();
+    const plan = planChatReconnect(chat, now);
+    // An open breaker keeps retrying (long pause) for background chats too.
     chat._connectionStatus = 'reconnecting';
     if (chat.id === getActiveChatId()) setChatStatus('reconnecting');
     renderChatTerminalState(chat);
-    if (exceededMax && isActiveChat && typeof onConnectionLost === 'function') {
-      onConnectionLost(chat, { reason: 'reconnect_exhausted' });
+    if (plan.notifyBreaker) {
+      chat._sdkRichView?.appendMetaNotice?.(t('chat.reconnectBreakerNotice'), { silent: true });
+      if (typeof onConnectionLost === 'function') {
+        onConnectionLost(chat, { reason: 'reconnect_exhausted' });
+      }
     }
-    const delayIndex =
-      exceededMax && isActiveChat
-        ? CHAT_RECONNECT_DELAYS.length - 1
-        : Math.min(chat._reconnectAttempts - 1, CHAT_RECONNECT_DELAYS.length - 1);
-    const baseDelay = CHAT_RECONNECT_DELAYS[delayIndex] || 8000;
-    const hidden = isPageCurrentlyHidden();
-    let delay = hidden ? Math.min(30000, baseDelay * 3) : baseDelay;
-    if (exceededMax && isActiveChat) {
-      delay = Math.min(30000, delay + Math.floor(Math.random() * 2000));
-    }
+    const delay = plan.delayMs;
+    noteReconnectAttempt(chat._reconnectSchedule, now + delay);
     appLogger.log('chat-ws', 'reconnect scheduled', {
       chatId: chat.id,
       delayMs: delay,
       attempt: chat._reconnectAttempts,
-      activeUnlimited: isActiveChat && exceededMax,
+      breakerOpen: plan.breakerOpen,
       ...buildSocketDiagnostics(chat),
     });
     chat._reconnectTimer = setTimeout(() => {
@@ -970,7 +963,9 @@ export function createChatTransport(deps) {
       delete chat._wsConnectingSince;
       const reconnected = (chat._reconnectAttempts || 0) > 0 || chat._connectionStatus === 'reconnecting';
       if (reconnected) dispatchTodoReconnectEvent();
-      chat._reconnectAttempts = 0;
+      // Attempts are not zeroed here: the schedule resets only after a connection that lasts >= 30 s.
+      if (chat._reconnectSchedule) recordReconnectOpen(chat._reconnectSchedule, Date.now());
+      if (!reconnected) chat._reconnectAttempts = 0;
       chat._lastPongAt = Date.now();
       chat._lastPingAt = 0;
       chat._unackedPingAt = 0;
@@ -986,7 +981,7 @@ export function createChatTransport(deps) {
         if (chat._sdkHistoryHydrating !== true) {
           sdkStreamReset(chat);
           // A retry after a setup error usually hits the same error again; skip the banner.
-          if (!chat._sdkSetupErrorAt) chat._sdkRichView.appendBannerConnected({
+          if (!chat._sdkSetupErrorAt && !reconnected) chat._sdkRichView.appendBannerConnected({
               transport: normalizeHarnessTransport(chat?.agentTransport),
             });
         }

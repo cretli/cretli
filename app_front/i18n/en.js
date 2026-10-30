@@ -2453,6 +2453,8 @@ const baseEn = {
     diagAgent: 'Agent state',
     diagLastEvent: 'Last live event',
     diagReconnects: 'Reconnects',
+    diagReconnectsRate: 'Reconnects / min',
+    reconnectBreakerNotice: 'Connection lost. Retrying with a longer pause; the status bar shows the current state.',
     diagPong: 'Last pong',
     diagQueue: 'Queue (client)',
     diagServer: 'Server room',
