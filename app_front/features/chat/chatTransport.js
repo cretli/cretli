@@ -892,11 +892,13 @@ export function createChatTransport(deps) {
       stopChatReconnect,
       syncSdkModeToServer,
     });
+    // In-process re-entry hands over the object; `data` is serialized lazily.
+    const dispatchParsedFrame = (message) => socket.onmessage({ parsed: message, get data() { return JSON.stringify(message); } });
     chat._processSdkSocketMessage = (message) => {
       if (chat.ws !== socket || typeof socket.onmessage !== 'function') return;
       const isBusyReplay = message?.replay === true && REPLAY_BUSY_ASSERTING_TYPES.has(message.type);
       if (!isBusyReplay) {
-        socket.onmessage({ data: JSON.stringify(message) });
+        dispatchParsedFrame(message);
         return;
       }
       // A replayed event describes a past run. Its handler flips the chat to
@@ -907,7 +909,7 @@ export function createChatTransport(deps) {
         queued: chat._sdkServerQueuedCount,
         agentState: chat._agentState,
       };
-      socket.onmessage({ data: JSON.stringify(message) });
+      dispatchParsedFrame(message);
       chat._sdkServerBusy = prev.busy;
       chat._sdkServerQueuedCount = prev.queued;
       if (chat._agentState !== prev.agentState) setAgentState(chat, prev.agentState || 'idle');

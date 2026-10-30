@@ -34,7 +34,7 @@ import {
  * @param {any} chat
  * @param {WebSocket} socket
  * @param {Record<string, any>} ctx
- * @returns {(ev: { data: string }) => void}
+ * @returns {(ev: { data: string, parsed?: Record<string, unknown> }) => void}
  */
 export function createSocketMessageHandler(chat, socket, ctx) {
   const {
@@ -88,7 +88,9 @@ export function createSocketMessageHandler(chat, socket, ctx) {
     /** @type {Record<string, unknown> | undefined} */
     let msg;
     try {
-      msg = JSON.parse(ev.data);
+      // `parsed` is the in-process re-entry path (replay / hydration flush): the
+      // frame is already an object, so the stringify + parse round trip is skipped.
+      msg = ev.parsed !== undefined ? ev.parsed : JSON.parse(ev.data);
       if (typeof msg?.type === 'string' && msg.type.trim()) {
         messageType = msg.type;
       }

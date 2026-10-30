@@ -105,6 +105,10 @@ export function rememberUnrenderedSdkRoomEvent(chat, message) {
  */
 export function noteRenderedSdkRoomEvent(chat, message) {
   if (!chat || typeof chat !== 'object') return;
+  // Hot path: nearly every rendered event finds no hole remembered, so bail out
+  // before resolving the ref or cloning the per-stream map.
+  const holes = /** @type {Record<string, unknown>} */ (chat)._sdkUnrenderedRoomEventSeqsByStream;
+  if (!holes || typeof holes !== 'object') return;
   const { streamId, seq } = resolveSdkRoomEventRef(chat, message);
   if (!streamId || seq < 1) return;
   const byStream = cloneUnrenderedRoomEventSeqs(chat);
@@ -160,11 +164,16 @@ export function shouldApplySdkRoomEvent(chat, message) {
   if (hasUnrenderedSdkRoomEventSeq(chat, streamId, seq)) return true;
 
   if (streamId) {
-    const hydratedByStream = { ...(chat._sdkHydratedRoomEventSeqByStream || {}) };
+    // Advance the watermark in place: copying the whole map per event is O(streams)
+    // and nothing relies on the map identity changing.
+    let hydratedByStream = chat._sdkHydratedRoomEventSeqByStream;
+    if (!hydratedByStream || typeof hydratedByStream !== 'object') {
+      hydratedByStream = {};
+      chat._sdkHydratedRoomEventSeqByStream = hydratedByStream;
+    }
     const lastForStream = Number(hydratedByStream[streamId]) || 0;
     if (seq <= lastForStream) return false;
     hydratedByStream[streamId] = seq;
-    chat._sdkHydratedRoomEventSeqByStream = hydratedByStream;
     if (streamId === (typeof chat._sdkEventStreamId === 'string' ? chat._sdkEventStreamId.trim() : '')) {
       chat._sdkLastRoomEventSeq = seq;
     }
