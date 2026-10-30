@@ -92,6 +92,8 @@ import { loadClaudeSdk, type ClaudeSdkModule } from './claude-sdk.ts';
 import { readClaudeContextBreakdown } from './claude-context-breakdown.ts';
 import {
   collectClaudeIdleNotices,
+  isClaudeMainThreadContent,
+  isForeignClaudeResultItem,
 } from '../agent-harness/claude-event-normalizer.ts';
 import {
   getClaudeReportedContextWindow,
@@ -124,6 +126,9 @@ import {
   buildClaudeUserMessage,
   clearClaudeSessionIdleTimer,
   closeClaudeSession,
+  countClaudeBackgroundTasks,
+  hasClaudeBackgroundWork,
+  noteClaudeBackgroundTasks,
   createClaudeStreamingSession,
   diffClaudeSessionStartKey,
   isClaudeSessionAlive,
@@ -155,6 +160,10 @@ interface ClaudeTurn {
   session: ClaudeSession;
   runId: string;
   settled: boolean;
+  /** `uuid` of the pushed user message; a follow-up run has none. */
+  userMessageUuid?: string;
+  /** Run opened by the model answering a background task, not by a prompt. */
+  followUp?: boolean;
   finish(outcome?: ClaudeTurnOutcome): void;
 }
 interface ClaudeTurnOutcome {
@@ -320,6 +329,7 @@ const kernel = createAgentRoomKernel({
   logLabel: 'claude-ws',
   goneMessage: 'Claude chat not found for this session.',
   abortRoom: abortClaudeRoom,
+  holdRoom: (room) => hasClaudeBackgroundWork(room as ClaudeRoom),
   afterBroadcast(room, payload) {
     trackSdkRoomRunOutcome(room, payload);
     noteDelegationRoomEvent(room, payload);
@@ -1286,6 +1296,11 @@ export function createClaudePromptRunner({
     }
   }
 
+  /** A follow-up run owns task-notification results; a user turn does not. */
+  function isForeignResultItem(item: unknown, turn: ClaudeTurn | null): boolean {
+    return turn?.followUp !== true && isForeignClaudeResultItem(item, turn?.userMessageUuid);
+  }
+
   /**
    * Normalizes and dispatches one SDK message. `turn` may be null (legacy
    * one-shot runs and between-turn streaming messages): `result` is still
@@ -1335,6 +1350,7 @@ export function createClaudePromptRunner({
         continue;
       }
       if (item.kind === 'usage') {
+        if (isForeignResultItem(item, turn)) continue;
         room._lastUsage = item;
         noteClaudeReportedContextWindows(item.modelUsage);
         if (item.firstApiCallUsage && typeof item.firstApiCallUsage === 'object') {
@@ -1346,8 +1362,9 @@ export function createClaudePromptRunner({
         continue;
       }
       if (item.kind === 'result') {
-        room._lastResult = item;
         persistSessionId(item.sessionId);
+        if (isForeignResultItem(item, turn)) continue;
+        room._lastResult = item;
         if (Array.isArray(item.userMessageUuids)) {
           for (const id of item.userMessageUuids) room._steerOutstanding?.delete(id);
         }
@@ -1374,12 +1391,17 @@ export function createClaudePromptRunner({
    * a turn (for example `system init` between turns, or background task /
    * tool_progress chatter that arrives after `result`) only refresh the
    * persisted session id and surface advisory notices; they are never
-   * broadcast as answer content for the next turn.
+   * broadcast as answer content for the next turn. The exception is the model
+   * answering a finished background task, which opens its own follow-up run.
    */
   function handleSessionMessage(session: ClaudeSession, message: unknown): void {
     if (room._claudeSession !== session) return;
-    const turn = room._activeTurn;
-    if (!turn || turn.session !== session || turn.settled === true) {
+    noteClaudeBackgroundTasks(session, message);
+    const active = room._activeTurn;
+    const turn = active && active.session === session && active.settled !== true
+      ? active
+      : (isClaudeMainThreadContent(message) ? openFollowUpRun(session) : null);
+    if (!turn) {
       const sessionId = readClaudeMessageSessionId(message);
       if (sessionId) persistSessionId(sessionId);
       for (const notice of collectClaudeIdleNotices(message)) notify(notice);
@@ -1577,10 +1599,12 @@ export function createClaudePromptRunner({
 
   function sendTurn(session: ClaudeSession, message: Record<string, unknown>): Promise<{ reason: string; error?: string }> {
     return new Promise((resolve) => {
+      const userMessageUuid = randomUUID();
       const turn: ClaudeTurn = {
         session,
         runId: room.currentRun?.id || '',
         settled: false,
+        userMessageUuid,
         finish(outcome: ClaudeTurnOutcome = {}) {
           if (turn.settled) return;
           turn.settled = true;
@@ -1591,7 +1615,7 @@ export function createClaudePromptRunner({
         },
       };
       room._activeTurn = turn;
-      if (!session.input.push(message)) {
+      if (!session.input.push({ ...message, uuid: userMessageUuid })) {
         turn.finish({ reason: 'session_closed', error: 'Claude session input is closed.' });
         return;
       }
@@ -1810,6 +1834,128 @@ export function createClaudePromptRunner({
     });
   }
 
+  /** Ends a run, whether it answered a prompt or followed up a background task. */
+  function finalizeRun(input: {
+    runId: string;
+    status: string;
+    errorMessage: string;
+    errorMessages: string[];
+    errorCode: string;
+    streaming: boolean;
+  }): void {
+    const { runId, status, errorMessage, errorMessages, streaming } = input;
+    room._activeTurnRunId = '';
+    clearInterruptFallback(room);
+    if (!streaming) {
+      room._activeQuery = null;
+      room._abortController = null;
+    } else if (isClaudeSessionAlive(room._claudeSession)) {
+      armClaudeSessionIdleTimer(room, room._claudeSession, sessionIdleMs());
+    }
+    room.busy = false;
+    room.currentRun = null;
+    clearEnforcedSdkMode(room);
+    broadcast({ type: 'sdkBusy', busy: false }, { log: false });
+    const finished: Record<string, unknown> = {
+      type: 'sdkRunFinished',
+      runId,
+      status,
+      lastErrorMessage: errorMessage,
+    };
+    // All error variants of the run: the kernel's shared reset parser reads
+    // them so a clock-bearing provider message is never shadowed by a
+    // generic one. Only present when the run actually failed.
+    if (errorMessages.length) finished.lastErrorMessages = errorMessages;
+    const errorCode = input.errorCode
+      || (errorMessage && status === 'error' ? 'claude_error' : '');
+    if (errorCode) finished.lastErrorCode = errorCode;
+    broadcast(finished);
+    const backgroundTasks = countClaudeBackgroundTasks(room._claudeSession);
+    if (backgroundTasks > 0) {
+      notify({ noticeType: 'background_tasks', message: msg(null, 'claude.backgroundTasksRunning', { count: backgroundTasks }) });
+    }
+    if (streaming && status === 'completed') void publishClaudeContextBreakdown();
+    if (errorMessage && status === 'error' && room._lastApiError !== errorMessage) {
+      broadcast({
+        type: 'sdkError',
+        code: errorCode || 'claude_error',
+        message: errorMessage,
+      });
+    }
+    // An accepted run must leave a trace in the chat history. A turn that
+    // settled without any answer event (for example a stale `result` of an
+    // interrupted pre-restart turn that a resumed CLI session replays first)
+    // would otherwise show only the user message and busy=false.
+    if (status === 'completed' && room._turnContentSeen !== true) {
+      broadcast({
+        type: 'sdkError',
+        code: 'claude_empty_turn',
+        message: 'Claude finished the turn without producing any output. Send the message again.',
+      });
+    }
+    sendRoomStateHook();
+    flushHook();
+    drainQueue();
+  }
+
+  /**
+   * The model answers a finished background task on its own, outside any user
+   * turn. Giving that answer a run of its own keeps it in the history, shows the
+   * chat as busy and queues prompts sent meanwhile.
+   *
+   * Server-driven rooms are skipped: their run finish is a delegation or
+   * Watcher report, and a second finish would report the same work twice.
+   */
+  function openFollowUpRun(session: ClaudeSession): ClaudeTurn | null {
+    if (room.busy || room.cancelled || room.delegationId || room.delegationAssignment) return null;
+    if (!canAcceptNewRun()) return null;
+    const chatRow = getChatByCursorSessionId(room.sessionKey) || { id: room.chatId, workspaceFolder: room.cwd, agentTransport: 'claude' };
+    if (isWatcherOrchestratorChat(chatRow, room)) return null;
+    clearClaudeSessionIdleTimer(session);
+    room.busy = true;
+    room._planGuardTriggered = false;
+    room._lastResult = null;
+    room._lastApiError = '';
+    room._claudeLastApiErrorMessage = '';
+    room._lastSessionError = '';
+    room._turnContentSeen = false;
+    room._claudeNormalizer = createClaudeEventNormalizer();
+    const runId = randomUUID();
+    room.currentRun = { id: runId, startedAt: Date.now() };
+    room._activeTurnRunId = runId;
+    const mode = normalizeSdkMode(room.sdkMode);
+    beginEnforcedSdkMode(room, mode);
+    syncRoomDelegationAssignment(room);
+    const turn: ClaudeTurn = {
+      session,
+      runId,
+      settled: false,
+      followUp: true,
+      finish(outcome: ClaudeTurnOutcome = {}) {
+        if (turn.settled) return;
+        turn.settled = true;
+        if (room._activeTurn === turn) room._activeTurn = null;
+        clearInterruptFallback(room);
+        if (!room._interruptInFlight) reclaimSteers(null);
+        const resolved = resolveTurnStatus(mode, { reason: outcome.reason || 'result', error: outcome.error || '' });
+        finalizeRun({ runId, ...resolved, errorCode: '', streaming: true });
+      },
+    };
+    room._activeTurn = turn;
+    broadcast({
+      type: 'sdkPromptStarted',
+      runId,
+      text: '',
+      followUp: true,
+      fromQueue: false,
+      remaining: room.pendingPrompts.length,
+    });
+    broadcast({ type: 'sdkBusy', busy: true }, { log: false });
+    sendRoomStateHook();
+    broadcast({ type: 'sdkRunProgress', runId, phase: 'stream', transport: 'claude' }, { log: false });
+    return turn;
+  }
+
   async function runPrompt(
     text: string,
     modeOverride?: string,
@@ -2022,54 +2168,7 @@ export function createClaudePromptRunner({
           : (err ? String(err) : readLastClaudeStderrLine(room));
       }
     } finally {
-      room._activeTurnRunId = '';
-      clearInterruptFallback(room);
-      if (!streaming) {
-        room._activeQuery = null;
-        room._abortController = null;
-      } else if (isClaudeSessionAlive(room._claudeSession)) {
-        armClaudeSessionIdleTimer(room, room._claudeSession, sessionIdleMs());
-      }
-      room.busy = false;
-      room.currentRun = null;
-      clearEnforcedSdkMode(room);
-      broadcast({ type: 'sdkBusy', busy: false }, { log: false });
-      const finished: Record<string, unknown> = {
-        type: 'sdkRunFinished',
-        runId,
-        status,
-        lastErrorMessage: errorMessage,
-      };
-      // All error variants of the run: the kernel's shared reset parser reads
-      // them so a clock-bearing provider message is never shadowed by a
-      // generic one. Only present when the run actually failed.
-      if (errorMessages.length) finished.lastErrorMessages = errorMessages;
-      const errorCode = mcpGateErrorCode
-        || (errorMessage && status === 'error' ? 'claude_error' : '');
-      if (errorCode) finished.lastErrorCode = errorCode;
-      broadcast(finished);
-      if (streaming && status === 'completed') void publishClaudeContextBreakdown();
-      if (errorMessage && status === 'error' && room._lastApiError !== errorMessage) {
-        broadcast({
-          type: 'sdkError',
-          code: errorCode || 'claude_error',
-          message: errorMessage,
-        });
-      }
-      // An accepted run must leave a trace in the chat history. A turn that
-      // settled without any answer event (for example a stale `result` of an
-      // interrupted pre-restart turn that a resumed CLI session replays first)
-      // would otherwise show only the user message and busy=false.
-      if (status === 'completed' && room._turnContentSeen !== true) {
-        broadcast({
-          type: 'sdkError',
-          code: 'claude_empty_turn',
-          message: 'Claude finished the turn without producing any output. Send the message again.',
-        });
-      }
-      sendRoomStateHook();
-      flushHook();
-      drainQueue();
+      finalizeRun({ runId, status, errorMessage, errorMessages, errorCode: mcpGateErrorCode, streaming });
     }
   }
 

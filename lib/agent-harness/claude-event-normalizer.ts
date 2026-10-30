@@ -277,6 +277,36 @@ export function collectClaudeIdleNotices(message: unknown): Array<Record<string,
   return [];
 }
 
+function readClaudeOriginKind(rec: Record<string, unknown>): string {
+  const origin = asRecord(rec.origin);
+  return origin && typeof origin.kind === 'string' ? origin.kind : '';
+}
+
+function readClaudeResultUserMessageUuids(rec: Record<string, unknown>): string[] | null {
+  if (!Array.isArray(rec.user_message_uuids)) return null;
+  return rec.user_message_uuids.filter((id) => typeof id === 'string' && id);
+}
+
+/**
+ * True for a normalized `result`/`usage` item of a task-notification turn that
+ * does not answer `userMessageUuid`. On resume the CLI reports a task stopped
+ * by the previous process as an empty turn (`num_turns: 0`) right before the
+ * user's prompt; settling on that result would end the run before it started.
+ */
+export function isForeignClaudeResultItem(item: unknown, userMessageUuid: unknown): boolean {
+  const rec = asRecord(item);
+  if (!rec || rec.originKind !== 'task-notification') return false;
+  const covered = Array.isArray(rec.userMessageUuids) ? rec.userMessageUuids : [];
+  return !userMessageUuid || !covered.includes(userMessageUuid);
+}
+
+/** True for model output of the main thread, not of a subagent. */
+export function isClaudeMainThreadContent(message: unknown): boolean {
+  const rec = asRecord(message);
+  if (!rec || (rec.type !== 'assistant' && rec.type !== 'stream_event')) return false;
+  return !readParentToolUseId(rec);
+}
+
 function absorbStreamText(previous: string, incoming: string): string {
   const prev = String(previous || '');
   const next = String(incoming || '');
@@ -665,12 +695,19 @@ export function createClaudeEventNormalizer(): { normalize: (message: unknown) =
       const resultText = typeof rec.result === 'string' ? rec.result : '';
       let errorMessage = '';
       if (isError) errorMessage = errors || resultText || 'Claude run failed';
+      // Who this result answers. A background task's notification runs as its
+      // own CLI turn, so its result must not settle a user turn (see
+      // `isForeignClaudeResultItem`).
+      const originKind = readClaudeOriginKind(rec);
+      const userMessageUuids = readClaudeResultUserMessageUuids(rec);
       const events: Array<Record<string, unknown>> = [];
       const usage = resolveClaudeResultUsage(rec);
       if (usage) {
         // `result.usage` is the final, run-level usage report for the whole
         // query, so the telemetry layer may treat it as coverage proof.
         const usageEvent: Record<string, unknown> = { kind: 'usage', usage, final: true };
+        if (originKind) usageEvent.originKind = originKind;
+        if (userMessageUuids) usageEvent.userMessageUuids = userMessageUuids;
         if (Number.isFinite(Number(rec.total_cost_usd))) {
           usageEvent.totalCostUsd = Number(rec.total_cost_usd);
         }
@@ -704,9 +741,8 @@ export function createClaudeEventNormalizer(): { normalize: (message: unknown) =
       };
       // Steering accounting. Both fields are optional in the SDK result and
       // absent on older CLIs; leave the keys out so consumers can tell.
-      if (Array.isArray(rec.user_message_uuids)) {
-        resultItem.userMessageUuids = rec.user_message_uuids.filter((id) => typeof id === 'string' && id);
-      }
+      if (userMessageUuids) resultItem.userMessageUuids = userMessageUuids;
+      if (originKind) resultItem.originKind = originKind;
       if (rec.queued_turn_count != null && Number.isFinite(Number(rec.queued_turn_count))) {
         resultItem.queuedTurnCount = Math.max(0, Number(rec.queued_turn_count));
       }

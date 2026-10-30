@@ -18,6 +18,25 @@ import type { ClaudeSdkModule } from './claude-sdk.ts';
 /** Idle sessions are closed after this long without an active turn. */
 export const CLAUDE_DEFAULT_SESSION_IDLE_MS = 10 * 60 * 1000;
 
+/**
+ * How long a process is kept for background tasks after their last signal. It
+ * bounds a task that went silent; progress from a live task restarts it.
+ */
+export const CLAUDE_DEFAULT_BACKGROUND_HOLD_MS = 30 * 60 * 1000;
+
+/**
+ * After the last task ends the CLI needs a moment to start the turn that reads
+ * its result, so the session stays held across that gap.
+ */
+export const CLAUDE_BACKGROUND_SETTLE_MS = 15_000;
+
+const CLAUDE_BACKGROUND_TASK_SUBTYPES = new Set([
+  'task_started',
+  'task_progress',
+  'task_updated',
+  'task_notification',
+]);
+
 type EnvLike = Record<string, string | undefined>;
 
 /** Loose view of the SDK `Query` object; every control request is optional. */
@@ -42,6 +61,9 @@ export interface ClaudeSession {
   model: string;
   abortController: AbortController | null;
   idleTimer: ReturnType<typeof setTimeout> | null;
+  /** Live background task ids, replaced by each `background_tasks_changed`. */
+  backgroundTasks?: Set<string>;
+  backgroundActivityAt?: number;
   [key: string]: unknown;
 }
 
@@ -375,6 +397,59 @@ export async function reconnectFailedClaudeMcpServers(
   return result;
 }
 
+export function resolveClaudeBackgroundHoldMs(env: EnvLike = process.env): number {
+  const raw = Number(env?.CRETLI_CLAUDE_BACKGROUND_HOLD_MS);
+  if (Number.isFinite(raw) && raw >= 0) return raw;
+  return CLAUDE_DEFAULT_BACKGROUND_HOLD_MS;
+}
+
+/** Records one SDK message's effect on the session's background task set. */
+export function noteClaudeBackgroundTasks(
+  session: ClaudeSession | null | undefined,
+  message: unknown,
+  now: number = Date.now(),
+): void {
+  if (!session || typeof session !== 'object' || !message || typeof message !== 'object') return;
+  const rec = message as { type?: unknown; subtype?: unknown; tasks?: unknown };
+  if (rec.type !== 'system' || typeof rec.subtype !== 'string') return;
+  if (rec.subtype === 'background_tasks_changed' && Array.isArray(rec.tasks)) {
+    // A level signal: replacing the set survives a missed start or end event.
+    // Ambient tasks are watchers, not work that the session waits for.
+    const live = (rec.tasks as Array<{ task_id?: unknown; ambient?: unknown }>)
+      .filter((task) => task && typeof task.task_id === 'string' && task.ambient !== true)
+      .map((task) => task.task_id as string);
+    session.backgroundTasks = new Set(live);
+    session.backgroundActivityAt = now;
+    return;
+  }
+  if (CLAUDE_BACKGROUND_TASK_SUBTYPES.has(rec.subtype)) session.backgroundActivityAt = now;
+}
+
+export function countClaudeBackgroundTasks(session: unknown): number {
+  const tasks = (session as ClaudeSession | null | undefined)?.backgroundTasks;
+  return tasks instanceof Set ? tasks.size : 0;
+}
+
+/**
+ * True while closing the room's process would lose background work: a task is
+ * still live, or one just ended and the turn reading its result is about to
+ * start.
+ */
+export function hasClaudeBackgroundWork(
+  room: ClaudeRoomLike | null | undefined,
+  now: number = Date.now(),
+  holdMs: number = resolveClaudeBackgroundHoldMs(),
+): boolean {
+  const session = room?._claudeSession;
+  if (!isClaudeSessionAlive(session)) return false;
+  const activityAt = Number((session as ClaudeSession).backgroundActivityAt);
+  if (!Number.isFinite(activityAt)) return false;
+  const quietMs = now - activityAt;
+  return countClaudeBackgroundTasks(session) > 0
+    ? quietMs < holdMs
+    : quietMs < CLAUDE_BACKGROUND_SETTLE_MS;
+}
+
 export function clearClaudeSessionIdleTimer(session: unknown): void {
   if (!session || typeof session !== 'object') return;
   const record = session as { idleTimer?: ReturnType<typeof setTimeout> | null };
@@ -530,7 +605,7 @@ export function armClaudeSessionIdleTimer(
       armClaudeSessionIdleTimer(room, session, delay);
       return;
     }
-    if (countRoomPendingClaudeQuestions(room) > 0) {
+    if (countRoomPendingClaudeQuestions(room) > 0 || hasClaudeBackgroundWork(room)) {
       armClaudeSessionIdleTimer(room, session, delay);
       return;
     }

@@ -746,6 +746,11 @@ export function createSocketMessageHandler(chat, socket, ctx) {
           fromQueue: msg.fromQueue === true,
           remaining: Number.isFinite(msg.remaining) ? msg.remaining : null,
         });
+        // A run opened by a finished background task has no user prompt to show.
+        if (msg.followUp === true) {
+          setAgentState(chat, 'active');
+          return;
+        }
         if (msg.fromQueue === true) {
           consumeOptimisticSdkQueuedPrompt(chat, msg.text || '');
           promoteSdkQueuedPromptLine(chat, msg.text || '');

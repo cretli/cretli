@@ -20,6 +20,7 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- Claude chats no longer lose background agents: the process stays alive for them after the last client leaves (limit `CRETLI_CLAUDE_BACKGROUND_HOLD_MS`, default 30 minutes), the model's answer to a finished task appears as its own run, and a resumed session no longer ends the new prompt on an empty task notification
 - A finished parent whose subtasks still hold un-merged worktree results is no longer offered "Verify and integrate" / "Confirm integration", and the server refuses to verify it (`descendants_awaiting`); bulk integrate no longer queues such a parent as a verify entry.
 
 ### Removed

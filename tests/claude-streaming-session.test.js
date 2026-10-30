@@ -27,6 +27,10 @@ const {
 } = await import('../lib/claude/claude-sdk.ts');
 const {
   buildClaudeUserMessage,
+  countClaudeBackgroundTasks,
+  hasClaudeBackgroundWork,
+  noteClaudeBackgroundTasks,
+  resolveClaudeBackgroundHoldMs,
   buildClaudeAuthSignature,
   buildClaudeTuningSignature,
   resolveClaudeRunTuning,
@@ -1167,6 +1171,147 @@ try {
       assert.equal(room.pendingPrompts.length, 0, 'cancelled steer drains as a follow-up turn');
       assert.equal(persisted.filter((event) => event.kind === 'localUser' && event.text === 'unconsumed-two').length, 1);
     }
+  }
+
+  // --- resume: an empty task-notification turn does not settle the user turn ---
+  {
+    const fake = createFakeClaudeSdk({ autoResult: false });
+    const room = createRoom();
+    const { runner, events } = createRunner({ room, sdk: fake.sdk });
+    const run = runner.startPrompt('after resume');
+    await waitFor(() => fake.calls[0]?.pendingResult);
+    const pushedUuid = fake.calls[0].messages.at(-1).uuid;
+    assert.ok(pushedUuid, 'the prompt carries a uuid that its result can name');
+    // The exact order the CLI uses for a task stopped by the previous process.
+    fake.calls[0].emit({ type: 'system', subtype: 'task_notification', task_id: 'a1', status: 'stopped', session_id: SDK_SESSION_ID });
+    fake.calls[0].emit({
+      type: 'result',
+      subtype: 'success',
+      result: '',
+      num_turns: 0,
+      duration_ms: 71,
+      origin: { kind: 'task-notification' },
+      session_id: SDK_SESSION_ID,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(room.busy, true, 'the stale result leaves the run open');
+    assert.equal(finishedEvents(events).length, 0);
+    fake.calls[0].completeTurn({ user_message_uuids: [pushedUuid] });
+    await run;
+    assert.deepEqual(finishedEvents(events).map((event) => event.status), ['completed']);
+    assert.equal(events.some((event) => event.code === 'claude_empty_turn'), false);
+  }
+
+  // --- one-shot path: the same stale result does not become the run's result ---
+  {
+    const fake = createFakeClaudeSdk({ autoResult: false });
+    const room = createRoom();
+    const { runner, events } = createRunner({ room, sdk: fake.sdk, streamingEnabled: false });
+    const run = runner.startPrompt('one shot');
+    await waitFor(() => fake.calls[0]?.pendingResult);
+    fake.calls[0].emit({ type: 'result', subtype: 'error_during_execution', is_error: true, origin: { kind: 'task-notification' }, session_id: SDK_SESSION_ID });
+    fake.calls[0].completeTurn();
+    await run;
+    assert.deepEqual(finishedEvents(events).map((event) => event.status), ['completed']);
+  }
+
+  // --- a finished background task opens a follow-up run instead of being lost ---
+  {
+    const fake = createFakeClaudeSdk({ autoResult: false });
+    const room = createRoom();
+    const { runner, events } = createRunner({ room, sdk: fake.sdk });
+    const run = runner.startPrompt('start agent');
+    await waitFor(() => fake.calls[0]?.pendingResult);
+    fake.calls[0].emit({
+      type: 'system',
+      subtype: 'background_tasks_changed',
+      tasks: [{ task_id: 'a1', task_type: 'local_agent' }, { task_id: 'w1', task_type: 'monitor', ambient: true }],
+      session_id: SDK_SESSION_ID,
+    });
+    await waitFor(() => countClaudeBackgroundTasks(room._claudeSession) === 1);
+    assert.equal(hasClaudeBackgroundWork(room), true, 'ambient tasks are not work');
+    fake.calls[0].completeTurn();
+    await run;
+    assert.equal(room.busy, false);
+    assert.ok(events.some((event) => event.noticeType === 'background_tasks'), 'the idle chat says it is still working');
+
+    // Subagent output stays inside its tool call and opens nothing.
+    fake.calls[0].emit({
+      type: 'assistant',
+      parent_tool_use_id: 'toolu_1',
+      session_id: SDK_SESSION_ID,
+      message: { role: 'assistant', content: [{ type: 'text', text: 'subagent chatter' }] },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(room.busy, false);
+
+    fake.calls[0].emit({ type: 'system', subtype: 'task_notification', task_id: 'a1', status: 'completed', session_id: SDK_SESSION_ID });
+    fake.calls[0].emit({ type: 'system', subtype: 'background_tasks_changed', tasks: [], session_id: SDK_SESSION_ID });
+    fake.calls[0].emit({
+      type: 'assistant',
+      session_id: SDK_SESSION_ID,
+      message: { role: 'assistant', content: [{ type: 'text', text: 'the plan' }] },
+    });
+    await waitFor(() => room.busy === true);
+    const started = events.filter((event) => event.type === 'sdkPromptStarted').at(-1);
+    assert.equal(started.followUp, true);
+    assert.equal(started.text, '');
+
+    // A prompt sent during the follow-up waits for it.
+    await runner.startPrompt('next');
+    assert.equal(room.pendingPrompts.length, 1);
+    fake.calls[0].emit({
+      type: 'result',
+      subtype: 'success',
+      result: 'the plan',
+      num_turns: 1,
+      duration_ms: 5,
+      origin: { kind: 'task-notification' },
+      session_id: SDK_SESSION_ID,
+    });
+    await waitFor(() => finishedEvents(events).length === 2);
+    assert.equal(finishedEvents(events)[1].status, 'completed');
+    assert.ok(JSON.stringify(events).includes('the plan'));
+    await waitFor(() => fake.calls[0].pendingResult);
+    fake.calls[0].completeTurn();
+    await waitFor(() => room.busy === false && room.pendingPrompts.length === 0);
+    assert.equal(fake.calls.length, 1, 'the follow-up keeps the same session');
+  }
+
+  // --- server-driven rooms and cancelled runs never open a follow-up run ---
+  for (const fields of [{ delegationId: 'delegation-1' }, { cancelled: true }]) {
+    const fake = createFakeClaudeSdk();
+    const room = createRoom();
+    const { runner, events } = createRunner({ room, sdk: fake.sdk });
+    await runner.startPrompt('hello');
+    Object.assign(room, fields);
+    fake.calls[0].emit({
+      type: 'assistant',
+      session_id: SDK_SESSION_ID,
+      message: { role: 'assistant', content: [{ type: 'text', text: 'late' }] },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(room.busy, false);
+    assert.equal(events.filter((event) => event.type === 'sdkPromptStarted').length, 1);
+  }
+
+  // --- background work holds the session within its limit ---
+  {
+    const session = { alive: true, query: {}, input: {} };
+    const room = { _claudeSession: session };
+    assert.equal(hasClaudeBackgroundWork(room, 1000), false, 'no signal, nothing to hold');
+    noteClaudeBackgroundTasks(session, { type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'a' }] }, 1000);
+    assert.equal(hasClaudeBackgroundWork(room, 1000 + 5_000, 60_000), true);
+    assert.equal(hasClaudeBackgroundWork(room, 1000 + 60_000, 60_000), false, 'a silent task stops holding');
+    noteClaudeBackgroundTasks(session, { type: 'system', subtype: 'task_progress', task_id: 'a' }, 50_000);
+    assert.equal(hasClaudeBackgroundWork(room, 100_000, 60_000), true, 'progress restarts the limit');
+    noteClaudeBackgroundTasks(session, { type: 'system', subtype: 'background_tasks_changed', tasks: [] }, 200_000);
+    assert.equal(hasClaudeBackgroundWork(room, 205_000, 60_000), true, 'the result turn is about to start');
+    assert.equal(hasClaudeBackgroundWork(room, 216_000, 60_000), false);
+    assert.equal(resolveClaudeBackgroundHoldMs({ CRETLI_CLAUDE_BACKGROUND_HOLD_MS: '1000' }), 1000);
+    session.alive = false;
+    noteClaudeBackgroundTasks(session, { type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'a' }] }, 300_000);
+    assert.equal(hasClaudeBackgroundWork(room, 300_000), false, 'a dead process holds nothing');
   }
 
   console.log('claude-streaming-session.test.js OK');

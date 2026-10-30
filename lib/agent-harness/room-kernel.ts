@@ -133,6 +133,8 @@ export interface AgentRoomKernelOptions {
    */
   persistHistory?: (room: Room, recs: object[], callOptions?: { retryToken?: string, producerId?: string }) => void | Promise<unknown>;
   abortRoom?: (room: object) => void;
+  /** Keeps a client-less room alive for work the kernel cannot see, such as a harness's background tasks. */
+  holdRoom?: (room: object) => boolean;
   afterBroadcast?: (room: object, payload: Record<string, unknown>) => void;
   usageDataDir?: string;
   /** Test seam merged into the pause arm deps. */
@@ -628,7 +630,7 @@ export function createAgentRoomKernel(options: AgentRoomKernelOptions) {
       const current = rooms.get(sessionKey);
       if (!current) return;
       current._shutdownTimer = null;
-      if (current.clients.size > 0 || current.busy || current.serverHold) {
+      if (current.clients.size > 0 || current.busy || current.serverHold || options.holdRoom?.(current) === true) {
         scheduleRoomShutdown(sessionKey);
         return;
       }
