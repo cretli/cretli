@@ -430,7 +430,8 @@ body.embed-mode .embed-no-chat-state {
 }
 
 body.embed-mode .embed-no-chat-state__icon {
-  font-size: 2.5rem;
+  --embed-no-chat-icon-size: 2.5rem; // decorative glyph, larger than any text token
+  font-size: var(--embed-no-chat-icon-size);
   line-height: 1;
   color: var(--cr-accent);
 }

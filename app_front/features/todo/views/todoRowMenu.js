@@ -410,7 +410,7 @@ export async function runRowMenuAction(action, item, meta = {}) {
  */
 export async function confirmTodoIntegrationFromMenu(item) {
   const id = String(item?.id || '').trim();
-  const revision = String(item?.updatedAt || '').trim();
+  const revision = String(/** @type {any} */ (item)?.updatedAt || '').trim();
   const ctx = getWorkspaceContext();
   if (!id || !revision || !ctx.workspaceFolder) return;
   if (!confirmAction(t('todo.integrationSimpleConfirm', { title: item.title || id }))) return;

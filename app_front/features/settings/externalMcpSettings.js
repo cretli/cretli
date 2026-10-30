@@ -21,6 +21,21 @@ const TTL_DAY_CHOICES = [7, 30, 90, 365];
  * @param {string} path
  * @param {{ method?: string, body?: unknown }} [options]
  */
+
+/**
+ * Replace the host content with one text paragraph (no HTML parsing).
+ * @param {Element} host
+ * @param {string} text
+ * @param {{ className?: string, tone?: string }} [opts]
+ */
+function setParagraph(host, text, { className = '', tone = '' } = {}) {
+  const p = document.createElement('p');
+  if (className) p.className = className;
+  if (tone) p.dataset.tone = tone;
+  p.textContent = String(text ?? '');
+  host.replaceChildren(p);
+}
+
 async function api(path, options = {}) {
   /** @type {Record<string, string>} */
   const headers = { Accept: 'application/json', 'Accept-Language': getCurrentLang() };
@@ -471,12 +486,12 @@ async function renderInstalls(host) {
     ? await api('/api/mcp/external-installs', { method: 'POST', body: { folders } })
     : { json: { ok: true, installs: [] } };
   if (!res.json?.ok) {
-    host.innerHTML = `<p class="message" data-tone="error">${escapeHtml(res.json?.error || t('settings.externalMcpError'))}</p>`;
+    setParagraph(host, res.json?.error || t('settings.externalMcpError'), { className: 'message', tone: 'error' });
     return;
   }
   const installs = Array.isArray(res.json.installs) ? res.json.installs : [];
   if (!installs.length) {
-    host.innerHTML = `<p class="cr-hint">${escapeHtml(t('settings.externalMcpInstallsEmpty'))}</p>`;
+    setParagraph(host, t('settings.externalMcpInstallsEmpty'), { className: 'cr-hint' });
     return;
   }
   host.innerHTML = installs.map((row) => `
@@ -560,7 +575,7 @@ function renderClientCard(client) {
 export async function refreshExternalMcpSettingsPanel() {
   const root = document.getElementById(ROOT_ID);
   if (!root) return;
-  root.innerHTML = `<p class="settings-hint">${escapeHtml(t('settings.mcpLoading'))}</p>`;
+  setParagraph(root, t('settings.mcpLoading'), { className: 'settings-hint' });
   // The active folder comes from the tab's view context (same as chats and todos).
   const scope = getViewContextRuntimeScope();
   const [list, context, workspacesRes] = await Promise.all([
@@ -570,7 +585,7 @@ export async function refreshExternalMcpSettingsPanel() {
   ]);
   const activeFolder = String(scope.workspaceFolder || context?.json?.folder?.resolvedPath || '');
   if (!list.json?.ok) {
-    root.innerHTML = `<p class="message" data-tone="error">${escapeHtml(list.json?.error || t('settings.externalMcpError'))}</p>`;
+    setParagraph(root, list.json?.error || t('settings.externalMcpError'), { className: 'message', tone: 'error' });
     return;
   }
   renderPanel(root, {

@@ -56,6 +56,7 @@ class CrDecisionStack extends LitElement {
   }
   setCards(cards) { this.cards = Array.isArray(cards) ? cards : []; }
   setAutonomy(autonomy) { this.autonomy = autonomy || null; }
+  /** @param {{ metrics?: any, history?: any }} [insights] */
   setInsights({ metrics, history } = {}) { this.metrics = metrics || null; this.history = Array.isArray(history) ? history : []; }
   openDetails(card) {
     this.detailId = card.id;

@@ -73,6 +73,7 @@ export function attachIntegrationRoots(cards, todos) {
 export function createDecisionQueue(send, { delay = 5000, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
   const pending = new Map();
   function enqueue(card, optionId, reason = '', meta = {}) {
+    /** @type {any} */
     const entry = { card, optionId, reason, ...meta };
     entry.timer = setTimer(() => { pending.delete(card.id); void send(entry, false); }, delay);
     pending.set(card.id, entry);

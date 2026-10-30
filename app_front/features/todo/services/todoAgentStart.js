@@ -17,7 +17,7 @@ import {
 import { renderList } from '../views/todoListRender.js';
 import { confirmAction } from '../views/todoToolbar.js';
 
-/** @param {Event} e */
+/** @param {any} e */
 export function onOpenChat(e) {
   const chatId = String(e?.detail?.chatId || '').trim();
   if (!chatId) {
@@ -234,6 +234,7 @@ export async function startTodoAgentOnce(todoId, options = {}) {
     return;
   }
   setStatus(t('todo.creatingAgent'));
+  /** @type {any} */
   const payload = {
     workspaceFile: ctx.workspaceFile,
     workspaceFolder: ctx.workspaceFolder,
@@ -244,7 +245,7 @@ export async function startTodoAgentOnce(todoId, options = {}) {
   if (forceNew) payload.forceNew = true;
   if (reuseChatId) {
     payload.reuseChatId = reuseChatId;
-    payload.expectedUpdatedAt = String(options.expectedUpdatedAt || item.updatedAt || '');
+    payload.expectedUpdatedAt = String(options.expectedUpdatedAt || /** @type {any} */ (item).updatedAt || '');
   }
   // Continuing in a fresh chat runs the executor, never a plan-mode draft.
   if (forceNew && !refine) payload.sdkMode = 'agent';
