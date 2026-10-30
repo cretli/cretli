@@ -8,6 +8,7 @@ import {
   chatListVisualKey,
   shouldSkipChatListItemWrite,
 } from '../chat/chatListStateRefresh.js';
+import { writeIfChanged } from '../../lib/domWriteIfChanged.js';
 import { applySidebarChatStatusEl } from './sidebarChatStatus.js';
 import {
   ARCHIVE_COUNTDOWN_IMMINENT_TONE,
@@ -60,8 +61,8 @@ export function patchSidebarChatRowVisualState(li, chat, ctx) {
   }
   const indicator = li.querySelector('.sidebar-chat-item-state');
   if (indicator) {
-    indicator.className = 'sidebar-chat-item-state sidebar-chat-item-state--' + state;
-    indicator.setAttribute('title', meta.label);
+    writeIfChanged(indicator, 'className', 'sidebar-chat-item-state sidebar-chat-item-state--' + state);
+    writeIfChanged(indicator, 'title', meta.label, true);
   }
   const awaitingEl = li.querySelector('.sidebar-chat-item-awaiting');
   if (awaitingEl) {

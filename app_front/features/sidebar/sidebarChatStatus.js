@@ -116,7 +116,7 @@ export function applySidebarChatStatusEl(el, meta, options = {}) {
   const show = tone !== 'idle';
   const nextClass = 'sidebar-chat-item-awaiting sidebar-chat-item-awaiting--' + tone;
   const title = typeof options.title === 'string' ? options.title : '';
-  el.hidden = !show;
+  if (el.hidden !== !show) el.hidden = !show;
   if (el.className !== nextClass) el.className = nextClass;
   if (title && el.getAttribute('title') !== title) el.setAttribute('title', title);
   const activityKey = typeof meta?.activityKey === 'string' ? meta.activityKey : '';
@@ -129,10 +129,10 @@ export function applySidebarChatStatusEl(el, meta, options = {}) {
   const toneChanged = currentTone !== tone;
   const statusChanged = currentStatus !== status;
   const contentChanged = currentLabel !== label || currentActivity !== activityKey;
-  el.setAttribute('data-status-tone', tone);
-  el.setAttribute('data-activity-key', activityKey);
-  el.setAttribute('data-status-label', label);
-  el.setAttribute('data-status-outcome', status);
+  if (toneChanged) el.setAttribute('data-status-tone', tone);
+  if (currentActivity !== activityKey) el.setAttribute('data-activity-key', activityKey);
+  if (currentLabel !== label) el.setAttribute('data-status-label', label);
+  if (statusChanged) el.setAttribute('data-status-outcome', status);
   // The icon is a function of tone/outcome only. Rewriting `innerHTML` on a
   // label-only change would restart the spinner, so update the label in place.
   if (toneChanged || statusChanged) {

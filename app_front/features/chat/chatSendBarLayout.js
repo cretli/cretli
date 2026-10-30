@@ -20,7 +20,7 @@ export function setChatSendBarReserve(px, contextPx = 0) {
  * @param {boolean} [contextOnly] measure only the stack outside the bar
  * @returns {number}
  */
-function measureSendBarReserve(pane, bar, contextOnly = false) {
+export function measureSendBarReserve(pane, bar, contextOnly = false) {
   if (!(pane instanceof HTMLElement) || !(bar instanceof HTMLElement)) return 0;
   const barRect = bar.getBoundingClientRect();
   let top = barRect.top;

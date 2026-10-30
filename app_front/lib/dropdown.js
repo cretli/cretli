@@ -1,7 +1,29 @@
 import { autoUpdate, computePosition, flip, offset, shift, size } from '@floating-ui/dom';
 
-/** @type {Set<{ forceClose: () => void, isOpen: () => boolean }>} */
+/** @type {Set<{ forceClose: () => void, isOpen: () => boolean, onDocumentClick: (e: any) => void, onDocumentKeydown: (e: any) => void }>} */
 const openDropdownApis = new Set();
+let sharedListenersAttached = false;
+
+function dispatchToOpenDropdowns(method, event) {
+  for (const api of Array.from(openDropdownApis)) {
+    if (api.isOpen()) api[method](event);
+  }
+}
+const sharedDocumentClick = (event) => dispatchToOpenDropdowns('onDocumentClick', event);
+const sharedDocumentKeydown = (event) => dispatchToOpenDropdowns('onDocumentKeydown', event);
+
+/**
+ * One document-level click/keydown pair serves every dropdown instance and only
+ * visits the open ones, so N mounted dropdowns cost one listener, not N.
+ */
+function syncSharedDocumentListeners() {
+  const wanted = openDropdownApis.size > 0;
+  if (wanted === sharedListenersAttached) return;
+  sharedListenersAttached = wanted;
+  const method = wanted ? 'addEventListener' : 'removeEventListener';
+  document[method]('click', sharedDocumentClick);
+  document[method]('keydown', sharedDocumentKeydown);
+}
 
 /**
  * Index the roving focus should move to inside an open dropdown.
@@ -245,8 +267,6 @@ export function initDropdown(options = {}) {
     requestAnimationFrame(() => focusOptionAt(0));
   }
 
-  document.addEventListener('click', onDocumentClick);
-  document.addEventListener('keydown', onDocumentKeydown);
   floatingEl.addEventListener('keydown', onFloatingKeydown);
   triggerEl.addEventListener('keydown', onTriggerKeydown);
   if (compact) floatingEl.classList.add('dropdown-panel--compact');
@@ -256,18 +276,20 @@ export function initDropdown(options = {}) {
     open: openDropdown,
     close,
     forceClose,
+    onDocumentClick,
+    onDocumentKeydown,
     toggle,
     isOpen: () => open,
     destroy: () => {
       forceClose();
       openDropdownApis.delete(api);
-      document.removeEventListener('click', onDocumentClick);
-      document.removeEventListener('keydown', onDocumentKeydown);
+      syncSharedDocumentListeners();
       floatingEl.removeEventListener('keydown', onFloatingKeydown);
       triggerEl.removeEventListener('keydown', onTriggerKeydown);
       if (compact) floatingEl.classList.remove('dropdown-panel--compact');
     },
   };
   openDropdownApis.add(api);
+  syncSharedDocumentListeners();
   return api;
 }

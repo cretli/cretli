@@ -3,6 +3,7 @@ import * as api from '../../../../core/api/index.js';
 import { delegationStatusLabel } from '../../chatDelegations.js';
 import { RECOVERY_ACTION, createLatestRequestGuard, notifyRecoveryWidgets, readRecoveryRunsResponse, recoveryResumeNeedsConfirm, registerRecoveryWidget, resolveRecoveryActionFeedback, resolveRecoveryConfirmUnknown } from '../../recoveryActions.js';
 import { confirmRecoveryUnknownResume } from '../../recoveryConfirm.js';
+import { syncChildren } from '../../../../lib/childrenSync.js';
 
 /**
  * Recovery banner and recovery run rows.
@@ -261,7 +262,7 @@ export function installRecoveryWidgets(rv) {
       showRecoveryFeedback(feedback, options.feedback || null);
       return false;
     }
-    region.replaceChildren(...runs.map((run) => createRecoveryRunRow(run, chatId, refresh)));
+    syncChildren(region, `${chatId}:${JSON.stringify(runs)}`, () => runs.map((run) => createRecoveryRunRow(run, chatId, refresh)));
     showRecoveryFeedback(feedback, options.feedback || null);
     return runs.length > 0;
   }
@@ -329,14 +330,14 @@ export function installRecoveryWidgets(rv) {
       rv.recoveryBannerEl.hidden = false;
       ensureRecoveryBannerHeading();
       const { region, feedback: feedbackEl } = ensureRecoveryWidget(rv.recoveryBannerEl);
-      region.replaceChildren();
+      syncChildren(region, '', () => []);
       showRecoveryFeedback(feedbackEl, feedback);
       return;
     }
     rv.recoveryBannerEl.hidden = false;
     ensureRecoveryBannerHeading();
     const { region, feedback: feedbackEl } = ensureRecoveryWidget(rv.recoveryBannerEl);
-    region.replaceChildren(...runs.map((run) => createRecoveryRunRow(run, chatId, refreshChatRecoveryBanner)));
+    syncChildren(region, `${chatId}:${JSON.stringify(runs)}`, () => runs.map((run) => createRecoveryRunRow(run, chatId, refreshChatRecoveryBanner)));
     showRecoveryFeedback(feedbackEl, feedback);
   }
 }

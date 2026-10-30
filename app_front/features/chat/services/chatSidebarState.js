@@ -1,4 +1,5 @@
 /** Sidebar chat-state refresh, awaiting-input and terminal state resolution. */
+import { writeIfChanged } from '../../../lib/domWriteIfChanged.js';
 import { resolveChatListDotState, hasKeepAliveHarnessWork, readHarnessPendingFlags, resolveHarnessChatStateMeta, resolveChatStatusWithHistorySync } from '../chatStatusMeta.js';
 import { chatRuntime, chats } from '../state/chatRuntimeState.js';
 import { syncAgentWakeLock } from '../../pwa/wakeLock.js';
@@ -109,16 +110,16 @@ export function applyChatListItemVisualState(li, chat, kind) {
     li.dataset.visualKey = nextKey;
     const indicator = li.querySelector('.chat-list-item-state');
     if (indicator) {
-      indicator.className = 'chat-list-item-state chat-list-item-state--' + state;
-      indicator.setAttribute('title', meta.label);
+      writeIfChanged(indicator, 'className', 'chat-list-item-state chat-list-item-state--' + state);
+      writeIfChanged(indicator, 'title', meta.label, true);
     }
     const awaitingEl = li.querySelector('.chat-list-item-awaiting');
     if (awaitingEl) {
       const show = meta.tone !== 'idle';
-      awaitingEl.className = 'chat-list-item-awaiting chat-list-item-awaiting--' + meta.tone;
-      awaitingEl.hidden = !show;
-      awaitingEl.textContent = meta.label;
-      awaitingEl.setAttribute('title', t('chat.stateTitle', { label: meta.label }));
+      writeIfChanged(awaitingEl, 'className', 'chat-list-item-awaiting chat-list-item-awaiting--' + meta.tone);
+      writeIfChanged(awaitingEl, 'hidden', !show);
+      writeIfChanged(awaitingEl, 'textContent', meta.label);
+      writeIfChanged(awaitingEl, 'title', t('chat.stateTitle', { label: meta.label }), true);
     }
     return;
   }

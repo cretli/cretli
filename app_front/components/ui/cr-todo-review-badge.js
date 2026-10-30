@@ -1,4 +1,5 @@
 import { LitElement, css, html, nothing } from 'lit';
+import { reconcileSlotIcons } from '../../lib/slotIconReconcile.js';
 import { t } from '../../i18n/index.js';
 import { getDelegationAcceptContext, postDelegationAccept } from '../../core/api/index.js';
 import {
@@ -275,25 +276,7 @@ class CrTodoReviewBadge extends LitElement {
   /** Reconcile the host's light-DOM `.mdi` spans with the slots of this render. */
   updated() {
     this._ensureAcceptContexts();
-    const wanted = this._icons;
-    for (const el of Array.from(this.children)) {
-      if (!el.hasAttribute('data-cr-icon')) continue;
-      if (!wanted.has(el.getAttribute('slot') || '')) el.remove();
-    }
-    for (const [slotName, iconName] of wanted) {
-      let el = Array.from(this.children).find((child) => {
-        return child.hasAttribute('data-cr-icon') && child.getAttribute('slot') === slotName;
-      });
-      if (!el) {
-        el = document.createElement('span');
-        el.setAttribute('data-cr-icon', '');
-        el.setAttribute('slot', slotName);
-        el.setAttribute('aria-hidden', 'true');
-        this.appendChild(el);
-      }
-      const className = `mdi ${iconName}`;
-      if (el.className !== className) el.className = className;
-    }
+    reconcileSlotIcons(this, this._icons, () => document.createElement('span'));
   }
 
   /**

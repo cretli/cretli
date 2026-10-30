@@ -1,4 +1,5 @@
 import { normalizeSdkUiMode } from '../../../../../lib/sdk/sdk-ui-mode.ts';
+import { evaluateStickFromScroll } from '../../../../lib/scrollStickGeometry.js';
 import { createViewportAnchorBatchController } from '../../../../lib/sdkRichViewViewportBatch.js';
 import { getChatSpeaker } from '../../../voice/chatSpeaker.js';
 import { getHistoryParkedNewerLocal } from '../../chatHistoryMountedParking.js';
@@ -216,9 +217,7 @@ export function installViewScroll(rv) {
 
   function updateStickFromScroll() {
     if (rv.suppressScrollStickUpdate) return;
-    rv.stickToBottom = isNearBottom();
-    const maxScroll = mountEl.scrollHeight - mountEl.clientHeight;
-    rv.scrollToBottomButton.hidden = maxScroll <= SCROLL_STICK_THRESHOLD_PX || rv.stickToBottom;
+    evaluateStickFromScroll(mountEl, rv.scrollToBottomButton, rv, SCROLL_STICK_THRESHOLD_PX);
     // Not gated on a false→true transition: a forced scrollToBottom() sets stickToBottom
     // before this runs, which used to leave tail cards parked off-screen forever.
     if (rv.stickToBottom && getHistoryParkedNewerLocal(chat).length > 0) {
