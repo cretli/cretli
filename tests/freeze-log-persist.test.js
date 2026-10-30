@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   appendFreezeLogEntry,
   clearPersistedFreezeLogs,
+  flushFreezeLogBuffer,
   FREEZE_LOG_BUFFER_LS_KEY,
   getOrCreateFreezeSessionId,
   readPreviousSessionFreezeEntries,
@@ -53,6 +54,12 @@ appendFreezeLogEntry({
   tag: 'chat-sync',
   text: 'resume catch-up complete',
 });
+// Writes are coalesced per task; nothing reaches storage synchronously.
+assert.equal(storage.has(FREEZE_LOG_BUFFER_LS_KEY), false);
+await Promise.resolve();
+assert.equal(storage.has(FREEZE_LOG_BUFFER_LS_KEY), true);
+storage.delete(FREEZE_LOG_BUFFER_LS_KEY);
+flushFreezeLogBuffer();
 assert.equal(storage.has(FREEZE_LOG_BUFFER_LS_KEY), true);
 
 console.log('freeze-log-persist.test.js: ok');

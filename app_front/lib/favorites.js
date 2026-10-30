@@ -156,8 +156,9 @@ export function createFavoritesStore(storageKey) {
 
   function isFavorite(value) {
     if (!value || typeof value !== 'string') return false;
-    const set = getSetSnapshot();
-    return set.has(value);
+    // Hot path (sidebar sort comparators): read the live set, never copy it.
+    ensureLoaded();
+    return memorySet ? memorySet.has(value) : false;
   }
 
   function toggleFavorite(value) {

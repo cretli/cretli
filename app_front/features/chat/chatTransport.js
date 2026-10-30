@@ -963,6 +963,10 @@ export function createChatTransport(deps) {
     };
     socket.onopen = () => {
       delete chat._wsConnectingSince;
+      // The cap bounds parallel handshakes, not open sockets: holding the slot for the
+      // socket's lifetime let three open chats queue every other chat forever (rows stuck
+      // on the `connecting` spinner).
+      if (chat.ws === socket) releaseWsConnectSlot(chat);
       const reconnected = (chat._reconnectAttempts || 0) > 0 || chat._connectionStatus === 'reconnecting';
       if (reconnected) dispatchTodoReconnectEvent();
       // Attempts are not zeroed here: the schedule resets only after a connection that lasts >= 30 s.

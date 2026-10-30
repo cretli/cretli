@@ -45,6 +45,8 @@ export function getOrCreateFreezeSessionId() {
  * @returns {string}
  */
 export function rotateFreezeSessionId() {
+  flushFreezeLogBuffer();
+  resetBufferMirror();
   const next = createSessionId();
   if (typeof localStorage === 'undefined') return next;
   try {
@@ -102,17 +104,45 @@ function writeBufferDoc(doc) {
  */
 export function appendFreezeLogEntry(entry) {
   if (!entry || !isUiFreezeReportTag(entry.tag)) return;
-  const sessionId = getOrCreateFreezeSessionId();
-  const doc = readBufferDoc();
-  if (doc.sessionId !== sessionId) {
-    doc.sessionId = sessionId;
+  if (!pendingDoc) pendingDoc = readBufferDoc();
+  if (!cachedSessionId) cachedSessionId = getOrCreateFreezeSessionId();
+  const doc = pendingDoc;
+  if (doc.sessionId !== cachedSessionId) {
+    doc.sessionId = cachedSessionId;
     doc.entries = [];
   }
   doc.entries.push(entry);
   if (doc.entries.length > MAX_PERSISTED_ENTRIES) {
     doc.entries = doc.entries.slice(-MAX_PERSISTED_ENTRIES);
   }
-  writeBufferDoc(doc);
+  scheduleFlush();
+}
+
+// Re-reading and re-serializing the whole buffer per entry was O(n) per log
+// line while tracing. The buffer is mirrored in memory and written once per
+// task (microtask), so a burst of entries costs one setItem; a kill in the
+// middle of the very task that logged can lose that task's entries only.
+/** @type {{ sessionId: string, entries: Array<{ ts: number, timeStr: string, tag: string, text: string }> } | null} */
+let pendingDoc = null;
+let cachedSessionId = '';
+let flushQueued = false;
+
+function scheduleFlush() {
+  if (flushQueued) return;
+  flushQueued = true;
+  queueMicrotask(flushFreezeLogBuffer);
+}
+
+/** Write the in-memory buffer to storage now instead of waiting for the microtask. */
+export function flushFreezeLogBuffer() {
+  flushQueued = false;
+  if (pendingDoc) writeBufferDoc(pendingDoc);
+}
+
+function resetBufferMirror() {
+  pendingDoc = null;
+  cachedSessionId = '';
+  flushQueued = false;
 }
 
 /**
@@ -121,6 +151,7 @@ export function appendFreezeLogEntry(entry) {
  * @returns {Array<{ ts: number, timeStr: string, tag: string, text: string }>}
  */
 export function readPreviousSessionFreezeEntries(currentSessionId) {
+  flushFreezeLogBuffer();
   const doc = readBufferDoc();
   if (!doc.entries.length) return [];
   if (!doc.sessionId || doc.sessionId === currentSessionId) return [];
@@ -131,6 +162,7 @@ export function readPreviousSessionFreezeEntries(currentSessionId) {
  * Clears persisted buffer after successful recovery export.
  */
 export function clearPersistedFreezeLogs() {
+  resetBufferMirror();
   if (typeof localStorage === 'undefined') return;
   try {
     removeStorageValueWithAlias(localStorage, FREEZE_LOG_BUFFER_LS_KEY);

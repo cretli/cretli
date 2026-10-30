@@ -10,9 +10,10 @@ import {
   groupModelCatalogForSettings,
   resolveBaseCostTier,
   resolveModelProviderId,
+  setModelScoreRows,
   sortModelCatalogEntries,
 } from '../lib/model-catalog-meta.js';
-import { matchModelScoreRow } from '../lib/model-score-heuristics.js';
+import { DEFAULT_MODEL_SCORE_ROWS, matchModelScoreRow } from '../lib/model-score-heuristics.js';
 import { MODEL_ALIAS_POLICY_VERSION, UNKNOWN_FAMILY_FALLBACK } from '../lib/model-alias-policy.js';
 
 /** Documented neutral tier for a family the alias policy does not know. */
@@ -113,5 +114,14 @@ assert.equal(estimateModelQualityTier('mistral-large-4'), 3);
 assert.equal(estimateModelSpeedTier('mistral-large-4-0', []), 3);
 assert.equal(estimateModelCostTier('ministral-3b-latest'), UNKNOWN_FAMILY_TIER);
 assert.equal(estimateModelCostTier('mistral-medium-latest'), UNKNOWN_FAMILY_TIER);
+
+// Tier lookups are memoized per id; replacing the score rows must invalidate them.
+assert.equal(estimateModelQualityTier('glm-5.3-flash'), 4);
+assert.equal(estimateModelCostTier('glm-5.3-flash'), 1);
+setModelScoreRows([{ pattern: 'glm-5.3-flash', cost: 3, quality: 2, speed: 5 }]);
+assert.equal(estimateModelQualityTier('glm-5.3-flash'), 2);
+assert.equal(estimateModelCostTier('glm-5.3-flash'), 3);
+setModelScoreRows(DEFAULT_MODEL_SCORE_ROWS);
+assert.equal(estimateModelQualityTier('glm-5.3-flash'), 4);
 
 console.log('All model-catalog-meta tests passed.');
