@@ -259,6 +259,25 @@ leaf. That stop is actionable: the parent reports it as blocked, and
 restored. Consequently `CRETLI_DELEGATION_CODE_REVIEW_MAX_CLOSURES` counts
 rounds, not jobs.
 
+Early satisfiability check (fixed-pair code reviews only): at review start the
+server asks whether two distinct canonical identities (same harness + base
+model, effort ignored) can still be obtained from the pair members plus eligible
+stand-ins, after the implementer/orchestrator excludes and members that cannot
+be started (`evaluateReviewerPairSatisfiability`, stand-ins from
+`listReviewCandidates`). When they cannot (for example both members are Low and
+Medium of one base model), the first reviewer of the round still starts, with a
+`reviewer_pair_unsatisfiable` start warning naming the missing identity
+(`harness/model`) and the reason; a further start whose canonical identity
+already started in the same open round is refused with the typed error
+`reviewer_pair_unsatisfiable` (HTTP 409). Independence is not relaxed, and
+`reviewer_pool_degraded` handling at round end is unchanged. The alert is an
+operator journal event (`reviewer_pair_unsatisfiable`, summary with leaf id,
+round key and missing identity) written once per leaf and round;
+`reviewer_pair_satisfiable` clears it. `operator_handoff` shows the events and
+`operator_watcher_status` lists open ones as `reviewer_pair_alerts`
+(`[{ leaf_id, missing, since }]`). Plan-review pairs and non-pool reviews are
+not checked.
+
 Per-todo override: a todo may carry `reviewer_pair` (`{ enabled?, members? }`),
 set through `todo_update`, REST `PATCH /api/todos/:id`, or `todo_create`. A
 complete pair with `enabled:true` takes precedence over workspace reviewer
