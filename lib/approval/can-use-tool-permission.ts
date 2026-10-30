@@ -1,3 +1,5 @@
+import { notifyDecisionGateChange } from '../decisions/gate-changes.js';
+import { registerDecisionGateSource, decisionRoomWorkspace, permissionGate } from '../decisions/host-gates.js';
 import { isHarnessPermissionControlDisabled } from './harness-permission-controls.ts';
 /**
  * Shared `permission required` path for `canUseTool` harnesses (Claude, Qwen).
@@ -210,9 +212,11 @@ export async function requestCanUseToolPermission(params: {
       if (timer) clearTimeout(timer);
       signal?.removeEventListener?.('abort', onAbort);
       map.delete(requestId);
+      if (!map.size && typeof room._decisionGateUnregister === 'function') room._decisionGateUnregister();
       room._pendingQuestions?.delete(requestId);
       host.broadcast?.({ type: 'opencodePermissionResolved', requestId }, { log: false });
       host.onPendingChange?.();
+      notifyDecisionGateChange(decisionRoomWorkspace(room));
       resolve({ requestId, ...result });
       return true;
     };
@@ -221,12 +225,16 @@ export async function requestCanUseToolPermission(params: {
     };
     entry.finish = finish;
     map.set(requestId, entry);
+    room._decisionGateUnregister = registerDecisionGateSource(`permission:${harness}:${room.chatId}`, (workspaceFolder) => decisionRoomWorkspace(room) === workspaceFolder
+      ? [...pendingMap(room).values()].map((pending) => permissionGate(room, pending.card,
+        (payload) => replyCanUseToolPermission(room, host, payload))) : []);
     if (!(room._pendingQuestions instanceof Map)) room._pendingQuestions = new Map();
     // Shared with questions so replay, idle sync and waiting-for-input follow.
     room._pendingQuestions.set(requestId, card);
     host.broadcast?.({ type: 'sdkEvent', event: card });
     host.onPendingChange?.();
     host.notify?.(card);
+    notifyDecisionGateChange(decisionRoomWorkspace(room));
     const timeoutMs = Number(params.timeoutMs) || 0;
     if (timeoutMs > 0) {
       timer = setTimeout(() => {

@@ -56,6 +56,7 @@ class CrDecisionStack extends LitElement {
   }
   setCards(cards) { this.cards = Array.isArray(cards) ? cards : []; }
   select(card, optionId, reason = '') {
+    if (optionId === '__other__' && !reason.trim()) { this.detailId = card.id; return; }
     if (this.pending.has(card.id)) return;
     this.queue.enqueue(card, optionId, reason);
     this.pending = new Map(this.queue.pending);
@@ -146,8 +147,8 @@ class CrDecisionStack extends LitElement {
         ${card.subject?.chatId ? html`<p><a href=${`/chat?chat=${encodeURIComponent(card.subject.chatId)}`}>${t('decisions.openChat')}</a></p>` : ''}
         ${(card.evidence || []).map((item) => this.evidence(item))}
         <div class="actions">${card.options.map((option) => html`<button @click=${() => this.select(card, option.id)}>${option.label}: ${option.effect}</button>`)}</div>
-        <label>${t('decisions.other')}<textarea id=${`other-${card.id}`}></textarea></label>
-        <button @click=${() => { const input = /** @type {HTMLTextAreaElement | null} */ (this.renderRoot.querySelector(`#other-${card.id}`)); const reason = input?.value?.trim(); if (reason) this.select(card, '__other__', reason); }}>${t('decisions.sendOther')}</button>
+        ${card.otherOption !== null ? html`<label>${t('decisions.other')}<textarea id=${`other-${card.id}`}></textarea></label>
+        <button @click=${() => { const input = /** @type {HTMLTextAreaElement | null} */ (this.renderRoot.querySelector(`#other-${card.id}`)); const reason = input?.value?.trim(); if (reason) this.select(card, '__other__', reason); }}>${t('decisions.sendOther')}</button>` : ''}
         <button @click=${() => { this.detailId = ''; }}>${t('decisions.close')}</button>
       </section>` : ''}
     </article>`;

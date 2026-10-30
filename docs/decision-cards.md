@@ -1,6 +1,6 @@
 # Decision cards (ADR)
 
-Status: accepted for the first server slice. Later adapters, UI, push actions, and autonomy are separate work.
+Status: accepted for the server registry, request protocol, UI and host-gate adapters. Push actions and autonomy are separate work.
 
 ## Contract
 
@@ -65,3 +65,26 @@ contains `decisionId`, `kind`, `optionId`, `option`, `text` and related `todoIds
 The decided card also retains this structured `response`. Options describe work
 for the source orchestrator; the adapter does not execute producer-supplied code.
 The decision stack UI is implemented in a separate leaf.
+
+## Host-gate adapters
+
+`lib/decisions/gate-adapters.js` mirrors six existing human gates as cards (`producer: host-gate-adapter`). Every effect runs only after the registry route has verified its existing human session and CSRF channel. Browser and cancellation adapters invoke the same handlers as their REST routes, preserving their scope checks. Permission/question adapters invoke the existing harness reply functions, and Scout/lesson adapters use the same domain functions as `scout_findings`/`lesson_update`. No adapter adds an authorization channel. A card for a gate that is no longer open becomes stale. Fixed-action gates set `otherOption: null`; question cards also accept a validated Other answer through the original harness question payload.
+
+| Gate | Card options | Resolved through |
+| --- | --- | --- |
+| Agent permission (Claude, OpenCode, Qwen) | `once`, `reject` | the harness permission reply handler (`handleClaudePermissionReply`, `opencodePermissionReply`) |
+| Agent question (OpenCode, Claude, Qwen) | up to four complete answer sets; `reject` when space permits; Other answer | the harness question reply handler (`opencodeQuestionReply`, `handleClaudeOpenCodeQuestionReply`) |
+| Browser consent | `once`, `allow`, `deny` | `POST /api/browser/consent/:id` with the `chatId` carried in the card subject |
+| Scout proposal | `accept`, `reject` | `acceptScoutFindings` / `rejectScoutFindings` (todo creation still follows `scoutAutoCreate`) |
+| Lesson candidate | `activate`, `withdraw` | `updateLesson` with the `expected_revision` stored in the subject |
+| `cancel_unconfirmed` slot | `confirm`, `wait` | `POST /api/delegations/:id/confirm-stop` (`delegation_stop_ok`); `wait` changes nothing |
+
+First answer wins: the chat reply and the card reply share the harness waiter or reply claim, so a late card reply gets `stale` (HTTP 409), and a late harness callback returns `false`. OpenCode claims a question synchronously before awaiting its HTTP reply and releases the claim on failure so the human can retry. Permission replies retain the existing approval guard and audit.
+
+Question cards retain the full question form as evidence. Larger forms show a compact subset of complete answers plus Other; a single answer can be entered as a label, while multiple questions or multiple selections accept an array of label arrays. The adapter validates question count, selection cardinality and allowed labels before calling the harness. Custom text is allowed only for a custom or open question. The existing chat form remains available for richer interaction. The old views (`openCodeInteractive.js`, `browserConsentCard.js`, `scoutFindingsInboxView.js`) are unchanged.
+
+### Unsupported harnesses
+
+Codex and Cursor SDK have no verified host permission gate (see [the permission-hook ADR](approval-permission-hook.md#codex-and-cursor-sdk-no-verified-host-gate)). Native permission/question host-gate cards are unsupported for those harnesses; the adapters do not infer a pending gate from assistant text or replace harness policy. Their native approval behavior remains with the harness. Explicit `decision_request` cards remain available independently of host permission support.
+
+Source changes schedule coalesced, best-effort card synchronization; failure leaves the original gate and fallback view intact. A decisions GET reconciles the current source state as well. Gate cards follow the chat's logical workspace, including runs in a worktree. Browser subjects retain both `consentId` and `chatId`; replies always supply that `chatId`. Lesson subjects retain `expected_revision`, and activation or withdrawal uses that CAS value. Cancellation subjects use the delegation revision; confirm-stop checks it before releasing the slot. Choosing `wait` only dismisses that revision of the card and leaves the slot occupied.

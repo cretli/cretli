@@ -1,3 +1,5 @@
+import { notifyDecisionGateChange } from '../decisions/gate-changes.js';
+import { registerDecisionGateSource, decisionRoomWorkspace, questionGate } from '../decisions/host-gates.js';
 /**
  * WebSocket rooms for the Claude Agent SDK harness — SDK-compatible event protocol.
  *
@@ -324,6 +326,12 @@ const kernel = createAgentRoomKernel({
   },
 });
 const claudeRooms = kernel.rooms;
+registerDecisionGateSource('claude-questions', (workspaceFolder) => [...claudeRooms.values()]
+  .filter((room) => decisionRoomWorkspace(room) === workspaceFolder)
+  .flatMap((room) => [...(room._pendingQuestions || new Map()).values()]
+    .filter((event) => event.type !== 'opencode_permission')
+    .map((event) => questionGate(room, event, (payload) => handleClaudeOpenCodeQuestionReply(room, null, payload)))
+    .filter(Boolean)));
 registerPendingPromptRoomSource(() => claudeRooms.values());
 registerMcpOwnerSource('claude', () => claudeRooms.entries());
 const {
@@ -540,6 +548,7 @@ export function resolveClaudeQuestion(
   const waiter = room?._claudeQuestionWaiters?.get(id);
   if (typeof waiter !== 'function') return false;
   waiter(payload);
+  notifyDecisionGateChange(decisionRoomWorkspace(room));
   broadcastRoom(room, buildClaudeQuestionResolvedPayload(id, payload));
   sendRoomState(room);
   return true;

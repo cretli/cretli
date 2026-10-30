@@ -1,3 +1,5 @@
+import { notifyDecisionGateChange } from '../../lib/decisions/gate-changes.js';
+import { registerDecisionGateSource, decisionRoomWorkspace, permissionGate, questionGate } from '../../lib/decisions/host-gates.js';
 /**
  * WebSocket rooms for OpenCode agent harness — SDK-compatible event protocol.
  */
@@ -170,6 +172,13 @@ const kernel = createAgentRoomKernel({
   },
 });
 const openCodeRooms = kernel.rooms;
+registerDecisionGateSource('opencode', (workspaceFolder) => [...openCodeRooms.values()]
+  .filter((room) => decisionRoomWorkspace(room) === workspaceFolder)
+  .flatMap((room) => [
+    ...[...(room._pendingOpenCodePermissions || new Map()).values()].map((event) => permissionGate(room, event, (payload) => room.replyOpenCodePermission(payload))),
+    ...[...(room._pendingOpenCodeQuestions || new Map()).values()].map((event) => questionGate(room, event, (payload) => room.replyOpenCodeQuestion(payload))).filter(Boolean),
+  ]));
+
 registerPendingPromptRoomSource(() => openCodeRooms.values());
 const {
   broadcastRoom,
@@ -1067,6 +1076,7 @@ export function removePendingOpenCodePermission(room, requestId) {
   if (!id) return;
   if (room._pendingOpenCodePermissions instanceof Map) {
     room._pendingOpenCodePermissions.delete(id);
+    notifyDecisionGateChange(decisionRoomWorkspace(room));
   }
   forgetPermissionAdvisorStatus(room, id);
   releaseApprovalAdvisorSessionPin(room, id);
@@ -1816,7 +1826,10 @@ function prioritizeQueuedPrompt(target) {
  */
 async function replyOpenCodeQuestion(payload) {
   const requestId = typeof payload?.requestId === 'string' ? payload.requestId.trim() : '';
-  if (!requestId) return;
+  if (!requestId || !room._pendingOpenCodeQuestions?.has(requestId)) return false;
+  if (!(room._decisionQuestionClaims instanceof Set)) room._decisionQuestionClaims = new Set();
+  if (room._decisionQuestionClaims.has(requestId)) return false;
+  room._decisionQuestionClaims.add(requestId);
   const pending = room._pendingOpenCodeQuestions instanceof Map
     ? room._pendingOpenCodeQuestions.get(requestId)
     : null;
@@ -1824,8 +1837,9 @@ async function replyOpenCodeQuestion(payload) {
     ? pending.sessionId
     : room.opencodeSessionId;
   const instanceOptions = openCodeInstanceOptions(room);
-  const instance = await getOrCreateOpenCodeInstance(instanceOptions);
+  let instance;
   try {
+    instance = await getOrCreateOpenCodeInstance(instanceOptions);
     if (shouldExitPlanModeOnQuestionReply({
       mode: room.sdkMode,
       questionEvent: pending,
@@ -1843,6 +1857,7 @@ async function replyOpenCodeQuestion(payload) {
       reject: payload?.reject === true,
     });
     room._pendingOpenCodeQuestions?.delete(requestId);
+    notifyDecisionGateChange(decisionRoomWorkspace(room));
     broadcastRoom(room, {
       type: 'opencodeQuestionResolved',
       requestId,
@@ -1854,8 +1869,10 @@ async function replyOpenCodeQuestion(payload) {
       drainNextPendingPrompt();
     }
   } finally {
-    instance.release();
+    instance?.release();
+    room._decisionQuestionClaims.delete(requestId);
   }
+  return true;
 }
 
 /**
@@ -1868,7 +1885,7 @@ async function replyOpenCodePermission(payload) {
   if (reply !== 'once' && reply !== 'always' && reply !== 'reject') return;
   // Manual path stays authoritative, but a second click / late broker reply
   // must not POST twice for the same requestId.
-  if (!claimOpenCodePermissionReply(room, requestId)) return;
+  if (!room._pendingOpenCodePermissions?.has(requestId) || !claimOpenCodePermissionReply(room, requestId)) return false;
   const pending = room._pendingOpenCodePermissions instanceof Map
     ? room._pendingOpenCodePermissions.get(requestId)
     : null;
@@ -1876,8 +1893,9 @@ async function replyOpenCodePermission(payload) {
     ? pending.sessionId
     : room.opencodeSessionId;
   const instanceOptions = openCodeInstanceOptions(room);
-  const instance = await getOrCreateOpenCodeInstance(instanceOptions);
+  let instance;
   try {
+    instance = await getOrCreateOpenCodeInstance(instanceOptions);
     await postOpenCodePermissionResponse({
       baseUrl: instance.baseUrl,
       requestId,
@@ -1925,8 +1943,9 @@ async function replyOpenCodePermission(payload) {
     releaseOpenCodePermissionReplyClaim(room, requestId);
     throw err;
   } finally {
-    instance.release();
+    instance?.release();
   }
+  return true;
 }
 
   room.startPrompt = runPrompt;
@@ -2129,7 +2148,9 @@ export async function handleOpenCodeAgentWebSocket(ws, sessionKey, deps) {
       return;
     }
     if (msg.type === 'opencodeQuestionReply' && typeof msg.requestId === 'string') {
-      void room.replyOpenCodeQuestion(msg).catch((err) => {
+      void room.replyOpenCodeQuestion(msg).then((ok) => {
+        if (ok === false) broadcastRoom(room, { type: 'questionReplyRejected', requestId: msg.requestId, reason: 'stale' });
+      }).catch((err) => {
         broadcastRoom(room, {
           type: 'sdkError',
           code: 'opencode_question_error',
@@ -2139,7 +2160,9 @@ export async function handleOpenCodeAgentWebSocket(ws, sessionKey, deps) {
       return;
     }
     if (msg.type === 'opencodePermissionReply' && typeof msg.requestId === 'string') {
-      void room.replyOpenCodePermission(msg).catch((err) => {
+      void room.replyOpenCodePermission(msg).then((ok) => {
+        if (ok === false) broadcastRoom(room, { type: 'sdkError', code: 'stale', message: 'Permission request already resolved.' });
+      }).catch((err) => {
         broadcastRoom(room, {
           type: 'sdkError',
           code: 'opencode_permission_error',

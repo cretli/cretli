@@ -1,3 +1,5 @@
+import { notifyDecisionGateChange } from '../../lib/decisions/gate-changes.js';
+import { registerDecisionGateSource, decisionRoomWorkspace, questionGate } from '../../lib/decisions/host-gates.js';
 /**
  * WebSocket rooms for the Qwen Code SDK harness — SDK-compatible event protocol.
  */
@@ -143,6 +145,13 @@ const kernel = createAgentRoomKernel({
   },
 });
 const qwenRooms = kernel.rooms;
+registerDecisionGateSource('qwen-questions', (workspaceFolder) => [...qwenRooms.values()]
+  .filter((room) => decisionRoomWorkspace(room) === workspaceFolder)
+  .flatMap((room) => [...(room._pendingQuestions || new Map()).values()]
+    .filter((event) => event.type !== 'opencode_permission')
+    .map((event) => questionGate(room, event, (payload) => resolveQwenQuestion(room, payload.requestId, payload)))
+    .filter(Boolean)));
+
 registerPendingPromptRoomSource(() => qwenRooms.values());
 const {
   broadcastRoom,
@@ -189,6 +198,7 @@ function resolveQwenQuestion(room, requestId, payload) {
   room._qwenQuestionWaiters.delete(requestId);
   if (typeof waiter !== 'function') return false;
   waiter(payload);
+  notifyDecisionGateChange(decisionRoomWorkspace(room));
   broadcastRoom(room, {
     type: 'questionResolved',
     requestId,
