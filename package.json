@@ -214,7 +214,7 @@
     "sharp": "^0.35.4",
     "source-map-js": "^1.2.1",
     "web-push": "^3.6.7",
-    "ws": "^8.21.3"
+    "ws": "^8.22.0"
   },
   "optionalDependencies": {
     "@cursor/sdk": "^1.0.37",
