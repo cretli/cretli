@@ -53,6 +53,9 @@ const SERIAL_ONLY_TEST_FILES = new Set([
   'sidebar-workspace-lit.test.js',
   // Wall-clock benchmark: contention from parallel files would skew its timings.
   'storage-chat-history-bench.test.js',
+  // Performance budgets: wall-clock thresholds against docs/perf-budgets-baseline.json.
+  'perf-budget-chats-baseline.test.js',
+  'perf-budget-presence.test.js',
 ]);
 
 /**
