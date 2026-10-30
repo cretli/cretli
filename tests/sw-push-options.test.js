@@ -120,7 +120,7 @@ const DAY = 24 * HOUR;
 // --- sw.js wiring + cache bump ----------------------------------------------
 const swSource = readFileSync(path.join(root, 'public', 'sw.js'), 'utf8');
 assert.match(swSource, /importScripts\('\/sw-push-options\.js'\)/);
-assert.match(swSource, /CACHE_NAME = 'cretli-v31'/);
+assert.match(swSource, /CACHE_NAME = 'cretli-v32'/);
 assert.match(swSource, /shouldPersistPushPayload\(payload\)/);
 assert.match(swSource, /resolvePushRenotify\(payload, existing\)/);
 assert.match(swSource, /getNotifications\(\{ tag \}\)/);

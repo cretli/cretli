@@ -12,7 +12,7 @@
 // the cache, and a strict match would serve Response.error() for the app bundle,
 // leaving the cached HTML shell without any JavaScript.
 
-const CACHE_NAME = 'cretli-v31';
+const CACHE_NAME = 'cretli-v32';
 const OFFLINE_URL = '/offline.html';
 
 // Pure notificationclick decision logic, shared with the unit test. Kept in a

@@ -60,7 +60,6 @@ import { getChatMuteStore } from '../../features/pwa/chatMuteStore.js';
 import { initInAppSignals } from '../../features/pwa/inAppSignals.js';
 import { initServiceWorkerMessages, readNotificationBootInfo } from '../../features/pwa/swMessages.js';
 import { initNotificationCenter } from '../../features/notifications/notificationCenter.js';
-import { initDecisionsPanel } from '../../features/decisions/decisionsPanel.js';
 import { readStorageValueWithAlias, writeStorageValueWithAlias } from '../../lib/storageKeyAlias.js';
 import { parseEmbedModeQuery, resolveEmbedPanel } from './embedMode.js';
 import { isEmbedModeEnabled } from './embedWidgetBridge.js';
@@ -236,7 +235,8 @@ export function createBootApp(deps) {
         logger: appLogger,
         onNavigate: openNotificationActionUrl,
       }));
-      measureStartupStep('initDecisionsPanel', () => initDecisionsPanel());
+      // Decisions only feed the header badge at boot, so its chunk stays off the critical path.
+      measureStartupStep('initDecisionsPanel', () => import(/* webpackChunkName: "panel-decisions" */ '../../features/decisions/decisionsPanel.js').then((mod) => mod.initDecisionsPanel()));
       measureStartupStep('initSettingsWorkspacePicker', () => initSettingsWorkspacePicker() || Promise.resolve());
       measureStartupStep('initChatActivityStore', () => installChatActivityStorageListener());
       // Boot passes that read workspace-scoped data. The bounded view-context wait

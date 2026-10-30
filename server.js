@@ -19,6 +19,8 @@ import { addTodo, listTodos } from './lib/persist/todos-store.js';
 import { publishNotification } from './lib/notifications/notification-store.ts';
 import express from 'express';
 import compression from 'compression';
+import { resolveServedFrontBundle } from './lib/front-bundle.js';
+import { createDistStaticMiddleware } from './lib/dist-static.js';
 import { guardAsyncRoutes } from './lib/http-async-guard.js';
 import { resolveServerTransport, exitOnTlsFailure } from './lib/server-tls.js';
 import { registerTlsSettingsRoutes } from './lib/routes/tls-settings-routes.js';
@@ -659,10 +661,12 @@ registerDevAndUpdateRoutes(app, {
     taskRunBufferMax: TASK_RUN_BUFFER_MAX,
   },
 });
-app.use('/dist/app', (req, res, next) => {
-  if (/\.(?:css|js)$/.test(String(req.path || ''))) res.setHeader('Cache-Control', 'no-store');
-  next();
-});
+// Production bundle by default; CRETLI_FRONT_BUNDLE=dev serves the development bundle (rollback flag).
+const servedFrontBundle = resolveServedFrontBundle({ publicDir: PUBLIC_DIR });
+if (servedFrontBundle.fellBack) {
+  console.warn(`Cretli: ${servedFrontBundle.requested} frontend bundle not built, serving the ${servedFrontBundle.mode} bundle instead.`);
+}
+app.use('/dist/app', createDistStaticMiddleware({ dir: servedFrontBundle.dir, mode: servedFrontBundle.mode }));
 app.use(express.static(PUBLIC_DIR));
 const sdkRoomTransport = await initSdkRoomTransport();
 bootPhase('sdk-room-transport');

@@ -2,6 +2,7 @@ import { existsSync, statSync, watch } from 'fs';
 import path from 'path';
 import type { FSWatcher } from 'fs';
 import type { WebSocket } from 'ws';
+import { resolveServedFrontBundle } from '../front-bundle.js';
 
 export const frontBuildClients = new Set<WebSocket>();
 
@@ -35,7 +36,7 @@ function queueFrontBuildAssetBroadcast(assetType: string, file: string, serverIn
 }
 
 export function installFrontBuildWatcher(projectRoot: string, serverInstanceToken: string): void {
-  const distDir = path.join(projectRoot, 'public', 'dist', 'app');
+  const distDir = resolveServedFrontBundle({ publicDir: path.join(projectRoot, 'public') }).dir;
   if (!existsSync(distDir) || !statSync(distDir).isDirectory()) {
     console.warn('[front-hot] no dist directory to watch:', distDir);
     return;
