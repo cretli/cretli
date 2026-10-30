@@ -174,6 +174,9 @@
     "lib/mcp/builtin/context-tools.js:isChatOfDelegation:control:read-only manifest visibility covers the controller via accessor, the historical starter, root and child; no steering",
     "lib/mcp/builtin/context-tools.js:handler[context_manifest]:identity:compares the delegation manifest with its starter chat's context; access is decided by isChatOfDelegation",
     "lib/context/delegation-context-manifest.ts:buildDelegationContextManifest:identity:records the starter chat id as a manifest link; no ownership decision",
-    "lib/mcp/mcp-inprocess-client.js:createInProcessMcpClient.billingLedger:identity:chat kind detection from delegationParentChatId (billing tools refused to delegation children)"
+    "lib/mcp/mcp-inprocess-client.js:createInProcessMcpClient.billingLedger:identity:chat kind detection from delegationParentChatId (billing tools refused to delegation children)",
+    "lib/chat-retention.js:isTechnicalChat:identity:chat kind detection from delegationParentChatId/delegationRootChatId (retention eligibility only)",
+    "lib/chat-retention.js:planChatRetention.hasLiveParentRow:identity:historical parent link of a chat, used to keep children of live parents; not a control decision",
+    "lib/routes/delegations-routes.js:registerDelegationsRoutes:identity:review subject record carries the stored parentChatId of the delegation row as identity, not a control decision"
   ]
 }
