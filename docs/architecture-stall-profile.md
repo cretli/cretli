@@ -169,3 +169,55 @@ Additional gaps: the real browser panel/WS paint path, a 10-minute mixed run wit
 | PTY ws handler | `ws.on('close')` clears the resize debounce timer and removes the client; the last client of a non-agent terminal kills the pty; spawned ptys are registered through `trackChildProcess` |
 | Child-process / OpenCode port registry lock | exclusive directory, stale after 10 s, waiter gives up after 3 s (25 ms poll) |
 | Delegation runtime tick | one `setInterval` (unref'd) guarded by `tickInFlight` and a worker generation; `stopDelegationRuntimeWorker` clears it; store work is serialized through `enqueueDelegationStoreWork` |
+
+## `writeJsonAtomic` hot files (write-stats scenario)
+
+Measured with the per-file rows of `getWriteStats()` (`lib/persist/atomic-write.js`), driven by a deterministic mixed workload. No new
+mechanism: callers adopt the existing `writeJsonCoalesced` / `skipIfUnchanged`.
+
+Reproduction (same seed -> same traffic; run it twice for noise, JSON goes to `--out`):
+
+```bash
+node scripts/architecture-stall-profile.mjs --scenario write-stats --profile full --seed 20261017 --out /tmp/write-stats.json   # ~10 s
+```
+
+Workload (300 iterations, isolated `CRETLI_DATA_DIR`, 5 000-chat fixture): per iteration `updateChat` (a rename every third call), `addTodo`,
+`upsertDelegationWorkflow`, `appendChildExitEvent`; every third iteration a mailbox message create + update (the mailbox is SQLite-backed on the
+default store, so it writes no JSON and is absent from the table). Only files that the scenario touches can appear: **the scenario yields five
+rows, not ten**. Cost = `stringifyMs + ioMs` (ms, whole run).
+
+### Before (two baseline runs) and noise
+
+| File | writes | identicalWrites | stringifyMs run1 / run2 | ioMs run1 / run2 | cost run1 / run2 | noise \|run1 − run2\| |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `chats.json` | 300 | 0 | 0 / 0 | 647.92 / 620.47 | 647.92 / 620.47 | 27.45 |
+| `todos/*.json` | 300 | 0 | 116.42 / 115.81 | 87.94 / 86.74 | 204.36 / 202.56 | 1.80 |
+| `delegation-workflows.json` | 300 | 0 | 7.10 / 7.03 | 19.60 / 20.34 | 26.70 / 27.37 | 0.67 |
+| `child-exit-events.json` | 300 | 0 | 9.65 / 9.58 | 15.92 / 15.34 | 25.57 / 24.92 | 0.65 |
+| `chat-title-history.json` | 200 | 0 | 5.18 / 5.92 | 10.18 / 10.84 | 15.36 / 16.77 | 1.41 |
+
+### Classification
+
+| File | Class | Decision |
+| --- | --- | --- |
+| `chats.json` | (a) durable before return | Primary chat store, read back by other code paths and processes right after every write; every `updateChat` also advances `updatedAt`, so there are no identical writes. Not touched. |
+| `todos/*.json` | (a) | CAS-guarded todo document; no identical writes. Not touched. |
+| `delegation-workflows.json` | (a) | Loop state must survive a restart (rounds are restored from it); each row carries a fresh `updatedAt`. Not touched. |
+| `child-exit-events.json` | (a) | Crash/OOM evidence appended at child exit, close to a possible process death. Not touched. |
+| `chat-title-history.json` | (b) may be delayed | Advisory audit trail next to `chats.json`; one rename writes it twice (entry, then the history `seq`). **Changed:** `writeJsonCoalesced` (`maxDelayMs` 2 s) with read-through of the pending document, flushed by `flushCoalescedWrites()` on SIGINT/SIGTERM and `process.on('exit')` in `server.js`. |
+
+Considered and rejected for (c): `sidebar-layout.json` (every write carries a fresh `updatedAt` that the API returns to the client, so
+`ignoreKeys: ['updatedAt']` would make the response disagree with the disk) and `memory-monitor-state.json` (every run stamps `updatedAt`/`lastSeenAt`;
+its values are never identical in real use). No file qualified for `skipIfUnchanged`.
+
+### After (two runs)
+
+| File | writes (run1 / run2) | coalesced | cost run1 / run2 (before: 15.36 / 16.77) | Δ vs. baseline | Beyond noise (1.41)? |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `chat-title-history.json` | 2 / 2 (was 200) | 198 | 0.14 / 0.13 | −15.2 ms (−99 %) | yes |
+
+The other four rows are unchanged within noise (e.g. `todos/*.json` 211.52 / 200.10, `chats.json` 669.41 / 600.92 — the `chats.json` spread of ~70 ms
+between two runs of identical code is the largest noise in this scenario and is dominated by fs cache state; `chats.json` is the largest remaining cost
+and is a storage-owned (a) writer). Format on disk is unchanged (`{ v: 1, chats }`, 2-space indent). Tests: `tests/chat-title-history-coalesced.test.js`
+(fewer physical writes, byte-equivalent content to `CRETLI_COALESCED_WRITES=0`, read-through, flush on shutdown).
+Caveat: a backup taken inside the 2 s window can miss the newest title-history entry; a hard kill (SIGKILL) inside the window loses up to 2 s of it.

@@ -116,7 +116,8 @@ function runParent() {
   const dataDir = path.join(dir, 'data');
   try {
     const env = { ...process.env, CRETLI_DATA_DIR: dataDir, CURSOR_REMOTE_DATA_DIR: dataDir, HOME: dir, GIT_CONFIG_GLOBAL: '/dev/null' };
-    const stdout = execFileSync(process.execPath, [SELF, '--child', '--profile', profile, '--seed', String(seed), '--work', dir], {
+    const scenario = option('--scenario', '');
+    const stdout = execFileSync(process.execPath, [SELF, '--child', '--profile', profile, '--seed', String(seed), '--work', dir, ...(scenario ? ['--scenario', scenario] : [])], {
       env,
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
@@ -222,7 +223,83 @@ function startHolder(code, argv = []) {
   });
 }
 
+/**
+ * Write-stats scenario (`--scenario write-stats`): drives the hottest `writeJsonAtomic`
+ * callers with a deterministic mixed workload and reports the per-file `getWriteStats`
+ * rows ranked by stringifyMs + ioMs. Same seed -> same traffic, so two runs differ only by
+ * machine noise. Used by docs/architecture-stall-profile.md ("writeJsonAtomic hot files").
+ */
+async function runWriteStatsScenario() {
+  const profileName = option('--profile', 'full');
+  const P = PROFILES[profileName];
+  const seed = Number(option('--seed', '20261017'));
+  const work = option('--work', '');
+  const dataDir = process.env.CRETLI_DATA_DIR;
+  if (!P || !work || !dataDir || path.resolve(dataDir).startsWith(path.join(ROOT, 'data'))) {
+    throw new Error('child requires an isolated CRETLI_DATA_DIR and --work dir');
+  }
+  const { populateFixture } = await import(pathToFileURL(path.join(ROOT, 'scripts/architecture-http-fixture.mjs')).href);
+  await populateFixture({ dir: path.join(work, 'data'), size: P.fixtureChats, profile: P.fixtureProfile, seed });
+  const atomic = await import('../lib/persist/atomic-write.js');
+  const chatsPersist = await import('../lib/persist/chats-persist.js');
+  const todosStore = await import('../lib/persist/todos-store.js');
+  const mailbox = await import('../lib/persist/delegation-mailbox-persist.js');
+  const workflows = await import('../lib/persist/delegation-workflows-persist.js');
+  const oom = await import('../lib/oom-diagnostics.js');
+  const chats = chatsPersist.loadChats();
+  const hotFolder = chats[0].workspaceFolder;
+  const n = Math.min(P.fs, 300);
+  atomic.setWriteStatsEnabled(true);
+  atomic.resetWriteStats();
+  atomic.resetWriteMemory();
+  const callMs = {};
+  const timed = (label, fn) => {
+    const t0 = performance.now();
+    fn();
+    (callMs[label] ||= []).push(performance.now() - t0);
+  };
+  let todoSeq = 0;
+  for (let i = 0; i < n; i += 1) {
+    // A third of the chat updates re-send the value that is already stored (title echo / idempotent PATCH).
+    timed('updateChat', () => chatsPersist.updateChat(chats[1].id, { title: `Fixture chat renamed ${Math.floor(i / 3) % 7}` }));
+    todoSeq += 1;
+    try { await todosStore.addTodo(dataDir, hotFolder, { title: `Profile todo ${todoSeq}`, body: 'b', status: 'ready' }); } catch { /* cap reached */ }
+    if (i % 3 === 0) {
+      const msg = mailbox.createMailboxMessage({
+        fromChatId: chats[(i % 40) + 1].id, toChatId: chats[0].id, kind: 'reply', replyKind: 'progress',
+        body: `Write-stats mailbox row ${i}`, status: 'queued', idempotencyKey: `write-stats-mailbox-${i}`,
+      });
+      mailbox.updateMailboxMessage(msg.id, { status: 'delivered' });
+    }
+    timed('upsertDelegationWorkflow', () => workflows.upsertDelegationWorkflow({ parentChatId: chats[2].id, leafId: `leaf-${i % 5}`, round: 1 }));
+    timed('appendChildExitEvent', () => oom.appendChildExitEvent(dataDir, { pid: 1000 + (i % 3), code: 0, signal: '' }, 1700000000000));
+    await tick();
+  }
+  // Pending coalesced writes reach the disk at shutdown; count that final write too.
+  atomic.flushCoalescedWrites();
+  const { rows } = atomic.getWriteStats();
+  const ranked = rows
+    .map((row) => ({ ...row, costMs: row.stringifyMs + row.ioMs }))
+    .sort((a, b) => b.costMs - a.costMs)
+    .slice(0, 10)
+    .map((row) => ({
+      key: row.key,
+      writes: row.writes,
+      skippedWrites: row.skippedWrites,
+      coalesced: row.coalesced,
+      identicalWrites: row.identicalWrites,
+      stringifyMs: Math.round(row.stringifyMs * 100) / 100,
+      ioMs: Math.round(row.ioMs * 100) / 100,
+      costMs: Math.round(row.costMs * 100) / 100,
+      maxMs: Math.round(row.maxMs * 100) / 100,
+      bytes: row.bytes,
+    }));
+  const perCall = Object.fromEntries(Object.entries(callMs).map(([label, samples]) => [label, stats(samples)]));
+  process.stdout.write(`${JSON.stringify({ scenario: 'write-stats', seed, profile: profileName, iterations: n, top10: ranked, perCall })}\n`);
+}
+
 async function runChild() {
+  if (option('--scenario', '') === 'write-stats') return runWriteStatsScenario();
   const profileName = option('--profile', 'full');
   const P = PROFILES[profileName];
   const seed = Number(option('--seed', '20261017'));
