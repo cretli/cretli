@@ -307,15 +307,18 @@ Not closed; the list is for the operator. "Covered" means a measured, confirmed 
 | be626738 | `readWorktreeRegistry` | covered (leaf a28ba559, P50 0.967 → 0.536) |
 | d3f0dc74 | `normalizeWorktreeRecord` | covered (leaf a28ba559, skipped on an unchanged registry file) |
 | 01238557 | `createChildProcessEntry` | covered (this leaf, 0.008 → 0.005 ms) — a micro-gain, the call was never a large stall |
-| d837b16a | `parseDocument` (todos) | uncovered: measured 0.4 ms cold, warm path does not parse |
-| e7053ff7 | `readWorkspaceSettingsView` | uncovered: measured 65 µs, not confirmed as a stall |
-| 9780985a | oom-diagnostics read | uncovered: measured 0.21 ms on a rare path, caller needs a synchronous result |
-| 3d268bea | `normalizeWorkspaceFolder` | uncovered: 5–13 µs per call, no repeated in-loop call confirmed |
-| bad7102c | delegation-sqlite | uncovered (no leaf, no measurement pointed at it) |
-| a1a4617d | watcher-recovery text | uncovered (no leaf, no measurement pointed at it) |
+| d837b16a | `parseDocument` (todos) | **uncovered, storage-owned (A2)**: at production scale a cold load of the 27 217 908-byte todo document costs about 210 ms P50 (about 70 % is `JSON.parse`); no change made. Owner: the storage layer (move leafMaterial out of the document). Measurement: row `d837b16a` in "Leaf d0205ec8: production-scale measurement"; decision: "Leaf 91c80568" row `d837b16a, 3d268bea, bad7102c` |
+| e7053ff7 | `readWorkspaceSettingsView` | **uncovered, negligible**: 1.5 ms warm / 4.9 ms rebuild at 400 workspaces, `structuredClone` dominates; left as is. Measurement: row `e7053ff7` in "Leaf d0205ec8"; decision: "Leaf 91c80568" row `e7053ff7` |
+| 3d268bea | `normalizeWorkspaceFolder` | **uncovered, negligible for the call, storage-owned for the load (A2)**: 1 µs per warm call; the 400 `realpathSync.native` calls per watchers load are about 1 ms of a 74 ms load. Slow-filesystem multiplication not measured (unconfirmed). Measurement: row `3d268bea` in "Leaf d0205ec8"; decision: "Leaf 91c80568" row `d837b16a, 3d268bea, bad7102c` |
+| 9780985a | oom-diagnostics read | **uncovered, negligible**: 0.3 ms at 400 rows, 5.9 ms at 8000 rows, worst legal write about 9 ms on a termination event (bounded by the 2 MiB cap); no change. Measurement: row `9780985a` in "Leaf d0205ec8"; decision: "Leaf 91c80568" row `9780985a` |
+| a1a4617d | watcher-recovery (`classifyWorkspaceDoingTodos`) | **covered** (leaf 91c80568): per-call delegation index; 1000 todos / 10 cycles P50 31.434 / 30.91 → 0.743 ms, 250 todos 2.201 / 2.301 → 0.367 ms, 1000 todos / 200 cycles 33.175 / 32.011 → 2.365 ms, all confirmed. Measurement: table "After-change measurement" in "Leaf 91c80568"; baseline: row `a1a4617d` in "Leaf d0205ec8" |
+| bad7102c | delegation-sqlite busy-retry | **uncovered, storage-owned (A2/A4), unconfirmed**: not measured (the loop is module-private and blocks in 50 ms `Atomics.wait` slices for up to 8 s only while another connection holds the lock; the bound comes from the code, not a measurement). Measurement: row `bad7102c` in "Leaf d0205ec8" (marked as not a measurement) |
 
-Caveat: the profile measures per-call synchronous time on one machine with a synthetic fixture; the real stalls in the watchdog reports (hundreds of ms) were
-not reproduced by any of the `ST-*` sites, so these codes remain candidates for operator review rather than confirmed fixes.
+Caveat: the profile measures per-call synchronous time on one machine with a synthetic fixture, so it cannot prove what the watchdog saw. The small-fixture `ST-*` sites
+of leaf 3aed8cff (5 µs to 0.4 ms) did not reproduce the hundreds of ms in the watchdog reports. Leaf d0205ec8 re-measured at production scale: the scale gap is reproduced
+for d837b16a (about 210 ms, 27 MB document) and a1a4617d (about 31 ms at 1000 todos, before the fix); for e7053ff7, 3d268bea and 9780985a the hundreds of ms were
+**not reproduced** (single digits of ms per call; for 3d268bea the per-call `normalizeWorkspaceFolder` cost is about 1 µs, while the whole cold watchers load is about 74 ms and storage-owned), and bad7102c was not measured. Their reported stalls therefore remain unexplained by this fixture (slow filesystem, lock
+contention or GC are untested hypotheses), and those codes stay candidates for operator review rather than confirmed fixes. Only a1a4617d is covered by a confirmed drop.
 
 ## Leaf d0205ec8: production-scale measurement and classification of the six watchdog codes
 
