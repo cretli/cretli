@@ -710,6 +710,106 @@ async function runChild() {
     }, () => { for (const r of wtRaw) normalizeWorktreeRecord(r); }, P.fs);
   }
 
+  // ---- C3. Leaf 3aed8cff: remaining persist stall sources (one site per function the leaf may touch) ----
+  {
+    let entrySeq = 0;
+    await profileSite({
+      id: 'ST-child-process-entry',
+      group: 'sync-fs',
+      site: 'lib/child-process-registry.js createChildProcessEntry() (reads /proc/<pid>/stat for the child and for this server)',
+      owner: 'other',
+      requestPath: 'yes',
+      note: 'Leaf 3aed8cff. Runs for every registered PTY/agent/terminal child.',
+    }, () => { entrySeq += 1; childReg.createChildProcessEntry({ pid: process.ppid || 1, type: 'child', label: `profile-${entrySeq}` }); }, P.fs);
+
+    const wsStore = await import('../lib/persist/workspaces-store.js');
+    const wsDir = path.join(work, 'ws-store-data');
+    fs.mkdirSync(wsDir, { recursive: true });
+    const wsCount = P.fixtureProfile === 'full' ? 40 : 5;
+    const wsSettings = {
+      workspaces: Array.from({ length: wsCount }, (_, i) => ({ id: `cretli:ws:${String(i).padStart(8, '0')}-1111-4111-8111-111111111111`, kind: 'folders', label: `Profile ws ${i}` })),
+      workspaceSidebarConfig: Object.fromEntries(Array.from({ length: wsCount }, (_, i) => [`cretli:ws:${String(i).padStart(8, '0')}-1111-4111-8111-111111111111`, {
+        folder: `/w/p${i}/a`, folders: { [`/w/p${i}/a`]: { enabled: true, name: 'A' }, [`/w/p${i}/b`]: { enabled: false, name: 'B' } },
+      }])),
+      additionalCursorContextDirs: ['/shared/docs'],
+    };
+    wsStore.replaceWorkspaceSettings(wsDir, wsSettings);
+    await profileSite({
+      id: 'ST-workspace-settings-view',
+      group: 'sync-fs',
+      site: `lib/persist/workspaces-store.js readWorkspaceSettingsView() (${wsCount} workspaces, SQL unchanged between calls)`,
+      owner: 'other',
+      requestPath: 'yes',
+      note: 'Leaf 3aed8cff. Called from every loadSettings(); the SQL view is cached per data version, each call deep-copies it.',
+    }, () => wsStore.readWorkspaceSettingsView(wsDir), P.fs);
+
+    const todosPersist = await import('../lib/persist/todos-persist.js');
+    const todosLegacy = await import('../lib/persist/todos-legacy-adapter.js');
+    const todosStore = await import('../lib/persist/todos-store.js');
+    const todoCwd = path.join(work, 'todo-ws');
+    fs.mkdirSync(todoCwd, { recursive: true });
+    const todoDir = path.join(work, 'todo-data');
+    fs.mkdirSync(todoDir, { recursive: true });
+    for (let i = 0; i < (P.fixtureProfile === 'full' ? 400 : 20); i += 1) {
+      await todosStore.addTodo(todoDir, todoCwd, { title: `Profile todo ${i}`, body: 'b'.repeat(200), status: 'ready' });
+    }
+    await profileSite({
+      id: 'ST-todos-load-cached',
+      group: 'sync-fs',
+      site: 'lib/persist/todos-persist.js loadTodosData() (file unchanged between calls: signature hit + copy)',
+      owner: 'other',
+      requestPath: 'yes',
+      note: 'Leaf 3aed8cff. Warm path; parseDocument is not reached.',
+    }, () => todosLegacy.loadTodosData(todoDir, todoCwd), P.fs);
+    let todoTouch = 0;
+    const todoFile = todosPersist.todosDocumentPath(todoDir, todoCwd);
+    await profileSite({
+      id: 'ST-todos-load-cold',
+      group: 'sync-fs',
+      site: 'lib/persist/todos-persist.js loadTodosData() after the file changed (readFileSync + parseDocument + row normalization)',
+      owner: 'other',
+      requestPath: 'yes',
+      note: 'Leaf 3aed8cff. Cold path; each call first bumps the file mtime (same bytes) so the signature cache misses. The utimes call is part of the timed work.',
+    }, () => { todoTouch += 1; const t = new Date(Date.now() + todoTouch * 1000); fs.utimesSync(todoFile, t, t); todosLegacy.loadTodosData(todoDir, todoCwd); }, Math.min(P.fs, 300));
+
+    const oomLib = await import('../lib/oom-diagnostics.js');
+    const oomDir = path.join(work, 'oom-data');
+    fs.mkdirSync(oomDir, { recursive: true });
+    const oomRows = P.fixtureProfile === 'full' ? 400 : 20;
+    const markerFile = path.join(oomDir, 'oom-markers.jsonl');
+    fs.writeFileSync(markerFile, Array.from({ length: oomRows }, (_, i) => JSON.stringify({
+      recordedAt: new Date(1700000000000 + i).toISOString(), cause: 'unknown', source: 'none', confidence: 'unknown', pid: 5000 + i, evidence: [],
+    })).join('\n') + '\n');
+    let markerSeq = 0;
+    await profileSite({
+      id: 'ST-oom-marker-read',
+      group: 'sync-fs',
+      site: `lib/oom-diagnostics.js writeOomMarker() scanning ${oomRows} existing marker rows (no dominating row, appends)`,
+      owner: 'other',
+      requestPath: 'no',
+      note: 'Leaf 3aed8cff. Reads and parses both marker files on each write.',
+    }, () => { markerSeq += 1; oomLib.writeOomMarker(oomDir, { cause: 'unknown', source: 'none', confidence: 'unknown', pid: 900000 + markerSeq, evidence: [] }); }, Math.min(P.fs, 200));
+
+    const watchersPersist = await import('../lib/persist/workspace-watchers-persist.js');
+    const lockout = await import('../lib/startup-lockout-workspace.js');
+    await profileSite({
+      id: 'ST-watcher-normalize-row',
+      group: 'sync-fs',
+      site: 'lib/persist/workspace-watchers-persist.js normalizeWorkspaceWatcherRow()',
+      owner: 'other',
+      requestPath: 'yes',
+      note: 'Leaf 3aed8cff. Per-row normalization of a stored watcher row (realpath cache warm).',
+    }, () => watchersPersist.normalizeWorkspaceWatcherRow({ workspaceFolder: todoCwd, mode: 'observe', enabled: true }), P.fs * 5);
+    await profileSite({
+      id: 'ST-lockout-resolve-folder',
+      group: 'sync-fs',
+      site: 'lib/startup-lockout-workspace.js resolveLogicalWorkspaceFolder() (empty worktree registry)',
+      owner: 'other',
+      requestPath: 'yes',
+      note: 'Leaf 3aed8cff.',
+    }, () => lockout.resolveLogicalWorkspaceFolder({ workspaceFolder: todoCwd, executionFolder: `${todoCwd}/x`, dataDir: work }), P.fs * 5);
+  }
+
   // ---- D. V8: Files / Terminal / Browser Cretli overhead ----
   const v8 = await measureV8(P, work);
   rows.push(...v8);

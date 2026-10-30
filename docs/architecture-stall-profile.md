@@ -259,3 +259,60 @@ then one run after the change. Times are per-call ms (P50 / P95 / max). Noise = 
 
 `structuredClone` in `saveItems` already clones only the rows handed back to the caller; `updateChat` already copies a single row.
 The whole-file write dominates `removeChat` wall time, so the copy removal is small against it.
+
+## Leaf 3aed8cff: remaining stall sources and final report (event-loop stalls root)
+
+Sites `ST-*` were added to `scripts/architecture-stall-profile.mjs` first (block "C3"). Two baseline runs and one run after the change, profile
+`full`, seed `20261017`, one machine. Times are per-call ms (P50 / P95 / max). Noise = |P50 base1 − P50 base2|. Criterion: P50 after ≤ min(base P50) − noise
+and P95 not worse beyond noise.
+
+| Site | Base 1 | Base 2 | Noise | After | Result |
+| --- | --- | --- | ---: | --- | --- |
+| `ST-child-process-entry` (`createChildProcessEntry`) | 0.008 / 0.009 / 0.309 | 0.008 / 0.009 / 0.182 | 0 | 0.005 / 0.005 / 0.054 | **confirmed** (one of the two `/proc/<pid>/stat` reads removed; the other is the child's own start time) |
+| `ST-workspace-settings-view` (`readWorkspaceSettingsView`, 40 workspaces) | 0.064 / 0.096 / 0.235 | 0.065 / 0.079 / 0.247 | 0.001 | 0.065 / 0.078 / 0.274 | not changed: 65 µs, the `structuredClone` protects a shared cached view and callers were not audited for mutation |
+| `ST-todos-load-cached` (`loadTodosData`, unchanged file) | 0.011 / 0.020 / 0.179 | 0.011 / 0.013 / 0.196 | 0 | 0.011 / 0.013 / 0.062 | not changed: warm path never reaches `parseDocument` |
+| `ST-todos-load-cold` (`loadTodosData`, 400 todos, cache miss incl. `parseDocument`) | 0.398 / 0.478 / 0.878 | 0.401 / 0.502 / 0.765 | 0.003 | 0.401 / 0.485 / 0.797 | not changed: 0.4 ms for a cache miss; `JSON.parse` dominates and cannot be skipped without changing the on-disk contract |
+| `ST-oom-marker-read` (`writeOomMarker`, 400 marker rows) | 0.213 / 0.273 / 0.324 | 0.213 / 0.273 / 0.489 | 0 | 0.212 / 0.275 / 0.329 | not changed: 0.21 ms, runs only on a termination event, and the caller needs the dominating row synchronously |
+| `ST-watcher-normalize-row` (`normalizeWorkspaceWatcherRow`) | 0.005 / 0.006 / 0.241 | 0.005 / 0.006 / 0.169 | 0 | 0.005 / 0.006 / 0.212 | not changed: 5 µs, the realpath is already cached in `normalizeDelegationWorkspaceKey` |
+| `ST-lockout-resolve-folder` (`resolveLogicalWorkspaceFolder`) | 0.013 / 0.015 / 0.196 | 0.013 / 0.020 / 0.209 | 0 | 0.013 / 0.019 / 0.112 | not changed: 13 µs with an empty registry |
+
+Change: `lib/child-process-registry.js` `resolveServerStartedAt()` caches this process's start time (constant for the process lifetime; an empty read is
+not cached). Work evidence (not time): `tests/child-process-registry.test.js` asserts one reader call for 21 resolutions and identical `serverStartedAt` across entries.
+Format on disk is unchanged. `normalizeWorkspaceFolder` has several unrelated definitions (`startup-lockout-workspace.js`, `todo-review-sync-hooks.js`,
+`workspace-watchers-persist.js`); they were not merged and no repeated in-loop call was confirmed by measurement.
+
+### Root-wide before / after (same profile, seed and machine)
+
+| Path | Leaf | Before P50 / P95 / max | After P50 / P95 / max | Verdict |
+| --- | --- | --- | --- | --- |
+| `chat-title-history.json` writes (write-stats, cost ms/run) | 4506007a | 15.36 / 16.77 (200 writes) | 0.14 (2 writes) | confirmed (see section above); final run: 0.14 |
+| `chats.json`, `todos/*.json`, `delegation-workflows.json`, `child-exit-events.json` | 4506007a | 647.92 / 204.36 / 26.70 / 25.57 | 575.51 / 191.85 / 26.40 / 24.16 (final run, within noise) | untouched by design (durable-before-return), no regression beyond noise |
+| `FS-worktree-registry-read` | a28ba559 | 0.967 / 1.094 / 1.466 | 0.536 / 0.605 / 0.842 (final run) | confirmed, final run holds the gain |
+| `FS-worktree-normalize-records` | a28ba559 | n/a (work skipped on cache hit) | 0.422 / 0.486 / 0.841 | unchanged by design |
+| `CP-chats-remove-copy` | 9f36e26e | 9.511 / 11.042 / 11.622 (base 1) | 8.025 / 9.263 / 9.553 | unconfirmed for time (P50 gain < noise), work drop proven by test; no regression |
+| `CP-delegations-load-defaults` | 9f36e26e | 1.811 / 2.974 / 5.602 | 1.476 / 1.714 / 5.447 | not changed (run-to-run drift only), no regression |
+| `CP-verdict-parse`, `-repeat`, `CP-findings-parse` | 9f36e26e | 0.024 / 0.023 / 0.010 | 0.024 / 0.022 / 0.010 | not changed, no regression |
+| `ST-child-process-entry` | 3aed8cff | 0.008 / 0.009 / 0.309 | 0.005 / 0.005 / 0.054 | confirmed |
+
+Final write-stats run: `chats.json` 575.51, `todos/*.json` 191.85, `delegation-workflows.json` 26.40, `child-exit-events.json` 24.16, `chat-title-history.json` 0.14
+(cost ms, 300 iterations). `updateChat` per call P50 5.381 ms.
+
+### Watchdog source todos: covered / uncovered
+
+Not closed; the list is for the operator. "Covered" means a measured, confirmed time drop on the path the code names.
+
+| Code | Path | Status |
+| --- | --- | --- |
+| c829d229, b08ec393, 7bec9d92, d9c68284, 3559f8ed, b2cbc93b, e6f0c597 | `writeJsonAtomic` (7 reports, file per report not recorded in the root body) | **partially covered**: only `chat-title-history.json` was changed (−99 % cost). `chats.json`, `todos/*.json`, `delegation-workflows.json`, `child-exit-events.json` are durable-before-return writers and were deliberately not touched → uncovered if the report names one of them; operator decision |
+| be626738 | `readWorktreeRegistry` | covered (leaf a28ba559, P50 0.967 → 0.536) |
+| d3f0dc74 | `normalizeWorktreeRecord` | covered (leaf a28ba559, skipped on an unchanged registry file) |
+| 01238557 | `createChildProcessEntry` | covered (this leaf, 0.008 → 0.005 ms) — a micro-gain, the call was never a large stall |
+| d837b16a | `parseDocument` (todos) | uncovered: measured 0.4 ms cold, warm path does not parse |
+| e7053ff7 | `readWorkspaceSettingsView` | uncovered: measured 65 µs, not confirmed as a stall |
+| 9780985a | oom-diagnostics read | uncovered: measured 0.21 ms on a rare path, caller needs a synchronous result |
+| 3d268bea | `normalizeWorkspaceFolder` | uncovered: 5–13 µs per call, no repeated in-loop call confirmed |
+| bad7102c | delegation-sqlite | uncovered (no leaf, no measurement pointed at it) |
+| a1a4617d | watcher-recovery text | uncovered (no leaf, no measurement pointed at it) |
+
+Caveat: the profile measures per-call synchronous time on one machine with a synthetic fixture; the real stalls in the watchdog reports (hundreds of ms) were
+not reproduced by any of the `ST-*` sites, so these codes remain candidates for operator review rather than confirmed fixes.

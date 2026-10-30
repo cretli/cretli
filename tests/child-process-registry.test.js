@@ -21,6 +21,7 @@ import {
   __resetChildProcessRegistryForTest,
   beginChildProcessShutdown,
   classifyHeavyChildCmdline,
+  createChildProcessEntry,
   createChildProcessProbes,
   finishChildProcessShutdown,
   getChildProcessRegistryPath,
@@ -28,6 +29,7 @@ import {
   isRestartHelperCmdline,
   readChildProcessRegistryRaw,
   reconcileChildProcessRegistry,
+  resolveServerStartedAt,
   registerChildProcess,
   installChildProcessSpawnTracking,
   registerServerDescendants,
@@ -472,6 +474,24 @@ try {
   fs.rmSync(tempDir, { recursive: true, force: true });
   fs.rmSync(getChildProcessRegistryPath(), { force: true });
   fs.rmSync(`${getChildProcessRegistryPath()}.lock`, { recursive: true, force: true });
+}
+
+// Server start time is read from /proc once per process, not once per registered child.
+{
+  let reads = 0;
+  const fake = () => { reads += 1; return '4242'; };
+  assert.equal(resolveServerStartedAt(fake, { fresh: true }), '4242');
+  assert.equal(reads, 1);
+  for (let i = 0; i < 20; i += 1) assert.equal(resolveServerStartedAt(fake), '4242');
+  assert.equal(reads, 1, 'cached value must not re-read');
+  const a = createChildProcessEntry({ pid: process.ppid, startedAt: '1' });
+  const b = createChildProcessEntry({ pid: process.ppid, startedAt: '1' });
+  assert.equal(a.serverStartedAt, '4242');
+  assert.equal(b.serverStartedAt, a.serverStartedAt);
+  // An empty read is not cached, so a later call can still resolve it.
+  assert.equal(resolveServerStartedAt(() => '', { fresh: true }), '');
+  assert.equal(resolveServerStartedAt(() => '77'), '77');
+  resolveServerStartedAt(undefined, { fresh: true });
 }
 
 removeIsolatedDataDir();
