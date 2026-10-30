@@ -621,6 +621,44 @@ async function runChild() {
     note: 'Whole tick incl. the workspace watcher heartbeat in observe-off state. The scheduler/resume policy (R15) is read-only for this program; this only attributes the stall.',
   }, () => worker.tickDelegationRuntime({ drainMailbox: false }), Math.min(P.heavy * 5, 100));
 
+  // ---- C2. Worktree registry read (unlocked reader; file unchanged between calls) ----
+  {
+    const wtReg = await import('../lib/persist/worktree-registry-persist.js');
+    const { normalizeWorktreeRecord } = await import('../lib/worktree/worktree-record.ts');
+    const wtCount = P.fixtureProfile === 'full' ? 300 : 30;
+    const wtRegistryPath = path.join(work, 'wt-registry', 'worktree-registry.json');
+    const wtItems = {};
+    const wtRaw = [];
+    for (let i = 0; i < wtCount; i += 1) {
+      const rawRecord = {
+        todoId: `profile-todo-${i}`, workspaceFolder: '/tmp/profile-ws', repoRoot: '/tmp/profile-ws',
+        worktreePath: `/tmp/profile-wt/t-${i}`, branch: `cretli/todo/profile-todo-${i}`, baseCommit: 'a'.repeat(40),
+        cycles: [`cycle-${i}`], chats: [`chat-${i}`], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z',
+        results: { [`cycle-${i}`]: { cycleId: `cycle-${i}`, at: '2026-01-02T00:00:00.000Z' } },
+      };
+      wtRaw.push(rawRecord);
+      const record = normalizeWorktreeRecord(rawRecord);
+      if (record) wtItems[record.todoId] = record;
+    }
+    wtReg.writeWorktreeRegistry({ items: wtItems }, { registryPath: wtRegistryPath });
+    await profileSite({
+      id: 'FS-worktree-registry-read',
+      group: 'sync-fs',
+      site: `lib/persist/worktree-registry-persist.js readWorktreeRegistry (${wtCount} records, file unchanged between calls)`,
+      owner: 'other',
+      requestPath: 'yes',
+      note: 'Unlocked reader. Before the cache every call was existsSync + readFileSync + JSON.parse + sanitize; now a stat plus a deep copy of the cached document when the file signature is unchanged.',
+    }, () => wtReg.readWorktreeRegistry({ registryPath: wtRegistryPath }), P.fs);
+    await profileSite({
+      id: 'FS-worktree-normalize-records',
+      group: 'sync-fs',
+      site: `lib/worktree/worktree-record.ts normalizeWorktreeRecord x ${wtCount} (cold-read normalization cost)`,
+      owner: 'other',
+      requestPath: 'no',
+      note: 'Cost the registry cache skips on an unchanged file.',
+    }, () => { for (const r of wtRaw) normalizeWorktreeRecord(r); }, P.fs);
+  }
+
   // ---- D. V8: Files / Terminal / Browser Cretli overhead ----
   const v8 = await measureV8(P, work);
   rows.push(...v8);

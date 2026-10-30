@@ -221,3 +221,25 @@ between two runs of identical code is the largest noise in this scenario and is 
 and is a storage-owned (a) writer). Format on disk is unchanged (`{ v: 1, chats }`, 2-space indent). Tests: `tests/chat-title-history-coalesced.test.js`
 (fewer physical writes, byte-equivalent content to `CRETLI_COALESCED_WRITES=0`, read-through, flush on shutdown).
 Caveat: a backup taken inside the 2 s window can miss the newest title-history entry; a hard kill (SIGKILL) inside the window loses up to 2 s of it.
+
+## Worktree registry read cache (event-loop stalls, persist leaf)
+
+`readWorktreeRegistry` (`lib/persist/worktree-registry-persist.js`) now caches the parsed + normalized document per registry path, keyed by the file
+signature `ino:size:mtimeMs:ctimeMs`. The cache is dropped on every write through the module and whenever the signature changes (external edit);
+corrupt JSON is never cached and still throws `REGISTRY_CONFLICT`. Every caller gets a private `structuredClone`, so mutating callers (which hold the lock)
+cannot corrupt the cache. File format unchanged.
+
+Site `FS-worktree-registry-read` (300 records, file unchanged between calls, profile `full`, seed `20261017`, n = 1000, ms per call). Two baseline runs
+on the code before the change, one run after:
+
+| Run | P50 | P95 | P99 | max |
+| --- | ---: | ---: | ---: | ---: |
+| baseline 1 | 0.967 | 1.094 | 1.172 | 1.466 |
+| baseline 2 | 0.969 | 1.061 | 1.145 | 1.456 |
+| noise (\|run1 − run2\|) | 0.002 | 0.033 | 0.027 | 0.010 |
+| after | 0.527 | 0.576 | 0.666 | 0.782 |
+
+Criterion: P50 after (0.527) <= min(baseline P50) − noise (0.965) and P95 not worse beyond noise → **confirmed** (single machine, one "after" run). The remaining
+cost is the `statSync` plus the deep copy. `FS-worktree-normalize-records` (0.42 ms P50 for 300 records) is the normalization work a cache hit now skips; it is
+unchanged by design (`worktree-record.ts` was not modified). Deterministic evidence of skipped work: `tests/worktree-registry.test.js` asserts one parse for
+two reads of an unchanged file.

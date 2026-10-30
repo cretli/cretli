@@ -5,6 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import {
   emptyWorktreeRegistry,
+  getWorktreeRegistryReadStats,
   getWorktreeRecord,
   listWorktreeRecords,
   mutateWorktreeRegistry,
@@ -120,5 +121,69 @@ test('registry drops records without identity fields and keeps the file readable
 test('a corrupt registry file is a hard refusal (fail closed)', () => {
   const dataDir = tempDir('cretli-wt-reg-');
   fs.writeFileSync(path.join(dataDir, 'worktree-registry.json'), '{ not json');
+  assert.equal(errorCode(() => readWorktreeRegistry({ dataDir })), WORKTREE_ERROR_CODES.REGISTRY_CONFLICT);
+});
+
+/** @param {string} id */
+function sampleRecord(id) {
+  return normalizeWorktreeRecord({
+    todoId: id,
+    workspaceFolder: '/tmp/ws',
+    repoRoot: '/tmp/ws',
+    worktreePath: `/tmp/wt/${id}`,
+    branch: `cretli/todo/${id}`,
+    baseCommit: 'a'.repeat(40),
+  });
+}
+
+test('unchanged file is parsed once; module writes and external edits invalidate the cache', () => {
+  const dataDir = tempDir('cretli-wt-reg-');
+  const filePath = path.join(dataDir, 'worktree-registry.json');
+  mutateWorktreeRegistry((draft) => {
+    draft.items['a'] = sampleRecord('a');
+    return { result: null };
+  }, { dataDir });
+
+  const before = getWorktreeRegistryReadStats().parses;
+  readWorktreeRegistry({ dataDir });
+  readWorktreeRegistry({ dataDir });
+  assert.equal(getWorktreeRegistryReadStats().parses - before, 1);
+
+  // Write through the module: next read sees the new revision.
+  writeWorktreeRegistry(readWorktreeRegistry({ dataDir }), { dataDir });
+  assert.equal(readWorktreeRegistry({ dataDir }).revision, 2);
+
+  // External change (different size) is picked up.
+  const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  raw.items['b'] = sampleRecord('b');
+  fs.writeFileSync(filePath, JSON.stringify(raw, null, 2));
+  assert.deepEqual(Object.keys(readWorktreeRegistry({ dataDir }).items).sort(), ['a', 'b']);
+});
+
+test('mutating a returned registry document does not affect later reads', () => {
+  const dataDir = tempDir('cretli-wt-reg-');
+  mutateWorktreeRegistry((draft) => {
+    draft.items['a'] = sampleRecord('a');
+    return { result: null };
+  }, { dataDir });
+  const first = readWorktreeRegistry({ dataDir });
+  first.items['a'].branch = 'tampered';
+  first.items['a'].cycles.push('x');
+  delete first.items['a'].results;
+  first.items['zzz'] = sampleRecord('zzz');
+  const second = readWorktreeRegistry({ dataDir });
+  assert.equal(second.items['a'].branch, 'cretli/todo/a');
+  assert.deepEqual(second.items['a'].cycles, []);
+  assert.deepEqual(second.items['a'].results, {});
+  assert.equal(second.items['zzz'], undefined);
+});
+
+test('corrupt JSON still refuses after an earlier successful (cached) read', () => {
+  const dataDir = tempDir('cretli-wt-reg-');
+  const filePath = path.join(dataDir, 'worktree-registry.json');
+  writeWorktreeRegistry(emptyWorktreeRegistry(), { dataDir });
+  readWorktreeRegistry({ dataDir });
+  fs.writeFileSync(filePath, '{ not json at all, different size');
+  assert.equal(errorCode(() => readWorktreeRegistry({ dataDir })), WORKTREE_ERROR_CODES.REGISTRY_CONFLICT);
   assert.equal(errorCode(() => readWorktreeRegistry({ dataDir })), WORKTREE_ERROR_CODES.REGISTRY_CONFLICT);
 });
