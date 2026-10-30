@@ -93,7 +93,7 @@ test('pagehide and hidden visibility flush pending requests with keepalive POST'
   assert.equal(sent.length, 1);
   assert.equal(sent[0].method, 'POST');
   assert.equal(sent[0].keepalive, true);
-  assert.deepEqual(JSON.parse(sent[0].body), { optionId: 'accept', expectedRevision: 3, reason: '', workspaceFolder: '/my-app' });
+  assert.deepEqual(JSON.parse(sent[0].body), { optionId: 'accept', expectedRevision: 3, reason: '', workspaceFolder: '/my-app', gesture: false, detailsOpened: false });
   queue.enqueue({ id: 'two', revision: 4 }, 'reject');
   visibility.visibilityState = 'hidden';
   visibility.dispatchEvent(new Event('visibilitychange'));

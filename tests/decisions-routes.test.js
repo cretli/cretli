@@ -292,3 +292,46 @@ test('agent HTTP request creates and reads its own card, but cannot resolve it o
     assert.equal((await request('POST', '/api/decisions/request', headers, { ...body, kind, onTimeout: 'recommended' })).status, 400);
   }
 });
+
+test('GET /api/decisions/metrics returns median, agreement and 7 daily counts', async () => {
+  const result = await request('GET', '/api/decisions/metrics', humanHeaders);
+  assert.equal(result.status, 200);
+  assert.equal(result.body.metrics.cardsPerDay.length, 7);
+  assert.ok('medianTimeToDecisionMs' in result.body.metrics && 'recommendationAgreement' in result.body.metrics);
+  assert.ok(Array.isArray(result.body.stats));
+});
+
+test('policy writes and undo need a human session', async () => {
+  assert.equal((await request('PUT', '/api/decisions/policy', { cookie: cookie(agentSession) }, { dailyGestureLimit: 1 })).status, 403);
+  assert.equal((await request('POST', '/api/decisions/x/undo', { cookie: cookie(agentSession) }, {})).status, 403);
+});
+
+async function planCard(title) {
+  const created = await addTodo(dataDir, cwd, { title });
+  await updateTodo(dataDir, cwd, created.item.id, { plan: { markdown: title, updatedAt: new Date().toISOString() } });
+  const listed = await request('GET', '/api/decisions', humanHeaders);
+  return listed.body.items.find((item) => item.subject.todoId === created.item.id);
+}
+
+test('concurrent resolves cannot exceed the daily gesture cap or skip a control card', async () => {
+  const original = (await request('GET', '/api/decisions/policy', humanHeaders)).body.policy;
+  try {
+    // Boundary: exactly one gesture left, two gestures race.
+    const history = (await request('GET', '/api/decisions/history', humanHeaders)).body.items;
+    const used = history.filter((c) => c.decisionMeta?.gesture === true).length;
+    await request('PUT', '/api/decisions/policy', humanHeaders, { dailyGestureLimit: used + 1, controlEvery: 1000 });
+    const [a, b] = [await planCard('Gesture A'), await planCard('Gesture B')];
+    const results = await Promise.all([a, b].map((c) => request('POST', `/api/decisions/${c.id}`, humanHeaders, payload(c, 'reject', { gesture: true }))));
+    assert.deepEqual(results.map((r) => r.status).sort(), [200, 429]);
+    // Boundary: the next human decision is a control card; only the request that opened the details may take it.
+    const humanCount = (await request('GET', '/api/decisions/history', humanHeaders)).body.items.filter((c) => c.decidedBy?.kind === 'human-session').length;
+    await request('PUT', '/api/decisions/policy', humanHeaders, { dailyGestureLimit: 1000, controlEvery: humanCount + 1 });
+    const [c, d] = [await planCard('Control C'), await planCard('Control D')];
+    const first = request('POST', `/api/decisions/${c.id}`, humanHeaders, payload(c, 'reject', { detailsOpened: true }));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const second = request('POST', `/api/decisions/${d.id}`, humanHeaders, payload(d, 'reject', { detailsOpened: false }));
+    assert.deepEqual([(await first).status, (await second).status], [200, 200]);
+  } finally {
+    await request('PUT', '/api/decisions/policy', humanHeaders, original);
+  }
+});

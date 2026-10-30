@@ -44,6 +44,9 @@ const baseEn = {
     sendError: 'Could not send the decision. Refresh to try again.', loadError: 'Could not load decisions.',
     evidence: 'Evidence', openEvidence: 'Open evidence', openChat: 'Open chat', screenshot: 'Screenshot',
     other: 'Another answer', sendOther: 'Send answer',
+    metrics: 'Statistics (7 days)', medianTime: 'Median time to decision', agreement: 'Followed recommendation', perDay: 'Cards per day',
+    history: 'History', auto: 'automatic', autoUndone: 'Automatic decision undone.', undoClosed: 'The undo window has closed.',
+    controlCard: 'Control card: open the details before deciding.', gestureLimit: 'Daily gesture limit reached; use the buttons.',
     integrationGroup: 'Integrations in tree {tree} ({count})',
   },
   header: {

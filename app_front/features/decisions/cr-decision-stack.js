@@ -1,7 +1,7 @@
 import { LitElement, css, html } from 'lit';
 import { t } from '../../i18n/index.js';
 import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
-import { bindDecisionFlush, canSwipe, createDecisionQueue, decisionRequestInit, directionForPointer, groupDecisions, swipeOption } from './decisionLogic.js';
+import { bindDecisionFlush, canSwipe, createDecisionQueue, decisionRequestInit, directionForPointer, formatDuration, formatPercent, groupDecisions, swipeOption } from './decisionLogic.js';
 
 function safeLink(value) {
   try {
@@ -11,7 +11,7 @@ function safeLink(value) {
 }
 
 class CrDecisionStack extends LitElement {
-  static properties = { cards: { state: true }, detailId: { state: true }, notice: { state: true }, pending: { state: true }, expanded: { state: true } };
+  static properties = { cards: { state: true }, detailId: { state: true }, notice: { state: true }, pending: { state: true }, expanded: { state: true }, autonomy: { state: true }, metrics: { state: true }, history: { state: true } };
   static styles = css`
     :host { display:block; height:100%; overflow:auto; color:var(--cr-text); font-family:var(--cr-font-ui); }
     .wrap { max-width:45rem; margin:auto; padding:var(--cr-space-4); }
@@ -55,10 +55,24 @@ class CrDecisionStack extends LitElement {
     super.disconnectedCallback();
   }
   setCards(cards) { this.cards = Array.isArray(cards) ? cards : []; }
-  select(card, optionId, reason = '') {
+  setAutonomy(autonomy) { this.autonomy = autonomy || null; }
+  setInsights({ metrics, history } = {}) { this.metrics = metrics || null; this.history = Array.isArray(history) ? history : []; }
+  openDetails(card) {
+    this.detailId = card.id;
+    this.opened = this.opened || new Map();
+    if (!this.opened.has(card.id)) this.opened.set(card.id, Date.now());
+  }
+  async undoAuto(item) {
+    const response = await cretliApiFetch(`/api/decisions/${encodeURIComponent(item.id)}/undo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    this.notice = response.ok ? t('decisions.autoUndone') : t('decisions.undoClosed');
+    this.dispatchEvent(new CustomEvent('cr-decisions-refresh', { bubbles: true, composed: true }));
+  }
+  select(card, optionId, reason = '', gesture = false) {
     if (optionId === '__other__' && !reason.trim()) { this.detailId = card.id; return; }
     if (this.pending.has(card.id)) return;
-    this.queue.enqueue(card, optionId, reason);
+    if (this.autonomy?.nextIsControl && !this.opened?.has(card.id)) { this.openDetails(card); return; }
+    const openedAt = this.opened?.get(card.id);
+    this.queue.enqueue(card, optionId, reason, { gesture, detailsOpened: openedAt !== undefined, openedMs: openedAt !== undefined ? Date.now() - openedAt : undefined });
     this.pending = new Map(this.queue.pending);
     this.detailId = '';
     this.requestUpdate();
@@ -90,18 +104,18 @@ class CrDecisionStack extends LitElement {
     }
   }
   onGesture(card, direction) {
-    const option = swipeOption(card, direction);
-    if (option) this.select(card, option.id);
+    const option = swipeOption(card, direction, this.autonomy);
+    if (option) this.select(card, option.id, '', true);
   }
   onKey(event, card) {
     if (event.target !== event.currentTarget) return;
     const direction = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up' }[event.key];
     if (direction) { event.preventDefault(); this.onGesture(card, direction); }
-    if (event.key === 'Enter') { event.preventDefault(); this.detailId = card.id; }
+    if (event.key === 'Enter') { event.preventDefault(); this.openDetails(card); }
   }
   onPointerDown(event, card) {
     if (event.target.closest('button, a, textarea')) return;
-    const onHandle = Boolean(canSwipe(card) && event.target.closest('.gesture-handle'));
+    const onHandle = Boolean(canSwipe(card, this.autonomy) && event.target.closest('.gesture-handle'));
     this.pointerStart = { id: card.id, pointerId: event.pointerId, x: event.clientX, y: event.clientY, onHandle };
     if (onHandle) event.currentTarget.setPointerCapture?.(event.pointerId);
   }
@@ -111,7 +125,7 @@ class CrDecisionStack extends LitElement {
     if (!start || start.id !== card.id || start.pointerId !== event.pointerId || event.target.closest('button, a, textarea')) return;
     const direction = directionForPointer(start, { x: event.clientX, y: event.clientY });
     if (direction === 'tap') { this.detailId = card.id; return; }
-    if (!canSwipe(card)) return;
+    if (!canSwipe(card, this.autonomy)) return;
     if (direction) this.onGesture(card, direction);
   }
   evidence(item) {
@@ -136,12 +150,12 @@ class CrDecisionStack extends LitElement {
       @pointerdown=${(event) => this.onPointerDown(event, card)}
       @pointerup=${(event) => this.onPointerUp(event, card)}
       @pointercancel=${() => { this.pointerStart = null; }}>
-      ${canSwipe(card) ? html`<div class="gesture-handle">${t('decisions.swipeHint')}</div>` : ''}
+      ${canSwipe(card, this.autonomy) ? html`<div class="gesture-handle">${t('decisions.swipeHint')}</div>` : ''}
       <h3>${card.title}</h3><p class="summary">${card.summary}</p>
       ${card.why ? html`<p class="meta">${t('decisions.recommended')}: ${card.why}</p>` : ''}
       ${queued ? html`<div class="row"><span>${t('decisions.waiting')}</span><button @click=${() => this.undo(card.id)}>${t('decisions.undo')}</button></div>` : html`
-        <div class="actions"><button @click=${() => { this.detailId = card.id; }}>${t('decisions.details')}</button>
-        ${!canSwipe(card) ? card.options.map((option) => html`<button class=${option.id === card.recommended ? 'primary' : ''} @click=${() => this.select(card, option.id)}>${option.label}</button>`) : ''}</div>`}
+        <div class="actions"><button @click=${() => { this.openDetails(card); }}>${t('decisions.details')}</button>
+        ${!canSwipe(card, this.autonomy) ? card.options.map((option) => html`<button class=${option.id === card.recommended ? 'primary' : ''} @click=${() => this.select(card, option.id)}>${option.label}</button>`) : ''}</div>`}
       ${this.detailId === card.id ? html`<section class="details"><h4>${t('decisions.details')}</h4>
         <p>${card.why || ''}</p>
         ${card.subject?.chatId ? html`<p><a href=${`/chat?chat=${encodeURIComponent(card.subject.chatId)}`}>${t('decisions.openChat')}</a></p>` : ''}
@@ -153,15 +167,33 @@ class CrDecisionStack extends LitElement {
       </section>` : ''}
     </article>`;
   }
+  renderMetrics() {
+    const m = this.metrics;
+    if (!m) return '';
+    return html`<section class="metrics"><h4>${t('decisions.metrics')}</h4>
+      <p class="meta">${t('decisions.medianTime')}: ${formatDuration(m.medianTimeToDecisionMs)} · ${t('decisions.agreement')}: ${formatPercent(m.recommendationAgreement)}</p>
+      <p class="meta">${t('decisions.perDay')}: ${(m.cardsPerDay || []).map((d) => `${d.date.slice(5)}: ${d.count}`).join(', ')}</p></section>`;
+  }
+  renderHistory() {
+    const items = this.history || [];
+    if (!items.length) return '';
+    return html`<section class="history"><h4>${t('decisions.history')}</h4>${items.slice(0, 20).map((item) => html`
+      <div class="row"><span>${item.title} — ${item.optionId || ''}${item.decidedBy?.kind === 'auto' ? ` (${t('decisions.auto')})` : ''}</span>
+      ${item.decidedBy?.kind === 'auto' && item.status === 'decided' && Date.parse(item.undoUntil || '') > Date.now()
+    ? html`<button @click=${() => this.undoAuto(item)}>${t('decisions.undo')}</button>` : ''}</div>`)}</section>`;
+  }
   render() {
     const groups = groupDecisions(this.cards.filter((card) => card.status === 'pending'));
     return html`<div class="wrap"><h2>${t('decisions.title')}</h2>
       ${this.notice ? html`<p class="notice" role="status">${this.notice}</p>` : ''}
+      ${this.autonomy?.nextIsControl ? html`<p class="meta">${t('decisions.controlCard')}</p>` : ''}
+      ${this.autonomy && this.autonomy.gesturesLeft <= 0 ? html`<p class="meta">${t('decisions.gestureLimit')}</p>` : ''}
       ${groups.length ? groups.map((group) => group.cards.length > 1 ? html`
         <section class="group"><button @click=${() => { const next = new Set(this.expanded); next.has(group.key) ? next.delete(group.key) : next.add(group.key); this.expanded = next; }}
           aria-expanded=${this.expanded.has(group.key)}>${t('decisions.integrationGroup', { count: group.cards.length, tree: group.treeId })}</button>
           ${this.expanded.has(group.key) ? group.cards.map((card) => this.renderCard(card)) : this.renderCard(group.cards[0])}</section>` : this.renderCard(group.cards[0]))
         : html`<p class="empty">${t('decisions.empty')}</p>`}
+      ${this.renderMetrics()}${this.renderHistory()}
     </div>`;
   }
 }

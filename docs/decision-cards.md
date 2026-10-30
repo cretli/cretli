@@ -1,6 +1,6 @@
 # Decision cards (ADR)
 
-Status: accepted for the server registry, request protocol, UI and host-gate adapters. Push actions and autonomy are separate work.
+Status: accepted for the server registry, request protocol, UI and host-gate adapters. Push actions are covered by `lib/decisions/decision-push.js`; the autonomy ladder is described below.
 
 ## Contract
 
@@ -88,3 +88,14 @@ Question cards retain the full question form as evidence. Larger forms show a co
 Codex and Cursor SDK have no verified host permission gate (see [the permission-hook ADR](approval-permission-hook.md#codex-and-cursor-sdk-no-verified-host-gate)). Native permission/question host-gate cards are unsupported for those harnesses; the adapters do not infer a pending gate from assistant text or replace harness policy. Their native approval behavior remains with the harness. Explicit `decision_request` cards remain available independently of host permission support.
 
 Source changes schedule coalesced, best-effort card synchronization; failure leaves the original gate and fallback view intact. A decisions GET reconciles the current source state as well. Gate cards follow the chat's logical workspace, including runs in a worktree. Browser subjects retain both `consentId` and `chatId`; replies always supply that `chatId`. Lesson subjects retain `expected_revision`, and activation or withdrawal uses that CAS value. Cancellation subjects use the delegation revision; confirm-stop checks it before releasing the slot. Choosing `wait` only dismisses that revision of the card and leaves the slot occupied.
+
+## Autonomy ladder, metacards and metrics
+
+`lib/decisions/decision-autonomy.js` holds the policy (`data/decisions/autonomy.json`: `upgradeThreshold` 20, `dailyGestureLimit` 50, `controlEvery` 20, `undoWindowMs` 5 min, `autoDecideKinds`) and the statistics. Humans edit the thresholds with `PUT /api/decisions/policy`; `autoDecideKinds` changes only when a `policy_upgrade` card is accepted.
+
+- **Statistics.** `computeDecisionStats` groups human-decided cards by kind, producer `harness` and diff-size bucket (`small` < 50, `medium` < 300, `large`; producers pass `diffSize`/`harness` to `createDecision`): recommendation vs other option, median time to decision (`decidedAt - createdAt`) and median time on card (`decisionMeta.openedMs`, sent by the UI).
+- **Metacard.** After `upgradeThreshold` consecutive human decisions of one kind that chose the recommendation, `proposePolicyUpgrades` creates a `policy_upgrade` card (one per kind, deduplicated). Accepting it adds the kind to `autoDecideKinds` and restarts the streak; rejecting only restarts the streak. Nothing else changes the policy. `plan_approval`, `integration` and `policy_upgrade` (the human-only kinds, see `docs/workspace-watcher.md`) never get a metacard and are stripped from `autoDecideKinds` on read.
+- **Automatic decisions.** `canAutoDecide` requires a promoted kind, server-classified `low` risk and `reversible`, a recommended low/reversible option, and no hard exception. The decision is stored with `decidedBy.kind = auto` and `undoUntil`; it is listed in `GET /api/decisions/history` and `POST /api/decisions/:id/undo` (human session only) reopens the card as pending inside the window, keeping the automatic choice in `undoneAuto`. Undo does not run a compensating effect: only reversible kinds are eligible, and their producers must react to the reopened card. With the current registry table no kind is low-risk and reversible, so no card is auto-decided yet.
+- **Hard exceptions** are never automated, whatever the policy: a new dependency in `package.json`, secrets/auth, push or merge to the main branch, data deletion and payments (text match over title, summary, options and evidence, plus explicit `hardExceptions` tags from the producer).
+- **Anti-reflex.** At most `dailyGestureLimit` gesture decisions per UTC day (then the API answers 429 `GESTURE_LIMIT` and the UI shows buttons only). Every `controlEvery`-th human decision is a control card: no gestures, and the request needs `detailsOpened: true` (400 `DETAILS_REQUIRED` otherwise). `GET /api/decisions` returns `autonomy: {gesturesLeft, nextIsControl}`.
+- **Metrics.** `GET /api/decisions/metrics` returns `metrics` (`medianTimeToDecisionMs`, `recommendationAgreement`, `cardsPerDay` for the last 7 UTC days) and per-kind `stats`; the Decisions panel shows them above the history.

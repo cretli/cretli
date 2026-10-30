@@ -49,7 +49,17 @@
   "screenshot": "Zrzut ekranu",
   "other": "Inna odpowiedź",
   "sendOther": "Wyślij odpowiedź",
-  "integrationGroup": "Integracje w drzewie {tree} ({count})"
+  "integrationGroup": "Integracje w drzewie {tree} ({count})",
+  "metrics": "Statystyki (7 dni)",
+  "medianTime": "Mediana czasu do decyzji",
+  "agreement": "Zgodność z rekomendacją",
+  "perDay": "Karty dziennie",
+  "history": "Historia",
+  "auto": "automatyczna",
+  "autoUndone": "Automatyczna decyzja cofnięta.",
+  "undoClosed": "Okno cofania minęło.",
+  "controlCard": "Karta kontrolna: otwórz szczegóły przed decyzją.",
+  "gestureLimit": "Osiągnięto dzienny limit gestów; użyj przycisków."
  },
  "header": {
   "workspaceTitle": "Przełącz workspace",

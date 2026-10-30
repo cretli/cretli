@@ -30,6 +30,14 @@ export async function refreshDecisionsPanel() {
     }
     const stack = /** @type {import('./cr-decision-stack.js').CrDecisionStack | null} */ (document.querySelector('cr-decision-stack'));
     stack?.setCards(cards);
+    stack?.setAutonomy(data.autonomy);
+    try {
+      const [metricsRes, historyRes] = await Promise.all([
+        cretliApiFetch(`/api/decisions/metrics${query}`, { cache: 'no-store' }),
+        cretliApiFetch(`/api/decisions/history${query}`, { cache: 'no-store' }),
+      ]);
+      stack?.setInsights({ metrics: metricsRes.ok ? (await metricsRes.json()).metrics : null, history: historyRes.ok ? (await historyRes.json()).items : [] });
+    } catch { /* insights are optional */ }
     const badge = document.getElementById('header-decisions-badge');
     if (badge) { badge.textContent = String(cards.length); badge.hidden = cards.length === 0; }
   } catch {

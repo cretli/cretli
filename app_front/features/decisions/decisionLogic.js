@@ -1,10 +1,14 @@
-export function canSwipe(card) {
-  return card?.status === 'pending' && card.risk === 'low'
+/** Gestures are off after the daily cap and on control cards, which must be decided from the opened details. */
+export function gesturesAllowed(autonomy) {
+  return !autonomy || (autonomy.gesturesLeft > 0 && autonomy.nextIsControl !== true);
+}
+export function canSwipe(card, autonomy) {
+  return gesturesAllowed(autonomy) && card?.status === 'pending' && card.risk === 'low'
     && card.reversible === true && card.humanOnly !== true;
 }
 
-export function swipeOption(card, direction) {
-  if (!canSwipe(card)) return null;
+export function swipeOption(card, direction, autonomy) {
+  if (!canSwipe(card, autonomy)) return null;
   const safe = (option) => option?.risk === 'low' && option.reversible === true;
   if (direction === 'right') return card.options?.find((option) => option.id === card.recommended && safe(option)) || null;
   if (direction === 'left') return card.options?.find((option) => /reject|deny|decline|no|dismiss/i.test(option.id) && safe(option)) || null;
@@ -68,8 +72,8 @@ export function attachIntegrationRoots(cards, todos) {
 
 export function createDecisionQueue(send, { delay = 5000, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
   const pending = new Map();
-  function enqueue(card, optionId, reason = '') {
-    const entry = { card, optionId, reason };
+  function enqueue(card, optionId, reason = '', meta = {}) {
+    const entry = { card, optionId, reason, ...meta };
     entry.timer = setTimer(() => { pending.delete(card.id); void send(entry, false); }, delay);
     pending.set(card.id, entry);
     return entry;
@@ -97,6 +101,7 @@ export function decisionRequestInit(entry, keepalive) {
     body: JSON.stringify({
       optionId: entry.optionId, expectedRevision: entry.card.revision,
       reason: entry.reason, workspaceFolder: entry.card.workspaceFolder,
+      gesture: entry.gesture === true, detailsOpened: entry.detailsOpened === true, openedMs: entry.openedMs,
     }),
   };
 }
@@ -110,4 +115,13 @@ export function bindDecisionFlush(queue, page, visibility) {
     page.removeEventListener('pagehide', onPageHide);
     visibility.removeEventListener('visibilitychange', onVisibility);
   };
+}
+
+export function formatDuration(msValue) {
+  if (!Number.isFinite(msValue)) return '–';
+  const sec = Math.round(msValue / 1000);
+  return sec < 60 ? `${sec}s` : sec < 3600 ? `${Math.round(sec / 60)}m` : `${(sec / 3600).toFixed(1)}h`;
+}
+export function formatPercent(ratio) {
+  return Number.isFinite(ratio) ? `${Math.round(ratio * 100)}%` : '–';
 }

@@ -44,6 +44,9 @@ const basePl = {
     sendError: 'Nie udało się wysłać decyzji. Odśwież, aby spróbować ponownie.', loadError: 'Nie udało się pobrać decyzji.',
     evidence: 'Dowód', openEvidence: 'Otwórz dowód', openChat: 'Otwórz czat', screenshot: 'Zrzut ekranu',
     other: 'Inna odpowiedź', sendOther: 'Wyślij odpowiedź',
+    metrics: 'Statystyki (7 dni)', medianTime: 'Mediana czasu do decyzji', agreement: 'Zgodność z rekomendacją', perDay: 'Karty dziennie',
+    history: 'Historia', auto: 'automatyczna', autoUndone: 'Automatyczna decyzja cofnięta.', undoClosed: 'Okno cofania minęło.',
+    controlCard: 'Karta kontrolna: otwórz szczegóły przed decyzją.', gestureLimit: 'Osiągnięto dzienny limit gestów; użyj przycisków.',
     integrationGroup: 'Integracje w drzewie {tree} ({count})',
   },
   header: {
