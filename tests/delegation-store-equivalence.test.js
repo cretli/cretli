@@ -113,6 +113,10 @@ test('json and sqlite accessors return the same rows', () => {
   setDelegationStoreBackend('sqlite');
   try {
     assert.deepEqual(snapshotAccessors(), fromJson);
+    // Presence flushes pass every chat id; three bind variables per id used to exceed the SQLite
+    // variable limit ("too many SQL variables") once ~11k chats existed.
+    const many = Array.from({ length: 40_000 }, (_, i) => `chat-${i}`).concat(['p1', 'c7', 'ctl']);
+    assert.deepEqual(listDelegationsForChatIds(many).map((r) => r.id).sort(), fromJson.chatIds);
   } finally {
     setDelegationStoreBackend('json');
   }
