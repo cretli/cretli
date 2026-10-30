@@ -1,3 +1,4 @@
+import './helpers/isolated-data-dir.js';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

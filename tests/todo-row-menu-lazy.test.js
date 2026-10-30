@@ -97,7 +97,7 @@ function makeElementStub() {
   };
 }
 
-test('destroy() removes the two document listeners a dropdown added', () => {
+test('dropdowns share one document listener per event and destroy() releases it', () => {
   const originalDocument = globalThis.document;
   const documentListeners = { click: 0, keydown: 0 };
   globalThis.document = {
@@ -109,14 +109,14 @@ test('destroy() removes the two document listeners a dropdown added', () => {
     },
   };
   try {
-    // Before the fix every idle row held one instance (2 document listeners).
-    // Lazily-created instances are destroyed on close, so this is the contract
-    // `disposeRowMenu` relies on: create 50, then drop all of them.
+    // Instances share one document-level click and keydown listener (installed by
+    // the first dropdown, released by the last destroy), so idle rows add no cost.
+    // Lazily-created instances are destroyed on close: create 50, then drop all.
     const apis = Array.from({ length: 50 }, () =>
       initDropdown({ triggerEl: makeElementStub(), floatingEl: makeElementStub() }),
     );
-    assert.equal(documentListeners.click, 50);
-    assert.equal(documentListeners.keydown, 50);
+    assert.equal(documentListeners.click, 1);
+    assert.equal(documentListeners.keydown, 1);
     apis.forEach((api) => api.destroy());
     assert.equal(documentListeners.click, 0);
     assert.equal(documentListeners.keydown, 0);

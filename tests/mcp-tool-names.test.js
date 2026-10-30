@@ -412,7 +412,7 @@ assert.equal(
 // cretli_feedback: registered, canonical, not marked read-only, open by name in every mode.
 assert.ok(catalogNames.has('cretli_feedback'), 'cretli_feedback is in the catalog');
 assert.equal(defsByName.get('cretli_feedback').annotations.readOnlyHint, false, 'opened by name, not by a read-only mark');
-assert.deepEqual([...MCP_PLAN_MODE_OPEN_TOOLS], ['cretli_feedback']);
+assert.deepEqual([...MCP_PLAN_MODE_OPEN_TOOLS], ['cretli_feedback', 'decision_request']);
 assert.equal(resolveCretliBuiltinToolName('cretli_feedback', builtinServer), 'cretli_feedback');
 assert.equal(isMcpToolAllowedInPlan(builtinServer, 'cretli_feedback'), true);
 assert.equal(isMcpToolAllowedInPlan(builtinServer, mcpBuiltinToolBridgeEncodedName('cretli_feedback')), true);

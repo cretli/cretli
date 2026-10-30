@@ -115,7 +115,6 @@
     "lib/routes/delegations-routes.js:registerDelegationsRoutes.route[POST /api/chats/$id/delegations]:identity:request field carrying the calling chat (the starter of a new delegation)",
     "lib/routes/delegations-routes.js:registerDelegationsRoutes.route[POST /api/chats/$id/delegation-ui-actions]:identity:UI-action capability is minted for the chat resolved by the route (findParent + workspace guard); no delegation row involved",
     "lib/routes/delegations-routes.js:registerDelegationsRoutes.route[POST /api/chats/$id/mailbox/reply]:control:reply target resolved through delegationController(delegation)",
-    "lib/routes/todos-routes.js:registerTodosRoutes.executeTodoAgentStart:identity:request field carrying the starting chat for the reviewer policy snapshot",
     "lib/sdk/sdk-history-isolation-fork-cli.ts:<module>:identity:isolation probe CLI fork parent",
     "lib/sdk/sdk-history-isolation-probe.ts:evaluateProductionForkRecord:identity:isolation probe record of fork parent",
     "lib/sdk/sdk-history-isolation-probe.ts:runCursorSdkHistoryIsolationProbe:identity:isolation probe record of fork parent",
@@ -177,6 +176,9 @@
     "lib/mcp/mcp-inprocess-client.js:createInProcessMcpClient.billingLedger:identity:chat kind detection from delegationParentChatId (billing tools refused to delegation children)",
     "lib/chat-retention.js:isTechnicalChat:identity:chat kind detection from delegationParentChatId/delegationRootChatId (retention eligibility only)",
     "lib/chat-retention.js:planChatRetention.hasLiveParentRow:identity:historical parent link of a chat, used to keep children of live parents; not a control decision",
-    "lib/routes/delegations-routes.js:registerDelegationsRoutes:identity:review subject record carries the stored parentChatId of the delegation row as identity, not a control decision"
+    "lib/routes/delegations-routes.js:registerDelegationsRoutes:identity:review subject record carries the stored parentChatId of the delegation row as identity, not a control decision",
+    "lib/routes/todos-routes.js:registerTodosRoutes.executeTodoAgentStartReserved:identity:request field carrying the chat that starts the todo agent, not a delegation controller decision",
+    "lib/routes/todos-routes.js:registerTodosRoutes.todoReuseCandidates:identity:warm-chat reuse counts delegation rows by controller or historical parent id as chat membership; no steering decision",
+    "lib/todo-chat-reuse.js:resolveTodoExecutorChatId:identity:finds the executor chat of finished delegation rows through the historical parent/controller id; not a control decision"
   ]
 }
