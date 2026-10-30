@@ -171,7 +171,7 @@ export function getWorkspaceDefaultFolder(workspace) {
 /**
  * Open the chat linked to a Todo (new or existing) and optionally send a start prompt.
  * @param {object} chat
- * @param {{ initialPrompt?: string, reused?: boolean }} [options]
+ * @param {{ initialPrompt?: string, continuationPrompt?: string, reused?: boolean }} [options]
  */
 export function openTodoAgentChat(chat, options = {}) {
   if (!chat?.id) return;
@@ -195,8 +195,10 @@ export function openTodoAgentChat(chat, options = {}) {
   const active = chats.find((c) => c.id === chat.id) || chat;
   selectChat(active.id);
 
-  const initialPrompt = typeof options.initialPrompt === 'string' ? options.initialPrompt.trim() : '';
-  if (!initialPrompt || options.reused) return;
+  const continuationPrompt = typeof options.continuationPrompt === 'string' ? options.continuationPrompt.trim() : '';
+  const initialPrompt = continuationPrompt
+    || (typeof options.initialPrompt === 'string' ? options.initialPrompt.trim() : '');
+  if (!initialPrompt || (options.reused && !continuationPrompt)) return;
 
   const maxAttempts = 80;
   let attempts = 0;

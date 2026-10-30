@@ -494,16 +494,27 @@ export async function postTodoStartAgent(id, payload = {}) {
   );
 }
 
+/** Read-only warm-chat choices for continuing a todo. */
+export async function getTodoReuseCandidates(id, workspaceFolder = '') {
+  if (!id) return { ok: false, error: 'Missing id' };
+  return apiFetchJson(
+    `/api/todos/${encodeURIComponent(id)}/reuse-candidates${todoWorkspaceQuery(workspaceFolder)}`,
+    undefined,
+    'getTodoReuseCandidates'
+  );
+}
+
 /**
  * Poll a two-phase manual start. A worktree prepare may take minutes, so the
  * POST answers 202 and the UI polls until the chat is created (or fails).
  */
-export async function getTodoStartAgentStatus(id, workspaceFolder = '', forceNew = false) {
+export async function getTodoStartAgentStatus(id, workspaceFolder = '', forceNew = false, reuseChatId = '') {
   if (!id) return { ok: false, error: 'Missing id' };
   const params = new URLSearchParams();
   const folder = String(workspaceFolder || '').trim();
   if (folder) params.set('workspaceFolder', folder);
   if (forceNew) params.set('forceNew', 'true');
+  if (reuseChatId) params.set('reuseChatId', String(reuseChatId));
   const query = params.toString() ? `?${params.toString()}` : '';
   return apiFetchJson(
     `/api/todos/${encodeURIComponent(id)}/start-agent/status${query}`,

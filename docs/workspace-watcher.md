@@ -1500,6 +1500,20 @@ uses a **root-keyed** worktree:
   `GET /api/todos/:id/start-agent/status`; a live frozen record or `project`
   mode stays synchronous.
 
+The row menu can also continue a later stage in an existing chat from the same
+todo tree. `GET /api/todos/:id/reuse-candidates` is a read-only check: it never
+sends a provider request or refreshes the prompt cache. A chat is offered only
+when its provider reports a known warm TTL with at least 60 seconds remaining,
+its context has at most 300,000 input tokens, its execution folder matches, and
+no watcher cycle, other chat, delegation, todo, or concurrent start owns it.
+The limits can be changed with `CRETLI_TODO_REUSE_MIN_CACHE_MS` and
+`CRETLI_TODO_REUSE_MAX_CONTEXT_TOKENS`. Providers whose cache TTL is unknown
+are intentionally excluded; currently the known-TTL path covers Claude,
+CodeBuddy, and Qwen. The server rechecks all conditions after worktree prepare,
+uses an `expectedUpdatedAt` CAS, and reserves the chat so concurrent starts
+cannot both claim it. Async status polling includes the same `reuseChatId` that
+identified the POST job.
+
 Integration for a manually started tree is explicit on the root:
 `POST /api/todos/:id/integration` with `action=prepare` builds the root-level
 diff (all leaf siblings), records it with honest manual evidence and sets

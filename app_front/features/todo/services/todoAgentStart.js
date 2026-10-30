@@ -184,7 +184,7 @@ export async function startTodoReview(item, subject, harness, model) {
  * and keeps the previous one in the todo history.
  *
  * @param {string} id
- * @param {{ forceNew?: boolean, agentTransport?: string, model?: string, item?: object | null }} [options]
+ * @param {{ forceNew?: boolean, reuseChatId?: string, expectedUpdatedAt?: string, agentTransport?: string, model?: string, item?: object | null }} [options]
  */
 export async function startTodoAgent(id, options = {}) {
   const todoId = String(id || '').trim();
@@ -209,10 +209,13 @@ export async function startTodoAgent(id, options = {}) {
  *   model?: string,
  *   item?: object | null,
  *   planReviewerCooperationMode?: string,
+ *   reuseChatId?: string,
+ *   expectedUpdatedAt?: string,
  * }} [options]
  */
 export async function startTodoAgentOnce(todoId, options = {}) {
   const forceNew = options.forceNew === true;
+  const reuseChatId = String(options.reuseChatId || '').trim();
   const refine = options.mode === 'refine';
   const item = options.item || findItem(todoId) || {};
   const ctx = getWorkspaceContext();
@@ -222,7 +225,7 @@ export async function startTodoAgentOnce(todoId, options = {}) {
   }
   const harness = String(options.agentTransport || resolveTodoStartHarness(item)).trim();
   // The server only reuses `todo.chatId`; sourceChat/plan links do not count.
-  const willCreate = forceNew || !item.chatId;
+  const willCreate = !reuseChatId && (forceNew || !item.chatId);
   if (willCreate && harness === 'sdk' && !S.sdkReady) {
     setStatus(t('todo.sdkRequiresApiKey'), true);
     return;
@@ -239,6 +242,10 @@ export async function startTodoAgentOnce(todoId, options = {}) {
     ...(options.dirtyPolicy ? { dirtyPolicy: options.dirtyPolicy } : {}),
   };
   if (forceNew) payload.forceNew = true;
+  if (reuseChatId) {
+    payload.reuseChatId = reuseChatId;
+    payload.expectedUpdatedAt = String(options.expectedUpdatedAt || item.updatedAt || '');
+  }
   // Continuing in a fresh chat runs the executor, never a plan-mode draft.
   if (forceNew && !refine) payload.sdkMode = 'agent';
   if (refine) payload.mode = 'refine';
@@ -252,12 +259,16 @@ export async function startTodoAgentOnce(todoId, options = {}) {
       // Worktree prepare can take minutes; the server answered 202 and the UI
       // polls until the chat exists (D4).
       setStatus(t('todo.worktreePreparing'));
-      data = await pollTodoStartAgentStatus(todoId, ctx.workspaceFolder, forceNew);
+      data = await pollTodoStartAgentStatus(todoId, ctx.workspaceFolder, forceNew, reuseChatId);
     }
     if (!data?.ok || !data.chat) {
       if (data?.code === 'WORKTREE_DIRTY' && Array.isArray(data.details?.dirtyPaths)) {
         const choice = await chooseDirtyWorktreePolicy(data.details.dirtyPaths);
         if (choice) return startTodoAgentOnce(todoId, { ...options, dirtyPolicy: choice });
+      }
+      if (reuseChatId && String(data?.code || '').startsWith('TODO_REUSE_')) {
+        setStatus(`${data.error || t('todo.startAgentFailed')} ${t('todo.reuseTryNew')}`, true);
+        return;
       }
       setStatus(data?.error || t('todo.startAgentFailed'), true,
         data?.code === 'WORKTREE_PREPARE_FAILED' ? data.details || {} : null);
@@ -266,6 +277,7 @@ export async function startTodoAgentOnce(todoId, options = {}) {
     renderList(data);
     openTodoAgentChat(data.chat, {
       initialPrompt: data.initialPrompt,
+      continuationPrompt: data.continuationPrompt,
       reused: !!data.reused,
     });
     S.showPanelFn('chat');
@@ -359,13 +371,13 @@ export async function patchTodoLifecycle(request) {
  * @param {boolean} forceNew
  * @returns {Promise<object>}
  */
-export async function pollTodoStartAgentStatus(todoId, workspaceFolder, forceNew) {
+export async function pollTodoStartAgentStatus(todoId, workspaceFolder, forceNew, reuseChatId = '') {
   const deadline = Date.now() + TODO_START_POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, TODO_START_POLL_INTERVAL_MS));
     let status;
     try {
-      status = await api.getTodoStartAgentStatus(todoId, workspaceFolder, forceNew);
+      status = await api.getTodoStartAgentStatus(todoId, workspaceFolder, forceNew, reuseChatId);
     } catch {
       continue;
     }

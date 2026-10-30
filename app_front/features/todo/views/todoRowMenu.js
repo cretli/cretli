@@ -62,7 +62,7 @@ export function ensureRowMenu(row) {
       placement: 'bottom-end',
       minWidthPx: 210,
       maxHeightPx: 280,
-      onOpen: () => renderRowMenuItems(row, list),
+      onOpen: () => { void renderRowMenuItems(row, list); },
       // Escape must not strand focus inside the now-hidden panel.
       onClose: (reason) => {
         if (reason === 'escape') trigger.focus();
@@ -84,13 +84,26 @@ export function ensureRowMenu(row) {
  * @param {HTMLElement} row
  * @param {HTMLElement} list
  */
-export function renderRowMenuItems(row, list) {
+export async function renderRowMenuItems(row, list) {
   const id = String(row.dataset.id || '');
   const item = findItem(id);
   if (!item) return;
   const chats = Array.isArray(item.chats) ? item.chats.filter((chat) => !chat.deleted) : [];
   const canAdd = canAddTodoChild(S.latestItems, id);
   const itemStatus = String(item.status || 'idea');
+  let reuseCandidate = null;
+  try {
+    const ctx = getWorkspaceContext();
+    const response = await api.getTodoReuseCandidates(id, ctx.workspaceFolder);
+    reuseCandidate = Array.isArray(response?.candidates) ? response.candidates[0] || null : null;
+  } catch {
+    reuseCandidate = null;
+  }
+  if (!findItem(id)) return;
+  const reuseReason = reuseCandidate ? todoReuseReasonText(reuseCandidate) : '';
+  const warmMinutes = reuseCandidate?.cache?.expiresInMs == null
+    ? 0
+    : Math.max(1, Math.ceil(Number(reuseCandidate.cache.expiresInMs) / 60_000));
   // Ordered by lifecycle: plan -> execute -> integrate -> utilities -> delete.
   // `groupStart` draws a visual separator before the item.
   const actions = [
@@ -112,6 +125,14 @@ export function renderRowMenuItems(row, list) {
     { id: 'reviewPlanAgent', icon: 'mdi-robot-outline', label: t('todo.reviewPlanAgent') },
     // A leaf starts a direct executor (no child delegations), a parent an orchestrator.
     { id: 'newChat', icon: 'mdi-robot-outline', label: t(S.latestItems.some((row) => String(row?.parentId || '') === id) ? 'todo.continueNewChat' : 'todo.continueNewChatLeaf'), groupStart: true },
+    ...(reuseCandidate ? [{
+      id: 'reuseChat',
+      icon: 'mdi-chat-processing-outline',
+      label: t('todo.reuseChatAction', { title: reuseCandidate.title, minutes: warmMinutes }),
+      title: reuseReason,
+      disabled: reuseCandidate.eligible !== true,
+      chatId: reuseCandidate.chatId,
+    }] : []),
     // Code-review delegation (review_subject=code), same path as the card's code review button.
     { id: 'reviewCodeAgent', icon: 'mdi-robot-outline', label: t('todo.reviewCodeAgent') },
     // Only offered when the item's tree really owns an un-integrated worktree;
@@ -167,6 +188,7 @@ export function renderRowMenuItems(row, list) {
       'chat-list-item todo-row-menu-item' + (action.danger ? ' todo-row-menu-item--danger' : '');
     button.setAttribute('role', 'menuitem');
     button.dataset.action = action.id;
+    if (action.chatId) button.dataset.chatId = action.chatId;
     button.disabled = action.disabled === true;
     const icon = document.createElement('span');
     icon.className = `mdi ${action.icon}`;
@@ -248,14 +270,36 @@ export async function onRowMenuSelect(event, row) {
     }
     return;
   }
-  await runRowMenuAction(action, item);
+  await runRowMenuAction(action, item, { chatId: String(button.dataset.chatId || '') });
+}
+
+function todoReuseReasonText(candidate) {
+  const reason = String(candidate?.reason || '');
+  if (reason === 'context_too_large') {
+    return t('todo.reuseReasonContextLarge', { tokens: Number(candidate?.contextTokens || 0).toLocaleString() });
+  }
+  const keys = {
+    tree_owned_by_watcher: 'todo.reuseReasonTreeWatcher',
+    owned_by_watcher: 'todo.reuseReasonWatcher',
+    tree_busy: 'todo.reuseReasonTreeBusy',
+    tree_owned_by_other: 'todo.reuseReasonTreeOwner',
+    busy: 'todo.reuseReasonBusy',
+    delegations_active: 'todo.reuseReasonDelegations',
+    reserved: 'todo.reuseReasonReserved',
+    claimed_by_other_todo: 'todo.reuseReasonOtherTodo',
+    folder_mismatch: 'todo.reuseReasonFolder',
+    cache_unknown: 'todo.reuseReasonCacheUnknown',
+    cache_cold: 'todo.reuseReasonCacheCold',
+    cache_expiring: 'todo.reuseReasonCacheExpiring',
+  };
+  return t(keys[reason] || 'todo.reuseReasonUnavailable');
 }
 
 /**
  * @param {string} action
  * @param {object} item
  */
-export async function runRowMenuAction(action, item) {
+export async function runRowMenuAction(action, item, meta = {}) {
   const id = String(item.id || '');
   if (!id) return;
   if (action === 'addChild') {
@@ -281,6 +325,14 @@ export async function runRowMenuAction(action, item) {
   }
   if (action === 'newChat') {
     openTodoStartPicker(item);
+    return;
+  }
+  if (action === 'reuseChat') {
+    await startTodoAgent(id, {
+      reuseChatId: String(meta.chatId || ''),
+      expectedUpdatedAt: String(item.updatedAt || ''),
+      item,
+    });
     return;
   }
   if (action === 'defer') {
