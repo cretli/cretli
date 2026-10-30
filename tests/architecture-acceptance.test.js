@@ -88,6 +88,8 @@ const LIVING_ARCHITECTURE_PATHS = new Set([
   'docs/architecture-stall-profile.json',
   'docs/architecture-stall-profile.md',
   'scripts/architecture-stall-profile.mjs',
+  // Its smoke assertions follow the living stall profile script.
+  'tests/architecture-stall-profile.test.js',
   // Fixture scripts follow the todos-store API as it moves to the async facade.
   'scripts/architecture-http-fixture.mjs',
   // This file: a self-pinned hash would break on every edit of the test itself.

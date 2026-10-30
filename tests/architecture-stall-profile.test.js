@@ -63,6 +63,27 @@ test('smoke profile runs in an isolated dir and reports owners, reasons and no e
       if (site.status === 'not measured') assert.ok(site.reason, `${site.id} has a reason`);
       else assert.ok(site.callMs.n > 0 && site.eventLoopMs, `${site.id} measured`);
     }
+    // Leaf d0205ec8: production-scale sites for the six watchdog stall codes.
+    const byId = new Map(report.sites.map((site) => [site.id, site]));
+    for (const id of [
+      'ST-todos-parse-prod', 'ST-todos-load-cold-prod',
+      'ST-workspace-settings-view-prod-warm', 'ST-workspace-settings-view-prod-rebuild',
+      'ST-normalize-folder-prod-warm', 'ST-normalize-folder-prod-sweep', 'ST-watchers-load-cold-prod',
+      'ST-oom-read-markers-prod-200', 'ST-oom-write-marker-prod-cap',
+      'ST-recovery-classify-prod-60-cycles10',
+    ]) {
+      const site = byId.get(id);
+      assert.ok(site, `${id} reported`);
+      assert.equal(site.status, 'measured', id);
+      assert.ok(site.callMs.n > 0 && site.callMs.p50 >= 0 && site.eventLoopMs, `${id} has a small profile`);
+    }
+    const todoFixture = byId.get('ST-todos-load-cold-prod').observed;
+    assert.ok(todoFixture.fixtureBytes >= 1024 * 1024, 'smoke todo fixture size asserted');
+    assert.match(todoFixture.profileLabel, /smoke/);
+    assert.ok(todoFixture.setupMs >= 0 && Number.isFinite(todoFixture.normalizeMsDerived), 'setup and normalization reported apart from parse');
+    const busy = byId.get('ST-delegation-sqlite-busy-retry-prod');
+    assert.equal(busy.status, 'not measured');
+    assert.ok(busy.reason && busy.owner === 'A2');
     const probe = report.sites.find((site) => site.id === 'AW-owner-lock-socket-probe');
     assert.ok(probe.callMs.p50 >= 70, 'socket probe blocks for its full Atomics.wait window');
     assert.ok(Number.isInteger(probe.observed.reportedLive), 'liveness result of the listening socket is recorded');

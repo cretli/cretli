@@ -157,12 +157,18 @@ const ns = (v) => Math.round((v / 1e6) * 1000) / 1000;
  * @param {number} count
  * @param {number} [warmup]
  */
-async function sample(fn, count, warmup = 3) {
-  for (let i = 0; i < warmup; i += 1) { await fn(); await tick(); }
+async function sample(fn, count, warmup = 3, prep) {
+  for (let i = 0; i < warmup; i += 1) { if (prep) await prep(); await fn(); await tick(); }
   const calls = [];
   histogram.reset();
   histogram.enable();
   for (let i = 0; i < count; i += 1) {
+    // `prep` (when given) runs outside the timer, e.g. to force a cache miss.
+    if (prep) {
+      histogram.disable();
+      await prep();
+      histogram.enable();
+    }
     const t0 = performance.now();
     await fn();
     calls.push(performance.now() - t0);
@@ -175,7 +181,7 @@ async function sample(fn, count, warmup = 3) {
   };
 }
 
-/** @type {object[]} */
+/** @type {Array<Record<string, any>>} */
 const rows = [];
 
 /**
@@ -186,13 +192,15 @@ const rows = [];
  * @param {string} meta.owner  A2 | A4 | R3 | A3b | stage-6 | other
  * @param {string} meta.requestPath  yes | no | contention-only | startup
  * @param {string} [meta.note]
+ * @param {Record<string, any>} [meta.observed]
  * @param {() => unknown} fn
  * @param {number} count
+ * @param {() => unknown} [prep]  untimed setup run before every call
  */
-async function profileSite(meta, fn, count) {
+async function profileSite(meta, fn, count, prep) {
   let result;
   try {
-    result = await sample(fn, count);
+    result = await sample(fn, count, 3, prep);
   } catch (error) {
     rows.push({ ...meta, status: 'error', error: String(error?.message || error).slice(0, 300) });
     return;
@@ -808,6 +816,275 @@ async function runChild() {
       requestPath: 'yes',
       note: 'Leaf 3aed8cff.',
     }, () => lockout.resolveLogicalWorkspaceFolder({ workspaceFolder: todoCwd, executionFolder: `${todoCwd}/x`, dataDir: work }), P.fs * 5);
+  }
+
+  // ---- C4. Leaf d0205ec8: production-scale fixtures for the six watchdog stall codes ----
+  // Synthetic, seeded; nothing is read from data/. Setup is timed apart from the measured
+  // work and reported in `observed`, and the measured fragment contains no utimes call.
+  {
+    const full = P.fixtureProfile === 'full';
+    const n = (fullCount, smokeCount) => (full ? fullCount : smokeCount);
+    const prodCount = n(15, 3);
+    let seedState = (Number(option('--seed', '20261017')) >>> 0) || 1;
+    const rand = () => { // mulberry32
+      seedState = (seedState + 0x6D2B79F5) >>> 0;
+      let t = seedState;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const hex = (len) => { let o = ''; while (o.length < len) o += Math.floor(rand() * 0xffffffff).toString(16).padStart(8, '0'); return o.slice(0, len); };
+    const words = (len) => { let o = ''; while (o.length < len) o += `${hex(3 + Math.floor(rand() * 6))} `; return o.slice(0, len); };
+    const manifest = (entries) => Object.fromEntries(Array.from({ length: entries }, (_, i) => [`src/mod${i % 17}/file-${hex(8)}.js`, hex(40)]));
+
+    // -- 1. d837b16a parseDocument: loadTodosData after a cache miss on a production-sized document --
+    {
+      const todosPersist = await import('../lib/persist/todos-persist.js');
+      const todosLegacy = await import('../lib/persist/todos-legacy-adapter.js');
+      const dir = path.join(work, 'todo-prod-data');
+      const cwd = path.join(work, 'todo-prod-ws');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.mkdirSync(cwd, { recursive: true });
+      const itemCount = n(1500, 60);
+      const manifestEntries = n(60, 60);
+      const minBytes = full ? 20 * 1024 * 1024 : 1024 * 1024;
+      const setupStart = performance.now();
+      const now = Date.parse('2026-01-01T00:00:00.000Z');
+      const items = [];
+      const leafBytes = [];
+      const idempotency = {};
+      for (let i = 0; i < itemCount; i += 1) {
+        const id = `${hex(8)}-${hex(4)}-4${hex(3)}-8${hex(3)}-${hex(12)}`;
+        const leafMaterial = {
+          mode: 'worktree', baseCommit: hex(40), baseCapturedAt: new Date(now + i).toISOString(), baseManifest: manifest(manifestEntries),
+          lastCheckpoint: { at: new Date(now + i).toISOString(), commit: hex(40), manifest: manifest(manifestEntries) },
+        };
+        leafBytes.push(JSON.stringify(leafMaterial).length);
+        items.push({
+          id, title: `Synthetic todo ${i}`, body: words(3500), status: i % 5 === 0 ? 'ready' : 'done', siblingIndex: i,
+          createdAt: new Date(now + i * 1000).toISOString(), updatedAt: new Date(now + i * 2000).toISOString(),
+          ...(i > 0 && i % 4 !== 0 ? { parentId: items[i - 1 - ((i - 1) % 4)].id } : {}),
+          leafMaterial,
+          plan: { markdown: words(2200), approvedAt: new Date(now + i).toISOString() },
+          changelog: Array.from({ length: 20 }, (_, k) => ({ at: new Date(now + k).toISOString(), kind: 'note', text: words(90) })),
+          integration: { state: 'integrated', targetBranch: 'main', targetCommit: hex(40), confirmedAt: new Date(now + i).toISOString() },
+          linkedChatIds: Array.from({ length: 3 }, () => `${hex(8)}-${hex(4)}-4${hex(3)}-8${hex(3)}-${hex(12)}`),
+        });
+        if (i % 3 === 0) idempotency[`key-${hex(16)}`] = { hash: hex(64), todoId: id };
+      }
+      const file = todosPersist.todosDocumentPath(dir, cwd);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const serialized = JSON.stringify({ version: 3, updatedAt: new Date(now).toISOString(), items, idempotency });
+      fs.writeFileSync(file, serialized);
+      const fixtureBytes = fs.statSync(file).size;
+      const leafShare = Math.round((leafBytes.reduce((a, b) => a + b, 0) / fixtureBytes) * 100);
+      const setupMs = Math.round((performance.now() - setupStart) * 10) / 10;
+      if (fixtureBytes < minBytes) throw new Error(`todo prod fixture is ${fixtureBytes} bytes, expected >= ${minBytes} (profile ${P.fixtureProfile})`);
+      const observed = {
+        fixtureBytes, items: itemCount, idempotencyEntries: Object.keys(idempotency).length, leafMaterialSharePercent: leafShare,
+        setupMs, profileLabel: full ? 'full: >= 20 MiB asserted' : 'smoke: reduced fixture (>= 1 MiB asserted), not production scale',
+      };
+      // A cache miss without touching the file inside the timer: the signature includes the mtime, so the
+      // untimed prep rewrites the (identical) bytes' mtime before every call.
+      let touch = 0;
+      const miss = () => { touch += 1; const t = new Date(Date.now() + touch * 1000); fs.utimesSync(file, t, t); };
+      await profileSite({
+        id: 'ST-todos-parse-prod', group: 'sync-fs', site: `readFileSync + JSON.parse of the todo document (the parseDocument part; ${itemCount} items, ${fixtureBytes} bytes)`,
+        owner: 'other', requestPath: 'yes', observed,
+        note: 'Leaf d0205ec8. parseDocument is not exported, so this repeats its two steps (read + JSON.parse + items check). Setup is outside the timer.',
+      }, () => { const d = JSON.parse(fs.readFileSync(file, 'utf8')); if (!Array.isArray(d.items)) throw new Error('bad fixture'); }, prodCount);
+      await profileSite({
+        id: 'ST-todos-load-cold-prod', group: 'sync-fs', site: `lib/persist/todos-persist.js loadTodosData() after a cache miss (${itemCount} items, ${fixtureBytes} bytes; read + parseDocument + row normalization + tree pass + copy)`,
+        owner: 'other', requestPath: 'yes', observed,
+        note: 'Leaf d0205ec8. The cache miss is forced by an untimed utimes before each call; the timed part is loadTodosData only. normalizeMsDerived = cold P50 minus parse P50.',
+      }, () => todosLegacy.loadTodosData(dir, cwd), prodCount, miss);
+      const parseRow = rows.find((r) => r.id === 'ST-todos-parse-prod');
+      const coldRow = rows.find((r) => r.id === 'ST-todos-load-cold-prod');
+      if (parseRow?.callMs && coldRow?.callMs) coldRow.observed = { ...observed, parseP50Ms: parseRow.callMs.p50, normalizeMsDerived: Math.round((coldRow.callMs.p50 - parseRow.callMs.p50) * 1000) / 1000 };
+    }
+
+    // -- 2. e7053ff7 readWorkspaceSettingsView: a few hundred workspaces, warm and after a data_version change --
+    {
+      const wsStore = await import('../lib/persist/workspaces-store.js');
+      const { DatabaseSync } = await import('node:sqlite');
+      const dir = path.join(work, 'ws-store-prod');
+      fs.mkdirSync(dir, { recursive: true });
+      const count = n(400, 30);
+      const idOf = (i) => `cretli:ws:${String(i).padStart(8, '0')}-1111-4111-8111-111111111111`;
+      const settings = {
+        workspaces: Array.from({ length: count }, (_, i) => ({ id: idOf(i), kind: 'folders', label: `Synthetic workspace ${i}` })),
+        workspaceSidebarConfig: Object.fromEntries(Array.from({ length: count }, (_, i) => [idOf(i), {
+          folder: `/w/p${i}/a`,
+          folders: Object.fromEntries(Array.from({ length: 4 }, (_, k) => [`/w/p${i}/f${k}`, { enabled: k % 2 === 0, name: `Folder ${k}` }])),
+        }])),
+        workspaceRouteKeys: {
+          workspaces: Object.fromEntries(Array.from({ length: count }, (_, i) => [idOf(i), `route-${hex(10)}`])),
+          folders: Object.fromEntries(Array.from({ length: count }, (_, i) => [`/w/p${i}/a`, `route-${hex(10)}`])),
+        },
+        additionalCursorContextDirs: ['/shared/docs'],
+      };
+      wsStore.replaceWorkspaceSettings(dir, settings);
+      const viewBytes = JSON.stringify(wsStore.readWorkspaceSettingsView(dir)).length;
+      const observed = { workspaces: count, viewJsonBytes: viewBytes, dbBytes: fs.statSync(wsStore.workspacesDbPath(dir)).size };
+      await profileSite({
+        id: 'ST-workspace-settings-view-prod-warm', group: 'sync-fs', site: `readWorkspaceSettingsView() warm (${count} workspaces with route keys + sidebar config; PRAGMA data_version + structuredClone of the cached view)`,
+        owner: 'A2', requestPath: 'yes', observed,
+        note: 'Leaf d0205ec8. SQLite backend: view cached per data_version, every call deep-copies it.',
+      }, () => wsStore.readWorkspaceSettingsView(dir), prodCount * 10);
+      // A second connection writes, so the first handle sees a new data_version and must rebuild the view.
+      const other = new DatabaseSync(wsStore.workspacesDbPath(dir));
+      let bump = 0;
+      try {
+        await profileSite({
+          id: 'ST-workspace-settings-view-prod-rebuild', group: 'sync-fs', site: `readWorkspaceSettingsView() after a data_version change (${count} workspaces; buildView SQL reads + clone)`,
+          owner: 'A2', requestPath: 'yes', observed,
+          note: 'Leaf d0205ec8. The untimed prep commits a meta row from a second connection; the timed call rebuilds the view.',
+        }, () => wsStore.readWorkspaceSettingsView(dir), prodCount * 4, () => {
+          bump += 1;
+          other.prepare('INSERT OR REPLACE INTO workspace_store_meta (key, value) VALUES (?, ?)').run('profile_bump', String(bump));
+        });
+      } finally {
+        other.close();
+      }
+    }
+
+    // -- 3. 3d268bea normalizeWorkspaceFolder: per-call cost and calls per higher-level operation --
+    {
+      const watchers = await import('../lib/persist/workspace-watchers-persist.js');
+      const dir = path.join(work, 'watchers-prod');
+      const rootDir = path.join(work, 'watchers-prod-ws');
+      fs.mkdirSync(dir, { recursive: true });
+      const rowCount = n(400, 40); // > 256 so the 256-entry realpath cache of delegation-workspace-key cannot hold every folder
+      const folders = Array.from({ length: rowCount }, (_, i) => {
+        const folder = path.join(rootDir, `ws-${String(i).padStart(4, '0')}`);
+        fs.mkdirSync(folder, { recursive: true });
+        return folder;
+      });
+      const docItems = {};
+      for (const folder of folders) {
+        docItems[folder] = {
+          workspaceFolder: folder, mode: 'observe', enabled: true,
+          pendingScoutFindings: Array.from({ length: n(8, 2) }, (_, k) => ({ title: `Finding ${k} ${words(60)}`, category: 'improvement', rationale: words(300), files: [`src/a${k}.js`, `src/b${k}.js`] })),
+        };
+      }
+      const file = path.join(dir, 'workspace-watchers.json');
+      fs.writeFileSync(file, JSON.stringify({ v: 2, updatedAt: '', revision: 1, items: docItems }));
+      const fileBytes = fs.statSync(file).size;
+      let realpathCalls = 0;
+      const nativeOriginal = fs.realpathSync.native;
+      const countedNative = (...a) => { realpathCalls += 1; return nativeOriginal(...a); };
+      const observed = { fileBytes, rows: rowCount, pendingFindingsPerRow: n(8, 2), realpathCacheMax: 256 };
+      await profileSite({
+        id: 'ST-normalize-folder-prod-warm', group: 'sync-fs', site: 'normalizeWorkspaceFolder() single call, realpath cache hit',
+        owner: 'other', requestPath: 'yes', observed, note: 'Leaf d0205ec8. Cost of one call on a folder already in the realpath cache.',
+      }, () => watchers.normalizeWorkspaceFolder(folders[0]), P.fs * 5);
+      await profileSite({
+        id: 'ST-normalize-folder-prod-sweep', group: 'sync-fs', site: `normalizeWorkspaceFolder() over ${rowCount} distinct folders in a row (more than the 256-entry cache: FIFO eviction means a repeated sweep misses every time)`,
+        owner: 'other', requestPath: 'yes', observed, note: 'Leaf d0205ec8. One sample = one sweep over every folder; divide by the row count for per-call cost.',
+      }, () => { for (const folder of folders) watchers.normalizeWorkspaceFolder(folder); }, prodCount * 2);
+      fs.realpathSync.native = countedNative;
+      let callsPerLoad;
+      let callsPerSweep;
+      try {
+        realpathCalls = 0;
+        for (const folder of folders) watchers.normalizeWorkspaceFolder(folder);
+        callsPerSweep = realpathCalls;
+        watchers.invalidateWorkspaceWatchersCache({ dataDir: dir });
+        realpathCalls = 0;
+        watchers.loadWorkspaceWatchersDocument({ dataDir: dir });
+        callsPerLoad = realpathCalls;
+      } finally {
+        fs.realpathSync.native = nativeOriginal;
+      }
+      await profileSite({
+        id: 'ST-watchers-load-cold-prod', group: 'sync-fs', site: `loadWorkspaceWatchersDocument() after a cache miss (${rowCount} rows, ${fileBytes} bytes; read + JSON.parse + normalizeWorkspaceWatcherRow per row)`,
+        owner: 'other', requestPath: 'yes', observed: { ...observed, realpathNativeCallsPerLoad: callsPerLoad, realpathNativeCallsPerWarmSweep: callsPerSweep },
+        note: 'Leaf d0205ec8. realpathNativeCallsPerWarmSweep counts fs.realpathSync.native calls in one more sweep over every folder (cache thrash when rows > 256). realpathNativeCallsPerLoad counts fs.realpathSync.native calls in one cold load (the calls the normalizeWorkspaceFolder calls turn into).',
+      }, () => watchers.loadWorkspaceWatchersDocument({ dataDir: dir }), prodCount, () => watchers.invalidateWorkspaceWatchersCache({ dataDir: dir }));
+    }
+
+    // -- 4. 9780985a oom-diagnostics readJsonl / readOomMarkers: thousands of rows, growth up to the file cap --
+    {
+      const oomLib = await import('../lib/oom-diagnostics.js');
+      const makeRow = (i) => JSON.stringify({
+        recordedAt: new Date(1700000000000 + i * 1000).toISOString(), writer: 'external-observer', observer: 'memory-monitor',
+        cause: i % 7 === 0 ? 'sigkill' : 'unknown', source: 'none', confidence: 'unknown', pid: 5000 + i,
+        evidence: [{ kind: 'journal', line: `kernel: synthetic ${words(120)}` }],
+      });
+      const sizes = full ? [400, 4000, 8000] : [20, 200];
+      for (const rowsCount of sizes) {
+        const dir = path.join(work, `oom-prod-${rowsCount}`);
+        fs.mkdirSync(dir, { recursive: true });
+        const markerFile = path.join(dir, oomLib.OOM_MARKER_FILE);
+        fs.writeFileSync(markerFile, Array.from({ length: rowsCount }, (_, i) => makeRow(i)).join('\n') + '\n');
+        const observed = { rows: rowsCount, fileBytes: fs.statSync(markerFile).size, fileCapBytes: 2 * 1024 * 1024 };
+        await profileSite({
+          id: `ST-oom-read-markers-prod-${rowsCount}`, group: 'sync-fs', site: `lib/oom-diagnostics.js readOomMarkers(limit 50) over ${rowsCount} rows (readJsonl parses every row, then slices)`,
+          owner: 'other', requestPath: 'no', observed, note: 'Leaf d0205ec8. Whole file read and every line JSON.parsed regardless of the limit.',
+        }, () => oomLib.readOomMarkers(dir, 50), prodCount * 3);
+      }
+      // writeOomMarker scans both files; fill both near the 2 MiB cap (the largest possible scan).
+      const dir = path.join(work, 'oom-prod-both');
+      fs.mkdirSync(dir, { recursive: true });
+      const perRow = makeRow(0).length + 1;
+      const capRows = Math.floor((full ? 2 * 1024 * 1024 - 4096 : 100 * 1024) / perRow);
+      const block = Array.from({ length: capRows }, (_, i) => makeRow(i)).join('\n') + '\n';
+      const base = path.join(dir, oomLib.OOM_MARKER_FILE);
+      fs.writeFileSync(base, block);
+      fs.writeFileSync(`${base}.1`, block);
+      let seq = 0;
+      await profileSite({
+        id: 'ST-oom-write-marker-prod-cap', group: 'sync-fs', site: `writeOomMarker() scanning two marker files of ${capRows} rows each (both near the 2 MiB cap)`,
+        owner: 'other', requestPath: 'no', observed: { rowsPerFile: capRows, bytesPerFile: block.length },
+        note: 'Leaf d0205ec8. Distinct pid per call so nothing dominates and each call scans both files in full and appends.',
+      }, () => { seq += 1; oomLib.writeOomMarker(dir, { cause: 'unknown', source: 'none', confidence: 'unknown', pid: 900000 + seq, evidence: [] }); }, prodCount * 2);
+    }
+
+    // -- 5. a1a4617d workspace-watcher-recovery: classifyWorkspaceDoingTodos (the caller of the `text` helper) --
+    {
+      const recovery = await import('../lib/workspace-watcher-recovery.js');
+      const now = Date.parse('2026-01-01T00:00:00.000Z');
+      const make = (count, cycleCount) => {
+        const items = [];
+        const delegations = [];
+        for (let i = 0; i < count; i += 1) {
+          const id = `todo-${String(i).padStart(5, '0')}-${hex(8)}`;
+          items.push({
+            id, title: `Doing todo ${i}`, status: 'doing', updatedAt: new Date(now + i).toISOString(),
+            ...(i % 2 === 0 ? { claimedByChatId: `chat-${i}` } : { orchestratorChatId: `chat-${i}` }),
+          });
+          delegations.push({
+            id: `deleg-${i}`, leafId: id, controllerChatId: `chat-${i}`, status: 'completed', taskOutcome: 'success',
+            createdAt: new Date(now + i).toISOString(), finishedAt: new Date(now + i + 1).toISOString(),
+          });
+        }
+        const cycles = Array.from({ length: cycleCount }, (_, k) => ({ cycleId: `cycle-${k}`, chatId: `chat-${k * 2}`, runId: `run-${k}`, phase: 'running', todoIds: [items[k * 2]?.id].filter(Boolean) }));
+        return { items, delegations, cycles };
+      };
+      const cycleSets = full ? [10, 200] : [10];
+      for (const count of full ? [250, 1000] : [60]) {
+        for (const cycleCount of cycleSets) {
+          const { items, delegations, cycles } = make(count, cycleCount);
+          await profileSite({
+            id: `ST-recovery-classify-prod-${count}-cycles${cycleCount}`, group: 'sync-fs',
+            site: `classifyWorkspaceDoingTodos() ${count} doing todos x ${count} delegations x ${cycleCount} active cycles (probe/isCycleChatAlive stubbed)`,
+            owner: 'other', requestPath: 'yes', observed: { doingTodos: count, delegations: count, activeCycles: cycleCount, realActiveCyclesCap: 10 },
+            note: 'Leaf d0205ec8. Each doing todo filters all delegations and scans all cycles, so the work is O(todos x (delegations + cycles)). 200 cycles exceeds the real cap of 10 and is a stress row.',
+          }, () => recovery.classifyWorkspaceDoingTodos({
+            items, delegations, cycles, now,
+            probe: () => ({ known: true, busy: false, reason: 'idle' }),
+            isCycleChatAlive: () => false,
+          }), prodCount * 2);
+        }
+      }
+    }
+
+    // -- 6. bad7102c delegation-sqlite busy-retry: not measured (option b) --
+    notMeasured({
+      id: 'ST-delegation-sqlite-busy-retry-prod', group: 'sync-fs', site: 'lib/persist/delegation-sqlite.js openSqliteDatabase() busy-retry loop (SQLITE_BUSY_TIMEOUT_MS = 8000, Atomics.wait 50 ms)',
+      owner: 'A2', requestPath: 'contention-only',
+      reason: 'openSqliteDatabase is module-private, so an isolated reproducer would need either a lib/ export or a copy of the loop; the loop only runs when another connection holds the lock and then blocks the main thread in 50 ms slices for up to 8 s by construction (code-based bound, not a measurement). Not measured here to avoid reproducing code that is not under test.',
+    });
   }
 
   // ---- D. V8: Files / Terminal / Browser Cretli overhead ----
