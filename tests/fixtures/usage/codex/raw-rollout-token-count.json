@@ -1,0 +1,26 @@
+{
+  "_note": "Sanitized rollout JSONL records (as parsed objects): task_started window, two token_count calls (second repeats the first), compacted marker, post-compaction call. Numeric telemetry only.",
+  "records": [
+    {"type": "turn_context", "payload": {"model": "codex-model-x"}},
+    {"type": "event_msg", "timestamp": "2026-01-01T00:00:01.000Z", "payload": {"type": "task_started", "model_context_window": 258400}},
+    {"type": "event_msg", "timestamp": "2026-01-01T00:00:02.000Z", "payload": {"type": "token_count", "info": {
+      "total_token_usage": {"input_tokens": 1000, "cached_input_tokens": 400, "output_tokens": 50, "reasoning_output_tokens": 10, "total_tokens": 1050},
+      "last_token_usage": {"input_tokens": 1000, "cached_input_tokens": 400, "output_tokens": 50, "reasoning_output_tokens": 10, "total_tokens": 1050},
+      "model_context_window": 258400}}},
+    {"type": "event_msg", "timestamp": "2026-01-01T00:00:03.000Z", "payload": {"type": "token_count", "info": {
+      "total_token_usage": {"input_tokens": 1000, "cached_input_tokens": 400, "output_tokens": 50, "reasoning_output_tokens": 10, "total_tokens": 1050},
+      "last_token_usage": {"input_tokens": 1000, "cached_input_tokens": 400, "output_tokens": 50, "reasoning_output_tokens": 10, "total_tokens": 1050},
+      "model_context_window": 258400}}},
+    {"type": "event_msg", "timestamp": "2026-01-01T00:00:04.000Z", "payload": {"type": "token_count", "info": {
+      "total_token_usage": {"input_tokens": 2300, "cached_input_tokens": 1500, "output_tokens": 120, "reasoning_output_tokens": 20, "total_tokens": 2420},
+      "last_token_usage": {"input_tokens": 1300, "cached_input_tokens": 1100, "output_tokens": 70, "reasoning_output_tokens": 10, "total_tokens": 1370},
+      "model_context_window": 258400}}}
+  ],
+  "afterCompaction": [
+    {"type": "compacted", "timestamp": "2026-01-01T00:00:05.000Z"},
+    {"type": "event_msg", "timestamp": "2026-01-01T00:00:06.000Z", "payload": {"type": "token_count", "info": {
+      "total_token_usage": {"input_tokens": 2800, "cached_input_tokens": 1500, "output_tokens": 130, "reasoning_output_tokens": 20, "total_tokens": 2930},
+      "last_token_usage": {"input_tokens": 500, "cached_input_tokens": 0, "output_tokens": 10, "reasoning_output_tokens": 0, "total_tokens": 510},
+      "model_context_window": 258400}}}
+  ]
+}

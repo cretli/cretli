@@ -1,0 +1,152 @@
+import { describe, it, beforeEach, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import './fixtures/fake-transport.js';
+import { createLegacyJsonTodosBackend, createTodosStore, TODOS_STORE_ERROR_CODES } from '../lib/persist/todos-store.js';
+import { openSqliteTodosBackend } from './fixtures/todos-sqlite-harness.js';
+
+/**
+ * Backends the facade contract runs against. `create(dataDir)` returns the backend and an optional
+ * async `close`; the same assertions must hold for every backend.
+ */
+const BACKENDS = [
+  { name: 'legacy-json', create: async () => ({ backend: createLegacyJsonTodosBackend(), close: async () => {} }) },
+  {
+    name: 'sqlite',
+    create: async (dataDir) => {
+      const opened = await openSqliteTodosBackend({ dataDir });
+      return { backend: opened.backend, close: opened.close };
+    },
+  },
+];
+
+for (const { name, create } of BACKENDS) {
+  describe(`todos-store contract (${name})`, () => {
+    /** @type {string} */ let dataDir;
+    /** @type {string} */ let cwd;
+    /** @type {ReturnType<typeof createTodosStore>} */ let store;
+    /** @type {() => Promise<void>} */ let closeBackend;
+
+    beforeEach(async () => {
+      dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'todos-store-data-'));
+      cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'todos-store-cwd-'));
+      const created = await create(dataDir);
+      closeBackend = created.close;
+      store = createTodosStore(created.backend);
+    });
+    afterEach(async () => {
+      await closeBackend();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+      fs.rmSync(cwd, { recursive: true, force: true });
+    });
+
+    it('methods return Promises', async () => {
+      const pending = store.listTodos(dataDir, cwd);
+      assert.ok(pending instanceof Promise);
+      assert.deepEqual((await pending).items, []);
+    });
+
+    it('add, get, list and update round-trip', async () => {
+      const doc = await store.addTodo(dataDir, cwd, { title: 'First', status: 'ready' });
+      const id = doc.items[0].id;
+      assert.equal((await store.getTodo(dataDir, cwd, id)).title, 'First');
+      assert.equal(await store.getTodo(dataDir, cwd, 'missing'), null);
+      const updated = await store.updateTodo(dataDir, cwd, id, { title: 'Renamed' });
+      assert.equal(updated.items.find((row) => row.id === id).title, 'Renamed');
+      assert.equal((await store.listTodos(dataDir, cwd)).items.length, 1);
+    });
+
+    it('rejects a stale expectedUpdatedAt with CONFLICT', async () => {
+      const doc = await store.addTodo(dataDir, cwd, { title: 'CAS' });
+      const id = doc.items[0].id;
+      await assert.rejects(
+        store.updateTodo(dataDir, cwd, id, { title: 'x', expectedUpdatedAt: '2000-01-01T00:00:00.000Z' }),
+        (err) => err.code === TODOS_STORE_ERROR_CODES.CONFLICT,
+      );
+    });
+
+    it('rejects unknown ids with NOT_FOUND', async () => {
+      await assert.rejects(store.updateTodo(dataDir, cwd, 'nope', { title: 'x' }), (err) => err.code === TODOS_STORE_ERROR_CODES.NOT_FOUND);
+      await assert.rejects(store.deleteTodo(dataDir, cwd, 'nope'), (err) => err.code === TODOS_STORE_ERROR_CODES.NOT_FOUND);
+    });
+
+    it('deleteTodo removes the subtree and reports it', async () => {
+      const root = (await store.addTodo(dataDir, cwd, { title: 'Root' })).items[0].id;
+      await store.addTodo(dataDir, cwd, { title: 'Child', parentId: root });
+      const result = await store.deleteTodo(dataDir, cwd, root);
+      assert.equal(result.removedItems.length, 2);
+      assert.deepEqual((await store.listTodos(dataDir, cwd)).items, []);
+    });
+
+    it('moveTodo moves a subtree to another workspace and honors CAS', async () => {
+      const target = fs.mkdtempSync(path.join(os.tmpdir(), 'todos-store-target-'));
+      try {
+        const doc = await store.addTodo(dataDir, cwd, { title: 'Move me' });
+        const item = doc.items[0];
+        await assert.rejects(
+          store.moveTodo({ dataDir, sourceFolder: cwd, targetFolder: target, todoId: item.id, expectedUpdatedAt: 'stale' }),
+          (err) => err.code === TODOS_STORE_ERROR_CODES.CONFLICT,
+        );
+        const moved = await store.moveTodo({ dataDir, sourceFolder: cwd, targetFolder: target, todoId: item.id, expectedUpdatedAt: item.updatedAt });
+        assert.deepEqual(moved.movedIds, [item.id]);
+        assert.equal((await store.listTodos(dataDir, target)).items.length, 1);
+        assert.equal((await store.listTodos(dataDir, cwd)).items.length, 0);
+      } finally {
+        fs.rmSync(target, { recursive: true, force: true });
+      }
+    });
+
+    it('getRevision changes with committed todos and exportSnapshot is a detached logical copy', async () => {
+      assert.equal(await store.getRevision(dataDir, cwd), '');
+      const doc = await store.addTodo(dataDir, cwd, { title: 'Snap', status: 'ready' });
+      const first = await store.getRevision(dataDir, cwd);
+      assert.ok(first);
+      assert.equal(await store.getRevision(dataDir, cwd), first, 'a read does not change the revision');
+      await store.updateTodo(dataDir, cwd, doc.items[0].id, { title: 'Snap 2' });
+      assert.notEqual(await store.getRevision(dataDir, cwd), first);
+      const snapshot = await store.exportSnapshot(dataDir, cwd);
+      assert.equal(snapshot.items[0].title, 'Snap 2');
+      snapshot.items[0].title = 'mutated';
+      assert.equal((await store.listTodos(dataDir, cwd)).items[0].title, 'Snap 2');
+    });
+
+    it('a repeated chat link is a no-op: same revision, same content', async () => {
+      const id = (await store.addTodo(dataDir, cwd, { title: 'Link' })).items[0].id;
+      await store.updateTodo(dataDir, cwd, id, { linkedChatId: 'chat-1' });
+      await store.updateTodo(dataDir, cwd, id, { linkedChatId: 'chat-1' });
+      const revision = await store.getRevision(dataDir, cwd);
+      const before = await store.getTodo(dataDir, cwd, id);
+      for (let i = 0; i < 3; i += 1) await store.updateTodo(dataDir, cwd, id, { linkedChatId: 'chat-1' });
+      assert.equal(await store.getRevision(dataDir, cwd), revision);
+      assert.deepEqual(await store.getTodo(dataDir, cwd, id), before);
+      assert.deepEqual(before.linkedChatIds, ['chat-1']);
+    });
+
+    it('reads stay consistent with the write that precedes them across many mutations', async () => {
+      const id = (await store.addTodo(dataDir, cwd, { title: 'Seq 0' })).items[0].id;
+      for (let i = 1; i <= 5; i += 1) {
+        await store.updateTodo(dataDir, cwd, id, { title: `Seq ${i}` });
+        assert.equal((await store.getTodo(dataDir, cwd, id)).title, `Seq ${i}`);
+        assert.equal((await store.listTodos(dataDir, cwd)).items[0].title, `Seq ${i}`);
+      }
+    });
+
+    it('batch runs in order and stops at the first failure', async () => {
+      const results = await store.batch(dataDir, cwd, [
+        { op: 'add', input: { title: 'A' } },
+        { op: 'add', input: { title: 'B' } },
+      ]);
+      assert.equal(results.length, 2);
+      const id = results[0].items[0].id;
+      await assert.rejects(
+        store.batch(dataDir, cwd, [{ op: 'update', id, patch: { title: 'A2' } }, { op: 'delete', id: 'nope' }, { op: 'add', input: { title: 'C' } }]),
+        (err) => err.code === TODOS_STORE_ERROR_CODES.NOT_FOUND,
+      );
+      const titles = (await store.listTodos(dataDir, cwd)).items.map((row) => row.title).sort();
+      assert.deepEqual(titles, ['A2', 'B']);
+      await assert.rejects(store.batch(dataDir, cwd, [{ op: 'bogus' }]), (err) => err.code === TODOS_STORE_ERROR_CODES.VALIDATION);
+    });
+  });
+}

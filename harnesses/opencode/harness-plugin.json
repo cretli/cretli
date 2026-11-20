@@ -1,0 +1,20 @@
+{
+  "apiVersion": 1,
+  "id": "opencode",
+  "version": "1.0.0",
+  "hostMin": "0.1.0",
+  "label": "OpenCode",
+  "description": "OpenCode agent harness (tools, LSP, sessions) via @opencode-ai/sdk.",
+  "origin": "builtin-optional",
+  "defaultEnabled": true,
+  "entries": {
+    "light": "./light.js",
+    "heavy": "./heavy.js",
+    "front": "./front.js",
+    "lifecycle": "./lifecycle.js"
+  },
+  "capabilities": {
+    "chat": true,
+    "models": true
+  }
+}

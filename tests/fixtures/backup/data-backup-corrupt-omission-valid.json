@@ -1,0 +1,22 @@
+{
+  "profile": "data-backup-v1",
+  "manifestFormatVersion": 1,
+  "archiveContractRevision": "2026-10-13.1",
+  "archiveId": "a1b2c3d4-e5f6-4789-a012-3456789abcde",
+  "createdAt": "2026-10-13T00:00:00Z",
+  "cretliVersion": "0.3.0",
+  "persistence": {
+    "backend": "mixed-json-sqlite",
+    "schemaVersions": { "settings": 1 },
+    "bootstrapMarker": "data/.cretli-storage-bootstrap.json"
+  },
+  "categories": [],
+  "omissions": [
+    {
+      "path": "stores/chat-history/corrupt.json",
+      "reason": "corrupt_source",
+      "rawSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "totals": { "uncompressedBytes": 0, "categoryCount": 0 }
+}

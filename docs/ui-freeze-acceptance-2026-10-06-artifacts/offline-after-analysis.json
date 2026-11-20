@@ -1,0 +1,477 @@
+{
+ "path": ".tmp/ui-freeze-52/traces/Trace-after-offline.json",
+ "main_pid": 1984476,
+ "main_tid": 1984476,
+ "main_thread_name": "CrRendererMain",
+ "thread_pool": "named=1 total_threads=12",
+ "base_ts": 243438850476,
+ "duration_s": 9.517,
+ "long_tasks": 2,
+ "long_tasks_ms": 197.042,
+ "long_tasks_blocking_ms": 97.042,
+ "longest_task_ms": 110.312,
+ "event_durations": [
+  [
+   "RunTask",
+   425,
+   277.06
+  ],
+  [
+   "CpuProfiler::StartProfiling",
+   1,
+   109.73
+  ],
+  [
+   "EvaluateScript",
+   8,
+   87.66
+  ],
+  [
+   "v8.run",
+   7,
+   85.087
+  ],
+  [
+   "v8.callFunction",
+   740,
+   19.782
+  ],
+  [
+   "ProxyMain::BeginMainFrame",
+   18,
+   19.416
+  ],
+  [
+   "LocalFrameView::RunStyleAndLayoutLifecyclePhases",
+   26,
+   13.394
+  ],
+  [
+   "EventDispatch",
+   154,
+   11.846
+  ],
+  [
+   "FunctionCall",
+   328,
+   11.765
+  ],
+  [
+   "UpdateLayoutTree",
+   10,
+   9.29
+  ],
+  [
+   "ParseHTML",
+   63,
+   7.113
+  ],
+  [
+   "LocalFrameView::layout",
+   8,
+   4.928
+  ],
+  [
+   "Layout",
+   8,
+   4.908
+  ],
+  [
+   "LocalFrameView::performLayout",
+   8,
+   4.671
+  ],
+  [
+   "TimerFire",
+   3,
+   2.948
+  ],
+  [
+   "v8.compile",
+   7,
+   2.15
+  ],
+  [
+   "Commit",
+   18,
+   2.023
+  ],
+  [
+   "ParseAuthorStyleSheet",
+   1,
+   1.955
+  ],
+  [
+   "LocalFrameView::RunPaintLifecyclePhase",
+   18,
+   1.755
+  ],
+  [
+   "v8.callAsConstructor",
+   206,
+   1.724
+  ],
+  [
+   "LocalWindowProxy::Initialize",
+   2,
+   1.329
+  ],
+  [
+   "MinorGC",
+   1,
+   1.162
+  ],
+  [
+   "V8.GCScavenger",
+   1,
+   1.135
+  ],
+  [
+   "V8.GC_SCAVENGER",
+   1,
+   1.128
+  ],
+  [
+   "V8.GC_SCAVENGER_SCAVENGE",
+   1,
+   1.089
+  ],
+  [
+   "PrePaint",
+   27,
+   0.921
+  ],
+  [
+   "V8.GC_SCAVENGER_SCAVENGE_PARALLEL_PHASE",
+   1,
+   0.831
+  ],
+  [
+   "V8.GC_SCAVENGER_SCAVENGE_PARALLEL",
+   1,
+   0.788
+  ],
+  [
+   "Paint",
+   8,
+   0.728
+  ],
+  [
+   "V8.DeserializeContext",
+   3,
+   0.628
+  ]
+ ],
+ "long_task_timeline": [
+  [
+   0.002,
+   110.3
+  ],
+  [
+   0.409,
+   86.7
+  ]
+ ],
+ "counters_first": {
+  "nodes": 17890,
+  "documents": 2,
+  "jsEventListeners": 1825,
+  "jsHeapSizeUsed": 65050336.0,
+  "layoutObjects": null
+ },
+ "counters_last": {
+  "nodes": 25129,
+  "documents": 4,
+  "jsEventListeners": 2141,
+  "jsHeapSizeUsed": 62393664.0,
+  "layoutObjects": null
+ },
+ "counters_max": {
+  "nodes": 25129,
+  "documents": 4,
+  "jsEventListeners": 2141,
+  "jsHeapSizeUsed": 70031120.0,
+  "layoutObjects": 0
+ },
+ "interactions": [],
+ "max_interaction_ms": 0,
+ "max_interaction_queue_ms": 0,
+ "layout_by_stack": [
+  [
+   "UpdateLayoutTree",
+   "(no JS stack)",
+   9,
+   9.154,
+   2.641
+  ],
+  [
+   "ParseHTML",
+   "(no JS stack)",
+   5,
+   6.06,
+   5.532
+  ],
+  [
+   "Layout",
+   "(no JS stack)",
+   8,
+   4.908,
+   0.91
+  ],
+  [
+   "ParseHTML",
+   "_ensureDropdown",
+   42,
+   0.589,
+   0.069
+  ],
+  [
+   "ParseHTML",
+   "createElement",
+   16,
+   0.464,
+   0.072
+  ],
+  [
+   "UpdateLayoutTree",
+   "hitTestAt",
+   1,
+   0.136,
+   0.136
+  ]
+ ],
+ "requests": [
+  {
+   "t": 0.253647,
+   "url": "https://127.0.0.1:3011/api/client-instances/heartbeat"
+  },
+  {
+   "t": 0.463343,
+   "url": "https://127.0.0.1:3011/api/settings",
+   "finish_t": 0.49897,
+   "bytes": 0
+  },
+  {
+   "t": 0.504119,
+   "url": "https://127.0.0.1:3011/api/auth-status",
+   "finish_t": 0.507396,
+   "bytes": 0
+  },
+  {
+   "t": 4.508619,
+   "url": "https://127.0.0.1:3011/api/auth-status",
+   "finish_t": 4.51064,
+   "bytes": 0
+  },
+  {
+   "t": 8.511783,
+   "url": "https://127.0.0.1:3011/api/auth-status",
+   "finish_t": 8.513731,
+   "bytes": 0
+  }
+ ],
+ "profile_samples": 106660,
+ "profile_nodes": 817,
+ "key_functions": [
+  {
+   "ms_incl": 4.33,
+   "ms_self": 1.174,
+   "fn": "./features/sidebar/sidebarView.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2277"
+  },
+  {
+   "ms_incl": 3.156,
+   "ms_self": 0.0,
+   "fn": "(anonymous) @ features/sidebar/sidebarView.js:1"
+  },
+  {
+   "ms_incl": 1.34,
+   "ms_self": 0.0,
+   "fn": "(anonymous) @ features/sidebar/cr-sidebar-workspace.js:1"
+  },
+  {
+   "ms_incl": 1.34,
+   "ms_self": 0.0,
+   "fn": "./features/sidebar/cr-sidebar-workspace.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2017"
+  },
+  {
+   "ms_incl": 0.522,
+   "ms_self": 0.173,
+   "fn": "./features/sidebar/cr-sidebar-archive-group.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:1987"
+  },
+  {
+   "ms_incl": 0.349,
+   "ms_self": 0.177,
+   "fn": "(anonymous) @ features/sidebar/cr-sidebar-archive-group.js:1"
+  },
+  {
+   "ms_incl": 0.33,
+   "ms_self": 0.33,
+   "fn": "./features/sidebar/sidebarArchiveSidebarFocus.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2047"
+  },
+  {
+   "ms_incl": 0.322,
+   "ms_self": 0.159,
+   "fn": "./features/sidebar/sidebarLayoutSync.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2217"
+  },
+  {
+   "ms_incl": 0.318,
+   "ms_self": 0.159,
+   "fn": "./features/sidebar/sidebarSubchatGroups.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2257"
+  },
+  {
+   "ms_incl": 0.318,
+   "ms_self": 0.159,
+   "fn": "./features/sidebar/cr-sidebar-chat-row.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:1997"
+  },
+  {
+   "ms_incl": 0.236,
+   "ms_self": 0.236,
+   "fn": "./features/sidebar/sidebarWorkspaceOrder.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2347"
+  },
+  {
+   "ms_incl": 0.209,
+   "ms_self": 0.209,
+   "fn": "(anonymous) @ features/sidebar/sidebarWorkspaceDragBlock.js:1"
+  },
+  {
+   "ms_incl": 0.209,
+   "ms_self": 0.0,
+   "fn": "./features/sidebar/sidebarWorkspaceDragBlock.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2317"
+  },
+  {
+   "ms_incl": 0.209,
+   "ms_self": 0.0,
+   "fn": "(anonymous) @ features/sidebar/sidebarWorkspaceDrag.js:1"
+  },
+  {
+   "ms_incl": 0.209,
+   "ms_self": 0.0,
+   "fn": "./features/sidebar/sidebarWorkspaceDrag.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2307"
+  },
+  {
+   "ms_incl": 0.173,
+   "ms_self": 0.173,
+   "fn": "createSidebarView @ features/sidebar/sidebarView.js:352"
+  },
+  {
+   "ms_incl": 0.172,
+   "ms_self": 0.172,
+   "fn": "./features/sidebar/sidebarArchiveVirtualNavigation.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2067"
+  },
+  {
+   "ms_incl": 0.172,
+   "ms_self": 0.0,
+   "fn": "(anonymous) @ features/sidebar/sidebarArchiveChatRows.js:1"
+  },
+  {
+   "ms_incl": 0.172,
+   "ms_self": 0.0,
+   "fn": "./features/sidebar/sidebarArchiveChatRows.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2027"
+  },
+  {
+   "ms_incl": 0.165,
+   "ms_self": 0.165,
+   "fn": "(anonymous) @ features/sidebar/sidebarChatStatusStability.js:1"
+  },
+  {
+   "ms_incl": 0.165,
+   "ms_self": 0.0,
+   "fn": "./features/sidebar/sidebarChatStatusStability.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2197"
+  },
+  {
+   "ms_incl": 0.164,
+   "ms_self": 0.164,
+   "fn": "./features/sidebar/sidebarSwipe.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2267"
+  },
+  {
+   "ms_incl": 0.164,
+   "ms_self": 0.0,
+   "fn": "(anonymous) @ features/sidebar/sidebarWorkspaceMount.js:1"
+  },
+  {
+   "ms_incl": 0.164,
+   "ms_self": 0.0,
+   "fn": "./features/sidebar/sidebarWorkspaceMount.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2337"
+  },
+  {
+   "ms_incl": 0.163,
+   "ms_self": 0.0,
+   "fn": "(anonymous) @ features/sidebar/sidebarLayoutSync.js:1"
+  },
+  {
+   "ms_incl": 0.161,
+   "ms_self": 0.161,
+   "fn": "(anonymous) @ features/sidebar/sidebarSubchatGroupPass.js:1"
+  },
+  {
+   "ms_incl": 0.161,
+   "ms_self": 0.0,
+   "fn": "./features/sidebar/sidebarSubchatGroupPass.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2247"
+  },
+  {
+   "ms_incl": 0.161,
+   "ms_self": 0.0,
+   "fn": "(anonymous) @ features/sidebar/cr-sidebar-subchat-group.js:1"
+  },
+  {
+   "ms_incl": 0.161,
+   "ms_self": 0.0,
+   "fn": "./features/sidebar/cr-sidebar-subchat-group.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2007"
+  },
+  {
+   "ms_incl": 0.159,
+   "ms_self": 0.159,
+   "fn": "./features/sidebar/sidebarChatStatus.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2187"
+  },
+  {
+   "ms_incl": 0.159,
+   "ms_self": 0.0,
+   "fn": "(anonymous) @ features/sidebar/sidebarChatRowVisualPatch.js:1"
+  },
+  {
+   "ms_incl": 0.159,
+   "ms_self": 0.0,
+   "fn": "./features/sidebar/sidebarChatRowVisualPatch.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2177"
+  },
+  {
+   "ms_incl": 0.159,
+   "ms_self": 0.159,
+   "fn": "./features/sidebar/sidebarChatDragBlock.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2107"
+  },
+  {
+   "ms_incl": 0.159,
+   "ms_self": 0.159,
+   "fn": "(anonymous) @ features/sidebar/sidebarSubchatGroups.js:1"
+  },
+  {
+   "ms_incl": 0.159,
+   "ms_self": 0.0,
+   "fn": "(anonymous) @ features/sidebar/sidebarChatDrag.js:1"
+  },
+  {
+   "ms_incl": 0.159,
+   "ms_self": 0.0,
+   "fn": "./features/sidebar/sidebarChatDrag.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2097"
+  },
+  {
+   "ms_incl": 0.159,
+   "ms_self": 0.159,
+   "fn": "./features/sidebar/workspaceWatcherToggle.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2397"
+  },
+  {
+   "ms_incl": 0.159,
+   "ms_self": 0.159,
+   "fn": "./features/sidebar/sidebarChatRowMount.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2147"
+  },
+  {
+   "ms_incl": 0.159,
+   "ms_self": 0.0,
+   "fn": "(anonymous) @ features/sidebar/cr-sidebar-chat-row.js:1"
+  },
+  {
+   "ms_incl": 0.158,
+   "ms_self": 0.158,
+   "fn": "./features/sidebar/sidebarVisibleChats.js @ https://127.0.0.1:3011/dist/app/index.bundle.js?v=1791304088647:2287"
+  }
+ ]
+}

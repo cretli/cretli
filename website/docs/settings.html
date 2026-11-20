@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings</title>
+<meta name="description" content="Find the main Cretli settings tabs and what each one controls.">
+<link rel="canonical" href="https://cretli.com/docs/settings.html">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">Menu</button>
+  <a class="brand" href="index.html">Cretli docs</a>
+  <input class="search" type="search" placeholder="Search docs" aria-label="Search docs" hidden>
+  <button class="theme-toggle" type="button" aria-label="Toggle light and dark theme">Theme</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Documentation">
+    <ul class="search-results" hidden></ul>
+    <ul>
+      <li><a href="index.html">Cretli documentation</a></li>
+      <li><a href="getting-started.html">Getting started</a></li>
+      <li><a href="install-docker.html">Install with Docker</a></li>
+      <li><a href="chat-and-agents.html">Chat and agents</a></li>
+      <li><a href="todos.html">TODOs</a></li>
+      <li><a href="workspace-watcher.html">Workspace Watcher</a></li>
+      <li><a href="settings.html" aria-current="page">Settings</a></li>
+      <li><a href="security-basics.html">Security basics</a></li>
+      <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    </ul>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Settings</h1>
+<p>Settings are grouped by responsibility. The tabs appear in this order:</p>
+<p><img src="img/settings-workspace.png" alt="Workspace settings"></p>
+<ul>
+<li><strong>Workspace</strong>: choose the workspace path and related project behavior.</li>
+<li><strong>Connection</strong>: configure server connection and network-related options.</li>
+<li><strong>Harness</strong>: configure agent providers, credentials, and models.</li>
+<li><strong>App</strong>: manage application-wide preferences.</li>
+<li><strong>Chat &amp; agents</strong>: control chat and agent behavior.</li>
+<li><strong>Delegations</strong>: manage delegated harness work.</li>
+<li><strong>Page widgets</strong>: configure widgets shown on application pages.</li>
+<li><strong>MCP</strong>: manage Model Context Protocol servers.</li>
+<li><strong>Execution</strong>: configure execution and approval behavior.</li>
+<li><strong>Workspace Watcher</strong>: choose Watcher mode and scheduling options.</li>
+<li><strong>Usage</strong>: inspect usage and telemetry preferences.</li>
+<li><strong>Wake-ups</strong>: configure scheduled wake-up behavior.</li>
+<li><strong>Data and backups</strong>: manage application data and backup actions.</li>
+<li><strong>Account</strong>: manage account and authentication settings.</li>
+</ul>
+<p><img src="img/settings-usage.png" alt="Usage settings"></p>
+<p>Save changes using the controls on the relevant page. A provider key or MCP server can affect what an agent is able to access, so review values carefully and avoid sharing screenshots that contain secrets.</p>
+    </article>
+    <nav class="prev-next" aria-label="Previous and next page">
+      <a rel="prev" href="workspace-watcher.html">&larr; Workspace Watcher</a>
+      <a rel="next" href="security-basics.html">Security basics &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="On this page">
+
+  </aside>
+</div>
+<footer class="site-footer">Cretli documentation</footer>
+<script src="assets/docs.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Chat history sync harness</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body { margin: 0; background: #1e1e1e; color: #d4d4d4; font-family: sans-serif; }
+      #layout { display: flex; flex-direction: column; height: 100vh; }
+      #mount { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
+      #draft { height: 48px; margin: 8px; }
+    </style>
+  </head>
+  <body>
+    <div id="layout">
+      <div id="mount"></div>
+      <textarea id="draft" placeholder="draft"></textarea>
+    </div>
+    <script src="/harness.js"></script>
+  </body>
+</html>

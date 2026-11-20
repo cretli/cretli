@@ -1,0 +1,33 @@
+{
+  "firewall": {
+    "Enabled": "True",
+    "Direction": "Inbound",
+    "Action": "Allow",
+    "Protocol": "TCP",
+    "RemotePort": "Any",
+    "LocalAddress": "Any",
+    "RemoteAddress": "LocalSubnet",
+    "Profile": "Private,Domain",
+    "InterfaceType": "Any",
+    "InterfaceAlias": "Any",
+    "EdgeTraversalPolicy": "Block",
+    "Program": "Any",
+    "Service": "Any",
+    "Package": "",
+    "Owner": "",
+    "PolicyStoreSource": "PersistentStore",
+    "PolicyStoreSourceType": "Local"
+  },
+  "hyperV": {
+    "Enabled": "True",
+    "Direction": "Inbound",
+    "Action": "Allow",
+    "Protocol": "TCP",
+    "RemotePorts": "Any",
+    "LocalAddresses": "Any",
+    "RemoteAddresses": "LocalSubnet",
+    "Profiles": "Private,Domain",
+    "VMCreatorId": "{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}",
+    "PolicyStoreSourceType": "Local"
+  }
+}

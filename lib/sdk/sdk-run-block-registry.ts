@@ -1,0 +1,69 @@
+/**
+ * One SDK run renders several Thinking blocks and Activity trays (a new one after every
+ * assistant turn). Per-run "latest" maps only remember the last of them, so anything that
+ * finalizes a run (spinner off, tray status) misses the earlier blocks and leaves them
+ * spinning forever. This registry keeps every block of a run.
+ */
+
+/**
+ * @param {unknown} runKey
+ * @returns {string}
+ */
+function normalizeRunKey(runKey: unknown): string {
+  return String(runKey || '').trim();
+}
+
+/**
+ * @param {Map<string, Set<unknown>>} registry
+ * @param {string} runKey
+ * @param {unknown} item
+ * @returns {void}
+ */
+export function registerRunItem(registry: Map<string, Set<unknown>>, runKey: unknown, item: unknown): void {
+  const key = normalizeRunKey(runKey);
+  if (!key || item == null) return;
+  const bucket = registry.get(key);
+  if (!bucket) {
+    registry.set(key, new Set([item]));
+    return;
+  }
+  bucket.add(item);
+}
+
+/**
+ * @param {Map<string, Set<unknown>>} registry
+ * @param {string} runKey
+ * @returns {unknown[]}
+ */
+export function listRunItems(registry: Map<string, Set<unknown>>, runKey: unknown): unknown[] {
+  const key = normalizeRunKey(runKey);
+  if (!key) return [];
+  const bucket = registry.get(key);
+  if (!bucket) return [];
+  return Array.from(bucket);
+}
+
+/**
+ * @param {Map<string, Set<unknown>>} registry
+ * @returns {unknown[]}
+ */
+export function listAllRunItems(registry: Map<string, Set<unknown>>): unknown[] {
+  const items: unknown[] = [];
+  for (const bucket of registry.values()) {
+    for (const item of bucket) items.push(item);
+  }
+  return items;
+}
+
+/**
+ * Turn off Thinking/Activity spinners. A run can leave several blocks behind;
+ * iterating only the latest map leaves the earlier ones spinning.
+ * @param {Iterable<unknown>} blocks
+ * @returns {void}
+ */
+export function stopSdkBlockSpinners(blocks: Iterable<unknown>): void {
+  for (const block of blocks) {
+    if (!block || typeof block !== 'object' || !('running' in block)) continue;
+    (block as { running: boolean }).running = false;
+  }
+}

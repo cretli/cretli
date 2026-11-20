@@ -1,0 +1,13 @@
+{
+  "supported": true,
+  "platform": "wsl",
+  "file": "/home/user/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup/cretli.vbs",
+  "content": "' Cretli managed autostart v1\nSet shell = CreateObject(\"WScript.Shell\")\nshell.Run \"wsl.exe \"\"-d\"\" \"\"Example Linux\"\" \"\"--cd\"\" \"\"/home/user/my app\"\" \"\"--exec\"\" \"\"/usr/bin/env\"\" \"\"PATH=/home/user/node install/bin:/usr/local/bin:/usr/bin:/bin\"\" \"\"/home/user/node install/bin/node\"\" \"\"/home/user/my app/scripts/cretli-supervisor.mjs\"\"\", 0, False\n",
+  "dryRun": true,
+  "changed": true,
+  "commands": [],
+  "warnings": [
+    "WSL: no manager restarts the supervisor itself; SIGTERM to it stops supervision."
+  ],
+  "activation": "Activation at next boot/login; use --apply --start to start explicitly."
+}

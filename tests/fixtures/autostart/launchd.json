@@ -1,0 +1,11 @@
+{
+  "supported": true,
+  "platform": "launchd",
+  "file": "/home/user/Library/LaunchAgents/com.cretli.supervisor.plist",
+  "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!-- Cretli managed autostart v1 -->\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>Label</key><string>com.cretli.supervisor</string>\n<key>ProgramArguments</key><array><string>/home/user/node install/bin/node</string><string>/home/user/my app/scripts/cretli-supervisor.mjs</string></array>\n<key>WorkingDirectory</key><string>/home/user/my app</string>\n<key>EnvironmentVariables</key><dict><key>PATH</key><string>/home/user/node install/bin:/usr/local/bin:/usr/bin:/bin</string></dict>\n<key>KeepAlive</key><true/><key>RunAtLoad</key><true/>\n</dict></plist>\n",
+  "dryRun": true,
+  "changed": true,
+  "commands": [],
+  "warnings": [],
+  "activation": "Activation at next boot/login; use --apply --start to start explicitly."
+}

@@ -1,0 +1,20 @@
+# Timer for the Cretli memory/orphan monitor.
+#
+# Copy to ~/.config/systemd/user/cretli-memory-monitor.timer and enable it:
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now cretli-memory-monitor.timer
+#
+# The monitor runs OUTSIDE the Cretli server on purpose: a check that lives in the
+# server dies with it, exactly when it is needed. Keep the interval at ~1 minute.
+
+[Unit]
+Description=Run the Cretli memory/orphan monitor every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

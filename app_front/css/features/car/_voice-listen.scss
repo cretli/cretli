@@ -1,0 +1,228 @@
+// Status strip for browser voice mode. Phone-first: full width, thumb-sized buttons.
+cr-voice-listen-bar {
+  display: contents;
+}
+
+.cr-voice-listen {
+  position: fixed;
+  left: var(--cr-space-2);
+  right: var(--cr-space-2);
+  bottom: calc(var(--cr-space-2) + env(safe-area-inset-bottom, 0px));
+  z-index: 20050;
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-3);
+  padding: var(--cr-space-3);
+  border: 1px solid var(--cr-accent);
+  border-radius: var(--cr-radius-lg);
+  background: var(--cr-surface);
+  color: var(--cr-text);
+  box-shadow: var(--cr-shadow-elevated);
+
+  &--error {
+    flex-direction: column;
+    align-items: stretch;
+    border-color: var(--cr-error);
+  }
+
+  &__message {
+    margin: 0;
+    font-size: var(--cr-font-size-lg);
+    line-height: 1.4;
+  }
+
+  &__actions {
+    display: flex;
+    gap: var(--cr-space-2);
+  }
+
+  &__dot {
+    flex: 0 0 auto;
+    width: 0.8rem;
+    height: 0.8rem;
+    border-radius: 50%;
+    background: var(--cr-success);
+    animation: cr-voice-listen-pulse 1.2s ease-in-out infinite;
+  }
+
+  &[data-paused='true'] &__dot {
+    background: var(--cr-text-muted);
+    animation: none;
+  }
+
+  &__text {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--cr-space-1);
+  }
+
+  &__status {
+    font-size: var(--cr-font-size-md);
+    color: var(--cr-text-muted);
+  }
+
+  &__interim,
+  &__notice {
+    font-size: var(--cr-font-size-lg);
+    overflow-wrap: anywhere;
+  }
+
+  &__notice[data-kind='failed'] {
+    color: var(--cr-error);
+  }
+
+  &__btn {
+    flex: 1 1 auto;
+    min-height: 4rem;
+    padding: 0 var(--cr-space-4);
+    border: 1px solid var(--cr-border-strong);
+    border-radius: var(--cr-radius-md);
+    background: var(--cr-primary);
+    color: var(--cr-text);
+    font: inherit;
+    font-size: var(--cr-font-size-lg);
+    cursor: pointer;
+
+    &:hover {
+      background: var(--cr-primary-hover);
+    }
+
+    &--quiet {
+      background: var(--cr-control-idle-bg);
+    }
+  }
+
+  &:not(&--error) &__btn {
+    flex: 0 0 auto;
+  }
+}
+
+@keyframes cr-voice-listen-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.cr-voice-listen__advice {
+  display: block;
+  margin-top: var(--cr-space-1);
+  font-size: var(--cr-font-size-md);
+  color: var(--cr-text-muted);
+}
+
+// Microphone and sound block in Settings → Voice.
+.voice-diag {
+  &__list {
+    list-style: none;
+    margin: 0 0 var(--cr-space-2);
+    padding: 0;
+  }
+
+  &__row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--cr-space-3);
+    padding: var(--cr-space-1) 0;
+    border-bottom: 1px solid var(--cr-border-strong);
+    font-size: var(--cr-font-size-md);
+
+    &[data-ok='true'] .voice-diag__value {
+      color: var(--cr-success);
+    }
+
+    &[data-ok='false'] .voice-diag__value {
+      color: var(--cr-error);
+    }
+  }
+
+  &__group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cr-space-2);
+    margin-top: var(--cr-space-4);
+    padding-top: var(--cr-space-3);
+    border-top: 1px solid var(--cr-border);
+
+    > .cr-hint,
+    > .cr-section-title {
+      margin: 0;
+    }
+  }
+
+  &__actions {
+    flex-wrap: wrap;
+  }
+
+  &__meter {
+    appearance: none;
+    display: block;
+    width: 100%;
+    height: 0.375rem;
+    border: 0;
+    border-radius: var(--cr-radius-sm);
+    background: var(--cr-field-bg);
+    overflow: hidden;
+
+    &::-webkit-progress-bar {
+      background: var(--cr-field-bg);
+    }
+
+    &::-webkit-progress-value {
+      background: var(--cr-success);
+      transition: width var(--cr-transition);
+    }
+
+    &::-moz-progress-bar {
+      background: var(--cr-success);
+    }
+  }
+
+  // Shared read-aloud controls: label beside the control instead of one inline run.
+  .chat-settings-voice-read {
+    display: grid;
+    grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);
+    align-items: center;
+    gap: var(--cr-space-2) var(--cr-space-3);
+
+    > label {
+      font-size: var(--cr-font-size-sm);
+      color: var(--cr-text-subtle);
+    }
+
+    cr-bar-select {
+      display: block;
+      width: 100%;
+    }
+
+    cr-bar-button,
+    .voice-options-message {
+      grid-column: 1 / -1;
+      justify-self: start;
+    }
+
+    .voice-options-message {
+      font-size: var(--cr-font-size-sm);
+      color: var(--cr-error);
+    }
+
+    // cr-bar-button sets its own display, which beats the hidden attribute.
+    [hidden] {
+      display: none;
+    }
+  }
+
+  // The speaker test above already plays a sample; the embedded one would be a second button.
+  .voice-test-btn {
+    display: none;
+  }
+
+  [data-tone='error'] {
+    color: var(--cr-error);
+  }
+
+  [data-tone='success'] {
+    color: var(--cr-success);
+  }
+}

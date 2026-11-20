@@ -1,0 +1,40 @@
+cr-docs-panel, cr-docs-settings {
+  display: block;
+  min-width: 0;
+  color: var(--cr-text);
+  font-size: var(--cr-font-size-md);
+  overflow-wrap: anywhere;
+  .docs-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cr-space-2); }
+  h2 { font-size: var(--cr-font-size-xl); }
+  h3 { font-size: var(--cr-font-size-lg); }
+  cr-bar-input, cr-bar-textarea { min-width: 0; max-width: 100%; }
+  .docs-settings { margin-block: var(--cr-space-3); }
+}
+#docs-panel { min-width: 0; overflow: hidden; }
+cr-docs-panel {
+  height: 100%;
+  .docs-page { height: 100%; box-sizing: border-box; padding: var(--cr-space-3); gap: var(--cr-space-2); }
+  .docs-layout { display: grid; grid-template-columns: minmax(9rem, 14rem) minmax(0, 1fr) minmax(9rem, 14rem); gap: var(--cr-space-3); }
+  .docs-tree, .docs-note, .docs-links { min-width: 0; }
+  .docs-note-button { display: block; margin-block: var(--cr-space-1); max-width: 100%; }
+  .docs-note-button::part(control) { white-space: normal; text-align: start; height: auto; overflow-wrap: anywhere; }
+  details details { margin-inline-start: var(--cr-space-2); }
+  summary { cursor: pointer; }
+  .docs-conflict { border: 1px solid var(--cr-error); padding: var(--cr-space-2); }
+  .docs-missing { color: var(--cr-error); }
+  .docs-wikilink { color: var(--cr-accent); }
+  .docs-links { border-inline-start: 1px solid var(--cr-border-strong); padding-inline-start: var(--cr-space-2); }
+  .docs-markdown { line-height: 1.6; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--cr-font-mono); }
+  table { display: block; max-width: 100%; overflow-x: auto; }
+  a { color: var(--cr-accent); }
+  cr-bar-textarea { display: block; width: 100%; }
+  cr-bar-textarea::part(control) { min-height: 22rem; font-family: var(--cr-font-mono); }
+  .docs-review { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cr-space-3); max-height: 55vh; overflow: auto; }
+  @media (max-width: 767px) {
+    .docs-layout { display: flex; flex-direction: column; }
+    .docs-page { padding: var(--cr-space-2); }
+    .docs-links { border-inline-start: 0; border-top: 1px solid var(--cr-border-strong); }
+    .docs-review { grid-template-columns: minmax(0, 1fr); }
+  }
+}

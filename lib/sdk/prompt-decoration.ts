@@ -1,0 +1,369 @@
+/**
+ * Pure, deterministic core for slimming the per-turn harness prompt decoration.
+ *
+ * Every outbound user message used to be prefixed with the full decoration
+ * block: skills catalog, workspace/shared rules, mode hint, chat plan,
+ * delegation reports and the title hint. Only the outgoing message changes, but
+ * the block stays in history and is re-sent once per past turn, so repeating it
+ * every turn is pure token overhead.
+ *
+ * This module decides which blocks must be prepended on the current turn:
+ *
+ * - static blocks (skills catalog + workspace/shared rules) on the first turn of
+ *   a session, when their content hash changes, or after a session restart;
+ * - the invoked skill instructions (a volatile block) whenever the request names
+ *   a skill — it is the reason the turn is running, and re-invoking a skill has
+ *   to reach the model again;
+ * - volatile blocks (page context, mode hint, chat plan, delegation reports,
+ *   title hint) only when their content hash changed since the previous turn.
+ *
+ * Splitting the invoked skill body out of the static block keeps the catalog
+ * stable: naming a skill no longer changes the static hash, so the catalog and
+ * the rules are not re-sent with every skill invocation.
+ *
+ * The decision is pure: given the previous state and the current block content
+ * it returns the parts to prepend plus the next state. No I/O, no clock, no
+ * mutation of the inputs. Hashing and the token estimate are O(n) over the
+ * block text and run once per turn.
+ */
+
+import { estimateTokensFromText } from './sdk-context-advisory.ts';
+
+export const PROMPT_DECORATION_BLOCK = Object.freeze({
+  STATIC: 'static',
+  SKILLS: 'skills',
+  PAGE_CONTEXT: 'pageContext',
+  MODE_HINT: 'modeHint',
+  CHAT_PLAN: 'chatPlan',
+  DELEGATION_REPORTS: 'delegationReports',
+  TITLE_HINT: 'titleHint',
+});
+
+/**
+ * Volatile blocks in stable output order. The static block is always emitted
+ * before any of them.
+ */
+export const PROMPT_DECORATION_VOLATILE_ORDER = Object.freeze([
+  PROMPT_DECORATION_BLOCK.SKILLS,
+  PROMPT_DECORATION_BLOCK.PAGE_CONTEXT,
+  PROMPT_DECORATION_BLOCK.MODE_HINT,
+  PROMPT_DECORATION_BLOCK.CHAT_PLAN,
+  PROMPT_DECORATION_BLOCK.DELEGATION_REPORTS,
+  PROMPT_DECORATION_BLOCK.TITLE_HINT,
+]);
+
+/**
+ * Volatile blocks that must be emitted on every turn while non-empty:
+ *
+ * - the mode hint is a safety instruction: the active Plan/Ask restriction has
+ *   to be visible to the model on every turn, not only on the turn that
+ *   switched to it; deduping it would silently drop the guard;
+ * - the selected-skill instructions are the reason the turn is running at all.
+ *   They are empty unless the request names a skill, but a second invocation of
+ *   the same skill must still reach the model, so they are re-sent rather than
+ *   deduped against an earlier copy.
+ */
+export const PROMPT_DECORATION_ALWAYS_VOLATILE = Object.freeze([
+  PROMPT_DECORATION_BLOCK.MODE_HINT,
+  PROMPT_DECORATION_BLOCK.SKILLS,
+]);
+
+/**
+ * How the static block is emitted.
+ *
+ * - `always` (default): re-emit the full static block on every turn, and also
+ *   the current plan (required material). This is the safe fallback: Cretli
+ *   cannot read a harness's native memory, so a rebuild, failed resume or
+ *   compaction could otherwise drop the earlier copy silently.
+ * - `dedupe` (opt-in, see `lib/context/instruction-epoch.ts`): first turn of a
+ *   session/epoch, on a content hash change, or after a session restart. Only
+ *   chosen for adapters with a retention proof.
+ */
+export const PROMPT_DECORATION_STATIC_MODE = Object.freeze({
+  DEDUPE: 'dedupe',
+  ALWAYS: 'always',
+});
+
+/**
+ * Short stand-in emitted when the static block is unchanged so the model keeps
+ * a pointer to the earlier copy instead of silently losing it.
+ */
+export const PROMPT_DECORATION_DELTA_HINT =
+  '[Earlier skills and workspace/shared rules still apply.]';
+
+/** Hash used for an absent/empty block. */
+const EMPTY_HASH = '0';
+
+/** Fast membership test for the always-emitted volatile blocks. */
+const ALWAYS_VOLATILE_BLOCKS = new Set<string>(PROMPT_DECORATION_ALWAYS_VOLATILE);
+
+/** Upper bound for tracked sessions so the store cannot grow without limit. */
+const MAX_TRACKED_SESSIONS = 500;
+
+/**
+ * Cheap, deterministic FNV-1a 32-bit hash. Good enough to detect content
+ * changes; not a security primitive.
+ *
+ * @param {unknown} text
+ * @returns {string}
+ */
+export function hashPromptContent(text: unknown): string {
+  const value = String(text || '');
+  if (!value) return EMPTY_HASH;
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16);
+}
+
+/**
+ * Approximate token count, matching the chars/4 convention used for cheap
+ * budgeting. Never negative.
+ *
+ * @param {unknown} text
+ * @returns {number}
+ */
+export function estimatePromptTokens(text: unknown): number {
+  return estimateTokensFromText(text);
+}
+
+export interface PromptDecorationState {
+  sessionKey: string;
+  staticHash: string;
+  volatileHashes: Record<string, string>;
+  turns: number;
+}
+
+/**
+ * Pure decision for one turn.
+ *
+ * @param {PromptDecorationState | null | undefined} previous
+ * @param {{
+ *   sessionKey?: string,
+ *   staticBlock?: string,
+ *   staticMode?: 'dedupe' | 'always',
+ *   volatile?: Record<string, string>,
+ * }} [current]
+ * @returns {{
+ *   parts: string[],
+ *   state: PromptDecorationState,
+ *   staticIncluded: boolean,
+ *   staticDeltaIncluded: boolean,
+ *   volatileIncluded: string[],
+ *   measurement: {
+ *     staticTokens: number,
+ *     fullTokens: number,
+ *     includedTokens: number,
+ *     omittedTokens: number,
+ *     staticIncluded: boolean,
+ *     staticDeltaIncluded: boolean,
+ *     staticMode: string,
+ *     volatileIncluded: string[],
+ *   },
+ * }}
+ */
+export function decidePromptDecoration(
+  previous: PromptDecorationState | null | undefined,
+  current: {
+    sessionKey?: string;
+    staticBlock?: string;
+    staticMode?: 'dedupe' | 'always';
+    volatile?: Record<string, string>;
+  } = {}
+): {
+  parts: string[];
+  state: PromptDecorationState;
+  staticIncluded: boolean;
+  staticDeltaIncluded: boolean;
+  volatileIncluded: string[];
+  measurement: {
+    staticTokens: number;
+    fullTokens: number;
+    includedTokens: number;
+    omittedTokens: number;
+    staticIncluded: boolean;
+    staticDeltaIncluded: boolean;
+    staticMode: string;
+    volatileIncluded: string[];
+  };
+} {
+  const sessionKey = String(current.sessionKey || '');
+  const staticBlock = String(current.staticBlock || '');
+  const volatile = current.volatile && typeof current.volatile === 'object' ? current.volatile : {};
+  const staticMode = current.staticMode === PROMPT_DECORATION_STATIC_MODE.ALWAYS
+    ? PROMPT_DECORATION_STATIC_MODE.ALWAYS
+    : current.staticMode === PROMPT_DECORATION_STATIC_MODE.DEDUPE
+      ? PROMPT_DECORATION_STATIC_MODE.DEDUPE
+      : PROMPT_DECORATION_STATIC_MODE.ALWAYS;
+  const staticAlways = staticMode === PROMPT_DECORATION_STATIC_MODE.ALWAYS;
+  const sessionChanged = !previous || String(previous.sessionKey || '') !== sessionKey;
+  const staticHash = staticBlock ? hashPromptContent(staticBlock) : EMPTY_HASH;
+  const previousStaticHash = previous && typeof previous.staticHash === 'string'
+    ? previous.staticHash
+    : EMPTY_HASH;
+  const staticIncluded = Boolean(staticBlock)
+    && (staticAlways || sessionChanged || previousStaticHash !== staticHash);
+  const staticDeltaIncluded = !staticIncluded
+    && Boolean(staticBlock)
+    && !sessionChanged
+    && previousStaticHash === staticHash;
+
+  const parts: string[] = [];
+  if (staticIncluded) parts.push(staticBlock);
+  else if (staticDeltaIncluded) parts.push(PROMPT_DECORATION_DELTA_HINT);
+
+  const previousHashes = previous && previous.volatileHashes && typeof previous.volatileHashes === 'object'
+    ? previous.volatileHashes
+    : {};
+  const volatileHashes: Record<string, string> = {};
+  const volatileIncluded: string[] = [];
+  let fullTokens = estimatePromptTokens(staticBlock);
+  let includedTokens = staticIncluded
+    ? estimatePromptTokens(staticBlock)
+    : staticDeltaIncluded
+      ? estimatePromptTokens(PROMPT_DECORATION_DELTA_HINT)
+      : 0;
+
+  for (const key of PROMPT_DECORATION_VOLATILE_ORDER) {
+    const value = String(volatile[key] || '');
+    const hash = value ? hashPromptContent(value) : EMPTY_HASH;
+    volatileHashes[key] = hash;
+    // Always-volatile blocks (the mode hint) are re-sent every turn while
+    // active; the rest only when their content hash changes.
+    // In the fallback mode the current plan is required material too.
+    const changed = sessionChanged || ALWAYS_VOLATILE_BLOCKS.has(key)
+      || (staticAlways && key === PROMPT_DECORATION_BLOCK.CHAT_PLAN)
+      || String(previousHashes[key] || EMPTY_HASH) !== hash;
+    fullTokens += estimatePromptTokens(value);
+    if (value && changed) {
+      parts.push(value);
+      volatileIncluded.push(key);
+      includedTokens += estimatePromptTokens(value);
+    }
+  }
+
+  const state: PromptDecorationState = {
+    sessionKey,
+    staticHash,
+    volatileHashes,
+    turns: (previous && !sessionChanged ? Number(previous.turns) || 0 : 0) + 1,
+  };
+
+  return {
+    parts,
+    state,
+    staticIncluded,
+    staticDeltaIncluded,
+    volatileIncluded,
+    measurement: {
+      staticTokens: estimatePromptTokens(staticBlock),
+      fullTokens,
+      includedTokens,
+      omittedTokens: Math.max(0, fullTokens - includedTokens),
+      staticIncluded,
+      staticDeltaIncluded,
+      staticMode,
+      volatileIncluded,
+    },
+  };
+}
+
+/**
+ * In-memory store keyed by the harness session identity. Rooms also keep their
+ * state on the room object; this map is the default for callers without a room.
+ *
+ * @type {Map<string, PromptDecorationState>}
+ */
+const decorationStates = new Map();
+
+/**
+ * @param {unknown} sessionKey
+ * @returns {PromptDecorationState | null}
+ */
+export function readPromptDecorationState(sessionKey: unknown): PromptDecorationState | null {
+  const key = String(sessionKey || '');
+  if (!key) return null;
+  return decorationStates.get(key) || null;
+}
+
+/**
+ * @param {unknown} sessionKey
+ * @param {PromptDecorationState | null | undefined} state
+ * @returns {void}
+ */
+export function writePromptDecorationState(
+  sessionKey: unknown,
+  state: PromptDecorationState | null | undefined
+): void {
+  const key = String(sessionKey || '');
+  if (!key) return;
+  if (!state) {
+    decorationStates.delete(key);
+    return;
+  }
+  decorationStates.set(key, state);
+  if (decorationStates.size > MAX_TRACKED_SESSIONS) {
+    const oldest = decorationStates.keys().next().value;
+    if (oldest !== undefined && oldest !== key) decorationStates.delete(oldest);
+  }
+}
+
+/**
+ * Drop the tracked state for one session identity so the next turn re-sends the
+ * full static block. Harmless when the key is unknown.
+ *
+ * @param {unknown} sessionKey
+ * @returns {void}
+ */
+export function resetPromptDecorationState(sessionKey: unknown): void {
+  const key = String(sessionKey || '');
+  if (key) decorationStates.delete(key);
+}
+
+/**
+ * Test-only reset. Never called from production paths.
+ *
+ * @returns {void}
+ */
+export function resetPromptDecorationStatesForTests() {
+  decorationStates.clear();
+}
+
+/**
+ * Debug logging is opt-in and suppressed in isolated test runs so suites stay
+ * quiet. No prompt text is logged, only sizes and hashes.
+ *
+ * @returns {boolean}
+ */
+export function isPromptDecorationLogEnabled() {
+  if (process.env.CRETLI_TEST_DATA_DIR) return false;
+  return process.env.CRETLI_DEBUG_PROMPT_DECORATION === '1';
+}
+
+/**
+ * @param {ReturnType<typeof decidePromptDecoration>['measurement']} measurement
+ * @param {{ harness?: string, chatId?: string, sessionKey?: string, turn?: number }} [meta]
+ * @returns {void}
+ */
+export function logPromptDecorationMeasurement(
+  measurement: ReturnType<typeof decidePromptDecoration>['measurement'],
+  meta: { harness?: string; chatId?: string; sessionKey?: string; turn?: number } = {}
+): void {
+  if (!isPromptDecorationLogEnabled()) return;
+  console.debug('[prompt-decoration]', JSON.stringify({
+    harness: String(meta.harness || ''),
+    chatId: String(meta.chatId || ''),
+    sessionKey: String(meta.sessionKey || ''),
+    turn: Number(meta.turn) || 0,
+    staticTokens: measurement.staticTokens,
+    fullTokens: measurement.fullTokens,
+    includedTokens: measurement.includedTokens,
+    omittedTokens: measurement.omittedTokens,
+    staticIncluded: measurement.staticIncluded,
+    staticDeltaIncluded: measurement.staticDeltaIncluded,
+    staticMode: measurement.staticMode,
+    volatileIncluded: measurement.volatileIncluded,
+  }));
+}

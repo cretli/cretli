@@ -1,0 +1,989 @@
+/* Bulk "integrate with agent": toolbar toggle, action bar and progress banner. */
+/* The toggle is a cr-icon-button; the active state restyles its inner control. */
+.todo-batch-select-trigger--active::part(control) {
+  background: var(--cr-primary);
+  border-color: var(--cr-primary-hover);
+  color: var(--cr-text-inverse);
+}
+
+.todo-batch-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.35rem 0.65rem;
+  border-bottom: 1px solid var(--cr-border-subtle);
+  background: var(--cr-surface-inset);
+}
+
+/* display:flex above outranks the UA [hidden] rule. */
+.todo-batch-bar[hidden],
+.todo-batch-banner[hidden] {
+  display: none;
+}
+
+.todo-batch-bar-count {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-batch-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid var(--cr-border-subtle);
+  background: var(--cr-surface-raised);
+}
+
+.todo-batch-banner-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.todo-batch-banner-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--cr-text);
+}
+
+.todo-batch-banner-status {
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface-inset);
+  font-size: 0.7rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-batch-banner-status[data-batch-status='running'] {
+  color: var(--cr-accent);
+}
+
+.todo-batch-banner-status[data-batch-status='paused'],
+.todo-batch-banner-status[data-batch-status='stalled'] {
+  color: var(--cr-error);
+}
+
+.todo-batch-banner-status[data-batch-status='completed'] {
+  color: var(--cr-success);
+}
+
+.todo-batch-banner-counts {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-batch-banner-progress,
+.todo-batch-banner-reason {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-batch-banner-reason {
+  color: var(--cr-error);
+}
+
+.todo-batch-banner-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.72rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-batch-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.todo-row-select {
+  align-self: center;
+  margin-left: 0.4rem;
+}
+
+.todo-row[data-batch-selected='true'] {
+  border-color: var(--cr-accent);
+  background: var(--cr-surface-raised);
+}
+
+.todo-row-batch-badge {
+  flex: 0 0 auto;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.05rem 0.35rem;
+  border-radius: var(--cr-radius-sm);
+  font-size: 0.65rem;
+  color: var(--cr-text-muted);
+  background: var(--cr-surface-inset);
+}
+
+.todo-row-batch-badge[data-batch-state='running'],
+.todo-row-batch-badge[data-batch-state='queued'] {
+  color: var(--cr-accent);
+}
+
+.todo-row-batch-badge[data-batch-state='merged'],
+.todo-row-batch-badge[data-batch-state='verified'] {
+  color: var(--cr-success);
+}
+
+.todo-row-batch-badge[data-batch-state='failed'] {
+  color: var(--cr-error);
+}
+
+.todo-status-filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: min(14rem, 42vw);
+  height: var(--cr-control-height, 1.75rem);
+  padding: 0 0.55rem;
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+  color: var(--cr-text);
+  font-family: var(--cr-font-ui);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.todo-status-filter-trigger:hover {
+  border-color: var(--cr-border-strong);
+  background: var(--cr-surface-raised);
+}
+
+.todo-status-filter-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-status-filter-list {
+  padding: 0.35rem 0;
+}
+
+.todo-sort-trigger--active {
+  border-color: var(--cr-accent);
+}
+
+.todo-sort-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.35rem 0.75rem;
+  border: 0;
+  background: none;
+  color: var(--cr-text);
+  font-family: var(--cr-font-ui);
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.todo-sort-row:hover,
+.todo-sort-row:focus-visible {
+  background: var(--cr-surface-raised);
+}
+
+.todo-sort-row-check {
+  width: 1rem;
+  color: var(--cr-accent);
+}
+
+.todo-status-filter-row,
+.todo-review-filter-row,
+.todo-integration-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  font-size: var(--cr-font-size-sm);
+  color: var(--cr-text);
+}
+
+.todo-status-filter-row:hover,
+.todo-review-filter-row:hover,
+.todo-integration-filter-row:hover {
+  background: var(--cr-surface-raised);
+}
+
+.todo-status-filter-row cr-checkbox,
+.todo-review-filter-row cr-checkbox,
+.todo-integration-filter-row cr-checkbox {
+  flex: 1;
+  min-width: 0;
+  font-size: inherit;
+}
+
+.todo-status {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--cr-text-muted);
+  white-space: nowrap;
+}
+
+.todo-status--error {
+  color: var(--cr-error);
+}
+
+.todo-cwd-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.todo-mention-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+}
+.todo-mention-active {
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-2);
+  color: var(--cr-text);
+  font-size: 0.8rem;
+}
+.todo-mention-message {
+  margin: 0;
+  color: var(--cr-text-muted);
+  font-size: 0.8rem;
+}
+.todo-mention-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+  max-height: 16rem;
+  overflow: auto;
+}
+.todo-mention-row {
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-1);
+  min-width: 0;
+  --todo-mention-level: 0;
+  padding-left: calc(var(--todo-mention-level) * 0.85rem);
+}
+.todo-mention-pick {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-2);
+  height: var(--cr-control-height);
+  padding: 0 var(--cr-space-2);
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+  color: var(--cr-text);
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+.todo-mention-pick:hover:not(:disabled) {
+  border-color: var(--cr-accent);
+}
+.todo-mention-mark,
+.todo-mention-lock {
+  flex: 0 0 auto;
+  width: 1rem;
+  color: var(--cr-text-muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+.todo-mention-lock {
+  color: var(--cr-warn);
+}
+.todo-mention-row[data-status='ready'] .todo-mention-mark {
+  color: var(--cr-ready);
+}
+.todo-mention-row[data-status='doing'] .todo-mention-mark {
+  color: var(--cr-warn);
+}
+.todo-mention-row[data-status='done'] .todo-mention-mark {
+  color: var(--cr-success);
+}
+.todo-mention-row[data-status='done'] .todo-mention-title {
+  color: var(--cr-text-muted);
+  text-decoration: line-through;
+}
+.todo-mention-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.todo-mention-pick:disabled {
+  cursor: default;
+}
+.todo-mention-continue {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--cr-control-height);
+  height: var(--cr-control-height);
+  padding: 0;
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface);
+  color: var(--cr-text);
+  cursor: pointer;
+}
+.todo-mention-continue:hover:not(:disabled) {
+  border-color: var(--cr-accent);
+  color: var(--cr-accent);
+}
+.todo-mention-continue:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.todo-section-title {
+  margin: 0 0 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cr-text-muted);
+}
+
+.todo-composer {
+  flex-shrink: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--cr-border);
+  border-radius: 8px;
+  background: var(--cr-surface-raised);
+  box-shadow: 0 2px 8px var(--cr-shadow-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.todo-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.todo-field-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.todo-new-body,
+.todo-item-body-edit {
+  min-height: var(--cr-toolbar-control-height);
+}
+
+.todo-list {
+  flex: 1;
+  min-height: 0;
+}
+
+.todo-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2rem 1rem;
+  text-align: center;
+  border: 1px dashed var(--cr-border-strong);
+  border-radius: 8px;
+  background: var(--cr-surface-inset);
+}
+
+.todo-empty-icon {
+  font-size: 2rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-empty {
+  margin: 0;
+  max-width: 18rem;
+  font-size: 0.85rem;
+  color: var(--cr-text-muted);
+  line-height: 1.45;
+}
+
+.todo-items,
+.todo-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.todo-row {
+  --todo-level: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 0.15rem;
+  min-height: 2.25rem;
+  margin-left: calc(var(--todo-level) * (1.5rem + 0.15rem));
+  border: 1px solid var(--cr-border-subtle);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface-translucent);
+}
+
+.todo-row--dragging {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.todo-row--drop-before {
+  box-shadow: inset 0 2px 0 var(--cr-accent);
+}
+
+.todo-row--drop-after {
+  box-shadow: inset 0 -2px 0 var(--cr-accent);
+}
+
+.todo-row--drop-nest {
+  outline: 1px solid var(--cr-accent);
+  outline-offset: -1px;
+}
+
+.todo-row-grip,
+.todo-row-toggle,
+.todo-row-add,
+.todo-row-menu,
+.todo-row-main {
+  border: 0;
+  background: transparent;
+  color: var(--cr-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.todo-row-grip,
+.todo-row-toggle,
+.todo-row-add,
+.todo-row-menu {
+  flex: 0 0 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cr-text-muted);
+}
+
+/* Dragging must not scroll the list, but the other row buttons keep the
+ * default touch-action so a swipe over them still scrolls on mobile. */
+.todo-row-grip {
+  touch-action: none;
+}
+
+.todo-row:not(.todo-row--moving) .todo-row-grip {
+  display: none;
+}
+
+/* Parent indentation equals the toggle width plus the row gap: margin-left is
+ * `var(--todo-level) * (1.5rem + 0.15rem)`. A leaf still shows an empty toggle
+ * unless `[hidden]` wins over the `display:inline-flex` group rule above; the
+ * UA `[hidden]{display:none}` cannot beat a class selector. */
+.todo-row-toggle[hidden] {
+  display: none;
+}
+
+/* One-click close for a leaf whose code review passed but is still open. It is
+ * the only framed element on the right of a row: frames mean "action", the
+ * status indicators next to it are bare icons. Same pill as cr-bar-button. */
+.todo-row-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cr-space-1);
+  align-self: center;
+  box-sizing: border-box;
+  height: 1.5rem;
+  margin-right: var(--cr-space-1);
+  padding: 0 var(--cr-space-2);
+  border: 1px solid var(--cr-success);
+  border-radius: var(--cr-radius-sm);
+  background: transparent;
+  color: var(--cr-success);
+  font: inherit;
+  font-size: var(--cr-font-size-xs);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--cr-transition);
+}
+
+.todo-row-close .mdi {
+  font-size: var(--cr-font-size-legacy-09);
+}
+
+.todo-row-close:hover,
+.todo-row-close:focus-visible {
+  background: color-mix(in srgb, var(--cr-success) 16%, transparent);
+}
+
+.todo-row-close[hidden] {
+  display: none;
+}
+
+.todo-row-toggle {
+  flex: 0 0 1.5rem;
+}
+
+.todo-row-add:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.todo-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.35rem;
+  text-align: left;
+}
+
+.todo-row-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85rem;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.todo-row-text .todo-row-title {
+  flex: 0 0 auto;
+}
+
+.todo-row-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.68rem;
+  line-height: 1.25;
+  color: var(--cr-text-muted);
+}
+
+// Stage progress stepper (row meta + card): planning -> review -> implementation -> integration -> integrated.
+.todo-stage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.todo-stage-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.68rem;
+  color: var(--cr-text-muted);
+}
+
+// Compact row variant: the step itself is the dot.
+.todo-row-stage-host .todo-stage-step {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--cr-border-strong);
+}
+
+.todo-stage-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--cr-border-strong);
+}
+
+.todo-stage-step[data-state='done'],
+.todo-stage-step[data-state='done'] .todo-stage-dot {
+  background-color: var(--cr-success);
+}
+
+.todo-stage-step[data-state='active'],
+.todo-stage-step[data-state='active'] .todo-stage-dot {
+  background-color: var(--cr-accent);
+}
+
+.todo-stage-step[data-state='blocked'],
+.todo-stage-step[data-state='blocked'] .todo-stage-dot {
+  background-color: var(--cr-error);
+}
+
+.todo-stage-step--labelled {
+  width: auto;
+  height: auto;
+  background: none !important;
+  border-radius: 0;
+}
+
+.todo-stage-step--labelled[data-state='active'] .todo-stage-label {
+  color: var(--cr-text);
+  font-weight: 600;
+}
+
+.todo-stage-hint {
+  opacity: 0.8;
+}
+
+.todo-stage-badge {
+  padding: 0 0.4rem;
+  border: 1px solid var(--cr-success);
+  border-radius: var(--cr-radius-sm);
+  font-size: 0.66rem;
+  line-height: 1.4;
+  color: var(--cr-success);
+}
+
+.todo-row-stage-host:empty {
+  display: none;
+}
+
+.todo-row-stage-host .todo-stage {
+  gap: 0.25rem;
+  margin-top: 0.1rem;
+}
+
+.chat-list-modal.todo-row-menu-panel {
+  z-index: 20200;
+}
+
+.todo-row-menu-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.2rem;
+}
+
+.todo-row-menu-item {
+  width: 100%;
+  gap: 0.45rem;
+  font: inherit;
+  font-size: 0.9rem;
+  /* `.chat-list-item` is also used on <li>; a <button> adds UA background,
+   * border, centered text and a non-inherited color, which turned each row
+   * into a light-grey tile. Reset all of it so it matches the attachment
+   * menu (`.send-keys-screenshot-menu-item`). */
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.todo-row-menu-item .mdi {
+  font-size: 1rem;
+  color: currentColor;
+}
+
+.todo-row-menu-item--danger,
+.todo-row-menu-item--danger .mdi,
+.todo-row-menu-item--danger .chat-list-item-title {
+  color: var(--cr-error);
+}
+
+.todo-row-menu-item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.todo-row-menu-item:disabled:hover {
+  background: transparent;
+}
+
+.todo-row-menu-separator {
+  height: 1px;
+  margin: 0.25rem 0.35rem;
+  background: var(--cr-border-subtle);
+}
+
+.todo-row-worktree-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  color: var(--cr-accent);
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.todo-row-worktree-badge[hidden] {
+  display: none;
+}
+
+/* Host box of cr-todo-review-badge in a list row. The badge itself (Shadow DOM)
+ * owns its styles; this only keeps the row height stable and the host bounded. */
+.todo-row-review {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.todo-row-review[hidden] {
+  display: none;
+}
+
+.todo-review-detail {
+  margin: 0 0 var(--cr-space-3);
+  padding: var(--cr-space-2) var(--cr-space-3);
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-surface);
+}
+
+.todo-filter-count {
+  flex-shrink: 0;
+  min-width: 1.5rem;
+  text-align: right;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--cr-text-muted);
+}
+
+.todo-review-filter-heading {
+  margin-top: 0.35rem;
+  padding: 0.5rem 0.75rem 0.15rem;
+  border-top: 1px solid var(--cr-border-strong);
+  font-size: 0.72rem;
+  color: var(--cr-text-muted);
+}
+
+.sdk-rich-delegation-accept-context {
+  margin: var(--cr-space-1) 0 0;
+  font-size: 0.72rem;
+  color: var(--cr-text-muted);
+}
+
+.sdk-rich-delegation-accept-feedback {
+  margin: var(--cr-space-1) 0 0;
+  font-size: 0.78rem;
+}
+
+.sdk-rich-delegation-accept-feedback[data-tone='error'] {
+  color: var(--cr-error);
+}
+
+.sdk-rich-delegation-accept-feedback[data-tone='success'] {
+  color: var(--cr-success);
+}
+
+.todo-row-badge,
+.todo-row-mark {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  color: var(--cr-text-muted);
+}
+
+.todo-row-mark[data-mark='blocked-action'] {
+  color: var(--cr-error);
+}
+
+.todo-row-mark[data-mark='blocked-dependency'] {
+  color: var(--cr-warn);
+}
+
+/* Narrow rows: the title gets the width. "Add subtask" lives in the row menu, the
+ * queue badge repeats the status icon, and blocked marks collapse to an icon. */
+@media (max-width: 640px) {
+  /* Half the desktop indent keeps nested titles wide; a left rule keeps the tree
+   * readable at that depth. */
+  .todo-row {
+    margin-left: calc(var(--todo-level) * 0.9rem);
+  }
+
+  .todo-row:not([data-level='0']) {
+    border-left: 2px solid var(--cr-border-strong);
+  }
+
+  .todo-row-add {
+    display: none;
+  }
+
+  .todo-row-grip {
+    flex-basis: 1.4rem;
+  }
+
+  .todo-row-text .todo-row-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .todo-row-badge[data-kind='queued'] {
+    display: none;
+  }
+
+  .todo-row-mark[data-icon-only] {
+    max-width: none;
+    font-size: 1rem;
+    line-height: 1;
+  }
+}
+
+.todo-blocked-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cr-space-3);
+  margin: var(--cr-space-3) 0;
+  padding: var(--cr-space-3);
+  border: 1px solid color-mix(in srgb, var(--cr-error) 45%, transparent);
+  border-radius: var(--cr-radius-sm);
+  background: color-mix(in srgb, var(--cr-error) 8%, var(--cr-surface));
+  color: var(--cr-text);
+}
+
+.todo-blocked-alert strong {
+  color: var(--cr-error);
+}
+
+.todo-action-feedback {
+  margin: var(--cr-space-2) 0;
+  color: var(--cr-success);
+  overflow-wrap: anywhere;
+}
+
+.todo-action-feedback[data-tone='error'] {
+  color: var(--cr-error);
+}
+
+.todo-blocked-alert p {
+  margin: var(--cr-space-1) 0 0;
+  color: var(--cr-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.todo-blocked-retry {
+  flex-shrink: 0;
+}
+
+.todo-integration-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cr-space-3);
+  margin: var(--cr-space-3) 0;
+  padding: var(--cr-space-3);
+  border: 1px solid color-mix(in srgb, var(--cr-accent) 45%, transparent);
+  border-radius: var(--cr-radius-sm);
+  background: color-mix(in srgb, var(--cr-accent) 8%, var(--cr-surface));
+  color: var(--cr-text);
+}
+
+.todo-integration-alert strong {
+  color: var(--cr-accent);
+}
+
+.todo-integration-alert p {
+  margin: var(--cr-space-1) 0 0;
+  color: var(--cr-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.todo-integration-alert cr-bar-button {
+  flex-shrink: 0;
+}
+
+.todo-row-mark[data-mark='integration'],
+.todo-item-integration-chip {
+  color: var(--cr-accent);
+}
+
+.todo-row-mark[data-mark='review-failed'] {
+  color: var(--cr-error);
+}
+
+/* Deferred ("Later") section: collapsible header between the main tree and parked rows. */
+.todo-deferred-head {
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-2);
+  width: 100%;
+  min-width: 0;
+  margin-top: var(--cr-space-2);
+  padding: var(--cr-space-1) var(--cr-space-2);
+  border: 0;
+  border-top: 1px solid var(--cr-border-strong);
+  background: transparent;
+  color: var(--cr-text-muted);
+  font: inherit;
+  font-size: var(--cr-font-size-xs);
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.todo-deferred-head:hover {
+  color: var(--cr-text);
+}
+
+.todo-deferred-head-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-deferred-head-count {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.todo-row--deferred .todo-row-title {
+  color: var(--cr-text-muted);
+}
+
+.todo-row-mark[data-mark='overdue'] {
+  color: var(--cr-error);
+}

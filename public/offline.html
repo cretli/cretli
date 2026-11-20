@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#1e1e1e" />
+    <script>
+    (function () {
+      var preference = 'cretli-dark', cache = {};
+      try {
+        preference = localStorage.getItem('cretli-theme') || localStorage.getItem('cursor-remote-theme') || preference;
+        cache = JSON.parse(localStorage.getItem('cretli-theme-cache') || '{}') || {};
+      } catch (error) {}
+      if (preference === 'dark' || preference === 'light') preference = 'cretli-' + preference;
+      var appearance = preference === 'cretli-light' ? 'light' : 'dark';
+      if (preference === 'system') {
+        try { appearance = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; } catch (error) {}
+      } else {
+        ['dark', 'light'].forEach(function (key) {
+          if (cache[key] && cache[key].themeId === preference) appearance = key;
+        });
+      }
+      var entry = cache[appearance];
+      var expected = preference;
+      if (preference === 'system') {
+        try { expected = localStorage.getItem('cretli-theme-' + appearance) || 'cretli-' + appearance; } catch (error) {}
+        if (expected === 'dark' || expected === 'light') expected = 'cretli-' + expected;
+        // Runtime rejects a system selection with a different appearance.
+        if (entry && entry.themeId === 'cretli-' + appearance) expected = entry.themeId;
+      }
+      if (!entry || entry.themeId !== expected) entry = null;
+      var css = '';
+      if (entry && typeof entry.css === 'string') {
+        var match = entry.css.match(/^:root:root:root\{([^{}]*)\}$/);
+        if (match && match[1].split(';').every(function (declaration) {
+          return /^--cr-[a-z0-9-]+:(#[\da-f]{3,4}|#[\da-f]{6}|#[\da-f]{8}|(?:rgb|hsl)a?\(\s*[\d.%+\-, /]+\))$/i.test(declaration);
+        })) css = entry.css;
+      }
+      var root = document.documentElement;
+      root.dataset.theme = appearance;
+      root.dataset.themeId = entry ? entry.themeId : 'cretli-' + appearance;
+      root.style.colorScheme = appearance;
+      var style = document.createElement('style');
+      style.id = 'cr-theme-vars';
+      style.textContent = css;
+      document.head.appendChild(style);
+      var color = entry && /^(#[\da-f]{3,4}|#[\da-f]{6}|#[\da-f]{8}|(?:rgb|hsl)a?\(\s*[\d.%+\-, /]+\))$/i.test(entry.themeColor) ? entry.themeColor : (appearance === 'light' ? '#f3f3f3' : '#1e1e1e');
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.content = color;
+      function applyBodyTheme() {
+        if (!document.body) return false;
+        document.body.classList.toggle('theme-light', appearance === 'light');
+        return true;
+      }
+      if (!applyBodyTheme()) document.addEventListener('DOMContentLoaded', applyBodyTheme, { once: true });
+    })();
+  </script>
+    <title>Cretli — offline</title>
+    <style>
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: #1e1e1e;
+        color: #d4d4d4;
+        font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        display: flex; align-items: center; justify-content: center;
+        padding: 24px; box-sizing: border-box;
+      }
+      .wrap { max-width: 480px; text-align: center; }
+      h1 { font-size: 20px; margin: 0 0 8px; color: #f2f2f2; }
+      p { margin: 0 0 20px; color: #a8a8a8; }
+      button {
+        background: #3b82f6; color: #fff; border: 0; border-radius: 8px;
+        padding: 10px 18px; font-size: 15px; cursor: pointer;
+      }
+      button:active { transform: translateY(1px); }
+      .icon { color: #3b82f6; margin-bottom: 12px; }
+      html[data-theme="light"] body, body.theme-light {
+        background: #f3f3f3;
+        color: #242424;
+      }
+      html[data-theme="light"] h1, body.theme-light h1 { color: #1f1f1f; }
+      html[data-theme="light"] p, body.theme-light p { color: #5f5f5f; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="icon" aria-hidden="true">
+        <svg width="56" height="56" viewBox="0 0 512 512" fill="none" stroke="currentColor" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M120 176 L192 256 L120 336" />
+          <path d="M232 360 L392 360" />
+        </svg>
+      </div>
+      <h1>You're offline</h1>
+      <p>The Cretli server isn't reachable right now. The app shell is cached — reconnect to your server to continue.</p>
+      <button type="button" onclick="location.reload()">Try again</button>
+    </div>
+    <script>
+      if ('onLine' in navigator) {
+        window.addEventListener('online', () => location.reload());
+      }
+    </script>
+  </body>
+</html>

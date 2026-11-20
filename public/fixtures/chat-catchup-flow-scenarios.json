@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "id": "editing-history-catchup-preserves-live-output-order",
+      "name": "A large catch-up with edit logs does not drop live output",
+      "queueLimit": 4,
+      "catchUp": "Started: agent --workspace /workspace/demo-project --model gpt-5.3-codex --resume a9f1fe23\n\n• Editing app_front/chat.js\n@@ -650,6 +650,18 @@\n+  if (msg.catchUp) {\n+    term.write(msg.data, () => {\n+      safeFit(chat.term, chat.fitAddon, chat._termContainer);\n+    });\n+  }\n\n... truncated diff ...\n/ commands · @ files · ! shell · ctrl+r to review edits",
+      "liveOutputDuringCatchUp": [
+        "• Reading server.js",
+        "• Grepping for catchUpInProgress",
+        "Done — I documented it in the rule."
+      ],
+      "expected": {
+        "flushedOrder": [
+          "• Reading server.js",
+          "• Grepping for catchUpInProgress",
+          "Done — I documented it in the rule."
+        ],
+        "remainingQueueSize": 0
+      }
+    },
+    {
+      "id": "queue-limit-keeps-latest-live-output",
+      "name": "Limit kolejki zostawia najnowsze chunki podczas catch-up",
+      "queueLimit": 3,
+      "catchUp": "• Editing server.js\n... long history ...",
+      "liveOutputDuringCatchUp": [
+        "chunk-1",
+        "chunk-2",
+        "chunk-3",
+        "chunk-4",
+        "chunk-5"
+      ],
+      "expected": {
+        "flushedOrder": [
+          "chunk-3",
+          "chunk-4",
+          "chunk-5"
+        ],
+        "remainingQueueSize": 0
+      }
+    }
+  ]
+}

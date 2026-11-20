@@ -1,0 +1,14 @@
+{
+  "profile": "data-backup-v1",
+  "manifestFormatVersion": 1,
+  "archiveContractRevision": "2020-01-01.0",
+  "archiveId": "e5f6a7b8-c9d0-4123-8456-789012345678",
+  "createdAt": "2026-10-13T12:30:00Z",
+  "cretliVersion": "0.4.1",
+  "persistence": {
+    "backend": "mixed-json-sqlite",
+    "schemaVersions": { "settings": 1 }
+  },
+  "categories": [],
+  "omissions": []
+}

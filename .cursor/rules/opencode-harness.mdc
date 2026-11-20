@@ -1,0 +1,43 @@
+---
+description: OpenCode harness integration in Cretli — vendor layout, normalizer conventions, supported events.
+globs:
+  - harnesses/opencode/**
+  - harnesses/zai/**
+  - harnesses/mimo/**
+alwaysApply: false
+---
+
+# OpenCode harness
+
+## Vendor reference (local, gitignored)
+
+- Path: `.vendor/opencode/` — not committed.
+- Setup: `bash scripts/setup-opencode-reference.sh`
+- Index: `harnesses/opencode/README.md`, user setup: `harnesses/opencode/SETUP.md`
+
+Optional IDE context: add `.vendor/opencode/src` via Settings → Workspace → `additionalCursorContextDirs`.
+
+## Integration rules
+
+1. **Normalize in one place** — map OpenCode SSE payloads to SDK-shaped events in `harnesses/opencode/opencode-event-normalizer.js`. Do not duplicate mapping in WS or frontend.
+2. **Interactive skills** — question → `harnesses/opencode/opencode-question.js` (`opencode_question`); permission → `harnesses/opencode/opencode-permission.js` (`opencode_permission`). WS handlers live in `harnesses/opencode/opencode-agent-ws.js`.
+3. **Plan mode** — use `lib/sdk/sdk-plan-guard.ts` for mutating tool detection; emit `sdkPlanGuard`. After the run, persist the plan Markdown to `.cursor/plans/cretli-{chatId}.md` and the linked Todo (`lib/sdk/harness-plan-sync.ts`), same as Cursor SDK. Do not rely on the model writing a plan file (edit is denied). If the user confirms the plan through the OpenCode question UI, switch to Agent and lift write permissions **before** posting the answer (`lib/sdk/plan-approval-reply.ts`).
+4. **Room state** — reuse `buildSdkRoomStatePayload` from `lib/sdk/sdk-room-state.ts`; extend room diag via `getOpenCodeRoomDiag`.
+
+## Supported OpenCode SSE events (handled)
+
+| Event | Output |
+|-------|--------|
+| `message.*`, `message.part.*` | assistant / thinking / tool_call SDK events |
+| `question.asked`, `question.v2.asked` | `opencode_question` |
+| `question.replied/rejected`, `question.v2.*` | `opencodeQuestionResolved` |
+| `permission.asked`, `permission.v2.asked` | `opencode_permission` |
+| `permission.replied`, `permission.v2.replied` | `opencodePermissionResolved` |
+| `session.idle`, `session.status`, `session.error` | busy/idle, errors |
+| `permission.updated` | informational text only (legacy TUI) |
+
+## Planned / out of scope
+
+- Redis multi-instance room bus (SDK-only)
+- Push notifications on OpenCode run finish (optional; question/permission
+  waits are wired via `lib/agent-needs-input-push.js`)

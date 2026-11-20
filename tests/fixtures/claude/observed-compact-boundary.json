@@ -1,0 +1,96 @@
+{
+  "_provenance": {
+    "class": "earlier-read of a CLI transcript frame; [UNVERIFIED] in round 3 (transcript not re-read)",
+    "source": "Claude Code 2.1.284 session transcript data/claude-home/projects/<project-dir>/<session-id>.jsonl line 371 (entrypoint sdk-ts), auto-compaction frame; preTokens=170462 as recorded in the earlier read, not re-checked",
+    "verifiedAt": "not re-verified in round 3 (2026-10-12)",
+    "collectedAt": "2026-10-03",
+    "serialisation": "THIS is the CLI session-file shape: camelCase `compactMetadata` ([UNVERIFIED], earlier read). The SDK stream envelope is snake_case `compact_metadata` ([DECLARED], sdk.d.ts:3724). [UNVERIFIED]: an earlier grep reported 18 `compactMetadata` and 0 `compact_metadata` in the source session directory; not re-run in round 3.",
+    "sanitization": [
+      "sessionId, uuid, logicalParentUuid and every preserved-message uuid replaced by placeholders",
+      "cwd replaced with the generic /workspace/my-app, gitBranch replaced with main",
+      "the session `slug` (a human-readable generated phrase) was removed",
+      "no prompt, transcript body or credential appears in this file"
+    ],
+    "observedFieldGaps": [
+      "[OBSERVED] round 3: grep -c cumulativeDroppedTokens sdk.d.ts -> 0, i.e. not declared; preCompactDiscoveredTools not checked",
+      "duration_ms is declared (sdk.d.ts:3732); the transcript spelling durationMs is [UNVERIFIED]",
+      "post_tokens is declared optional (sdk.d.ts:3730); present in both frames of this earlier read"
+    ]
+  },
+  "observedTranscriptFrame": {
+    "type": "system",
+    "subtype": "compact_boundary",
+    "level": "info",
+    "content": "Conversation compacted",
+    "compactMetadata": {
+      "trigger": "auto",
+      "preTokens": 170462,
+      "postTokens": 49902,
+      "cumulativeDroppedTokens": 120560,
+      "durationMs": 66132,
+      "preCompactDiscoveredTools": [
+        "WebSearch"
+      ],
+      "preservedSegment": {
+        "headUuid": "msg-placeholder-head",
+        "anchorUuid": "msg-placeholder-anchor",
+        "tailUuid": "msg-placeholder-tail"
+      },
+      "preservedMessages": {
+        "anchorUuid": "msg-placeholder-anchor",
+        "uuids": [
+          "msg-placeholder-head",
+          "msg-placeholder-second",
+          "msg-placeholder-tail"
+        ]
+      }
+    },
+    "uuid": "evt-placeholder-1",
+    "logicalParentUuid": "msg-placeholder-tail",
+    "parentUuid": null,
+    "sessionId": "sess-placeholder-1",
+    "timestamp": "2026-10-03T19:48:12.517Z",
+    "cwd": "/workspace/my-app",
+    "gitBranch": "main",
+    "isSidechain": false,
+    "userType": "external",
+    "entrypoint": "sdk-ts",
+    "version": "2.1.284"
+  },
+  "secondObservedFrameMetadataOnly": {
+    "comment": "Kept to show the counter spread of a second real compaction. No other field differs materially.",
+    "trigger": "auto",
+    "preTokens": 168128,
+    "postTokens": 11590,
+    "cumulativeDroppedTokens": 156538,
+    "durationMs": 16931
+  },
+  "streamEnvelopeTwin": {
+    "class": "synthetic-contract-example",
+    "comment": "The same event as the published SDK stream declares it, for a normalizer test. Note the snake_case key and the ABSENCE of cumulativeDroppedTokens / preCompactDiscoveredTools, which the producer is [UNVERIFIED] to emit on the session file (earlier transcript read, not re-observed).",
+    "message": {
+      "type": "system",
+      "subtype": "compact_boundary",
+      "session_id": "sess-placeholder-1",
+      "uuid": "evt-placeholder-1",
+      "compact_metadata": {
+        "trigger": "auto",
+        "pre_tokens": 170462,
+        "post_tokens": 49902,
+        "duration_ms": 66132
+      }
+    },
+    "expectedNotice": {
+      "noticeType": "compact",
+      "trigger": "auto",
+      "preTokens": 170462,
+      "postTokens": 49902,
+      "contextEpochEffect": "advance (lib/claude/claude-agent-ws.ts advanceRoomContextEpoch)"
+    }
+  },
+  "whatTheseNumbersAreNot": [
+    "preTokens/postTokens are token counts at one instant; there is NO denominator in this event, so it cannot produce a context percentage",
+    "cumulativeDroppedTokens: semantics [UNKNOWN] (undeclared); [UNVERIFIED] only that it equals preTokens - postTokens in both frames here (earlier read, not re-read)",
+    "a percentage shown next to a compact boundary must come from getContextUsage() or SDKContextUsage, never from pre/post tokens"
+  ]
+}

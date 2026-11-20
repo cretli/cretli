@@ -1,0 +1,172 @@
+{
+  "_provenance": {
+    "class": "earlier-read of store rows, post-normalization; [UNVERIFIED] in round 3 (data/ not re-read)",
+    "source": "data/usage/plan-limits.jsonl and data/harness-plan-limits.json of the running Cretli instance (harness=claude rows only)",
+    "collectedAt": "2026-10-12",
+    "verifiedAt": null,
+    "producer": "lib/usage/harness-health.ts#noteHarnessPlanLimit, i.e. AFTER Cretli normalization",
+    "sanitization": [
+      "model ids keep their harness-level form; provider suffixes and non-Claude harness rows were dropped",
+      "no credential, token, org id or account id is present in these rows or in this file"
+    ],
+    "caution": "These rows are post-conversion: `utilization` here is the value Cretli STORED, which the code computes as raw * 100 (lib/agent-harness/claude-event-normalizer.ts:183, lib/usage/harness-usage.ts:659). That multiplier is an unconfirmed assumption: no raw rate_limit_event payload was ever captured, so the relation between the SDK's raw value and these numbers is [UNKNOWN] (a fraction hypothesis is [INFERRED] from binary strings, see docs/claude/sdk-limits-context-contract.md section 3). These rows cannot confirm the raw unit.",
+    "notGroundedInThisFile": [
+      "seven_day_opus / seven_day_sonnet / seven_day_overage_included / overage windows: declared in sdk.d.ts:5586, never seen in the earlier read ([UNVERIFIED])",
+      "overageStatus, isUsingOverage, limitScope, errorCode, surpassedThreshold: not persisted by noteHarnessPlanLimit, so this store cannot evidence them"
+    ]
+  },
+  "corpus": {
+    "planLimitRowsTotal": 2644,
+    "claudeRowsTotal": 2602,
+    "claudeRowsWithUtilization": 455,
+    "utilizationUnitInThisFile": "Cretli-stored value after the assumed *100 conversion (unconfirmed); the raw SDK unit is [UNKNOWN] and is not evidenced by this file",
+    "utilizationValueDomain": [
+      25,
+      26,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      95,
+      96,
+      97,
+      98,
+      99
+    ],
+    "utilizationAllIntegers": true,
+    "resetsAtUnit": "stored as ISO; the SDK's raw unit is [INFERRED] epoch seconds (binary strings), not observed on a payload",
+    "claudeObservedWindowTypes": [
+      "five_hour",
+      "seven_day",
+      null
+    ],
+    "claudeObservedStatuses": [
+      "allowed",
+      "allowed_warning",
+      "rejected"
+    ],
+    "label": "[UNVERIFIED] all counts below come from an earlier read of data/ and were not re-run in round 3",
+    "rejectedRowsWithNoWindowType": 24,
+    "rowBreakdownSum": "2103+324+131+24+19+1 = 2602 (claudeRowsTotal); rejected = 24+19+1 = 44; with utilization = 324+131 = 455"
+  },
+  "readingMatrix": [
+    {
+      "harness": "claude",
+      "rateLimitType": "five_hour",
+      "status": "allowed",
+      "utilizationPresent": false,
+      "rows": 2103
+    },
+    {
+      "harness": "claude",
+      "rateLimitType": "seven_day",
+      "status": "allowed_warning",
+      "utilizationPresent": true,
+      "rows": 324
+    },
+    {
+      "harness": "claude",
+      "rateLimitType": "five_hour",
+      "status": "allowed_warning",
+      "utilizationPresent": true,
+      "rows": 131
+    },
+    {
+      "harness": "claude",
+      "rateLimitType": null,
+      "status": "rejected",
+      "utilizationPresent": false,
+      "rows": 24
+    },
+    {
+      "harness": "claude",
+      "rateLimitType": "five_hour",
+      "status": "rejected",
+      "utilizationPresent": false,
+      "rows": 19
+    },
+    {
+      "harness": "claude",
+      "rateLimitType": "seven_day",
+      "status": "rejected",
+      "utilizationPresent": false,
+      "rows": 1
+    }
+  ],
+  "lastKnownSnapshot": [
+    {
+      "comment": "Seven-day window: the last accepted reading kept its percentage because no later seven_day event overwrote it.",
+      "harness": "claude",
+      "status": "allowed_warning",
+      "rateLimitType": "seven_day",
+      "utilization": 26,
+      "resetsAt": "2026-10-16T20:00:00.000Z",
+      "observedAt": "2026-10-10T20:34:38.215Z"
+    },
+    {
+      "comment": "Five-hour window: the same harness:rateLimitType key was upserted by a rejected reading that carries no utilization, so the stored row has NO utilization key at all even though the window reached 99 percent minutes earlier. `observedAt` is Cretli's receive time, not a provider sample time.",
+      "harness": "claude",
+      "status": "rejected",
+      "rateLimitType": "five_hour",
+      "resetsAt": "2026-10-12T12:30:00.000Z",
+      "observedAt": "2026-10-12T11:12:36.843Z",
+      "samples": []
+    }
+  ],
+  "observedRisingEdge": [
+    {
+      "comment": "Consecutive five_hour allowed_warning readings for one model, then the rejection that follows. Trimmed from the jsonl tail; values are percent.",
+      "observedAt": "2026-10-12T08:47:47.137Z",
+      "status": "allowed_warning",
+      "rateLimitType": "five_hour",
+      "utilization": 90,
+      "resetsAt": "2026-10-12T12:30:00.000Z"
+    },
+    {
+      "observedAt": "2026-10-12T08:48:53.261Z",
+      "status": "allowed_warning",
+      "rateLimitType": "five_hour",
+      "utilization": 95,
+      "resetsAt": "2026-10-12T12:30:00.000Z"
+    },
+    {
+      "observedAt": "2026-10-12T08:49:30.755Z",
+      "status": "allowed_warning",
+      "rateLimitType": "five_hour",
+      "utilization": 99,
+      "resetsAt": "2026-10-12T12:30:00.000Z"
+    },
+    {
+      "observedAt": "2026-10-12T08:49:40.198Z",
+      "status": "rejected",
+      "rateLimitType": "five_hour",
+      "resetsAt": "2026-10-12T12:30:00.000Z",
+      "utilizationNote": "absent, not zero"
+    }
+  ],
+  "lockoutRowFromProseClassifier": {
+    "comment": "data/harness-usage-limits.json, same rejection. The lockout was written by the error-text classifier, not by the structured rate_limit_event path, so the recorded code is `usage_limit` and the message is provider prose naming a `session` limit while the structured row named `five_hour`. The message text is preserved only to show that a reset is stated in prose, not in a field.",
+    "harness": "claude",
+    "message": "You've hit your session limit - resets 2:30pm (local time)",
+    "resetAt": "2026-10-12T12:30:00.000Z",
+    "detectedAt": "2026-10-12T11:12:36.906Z",
+    "source": "error-text",
+    "code": "usage_limit"
+  }
+}

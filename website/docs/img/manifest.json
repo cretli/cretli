@@ -1,0 +1,65 @@
+[
+  {
+    "name": "chat-list-mobile",
+    "width": 780,
+    "height": 1688,
+    "deviceScaleFactor": 2,
+    "bytes": 50470,
+    "sha256": "76c27a2483bb2e94dd7c16451224f102e7ff2988c367114b0ba087143b38ae07",
+    "generatedAt": "2026-10-25T23:35:00.465Z"
+  },
+  {
+    "name": "chat-open-mobile",
+    "width": 780,
+    "height": 1688,
+    "deviceScaleFactor": 2,
+    "bytes": 50352,
+    "sha256": "d4d9f24cbd70c479191e55b6f5b1bd16178cd18707a30d69ca031c2f8bbe6bf1",
+    "generatedAt": "2026-10-25T23:35:03.305Z"
+  },
+  {
+    "name": "chat-desktop",
+    "width": 1280,
+    "height": 720,
+    "deviceScaleFactor": 1,
+    "bytes": 18452,
+    "sha256": "455065cf8819a867bc6ddd6a75feaa0db7207c4bbaa1e9c63e3594b6c7e60f22",
+    "generatedAt": "2026-10-25T23:35:06.146Z"
+  },
+  {
+    "name": "todo-tree",
+    "width": 1280,
+    "height": 720,
+    "deviceScaleFactor": 1,
+    "bytes": 30693,
+    "sha256": "cc38cecb60d2e52987acc762219183a571016f8f86ea783ac7786c59015df862",
+    "generatedAt": "2026-10-25T23:35:08.840Z"
+  },
+  {
+    "name": "settings-usage",
+    "width": 1280,
+    "height": 720,
+    "deviceScaleFactor": 1,
+    "bytes": 28817,
+    "sha256": "38f05813248a074811af9b6ebde9ee834c37c8ef033d290fa1aab935e3def429",
+    "generatedAt": "2026-10-25T23:35:10.087Z"
+  },
+  {
+    "name": "watcher-panel",
+    "width": 1280,
+    "height": 720,
+    "deviceScaleFactor": 1,
+    "bytes": 44154,
+    "sha256": "e9910b754485f07fccfdd9f54085fe48eb419803d3436d14e6682efe18921178",
+    "generatedAt": "2026-10-25T23:35:11.427Z"
+  },
+  {
+    "name": "settings-workspace",
+    "width": 1280,
+    "height": 720,
+    "deviceScaleFactor": 1,
+    "bytes": 38374,
+    "sha256": "9d3acbf11e8754f31344668d80ae99f3cb7a559cdf205154a6cd7d086c4b8599",
+    "generatedAt": "2026-10-25T23:35:12.711Z"
+  }
+]

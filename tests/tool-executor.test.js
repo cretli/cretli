@@ -1,0 +1,163 @@
+import assert from 'node:assert/strict';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { executeTool } from '../lib/agent-harness/tool-executor.ts';
+import { findForeignRepoGitTarget } from '../lib/agent-harness/foreign-repo-guard.ts';
+import { buildMcpRuntimeContext } from '../lib/mcp/mcp-session.js';
+
+const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cr-tool-exec-'));
+const sampleFile = path.join(tmpRoot, 'hello.txt');
+fs.writeFileSync(sampleFile, 'hello world', 'utf8');
+
+const readResult = await executeTool('read_file', { path: 'hello.txt' }, { cwd: tmpRoot, mode: 'agent' });
+assert.equal(readResult.ok, true);
+assert.match(readResult.output, /hello world/);
+
+const blocked = await executeTool('write_file', { path: 'x.txt', content: 'nope' }, { cwd: tmpRoot, mode: 'plan' });
+assert.equal(blocked.ok, false);
+assert.match(String(blocked.error), /blocked/i);
+assert.equal(fs.existsSync(path.join(tmpRoot, 'x.txt')), false);
+
+const blockedShell = await executeTool('run_terminal_command', { command: 'echo pwned > pwned.txt' }, { cwd: tmpRoot, mode: 'plan' });
+assert.equal(blockedShell.ok, false);
+assert.equal(fs.existsSync(path.join(tmpRoot, 'pwned.txt')), false);
+
+const blockedQuotedSubshell = await executeTool(
+  'run_terminal_command',
+  { command: 'echo "$(touch quoted-bypass.txt)"' },
+  { cwd: tmpRoot, mode: 'plan' },
+);
+assert.equal(blockedQuotedSubshell.ok, false);
+assert.equal(fs.existsSync(path.join(tmpRoot, 'quoted-bypass.txt')), false);
+
+const blockedReplace = await executeTool('search_replace', {
+  path: 'hello.txt',
+  old_string: 'hello',
+  new_string: 'mutated',
+}, { cwd: tmpRoot, mode: 'plan' });
+assert.equal(blockedReplace.ok, false);
+assert.equal(fs.readFileSync(sampleFile, 'utf8'), 'hello world');
+
+const planRead = await executeTool('read_file', { path: 'hello.txt' }, { cwd: tmpRoot, mode: 'plan' });
+assert.equal(planRead.ok, true);
+
+const transcriptDir = path.join(tmpRoot, 'data', 'runtime-home', '.cursor', 'projects', 'ws', 'agent-transcripts');
+fs.mkdirSync(transcriptDir, { recursive: true });
+const transcriptFile = path.join(transcriptDir, 'agent-delegation.jsonl');
+fs.writeFileSync(transcriptFile, '{"text":"delegation unfinished"}', 'utf8');
+fs.mkdirSync(path.join(tmpRoot, 'data', 'chat-history'), { recursive: true });
+fs.writeFileSync(path.join(tmpRoot, 'data', 'chat-history', 'chat.json'), '{"events":[]}', 'utf8');
+
+const blockedRead = await executeTool(
+  'read_file',
+  { path: 'data/runtime-home/.cursor/projects/ws/agent-transcripts/agent-delegation.jsonl' },
+  { cwd: tmpRoot, mode: 'agent' },
+);
+assert.equal(blockedRead.ok, false);
+assert.match(String(blockedRead.error), /chat_show|chat_history/);
+
+const blockedList = await executeTool(
+  'list_directory',
+  { path: 'data/runtime-home/.cursor/projects/ws/agent-transcripts' },
+  { cwd: tmpRoot, mode: 'agent' },
+);
+assert.equal(blockedList.ok, false);
+
+const dataList = await executeTool('list_directory', { path: 'data' }, { cwd: tmpRoot, mode: 'agent' });
+assert.equal(dataList.ok, true);
+assert.doesNotMatch(dataList.output, /runtime-home/);
+assert.doesNotMatch(dataList.output, /chat-history/);
+
+const blockedGrep = await executeTool(
+  'grep',
+  { pattern: 'delegation', path: 'data/runtime-home' },
+  { cwd: tmpRoot, mode: 'agent' },
+);
+assert.equal(blockedGrep.ok, false);
+
+const blockedHistoryShell = await executeTool(
+  'run_terminal_command',
+  { command: 'cat data/chat-history/chat.json' },
+  { cwd: tmpRoot, mode: 'agent' },
+);
+assert.equal(blockedHistoryShell.ok, false);
+assert.match(String(blockedHistoryShell.error), /chat_history/);
+
+const workspaceGrep = await executeTool('grep', { pattern: 'delegation unfinished' }, { cwd: tmpRoot, mode: 'agent' });
+assert.equal(workspaceGrep.ok, true);
+assert.doesNotMatch(workspaceGrep.output || '', /agent-delegation/);
+
+const extraTranscript = path.join(tmpRoot, 'extra-cwd', 'agent-transcripts', 'agent-other.jsonl');
+fs.mkdirSync(path.dirname(extraTranscript), { recursive: true });
+fs.writeFileSync(extraTranscript, '{"text":"other chat"}', 'utf8');
+const blockedExtra = await executeTool(
+  'read_file',
+  { path: 'extra-cwd/agent-transcripts/agent-other.jsonl' },
+  { cwd: tmpRoot, mode: 'ask' },
+);
+assert.equal(blockedExtra.ok, false);
+
+const askRead = await executeTool('read_file', { path: 'hello.txt' }, { cwd: tmpRoot, mode: 'ask' });
+assert.equal(askRead.ok, true);
+const askBlocked = await executeTool('write_file', { path: 'ask.txt', content: 'nope' }, { cwd: tmpRoot, mode: 'ask' });
+assert.equal(askBlocked.ok, false);
+assert.match(String(askBlocked.error), /Ask mode blocked/i);
+assert.equal(fs.existsSync(path.join(tmpRoot, 'ask.txt')), false);
+
+fs.rmSync(tmpRoot, { recursive: true, force: true });
+console.log('tool-executor.test.js OK');
+
+// Git mutations aimed at a repository outside the workspace are refused before spawn.
+const scopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cr-tool-scope-'));
+const workspaceRepo = path.join(scopeRoot, 'my-app');
+const foreignRepo = path.join(scopeRoot, 'acme');
+const plainDir = path.join(scopeRoot, 'notes');
+for (const dir of [path.join(workspaceRepo, '.git'), path.join(workspaceRepo, 'src'), path.join(foreignRepo, '.git'), plainDir]) {
+  fs.mkdirSync(dir, { recursive: true });
+}
+const scopeCtx = { cwd: workspaceRepo, mode: 'agent' };
+const foreignCommands = [
+  `git -C ${foreignRepo} commit -m "x"`,
+  `cd ../acme && git add -A && git push origin master`,
+  `/opt/scripts/git-as-user.sh "${foreignRepo}" push origin master`,
+];
+for (const command of foreignCommands) {
+  const result = await executeTool('run_terminal_command', { command }, scopeCtx);
+  assert.equal(result.ok, false, command);
+  assert.match(String(result.error), /different repository/);
+  assert.equal(String(result.error).includes(fs.realpathSync(foreignRepo)), true);
+}
+assert.equal(findForeignRepoGitTarget(`git -C ${foreignRepo} status --short`, workspaceRepo), '');
+assert.equal(findForeignRepoGitTarget(`git -C ${workspaceRepo} commit -m "x"`, workspaceRepo), '');
+assert.equal(findForeignRepoGitTarget('cd src && git add -A && git commit -m "x"', workspaceRepo), '');
+assert.equal(findForeignRepoGitTarget(`git add ${plainDir}`, workspaceRepo), '');
+assert.equal(findForeignRepoGitTarget(`ls ${foreignRepo} && echo commit`, workspaceRepo), '');
+process.env.CRETLI_ALLOW_FOREIGN_REPO_GIT = '1';
+assert.equal(findForeignRepoGitTarget(`git -C ${foreignRepo} commit -m "x"`, workspaceRepo), '');
+delete process.env.CRETLI_ALLOW_FOREIGN_REPO_GIT;
+fs.rmSync(scopeRoot, { recursive: true, force: true });
+
+const mcpContext = buildMcpRuntimeContext({
+  chat: { id: 'tool-executor-misnamed', workspaceFolder: tmpRoot },
+  room: { cwd: tmpRoot, sdkMode: 'agent' },
+  harness: 'mistral',
+  mode: 'agent',
+});
+const mcpCtx = { cwd: tmpRoot, mode: 'agent', mcpContext };
+const canonicalResult = await executeTool('mcp__cretli_builtincretl__todo_list', {}, mcpCtx);
+assert.equal(canonicalResult.ok, true, canonicalResult.error);
+for (const misnamed of [
+  'mcp__cretli_builtincretli__todo_list',
+  'mcp__cretli_bridge__mcp__cretli_builtincretl__todo_list',
+  'mcp__cretli_bridge__mcp__cre___tincretl__todo_list',
+]) {
+  const result = await executeTool(misnamed, {}, mcpCtx);
+  assert.equal(result.ok, true, `${misnamed}: ${result.error}`);
+}
+const foreignMcp = await executeTool('mcp__github__todo_list', {}, mcpCtx);
+assert.equal(foreignMcp.ok, false);
+assert.match(String(foreignMcp.error), /Unknown MCP tool/);
+const unknownBuiltin = await executeTool('mcp__cretli_builtincretli__no_such_tool', {}, mcpCtx);
+assert.equal(unknownBuiltin.ok, false);
+assert.match(String(unknownBuiltin.error), /Unknown MCP tool/);

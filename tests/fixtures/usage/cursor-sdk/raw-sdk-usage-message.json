@@ -1,0 +1,29 @@
+{
+  "_provenance": {
+    "class": "synthetic-shape (not captured from a live run)",
+    "shape": "sdkEvent payload broadcast by lib/sdk/cursor-agent-sdk-ws.ts#pushRoomEvent; payload.event is an @cursor/sdk SDKUsageMessage",
+    "source": "node_modules/@cursor/sdk/dist/esm/messages.d.ts#SDKUsageMessage",
+    "sdkVersion": "1.0.37",
+    "sanitization": [
+      "agent_id and run_id replaced with fixture placeholders",
+      "no conversation content, prompt, reply, transcript, tool payload or credential is present",
+      "only type tags, opaque ids and token counts are kept",
+      "totalTokens follows the SDK implementation formula input + output + cacheRead + cacheWrite"
+    ],
+    "note": "Counts are synthetic. They are arithmetically consistent with the SDK's own totalTokens formula so the fixture can test the documented transform."
+  },
+  "type": "sdkEvent",
+  "event": {
+    "type": "usage",
+    "agent_id": "agent-fixture-local-0001",
+    "run_id": "run-fixture-local-0001",
+    "usage": {
+      "inputTokens": 1200,
+      "outputTokens": 80,
+      "cacheReadTokens": 900,
+      "cacheWriteTokens": 50,
+      "totalTokens": 2230,
+      "reasoningTokens": 20
+    }
+  }
+}

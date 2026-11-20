@@ -1,0 +1,12 @@
+{
+  // Front typecheck (browser). Bundling stays in webpack; this only checks types.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2024", "dom", "dom.iterable"],
+    "types": []
+  },
+  "include": ["**/*.js", "**/*.ts"],
+  "exclude": ["node_modules", "dist", "webpack*.js", "scripts"]
+}

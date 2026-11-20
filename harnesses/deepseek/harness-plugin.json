@@ -1,0 +1,12 @@
+{
+  "apiVersion": 1,
+  "id": "deepseek",
+  "version": "1.0.0",
+  "hostMin": "0.1.0",
+  "label": "DeepSeek Harness",
+  "description": "DeepSeek Harness (dsh --profile sdk) via @deepseek-ai/dsh-sdk-client.",
+  "origin": "builtin-optional",
+  "defaultEnabled": true,
+  "entries": { "light": "./light.js", "heavy": "./heavy.js", "front": "./front.js" },
+  "capabilities": { "chat": true, "models": true }
+}

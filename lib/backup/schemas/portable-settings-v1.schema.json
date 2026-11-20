@@ -1,0 +1,93 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cretli.com/schemas/backup/portable-settings-v1.schema.json",
+  "title": "Cretli portable settings archive v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile",
+    "manifestFormatVersion",
+    "archiveContractRevision",
+    "archiveId",
+    "createdAt",
+    "cretliVersion",
+    "sections",
+    "omissions"
+  ],
+  "properties": {
+    "profile": { "const": "portable-settings-v1" },
+    "manifestFormatVersion": { "type": "integer", "minimum": 1, "maximum": 1 },
+    "archiveContractRevision": { "type": "string", "minLength": 1 },
+    "archiveId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "createdAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "cretliVersion": { "type": "string", "minLength": 1 },
+    "sections": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "devicePreferences": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "omissions": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": { "$ref": "#/$defs/omission" }
+    },
+    "persistence": { "$ref": "#/$defs/persistenceMarkers" }
+  },
+  "$defs": {
+    "omission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "reason"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "secret",
+            "machine",
+            "unclassified",
+            "operator_excluded",
+            "dependency_not_exported",
+            "corrupt_source",
+            "browser_unavailable"
+          ]
+        },
+        "rawSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "detail": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "reason": { "const": "corrupt_source" } },
+            "required": ["reason"]
+          },
+          "then": { "required": ["rawSha256"] }
+        }
+      ]
+    },
+    "persistenceMarkers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backend", "schemaVersions"],
+      "properties": {
+        "backend": { "type": "string", "minLength": 1 },
+        "schemaVersions": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

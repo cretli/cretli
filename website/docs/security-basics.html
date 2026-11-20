@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security basics</title>
+<meta name="description" content="Keep a Cretli installation private, authenticated, and appropriately exposed.">
+<link rel="canonical" href="https://cretli.com/docs/security-basics.html">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">Menu</button>
+  <a class="brand" href="index.html">Cretli docs</a>
+  <input class="search" type="search" placeholder="Search docs" aria-label="Search docs" hidden>
+  <button class="theme-toggle" type="button" aria-label="Toggle light and dark theme">Theme</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Documentation">
+    <ul class="search-results" hidden></ul>
+    <ul>
+      <li><a href="index.html">Cretli documentation</a></li>
+      <li><a href="getting-started.html">Getting started</a></li>
+      <li><a href="install-docker.html">Install with Docker</a></li>
+      <li><a href="chat-and-agents.html">Chat and agents</a></li>
+      <li><a href="todos.html">TODOs</a></li>
+      <li><a href="workspace-watcher.html">Workspace Watcher</a></li>
+      <li><a href="settings.html">Settings</a></li>
+      <li><a href="security-basics.html" aria-current="page">Security basics</a></li>
+      <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    </ul>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Security basics</h1>
+<p>Cretli can execute terminal commands and give configured agents access to a workspace. Treat the server and its credentials as sensitive. The default bind is <code>127.0.0.1</code>, which limits access to the local machine. If you deliberately bind to <code>0.0.0.0</code> for trusted LAN access, configure a strong password or <code>CRETLI_SETUP_TOKEN</code> before connecting other devices.</p>
+<p>Use HTTPS and do not forward the service directly to the public internet without an appropriate authenticated and encrypted deployment boundary. Keep provider keys, setup tokens, session credentials, and backup data out of repositories, screenshots, logs, and chat messages. Grant MCP servers and workspace paths only the access they need.</p>
+<p>Before enabling agent execution, understand which harness is selected and what commands it can run. Review plans, diffs, and test results. If a credential or session may have been exposed, rotate it and inspect the server logs.</p>
+<p>This page is only a practical summary. Read the project <a href="https://github.com/cretli/cretli/blob/master/SECURITY.md">security policy</a> for the threat model, reporting process, and deployment guidance.</p>
+    </article>
+    <nav class="prev-next" aria-label="Previous and next page">
+      <a rel="prev" href="settings.html">&larr; Settings</a>
+      <a rel="next" href="troubleshooting.html">Troubleshooting &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="On this page">
+
+  </aside>
+</div>
+<footer class="site-footer">Cretli documentation</footer>
+<script src="assets/docs.js" defer></script>
+</body>
+</html>

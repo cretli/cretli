@@ -1,0 +1,41 @@
+/**
+ * Resume idle harness rooms after the update gate releases.
+ */
+
+const roomSources: Set<() => Iterable<object>> = new Set();
+
+export function registerPendingPromptRoomSource(getRooms: () => Iterable<object>): void {
+  if (typeof getRooms !== 'function') return;
+  roomSources.add(getRooms);
+}
+
+/**
+ * Best-effort: drain the next queued prompt on every registered room.
+ */
+export function resumePendingPromptQueues(): void {
+  for (const getRooms of roomSources) {
+    let rooms: Iterable<any> | undefined;
+    try {
+      rooms = getRooms();
+    } catch {
+      continue;
+    }
+    if (!rooms) continue;
+    for (const room of rooms) {
+      if (!room || typeof room !== 'object') continue;
+      try {
+        if (typeof room.drainQueue === 'function') {
+          room.drainQueue();
+        } else if (typeof room.drainNextPendingPrompt === 'function') {
+          room.drainNextPendingPrompt();
+        }
+      } catch {
+        // resume is best effort
+      }
+    }
+  }
+}
+
+export function resetPendingPromptRoomSourcesForTest(target: Set<() => Iterable<object>> = roomSources): void {
+  target.clear();
+}

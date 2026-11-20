@@ -1,0 +1,11 @@
+{
+  "_note": "fromQwenUsage bags. Raw input_tokens INCLUDES cache; bag textInput excludes it.",
+  "tokens": [
+    {"textInput": 600, "textOutput": 50, "audioInput": 0, "audioOutput": 0, "cachedInput": 400, "cacheWrite": 0, "reasoning": 0},
+    {"textInput": 300, "textOutput": 30, "audioInput": 0, "audioOutput": 0, "cachedInput": 900, "cacheWrite": 0, "reasoning": 0}
+  ],
+  "ephemeralBreakdown": {
+    "raw": {"input_tokens": 1000, "output_tokens": 10, "cache_read_input_tokens": 200, "cache_creation": {"ephemeral_5m_input_tokens": 100, "ephemeral_1h_input_tokens": 50}},
+    "tokens": {"textInput": 650, "textOutput": 10, "audioInput": 0, "audioOutput": 0, "cachedInput": 200, "cacheWrite": 150, "reasoning": 0}
+  }
+}

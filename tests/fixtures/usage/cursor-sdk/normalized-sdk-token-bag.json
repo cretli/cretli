@@ -1,0 +1,20 @@
+{
+  "_provenance": {
+    "class": "derived from raw-sdk-usage-message.json",
+    "transform": "fromSdkUsage(raw.event.usage) from lib/usage/usage-normalize.js",
+    "source": "lib/usage/usage-normalize.js#fromSdkUsage",
+    "sanitization": [
+      "contains only canonical token counters",
+      "no conversation content, prompt, reply, transcript or credential is present"
+    ]
+  },
+  "tokens": {
+    "textInput": 1200,
+    "textOutput": 80,
+    "audioInput": 0,
+    "audioOutput": 0,
+    "cachedInput": 900,
+    "cacheWrite": 50,
+    "reasoning": 20
+  }
+}

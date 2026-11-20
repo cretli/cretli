@@ -1,0 +1,1644 @@
+{
+  "schema": 1,
+  "fileCount": 794,
+  "totals": {
+    "syncFs": 807,
+    "syncChild": 27,
+    "atomicsWait": 7,
+    "databaseSync": 73,
+    "loadChatsCalls": 135
+  },
+  "files": {
+    "lib/agent-cli.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/agent-finished-push.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/agent-harness/foreign-repo-guard.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/agent-harness/history-store-guard.js": {
+      "syncFs": 10,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/agent-harness/local-harness-runtime.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/agent-harness/tool-executor.js": {
+      "syncFs": 8,
+      "syncChild": 2,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/agent-harness/workspace-sandbox.js": {
+      "syncFs": 7,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/agent-run-state.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/agents.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/approval/approval-audit.ts": {
+      "syncFs": 6,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/approval/can-use-tool-grants.ts": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/approval/workspace-edit-policy.ts": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/auth.js": {
+      "syncFs": 6,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/benchmark-fetch.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/boot-env.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/boot-log.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/browser/chat-browser-scope.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 4
+    },
+    "lib/browser/egress-proxy/allowlist.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/browser/guards.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/browser/lifecycle.js": {
+      "syncFs": 6,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/browser/policy-store.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/browser/process-tree.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/browser/screenshot-file.js": {
+      "syncFs": 6,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/browser/storage-state.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/chat-plan-persist.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/chat-run-service.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 2
+    },
+    "lib/chat-title-agent.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 2
+    },
+    "lib/chat-title-dispatcher.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/chat-title-plan-runners.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/chat-title-service.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/child-process-registry.js": {
+      "syncFs": 6,
+      "syncChild": 0,
+      "atomicsWait": 1,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/claude/claude-plan-login.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/claude/claude-subscription.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/client-debug-log.js": {
+      "syncFs": 8,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/client-instance-logs.js": {
+      "syncFs": 16,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/codebuddy/codebuddy-cli.js": {
+      "syncFs": 7,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/codebuddy/codebuddy-memory.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/codebuddy/codebuddy-models.js": {
+      "syncFs": 5,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/codex/codex-chatgpt-auth.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/codex/codex-cli.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/codex/codex-context-breakdown.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/codex/codex-context-usage.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/codex/codex-device-login.js": {
+      "syncFs": 2,
+      "syncChild": 1,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/codex/codex-exec-error.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/codex/codex-home.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/codex/codex-models-refresh.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/codex/codex-models.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/codex/codex-plan-limits.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/codex/codex-termux-net.js": {
+      "syncFs": 5,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/context-compression-source.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/credit-ledger/credit-ledger-store.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/data-dir-size-warning.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/deepseek/deepseek-cli.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/deepseek/dsh-review-patch.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/deepseek/dsh-runtime-patch.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/delegation-lifecycle.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/delegation-log.js": {
+      "syncFs": 5,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/delegation-mailbox.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 3
+    },
+    "lib/delegation-material-revision.js": {
+      "syncFs": 0,
+      "syncChild": 2,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/delegation-metrics-git.js": {
+      "syncFs": 0,
+      "syncChild": 3,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/delegation-owner-lock.js": {
+      "syncFs": 15,
+      "syncChild": 0,
+      "atomicsWait": 1,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/delegation-run-bridge.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 3
+    },
+    "lib/delegation-runtime-worker.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/delegation-service.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 16
+    },
+    "lib/delegation-start-context.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/delegation-takeover.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 2
+    },
+    "lib/delegation-workflow.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/delegation-workspace-key.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/dev-build.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/ensure-writable-dir.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/execution-settings-suggest.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/files-list.js": {
+      "syncFs": 5,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/fork-chat-text.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/fork-title.js": {
+      "syncFs": 0,
+      "syncChild": 2,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/front-asset-version.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/front-hmr.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/fs-browse.js": {
+      "syncFs": 7,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/git-cli.js": {
+      "syncFs": 1,
+      "syncChild": 1,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/git-context.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/git-switch-guard.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/harness-catalog.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/harness-models-snapshot.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/harness-updates.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/harness-usage-limits.js": {
+      "syncFs": 14,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/harness-versions.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/integrate-batch-boundary.js": {
+      "syncFs": 5,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/integrate-batch.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/integration-lock.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/log-rotate.js": {
+      "syncFs": 7,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/mcp/builtin/browser-tools.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/mcp/builtin/catalog-tools.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/mcp/mcp-deepseek-patch.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/mcp/mcp-inprocess-client.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 3
+    },
+    "lib/mcp/mcp-integration-token.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/memory-monitor.js": {
+      "syncFs": 15,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/model-config-inspect.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/model-pick-cost-policy-layer.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/model-pick-cost-policy.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/model-pick-cost-proxy.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/model-pick-decisions.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/model-pick-explore.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/model-pick-history.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/model-pick-service.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/model-pick-shadow.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/model-role-config-store.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/model-role-profiles.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/model-score-heuristics-fs.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/notifications/notification-store.ts": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/opencode/opencode-port-registry.js": {
+      "syncFs": 11,
+      "syncChild": 0,
+      "atomicsWait": 1,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/opencode/opencode-server-manager.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/opencode/opencode-spawn-path.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/openrouter/openrouter-pricing-cache.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/atomic-write.js": {
+      "syncFs": 8,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/benchmark-snapshots-persist.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/billing-accounts-persist.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/chat-history-notify.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/persist/chat-history-persist.js": {
+      "syncFs": 7,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/chat-title-history-persist.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/chats-persist.js": {
+      "syncFs": 5,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 17
+    },
+    "lib/persist/delegation-mailbox-persist.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/delegation-migrate.js": {
+      "syncFs": 14,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 2,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/delegation-ratings-persist.js": {
+      "syncFs": 7,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/delegation-settings-persist.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/delegation-sqlite.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 1,
+      "databaseSync": 25,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/delegation-takeovers-persist.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/delegation-workflows-persist.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/delegations-persist.js": {
+      "syncFs": 11,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/execution-settings-persist.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/mcp-persist.js": {
+      "syncFs": 10,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/model-pick-decisions-persist.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 1,
+      "databaseSync": 3,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/model-pick-explore-persist.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/model-pick-overrides-persist.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/plan-reviewer-sessions-persist.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/review-findings-ledger-persist.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/review-lessons-persist.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/reviewer-pairs-persist.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/settings.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/sidebar-layout.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/todos-persist.js": {
+      "syncFs": 6,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/usage-persist.js": {
+      "syncFs": 37,
+      "syncChild": 0,
+      "atomicsWait": 1,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/workspace-memory-persist.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/workspace-watcher-cycle-metrics-persist.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/workspace-watchers-persist.js": {
+      "syncFs": 6,
+      "syncChild": 0,
+      "atomicsWait": 1,
+      "databaseSync": 5,
+      "loadChatsCalls": 0
+    },
+    "lib/persist/worktree-registry-persist.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/plan-window-reservations.js": {
+      "syncFs": 10,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/push.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/qwen/qwen-api-error.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/qwen/qwen-cli.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/qwen/qwen-context-settings.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/recovery/adapter-validation.ts": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/recovery/recovery-owner-lease.ts": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 6,
+      "loadChatsCalls": 0
+    },
+    "lib/recovery/recovery-queue.ts": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 16,
+      "loadChatsCalls": 0
+    },
+    "lib/recovery/recovery-store.ts": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 16,
+      "loadChatsCalls": 0
+    },
+    "lib/review-lessons-checks.js": {
+      "syncFs": 5,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/review-lessons-feedback.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/review-verify-baseline.js": {
+      "syncFs": 11,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/routes/chat-agent-routes.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 3
+    },
+    "lib/routes/chats-routes.js": {
+      "syncFs": 0,
+      "syncChild": 1,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 36
+    },
+    "lib/routes/claude-routes.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/routes/delegation-test-routes.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/routes/delegations-routes.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 2
+    },
+    "lib/routes/files-routes.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/routes/git-routes.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/routes/review-lessons-routes.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/routes/todos-routes.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 7
+    },
+    "lib/routes/uploads-routes.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/routes/usage-routes.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/sdk/cursor-agent-sdk-ws.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/sdk/cursor-context.js": {
+      "syncFs": 15,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/sdk/cursor-share.js": {
+      "syncFs": 17,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/sdk/sdk-agent-probe.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/sdk/sdk-context-stats.js": {
+      "syncFs": 10,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/sdk/sdk-history-isolation-fork-cli.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/sdk/sdk-history-isolation-fork.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/sdk/sdk-history-isolation-probe.js": {
+      "syncFs": 6,
+      "syncChild": 1,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/sdk/sdk-plan-guard.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/sdk/sdk-review-lint.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/sdk/sdk-review-verify.js": {
+      "syncFs": 6,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/sdk/shared-cursor-context.js": {
+      "syncFs": 6,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/secret-scan.js": {
+      "syncFs": 1,
+      "syncChild": 1,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/self-update.js": {
+      "syncFs": 5,
+      "syncChild": 1,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/server-diagnostics.js": {
+      "syncFs": 14,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/server-tls.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/shutdown-origin.js": {
+      "syncFs": 3,
+      "syncChild": 1,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/skills/skill-context.js": {
+      "syncFs": 5,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/storage/validate-storage-registry.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/tasks.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/todo-integration-proof.js": {
+      "syncFs": 0,
+      "syncChild": 2,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/todo-leaf-material.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/todo-plan-sync.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 2
+    },
+    "lib/todo-review-backfill.js": {
+      "syncFs": 8,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/todo-review-sync-hooks.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 2
+    },
+    "lib/usage/billing-account-secret.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/usage/harness-context-telemetry.js": {
+      "syncFs": 6,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/usage/harness-health.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/usage/keep-alive-benchmark.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/usage/keep-alive-gate.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/usage/keep-alive-service.js": {
+      "syncFs": 4,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/usage/plan-limit-history.js": {
+      "syncFs": 7,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/usage/usage-alerts.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/usage/usage-retention.js": {
+      "syncFs": 5,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/versioned-html.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/voice/voice-request-log.ts": {
+      "syncFs": 7,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/voice/voice-session-log.ts": {
+      "syncFs": 5,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/webpack-cli-watch-lock.js": {
+      "syncFs": 13,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/widget/widget-http.ts": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/widget/widget-installations.ts": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/workspace-context.js": {
+      "syncFs": 5,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/workspace-folders.js": {
+      "syncFs": 8,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/workspace-list.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/workspace-route-context.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/workspace-scout-git.js": {
+      "syncFs": 3,
+      "syncChild": 1,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/workspace-watcher-archive-sweep.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 2
+    },
+    "lib/workspace-watcher-control.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/workspace-watcher-cycle.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/workspace-watcher-delegation-guard.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/workspace-watcher-integration.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/workspace-watcher-nudge.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/workspace-watcher-pinned-chat.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/workspace-watcher-runtime-control.js": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/workspace-watcher-scout.js": {
+      "syncFs": 7,
+      "syncChild": 1,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/workspace-watcher-todo-recover.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/workspace-watcher.js": {
+      "syncFs": 0,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 2
+    },
+    "lib/workspace.js": {
+      "syncFs": 11,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/worktree-list.js": {
+      "syncFs": 3,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 1
+    },
+    "lib/worktree-manager.js": {
+      "syncFs": 7,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/worktree-merge.js": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/worktree/git-worktree.ts": {
+      "syncFs": 13,
+      "syncChild": 5,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/worktree/patch-scope.ts": {
+      "syncFs": 4,
+      "syncChild": 1,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/ws/front-build-ws.ts": {
+      "syncFs": 2,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/ws/pty-ws-handler.ts": {
+      "syncFs": 1,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "lib/zai/zai-sdk-runtime.js": {
+      "syncFs": 1,
+      "syncChild": 1,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    },
+    "server.js": {
+      "syncFs": 6,
+      "syncChild": 0,
+      "atomicsWait": 0,
+      "databaseSync": 0,
+      "loadChatsCalls": 0
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "settings": {
+    "instructions.dedupe": "proven_adapters"
+  }
+}

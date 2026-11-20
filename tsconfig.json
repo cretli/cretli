@@ -1,0 +1,11 @@
+{
+  // Server typecheck: `npm run typecheck`. Errors are ratcheted per file against
+  // docs/typecheck-baseline.json by scripts/typecheck-ratchet.mjs.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2024"],
+    "types": ["node"]
+  },
+  "include": ["server.js", "lib/**/*", "scripts/**/*", "harnesses/**/*"],
+  "exclude": ["node_modules", "data", ".tmp", ".vendor", "harnesses/*/front.js", "harnesses/*/tests"]
+}

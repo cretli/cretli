@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "description": "Measured baseline for the performance-budget regression tests (tests/perf-budget-chats-baseline.test.js). Synthetic fixtures, median of 3 runs, event loop sampled at 1 ms. Threshold in CI = min(p95Ms * 1.2, absolute ceiling).",
+  "schema": {
+    "operation": "string, e.g. chat-list-page-50 | chat-metadata-write",
+    "backend": "string, storage backend the number was measured on ('json')",
+    "chats": "number of synthetic chats in the fixture",
+    "seed": "PRNG seed of the fixture",
+    "node": "process.version at capture time",
+    "samples": "total samples behind the quantiles (per-run n * 3 runs; quantiles are the median across runs)",
+    "p50Ms": "median latency, ms",
+    "p95Ms": "95th percentile, ms",
+    "p99Ms": "99th percentile, ms",
+    "bytesWritten": "optional: bytes of the document rewritten per change",
+    "eventLoopResolutionMs": "monitorEventLoopDelay resolution during capture; must be <= 1",
+    "capturedAt": "ISO timestamp"
+  },
+  "entries": [
+    {
+      "operation": "chat-list-page-50",
+      "backend": "json",
+      "chats": 50000,
+      "seed": 20261030,
+      "node": "v22.23.4",
+      "samples": 60,
+      "p50Ms": 17.29,
+      "p95Ms": 25.57,
+      "p99Ms": 50.19,
+      "eventLoopResolutionMs": 1,
+      "capturedAt": "2026-10-30T02:01:28.748Z"
+    },
+    {
+      "operation": "chat-metadata-write",
+      "backend": "json",
+      "chats": 50000,
+      "seed": 20261030,
+      "node": "v22.23.4",
+      "samples": 60,
+      "p50Ms": 37.41,
+      "p95Ms": 43.06,
+      "p99Ms": 137.03,
+      "bytesWritten": 16321461,
+      "eventLoopResolutionMs": 1,
+      "capturedAt": "2026-10-30T02:01:28.748Z"
+    }
+  ]
+}

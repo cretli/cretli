@@ -1,0 +1,575 @@
+{
+  "runId": "2026-10-17T17-33-43-800Z",
+  "startedAt": "2026-10-17T17:33:43.801Z",
+  "nodeVersion": "v24.14.0",
+  "bundledSqlite": "3.51.2",
+  "seed": 20261013,
+  "workloadsRun": [
+    "small",
+    "medium",
+    "mixed"
+  ],
+  "projectRoot": "<redacted>",
+  "workRoot": "<redacted>",
+  "workloads": {
+    "small": {
+      "shape": {
+        "chats": 10,
+        "eventsPerChat": 50,
+        "appendRounds": 1,
+        "readRatio": 0.2
+      },
+      "variants": {
+        "json-cache": {
+          "variant": "json-cache",
+          "durationMs": 2975,
+          "commitLatencyMs": {
+            "p50": 5.798,
+            "p95": 7.717,
+            "p99": 8.848,
+            "max": 12.851,
+            "n": 500
+          },
+          "queryLatencyMs": {
+            "p50": 0.081,
+            "p95": 0.163,
+            "p99": 0.349,
+            "max": 0.396,
+            "n": 90
+          },
+          "checkpointLatencyMs": {
+            "p50": 0,
+            "p95": 0,
+            "p99": 0,
+            "max": 0,
+            "n": 0
+          },
+          "queueAgeMs": null,
+          "queueBurstAgeMs": null,
+          "eventLoopDelayMs": {
+            "monitorResolutionMs": 1,
+            "mean": 5.952,
+            "p99": 8.946,
+            "max": 13.009
+          },
+          "bytesWritten": 2267102,
+          "bytesWrittenMethod": "sum of statSync sizes of every rewritten chat file",
+          "startupReplayMs": {
+            "reopenMs": 0,
+            "coldReadMs": 0.896
+          },
+          "cpuUsageMs": {
+            "scope": "process-wide delta over the variant window (all threads; not a per-thread split)",
+            "userMs": 72.9,
+            "systemMs": 196.9,
+            "totalMs": 269.8,
+            "workerWindowTotalMs": null
+          },
+          "memory": {
+            "heapUsedMb": 6.55,
+            "rssMb": 60.16,
+            "rssAtStartMb": 51.63,
+            "rssDeltaMb": 8.53
+          },
+          "durability": "FULL (rename + fsync per chat file)"
+        },
+        "sqlite-main": {
+          "variant": "sqlite-main",
+          "durationMs": 3169,
+          "commitLatencyMs": {
+            "p50": 6.704,
+            "p95": 7.914,
+            "p99": 8.545,
+            "max": 21.732,
+            "n": 500
+          },
+          "queryLatencyMs": {
+            "p50": 0.092,
+            "p95": 0.186,
+            "p99": 0.327,
+            "max": 0.434,
+            "n": 90
+          },
+          "checkpointLatencyMs": {
+            "p50": 9.852,
+            "p95": 9.852,
+            "p99": 9.852,
+            "max": 9.852,
+            "n": 1
+          },
+          "queueAgeMs": null,
+          "queueBurstAgeMs": null,
+          "eventLoopDelayMs": {
+            "monitorResolutionMs": 1,
+            "mean": 6.322,
+            "p99": 8.651,
+            "max": 21.922
+          },
+          "bytesWritten": 4259264,
+          "bytesWrittenMethod": "on-disk delta of bench.sqlite + -wal + -shm across the final FULL checkpoint",
+          "startupReplayMs": {
+            "reopenMs": 0.309,
+            "coldReadMs": 0.052
+          },
+          "cpuUsageMs": {
+            "scope": "process-wide delta over the variant window (all threads; not a per-thread split)",
+            "userMs": 4.8,
+            "systemMs": 267.5,
+            "totalMs": 272.3,
+            "workerWindowTotalMs": null
+          },
+          "memory": {
+            "heapUsedMb": 5.68,
+            "rssMb": 60.59,
+            "rssAtStartMb": 60.16,
+            "rssDeltaMb": 0.43
+          },
+          "durability": "FULL (WAL + synchronous=FULL)"
+        },
+        "sqlite-worker": {
+          "variant": "sqlite-worker",
+          "durationMs": 4261,
+          "commitLatencyMs": {
+            "p50": 5.952,
+            "p95": 8.072,
+            "p99": 8.642,
+            "max": 9.878,
+            "n": 500
+          },
+          "queryLatencyMs": {
+            "p50": 0.287,
+            "p95": 0.593,
+            "p99": 0.718,
+            "max": 0.765,
+            "n": 90
+          },
+          "checkpointLatencyMs": {
+            "p50": 8.317,
+            "p95": 8.317,
+            "p99": 8.317,
+            "max": 8.317,
+            "n": 1
+          },
+          "queueAgeMs": {
+            "p50": 0,
+            "p95": 1,
+            "p99": 1,
+            "max": 1,
+            "n": 500
+          },
+          "queueBurstAgeMs": {
+            "p50": 597,
+            "p95": 1085,
+            "p99": 1124,
+            "max": 1134,
+            "n": 200
+          },
+          "eventLoopDelayMs": {
+            "monitorResolutionMs": 1,
+            "mean": 1.103,
+            "p99": 1.738,
+            "max": 3.768
+          },
+          "bytesWritten": 4259264,
+          "bytesWrittenMethod": "on-disk delta of bench.sqlite + -wal + -shm across the final FULL checkpoint",
+          "startupReplayMs": {
+            "reopenMs": 0.288,
+            "coldReadMs": 0.187
+          },
+          "cpuUsageMs": {
+            "scope": "process-wide delta over the variant window (all threads; not a per-thread split)",
+            "userMs": 312.4,
+            "systemMs": 280.3,
+            "totalMs": 592.7,
+            "workerWindowTotalMs": 546.1
+          },
+          "memory": {
+            "heapUsedMb": 6.13,
+            "rssMb": 70.03,
+            "rssAtStartMb": 60.59,
+            "rssDeltaMb": 9.44
+          },
+          "durability": "FULL (WAL + synchronous=FULL)"
+        }
+      }
+    },
+    "medium": {
+      "shape": {
+        "chats": 100,
+        "eventsPerChat": 200,
+        "appendRounds": 1,
+        "readRatio": 0.25
+      },
+      "variants": {
+        "json-cache": {
+          "variant": "json-cache",
+          "durationMs": 119749,
+          "commitLatencyMs": {
+            "p50": 5.753,
+            "p95": 7.85,
+            "p99": 8.44,
+            "max": 107.865,
+            "n": 20000
+          },
+          "queryLatencyMs": {
+            "p50": 0.101,
+            "p95": 0.275,
+            "p99": 0.363,
+            "max": 0.927,
+            "n": 4920
+          },
+          "checkpointLatencyMs": {
+            "p50": 0,
+            "p95": 0,
+            "p99": 0,
+            "max": 0,
+            "n": 0
+          },
+          "queueAgeMs": null,
+          "queueBurstAgeMs": null,
+          "eventLoopDelayMs": {
+            "monitorResolutionMs": 1,
+            "mean": 5.987,
+            "p99": 8.79,
+            "max": 108.003
+          },
+          "bytesWritten": 355370759,
+          "bytesWrittenMethod": "sum of statSync sizes of every rewritten chat file",
+          "startupReplayMs": {
+            "reopenMs": 0,
+            "coldReadMs": 5.393
+          },
+          "cpuUsageMs": {
+            "scope": "process-wide delta over the variant window (all threads; not a per-thread split)",
+            "userMs": 5550.6,
+            "systemMs": 5443,
+            "totalMs": 10993.6,
+            "workerWindowTotalMs": null
+          },
+          "memory": {
+            "heapUsedMb": 9.15,
+            "rssMb": 71.32,
+            "rssAtStartMb": 70.25,
+            "rssDeltaMb": 1.07
+          },
+          "durability": "FULL (rename + fsync per chat file)"
+        },
+        "sqlite-main": {
+          "variant": "sqlite-main",
+          "durationMs": 110768,
+          "commitLatencyMs": {
+            "p50": 5.176,
+            "p95": 7.025,
+            "p99": 7.972,
+            "max": 17.886,
+            "n": 20000
+          },
+          "queryLatencyMs": {
+            "p50": 0.093,
+            "p95": 0.213,
+            "p99": 0.321,
+            "max": 0.915,
+            "n": 4920
+          },
+          "checkpointLatencyMs": {
+            "p50": 8.73,
+            "p95": 8.73,
+            "p99": 8.73,
+            "max": 8.73,
+            "n": 1
+          },
+          "queueAgeMs": null,
+          "queueBurstAgeMs": null,
+          "eventLoopDelayMs": {
+            "monitorResolutionMs": 1,
+            "mean": 5.538,
+            "p99": 8.118,
+            "max": 17.973
+          },
+          "bytesWritten": 9317896,
+          "bytesWrittenMethod": "on-disk delta of bench.sqlite + -wal + -shm across the final FULL checkpoint",
+          "startupReplayMs": {
+            "reopenMs": 1.175,
+            "coldReadMs": 0.175
+          },
+          "cpuUsageMs": {
+            "scope": "process-wide delta over the variant window (all threads; not a per-thread split)",
+            "userMs": 2860.1,
+            "systemMs": 2214.6,
+            "totalMs": 5074.7,
+            "workerWindowTotalMs": null
+          },
+          "memory": {
+            "heapUsedMb": 8.33,
+            "rssMb": 77.01,
+            "rssAtStartMb": 72.2,
+            "rssDeltaMb": 4.81
+          },
+          "durability": "FULL (WAL + synchronous=FULL)"
+        },
+        "sqlite-worker": {
+          "variant": "sqlite-worker",
+          "durationMs": 117531,
+          "commitLatencyMs": {
+            "p50": 5.542,
+            "p95": 7.456,
+            "p99": 8.191,
+            "max": 17.299,
+            "n": 20000
+          },
+          "queryLatencyMs": {
+            "p50": 0.273,
+            "p95": 0.573,
+            "p99": 0.737,
+            "max": 1.35,
+            "n": 4920
+          },
+          "checkpointLatencyMs": {
+            "p50": 5.939,
+            "p95": 5.939,
+            "p99": 5.939,
+            "max": 5.939,
+            "n": 1
+          },
+          "queueAgeMs": {
+            "p50": 0,
+            "p95": 1,
+            "p99": 1,
+            "max": 1,
+            "n": 20000
+          },
+          "queueBurstAgeMs": {
+            "p50": 440,
+            "p95": 871,
+            "p99": 906,
+            "max": 915,
+            "n": 200
+          },
+          "eventLoopDelayMs": {
+            "monitorResolutionMs": 1,
+            "mean": 1.105,
+            "p99": 1.821,
+            "max": 5.898
+          },
+          "bytesWritten": 9317896,
+          "bytesWrittenMethod": "on-disk delta of bench.sqlite + -wal + -shm across the final FULL checkpoint",
+          "startupReplayMs": {
+            "reopenMs": 0.261,
+            "coldReadMs": 0.148
+          },
+          "cpuUsageMs": {
+            "scope": "process-wide delta over the variant window (all threads; not a per-thread split)",
+            "userMs": 7835.9,
+            "systemMs": 4503.3,
+            "totalMs": 12339.2,
+            "workerWindowTotalMs": 12312
+          },
+          "memory": {
+            "heapUsedMb": 6.76,
+            "rssMb": 81.58,
+            "rssAtStartMb": 79.42,
+            "rssDeltaMb": 2.16
+          },
+          "durability": "FULL (WAL + synchronous=FULL)"
+        }
+      }
+    },
+    "mixed": {
+      "shape": {
+        "chats": 50,
+        "eventsPerChat": 120,
+        "appendRounds": 3,
+        "readRatio": 0.4
+      },
+      "variants": {
+        "json-cache": {
+          "variant": "json-cache",
+          "durationMs": 111490,
+          "commitLatencyMs": {
+            "p50": 5.921,
+            "p95": 7.942,
+            "p99": 8.789,
+            "max": 14.741,
+            "n": 18000
+          },
+          "queryLatencyMs": {
+            "p50": 0.151,
+            "p95": 0.424,
+            "p99": 0.527,
+            "max": 1.308,
+            "n": 7169
+          },
+          "checkpointLatencyMs": {
+            "p50": 0,
+            "p95": 0,
+            "p99": 0,
+            "max": 0,
+            "n": 0
+          },
+          "queueAgeMs": null,
+          "queueBurstAgeMs": null,
+          "eventLoopDelayMs": {
+            "monitorResolutionMs": 1,
+            "mean": 6.194,
+            "p99": 9.06,
+            "max": 15.835
+          },
+          "bytesWritten": 577012948,
+          "bytesWrittenMethod": "sum of statSync sizes of every rewritten chat file",
+          "startupReplayMs": {
+            "reopenMs": 0,
+            "coldReadMs": 10.015
+          },
+          "cpuUsageMs": {
+            "scope": "process-wide delta over the variant window (all threads; not a per-thread split)",
+            "userMs": 7553.1,
+            "systemMs": 5333.7,
+            "totalMs": 12886.8,
+            "workerWindowTotalMs": null
+          },
+          "memory": {
+            "heapUsedMb": 14.44,
+            "rssMb": 95.09,
+            "rssAtStartMb": 82.53,
+            "rssDeltaMb": 12.56
+          },
+          "durability": "FULL (rename + fsync per chat file)"
+        },
+        "sqlite-main": {
+          "variant": "sqlite-main",
+          "durationMs": 99276,
+          "commitLatencyMs": {
+            "p50": 5.364,
+            "p95": 6.986,
+            "p99": 7.917,
+            "max": 34.699,
+            "n": 18000
+          },
+          "queryLatencyMs": {
+            "p50": 0.095,
+            "p95": 0.19,
+            "p99": 0.276,
+            "max": 0.807,
+            "n": 7169
+          },
+          "checkpointLatencyMs": {
+            "p50": 4.924,
+            "p95": 4.924,
+            "p99": 4.924,
+            "max": 4.924,
+            "n": 1
+          },
+          "queueAgeMs": null,
+          "queueBurstAgeMs": null,
+          "eventLoopDelayMs": {
+            "monitorResolutionMs": 1,
+            "mean": 5.516,
+            "p99": 8.069,
+            "max": 34.767
+          },
+          "bytesWritten": 8805896,
+          "bytesWrittenMethod": "on-disk delta of bench.sqlite + -wal + -shm across the final FULL checkpoint",
+          "startupReplayMs": {
+            "reopenMs": 0.246,
+            "coldReadMs": 0.044
+          },
+          "cpuUsageMs": {
+            "scope": "process-wide delta over the variant window (all threads; not a per-thread split)",
+            "userMs": 2688.4,
+            "systemMs": 1950.3,
+            "totalMs": 4638.7,
+            "workerWindowTotalMs": null
+          },
+          "memory": {
+            "heapUsedMb": 14.38,
+            "rssMb": 105.22,
+            "rssAtStartMb": 96.09,
+            "rssDeltaMb": 9.13
+          },
+          "durability": "FULL (WAL + synchronous=FULL)"
+        },
+        "sqlite-worker": {
+          "variant": "sqlite-worker",
+          "durationMs": 102315,
+          "commitLatencyMs": {
+            "p50": 5.069,
+            "p95": 7.284,
+            "p99": 8.025,
+            "max": 19.072,
+            "n": 18000
+          },
+          "queryLatencyMs": {
+            "p50": 0.248,
+            "p95": 0.548,
+            "p99": 0.701,
+            "max": 2.156,
+            "n": 7169
+          },
+          "checkpointLatencyMs": {
+            "p50": 9.084,
+            "p95": 9.084,
+            "p99": 9.084,
+            "max": 9.084,
+            "n": 1
+          },
+          "queueAgeMs": {
+            "p50": 0,
+            "p95": 1,
+            "p99": 1,
+            "max": 1,
+            "n": 18000
+          },
+          "queueBurstAgeMs": {
+            "p50": 535,
+            "p95": 968,
+            "p99": 1005,
+            "max": 1013,
+            "n": 200
+          },
+          "eventLoopDelayMs": {
+            "monitorResolutionMs": 1,
+            "mean": 1.096,
+            "p99": 1.818,
+            "max": 3.906
+          },
+          "bytesWritten": 8805896,
+          "bytesWrittenMethod": "on-disk delta of bench.sqlite + -wal + -shm across the final FULL checkpoint",
+          "startupReplayMs": {
+            "reopenMs": 0.989,
+            "coldReadMs": 0.711
+          },
+          "cpuUsageMs": {
+            "scope": "process-wide delta over the variant window (all threads; not a per-thread split)",
+            "userMs": 6826.4,
+            "systemMs": 4135.6,
+            "totalMs": 10962,
+            "workerWindowTotalMs": 10937.8
+          },
+          "memory": {
+            "heapUsedMb": 11.93,
+            "rssMb": 115.52,
+            "rssAtStartMb": 105.66,
+            "rssDeltaMb": 9.86
+          },
+          "durability": "FULL (WAL + synchronous=FULL)"
+        }
+      }
+    }
+  },
+  "notes": [
+    "Synthetic chat-event append pattern; not a full Cretli server simulation.",
+    "json-cache variant models chat-history-persist full-document rewrite.",
+    "Workloads are deterministic: same seed produces the same ids, payloads and read pattern for every variant.",
+    "bytesWritten is measured on disk (file sizes), not estimated from payload lengths.",
+    "checkpointSamples are reported separately and never mixed into commitSamples.",
+    "Compare against docs/storage-gates.md before go/no-go.",
+    "json-cache fsync=true; event-loop yields between ops; periodic checkpoints every 10 rounds when appendRounds>1.",
+    "Worker burst queue-age probe: 200 concurrent inserts after main workload.",
+    "eventLoopDelayMs sampled at resolution=1 ms; a healthy loop reports a mean near that floor, so read p99/max against it.",
+    "cpuUsageMs is ONE process-wide delta over the variant window: process.cpuUsage() counts every thread even when read from a worker, so workerThread CPU is already included and must not be added again (workerWindowTotalMs is a cross-check only).",
+    "memory is process-level and cumulative across variants of a run (all variants share one process), so rssDeltaMb is a proxy, not an isolated per-variant footprint.",
+    "The burst probe runs after the final FULL checkpoint; its rows land in the worker WAL and are included in that variant's on-disk bytesWritten delta."
+  ],
+  "finishedAt": "2026-10-17T17:44:55.640Z",
+  "reportHash": "39534a9b6cb2cb8db825c5eec737ca16bdb918937efcb1e4c3412885f97a3f60"
+}

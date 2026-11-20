@@ -1,0 +1,397 @@
+import './helpers/isolated-data-dir.js';
+/**
+ * Browser REST API integration tests (express + fetch, fake driver).
+ */
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import express from 'express';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { setWorkspacePolicy } from '../lib/browser/policy-store.js';
+import { registerBrowserRoutes } from '../lib/browser/routes.js';
+import { BrowserSessionManager } from '../lib/browser/session-manager.js';
+
+function createFakeDriver() {
+  class FakePage {
+    constructor() {
+      this._url = 'about:blank';
+      this._handlers = new Map();
+      this._viewport = { width: 390, height: 844 };
+      this.mouse = { move: async () => {}, down: async () => {}, up: async () => {}, click: async () => {}, wheel: async () => {} };
+      this.keyboard = { type: async () => {}, down: async () => {}, up: async () => {}, press: async () => {} };
+      this.touchscreen = { tap: async () => {} };
+    }
+    on(event, handler) { if (!this._handlers.has(event)) this._handlers.set(event, []); this._handlers.get(event).push(handler); }
+    async goto(url) { this._url = url; }
+    async goBack() {}
+    async goForward() {}
+    async reload() {}
+    async title() { return 'fake'; }
+    url() { return this._url; }
+    viewportSize() { return this._viewport; }
+    async setViewportSize(v) { this._viewport = v; }
+    async screenshot() { return Buffer.from('fake-jpeg'); }
+    async close() { for (const handler of this._handlers.get('close') || []) handler(); }
+  }
+  class FakeContext {
+    constructor() { this.pages = []; this.routes = []; this._handlers = new Map(); }
+    on(event, handler) { if (!this._handlers.has(event)) this._handlers.set(event, []); this._handlers.get(event).push(handler); }
+    async route(_p, handler) { this.routes.push(handler); }
+    async newPage() { const page = new FakePage(); this.pages.push(page); for (const h of this._handlers.get('page') || []) h(page); return page; }
+    async close() { for (const page of this.pages) await page.close(); }
+  }
+  class FakeBrowser {
+    async newContext() { return new FakeContext(); }
+    async close() {}
+  }
+  return { async launch() { return new FakeBrowser(); } };
+}
+
+/** @returns {Promise<{ base: string, close: () => Promise<void>, manager: BrowserSessionManager, dataDir: string }>} */
+async function startServer(scope = {}) {
+  const workspaceFile = scope.workspaceFile === undefined ? '/ws/a' : scope.workspaceFile;
+  const cwd = scope.cwd === undefined ? '/ws/a' : scope.cwd;
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'cretli-browser-routes-'));
+  const manager = new BrowserSessionManager({
+    driver: createFakeDriver(),
+    driverStatus: { status: 'available' },
+    dataDir,
+    resolvePolicy: () => ({ allowedOrigins: ['https://example.com'], blockedPorts: [], unblockedPorts: [] }),
+    lookup: async () => [{ address: '93.184.216.34' }],
+    setTimeoutFn: () => 0,
+    clearTimeoutFn: () => {},
+  });
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    if (req.headers['x-test-widget'] === '1') req.widgetAccess = { installationId: 'w' };
+    next();
+  });
+  registerBrowserRoutes(app, {
+    browserManager: manager,
+    dataDir,
+    getCurrentCwd: (req) => String(req?.headers?.['x-test-workspace'] || cwd),
+    getCurrentWorkspaceFile: (req) => String(req?.headers?.['x-test-workspace'] || workspaceFile),
+    getOwnerSessionId: (req) => String(req.headers['x-test-owner'] || ''),
+    loadSettings: () => scope.settings || { workspaces: [] },
+  });
+  const server = await new Promise((resolve) => {
+    const s = app.listen(0, '127.0.0.1', () => resolve(s));
+  });
+  const address = server.address();
+  return {
+    base: `http://127.0.0.1:${address.port}`,
+    manager,
+    dataDir,
+    close: async () => {
+      await new Promise((resolve) => server.close(resolve));
+      rmSync(dataDir, { recursive: true, force: true });
+    },
+  };
+}
+
+test('browser API requires Cretli session auth and rejects widget tokens', async () => {
+  const ctx = await startServer();
+  try {
+    const noAuth = await fetch(`${ctx.base}/api/browser/status`);
+    assert.equal(noAuth.status, 401);
+
+    const widget = await fetch(`${ctx.base}/api/browser/status`, { headers: { 'x-test-widget': '1', 'x-test-owner': 'owner-a' } });
+    assert.equal(widget.status, 403);
+    assert.equal((await widget.json()).code, 'widget-auth-forbidden');
+
+    const ok = await fetch(`${ctx.base}/api/browser/status`, { headers: { 'x-test-owner': 'owner-a' } });
+    assert.equal(ok.status, 200);
+    const body = await ok.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.namespace, 'browser_*');
+    assert.equal(body.wsPath, '/ws-browser');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('session lifecycle, workspace isolation and plan-mode guard', async () => {
+  const ctx = await startServer();
+  try {
+    const owner = { 'x-test-owner': 'owner-a' };
+    const create = await fetch(`${ctx.base}/api/browser/sessions`, {
+      method: 'POST',
+      headers: { ...owner, 'content-type': 'application/json' },
+      body: JSON.stringify({ mode: 'agent' }),
+    });
+    assert.equal(create.status, 201);
+    const session = (await create.json()).session;
+    assert.equal(session.tabs.length, 1);
+
+    // Foreign owner cannot read the session.
+    const foreign = await fetch(`${ctx.base}/api/browser/sessions/${session.browserSessionId}`, {
+      headers: { 'x-test-owner': 'owner-b' },
+    });
+    assert.equal(foreign.status, 403);
+
+    const tabsRes = await fetch(`${ctx.base}/api/browser/sessions/${session.browserSessionId}/tabs`, { headers: owner });
+    const tabs = (await tabsRes.json()).tabs;
+    const tabId = tabs[0].browserTabId;
+
+    // Plan mode blocks navigation.
+    const planNav = await fetch(`${ctx.base}/api/browser/sessions/${session.browserSessionId}/tabs/${tabId}/navigate`, {
+      method: 'POST',
+      headers: { ...owner, 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com/', mode: 'plan' }),
+    });
+    assert.equal(planNav.status, 403);
+    assert.equal((await planNav.json()).planModeReadOnly, true);
+
+    // Agent mode allows it (origin is in the injected policy).
+    const agentNav = await fetch(`${ctx.base}/api/browser/sessions/${session.browserSessionId}/tabs/${tabId}/navigate`, {
+      method: 'POST',
+      headers: { ...owner, 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com/', mode: 'agent' }),
+    });
+    assert.equal(agentNav.status, 200);
+    assert.equal((await agentNav.json()).state.url, 'https://example.com/');
+
+    // Blocked origin still fails even in agent mode.
+    const blockedNav = await fetch(`${ctx.base}/api/browser/sessions/${session.browserSessionId}/tabs/${tabId}/navigate`, {
+      method: 'POST',
+      headers: { ...owner, 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'http://127.0.0.1:9999/', mode: 'agent' }),
+    });
+    assert.equal(blockedNav.status, 403);
+
+    // Screenshot is a read action: allowed in plan mode.
+    const shot = await fetch(`${ctx.base}/api/browser/sessions/${session.browserSessionId}/tabs/${tabId}/screenshot?mode=plan`, { headers: owner });
+    assert.equal(shot.status, 200);
+    assert.equal((await shot.json()).frame.mimeType, 'image/jpeg');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('an empty workspace cannot create or list Browser sessions', async () => {
+  const ctx = await startServer({ workspaceFile: '', cwd: '' });
+  try {
+    const owner = { 'x-test-owner': 'owner-a' };
+    const listed = await fetch(`${ctx.base}/api/browser/sessions`, { headers: owner });
+    assert.equal(listed.status, 200);
+    assert.deepEqual((await listed.json()).sessions, []);
+
+    const create = await fetch(`${ctx.base}/api/browser/sessions`, {
+      method: 'POST',
+      headers: { ...owner, 'content-type': 'application/json' },
+      body: JSON.stringify({ mode: 'agent' }),
+    });
+    assert.equal(create.status, 400);
+    assert.equal((await create.json()).code, 'no-workspace');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('external profile release: list reports no holder and release refuses a managed runtime', async () => {
+  const ctx = await startServer();
+  try {
+    const owner = { 'x-test-owner': 'owner-a' };
+    const listed = await fetch(`${ctx.base}/api/browser/sessions`, { headers: owner });
+    assert.equal((await listed.json()).external, null);
+
+    const planRelease = await fetch(`${ctx.base}/api/browser/external/release?mode=plan`, { method: 'POST', headers: owner });
+    assert.equal(planRelease.status, 403);
+
+    const release = await fetch(`${ctx.base}/api/browser/external/release?mode=agent`, { method: 'POST', headers: owner });
+    assert.equal(release.status, 409);
+    assert.equal((await release.json()).code, 'not-external');
+
+    const anonymous = await fetch(`${ctx.base}/api/browser/external/release?mode=agent`, { method: 'POST' });
+    assert.equal(anonymous.status, 401);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('a session cannot be read, bound or deleted from another workspace', async () => {
+  const ctx = await startServer();
+  try {
+    const owner = { 'x-test-owner': 'owner-a' };
+    const create = await fetch(`${ctx.base}/api/browser/sessions`, {
+      method: 'POST',
+      headers: { ...owner, 'content-type': 'application/json' },
+      body: JSON.stringify({ mode: 'agent' }),
+    });
+    const session = (await create.json()).session;
+    const foreign = { ...owner, 'x-test-workspace': '/ws/other', 'content-type': 'application/json' };
+
+    const read = await fetch(`${ctx.base}/api/browser/sessions/${session.browserSessionId}`, { headers: foreign });
+    assert.equal(read.status, 403);
+
+    const bind = await fetch(`${ctx.base}/api/browser/sessions/${session.browserSessionId}/bind`, {
+      method: 'POST',
+      headers: foreign,
+      body: JSON.stringify({ chatId: 'chat-1', mode: 'agent' }),
+    });
+    assert.equal(bind.status, 403);
+
+    const del = await fetch(`${ctx.base}/api/browser/sessions/${session.browserSessionId}?mode=agent`, {
+      method: 'DELETE',
+      headers: foreign,
+    });
+    assert.equal(del.status, 403);
+    assert.equal(ctx.manager.sessions.has(session.browserSessionId), true);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('policy endpoint is default-deny, plan-guarded for writes and persists', async () => {
+  const ctx = await startServer();
+  try {
+    const owner = { 'x-test-owner': 'owner-a' };
+    const initial = await (await fetch(`${ctx.base}/api/browser/policy`, { headers: owner })).json();
+    assert.deepEqual(initial.policy.allowedOrigins, []);
+    assert.equal(initial.policy.allowExternalBrowser, false);
+
+    const planWrite = await fetch(`${ctx.base}/api/browser/policy?mode=plan`, {
+      method: 'PUT',
+      headers: { ...owner, 'content-type': 'application/json' },
+      body: JSON.stringify({ allowedOrigins: ['https://news.test'] }),
+    });
+    assert.equal(planWrite.status, 403);
+
+    const write = await fetch(`${ctx.base}/api/browser/policy?mode=agent`, {
+      method: 'PUT',
+      headers: { ...owner, 'content-type': 'application/json' },
+      body: JSON.stringify({ allowedOrigins: ['https://news.test'], unblockedPorts: [6379], allowExternalBrowser: true }),
+    });
+    assert.equal(write.status, 200);
+    const updated = await (await fetch(`${ctx.base}/api/browser/policy`, { headers: owner })).json();
+    assert.deepEqual(updated.policy.allowedOrigins, ['https://news.test']);
+    assert.deepEqual(updated.policy.unblockedPorts, [6379]);
+    assert.equal(updated.policy.allowExternalBrowser, true);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('policy endpoint edits the workspace named by the tab, not the global one', async () => {
+  const settings = {
+    workspaces: [{ kind: 'file', workspaceFile: '/ws/acme.code-workspace' }],
+    workspaceSidebarConfig: {
+      '/ws/acme.code-workspace': { folders: { '/work/acme': { enabled: true } } },
+    },
+  };
+  const ctx = await startServer({ workspaceFile: '/ws/global.code-workspace', cwd: '/ws/global', settings });
+  try {
+    const owner = { 'x-test-owner': 'owner-a', 'content-type': 'application/json' };
+    const write = await fetch(`${ctx.base}/api/browser/policy?mode=agent`, {
+      method: 'PUT',
+      headers: owner,
+      body: JSON.stringify({
+        workspaceFile: '/ws/acme.code-workspace',
+        workspaceFolder: '/work/acme',
+        policy: { allowedOrigins: ['http://localhost:3010'] },
+      }),
+    });
+    const written = await write.json();
+    assert.equal(written.workspaceKey, '/ws/acme.code-workspace');
+
+    const global = await (await fetch(`${ctx.base}/api/browser/policy`, { headers: owner })).json();
+    assert.equal(global.workspaceKey, '/ws/global.code-workspace');
+    assert.deepEqual(global.policy.allowedOrigins, []);
+
+    // A folder-only tab (e.g. a Watcher chat) inherits its registry workspace.
+    const folderOnly = await (await fetch(
+      `${ctx.base}/api/browser/policy?workspaceFolder=${encodeURIComponent('/work/acme')}`,
+      { headers: owner },
+    )).json();
+    assert.equal(folderOnly.workspaceKey, '/ws/acme.code-workspace');
+    assert.deepEqual(folderOnly.policy.allowedOrigins, ['http://localhost:3010']);
+
+    // An unregistered file is ignored rather than creating a stray policy key.
+    const stray = await (await fetch(
+      `${ctx.base}/api/browser/policy?workspaceFile=${encodeURIComponent('/tmp/other.code-workspace')}`,
+      { headers: owner },
+    )).json();
+    assert.equal(stray.workspaceKey, '/ws/global.code-workspace');
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('policy GET reports effectiveKey, label and folder overrides; a workspace save keeps the override and DELETE removes it', async () => {
+  const id = 'cretli:ws:11111111-1111-4111-8111-111111111111';
+  const settings = {
+    workspaces: [{ id, kind: 'folders', label: 'Acme' }],
+    workspaceSidebarConfig: { [id]: { folders: { '/work/acme': { enabled: true } } } },
+  };
+  const ctx = await startServer({ workspaceFile: '/ws/global', cwd: '/ws/global', settings });
+  try {
+    const headers = { 'x-test-owner': 'owner-a', 'content-type': 'application/json' };
+    const put = (body) => fetch(`${ctx.base}/api/browser/policy?mode=agent`, { method: 'PUT', headers, body: JSON.stringify(body) });
+    await put({ workspaceFolder: '/work/acme', policy: { allowedOrigins: ['http://localhost:4000'] } });
+    assert.equal((await put({ workspaceFile: id, policy: { allowedOrigins: ['http://localhost:3010'] } })).status, 200);
+
+    const view = await (await fetch(`${ctx.base}/api/browser/policy?workspaceFile=${encodeURIComponent(id)}`, { headers })).json();
+    assert.equal(view.effectiveKey, id);
+    assert.equal(view.workspaceLabel, 'Acme');
+    assert.deepEqual(view.folderOverrides, ['/work/acme']);
+    assert.deepEqual(view.policy.allowedOrigins, ['http://localhost:3010']);
+
+    const unknown = await fetch(`${ctx.base}/api/browser/policy/folder-override?workspaceFile=${encodeURIComponent(id)}&overrideFolder=/elsewhere&mode=agent`, { method: 'DELETE', headers });
+    assert.equal(unknown.status, 404);
+    const removed = await fetch(`${ctx.base}/api/browser/policy/folder-override?workspaceFile=${encodeURIComponent(id)}&overrideFolder=/work/acme&mode=agent`, { method: 'DELETE', headers });
+    assert.deepEqual((await removed.json()).folderOverrides, []);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('folder override can be deleted from a folder-only panel scope', async () => {
+  const id = 'cretli:ws:11111111-1111-4111-8111-111111111111';
+  const settings = {
+    workspaces: [{ id, kind: 'folders' }],
+    workspaceSidebarConfig: { [id]: { folders: { '/work/acme': { enabled: true }, '/work/other': { enabled: true } } } },
+  };
+  const ctx = await startServer({ workspaceFile: '/ws/global', cwd: '/ws/global', settings });
+  try {
+    const headers = { 'x-test-owner': 'owner-a', 'content-type': 'application/json' };
+    const put = (body) => fetch(`${ctx.base}/api/browser/policy?mode=agent`, { method: 'PUT', headers, body: JSON.stringify(body) });
+    await put({ workspaceFile: id, policy: { allowedOrigins: ['http://localhost:3010'] } });
+    // Folder entries are created by agents/consent, so seed one directly.
+    setWorkspacePolicy(ctx.dataDir, '/work/other', { allowedOrigins: ['http://localhost:5000'] });
+    // The tab is on /work/acme (no entry of its own), so its key resolves to the registry workspace.
+    const res = await fetch(`${ctx.base}/api/browser/policy/folder-override?workspaceFolder=/work/acme&overrideFolder=/work/other&mode=agent`, { method: 'DELETE', headers });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.effectiveKey, id);
+    assert.deepEqual(body.folderOverrides, []);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('Browser session reads use the tab workspace and keep folder-only scope separate from the global file', async () => {
+  const ctx = await startServer({ workspaceFile: '/ws/global.code-workspace', cwd: '/ws/global' });
+  const scopes = [];
+  ctx.manager.listSessions = (_owner, scope) => { scopes.push(scope); return []; };
+  try {
+    const headers = { 'x-test-owner': 'owner-a' };
+    for (const query of [
+      new URLSearchParams({ workspaceFile: 'cretli:ws:acme', workspaceFolder: '/ws/acme' }),
+      new URLSearchParams({ workspaceFolder: '/ws/acme' }),
+      new URLSearchParams(),
+    ]) {
+      const response = await fetch(`${ctx.base}/api/browser/sessions?${query}`, { headers });
+      assert.equal(response.status, 200);
+    }
+    assert.deepEqual(scopes.map(({ workspaceFile, cwd }) => ({ workspaceFile, cwd })), [
+      { workspaceFile: 'cretli:ws:acme', cwd: '/ws/acme' },
+      { workspaceFile: '', cwd: '/ws/acme' },
+      { workspaceFile: '/ws/global.code-workspace', cwd: '/ws/global' },
+    ]);
+  } finally {
+    await ctx.close();
+  }
+});

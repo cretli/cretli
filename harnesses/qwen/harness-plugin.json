@@ -1,0 +1,12 @@
+{
+  "apiVersion": 1,
+  "id": "qwen",
+  "version": "1.0.0",
+  "hostMin": "0.1.0",
+  "label": "Qwen Code",
+  "description": "Qwen Code SDK (@qwen-code/sdk) with a Qwen Cloud API key.",
+  "origin": "builtin-optional",
+  "defaultEnabled": true,
+  "entries": { "light": "./light.js", "heavy": "./heavy.js", "front": "./front.js" },
+  "capabilities": { "chat": true, "models": true }
+}

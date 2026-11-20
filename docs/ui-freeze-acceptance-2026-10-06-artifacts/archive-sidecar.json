@@ -1,0 +1,203 @@
+{
+ "scenario": "archive",
+ "baseUrl": "https://127.0.0.1:3011",
+ "startedAt": "2026-10-06T16:42:05.846Z",
+ "viewport": {
+  "width": 1920,
+  "height": 525
+ },
+ "steps": [
+  {
+   "name": "trace-start",
+   "atMs": 126
+  },
+  {
+   "name": "archive-base-open",
+   "atMs": 127
+  },
+  {
+   "name": "archive-before",
+   "atMs": 6210,
+   "header": "Archive 943",
+   "sidebarKey": "/path/to/projects/cretli.code-workspace",
+   "archiveRows": 0,
+   "openSections": null
+  },
+  {
+   "name": "archive-after",
+   "atMs": 9042,
+   "archiveRows": 0,
+   "listHeight": 0,
+   "openSections": "[\"/path/to/projects/cretli.code-workspace\"]",
+   "virtualSpacers": 0
+  },
+  {
+   "name": "archive-after-reclick",
+   "atMs": 11758,
+   "archiveRows": 0,
+   "openSections": "[]"
+  },
+  {
+   "name": "trace-stop",
+   "atMs": 11760
+  }
+ ],
+ "samples": [
+  {
+   "label": "archive-after-open",
+   "atMs": 9040,
+   "metrics": {
+    "Nodes": 13681,
+    "Documents": 5,
+    "JSEventListeners": 3879,
+    "LayoutObjects": 1028,
+    "JSHeapUsedSize": 53326448,
+    "LayoutCount": 15,
+    "RecalcStyleCount": 93,
+    "LayoutDuration": 0.046143,
+    "RecalcStyleDuration": 0.046557,
+    "ScriptDuration": 0.602701,
+    "TaskDuration": 1.375366
+   },
+   "cards": 0,
+   "elements": 3806,
+   "activeChat": null,
+   "sidebarVisible": true,
+   "archiveRows": 0,
+   "archiveHeaders": 2,
+   "counters": {
+    "windowMs": 1000,
+    "epoch": 1791304932,
+    "counters": {
+     "boot-cache.hydrate.attempts": 1,
+     "cache.reads": 2,
+     "storage.reads": 2,
+     "sidebar.layout.frames": 3,
+     "sidebar.layout.skipped": 3,
+     "ui.renders": 1,
+     "cache.builds": 1,
+     "cache.writes": 1
+    },
+    "spans": {
+     "boot-cache.hydrate": {
+      "count": 1,
+      "totalMs": 0,
+      "maxMs": 0,
+      "lastMs": 0
+     },
+     "sidebar.archive.render": {
+      "count": 1,
+      "totalMs": 0,
+      "maxMs": 0,
+      "lastMs": 0
+     },
+     "boot-cache.build": {
+      "count": 1,
+      "totalMs": 0.5,
+      "maxMs": 0.5,
+      "lastMs": 0.5
+     }
+    },
+    "mountedRows": {
+     "last": 42,
+     "max": 42
+    },
+    "pending": {
+     "batches": 0,
+     "setTrue": 0,
+     "setFalse": 0,
+     "net": 0,
+     "lastBatchNet": 0
+    },
+    "monitoring": {},
+    "monitoringCandidates": {}
+   }
+  },
+  {
+   "label": "archive-after-reclick",
+   "atMs": 11757,
+   "metrics": {
+    "Nodes": 13578,
+    "Documents": 5,
+    "JSEventListeners": 1519,
+    "LayoutObjects": 1019,
+    "JSHeapUsedSize": 45583328,
+    "LayoutCount": 18,
+    "RecalcStyleCount": 112,
+    "LayoutDuration": 0.050073,
+    "RecalcStyleDuration": 0.054397,
+    "ScriptDuration": 0.942983,
+    "TaskDuration": 1.772232
+   },
+   "cards": 0,
+   "elements": 3806,
+   "activeChat": null,
+   "sidebarVisible": true,
+   "archiveRows": 0,
+   "archiveHeaders": 2,
+   "counters": {
+    "windowMs": 1000,
+    "epoch": 1791304935,
+    "counters": {
+     "sidebar.layout.frames": 3,
+     "sidebar.layout.skipped": 3
+    },
+    "spans": {},
+    "mountedRows": {
+     "last": 0,
+     "max": 0
+    },
+    "pending": {
+     "batches": 0,
+     "setTrue": 0,
+     "setFalse": 0,
+     "net": 0,
+     "lastBatchNet": 0
+    },
+    "monitoring": {},
+    "monitoringCandidates": {}
+   }
+  }
+ ],
+ "longTasks": [
+  {
+   "start": 181,
+   "duration": 199
+  },
+  {
+   "start": 923,
+   "duration": 51
+  },
+  {
+   "start": 6574,
+   "duration": 54
+  },
+  {
+   "start": 8948,
+   "duration": 73
+  }
+ ],
+ "errors": [
+  {
+   "kind": "pageerror",
+   "text": "TypeError: Cannot read properties of undefined (reading 'catch')",
+   "atMs": 522
+  }
+ ],
+ "marks": [
+  {
+   "name": "start",
+   "atMs": 122
+  },
+  {
+   "name": "archive-open-click",
+   "atMs": 6216
+  },
+  {
+   "name": "archive-done",
+   "atMs": 11759
+  }
+ ],
+ "endMarkMs": 12115,
+ "offline": false
+}

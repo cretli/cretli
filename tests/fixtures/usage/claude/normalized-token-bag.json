@@ -1,0 +1,15 @@
+{
+  "_note": "resolveClaudeUsageBag output (inputTokens INCLUDES cache) and the disjoint fromClaudeUsage bag. Provider input_tokens EXCLUDES cache; the adapter adds it back.",
+  "resolved": {
+    "resultUsage": {"inputTokens": 1915, "outputTokens": 70, "totalTokens": 1985, "cacheReadTokens": 900, "cacheWriteTokens": 1000},
+    "secondCall": {"inputTokens": 1005, "outputTokens": 30, "totalTokens": 1035, "cacheReadTokens": 900, "cacheWriteTokens": 100, "cacheWrite5mTokens": 100}
+  },
+  "tokens": {
+    "resultUsage": {"textInput": 15, "textOutput": 70, "audioInput": 0, "audioOutput": 0, "cachedInput": 900, "cacheWrite": 1000, "reasoning": 0}
+  },
+  "contextEvents": [
+    {"kind": "context_usage", "usage": {"inputTokens": 910, "outputTokens": 1, "totalTokens": 911, "cacheReadTokens": 0, "cacheWriteTokens": 900}, "model": "claude-model-x"},
+    {"kind": "context_usage", "usage": {"inputTokens": 910, "outputTokens": 40, "totalTokens": 950, "cacheReadTokens": 0, "cacheWriteTokens": 900}, "model": "claude-model-x"},
+    {"kind": "context_usage", "usage": {"inputTokens": 1005, "outputTokens": 30, "totalTokens": 1035, "cacheReadTokens": 900, "cacheWriteTokens": 100, "cacheWrite5mTokens": 100}, "model": "claude-model-x"}
+  ]
+}

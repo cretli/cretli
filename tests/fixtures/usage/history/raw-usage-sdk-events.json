@@ -1,0 +1,19 @@
+{
+  "_note": "Sanitized shapes of the `sdkEvent` usage payloads each adapter broadcasts into the room. Values are invented; ids and models are placeholders; no conversation content.",
+  "harnesses": {
+    "sdk": { "event": { "type": "usage", "usage": { "inputTokens": 1000, "outputTokens": 50, "cacheReadTokens": 400, "cacheWriteTokens": 0 } }, "expect": { "provenance": "reported", "granularity": "turn", "measurementKind": "snapshot" } },
+    "claude": { "event": { "type": "usage", "usage": { "inputTokens": 10, "outputTokens": 40, "cacheReadTokens": 0, "cacheWriteTokens": 900 } }, "expect": { "provenance": "reported", "granularity": "run", "measurementKind": "snapshot" } },
+    "codex": { "event": { "type": "usage", "usage": { "input_tokens": 1000, "cached_input_tokens": 400, "output_tokens": 250, "reasoning_output_tokens": 30 }, "final": true }, "expect": { "provenance": "reported", "granularity": "turn", "measurementKind": "delta" } },
+    "deepseek": { "event": { "type": "usage", "usage": { "inputTokens": 400, "outputTokens": 50, "totalTokens": 1050, "cacheReadTokens": 600, "reasoningTokens": 10 } }, "expect": { "provenance": "reported", "granularity": "message", "measurementKind": "delta" } },
+    "qwen": { "event": { "type": "usage", "usage": { "input_tokens": 1200, "output_tokens": 30, "cache_read_input_tokens": 900 } }, "expect": { "provenance": "reported", "granularity": "run", "measurementKind": "delta" } },
+    "opencode": { "event": { "type": "usage", "usage": { "tokens": { "input": 800, "output": 40, "reasoning": 10, "cache": { "read": 600, "write": 0 } } } }, "expect": { "provenance": "reported", "granularity": "message", "measurementKind": "snapshot" } },
+    "codebuddy": { "event": { "type": "usage", "usage": { "input_tokens": 100, "output_tokens": 10, "cache_read_input_tokens": 20 } }, "expect": { "provenance": "reported", "granularity": "message", "measurementKind": "delta" } },
+    "openrouter": { "event": { "type": "usage", "usage": { "prompt_tokens": 1000, "completion_tokens": 50, "prompt_tokens_details": { "cached_tokens": 600 } } }, "expect": { "provenance": "reported", "granularity": "request", "measurementKind": "delta" } },
+    "mistral": { "event": { "type": "usage", "usage": { "prompt_tokens": 500, "completion_tokens": 20 } }, "expect": { "provenance": "reported", "granularity": "run", "measurementKind": "delta" } },
+    "zai": { "event": { "type": "usage", "usage": { "prompt_tokens": 300, "completion_tokens": 10 } }, "expect": { "provenance": "reported", "granularity": "message", "measurementKind": "snapshot" } },
+    "mimo": { "event": { "type": "usage", "usage": { "prompt_tokens": 300, "completion_tokens": 10 } }, "expect": { "provenance": "reported", "granularity": "message", "measurementKind": "snapshot" } }
+  },
+  "contextUsage": {
+    "codex": { "type": "context_usage", "source": "codex-cli", "model": "codex-model-x", "usage": { "inputTokens": 1000, "outputTokens": 50, "totalTokens": 1050, "cacheReadTokens": 400 }, "contextWindowTokens": 258400, "observedAt": "2026-01-01T00:00:02.000Z", "measurementId": "resp_fixture_1", "turnId": "turn_fixture_1", "sessionUsage": { "inputTokens": 99999, "outputTokens": 9999, "totalTokens": 109998 } }
+  }
+}

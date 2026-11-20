@@ -1,0 +1,88 @@
+{
+  "_provenance": {
+    "class": "earlier-read of an archived usage event; [UNVERIFIED] in round 3 (chat archive not re-read)",
+    "source": "Cretli chat-history archive data/chat-history/<chat-id>.json events[44] (seq 45, kind sdk): the sdkRunProgress `usage` event as broadcast by lib/claude/claude-agent-ws.ts after lib/agent-harness/claude-event-normalizer.ts normalization",
+    "verifiedAt": "not re-verified in round 3 (2026-10-12)",
+    "archiveUpdatedAt": "2026-10-06T17:04:04.024Z",
+    "sanitization": [
+      "chatId, cursorSessionId and session identifiers replaced by placeholders",
+      "no message text, prompt or tool payload is part of this event and none was copied",
+      "no credential appears in this file"
+    ],
+    "knownAnomaly": "This stored event has no `final: true` flag, although the current normalizer path sets it unconditionally on a `result` usage event and buildClaudeUsageSdkEvent forwards it. It is reported as-is: an archived row is evidence of what the producer sent at that time, not of today's code."
+  },
+  "observedUsageEvent": {
+    "type": "usage",
+    "usage": {
+      "inputTokens": 668113,
+      "outputTokens": 16687,
+      "totalTokens": 684800,
+      "cacheReadTokens": 546831,
+      "cacheWriteTokens": 121268
+    },
+    "totalCostUsd": 1.4296982000000003,
+    "durationMs": 176267,
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 16287,
+        "outputTokens": 21,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.016392,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "thinkingTokens": 0,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-opus-5-5": {
+        "inputTokens": 14,
+        "outputTokens": 16687,
+        "cacheReadInputTokens": 546831,
+        "cacheCreationInputTokens": 121268,
+        "webSearchRequests": 0,
+        "costUSD": 1.4133062,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000,
+        "thinkingTokens": 7625,
+        "canonicalModel": "claude-opus-5-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    }
+  },
+  "arithmeticThisRowDisproves": {
+    "comment": "The exact defect the inventory had to confirm before any meter work.",
+    "numeratorUsedByTheMeterToday": 668113,
+    "numeratorPlane": "summed main-loop input across the turn's API calls (Cretli adds cache read + cache write into inputTokens), NOT context occupancy",
+    "denominatorCandidateCatalogWindow": 200000,
+    "falseRatioAgainstCatalogWindowPercent": 334.1,
+    "falseRatioAgainstModelUsageWindowPercent": 66.8,
+    "note": "Both ratios are meaningless as context fill. 668113 counts the same cached prefix once per API call, so it grows with turn length, not with window occupancy, and it can exceed any window in the row."
+  },
+  "planeRulesForTheContract": {
+    "usage": {
+      "scope": "main agent loop only, excludes Task subagents, sidechain and auxiliary calls",
+      "granularity": "per-turn in streaming-input sessions (Cretli runs one persistent query per room)",
+      "measurementKind": "cumulative within the turn, per the summed per-call inputs",
+      "isContextOccupancy": false
+    },
+    "modelUsage": {
+      "scope": "every model call through the query pipeline, INCLUDING subagents and internal compaction calls",
+      "granularity": "cumulative for the whole query() call; each result carries the running total, so read the latest result and never sum across results",
+      "resetTriggers": [
+        "mid-session /clear"
+      ],
+      "resumeBehaviour": "a resumed or forked session continues from the totals its transcript saved",
+      "isContextOccupancy": false,
+      "contextWindowField": "per-model denominator only, not paired with any numerator"
+    },
+    "totalCostUsd": {
+      "unit": "USD estimate",
+      "warning": "an estimate, not a billing statement; costBasis 'unknown' means the CLI guessed at a default model rate"
+    },
+    "_note": "Rules below restate the JSDoc of SDKResultError usage/modelUsage/total_cost_usd, [OBSERVED] in round 3 with sed -n 5618,5626p sdk.d.ts. Cretli-specific remarks are [INFERRED]."
+  }
+}

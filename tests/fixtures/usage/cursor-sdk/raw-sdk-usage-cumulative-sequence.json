@@ -1,0 +1,71 @@
+{
+  "_provenance": {
+    "class": "synthetic-shape (not captured from a live run)",
+    "purpose": "Documents the cumulative-within-one-run interpretation Cretli applies to successive SDKUsageMessage events in a single run.",
+    "transform": "beginHarnessRun() resets the baseline; each sdkEvent usage is diffed against the previous one (recordHarnessUsageSnapshot)",
+    "source": [
+      "lib/usage/harness-usage.js#recordHarnessUsageSnapshot",
+      "lib/sdk/cursor-agent-sdk-ws.ts#rememberRoomUsagePayload"
+    ],
+    "sanitization": [
+      "agent_id and run_id replaced with fixture placeholders",
+      "no conversation content, prompt, reply, transcript, tool payload or credential is present",
+      "only type tags, opaque ids and token counts are kept"
+    ],
+    "note": "The second snapshot is not a per-turn delta: it repeats the first snapshot's cache read. Deltas are what test/audit derive from the pair."
+  },
+  "sequence": [
+    {
+      "type": "sdkEvent",
+      "event": {
+        "type": "usage",
+        "agent_id": "agent-fixture-local-0002",
+        "run_id": "run-fixture-local-0002",
+        "usage": {
+          "inputTokens": 1000,
+          "outputTokens": 100,
+          "cacheReadTokens": 200,
+          "cacheWriteTokens": 0,
+          "totalTokens": 1300,
+          "reasoningTokens": 10
+        }
+      }
+    },
+    {
+      "type": "sdkEvent",
+      "event": {
+        "type": "usage",
+        "agent_id": "agent-fixture-local-0002",
+        "run_id": "run-fixture-local-0002",
+        "usage": {
+          "inputTokens": 1500,
+          "outputTokens": 150,
+          "cacheReadTokens": 200,
+          "cacheWriteTokens": 0,
+          "totalTokens": 1850,
+          "reasoningTokens": 10
+        }
+      }
+    }
+  ],
+  "expectedDeltaTokens": [
+    {
+      "textInput": 1000,
+      "textOutput": 100,
+      "audioInput": 0,
+      "audioOutput": 0,
+      "cachedInput": 200,
+      "cacheWrite": 0,
+      "reasoning": 10
+    },
+    {
+      "textInput": 500,
+      "textOutput": 50,
+      "audioInput": 0,
+      "audioOutput": 0,
+      "cachedInput": 0,
+      "cacheWrite": 0,
+      "reasoning": 0
+    }
+  ]
+}

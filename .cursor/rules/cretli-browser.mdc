@@ -1,0 +1,18 @@
+---
+description: Cretli — preview pages with the built-in Browser (MCP browser_* tools), not a private Playwright/Chromium.
+alwaysApply: true
+---
+# Cretli — previewing a page
+
+To open, screenshot or debug a web page (a running app or the Cretli UI) use the
+built-in Browser through the Cretli MCP tools `browser_*`, starting with
+`browser_open { url }`. The user sees the same tab in the **Browser** panel.
+
+- Do **not** launch your own Playwright/Chromium for a preview, and do not probe
+  for a debug port or another browser profile.
+- Never look for credentials, cookies or session tokens in `.env` or `data/`.
+- When a `browser_*` call fails, report the error code; it says what the user
+  has to do.
+
+Read the `cretli-browser` skill (`.agents/skills/cretli-browser/SKILL.md`) for
+the tool flow, consent cards, sign-in and performance traces.

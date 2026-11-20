@@ -1,0 +1,29 @@
+{
+  "supported": true,
+  "platform": "systemd",
+  "file": "/home/user/.config/systemd/user/cretli.service",
+  "content": "# Cretli managed autostart v1\n[Unit]\nDescription=Cretli supervisor\nStartLimitBurst=5\nStartLimitIntervalSec=600\n\n[Service]\nType=simple\nWorkingDirectory=\"/home/user/my app\"\nExecStart=\"/home/user/node install/bin/node\" \"/home/user/my app/scripts/cretli-supervisor.mjs\"\nEnvironment=\"PATH=/home/user/node install/bin:/usr/local/bin:/usr/bin:/bin\"\nRestart=always\nRestartSec=10\nKillMode=mixed\nTimeoutStopSec=45\n\n[Install]\nWantedBy=default.target\n",
+  "dryRun": true,
+  "changed": true,
+  "commands": [
+    [
+      "systemctl",
+      [
+        "--user",
+        "daemon-reload"
+      ]
+    ],
+    [
+      "systemctl",
+      [
+        "--user",
+        "enable",
+        "cretli.service"
+      ]
+    ]
+  ],
+  "warnings": [
+    "Without --linger, autostart requires login. --linger explicitly permits loginctl enable-linger for this user (policy may refuse it; no sudo)."
+  ],
+  "activation": "Activation at next boot/login; use --apply --start to start explicitly."
+}

@@ -1,0 +1,13 @@
+{
+  "supported": true,
+  "platform": "termux",
+  "file": "/home/user/.termux/boot/cretli",
+  "content": "#!/data/data/com.termux/files/usr/bin/sh\n# Cretli managed autostart v1\nexport PATH='/home/user/node install/bin:/data/data/com.termux/files/usr/bin:/usr/local/bin:/usr/bin:/bin'\ncommand -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock\ncd '/home/user/my app' || exit 1\nexec '/home/user/node install/bin/node' '/home/user/my app/scripts/cretli-supervisor.mjs'\n",
+  "dryRun": true,
+  "changed": true,
+  "commands": [],
+  "warnings": [
+    "Termux: no manager restarts the supervisor itself; SIGTERM to it stops supervision."
+  ],
+  "activation": "Activation at next boot/login; use --apply --start to start explicitly."
+}

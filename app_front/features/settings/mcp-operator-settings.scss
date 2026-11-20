@@ -1,0 +1,144 @@
+/* Settings -> MCP -> MCP operator. Layout only; colors come from tokens.
+   The page is not a scroller of its own: `.settings-sections` scrolls. */
+.mcp-operator-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-3);
+  min-width: 0;
+
+  > .cr-hint,
+  > .cr-status:empty {
+    margin: 0;
+  }
+
+  > .cr-status:empty {
+    display: none;
+  }
+}
+
+.mcp-operator-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+  min-width: 0;
+
+  > .cr-section-title,
+  > .cr-hint {
+    margin: 0;
+  }
+}
+
+.mcp-operator-block,
+.mcp-operator-locked,
+.mcp-operator-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-2);
+  min-width: 0;
+
+  > .cr-hint,
+  > p {
+    margin: 0;
+  }
+
+  > .cr-row {
+    flex-wrap: wrap;
+  }
+
+  > .cr-status:empty {
+    display: none;
+  }
+}
+
+.mcp-operator-locked ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: var(--cr-font-size-sm);
+  color: var(--cr-text);
+
+  li + li {
+    margin-top: var(--cr-space-1);
+  }
+}
+
+.mcp-operator-text {
+  display: block;
+
+  /* Prompts are code-like: monospace, but the primitive's size and skin. A tall
+     inner scroller traps touch scrolling on phones, so cap it to part of the
+     viewport and leave page area to swipe on. */
+  &::part(control) {
+    min-height: 8rem;
+    max-height: 50vh;
+    font-family: var(--cr-font-mono);
+  }
+}
+
+.mcp-operator-meta,
+.mcp-operator-lock-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cr-space-2);
+}
+
+.mcp-operator-lock-title {
+  align-items: center;
+  gap: var(--cr-space-1);
+  color: var(--cr-text);
+  font-size: var(--cr-font-size-sm);
+  font-weight: 600;
+}
+
+.mcp-operator-preview {
+  max-height: 24rem;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--cr-font-size-xs) var(--cr-font-mono);
+}
+
+.mcp-operator-history {
+  font-size: var(--cr-font-size-sm);
+
+  > summary {
+    cursor: pointer;
+    overflow-wrap: anywhere;
+  }
+}
+
+.mcp-operator-journal-entry,
+.mcp-operator-session {
+  display: grid;
+  gap: var(--cr-space-2);
+}
+
+.mcp-operator-tab-count {
+  margin-left: var(--cr-space-1);
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--cr-primary);
+  color: var(--cr-text);
+  font-size: var(--cr-font-size-xs);
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.mcp-operator-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-3);
+  min-width: 0;
+
+  &[hidden] {
+    display: none;
+  }
+
+  /* The playbook has its own tab, so its editor may take more of the screen. */
+  &[data-mcp-operator-panel='playbook'] .mcp-operator-text::part(control) {
+    min-height: 16rem;
+    max-height: 70vh;
+  }
+}

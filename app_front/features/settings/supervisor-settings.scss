@@ -1,0 +1,42 @@
+cr-supervisor-settings {
+  display: block;
+  margin-top: var(--cr-space-4);
+  font-size: var(--cr-font-size-sm);
+
+  .supervisor-settings-heading, .supervisor-settings-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--cr-space-2);
+  }
+
+  .supervisor-settings-heading { justify-content: space-between; }
+  .supervisor-settings-status { font-weight: 600; }
+  [data-tone='success'] { color: var(--cr-success); }
+  [data-tone='error'] { color: var(--cr-error); }
+  [data-tone='muted'] { color: var(--cr-text-muted); }
+
+  .supervisor-settings-facts {
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+    gap: var(--cr-space-2) var(--cr-space-4);
+    dt { color: var(--cr-text-muted); }
+    dd { margin: 0; overflow-wrap: anywhere; }
+  }
+
+  summary { cursor: pointer; }
+  h4 { font-size: var(--cr-font-size-sm); }
+  pre {
+    max-height: 20rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    padding: var(--cr-space-3);
+    border: 1px solid var(--cr-border);
+    border-radius: var(--cr-radius-sm);
+    background: var(--cr-bg);
+    color: var(--cr-text);
+    font-family: var(--cr-font-mono);
+    font-size: var(--cr-font-size-xs);
+  }
+}

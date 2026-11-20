@@ -1,0 +1,32 @@
+{
+  "profile": "portable-settings-v1",
+  "manifestFormatVersion": 1,
+  "archiveContractRevision": "2026-10-13.1",
+  "archiveId": "a1b2c3d4-e5f6-4789-a012-3456789abcde",
+  "createdAt": "2026-10-13T10:15:30Z",
+  "cretliVersion": "0.4.1",
+  "sections": {
+    "workspace": {
+      "defaultCwd": "/home/example/my-app"
+    },
+    "harness": {
+      "defaultHarness": "claude"
+    }
+  },
+  "omissions": [
+    {
+      "path": "settings.apiKeys.openrouter",
+      "reason": "secret"
+    },
+    {
+      "path": "mcp.servers.example.env.API_KEY",
+      "reason": "secret"
+    }
+  ],
+  "persistence": {
+    "backend": "json-settings",
+    "schemaVersions": {
+      "settings": 1
+    }
+  }
+}

@@ -1,0 +1,24 @@
+# Throw-away instance with fictional data for screenshots (no real chats,
+# workspaces, settings, hostnames or paths).
+#
+#   node scripts/demo-instance.mjs --seed-only --dir ./demo-data
+#   docker compose -f docker-compose.demo.yml up --build
+#
+# Then open http://127.0.0.1:3099 and choose a password on first run (the setup
+# token is printed in the container log). Remove the data with
+# `docker compose -f docker-compose.demo.yml down -v` and delete ./demo-data.
+services:
+  cretli-demo:
+    build: .
+    ports:
+      - "127.0.0.1:3099:3099"
+    environment:
+      PORT: "3099"
+      CRETLI_BIND: "0.0.0.0"
+      USE_HTTPS: "0"
+      WORKSPACE_FILE: /demo/acme.code-workspace
+    volumes:
+      - demo-data:/app/data
+      - ./demo-data:/demo:ro
+volumes:
+  demo-data:

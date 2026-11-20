@@ -1,0 +1,146 @@
+{
+  "schema": 1,
+  "fileCount": 795,
+  "static": {
+    "edgeCount": 3382,
+    "cycleCount": 5,
+    "filesInCycles": 39,
+    "largestCycle": 25,
+    "selfImports": [],
+    "cycles": [
+      [
+        "lib/delegation-code-review-phase.js",
+        "lib/delegation-cycle-classify.js",
+        "lib/delegation-failure-class.js",
+        "lib/delegation-settings.js",
+        "lib/delegation-slot-stop.js",
+        "lib/delegation-startup-failure.js",
+        "lib/delegation-workspace-guard.js",
+        "lib/execution-settings.js",
+        "lib/harness-usage-limits.js",
+        "lib/model-pick-history.js",
+        "lib/persist/delegation-index-fields.js",
+        "lib/persist/delegation-settings-persist.js",
+        "lib/persist/delegation-sqlite.js",
+        "lib/persist/delegations-persist.js",
+        "lib/persist/execution-settings-persist.js",
+        "lib/persist/todos-persist.js",
+        "lib/persist/workspace-watchers-persist.js",
+        "lib/persist/worktree-registry-persist.js",
+        "lib/reviewer-policy.js",
+        "lib/startup-lockout-workspace.js",
+        "lib/todo-leaf-material.js",
+        "lib/todo-worktree-manual.js",
+        "lib/usage/harness-health.js",
+        "lib/workspace-watcher-worktree.js",
+        "lib/worktree-manager.js"
+      ],
+      [
+        "lib/chat-run-service.js",
+        "lib/chat-run/kernel-adapter.ts",
+        "lib/recovery/adapter-validation.ts",
+        "lib/recovery/recovery-contract.ts",
+        "lib/recovery/recovery-lifecycle.ts",
+        "lib/recovery/recovery-queue.ts",
+        "lib/recovery/recovery-store.ts"
+      ],
+      [
+        "lib/mcp/mcp-policy.js",
+        "lib/sdk/sdk-plan-guard.js",
+        "lib/workspace-scout-read-only.js"
+      ],
+      [
+        "lib/codex/codex-models-refresh.js",
+        "lib/codex/codex-models.js"
+      ],
+      [
+        "lib/workspace-watcher-scout.js",
+        "lib/workspace-watcher.js"
+      ]
+    ]
+  },
+  "withDynamic": {
+    "edgeCount": 3415,
+    "cycleCount": 7,
+    "filesInCycles": 59,
+    "largestCycle": 27,
+    "selfImports": [
+      "lib/model-pick-policy.js"
+    ],
+    "cycles": [
+      [
+        "lib/delegation-code-review-phase.js",
+        "lib/delegation-cycle-classify.js",
+        "lib/delegation-failure-class.js",
+        "lib/delegation-settings.js",
+        "lib/delegation-slot-stop.js",
+        "lib/delegation-startup-failure.js",
+        "lib/delegation-workspace-guard.js",
+        "lib/execution-settings.js",
+        "lib/harness-usage-limits.js",
+        "lib/model-pick-history.js",
+        "lib/persist/delegation-index-fields.js",
+        "lib/persist/delegation-settings-persist.js",
+        "lib/persist/delegation-sqlite.js",
+        "lib/persist/delegations-persist.js",
+        "lib/persist/execution-settings-persist.js",
+        "lib/persist/todos-persist.js",
+        "lib/persist/workspace-watchers-persist.js",
+        "lib/persist/worktree-registry-persist.js",
+        "lib/reviewer-policy.js",
+        "lib/startup-lockout-workspace.js",
+        "lib/todo-leaf-material.js",
+        "lib/todo-worktree-manual.js",
+        "lib/usage/harness-health.js",
+        "lib/workspace-watcher-event-schedule.js",
+        "lib/workspace-watcher-nudge.js",
+        "lib/workspace-watcher-worktree.js",
+        "lib/worktree-manager.js"
+      ],
+      [
+        "lib/agent-finished-push.js",
+        "lib/agent-harness/harness-snapshot-registry.js",
+        "lib/agent-harness/local-harness-runtime.js",
+        "lib/delegation-mailbox.js",
+        "lib/delegation-model-gates.js",
+        "lib/delegation-retention.js",
+        "lib/delegation-review-recheck-gate.js",
+        "lib/delegation-service.js",
+        "lib/delegation-takeover.js",
+        "lib/harness-catalog.js",
+        "lib/todo-plan-sync.js",
+        "lib/todo-review-sync-hooks.js",
+        "lib/todo-review-sync.js"
+      ],
+      [
+        "lib/chat-run-service.js",
+        "lib/chat-run/kernel-adapter.ts",
+        "lib/recovery/adapter-validation.ts",
+        "lib/recovery/recovery-contract.ts",
+        "lib/recovery/recovery-lifecycle.ts",
+        "lib/recovery/recovery-queue.ts",
+        "lib/recovery/recovery-store.ts"
+      ],
+      [
+        "lib/chat-created-push.js",
+        "lib/persist/chat-history-notify.js",
+        "lib/persist/chat-history-persist.js",
+        "lib/persist/chats-persist.js",
+        "lib/push.js"
+      ],
+      [
+        "lib/mcp/mcp-policy.js",
+        "lib/sdk/sdk-plan-guard.js",
+        "lib/workspace-scout-read-only.js"
+      ],
+      [
+        "lib/codex/codex-models-refresh.js",
+        "lib/codex/codex-models.js"
+      ],
+      [
+        "lib/workspace-watcher-scout.js",
+        "lib/workspace-watcher.js"
+      ]
+    ]
+  }
+}

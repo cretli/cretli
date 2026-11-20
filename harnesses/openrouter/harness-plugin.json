@@ -1,0 +1,12 @@
+{
+  "apiVersion": 1,
+  "id": "openrouter",
+  "version": "1.0.0",
+  "hostMin": "0.1.0",
+  "label": "OpenRouter",
+  "description": "OpenRouter LLM with server-side workspace tools.",
+  "origin": "builtin-optional",
+  "defaultEnabled": true,
+  "entries": { "light": "./light.js", "heavy": "./heavy.js", "front": "./front.js" },
+  "capabilities": { "chat": true }
+}

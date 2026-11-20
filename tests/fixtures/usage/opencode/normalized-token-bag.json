@@ -1,0 +1,7 @@
+{
+  "_note": "Normalized bag for the final snapshot of raw-message-updated-sequence.json (fromOpenCodeUsage).",
+  "tokens": {"textInput":500,"textOutput":20,"audioInput":0,"audioOutput":0,"cachedInput":300,"cacheWrite":40,"reasoning":5},
+  "buckets": {"inputWithoutCache":500,"cacheRead":300,"cacheWrite":40,"outputWithoutReasoning":20,"reasoning":5},
+  "promptTokensForWindow": 840,
+  "billedTotalTokens": 865
+}

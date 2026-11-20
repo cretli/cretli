@@ -1,0 +1,129 @@
+import './helpers/isolated-data-dir.js';
+import assert from 'node:assert/strict';
+import { addChatAsync, peekChatsAsync } from '../lib/persist/chats-persist.js';
+import {
+  createDelegationRecord,
+  updateDelegationRecord,
+} from '../lib/persist/delegations-persist.js';
+import {
+  isDelegationAttention,
+  resolveChatAgentPresence,
+  summarizeChatRunStatesAsync,
+} from '../lib/agent-run-state.js';
+import {
+  registerMockChatRunAdapter,
+  resetMockChatRuns,
+  patchMockChatRun,
+} from '../lib/chat-run/mock-adapter.ts';
+import { useChatsBackendFromEnv, registerChatsBackendTeardown } from './helpers/chats-backends.js';
+
+await useChatsBackendFromEnv();
+
+resetMockChatRuns();
+registerMockChatRunAdapter('opencode');
+
+const waitingRow = {
+  id: 'd1',
+  status: 'waiting_for_input',
+  acknowledgedAt: '',
+  runId: 'r1',
+};
+assert.equal(isDelegationAttention(waitingRow), true);
+assert.equal(isDelegationAttention({ ...waitingRow, acknowledgedAt: '2026-09-05T00:00:00.000Z' }), false);
+assert.equal(isDelegationAttention({ id: 'd2', status: 'completed', acknowledgedAt: '' }), true);
+assert.equal(isDelegationAttention({ id: 'd3', status: 'cancelled', acknowledgedAt: '' }), false);
+
+const waitingPresence = resolveChatAgentPresence(null, waitingRow);
+assert.equal(waitingPresence.state, 'waiting');
+assert.equal(waitingPresence.attention, true);
+
+const busyPresence = resolveChatAgentPresence({ busy: true, runId: 'r2' }, {
+  id: 'd4',
+  status: 'running',
+  runId: 'r2',
+});
+assert.equal(busyPresence.state, 'busy');
+assert.equal(busyPresence.attention, false);
+
+const donePresence = resolveChatAgentPresence(null, {
+  id: 'd5',
+  status: 'completed',
+  acknowledgedAt: '',
+});
+assert.equal(donePresence.state, 'attention');
+assert.equal(donePresence.delegationStatus, 'completed');
+
+const parent = await addChatAsync('sess-agent-state-parent', 'Planner', null, '/tmp/ws', 'model', {
+  agentTransport: 'opencode',
+});
+const child = await addChatAsync('sess-agent-state-child', 'Executor', null, '/tmp/ws', 'model', {
+  agentTransport: 'opencode',
+});
+const record = createDelegationRecord({
+  parentChatId: parent.id,
+  childChatId: child.id,
+  executor: { transport: 'opencode', model: 'opencode/test' },
+  status: 'running',
+  runId: 'run-1',
+});
+const started = await (await import('../lib/chat-run-service.js')).startChatRun({
+  chatId: child.id,
+  prompt: 'go',
+});
+assert.ok(started.runId);
+updateDelegationRecord(record.id, { runId: started.runId, status: 'running' });
+
+const states = await summarizeChatRunStatesAsync([parent.id, child.id]);
+assert.equal(states[child.id].state, 'busy');
+assert.equal(states[parent.id].state, 'waiting');
+assert.equal(states[parent.id].waitingAgentCount, 1);
+assert.equal(states[parent.id].inFlightChildCount, 1);
+assert.equal(states[child.id].delegationId, record.id);
+
+patchMockChatRun(child.id, { waitingForInput: true, busy: true });
+updateDelegationRecord(record.id, { status: 'waiting_for_input' });
+const waitingStates = await summarizeChatRunStatesAsync([child.id]);
+assert.equal(waitingStates[child.id].state, 'waiting');
+assert.equal(waitingStates[child.id].attention, true);
+const parentWaitingOnInput = await summarizeChatRunStatesAsync([parent.id]);
+assert.equal(parentWaitingOnInput[parent.id].waitingAgentCount, 1);
+assert.equal(parentWaitingOnInput[parent.id].inFlightChildCount, 0);
+
+updateDelegationRecord(record.id, { acknowledgedAt: new Date().toISOString() });
+const openedWaiting = await summarizeChatRunStatesAsync([child.id]);
+assert.equal(openedWaiting[child.id].state, 'busy');
+
+updateDelegationRecord(record.id, {
+  status: 'completed',
+  finishedAt: new Date().toISOString(),
+});
+patchMockChatRun(child.id, { busy: false, waitingForInput: false });
+const doneStates = await summarizeChatRunStatesAsync([child.id, parent.id]);
+assert.equal(doneStates[child.id].state, 'attention');
+assert.equal(doneStates[parent.id].state, 'attention');
+
+const idleChat = await addChatAsync('sess-agent-state-idle', 'Idle', null, '/tmp/ws', 'model', {
+  agentTransport: 'opencode',
+});
+const compact = await summarizeChatRunStatesAsync([parent.id, child.id, idleChat.id]);
+assert.equal(compact[child.id].state, 'attention');
+assert.equal(compact[parent.id].state, 'attention');
+assert.equal(compact[idleChat.id], undefined);
+
+updateDelegationRecord(record.id, { acknowledgedAt: new Date().toISOString(), unverified: false });
+const ackedStates = await summarizeChatRunStatesAsync([child.id, parent.id, idleChat.id]);
+assert.equal(ackedStates[child.id], undefined);
+assert.equal(ackedStates[parent.id], undefined);
+assert.equal(ackedStates[idleChat.id], undefined);
+
+// summarizeChatRunStates reads the shared (uncopied) chat rows and must not mutate them.
+{
+  const before = JSON.stringify(await peekChatsAsync());
+  await summarizeChatRunStatesAsync();
+  await summarizeChatRunStatesAsync([idleChat.id]);
+  assert.equal(JSON.stringify(await peekChatsAsync()), before);
+}
+
+console.log('agent-run-state.test.js OK');
+
+registerChatsBackendTeardown();

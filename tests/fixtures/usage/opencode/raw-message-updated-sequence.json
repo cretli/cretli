@@ -1,0 +1,11 @@
+{
+  "_note": "Sanitized shape, not a live capture. Two message.updated snapshots of one assistant message (cumulative within the message).",
+  "sequence": [
+    {"type":"message.updated","properties":{"info":{"id":"msg_fixture_0001","sessionID":"ses_fixture_0001","role":"assistant","providerID":"example-provider","modelID":"example-model","mode":"build","cost":0.0012,"tokens":{"input":500,"output":10,"reasoning":0,"cache":{"read":300,"write":40}}}}},
+    {"type":"message.updated","properties":{"info":{"id":"msg_fixture_0001","sessionID":"ses_fixture_0001","role":"assistant","providerID":"example-provider","modelID":"example-model","mode":"build","cost":0.0015,"tokens":{"input":500,"output":20,"reasoning":5,"cache":{"read":300,"write":40}}}}}
+  ],
+  "expectedDeltas": [
+    {"input":500,"output":10,"reasoning":0,"cacheRead":300,"cacheWrite":40},
+    {"input":0,"output":10,"reasoning":5,"cacheRead":0,"cacheWrite":0}
+  ]
+}

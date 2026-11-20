@@ -1,0 +1,10 @@
+---
+description: Cretli — UI work must follow the cretli-ui skill (tokens, cr-* components, recipes).
+alwaysApply: true
+---
+# Cretli — UI
+
+Before creating or changing UI in `app_front/` or `public/`, read the
+`cretli-ui` skill (`.agents/skills/cretli-ui/SKILL.md`). All colours use
+`var(--cr-*)` tokens, new modals use `cr-dialog`, and user-facing text goes
+through `t('key')`.

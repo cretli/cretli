@@ -1,0 +1,56 @@
+#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+
+const messagePath = process.argv[2];
+if (!messagePath) process.exit(0);
+const git = (...args) => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+const gitPath = (name) => git('rev-parse', '--git-path', name);
+const absolute = (name) => path.resolve(gitPath(name));
+let mode = 'off';
+try { mode = git('config', '--get', 'cretli.verifiedByGate') || 'off'; } catch {}
+if (!['off', 'observe', 'enforce'].includes(mode) || mode === 'off') process.exit(0);
+
+for (const marker of ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD']) {
+  try { if (fs.existsSync(absolute(marker))) process.exit(0); } catch { process.exit(0); }
+}
+
+let files = [];
+try { files = git('diff', '--cached', '--name-only', '--diff-filter=ACMRTUXB').split('\n').filter(Boolean); }
+catch { process.exit(0); }
+const LOCK_FILES = new Set(['package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml']);
+const codeFiles = files.filter((file) => !LOCK_FILES.has(path.posix.basename(file)) && /\.(?:[cm]?[jt]sx?|py|rb|go|rs|java|kt|swift|c|cc|cpp|h|hpp|cs|php|sh|sql|vue|svelte|json|ya?ml|toml)$/i.test(file));
+if (!codeFiles.length) process.exit(0);
+
+let message = '';
+try { message = fs.readFileSync(messagePath, 'utf8'); } catch { process.exit(0); }
+const verified = message.match(/^Verified-by:\s*(e2e|unit|none)\s*$/im)?.[1]?.toLowerCase() || '';
+if (verified && verified !== 'none') process.exit(0);
+
+const entry = { at: new Date().toISOString(), mode, verifiedBy: verified || null, files: codeFiles };
+const appendLog = (action) => {
+  fs.appendFileSync(absolute('cretli-verified-by.log'), `${JSON.stringify({ ...entry, action })}\n`);
+};
+if (mode === 'observe') { appendLog('observe'); process.exit(0); }
+
+let tree = '';
+try { tree = git('write-tree'); }
+catch {
+  appendLog('write-tree-failed');
+  process.exit(0);
+}
+const gatePath = absolute('cretli-verified-by-gate.json');
+let state = {};
+try { state = JSON.parse(fs.readFileSync(gatePath, 'utf8')); } catch {}
+if (!state || typeof state !== 'object' || Array.isArray(state)) state = {};
+const previousAttempts = Number(state[tree] || 0);
+delete state[tree];
+const attempts = previousAttempts + 1;
+state[tree] = attempts;
+const keys = Object.keys(state);
+while (keys.length > 200) delete state[keys.shift()];
+fs.writeFileSync(gatePath, `${JSON.stringify(state, null, 2)}\n`);
+if (attempts >= 3) { appendLog('override'); process.exit(0); }
+process.stderr.write(`Verified-by trailer required for code changes (attempt ${attempts}/3 for staged tree).\n`);
+process.exit(1);

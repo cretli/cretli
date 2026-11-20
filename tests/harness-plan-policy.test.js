@@ -1,0 +1,114 @@
+import assert from 'node:assert/strict';
+import {
+  resolveHarnessAskPolicy,
+  resolveHarnessPlanPolicy,
+  resolveHarnessReadOnlyPolicy,
+  resolveSdkPlanCreateOptions,
+  SDK_PLAN_DISALLOWED_TOOLS,
+  SDK_REVIEW_DISALLOWED_TOOLS,
+} from '../lib/agent-harness/harness-plan-policy.ts';
+import { getToolsForMode, isMutatingToolName } from '../lib/agent-harness/tool-definitions.ts';
+
+const inputSdkPolicy = resolveHarnessPlanPolicy('sdk');
+const expectedSdkPolicy = {
+  nativeMode: true,
+  denyMutatingTools: true,
+  abortOnMutation: true,
+  promptHint: false,
+};
+assert.deepEqual(inputSdkPolicy, expectedSdkPolicy);
+
+const inputOpenCodePolicy = resolveHarnessPlanPolicy('opencode');
+assert.equal(inputOpenCodePolicy.nativeMode, false);
+assert.equal(inputOpenCodePolicy.denyMutatingTools, true);
+assert.equal(inputOpenCodePolicy.abortOnMutation, false);
+assert.equal(inputOpenCodePolicy.promptHint, true);
+
+const inputOpenRouterPolicy = resolveHarnessPlanPolicy('openrouter');
+assert.equal(inputOpenRouterPolicy.nativeMode, false);
+assert.equal(inputOpenRouterPolicy.denyMutatingTools, true);
+assert.equal(inputOpenRouterPolicy.abortOnMutation, false);
+assert.equal(inputOpenRouterPolicy.promptHint, false);
+
+const inputMistralPolicy = resolveHarnessPlanPolicy('mistral');
+assert.equal(inputMistralPolicy.nativeMode, false);
+assert.equal(inputMistralPolicy.denyMutatingTools, true);
+assert.equal(inputMistralPolicy.abortOnMutation, false);
+
+const inputCodeBuddyPolicy = resolveHarnessPlanPolicy('codebuddy');
+assert.equal(inputCodeBuddyPolicy.nativeMode, true);
+assert.equal(inputCodeBuddyPolicy.denyMutatingTools, true);
+assert.equal(inputCodeBuddyPolicy.abortOnMutation, true);
+
+const inputDeepSeekPolicy = resolveHarnessPlanPolicy('deepseek');
+assert.equal(inputDeepSeekPolicy.nativeMode, false);
+assert.equal(inputDeepSeekPolicy.denyMutatingTools, true);
+assert.equal(inputDeepSeekPolicy.abortOnMutation, true);
+assert.equal(inputDeepSeekPolicy.promptHint, true);
+
+const inputCodexPolicy = resolveHarnessPlanPolicy('codex');
+assert.equal(inputCodexPolicy.nativeMode, false);
+assert.equal(inputCodexPolicy.denyMutatingTools, false);
+assert.equal(inputCodexPolicy.abortOnMutation, false);
+assert.equal(inputCodexPolicy.promptHint, true);
+
+const inputQwenPolicy = resolveHarnessPlanPolicy('qwen');
+assert.equal(inputQwenPolicy.nativeMode, true);
+assert.equal(inputQwenPolicy.denyMutatingTools, true);
+assert.equal(inputQwenPolicy.abortOnMutation, true);
+assert.equal(inputQwenPolicy.promptHint, false);
+
+const inputClaudePolicy = resolveHarnessPlanPolicy('claude');
+assert.equal(inputClaudePolicy.nativeMode, true);
+assert.equal(inputClaudePolicy.denyMutatingTools, true);
+assert.equal(inputClaudePolicy.abortOnMutation, true);
+assert.equal(inputClaudePolicy.promptHint, false);
+
+assert.deepEqual(resolveSdkPlanCreateOptions('plan').disallowedTools, SDK_PLAN_DISALLOWED_TOOLS);
+assert.deepEqual(resolveSdkPlanCreateOptions('ask').disallowedTools, SDK_PLAN_DISALLOWED_TOOLS);
+assert.deepEqual(resolveSdkPlanCreateOptions('agent'), {});
+assert.deepEqual([...SDK_PLAN_DISALLOWED_TOOLS], ['edit', 'delete', 'shell']);
+assert.deepEqual([...SDK_REVIEW_DISALLOWED_TOOLS], ['edit', 'delete', 'shell']);
+assert.deepEqual(
+  [...(resolveSdkPlanCreateOptions('agent', 'review').disallowedTools || [])],
+  ['edit', 'delete', 'shell'],
+);
+assert.ok(resolveSdkPlanCreateOptions('agent', 'review').disallowedTools?.includes('shell'));
+assert.ok(!SDK_PLAN_DISALLOWED_TOOLS.includes('write'));
+assert.ok(!SDK_PLAN_DISALLOWED_TOOLS.includes('task'));
+assert.ok(!SDK_PLAN_DISALLOWED_TOOLS.includes('mcp'));
+
+assert.equal(isMutatingToolName('write_file'), true);
+assert.equal(isMutatingToolName('read_file'), false);
+const actualPlanTools = getToolsForMode('plan').map((tool) => tool.function?.name);
+assert.ok(actualPlanTools.includes('read_file'));
+assert.ok(actualPlanTools.includes('grep'));
+assert.ok(!actualPlanTools.includes('write_file'));
+assert.ok(!actualPlanTools.includes('run_terminal_command'));
+assert.ok(getToolsForMode('agent').some((tool) => tool.function?.name === 'write_file'));
+const actualReviewTools = getToolsForMode('agent', 'review').map((tool) => tool.function?.name);
+assert.ok(actualReviewTools.includes('read_file'));
+assert.ok(actualReviewTools.includes('run_terminal_command'));
+assert.ok(!actualReviewTools.includes('write_file'));
+assert.equal(resolveHarnessReadOnlyPolicy('deepseek', 'agent', 'review').denyMutatingTools, true);
+assert.equal(resolveHarnessReadOnlyPolicy('openrouter', 'agent', 'review').abortOnMutation, false);
+assert.equal(resolveHarnessReadOnlyPolicy('opencode', 'agent', 'review').abortOnMutation, false);
+assert.equal(resolveHarnessReadOnlyPolicy('qwen', 'agent', 'review').abortOnMutation, false);
+assert.equal(resolveHarnessReadOnlyPolicy('claude', 'agent', 'review').abortOnMutation, false);
+assert.equal(resolveHarnessReadOnlyPolicy('claude', 'agent', 'review').denyMutatingTools, true);
+assert.equal(resolveHarnessReadOnlyPolicy('codebuddy', 'agent', 'review').abortOnMutation, false);
+assert.equal(resolveHarnessReadOnlyPolicy('codex', 'agent', 'review').abortOnMutation, true);
+assert.equal(resolveHarnessReadOnlyPolicy('sdk', 'agent', 'review').abortOnMutation, true);
+assert.equal(resolveHarnessReadOnlyPolicy('deepseek', 'agent', 'review').abortOnMutation, false);
+
+const actualAskTools = getToolsForMode('ask').map((tool) => tool.function?.name);
+assert.ok(actualAskTools.includes('read_file'));
+assert.ok(!actualAskTools.includes('write_file'));
+
+const inputCodexAsk = resolveHarnessAskPolicy('codex');
+assert.equal(inputCodexAsk.denyMutatingTools, true);
+assert.equal(inputCodexAsk.abortOnMutation, true);
+assert.equal(resolveHarnessReadOnlyPolicy('codex', 'ask').denyMutatingTools, true);
+assert.equal(resolveHarnessReadOnlyPolicy('codex', 'plan').denyMutatingTools, false);
+
+console.log('All harness-plan-policy tests passed.');

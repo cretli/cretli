@@ -1,0 +1,1204 @@
+{
+  "tools": [
+    {
+      "name": "chat_tool_0",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_1",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_2",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_3",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_4",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_5",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_6",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_7",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_8",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_9",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_10",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_11",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_12",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_13",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_14",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_15",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_16",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_17",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_18",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_19",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_20",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_21",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_22",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_23",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_24",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_25",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_26",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_27",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_28",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_29",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_30",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_31",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_32",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_33",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_34",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_35",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_36",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_37",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_38",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_39",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_40",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_41",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_42",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_43",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_44",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_45",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_46",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_47",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_48",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_49",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_50",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_51",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_52",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_53",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_54",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_55",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_56",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_57",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_58",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_59",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_60",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_61",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_62",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_63",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_64",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_65",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_66",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_67",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_68",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_69",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_70",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_71",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_72",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_73",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_74",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_75",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_76",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_77",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_78",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_tool_79",
+      "description": "Read chat metadata and events for a selected workspace",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  ]
+}
